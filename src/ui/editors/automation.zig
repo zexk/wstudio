@@ -39,7 +39,7 @@ pub const gutter: usize = 3;
 pub const AutomationFocus = union(enum) {
     gain,
     pan,
-    synth_param: u8,
+    synth_param: u16,
 };
 
 /// Gain (dB, matches `:gain`/`Track.gain_db`) and pan (-1..1, matches
@@ -124,7 +124,7 @@ pub fn instrumentAutomatableParams(app: *App) []const ws.dsp.device.AutomatableP
     return app.session.racks.items[app.automation_track].instrument.automatableParams();
 }
 
-pub fn findAutomatableParam(app: *App, id: u8) ?*const ws.dsp.device.AutomatableParam {
+pub fn findAutomatableParam(app: *App, id: u16) ?*const ws.dsp.device.AutomatableParam {
     for (instrumentAutomatableParams(app)) |*param| if (param.id == id) return param;
     return null;
 }
@@ -584,7 +584,7 @@ fn openParamPicker(app: *App) void {
 /// Chosen from the picker (enter/click) - creates an empty lane for the
 /// param on the current clip if none exists yet, switches focus to it, and
 /// returns to the automation view.
-pub fn selectParam(app: *App, param_id: u8) void {
+pub fn selectParam(app: *App, param_id: u16) void {
     const clip = currentClip(app) orelse return;
     _ = clip.automation.synthParamPoints(app.allocator, param_id) catch {
         app.setStatus("couldn't add param lane (out of memory)", .{});

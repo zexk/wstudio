@@ -1929,7 +1929,7 @@ pub fn loadSampleFromPath(app: *App, path: []const u8) void {
 /// unrecognized id) falls back to OSC A - the single-target convention
 /// `:load` already uses for instruments with only one
 /// possible destination.
-fn oscSlotForCursor(id: u8) ws.dsp.PolySynth.OscSlot {
+fn oscSlotForCursor(id: u16) ws.dsp.PolySynth.OscSlot {
     return switch (id) {
         6...13, 43, 44, 186 => .b,
         50...58, 187 => .c,

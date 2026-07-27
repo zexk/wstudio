@@ -111,7 +111,7 @@ pub fn fxBodyRows(order: []const FxUnitKind) usize {
 /// hardcoded lookup, since FX intentionally has no synth_layout table (see
 /// that file's module doc comment). Reorder-handle ids are never
 /// cursor-reachable so they fall to "-" along with any other gap.
-pub fn fxParamLabel(id: u8) []const u8 {
+pub fn fxParamLabel(id: u16) []const u8 {
     return switch (id) {
         // zig fmt: off
         83 => "dist.on", 84 => "dist.drive", 85 => "dist.mix",
@@ -141,7 +141,7 @@ pub fn fxParamLabel(id: u8) []const u8 {
 /// `p`'s field-suffixed label for a matrix slot (`fields == 3`) id, e.g.
 /// "1 source"/"1 dest"/"1 depth" - the format `secMatrix` (views/synth.zig)
 /// itself renders.
-fn matrixFieldLabel(p: synth_layout.ParamEntry, id: u8, buf: []u8) []const u8 {
+fn matrixFieldLabel(p: synth_layout.ParamEntry, id: u16, buf: []u8) []const u8 {
     const field: []const u8 = switch (id - p.id) {
         0 => "source",
         1 => "dest",
@@ -158,7 +158,7 @@ fn matrixFieldLabel(p: synth_layout.ParamEntry, id: u8, buf: []u8) []const u8 {
 /// synth_layout intentionally doesn't cover. `buf` only gets written for a
 /// matrix field id (`fields > 1`); every other id returns its static label
 /// directly.
-pub fn paramLabel(id: u8, buf: []u8) []const u8 {
+pub fn paramLabel(id: u16, buf: []u8) []const u8 {
     for (synth_layout.main_sections) |sec| {
         for (sec.params) |p| {
             if (id < p.id or id >= p.id + p.fields) continue;
@@ -179,7 +179,7 @@ pub fn paramLabel(id: u8, buf: []u8) []const u8 {
 /// One `/`-searchable param: which subview it lives in plus its engine id
 /// (its label is resolved on demand via `paramLabel` - not stored here, so
 /// this stays a plain value with no buffer to own).
-pub const SearchCandidate = struct { subview: Subview, id: u8 };
+pub const SearchCandidate = struct { subview: Subview, id: u16 };
 
 /// Every param across all 3 subviews, in a stable order (MAIN's
 /// declaration order, then MOD's, then the current on-only `fx_order`
@@ -244,7 +244,7 @@ fn arpModeName(mode: anytype) []const u8 {
 
 /// Writes `id`'s current value the way the editor displays it. Silent for
 /// ids with no display of their own (FX reorder handles, dead ids).
-pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u8, w: *std.Io.Writer) !void {
+pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Writer) !void {
     switch (id) {
         0 => try w.writeAll(switch (synth.waveform) {
             .sine => "sine",
@@ -475,7 +475,7 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u8, w: *std.Io.Writer
 /// `writeParamValue` into a caller-owned buffer, for the GUI's per-widget
 /// value text. 40 bytes covers every arm above; a shorter one truncates
 /// rather than failing the frame.
-pub fn paramValueText(synth: *const ws.dsp.PolySynth, id: u8, buf: []u8) []const u8 {
+pub fn paramValueText(synth: *const ws.dsp.PolySynth, id: u16, buf: []u8) []const u8 {
     var w = std.Io.Writer.fixed(buf);
     writeParamValue(synth, id, &w) catch {};
     return w.buffered();
@@ -523,7 +523,7 @@ pub const max_search_candidates: usize = 160;
 /// than numeric order - the list j/k and g/G walk. Sized generously above
 /// the current real total (51 ids across 9 units) for headroom as more
 /// units are added.
-fn fxVisualIds(order: []const FxUnitKind, buf: []u8) []const u8 {
+fn fxVisualIds(order: []const FxUnitKind, buf: []u16) []const u16 {
     var n: usize = 0;
     for (order) |kind| {
         const first = fxFirstId(kind);
@@ -542,15 +542,15 @@ fn fxVisualIds(order: []const FxUnitKind, buf: []u8) []const u8 {
 /// would be wrong once a unit's been reordered away from its numeric
 /// position. Falls back to `fx_first_id`/`fx_last_id` for an empty chain
 /// (harmless - nothing renders there for the cursor to land on anyway).
-fn fxAwareFirstId(app: *App) u8 {
+fn fxAwareFirstId(app: *App) u16 {
     var kbuf: [14]FxUnitKind = undefined;
-    var buf: [96]u8 = undefined;
+    var buf: [96]u16 = undefined;
     const ids = fxVisualIds(fxOnOrder(app, &kbuf), &buf);
     return if (ids.len > 0) ids[0] else fx_first_id;
 }
-fn fxAwareLastId(app: *App) u8 {
+fn fxAwareLastId(app: *App) u16 {
     var kbuf: [14]FxUnitKind = undefined;
-    var buf: [96]u8 = undefined;
+    var buf: [96]u16 = undefined;
     const ids = fxVisualIds(fxOnOrder(app, &kbuf), &buf);
     return if (ids.len > 0) ids[ids.len - 1] else fx_last_id;
 }
@@ -567,7 +567,7 @@ fn modOrderNow(app: *App) []const synth_layout.PositionedEntry {
     return synth_layout.modOrder(synth_layout.numCols(app.last_cols));
 }
 
-fn sectionOrder(order: []const synth_layout.PositionedEntry, cursor: u8) []const synth_layout.PositionedEntry {
+fn sectionOrder(order: []const synth_layout.PositionedEntry, cursor: u16) []const synth_layout.PositionedEntry {
     const idx = synth_layout.indexContaining(order, cursor) orelse return order;
     const section = order[idx].section;
     var first = idx;
@@ -590,14 +590,14 @@ fn activeModOrder(app: *App) []const synth_layout.PositionedEntry {
 /// `g`/`G`/Tab's target id for the current subview: `.main`/`.mod` walk
 /// their column-grid visual order (see synth_layout.zig), `.fx` keeps
 /// `fxAwareFirstId`/`fxAwareLastId`'s existing behavior.
-fn cursorFirst(app: *App) u8 {
+fn cursorFirst(app: *App) u16 {
     return switch (app.synth_subview) {
         .main => synth_layout.firstEntry(activeMainOrder(app)),
         .mod => synth_layout.firstEntry(activeModOrder(app)),
         .fx => fxAwareFirstId(app),
     };
 }
-fn cursorLast(app: *App) u8 {
+fn cursorLast(app: *App) u16 {
     return switch (app.synth_subview) {
         .main => synth_layout.lastEntry(activeMainOrder(app)),
         .mod => synth_layout.lastEntry(activeModOrder(app)),
@@ -609,7 +609,7 @@ fn cursorLast(app: *App) u8 {
 /// `fxFirstId`/`fxIdCount`, used by `<`/`>` to figure out which section the
 /// cursor is currently sitting in (order-independent: every kind's id range
 /// is fixed regardless of where it sits in `fx_order`).
-pub fn fxKindOfId(id: u8) ?FxUnitKind {
+pub fn fxKindOfId(id: u16) ?FxUnitKind {
     inline for (@typeInfo(FxUnitKind).@"enum".fields) |f| {
         const k: FxUnitKind = @enumFromInt(f.value);
         const first = fxFirstId(k);
@@ -758,7 +758,7 @@ fn reorderSelectedFx(app: *App, dir: i32) void {
 /// pending nudge whose captured before-value predates the insert - one
 /// `u` would then silently undo both at once instead of stepping back
 /// through them individually.
-fn sendFxToggle(app: *App, id: u8) void {
+fn sendFxToggle(app: *App, id: u16) void {
     app.dirty = true;
     history.noteParamNudge(app, app.synth_track, id, 1);
     history.flushParamNudge(app);
@@ -910,15 +910,15 @@ fn jumpFxSection(app: *App, forward: bool) void {
 
 /// `.fx`'s numeric id bounds - the range `paramAtRow`'s fallback scan
 /// walks. `.main`/`.mod` don't need this (see synth_layout.zig).
-const fx_first_id: u8 = 83;
-const fx_last_id: u8 = 193;
+const fx_first_id: u16 = 83;
+const fx_last_id: u16 = 193;
 
 /// Whether `id` belongs to some FX unit's param range - the ten disjoint
 /// ranges dist/crush/flanger, phaser/delay/reverb, gate, comp, mb_comp,
 /// ott, eq, chorus, freq_shift, and tape occupy in the global id space
 /// (matrix/LFO2-3/macro/arp/env3/wavetable ids sit between them, owned by
 /// `.main`/`.mod` - see synth_layout.zig).
-fn inFx(id: u8) bool {
+fn inFx(id: u16) bool {
     return (id >= 83 and id <= 94) or (id >= 103 and id <= 115) or (id >= 132 and id <= 135) or (id >= 137 and id <= 142) or (id >= 144 and id <= 159) or (id >= 161 and id <= 165) or (id >= 167 and id <= 174) or (id >= 176 and id <= 179) or (id >= 181 and id <= 183) or (id >= 188 and id <= 193);
 }
 
@@ -1030,10 +1030,10 @@ fn moveCursor(app: *App, delta: i32) void {
     // mid-screen once reordering makes id order diverge from visual
     // order. See fxVisualIds.
     var kbuf: [14]FxUnitKind = undefined;
-    var buf: [96]u8 = undefined;
+    var buf: [96]u16 = undefined;
     const ids = fxVisualIds(fxOnOrder(app, &kbuf), &buf);
     if (ids.len == 0) return;
-    const cur: u8 = @intCast(std.mem.indexOfScalar(u8, ids, app.synth_cursor) orelse 0);
+    const cur: u16 = @intCast(std.mem.indexOfScalar(u16, ids, app.synth_cursor) orelse 0);
     const pos = ws.input.clampDelta(cur, delta, @intCast(ids.len - 1));
     app.synth_cursor = ids[@intCast(pos)];
     updateScroll(app);
@@ -1063,7 +1063,7 @@ fn shiftField(app: *App, delta: i32) void {
 /// Row index of `cursor` within the `.fx` subview's single-column
 /// rendering (0-based, title excluded). Must stay in sync with the
 /// section calls in views/synth.zig's `drawSynthEditor`.
-pub fn fxRow(cursor: u8, fx_order: []const FxUnitKind) usize {
+pub fn fxRow(cursor: u16, fx_order: []const FxUnitKind) usize {
     var row: usize = 1;
     for (fx_order) |kind| {
         const first = fxFirstId(kind);
@@ -1137,7 +1137,7 @@ fn adjustParam(app: *App, steps: i32) void {
 /// numbering as before. A mod-matrix slot's dest/depth fields aren't
 /// individually mouse-addressable - a click anywhere on the slot's one
 /// line lands on its source field (offset 0); `w`/`b` refine from there.
-fn paramAtRow(app: *App, row: usize, x: usize, cols: u16) ?u8 {
+fn paramAtRow(app: *App, row: usize, x: usize, cols: u16) ?u16 {
     if (row == 0) return null; // title
     const view = app.synth_subview;
     if (view == .main or view == .mod) {

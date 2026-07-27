@@ -86,8 +86,8 @@ pub const max_lfo_shape_points: u8 = 8;
 /// occupies ids `base + s*17 .. base + s*17 + 15` (point `i`'s phase at
 /// `+i*2`, value at `+i*2+1`) plus one count id at `base + s*17 + 16`.
 /// Highest id used: 195 + 2*17 + 16 = 245, leaving 246-255 free.
-pub const lfo_custom_id_base: u8 = 195;
-pub const lfo_custom_ids_per_slot: u8 = max_lfo_shape_points * 2 + 1;
+pub const lfo_custom_id_base: u16 = 195;
+pub const lfo_custom_ids_per_slot: u16 = max_lfo_shape_points * 2 + 1;
 const default_lfo_custom_points: [max_lfo_shape_points]LfoShapePoint = blk: {
     var pts: [max_lfo_shape_points]LfoShapePoint = undefined;
     pts[0] = .{ .phase = 0, .value = 0 };
@@ -941,15 +941,15 @@ pub const PolySynth = struct {
     /// Virtual matrix destinations that aren't editor params: note pitch
     /// (amt = octaves) and voice amplitude (gain factor 1 + amt). Chosen
     /// well above the real param-id space so they can never collide.
-    pub const dest_pitch: u8 = 254;
-    pub const dest_amp: u8 = 255;
+    pub const dest_pitch: u16 = 254;
+    pub const dest_amp: u16 = 255;
 
     /// One mod-matrix row. `dest` is a `mod_dest_ids` entry; `depth` is
     /// bipolar, scaled by the dest param's full range (linear params), or
     /// ±4 octaves (cutoffs), ±1 octave (pitch), ±1x gain (amp) at |1|.
     pub const ModRow = struct {
         source: ModSource = .none,
-        dest: u8 = 21,
+        dest: u16 = 21,
         depth: f32 = 0.0,
     };
 
@@ -959,11 +959,11 @@ pub const PolySynth = struct {
     /// knobs (already fan out to every dest their own rows target -
     /// automating one would double-apply through rows that read it), and
     /// arp rate/gate (toggle-adjacent controls, not motion-worthy targets).
-    const mod_dest_excluded_ids = [_]u8{
+    const mod_dest_excluded_ids = [_]u16{
         29, 61, 64, 67, 70, 73, 76, 79, 82, 96, 98, 99, 100, 101, 102, 119, 120,
     };
 
-    fn isModDestExcluded(id: u8) bool {
+    fn isModDestExcluded(id: u16) bool {
         for (mod_dest_excluded_ids) |e| if (e == id) return true;
         return false;
     }
@@ -983,9 +983,9 @@ pub const PolySynth = struct {
     /// of hand-duplicated - the old hand-kept list once let id 187 (WT POS
     /// C) exist in `automatable_params` but never make it into the matrix,
     /// silently unreachable from the mod-dest picker.
-    pub const mod_dest_ids: [modDestCount()]u8 = blk: {
+    pub const mod_dest_ids: [modDestCount()]u16 = blk: {
         @setEvalBranchQuota(20000);
-        var out: [modDestCount()]u8 = undefined;
+        var out: [modDestCount()]u16 = undefined;
         var i: usize = 0;
         for (automatable_params) |p| {
             if (isModDestExcluded(p.id)) continue;
@@ -999,7 +999,7 @@ pub const PolySynth = struct {
         break :blk out;
     };
 
-    pub fn modDestLabel(dest: u8) []const u8 {
+    pub fn modDestLabel(dest: u16) []const u8 {
         return switch (dest) {
             // zig fmt: off
             dest_pitch => "PITCH",
@@ -1009,7 +1009,7 @@ pub const PolySynth = struct {
         };
     }
 
-    pub fn modDestIndex(dest: u8) ?usize {
+    pub fn modDestIndex(dest: u16) ?usize {
         for (mod_dest_ids, 0..) |d, i| if (d == dest) return i;
         return null;
     }
@@ -1724,11 +1724,11 @@ pub const PolySynth = struct {
     /// Summed matrix modulation per destination for one voice/block:
     /// `amts[i]` = Σ depth×source over the rows targeting `dests[i]`.
     const ModAccum = struct {
-        dests: [max_mod_rows]u8 = undefined,
+        dests: [max_mod_rows]u16 = undefined,
         amts: [max_mod_rows]f32 = undefined,
         count: u8 = 0,
 
-        fn amt(self: *const ModAccum, dest: u8) f32 {
+        fn amt(self: *const ModAccum, dest: u16) f32 {
             for (self.dests[0..self.count], self.amts[0..self.count]) |d, a| {
                 if (d == dest) return a;
             }
@@ -1780,7 +1780,7 @@ pub const PolySynth = struct {
     /// for that param, scaled to the param's full range and clamped to it.
     /// Cutoffs and the virtual pitch/amp dests are NOT routed through here -
     /// they modulate in octave/gain space at their use sites instead.
-    fn eff(acc: *const ModAccum, id: u8, base: f32) f32 {
+    fn eff(acc: *const ModAccum, id: u16, base: f32) f32 {
         const a = acc.amt(id);
         if (a == 0.0) return base;
         const p = findAutomatableParam(id) orelse return base;
@@ -1788,7 +1788,7 @@ pub const PolySynth = struct {
     }
 
     /// `eff` for the integer unison-count params, rounded back to a count.
-    fn effUnison(acc: *const ModAccum, id: u8, base: u8) usize {
+    fn effUnison(acc: *const ModAccum, id: u16, base: u8) usize {
         const e = eff(acc, id, @floatFromInt(@max(base, 1)));
         return @intFromFloat(@round(std.math.clamp(e, 1.0, @as(f32, max_unison))));
     }
@@ -2952,7 +2952,7 @@ pub const PolySynth = struct {
     const ParamKind = enum { cont, log_freq, toggle, cycle, int_cont };
 
     const ParamSpec = struct {
-        id: u8,
+        id: u16,
         field: []const u8,
         kind: ParamKind = .cont,
         min: f32 = 0,
@@ -3221,7 +3221,7 @@ pub const PolySynth = struct {
     /// `setParamAbsolute` calls `setFxIndex`, `paramValue` calls
     /// `fxOrderIndex` - this list drives all three instead of repeating the
     /// id->kind mapping three times over.
-    const fx_reorder_ids = [_]struct { id: u8, kind: FxUnitKind }{
+    const fx_reorder_ids = [_]struct { id: u16, kind: FxUnitKind }{
         .{ .id = 126, .kind = .dist },
         .{ .id = 127, .kind = .crush },
         .{ .id = 128, .kind = .flanger },
@@ -3248,10 +3248,10 @@ pub const PolySynth = struct {
     /// which `.custom` LFO slot/point/field it addresses. Shared by
     /// `adjustParam`/`setParamAbsolute`/`paramValue` so the id layout is
     /// computed once instead of three times over.
-    fn decodeLfoCustomId(id: u8) LfoCustomAddr {
+    fn decodeLfoCustomId(id: u16) LfoCustomAddr {
         const rel = id - lfo_custom_id_base;
-        const slot: u8 = rel / lfo_custom_ids_per_slot;
-        const within: u8 = rel % lfo_custom_ids_per_slot;
+        const slot: u8 = @intCast(rel / lfo_custom_ids_per_slot);
+        const within: u8 = @intCast(rel % lfo_custom_ids_per_slot);
         if (within == max_lfo_shape_points * 2) return .{ .count = .{ .slot = slot } };
         return .{ .point = .{ .slot = slot, .index = within / 2, .is_value = within % 2 == 1 } };
     }
@@ -3260,7 +3260,7 @@ pub const PolySynth = struct {
     /// Runs on the audio thread (via the `set_param` event) so it never races
     /// the block reader - the editor sends edits over the command queue rather
     /// than writing these fields directly.
-    pub fn adjustParam(self: *PolySynth, id: u8, steps: i32) void {
+    pub fn adjustParam(self: *PolySynth, id: u16, steps: i32) void {
         switch (id) {
             // fx_mb_style: h/l always picks classic/ott by direction, not a
             // wrap (see `param_specs`'s note on id 149).
@@ -3328,7 +3328,7 @@ pub const PolySynth = struct {
     /// ordinal (toggles: >= 0.5 is on) - automation never targets them
     /// (they're not in `automatable_params`), only undo restores them this
     /// way.
-    pub fn setParamAbsolute(self: *PolySynth, id: u8, value: f32) void {
+    pub fn setParamAbsolute(self: *PolySynth, id: u16, value: f32) void {
         if (!std.math.isFinite(value)) return;
         switch (id) {
             // MATRIX: dest takes the raw param id (falls back to cutoff if
@@ -3390,14 +3390,14 @@ pub const PolySynth = struct {
     /// True for boolean on/off params (`param_specs` rows with `.kind =
     /// .toggle`) - lets editors draw these as a single toggle button instead
     /// of a generic -/+ stepper, without hand-keeping a second id list.
-    pub fn isToggleParam(id: u8) bool {
+    pub fn isToggleParam(id: u16) bool {
         inline for (param_specs) |spec| {
             if (spec.id == id) return spec.kind == .toggle;
         }
         return false;
     }
 
-    pub fn paramValue(self: *const PolySynth, id: u8) ?f32 {
+    pub fn paramValue(self: *const PolySynth, id: u16) ?f32 {
         switch (id) {
             59...82 => {
                 const row = self.mod_matrix[(id - 59) / 3];
@@ -3569,7 +3569,7 @@ pub const PolySynth = struct {
         // zig fmt: on
     };
 
-    pub fn findAutomatableParam(id: u8) ?*const AutomatableParam {
+    pub fn findAutomatableParam(id: u16) ?*const AutomatableParam {
         for (&automatable_params) |*p| if (p.id == id) return p;
         return null;
     }
@@ -3597,15 +3597,9 @@ pub const PolySynth = struct {
             .all_off    => self.resetAll(),
             .cc         => |e| self.applyCC(e.cc, e.value),
             .pitch_bend => |e| self.applyPitchBend(e.bend, 2.0),
-            // e.id is u16 (wide enough for DrumMachine's pad-encoded ids);
-            // PolySynth's own param space is well under 256, so truncate
-            // rather than @intCast - a stray wide id (can't happen in
-            // practice, only DrumMachine ever constructs one) silently
-            // no-ops here instead of panicking, matching adjustParam's own
-            // unknown-id default arm.
-            .set_param  => |e| self.adjustParam(@truncate(e.id), e.steps),
+            .set_param  => |e| self.adjustParam(e.id, e.steps),
             // zig fmt: on
-            .set_param_abs => |e| self.setParamAbsolute(@truncate(e.id), e.value),
+            .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
             .clap_param, .set_sidechain_buf, .capture_pad => {},
         }
     }

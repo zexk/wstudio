@@ -176,7 +176,7 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
 /// code that actually draws it. `sec*` bodies stay ordinary Zig (bespoke
 /// formatting/dimming per param); only *which sections exist and in what
 /// order* is table-driven.
-const RenderFn = *const fn (w: *std.Io.Writer, synth: *const PolySynth, c: u8) anyerror!void;
+const RenderFn = *const fn (w: *std.Io.Writer, synth: *const PolySynth, c: u16) anyerror!void;
 const main_render_fns = [_]RenderFn{
     secOscA,   secOscB,    secOscC, secSub,  secNoise, secMod,
     secFilter, secFilter2, secEnv,  secFenv, secVoice, secArp,
@@ -339,7 +339,7 @@ comptime {
 /// closely enough to feel like the same control, minus the multi-row box
 /// border - this one stays a single fixed row above the scrolled section
 /// list (see drawSynthEditor's call site).
-fn drawFxStrip(app: anytype, w: *std.Io.Writer, c: u8, cols: usize) !void {
+fn drawFxStrip(app: anytype, w: *std.Io.Writer, c: u16, cols: usize) !void {
     var buf: [14]synth_ed.StripSlot = undefined;
     const slots = synth_ed.stripLayout(app, cols, &buf);
     const focused = synth_ed.fxKindOfId(c);
@@ -367,7 +367,7 @@ fn drawFxStrip(app: anytype, w: *std.Io.Writer, c: u8, cols: usize) !void {
 
 const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr", "wt" };
 
-fn secOscA(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secOscA(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "OSC A", acc);
 
@@ -400,7 +400,7 @@ fn secOscA(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
 }
 // zig fmt: on
 
-fn secOscB(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secOscB(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "OSC B", acc);
 
@@ -434,7 +434,7 @@ fn secOscB(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_b_wt_pos}));
 }
 
-fn secMod(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secMod(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "MOD  (A \u{2194} B)", mag);
 
@@ -456,7 +456,7 @@ fn secMod(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     }
 }
 
-fn secEnv(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secEnv(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "AMP ENV", grn);
 
@@ -472,7 +472,7 @@ fn secEnv(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
 
 const filter_type_names = [_][]const u8{ "lp", "hp", "bp", "ntch", "ladr", "diod", "comb", "frmt" };
 
-fn secFilter(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secFilter(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "FILTER 1", yel);
 
@@ -491,7 +491,7 @@ fn secFilter(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.filter_res}));
 }
 
-fn secFenv(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secFenv(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "FILTER ENV", grn);
 
@@ -509,7 +509,7 @@ const lfo_shape_names = [_][]const u8{ "sine", "tri", "saw", "sqr", "s&h", "cha"
 
 /// Shape + rate only: the LFO is a pure mod source, its routing lives on
 /// MATRIX rows (the matrix absorbed the old depth/target params).
-fn secLfo(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secLfo(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "LFO 1", mag);
 
@@ -520,7 +520,7 @@ fn secLfo(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     if (synth.lfo_shape == .custom) try secLfoCustom(w, synth, c, 0);
 }
 
-fn secLfo2(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secLfo2(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "LFO 2", mag);
     try enumRow(w, c == 95, false, mag, "shape", &lfo_shape_names, @intFromEnum(synth.lfo2_shape));
@@ -529,7 +529,7 @@ fn secLfo2(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     if (synth.lfo2_shape == .custom) try secLfoCustom(w, synth, c, 1);
 }
 
-fn secLfo3(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secLfo3(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "LFO 3", mag);
     try enumRow(w, c == 97, false, mag, "shape", &lfo_shape_names, @intFromEnum(synth.lfo3_shape));
@@ -547,16 +547,16 @@ fn secLfo3(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
 /// see `PolySynth.decodeLfoCustomId`. The GUI's curve widget is the real
 /// drawing surface for this; these rows exist so the shape is still
 /// reachable keyboard-only.
-fn secLfoCustom(w: *std.Io.Writer, synth: *const PolySynth, c: u8, slot: u8) !void {
+fn secLfoCustom(w: *std.Io.Writer, synth: *const PolySynth, c: u16, slot: u8) !void {
     var buf: [40]u8 = undefined;
     const base: u16 = @as(u16, ws.dsp.synth.lfo_custom_id_base) + @as(u16, slot) * ws.dsp.synth.lfo_custom_ids_per_slot;
-    const count_id: u8 = @intCast(base + ws.dsp.synth.max_lfo_shape_points * 2);
+    const count_id: u16 = @intCast(base + ws.dsp.synth.max_lfo_shape_points * 2);
     const count = synth.lfo_custom_count[slot];
     try barRow(w, c == count_id, false, mag, "points", @floatFromInt(count), @floatFromInt(ws.dsp.synth.max_lfo_shape_points),
         try std.fmt.bufPrint(&buf, "{d}", .{count}));
     for (0..count) |i| {
-        const phase_id: u8 = @intCast(base + i * 2);
-        const value_id: u8 = phase_id + 1;
+        const phase_id: u16 = @intCast(base + i * 2);
+        const value_id: u16 = phase_id + 1;
         const point = synth.lfo_custom[slot][i];
         var label_buf: [16]u8 = undefined;
         const label = std.fmt.bufPrint(&label_buf, "pt{d} phase", .{i}) catch "pt phase";
@@ -571,7 +571,7 @@ fn secLfoCustom(w: *std.Io.Writer, synth: *const PolySynth, c: u8, slot: u8) !vo
 
 /// Four macro knobs - pure mod sources (mc1-mc4 on MATRIX rows), no sound
 /// of their own, automatable as ids 99-102.
-fn secMacro(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secMacro(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "MACRO", bcyn);
     const vals = [4]f32{ synth.macro1, synth.macro2, synth.macro3, synth.macro4 };
@@ -587,7 +587,7 @@ const arp_mode_names = [_][]const u8{ "up", "down", "up/dn", "dn/up", "played", 
 
 /// A step sequencer in front of note triggering - see PolySynth's own ARP
 /// doc comment.
-fn secArp(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secArp(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "ARP", bcyn);
 
@@ -605,7 +605,7 @@ fn secArp(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
 
 /// A third ADSR with no fixed destination - a pure MATRIX source (env3),
 /// same shape as FENV but not tied to the filter.
-fn secEnv3(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secEnv3(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "ENV 3", grn);
 
@@ -619,7 +619,7 @@ fn secEnv3(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.env3_release_s}));
 }
 
-fn secVoice(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secVoice(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "VOICE", blu);
 
@@ -633,7 +633,7 @@ fn secVoice(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
         if (synth.glide_s == 0.0) "off" else try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.glide_s}));
 }
 
-fn secSub(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secSub(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "SUB", acc);
 
@@ -646,7 +646,7 @@ fn secSub(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     }
 }
 
-fn secNoise(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secNoise(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "NOISE", acc);
 
@@ -660,7 +660,7 @@ fn secNoise(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
     }
 }
 
-fn secOut(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secOut(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "OUT", bcyn);
 
@@ -672,7 +672,7 @@ const uni_mode_names = [_][]const u8{ "spread", "step", "harm", "ratio" };
 
 const warp_mode_names = [_][]const u8{ "none", "bend", "mirror", "sync" };
 
-fn secFilter2(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secFilter2(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "FILTER 2", yel);
 
@@ -701,7 +701,7 @@ fn secFilter2(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
 
 /// Plain additive 3rd oscillator - same row shape as OSC B, no mod/warp rows
 /// since OSC C doesn't participate in either (see PolySynth's own doc comment).
-fn secOscC(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secOscC(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "OSC C", acc);
 
@@ -738,11 +738,11 @@ fn secOscC(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
 /// move between slots preserving whichever field was focused. Source/dest
 /// dim while the slot is off, matching the oscillator sections' on/off
 /// dimming convention.
-fn secMatrix(w: *std.Io.Writer, synth: *const PolySynth, c: u8) !void {
+fn secMatrix(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try synthSection(w, "MATRIX", mag);
 
     for (synth.mod_matrix, 0..) |row, k| {
-        const base: u8 = @intCast(59 + k * 3);
+        const base: u16 = @intCast(59 + k * 3);
         const off = row.source == .none;
         const sel_src = c == base;
         const sel_dst = c == base + 1;
@@ -804,7 +804,7 @@ fn freqBarVal(hz: f32) f32 {
 /// there's no shared metadata table for that - see synth_layout.zig's own
 /// doc comment on why FX deliberately stays out of the comptime-static
 /// section-table system MAIN/MOD use.
-fn secFxHeader(w: *std.Io.Writer, title: []const u8, on: bool, c: u8, first_id: u8) !void {
+fn secFxHeader(w: *std.Io.Writer, title: []const u8, on: bool, c: u16, first_id: u16) !void {
     try synthSection(w, title, red);
     try enumRow(w, c == first_id, false, red, "on/off", &on_off_names, if (on) 0 else 1);
 }
@@ -812,7 +812,7 @@ fn secFxHeader(w: *std.Io.Writer, title: []const u8, on: bool, c: u8, first_id: 
 /// Internal FX sections: post-mix, user-reorderable inside the synth
 /// itself, distinct from the track FX chain - these params are matrix and
 /// automation targets (see PolySynth's FX field block).
-fn secFxGate(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+fn secFxGate(w: *std.Io.Writer, synth: anytype, c: u16) !void {
     var buf: [40]u8 = undefined;
     const on = synth.fx_gate_on;
     try secFxHeader(w, "FX GATE", on, c, 132);
@@ -824,7 +824,7 @@ fn secFxGate(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.0} ms", .{synth.fx_gate_release_ms}));
 }
 
-fn secFxComp(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+fn secFxComp(w: *std.Io.Writer, synth: anytype, c: u16) !void {
     var buf: [40]u8 = undefined;
     const on = synth.fx_comp_on;
     try secFxHeader(w, "FX COMP", on, c, 137);
@@ -842,7 +842,7 @@ fn secFxComp(w: *std.Io.Writer, synth: anytype, c: u8) !void {
 
 const mb_style_names = [_][]const u8{ "classic", "OTT" };
 
-fn secFxMb(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+fn secFxMb(w: *std.Io.Writer, synth: anytype, c: u16) !void {
     var buf: [40]u8 = undefined;
     const on = synth.fx_mb_on;
     try secFxHeader(w, "FX MB", on, c, 144);
@@ -877,7 +877,7 @@ fn secFxMb(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_mb_high_makeup_db}));
 }
 
-fn secFxOtt(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+fn secFxOtt(w: *std.Io.Writer, synth: anytype, c: u16) !void {
     var buf: [40]u8 = undefined;
     const on = synth.fx_ott_on;
     try secFxHeader(w, "FX OTT", on, c, 161);
@@ -891,7 +891,7 @@ fn secFxOtt(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_ott_gain_out_db}));
 }
 
-fn secFxEq(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+fn secFxEq(w: *std.Io.Writer, synth: anytype, c: u16) !void {
     var buf: [40]u8 = undefined;
     const on = synth.fx_eq_on;
     try secFxHeader(w, "FX EQ", on, c, 167);
@@ -911,7 +911,7 @@ fn secFxEq(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_eq_high_gain_db}));
 }
 
-fn secFxChorus(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+fn secFxChorus(w: *std.Io.Writer, synth: anytype, c: u16) !void {
     var buf: [40]u8 = undefined;
     const on = synth.fx_chorus_on;
     try secFxHeader(w, "FX CHOR", on, c, 176);
@@ -923,7 +923,7 @@ fn secFxChorus(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_chorus_mix}));
 }
 
-fn secFxFreqShift(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+fn secFxFreqShift(w: *std.Io.Writer, synth: anytype, c: u16) !void {
     var buf: [40]u8 = undefined;
     const on = synth.fx_freq_shift_on;
     try secFxHeader(w, "FX FRQS", on, c, 181);
@@ -933,7 +933,7 @@ fn secFxFreqShift(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_freq_shift_mix}));
 }
 
-fn secFxDist(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+fn secFxDist(w: *std.Io.Writer, synth: anytype, c: u16) !void {
     var buf: [40]u8 = undefined;
     const on = synth.fx_dist_on;
     try secFxHeader(w, "FX DIST", on, c, 83);
@@ -943,7 +943,7 @@ fn secFxDist(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_dist_mix}));
 }
 
-fn secFxCrush(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+fn secFxCrush(w: *std.Io.Writer, synth: anytype, c: u16) !void {
     var buf: [40]u8 = undefined;
     const on = synth.fx_crush_on;
     try secFxHeader(w, "FX CRUSH", on, c, 86);
@@ -955,7 +955,7 @@ fn secFxCrush(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_crush_mix}));
 }
 
-fn secFxFlanger(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+fn secFxFlanger(w: *std.Io.Writer, synth: anytype, c: u16) !void {
     var buf: [40]u8 = undefined;
     const on = synth.fx_flanger_on;
     try secFxHeader(w, "FX FLNG", on, c, 90);
@@ -969,7 +969,7 @@ fn secFxFlanger(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_flanger_mix}));
 }
 
-fn secFxTape(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+fn secFxTape(w: *std.Io.Writer, synth: anytype, c: u16) !void {
     var buf: [40]u8 = undefined;
     const on = synth.fx_tape_on;
     try secFxHeader(w, "FX TAPE", on, c, 188);
@@ -985,7 +985,7 @@ fn secFxTape(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_tape_mix}));
 }
 
-fn secFxPhaser(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+fn secFxPhaser(w: *std.Io.Writer, synth: anytype, c: u16) !void {
     var buf: [40]u8 = undefined;
     const on = synth.fx_phaser_on;
     try secFxHeader(w, "FX PHSR", on, c, 103);
@@ -999,7 +999,7 @@ fn secFxPhaser(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_phaser_mix}));
 }
 
-fn secFxDelay(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+fn secFxDelay(w: *std.Io.Writer, synth: anytype, c: u16) !void {
     var buf: [40]u8 = undefined;
     const on = synth.fx_delay_on;
     try secFxHeader(w, "FX DELAY", on, c, 108);
@@ -1011,7 +1011,7 @@ fn secFxDelay(w: *std.Io.Writer, synth: anytype, c: u8) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_delay_mix}));
 }
 
-fn secFxReverb(w: *std.Io.Writer, synth: anytype, c: u8) !void {
+fn secFxReverb(w: *std.Io.Writer, synth: anytype, c: u16) !void {
     var buf: [40]u8 = undefined;
     const on = synth.fx_reverb_on;
     try secFxHeader(w, "FX VERB", on, c, 112);

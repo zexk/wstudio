@@ -144,7 +144,7 @@ fn drawSections(
 }
 
 /// Which section owns `cursor`, for `z`'s isolate-one-card mode.
-fn cursorSection(sections: []const synth_layout.SectionDef, cursor: u8) ?usize {
+fn cursorSection(sections: []const synth_layout.SectionDef, cursor: u16) ?usize {
     for (sections, 0..) |section, index| {
         for (section.params) |entry| {
             if (cursor >= entry.id and cursor < entry.id + entry.fields) return index;
@@ -178,7 +178,7 @@ fn drawCard(
 
 /// A section's gate: the leading on/off param every switchable card starts
 /// with (OSC B/C, FILTER 2, ARP), hoisted into the header strip.
-fn sectionGate(section: synth_layout.SectionDef) ?u8 {
+fn sectionGate(section: synth_layout.SectionDef) ?u16 {
     if (section.params.len == 0) return null;
     const first = section.params[0].id;
     return if (ws.dsp.PolySynth.isToggleParam(first)) first else null;
@@ -244,32 +244,32 @@ fn drawSectionCard(app: anytype, synth: *ws.dsp.PolySynth, section: synth_layout
 // comment on why engine param ids never move. That fixed layout is what
 // lets one drawEnvelope cover all three instead of three near-identical
 // knob rows.
-fn isEnvelopeBase(id: u8) bool {
+fn isEnvelopeBase(id: u16) bool {
     return id == 16 or id == 24 or id == 122;
 }
 
-fn isEnvelopeTail(id: u8) bool {
+fn isEnvelopeTail(id: u16) bool {
     return switch (id) {
         17, 18, 19, 25, 26, 27, 123, 124, 125 => true,
         else => false,
     };
 }
 
-fn isFilterCutoff(id: u8) bool {
+fn isFilterCutoff(id: u16) bool {
     return id == 21 or id == 47;
 }
 
-fn isFilterResonance(id: u8) bool {
+fn isFilterResonance(id: u16) bool {
     return id == 22 or id == 48;
 }
 
-fn sendParam(app: anytype, id: u8, value: f32) void {
+fn sendParam(app: anytype, id: u16, value: f32) void {
     app.recordSynthEdit();
     _ = app.core.session.engine.setTrackParam(app.core.synth_track, id, value);
     app.core.dirty = true;
 }
 
-fn drawEnvelope(app: anytype, synth: *ws.dsp.PolySynth, base_id: u8) void {
+fn drawEnvelope(app: anytype, synth: *ws.dsp.PolySynth, base_id: u16) void {
     var attack = synth.paramValue(base_id) orelse return;
     var decay = synth.paramValue(base_id + 1) orelse return;
     var sustain = synth.paramValue(base_id + 2) orelse return;
@@ -306,7 +306,7 @@ fn drawEnvelope(app: anytype, synth: *ws.dsp.PolySynth, base_id: u8) void {
     zgui.textDisabled("A {d:.3}s  D {d:.3}s  S {d:.2}  R {d:.3}s", .{ attack, decay, sustain, release });
 }
 
-fn drawFilterPad(app: anytype, synth: *ws.dsp.PolySynth, cutoff_id: u8) void {
+fn drawFilterPad(app: anytype, synth: *ws.dsp.PolySynth, cutoff_id: u16) void {
     const res_id = cutoff_id + 1;
     var cutoff = synth.paramValue(cutoff_id) orelse return;
     var res = synth.paramValue(res_id) orelse return;
@@ -342,7 +342,7 @@ fn drawFilterPad(app: anytype, synth: *ws.dsp.PolySynth, cutoff_id: u8) void {
 /// see `dsp.synth.lfo_custom_id_base`'s id-layout doc comment. `null` for
 /// every other id (rate, matrix rows, ...), so the extra draw call below is
 /// a no-op for them.
-fn lfoShapeSlot(id: u8) ?usize {
+fn lfoShapeSlot(id: u16) ?usize {
     return switch (id) {
         28 => 0,
         95 => 1,
@@ -374,9 +374,9 @@ fn drawLfoCustomCurve(app: anytype, synth: *ws.dsp.PolySynth, slot: usize) void 
 
     var label_buf: [32]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "lfo-custom##gui-synth-{d}", .{slot}) catch return;
-    const base: u8 = ws.dsp.synth.lfo_custom_id_base + @as(u8, @intCast(slot)) * ws.dsp.synth.lfo_custom_ids_per_slot;
+    const base: u16 = ws.dsp.synth.lfo_custom_id_base + @as(u16, @intCast(slot)) * ws.dsp.synth.lfo_custom_ids_per_slot;
     const base_usize: usize = base;
-    const count_id: u8 = base + ws.dsp.synth.max_lfo_shape_points * 2;
+    const count_id: u16 = base + ws.dsp.synth.max_lfo_shape_points * 2;
     const focused_index: ?usize = if (app.core.synth_cursor >= base and app.core.synth_cursor < count_id)
         (app.core.synth_cursor - base) / 2
     else
@@ -395,7 +395,7 @@ fn drawLfoCustomCurve(app: anytype, synth: *ws.dsp.PolySynth, slot: usize) void 
     });
 
     if (result.moved) |m| {
-        const phase_id: u8 = @intCast(base_usize + m.index * 2);
+        const phase_id: u16 = @intCast(base_usize + m.index * 2);
         sendParam(app, phase_id, @floatCast(m.beat));
         sendParam(app, phase_id + 1, m.value);
     }
@@ -406,11 +406,11 @@ fn drawLfoCustomCurve(app: anytype, synth: *ws.dsp.PolySynth, slot: usize) void 
             var i: usize = count;
             while (i > k) : (i -= 1) {
                 const src = curve_buf[i - 1];
-                const dst_phase_id: u8 = @intCast(base_usize + i * 2);
+                const dst_phase_id: u16 = @intCast(base_usize + i * 2);
                 sendParam(app, dst_phase_id, @floatCast(src.beat));
                 sendParam(app, dst_phase_id + 1, src.value);
             }
-            const new_phase_id: u8 = @intCast(base_usize + k * 2);
+            const new_phase_id: u16 = @intCast(base_usize + k * 2);
             sendParam(app, new_phase_id, @floatCast(ins.beat));
             sendParam(app, new_phase_id + 1, ins.value);
             sendParam(app, count_id, @floatFromInt(count + 1));
@@ -429,7 +429,7 @@ fn drawLfoCustomCurve(app: anytype, synth: *ws.dsp.PolySynth, slot: usize) void 
             var i: usize = ix;
             while (i + 1 < count) : (i += 1) {
                 const src = curve_buf[i + 1];
-                const dst_phase_id: u8 = @intCast(base_usize + i * 2);
+                const dst_phase_id: u16 = @intCast(base_usize + i * 2);
                 sendParam(app, dst_phase_id, @floatCast(src.beat));
                 sendParam(app, dst_phase_id + 1, src.value);
             }
@@ -459,7 +459,7 @@ fn sectionColor(tone: synth_layout.Tone) [4]f32 {
 /// synth's matrix is a table, and for good reason: the routing only means
 /// anything read across, and 8 slots stacked three-deep is 24 rows of
 /// column-0 real estate.
-fn drawMatrixRow(app: anytype, synth: *ws.dsp.PolySynth, base_id: u8, accent: [4]f32) void {
+fn drawMatrixRow(app: anytype, synth: *ws.dsp.PolySynth, base_id: u16, accent: [4]f32) void {
     const slot = (base_id - 59) / 3;
     if (slot >= synth.mod_matrix.len) return;
     const row = synth.mod_matrix[slot];
@@ -505,7 +505,7 @@ fn drawMatrixRow(app: anytype, synth: *ws.dsp.PolySynth, base_id: u8, accent: [4
 /// grid uses, at an explicit width so the column lines up however wide the
 /// names in it happen to render, and with no caption (the slot number and
 /// the column position already say which field this is).
-fn drawSlotStepper(app: anytype, id: u8, display: []const u8, width: f32, accent: [4]f32) void {
+fn drawSlotStepper(app: anytype, id: u16, display: []const u8, width: f32, accent: [4]f32) void {
     var id_buf: [40]u8 = undefined;
     const widget_id = std.fmt.bufPrintZ(&id_buf, "##synth-slot-{d}", .{id}) catch return;
     switch (widgets.stepperCell("", widget_id, display, accent, app.core.synth_cursor == id, width)) {
@@ -593,7 +593,7 @@ fn drawFx(app: anytype, synth: *ws.dsp.PolySynth) void {
 /// `synth_ed.paramValueText`'s - the same unit-aware string the status line
 /// prints, so a filter type reads "ladder" and a cutoff reads "1.20 kHz"
 /// instead of the raw float this used to render.
-fn drawParam(app: anytype, synth: *ws.dsp.PolySynth, id: u8, label_text: []const u8, accent: [4]f32, flow: *Flow) void {
+fn drawParam(app: anytype, synth: *ws.dsp.PolySynth, id: u16, label_text: []const u8, accent: [4]f32, flow: *Flow) void {
     const value = synth.paramValue(id) orelse return;
     var value_buf: [40]u8 = undefined;
     const value_text = synth_ed.paramValueText(synth, id, &value_buf);
@@ -643,7 +643,7 @@ fn drawParam(app: anytype, synth: *ws.dsp.PolySynth, id: u8, label_text: []const
 /// A boolean param rendered as a single on/off button - `nudgeParam`'s
 /// h-step flips a toggle just like it would any other stepped value, so
 /// clicking it reuses the same command path an `h`/`l` keypress would.
-fn drawParamToggle(app: anytype, id: u8, label_text: []const u8, active: bool, accent: [4]f32) void {
+fn drawParamToggle(app: anytype, id: u16, label_text: []const u8, active: bool, accent: [4]f32) void {
     const focused = app.core.synth_cursor == id;
     zgui.textColored(if (focused) accent else theme.fg1, "{s}", .{label_text});
     zgui.sameLine(.{ .spacing = 8 });
@@ -659,11 +659,11 @@ fn drawParamToggle(app: anytype, id: u8, label_text: []const u8, active: bool, a
 /// an obvious icon per option, so `widgets.waveformPicker` covers just
 /// these three rather than every enum-valued param (filter type, LFO
 /// shape, ... still fall through to the generic -/+ stepper below).
-fn isWaveformParam(id: u8) bool {
+fn isWaveformParam(id: u16) bool {
     return id == 0 or id == 7 or id == 51;
 }
 
-fn drawWaveformParam(app: anytype, id: u8, label_text: []const u8, value: f32, accent: [4]f32) void {
+fn drawWaveformParam(app: anytype, id: u16, label_text: []const u8, value: f32, accent: [4]f32) void {
     _ = label_text;
     const focused = app.core.synth_cursor == id;
     var label_buf: [32]u8 = undefined;
@@ -675,7 +675,7 @@ fn drawWaveformParam(app: anytype, id: u8, label_text: []const u8, value: f32, a
     }
 }
 
-fn nudgeParam(app: anytype, id: u8, key: u8) void {
+fn nudgeParam(app: anytype, id: u16, key: u8) void {
     app.core.synth_cursor = id;
     app.core.handleKey(.{ .char = key }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
 }
@@ -685,7 +685,7 @@ fn nudgeParam(app: anytype, id: u8, key: u8) void {
 /// displays, each showing what that oscillator is actually doing - the
 /// arrangement Serum, Vital and Massive all use, and what a single sketch
 /// in a global header cannot express.
-fn drawOscDisplay(synth: *const ws.dsp.PolySynth, waveform_id: u8, accent: [4]f32) void {
+fn drawOscDisplay(synth: *const ws.dsp.PolySynth, waveform_id: u16, accent: [4]f32) void {
     const shape: struct { wave: ws.dsp.synth.Waveform, pw: f32 } = switch (waveform_id) {
         0 => .{ .wave = synth.waveform, .pw = synth.pulse_width },
         7 => .{ .wave = synth.osc_b_waveform, .pw = synth.osc_b_pulse_width },

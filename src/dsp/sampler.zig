@@ -25,10 +25,10 @@ const Sample = types.Sample;
 pub const Sampler = struct {
     pub const max_voices: u8 = 16;
     /// Number of editable params (see `adjustParam`).
-    pub const param_count: u8 = 17;
+    pub const param_count: u16 = 17;
     /// Sampler-only param ids, appended past `pad.zig`'s shared table.
-    pub const root_note_id: u8 = pad_dsp.param_count;
-    pub const mono_id: u8 = pad_dsp.param_count + 1;
+    pub const root_note_id: u16 = pad_dsp.param_count;
+    pub const mono_id: u16 = pad_dsp.param_count + 1;
 
     pub const NoteVoice = struct {
         active: bool = false,
@@ -110,7 +110,7 @@ pub const Sampler = struct {
     /// past it are Sampler-only. Session-scoped ids - nothing persisted stores
     /// them, so root/mono sliding up as the shared table grows costs nothing
     /// (same as when stretch landed at 12, and fades at 10/11 before it).
-    pub fn adjustParam(self: *Sampler, id: u8, steps: i32) void {
+    pub fn adjustParam(self: *Sampler, id: u16, steps: i32) void {
         if (id < pad_dsp.param_count) {
             pad_dsp.adjustParam(&self.pad, id, steps);
         } else if (id == root_note_id) {
@@ -125,7 +125,7 @@ pub const Sampler = struct {
     /// ranges - for undo's capture/restore (`paramValue` is the read half),
     /// mirroring PolySynth's own pair. Toggles (reverse, gate, mono): >= 0.5
     /// is on. Runs on the audio thread via the `set_param_abs` event.
-    pub fn setParamAbsolute(self: *Sampler, id: u8, value: f32) void {
+    pub fn setParamAbsolute(self: *Sampler, id: u16, value: f32) void {
         if (id < pad_dsp.param_count) {
             pad_dsp.setParamAbsolute(&self.pad, id, value);
         } else if (id == root_note_id) {
@@ -145,7 +145,7 @@ pub const Sampler = struct {
     /// accepts (toggles as 0/1) - the read half of undo's capture/restore
     /// pair. A control-thread read of live fields, same race-tolerant
     /// convention the sampler editor's own row rendering already uses.
-    pub fn paramValue(self: *const Sampler, id: u8) ?f32 {
+    pub fn paramValue(self: *const Sampler, id: u16) ?f32 {
         if (id < pad_dsp.param_count) return pad_dsp.paramValue(&self.pad, id);
         if (id == root_note_id) return @floatFromInt(self.root_note);
         if (id == mono_id) return if (self.mono) 1.0 else 0.0;
@@ -177,7 +177,7 @@ pub const Sampler = struct {
         // zig fmt: on
     };
 
-    pub fn findAutomatableParam(id: u8) ?*const dsp.AutomatableParam {
+    pub fn findAutomatableParam(id: u16) ?*const dsp.AutomatableParam {
         for (&automatable_params) |*p| if (p.id == id) return p;
         return null;
     }
@@ -310,8 +310,8 @@ pub const Sampler = struct {
             // e.id is u16 (wide enough for DrumMachine's pad-encoded ids);
             // truncate rather than @intCast, same reasoning as PolySynth's
             // identical arm.
-            .set_param => |e| self.adjustParam(@truncate(e.id), e.steps),
-            .set_param_abs => |e| self.setParamAbsolute(@truncate(e.id), e.value),
+            .set_param => |e| self.adjustParam(e.id, e.steps),
+            .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
             .cc, .pitch_bend, .clap_param, .set_sidechain_buf, .capture_pad => {},
             .all_off   => self.resetAll(),
             // zig fmt: on

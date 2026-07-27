@@ -71,7 +71,7 @@ pub const AutomationPointSnap = struct {
 /// One synth-instrument-param automation lane - see `ClipSnap.
 /// synth_param_automation`.
 pub const SynthParamAutomationSnap = struct {
-    param_id: u8,
+    param_id: u16,
     points: []const AutomationPointSnap = &.{},
 };
 

@@ -25,11 +25,11 @@ pub const Event = union(enum) {
     pitch_bend: struct { bend: i16 },
     /// Nudge editor parameter `id` by `steps` (signed). Applied on the audio
     /// thread so UI edits never race the reader - see PolySynth.adjustParam.
-    /// `id` is u16, not u8: DrumMachine.paramId packs a pad index (up to 64)
-    /// into the high bits, which no longer fits u8 now that pad count grew
-    /// past 15. Every other device's own adjustParam/setParamAbsolute still
-    /// takes a plain u8 (their param counts are all well under 256) - the
-    /// wider id only matters at this shared event boundary.
+    /// `id` is u16 everywhere: DrumMachine.paramId packs a pad index (up to
+    /// 64) into the high bits, and PolySynth's own flat id space ran out of
+    /// u8 room once the per-LFO sync/retrigger/slew blocks landed. Every
+    /// device's adjustParam/setParamAbsolute takes the same u16, so no
+    /// truncation happens anywhere between the editor and the device.
     set_param: struct { id: u16, steps: i32 },
     /// Set editor parameter `id` to an absolute value - the counterpart to
     /// `set_param` automation curves need, since a curve knows the value it
@@ -78,7 +78,7 @@ pub const Event = union(enum) {
 /// editor can look either table up through one shared type regardless of
 /// which instrument the current track holds.
 pub const AutomatableParam = struct {
-    id: u8,
+    id: u16,
     label: []const u8,
     section: []const u8,
     range: [2]f32,

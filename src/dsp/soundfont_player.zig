@@ -38,7 +38,7 @@ const Sample = types.Sample;
 pub const SoundfontPlayer = struct {
     pub const max_voices: u8 = 32;
     /// Editable params: GAIN, PAN, TRANSPOSE, PRESET (see `adjustParam`).
-    pub const param_count: u8 = 4;
+    pub const param_count: u16 = 4;
 
     allocator: std.mem.Allocator,
     sample_rate: u32,
@@ -214,7 +214,7 @@ pub const SoundfontPlayer = struct {
     // -----------------------------------------------------------------------
     // Param editing - id 0 GAIN, 1 PAN, 2 TRANSPOSE, 3 PRESET (index nudge).
 
-    pub fn adjustParam(self: *SoundfontPlayer, id: u8, steps: i32) void {
+    pub fn adjustParam(self: *SoundfontPlayer, id: u16, steps: i32) void {
         const d: f32 = @floatFromInt(steps);
         switch (id) {
             0 => self.gain = std.math.clamp(self.gain + d * 0.01, 0.0, 2.0),
@@ -231,7 +231,7 @@ pub const SoundfontPlayer = struct {
         }
     }
 
-    pub fn setParamAbsolute(self: *SoundfontPlayer, id: u8, value: f32) void {
+    pub fn setParamAbsolute(self: *SoundfontPlayer, id: u16, value: f32) void {
         if (!std.math.isFinite(value)) return;
         switch (id) {
             0 => self.gain = std.math.clamp(value, 0.0, 2.0),
@@ -242,7 +242,7 @@ pub const SoundfontPlayer = struct {
         }
     }
 
-    pub fn paramValue(self: *const SoundfontPlayer, id: u8) ?f32 {
+    pub fn paramValue(self: *const SoundfontPlayer, id: u16) ?f32 {
         return switch (id) {
             0 => self.gain,
             1 => self.pan,
@@ -263,7 +263,7 @@ pub const SoundfontPlayer = struct {
         // zig fmt: on
     };
 
-    pub fn findAutomatableParam(id: u8) ?*const dsp.AutomatableParam {
+    pub fn findAutomatableParam(id: u16) ?*const dsp.AutomatableParam {
         for (&automatable_params) |*p| if (p.id == id) return p;
         return null;
     }
@@ -385,8 +385,8 @@ pub const SoundfontPlayer = struct {
             // zig fmt: off
             .note_on       => |e| self.trigger(e.note, e.velocity, 0),
             .note_off      => |e| self.noteOff(e.note),
-            .set_param     => |e| self.adjustParam(@truncate(e.id), e.steps),
-            .set_param_abs => |e| self.setParamAbsolute(@truncate(e.id), e.value),
+            .set_param     => |e| self.adjustParam(e.id, e.steps),
+            .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
             .all_off       => self.resetAll(),
             .cc, .pitch_bend, .clap_param, .set_sidechain_buf, .capture_pad => {},
             // zig fmt: on

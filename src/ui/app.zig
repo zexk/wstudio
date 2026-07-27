@@ -498,7 +498,7 @@ pub const App = struct {
     /// by drawHelp, the anchor `n`/`N` continue from); reset on every open.
     help_search_hit: ?usize = null,
     synth_track: u16 = 0,
-    synth_cursor: u8 = 0,
+    synth_cursor: u16 = 0,
     synth_scroll: usize = 0,
     /// Track currently shown in the soundfont_editor view.
     soundfont_track: u16 = 0,

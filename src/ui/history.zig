@@ -362,9 +362,9 @@ pub fn flushFxNudge(app: *App) void {
 fn liveParamValue(app: *App, track: u16, id: u16) ?f32 {
     if (track >= app.session.racks.items.len) return null;
     return switch (app.session.racks.items[track].instrument) {
-        .poly_synth => |*s| if (id <= 0xFF) s.paramValue(@intCast(id)) else null,
-        .sampler => |*s| if (id <= 0xFF) s.paramValue(@intCast(id)) else null,
-        .soundfont => |*sf| if (id <= 0xFF) sf.paramValue(@intCast(id)) else null,
+        .poly_synth => |*s| s.paramValue(id),
+        .sampler => |*s| s.paramValue(id),
+        .soundfont => |*sf| sf.paramValue(id),
         .drum_machine => |*dm| dm.paramValue(id),
         .slicer => |*sl| sl.paramValue(id),
         .clap => null,

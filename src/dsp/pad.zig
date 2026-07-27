@@ -97,23 +97,23 @@ pub fn emptyPad() *const Pad {
 /// to these for 0-14. The *packed* half of the space must stay within one
 /// nibble - DrumMachine/Slicer pack the param id into `paramId`'s low 4 bits,
 /// which 0-14 still fits; Sampler's own ids past this table are never packed.
-pub const param_count: u8 = 15;
+pub const param_count: u16 = 15;
 
 /// Ids of the two on/off params in this table, so callers that need to treat
 /// toggles differently (undo capture, the automation param picker, the UI's
 /// enum rows) name them rather than hardcoding bare numbers.
-pub const reverse_id: u8 = 9;
-pub const gate_id: u8 = 14;
+pub const reverse_id: u16 = 9;
+pub const gate_id: u16 = 14;
 /// Playback transpose and duration multiplier, named for the same reason:
 /// callers that spread a chop's pitch across pads or fit a loop to the
 /// project tempo shouldn't hardcode the indices.
-pub const pitch_id: u8 = 2;
-pub const stretch_id: u8 = 12;
+pub const pitch_id: u16 = 2;
+pub const stretch_id: u16 = 12;
 
 /// Nudge shared pad param `id` (0-14) by `steps` (h/l = ±1, H/L = ±10). Shared
 /// by Sampler and Slicer, whose per-slice params were previously hand-copied
 /// switches over the same fields/ranges.
-pub fn adjustParam(pad: *Pad, id: u8, steps: i32) void {
+pub fn adjustParam(pad: *Pad, id: u16, steps: i32) void {
     if (id == reverse_id) {
         if (steps != 0) pad.reverse = !pad.reverse;
         return;
@@ -129,7 +129,7 @@ pub fn adjustParam(pad: *Pad, id: u8, steps: i32) void {
 /// Amount a one-step nudge changes each continuous pad parameter. Keeping
 /// these increments next to the canonical setter prevents the nudge and
 /// restore paths from drifting apart when a parameter range changes.
-fn paramStep(id: u8) f32 {
+fn paramStep(id: u16) f32 {
     return switch (id) {
         0, 1, 5, 7 => 0.01,
         2 => 1.0,
@@ -144,7 +144,7 @@ fn paramStep(id: u8) f32 {
 
 /// Absolute-value counterpart to `adjustParam`, same id space and clamp
 /// ranges - for undo's capture/restore. Toggle (reverse, id 9): >= 0.5 is on.
-pub fn setParamAbsolute(pad: *Pad, id: u8, value: f32) void {
+pub fn setParamAbsolute(pad: *Pad, id: u16, value: f32) void {
     if (!std.math.isFinite(value)) return;
     switch (id) {
         0 => pad.start_norm = std.math.clamp(value, 0.0, pad.end_norm - 0.01),
@@ -182,7 +182,7 @@ test "setParamAbsolute ignores non-finite values for every pad parameter" {
 /// Current value of shared pad param `id`, same unit/encoding
 /// `setParamAbsolute` accepts (reverse as 0/1) - the read half of undo's
 /// capture/restore pair.
-pub fn paramValue(pad: *const Pad, id: u8) ?f32 {
+pub fn paramValue(pad: *const Pad, id: u16) ?f32 {
     return switch (id) {
         // zig fmt: off
         0 => pad.start_norm,

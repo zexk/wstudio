@@ -25,7 +25,7 @@ pub fn modSourceName(source: anytype) []const u8 {
 }
 
 pub const ParamEntry = struct {
-    id: u8,
+    id: u16,
     label: []const u8,
     /// Consecutive ids folded into one on-screen row - 1 for every normal
     /// param, 3 for a mod-matrix slot (source/dest/depth). `w`/`b` move the
@@ -216,7 +216,7 @@ fn totalEntries(comptime sections: []const SectionDef) usize {
 /// `section` is the index into the owning `SectionDef` array, used for
 /// `{`/`}` section jumps and for looking up the section's title/color.
 pub const PositionedEntry = struct {
-    id: u8,
+    id: u16,
     label: []const u8,
     fields: u8,
     col: usize,
@@ -345,7 +345,7 @@ pub fn modHeights(n: usize) []const usize {
 // `[]const PositionedEntry` the caller resolved via mainOrder/modOrder).
 // ---------------------------------------------------------------------------
 
-pub fn indexContaining(order: []const PositionedEntry, id: u8) ?usize {
+pub fn indexContaining(order: []const PositionedEntry, id: u16) ?usize {
     for (order, 0..) |pe, i| {
         if (id >= pe.id and id < pe.id + pe.fields) return i;
     }
@@ -354,7 +354,7 @@ pub fn indexContaining(order: []const PositionedEntry, id: u8) ?usize {
 
 /// `j`/`k`/`g`/`G`: move by whole entries (rows), preserving which field of
 /// a multi-field entry (a mod-matrix slot) was focused when possible.
-pub fn moveEntry(order: []const PositionedEntry, cursor: u8, delta: i32) u8 {
+pub fn moveEntry(order: []const PositionedEntry, cursor: u16, delta: i32) u16 {
     if (order.len == 0) return cursor;
     const idx = indexContaining(order, cursor) orelse 0;
     const offset = cursor - order[idx].id;
@@ -366,7 +366,7 @@ pub fn moveEntry(order: []const PositionedEntry, cursor: u8, delta: i32) u8 {
 /// `w`/`b`: move within the current entry's `[id, id+fields)` span. A no-op
 /// for every `fields == 1` entry, so it's safe to bind unconditionally
 /// rather than only "when in the matrix".
-pub fn moveField(order: []const PositionedEntry, cursor: u8, delta: i32) u8 {
+pub fn moveField(order: []const PositionedEntry, cursor: u16, delta: i32) u16 {
     const idx = indexContaining(order, cursor) orelse return cursor;
     const e = order[idx];
     const off = std.math.clamp(@as(i32, cursor) - @as(i32, e.id) + delta, 0, @as(i32, e.fields) - 1);
@@ -377,7 +377,7 @@ pub fn moveField(order: []const PositionedEntry, cursor: u8, delta: i32) u8 {
 /// either end (matches the old sectionStarts-based behavior) - pressing
 /// backward while already on a section's first entry goes to the *previous*
 /// section's first entry instead of no-op'ing, exactly like vim's `{`.
-pub fn jumpSection(order: []const PositionedEntry, cursor: u8, forward: bool) u8 {
+pub fn jumpSection(order: []const PositionedEntry, cursor: u16, forward: bool) u16 {
     if (order.len == 0) return cursor;
     const idx = indexContaining(order, cursor) orelse 0;
     const cur_section = order[idx].section;
@@ -396,11 +396,11 @@ pub fn jumpSection(order: []const PositionedEntry, cursor: u8, forward: bool) u8
     return order[pstart].id;
 }
 
-pub fn firstEntry(order: []const PositionedEntry) u8 {
+pub fn firstEntry(order: []const PositionedEntry) u16 {
     return if (order.len > 0) order[0].id else 0;
 }
 
-pub fn lastEntry(order: []const PositionedEntry) u8 {
+pub fn lastEntry(order: []const PositionedEntry) u16 {
     return if (order.len > 0) order[order.len - 1].id else 0;
 }
 
