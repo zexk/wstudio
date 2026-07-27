@@ -184,6 +184,27 @@ pub const PatternPlayer = struct {
         self.note_count = 0;
     }
 
+    /// Duplicate the whole pattern after itself and double the loop length -
+    /// FL's "double pattern", the fast way to turn a one-bar loop into a
+    /// two-bar one whose second half you then vary. All-or-nothing on
+    /// capacity like `chop`: returns false untouched when the copy wouldn't
+    /// fit `max_notes`, or when there's nothing to copy (UI thread).
+    pub fn doubleLength(self: *PatternPlayer) bool {
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        const n: usize = self.note_count;
+        if (n == 0 or n * 2 > max_notes) return false;
+        if (!std.math.isFinite(self.length_beats * 2.0)) return false;
+        const shift = self.length_beats;
+        for (self.notes[0..n], self.notes[n .. n * 2]) |src, *dst| {
+            dst.* = src;
+            dst.start_beat += shift;
+        }
+        self.note_count = @intCast(n * 2);
+        self.length_beats = shift * 2.0;
+        return true;
+    }
+
     /// Copy the notes `sel` covers into `out`, rebased so `sel.lo_beat`
     /// becomes 0 (UI thread). Returns the count copied - the yank half of
     /// the piano roll's visual-mode range clipboard.
@@ -318,6 +339,27 @@ pub const PatternPlayer = struct {
         return touched;
     }
 
+    /// Scale every velocity `sel` covers so the loudest note lands at full,
+    /// keeping the dynamics between notes intact - the rescue for a take
+    /// recorded too timid, where `:vel-ramp` would flatten the performance.
+    /// Velocity-only in-place writes, so no lock is needed (same contract as
+    /// `velocityRamp`). Returns the count touched (UI thread).
+    pub fn normalizeVelocity(self: *PatternPlayer, sel: Sel) u16 {
+        var peak: f32 = 0.0;
+        for (self.notes[0..self.note_count]) |n| {
+            if (sel.contains(n)) peak = @max(peak, n.velocity);
+        }
+        if (peak <= 0.0 or @abs(peak - 1.0) < 1e-6) return 0;
+        const gain = 1.0 / peak;
+        var touched: u16 = 0;
+        for (self.notes[0..self.note_count]) |*n| {
+            if (!sel.contains(n.*)) continue;
+            n.velocity = std.math.clamp(n.velocity * gain, 0.05, 1.0);
+            touched += 1;
+        }
+        return touched;
+    }
+
     /// Extend every note in [lo_beat, hi_beat) to the next note onset (any
     /// pitch), so a line plays gapless - the classic legato tool. Notes
     /// sharing a start (a chord) all reach the same next onset; the last
@@ -441,6 +483,44 @@ pub const PatternPlayer = struct {
             }
         }
         return merged;
+    }
+
+    /// Drop stacked duplicates: any note `sel` covers that shares a pitch and
+    /// start with another, keeping the longest (loudest on a length tie).
+    /// Repeated stamps and layered pastes leave these behind, and they are
+    /// worse than merely redundant - two note_ons at one instant on one pitch
+    /// means the first copy's note_off chokes the second, so the survivor
+    /// plays short. Returns the count removed (UI thread).
+    pub fn dedupe(self: *PatternPlayer, sel: Sel) u16 {
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        var removed: u16 = 0;
+        var i: usize = 0;
+        outer: while (i < self.note_count) {
+            const a = self.notes[i];
+            if (sel.contains(a)) {
+                for (self.notes[0..self.note_count], 0..) |b, j| {
+                    if (j == i or !sel.contains(b) or b.pitch != a.pitch) continue;
+                    if (@abs(b.start_beat - a.start_beat) >= 1e-9) continue;
+                    // The whole array is scanned, not just the tail, so the
+                    // winner is the same wherever the pile sits. That makes
+                    // equal-quality pairs mutual, so index order breaks the
+                    // tie and exactly one member of each pile survives.
+                    const tie = @abs(b.duration_beat - a.duration_beat) < 1e-9 and
+                        @abs(b.velocity - a.velocity) < 1e-6;
+                    const better = b.duration_beat > a.duration_beat + 1e-9 or
+                        (@abs(b.duration_beat - a.duration_beat) < 1e-9 and b.velocity > a.velocity) or
+                        (tie and j > i);
+                    if (!better) continue;
+                    self.notes[i] = self.notes[self.note_count - 1];
+                    self.note_count -= 1;
+                    removed += 1;
+                    continue :outer;
+                }
+            }
+            i += 1;
+        }
+        return removed;
     }
 
     /// Split every note `sel` covers into `step_beats`-long pieces - FL's
@@ -704,6 +784,31 @@ pub const PatternPlayer = struct {
     pub fn setSwing(self: *PatternPlayer, pct: f32) void {
         if (!std.math.isFinite(pct)) return;
         self.swing.store(std.math.clamp(pct, swing_min, swing_max), .monotonic);
+    }
+
+    /// Pitch of the pattern's opening note (earliest start, lowest pitch on a
+    /// tie), or null when empty - `:invert`'s default mirror axis, so the
+    /// phrase starts on the same note it always did and only folds from there.
+    pub fn firstNotePitch(self: *const PatternPlayer) ?u7 {
+        var best: ?Note = null;
+        for (self.notes[0..self.note_count]) |n| {
+            const b = best orelse {
+                best = n;
+                continue;
+            };
+            const earlier = n.start_beat < b.start_beat - 1e-9;
+            const tied_lower = @abs(n.start_beat - b.start_beat) < 1e-9 and n.pitch < b.pitch;
+            if (earlier or tied_lower) best = n;
+        }
+        return if (best) |b| b.pitch else null;
+    }
+
+    /// Where the pattern's content actually ends: the latest note-off, 0 when
+    /// empty. `:fit` rounds this up to a bar to retune the loop length.
+    pub fn contentEndBeat(self: *const PatternPlayer) f64 {
+        var end: f64 = 0.0;
+        for (self.notes[0..self.note_count]) |n| end = @max(end, n.start_beat + n.duration_beat);
+        return end;
     }
 
     /// Mutable pointer to the note starting at pitch/start_beat, or null.
@@ -1548,4 +1653,88 @@ test "time-sliding a sounding note chokes it instead of stranding its note_off" 
     transport.advance(256);
     pp.processBlock(&buf);
     try std.testing.expect(!pp.sounding[60]);
+}
+
+test "doubleLength copies the pattern after itself and doubles the loop" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 4.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 2.5, .duration_beat = 0.5 });
+
+    try std.testing.expect(pp.doubleLength());
+    try std.testing.expectEqual(@as(u16, 4), pp.note_count);
+    try std.testing.expectApproxEqAbs(@as(f64, 8.0), pp.length_beats, 1e-9);
+    try std.testing.expect(pp.noteAt(60, 4.0) != null);
+    try std.testing.expect(pp.noteAt(64, 6.5) != null);
+
+    // Empty patterns and over-capacity copies leave everything alone.
+    pp.clearNotes();
+    try std.testing.expect(!pp.doubleLength());
+    pp.note_count = max_notes / 2 + 1;
+    try std.testing.expect(!pp.doubleLength());
+    try std.testing.expectApproxEqAbs(@as(f64, 8.0), pp.length_beats, 1e-9);
+}
+
+test "dedupe keeps the longest of each stacked pile" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 4.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 0.0, .duration_beat = 0.25 }); // chord, not a dup
+    pp.addNote(.{ .pitch = 60, .start_beat = 1.0, .duration_beat = 0.25 }); // later start, not a dup
+
+    const sel: Sel = .{ .lo_beat = 0.0, .hi_beat = 4.0 };
+    try std.testing.expectEqual(@as(u16, 2), pp.dedupe(sel));
+    try std.testing.expectEqual(@as(u16, 3), pp.note_count);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.noteAt(60, 0.0).?.duration_beat, 1e-9);
+    try std.testing.expect(pp.noteAt(64, 0.0) != null);
+    try std.testing.expect(pp.noteAt(60, 1.0) != null);
+    try std.testing.expectEqual(@as(u16, 0), pp.dedupe(sel)); // idempotent
+
+    // Exact duplicates collapse to one survivor, never zero.
+    pp.clearNotes();
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try std.testing.expectEqual(@as(u16, 2), pp.dedupe(sel));
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+}
+
+test "normalizeVelocity lifts the peak to full, keeping the ratios" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 4.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5, .velocity = 0.25 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 1.0, .duration_beat = 0.5, .velocity = 0.5 });
+
+    const sel: Sel = .{ .lo_beat = 0.0, .hi_beat = 4.0 };
+    try std.testing.expectEqual(@as(u16, 2), pp.normalizeVelocity(sel));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), pp.noteAt(60, 0.0).?.velocity, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), pp.noteAt(64, 1.0).?.velocity, 1e-6);
+    try std.testing.expectEqual(@as(u16, 0), pp.normalizeVelocity(sel)); // already peaking
+}
+
+test "firstNotePitch and contentEndBeat report the pattern's bounds" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 8.0;
+    try std.testing.expectEqual(@as(?u7, null), pp.firstNotePitch());
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), pp.contentEndBeat(), 1e-9);
+
+    pp.addNote(.{ .pitch = 72, .start_beat = 1.0, .duration_beat = 0.5 });
+    pp.addNote(.{ .pitch = 67, .start_beat = 0.0, .duration_beat = 0.5 }); // chord, lower wins
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try std.testing.expectEqual(@as(?u7, 60), pp.firstNotePitch());
+    try std.testing.expectApproxEqAbs(@as(f64, 1.5), pp.contentEndBeat(), 1e-9);
 }

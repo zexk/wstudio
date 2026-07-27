@@ -129,6 +129,11 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "quantize",    .desc = "[strength]  snap the pattern's notes to the current grid 0-100% (default 100, hard snap)", .run = wrap(cmdQuantize) },
     .{ .name = "swing",       .desc = "[percent]  piano-roll pattern swing 50-75% (default 50, straight) - matches the drum machine's", .run = wrap(cmdSwing) },
     .{ .name = "reverse",     .desc = "retrograde: mirror the pattern in time (visual-mode r reverses just the selection)", .run = wrap(cmdReverse) },
+    .{ .name = "invert",      .desc = "[pitch]  mirror the pattern around a pitch axis (default: its first note) - :reverse's vertical twin", .run = wrap(cmdInvert) },
+    .{ .name = "double",      .desc = "copy the pattern after itself and double the loop length - vary the back half from there", .run = wrap(cmdDouble) },
+    .{ .name = "fit",         .desc = "shrink or grow the loop to the bar the last note ends in", .run = wrap(cmdFit) },
+    .{ .name = "dedupe",      .desc = "drop notes stacked on an identical pitch and start, keeping the longest of each pile", .run = wrap(cmdDedupe) },
+    .{ .name = "normalize",   .desc = "lift every velocity until the loudest note peaks, keeping the dynamics between them (drum view: the whole kit)", .run = wrap(cmdNormalize) },
     .{ .name = "vel-ramp",    .desc = "<from> <to>  velocity ramp 0-100% across the pattern's notes (drum view: the cursor pad's hits)", .run = wrap(cmdVelRamp) },
     .{ .name = "legato",      .desc = "extend every note to the next onset - gapless phrasing, no more staccato gaps", .run = wrap(cmdLegato) },
     .{ .name = "glue",        .desc = "weld touching or overlapping same-pitch notes into one long note", .run = wrap(cmdGlue) },
@@ -490,6 +495,145 @@ fn cmdReverse(app: *App, _: []const u8) void {
         return;
     }
     app.setStatus("reverse: no pattern here", .{});
+}
+
+/// `:invert [pitch]` - the vertical twin of `:reverse`: mirror every note
+/// around a pitch axis (default: the pattern's opening note, so the phrase
+/// still starts where it did and only folds from there), turning an ascending
+/// figure into its descending answer. A note whose mirror would leave 0-127
+/// stays put instead of piling up on the boundary. Melodic only - a drum
+/// machine's pads aren't a pitch axis. Same track-resolution rule as `:clear`.
+fn cmdInvert(app: *App, args: []const u8) void {
+    const m = resolveMelodic(app) orelse {
+        app.setStatus("invert: no piano-roll pattern", .{});
+        return;
+    };
+    const trimmed = std.mem.trim(u8, args, " ");
+    const axis: u7 = if (trimmed.len == 0)
+        m.pp.firstNotePitch() orelse {
+            app.setStatus("invert: the pattern is empty", .{});
+            return;
+        }
+    else
+        std.fmt.parseInt(u7, trimmed, 10) catch {
+            app.setStatus("invert: expected a MIDI pitch 0-127, e.g. :invert 60", .{});
+            return;
+        };
+    var table: [128]u7 = undefined;
+    for (&table, 0..) |*to, p| {
+        const mirrored = 2 * @as(i32, axis) - @as(i32, @intCast(p));
+        to.* = if (mirrored >= 0 and mirrored <= 127) @intCast(mirrored) else @intCast(p);
+    }
+    history.recordMelodic(app, @intCast(m.track));
+    const moved = m.pp.remapPitch(.{ .lo_beat = 0.0, .hi_beat = m.pp.length_beats }, &table);
+    app.setStatus("inverted {d} notes around pitch {d}", .{ moved, axis });
+    piano_ed.syncLinkedClip(app);
+}
+
+/// `:double` - copy the pattern after itself and double the loop length, so a
+/// one-bar idea becomes a two-bar phrase whose back half you can then vary.
+/// Melodic only: a drum machine's length is its own step count, which the
+/// drum view's `+`/`-` already resize. Same track-resolution rule as `:clear`.
+fn cmdDouble(app: *App, _: []const u8) void {
+    const m = resolveMelodic(app) orelse {
+        app.setStatus("double: no piano-roll pattern", .{});
+        return;
+    };
+    var entry = history.captureMelodic(app, @intCast(m.track));
+    if (!m.pp.doubleLength()) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("double: the pattern is empty, or its copy wouldn't fit", .{});
+        return;
+    }
+    history.push(app, entry);
+    app.setStatus("doubled to {d:.0} beats, {d} notes", .{ m.pp.length_beats, m.pp.note_count });
+    piano_ed.syncLinkedClip(app);
+}
+
+/// `:fit` - shrink (or grow) the loop to the bar the last note ends in, so a
+/// pattern sketched inside an 8-bar default loops as the 2 bars it actually
+/// is. Rounds up to a whole bar rather than to the raw note-off: a loop that
+/// cuts mid-bar fights every other pattern in the session. Melodic only,
+/// same track-resolution rule as `:clear`.
+fn cmdFit(app: *App, _: []const u8) void {
+    const m = resolveMelodic(app) orelse {
+        app.setStatus("fit: no piano-roll pattern", .{});
+        return;
+    };
+    const end = m.pp.contentEndBeat();
+    if (end <= 0.0) {
+        app.setStatus("fit: the pattern is empty", .{});
+        return;
+    }
+    const bar: f64 = @floatFromInt(app.session.project.beats_per_bar);
+    const fitted = @max(bar, @ceil(end / bar - 1e-9) * bar);
+    if (@abs(fitted - m.pp.length_beats) < 1e-9) {
+        app.setStatus("fit: the loop already ends on {d:.0} beats", .{fitted});
+        return;
+    }
+    history.recordMelodic(app, @intCast(m.track));
+    m.pp.length_beats = fitted;
+    const bars = fitted / bar;
+    app.setStatus("loop fitted to {d:.0} beats ({d:.0} bar{s})", .{ fitted, bars, if (bars < 1.5) "" else "s" });
+    piano_ed.syncLinkedClip(app);
+}
+
+/// `:dedupe` - drop notes stacked on an identical pitch and start, keeping
+/// the longest of each pile. Repeated stamps and layered pastes leave these
+/// behind, and they don't just waste the pattern's note budget: the first
+/// copy's note_off chokes the second, so a doubled note plays short.
+/// Melodic only - a drum grid can't hold two hits in one cell. Same
+/// track-resolution rule as `:clear`.
+fn cmdDedupe(app: *App, _: []const u8) void {
+    const m = resolveMelodic(app) orelse {
+        app.setStatus("dedupe: no piano-roll pattern", .{});
+        return;
+    };
+    var entry = history.captureMelodic(app, @intCast(m.track));
+    const removed = m.pp.dedupe(.{ .lo_beat = 0.0, .hi_beat = m.pp.length_beats });
+    if (removed == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("dedupe: no stacked notes", .{});
+        return;
+    }
+    history.push(app, entry);
+    app.setStatus("removed {d} stacked note{s}", .{ removed, if (removed == 1) "" else "s" });
+    piano_ed.syncLinkedClip(app);
+}
+
+/// `:normalize` - scale every velocity up until the loudest note hits full,
+/// keeping the dynamics between notes intact. The rescue for a take played
+/// too timid, where `:vel-ramp` would flatten the performance instead. Falls
+/// through to the drum machine (same track-resolution rule as `:reverse`),
+/// which normalizes its whole kit against its own loudest hit.
+fn cmdNormalize(app: *App, _: []const u8) void {
+    if (resolveMelodic(app)) |m| {
+        var entry = history.captureMelodic(app, @intCast(m.track));
+        const touched = m.pp.normalizeVelocity(.{ .lo_beat = 0.0, .hi_beat = m.pp.length_beats });
+        if (touched == 0) {
+            if (entry) |*e| e.deinit(app.allocator);
+            app.setStatus("normalize: nothing to lift - already peaking, or empty", .{});
+            return;
+        }
+        history.push(app, entry);
+        app.setStatus("normalized {d} note velocities", .{touched});
+        piano_ed.syncLinkedClip(app);
+        return;
+    }
+    if (cursorDrumTrack(app)) |drum_track| {
+        const dm = cursorDrumMachine(app).?;
+        var entry = history.captureDrum(app, drum_track);
+        const touched = dm.normalizeVelocity();
+        if (touched == 0) {
+            if (entry) |*e| e.deinit(app.allocator);
+            app.setStatus("normalize: nothing to lift - already peaking, or empty", .{});
+            return;
+        }
+        history.push(app, entry);
+        app.setStatus("normalized {d} hit velocities", .{touched});
+        return;
+    }
+    app.setStatus("normalize: no pattern here", .{});
 }
 
 /// `:vel-ramp <from> <to>` - linear velocity ramp, both ends 0-100%. A

@@ -1005,6 +1005,32 @@ pub const DrumMachine = struct {
         }
     }
 
+    /// Scale every hit's velocity across the kit so the loudest lands at
+    /// `vel_full`, keeping the pattern's internal dynamics - the drum
+    /// counterpart to `PatternPlayer.normalizeVelocity`. No-op when the kit
+    /// already peaks. Returns the count touched.
+    pub fn normalizeVelocity(self: *DrumMachine) u32 {
+        var peak: u8 = 0;
+        for (self.midi) |row| {
+            for (row) |slot| {
+                if (slot) |note| peak = @max(peak, @as(u8, note.velocity));
+            }
+        }
+        if (peak == 0 or peak == vel_full) return 0;
+        const gain = @as(f32, @floatFromInt(vel_full)) / @as(f32, @floatFromInt(peak));
+        var touched: u32 = 0;
+        for (self.midi) |row| {
+            for (row) |*slot| {
+                if (slot.*) |*note| {
+                    const v = @as(f32, @floatFromInt(note.velocity)) * gain;
+                    note.velocity = @intFromFloat(std.math.clamp(@round(v), 1.0, @as(f32, @floatFromInt(vel_full))));
+                    touched += 1;
+                }
+            }
+        }
+        return touched;
+    }
+
     /// Replace one pad's row with a Euclidean rhythm: `pulses` full-velocity
     /// hits spread as evenly as possible across the pattern (the Bresenham
     /// formulation of Bjorklund's algorithm - onset wherever the running

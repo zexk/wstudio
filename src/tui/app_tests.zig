@@ -5416,7 +5416,7 @@ test "suggestion popup highlight tracks the completed candidate" {
     // bare "d" stem lands on the first real command instead.
     for (":d") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
-    try std.testing.expectEqualStrings("discard-lengths", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expectEqualStrings("double", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.escape, 0);
 
     for (":dr") |c| app.handleKey(.{ .char = c }, 0);
