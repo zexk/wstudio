@@ -310,8 +310,10 @@ pub const Lane = struct {
             }
             if (start < lo and end > hi) {
                 // The cut is a strict interior range: split into two clips.
-                // Dupe (which only reads c) and mutate c's length before the
-                // insert below, which can reallocate and invalidate `c`.
+                // Dupe (which only reads c) first, then reserve - the
+                // reservation can reallocate and invalidate `c`, so the left
+                // remainder is trimmed through a fresh index rather than
+                // through that pointer.
                 var right = try c.dupe(allocator);
                 self.clips.ensureUnusedCapacity(allocator, 1) catch |err| {
                     right.deinit(allocator);
@@ -319,7 +321,7 @@ pub const Lane = struct {
                 };
                 right.start_tick = hi;
                 right.length_ticks = end - hi;
-                c.length_ticks = lo - start;
+                self.clips.items[i].length_ticks = lo - start;
                 self.clips.insertAssumeCapacity(i + 1, right);
                 i += 2;
                 continue;
@@ -578,6 +580,21 @@ test "cutRange splits a clip the cut passes clean through the middle of" {
     try testing.expectEqual(@as(u32, 2), lane.clips.items[0].length_ticks);
     try testing.expectEqual(@as(u32, 3), lane.clips.items[1].start_tick);
     try testing.expectEqual(@as(u32, 1), lane.clips.items[1].length_ticks);
+}
+
+test "cutRange splits correctly when the reservation has to grow the clip list" {
+    const a = testing.allocator;
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    try lane.place(a, Clip.initDrum(0, 4, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
+    // Capacity == len, so the split's reservation reallocates mid-cut. The
+    // left remainder must still be trimmed in the NEW buffer.
+    lane.clips.shrinkAndFree(a, lane.clips.items.len);
+
+    try lane.cutRange(a, 2, 3);
+    try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
+    try testing.expectEqual(@as(u32, 2), lane.clips.items[0].length_ticks);
+    try testing.expectEqual(@as(u32, 3), lane.clips.items[1].start_tick);
 }
 
 test "cutRange leaves clips outside the range untouched and no-ops on an empty range" {
