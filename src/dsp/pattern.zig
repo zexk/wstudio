@@ -399,6 +399,100 @@ pub const PatternPlayer = struct {
         return touched;
     }
 
+    /// Merge notes `sel` covers that share a pitch and touch or overlap into
+    /// one long note - FL's glue tool, the inverse of `chop`. A merged note
+    /// spans from the earliest start to the latest end of the group and
+    /// keeps the surviving note's velocity; a real gap between two notes
+    /// leaves them alone, so gluing a whole pattern only welds what was
+    /// already contiguous. Returns the count absorbed (UI thread).
+    pub fn glue(self: *PatternPlayer, sel: Sel) u16 {
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        const eps = 1e-9;
+        var merged: u16 = 0;
+        var i: usize = 0;
+        while (i < self.note_count) : (i += 1) {
+            if (!sel.contains(self.notes[i])) continue;
+            // Restart the scan after every absorption: the merged note is
+            // longer than it was, so it may now reach a note that used to
+            // be out of range.
+            var absorbing = true;
+            while (absorbing) {
+                absorbing = false;
+                const a = self.notes[i];
+                const a_end = a.start_beat + a.duration_beat;
+                for (self.notes[0..self.note_count], 0..) |b, j| {
+                    if (j == i or b.pitch != a.pitch or !sel.contains(b)) continue;
+                    const b_end = b.start_beat + b.duration_beat;
+                    if (b.start_beat > a_end + eps or a.start_beat > b_end + eps) continue;
+                    const lo = @min(a.start_beat, b.start_beat);
+                    self.notes[i].start_beat = lo;
+                    self.notes[i].duration_beat = @max(a_end, b_end) - lo;
+                    self.queueNoteOff(a.pitch);
+                    self.notes[j] = self.notes[self.note_count - 1];
+                    self.note_count -= 1;
+                    // Swap-remove moves the last note into `j`; if that was
+                    // the note being extended, follow it to its new index.
+                    if (i == self.note_count) i = j;
+                    merged += 1;
+                    absorbing = true;
+                    break;
+                }
+            }
+        }
+        return merged;
+    }
+
+    /// Split every note `sel` covers into `step_beats`-long pieces - FL's
+    /// chop tool, the inverse of `glue`. The final piece keeps whatever
+    /// remainder is left rather than overshooting the original end, and a
+    /// note already shorter than one piece is left alone. All-or-nothing on
+    /// capacity: returns null without touching anything if the split would
+    /// need more than `max_notes`, since half a chopped pattern is worse
+    /// than none. Otherwise returns the count of pieces added (UI thread).
+    pub fn chop(self: *PatternPlayer, sel: Sel, step_beats: f64) ?u16 {
+        if (!std.math.isFinite(step_beats) or step_beats <= 0.0) return 0;
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        var extra: usize = 0;
+        for (self.notes[0..self.note_count]) |n| {
+            if (!sel.contains(n)) continue;
+            extra += pieceCount(n.duration_beat, step_beats) - 1;
+        }
+        if (extra == 0) return 0;
+        if (self.note_count + extra > max_notes) return null;
+
+        const original = self.note_count;
+        for (self.notes[0..original], 0..) |n, i| {
+            if (!sel.contains(n)) continue;
+            const pieces = pieceCount(n.duration_beat, step_beats);
+            if (pieces == 1) continue;
+            const end = n.start_beat + n.duration_beat;
+            self.queueNoteOff(n.pitch);
+            self.notes[i].duration_beat = step_beats;
+            for (1..pieces) |p| {
+                const start = n.start_beat + @as(f64, @floatFromInt(p)) * step_beats;
+                self.notes[self.note_count] = .{
+                    .pitch = n.pitch,
+                    .start_beat = start,
+                    .duration_beat = @min(step_beats, end - start),
+                    .velocity = n.velocity,
+                };
+                self.note_count += 1;
+            }
+        }
+        return @intCast(extra);
+    }
+
+    /// How many `step_beats` pieces `duration_beat` chops into: always at
+    /// least one, and capped at the pattern's own capacity so an absurdly
+    /// small step can't produce a piece count no pattern could hold anyway.
+    fn pieceCount(duration_beat: f64, step_beats: f64) usize {
+        if (duration_beat <= step_beats + 1e-9) return 1;
+        const n = @ceil(duration_beat / step_beats - 1e-9);
+        return @intFromFloat(@max(1.0, @min(n, @as(f64, @floatFromInt(max_notes)))));
+    }
+
     fn queueNoteOff(self: *PatternPlayer, pitch: u7) void {
         const word: usize = pitch / 64;
         const bit = @as(u64, 1) << @intCast(pitch % 64);
@@ -867,6 +961,77 @@ test "legato extends notes to the next onset, gapless" {
 
     // Degenerate range is a no-op.
     try std.testing.expectEqual(@as(u16, 0), pp.legato(2.0, 2.0));
+}
+
+test "glue welds touching same-pitch notes, leaves gaps and other pitches alone" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 4.0;
+    // Three touching 60s, a 64 on top of them, and a 60 after a real gap.
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.5, .duration_beat = 0.5 });
+    pp.addNote(.{ .pitch = 60, .start_beat = 1.0, .duration_beat = 0.5 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 0.0, .duration_beat = 0.5 });
+    pp.addNote(.{ .pitch = 60, .start_beat = 3.0, .duration_beat = 0.5 });
+
+    try std.testing.expectEqual(@as(u16, 2), pp.glue(.{ .lo_beat = 0.0, .hi_beat = 4.0 }));
+    try std.testing.expectEqual(@as(u16, 3), pp.note_count);
+    const welded = pp.noteAt(60, 0.0).?;
+    try std.testing.expectApproxEqAbs(@as(f64, 1.5), welded.duration_beat, 1e-9);
+    try std.testing.expect(pp.noteAt(64, 0.0) != null); // different pitch, untouched
+    try std.testing.expect(pp.noteAt(60, 3.0) != null); // across a gap, untouched
+
+    // Overlapping notes glue to the outer span, not the sum of durations.
+    pp.clearNotes();
+    pp.addNote(.{ .pitch = 60, .start_beat = 1.0, .duration_beat = 2.0 });
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.5 });
+    try std.testing.expectEqual(@as(u16, 1), pp.glue(.{ .lo_beat = 0.0, .hi_beat = 4.0 }));
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), pp.notes[0].start_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 3.0), pp.notes[0].duration_beat, 1e-9);
+
+    // A pitch band that excludes a note leaves it out of the weld.
+    pp.clearNotes();
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+    pp.addNote(.{ .pitch = 60, .start_beat = 1.0, .duration_beat = 1.0 });
+    try std.testing.expectEqual(@as(u16, 0), pp.glue(.{ .lo_beat = 0.0, .hi_beat = 0.5 }));
+    try std.testing.expectEqual(@as(u16, 2), pp.note_count);
+}
+
+test "chop splits notes into grid pieces, refuses when it would overflow" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 4.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0, .velocity = 0.4 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 2.0, .duration_beat = 0.25 }); // already one piece
+
+    try std.testing.expectEqual(@as(?u16, 3), pp.chop(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 0.25));
+    try std.testing.expectEqual(@as(u16, 5), pp.note_count);
+    for ([_]f64{ 0.0, 0.25, 0.5, 0.75 }) |start| {
+        const piece = pp.noteAt(60, start) orelse return error.MissingPiece;
+        try std.testing.expectApproxEqAbs(@as(f64, 0.25), piece.duration_beat, 1e-9);
+        try std.testing.expectApproxEqAbs(@as(f32, 0.4), piece.velocity, 1e-6); // velocity rides along
+    }
+
+    // A ragged tail keeps its remainder instead of overshooting the end.
+    pp.clearNotes();
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.6 });
+    try std.testing.expectEqual(@as(?u16, 2), pp.chop(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 0.25));
+    try std.testing.expectApproxEqAbs(@as(f64, 0.1), pp.noteAt(60, 0.5).?.duration_beat, 1e-9);
+
+    // Nothing to split, and invalid steps, are quiet no-ops.
+    try std.testing.expectEqual(@as(?u16, 0), pp.chop(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 1.0));
+    try std.testing.expectEqual(@as(?u16, 0), pp.chop(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 0.0));
+
+    // Overflow refuses outright, leaving the pattern exactly as it was.
+    pp.clearNotes();
+    for (0..300) |i| pp.addNote(.{ .pitch = 60, .start_beat = @as(f64, @floatFromInt(i)) * 0.01, .duration_beat = 1.0 });
+    try std.testing.expectEqual(@as(?u16, null), pp.chop(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 0.25));
+    try std.testing.expectEqual(@as(u16, 300), pp.note_count);
 }
 
 test "strum staggers a chord low-to-high for a positive offset" {

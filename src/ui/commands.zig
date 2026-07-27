@@ -127,6 +127,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "reverse",     .desc = "retrograde: mirror the pattern in time (visual-mode r reverses just the selection)", .run = wrap(cmdReverse) },
     .{ .name = "vel-ramp",    .desc = "<from> <to>  velocity ramp 0-100% across the pattern's notes (drum view: the cursor pad's hits)", .run = wrap(cmdVelRamp) },
     .{ .name = "legato",      .desc = "extend every note to the next onset - gapless phrasing, no more staccato gaps", .run = wrap(cmdLegato) },
+    .{ .name = "glue",        .desc = "weld touching or overlapping same-pitch notes into one long note", .run = wrap(cmdGlue) },
+    .{ .name = "chop-notes",  .desc = "split every note into pieces one grid step long (the inverse of :glue)", .run = wrap(cmdChopNotes) },
     .{ .name = "transpose",   .desc = "<semitones>  shift every note in the pattern (visual-mode j/k/J/K transposes just the selection)", .run = wrap(cmdTranspose) },
     .{ .name = "strum",       .desc = "<ms>  stagger each chord's notes by ms per rank - positive low-to-high, negative high-to-low", .run = wrap(cmdStrum) },
     .{ .name = "import-midi", .desc = "<file>  replace the pattern with a Standard MIDI File's notes",     .run = wrap(cmdImportMidi) },
@@ -543,6 +545,55 @@ fn cmdLegato(app: *App, _: []const u8) void {
     history.recordMelodic(app, @intCast(m.track));
     const changed = m.pp.legato(0.0, m.pp.length_beats);
     app.setStatus("legato: extended {d} notes", .{changed});
+    piano_ed.syncLinkedClip(app);
+}
+
+/// `:glue` - weld every run of touching or overlapping same-pitch notes
+/// into one long note (FL's glue tool). Melodic only, same track-resolution
+/// rule as `:legato`; a drum hit has no length to weld.
+fn cmdGlue(app: *App, _: []const u8) void {
+    const m = resolveMelodic(app) orelse {
+        app.setStatus("glue: no piano-roll pattern", .{});
+        return;
+    };
+    var entry = history.captureMelodic(app, @intCast(m.track));
+    const merged = m.pp.glue(.{ .lo_beat = 0.0, .hi_beat = m.pp.length_beats });
+    if (merged == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("glue: nothing adjacent to weld", .{});
+        return;
+    }
+    history.push(app, entry);
+    app.setStatus("glued {d} notes", .{merged});
+    piano_ed.syncLinkedClip(app);
+}
+
+/// `:chop-notes` - split every note into pieces one view-grid step long
+/// (the inverse of `:glue`), the fast way to turn held notes into a
+/// stutter. Uses `piano_division` like `:quantize` does, so `z`/`Z`/`T`
+/// pick the resolution. Refuses outright when the split wouldn't fit in the
+/// pattern's fixed note capacity rather than chopping half of it. Named for
+/// FL's "chop notes" rather than plain `:chop`, which the slicer's
+/// transient chop already owns.
+fn cmdChopNotes(app: *App, _: []const u8) void {
+    const m = resolveMelodic(app) orelse {
+        app.setStatus("chop-notes: no piano-roll pattern", .{});
+        return;
+    };
+    const step_beats = 1.0 / @as(f64, @floatFromInt(app.pianoStepsPerBeat()));
+    var entry = history.captureMelodic(app, @intCast(m.track));
+    const added = m.pp.chop(.{ .lo_beat = 0.0, .hi_beat = m.pp.length_beats }, step_beats) orelse {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("chop-notes: would exceed {d} notes", .{pattern_mod.max_notes});
+        return;
+    };
+    if (added == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("chop-notes: every note is already one {s} or shorter", .{app.piano_division.label()});
+        return;
+    }
+    history.push(app, entry);
+    app.setStatus("chopped into {s}: {d} new notes", .{ app.piano_division.label(), added });
     piano_ed.syncLinkedClip(app);
 }
 
