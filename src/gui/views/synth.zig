@@ -28,8 +28,8 @@ pub fn draw(app: anytype) void {
     drawTabs(app);
     zgui.spacing();
     switch (app.core.synth_subview) {
-        .main => drawSections(app, synth, &synth_layout.main_sections, "synth-main"),
-        .mod => drawSections(app, synth, &synth_layout.mod_sections, "synth-mod"),
+        .main => drawSections(app, synth, &synth_layout.main_sections, synth_layout.mainPlacements, "synth-main"),
+        .mod => drawSections(app, synth, &synth_layout.mod_sections, synth_layout.modPlacements, "synth-mod"),
         .fx => drawFx(app, synth),
     }
 }
@@ -56,7 +56,43 @@ fn setSubview(app: anytype, subview: synth_ed.Subview) void {
     }
 }
 
-fn drawSections(app: anytype, synth: *ws.dsp.PolySynth, comptime sections: []const synth_layout.SectionDef, comptime child_prefix: []const u8) void {
+/// Wraps a run of `widgets.knobCell`s into rows that fit the card, the way
+/// a synth panel packs a module's knobs into a block instead of a list.
+/// Controls that need the full card width (an ADSR plot, a filter pad, a
+/// named stepper) call `brk` first so they start on their own line.
+const Flow = struct {
+    const gap: f32 = 6;
+
+    cell_w: f32,
+    avail: f32,
+    used: f32 = 0,
+
+    fn init() Flow {
+        return .{ .cell_w = widgets.knobCellW(), .avail = zgui.getContentRegionAvail()[0] };
+    }
+
+    fn cell(self: *Flow) void {
+        const step = self.cell_w + gap;
+        if (self.used > 0 and self.used + step <= self.avail) {
+            zgui.sameLine(.{ .spacing = gap });
+        } else {
+            self.used = 0;
+        }
+        self.used += step;
+    }
+
+    fn brk(self: *Flow) void {
+        self.used = 0;
+    }
+};
+
+fn drawSections(
+    app: anytype,
+    synth: *ws.dsp.PolySynth,
+    comptime sections: []const synth_layout.SectionDef,
+    comptime placementsFor: fn (usize) []const synth_layout.Placement,
+    comptime child_prefix: []const u8,
+) void {
     const gap: f32 = 12;
     const available_width = zgui.getContentRegionAvail()[0];
     const columns: usize = if (available_width >= 1080) 3 else if (available_width >= 650) 2 else 1;
@@ -66,6 +102,11 @@ fn drawSections(app: anytype, synth: *ws.dsp.PolySynth, comptime sections: []con
     // (see App.last_cols's doc comment: it's read back by handleKey, not
     // fed a parameter, so it has to be kept current here every frame).
     app.core.last_cols = if (columns >= 3) 160 else if (columns == 2) 108 else 80;
+    // The same placements the cursor walks. This used to be a private
+    // `section_index % columns` round-robin, which put sections on screen in
+    // a different order than `j`/`k` moved through them - the cursor jumped
+    // between columns for no reason the eye could follow.
+    const placements = placementsFor(columns);
     const column_w = @max(280, (available_width - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns)));
     for (0..columns) |column| {
         if (column > 0) zgui.sameLine(.{ .spacing = gap });
@@ -78,29 +119,72 @@ fn drawSections(app: anytype, synth: *ws.dsp.PolySynth, comptime sections: []con
             .child_flags = .{ .border = true, .auto_resize_y = true },
             .window_flags = .{ .no_scrollbar = true, .no_scroll_with_mouse = true },
         })) {
-            for (sections, 0..) |section, section_index| {
-                if (section_index % columns != column) continue;
-                widgets.sectionTitle(section.title, sectionColor(section_index));
-                for (section.params) |entry| {
-                    if (isEnvelopeBase(entry.id)) {
-                        drawEnvelope(app, synth, entry.id);
-                    } else if (isFilterCutoff(entry.id)) {
-                        drawFilterPad(app, synth, entry.id);
-                    } else if (!isEnvelopeTail(entry.id) and !isFilterResonance(entry.id)) {
-                        for (0..entry.fields) |field| {
-                            var label_buf: [48]u8 = undefined;
-                            const id: u8 = @intCast(@as(usize, entry.id) + field);
-                            drawAnyParam(app, synth, id, synth_ed.paramLabel(id, &label_buf));
-                        }
-                        if (lfoShapeSlot(entry.id)) |slot| drawLfoCustomCurve(app, synth, slot);
-                    }
-                }
-                zgui.spacing();
+            for (sections, placements) |section, placement| {
+                if (placement.col != column) continue;
+                drawSectionCard(app, synth, section);
             }
         }
         zgui.endChild();
         zgui.popStyleColor(.{});
     }
+}
+
+/// A section's gate: the leading on/off param every switchable card starts
+/// with (OSC B/C, FILTER 2, ARP), hoisted into the header strip.
+fn sectionGate(section: synth_layout.SectionDef) ?u8 {
+    if (section.params.len == 0) return null;
+    const first = section.params[0].id;
+    return if (ws.dsp.PolySynth.isToggleParam(first)) first else null;
+}
+
+fn drawSectionCard(app: anytype, synth: *ws.dsp.PolySynth, section: synth_layout.SectionDef) void {
+    const accent = sectionColor(section.tone);
+    const gate = sectionGate(section);
+    if (gate) |id| {
+        var gate_buf: [32]u8 = undefined;
+        const gate_id = std.fmt.bufPrintZ(&gate_buf, "synth-gate-{d}", .{id}) catch "synth-gate";
+        const on = (synth.paramValue(id) orelse 0) >= 0.5;
+        if (widgets.sectionTitleGate(section.title, accent, .{ .id = gate_id, .on = on, .focused = app.core.synth_cursor == id })) {
+            nudgeParam(app, id, 'h');
+        }
+    } else {
+        widgets.sectionTitle(section.title, accent);
+    }
+
+    // A gated-off module still shows its settings, greyed - the same
+    // "these are here but doing nothing" cue the TUI's dimmed rows give.
+    const gated_off = if (gate) |id| (synth.paramValue(id) orelse 1) < 0.5 else false;
+    if (gated_off) zgui.pushStyleVar1f(.{ .idx = .alpha, .v = 0.45 });
+    defer if (gated_off) zgui.popStyleVar(.{});
+
+    var flow = Flow.init();
+    for (section.params) |entry| {
+        if (gate != null and entry.id == gate.?) continue;
+        // A mod-matrix slot: source, dest and depth are one row, not three.
+        if (entry.fields == 3) {
+            flow.brk();
+            drawMatrixRow(app, synth, entry.id, accent);
+            continue;
+        }
+        if (isEnvelopeTail(entry.id) or isFilterResonance(entry.id)) continue;
+        if (isEnvelopeBase(entry.id)) {
+            flow.brk();
+            drawEnvelope(app, synth, entry.id);
+            continue;
+        }
+        if (isFilterCutoff(entry.id)) {
+            flow.brk();
+            drawFilterPad(app, synth, entry.id);
+            continue;
+        }
+        var label_buf: [48]u8 = undefined;
+        drawParam(app, synth, entry.id, synth_ed.paramLabel(entry.id, &label_buf), accent, &flow);
+        if (lfoShapeSlot(entry.id)) |slot| {
+            flow.brk();
+            drawLfoCustomCurve(app, synth, slot);
+        }
+    }
+    zgui.spacing();
 }
 
 // AMP ENV (16-19), FILTER ENV (24-27), and ENV 3 (122-125) each pack
@@ -301,14 +385,109 @@ fn drawLfoCustomCurve(app: anytype, synth: *ws.dsp.PolySynth, slot: usize) void 
     if (result.activated_index) |i| app.core.synth_cursor = @intCast(base_usize + i * 2);
 }
 
-fn sectionColor(index: usize) [4]f32 {
-    return switch (index % 5) {
-        0 => theme.focus,
-        1 => theme.audio,
-        2 => theme.modulation,
-        3 => theme.rhythm,
-        else => theme.danger,
+/// The section's palette slot, from what it does to the signal rather than
+/// from where it happens to sit in the table (this hashed the section
+/// *index* into an accent before, so the same card changed color whenever a
+/// section was added ahead of it, and two oscillators could land on two
+/// different colors).
+fn sectionColor(tone: synth_layout.Tone) [4]f32 {
+    return switch (tone) {
+        .source => theme.focus,
+        .filter => theme.audio,
+        .env => theme.rhythm,
+        .mod => theme.modulation,
+        .util => theme.fg2,
     };
+}
+
+/// One mod-matrix slot on one line - slot number, source, destination,
+/// depth - instead of three stacked `source`/`dest`/`depth` rows. Every
+/// synth's matrix is a table, and for good reason: the routing only means
+/// anything read across, and 8 slots stacked three-deep is 24 rows of
+/// column-0 real estate.
+fn drawMatrixRow(app: anytype, synth: *ws.dsp.PolySynth, base_id: u8, accent: [4]f32) void {
+    const slot = (base_id - 59) / 3;
+    if (slot >= synth.mod_matrix.len) return;
+    const row = synth.mod_matrix[slot];
+    const on = row.source != .none;
+    const unit = zgui.getFontSize();
+    const start_x = zgui.getCursorPos()[0];
+    const src_x = start_x + unit * 1.7;
+    const dest_x = src_x + unit * 8.6;
+    const depth_x = dest_x + unit * 12.4;
+
+    zgui.textColored(if (on) theme.fg2 else theme.fg3, "{d}", .{slot + 1});
+    zgui.sameLine(.{ .spacing = 0 });
+    zgui.setCursorPosX(src_x);
+    drawStepperCell(app, base_id, synth_layout.modSourceName(row.source), unit * 7.2, accent);
+    zgui.sameLine(.{ .spacing = 0 });
+    zgui.setCursorPosX(dest_x);
+    drawStepperCell(app, base_id + 1, ws.dsp.PolySynth.modDestLabel(row.dest), unit * 10.6, accent);
+    zgui.sameLine(.{ .spacing = 0 });
+    zgui.setCursorPosX(depth_x);
+
+    const depth_id = base_id + 2;
+    const param = ws.dsp.PolySynth.findAutomatableParam(depth_id) orelse return;
+    var depth = row.depth;
+    var id_buf: [32]u8 = undefined;
+    const widget_id = std.fmt.bufPrintZ(&id_buf, "##synth-depth-{d}", .{depth_id}) catch return;
+    const result = widgets.knob(widget_id, .{
+        .v = &depth,
+        .min = param.range[0],
+        .max = param.range[1],
+        .cfmt = "%.2f",
+        .accent = if (on) accent else theme.fg3,
+        .focused = app.core.synth_cursor == depth_id,
+        .diameter = 20,
+    });
+    if (result.changed) sendParam(app, depth_id, depth);
+    if (result.activated) app.core.synth_cursor = depth_id;
+    zgui.sameLine(.{ .spacing = 6 });
+    const sign: []const u8 = if (row.depth >= 0.0) "+" else "";
+    zgui.textColored(if (on) theme.fg2 else theme.fg3, "{s}{d:.2}", .{ sign, row.depth });
+}
+
+/// A `- value +` nudge cell. `width` (0 for natural width) pins the minus
+/// and plus buttons to the cell's edges so a column of these lines up
+/// however wide the values in between happen to render.
+fn drawStepperCell(app: anytype, id: u8, display: []const u8, width: f32, accent: [4]f32) void {
+    const focused = app.core.synth_cursor == id;
+    const row_origin = zgui.getCursorScreenPos();
+    const start_x = zgui.getCursorPos()[0];
+    zgui.beginGroup();
+    var minus_buf: [40]u8 = undefined;
+    const minus = std.fmt.bufPrintZ(&minus_buf, "-##synth-minus-{d}", .{id}) catch return;
+    if (zgui.smallButton(minus)) nudgeParam(app, id, 'h');
+    const button_w = zgui.getItemRectMax()[0] - zgui.getItemRectMin()[0];
+    zgui.sameLine(.{ .spacing = 6 });
+    if (width > 0) zgui.setCursorPosX(start_x + button_w + 6);
+    zgui.textColored(if (focused) accent else theme.fg1, "{s}", .{display});
+    zgui.sameLine(.{ .spacing = 6 });
+    if (width > 0) zgui.setCursorPosX(start_x + @max(button_w + 6, width - button_w));
+    var plus_buf: [40]u8 = undefined;
+    const plus = std.fmt.bufPrintZ(&plus_buf, "+##synth-plus-{d}", .{id}) catch return;
+    if (zgui.smallButton(plus)) nudgeParam(app, id, 'l');
+    zgui.endGroup();
+    // Scroll while hovering the row steps it, one 'h'/'l' nudge per tick -
+    // same manual rect hit-test as widgets.listStepper, since isItemHovered
+    // doesn't chain through EndGroup.
+    const row_max = zgui.getItemRectMax();
+    const mouse = zgui.getMousePos();
+    const row_hovered = mouse[0] >= row_origin[0] and mouse[0] < row_max[0] and mouse[1] >= row_origin[1] and mouse[1] < row_max[1];
+    if (row_hovered and gui_style.wheel_delta != 0) {
+        gui_style.wheel_consumed = true;
+        nudgeParam(app, id, if (gui_style.wheel_delta > 0) 'l' else 'h');
+    }
+}
+
+/// Drops an FX param label's unit prefix ("mb.xover.lo" -> "xover.lo"):
+/// the card's own header already names the unit, and the prefix is what
+/// pushed "gate.threshold" past the width of a knob cell. TUI rows keep the
+/// full label - they're read as a flat list, with no header in view once the
+/// section scrolls off.
+fn stripUnitPrefix(label: []const u8) []const u8 {
+    const dot = std.mem.indexOfScalar(u8, label, '.') orelse return label;
+    return label[dot + 1 ..];
 }
 
 fn drawFx(app: anytype, synth: *ws.dsp.PolySynth) void {
@@ -342,78 +521,93 @@ fn drawFx(app: anytype, synth: *ws.dsp.PolySynth) void {
     })) {
         var candidates_buf: [synth_ed.max_search_candidates]synth_ed.SearchCandidate = undefined;
         var previous_kind: ?ws.dsp.synth.FxUnitKind = null;
+        var flow = Flow.init();
         for (synth_ed.searchCandidates(&app.core, &candidates_buf)) |candidate| {
             if (candidate.subview != .fx) continue;
             const kind = synth_ed.fxKindOfId(candidate.id) orelse continue;
             if (previous_kind == null or previous_kind.? != kind) {
                 if (previous_kind != null) zgui.spacing();
-                widgets.sectionTitle(spectrum_ed.unitLabel(synth_ed.asFxKind(kind)), theme.audio);
                 previous_kind = kind;
+                flow.brk();
+                const label = spectrum_ed.unitLabel(synth_ed.asFxKind(kind));
+                // A unit's first id is its on/off - hoist it into the header
+                // strip the same way a MAIN card's gate goes there.
+                if (ws.dsp.PolySynth.isToggleParam(candidate.id)) {
+                    var gate_buf: [32]u8 = undefined;
+                    const gate_id = std.fmt.bufPrintZ(&gate_buf, "synth-fx-gate-{d}", .{candidate.id}) catch "synth-fx-gate";
+                    const on = (synth.paramValue(candidate.id) orelse 0) >= 0.5;
+                    if (widgets.sectionTitleGate(label, theme.audio, .{
+                        .id = gate_id,
+                        .on = on,
+                        .focused = app.core.synth_cursor == candidate.id,
+                    })) nudgeParam(app, candidate.id, 'h');
+                    continue;
+                }
+                widgets.sectionTitle(label, theme.audio);
             }
-            drawAnyParam(app, synth, candidate.id, synth_ed.fxParamLabel(candidate.id));
+            drawParam(app, synth, candidate.id, stripUnitPrefix(synth_ed.fxParamLabel(candidate.id)), theme.audio, &flow);
         }
     }
     zgui.endChild();
     zgui.popStyleColor(.{});
 }
 
-fn drawAnyParam(app: anytype, synth: *ws.dsp.PolySynth, id: u8, label_text: []const u8) void {
+/// Draws whichever control `id` deserves: a knob cell for a continuous
+/// quantity (they flow into a grid), a waveform picker, an on/off button,
+/// or a named stepper for a list-valued param. The value text is always
+/// `synth_ed.paramValueText`'s - the same unit-aware string the status line
+/// prints, so a filter type reads "ladder" and a cutoff reads "1.20 kHz"
+/// instead of the raw float this used to render.
+fn drawParam(app: anytype, synth: *ws.dsp.PolySynth, id: u8, label_text: []const u8, accent: [4]f32, flow: *Flow) void {
+    const value = synth.paramValue(id) orelse return;
+    var value_buf: [40]u8 = undefined;
+    const value_text = synth_ed.paramValueText(synth, id, &value_buf);
+    const focused = app.core.synth_cursor == id;
+
     if (ws.dsp.PolySynth.findAutomatableParam(id)) |param| {
-        var value = synth.paramValue(id) orelse return;
-        var label_buf: [96]u8 = undefined;
-        const label = std.fmt.bufPrintZ(&label_buf, "{s}##gui-synth-{d}", .{ label_text, id }) catch return;
-        const focused = app.core.synth_cursor == id;
-        const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = param.range[0], .max = param.range[1], .cfmt = "%.3f", .accent = theme.focus, .focused = focused, .diameter = 24 });
-        if (result.changed) sendParam(app, id, value);
+        flow.cell();
+        var edited = value;
+        var id_buf: [40]u8 = undefined;
+        const widget_id = std.fmt.bufPrintZ(&id_buf, "##gui-synth-{d}", .{id}) catch return;
+        const result = widgets.knobCell(label_text, widget_id, value_text, .{
+            .v = &edited,
+            .min = param.range[0],
+            .max = param.range[1],
+            .cfmt = "%.3f",
+            .accent = accent,
+            .focused = focused,
+            .diameter = 28,
+        });
+        if (result.changed) sendParam(app, id, edited);
         if (result.activated) app.core.synth_cursor = id;
         return;
     }
-    const value = synth.paramValue(id) orelse return;
+
+    flow.brk();
     if (ws.dsp.PolySynth.isToggleParam(id)) {
-        drawParamToggle(app, id, label_text, value >= 0.5);
+        drawParamToggle(app, id, label_text, value >= 0.5, accent);
         return;
     }
     if (isWaveformParam(id)) {
-        drawWaveformParam(app, id, label_text, value);
+        drawWaveformParam(app, id, label_text, value, accent);
         return;
     }
-    const row_origin = zgui.getCursorScreenPos();
-    zgui.beginGroup();
-    zgui.text("{s}", .{label_text});
+    zgui.textColored(if (focused) accent else theme.fg1, "{s}", .{label_text});
     zgui.sameLine(.{ .spacing = 8 });
-    var minus_buf: [32]u8 = undefined;
-    const minus = std.fmt.bufPrintZ(&minus_buf, "-##synth-minus-{d}", .{id}) catch return;
-    if (zgui.smallButton(minus)) nudgeParam(app, id, 'h');
-    zgui.sameLine(.{ .spacing = 5 });
-    zgui.textColored(if (app.core.synth_cursor == id) theme.focus else theme.fg1, "{d:.2}", .{value});
-    zgui.sameLine(.{ .spacing = 5 });
-    var plus_buf: [32]u8 = undefined;
-    const plus = std.fmt.bufPrintZ(&plus_buf, "+##synth-plus-{d}", .{id}) catch return;
-    if (zgui.smallButton(plus)) nudgeParam(app, id, 'l');
-    zgui.endGroup();
-    // Scroll while hovering the row steps it, one 'h'/'l' nudge per tick -
-    // same manual rect hit-test as widgets.listStepper, since isItemHovered
-    // doesn't chain through EndGroup.
-    const row_max = zgui.getItemRectMax();
-    const mouse = zgui.getMousePos();
-    const row_hovered = mouse[0] >= row_origin[0] and mouse[0] < row_max[0] and mouse[1] >= row_origin[1] and mouse[1] < row_max[1];
-    if (row_hovered and gui_style.wheel_delta != 0) {
-        gui_style.wheel_consumed = true;
-        nudgeParam(app, id, if (gui_style.wheel_delta > 0) 'l' else 'h');
-    }
+    drawStepperCell(app, id, value_text, 0, accent);
 }
 
 /// A boolean param rendered as a single on/off button - `nudgeParam`'s
 /// h-step flips a toggle just like it would any other stepped value, so
 /// clicking it reuses the same command path an `h`/`l` keypress would.
-fn drawParamToggle(app: anytype, id: u8, label_text: []const u8, active: bool) void {
+fn drawParamToggle(app: anytype, id: u8, label_text: []const u8, active: bool, accent: [4]f32) void {
     const focused = app.core.synth_cursor == id;
-    zgui.text("{s}", .{label_text});
+    zgui.textColored(if (focused) accent else theme.fg1, "{s}", .{label_text});
     zgui.sameLine(.{ .spacing = 8 });
     var btn_buf: [48]u8 = undefined;
     const btn_id = std.fmt.bufPrintZ(&btn_buf, "{s}##synth-toggle-{d}", .{ if (active) "ON" else "OFF", id }) catch return;
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) theme.focus else if (focused) theme.bg4 else theme.bg2 });
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) theme.bg0 else if (focused) theme.focus else theme.fg2 });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) accent else if (focused) theme.bg4 else theme.bg3 });
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) theme.bg0 else if (focused) accent else theme.fg2 });
     if (zgui.smallButton(btn_id)) nudgeParam(app, id, 'h');
     zgui.popStyleColor(.{ .count = 2 });
 }
@@ -426,13 +620,13 @@ fn isWaveformParam(id: u8) bool {
     return id == 0 or id == 7 or id == 51;
 }
 
-fn drawWaveformParam(app: anytype, id: u8, label_text: []const u8, value: f32) void {
+fn drawWaveformParam(app: anytype, id: u8, label_text: []const u8, value: f32, accent: [4]f32) void {
     const focused = app.core.synth_cursor == id;
-    zgui.text("{s}", .{label_text});
+    zgui.textColored(if (focused) accent else theme.fg1, "{s}", .{label_text});
     var label_buf: [32]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "##synth-wave-{d}", .{id}) catch return;
     const current = ws.dsp.synth.enumFromValue(ws.dsp.synth.Waveform, value);
-    if (widgets.waveformPicker(label, current, theme.focus, focused)) |picked| {
+    if (widgets.waveformPicker(label, current, accent, focused)) |picked| {
         app.core.synth_cursor = id;
         sendParam(app, id, ws.dsp.synth.enumToValue(picked));
     }

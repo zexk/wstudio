@@ -8,15 +8,51 @@ const gui_style = @import("style.zig");
 /// accent chip (matching the header overview panels' accent bars) plus the
 /// label, then a separator and a bit of breathing room before the params.
 pub fn sectionTitle(label: []const u8, accent: [4]f32) void {
+    _ = sectionTitleGate(label, accent, null);
+}
+
+/// The whole section's on/off switch, parked at the right edge of its
+/// header strip.
+pub const SectionGate = struct {
+    id: [:0]const u8,
+    on: bool,
+    focused: bool = false,
+};
+
+/// `sectionTitle` with the section's own on/off switch in the header, the
+/// way a hardware panel gates a module from its label strip. As a param row
+/// it costs a full line and reads as just another value; up here it reads as
+/// what it is - whether the card below does anything. Returns true when the
+/// switch was clicked.
+pub fn sectionTitleGate(label: []const u8, accent: [4]f32, gate: ?SectionGate) bool {
+    const theme = &gui_style.palette;
     const draw_list = zgui.getWindowDrawList();
     const pos = zgui.getCursorScreenPos();
+    const start_x = zgui.getCursorPos()[0];
+    const avail = zgui.getContentRegionAvail()[0];
     draw_list.addRectFilled(.{ .pmin = .{ pos[0], pos[1] + 1 }, .pmax = .{ pos[0] + 3, pos[1] + 15 }, .col = gui_style.color(accent), .rounding = 1.5 });
     zgui.indent(.{ .indent_w = 10 });
     zgui.textColored(accent, "{s}", .{label});
     zgui.unindent(.{ .indent_w = 10 });
+
+    var clicked = false;
+    if (gate) |g| {
+        const text: [:0]const u8 = if (g.on) "ON" else "OFF";
+        const pill_w = zgui.calcTextSize(text, .{})[0] + 16;
+        zgui.sameLine(.{ .spacing = 0 });
+        zgui.setCursorPosX(start_x + @max(0, avail - pill_w));
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (g.on) accent else if (g.focused) theme.bg4 else theme.bg3 });
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (g.on) theme.bg0 else if (g.focused) accent else theme.fg2 });
+        var buf: [64]u8 = undefined;
+        const btn = std.fmt.bufPrintZ(&buf, "{s}##{s}", .{ text, g.id }) catch text;
+        clicked = zgui.smallButton(btn);
+        zgui.popStyleColor(.{ .count = 2 });
+    }
+
     zgui.dummy(.{ .w = 0, .h = 1 });
     zgui.separator();
     zgui.dummy(.{ .w = 0, .h = 5 });
+    return clicked;
 }
 
 /// A pill switch plus its label, laid out as a single row - the drop-in
@@ -372,6 +408,53 @@ pub fn paramKnob(label_text: []const u8, id: [:0]const u8, args: Knob) KnobResul
     zgui.textColored(if (args.focused) args.accent else theme.fg1, "{s}", .{label_text});
     var value_buf: [32]u8 = undefined;
     zgui.textDisabled("{s}", .{knobFormatValue(&value_buf, args.cfmt, args.v.*)});
+    zgui.endGroup();
+    return result;
+}
+
+/// Width of one `knobCell`, scaled off the current font so a large
+/// `gui_font_size` widens the grid instead of overlapping it.
+pub fn knobCellW() f32 {
+    return @max(68, zgui.getFontSize() * 5.2);
+}
+
+/// Fits `text` inside `max_w` by dropping trailing characters - cell labels
+/// are already short, this only guards a font big enough to overflow one.
+fn fitText(text: []const u8, max_w: f32) []const u8 {
+    var end = text.len;
+    while (end > 1 and zgui.calcTextSize(text[0..end], .{})[0] > max_w) : (end -= 1) {}
+    return text[0..end];
+}
+
+fn cellText(text: []const u8, col: [4]f32, cell_w: f32) void {
+    const fitted = fitText(text, cell_w);
+    const text_w = zgui.calcTextSize(fitted, .{})[0];
+    const x = zgui.getCursorPos()[0];
+    zgui.setCursorPosX(x + @max(0, (cell_w - text_w) * 0.5));
+    zgui.textColored(col, "{s}", .{fitted});
+}
+
+/// A knob as a fixed-width grid cell: name on top, dial, live value under
+/// it. `paramKnob`'s row form (dial left, name+value stacked right) costs a
+/// full text line of height per param and can only ever be one param wide,
+/// which turned a 12-param oscillator into a 12-row column; every hardware
+/// panel and soft-synth instead flows these cells left to right and wraps,
+/// so a section reads as a block of controls rather than a list. `value_text`
+/// is passed in (not derived from `cfmt`) so callers can show the same
+/// unit-aware string the status line uses.
+pub fn knobCell(label_text: []const u8, id: [:0]const u8, value_text: []const u8, args: Knob) KnobResult {
+    const theme = &gui_style.palette;
+    const cell_w = knobCellW();
+    zgui.beginGroup();
+    cellText(label_text, if (args.focused) args.accent else theme.fg1, cell_w);
+    const x = zgui.getCursorPos()[0];
+    zgui.setCursorPosX(x + @max(0, (cell_w - args.diameter) * 0.5));
+    const result = knob(id, args);
+    cellText(value_text, theme.fg2, cell_w);
+    // Pins the group's width to the cell grid: without it the group is only
+    // as wide as its widest line, and a row of cells would creep left of
+    // where the caller's flow math expects the next one.
+    zgui.dummy(.{ .w = cell_w, .h = 0 });
     zgui.endGroup();
     return result;
 }

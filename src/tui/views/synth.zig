@@ -325,7 +325,7 @@ fn drawSynthGrid(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize, 
 /// `mod_sections`' render functions - the `.mod` counterpart to
 /// `main_render_fns`.
 const mod_render_fns = [_]RenderFn{
-    secMatrix, secLfo, secLfo2, secLfo3, secEnv3, secMacro,
+    secLfo, secLfo2, secLfo3, secEnv3, secMacro, secMatrix,
 };
 comptime {
     if (mod_render_fns.len != synth_layout.mod_sections.len)

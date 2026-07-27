@@ -17,7 +17,6 @@
 //! than forcing a runtime-shaped subview through a comptime-static one.
 
 const std = @import("std");
-const style = @import("ansi.zig");
 
 const mod_source_names = [_][]const u8{ "off", "lfo", "fenv", "aenv", "vel", "key", "whl", "lfo2", "lfo3", "mc1", "mc2", "mc3", "mc4", "env3" };
 
@@ -36,22 +35,36 @@ pub const ParamEntry = struct {
     fields: u8 = 1,
 };
 
+/// What the section does to the signal, not what color to paint it - each
+/// frontend maps this onto its own palette (the GUI's `sectionColor`).
+/// Replaces a `color: []const u8` field holding raw ANSI escapes that no
+/// renderer ever actually read (the TUI's `sec*` functions hand-write their
+/// own), so the GUI was left hashing the section *index* into an accent.
+pub const Tone = enum { source, filter, env, mod, util };
+
 pub const SectionDef = struct {
     title: []const u8,
-    color: []const u8,
+    tone: Tone,
+    /// Row of cards this section belongs to. Sections sharing a band sit
+    /// side by side (band member `i` lands in column `i % num_cols`), so
+    /// the pairs that are read together - the two filters, the two
+    /// envelopes, the three oscillators - stay adjacent instead of being
+    /// scattered by a bin-packer chasing even column heights. Bands must
+    /// be declared in ascending order.
+    band: u8,
     params: []const ParamEntry,
 };
 
 // zig fmt: off
 pub const main_sections = [_]SectionDef{
-    .{ .title = "OSC A", .color = style.acc, .params = &.{
+    .{ .title = "OSC A", .tone = .source, .band = 0, .params = &.{
         .{ .id = 0,  .label = "waveform" },  .{ .id = 1,  .label = "pls.width" },
         .{ .id = 2,  .label = "detune" },    .{ .id = 3,  .label = "unison" },
         .{ .id = 4,  .label = "uni.det" },   .{ .id = 5,  .label = "spread" },
         .{ .id = 39, .label = "uni.mode" },  .{ .id = 41, .label = "warp" },
         .{ .id = 42, .label = "warp amt" },  .{ .id = 185, .label = "wt.pos" },
     } },
-    .{ .title = "OSC B", .color = style.acc, .params = &.{
+    .{ .title = "OSC B", .tone = .source, .band = 0, .params = &.{
         .{ .id = 6,  .label = "on/off" },    .{ .id = 7,  .label = "waveform" },
         .{ .id = 8,  .label = "pls.width" }, .{ .id = 9,  .label = "semi" },
         .{ .id = 10, .label = "detune" },    .{ .id = 11, .label = "level" },
@@ -59,73 +72,78 @@ pub const main_sections = [_]SectionDef{
         .{ .id = 40, .label = "uni.mode" },  .{ .id = 43, .label = "warp" },
         .{ .id = 44, .label = "warp amt" },  .{ .id = 186, .label = "wt.pos" },
     } },
-    .{ .title = "OSC C", .color = style.acc, .params = &.{
+    .{ .title = "OSC C", .tone = .source, .band = 0, .params = &.{
         .{ .id = 50, .label = "on/off" },    .{ .id = 51, .label = "waveform" },
         .{ .id = 52, .label = "pls.width" }, .{ .id = 53, .label = "semi" },
         .{ .id = 54, .label = "detune" },    .{ .id = 55, .label = "level" },
         .{ .id = 56, .label = "unison" },    .{ .id = 57, .label = "uni.det" },
         .{ .id = 58, .label = "uni.mode" },  .{ .id = 187, .label = "wt.pos" },
     } },
-    .{ .title = "SUB", .color = style.acc, .params = &.{
+    .{ .title = "SUB", .tone = .source, .band = 1, .params = &.{
         .{ .id = 34, .label = "level" }, .{ .id = 35, .label = "shape" },
     } },
-    .{ .title = "NOISE", .color = style.acc, .params = &.{
+    .{ .title = "NOISE", .tone = .source, .band = 1, .params = &.{
         .{ .id = 36, .label = "level" }, .{ .id = 37, .label = "color" },
     } },
-    .{ .title = "MOD  (A \u{2194} B)", .color = style.mag, .params = &.{
+    .{ .title = "MOD  (A \u{2194} B)", .tone = .mod, .band = 1, .params = &.{
         .{ .id = 14, .label = "mode" }, .{ .id = 15, .label = "amount" },
     } },
-    .{ .title = "FILTER 1", .color = style.yel, .params = &.{
+    .{ .title = "FILTER 1", .tone = .filter, .band = 2, .params = &.{
         .{ .id = 20, .label = "type" }, .{ .id = 21, .label = "cutoff" }, .{ .id = 22, .label = "res" },
     } },
-    .{ .title = "FILTER 2", .color = style.yel, .params = &.{
+    .{ .title = "FILTER 2", .tone = .filter, .band = 2, .params = &.{
         .{ .id = 45, .label = "on/off" }, .{ .id = 46, .label = "type" },
         .{ .id = 47, .label = "cutoff" }, .{ .id = 48, .label = "res" }, .{ .id = 49, .label = "routing" },
     } },
-    .{ .title = "AMP ENV", .color = style.grn, .params = &.{
+    .{ .title = "AMP ENV", .tone = .env, .band = 3, .params = &.{
         .{ .id = 16, .label = "attack" }, .{ .id = 17, .label = "decay" },
         .{ .id = 18, .label = "sustain" }, .{ .id = 19, .label = "release" },
     } },
-    .{ .title = "FILTER ENV", .color = style.grn, .params = &.{
+    .{ .title = "FILTER ENV", .tone = .env, .band = 3, .params = &.{
         .{ .id = 24, .label = "f.attack" }, .{ .id = 25, .label = "f.decay" },
         .{ .id = 26, .label = "f.sustain" }, .{ .id = 27, .label = "f.release" },
     } },
-    .{ .title = "VOICE", .color = style.blu, .params = &.{
+    .{ .title = "VOICE", .tone = .util, .band = 4, .params = &.{
         .{ .id = 32, .label = "mode" }, .{ .id = 33, .label = "glide" },
     } },
-    .{ .title = "ARP", .color = style.bcyn, .params = &.{
+    .{ .title = "ARP", .tone = .util, .band = 4, .params = &.{
         .{ .id = 116, .label = "on/off" }, .{ .id = 117, .label = "mode" },
         .{ .id = 118, .label = "octaves" }, .{ .id = 119, .label = "rate" },
         .{ .id = 120, .label = "gate" }, .{ .id = 121, .label = "hold" },
     } },
-    .{ .title = "OUT", .color = style.bcyn, .params = &.{
+    .{ .title = "OUT", .tone = .util, .band = 4, .params = &.{
         .{ .id = 38, .label = "gain" },
     } },
 };
 
 pub const mod_sections = [_]SectionDef{
-    .{ .title = "MATRIX", .color = style.mag, .params = &.{
+    .{ .title = "LFO 1", .tone = .mod, .band = 0, .params = &.{
+        .{ .id = 28, .label = "shape" }, .{ .id = 29, .label = "rate" },
+    } },
+    .{ .title = "LFO 2", .tone = .mod, .band = 0, .params = &.{
+        .{ .id = 95, .label = "shape" }, .{ .id = 96, .label = "rate" },
+    } },
+    .{ .title = "LFO 3", .tone = .mod, .band = 0, .params = &.{
+        .{ .id = 97, .label = "shape" }, .{ .id = 98, .label = "rate" },
+    } },
+    .{ .title = "ENV 3", .tone = .env, .band = 1, .params = &.{
+        .{ .id = 122, .label = "attack" }, .{ .id = 123, .label = "decay" },
+        .{ .id = 124, .label = "sustain" }, .{ .id = 125, .label = "release" },
+    } },
+    .{ .title = "MACROS", .tone = .util, .band = 1, .params = &.{
+        .{ .id = 99, .label = "macro 1" }, .{ .id = 100, .label = "macro 2" },
+        .{ .id = 101, .label = "macro 3" }, .{ .id = 102, .label = "macro 4" },
+    } },
+    // Last: the matrix is by far the tallest card here, and at the top of
+    // column 0 it pushed LFO 1 below the fold while LFO 2 and LFO 3 sat at
+    // the top of their own columns. The sources come first, what routes
+    // them comes after - and being third in its band puts it in the column
+    // the other two leave empty.
+    .{ .title = "MATRIX", .tone = .mod, .band = 1, .params = &.{
         .{ .id = 59, .label = "1", .fields = 3 }, .{ .id = 62, .label = "2", .fields = 3 },
         .{ .id = 65, .label = "3", .fields = 3 }, .{ .id = 68, .label = "4", .fields = 3 },
         .{ .id = 71, .label = "5", .fields = 3 }, .{ .id = 74, .label = "6", .fields = 3 },
         .{ .id = 77, .label = "7", .fields = 3 }, .{ .id = 80, .label = "8", .fields = 3 },
-    } },
-    .{ .title = "LFO 1", .color = style.mag, .params = &.{
-        .{ .id = 28, .label = "shape" }, .{ .id = 29, .label = "rate" },
-    } },
-    .{ .title = "LFO 2", .color = style.mag, .params = &.{
-        .{ .id = 95, .label = "shape" }, .{ .id = 96, .label = "rate" },
-    } },
-    .{ .title = "LFO 3", .color = style.mag, .params = &.{
-        .{ .id = 97, .label = "shape" }, .{ .id = 98, .label = "rate" },
-    } },
-    .{ .title = "ENV 3", .color = style.grn, .params = &.{
-        .{ .id = 122, .label = "attack" }, .{ .id = 123, .label = "decay" },
-        .{ .id = 124, .label = "sustain" }, .{ .id = 125, .label = "release" },
-    } },
-    .{ .title = "MACROS", .color = style.bcyn, .params = &.{
-        .{ .id = 99, .label = "macro 1" }, .{ .id = 100, .label = "macro 2" },
-        .{ .id = 101, .label = "macro 3" }, .{ .id = 102, .label = "macro 4" },
     } },
 };
 // zig fmt: on
@@ -136,21 +154,31 @@ pub const mod_sections = [_]SectionDef{
 
 pub const Placement = struct { col: usize, row0: usize };
 
-/// Greedy shortest-column-first packing, evaluated at comptime (both
-/// `sections` and `num_cols` are always compile-time known - see
-/// `main_order_*`/`mod_order_*` below). `row0` is the row within its column
-/// (0-based) where the section's own header lands; each section occupies a
-/// header, its params, and one blank row that separates adjacent cards.
+/// Band-driven column assignment, evaluated at comptime (both `sections`
+/// and `num_cols` are always compile-time known - see `main_order_*`/
+/// `mod_order_*` below): the `i`th section of a band lands in column
+/// `i % num_cols`, so a band is one row of cards across the grid and the
+/// 1-column bucket degenerates to plain declaration order. `row0` is the
+/// row within its column (0-based) where the section's own header lands;
+/// each section occupies a header, its params, and one blank row that
+/// separates adjacent cards. Columns are *not* row-aligned across bands -
+/// each one stacks its own cards tight - so a short card never leaves a
+/// hole under it.
+///
+/// This replaced a greedy shortest-column-first bin-packer. Even columns
+/// are worth less than adjacency here: that packer put FILTER 1 and
+/// FILTER 2 in different columns with AMP ENV between them, which is not
+/// how any synth lays out a front panel.
 fn packColumns(comptime sections: []const SectionDef, comptime num_cols: usize) [sections.len]Placement {
     var col_h = [_]usize{0} ** num_cols;
     var out: [sections.len]Placement = undefined;
+    var band_index: usize = 0;
     for (sections, 0..) |sec, i| {
-        var best: usize = 0;
-        for (1..num_cols) |c| {
-            if (col_h[c] < col_h[best]) best = c;
-        }
-        out[i] = .{ .col = best, .row0 = col_h[best] };
-        col_h[best] += sec.params.len + 2;
+        if (i > 0 and sections[i - 1].band != sec.band) band_index = 0;
+        const col = band_index % num_cols;
+        band_index += 1;
+        out[i] = .{ .col = col, .row0 = col_h[col] };
+        col_h[col] += sec.params.len + 2;
     }
     return out;
 }
@@ -244,6 +272,27 @@ pub fn numCols(cols: usize) usize {
 
 pub fn colWidth(cols: usize, n: usize) usize {
     return cols / n;
+}
+
+/// Which column each section landed in, for renderers that draw whole
+/// cards rather than walking entries (the GUI builds one child window per
+/// column and fills it section by section). Reading this instead of
+/// re-deriving a column split is what keeps the on-screen grid and the
+/// `j`/`k` order the same grid.
+pub fn mainPlacements(n: usize) []const Placement {
+    return switch (n) {
+        1 => &main_placements_1,
+        2 => &main_placements_2,
+        else => &main_placements_3,
+    };
+}
+
+pub fn modPlacements(n: usize) []const Placement {
+    return switch (n) {
+        1 => &mod_placements_1,
+        2 => &mod_placements_2,
+        else => &mod_placements_3,
+    };
 }
 
 pub fn mainOrder(n: usize) []const PositionedEntry {
@@ -353,6 +402,11 @@ pub fn lastEntry(order: []const PositionedEntry) u8 {
 
 comptime {
     @setEvalBranchQuota(4000);
+    for ([_][]const SectionDef{ &main_sections, &mod_sections }) |sections| {
+        for (sections[1..], 1..) |sec, i| {
+            if (sec.band < sections[i - 1].band) @compileError("synth_layout: bands must be declared in ascending order");
+        }
+    }
     var seen = [_]bool{false} ** 195;
     for (main_sections) |sec| {
         for (sec.params) |p| {

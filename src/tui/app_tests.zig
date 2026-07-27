@@ -23,6 +23,7 @@ const style = @import("style.zig");
 const piano_ed = @import("../ui/editors/piano.zig");
 const sampler_ed = @import("../ui/editors/sampler.zig");
 const spectrum_ed = @import("../ui/editors/spectrum.zig");
+const synth_ed_mod = @import("../ui/editors/synth.zig");
 const preset_ed = @import("../ui/editors/preset_picker.zig");
 const icons = @import("../ui/icons.zig");
 const modal_mod = ws.input;
@@ -3706,6 +3707,32 @@ test "draw renders synth editor without errors" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "SYNTH") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "attack") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "sustain") != null);
+}
+
+test "synth MOD subview draws its sections in table order" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.handleKey(.enter, 0);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqual(synth_ed_mod.Subview.mod, app.synth_subview);
+
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try main_mod.draw(&app, &w, .{ .cols = 80, .rows = 100 });
+    const frame = w.buffered();
+    // views/synth.zig's mod_render_fns is index-matched to
+    // synth_layout.mod_sections with only a length check behind it, so a
+    // reorder of one and not the other draws the wrong card under a title
+    // with nothing failing to compile. Sources first, MATRIX last.
+    const lfo1 = std.mem.indexOf(u8, frame, "LFO 1") orelse return error.MissingLfo1;
+    const macros = std.mem.indexOf(u8, frame, "MACRO") orelse return error.MissingMacros;
+    const matrix = std.mem.indexOf(u8, frame, "MATRIX") orelse return error.MissingMatrix;
+    try std.testing.expect(lfo1 < macros);
+    try std.testing.expect(macros < matrix);
+    // secMatrix's own body, not just its title: proves the render fn that
+    // ran under the MATRIX header is the matrix one.
+    try std.testing.expect(std.mem.indexOf(u8, frame, "CUTOFF") != null);
 }
 
 test "synth section focus isolates navigation and rendering" {
