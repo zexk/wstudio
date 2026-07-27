@@ -2,6 +2,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
 const icons = @import("../../ui/icons.zig");
+const format = @import("../../ui/format.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
 
@@ -41,7 +42,7 @@ pub fn draw(app: anytype) void {
 
     widgets.sectionTitle("OUT", theme.focus);
     drawParam(app, track, sf, 0, "Gain", "%.2f");
-    drawParam(app, track, sf, 1, "Pan", widgets.pan_cfmt);
+    drawParam(app, track, sf, 1, "Pan", format.pan_cfmt);
     drawParam(app, track, sf, 2, "Transpose", "%.0f st");
 }
 
@@ -100,13 +101,13 @@ fn paramRange(id: u8) [2]f32 {
     return .{ 0, 1 };
 }
 
-fn drawParam(app: anytype, track: u16, sf: *ws.dsp.SoundfontPlayer, id: u8, label_text: []const u8, format: [:0]const u8) void {
+fn drawParam(app: anytype, track: u16, sf: *ws.dsp.SoundfontPlayer, id: u8, label_text: []const u8, cfmt: [:0]const u8) void {
     var value = sf.paramValue(id) orelse return;
     const range = paramRange(id);
     var label_buf: [64]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "{s}##soundfont-{d}", .{ label_text, id }) catch return;
     const focused = app.core.soundfont_param == id;
-    const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .accent = theme.focus, .focused = focused });
+    const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = cfmt, .accent = theme.focus, .focused = focused });
     if (result.changed) setParam(app, track, id, value);
     if (result.activated) app.core.soundfont_param = id;
 }

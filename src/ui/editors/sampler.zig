@@ -11,6 +11,8 @@ const app_mod = @import("../app.zig");
 const App = app_mod.App;
 const SamplerMarker = app_mod.SamplerMarker;
 const history = @import("../history.zig");
+const format = @import("../format.zig");
+
 /// Waveform panel caps, shared with the TUI render half (views/sampler.zig):
 /// width in columns and height in rows (min'd against the leftover row
 /// budget). The mouse hit-testing below mirrors the draw path exactly.
@@ -42,7 +44,7 @@ pub const pad_sections = [_]Section{
     } },
     .{ .kind = .output, .title = "OUT", .rows = &.{
         .{ .id = 7, .label = "Gain",    .gui_format = "%.2f" },
-        .{ .id = 8, .label = "Pan",     .gui_format = "%.0f" },
+        .{ .id = 8, .label = "Pan",     .gui_format = format.pan_cfmt },
         .{ .id = 9, .label = "Reverse", .gui_format = "%.0f" },
     } },
     .{ .kind = .fade, .title = "FADE", .rows = &.{

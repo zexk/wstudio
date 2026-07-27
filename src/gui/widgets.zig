@@ -248,12 +248,8 @@ fn stripNegativeZero(s: []const u8, digits: u2) []const u8 {
     return s[1..];
 }
 
-/// Sentinel `cfmt` recognized by `knobFormatValue`: renders a -1..1 pan
-/// value as a mixer-style L<n>/C/R<n> readout instead of a raw float.
-pub const pan_cfmt: [:0]const u8 = "%pan";
-
 fn knobFormatValue(buf: []u8, cfmt: [:0]const u8, value: f32) []const u8 {
-    if (std.mem.eql(u8, cfmt, pan_cfmt)) return format.panLabel(buf, value);
+    if (std.mem.eql(u8, cfmt, format.pan_cfmt)) return format.panLabel(buf, value);
     const at = std.mem.indexOf(u8, cfmt, "%.") orelse {
         const s = std.fmt.bufPrint(buf, "{d:.2}", .{value}) catch return "";
         return stripNegativeZero(s, 2);
@@ -324,7 +320,7 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
         var edit = args.v.*;
         zgui.setNextItemWidth(90);
         zgui.setKeyboardFocusHere(0);
-        const edit_cfmt: [:0]const u8 = if (std.mem.eql(u8, args.cfmt, pan_cfmt)) "%.2f" else args.cfmt;
+        const edit_cfmt: [:0]const u8 = if (std.mem.eql(u8, args.cfmt, format.pan_cfmt)) "%.2f" else args.cfmt;
         if (zgui.inputFloat("##value", .{ .v = &edit, .cfmt = edit_cfmt, .flags = .{ .enter_returns_true = true } })) {
             const next = std.math.clamp(edit, args.min, args.max);
             if (next != args.v.*) {

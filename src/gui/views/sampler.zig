@@ -85,7 +85,7 @@ fn drawSharedSections(app: anytype, target: Target) void {
                     if (row.id == 9)
                         drawToggle(app, target, row.id, "REVERSE", "FORWARD", if (target == .pad) theme.modulation else theme.focus)
                     else
-                        drawParam(app, target, row.id, row.label, if (row.id == 8) widgets.pan_cfmt else row.gui_format);
+                        drawParam(app, target, row.id, row.label, row.gui_format);
                 }
             }
         }

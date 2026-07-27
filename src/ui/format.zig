@@ -8,6 +8,11 @@ const std = @import("std");
 /// hair off zero, and reading "L0%" there is noise, not information.
 pub const pan_center_epsilon: f32 = 0.005;
 
+/// Sentinel a param table puts in a `gui_format` slot to ask for `panLabel`
+/// instead of a printf float (see gui/widgets.zig's `knobFormatValue`) - it
+/// lives here so the tables in ui/ can name it without importing the GUI.
+pub const pan_cfmt: [:0]const u8 = "%pan";
+
 /// Mixer-style pan readout: "C", or the side plus how far it leans.
 pub fn panLabel(buf: []u8, pan: f32) []const u8 {
     if (@abs(pan) < pan_center_epsilon) return "C";
