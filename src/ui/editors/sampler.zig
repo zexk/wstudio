@@ -37,6 +37,7 @@ pub const pad_sections = [_]Section{
         .{ .id = 1,  .label = "End",     .gui_format = "%.3f" },
         .{ .id = 2,  .label = "Pitch",   .gui_format = "%.0f st" },
         .{ .id = 12, .label = "Stretch", .gui_format = "%.2fx" },
+        .{ .id = 14, .label = "Gate",    .gui_format = "%.0f" },
     } },
     .{ .kind = .envelope, .title = "AMP ENV", .rows = &.{
         .{ .id = 3, .label = "Attack",  .gui_format = "%.3f s" },
@@ -48,6 +49,7 @@ pub const pad_sections = [_]Section{
         .{ .id = 7, .label = "Gain",    .gui_format = "%.2f" },
         .{ .id = 8, .label = "Pan",     .gui_format = format.pan_cfmt },
         .{ .id = 9, .label = "Reverse", .gui_format = "%.0f" },
+        .{ .id = 13, .label = "Filter",  .gui_format = format.filter_cfmt },
     } },
     .{ .kind = .fade, .title = "FADE", .rows = &.{
         .{ .id = 10, .label = "Fade in",  .gui_format = "%.3f s" },
@@ -55,8 +57,8 @@ pub const pad_sections = [_]Section{
     } },
 };
 pub const key_section: Section = .{ .kind = .key, .title = "KEY", .rows = &.{
-    .{ .id = 13, .label = "Root note", .gui_format = "%.0f" },
-    .{ .id = 14, .label = "Voice",     .gui_format = "%.0f" },
+    .{ .id = Sampler.root_note_id, .label = "Root note", .gui_format = "%.0f" },
+    .{ .id = Sampler.mono_id,      .label = "Voice",     .gui_format = "%.0f" },
 } };
 // zig fmt: on
 
@@ -69,7 +71,7 @@ pub fn paramLineCount(pad_target: bool) usize {
 }
 
 /// Number of editable params for the sampler editor's current target.
-/// A slice carries the same 13 pad params a drum pad does (start..stretch),
+/// A slice carries the same shared pad params a drum pad does (start..gate),
 /// minus nothing - root/mono stay sampler-only.
 fn paramCount(app: *App) u8 {
     return switch (app.sampler_target) {
@@ -210,7 +212,7 @@ fn movePadBank(app: *App, delta: i32) void {
 /// after the rows they draw between (stretch sits in SAMPLE, root/voice in
 /// KEY), so row moves have to walk this list - counting ids straight up
 /// skips the stretch row and lands on the next section instead.
-fn paramOrder(pad_target: bool, count: u8, out: *[16]u8) []const u8 {
+fn paramOrder(pad_target: bool, count: u8, out: *[24]u8) []const u8 {
     var n: usize = 0;
     for (pad_sections) |section| {
         for (section.rows) |row| {
@@ -234,7 +236,7 @@ fn paramOrder(pad_target: bool, count: u8, out: *[16]u8) []const u8 {
 /// Move the param cursor by `delta` rows, clamped to the param list -
 /// mirrors the synth editor's equivalent.
 fn moveCursor(app: *App, delta: i32) void {
-    var buf: [16]u8 = undefined;
+    var buf: [24]u8 = undefined;
     const order = paramOrder(app.sampler_target != .sampler, paramCount(app), &buf);
     var idx: u8 = 0;
     for (order, 0..) |id, i| {
@@ -245,22 +247,22 @@ fn moveCursor(app: *App, delta: i32) void {
 
 /// First/last param row the editor draws, for g/G.
 fn edgeParam(app: *App, last: bool) u8 {
-    var buf: [16]u8 = undefined;
+    var buf: [24]u8 = undefined;
     const order = paramOrder(app.sampler_target != .sampler, paramCount(app), &buf);
     return if (last) order[order.len - 1] else order[0];
 }
 
 test "param row order follows the drawn rows, not the raw id space" {
-    var buf: [16]u8 = undefined;
+    var buf: [24]u8 = undefined;
     // A drum pad / slice: stretch (id 12) draws inside SAMPLE, so j from
     // pitch has to land on it rather than skipping to the AMP ENV section.
     const pad = paramOrder(true, DrumMachine.pad_param_count, &buf);
-    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, pad);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 14, 3, 4, 5, 6, 7, 8, 9, 13, 10, 11 }, pad);
 
-    var buf2: [16]u8 = undefined;
+    var buf2: [24]u8 = undefined;
     // A standalone Sampler adds the KEY section at the bottom.
     const sampler = paramOrder(false, Sampler.param_count, &buf2);
-    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14 }, sampler);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 14, 3, 4, 5, 6, 7, 8, 9, 13, 10, 11, 15, 16 }, sampler);
 }
 
 /// Audition the sampler editor's current target.

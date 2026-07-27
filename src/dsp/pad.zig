@@ -54,6 +54,19 @@ pub const Pad = struct {
     /// composing into a duration-preserving pitch-shift. See
     /// `renderVoiceStretched`.
     stretch_ratio: f32 = 1.0,
+    /// Bipolar tone filter (-1..+1), one knob covering both directions the
+    /// way a DJ/sampler filter does: negative sweeps a one-pole low-pass down
+    /// from 20 kHz to 200 Hz, positive sweeps a one-pole high-pass up from
+    /// 20 Hz to 8 kHz. 0 (the default) bypasses the filter entirely, so an
+    /// untouched pad renders exactly as before.
+    filter: f32 = 0.0,
+    /// Gated playback: a note-off releases the voice over `release_s` instead
+    /// of letting it run to the region end. Off (the default) is the classic
+    /// one-shot/latched behaviour - a triggered pad always plays out. Only
+    /// the standalone Sampler ever sees a note-off (piano-roll note lengths);
+    /// step-sequenced drum pads and slices fire without one, so the flag is
+    /// inert there, same as in Serato's own pad tools.
+    gate: bool = false,
 };
 
 pub fn fixedName(name: []const u8) [8]u8 {
@@ -78,19 +91,30 @@ pub fn emptyPad() *const Pad {
 
 /// Number of shared, continuous per-pad params `adjustParam`/`setParamAbsolute`/
 /// `paramValue` cover - start/end/pitch/attack/decay/sustain/release/gain/pan,
-/// the reverse toggle at id 9, the fade in/out pair at 10/11, and stretch at
-/// 12. Callers with extra ids of their own (Sampler's root_note/mono, ...)
-/// dispatch those separately and fall through to these for 0-12. The whole
-/// space must stay within one nibble - DrumMachine/Slicer pack the param id
-/// into `paramId`'s low 4 bits.
-pub const param_count: u8 = 13;
+/// the reverse toggle at id 9, the fade in/out pair at 10/11, stretch at 12,
+/// filter at 13 and the gate toggle at 14. Callers with extra ids of their own
+/// (Sampler's root_note/mono, ...) dispatch those separately and fall through
+/// to these for 0-14. The *packed* half of the space must stay within one
+/// nibble - DrumMachine/Slicer pack the param id into `paramId`'s low 4 bits,
+/// which 0-14 still fits; Sampler's own ids past this table are never packed.
+pub const param_count: u8 = 15;
 
-/// Nudge shared pad param `id` (0-12) by `steps` (h/l = ±1, H/L = ±10). Shared
+/// Ids of the two on/off params in this table, so callers that need to treat
+/// toggles differently (undo capture, the automation param picker, the UI's
+/// enum rows) name them rather than hardcoding bare numbers.
+pub const reverse_id: u8 = 9;
+pub const gate_id: u8 = 14;
+
+/// Nudge shared pad param `id` (0-14) by `steps` (h/l = ±1, H/L = ±10). Shared
 /// by Sampler and Slicer, whose per-slice params were previously hand-copied
 /// switches over the same fields/ranges.
 pub fn adjustParam(pad: *Pad, id: u8, steps: i32) void {
-    if (id == 9) {
+    if (id == reverse_id) {
         if (steps != 0) pad.reverse = !pad.reverse;
+        return;
+    }
+    if (id == gate_id) {
+        if (steps != 0) pad.gate = !pad.gate;
         return;
     }
     const value = paramValue(pad, id) orelse return;
@@ -108,6 +132,7 @@ fn paramStep(id: u8) f32 {
         4, 6, 10, 11 => 0.005,
         8 => 0.05,
         12 => 0.05,
+        13 => 0.02,
         else => 0.0,
     };
 }
@@ -131,6 +156,8 @@ pub fn setParamAbsolute(pad: *Pad, id: u8, value: f32) void {
         10 => pad.fade_in_s  = std.math.clamp(value, 0.0, 5.0),
         11 => pad.fade_out_s = std.math.clamp(value, 0.0, 5.0),
         12 => pad.stretch_ratio = std.math.clamp(value, 0.25, 4.0),
+        13 => pad.filter     = std.math.clamp(value, -1.0, 1.0),
+        14 => pad.gate       = value >= 0.5,
         // zig fmt: on
         else => {},
     }
@@ -166,6 +193,8 @@ pub fn paramValue(pad: *const Pad, id: u8) ?f32 {
         10 => pad.fade_in_s,
         11 => pad.fade_out_s,
         12 => pad.stretch_ratio,
+        13 => pad.filter,
+        14 => if (pad.gate) 1.0 else 0.0,
         // zig fmt: on
         else => null,
     };
@@ -188,7 +217,80 @@ pub const Voice = struct {
     /// rather than a cached buffer, since `pad.samples` is already fully
     /// buffered and randomly addressable.
     stretch: StretchState = .{},
+    /// One-pole tone-filter state, touched only when `pad.filter != 0`.
+    filt: FilterState = .{},
+    /// Output frames rendered since this voice's note-off, or -1 while it is
+    /// still held. Only consulted for a gated pad (`Pad.gate`); a latched
+    /// one-shot leaves it at -1 for its whole life. See `release`.
+    release_frames: f64 = -1.0,
 };
+
+/// Mark `voice` released, starting the gated fade-out on the next rendered
+/// frame. Idempotent: a repeated note-off never restarts the fade.
+pub fn release(voice: *Voice) void {
+    if (voice.release_frames < 0.0) voice.release_frames = 0.0;
+}
+
+const FilterState = struct {
+    /// Low-pass accumulator / high-pass previous output.
+    z: f32 = 0,
+    /// High-pass previous input.
+    prev_in: f32 = 0,
+};
+
+/// Precomputed per-block filter setting, so the exp/pow cutoff math runs once
+/// per voice per block rather than once per frame.
+const FilterCoef = struct {
+    mode: enum { off, low, high } = .off,
+    a: f32 = 0,
+};
+
+/// Resolve `Pad.filter` into a one-pole coefficient. Both directions sweep
+/// exponentially (musical, not linear-in-Hz) and both collapse to a bypass at
+/// the knob's centre, so the transition through 0 is continuous.
+fn filterCoef(f: f32, sr: f64) FilterCoef {
+    if (@abs(f) < 0.001 or !std.math.isFinite(f)) return .{};
+    const amount: f64 = @min(@abs(f), 1.0);
+    const dt = 1.0 / @max(sr, 1.0);
+    if (f < 0.0) {
+        // 20 kHz (open) down to 200 Hz.
+        const fc = 20000.0 * std.math.pow(f64, 200.0 / 20000.0, amount);
+        const rc = 1.0 / (2.0 * std.math.pi * fc);
+        return .{ .mode = .low, .a = @floatCast(dt / (rc + dt)) };
+    }
+    // 20 Hz (open) up to 8 kHz.
+    const fc = 20.0 * std.math.pow(f64, 8000.0 / 20.0, amount);
+    const rc = 1.0 / (2.0 * std.math.pi * fc);
+    return .{ .mode = .high, .a = @floatCast(rc / (rc + dt)) };
+}
+
+/// One-pole filter step. Bypass returns `x` untouched (and leaves the state
+/// alone, so flipping the knob back off costs nothing).
+fn filterStep(st: *FilterState, c: FilterCoef, x: f32) f32 {
+    switch (c.mode) {
+        .off => return x,
+        .low => {
+            st.z += c.a * (x - st.z);
+            return st.z;
+        },
+        .high => {
+            st.z = c.a * (st.z + x - st.prev_in);
+            st.prev_in = x;
+            return st.z;
+        },
+    }
+}
+
+/// Gated note-off gain: a linear fade over `release_s` starting at the
+/// note-off, on top of whatever the amp envelope is already doing. Returns 0
+/// once the fade has run out, which the render loops treat as end-of-voice.
+fn gateLevel(release_frames: f64, sr: f64, release_s: f32) f32 {
+    if (release_frames < 0.0) return 1.0;
+    const dur: f64 = @max(@as(f64, @floatCast(release_s)), 0.001);
+    const t = release_frames / @max(sr, 1.0);
+    if (t >= dur) return 0.0;
+    return @floatCast(1.0 - t / dur);
+}
 
 const StretchState = struct {
     active: bool = false,
@@ -251,11 +353,18 @@ pub fn renderVoice(
     }
     voice.stretch.active = false;
 
+    const fc = filterCoef(pad.filter, sample_rate);
+    const gated = pad.gate;
+
     const start = voice.block_start;
     var i: usize = start;
     while (i < frames) : (i += 1) {
         // zig fmt: off
         if (voice.played >= region_len) { voice.active = false; break; }
+        // zig fmt: on
+        const gate_g = if (gated) gateLevel(voice.release_frames, sample_rate, pad.release_s) else 1.0;
+        // zig fmt: off
+        if (gate_g <= 0.0) { voice.active = false; break; }
         // zig fmt: on
 
         // Read position within the clip for this voice's progress.
@@ -273,11 +382,12 @@ pub fn renderVoice(
             linearRamp(t_out, pad.fade_in_s) *
             linearRamp(left_out, pad.fade_out_s);
 
-        const v = s * env;
+        const v = filterStep(&voice.filt, fc, s * env) * gate_g;
         buf[i * channels] += v * gl;
         buf[i * channels + 1] += v * gr;
 
         voice.played += rate;
+        if (voice.release_frames >= 0.0) voice.release_frames += 1.0;
     }
     voice.block_start = 0;
 }
@@ -333,6 +443,9 @@ fn renderVoiceStretched(
         st.cur_src = if (pad.reverse) hi - 1.0 else lo;
     }
 
+    const fc = filterCoef(pad.filter, sr);
+    const gated = pad.gate;
+
     const start = voice.block_start;
     var i: usize = start;
     while (i < frames) : (i += 1) {
@@ -358,6 +471,11 @@ fn renderVoiceStretched(
             voice.active = false;
             break;
         }
+        const gate_g = if (gated) gateLevel(voice.release_frames, sr, pad.release_s) else 1.0;
+        if (gate_g <= 0.0) {
+            voice.active = false;
+            break;
+        }
 
         var s = sampleAt(pad.samples, std.math.clamp(cur_read, lo, hi - 1.0));
         if (st.has_prev and st.out_in_grain < ha_i) {
@@ -378,12 +496,13 @@ fn renderVoiceStretched(
             linearRamp(t_out, pad.fade_in_s) *
             linearRamp(left_out, pad.fade_out_s);
 
-        const v = s * env;
+        const v = filterStep(&voice.filt, fc, s * env) * gate_g;
         buf[i * channels] += v * gl;
         buf[i * channels + 1] += v * gr;
 
         st.out_in_grain += 1;
         st.out_played += 1.0;
+        if (voice.release_frames >= 0.0) voice.release_frames += 1.0;
         const next_read = st.cur_src + dir * @as(f64, @floatFromInt(st.out_in_grain)) * rate;
         voice.played = if (pad.reverse) hi - 1.0 - next_read else next_read - lo;
     }
@@ -658,7 +777,8 @@ test "adjustParam uses the same bounds as absolute parameter assignment" {
     };
 
     for (0..param_count) |raw_id| {
-        if (raw_id == 9) continue; // reverse toggle, asserted below
+        // The two toggles have no step size to match; asserted below.
+        if (raw_id == reverse_id or raw_id == gate_id) continue;
         const id: u8 = @intCast(raw_id);
         var nudged = initial;
         var assigned = initial;
@@ -668,8 +788,66 @@ test "adjustParam uses the same bounds as absolute parameter assignment" {
     }
 
     var toggled = initial;
-    adjustParam(&toggled, 9, 1);
+    adjustParam(&toggled, reverse_id, 1);
     try testing.expect(toggled.reverse);
-    adjustParam(&toggled, 9, 0);
+    adjustParam(&toggled, reverse_id, 0);
     try testing.expect(toggled.reverse);
+
+    adjustParam(&toggled, gate_id, 1);
+    try std.testing.expect(toggled.gate);
+    adjustParam(&toggled, gate_id, 0);
+    try std.testing.expect(toggled.gate);
+    adjustParam(&toggled, gate_id, 1);
+    try std.testing.expect(!toggled.gate);
+}
+
+test "the tone filter bypasses at centre and cuts on either side" {
+    const sr = 48_000.0;
+    // Centre: byte-identical passthrough, state untouched.
+    var st: FilterState = .{};
+    const off = filterCoef(0.0, sr);
+    try std.testing.expectEqual(@as(f32, 0.7), filterStep(&st, off, 0.7));
+
+    // A hard low-pass can't jump to full scale in one sample (it ramps);
+    // a hard high-pass strips DC, so a constant input decays toward zero.
+    var lp_st: FilterState = .{};
+    const lp = filterCoef(-1.0, sr);
+    try std.testing.expect(filterStep(&lp_st, lp, 1.0) < 0.5);
+
+    var hp_st: FilterState = .{};
+    const hp = filterCoef(1.0, sr);
+    const first = filterStep(&hp_st, hp, 1.0);
+    var i: usize = 0;
+    while (i < 4800) : (i += 1) _ = filterStep(&hp_st, hp, 1.0);
+    try std.testing.expect(@abs(filterStep(&hp_st, hp, 1.0)) < first * 0.5);
+}
+
+test "a gated voice stops at its release time instead of the region end" {
+    var samples = [_]f32{0.5} ** 48_000;
+    var pad: Pad = .{ .samples = &samples, .gate = true, .release_s = 0.01 };
+    var voice: Voice = .{ .active = true };
+    var buf = [_]Sample{0} ** 512;
+
+    // Held: still ringing after a block.
+    renderVoice(&voice, &pad, &buf, 2, 256, 48_000.0);
+    try std.testing.expect(voice.active);
+
+    // Released: gone within the 10 ms release (480 frames), well before the
+    // clip's own 1 s region end.
+    release(&voice);
+    var blocks: usize = 0;
+    while (voice.active and blocks < 8) : (blocks += 1) {
+        renderVoice(&voice, &pad, &buf, 2, 256, 48_000.0);
+    }
+    try std.testing.expect(!voice.active);
+
+    // The same pad with gate off ignores the release entirely.
+    pad.gate = false;
+    var latched: Voice = .{ .active = true };
+    release(&latched);
+    blocks = 0;
+    while (blocks < 8) : (blocks += 1) {
+        renderVoice(&latched, &pad, &buf, 2, 256, 48_000.0);
+    }
+    try std.testing.expect(latched.active);
 }

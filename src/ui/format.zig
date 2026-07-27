@@ -20,6 +20,18 @@ pub fn panLabel(buf: []u8, pan: f32) []const u8 {
     return std.fmt.bufPrint(buf, "{c}{d}%", .{ panLetter(pan)[0], pct }) catch "C";
 }
 
+/// Same sentinel trick as `pan_cfmt`, for the bipolar pad tone filter: a raw
+/// float says nothing about which side of the knob is a low-pass.
+pub const filter_cfmt: [:0]const u8 = "%filter";
+
+/// Readout for `dsp.Pad.filter`: "off" at the centre, else the direction plus
+/// how far the knob is pushed ("LP 60%", "HP 25%").
+pub fn filterLabel(buf: []u8, f: f32) []const u8 {
+    if (@abs(f) < pan_center_epsilon) return "off";
+    const pct: u32 = @intFromFloat(@abs(f) * 100.0);
+    return std.fmt.bufPrint(buf, "{s} {d}%", .{ if (f < 0) "LP" else "HP", pct }) catch "off";
+}
+
 /// Just the side, for the status line's one-column-wide slot.
 pub fn panLetter(pan: f32) []const u8 {
     if (@abs(pan) < pan_center_epsilon) return "C";

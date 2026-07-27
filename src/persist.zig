@@ -330,6 +330,12 @@ pub const PadSnap = struct {
     /// Playback duration multiplier, independent of pitch (see `dsp.Pad`).
     /// Additive optional-with-default field, no version bump needed.
     stretch_ratio: f32 = 1.0,
+    /// Bipolar tone filter and gated-playback flag (see `dsp.Pad`). Additive
+    /// optional-with-default fields, no version bump needed - an older file
+    /// omits them and loads with the filter bypassed and the pad latched,
+    /// which is exactly how it behaved when it was saved.
+    filter: f32 = 0.0,
+    gate: bool = false,
     /// v5: user-loaded audio, exported to the project's sample sidecar on
     /// save. Path relative to the .wsj; empty = shipped/generated audio.
     sample_file: []const u8 = "",
@@ -956,6 +962,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                     .sustain = s.pad.sustain, .release_s = s.pad.release_s,
                     .fade_in_s = s.pad.fade_in_s, .fade_out_s = s.pad.fade_out_s,
                     .stretch_ratio = s.pad.stretch_ratio,
+                    .filter = s.pad.filter, .gate = s.pad.gate,
                     // Always saved - see the drum pad loop's comment above.
                     .name = try aa.dupe(u8, s.clipName()),
                 },
@@ -1009,6 +1016,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                         .sustain = p.sustain, .release_s = p.release_s,
                         .fade_in_s = p.fade_in_s, .fade_out_s = p.fade_out_s,
                         .stretch_ratio = p.stretch_ratio,
+                        .filter = p.filter, .gate = p.gate,
                         // Always saved (like a track name), independent of
                         // whether the pad has user-loaded audio - a `:rename`
                         // on a shipped-kit pad has no sample_file to carry the
@@ -1043,6 +1051,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                     .sustain = p.sustain, .release_s = p.release_s,
                     .fade_in_s = p.fade_in_s, .fade_out_s = p.fade_out_s,
                     .stretch_ratio = p.stretch_ratio,
+                    .filter = p.filter, .gate = p.gate,
                 };
             }
             sls.slices = slices;
@@ -2253,6 +2262,8 @@ fn applyPadSnap(p: *Pad, ps: PadSnap) void {
     p.fade_in_s       = finiteClamp(f32, ps.fade_in_s, 0.0, 5.0, 0.0);
     p.fade_out_s      = finiteClamp(f32, ps.fade_out_s, 0.0, 5.0, 0.0);
     p.stretch_ratio   = finiteClamp(f32, ps.stretch_ratio, 0.25, 4.0, 1.0);
+    p.filter          = finiteClamp(f32, ps.filter, -1.0, 1.0, 0.0);
+    p.gate            = ps.gate;
 }
 // zig fmt: on
 

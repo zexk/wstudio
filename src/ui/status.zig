@@ -9,6 +9,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const DrumMachine = ws.dsp.DrumMachine;
 const Slicer = ws.dsp.Slicer;
+const Sampler = ws.dsp.Sampler;
 const ansi = @import("ansi.zig");
 const format = @import("format.zig");
 const icons = @import("icons.zig");
@@ -293,10 +294,11 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
     }
 }
 
-/// Names for the sampler param rows, indexed by `app.sampler_param`. Indices
-/// 13-14 (root, voice) apply only to the standalone Sampler, not drum pads.
+/// Names for the sampler param rows, indexed by `app.sampler_param`. The last
+/// two (root, voice) apply only to the standalone Sampler, not drum pads.
 const sampler_param_labels = [_][]const u8{
-    "start", "end", "pitch", "attack", "decay", "sustain", "release", "gain", "pan", "reverse", "fade in", "fade out", "stretch", "root", "voice",
+    "start", "end",      "pitch",    "attack",  "decay",  "sustain", "release", "gain", "pan",
+    "reverse", "fade in", "fade out", "stretch", "filter", "play",    "root",    "voice",
 };
 
 pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
@@ -339,11 +341,16 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
         11 => try w.print("{d:.3} s", .{pad.fade_out_s}),
         12 => try w.print("{d:.2}x", .{pad.stretch_ratio}),
         13 => {
+            var fbuf: [12]u8 = undefined;
+            try w.writeAll(format.filterLabel(&fbuf, pad.filter));
+        },
+        14 => try w.writeAll(if (pad.gate) "gate" else "one-shot"),
+        Sampler.root_note_id => {
             const root: u7 = if (app.editingSampler()) |s| s.root_note else 60;
             var nbuf: [5]u8 = undefined;
             try w.writeAll(midi.noteName(root, &nbuf));
         },
-        14 => try w.writeAll(if (app.editingSampler()) |s| (if (s.mono) "mono" else "poly") else "poly"),
+        Sampler.mono_id => try w.writeAll(if (app.editingSampler()) |s| (if (s.mono) "mono" else "poly") else "poly"),
         else => {},
     }
     try w.writeAll(rst);

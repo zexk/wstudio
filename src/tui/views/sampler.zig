@@ -3,10 +3,12 @@
 const std = @import("std");
 const ws = @import("wstudio");
 const DrumMachine = ws.dsp.DrumMachine;
+const Sampler = ws.dsp.Sampler;
 const engine_mod = ws.engine;
 const midi = ws.midi;
 const style = @import("../style.zig");
 const icons = @import("../../ui/icons.zig");
+const format = @import("../../ui/format.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
 // by their original bare names.
@@ -136,7 +138,11 @@ pub fn drawSamplerEditor(
     }
     try barRow(w, c == 12, false, acc, "stretch", pad.stretch_ratio, 4.0,
         try std.fmt.bufPrint(&buf, "{d:.2}x", .{pad.stretch_ratio}));
-    written += 4;
+    {
+        const gate_names = [_][]const u8{ "one-shot", "gate" };
+        try enumRow(w, c == 14, false, acc, "play", &gate_names, if (pad.gate) 1 else 0);
+    }
+    written += 5;
 
     // ── AMP ENV ──────────────────────────────────
     try synthSection(w, sampler_ed.pad_sections[1].title, grn);
@@ -170,7 +176,9 @@ pub fn drawSamplerEditor(
         const rev_names = [_][]const u8{ "off", "on" };
         try enumRow(w, c == 9, false, bcyn, "reverse", &rev_names, if (pad.reverse) 1 else 0);
     }
-    written += 3;
+    try barRow(w, c == 13, false, bcyn, "filter", pad.filter + 1.0, 2.0,
+        format.filterLabel(&buf, pad.filter));
+    written += 4;
 
     // ── FADE: edit fades multiplied on top of the amp envelope ───────────────
     try synthSection(w, sampler_ed.pad_sections[3].title, acc);
@@ -187,12 +195,12 @@ pub fn drawSamplerEditor(
         written += 1;
         const root: u7 = if (app.editingSampler()) |s| s.root_note else 60;
         var nbuf: [5]u8 = undefined;
-        try barRow(w, c == 13, false, grn, "root", @floatFromInt(root), 127.0,
+        try barRow(w, c == Sampler.root_note_id, false, grn, "root", @floatFromInt(root), 127.0,
             try std.fmt.bufPrint(&buf, "{s} ({d})", .{ midi.noteName(root, &nbuf), root }));
         written += 1;
         const mono = if (app.editingSampler()) |s| s.mono else false;
         const voice_names = [_][]const u8{ "poly", "mono" };
-        try enumRow(w, c == 14, false, grn, "voice", &voice_names, if (mono) 1 else 0);
+        try enumRow(w, c == Sampler.mono_id, false, grn, "voice", &voice_names, if (mono) 1 else 0);
         written += 1;
     }
     // zig fmt: on

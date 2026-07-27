@@ -763,9 +763,16 @@ pub const Slicer = struct {
             .note_on => |e| if (self.slice_count > 0) {
                 self.chokeTrigger(e.note % self.slice_count, e.velocity, 0);
             },
+            // Only a gated slice (`Pad.gate`) acts on the release; the
+            // default latched slice plays out regardless.
+            .note_off => |e| if (self.slice_count > 0) {
+                for (&self.voices[e.note % self.slice_count]) |*sv| {
+                    if (sv.active) pad_mod.release(&sv.v);
+                }
+            },
             .set_param => |e| self.adjustParam(e.id, e.steps),
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
-            .note_off, .cc, .pitch_bend, .clap_param, .set_sidechain_buf, .capture_pad => {},
+            .cc, .pitch_bend, .clap_param, .set_sidechain_buf, .capture_pad => {},
             .all_off => self.resetAll(),
         }
     }

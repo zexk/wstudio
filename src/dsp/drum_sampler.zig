@@ -199,8 +199,10 @@ pub const DrumMachine = struct {
         steps_per_beat: u8 = 4,
         midi: [max_pads][]?MidiNote,
     };
-    /// Number of editable params per pad (see `adjustParam`).
-    pub const pad_param_count: u8 = 13;
+    /// Number of editable params per pad (see `adjustParam`) - `pad.zig`'s
+    /// whole shared table. Sampler's own root-note/mono ids past it stay off
+    /// the drum grid (a pad has no chromatic root and always chokes itself).
+    pub const pad_param_count: u8 = pad_mod.param_count;
     /// Max simultaneous per-pad sidechain-detector capture requests one
     /// block can carry - matches `Engine.max_sidechain_sources`, the real
     /// upper bound (every request this machine could ever receive in one
@@ -808,8 +810,9 @@ pub const DrumMachine = struct {
     /// reader, mirroring PolySynth.adjustParam. The pad index is the high bits
     /// of `id`; the param index is the low nibble (see `paramId`). Delegates
     /// straight to the pad's own Sampler.adjustParam - pads only ever receive
-    /// param indices 0..11 (the drum grid never exposes Sampler's root-note
-    /// param 12). A no-op on an unloaded (null) pad - nothing to nudge.
+    /// param indices below `pad_param_count` (the drum grid never exposes
+    /// Sampler's root-note/mono ids past it). A no-op on an unloaded (null)
+    /// pad - nothing to nudge.
     pub fn adjustParam(self: *DrumMachine, id: u16, steps: i32) void {
         const pad_idx: u8 = @intCast(id >> 4);
         const param: u8 = @intCast(id & 0x0F);
@@ -902,6 +905,8 @@ pub const DrumMachine = struct {
         fade_in_s: f32 = 0.0,
         fade_out_s: f32 = 0.0,
         stretch_ratio: f32 = 1.0,
+        filter: f32 = 0.0,
+        gate: bool = false,
         choke_group: u8 = 0,
     };
 
@@ -923,6 +928,8 @@ pub const DrumMachine = struct {
                     .fade_in_s = s.pad.fade_in_s,
                     .fade_out_s = s.pad.fade_out_s,
                     .stretch_ratio = s.pad.stretch_ratio,
+                    .filter = s.pad.filter,
+                    .gate = s.pad.gate,
                     .choke_group = self.choke_group[i],
                 };
             } else {
@@ -949,6 +956,8 @@ pub const DrumMachine = struct {
             pad.pad.fade_in_s = t.fade_in_s;
             pad.pad.fade_out_s = t.fade_out_s;
             pad.pad.stretch_ratio = t.stretch_ratio;
+            pad.pad.filter = t.filter;
+            pad.pad.gate = t.gate;
             self.choke_group[i] = t.choke_group;
         }
     }

@@ -82,8 +82,11 @@ fn drawSharedSections(app: anytype, target: Target) void {
                 drawAmpEnvelope(app, target);
             } else {
                 for (section.rows) |row| {
-                    if (row.id == 9)
-                        drawToggle(app, target, row.id, "REVERSE", "FORWARD", if (target == .pad) theme.modulation else theme.focus)
+                    const toggle_accent = if (target == .pad) theme.modulation else theme.focus;
+                    if (row.id == ws.dsp.pad.reverse_id)
+                        drawToggle(app, target, row.id, "REVERSE", "FORWARD", toggle_accent)
+                    else if (row.id == ws.dsp.pad.gate_id)
+                        drawToggle(app, target, row.id, "GATE", "ONE-SHOT", toggle_accent)
                     else
                         drawParam(app, target, row.id, row.label, row.gui_format);
                 }
@@ -267,12 +270,12 @@ fn drawHeader(app: anytype, sampler: *const ws.dsp.Sampler) void {
 }
 
 // Slider bounds come from the dsp-side spec table so they can never drift
-// from what setParamAbsolute actually clamps to. Pad ids 0-12 are the same
-// params the standalone sampler routes to dsp/pad.zig, so one table covers
-// both targets; root note (13) is the only continuous id outside it.
+// from what setParamAbsolute actually clamps to. The shared pad ids are the
+// same params the standalone sampler routes to dsp/pad.zig, so one table
+// covers both targets; root note is the only continuous id outside it.
 fn paramRange(id: u8) [2]f32 {
     if (ws.dsp.Sampler.findAutomatableParam(id)) |param| return param.range;
-    if (id == 13) return .{ 0, 127 };
+    if (id == ws.dsp.Sampler.root_note_id) return .{ 0, 127 };
     return .{ 0, 1 };
 }
 
