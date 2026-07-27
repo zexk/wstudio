@@ -151,12 +151,8 @@ pub fn draw(app: anytype) void {
     const controller_h: f32 = 96;
     const available = zgui.getContentRegionAvail();
     const row_count: usize = @intFromFloat(std.math.clamp(@floor((available[1] - ruler_h - controller_h - 8) / row_h), 24, 37));
-    const cursor_pitch: usize = app.core.piano_cursor_pitch;
-    const current_top: usize = app.piano_top_pitch;
-    const current_bottom = current_top -| (row_count - 1);
-    if (cursor_pitch > current_top) app.piano_top_pitch = @intCast(cursor_pitch);
-    if (cursor_pitch < current_bottom) app.piano_top_pitch = @intCast(@min(127, cursor_pitch + row_count - 1));
-    const top_pitch: u7 = app.piano_top_pitch;
+    piano_ed.followPitch(&app.core, @intCast(row_count));
+    const top_pitch: u7 = app.core.piano_scroll_pitch;
     const bottom_pitch: u7 = top_pitch -| @as(u7, @intCast(row_count - 1));
     const canvas_w = @max(320, available[0]);
     const canvas_h = ruler_h + row_h * @as(f32, @floatFromInt(row_count));

@@ -27,7 +27,6 @@ const zgui = @import("zgui");
 pub const App = struct {
     core: tui_app.App,
     arrangement_clip: ?arrangement_view.ClipSelection = null,
-    piano_top_pitch: u7 = 84,
     piano_mouse_edit: ?piano_view.MouseEdit = null,
     eq_drag_band: ?u8 = null,
     eq_analyzer_key: ?u32 = null,

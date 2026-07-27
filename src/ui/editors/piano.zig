@@ -457,12 +457,21 @@ fn ensureVisible(app: *App) void {
     if (app.piano_cursor_step >= app.piano_scroll_step + vis_cols) {
         app.piano_scroll_step = app.piano_cursor_step - vis_cols + 1;
     }
-    // vertical (pitch)
-    const top: i32 = @intCast(app.piano_scroll_pitch);
-    const bot: i32 = top - @as(i32, vis_rows) + 1;
-    const cur: i32 = @intCast(app.piano_cursor_pitch);
+    followPitch(app, vis_rows);
+}
+// zig fmt: on
+
+/// Vertical cursor-follow for the pitch window: keeps `piano_scroll_pitch`
+/// (the pitch of the top row) covering the cursor across a window
+/// `visible_rows` tall. Shared with the GUI roll, which sizes its window
+/// from the panel height instead of the terminal's row budget - both
+/// frontends scroll the one field rather than each keeping their own.
+pub fn followPitch(app: *App, visible_rows: u8) void {
+    const rows: i32 = @max(1, @as(i32, visible_rows));
+    const top: i32 = app.piano_scroll_pitch;
+    const cur: i32 = app.piano_cursor_pitch;
     if (cur > top) app.piano_scroll_pitch = @intCast(cur);
-    if (cur < bot) app.piano_scroll_pitch = @intCast(cur + @as(i32, vis_rows) - 1);
+    if (cur < top - rows + 1) app.piano_scroll_pitch = @intCast(@min(127, cur + rows - 1));
 }
 
 /// Toggle the note at the cursor: remove it if one starts here on this pitch,
