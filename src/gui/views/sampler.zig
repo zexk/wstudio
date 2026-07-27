@@ -321,23 +321,30 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
     const draw_list = zgui.getWindowDrawList();
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(theme.bg0), .rounding = 3 });
 
+    // Pitch and stretch change how long the region plays, so the region is
+    // drawn on its warped timeline while the trim markers stay put on the
+    // source columns they trim (ui/waveform.zig).
+    const scale = waveform.timeScale(target.value(2) orelse 0, target.value(12) orelse 1);
+    const played_end = waveform.playedEndNorm(start, end, scale);
+
     var overview: [512]f32 = undefined;
     const count = @min(samples.len, overview.len);
-    waveform.peakBuckets(samples, overview[0..count]);
+    waveform.peakBucketsWarped(samples, overview[0..count], start, end, scale);
     const mid_y = origin[1] + height / 2;
     const start_x = origin[0] + start * width;
     const end_x = origin[0] + end * width;
+    const played_end_x = origin[0] + played_end * width;
     for (overview[0..count], 0..) |peak, i| {
         const x = origin[0] + width * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(count));
         const h = @max(1, peak * height / 2 * 0.94);
-        const in_region = x >= start_x - 0.5 and x <= end_x + 0.5;
+        const in_region = x >= start_x - 0.5 and x <= played_end_x + 0.5;
         const line_color = if (in_region) theme.audio else [4]f32{ theme.fg3[0], theme.fg3[1], theme.fg3[2], 0.55 };
         draw_list.addLine(.{ .p1 = .{ x, mid_y - h }, .p2 = .{ x, mid_y + h }, .col = style.color(line_color), .thickness = 1 });
     }
     draw_list.addLine(.{ .p1 = .{ origin[0], mid_y }, .p2 = .{ origin[0] + width, mid_y }, .col = style.color(theme.line), .thickness = 1 });
 
     if (start > 0) draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ start_x, origin[1] + height }, .col = style.color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.6 }) });
-    if (end < 1) draw_list.addRectFilled(.{ .pmin = .{ end_x, origin[1] }, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.6 }) });
+    if (played_end < 1) draw_list.addRectFilled(.{ .pmin = .{ played_end_x, origin[1] }, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.6 }) });
 
     // Fade wedges: shade the region between each region edge and the
     // gain-ramp's full-level point, tapering to a point on the center line -

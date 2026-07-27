@@ -81,9 +81,16 @@ fn drawWavePane(
     const cur = app.slicer_cursor[0];
 
     // Per-column peak amplitude over the column's sample bucket, normalized
-    // to the loudest column (same shape as views/sampler.zig's pane).
+    // to the loudest column (same shape as views/sampler.zig's pane). Only
+    // the cursor slice - the one whose region is highlighted - is drawn on
+    // its warped playback timeline; the rest of the clip stays source-time.
     var amp: [wave_max_w]f32 = undefined;
-    waveform.peakBuckets(samples, amp[0..width]);
+    if (cur < sl.slice_count) {
+        const p = &sl.slices[cur];
+        waveform.peakBucketsWarped(samples, amp[0..width], p.start_norm, p.end_norm, waveform.timeScale(p.pitch_semitones, p.stretch_ratio));
+    } else {
+        waveform.peakBuckets(samples, amp[0..width]);
+    }
     var peak: f32 = 1e-6;
     for (amp[0..width]) |a| peak = @max(peak, a);
     const inv_peak = 1.0 / peak;
@@ -106,7 +113,10 @@ fn drawWavePane(
         const p = &sl.slices[cur];
         const s_col = normCol(p.start_norm, width);
         const e_col = normCol(p.end_norm, width);
-        for (s_col..@max(s_col + 1, e_col)) |x| in_cur[x] = true;
+        // Markers mark the chop points; the highlight follows playback, which
+        // pitch/stretch can push past the end marker or cut short of it.
+        const played_col = normCol(waveform.playedEndNorm(p.start_norm, p.end_norm, waveform.timeScale(p.pitch_semitones, p.stretch_ratio)), width);
+        for (s_col..@max(s_col + 1, played_col)) |x| in_cur[x] = true;
         marker_cur[e_col] = true;
     }
 

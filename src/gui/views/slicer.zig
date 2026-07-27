@@ -100,17 +100,22 @@ fn drawSourceWaveform(app: anytype, slicer: *const ws.dsp.Slicer) void {
 
     var overview: [512]f32 = undefined;
     const count = @min(slicer.samples.len, overview.len);
-    waveform.peakBuckets(slicer.samples, overview[0..count]);
     const mid_y = origin[1] + height / 2;
     const selected: ?u8 = if (slicer.slice_count == 0) null else @min(app.core.slicer_cursor[0], slicer.slice_count - 1);
 
+    // Only the selected slice is drawn on its warped playback timeline (its
+    // own pitch/stretch); the rest of the clip stays in source time.
     if (selected) |index| {
         const slice = slicer.slices[index];
+        const scale = waveform.timeScale(slice.pitch_semitones, slice.stretch_ratio);
+        waveform.peakBucketsWarped(slicer.samples, overview[0..count], slice.start_norm, slice.end_norm, scale);
         draw_list.addRectFilled(.{
             .pmin = .{ origin[0] + slice.start_norm * width, origin[1] },
-            .pmax = .{ origin[0] + slice.end_norm * width, origin[1] + height },
+            .pmax = .{ origin[0] + waveform.playedEndNorm(slice.start_norm, slice.end_norm, scale) * width, origin[1] + height },
             .col = style.color(.{ theme.focus[0], theme.focus[1], theme.focus[2], 0.16 }),
         });
+    } else {
+        waveform.peakBuckets(slicer.samples, overview[0..count]);
     }
 
     for (overview[0..count], 0..) |peak, i| {

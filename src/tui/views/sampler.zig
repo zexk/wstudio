@@ -234,9 +234,12 @@ fn drawWaveformPad(
         return;
     }
 
-    // Per-column peak amplitude over the column's sample bucket.
+    // Per-column peak amplitude over the column's sample bucket, with the
+    // region drawn on the timeline it actually plays on (pitch compresses,
+    // stretch expands - see ui/waveform.zig).
+    const scale = waveform.timeScale(pad.pitch_semitones, pad.stretch_ratio);
     var amp: [wave_max_w]f32 = undefined;
-    waveform.peakBuckets(pad.samples, amp[0..width]);
+    waveform.peakBucketsWarped(pad.samples, amp[0..width], pad.start_norm, pad.end_norm, scale);
     var peak: f32 = 1e-6;
     for (amp[0..width]) |a| peak = @max(peak, a);
     // Normalise to the loudest column so quiet samples are still visible.
@@ -244,6 +247,9 @@ fn drawWaveformPad(
 
     const start_col: usize = @intFromFloat(@as(f32, @floatCast(pad.start_norm)) * @as(f32, @floatFromInt(width)));
     const end_col: usize = @intFromFloat(@as(f32, @floatCast(pad.end_norm)) * @as(f32, @floatFromInt(width)));
+    // The trim markers stay on their source columns; the accent fill follows
+    // playback, so a stretched pad reads past its end marker.
+    const played_col: usize = @intFromFloat(waveform.playedEndNorm(pad.start_norm, pad.end_norm, scale) * @as(f32, @floatFromInt(width)));
 
     const center = @as(f32, @floatFromInt(wave_rows)) / 2.0;
     for (0..wave_rows) |row| {
@@ -251,7 +257,7 @@ fn drawWaveformPad(
         const d_from_center = @abs(@as(f32, @floatFromInt(row)) + 0.5 - center);
         for (0..width) |x| {
             const is_marker = (x == start_col or x == end_col);
-            const in_region = x >= start_col and x <= end_col;
+            const in_region = x >= start_col and x <= played_col;
             const radius = amp[x] * inv_peak * center;
             const filled = d_from_center <= radius;
 
