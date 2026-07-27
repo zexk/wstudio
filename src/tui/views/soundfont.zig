@@ -7,6 +7,7 @@ const ws = @import("wstudio");
 const engine_mod = ws.engine;
 const style = @import("../style.zig");
 const icons = @import("../../ui/icons.zig");
+const format = @import("../../ui/format.zig");
 
 const rst = style.rst;
 const bold = style.bold;
@@ -70,7 +71,7 @@ pub fn drawSoundfontEditor(
     try barRow(w, c == 0, false, acc, "gain", s.gain, 2.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{s.gain}));
     try barRow(w, c == 1, false, acc, "pan", s.pan + 1.0, 2.0,
-        try std.fmt.bufPrint(&buf, "{s}", .{if (@abs(s.pan) < 0.005) "C" else if (s.pan < 0) "L" else "R"}));
+        try std.fmt.bufPrint(&buf, "{s}", .{format.panLetter(s.pan)}));
     {
         const semi = s.transpose_semitones;
         try barRow(w, c == 2, false, acc, "transpose", semi + 24.0, 48.0,

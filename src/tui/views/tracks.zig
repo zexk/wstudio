@@ -5,6 +5,7 @@ const ws = @import("wstudio");
 const engine_mod = ws.engine;
 const style = @import("../style.zig");
 const icons = @import("../../ui/icons.zig");
+const format = @import("../../ui/format.zig");
 const spectrum_ed = @import("../../ui/editors/spectrum.zig");
 
 // Aliases so the moved render bodies reference the shared palette/primitives
@@ -169,14 +170,12 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
         // gain
         try writeGainCell(lw, track.gain_db, !is_sel and !faded);
         // pan
-        if (pan == 0.0) {
-            if (!is_sel and !faded) try lw.writeAll(dim);
-            try lw.writeAll("  C");
-            if (!is_sel and !faded) try lw.writeAll(rst);
-        } else {
-            const pct: i32 = @intFromFloat(@abs(pan) * 100.0);
-            try lw.print("  {s}{d}%", .{ if (pan < 0.0) "L" else "R", pct });
-        }
+        var pan_buf: [16]u8 = undefined;
+        const pan_label = format.panLabel(&pan_buf, pan);
+        const centered = pan_label.len == 1;
+        if (centered and !is_sel and !faded) try lw.writeAll(dim);
+        try lw.print("  {s}", .{pan_label});
+        if (centered and !is_sel and !faded) try lw.writeAll(rst);
     }
     // keybind hint - pinned to the right edge (dropped by writeSplitRow
     // before the row content whenever the two would collide)

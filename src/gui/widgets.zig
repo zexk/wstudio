@@ -1,6 +1,7 @@
 const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
+const format = @import("../ui/format.zig");
 const gui_style = @import("style.zig");
 
 /// A section header used inside a bordered/tinted card column: a small
@@ -252,11 +253,7 @@ fn stripNegativeZero(s: []const u8, digits: u2) []const u8 {
 pub const pan_cfmt: [:0]const u8 = "%pan";
 
 fn knobFormatValue(buf: []u8, cfmt: [:0]const u8, value: f32) []const u8 {
-    if (std.mem.eql(u8, cfmt, pan_cfmt)) {
-        if (value == 0.0) return std.fmt.bufPrint(buf, "C", .{}) catch "C";
-        const pct: u32 = @intFromFloat(@abs(value) * 100.0);
-        return std.fmt.bufPrint(buf, "{c}{d}%", .{ if (value < 0) @as(u8, 'L') else 'R', pct }) catch "";
-    }
+    if (std.mem.eql(u8, cfmt, pan_cfmt)) return format.panLabel(buf, value);
     const at = std.mem.indexOf(u8, cfmt, "%.") orelse {
         const s = std.fmt.bufPrint(buf, "{d:.2}", .{value}) catch return "";
         return stripNegativeZero(s, 2);

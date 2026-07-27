@@ -3,6 +3,7 @@
 const std = @import("std");
 const ws = @import("wstudio");
 const spectrum_ed = @import("../../ui/editors/spectrum.zig");
+const format = @import("../../ui/format.zig");
 const gui_style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
 const icons = @import("../../ui/icons.zig");
@@ -156,10 +157,7 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     var gain_buf: [24]u8 = undefined;
     const gain = std.fmt.bufPrint(&gain_buf, "{d:.1} dB", .{track.gain_db}) catch "gain";
     var pan_buf: [24]u8 = undefined;
-    const pan = if (track.pan == 0.0)
-        "C"
-    else
-        std.fmt.bufPrint(&pan_buf, "{c}{d}%", .{ if (track.pan < 0) @as(u8, 'L') else 'R', @as(u32, @intFromFloat(@abs(track.pan) * 100.0)) }) catch "pan";
+    const pan = format.panLabel(&pan_buf, track.pan);
     draw_list.addText(.{ block_x0 + 18, origin[1] + 14 }, color(block_fg), "{s}", .{gain});
     draw_list.addText(.{ block_x0 + 96, origin[1] + 14 }, color(block_muted), "{s}", .{pan});
     drawTrimMeter(draw_list, block_x0 + 3, origin[1] + height - 15, 105, track.gain_db, block_fg);

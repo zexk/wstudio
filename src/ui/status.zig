@@ -10,6 +10,7 @@ const ws = @import("wstudio");
 const DrumMachine = ws.dsp.DrumMachine;
 const Slicer = ws.dsp.Slicer;
 const ansi = @import("ansi.zig");
+const format = @import("format.zig");
 const icons = @import("icons.zig");
 const spectrum_ed = @import("editors/spectrum.zig");
 const synth_ed = @import("editors/synth.zig");
@@ -605,7 +606,7 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
         5 => try w.print("{d:.3}", .{pad.sustain}),
         6 => try w.print("{d:.3} s", .{pad.release_s}),
         7 => try w.print("{d:.2}", .{pad.gain}),
-        8 => try w.writeAll(if (@abs(pad.pan) < 0.005) "C" else if (pad.pan < 0) "L" else "R"),
+        8 => try w.writeAll(format.panLetter(pad.pan)),
         9 => try w.writeAll(if (pad.reverse) "on" else "off"),
         10 => try w.print("{d:.3} s", .{pad.fade_in_s}),
         11 => try w.print("{d:.3} s", .{pad.fade_out_s}),
@@ -640,7 +641,7 @@ pub fn drawSoundfontStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
     try w.writeAll(acc);
     switch (app.soundfont_param) {
         0 => try w.print("{d:.2}", .{if (sf) |s| s.gain else 1.0}),
-        1 => if (sf) |s| try w.writeAll(if (@abs(s.pan) < 0.005) "C" else if (s.pan < 0) "L" else "R") else try w.writeAll("C"),
+        1 => try w.writeAll(if (sf) |s| format.panLetter(s.pan) else "C"),
         2 => try w.print("{s}{d:.0} st", .{ if (sf != null and sf.?.transpose_semitones >= 0) "+" else "", if (sf) |s| s.transpose_semitones else 0.0 }),
         3 => if (sf) |s| {
             if (s.presetCount() == 0) try w.writeAll("(no font loaded)") else try w.print("{s} ({d}/{d})", .{ s.presetName(), s.preset_index + 1, s.presetCount() });
