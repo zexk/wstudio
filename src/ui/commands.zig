@@ -1879,6 +1879,21 @@ fn cmdLoadSample(app: *App, args: []const u8) void {
     loadSampleFromPath(app, expandHome(&path_buf, trimmed));
 }
 
+/// The file browser's `p`: decode the WAV under the cursor into the engine's
+/// off-mixer preview voice and play it, so a sample can be heard before it's
+/// picked. Nothing about the project changes - no track, no dirty flag.
+pub fn auditionPath(app: *App, path: []const u8) void {
+    const data = readFileForLoad(app, path) orelse return;
+    defer app.allocator.free(data);
+    const stem = stemOf(path);
+    app.session.engine.preview.loadWav(data, stem) catch |e| {
+        app.setStatus("audition: {s}: {s}", .{ stem, @errorName(e) });
+        return;
+    };
+    _ = app.session.engine.send(.preview_play);
+    app.setStatus("audition: {s}", .{stem});
+}
+
 /// Shared by `:load <file>` and the file browser's sample-load
 /// purpose (the browser hands over an already-resolved path - no `~` to
 /// expand).

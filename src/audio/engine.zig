@@ -5,6 +5,7 @@ const spectrum_mod = @import("../dsp/spectrum.zig");
 const Spsc = @import("../core/ring_buffer.zig").Spsc;
 const Limiter = @import("../dsp/limiter.zig").Limiter;
 const Metronome = @import("../dsp/metronome.zig").Metronome;
+const Sampler = @import("../dsp/sampler.zig").Sampler;
 const Transport = @import("../transport.zig").Transport;
 const Project = @import("../project.zig").Project;
 const automation_mod = @import("../dsp/automation.zig");
@@ -85,6 +86,12 @@ pub const Command = union(enum) {
     /// loudness measurement starts from this point (momentary/short-term
     /// keep reading through it). See `LoudnessMeter.resetIntegrated`.
     reset_loudness,
+    /// Play the clip currently loaded into `Engine.preview` (the file
+    /// browser's audition). Load the clip control-side first - `preview` is
+    /// a plain Sampler, so `loadWav` takes its pad lock the same way a
+    /// track's does; only the trigger has to come over the queue.
+    preview_play,
+    preview_stop,
 };
 
 /// Which absolute value an `AutomationCurve` overrides. `gain`/`pan` are
@@ -306,6 +313,12 @@ pub const Engine = struct {
     master_chain: ChainBank(9) = .{},
     metronome: Metronome,
     metronome_enabled: bool = false,
+    /// Off-mixer audition voice: the file browser loads the clip under its
+    /// cursor here and triggers it, so a sample can be heard before it's
+    /// picked without touching any track. Mixed in post-master-chain (the
+    /// user's master FX shouldn't colour a preview) but pre-`master_gain`,
+    /// so the fader and the limiter still apply.
+    preview: Sampler,
     /// Monotonic count of beats fired so far - same resync-on-discontinuity
     /// technique as DrumMachine.next_step_k, one level up (beats, not steps).
     metronome_next_beat: u64 = 0,
@@ -408,6 +421,8 @@ pub const Engine = struct {
         errdefer master_spec.deinit(allocator);
         var metronome = try Metronome.init(allocator, sample_rate);
         errdefer metronome.deinit();
+        var preview = try Sampler.init(allocator, sample_rate);
+        errdefer preview.deinit();
         const automation = try allocator.alloc(AutomationPair, max_tracks);
         errdefer allocator.free(automation);
         for (automation) |*a| a.* = .{};
@@ -426,6 +441,7 @@ pub const Engine = struct {
             .transport = .{ .sample_rate = sample_rate },
             .limiter = Limiter.init(sample_rate),
             .metronome = metronome,
+            .preview = preview,
             .tracks = tracks,
             .track_pool = track_pool,
             .track_spectrum = track_spec,
@@ -439,6 +455,7 @@ pub const Engine = struct {
 
     pub fn deinit(self: *Engine) void {
         self.metronome.deinit();
+        self.preview.deinit();
         self.master_spectrum.deinit(self.allocator);
         self.track_spectrum.deinit(self.allocator);
         for (self.automation) |*pair| pair.deinit(self.allocator);
@@ -753,6 +770,8 @@ pub const Engine = struct {
 
         self.processChainWithSidechain(self.master_chain.slice(), &self.master_sidechain_sources, out, frames);
 
+        self.preview.processBlock(out);
+
         for (out) |*s| s.* *= self.master_gain;
         self.limiter.processBlock(out);
 
@@ -883,6 +902,8 @@ pub const Engine = struct {
                 self.transport.loop_start_frames = c.start_frames;
                 self.transport.loop_end_frames = c.end_frames;
             },
+            .preview_play => self.preview.trigger(self.preview.root_note, 0.9, 0),
+            .preview_stop => self.preview.resetAll(),
             .set_metronome => |v| self.metronome_enabled = v,
             .set_metronome_gain => |g| self.metronome.gain = g,
             .record => |bars| {
@@ -1304,6 +1325,27 @@ test "notes sound even while transport is stopped (live preview)" {
     engine.process(&block);
     try std.testing.expect(engine.peak[0] > 0.01);
     try std.testing.expectEqual(@as(u64, 0), engine.transport.position_frames);
+}
+
+test "browser audition plays off-mixer, with no track and the transport stopped" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    const clip = try std.testing.allocator.alloc(f32, 4_800);
+    for (clip) |*s| s.* = 0.5;
+    engine.preview.setSamples(clip, "audition");
+
+    var block: [512]Sample = undefined;
+    engine.process(&block);
+    try std.testing.expectEqual(@as(f32, 0.0), engine.peak[0]);
+
+    _ = engine.send(.preview_play);
+    engine.process(&block);
+    try std.testing.expect(engine.peak[0] > 0.01);
+    try std.testing.expectEqual(@as(u64, 0), engine.transport.position_frames);
+
+    _ = engine.send(.preview_stop);
+    engine.process(&block);
+    try std.testing.expectEqual(@as(f32, 0.0), engine.peak[0]);
 }
 
 test "transport advances only while playing" {

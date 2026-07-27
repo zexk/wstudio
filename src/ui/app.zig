@@ -2998,6 +2998,7 @@ pub const App = struct {
                 },
                 'n' => self.searchBrowser(1),
                 'N' => self.searchBrowser(-1),
+                'p' => self.auditionBrowserEntry(),
                 'b' => self.toggleBookmark(),
                 'B' => {
                     if (self.bookmarks.items.len == 0) {
@@ -3131,7 +3132,20 @@ pub const App = struct {
         self.closeBrowser();
     }
 
+    /// `p`: audition the file under the cursor (directories have nothing to
+    /// play). Retriggering while one is still ringing is fine - the preview
+    /// Sampler steals its own voice.
+    fn auditionBrowserEntry(self: *App) void {
+        if (self.browser_cursor >= self.browser_entries.items.len) return;
+        const entry = self.browser_entries.items[self.browser_cursor];
+        if (entry.is_dir) return;
+        const joined = std.fs.path.join(self.allocator, &.{ self.browser_dir, entry.name }) catch return;
+        defer self.allocator.free(joined);
+        commands.auditionPath(self, joined);
+    }
+
     fn closeBrowser(self: *App) void {
+        _ = self.session.engine.send(.preview_stop);
         self.freeBrowserEntries();
         self.browser_bookmark_mode = false;
         self.view = self.prev_view;
