@@ -365,6 +365,12 @@ pub const DrumNoteSnap = struct {
     /// Additive optional-with-default field, no version bump needed - an
     /// older file omits it and loads untuned, exactly as it sounded.
     tune: i8 = 0,
+    /// Trig condition and fire chance (see `DrumMachine.Cond`). Same additive
+    /// rule: omitted means "always, 100%", which is how every pre-condition
+    /// file played. `cond` is stored as the enum tag; an out-of-range tag
+    /// from a hand-edited file falls back to `always` rather than erroring.
+    prob: u8 = 100,
+    cond: u8 = 0,
 };
 
 pub const VariantSnap = struct {
@@ -2100,7 +2106,15 @@ fn midiToNoteSnaps(aa: std.mem.Allocator, midi: *const [DrumMachine.max_pads][]?
     for (midi, 0..) |row, pad| {
         for (row) |maybe_note| {
             const note = maybe_note orelse continue;
-            out[i] = .{ .pad = @intCast(pad), .step = note.step, .duration_steps = note.duration_steps, .velocity = note.velocity, .tune = note.tune };
+            out[i] = .{
+                .pad = @intCast(pad),
+                .step = note.step,
+                .duration_steps = note.duration_steps,
+                .velocity = note.velocity,
+                .tune = note.tune,
+                .prob = note.prob,
+                .cond = @intFromEnum(note.cond),
+            };
             i += 1;
         }
     }
@@ -2119,6 +2133,11 @@ fn applyNoteSnap(midi: *[DrumMachine.max_pads][]?DrumMachine.MidiNote, step_coun
             .duration_steps = @max(1, n.duration_steps),
             .velocity = @min(n.velocity, DrumMachine.vel_full),
             .tune = @intCast(std.math.clamp(@as(i16, n.tune), -24, 24)),
+            .prob = @min(n.prob, 100),
+            .cond = if (n.cond < @typeInfo(DrumMachine.Cond).@"enum".fields.len)
+                @enumFromInt(n.cond)
+            else
+                .always,
         };
     }
 }

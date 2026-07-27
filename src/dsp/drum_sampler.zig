@@ -103,11 +103,93 @@ pub const DrumMachine = struct {
 
     /// Compact canonical note for the drum grid. Timing is integral in the
     /// pattern's native grid, so 1/128 notes remain exact and cheap to store.
+    /// Elektron's trig conditions, folded into one slot instead of the
+    /// Digitakt II's three: the hardware has an encoder to scroll a long
+    /// list, a keyboard has one key to cycle it, so the list stays short and
+    /// covers the ratios people actually reach for. `always` is the default
+    /// and costs one compare on the audio thread.
+    ///
+    /// `aNbM` is Elektron's A:B - true on the Nth of every M passes through
+    /// the row. `first` fires only on the very first pass (a one-shot intro
+    /// hit); `fill` and `not_fill` gate on `fill_on`, the performance switch
+    /// that swaps a pattern into its fill without editing it.
+    pub const Cond = enum(u8) {
+        always,
+        first,
+        not_first,
+        fill,
+        not_fill,
+        a1b2,
+        a2b2,
+        a1b3,
+        a1b4,
+        a2b4,
+        a3b4,
+        a4b4,
+        a1b8,
+
+        /// The A:B pair, or null for the non-ratio conditions.
+        pub fn ratio(self: Cond) ?struct { a: u8, b: u8 } {
+            return switch (self) {
+                .a1b2 => .{ .a = 1, .b = 2 },
+                .a2b2 => .{ .a = 2, .b = 2 },
+                .a1b3 => .{ .a = 1, .b = 3 },
+                .a1b4 => .{ .a = 1, .b = 4 },
+                .a2b4 => .{ .a = 2, .b = 4 },
+                .a3b4 => .{ .a = 3, .b = 4 },
+                .a4b4 => .{ .a = 4, .b = 4 },
+                .a1b8 => .{ .a = 1, .b = 8 },
+                else => null,
+            };
+        }
+
+        /// Short label for the status line and both grids.
+        pub fn label(self: Cond) []const u8 {
+            return switch (self) {
+                .always => "--",
+                .first => "1ST",
+                .not_first => "!1ST",
+                .fill => "FILL",
+                .not_fill => "!FILL",
+                .a1b2 => "1:2",
+                .a2b2 => "2:2",
+                .a1b3 => "1:3",
+                .a1b4 => "1:4",
+                .a2b4 => "2:4",
+                .a3b4 => "3:4",
+                .a4b4 => "4:4",
+                .a1b8 => "1:8",
+            };
+        }
+
+        /// Does this condition let the step through on `pass` (0-based count
+        /// of completed loops through the row), with the fill switch in
+        /// `fill_on`?
+        pub fn holds(self: Cond, pass: u64, fill_on: bool) bool {
+            if (self.ratio()) |r| return pass % r.b == r.a - 1;
+            return switch (self) {
+                .always => true,
+                .first => pass == 0,
+                .not_first => pass != 0,
+                .fill => fill_on,
+                .not_fill => !fill_on,
+                else => unreachable,
+            };
+        }
+    };
+
     pub const MidiNote = struct {
         pitch: u7,
         step: u16,
         duration_steps: u16 = 1,
         velocity: u7 = vel_full,
+        /// Chance this step fires at all, in percent (100 = always). The roll
+        /// is a hash of the absolute step and the pad, not a running RNG, so
+        /// the audio thread stays allocation- and state-free and the same
+        /// playthrough sounds the same twice.
+        prob: u8 = 100,
+        /// Conditional trig, ANDed with `prob` - both have to pass.
+        cond: Cond = .always,
         /// Per-step playback transpose in semitones, on top of the pad's own
         /// `pitch_semitones` - Elektron's pitch parameter-lock, the cheap
         /// slice of p-locks that turns one tom into a fill. `pitch` above is
@@ -279,6 +361,10 @@ pub const DrumMachine = struct {
     /// convention `choke_group` and `swing` already use, which is also why
     /// song mode picks it up for free (see `fireSongStep`).
     pad_len: [max_pads]u16 = [_]u16{0} ** max_pads,
+    /// Performance switch the `fill`/`not_fill` trig conditions read: flip it
+    /// and every step conditioned on it swaps in or out, no editing. UI
+    /// writes, audio thread reads.
+    fill_on: std.atomic.Value(bool) = .init(false),
 
     // ── Pattern variants (control thread only) ──────────────────────────────
     /// Bank slots. Slot `variant` is stale while active - read it through
@@ -677,6 +763,33 @@ pub const DrumMachine = struct {
         self.setStepVel(pad, step, @intCast(next));
     }
 
+    /// Does `note` fire on this pass? Probability and condition are ANDed,
+    /// Elektron-style - a step set to "1:2, 70%" plays on every second pass,
+    /// and then only seven times in ten.
+    ///
+    /// `pass` counts completed loops through the row that owns the note, so a
+    /// pad with its own shorter `pad_len` counts its own repeats rather than
+    /// the pattern's. `step_k` is the absolute step, which is what makes the
+    /// dice roll vary from one pass to the next.
+    fn trigFires(note: MidiNote, pad: u8, step_k: u64, pass: u64, fill_on: bool) bool {
+        if (!note.cond.holds(pass, fill_on)) return false;
+        if (note.prob >= 100) return true;
+        if (note.prob == 0) return false;
+        return rollPercent(step_k, pad) < note.prob;
+    }
+
+    /// A 0-99 roll from the absolute step and the pad. SplitMix64's finalizer
+    /// over the two: no state to carry on the audio thread, and replaying the
+    /// same stretch of transport gives the same pattern back rather than a
+    /// different one every time the UI redraws.
+    fn rollPercent(step_k: u64, pad: u8) u8 {
+        var z: u64 = step_k *% 0x9E3779B97F4A7C15 +% (@as(u64, pad) *% 0xBF58476D1CE4E5B9);
+        z = (z ^ (z >> 30)) *% 0xBF58476D1CE4E5B9;
+        z = (z ^ (z >> 27)) *% 0x94D049BB133111EB;
+        z ^= z >> 31;
+        return @intCast(z % 100);
+    }
+
     /// Steps pad `p` actually loops over inside a `pattern_len`-long pattern:
     /// its own `pad_len` when that's set and fits, else the whole pattern.
     /// Audio thread reads this every step boundary, so it stays branch-cheap
@@ -702,6 +815,55 @@ pub const DrumMachine = struct {
         if (p >= max_pads) return;
         const cur: i32 = self.padSteps(p, self.step_count);
         self.setPadLen(p, @intCast(std.math.clamp(cur + delta, 1, self.step_count)));
+    }
+
+    /// Preset chances `cycleStepProb` walks, in the order one key press
+    /// steps through them - the same "a few useful values beat a continuous
+    /// range you have to nudge" call `vel_presets` already made.
+    const prob_presets = [_]u8{ 100, 75, 50, 25, 10 };
+
+    /// Fire chance of the step in percent; 100 on an empty step.
+    pub fn stepProb(self: *const DrumMachine, pad: u8, step: u16) u8 {
+        if (pad >= max_pads or step >= self.step_count) return 100;
+        const note = self.midi[pad][step] orelse return 100;
+        return note.prob;
+    }
+
+    pub fn cycleStepProb(self: *DrumMachine, pad: u8, step: u16) void {
+        if (pad >= max_pads or step >= self.step_count) return;
+        const note = if (self.midi[pad][step]) |*n| n else return;
+        for (prob_presets, 0..) |p, i| {
+            if (note.prob == p) {
+                note.prob = prob_presets[(i + 1) % prob_presets.len];
+                return;
+            }
+        }
+        note.prob = prob_presets[0];
+    }
+
+    /// Trig condition on the step; `always` on an empty step.
+    pub fn stepCond(self: *const DrumMachine, pad: u8, step: u16) Cond {
+        if (pad >= max_pads or step >= self.step_count) return .always;
+        const note = self.midi[pad][step] orelse return .always;
+        return note.cond;
+    }
+
+    /// Walk the condition list by `delta` (wrapping), the keyboard stand-in
+    /// for the hardware's encoder.
+    pub fn cycleStepCond(self: *DrumMachine, pad: u8, step: u16, delta: i32) void {
+        if (pad >= max_pads or step >= self.step_count) return;
+        const note = if (self.midi[pad][step]) |*n| n else return;
+        const count: i32 = @typeInfo(Cond).@"enum".fields.len;
+        const cur: i32 = @intFromEnum(note.cond);
+        note.cond = @enumFromInt(@mod(cur + delta, count));
+    }
+
+    /// Flip the fill switch every `fill`/`not_fill` step reads. Returns the
+    /// new state so the caller can report it.
+    pub fn toggleFill(self: *DrumMachine) bool {
+        const next = !self.fill_on.load(.monotonic);
+        self.fill_on.store(next, .monotonic);
+        return next;
     }
 
     /// Per-step transpose in semitones, 0 on an empty step (nothing to tune).
@@ -1104,10 +1266,12 @@ pub const DrumMachine = struct {
                     // Each pad wraps at its own length (`pad_len`), so rows
                     // can run out of phase with each other; the UI playhead
                     // still follows the pattern's own length.
+                    const fill_on = self.fill_on.load(.monotonic);
                     for (0..max_pads) |p| {
                         const len = self.padSteps(@intCast(p), self.step_count);
                         const idx: u16 = @intCast(step_k % len);
                         const note = self.midi[p][idx] orelse continue;
+                        if (!trigFires(note, @intCast(p), step_k, step_k / len, fill_on)) continue;
                         self.chokeTrigger(@intCast(p), velGain(note.velocity), fire_frame, note.tune);
                     }
                     self.current_step.store(@intCast(step_k % self.step_count), .monotonic);
@@ -1161,10 +1325,12 @@ pub const DrumMachine = struct {
             const scaled = elapsed * clip.steps_per_beat;
             if (scaled % self.song_steps_per_beat != 0) continue;
             const local: u32 = scaled / self.song_steps_per_beat;
+            const fill_on = self.fill_on.load(.monotonic);
             for (0..max_pads) |p| {
                 const len = self.padSteps(@intCast(p), clip.step_count);
                 const idx: u16 = @intCast(local % len);
                 const note = clip.midi[p][idx] orelse continue;
+                if (!trigFires(note, @intCast(p), step_k, local / len, fill_on)) continue;
                 self.chokeTrigger(@intCast(p), velGain(note.velocity), fire_frame, note.tune);
             }
             self.current_step.store(@intCast(local % clip.step_count), .monotonic);
@@ -1956,6 +2122,67 @@ test "a pad's own loop length wraps that row early and drifts against the rest" 
     try std.testing.expectEqual(@as(u16, 15), dm.padSteps(0, 16));
     dm.nudgePadLen(0, 99);
     try std.testing.expectEqual(@as(u16, 0), dm.pad_len[0]);
+}
+
+test "trig conditions gate a step by pass count and the fill switch" {
+    const Cond = DrumMachine.Cond;
+    // 1:2 fires on passes 0, 2, 4 …; 2:2 on 1, 3, 5 …
+    try std.testing.expect(Cond.a1b2.holds(0, false));
+    try std.testing.expect(!Cond.a1b2.holds(1, false));
+    try std.testing.expect(!Cond.a2b2.holds(0, false));
+    try std.testing.expect(Cond.a2b2.holds(1, false));
+    // 2:4 is the second of every four.
+    try std.testing.expect(Cond.a2b4.holds(1, false));
+    try std.testing.expect(Cond.a2b4.holds(5, false));
+    try std.testing.expect(!Cond.a2b4.holds(2, false));
+
+    try std.testing.expect(Cond.first.holds(0, false));
+    try std.testing.expect(!Cond.first.holds(1, false));
+    try std.testing.expect(!Cond.not_first.holds(0, false));
+    try std.testing.expect(Cond.not_first.holds(7, false));
+
+    // The fill pair reads the switch and ignores the pass entirely.
+    try std.testing.expect(Cond.fill.holds(3, true));
+    try std.testing.expect(!Cond.fill.holds(3, false));
+    try std.testing.expect(Cond.not_fill.holds(3, false));
+    try std.testing.expect(!Cond.not_fill.holds(3, true));
+
+    // Every label is set, so the status line can't print an empty condition.
+    for (std.enums.values(Cond)) |c| try std.testing.expect(c.label().len > 0);
+}
+
+test "step probability rolls repeatably and lands near the requested rate" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+    dm.toggleStep(0, 0);
+
+    // 100% and 0% never touch the dice.
+    try std.testing.expect(DrumMachine.trigFires(dm.midi[0][0].?, 0, 12345, 0, false));
+    dm.midi[0][0].?.prob = 0;
+    try std.testing.expect(!DrumMachine.trigFires(dm.midi[0][0].?, 0, 12345, 0, false));
+
+    // A 50% step: same absolute step gives the same answer twice (no hidden
+    // RNG state), and over many steps it lands near half.
+    dm.midi[0][0].?.prob = 50;
+    const note = dm.midi[0][0].?;
+    try std.testing.expectEqual(
+        DrumMachine.trigFires(note, 0, 999, 0, false),
+        DrumMachine.trigFires(note, 0, 999, 0, false),
+    );
+    var hits: usize = 0;
+    for (0..2000) |k| {
+        if (DrumMachine.trigFires(note, 0, k, 0, false)) hits += 1;
+    }
+    try std.testing.expect(hits > 850 and hits < 1150);
+
+    // Condition and probability are ANDed: an off-pass never fires however
+    // the dice land.
+    dm.midi[0][0].?.cond = .a1b2;
+    dm.midi[0][0].?.prob = 100;
+    const conditional = dm.midi[0][0].?;
+    try std.testing.expect(DrumMachine.trigFires(conditional, 0, 0, 0, false));
+    try std.testing.expect(!DrumMachine.trigFires(conditional, 0, 0, 1, false));
 }
 
 test "adjustParam decodes pad/param and clamps" {

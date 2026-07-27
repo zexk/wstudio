@@ -106,6 +106,24 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !v
             try w.writeAll(dim ++ "  tune " ++ rst);
             try w.print("{s}{d}", .{ if (semis > 0) "+" else "", semis });
         }
+        const prob = dm.stepProb(@intCast(p), s);
+        if (prob != 100) {
+            try w.writeAll(dim ++ "  chance " ++ rst);
+            try w.print("{d}%", .{prob});
+        }
+        const cond = dm.stepCond(@intCast(p), s);
+        if (cond != .always) {
+            try w.writeAll(dim ++ "  cond " ++ rst);
+            try w.writeAll(cond.label());
+        }
+    }
+    // The fill switch is machine-wide and changes what plays, so it stays
+    // visible while engaged rather than only on the step that reads it.
+    if (dm.fill_on.load(.monotonic)) {
+        try w.writeAll(dim ++ "  " ++ rst);
+        try w.writeAll(bold);
+        try w.writeAll("FILL");
+        try w.writeAll(rst);
     }
     if (dm.choke_group[p] != 0) {
         try w.writeAll(dim ++ "  choke " ++ rst);

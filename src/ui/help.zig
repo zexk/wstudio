@@ -179,6 +179,10 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("c",            "cycle step velocity presets (127/95/63/31)");
     t.key("{ / }",        "nudge step velocity down / up by 1 (count-scaled, full 1-127 range)");
     t.key("( / )",        "tune the step under the cursor down / up a semitone (±24, count-scaled)");
+    t.key("%",            "cycle the step's fire chance (100/75/50/25/10%)");
+    t.key("?",            "cycle the step's trig condition (1ST, FILL, 1:2, 2:4 … - ANDed with the chance)");
+    t.key("!",            "flip the FILL switch every FILL/!FILL step reads - instant variation, no editing");
+    t.key("",             "  cells: [x] plain, (x) tuned, <x> conditional, {x} both");
     t.key("v / V",        "visual: a (pad, step) block, j/k grow it / visual line: every pad - y/d/P");
     t.key("< / >",        "less / more swing (50–75%)");
     t.key("C",            "cycle current pad's choke group (none/1-4) - same-group pads cut each other off");

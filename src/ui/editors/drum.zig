@@ -228,6 +228,16 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // against the others - polymeter. :pad-len sets it exactly.
                 'm' => nudgePadLen(app, -app.takeCount()),
                 'M' => nudgePadLen(app, app.takeCount()),
+                // %/?: the two halves of a trig condition on the step under
+                // the cursor - fire chance and the conditional rule. ! flips
+                // the machine-wide fill switch the FILL rules read.
+                '%' => cycleStepProb(app),
+                '?' => cycleStepCond(app, app.takeCount()),
+                '!' => {
+                    const dm = app.drumMachine();
+                    const on = dm.toggleFill();
+                    app.setStatus("fill {s}", .{if (on) "ON" else "off"});
+                },
                 // v: blockwise - a (pad, step) rectangle, one pad tall until
                 // j/k grow it. V: linewise - the step range across every pad,
                 // which is what visual mode did unconditionally before the
@@ -455,6 +465,34 @@ fn nudgeTune(app: *App, delta: i32) void {
     dm.nudgeStepTune(pad, step, delta);
     const semis = dm.stepTune(pad, step);
     app.setStatus("tune {s}{d} st", .{ if (semis > 0) "+" else "", semis });
+}
+
+/// `%`: step the hit under the cursor through the fire-chance presets.
+fn cycleStepProb(app: *App) void {
+    const dm = app.drumMachine();
+    const pad: u8 = @intCast(app.drum_cursor[0]);
+    const step = app.drum_cursor[1];
+    // zig fmt: off
+    if (!dm.stepActive(pad, step)) { app.setStatus("no step here - enter places one", .{}); return; }
+    // zig fmt: on
+    history.recordDrum(app, app.drum_track);
+    dm.cycleStepProb(pad, step);
+    app.dirty = true;
+    app.setStatus("chance {d}%", .{dm.stepProb(pad, step)});
+}
+
+/// `?`: walk the hit's trig condition (1ST, FILL, the A:B ratios).
+fn cycleStepCond(app: *App, delta: i32) void {
+    const dm = app.drumMachine();
+    const pad: u8 = @intCast(app.drum_cursor[0]);
+    const step = app.drum_cursor[1];
+    // zig fmt: off
+    if (!dm.stepActive(pad, step)) { app.setStatus("no step here - enter places one", .{}); return; }
+    // zig fmt: on
+    history.recordDrum(app, app.drum_track);
+    dm.cycleStepCond(pad, step, delta);
+    app.dirty = true;
+    app.setStatus("cond {s}", .{dm.stepCond(pad, step).label()});
 }
 
 /// `m`/`M`: shrink/grow the cursor pad's own loop length. Reaching the

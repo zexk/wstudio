@@ -161,20 +161,30 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
             // five bands shared with the slicer grid and the GUI's fill
             // shading (editors/step_grid.zig).
             const glyph: u8 = if (!active) ' ' else step_grid.velocityBand(dm.stepVel(@intCast(p), @intCast(s))).glyph();
-            // A tuned step swaps its brackets for parens, matching the (/)
-            // keys that set the tune. The amount is on the status line - a
-            // 3-column cell has no room for a signed number, and the brackets
-            // are the only per-cell real estate the velocity glyph isn't
-            // already using.
-            const tuned = active and !out_of_loop and dm.stepTune(@intCast(p), @intCast(s)) != 0;
+            // The brackets carry two bits the velocity glyph has no room for:
+            // [ ] plain, ( ) tuned (matching the (/) keys), < > conditional
+            // (chance or a trig condition), { } both. The exact amounts are
+            // on the status line - a 3-column cell can't hold "1:2, 70%".
+            const live = active and !out_of_loop;
+            const tuned = live and dm.stepTune(@intCast(p), @intCast(s)) != 0;
+            const cond = live and (dm.stepProb(@intCast(p), @intCast(s)) != 100 or
+                dm.stepCond(@intCast(p), @intCast(s)) != .always);
+            const brackets: [2]u8 = if (tuned and cond)
+                .{ '{', '}' }
+            else if (tuned)
+                .{ '(', ')' }
+            else if (cond)
+                .{ '<', '>' }
+            else
+                .{ '[', ']' };
             if (cell_width == 1) {
                 try w.writeByte(glyph);
             } else {
-                try w.writeByte(if (tuned) '(' else '[');
+                try w.writeByte(brackets[0]);
                 try w.splatByteAll(' ', (cell_width - 3) / 2);
                 try w.writeByte(glyph);
                 try w.splatByteAll(' ', cell_width - 3 - (cell_width - 3) / 2);
-                try w.writeByte(if (tuned) ')' else ']');
+                try w.writeByte(brackets[1]);
             }
             try w.writeAll(rst);
         }

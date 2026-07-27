@@ -183,6 +183,18 @@ pub fn draw(
                     .col = color(theme.fg0),
                 });
             }
+            // A conditional step (chance or a trig condition) gets a dot in
+            // its top-left, opposite the accent triangle so a step can show
+            // both. Which condition is on the status line.
+            if (kind == .drum and (instrument.stepProb(@intCast(row), @intCast(step)) != 100 or
+                instrument.stepCond(@intCast(row), @intCast(step)) != .always))
+            {
+                draw_list.addCircleFilled(.{
+                    .p = .{ pmin[0] + 4, pmin[1] + 4 },
+                    .r = 2.5,
+                    .col = color(theme.danger),
+                });
+            }
             // A tuned step gets a bar along its bottom edge, above or below
             // the hit's own baseline depending on the direction - the TUI's
             // paren brackets can only say "tuned", this says which way.
