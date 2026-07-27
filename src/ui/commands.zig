@@ -133,6 +133,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "strum",       .desc = "<ms>  stagger each chord's notes by ms per rank - positive low-to-high, negative high-to-low", .run = wrap(cmdStrum) },
     .{ .name = "flam",        .desc = "<ms> [repeats]  echo every note ms apart at fading velocity (negative ms = grace notes before)", .run = wrap(cmdFlam) },
     .{ .name = "arpeggiate",  .desc = "[down]  spread every chord into an arpeggio, one grid step per note", .run = wrap(cmdArpeggiate) },
+    .{ .name = "limit",       .desc = "<lo> <hi>  fold every note into a MIDI pitch range by octaves (e.g. :limit 48 72)", .run = wrap(cmdLimit) },
+    .{ .name = "discard-lengths", .desc = "reset every note to the roll's default length - throw away hand-drawn lengths", .run = wrap(cmdDiscardLengths) },
     .{ .name = "import-midi", .desc = "<file>  replace the pattern with a Standard MIDI File's notes",     .run = wrap(cmdImportMidi) },
     .{ .name = "export-midi", .desc = "<file>  write the pattern as a Standard MIDI File",                 .run = wrap(cmdExportMidi) },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
@@ -734,6 +736,62 @@ fn cmdArpeggiate(app: *App, args: []const u8) void {
     }
     history.push(app, entry);
     app.setStatus("arpeggiated {d} notes ({s}, {s})", .{ moved, if (down) "down" else "up", app.piano_division.label() });
+    piano_ed.syncLinkedClip(app);
+}
+
+/// `:limit <lo> <hi>` - fold every note into the MIDI pitch range [lo, hi]
+/// by whole octaves, so a line that wandered out of an instrument's
+/// register comes back without losing its shape. Pitches are MIDI numbers
+/// (60 = C4), the same units `:transpose` counts in.
+fn cmdLimit(app: *App, args: []const u8) void {
+    const m = resolveMelodic(app) orelse {
+        app.setStatus("limit: no piano-roll pattern", .{});
+        return;
+    };
+    var it = std.mem.tokenizeScalar(u8, args, ' ');
+    const lo_text = it.next() orelse "";
+    const hi_text = it.next() orelse "";
+    const lo = std.fmt.parseInt(u8, lo_text, 10) catch 128;
+    const hi = std.fmt.parseInt(u8, hi_text, 10) catch 128;
+    if (lo > 127 or hi > 127 or lo > hi) {
+        app.setStatus("usage: limit <lo> <hi>, MIDI pitches 0-127 (e.g. :limit 48 72)", .{});
+        return;
+    }
+    var entry = history.captureMelodic(app, @intCast(m.track));
+    const moved = m.pp.limitPitch(.{ .lo_beat = 0.0, .hi_beat = m.pp.length_beats }, @intCast(lo), @intCast(hi));
+    if (moved == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("limit: every note is already in range", .{});
+        return;
+    }
+    history.push(app, entry);
+    var lo_buf: [5]u8 = undefined;
+    var hi_buf: [5]u8 = undefined;
+    app.setStatus("limited {d} notes to {s}-{s}", .{
+        moved,
+        ws.midi.noteName(@intCast(lo), &lo_buf),
+        ws.midi.noteName(@intCast(hi), &hi_buf),
+    });
+    piano_ed.syncLinkedClip(app);
+}
+
+/// `:discard-lengths` - reset every note to the roll's default note length
+/// (`[`/`]` with no note under the cursor sets it), throwing away lengths
+/// drawn by hand or carried in from a MIDI import.
+fn cmdDiscardLengths(app: *App, _: []const u8) void {
+    const m = resolveMelodic(app) orelse {
+        app.setStatus("discard-lengths: no piano-roll pattern", .{});
+        return;
+    };
+    var entry = history.captureMelodic(app, @intCast(m.track));
+    const changed = m.pp.setLengths(.{ .lo_beat = 0.0, .hi_beat = m.pp.length_beats }, app.piano_note_len);
+    if (changed == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("discard-lengths: every note is already {d:.2} beats", .{app.piano_note_len});
+        return;
+    }
+    history.push(app, entry);
+    app.setStatus("reset {d} notes to {d:.2} beats", .{ changed, app.piano_note_len });
     piano_ed.syncLinkedClip(app);
 }
 

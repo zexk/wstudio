@@ -574,6 +574,53 @@ pub const PatternPlayer = struct {
         return moved;
     }
 
+    /// Fold every note `sel` covers into the pitch range [lo, hi] by whole
+    /// octaves - FL's limit tool, for pulling a wandering line back into an
+    /// instrument's playable register without flattening its shape. A range
+    /// narrower than an octave has no octave to fold into, so notes clamp to
+    /// the nearest bound instead. Returns the count moved (UI thread).
+    pub fn limitPitch(self: *PatternPlayer, sel: Sel, lo: u7, hi: u7) u16 {
+        if (lo > hi) return 0;
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        var moved: u16 = 0;
+        for (self.notes[0..self.note_count]) |*n| {
+            if (!sel.contains(n.*)) continue;
+            var p: i32 = n.pitch;
+            while (p < lo and p + 12 <= 127) p += 12;
+            while (p > hi and p - 12 >= 0) p -= 12;
+            const clamped: u7 = @intCast(std.math.clamp(p, lo, hi));
+            if (clamped == n.pitch) continue;
+            // The pitch itself changes, so the sounding voice has to go
+            // (same reasoning as shiftNotesInRange).
+            self.queueNoteOff(n.pitch);
+            n.pitch = clamped;
+            moved += 1;
+        }
+        return moved;
+    }
+
+    /// Set every note `sel` covers to `duration_beat` - FL's "discard note
+    /// lengths", for throwing away hand-drawn lengths and getting a uniform
+    /// stab back. Returns the count whose length actually changed (UI
+    /// thread).
+    pub fn setLengths(self: *PatternPlayer, sel: Sel, duration_beat: f64) u16 {
+        if (!std.math.isFinite(duration_beat) or duration_beat <= 0.0) return 0;
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        var changed: u16 = 0;
+        for (self.notes[0..self.note_count]) |*n| {
+            if (!sel.contains(n.*)) continue;
+            if (@abs(n.duration_beat - duration_beat) < 1e-9) continue;
+            // The off boundary moves, and a shrunk tail could otherwise
+            // strand its note_off (same hazard as legato).
+            self.queueNoteOff(n.pitch);
+            n.duration_beat = duration_beat;
+            changed += 1;
+        }
+        return changed;
+    }
+
     /// How many `step_beats` pieces `duration_beat` chops into: always at
     /// least one, and capped at the pattern's own capacity so an absurdly
     /// small step can't produce a piece count no pattern could hold anyway.
@@ -1122,6 +1169,51 @@ test "chop splits notes into grid pieces, refuses when it would overflow" {
     for (0..300) |i| pp.addNote(.{ .pitch = 60, .start_beat = @as(f64, @floatFromInt(i)) * 0.01, .duration_beat = 1.0 });
     try std.testing.expectEqual(@as(?u16, null), pp.chop(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 0.25));
     try std.testing.expectEqual(@as(u16, 300), pp.note_count);
+}
+
+test "limitPitch folds notes into range by octaves, clamps a sub-octave range" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 4.0;
+    pp.addNote(.{ .pitch = 36, .start_beat = 0.0, .duration_beat = 0.25 }); // two octaves low
+    pp.addNote(.{ .pitch = 84, .start_beat = 1.0, .duration_beat = 0.25 }); // an octave high
+    pp.addNote(.{ .pitch = 60, .start_beat = 2.0, .duration_beat = 0.25 }); // already in range
+
+    try std.testing.expectEqual(@as(u16, 2), pp.limitPitch(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 48, 72));
+    // Folded by the fewest octaves that reach the range, not to its middle.
+    try std.testing.expectEqual(@as(u7, 48), pp.notes[0].pitch); // 36 + 12
+    try std.testing.expectEqual(@as(u7, 72), pp.notes[1].pitch); // 84 - 12
+    try std.testing.expectEqual(@as(u7, 60), pp.notes[2].pitch); // untouched
+
+    // Narrower than an octave: nothing to fold into, so notes clamp.
+    pp.clearNotes();
+    pp.addNote(.{ .pitch = 40, .start_beat = 0.0, .duration_beat = 0.25 });
+    pp.addNote(.{ .pitch = 90, .start_beat = 1.0, .duration_beat = 0.25 });
+    try std.testing.expectEqual(@as(u16, 2), pp.limitPitch(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 60, 64));
+    try std.testing.expectEqual(@as(u7, 64), pp.notes[0].pitch);
+    try std.testing.expectEqual(@as(u7, 60), pp.notes[1].pitch);
+
+    // Inverted range is a no-op.
+    try std.testing.expectEqual(@as(u16, 0), pp.limitPitch(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 72, 48));
+}
+
+test "setLengths resets note lengths, reporting only what changed" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 4.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 2.0 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 1.0, .duration_beat = 0.25 });
+
+    try std.testing.expectEqual(@as(u16, 1), pp.setLengths(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 0.25));
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25), pp.notes[0].duration_beat, 1e-9);
+    // Running it again changes nothing, so nothing is reported.
+    try std.testing.expectEqual(@as(u16, 0), pp.setLengths(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 0.25));
+    // Invalid lengths are ignored rather than producing zero-length notes.
+    try std.testing.expectEqual(@as(u16, 0), pp.setLengths(.{ .lo_beat = 0.0, .hi_beat = 4.0 }, 0.0));
 }
 
 test "flam echoes notes at fading velocity, either side of the beat" {

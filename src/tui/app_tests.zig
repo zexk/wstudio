@@ -5286,8 +5286,15 @@ test "suggestion popup highlight tracks the completed candidate" {
     defer app.deinit();
     app.cursor = 2; // drum track: "d" stem now also matches drum-kit/drum-kit-save
 
+    // The hidden `d` alias (for :track-del) never wins a completion, so a
+    // bare "d" stem lands on the first real command instead.
     for (":d") |c| app.handleKey(.{ .char = c }, 0);
-    app.handleKey(.tab, 0); // -> "drum-kit"; the short d alias is ignored
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("discard-lengths", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.escape, 0);
+
+    for (":dr") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.tab, 0); // -> "drum-kit", with drum-kit-save behind it
     try std.testing.expectEqualStrings("drum-kit", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
     var buf: [32 * 1024]u8 = undefined;
