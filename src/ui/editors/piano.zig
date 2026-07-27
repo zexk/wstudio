@@ -346,6 +346,11 @@ fn dragNote(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dstep: i32
     const new_pitch: u7 = @intCast(std.math.clamp(@as(i32, app.piano_cursor_pitch) + dpitch, 0, 127));
     n.start_beat = stepToBeat(app, new_step);
     n.pitch = new_pitch;
+    // Every pitch shift of a held note (stamp draw or M grab) previews the
+    // pitch being drawn - one preview per shift, so a J/K octave jump stays
+    // a single note. Unconditional, unlike the cursor's own `:audition`
+    // opt-in: this is a note being placed, not the cursor passing over one.
+    if (new_pitch != app.piano_cursor_pitch) app.playNote(app.piano_track, new_pitch, app.now_ns);
     app.piano_cursor_step = new_step;
     app.piano_cursor_pitch = new_pitch;
     app.piano_grab_delta.dstep += dstep;
@@ -497,6 +502,7 @@ fn toggleOrStamp(app: *App, pp: *pattern_mod.PatternPlayer) void {
         return;
     }
     insertNote(app);
+    app.playNote(app.piano_track, app.piano_cursor_pitch, app.now_ns);
     app.piano_stamp = true;
     app.piano_grab_delta = .{};
     app.setStatus("stamping - hold: j/k pitch, h/l length; release/esc drops", .{});
