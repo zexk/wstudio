@@ -1,5 +1,6 @@
 const std = @import("std");
 const zgui = @import("zgui");
+const picker = @import("picker.zig");
 const style = @import("../style.zig");
 
 const color = style.color;
@@ -36,8 +37,9 @@ pub fn draw(app: anytype) void {
         zgui.setCursorPosX(zgui.getContentRegionAvail()[0] - 104);
         zgui.textDisabled("TYPE", .{});
         zgui.separator();
+        const pattern = app.core.searchPattern();
         for (app.core.browser_entries.items, 0..) |entry, i| {
-            if (drawEntry(entry.name, entry.is_dir, app.core.browser_cursor == i, i)) {
+            if (drawEntry(entry.name, entry.is_dir, app.core.browser_cursor == i, i, pattern)) {
                 app.core.browser_cursor = i;
                 app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
                 // handleKey may have just freed/replaced browser_entries
@@ -116,7 +118,7 @@ fn drawBookmarks(app: anytype) void {
     }
     if (zgui.beginChild("bookmarks", .{ .w = 0, .h = -1, .child_flags = .{ .border = true } })) {
         for (app.core.bookmarks.items, 0..) |bookmark, i| {
-            if (drawEntry(bookmark.path, bookmark.is_dir, app.core.bookmark_cursor == i, i)) {
+            if (drawEntry(bookmark.path, bookmark.is_dir, app.core.bookmark_cursor == i, i, "")) {
                 app.core.bookmark_cursor = i;
                 app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
                 break;
@@ -126,7 +128,7 @@ fn drawBookmarks(app: anytype) void {
     zgui.endChild();
 }
 
-fn drawEntry(name: []const u8, is_dir: bool, selected: bool, index: usize) bool {
+fn drawEntry(name: []const u8, is_dir: bool, selected: bool, index: usize, filter: []const u8) bool {
     const width = zgui.getContentRegionAvail()[0];
     const height: f32 = 50;
     const origin = zgui.getCursorScreenPos();
@@ -145,7 +147,10 @@ fn drawEntry(name: []const u8, is_dir: bool, selected: bool, index: usize) bool 
     });
     if (selected) draw_list.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 1 }, .col = color(theme.focus), .rounding = 3, .thickness = 2 });
     draw_list.addRectFilled(.{ .pmin = .{ origin[0], origin[1] + 8 }, .pmax = .{ origin[0] + 4, origin[1] + height - 8 }, .col = color(accent), .rounding = 2 });
-    draw_list.addText(.{ origin[0] + 15, origin[1] + 8 }, color(if (selected) theme.fg0 else theme.fg1), "{s}", .{name});
+    // Same match highlight the TUI browser paints in reverse video: the `/`
+    // search only moves the cursor, so without it there's nothing showing
+    // *why* a row matched.
+    picker.drawFuzzyLabel(draw_list, .{ origin[0] + 15, origin[1] + 8 }, name, filter, theme.modulation, if (selected) theme.fg0 else theme.fg1);
     const type_label = if (is_dir) "DIRECTORY" else std.fs.path.extension(name);
     draw_list.addText(.{ origin[0] + width - 116, origin[1] + 16 }, color(theme.fg2), "{s}", .{type_label});
     draw_list.addText(.{ origin[0] + width - 28, origin[1] + 15 }, color(accent), "{s}", .{if (is_dir) ">" else "*"});

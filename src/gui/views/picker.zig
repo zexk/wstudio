@@ -185,14 +185,17 @@ fn drawCard(id: [:0]const u8, label: []const u8, desc: []const u8, accent: [4]f3
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(if (hovered) theme.bg3 else theme.bg2), .rounding = 4 });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 4, origin[1] + height }, .col = color(accent), .rounding = 2 });
     if (selected) draw_list.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 1 }, .col = color(theme.focus), .rounding = 4, .thickness = 2 });
-    drawFuzzyLabel(draw_list, .{ origin[0] + 14, origin[1] + 10 }, label, filter, accent);
+    drawFuzzyLabel(draw_list, .{ origin[0] + 14, origin[1] + 10 }, label, filter, accent, theme.fg0);
     draw_list.addText(.{ origin[0] + 14, origin[1] + 35 }, color(theme.fg3), "{s}", .{desc});
     return clicked;
 }
 
-fn drawFuzzyLabel(draw_list: anytype, origin: [2]f32, label: []const u8, filter: []const u8, accent: [4]f32) void {
+/// Paint `label`, tinting the bytes the `/` filter matched - the GUI's
+/// answer to the TUI's reverse-video match highlight (tui/views/browser.zig),
+/// off the same `ui/fuzzy.zig` positions. Shared with the file browser.
+pub fn drawFuzzyLabel(draw_list: anytype, origin: [2]f32, label: []const u8, filter: []const u8, accent: [4]f32, base: [4]f32) void {
     if (filter.len == 0 or label.len > 256) {
-        draw_list.addText(origin, color(theme.fg0), "{s}", .{label});
+        draw_list.addText(origin, color(base), "{s}", .{label});
         return;
     }
     var positions: [256]bool = undefined;
@@ -204,7 +207,7 @@ fn drawFuzzyLabel(draw_list: anytype, origin: [2]f32, label: []const u8, filter:
         var end = start + 1;
         while (end < label.len and positions[end] == matched) : (end += 1) {}
         const run = label[start..end];
-        draw_list.addText(.{ x, origin[1] }, color(if (matched) accent else theme.fg0), "{s}", .{run});
+        draw_list.addText(.{ x, origin[1] }, color(if (matched) accent else base), "{s}", .{run});
         x += zgui.calcTextSize(run, .{})[0];
         start = end;
     }
