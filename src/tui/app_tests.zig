@@ -1118,7 +1118,7 @@ test "piano roll visual mode selects a step range for y/d/P" {
     pp.addNote(.{ .pitch = 72, .start_beat = 2.0, .duration_beat = 0.25 }); // step 8, outside the selection
 
     app.piano_cursor_step = 0;
-    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'V' }, 0);
     try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
     for ("3l") |c| app.handleKey(.{ .char = c }, 0); // extend the selection to step 3
 
@@ -1129,7 +1129,7 @@ test "piano roll visual mode selects a step range for y/d/P" {
     // Paste at step 8: P is a visual-mode action, so re-enter visual first
     // (v establishes the cursor as the paste point; no need to extend it).
     app.piano_cursor_step = 8;
-    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'V' }, 0);
     app.handleKey(.{ .char = 'P' }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(@as(u16, 5), pp.note_count);
@@ -1138,7 +1138,7 @@ test "piano roll visual mode selects a step range for y/d/P" {
 
     // Select the same range again and delete it - only the untouched note remains.
     app.piano_cursor_step = 0;
-    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'V' }, 0);
     for ("3l") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.{ .char = 'd' }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
@@ -1160,7 +1160,7 @@ test "piano roll visual mode: w/b extend the selection by beat, matching normal-
     pp.addNote(.{ .pitch = 64, .start_beat = 2.0, .duration_beat = 0.25 }); // step 8, outside the w-extended range
 
     app.piano_cursor_step = 0;
-    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'V' }, 0);
     app.handleKey(.{ .char = 'w' }, 0); // extend one beat forward (0 -> 4)
     try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
     try std.testing.expectEqual(@as(u16, 4), app.piano_cursor_step);
@@ -1171,7 +1171,7 @@ test "piano roll visual mode: w/b extend the selection by beat, matching normal-
 
     // b moves the extended selection back a beat (from step 12, lands on 8).
     app.piano_cursor_step = 12;
-    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'V' }, 0);
     app.handleKey(.{ .char = 'b' }, 0);
     try std.testing.expectEqual(@as(u16, 8), app.piano_cursor_step);
     app.handleKey(.{ .char = 'd' }, 0);
@@ -1191,7 +1191,7 @@ test "piano roll normal-mode p pastes the most recent yank: range after visual y
     // Visual range yank, then a plain normal-mode p at the new cursor -
     // no re-entering visual mode required.
     app.piano_cursor_step = 0;
-    for ("v3ly") |c| app.handleKey(.{ .char = c }, 0);
+    for ("V3ly") |c| app.handleKey(.{ .char = c }, 0);
     app.piano_cursor_step = 8;
     app.handleKey(.{ .char = 'p' }, 0);
     try std.testing.expectEqual(@as(u16, 4), pp.note_count);
@@ -4410,7 +4410,7 @@ test "macros: a self-replaying register terminates via the depth cap" {
     app.handleKey(.{ .char = 'a' }, 0);
 }
 
-test "piano roll visual j/k transpose and </> slide the selection" {
+test "piano roll visual +/- transpose and </> slide the selection" {
     var app = try testApp();
     defer app.deinit();
     app.view = .piano_roll;
@@ -4421,13 +4421,15 @@ test "piano roll visual j/k transpose and </> slide the selection" {
     app.piano_cursor_step = 0;
     app.piano_cursor_pitch = 60;
 
-    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'V' }, 0); // linewise: every pitch across the range
     app.handleKey(.{ .char = 'l' }, 0); // select steps 0-1
-    app.handleKey(.{ .char = 'k' }, 0); // up a semitone, chord shape intact
+    app.handleKey(.{ .char = '+' }, 0); // up a semitone, chord shape intact
     try std.testing.expect(pp.noteAt(61, 0.0) != null);
     try std.testing.expect(pp.noteAt(65, 0.25) != null);
     try std.testing.expect(pp.noteAt(60, 0.0) == null);
-    app.handleKey(.{ .char = 'K' }, 0); // up an octave
+    app.handleKey(.{ .char = '1' }, 0); // up an octave: 12+
+    app.handleKey(.{ .char = '2' }, 0);
+    app.handleKey(.{ .char = '+' }, 0);
     try std.testing.expect(pp.noteAt(73, 0.0) != null);
     try std.testing.expect(pp.noteAt(77, 0.25) != null);
     // Still in visual mode - the shift can keep walking.
@@ -4461,12 +4463,62 @@ test "piano roll visual transpose refuses to clamp at the MIDI range edge" {
     app.piano_cursor_step = 0;
     app.piano_cursor_pitch = 120;
 
-    app.handleKey(.{ .char = 'v' }, 0);
-    app.handleKey(.{ .char = 'k' }, 0); // would push 127 past the top
+    app.handleKey(.{ .char = 'V' }, 0);
+    app.handleKey(.{ .char = '+' }, 0); // would push 127 past the top
     try std.testing.expect(pp.noteAt(127, 0.0) != null);
     try std.testing.expect(pp.noteAt(120, 0.0) != null);
     try std.testing.expect(pp.noteAt(121, 0.0) == null);
     app.handleKey(.escape, 0);
+}
+
+test "piano roll blockwise visual bounds the selection to the pitch band j/k grows" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.length_beats = 8.0;
+    // A three-note chord on step 0. Blockwise selection reaches the bottom
+    // two voices only - the thing the old all-pitch selection could not do.
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 0.0, .duration_beat = 0.25 });
+    pp.addNote(.{ .pitch = 67, .start_beat = 0.0, .duration_beat = 0.25 });
+    app.piano_cursor_step = 0;
+    app.piano_cursor_pitch = 60;
+
+    app.handleKey(.{ .char = 'v' }, 0);
+    try std.testing.expectEqual(@as(?u7, 60), app.piano_visual_pitch_anchor);
+    for ("4k") |c| app.handleKey(.{ .char = c }, 0); // grow the band to 60-64
+    try std.testing.expectEqual(@as(u7, 64), app.piano_cursor_pitch);
+    app.handleKey(.{ .char = '+' }, 0); // transpose only the two notes in it
+    try std.testing.expect(pp.noteAt(61, 0.0) != null);
+    try std.testing.expect(pp.noteAt(65, 0.0) != null);
+    try std.testing.expect(pp.noteAt(67, 0.0) != null); // top voice untouched
+
+    // The band rode along with the transpose, so `d` clears the same notes.
+    app.handleKey(.{ .char = 'd' }, 0);
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+    try std.testing.expect(pp.noteAt(67, 0.0) != null);
+    try std.testing.expectEqual(@as(?u7, null), app.piano_visual_pitch_anchor);
+}
+
+test "piano roll operator+motion stays linewise: d3l ignores the pitch cursor" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.length_beats = 8.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
+    pp.addNote(.{ .pitch = 84, .start_beat = 0.25, .duration_beat = 0.25 });
+    app.piano_cursor_step = 0;
+    app.piano_cursor_pitch = 60;
+
+    // `d` + a motion takes every pitch across the range it covers, so the
+    // note two octaves above the cursor goes too - the pre-existing grammar,
+    // unchanged by the pitch axis.
+    for ("d3l") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u16, 0), pp.note_count);
 }
 
 test "piano roll visual o bounces between the selection's ends" {

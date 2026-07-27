@@ -15,11 +15,23 @@ where that editor deviates.
   entirely in insert mode; notes played while the transport rolls are
   recorded into the pattern (quantized against the audio thread's own
   playhead), otherwise insert is pure audition.
-- **Visual** (`v`): anchors a time-range selection. Selections are
-  time-range only in every editor: the piano roll selects all pitches
-  across the step range, the drum and slicer grids all rows, and the
-  arrangement restricts itself to the current lane (undo snapshots one
-  lane at a time). `y`/`d` act on the range, escape cancels. While visual mode is
+- **Visual** (`v`) / **visual line** (`V`): anchors a selection. Both
+  anchor the time axis; they differ on the second axis, the way vim's
+  blockwise and linewise visual modes do. A "line" here is one full
+  column of the grid at a step, so linewise means every pitch, pad, or
+  slice.
+  - `v` is blockwise: the selection also anchors to the cursor row, so it
+    starts one row tall and `j`/`k` grow the band. This is what selects a
+    single voice out of a chord, or one pad's fill.
+  - `V` is linewise: the row axis is left open and every row is in. This
+    is what visual mode did unconditionally before the row axis existed,
+    so the old gesture is one shifted keystroke away.
+  - The automation editor and the tracks list have no second axis, so
+    `v` is the only form there.
+  - The arrangement is still one lane at a time under both (undo
+    snapshots one lane).
+
+  `y`/`d` act on the selection, escape cancels. While visual mode is
   active every unrelated key is swallowed so a stray press cannot
   switch views or curves mid-selection.
 - **Command** (`:`) / **search** (`/`): handled outside the editors.
@@ -47,8 +59,10 @@ operator is pending extend the count without cancelling the operator.
   the names the unit is one beat.
 - `g`/`G`: start / end.
 - `j`/`k`: the second axis where one exists (pitch, pad, lane, value
-  nudge in automation). Never valid as an operator motion: operators
-  are time-range only, matching visual mode.
+  nudge in automation). In blockwise visual mode they grow the selected
+  row band. Never valid as an operator motion: `d`/`y` + a motion is
+  always linewise, so `d3l` clears every row across the range it covers.
+  `v` first is the route to a blockwise operator, exactly as in vim.
 
 ## Operators
 

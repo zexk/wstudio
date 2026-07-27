@@ -177,7 +177,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("x",            "clear the step at cursor");
     t.key("c",            "cycle step velocity presets (127/95/63/31)");
     t.key("{ / }",        "nudge step velocity down / up by 1 (count-scaled, full 1-127 range)");
-    t.key("v",            "visual mode: select a step range (all pads) - y/d/P");
+    t.key("v / V",        "visual: a (pad, step) block, j/k grow it / visual line: every pad - y/d/P");
     t.key("< / >",        "less / more swing (50–75%)");
     t.key("C",            "cycle current pad's choke group (none/1-4) - same-group pads cut each other off");
     t.key("a",            "preview pad sound");
@@ -200,7 +200,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("d / y",        "operator: add a motion (h/l/H/L/w/b/g/G, counts work: d3l) to clear / yank that range");
     t.key("dd / yy",      "clear the cursor pad's row / yank the whole pattern");
     t.key("p",            "paste the latest yank (whole pattern or range, works across tracks)");
-    t.key("(visual) y/d/p", "range yank / clear / paste (v to enter, hjkl to extend)");
+    t.key("(visual) y/d/p", "range yank / clear / paste (v or V to enter, hjkl to extend)");
     t.key(".",            "repeat last visual-mode range delete/paste at the cursor");
 
     t.taggedSection(.slicer_grid, "SLICER");
@@ -222,7 +222,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("c",            "cycle step velocity through presets (full/hard/mid/soft)");
     t.key("_ / =",        "step velocity down / up (fine, 1-127)");
     t.key("d / y",        "+motion: delete / yank a step range; dd clears the row, yy yanks the pattern");
-    t.key("v",            "visual mode: select a step range, then y/d/p");
+    t.key("v / V",        "visual: a (slice, step) block, j/k grow it / visual line: every slice - y/d/p");
     t.key("p",            "paste the yanked range at the cursor step");
     t.key(".",            "repeat last range delete/paste at the cursor");
     t.key("u / U / ^R",   "undo / redo (chops, steps, velocities alike)");
@@ -307,8 +307,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("d / y",        "operator: add a motion (h/l/H/L/w/b/g/G, counts work: d3l, y2w) to clear / yank that range");
     t.key("dd / yy",      "clear the cursor pitch's row / yank the whole pattern");
     t.key("p",            "paste the latest yank (whole pattern or range, works across tracks)");
-    t.key("v",            "visual mode: select a step range (all pitches) - y/d/p");
-    t.key("(visual) j/k/J/K", "transpose the selected notes a semitone / octave (stays selected - count works)");
+    t.key("v / V",        "visual: a (pitch, step) block, j/k grow it / visual line: every pitch - y/d/p");
+    t.key("(visual) + / -", "transpose the selected notes a semitone (stays selected - 12+ is an octave)");
     t.key("(visual) < / >", "slide the selected notes a step earlier / later (selection follows)");
     t.key("(visual) r",   "reverse the selected notes in time (retrograde; r again flips it back)");
     t.key("(visual) o",   "jump to the selection's other end (also in drum/slicer/arrangement/automation)");

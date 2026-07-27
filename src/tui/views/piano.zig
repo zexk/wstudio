@@ -6,6 +6,7 @@ const engine_mod = ws.engine;
 const style = @import("../style.zig");
 const icons = @import("../../ui/icons.zig");
 const piano_ed = @import("../../ui/editors/piano.zig");
+const step_grid = @import("../../ui/editors/step_grid.zig");
 const theory = ws.theory;
 
 // Aliases so the moved render bodies reference the shared palette/primitives
@@ -191,11 +192,14 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     }
     try endLine(w);
 
-    // Visual-mode selection: a step range spanning every pitch row.
+    // Visual-mode selection: a step range, spanning either the anchored
+    // pitch band (`v`, blockwise) or every pitch row (`V`, linewise - a null
+    // pitch anchor). See editors/step_grid.zig's rowRange.
     const visual_active = app.modal.mode == .visual;
     const sel_anchor = app.piano_visual_anchor orelse app.piano_cursor_step;
     const sel_lo: u16 = @min(sel_anchor, app.piano_cursor_step);
     const sel_hi: u16 = @max(sel_anchor, app.piano_cursor_step);
+    const sel_pitch = step_grid.rowRange(u7, app.piano_visual_pitch_anchor, app.piano_cursor_pitch, 128);
 
     // Note rows (top of view = high pitch)
     const top: u7 = app.piano_scroll_pitch;
@@ -222,7 +226,8 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
             const step = left + @as(u16, @intCast(col));
             const beat_pos = @as(f64, @floatFromInt(step)) / spbf;
             const is_cur = is_cur_row and (step == app.piano_cursor_step);
-            const in_sel = visual_active and step >= sel_lo and step <= sel_hi;
+            const in_sel = visual_active and step >= sel_lo and step <= sel_hi and
+                pitch >= sel_pitch.lo and pitch <= sel_pitch.hi;
             const starts = pp.noteStartsAt(pitch, beat_pos);
             const covers = pp.noteCovers(pitch, beat_pos);
             const downbeat = step % spb == 0;

@@ -28,6 +28,25 @@ pub const Note = struct {
     duration_beat: f64,
     velocity:      f32 = default_velocity,
 };
+// zig fmt: on
+
+/// A piano-roll range selection: a half-open time window, optionally
+/// narrowed to a pitch band. The full-pitch default is what the piano
+/// roll's linewise visual mode (`V`) and every whole-pattern command pass,
+/// so a caller that doesn't care about the pitch axis just omits it.
+pub const Sel = struct {
+    lo_beat: f64,
+    hi_beat: f64,
+    pitch_lo: u7 = 0,
+    pitch_hi: u7 = 127,
+
+    pub fn contains(self: Sel, n: Note) bool {
+        return n.start_beat >= self.lo_beat and n.start_beat < self.hi_beat and
+            n.pitch >= self.pitch_lo and n.pitch <= self.pitch_hi;
+    }
+};
+
+// zig fmt: off
 
 pub const PatternPlayer = struct {
     pub const swing_min: f32 = 50.0;
@@ -165,17 +184,17 @@ pub const PatternPlayer = struct {
         self.note_count = 0;
     }
 
-    /// Copy notes whose start_beat falls in [lo_beat, hi_beat) into `out`,
-    /// rebased so `lo_beat` becomes 0 (UI thread). Returns the count copied -
-    /// the yank half of the piano roll's visual-mode range clipboard.
-    pub fn copyNotesInRange(self: *PatternPlayer, lo_beat: f64, hi_beat: f64, out: []Note) u16 {
+    /// Copy the notes `sel` covers into `out`, rebased so `sel.lo_beat`
+    /// becomes 0 (UI thread). Returns the count copied - the yank half of
+    /// the piano roll's visual-mode range clipboard.
+    pub fn copyNotesInRange(self: *PatternPlayer, sel: Sel, out: []Note) u16 {
         while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.notes_lock.unlock();
         var n: u16 = 0;
         for (self.notes[0..self.note_count]) |note| {
-            if (note.start_beat >= lo_beat and note.start_beat < hi_beat and n < out.len) {
+            if (sel.contains(note) and n < out.len) {
                 out[n] = note;
-                out[n].start_beat -= lo_beat;
+                out[n].start_beat -= sel.lo_beat;
                 n += 1;
             }
         }
@@ -201,17 +220,16 @@ pub const PatternPlayer = struct {
         return removed;
     }
 
-    /// Remove every note whose start_beat falls in [lo_beat, hi_beat) (UI
-    /// thread). Returns the count removed - the delete half of the piano
-    /// roll's visual-mode range selection.
-    pub fn removeNotesInRange(self: *PatternPlayer, lo_beat: f64, hi_beat: f64) u16 {
+    /// Remove every note `sel` covers (UI thread). Returns the count removed
+    /// - the delete half of the piano roll's visual-mode range selection.
+    pub fn removeNotesInRange(self: *PatternPlayer, sel: Sel) u16 {
         while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.notes_lock.unlock();
         var removed: u16 = 0;
         var i: usize = 0;
         while (i < self.note_count) {
             const n = self.notes[i];
-            if (n.start_beat >= lo_beat and n.start_beat < hi_beat) {
+            if (sel.contains(n)) {
                 self.notes[i] = self.notes[self.note_count - 1];
                 self.note_count -= 1;
                 self.queueNoteOff(n.pitch);
@@ -221,18 +239,17 @@ pub const PatternPlayer = struct {
         return removed;
     }
 
-    /// Move every note whose start_beat falls in [lo_beat, hi_beat) by
-    /// `dpitch` semitones and `dbeat` beats (UI thread) - the piano roll's
-    /// visual-mode transpose (j/k/J/K) and time-slide (`<`/`>`). All-or-
-    /// nothing: returns null without touching anything if any note in the
-    /// range would leave the MIDI pitch range or the pattern's [0, length)
-    /// window, so a chord shape can never be clamped into a cluster.
-    /// Otherwise returns the count moved.
-    pub fn shiftNotesInRange(self: *PatternPlayer, lo_beat: f64, hi_beat: f64, dpitch: i32, dbeat: f64) ?u16 {
+    /// Move every note `sel` covers by `dpitch` semitones and `dbeat` beats
+    /// (UI thread) - the piano roll's visual-mode transpose (`+`/`-`) and
+    /// time-slide (`<`/`>`). All-or-nothing: returns null without touching
+    /// anything if any note in the range would leave the MIDI pitch range or
+    /// the pattern's [0, length) window, so a chord shape can never be
+    /// clamped into a cluster. Otherwise returns the count moved.
+    pub fn shiftNotesInRange(self: *PatternPlayer, sel: Sel, dpitch: i32, dbeat: f64) ?u16 {
         while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.notes_lock.unlock();
         for (self.notes[0..self.note_count]) |n| {
-            if (n.start_beat < lo_beat or n.start_beat >= hi_beat) continue;
+            if (!sel.contains(n)) continue;
             const p = @as(i32, n.pitch) + dpitch;
             if (p < 0 or p > 127) return null;
             const b = n.start_beat + dbeat;
@@ -240,7 +257,7 @@ pub const PatternPlayer = struct {
         }
         var moved: u16 = 0;
         for (self.notes[0..self.note_count]) |*n| {
-            if (n.start_beat < lo_beat or n.start_beat >= hi_beat) continue;
+            if (!sel.contains(n.*)) continue;
             // Choke a sounding note before moving it (no-op for silent
             // pitches): a time-slide moves the off boundary too, and if
             // that lands behind the playhead (slide left) the note_off
@@ -254,22 +271,22 @@ pub const PatternPlayer = struct {
         return moved;
     }
 
-    /// Time-mirror (retrograde) every note whose start falls in [lo_beat,
-    /// hi_beat): a note occupying [s, s+d) maps to [lo+hi-s-d, lo+hi-s),
-    /// so it ends where it used to begin and the figure plays backwards.
-    /// A note whose tail overhangs the range clamps to the range start
-    /// instead of escaping left of it. Returns the count moved (UI thread).
-    pub fn reverseNotesInRange(self: *PatternPlayer, lo_beat: f64, hi_beat: f64) u16 {
-        if (!std.math.isFinite(lo_beat) or !std.math.isFinite(hi_beat) or hi_beat <= lo_beat) return 0;
+    /// Time-mirror (retrograde) every note `sel` covers: a note occupying
+    /// [s, s+d) maps to [lo+hi-s-d, lo+hi-s), so it ends where it used to
+    /// begin and the figure plays backwards. A note whose tail overhangs the
+    /// range clamps to the range start instead of escaping left of it.
+    /// Returns the count moved (UI thread).
+    pub fn reverseNotesInRange(self: *PatternPlayer, sel: Sel) u16 {
+        if (!std.math.isFinite(sel.lo_beat) or !std.math.isFinite(sel.hi_beat) or sel.hi_beat <= sel.lo_beat) return 0;
         while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.notes_lock.unlock();
         var moved: u16 = 0;
         for (self.notes[0..self.note_count]) |*n| {
-            if (n.start_beat < lo_beat or n.start_beat >= hi_beat) continue;
+            if (!sel.contains(n.*)) continue;
             // Same stuck-note hazard as shiftNotesInRange: the off boundary
             // moves too, so choke anything sounding before it goes.
             self.queueNoteOff(n.pitch);
-            n.start_beat = @max(lo_beat, lo_beat + hi_beat - n.start_beat - n.duration_beat);
+            n.start_beat = @max(sel.lo_beat, sel.lo_beat + sel.hi_beat - n.start_beat - n.duration_beat);
             moved += 1;
         }
         return moved;
@@ -767,18 +784,18 @@ test "reverseNotesInRange mirrors a figure so it plays backwards" {
     pp.addNote(.{ .pitch = 67, .start_beat = 2.0, .duration_beat = 1.0 });
 
     // Whole-pattern retrograde: 60 ends at beat 1 -> now ends at 4 (starts 3).
-    try std.testing.expectEqual(@as(u16, 3), pp.reverseNotesInRange(0.0, 4.0));
+    try std.testing.expectEqual(@as(u16, 3), pp.reverseNotesInRange(.{ .lo_beat = 0.0, .hi_beat = 4.0 }));
     try std.testing.expectApproxEqAbs(@as(f64, 3.0), pp.notes[0].start_beat, 1e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 2.0), pp.notes[1].start_beat, 1e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.notes[2].start_beat, 1e-9);
 
     // Reversing twice restores the original figure.
-    _ = pp.reverseNotesInRange(0.0, 4.0);
+    _ = pp.reverseNotesInRange(.{ .lo_beat = 0.0, .hi_beat = 4.0 });
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), pp.notes[0].start_beat, 1e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 2.0), pp.notes[2].start_beat, 1e-9);
 
     // Partial range only touches notes starting inside it.
-    _ = pp.reverseNotesInRange(0.0, 2.0);
+    _ = pp.reverseNotesInRange(.{ .lo_beat = 0.0, .hi_beat = 2.0 });
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.notes[0].start_beat, 1e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), pp.notes[1].start_beat, 1e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 2.0), pp.notes[2].start_beat, 1e-9);
@@ -786,12 +803,12 @@ test "reverseNotesInRange mirrors a figure so it plays backwards" {
     // A note overhanging the range clamps to the range start.
     pp.clearNotes();
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 3.0 });
-    _ = pp.reverseNotesInRange(0.0, 2.0);
+    _ = pp.reverseNotesInRange(.{ .lo_beat = 0.0, .hi_beat = 2.0 });
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), pp.notes[0].start_beat, 1e-9);
 
     // Degenerate/invalid ranges are no-ops.
-    try std.testing.expectEqual(@as(u16, 0), pp.reverseNotesInRange(2.0, 2.0));
-    try std.testing.expectEqual(@as(u16, 0), pp.reverseNotesInRange(0.0, std.math.nan(f64)));
+    try std.testing.expectEqual(@as(u16, 0), pp.reverseNotesInRange(.{ .lo_beat = 2.0, .hi_beat = 2.0 }));
+    try std.testing.expectEqual(@as(u16, 0), pp.reverseNotesInRange(.{ .lo_beat = 0.0, .hi_beat = std.math.nan(f64) }));
 }
 
 test "velocityRamp interpolates by note position, endpoints exact" {
@@ -1066,7 +1083,7 @@ test "time-sliding a sounding note chokes it instead of stranding its note_off" 
     pp.processBlock(&buf);
     try std.testing.expect(pp.sounding[60]);
 
-    try std.testing.expectEqual(@as(?u16, 1), pp.shiftNotesInRange(0.0, 0.25, 0, 0.5));
+    try std.testing.expectEqual(@as(?u16, 1), pp.shiftNotesInRange(.{ .lo_beat = 0.0, .hi_beat = 0.25 }, 0, 0.5));
     transport.advance(256);
     pp.processBlock(&buf);
     try std.testing.expect(!pp.sounding[60]);

@@ -465,7 +465,7 @@ fn cmdReverse(app: *App, _: []const u8) void {
     // machine so the command also works from the tracks and drum views.
     if (resolveMelodic(app)) |m| {
         history.recordMelodic(app, @intCast(m.track));
-        const moved = m.pp.reverseNotesInRange(0.0, m.pp.length_beats);
+        const moved = m.pp.reverseNotesInRange(.{ .lo_beat = 0.0, .hi_beat = m.pp.length_beats });
         app.setStatus("reversed {d} notes", .{moved});
         piano_ed.syncLinkedClip(app);
         return;
@@ -565,7 +565,7 @@ fn cmdTranspose(app: *App, args: []const u8) void {
         return;
     };
     var entry = history.captureMelodic(app, @intCast(m.track));
-    const moved = m.pp.shiftNotesInRange(0.0, m.pp.length_beats, dpitch, 0.0) orelse {
+    const moved = m.pp.shiftNotesInRange(.{ .lo_beat = 0.0, .hi_beat = m.pp.length_beats }, dpitch, 0.0) orelse {
         if (entry) |*e| e.deinit(app.allocator);
         app.setStatus("can't transpose - would leave the pitch range", .{});
         return;

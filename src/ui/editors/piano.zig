@@ -77,7 +77,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 
     const max_step: u16 = @intFromFloat(pp.length_beats * stepsPerBeatF(app));
 
-    // Visual mode: a step-range selection spanning every pitch. Motions and
+    // Visual mode: a step-range selection, bounded on the pitch axis by `v`
+    // (blockwise) or spanning every pitch under `V` (linewise). Motions and
     // range y/d/p live in handleVisual; everything else is swallowed so a
     // stray keypress can't jump views mid-selection.
     if (app.modal.mode == .visual) return handleVisual(app, key, pp, max_step);
@@ -245,12 +246,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 if (app.piano_last_yank == .range) pasteSelection(app, pp, @intCast(app.takeCount())) else paste(app);
                 return true;
             },
-            'v' => {
-                app.piano_visual_anchor = app.piano_cursor_step;
-                app.modal.mode = .visual;
-                app.setStatus("visual: h/l extend, j/k/J/K transpose, </> slide, o other end, y/d/p, esc", .{});
-                return true;
-            },
+            // v: blockwise - a (pitch, step) rectangle, one pitch tall until
+            // j/k grow it, so a single voice out of a chord is selectable.
+            // V: linewise - the step range across every pitch, which is what
+            // visual mode did unconditionally before the pitch axis existed.
+            // See step_grid.rowRange; the drum and slicer grids split the
+            // same way.
+            'v' => { enterVisual(app, true); return true; },
+            'V' => { enterVisual(app, false); return true; },
             's' => { spectrum.switchToTrack(app, app.piano_track); return true; },
             // Step entry: n places a note and advances by its length; N leaves
             // a rest of the same size. Enter remains the stationary toggle.
@@ -568,8 +571,8 @@ fn insertNote(app: *App) void {
     if (pp.noteStartsAt(app.piano_cursor_pitch, start_beat)) return;
     var before = history.captureMelodic(app, app.piano_track);
     if (!pp.tryAddNote(.{
-        .pitch        = app.piano_cursor_pitch,
-        .start_beat   = start_beat,
+        .pitch = app.piano_cursor_pitch,
+        .start_beat = start_beat,
         .duration_beat = app.piano_note_len,
     })) {
         if (before) |*entry| entry.deinit(app.allocator);
@@ -779,6 +782,10 @@ fn operatorBarBackward(app: *App, max_step: u16, n: i32) void {
 /// mode's `v` sets, so the eventual delete/yank reuses selectionRange as-is.
 fn armOperator(app: *App, op: u8) void {
     app.piano_visual_anchor = app.piano_cursor_step;
+    // The operator form is linewise - `d3l` clears every pitch across the
+    // range it covers, same as it always did. `v` first is the route to a
+    // blockwise operator, exactly as in vim.
+    app.piano_visual_pitch_anchor = null;
     app.piano_op_pending = op;
     if (op == 'd')
         app.setStatus("d: h/l/H/L/g/G/w/b act on the range, dd clears the cursor pitch's row", .{})
@@ -806,17 +813,22 @@ fn handleVisual(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, m
             'l' => { moveStep(app, max_step, app.takeCount()); return true; },
             'H' => { moveStep(app, max_step, -4 * app.takeCount()); return true; },
             'L' => { moveStep(app, max_step, 4 * app.takeCount()); return true; },
-            // Selections span all pitches, so a pitch-cursor move never
-            // extended anything here - j/k/J/K act on the selected notes
-            // instead: transpose by semitone (j/k) or octave (J/K). The
-            // selection stays live, so k k k walks a phrase up in thirds
-            // by ear. `<`/`>` slide the notes a step in time (the indent
-            // metaphor), `o` bounces the cursor between the range's two
-            // ends (vim), all count-scaled.
-            'j' => { transposeSelection(app, pp, -app.takeCount()); return true; },
-            'k' => { transposeSelection(app, pp, app.takeCount()); return true; },
-            'J' => { transposeSelection(app, pp, -12 * app.takeCount()); return true; },
-            'K' => { transposeSelection(app, pp, 12 * app.takeCount()); return true; },
+            // j/k/J/K extend the selection down/up the pitch axis, like
+            // every other motion in visual mode and like vim itself - a
+            // no-op under `V`, where every pitch is already in. They used to
+            // transpose the selected notes, which is a transformation rather
+            // than a motion; that moved to `+`/`-` (count-scaled, so `12+`
+            // is an octave) and still keeps the selection live, so + + +
+            // walks a phrase up by ear the way k k k used to.
+            'j' => { movePitch(app, -app.takeCount()); return true; },
+            'k' => { movePitch(app, app.takeCount()); return true; },
+            'J' => { movePitch(app, -12 * app.takeCount()); return true; },
+            'K' => { movePitch(app, 12 * app.takeCount()); return true; },
+            '-' => { transposeSelection(app, pp, -app.takeCount()); return true; },
+            '+' => { transposeSelection(app, pp, app.takeCount()); return true; },
+            // `<`/`>` slide the notes a step in time (the indent metaphor),
+            // `o` bounces the cursor to the selection's other corner (vim),
+            // all count-scaled.
             '<' => { slideSelection(app, pp, max_step, -app.takeCount()); return true; },
             '>' => { slideSelection(app, pp, max_step, app.takeCount()); return true; },
             'r' => { reverseSelection(app, pp); return true; },
@@ -824,8 +836,14 @@ fn handleVisual(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, m
                 if (app.piano_visual_anchor) |a| {
                     app.piano_visual_anchor = app.piano_cursor_step;
                     app.piano_cursor_step = a;
-                    ensureVisible(app);
                 }
+                // Blockwise selections bounce both axes, so `o` lands on the
+                // opposite corner of the rectangle.
+                if (app.piano_visual_pitch_anchor) |a| {
+                    app.piano_visual_pitch_anchor = app.piano_cursor_pitch;
+                    app.piano_cursor_pitch = a;
+                }
+                ensureVisible(app);
                 return true;
             },
             'w' => { jumpBar(app, max_step, app.takeCount()); return true; },
@@ -843,22 +861,50 @@ fn handleVisual(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, m
 }
 // zig fmt: on
 
-/// Leave visual mode, clearing the anchor so the selection can't linger.
+/// `v`/`V`: arm a visual selection on the step axis, with the pitch axis
+/// either anchored to the cursor pitch (`v`, blockwise) or left open (`V`,
+/// linewise - every pitch, visual mode's original behaviour).
+fn enterVisual(app: *App, blockwise: bool) void {
+    app.piano_visual_anchor = app.piano_cursor_step;
+    app.piano_visual_pitch_anchor = if (blockwise) app.piano_cursor_pitch else null;
+    app.modal.mode = .visual;
+    if (blockwise)
+        app.setStatus("visual: h/l extend, j/k grow the pitch block, +/- transpose, </> slide, o corner, y/d/p, esc", .{})
+    else
+        app.setStatus("visual line: h/l extend (every pitch), +/- transpose, </> slide, o other end, y/d/p, esc", .{});
+}
+
+/// Leave visual mode, clearing both anchors so the selection can't linger.
 fn exitVisual(app: *App) void {
     _ = app.modal.setMode(.normal);
     app.piano_visual_anchor = null;
+    app.piano_visual_pitch_anchor = null;
 }
 
-/// Visual j/k/J/K: transpose the selected notes by `dpitch` semitones,
-/// staying in visual mode so the shift can be walked by ear. The pitch
-/// cursor rides along as feedback. All-or-nothing at the MIDI range edges
-/// (see shiftNotesInRange), so a chord can't collapse against them.
-fn transposeSelection(app: *App, pp: *pattern_mod.PatternPlayer, dpitch: i32) void {
+/// The selection as the pattern layer sees it: the step range widened to
+/// beats, plus the pitch band `v` anchored (or the full MIDI range under
+/// `V`, and under the operator forms, which never set a pitch anchor - so
+/// `d3l`/`yw` stay linewise exactly as they were).
+fn selection(app: *App) pattern_mod.Sel {
     const r = selectionRange(app);
-    const lo_beat = stepToBeat(app, r.lo);
-    const hi_beat = stepToBeat(app, r.hi) + 1.0 / stepsPerBeatF(app);
+    const rows = step_grid.rowRange(u7, app.piano_visual_pitch_anchor, app.piano_cursor_pitch, 128);
+    return .{
+        .lo_beat = stepToBeat(app, r.lo),
+        .hi_beat = stepToBeat(app, r.hi) + 1.0 / stepsPerBeatF(app),
+        .pitch_lo = @intCast(rows.lo),
+        .pitch_hi = @intCast(rows.hi),
+    };
+}
+
+/// Visual `+`/`-`: transpose the selected notes by `dpitch` semitones,
+/// staying in visual mode so the shift can be walked by ear. The pitch
+/// cursor and (blockwise) anchor ride along, so the selection keeps
+/// covering the notes it just moved and a second `+` compounds. All-or-
+/// nothing at the MIDI range edges (see shiftNotesInRange), so a chord
+/// can't collapse against them.
+fn transposeSelection(app: *App, pp: *pattern_mod.PatternPlayer, dpitch: i32) void {
     var entry = history.captureMelodic(app, app.piano_track);
-    const moved = pp.shiftNotesInRange(lo_beat, hi_beat, dpitch, 0.0) orelse {
+    const moved = pp.shiftNotesInRange(selection(app), dpitch, 0.0) orelse {
         if (entry) |*e| e.deinit(app.allocator);
         app.setStatus("can't transpose - selection would leave the pitch range", .{});
         return;
@@ -871,6 +917,9 @@ fn transposeSelection(app: *App, pp: *pattern_mod.PatternPlayer, dpitch: i32) vo
     history.push(app, entry);
     const cur = @as(i32, app.piano_cursor_pitch) + dpitch;
     app.piano_cursor_pitch = @intCast(std.math.clamp(cur, 0, 127));
+    if (app.piano_visual_pitch_anchor) |*a| {
+        a.* = @intCast(std.math.clamp(@as(i32, a.*) + dpitch, 0, 127));
+    }
     ensureVisible(app);
     app.setStatus("transposed {d} notes {s}{d} st", .{ moved, if (dpitch >= 0) "+" else "", dpitch });
     syncLinkedClip(app);
@@ -880,12 +929,9 @@ fn transposeSelection(app: *App, pp: *pattern_mod.PatternPlayer, dpitch: i32) vo
 /// anchor and cursor riding along so the selection keeps covering them.
 /// All-or-nothing at the pattern edges (see shiftNotesInRange).
 fn slideSelection(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dsteps: i32) void {
-    const r = selectionRange(app);
-    const lo_beat = stepToBeat(app, r.lo);
-    const hi_beat = stepToBeat(app, r.hi) + 1.0 / stepsPerBeatF(app);
     const dbeat = @as(f64, @floatFromInt(dsteps)) / stepsPerBeatF(app);
     var entry = history.captureMelodic(app, app.piano_track);
-    const moved = pp.shiftNotesInRange(lo_beat, hi_beat, 0, dbeat) orelse {
+    const moved = pp.shiftNotesInRange(selection(app), 0, dbeat) orelse {
         if (entry) |*e| e.deinit(app.allocator);
         app.setStatus("can't slide - selection would leave the pattern", .{});
         return;
@@ -907,11 +953,8 @@ fn slideSelection(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dste
 /// plays backwards (each note ends where it used to begin). The selection
 /// stays live, so a second `r` flips it straight back by ear.
 fn reverseSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
-    const r = selectionRange(app);
-    const lo_beat = stepToBeat(app, r.lo);
-    const hi_beat = stepToBeat(app, r.hi) + 1.0 / stepsPerBeatF(app);
     var entry = history.captureMelodic(app, app.piano_track);
-    const moved = pp.reverseNotesInRange(lo_beat, hi_beat);
+    const moved = pp.reverseNotesInRange(selection(app));
     if (moved == 0) {
         if (entry) |*e| e.deinit(app.allocator);
         app.setStatus("no notes selected", .{});
@@ -926,27 +969,26 @@ fn selectionRange(app: *App) step_grid.StepRange(u16) {
     return step_grid.selectionRange(u16, app.piano_visual_anchor, app.piano_cursor_step);
 }
 
-/// Yank every note starting within the selected step range (any pitch) into
-/// the range clipboard, rebased so the range's first step is beat 0.
+/// Yank every note the selection covers into the range clipboard, rebased
+/// so the range's first step is beat 0. Pitches are kept absolute: a
+/// blockwise yank of one voice pastes back at the pitch it was written at,
+/// not transposed onto wherever the cursor happens to sit.
 fn yankSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
     const r = selectionRange(app);
-    const lo_beat = stepToBeat(app, r.lo);
-    const hi_beat = stepToBeat(app, r.hi) + 1.0 / stepsPerBeatF(app);
-    var clip: PianoClip = .{ .notes = undefined, .count = 0, .length_beats = hi_beat - lo_beat };
-    clip.count = pp.copyNotesInRange(lo_beat, hi_beat, &clip.notes);
+    const sel = selection(app);
+    var clip: PianoClip = .{ .notes = undefined, .count = 0, .length_beats = sel.hi_beat - sel.lo_beat };
+    clip.count = pp.copyNotesInRange(sel, &clip.notes);
     app.piano_range_clip = clip;
     app.piano_last_yank = .range;
     app.setStatus("yanked {d} notes ({d} steps)", .{ clip.count, r.hi - r.lo + 1 });
     exitVisual(app);
 }
 
-/// Delete every note starting within the selected step range (any pitch).
+/// Delete every note the selection covers.
 fn deleteSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
     const r = selectionRange(app);
-    const lo_beat = stepToBeat(app, r.lo);
-    const hi_beat = stepToBeat(app, r.hi) + 1.0 / stepsPerBeatF(app);
     history.push(app, history.captureMelodic(app, app.piano_track));
-    const removed = pp.removeNotesInRange(lo_beat, hi_beat);
+    const removed = pp.removeNotesInRange(selection(app));
     app.last_edit = .{ .piano_range_delete = .{ .width = r.hi - r.lo + 1 } };
     app.setStatus("deleted {d} notes", .{removed});
     syncLinkedClip(app);

@@ -8,6 +8,7 @@ const piano_ed = @import("../../ui/editors/piano.zig");
 const gui_style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
 const zgui = @import("zgui");
+const shared_step_grid = @import("../../ui/editors/step_grid.zig");
 
 const color = gui_style.color;
 const trackColor = gui_style.trackColor;
@@ -201,8 +202,17 @@ pub fn draw(app: anytype) void {
         const hi = @max(anchor, cursor_step);
         const x1 = grid_x + @as(f32, @floatFromInt(lo)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
         const x2 = grid_x + @as(f32, @floatFromInt(hi + 1)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
-        draw_list.addRectFilled(.{ .pmin = .{ x1, grid_y }, .pmax = .{ x2, origin[1] + canvas_h }, .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.12 }) });
-        draw_list.addRect(.{ .pmin = .{ x1 + 1, grid_y + 1 }, .pmax = .{ x2 - 1, origin[1] + canvas_h - 1 }, .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.55 }), .thickness = 1 });
+        // The pitch axis: `v` (blockwise) bounds it to the anchored band,
+        // `V` (linewise) leaves the anchor null and the rectangle spans every
+        // row. Rows run high-pitch-first, so the band's high pitch is the top
+        // edge; clamped to the visible window.
+        const band = shared_step_grid.rowRange(u7, app.core.piano_visual_pitch_anchor, app.core.piano_cursor_pitch, 128);
+        const y1 = grid_y + @as(f32, @floatFromInt(@as(usize, top_pitch) -| @min(band.hi, top_pitch))) * row_h;
+        const y2 = grid_y + @as(f32, @floatFromInt(@min(row_count, @as(usize, top_pitch) -| band.lo + 1))) * row_h;
+        if (y2 > y1) {
+            draw_list.addRectFilled(.{ .pmin = .{ x1, y1 }, .pmax = .{ x2, y2 }, .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.12 }) });
+            draw_list.addRect(.{ .pmin = .{ x1 + 1, y1 + 1 }, .pmax = .{ x2 - 1, y2 - 1 }, .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.55 }), .thickness = 1 });
+        }
     }
     for (0..steps + 1) |step| {
         const x = grid_x + @as(f32, @floatFromInt(step)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
