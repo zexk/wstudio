@@ -30,9 +30,14 @@ history lives in [FORMAT.md](FORMAT.md).
   in the GUI.
 - The GUI gained live MIDI input, matching the TUI.
 - A blank `init` drum kit, which a fresh drum machine now starts on.
+- `m` in the synth editor points the first free modulation matrix row at
+  the param under the cursor and jumps there, instead of stepping `dest`
+  through every automatable param by hand.
 
 ### Fixed
 
+- `/` in the synth editor panicked once the mod matrix grew to 32 rows: the
+  candidate buffer was still sized for 8.
 - `:synth-preset` applied stack garbage instead of the saved patch.
 - TUI mouse clicks landed one row above the row that was clicked.
 - A saved kit reloaded as eight silent named pads instead of audio.
