@@ -13,7 +13,9 @@ history lives in [FORMAT.md](FORMAT.md).
   tempo-synced retriggerable slewable LFOs, per-note random modulation,
   band-limited wavetable playback, and a module-grid editor layout.
 - Instrument presets save their whole FX chain, and rack FX carry stable
-  instance IDs so modulation survives a reorder.
+  instance IDs so modulation survives a reorder. `f` in the tracks view
+  opens that preset picker directly, picking synth presets, drum kits, or
+  SoundFont presets from the track's own instrument.
 - Piano roll: FL-style mouse gestures in both frontends, left-edge note
   resize, velocity-lane dragging, cursor-pitch audition, blockwise visual
   selection, and chord-stamp inversions.
@@ -36,6 +38,10 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Fixed
 
+- Bookmarks, command history, instrument presets, and drum kits now live in
+  the same directory as `init.lua` (`$XDG_CONFIG_HOME/wstudio`, or
+  `%APPDATA%\wstudio` on Windows). Files left in the old `~/.config/wstudio`
+  location are still read, and move on the next save.
 - `/` in the synth editor panicked once the mod matrix grew to 32 rows: the
   candidate buffer was still sized for 8.
 - `:synth-preset` applied stack garbage instead of the saved patch.
