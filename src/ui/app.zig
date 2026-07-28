@@ -368,9 +368,6 @@ pub const App = struct {
     /// First visible step column, cursor-follow - same convention as
     /// `drum_step_scroll`.
     slicer_step_scroll: u32 = 0,
-    /// First visible slice row, cursor-follow bank window - same convention
-    /// as the drum grid's own pad banking (views/slicer.zig).
-    slicer_row_scroll: usize = 0,
     /// Track currently shown in the slicer_grid view (a slicer rack).
     slicer_track: u16 = 0,
     /// What the sampler_editor view edits: a drum pad or a standalone Sampler.

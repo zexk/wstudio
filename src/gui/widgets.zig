@@ -622,6 +622,25 @@ pub const ListStepper = struct {
     focused: bool = false,
 };
 
+/// One of the stepper's two nudge buttons. Greys out at the end of the range
+/// it walks toward, so the pair reads as "there is nothing further this way"
+/// rather than silently no-opping. True when the value actually moved.
+fn stepButton(id: [:0]const u8, args: ListStepper, delta: f32) bool {
+    var buf: [48]u8 = undefined;
+    const suffix = if (delta < 0) "prev" else "next";
+    const glyph = if (delta < 0) "-" else "+";
+    const btn_id = std.fmt.bufPrintZ(&buf, "{s}##{s}-{s}", .{ glyph, id, suffix }) catch
+        if (delta < 0) "-##prev" else "+##next";
+    const at_end = if (delta < 0) args.v.* <= args.min else args.v.* >= args.max;
+    zgui.beginDisabled(.{ .disabled = at_end });
+    defer zgui.endDisabled();
+    if (!zgui.smallButton(btn_id)) return false;
+    const next = std.math.clamp(args.v.* + delta, args.min, args.max);
+    if (next == args.v.*) return false;
+    args.v.* = next;
+    return true;
+}
+
 pub fn listStepper(label_text: []const u8, id: [:0]const u8, args: ListStepper) KnobResult {
     const theme = &gui_style.palette;
     var changed = false;
@@ -629,31 +648,11 @@ pub fn listStepper(label_text: []const u8, id: [:0]const u8, args: ListStepper) 
     noteFocusRow(args.focused, row_origin[1], zgui.getFontSize() * 2 + 12);
     zgui.beginGroup();
     zgui.textColored(if (args.focused) args.accent else theme.fg1, "{s}", .{label_text});
-    var prev_buf: [48]u8 = undefined;
-    const prev_id = std.fmt.bufPrintZ(&prev_buf, "-##{s}-prev", .{id}) catch "-##prev";
-    zgui.beginDisabled(.{ .disabled = args.v.* <= args.min });
-    if (zgui.smallButton(prev_id)) {
-        const next = std.math.clamp(args.v.* - 1, args.min, args.max);
-        if (next != args.v.*) {
-            args.v.* = next;
-            changed = true;
-        }
-    }
-    zgui.endDisabled();
+    changed = stepButton(id, args, -1) or changed;
     zgui.sameLine(.{ .spacing = 6 });
     zgui.textColored(if (args.focused) theme.fg0 else theme.fg2, "{s}", .{args.display});
     zgui.sameLine(.{ .spacing = 6 });
-    var next_buf: [48]u8 = undefined;
-    const next_id = std.fmt.bufPrintZ(&next_buf, "+##{s}-next", .{id}) catch "+##next";
-    zgui.beginDisabled(.{ .disabled = args.v.* >= args.max });
-    if (zgui.smallButton(next_id)) {
-        const next = std.math.clamp(args.v.* + 1, args.min, args.max);
-        if (next != args.v.*) {
-            args.v.* = next;
-            changed = true;
-        }
-    }
-    zgui.endDisabled();
+    changed = stepButton(id, args, 1) or changed;
     zgui.endGroup();
     // isItemHovered doesn't chain through EndGroup (a well-known ImGui
     // limitation - it only tests the last individual item inside), but
