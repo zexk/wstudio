@@ -238,6 +238,7 @@ pub const SlicerRangeClip = struct {
 pub const ArrRangeClip = struct {
     clips: []ws.Clip,
     lane_offsets: []u16,
+    width_ticks: u32,
     /// Topmost lane the yank came from, and how many lanes it spanned.
     lane_lo: u16 = 0,
     lane_span: u16 = 1,
@@ -278,7 +279,7 @@ pub const RepeatOp = union(enum) {
     arr_move_clip: struct { delta: i32 },
     arr_resize_clip: struct { delta: i32 },
     arr_range_delete: struct { width: u32 },
-    arr_range_paste,
+    arr_range_paste: struct { insert: bool },
     automation_range_delete: struct { width: u32 },
     automation_range_paste,
     automation_nudge: struct { delta: i32 },

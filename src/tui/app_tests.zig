@@ -4502,6 +4502,49 @@ test "arrangement V cuts a bar range across every lane and undoes in one step" {
     try std.testing.expect(app.session.arrangement.lane(1).?.clipAt(0) == null);
 }
 
+test "arrangement visual time edits remove, insert, and loop selected time" {
+    var app = try testApp();
+    defer app.deinit();
+    for ([_]usize{ 0, 1 }) |track| {
+        const pp = &app.session.racks.items[track].pattern_player.?;
+        pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+        try app.session.stampClip(@intCast(track), 0);
+        try app.session.stampClip(@intCast(track), 5);
+    }
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_cursor_bar = 0;
+
+    // Four quarter-note cells equal one musical bar.
+    app.handleKey(.{ .char = 'V' }, 0);
+    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.{ .char = '=' }, 0);
+    try std.testing.expect(app.session.project.loop_enabled);
+    try std.testing.expectEqual(@as(u32, 0), app.session.project.loop_start_bar);
+    try std.testing.expectEqual(@as(u32, 1), app.session.project.loop_end_bar);
+
+    // Removing that bar shifts bar 5 to bar 4 on every lane.
+    app.arr_cursor_bar = 0;
+    app.handleKey(.{ .char = 'V' }, 0);
+    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.{ .char = 'D' }, 0);
+    try std.testing.expect(app.session.arrangement.lane(0).?.clipAt(512) != null);
+    try std.testing.expect(app.session.arrangement.lane(1).?.clipAt(512) != null);
+    app.handleKey(.{ .char = 'u' }, 0);
+
+    // Yank first bar, then insert it at bar 5. Existing material moves right.
+    app.arr_cursor_bar = 0;
+    app.handleKey(.{ .char = 'V' }, 0);
+    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.{ .char = 'y' }, 0);
+    app.arr_cursor_bar = 20;
+    app.handleKey(.{ .char = 'P' }, 0);
+    try std.testing.expect(app.session.arrangement.lane(0).?.clipAt(640) != null);
+    try std.testing.expect(app.session.arrangement.lane(1).?.clipAt(640) != null);
+    try std.testing.expect(app.session.arrangement.lane(0).?.clipAt(768) != null);
+    try std.testing.expect(app.session.arrangement.lane(1).?.clipAt(768) != null);
+}
+
 test "arrangement blockwise visual bounds the cut to the lane band j/k grows" {
     var app = try testApp();
     defer app.deinit();

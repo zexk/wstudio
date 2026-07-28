@@ -91,74 +91,182 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     }
 
     switch (key) {
-        .escape, .tab => { app.autoSongMode(false); app.view = .tracks; return true; },
-        .enter => { stampClip(app); return true; },
-        .ctrl_r => { history.doRedo(app); return true; },
+        .escape, .tab => {
+            app.autoSongMode(false);
+            app.view = .tracks;
+            return true;
+        },
+        .enter => {
+            stampClip(app);
+            return true;
+        },
+        .ctrl_r => {
+            history.doRedo(app);
+            return true;
+        },
         .char => |c| switch (c) {
             // Block insert mode - piano keys would collide with navigation.
             'i' => return true,
             // Motions take a vim count prefix (3l, 2j, …).
-            'h' => { moveBar(app, -app.takeCount()); return true; },
-            'l' => { moveBar(app, app.takeCount()); return true; },
-            'H' => { moveBar(app, -4 * app.takeCount()); return true; },
-            'L' => { moveBar(app, 4 * app.takeCount()); return true; },
+            'h' => {
+                moveBar(app, -app.takeCount());
+                return true;
+            },
+            'l' => {
+                moveBar(app, app.takeCount());
+                return true;
+            },
+            'H' => {
+                moveBar(app, -4 * app.takeCount());
+                return true;
+            },
+            'L' => {
+                moveBar(app, 4 * app.takeCount());
+                return true;
+            },
             // Vim's own '0': jump-to-start only when no count is pending -
             // otherwise it's a digit continuing the count (10l, 20h, …),
             // same rule modal.zig's generic handleNormal already applies.
             // Falling through with `return false` hands it to modal.handle,
             // whose own '0' case multiplies the pending count.
             '0' => {
-                if (app.modal.count == 0) { app.arr_cursor_bar = 0; return true; }
+                if (app.modal.count == 0) {
+                    app.arr_cursor_bar = 0;
+                    return true;
+                }
                 return false;
             },
-            'j' => { moveLane(app, lane_count, app.takeCount()); return true; },
-            'k' => { moveLane(app, lane_count, -app.takeCount()); return true; },
+            'j' => {
+                moveLane(app, lane_count, app.takeCount());
+                return true;
+            },
+            'k' => {
+                moveLane(app, lane_count, -app.takeCount());
+                return true;
+            },
             // x: vim's char-delete - the clip under the cursor, instantly,
             // no operator needed (a bar is already this editor's atomic
             // unit; see the operator-pending block above).
-            'x' => { deleteClip(app); return true; },
+            'x' => {
+                deleteClip(app);
+                return true;
+            },
             // y is an operator (see armOperator) - yy yanks every clip on
             // the lane, y + a motion yanks the bar range it covers.
-            'y' => { armOperator(app, 'y'); return true; },
+            'y' => {
+                armOperator(app, 'y');
+                return true;
+            },
             // d is likewise an operator; dd clears every clip on the lane,
             // d + a motion (h/l/H/L) deletes the range.
-            'd' => { armOperator(app, 'd'); return true; },
-            // p/P paste the range clipboard at the cursor bar - the same
-            // clipboard yy/y+motion fill, since a single clip is just a
-            // 1-bar range (see pasteSelection).
-            'p', 'P' => { pasteSelection(app); return true; },
+            'd' => {
+                armOperator(app, 'd');
+                return true;
+            },
+            // p overwrites; P opens room first, then pastes.
+            'p' => {
+                pasteSelection(app, false);
+                return true;
+            },
+            'P' => {
+                pasteSelection(app, true);
+                return true;
+            },
             // v: blockwise - a (lane, bar) rectangle, one lane tall until
             // j/k grow it (which is what visual mode always did here, just
             // without the growing). V: linewise - the bar range across every
             // lane, for cutting or copying a whole section of the song.
             // See step_grid.rowRange; the grid editors split the same way.
-            'v' => { enterVisual(app, true); return true; },
-            'V' => { enterVisual(app, false); return true; },
-            '<' => { moveClip(app, -app.takeCount()); return true; },
-            '>' => { moveClip(app, app.takeCount()); return true; },
-            '-' => { resizeClip(app, -app.takeCount()); return true; },
-            '+' => { resizeClip(app, app.takeCount()); return true; },
-            '.' => { repeatLastEdit(app); return true; },
-            'e' => { editClip(app); return true; },
-            'g' => { playFromCursor(app); return true; },
-            'u' => { history.doUndo(app); return true; },
-            'U' => { history.doRedo(app); return true; },
-            'n' => { app.searchArrangement(1); return true; },
-            'N' => { app.searchArrangement(-1); return true; },
-            '[' => { cycleDrumVariant(app, -1); return true; },
-            ']' => { cycleDrumVariant(app, 1); return true; },
-            'a' => { automation.switchTo(app, @intCast(app.cursor), cursorTick(app)); return true; },
-            '(' => { setLoopStart(app); return true; },
-            ')' => { setLoopEnd(app); return true; },
-            'b' => { toggleLoop(app); return true; },
+            'v' => {
+                enterVisual(app, true);
+                return true;
+            },
+            'V' => {
+                enterVisual(app, false);
+                return true;
+            },
+            '<' => {
+                moveClip(app, -app.takeCount());
+                return true;
+            },
+            '>' => {
+                moveClip(app, app.takeCount());
+                return true;
+            },
+            '-' => {
+                resizeClip(app, -app.takeCount());
+                return true;
+            },
+            '+' => {
+                resizeClip(app, app.takeCount());
+                return true;
+            },
+            '.' => {
+                repeatLastEdit(app);
+                return true;
+            },
+            'e' => {
+                editClip(app);
+                return true;
+            },
+            'g' => {
+                playFromCursor(app);
+                return true;
+            },
+            'u' => {
+                history.doUndo(app);
+                return true;
+            },
+            'U' => {
+                history.doRedo(app);
+                return true;
+            },
+            'n' => {
+                app.searchArrangement(1);
+                return true;
+            },
+            'N' => {
+                app.searchArrangement(-1);
+                return true;
+            },
+            '[' => {
+                cycleDrumVariant(app, -1);
+                return true;
+            },
+            ']' => {
+                cycleDrumVariant(app, 1);
+                return true;
+            },
+            'a' => {
+                automation.switchTo(app, @intCast(app.cursor), cursorTick(app));
+                return true;
+            },
+            '(' => {
+                setLoopStart(app);
+                return true;
+            },
+            ')' => {
+                setLoopEnd(app);
+                return true;
+            },
+            'b' => {
+                toggleLoop(app);
+                return true;
+            },
             'T' => {
                 app.session.setSongMode(!app.session.song_mode);
                 app.dirty = true;
                 app.setStatus("{s} mode", .{if (app.session.song_mode) "song" else "pattern"});
                 return true;
             },
-            'z' => { zoom(app, 1); return true; },
-            'Z' => { zoom(app, -1); return true; },
+            'z' => {
+                zoom(app, 1);
+                return true;
+            },
+            'Z' => {
+                zoom(app, -1);
+                return true;
+            },
             // zig fmt: on
             else => return false,
         },
@@ -242,7 +350,10 @@ fn handleVisual(app: *App, key: modal_mod.Key, lane_count: usize) bool {
             },
             'y' => { yankSelection(app); return true; },
             'd' => { deleteSelection(app); return true; },
-            'p', 'P' => { pasteSelection(app); return true; },
+            'D' => { removeTimeSelection(app); return true; },
+            'p' => { pasteSelection(app, false); return true; },
+            'P' => { pasteSelection(app, true); return true; },
+            '=' => { loopSelection(app); return true; },
             // zig fmt: on
             '0'...'9' => return false,
             else => return true,
@@ -298,10 +409,10 @@ fn cursorTick(app: *const App) u32 {
     return @min(app.arr_cursor_bar, maxCursorBar(app)) * app.arr_grid.ticks();
 }
 
-/// Yank every clip on the current lane whose start_bar falls within the
-/// selected range, rebased so the range's first bar becomes bar 0.
+/// Yank selected clip material, clipped to selection boundaries and rebased.
 fn yankSelection(app: *App) void {
     const r = selectionRange(app);
+    const hi = r.hi +| app.arr_grid.ticks();
     const lanes = laneRange(app);
     var list: std.ArrayListUnmanaged(ws.Clip) = .empty;
     var offsets: std.ArrayListUnmanaged(u16) = .empty;
@@ -318,12 +429,15 @@ fn yankSelection(app: *App) void {
     for (lanes.lo..lanes.hi + 1) |track| {
         const lane = app.session.arrangement.lane(track) orelse continue;
         for (lane.clips.items) |c| {
-            if (c.start_tick < r.lo or c.start_tick > r.hi) continue;
+            if (c.endTick() <= r.lo or c.start_tick >= hi) continue;
             var copy = c.dupe(app.allocator) catch {
                 fail(app, &list, &offsets);
                 return;
             };
-            copy.start_tick -= r.lo;
+            const clipped_start = @max(copy.start_tick, r.lo);
+            const clipped_end = @min(copy.endTick(), hi);
+            copy.start_tick = clipped_start - r.lo;
+            copy.length_ticks = clipped_end - clipped_start;
             list.append(app.allocator, copy) catch {
                 copy.deinit(app.allocator);
                 fail(app, &list, &offsets);
@@ -350,6 +464,7 @@ fn yankSelection(app: *App) void {
     app.arr_range_clip = .{
         .clips = owned,
         .lane_offsets = owned_offsets,
+        .width_ticks = hi - r.lo,
         .lane_lo = @intCast(lanes.lo),
         .lane_span = @intCast(lanes.height()),
     };
@@ -385,6 +500,38 @@ fn deleteSelection(app: *App) void {
     exitVisual(app);
 }
 
+/// Delete selected time and shift later clips left.
+fn removeTimeSelection(app: *App) void {
+    const lanes = laneRange(app);
+    if (lanes.height() > 1) history.recordLanes(app, lanes.lo, lanes.hi) else history.recordLane(app, @intCast(lanes.lo));
+    const r = selectionRange(app);
+    const hi = r.hi +| app.arr_grid.ticks();
+    for (lanes.lo..lanes.hi + 1) |track| {
+        const lane = app.session.arrangement.lane(track) orelse continue;
+        lane.removeTime(app.allocator, r.lo, hi) catch {
+            app.setStatus("remove time failed", .{});
+            return;
+        };
+    }
+    app.arr_cursor_bar = r.lo / app.arr_grid.ticks();
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.setStatus("removed {d} bar(s) across {d} lane(s)", .{ (hi - r.lo) / app.arr_grid.ticks(), lanes.height() });
+    exitVisual(app);
+}
+
+/// Set arrangement loop from selected time.
+fn loopSelection(app: *App) void {
+    const r = selectionRange(app);
+    const tpb = ws.time_grid.barTicks(app.session.project.beats_per_bar);
+    app.session.project.loop_start_bar = r.lo / tpb;
+    app.session.project.loop_end_bar = (r.hi +| app.arr_grid.ticks() + tpb - 1) / tpb;
+    app.session.project.loop_enabled = true;
+    app.dirty = true;
+    app.session.syncLoop();
+    app.setStatus("loop set from selection", .{});
+    exitVisual(app);
+}
+
 /// Paste the range clipboard onto the current lane starting at the cursor
 /// bar, evicting whatever it overlaps (same rule as stamping/pasting a
 /// single clip). Skips clips whose kind doesn't match the lane's
@@ -392,7 +539,7 @@ fn deleteSelection(app: *App) void {
 /// a 1-bar range, so there's no separate single-clip paste path anymore.
 /// Jumps the cursor past the rightmost pasted clip for quick sequential
 /// pasting (leaves it alone if nothing was actually pasted).
-fn pasteSelection(app: *App) void {
+fn pasteSelection(app: *App, insert: bool) void {
     const clip = app.arr_range_clip orelse {
         app.setStatus("nothing yanked - select a range and y first", .{});
         exitVisual(app);
@@ -449,6 +596,15 @@ fn pasteSelection(app: *App) void {
     } else history.recordLane(app, @intCast(base_lane));
     var pasted: u32 = 0;
     const cursor_tick = cursorTick(app);
+    if (insert) {
+        for (base_lane..hi_lane + 1) |track| {
+            const lane = app.session.arrangement.lane(track) orelse continue;
+            lane.insertTime(app.allocator, cursor_tick, clip.width_ticks) catch {
+                app.setStatus("insert time failed", .{});
+                return;
+            };
+        }
+    }
     var end_bar = cursor_tick;
     for (clip.clips, clip.lane_offsets) |c, off| {
         const dest = destOf(app, base_lane, off) orelse continue;
@@ -467,7 +623,7 @@ fn pasteSelection(app: *App) void {
         pasted += 1;
     }
     if (pasted > 0) app.arr_cursor_bar = end_bar / app.arr_grid.ticks();
-    app.last_edit = .arr_range_paste;
+    app.last_edit = .{ .arr_range_paste = .{ .insert = insert } };
     if (app.session.song_mode) app.session.rebuildSongData();
     app.setStatus("pasted {d} clip(s)", .{pasted});
     exitVisual(app);
@@ -486,7 +642,7 @@ fn repeatLastEdit(app: *App) void {
             app.arr_visual_anchor.? = @min(app.arr_visual_anchor.?, maxCursorBar(app));
             deleteSelection(app);
         },
-        .arr_range_paste => pasteSelection(app),
+        .arr_range_paste => |v| pasteSelection(app, v.insert),
         else => app.setStatus("nothing to repeat", .{}),
     }
 }

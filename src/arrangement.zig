@@ -336,6 +336,42 @@ pub const Lane = struct {
         }
     }
 
+    /// Open an empty span at `at`. A clip crossing the insertion point is
+    /// split so material on its right moves with later clips.
+    pub fn insertTime(self: *Lane, allocator: std.mem.Allocator, at: u32, width: u32) !void {
+        if (width == 0) return;
+        for (self.clips.items) |c| {
+            if (c.endTick() > at and c.endTick() > std.math.maxInt(u32) - width)
+                return error.OutOfRange;
+        }
+        for (self.clips.items, 0..) |c, i| {
+            if (c.start_tick >= at or c.endTick() <= at) continue;
+            var right = try c.dupe(allocator);
+            self.clips.ensureUnusedCapacity(allocator, 1) catch |err| {
+                right.deinit(allocator);
+                return err;
+            };
+            right.start_tick = at;
+            right.length_ticks = c.endTick() - at;
+            self.clips.items[i].length_ticks = at - c.start_tick;
+            self.clips.insertAssumeCapacity(i + 1, right);
+            break;
+        }
+        for (self.clips.items) |*c| {
+            if (c.start_tick >= at) c.start_tick += width;
+        }
+    }
+
+    /// Remove `[lo, hi)` and close its gap.
+    pub fn removeTime(self: *Lane, allocator: std.mem.Allocator, lo: u32, hi: u32) !void {
+        if (hi <= lo) return;
+        try self.cutRange(allocator, lo, hi);
+        const width = hi - lo;
+        for (self.clips.items) |*c| {
+            if (c.start_tick >= hi) c.start_tick -= width;
+        }
+    }
+
     /// First bar past the last clip - the lane's content length in bars.
     pub fn lengthTicks(self: *const Lane) u32 {
         var end: u32 = 0;
@@ -609,6 +645,37 @@ test "cutRange leaves clips outside the range untouched and no-ops on an empty r
 
     try lane.cutRange(a, 5, 5);
     try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
+}
+
+test "insertTime splits a crossing clip and shifts later clips" {
+    const a = testing.allocator;
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    try lane.place(a, Clip.initDrum(0, 8, .{ .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(10, 2, .{ .step_count = 16 }));
+
+    try lane.insertTime(a, 4, 3);
+    try testing.expectEqual(@as(usize, 3), lane.clips.items.len);
+    try testing.expectEqual(@as(u32, 0), lane.clips.items[0].start_tick);
+    try testing.expectEqual(@as(u32, 7), lane.clips.items[1].start_tick);
+    try testing.expectEqual(@as(u32, 13), lane.clips.items[2].start_tick);
+    try testing.expectEqual(@as(u32, 4), lane.clips.items[0].length_ticks);
+    try testing.expectEqual(@as(u32, 4), lane.clips.items[1].length_ticks);
+}
+
+test "removeTime trims boundaries and closes the gap" {
+    const a = testing.allocator;
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    try lane.place(a, Clip.initDrum(0, 8, .{ .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(10, 2, .{ .step_count = 16 }));
+
+    try lane.removeTime(a, 2, 5);
+    try testing.expectEqual(@as(usize, 3), lane.clips.items.len);
+    try testing.expectEqual(@as(u32, 0), lane.clips.items[0].start_tick);
+    try testing.expectEqual(@as(u32, 2), lane.clips.items[1].start_tick);
+    try testing.expectEqual(@as(u32, 7), lane.clips.items[2].start_tick);
+    try testing.expectEqual(@as(u32, 3), lane.clips.items[1].length_ticks);
 }
 
 test "arrangement adds and removes lanes" {
