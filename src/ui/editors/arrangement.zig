@@ -124,6 +124,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 moveBar(app, 4 * app.takeCount());
                 return true;
             },
+            'W' => {
+                moveClipEdge(app, 1, app.takeCount());
+                return true;
+            },
+            'B' => {
+                moveClipEdge(app, -1, app.takeCount());
+                return true;
+            },
             // Vim's own '0': jump-to-start only when no count is pending -
             // otherwise it's a digit continuing the count (10l, 20h, …),
             // same rule modal.zig's generic handleNormal already applies.
@@ -687,6 +695,22 @@ fn moveSection(app: *App, direction: i8) void {
         }
     }
     app.setStatus("no more sections", .{});
+}
+
+fn moveClipEdge(app: *App, direction: i8, count: i32) void {
+    const lane = app.session.arrangement.lane(app.cursor) orelse return;
+    var tick = cursorTick(app);
+    for (0..@intCast(@max(count, 1))) |_| {
+        var found: ?u32 = null;
+        for (lane.clips.items) |clip| {
+            for ([_]u32{ clip.start_tick, clip.endTick() }) |edge| {
+                if (direction > 0 and edge > tick and (found == null or edge < found.?)) found = edge;
+                if (direction < 0 and edge < tick and (found == null or edge > found.?)) found = edge;
+            }
+        }
+        tick = found orelse break;
+    }
+    app.arr_cursor_bar = tick / app.arr_grid.ticks();
 }
 
 fn selectSection(app: *App) void {

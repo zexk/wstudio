@@ -346,6 +346,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.taggedSection(.arrangement, "ARRANGEMENT");
     t.key("h / l",        "move cursor left / right (one bar)");
     t.key("H / L",        "move cursor left / right (4 bars)");
+    t.key("B / W",        "jump to previous / next clip edge on current lane");
     t.key("0",            "jump cursor to bar 0 (a count first makes it a digit instead: 10l)");
     t.key("j / k",        "move between track lanes");
     t.key("enter",        "stamp the live pattern as a clip - HOLD it and h/l resize the new clip");

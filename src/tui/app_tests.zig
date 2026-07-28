@@ -4580,6 +4580,25 @@ test "arrangement sections add, navigate, select, and delete" {
     try std.testing.expectEqual(@as(usize, 3), app.session.project.sections.items.len);
 }
 
+test "arrangement clip-edge motions skip empty time" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.stampClip(0, 2);
+    try app.session.stampClip(0, 8);
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_cursor_bar = 0;
+
+    app.handleKey(.{ .char = 'W' }, 0);
+    try std.testing.expectEqual(@as(u32, 8), app.arr_cursor_bar);
+    app.handleKey(.{ .char = 'W' }, 0);
+    try std.testing.expectEqual(@as(u32, 12), app.arr_cursor_bar);
+    app.handleKey(.{ .char = 'W' }, 0);
+    try std.testing.expectEqual(@as(u32, 32), app.arr_cursor_bar);
+    app.handleKey(.{ .char = 'B' }, 0);
+    try std.testing.expectEqual(@as(u32, 12), app.arr_cursor_bar);
+}
+
 test "arrangement blockwise visual bounds the cut to the lane band j/k grows" {
     var app = try testApp();
     defer app.deinit();
