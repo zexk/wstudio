@@ -4180,8 +4180,19 @@ pub const App = struct {
 
         var match_idx: [64]usize = undefined;
         var match_count: usize = 0;
+        var has_prefix = false;
+        if (source == .command_name) for (values) |v| {
+            if (std.mem.startsWith(u8, v, stem)) {
+                has_prefix = true;
+                break;
+            }
+        };
         for (values, 0..) |v, i| {
-            if (!std.mem.startsWith(u8, v, stem)) continue;
+            if (source == .command_name) {
+                if (has_prefix) {
+                    if (!std.mem.startsWith(u8, v, stem)) continue;
+                } else if (!fuzzy.matches(stem, v)) continue;
+            } else if (!std.mem.startsWith(u8, v, stem)) continue;
             if (match_count < match_idx.len) match_idx[match_count] = i;
             match_count += 1;
         }
@@ -4245,7 +4256,7 @@ pub const App = struct {
         var idx: usize = 0;
         for (self.allCmds()) |c| {
             if (cmd_mod.hiddenFromCompletion(c) or !cmd_mod.visible(c, active)) continue;
-            if (!std.mem.startsWith(u8, c.name, tc.stem())) continue;
+            if (!cmd_mod.suggestionMatch(self.allCmds(), c, tc.stem(), active)) continue;
             if (std.mem.eql(u8, c.name, tc.last_written)) return idx;
             idx += 1;
         }

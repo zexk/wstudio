@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const style = @import("ansi.zig");
+const fuzzy = @import("fuzzy.zig");
 
 /// Which instrument kind a command only makes sense for - `.any` (the
 /// default) means every track/view. Gates the Tab-completion popup only
@@ -110,13 +111,18 @@ pub fn hiddenFromCompletion(c: Def) bool {
 
 /// Whether `c` belongs in the completion popup for the typed prefix `buf`:
 /// a real candidate (see `hiddenFromCompletion`), in scope (see `visible`),
-/// and name-prefixed by what's typed. Both frontends' popups walk `cmds`
+/// and fuzzy-matched by what's typed. Both frontends' popups walk `cmds`
 /// with this so they can never show different sets.
-pub fn suggestionMatch(c: Def, buf: []const u8, active: Scope) bool {
-    return !hiddenFromCompletion(c) and visible(c, active) and std.mem.startsWith(u8, c.name, buf);
+pub fn suggestionMatch(cmds: []const Def, c: Def, buf: []const u8, active: Scope) bool {
+    if (hiddenFromCompletion(c) or !visible(c, active)) return false;
+    for (cmds) |candidate| {
+        if (hiddenFromCompletion(candidate) or !visible(candidate, active)) continue;
+        if (std.mem.startsWith(u8, candidate.name, buf)) return std.mem.startsWith(u8, c.name, buf);
+    }
+    return fuzzy.matches(buf, c.name);
 }
 
-/// Number of command names starting with `buf` under `active` scope - 0
+/// Number of command names fuzzy-matching `buf` under `active` scope - 0
 /// once a space has been typed (there's no fixed name list for arguments
 /// here). Below 2, Tab already spells the single match out in full, so no
 /// popup is needed. Skips non-candidate entries (see `hiddenFromCompletion`)
@@ -126,7 +132,7 @@ pub fn suggestionCount(cmds: []const Def, buf: []const u8, active: Scope) usize 
     if (std.mem.indexOfScalar(u8, buf, ' ') != null) return 0;
     var n: usize = 0;
     for (cmds) |c| {
-        if (suggestionMatch(c, buf, active)) n += 1;
+        if (suggestionMatch(cmds, c, buf, active)) n += 1;
     }
     return n;
 }
@@ -142,7 +148,7 @@ pub fn suggestionRows(cmds: []const Def, buf: []const u8, active: Scope, max_row
 }
 
 /// Neovim-wildmenu-style popup: every in-scope, real-candidate command name
-/// starting with `buf` (see `hiddenFromCompletion`/`visible`), one per line,
+/// fuzzy-matching `buf` (see `hiddenFromCompletion`/`visible`), one per line,
 /// `selected` drawn as a solid reverse-video bar (index into the match
 /// list, not `cmds` - clamp/compare against `suggestionCount`).
 /// Truncates silently past `max_rows` (matching what `suggestionRows`
@@ -152,7 +158,7 @@ pub fn suggestionRows(cmds: []const Def, buf: []const u8, active: Scope, max_row
 pub fn writeSuggestionBox(w: *std.Io.Writer, cmds: []const Def, buf: []const u8, active: Scope, selected: usize, max_rows: usize) !void {
     var idx: usize = 0;
     for (cmds) |c| {
-        if (!suggestionMatch(c, buf, active)) continue;
+        if (!suggestionMatch(cmds, c, buf, active)) continue;
         if (idx >= max_rows) break;
         const is_sel = idx == selected;
         if (is_sel) try w.writeAll(style.sel);
@@ -187,6 +193,15 @@ test "suggestionCount/suggestionRows gate on 2+ matches and a space" {
     try std.testing.expectEqual(@as(usize, 1), suggestionRows(test_cmds, "q", .any, 1));
     // A space means we're past the command name - no popup at all.
     try std.testing.expectEqual(@as(usize, 0), suggestionCount(test_cmds, "q ", .any));
+}
+
+test "command suggestions fuzzy-match non-contiguous name characters" {
+    const candidates = &.{
+        Def{ .name = "restore-backup", .desc = "", .run = undefined },
+        Def{ .name = "reload-config", .desc = "", .run = undefined },
+    };
+    try std.testing.expect(suggestionMatch(candidates, candidates[0], "rsb", .any));
+    try std.testing.expect(!suggestionMatch(candidates, candidates[0], "rbs", .any));
 }
 
 test "writeSuggestionBox lists every match, one per line, highlighting `selected`" {
