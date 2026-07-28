@@ -100,7 +100,9 @@ cmd_start() {
   ) >/tmp/wstudio-gui-shot.app.log 2>&1 &
   local app_pid=$!
 
-  if ! DISPLAY=":$display" nx timeout 10 xdotool search --sync --name "wstudio GUI" >/dev/null; then
+  # The window is titled "<project> - wstudio", so match the suffix rather
+  # than a fixed name (it used to be the literal "wstudio GUI prototype").
+  if ! DISPLAY=":$display" nx timeout 10 xdotool search --sync --name "wstudio" >/dev/null; then
     kill "$app_pid" "$xvfb_pid" 2>/dev/null || true
     echo "gui_screenshot: window never appeared, see /tmp/wstudio-gui-shot.app.log" >&2
     exit 1

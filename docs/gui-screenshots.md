@@ -55,9 +55,10 @@ there; every `xdotool`/`import` call in the script is scoped to that
 `DISPLAY`, never the real one.
 
 **Window detection.** `start` waits on `xdotool search --sync --name
-"wstudio GUI"` rather than a fixed sleep, since the title is set at
-window creation (`src/gui/gui.zig`: `"wstudio GUI prototype"`, later
-updated to include the project path).
+"wstudio"` rather than a fixed sleep. The window is titled
+`<project> - wstudio` (`syncWindowTitle` in `src/gui/gui.zig`, matching
+the terminal title the TUI sets), so the match is on the suffix, not a
+fixed name.
 
 **Wayland leakage.** GLFW prefers Wayland over X11 if `WAYLAND_DISPLAY`
 is set in the environment, and Xvfb only speaks X11 - the script unsets

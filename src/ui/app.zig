@@ -4770,6 +4770,16 @@ pub const App = struct {
         return if (self.project_path_len > 0) self.project_path_buf[0..self.project_path_len] else null;
     }
 
+    /// What to call the open project on screen: the file's name without its
+    /// directory or `.wsj` extension, or the project's own name when nothing
+    /// has been saved or opened yet. Both frontends title themselves
+    /// "<this> - wstudio", and the TUI's header row shows it too.
+    pub fn projectDisplayName(self: *const App) []const u8 {
+        const path = self.projectPath() orelse return self.session.project.name;
+        const stem = std.fs.path.stem(path);
+        return if (stem.len > 0) stem else self.session.project.name;
+    }
+
     pub fn defaultProjectPath(self: *const App) []const u8 {
         return self.default_project_path.slice();
     }

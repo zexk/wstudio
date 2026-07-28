@@ -59,6 +59,10 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Fixed
 
+- Both frontends now title themselves `<project> - wstudio`, from the
+  project file's name without its directory or extension. The GUI window
+  said "wstudio GUI prototype" and never updated on a blank session, and
+  the TUI set no terminal title at all.
 - `piano_audition` was settable from `init.lua` but missing from the Nix
   modules, the config template, and the docs. Added, and a test now walks
   the option table against all three so none can drift again.

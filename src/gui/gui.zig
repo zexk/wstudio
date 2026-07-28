@@ -32,21 +32,18 @@ const icon_glyph_ranges = [_]zgui.Wchar{
 
 /// Keep the window title on the project that is actually open. It used to be
 /// set once, from the command-line path, so it went stale the moment the
-/// project changed - `:e`, `:w <newname>`, `:new` - and a session started
-/// blank never got one at all. `last`/`last_len` hold the path it was last
-/// built from, so this is a string compare on an unchanged frame.
+/// project changed - `:e`, `:w <newname>`, `:new`. `last`/`last_len` hold the
+/// title it was last set to, so this is a string compare on an unchanged
+/// frame. Comparing the built title rather than the path matters: a blank
+/// session's path is empty, which used to be indistinguishable from "never
+/// set" and left the window on its placeholder creation title forever.
 fn syncWindowTitle(window: *glfw.Window, app: *const App, last: []u8, last_len: *usize) void {
-    const path = app.core.projectPath() orelse "";
-    if (std.mem.eql(u8, last[0..last_len.*], path)) return;
-    if (path.len > last.len) return;
-    @memcpy(last[0..path.len], path);
-    last_len.* = path.len;
-
     var title_buf: [1024]u8 = undefined;
-    const title = if (path.len == 0)
-        std.fmt.bufPrintZ(&title_buf, "wstudio GUI prototype", .{}) catch return
-    else
-        std.fmt.bufPrintZ(&title_buf, "wstudio GUI prototype - {s}", .{path}) catch return;
+    const title = std.fmt.bufPrintZ(&title_buf, "{s} - wstudio", .{app.core.projectDisplayName()}) catch return;
+    if (std.mem.eql(u8, last[0..last_len.*], title)) return;
+    if (title.len > last.len) return;
+    @memcpy(last[0..title.len], title);
+    last_len.* = title.len;
     window.setTitle(title);
 }
 
@@ -129,7 +126,9 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     glfw.windowHint(.context_version_minor, 3);
     glfw.windowHint(.opengl_profile, .opengl_core_profile);
     glfw.windowHint(.opengl_forward_compat, true);
-    const window = try glfw.Window.create(user_config.gui_window_width, user_config.gui_window_height, "wstudio GUI prototype", null, null);
+    // Placeholder only: `syncWindowTitle` replaces it with
+    // "<project> - wstudio" before the first frame is presented.
+    const window = try glfw.Window.create(user_config.gui_window_width, user_config.gui_window_height, "wstudio", null, null);
     defer window.destroy();
     window.setSizeLimits(960, 600, -1, -1);
     glfw.makeContextCurrent(window);

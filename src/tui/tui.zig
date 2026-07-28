@@ -66,8 +66,9 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
 
     try w.writeAll("\x1b[H");
     // The .wsj format has no project-name field, so a loaded file would
-    // otherwise sit under the default "untitled" - show its basename.
-    const header_title: []const u8 = if (self.projectPath()) |p| std.fs.path.basename(p) else self.session.project.name;
+    // otherwise sit under the default "untitled" - show the file's name.
+    // Same name the terminal title and the GUI's window title carry.
+    const header_title = self.projectDisplayName();
     // Rendered into a scratch buffer and replayed via style.writeChromeRow
     // (clamp + clean line-end, no separate hr() rule row underneath) -
     // reclaims a row versus the old plain-line-plus-rule layout.
@@ -394,7 +395,26 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
     var keys: [64]modal_mod.Key = undefined;
     var input_decoder: terminal_mod.StreamDecoder = .{};
 
+    // Terminal title, kept in step with the GUI's window title. Pushed onto
+    // the terminal's own title stack (XTWINOPS 22/23, what vim uses) so
+    // quitting restores whatever the shell had set, rather than leaving the
+    // tab named after a project that is no longer open.
+    term.write("\x1b[22;0t");
+    defer term.write("\x1b[23;0t");
+    var last_title: [512]u8 = undefined;
+    var last_title_len: usize = 0;
+
     while (!app.should_quit) {
+        // Only written when it actually changed: some terminals flicker
+        // their tab on every title write.
+        var title_buf: [512]u8 = undefined;
+        if (std.fmt.bufPrint(&title_buf, "\x1b]0;{s} - wstudio\x07", .{app.projectDisplayName()})) |osc| {
+            if (!std.mem.eql(u8, osc, last_title[0..last_title_len])) {
+                term.write(osc);
+                @memcpy(last_title[0..osc.len], osc);
+                last_title_len = osc.len;
+            }
+        } else |_| {}
         // Capped at the decoder's free space (see StreamDecoder.free), or a
         // paste bigger than its pending buffer loses bytes.
         const want: usize = @min(input_buf.len, input_decoder.free());
