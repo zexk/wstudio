@@ -39,4 +39,4 @@ jobs:
         run: nix develop --command zig build -Dtarget=x86_64-windows-gnu
 
       - name: Build Nix packages
-        run: nix build .#default .#windows
+        run: nix build .#default .#windows .#macos

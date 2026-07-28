@@ -55,21 +55,20 @@
             pkgs.libxrandr
           ];
           postConfigure = ''ln -s ${finalAttrs.zigDeps} "$ZIG_GLOBAL_CACHE_DIR/p"'';
-          postInstall =
-            ''
-              installManPage docs/wstudio.1
-            ''
-            + pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
-              install -Dm444 assets/linux/wstudio.desktop \
-                "$out/share/applications/wstudio.desktop"
-              for size in 16 22 24 32 48 64 128 256 512; do
-                install -Dm444 "assets/icon/hicolor/''${size}x''${size}/apps/wstudio.png" \
-                  "$out/share/icons/hicolor/''${size}x''${size}/apps/wstudio.png"
-              done
-              install -Dm444 assets/icon/wstudio.png "$out/share/pixmaps/wstudio.png"
-              install -Dm444 assets/linux/wstudio-mime.xml \
-                "$out/share/mime/packages/wstudio.xml"
-            '';
+          postInstall = ''
+            installManPage docs/wstudio.1
+          ''
+          + pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+            install -Dm444 assets/linux/wstudio.desktop \
+              "$out/share/applications/wstudio.desktop"
+            for size in 16 22 24 32 48 64 128 256 512; do
+              install -Dm444 "assets/icon/hicolor/''${size}x''${size}/apps/wstudio.png" \
+                "$out/share/icons/hicolor/''${size}x''${size}/apps/wstudio.png"
+            done
+            install -Dm444 assets/icon/wstudio.png "$out/share/pixmaps/wstudio.png"
+            install -Dm444 assets/linux/wstudio-mime.xml \
+              "$out/share/mime/packages/wstudio.xml"
+          '';
           # GLFW loads every platform library at runtime with dlopen (X11,
           # Wayland, and GL alike), and the PipeWire/JACK audio backends
           # dlopen their libraries the same way, so nothing below shows up
@@ -92,6 +91,31 @@
               ]
             } $out/bin/wstudio
           '';
+        });
+      macosPackage =
+        pkgs:
+        let
+          sdkPkgs = import nixpkgs {
+            inherit (pkgs.stdenv.hostPlatform) system;
+            config.allowUnsupportedSystem = true;
+          };
+          sdk = sdkPkgs.apple-sdk_14.override { enableBootstrap = true; };
+        in
+        pkgs.stdenvNoCC.mkDerivation (finalAttrs: {
+          pname = "wstudio-macos";
+          inherit version;
+          src = self;
+          zigDeps = pkgs.zig.fetchDeps {
+            inherit (finalAttrs) pname version src;
+            hash = "sha256-U4HA3J4+mxUbSMWyr6W3JjWa1TthohTYCGJnzZR2qFQ=";
+          };
+          nativeBuildInputs = [ pkgs.zig.hook ];
+          SDKROOT = sdk.sdkroot;
+          postConfigure = ''ln -s ${finalAttrs.zigDeps} "$ZIG_GLOBAL_CACHE_DIR/p"'';
+          zigBuildFlags = [
+            "-Dtarget=aarch64-macos"
+            "-Dgui=false"
+          ];
         });
       # `-u NONE` (src/main.zig) skips loading any init.lua entirely - built-
       # in defaults only, never touching `~/.config/wstudio/init.lua`. For
@@ -135,6 +159,7 @@
         neutral-terminal = neutralTerminal pkgs;
 
         default = wstudioPackage pkgs;
+        macos = macosPackage pkgs;
 
         # Cross-compiled with zig's bundled mingw-w64 headers/CRT - no
         # Windows machine or MSVC toolchain needed to build this, only to
