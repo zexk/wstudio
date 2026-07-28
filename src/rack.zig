@@ -1,5 +1,6 @@
 const std = @import("std");
 const dsp = @import("dsp/device.zig");
+const types = @import("core/types.zig");
 const PolySynth = @import("dsp/synth.zig").PolySynth;
 const Sampler = @import("dsp/sampler.zig").Sampler;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
@@ -22,6 +23,7 @@ const FreqShifter = @import("dsp/freq_shift.zig").FreqShifter;
 pub const ClapPlugin = @import("clap/plugin.zig").ClapPlugin;
 const PatternPlayer = @import("dsp/pattern.zig").PatternPlayer;
 const Transport = @import("transport.zig").Transport;
+const FxModBus = @import("dsp/fx_mod.zig").Bus;
 
 /// A signal source: generates audio from MIDI events.
 /// Add new synthesiser/sampler variants here as the engine grows.
@@ -172,9 +174,92 @@ pub const FxUnit = struct {
     bypassed: bool = false,
     /// Unit came from a synth preset recipe. Next synth preset replaces it.
     preset_owned: bool = false,
+    mod_bus: ?*const FxModBus = null,
 
     pub fn kind(self: *const FxUnit) FxKind {
         return std.meta.activeTag(self.payload);
+    }
+
+    fn mod(self: *const FxUnit, param_id: u16) f32 {
+        return if (self.mod_bus) |bus| bus.amount(self.instance_id, param_id) else 0.0;
+    }
+
+    fn processBlock(self: *FxUnit, buf: []types.Sample) void {
+        switch (self.payload) {
+            .sat => |*v| {
+                const base = v.mix;
+                v.mix = std.math.clamp(base + self.mod(85), 0.0, 1.0);
+                v.processBlock(buf);
+                v.mix = base;
+            },
+            .crush => |*v| {
+                const base = v.mix;
+                v.mix = std.math.clamp(base + self.mod(89), 0.0, 1.0);
+                v.processBlock(buf);
+                v.mix = base;
+            },
+            .flanger => |*v| {
+                const base = v.mix;
+                v.mix = std.math.clamp(base + self.mod(94), 0.0, 1.0);
+                v.processBlock(buf);
+                v.mix = base;
+            },
+            .phaser => |*v| {
+                const base = v.mix;
+                v.mix = std.math.clamp(base + self.mod(107), 0.0, 1.0);
+                v.processBlock(buf);
+                v.mix = base;
+            },
+            .delay => |*v| {
+                const base = v.mix;
+                v.mix = std.math.clamp(base + self.mod(111), 0.0, 1.0);
+                v.processBlock(buf);
+                v.mix = base;
+            },
+            .reverb => |*v| {
+                const base = v.mix;
+                v.mix = std.math.clamp(base + self.mod(115), 0.0, 1.0);
+                v.processBlock(buf);
+                v.mix = base;
+            },
+            .chorus => |*v| {
+                const base = v.mix;
+                v.mix = std.math.clamp(base + self.mod(179), 0.0, 1.0);
+                v.processBlock(buf);
+                v.mix = base;
+            },
+            .freq_shift => |*v| {
+                const base = v.shift_hz;
+                v.shift_hz = std.math.clamp(base + self.mod(182) * 4000.0, -2000.0, 2000.0);
+                v.processBlock(buf);
+                v.shift_hz = base;
+            },
+            .clap => |v| v.device().process(buf),
+            inline else => |*v| v.processBlock(buf),
+        }
+    }
+
+    fn reset(self: *FxUnit) void {
+        self.payload.device().reset();
+    }
+
+    const vtable: dsp.Device.VTable = .{
+        .process = struct {
+            fn call(ptr: *anyopaque, buf: []types.Sample) void {
+                const self: *FxUnit = @ptrCast(@alignCast(ptr));
+                self.processBlock(buf);
+            }
+        }.call,
+        .reset = struct {
+            fn call(ptr: *anyopaque) void {
+                const self: *FxUnit = @ptrCast(@alignCast(ptr));
+                self.reset();
+            }
+        }.call,
+    };
+
+    pub fn device(self: *FxUnit) dsp.Device {
+        return .{ .ptr = self, .vtable = &vtable };
     }
 };
 
@@ -317,7 +402,7 @@ pub const Fx = struct {
         var len: usize = 0;
         for (self.units.items) |u| {
             if (u.bypassed) continue;
-            buf[len] = u.payload.device();
+            buf[len] = u.device();
             len += 1;
         }
         return buf[0..len];
@@ -451,6 +536,11 @@ pub const Rack = struct {
         var len: usize = 0;
         if (self.pattern_player) |*pp| { buf[len] = pp.device(); len += 1; }
         if (self.instrument.device()) |dev| { buf[len] = dev; len += 1; }
+        const mod_bus: ?*const FxModBus = switch (self.instrument) {
+            .poly_synth => |*s| &s.fx_mod_bus,
+            else => null,
+        };
+        for (self.fx.units.items) |unit| unit.mod_bus = mod_bus;
         var fx_buf: [Fx.max_units]dsp.Device = undefined;
         for (self.fx.chain(&fx_buf)) |dev| { buf[len] = dev; len += 1; }
         return buf[0..len];
@@ -517,6 +607,25 @@ test "FX instance IDs survive reorder and duplication" {
     defer copy.deinit(std.testing.allocator);
     try std.testing.expect(copy.findInstance(comp_id) != null);
     try std.testing.expect(copy.findInstance(delay_id) != null);
+}
+
+test "rack FX consumes modulation for its stable instance only" {
+    var fx: Fx = .{};
+    defer fx.deinit(std.testing.allocator);
+    const sat = try fx.insert(std.testing.allocator, 0, .sat, 48_000);
+    sat.payload.sat.mix = 0.0;
+    var bus: FxModBus = .{};
+    sat.mod_bus = &bus;
+
+    var dry = [_]types.Sample{0.1};
+    sat.device().process(&dry);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.1), dry[0], 1e-6);
+
+    bus.add(sat.instance_id, 85, 1.0);
+    var wet = [_]types.Sample{0.1};
+    sat.device().process(&wet);
+    try std.testing.expect(wet[0] > dry[0]);
+    try std.testing.expectEqual(@as(f32, 0.0), sat.payload.sat.mix);
 }
 
 test "Fx: duplicates allowed, bypass skips, remove frees, cap enforced" {

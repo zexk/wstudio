@@ -2626,6 +2626,10 @@ fn migrateSynthFx(allocator: std.mem.Allocator, rack: *Rack, sr: u32, preset_own
         };
         const unit = try rack.fx.insert(allocator, pos, rack_kind, sr);
         unit.preset_owned = preset_owned;
+        for (&s.mod_matrix) |*row| {
+            if (row.fx_instance_id == 0 and fxKindOwnsParam(kind, row.dest))
+                row.fx_instance_id = unit.instance_id;
+        }
         pos += 1;
         switch (unit.payload) {
             .gate => |*v| {
@@ -2738,6 +2742,25 @@ fn migrateSynthFx(allocator: std.mem.Allocator, rack: *Rack, sr: u32, preset_own
     s.fx_freq_shift_on = false;
     s.fx_delay_on = false;
     s.fx_reverb_on = false;
+}
+
+fn fxKindOwnsParam(kind: synth_mod.FxUnitKind, id: u16) bool {
+    return switch (kind) {
+        .dist => id >= 84 and id <= 85,
+        .crush => id >= 87 and id <= 89,
+        .flanger => id >= 91 and id <= 94,
+        .phaser => id >= 104 and id <= 107,
+        .delay => id >= 109 and id <= 111,
+        .reverb => id >= 113 and id <= 115,
+        .gate => id >= 133 and id <= 135,
+        .comp => id >= 138 and id <= 142,
+        .mb_comp => id >= 145 and id <= 159,
+        .ott => id >= 162 and id <= 165,
+        .eq => id >= 168 and id <= 174,
+        .chorus => id >= 177 and id <= 179,
+        .freq_shift => id >= 182 and id <= 183,
+        .tape => id >= 189 and id <= 193,
+    };
 }
 
 pub fn applySynthPatch(
@@ -4821,11 +4844,16 @@ test "synth preset FX replace prior recipe without touching user rack units" {
     var first: PolySynth.Patch = .{};
     first.fx_chorus_on = true;
     first.fx_reverb_on = true;
+    first.fx_dist_on = true;
+    first.mod_matrix[0] = .{ .source = .mac1, .dest = 85, .depth = 0.5 };
     try applySynthPatch(testing.allocator, &rack, first, 48_000);
-    try testing.expectEqual(@as(usize, 3), rack.fx.units.items.len);
+    try testing.expectEqual(@as(usize, 4), rack.fx.units.items.len);
+    const sat = rack.fx.find(.sat).?;
+    try testing.expectEqual(sat.instance_id, rack.instrument.poly_synth.mod_matrix[0].fx_instance_id);
     try testing.expect(rack.fx.units.items[0].preset_owned);
     try testing.expect(rack.fx.units.items[1].preset_owned);
-    try testing.expect(!rack.fx.units.items[2].preset_owned);
+    try testing.expect(rack.fx.units.items[2].preset_owned);
+    try testing.expect(!rack.fx.units.items[3].preset_owned);
 
     var second: PolySynth.Patch = .{};
     second.fx_delay_on = true;

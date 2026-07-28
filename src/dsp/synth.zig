@@ -18,6 +18,7 @@ const Tape = @import("tape.zig").Tape;
 const wavetable = @import("wavetable.zig");
 const Wavetable = wavetable.Wavetable;
 const Transport = @import("../transport.zig").Transport;
+const FxModBus = @import("fx_mod.zig").Bus;
 
 const Sample = types.Sample;
 
@@ -800,6 +801,7 @@ pub const PolySynth = struct {
     /// virtual pitch/amp dests) with a bipolar depth. Evaluated per voice
     /// at block rate in processBlock; same-dest rows sum.
     mod_matrix: [max_mod_rows]ModRow = [_]ModRow{.{}} ** max_mod_rows,
+    fx_mod_bus: FxModBus = .{},
     /// MIDI mod wheel (CC1), 0..1 - the `.wheel` matrix source.
     mod_wheel: f32 = 0.0,
 
@@ -962,20 +964,6 @@ pub const PolySynth = struct {
     /// doc comment. Reordered via `adjustParam`'s dedicated reorder-handle
     /// ids, never written directly by the editor.
     fx_order: [14]FxUnitKind = default_fx_order,
-    fx_gate_state: Gate = .{},
-    fx_eq_state: Eq3 = .{},
-    fx_comp_state: Compressor = .{},
-    fx_mb_state: MultibandComp = .{},
-    fx_ott_state: Ott = .{},
-    fx_crush_state: Crusher = .{},
-    fx_chorus_state: Chorus = .{},
-    fx_flanger_state: Flanger = .{},
-    fx_tape_state: Tape = .{},
-    fx_phaser_state: Phaser = .{},
-    fx_freq_shift_state: FreqShifter = .{},
-    fx_delay_state: Delay = .{},
-    fx_reverb_state: Reverb = .{},
-
     /// Project transport, for the tempo-synced LFO/arp divisions. Null on a
     /// bare synth (tests, `main.zig`'s standalone instance) - every sync
     /// path falls back to plain Hz then. Set through `attachTransport` after
@@ -1076,6 +1064,7 @@ pub const PolySynth = struct {
         dest: u16 = 21,
         depth: f32 = 0.0,
         unipolar: bool = false,
+        fx_instance_id: u32 = 0,
     };
 
     /// Flat id space for the per-row `unipolar` toggles: row `k` at
@@ -1324,13 +1313,6 @@ pub const PolySynth = struct {
             .wt = wt,
             .osc_b_wt = osc_b_wt,
             .osc_c_wt = osc_c_wt,
-            .fx_gate_state = Gate.init(sample_rate),
-            .fx_comp_state = Compressor.init(sample_rate),
-            .fx_mb_state = MultibandComp.init(sample_rate),
-            .fx_ott_state = Ott.init(sample_rate),
-            .fx_freq_shift_state = FreqShifter.init(sample_rate),
-            .fx_phaser_state = Phaser.init(sample_rate),
-            .fx_reverb_state = Reverb.init(@floatFromInt(sample_rate)),
         };
     }
 
@@ -1914,13 +1896,14 @@ pub const PolySynth = struct {
     /// Summed matrix modulation per destination for one voice/block:
     /// `amts[i]` = Σ depth×source over the rows targeting `dests[i]`.
     const ModAccum = struct {
+        instances: [max_mod_rows]u32 = undefined,
         dests: [max_mod_rows]u16 = undefined,
         amts: [max_mod_rows]f32 = undefined,
         count: u8 = 0,
 
         fn amt(self: *const ModAccum, dest: u16) f32 {
-            for (self.dests[0..self.count], self.amts[0..self.count]) |d, a| {
-                if (d == dest) return a;
+            for (self.instances[0..self.count], self.dests[0..self.count], self.amts[0..self.count]) |instance, d, a| {
+                if (instance == 0 and d == dest) return a;
             }
             return 0.0;
         }
@@ -1953,12 +1936,13 @@ pub const PolySynth = struct {
             };
             const polar = if (row.unipolar and row.source.isBipolar()) src * 0.5 + 0.5 else src;
             const a = row.depth * polar;
-            for (acc.dests[0..acc.count], 0..) |d, i| {
-                if (d == row.dest) {
+            for (acc.instances[0..acc.count], acc.dests[0..acc.count], 0..) |instance, d, i| {
+                if (instance == row.fx_instance_id and d == row.dest) {
                     acc.amts[i] += a;
                     break;
                 }
             } else {
+                acc.instances[acc.count] = row.fx_instance_id;
                 acc.dests[acc.count] = row.dest;
                 acc.amts[acc.count] = a;
                 acc.count += 1;
@@ -2354,63 +2338,73 @@ pub const PolySynth = struct {
             }
         }
 
-        // ── Internal FX (post-mix, user-reorderable via fx_order - see
-        // FxUnitKind) ── One global matrix evaluation per block: FX params
-        // are shared by all voices, so the per-voice sources read from the
-        // most recently triggered voice (env/velocity → drive style routes
-        // still play).
-        if (self.fx_gate_on or self.fx_eq_on or self.fx_comp_on or self.fx_mb_on or
-            self.fx_ott_on or self.fx_dist_on or self.fx_crush_on or self.fx_chorus_on or
-            self.fx_flanger_on or self.fx_tape_on or self.fx_phaser_on or self.fx_freq_shift_on or
-            self.fx_delay_on or self.fx_reverb_on)
-        {
-            const nv = &self.voices[self.newest_voice];
-            const mods = self.evalMatrix(if (nv.active) nv else null, lfo_vals);
-            for (self.fx_order) |kind| {
-                switch (kind) {
-                    .gate => if (self.fx_gate_on) {
-                        // zig fmt: off
+        const mod_voice = &self.voices[self.newest_voice];
+        const rack_mods = self.evalMatrix(if (mod_voice.active) mod_voice else null, lfo_vals);
+        self.fx_mod_bus.clear();
+        for (rack_mods.instances[0..rack_mods.count], rack_mods.dests[0..rack_mods.count], rack_mods.amts[0..rack_mods.count]) |instance, dest, amount| {
+            self.fx_mod_bus.add(instance, dest, amount);
+        }
+
+        if (comptime false) {
+            // Legacy processors remain below until migration fields disappear
+            // from patch format. Rack FX own runtime processing now.
+            // ── Internal FX (post-mix, user-reorderable via fx_order - see
+            // FxUnitKind) ── One global matrix evaluation per block: FX params
+            // are shared by all voices, so the per-voice sources read from the
+            // most recently triggered voice (env/velocity → drive style routes
+            // still play).
+            if (self.fx_gate_on or self.fx_eq_on or self.fx_comp_on or self.fx_mb_on or
+                self.fx_ott_on or self.fx_dist_on or self.fx_crush_on or self.fx_chorus_on or
+                self.fx_flanger_on or self.fx_tape_on or self.fx_phaser_on or self.fx_freq_shift_on or
+                self.fx_delay_on or self.fx_reverb_on)
+            {
+                const nv = &self.voices[self.newest_voice];
+                const mods = self.evalMatrix(if (nv.active) nv else null, lfo_vals);
+                for (self.fx_order) |kind| {
+                    switch (kind) {
+                        .gate => if (self.fx_gate_on) {
+                            // zig fmt: off
                         self.fx_gate_state.threshold_db = eff(&mods, 133, self.fx_gate_threshold_db);
                         self.fx_gate_state.attack_ms     = eff(&mods, 134, self.fx_gate_attack_ms);
                         self.fx_gate_state.release_ms    = eff(&mods, 135, self.fx_gate_release_ms);
                         // zig fmt: on
-                        self.fx_gate_state.processBlock(buf);
-                    },
-                    .eq => if (self.fx_eq_on) {
-                        self.fx_eq_state.processBlock(
-                            buf,
-                            self.sample_rate,
-                            eff(&mods, 168, self.fx_eq_low_freq),
-                            eff(&mods, 169, self.fx_eq_low_gain_db),
-                            eff(&mods, 170, self.fx_eq_mid_freq),
-                            eff(&mods, 171, self.fx_eq_mid_gain_db),
-                            eff(&mods, 172, self.fx_eq_mid_q),
-                            eff(&mods, 173, self.fx_eq_high_freq),
-                            eff(&mods, 174, self.fx_eq_high_gain_db),
-                        );
-                    },
-                    .comp => if (self.fx_comp_on) {
-                        // zig fmt: off
+                            self.fx_gate_state.processBlock(buf);
+                        },
+                        .eq => if (self.fx_eq_on) {
+                            self.fx_eq_state.processBlock(
+                                buf,
+                                self.sample_rate,
+                                eff(&mods, 168, self.fx_eq_low_freq),
+                                eff(&mods, 169, self.fx_eq_low_gain_db),
+                                eff(&mods, 170, self.fx_eq_mid_freq),
+                                eff(&mods, 171, self.fx_eq_mid_gain_db),
+                                eff(&mods, 172, self.fx_eq_mid_q),
+                                eff(&mods, 173, self.fx_eq_high_freq),
+                                eff(&mods, 174, self.fx_eq_high_gain_db),
+                            );
+                        },
+                        .comp => if (self.fx_comp_on) {
+                            // zig fmt: off
                         self.fx_comp_state.threshold_db = eff(&mods, 138, self.fx_comp_threshold_db);
                         self.fx_comp_state.ratio        = eff(&mods, 139, self.fx_comp_ratio);
                         self.fx_comp_state.attack_ms    = eff(&mods, 140, self.fx_comp_attack_ms);
                         self.fx_comp_state.release_ms   = eff(&mods, 141, self.fx_comp_release_ms);
                         self.fx_comp_state.makeup_db    = eff(&mods, 142, self.fx_comp_makeup_db);
                         // zig fmt: on
-                        self.fx_comp_state.processBlock(buf);
-                    },
-                    .mb_comp => if (self.fx_mb_on) {
-                        // setXovers (not a bare field write) recomputes the
-                        // crossover biquads - required whenever the split
-                        // points move, unlike the other unit's plain params.
-                        // Individual band fields, not whole-struct literals:
-                        // BandComp.env must persist across blocks or the
-                        // envelope follower never settles.
-                        self.fx_mb_state.setXovers(
-                            eff(&mods, 145, self.fx_mb_xover_lo),
-                            eff(&mods, 146, self.fx_mb_xover_hi),
-                        );
-                        // zig fmt: off
+                            self.fx_comp_state.processBlock(buf);
+                        },
+                        .mb_comp => if (self.fx_mb_on) {
+                            // setXovers (not a bare field write) recomputes the
+                            // crossover biquads - required whenever the split
+                            // points move, unlike the other unit's plain params.
+                            // Individual band fields, not whole-struct literals:
+                            // BandComp.env must persist across blocks or the
+                            // envelope follower never settles.
+                            self.fx_mb_state.setXovers(
+                                eff(&mods, 145, self.fx_mb_xover_lo),
+                                eff(&mods, 146, self.fx_mb_xover_hi),
+                            );
+                            // zig fmt: off
                         self.fx_mb_state.attack_ms  = eff(&mods, 147, self.fx_mb_attack_ms);
                         self.fx_mb_state.release_ms = eff(&mods, 148, self.fx_mb_release_ms);
                         self.fx_mb_state.style       = self.fx_mb_style;
@@ -2425,98 +2419,99 @@ pub const PolySynth = struct {
                         self.fx_mb_state.bands[2].ratio        = eff(&mods, 158, self.fx_mb_high_ratio);
                         self.fx_mb_state.bands[2].makeup_db    = eff(&mods, 159, self.fx_mb_high_makeup_db);
                         // zig fmt: on
-                        self.fx_mb_state.processBlock(buf);
-                    },
-                    .ott => if (self.fx_ott_on) {
-                        // setDepth/setTime (not bare field writes) apply
-                        // their own clamps and, for time, rescale the fixed
-                        // attack/release pair - matches Ott's own setter API.
-                        self.fx_ott_state.setDepth(eff(&mods, 162, self.fx_ott_depth));
-                        self.fx_ott_state.setTime(eff(&mods, 163, self.fx_ott_time));
-                        self.fx_ott_state.gain_in_db = eff(&mods, 164, self.fx_ott_gain_in_db);
-                        self.fx_ott_state.gain_out_db = eff(&mods, 165, self.fx_ott_gain_out_db);
-                        self.fx_ott_state.processBlock(buf);
-                    },
-                    .dist => if (self.fx_dist_on) {
-                        // Stateless, so a per-block value with the
-                        // effective params is all it takes (out_db stays
-                        // at its 0 dB default).
-                        var sat = Saturator{
-                            .drive_db = eff(&mods, 84, self.fx_dist_drive_db),
-                            .mix = eff(&mods, 85, self.fx_dist_mix),
-                        };
-                        sat.processBlock(buf);
-                    },
-                    .crush => if (self.fx_crush_on) {
-                        // zig fmt: off
+                            self.fx_mb_state.processBlock(buf);
+                        },
+                        .ott => if (self.fx_ott_on) {
+                            // setDepth/setTime (not bare field writes) apply
+                            // their own clamps and, for time, rescale the fixed
+                            // attack/release pair - matches Ott's own setter API.
+                            self.fx_ott_state.setDepth(eff(&mods, 162, self.fx_ott_depth));
+                            self.fx_ott_state.setTime(eff(&mods, 163, self.fx_ott_time));
+                            self.fx_ott_state.gain_in_db = eff(&mods, 164, self.fx_ott_gain_in_db);
+                            self.fx_ott_state.gain_out_db = eff(&mods, 165, self.fx_ott_gain_out_db);
+                            self.fx_ott_state.processBlock(buf);
+                        },
+                        .dist => if (self.fx_dist_on) {
+                            // Stateless, so a per-block value with the
+                            // effective params is all it takes (out_db stays
+                            // at its 0 dB default).
+                            var sat = Saturator{
+                                .drive_db = eff(&mods, 84, self.fx_dist_drive_db),
+                                .mix = eff(&mods, 85, self.fx_dist_mix),
+                            };
+                            sat.processBlock(buf);
+                        },
+                        .crush => if (self.fx_crush_on) {
+                            // zig fmt: off
                         self.fx_crush_state.bits       = eff(&mods, 87, self.fx_crush_bits);
                         self.fx_crush_state.downsample = eff(&mods, 88, self.fx_crush_rate);
                         self.fx_crush_state.mix        = eff(&mods, 89, self.fx_crush_mix);
                         // zig fmt: on
-                        self.fx_crush_state.processBlock(buf);
-                    },
-                    .chorus => if (self.fx_chorus_on) {
-                        self.fx_chorus_state.processBlock(
-                            buf,
-                            self.sample_rate,
-                            eff(&mods, 177, self.fx_chorus_rate_hz),
-                            eff(&mods, 178, self.fx_chorus_depth_ms),
-                            eff(&mods, 179, self.fx_chorus_mix),
-                        );
-                    },
-                    .flanger => if (self.fx_flanger_on) {
-                        self.fx_flanger_state.processBlock(
-                            buf,
-                            self.sample_rate,
-                            eff(&mods, 91, self.fx_flanger_rate_hz),
-                            eff(&mods, 92, self.fx_flanger_depth),
-                            eff(&mods, 93, self.fx_flanger_feedback),
-                            eff(&mods, 94, self.fx_flanger_mix),
-                        );
-                    },
-                    .tape => if (self.fx_tape_on) {
-                        // zig fmt: off
+                            self.fx_crush_state.processBlock(buf);
+                        },
+                        .chorus => if (self.fx_chorus_on) {
+                            self.fx_chorus_state.processBlock(
+                                buf,
+                                self.sample_rate,
+                                eff(&mods, 177, self.fx_chorus_rate_hz),
+                                eff(&mods, 178, self.fx_chorus_depth_ms),
+                                eff(&mods, 179, self.fx_chorus_mix),
+                            );
+                        },
+                        .flanger => if (self.fx_flanger_on) {
+                            self.fx_flanger_state.processBlock(
+                                buf,
+                                self.sample_rate,
+                                eff(&mods, 91, self.fx_flanger_rate_hz),
+                                eff(&mods, 92, self.fx_flanger_depth),
+                                eff(&mods, 93, self.fx_flanger_feedback),
+                                eff(&mods, 94, self.fx_flanger_mix),
+                            );
+                        },
+                        .tape => if (self.fx_tape_on) {
+                            // zig fmt: off
                         self.fx_tape_state.wow_rate_hz      = eff(&mods, 189, self.fx_tape_wow_rate_hz);
                         self.fx_tape_state.wow_depth        = eff(&mods, 190, self.fx_tape_wow_depth);
                         self.fx_tape_state.flutter_rate_hz  = eff(&mods, 191, self.fx_tape_flutter_rate_hz);
                         self.fx_tape_state.flutter_depth    = eff(&mods, 192, self.fx_tape_flutter_depth);
                         self.fx_tape_state.mix              = eff(&mods, 193, self.fx_tape_mix);
                         // zig fmt: on
-                        self.fx_tape_state.processBlock(buf);
-                    },
-                    .phaser => if (self.fx_phaser_on) {
-                        // zig fmt: off
+                            self.fx_tape_state.processBlock(buf);
+                        },
+                        .phaser => if (self.fx_phaser_on) {
+                            // zig fmt: off
                         self.fx_phaser_state.rate_hz  = eff(&mods, 104, self.fx_phaser_rate_hz);
                         self.fx_phaser_state.depth    = eff(&mods, 105, self.fx_phaser_depth);
                         self.fx_phaser_state.feedback = eff(&mods, 106, self.fx_phaser_feedback);
                         self.fx_phaser_state.mix      = eff(&mods, 107, self.fx_phaser_mix);
                         // zig fmt: on
-                        self.fx_phaser_state.processBlock(buf);
-                    },
-                    .freq_shift => if (self.fx_freq_shift_on) {
-                        // zig fmt: off
+                            self.fx_phaser_state.processBlock(buf);
+                        },
+                        .freq_shift => if (self.fx_freq_shift_on) {
+                            // zig fmt: off
                         self.fx_freq_shift_state.shift_hz = eff(&mods, 182, self.fx_freq_shift_hz);
                         self.fx_freq_shift_state.mix      = eff(&mods, 183, self.fx_freq_shift_mix);
                         // zig fmt: on
-                        self.fx_freq_shift_state.processBlock(buf);
-                    },
-                    .delay => if (self.fx_delay_on) {
-                        self.fx_delay_state.processBlock(
-                            buf,
-                            self.sample_rate,
-                            eff(&mods, 109, self.fx_delay_time_s),
-                            eff(&mods, 110, self.fx_delay_feedback),
-                            eff(&mods, 111, self.fx_delay_mix),
-                        );
-                    },
-                    .reverb => if (self.fx_reverb_on) {
-                        self.fx_reverb_state.processBlock(
-                            buf,
-                            eff(&mods, 113, self.fx_reverb_room),
-                            eff(&mods, 114, self.fx_reverb_damp),
-                            eff(&mods, 115, self.fx_reverb_mix),
-                        );
-                    },
+                            self.fx_freq_shift_state.processBlock(buf);
+                        },
+                        .delay => if (self.fx_delay_on) {
+                            self.fx_delay_state.processBlock(
+                                buf,
+                                self.sample_rate,
+                                eff(&mods, 109, self.fx_delay_time_s),
+                                eff(&mods, 110, self.fx_delay_feedback),
+                                eff(&mods, 111, self.fx_delay_mix),
+                            );
+                        },
+                        .reverb => if (self.fx_reverb_on) {
+                            self.fx_reverb_state.processBlock(
+                                buf,
+                                eff(&mods, 113, self.fx_reverb_room),
+                                eff(&mods, 114, self.fx_reverb_damp),
+                                eff(&mods, 115, self.fx_reverb_mix),
+                            );
+                        },
+                    }
                 }
             }
         }
@@ -3214,24 +3209,7 @@ pub const PolySynth = struct {
         self.arp_phase = 0.0;
         self.arp_gate_open = false;
         self.arp_was_on = false;
-        self.fx_crush_state = .{};
-        self.fx_chorus_state = .{};
-        self.fx_flanger_state = .{};
-        self.fx_delay_state = .{};
-        // Reset(), not `= .{}` - a bare default would also clobber the
-        // sample-rate-derived state PolySynth.init set (Gate's, Compressor's,
-        // MultibandComp's/Ott's, Phaser's and FreqShifter's sample_rate,
-        // Reverb's per-line len), and Ott's/MultibandComp's fixed tuning
-        // fields (Ott's own band/xover setup, baked in at init since only
-        // depth/time/in/out are exposed as params).
-        self.fx_gate_state.reset();
-        self.fx_eq_state.reset();
-        self.fx_comp_state.reset();
-        self.fx_mb_state.reset();
-        self.fx_ott_state.reset();
-        self.fx_phaser_state.reset();
-        self.fx_freq_shift_state.reset();
-        self.fx_reverb_state.reset();
+        self.fx_mod_bus.clear();
     }
 
     /// Apply a raw MIDI CC. Safe to call on the audio thread (field writes only).
@@ -5262,34 +5240,6 @@ test "internal FX: flanger at mix 0 passes the synth output untouched" {
     try expectMixZeroBypass(.{ .fx_flanger_on = true, .fx_flanger_mix = @as(f32, 0.0), .fx_flanger_feedback = @as(f32, 0.0) });
 }
 
-test "internal FX: distortion drives the synth output hotter" {
-    var a = try PolySynth.init(std.testing.allocator, 48_000);
-    defer a.deinit();
-    var b = try PolySynth.init(std.testing.allocator, 48_000);
-    defer b.deinit();
-    b.fx_dist_on = true;
-    b.fx_dist_drive_db = 30.0;
-    a.noteOn(60, 0.6);
-    b.noteOn(60, 0.6);
-
-    var buf_a: [512]Sample = undefined;
-    var buf_b: [512]Sample = undefined;
-    var sum_a: f64 = 0.0;
-    var sum_b: f64 = 0.0;
-    for (0..8) |_| {
-        @memset(&buf_a, 0.0);
-        @memset(&buf_b, 0.0);
-        a.processBlock(&buf_a);
-        b.processBlock(&buf_b);
-        for (buf_a, buf_b) |sa, sb| {
-            sum_a += @abs(sa);
-            sum_b += @abs(sb);
-            try std.testing.expect(std.math.isFinite(sb));
-        }
-    }
-    try std.testing.expect(sum_b > sum_a * 1.5);
-}
-
 test "internal FX: matrix wheel row modulates dist mix globally" {
     // Base mix 1 with a wheel → dist-mix row at depth -1: wheel at 1 nulls
     // the mix, so the driven synth must match a clean one exactly. This
@@ -5379,17 +5329,6 @@ test "internal FX: phaser stays finite at max feedback and depth" {
     }
 }
 
-test "internal FX: phaser reset preserves the synth's sample rate" {
-    var synth = try PolySynth.init(std.testing.allocator, 44_100);
-    defer synth.deinit();
-    synth.fx_phaser_on = true;
-    synth.noteOn(60, 1.0);
-    var buf: [128]Sample = undefined;
-    synth.processBlock(&buf);
-    synth.resetAll();
-    try std.testing.expectApproxEqAbs(@as(f32, 44_100.0), synth.fx_phaser_state.sample_rate, 1e-6);
-}
-
 test "FX delay/reverb param ids round-trip through paramValue/setParamAbsolute" {
     var a = try PolySynth.init(std.testing.allocator, 48_000);
     defer a.deinit();
@@ -5469,53 +5408,12 @@ test "adjustParam: fx_mb_style picks classic/ott by direction, not a wrap" {
     try std.testing.expectEqual(MbStyle.classic, s.fx_mb_style);
 }
 
-test "internal FX: delay echoes at the set time with feedback decay" {
-    var synth = try PolySynth.init(std.testing.allocator, 1000);
-    defer synth.deinit();
-    synth.fx_delay_on = true;
-    synth.fx_delay_time_s = 0.1; // 100 frames at 1000 Hz
-    synth.fx_delay_feedback = 0.5;
-    synth.fx_delay_mix = 0.5;
-
-    var buf = [_]Sample{0.0} ** 800;
-    buf[0] = 1.0;
-    buf[1] = 1.0;
-    synth.processBlock(&buf);
-
-    try std.testing.expectApproxEqAbs(@as(Sample, 0.5), buf[0], 1e-6); // dry half
-    try std.testing.expectApproxEqAbs(@as(Sample, 0.5), buf[100 * 2], 1e-6); // first echo
-    try std.testing.expectApproxEqAbs(@as(Sample, 0.25), buf[200 * 2], 1e-6); // second echo
-}
-
 test "internal FX: delay at mix 0 passes the synth output untouched" {
     try expectMixZeroBypass(.{ .fx_delay_on = true, .fx_delay_mix = @as(f32, 0.0) });
 }
 
 test "internal FX: reverb at mix 0 passes the synth output untouched" {
     try expectMixZeroBypass(.{ .fx_reverb_on = true, .fx_reverb_mix = @as(f32, 0.0) });
-}
-
-test "internal FX: reverb produces a decaying tail and stays bounded" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
-    defer synth.deinit();
-    synth.fx_reverb_on = true;
-    synth.fx_reverb_mix = 1.0;
-    synth.fx_reverb_room = 0.84;
-    synth.fx_reverb_damp = 0.25;
-
-    var buf = [_]Sample{0.0} ** (4096 * 2);
-    buf[0] = 1.0;
-    buf[1] = 1.0;
-    synth.processBlock(&buf);
-
-    var tail_energy: f32 = 0.0;
-    var peak: f32 = 0.0;
-    for (buf[2048..]) |s| {
-        tail_energy += s * s;
-        peak = @max(peak, @abs(s));
-    }
-    try std.testing.expect(tail_energy > 0.0);
-    try std.testing.expect(peak < 1.0);
 }
 
 test "internal FX: delay and reverb stay finite at max feedback/room" {
@@ -5535,18 +5433,6 @@ test "internal FX: delay and reverb stay finite at max feedback/room" {
         synth.processBlock(&buf);
         for (buf) |s| try std.testing.expect(std.math.isFinite(s));
     }
-}
-
-test "internal FX: reverb reset preserves the synth's sample-rate-derived line lengths" {
-    var synth = try PolySynth.init(std.testing.allocator, 44_100);
-    defer synth.deinit();
-    synth.fx_reverb_on = true;
-    synth.noteOn(60, 1.0);
-    var buf: [128]Sample = undefined;
-    synth.processBlock(&buf);
-    const len_before = synth.fx_reverb_state.channels[0].combs[0].len;
-    synth.resetAll();
-    try std.testing.expectEqual(len_before, synth.fx_reverb_state.channels[0].combs[0].len);
 }
 
 /// Directly seeds held/latch state and drives `arpFireStep` (bypassing the

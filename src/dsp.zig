@@ -1,4 +1,5 @@
 pub const device = @import("dsp/device.zig");
+pub const fx_mod = @import("dsp/fx_mod.zig");
 pub const Device = device.Device;
 pub const Event = device.Event;
 

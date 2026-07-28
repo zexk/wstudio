@@ -20,15 +20,12 @@ const synth_layout = @import("../synth_layout.zig");
 /// IS the PolySynth param id - engine commands and undo key off it
 /// directly) - the subview only changes which ids are reachable and how
 /// they're laid out on screen. `main`/`mod` are driven by synth_layout.zig's
-/// comptime section tables (see `mainOrderNow`/`modOrderNow`); `fx` stays
-/// runtime-dynamic (its section set depends on `fx_order` + each unit's
-/// on/off flag) and keeps its own machinery below.
+/// comptime section tables. Rack editor owns FX.
 pub const Subview = enum { main, mod, fx };
 pub const SubviewSpec = struct { subview: Subview, short_label: []const u8, label: [:0]const u8 };
 pub const subviews = [_]SubviewSpec{
     .{ .subview = .main, .short_label = "MAIN", .label = "MAIN" },
     .{ .subview = .mod, .short_label = "MOD", .label = "MODULATION" },
-    .{ .subview = .fx, .short_label = "FX", .label = "INTERNAL FX" },
 };
 
 const FxUnitKind = ws.dsp.synth.FxUnitKind;
@@ -962,7 +959,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             history.flushParamNudge(app);
             app.synth_section_focus = false;
             app.synth_subview = switch (app.synth_subview) {
-                .main => .mod, .mod => .fx, .fx => .main,
+                .main => .mod, .mod, .fx => .main,
             };
             app.synth_cursor = cursorFirst(app);
             updateScroll(app);
