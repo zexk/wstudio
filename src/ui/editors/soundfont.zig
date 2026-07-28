@@ -133,16 +133,46 @@ pub fn adjustParam(app: *App, steps: i32) void {
     _ = app.session.engine.send(.{ .set_track_param = .{ .track = track, .id = app.soundfont_param, .steps = steps } });
 }
 
+/// View-content row of each param, mirroring views/soundfont.zig's emission
+/// order: title(0), "OUT" section(1), gain/pan/transpose(2-4), "PROGRAM"
+/// section(5), preset(6). The section headers are why this is a table and
+/// not `row - 1` - that older form handed the OUT header row param 0 and
+/// shifted every real param row down by one, so clicking a param selected
+/// the one above it. Same shape as the sampler editor's `paramRelRow`,
+/// which has always walked its own section headers.
+const param_rows = [_]usize{ 2, 3, 4, 6 };
+
+comptime {
+    if (param_rows.len != param_count) @compileError("soundfont param row table is out of sync with param_count");
+}
+
+/// The row table alone, without the font-loaded gate `paramAtRow` applies -
+/// tui/app_tests.zig checks the mapping here since a test app has no .sf2
+/// to load.
+pub fn rowParamForTest(row: usize) ?u8 {
+    for (param_rows, 0..) |r, i| {
+        if (r == row) return @intCast(i);
+    }
+    return null;
+}
+
+/// The param at view row `row`, or null for the title, a section header, or
+/// the preset detail line under it. Null too when no font is loaded: the
+/// view draws its empty state instead of any param row.
+fn paramAtRow(app: *App, row: usize) ?u8 {
+    const sf = app.editingSoundfont() orelse return null;
+    if (sf.presetCount() == 0) return null;
+    for (param_rows, 0..) |r, i| {
+        if (r == row) return @intCast(i);
+    }
+    return null;
+}
+
 /// Click a param row to select it; scroll nudges (ctrl+scroll = coarse,
 /// matching H/L) - same shape as the sampler editor's mouse handling, minus
 /// the waveform panel (soundfont has no per-region drag surface).
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
-    // Row 0 is the title; params start at row 1 - see views/soundfont.zig.
-    if (row == 0 or row - 1 >= param_count) {
-        if (ev.kind == .scroll_up or ev.kind == .scroll_down) return;
-        return;
-    }
-    const p: u8 = @intCast(row - 1);
+    const p = paramAtRow(app, row) orelse return;
     switch (ev.kind) {
         .press => {
             history.flushParamNudge(app);

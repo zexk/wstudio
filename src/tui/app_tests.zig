@@ -23,6 +23,7 @@ const style = @import("style.zig");
 const piano_ed = @import("../ui/editors/piano.zig");
 const sampler_ed = @import("../ui/editors/sampler.zig");
 const spectrum_ed = @import("../ui/editors/spectrum.zig");
+const soundfont_ed = @import("../ui/editors/soundfont.zig");
 const synth_ed_mod = @import("../ui/editors/synth.zig");
 const preset_ed = @import("../ui/editors/preset_picker.zig");
 const icons = @import("../ui/icons.zig");
@@ -6012,6 +6013,28 @@ test ":e with no path always browses; selecting a file refuses when dirty" {
 // terminal.decode, same as handleKey's tests bypass raw byte parsing).
 // ---------------------------------------------------------------------------
 
+// Every mouse test below phrases its rows as `content_top + n`, so they all
+// move with the constant instead of checking it. This one checks it: the
+// view's own first row (each view opens with its title line) has to land on
+// screen row `content_top` in a real frame. It didn't for a while - the
+// header lost its divider row and `content_top` kept counting it, putting
+// every click one row above the cell it was aimed at.
+test "content_top matches where a rendered frame actually starts the view" {
+    var app = try testApp();
+    defer app.deinit();
+
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
+
+    var screen_row: usize = 0;
+    var lines = std.mem.splitScalar(u8, w.buffered(), '\n');
+    while (lines.next()) |line| : (screen_row += 1) {
+        if (std.mem.indexOf(u8, line, "TRACKS") != null) break;
+    } else return error.TitleRowNotRendered;
+    try std.testing.expectEqual(@as(usize, app_mod.content_top), screen_row);
+}
+
 test "mouse click on a tracks-view row selects and opens it" {
     var app = try testApp();
     defer app.deinit();
@@ -6310,6 +6333,31 @@ test "mouse click/drag on a sampler waveform moves the nearer marker" {
 
     app.handleMouse(.{ .x = 20, .y = app_mod.content_top + 3, .button = .left, .kind = .release }, 80, 30, 0);
     try std.testing.expect(app.sampler_drag_marker == null);
+}
+
+test "soundfont mouse rows skip the section headers, and hit nothing while the empty state shows" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .soundfont);
+    app.soundfont_track = 0;
+    app.view = .soundfont_editor;
+
+    // No .sf2 loaded, so the view draws its "No SoundFont loaded" state -
+    // none of those rows is a param row, however tempting the arithmetic.
+    app.soundfont_param = 0;
+    for (0..8) |r| {
+        app.handleMouse(.{ .x = 4, .y = @intCast(app_mod.content_top + r), .button = .left, .kind = .press }, 80, 24, 0);
+        try std.testing.expectEqual(@as(u8, 0), app.soundfont_param);
+    }
+
+    // The row table itself: title(0), OUT(1), gain/pan/transpose(2-4),
+    // PROGRAM(5), preset(6) - mirroring views/soundfont.zig.
+    try std.testing.expectEqual(@as(?u8, null), soundfont_ed.rowParamForTest(0));
+    try std.testing.expectEqual(@as(?u8, null), soundfont_ed.rowParamForTest(1));
+    try std.testing.expectEqual(@as(?u8, 0), soundfont_ed.rowParamForTest(2));
+    try std.testing.expectEqual(@as(?u8, 2), soundfont_ed.rowParamForTest(4));
+    try std.testing.expectEqual(@as(?u8, null), soundfont_ed.rowParamForTest(5));
+    try std.testing.expectEqual(@as(?u8, 3), soundfont_ed.rowParamForTest(6));
 }
 
 test "mouse click on a chain-strip slot box focuses that slot" {

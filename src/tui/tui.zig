@@ -60,6 +60,9 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
     else
         0;
     const content_rows = rows -| suggestion_rows;
+    // Mouse hit-testing resolves height-dependent layouts against the same
+    // budget this frame drew them at - see `App.last_content_rows`.
+    self.last_content_rows = @intCast(@min(content_rows, std.math.maxInt(u16)));
 
     try w.writeAll("\x1b[H");
     // The .wsj format has no project-name field, so a loaded file would

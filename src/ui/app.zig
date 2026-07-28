@@ -53,10 +53,18 @@ fn copyTruncated(dst: []u8, src: []const u8) usize {
 /// default below and `tui/app_tests.zig`'s note-off timing test both key off
 /// this constant.
 pub const note_ms = 220;
-/// Rows every view's content starts after in `App.draw`: the header line +
-/// the `hr` divider beneath it. Mouse hit-testing subtracts this before
-/// handing a row to a view's own handler - see `App.handleMouse`.
-pub const content_top: u16 = 2;
+/// Rows every view's content starts after in `App.draw`: the header line,
+/// and nothing else. Mouse hit-testing subtracts this before handing a row
+/// to a view's own handler - see `App.handleMouse`.
+///
+/// This was 2 for the header plus the `hr` divider that used to sit under
+/// it; 5a7e815 folded the divider away and reclaimed the row without
+/// updating this, so every TUI click landed one row above the cell clicked
+/// (clicking the master row opened track 1, clicking the first track row
+/// did nothing). The mouse tests all phrase their coordinates as
+/// `content_top + n`, so they moved with the bug instead of catching it -
+/// tui/app_tests.zig now pins the constant against a real rendered frame.
+pub const content_top: u16 = 1;
 /// Big enough for any real filesystem path; mirrors commands.path_buf_len.
 const reload_path_buf_len: usize = 1024;
 /// A pause longer than this between taps starts a fresh tap-tempo run.
@@ -528,6 +536,14 @@ pub const App = struct {
     /// one view. Defaults to 80 (== `min_cols`) so pre-first-draw nav
     /// (tests) still gets a sane single-column bucket.
     last_cols: u16 = 80,
+    /// Row budget the last `draw()` handed the view - the terminal height
+    /// minus whatever chrome ate into it (today: the command-mode
+    /// completion popup). Views whose layout is height-dependent (sampler
+    /// and slicer waveform panes, the drum grid's stacked banks, the
+    /// spectrum's FX strip) hit-test against this rather than the raw
+    /// terminal height, or a click while the popup is open resolves
+    /// against a taller layout than the one on screen.
+    last_content_rows: u16 = 0,
     piano_track: u16 = 0,
     piano_cursor_step: u16 = 0,
     piano_cursor_pitch: u7 = 60,
@@ -2005,7 +2021,7 @@ pub const App = struct {
         self.now_ns = now_ns;
         if (ev.y < content_top) return;
         const row: usize = ev.y - content_top;
-        const view_rows: usize = @max(rows, 10);
+        const view_rows: usize = @max(if (self.last_content_rows > 0) self.last_content_rows else rows, 10);
         switch (self.view) {
             .tracks => self.tracksMouse(ev, row),
             .drum_grid => drum_ed.handleMouse(self, ev, row, view_rows),
