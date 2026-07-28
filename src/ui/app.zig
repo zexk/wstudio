@@ -1723,9 +1723,9 @@ pub const App = struct {
                     // j/k scroll one line, d/u half-page, g/G jump to ends.
                     // draw clamps help_scroll, so over-scrolling just pins to the edge.
                     .char => |c| switch (c) {
-                        'j' => self.help_scroll += 1,
+                        'j' => self.help_scroll +|= 1,
                         'k' => self.help_scroll -|= 1,
-                        'd' => self.help_scroll += 10,
+                        'd' => self.help_scroll +|= 10,
                         'u' => self.help_scroll -|= 10,
                         'G' => self.help_scroll = std.math.maxInt(usize),
                         'g' => self.help_scroll = 0,
@@ -2300,7 +2300,7 @@ pub const App = struct {
     fn helpMouse(self: *App, ev: modal_mod.MouseEvent) void {
         switch (ev.kind) {
             .scroll_up => self.help_scroll -|= 1,
-            .scroll_down => self.help_scroll += 1,
+            .scroll_down => self.help_scroll +|= 1,
             else => {},
         }
     }

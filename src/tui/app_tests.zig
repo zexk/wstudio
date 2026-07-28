@@ -7393,3 +7393,19 @@ test ":track-instrument leaves an editor open on the track it just swapped" {
     commands.run(&app, "track-instrument 4 synth");
     try std.testing.expectEqual(app_mod.AppView.tracks, app.view);
 }
+
+test "scrolling down from the bottom of the help view doesn't overflow" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .help;
+    // `G` parks the scroll at usize max and lets the next draw clamp it. A
+    // second key arriving in the same input burst - before any draw - used
+    // to add to that saturated value and panic.
+    app.handleKey(.{ .char = 'G' }, 0);
+    app.handleKey(.{ .char = 'j' }, 0);
+    app.handleKey(.{ .char = 'd' }, 0);
+    app.handleMouse(.{ .x = 10, .y = 10, .button = .none, .kind = .scroll_down }, 100, 24, 0);
+    var buf: [64 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try main_mod.draw(&app, &w, .{ .cols = 100, .rows = 24 });
+}
