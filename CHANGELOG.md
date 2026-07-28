@@ -57,6 +57,8 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Fixed
 
+- External CLAP entries now say `audio only` in both pickers, so users see
+  before loading that native plugin GUI windows are unavailable.
 - `piano_audition` was settable from `init.lua` but missing from the Nix
   modules, the config template, and the docs. Added, and a test now walks
   the option table against all three so none can drift again.
