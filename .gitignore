@@ -15,3 +15,7 @@ dist/
 /docs/community-launch.md
 /docs/reddit-posts.md
 gui_screenshots/
+
+# Build caches and local scratch, never project content.
+.zig-global-cache/
+/work/
