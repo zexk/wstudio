@@ -6170,6 +6170,108 @@ test "mouse click on an empty piano-roll cell inserts a note" {
     try std.testing.expectEqual(@as(u7, 72), pp.notes[0].pitch);
 }
 
+test "piano-roll draw-drag sizes the note it just placed, and that length sticks" {
+    var app = try testApp();
+    defer app.deinit();
+    app.piano_track = 0;
+    app.view = .piano_roll;
+    app.piano_scroll_step = 0;
+    app.piano_scroll_pitch = 72;
+    app.piano_note_len = 0.25; // one 16th
+    const pp = &app.session.racks.items[0].pattern_player.?;
+
+    const row = app_mod.content_top + 3; // pitch 72
+    app.handleMouse(.{ .x = 7, .y = row, .button = .left, .kind = .press }, 80, 24, 0); // step 0
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+    try std.testing.expect(app.piano_mouse_draw);
+    // The press alone leaves the default length in place.
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25), pp.notes[0].duration_beat, 1e-9);
+
+    // Drag out to step 3 (x in [15,18)) - 4 steps = 1 beat.
+    app.handleMouse(.{ .x = 16, .y = row, .button = .left, .kind = .drag }, 80, 24, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.notes[0].duration_beat, 1e-9);
+    app.handleMouse(.{ .x = 16, .y = row, .button = .left, .kind = .release }, 80, 24, 0);
+    try std.testing.expect(!app.piano_mouse_draw);
+    // FL's length chase: the next note drawn inherits what was drawn here.
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), app.piano_note_len, 1e-9);
+
+    // And the whole gesture is one undo entry, not insert-then-resize.
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(@as(u16, 0), pp.note_count);
+}
+
+test "piano-roll right-drag erases every note it sweeps, as one undo entry" {
+    var app = try testApp();
+    defer app.deinit();
+    app.piano_track = 0;
+    app.view = .piano_roll;
+    app.piano_scroll_step = 0;
+    app.piano_scroll_pitch = 72;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 72, .start_beat = 0.0, .duration_beat = 0.5 }); // covers steps 0-1
+    pp.addNote(.{ .pitch = 71, .start_beat = 0.5, .duration_beat = 0.25 }); // step 2, row below
+
+    // Press over the *body* of the first note (step 1, not its start) - the
+    // brush erases what it sweeps over, not only what starts under it.
+    app.handleMouse(.{ .x = 10, .y = app_mod.content_top + 3, .button = .right, .kind = .press }, 80, 24, 0);
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+    try std.testing.expect(app.piano_erase_active);
+    // Sweep on to the second note while the button stays down.
+    app.handleMouse(.{ .x = 13, .y = app_mod.content_top + 4, .button = .right, .kind = .drag }, 80, 24, 0);
+    try std.testing.expectEqual(@as(u16, 0), pp.note_count);
+    app.handleMouse(.{ .x = 13, .y = app_mod.content_top + 4, .button = .right, .kind = .release }, 80, 24, 0);
+    try std.testing.expect(!app.piano_erase_active);
+
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(@as(u16, 2), pp.note_count); // both back in one step
+}
+
+test "shift+drag clones a piano-roll note instead of moving it" {
+    var app = try testApp();
+    defer app.deinit();
+    app.piano_track = 0;
+    app.view = .piano_roll;
+    app.piano_scroll_step = 0;
+    app.piano_scroll_pitch = 72;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 72, .start_beat = 0.0, .duration_beat = 0.25, .velocity = 0.5 });
+
+    app.handleMouse(.{ .x = 7, .y = app_mod.content_top + 3, .button = .left, .kind = .press, .shift = true }, 80, 24, 0);
+    app.handleMouse(.{ .x = 10, .y = app_mod.content_top + 4, .button = .left, .kind = .drag, .shift = true }, 80, 24, 0);
+    app.handleMouse(.{ .x = 10, .y = app_mod.content_top + 4, .button = .left, .kind = .release, .shift = true }, 80, 24, 0);
+
+    try std.testing.expectEqual(@as(u16, 2), pp.note_count);
+    // The original is back where the drag started, carrying its velocity.
+    const source = pp.noteAt(72, 0.0) orelse return error.CloneMissing;
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), source.velocity, 1e-6);
+    try std.testing.expect(pp.noteStartsAt(71, 0.25)); // the dragged copy
+
+    // One undo takes the whole gesture back out.
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+}
+
+test "piano-roll gutter click and ctrl+scroll move the pitch cursor" {
+    var app = try testApp();
+    defer app.deinit();
+    app.piano_track = 0;
+    app.view = .piano_roll;
+    app.piano_scroll_pitch = 72;
+    app.piano_cursor_pitch = 72;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+
+    // Gutter (x < 6) is the preview keyboard: selects the row, places nothing.
+    app.handleMouse(.{ .x = 2, .y = app_mod.content_top + 5, .button = .left, .kind = .press }, 80, 24, 0);
+    try std.testing.expectEqual(@as(u7, 70), app.piano_cursor_pitch);
+    try std.testing.expectEqual(@as(u16, 0), pp.note_count);
+
+    // ctrl+scroll is the octave jump (plain scroll is a semitone).
+    app.handleMouse(.{ .x = 20, .y = app_mod.content_top + 3, .button = .none, .kind = .scroll_up, .ctrl = true }, 80, 24, 0);
+    try std.testing.expectEqual(@as(u7, 82), app.piano_cursor_pitch);
+    app.handleMouse(.{ .x = 20, .y = app_mod.content_top + 3, .button = .none, .kind = .scroll_down }, 80, 24, 0);
+    try std.testing.expectEqual(@as(u7, 81), app.piano_cursor_pitch);
+}
+
 test "mouse drag moves an existing piano-roll note; a plain click-release toggles it off" {
     var app = try testApp();
     defer app.deinit();

@@ -432,7 +432,7 @@ pub fn draw(app: anytype) void {
     if (hovered and mouse[0] >= grid_x and mouse[1] >= grid_y) {
         const pointer_beat = @as(f64, @floatCast((mouse[0] - grid_x) / beat_w));
         if (zgui.isMouseClicked(.left)) {
-            if (noteCovering(pp, pointer_pitch, pointer_beat)) |note| {
+            if (pp.noteCovering(pointer_pitch, pointer_beat)) |note| {
                 const source_step: u16 = ws.dsp.pattern.clampStep(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
                 const start_x = grid_x + @as(f32, @floatCast(note.start_beat)) * beat_w;
                 const end_x = grid_x + @as(f32, @floatCast(note.start_beat + note.duration_beat)) * beat_w;
@@ -469,10 +469,10 @@ pub fn draw(app: anytype) void {
             // Right-drag is an erase brush (FL's delete tool): every note
             // swept goes, and the whole sweep is one undo entry - the same
             // record-once-per-gesture split the velocity lane's drag uses.
-            if (noteCovering(pp, pointer_pitch, pointer_beat)) |note| {
-                if (!app.piano_erase_active) {
+            if (pp.noteCovering(pointer_pitch, pointer_beat)) |note| {
+                if (!app.core.piano_erase_active) {
                     history.recordMelodic(&app.core, app.core.piano_track);
-                    app.piano_erase_active = true;
+                    app.core.piano_erase_active = true;
                 }
                 const start_step: u16 = ws.dsp.pattern.clampStep(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
                 _ = piano_ed.eraseNoteAt(&app.core, note.pitch, start_step);
@@ -609,15 +609,6 @@ fn velocityBarAt(pp: *ws.dsp.PatternPlayer, cursor_pitch: u7, step: u16, steps_p
         if (best == null or dist < @abs(@as(i32, best.?.pitch) - @as(i32, cursor_pitch))) best = note;
     }
     return best;
-}
-
-fn noteCovering(pp: *ws.dsp.PatternPlayer, pitch: u7, beat: f64) ?ws.dsp.pattern.Note {
-    while (!pp.notes_lock.tryLock()) std.atomic.spinLoopHint();
-    defer pp.notes_lock.unlock();
-    for (pp.notes[0..pp.note_count]) |note| {
-        if (note.pitch == pitch and beat >= note.start_beat and beat < note.start_beat + note.duration_beat) return note;
-    }
-    return null;
 }
 
 const isBlackKey = ws.theory.isBlackKey;

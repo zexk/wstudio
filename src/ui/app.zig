@@ -693,6 +693,16 @@ pub const App = struct {
     /// never actually left its starting cell (a plain click) from one that
     /// did - see editors/piano.zig's handleMouse.
     piano_grab_delta: struct { dstep: i32 = 0, dpitch: i32 = 0, moved: bool = false } = .{},
+    /// In-progress piano-roll mouse gestures, shared by both frontends the
+    /// way `drum_paint_state` is. `piano_mouse_draw`: the note the press
+    /// just placed is being sized by the drag that follows (FL's draw-drag).
+    /// `piano_erase_active`: a right-drag erase brush is running and has
+    /// already recorded its one undo entry. `piano_clone_source`: where a
+    /// shift+drag started, so the release can leave a copy behind.
+    /// See editors/piano.zig's handleMouse and gui/views/piano.zig.
+    piano_mouse_draw: bool = false,
+    piano_erase_active: bool = false,
+    piano_clone_source: ?struct { pitch: u7, step: u16 } = null,
     /// In-progress drum-grid mouse paint stroke: the state being painted
     /// (true = activating, false = clearing). Null when no drag is active.
     /// See editors/drum.zig's handleMouse.

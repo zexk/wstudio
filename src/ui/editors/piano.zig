@@ -1216,14 +1216,17 @@ fn stepAt(scroll_step: u16, x: usize, cw: usize) ?u16 {
     return scroll_step + col;
 }
 
-/// Click an empty cell to insert a note there (same as enter); click an
-/// existing note to grab it, same as pressing `M` - dragging then moves it
-/// (reusing `dragNote`), releasing without ever dragging is a plain click
-/// and toggles the note off instead (matching enter's toggle). **Right**-click
-/// deletes whatever note starts at the clicked cell immediately, no grab/drag
-/// needed - the direct-delete convention the GUI piano roll already uses via
-/// its own right-click handler. Scroll moves the pitch cursor; **shift**+scroll
-/// moves the step cursor instead.
+/// Click an empty cell to place a note and drag right to size it (FL's
+/// draw gesture - the drawn length becomes the default for the next one);
+/// click an existing note to grab it, same as pressing `M`, and drag to
+/// move it, with **shift** leaving a clone behind at the source. Releasing
+/// a grab that never moved is a plain click and toggles the note off
+/// (matching enter's toggle). **Right**-press deletes the note under the
+/// pointer and holding it sweeps an erase brush across the roll, the whole
+/// sweep one undo entry. A click in the key gutter previews the pitch.
+/// Scroll moves the pitch cursor, **ctrl**+scroll an octave at a time,
+/// **shift**+scroll the step cursor - the same three the GUI roll's wheel
+/// drives.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
     _ = cols; // column count is derived from scroll + cell width, not terminal-width-dependent
     const pp = currentPatternPlayer(app) orelse return;
@@ -1231,19 +1234,54 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
 
     // zig fmt: off
     switch (ev.kind) {
-        .scroll_up => { if (ev.shift) moveStep(app, max_step, -1) else movePitch(app, 1); return; },
-        .scroll_down => { if (ev.shift) moveStep(app, max_step, 1) else movePitch(app, -1); return; },
+        .scroll_up   => { if (ev.shift) moveStep(app, max_step, -1) else movePitch(app, if (ev.ctrl) 12 else 1); return; },
+        .scroll_down => { if (ev.shift) moveStep(app, max_step,  1) else movePitch(app, if (ev.ctrl) -12 else -1); return; },
         else => {},
     }
     // zig fmt: on
+
+    if (ev.kind == .release) {
+        // The gesture flags outlive the row/column checks below - a release
+        // that lands off the grid (or in the gutter) still has to end the
+        // stroke it started.
+        app.piano_mouse_draw = false;
+        app.piano_erase_active = false;
+    }
 
     if (row < header_rows) return;
     const r = row - header_rows;
     const pitch_i: i32 = @as(i32, app.piano_scroll_pitch) - @as(i32, @intCast(r));
     if (pitch_i < 0 or pitch_i > 127) return;
     const pitch: u7 = @intCast(pitch_i);
+
+    // Key gutter: press (or slide down the keys) to hear the pitch, the
+    // GUI roll's preview keyboard. Selects the row too, like the drum and
+    // slicer gutters. A grab/draw whose pointer wanders over the gutter
+    // stays a grab/draw - the note being dragged owns the cursor.
+    if (ev.x < gutter) {
+        if (app.piano_grab or app.piano_mouse_draw) return;
+        if (ev.kind != .press and ev.kind != .drag) return;
+        if (ev.kind == .drag and pitch == app.piano_cursor_pitch) return;
+        app.piano_cursor_pitch = pitch;
+        app.playNote(app.piano_track, pitch, app.now_ns);
+        return;
+    }
+
     const step = stepAt(app.piano_scroll_step, ev.x, app.pianoCellWidth()) orelse return;
     if (step >= max_step) return;
+
+    // Right button: the erase brush, on press and for as long as it's held.
+    if (ev.button == .right and (ev.kind == .press or ev.kind == .drag)) {
+        const covering = pp.noteCovering(pitch, stepToBeat(app, step)) orelse return;
+        if (app.piano_stamp) dropStamp(app);
+        if (app.piano_grab) dropGrab(app);
+        if (!app.piano_erase_active) {
+            history.recordMelodic(app, app.piano_track);
+            app.piano_erase_active = true;
+        }
+        _ = eraseNoteAt(app, covering.pitch, pattern_mod.clampStep(@round(covering.start_beat * stepsPerBeatF(app))));
+        return;
+    }
 
     switch (ev.kind) {
         .press => {
@@ -1254,21 +1292,26 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
             // cursor now sits on.
             if (app.piano_stamp) dropStamp(app);
             if (app.piano_grab) dropGrab(app);
+            app.piano_clone_source = null;
             app.piano_cursor_step = step;
             app.piano_cursor_pitch = pitch;
-            if (ev.button == .right) {
-                deleteNote(app);
-                return;
-            }
             const start_beat = stepToBeat(app, step);
             if (pp.noteAt(pitch, start_beat) != null) {
                 app.piano_grab = true;
                 app.piano_grab_delta = .{};
-            } else {
-                insertNote(app);
+                if (ev.shift) app.piano_clone_source = .{ .pitch = pitch, .step = step };
+            } else if (insertNoteAt(app, pitch, step)) {
+                app.piano_mouse_draw = true;
             }
         },
         .drag => {
+            if (app.piano_mouse_draw) {
+                // The note this same press placed, sized to the pointer -
+                // no undo entry of its own (see setDrawnLength).
+                const len: u16 = @intCast(@max(1, @as(i64, step) - @as(i64, app.piano_cursor_step) + 1));
+                setDrawnLength(app, app.piano_cursor_pitch, app.piano_cursor_step, len);
+                return;
+            }
             if (!app.piano_grab) return;
             const dstep: i32 = @as(i32, step) - @as(i32, app.piano_cursor_step);
             const dpitch: i32 = @as(i32, pitch) - @as(i32, app.piano_cursor_pitch);
@@ -1282,14 +1325,19 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
             dragNote(app, pp, max_step, dstep, dpitch);
         },
         .release => {
+            defer app.piano_clone_source = null;
             if (!app.piano_grab) return;
             if (app.piano_grab_delta.moved) {
+                if (app.piano_clone_source) |src| {
+                    _ = cloneNoteBack(app, src.pitch, src.step, app.piano_cursor_pitch, app.piano_cursor_step);
+                }
                 dropGrab(app);
             } else {
                 app.piano_grab = false;
                 const start_beat = stepToBeat(app, app.piano_cursor_step);
                 if (pp.noteStartsAt(app.piano_cursor_pitch, start_beat)) deleteNote(app);
             }
+            app.piano_clone_source = null;
         },
         else => {},
     }

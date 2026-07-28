@@ -844,12 +844,20 @@ pub const PatternPlayer = struct {
 
     /// True if any note with the given pitch covers beat_pos (for the view).
     pub fn noteCovers(self: *const PatternPlayer, pitch: u7, beat_pos: f64) bool {
+        return self.noteCovering(pitch, beat_pos) != null;
+    }
+
+    /// The note with this pitch covering `beat_pos`, or null - `noteCovers`
+    /// with the note itself, for hit-testing a click anywhere along a note
+    /// rather than only at its start. Lock-free like `noteAt`/`noteCovers`:
+    /// callers act on the (pitch, start_beat) pair they get back, which the
+    /// locked edit paths re-look-up anyway.
+    pub fn noteCovering(self: *const PatternPlayer, pitch: u7, beat_pos: f64) ?Note {
         for (self.notes[0..self.note_count]) |n| {
             if (n.pitch != pitch) continue;
-            if (beat_pos >= n.start_beat and beat_pos < n.start_beat + n.duration_beat)
-                return true;
+            if (beat_pos >= n.start_beat and beat_pos < n.start_beat + n.duration_beat) return n;
         }
-        return false;
+        return null;
     }
 
     /// Velocity of the note starting at pitch/beat_pos, or null (for shading).
