@@ -191,17 +191,17 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     // to the session's engine, so `:e` has to rebind it below alongside the
     // audio host. Failing to open a MIDI port is not fatal: the app runs
     // without one, same as with no audio backend.
-    const has_alsa = builtin.os.tag == .linux;
-    const MidiIn = if (has_alsa) ws.midi_in.MidiIn else void;
+    const has_midi = builtin.os.tag == .linux or builtin.os.tag == .macos;
+    const MidiIn = if (has_midi) ws.midi_in.MidiIn else void;
     var midi_in: MidiIn = undefined;
     var using_midi = false;
-    if (has_alsa) {
+    if (has_midi) {
         midi_in = .{ .engine = app.core.session.engine, .velocity_curve = .init(user_config.default_midi_velocity_curve) };
         if (midi_in.start()) {
             using_midi = true;
         } else |_| {}
     }
-    defer if (has_alsa) {
+    defer if (has_midi) {
         if (using_midi) midi_in.stop();
     };
 
@@ -229,7 +229,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 audio.stop();
                 // Both readers point at the engine `deinit` is about to
                 // free - stop them before it, restart them on the new one.
-                if (has_alsa and using_midi) {
+                if (has_midi and using_midi) {
                     midi_in.stop();
                     using_midi = false;
                 }
@@ -257,7 +257,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 // than tearing down a running app with unsaved work in it -
                 // same call as tui/tui.zig's.
                 audio.start(init.io, user_config.audio_backend) catch {};
-                if (has_alsa) {
+                if (has_midi) {
                     midi_in = .{ .engine = app.core.session.engine, .velocity_curve = .init(user_config.default_midi_velocity_curve) };
                     if (midi_in.start()) {
                         using_midi = true;
@@ -283,7 +283,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 gui_style.piano_row_height = user_config.gui_piano_row_height;
                 gui_style.meter_decay_db_per_s = user_config.gui_meter_decay_db_s;
                 glfw.swapInterval(if (user_config.gui_vsync) 1 else 0);
-                if (has_alsa and using_midi) midi_in.velocity_curve.store(user_config.default_midi_velocity_curve, .monotonic);
+                if (has_midi and using_midi) midi_in.velocity_curve.store(user_config.default_midi_velocity_curve, .monotonic);
                 app.core.setStatus("config reloaded", .{});
             } else |e| {
                 user_config = runtime.config;
@@ -306,7 +306,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
         // MIDI input follows the tracks cursor so live playing always targets
         // the selected track. Written from this thread, read (monotonic) in
         // the MIDI reader thread.
-        if (has_alsa and using_midi) {
+        if (has_midi and using_midi) {
             midi_in.active_track.store(@intCast(app.core.cursor), .monotonic);
             // A MIDI CC can mutate saved instrument params straight from the
             // reader thread (PolySynth.applyCC); it has no App pointer to

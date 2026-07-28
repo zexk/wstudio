@@ -52,10 +52,11 @@ pub const coreaudio = if (@import("builtin").os.tag == .macos)
     @import("audio/coreaudio.zig")
 else
     struct {};
-pub const midi_in = if (@import("builtin").os.tag == .linux)
-    @import("audio/midi_in.zig")
-else
-    struct {};
+pub const midi_in = switch (@import("builtin").os.tag) {
+    .linux => @import("audio/midi_in.zig"),
+    .macos => @import("audio/midi_in_coreaudio.zig"),
+    else => struct {},
+};
 
 pub const dsp = @import("dsp.zig");
 

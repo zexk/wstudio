@@ -43,6 +43,8 @@ pub fn build(b: *std.Build) void {
     }
     if (target.result.os.tag == .macos) {
         wstudio_mod.linkFramework("AudioUnit", .{});
+        wstudio_mod.linkFramework("CoreMIDI", .{});
+        wstudio_mod.linkFramework("CoreFoundation", .{});
         if (macos_sdk) |sdk| addMacosFrameworkPath(b, wstudio_mod, sdk);
     }
 

@@ -360,8 +360,8 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
     };
 
     // zig fmt: off
-    const has_alsa = builtin.os.tag == .linux;
-    const MidiIn   = if (has_alsa) ws.midi_in.MidiIn else void;
+    const has_midi = builtin.os.tag == .linux or builtin.os.tag == .macos;
+    const MidiIn   = if (has_midi) ws.midi_in.MidiIn else void;
     var midi_in: MidiIn = undefined;
     // zig fmt: on
 
@@ -370,7 +370,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
     defer audio.stop();
 
     var using_midi = false;
-    if (has_alsa) {
+    if (has_midi) {
         // zig fmt: off
         midi_in = .{ .engine = app.session.engine, .velocity_curve = .init(user_config.default_midi_velocity_curve) };
         if (midi_in.start()) {
@@ -379,7 +379,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
         // zig fmt: on
     }
     // zig fmt: off
-    defer if (has_alsa) { if (using_midi) midi_in.stop(); };
+    defer if (has_midi) { if (using_midi) midi_in.stop(); };
     // zig fmt: on
     app.audio_label = audio.label();
 
@@ -458,7 +458,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
             };
             if (new_session) |loaded| {
                 audio.stop();
-                if (has_alsa) { if (using_midi) midi_in.stop(); }
+                if (has_midi) { if (using_midi) midi_in.stop(); }
 
                 app.session.deinit();
                 app.session = loaded;
@@ -484,7 +484,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
                 // rather than tearing down the whole running app.
                 audio.start(io, user_config.audio_backend) catch {};
                 using_midi = false;
-                if (has_alsa) {
+                if (has_midi) {
                     midi_in = .{ .engine = app.session.engine, .velocity_curve = .init(user_config.default_midi_velocity_curve) };
                     if (midi_in.start()) { using_midi = true; } else |_| {}
                 }
@@ -516,7 +516,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
                 tui_theme.apply(&term, user_config.tui_theme, &runtime.highlight_overrides);
                 if (user_config.tui_mouse != prev.tui_mouse) term.setMouse(user_config.tui_mouse);
                 if (user_config.has_nerdfonts != prev.has_nerdfonts) icons.font_installed = user_config.has_nerdfonts or nerdfont_detected;
-                if (has_alsa and using_midi) midi_in.velocity_curve.store(user_config.default_midi_velocity_curve, .monotonic);
+                if (has_midi and using_midi) midi_in.velocity_curve.store(user_config.default_midi_velocity_curve, .monotonic);
                 app.setStatus("config reloaded", .{});
             } else |e| {
                 user_config = runtime.config;
@@ -541,12 +541,12 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
         // MIDI input follows the TUI cursor so live playing always targets the
         // currently selected track. Written from the UI thread, read (monotonic)
         // in the MIDI reader thread.
-        if (has_alsa) { if (using_midi) midi_in.active_track.store(@intCast(app.cursor), .monotonic); }
+        if (has_midi) { if (using_midi) midi_in.active_track.store(@intCast(app.cursor), .monotonic); }
 
         // A MIDI CC can mutate saved instrument params straight from the
         // reader thread (PolySynth.applyCC); it has no App pointer to flag
         // `dirty` itself, so pick up its signal here once per frame instead.
-        if (has_alsa) { if (using_midi and midi_in.dirty.swap(false, .acquire)) app.dirty = true; }
+        if (has_midi) { if (using_midi and midi_in.dirty.swap(false, .acquire)) app.dirty = true; }
 
         // Live MIDI note recording: every note-on the reader thread saw also
         // landed in `note_queue` (audition itself already went straight to
@@ -558,7 +558,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
         // view/mode just drops the note; the live audition already
         // happened regardless. Unlike qwerty, the played velocity comes
         // through, so a take keeps its dynamics.
-        if (has_alsa) { if (using_midi) {
+        if (has_midi) { if (using_midi) {
             while (midi_in.note_queue.pop()) |rec| {
                 if (app.modal.mode != .insert) continue;
                 switch (app.view) {
