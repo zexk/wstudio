@@ -104,7 +104,7 @@ pub fn drawSamplerEditor(
         try w.writeAll(dim ++ "  This pad has no sample." ++ rst);
         try endLine(w);
         written += 1;
-        try w.writeAll(acc ++ "  :load" ++ rst ++ dim ++ "  open the sample browser" ++ rst);
+        try w.writeAll(acc ++ "  enter" ++ rst ++ dim ++ " / " ++ rst ++ acc ++ ":load" ++ rst ++ dim ++ "  open the sample browser" ++ rst);
         try endLine(w);
         written += 1;
         while (written < body) : (written += 1) try endLine(w);

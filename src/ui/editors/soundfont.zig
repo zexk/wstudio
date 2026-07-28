@@ -12,6 +12,7 @@ const modal_mod = ws.input;
 const app_mod = @import("../app.zig");
 const App = app_mod.App;
 const history = @import("../history.zig");
+const commands = @import("../commands.zig");
 const preset_picker = @import("preset_picker.zig");
 const spectrum = @import("spectrum.zig");
 const piano = @import("piano.zig");
@@ -28,6 +29,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         },
         .ctrl_r => {
             history.doRedo(app);
+            return true;
+        },
+        // Empty editor has nothing to edit, so enter opens its browser.
+        .enter => {
+            const sf = app.editingSoundfont();
+            if (sf != null and sf.?.presetCount() > 0) return false;
+            commands.cmdLoad(app, "");
             return true;
         },
         .char => |c| switch (c) {

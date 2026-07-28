@@ -232,6 +232,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("J / K",        "jump a whole bank of 8 slices");
     t.key("g / G",        "jump step cursor to pattern start / end");
     t.key("enter / n",    "toggle in place / place a slice and advance (count sets spacing)");
+    t.key("",             "  with no clip loaded yet, enter opens the file browser instead");
     t.key("x",            "clear step at cursor");
     t.key("X / F",        "clear / fill the cursor slice's row");
     t.key("c",            "cycle step velocity through presets (full/hard/mid/soft)");
@@ -263,6 +264,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("1–8",          "switch to pad/slice 1–8 within the current bank of 8");
     t.key("J / K",        "jump a whole bank of 8 pads/slices (same slot, next/prev bank)");
     t.key("a",            "audition current pad/slice");
+    t.key("enter",        "with no sample loaded yet, open the file browser (nothing to edit until then)");
     t.key("s",            "FX chain for this track");
     t.key("p",            "piano roll for this track (a standalone Sampler only - a pad/slice has none)");
     t.key("esc / e",      "back to the grid that opened this editor (tracks view for a sampler)");
@@ -275,6 +277,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("h / l",        "adjust value (fine); on PRESET, step to the prev/next preset in the font");
     t.key("H / L",        "adjust value (coarse ×10)");
     t.key("a",            "audition at the piano roll's last cursor pitch (or C4)");
+    t.key("enter",        "with no font loaded yet, open the .sf2 browser (nothing to edit until then)");
     t.key("s",            "FX chain for this track");
     t.key("p",            "piano roll for this track");
     t.key("f",            "preset picker - every preset in the loaded font, grouped by bank, / filters by name/bank/program");

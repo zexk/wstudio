@@ -11,6 +11,7 @@ const app_mod = @import("../app.zig");
 const App = app_mod.App;
 const SamplerMarker = app_mod.SamplerMarker;
 const history = @import("../history.zig");
+const commands = @import("../commands.zig");
 const format = @import("../format.zig");
 const spectrum = @import("spectrum.zig");
 const piano = @import("piano.zig");
@@ -100,6 +101,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             return true;
         },
         .ctrl_r => { history.doRedo(app); return true; },
+        // Empty targets have nothing to edit, so enter opens their browser.
+        .enter => {
+            if (targetHasAudio(app)) return false;
+            commands.cmdLoad(app, "");
+            return true;
+        },
         .char => |c| switch (c) {
             // Block insert mode - piano keys conflict with param navigation.
             'i' => return true,
@@ -190,6 +197,23 @@ fn returnView(app: *App) app_mod.AppView {
         .slice => .slicer_grid,
         .sampler => .tracks,
     };
+}
+
+fn targetHasAudio(app: *App) bool {
+    switch (app.sampler_target) {
+        .drum => {
+            const idx: u8 = @intCast(app.drum_cursor[0]);
+            if (idx >= DrumMachine.max_pads) return false;
+            // Pads are lazily allocated: an unmaterialized slot has no audio.
+            if (app.drumMachine().pads[idx]) |*s| return s.pad.samples.len > 0;
+            return false;
+        },
+        .slice => return app.slicerInst().hasAudio(),
+        .sampler => {
+            const s = app.editingSampler() orelse return true;
+            return s.pad.samples.len > 0;
+        },
+    }
 }
 
 /// Move the pad/slice cursor by `delta`, clamped to the target's slot count

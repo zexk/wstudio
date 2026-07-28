@@ -6132,6 +6132,58 @@ test "entering an empty slicer track from tracks view jumps straight to the file
     try std.testing.expectEqual(AppView.slicer_grid, app.view);
 }
 
+test "enter in an editor with nothing loaded opens that editor's file browser" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var app = try appRootedAt(&tmp);
+    defer app.deinit();
+
+    // Slicer grid: no clip, so there are no steps to toggle.
+    try app.session.setInstrument(0, .slicer);
+    app.view = .slicer_grid;
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.file_browser, app.view);
+    try std.testing.expectEqual(app_mod.BrowserPurpose.load_slice, app.browser_purpose);
+    app.handleKey(.escape, 0);
+
+    // With a clip in, enter goes back to toggling the cursor step.
+    const sl = app.slicerInst();
+    app.allocator.free(sl.samples);
+    sl.samples = try app.allocator.alloc(f32, 8);
+    sl.sliceInto(2);
+    app.view = .slicer_grid;
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.slicer_grid, app.view);
+    try std.testing.expect(sl.stepActive(0, 0));
+
+    // Sampler editor on an empty drum pad.
+    try app.session.setInstrument(0, .drum_machine);
+    app.sampler_target = .{ .drum = 0 };
+    app.drum_cursor[0] = 3;
+    app.view = .sampler_editor;
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.file_browser, app.view);
+    try std.testing.expectEqual(@as(u8, 3), app.browser_purpose.load_pad);
+    app.handleKey(.escape, 0);
+
+    // Sampler editor on an empty standalone Sampler.
+    try app.session.setInstrument(0, .sampler);
+    app.sampler_target = .{ .sampler = 0 };
+    app.view = .sampler_editor;
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.file_browser, app.view);
+    try std.testing.expectEqual(app_mod.BrowserPurpose.load_sample, app.browser_purpose);
+    app.handleKey(.escape, 0);
+
+    // Soundfont editor with no font.
+    try app.session.setInstrument(0, .soundfont);
+    app.view = .soundfont_editor;
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.file_browser, app.view);
+    try std.testing.expectEqual(app_mod.BrowserPurpose.load_soundfont, app.browser_purpose);
+}
+
 test ":load in arrangement refuses without a sampler track, then targets a whole clip" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();

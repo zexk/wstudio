@@ -13,6 +13,7 @@ const app_mod = @import("../app.zig");
 const App = app_mod.App;
 const SlicerRangeClip = app_mod.SlicerRangeClip;
 const history = @import("../history.zig");
+const commands = @import("../commands.zig");
 const step_grid = @import("step_grid.zig");
 
 /// Grid/waveform geometry shared with the TUI render half
@@ -112,7 +113,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     switch (key) {
         .escape => { app.view = .tracks; return true; },
         // enter toggles the step; space falls through to transport play/pause.
+        // With no clip there are no steps to toggle, so enter opens its browser.
         .enter => {
+            if (sl.slice_count == 0 and !sl.hasAudio()) { commands.cmdLoad(app, ""); return true; }
             history.recordSlicer(app, app.slicer_track);
             sl.toggleStep(slice.*, step.*);
             return true;

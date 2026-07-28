@@ -2050,7 +2050,8 @@ fn cmdDrumKitSave(app: *App, args: []const u8) void {
 /// Load the kind of audio represented by the current view. Arrangement is
 /// the one special case within an instrument scope: a sampler WAV becomes a
 /// stamped whole clip there, while it replaces the playable sample elsewhere.
-fn cmdLoad(app: *App, args: []const u8) void {
+/// Public so empty editors can reuse this routing for enter.
+pub fn cmdLoad(app: *App, args: []const u8) void {
     switch (app.view) {
         .arrangement => return cmdLoadClip(app, args),
         .synth_editor => return cmdLoadWavetable(app, args),

@@ -55,7 +55,7 @@ pub fn drawSoundfontEditor(
         try w.writeAll(dim ++ "  No SoundFont loaded." ++ rst);
         try endLine(w);
         written += 1;
-        try w.writeAll(acc ++ "  :load" ++ rst ++ dim ++ "  open the .sf2 browser" ++ rst);
+        try w.writeAll(acc ++ "  enter" ++ rst ++ dim ++ " / " ++ rst ++ acc ++ ":load" ++ rst ++ dim ++ "  open the .sf2 browser" ++ rst);
         try endLine(w);
         written += 1;
         while (written < body) : (written += 1) try endLine(w);
