@@ -248,7 +248,7 @@ test "a malformed presets file is quarantined, not silently discarded" {
     defer tmp.cleanup();
     try json_store.testRedirectHome(&tmp);
 
-    var path_buf: [512]u8 = undefined;
+    var path_buf: [json_store.path_buf_len]u8 = undefined;
     const path = try json_store.testWriteCorrupt(testing.io, &path_buf, filename);
 
     var loaded = load(testing.allocator, testing.io, ws.types.default_sample_rate);

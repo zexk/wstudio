@@ -3,6 +3,20 @@
 
 const std = @import("std");
 
+/// Size every caller's `configPath` buffer. Deliberately not
+/// `std.fs.max_path_bytes`: these are stack buffers and a 4 KiB `$HOME` is
+/// not a case worth sizing for - `configPath` reports null rather than
+/// truncating, and the caller degrades to "nothing saved yet".
+pub const path_buf_len = 512;
+
+/// A quarantine destination is a `configPath` plus `.corrupt` and, on a
+/// collision, `.<n>` for n < `max_quarantine_suffix`. Derived so bumping
+/// `path_buf_len` can't leave the rename silently unable to format its
+/// destination.
+const max_quarantine_suffix = 100;
+pub const quarantine_buf_len = path_buf_len + ".corrupt.".len +
+    std.fmt.count("{d}", .{max_quarantine_suffix - 1});
+
 /// Resolves `~/.config/wstudio/<filename>` via `$HOME` ($USERPROFILE on
 /// Windows, which has no $HOME). Null if unset - callers then just don't
 /// persist across runs rather than blocking startup.
@@ -16,9 +30,9 @@ pub fn configPath(buf: []u8, comptime filename: []const u8) ?[]const u8 {
 /// let the very next save overwrite it with that empty result and wipe
 /// whatever it held.
 pub fn quarantine(io: std.Io, path: []const u8) void {
-    var buf: [520]u8 = undefined;
+    var buf: [quarantine_buf_len]u8 = undefined;
     var suffix: usize = 0;
-    while (suffix < 100) : (suffix += 1) {
+    while (suffix < max_quarantine_suffix) : (suffix += 1) {
         const dest = if (suffix == 0)
             std.fmt.bufPrint(&buf, "{s}.corrupt", .{path}) catch return
         else
@@ -46,7 +60,7 @@ pub fn load(
     comptime filename: []const u8,
     limit_bytes: usize,
 ) ?std.json.Parsed(Snapshot) {
-    var path_buf: [512]u8 = undefined;
+    var path_buf: [path_buf_len]u8 = undefined;
     const path = configPath(&path_buf, filename) orelse return null;
     const data = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(limit_bytes)) catch return null;
     defer allocator.free(data);
@@ -72,7 +86,7 @@ pub fn save(
     comptime filename: []const u8,
     snapshot: anytype,
 ) !void {
-    var path_buf: [512]u8 = undefined;
+    var path_buf: [path_buf_len]u8 = undefined;
     const path = configPath(&path_buf, filename) orelse return error.NoHome;
 
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -128,7 +142,7 @@ pub fn testWriteCorrupt(io: std.Io, path_buf: []u8, comptime filename: []const u
 /// path is gone and `<path>.corrupt` exists.
 pub fn testExpectQuarantined(io: std.Io, path: []const u8) !void {
     try std.testing.expectError(error.FileNotFound, std.Io.Dir.cwd().openFile(io, path, .{}));
-    var buf: [520]u8 = undefined;
+    var buf: [quarantine_buf_len]u8 = undefined;
     const quarantine_path = try std.fmt.bufPrint(&buf, "{s}.corrupt", .{path});
     var file = try std.Io.Dir.cwd().openFile(io, quarantine_path, .{});
     file.close(io);
@@ -139,9 +153,9 @@ test "quarantine preserves an earlier corrupt file" {
     defer tmp.cleanup();
     try testRedirectHome(&tmp);
 
-    var path_buf: [512]u8 = undefined;
+    var path_buf: [path_buf_len]u8 = undefined;
     const path = try testWriteCorrupt(std.testing.io, &path_buf, "collision.json");
-    var corrupt_buf: [520]u8 = undefined;
+    var corrupt_buf: [quarantine_buf_len]u8 = undefined;
     const corrupt = try std.fmt.bufPrint(&corrupt_buf, "{s}.corrupt", .{path});
     try std.Io.Dir.cwd().rename(path, std.Io.Dir.cwd(), corrupt, std.testing.io);
     _ = try testWriteCorrupt(std.testing.io, &path_buf, "collision.json");
@@ -150,7 +164,7 @@ test "quarantine preserves an earlier corrupt file" {
     try std.testing.expectError(error.FileNotFound, std.Io.Dir.cwd().openFile(std.testing.io, path, .{}));
     var first = try std.Io.Dir.cwd().openFile(std.testing.io, corrupt, .{});
     first.close(std.testing.io);
-    var numbered_buf: [524]u8 = undefined;
+    var numbered_buf: [quarantine_buf_len]u8 = undefined;
     const numbered = try std.fmt.bufPrint(&numbered_buf, "{s}.1", .{corrupt});
     var second = try std.Io.Dir.cwd().openFile(std.testing.io, numbered, .{});
     second.close(std.testing.io);

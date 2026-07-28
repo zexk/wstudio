@@ -102,7 +102,7 @@ test "a corrupt bookmarks file is quarantined instead of silently emptied" {
     defer tmp.cleanup();
     try json_store.testRedirectHome(&tmp);
 
-    var path_buf: [512]u8 = undefined;
+    var path_buf: [json_store.path_buf_len]u8 = undefined;
     const path = try json_store.testWriteCorrupt(testing.io, &path_buf, filename);
 
     var loaded = load(testing.allocator, testing.io);
