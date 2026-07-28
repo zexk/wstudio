@@ -1288,53 +1288,51 @@ fn cmdRename(app: *App, args: []const u8) void {
     cmdRenameTrack(app, args);
 }
 
-fn cmdRenameTrack(app: *App, args: []const u8) void {
+/// The `:rename [<n>] <name>` argument shape, shared by the track, group and
+/// pad variants. A lone token that isn't a bare number is a forgotten
+/// `<name>` far more often than someone renaming a thing to a numeral, so it
+/// names whatever the cursor is on (`index` null) - the same "no index: act
+/// on the selection" convenience gain/pan/eq share. Sets status and returns
+/// null on a malformed argument.
+const RenameArgs = struct { index: ?[]const u8, name: []const u8 };
+
+fn parseRenameArgs(app: *App, args: []const u8) ?RenameArgs {
     const trimmed = std.mem.trim(u8, args, " ");
-    if (trimmed.len == 0) {
-        app.setStatus("usage: rename [<n>] <name>", .{});
-        return;
-    }
     var it = std.mem.splitScalar(u8, trimmed, ' ');
     const first = it.next().?;
     const rest = std.mem.trim(u8, it.rest(), " ");
-
-    // A single token that isn't a bare number is far more likely a
-    // forgotten <name> than someone renaming a track to a numeral: treat
-    // it as the new name for the cursor track - same "no index: act on
-    // the selection" convenience gain/pan/eq now share.
-    const first_is_number = if (std.fmt.parseInt(usize, first, 10)) |_| true else |_| false;
-    if (rest.len == 0 and !first_is_number) {
-        const idx = cursorTrackIdx(app) orelse {
-            app.setStatus("rename: cursor is on the master row - give a track number", .{});
-            return;
-        };
-        app.session.project.renameTrack(idx, first) catch {
-            app.setStatus("out of memory", .{});
-            return;
-        };
-        app.dirty = true;
-        app.setStatus("track {d} renamed to \"{s}\"", .{ idx + 1, first });
-        return;
-    }
-
+    const first_is_number = std.fmt.parseInt(usize, first, 10) catch null;
+    if (rest.len == 0 and first.len > 0 and first_is_number == null)
+        return .{ .index = null, .name = first };
     if (rest.len == 0) {
         app.setStatus("usage: rename [<n>] <name>", .{});
-        return;
+        return null;
     }
-    const n = std.fmt.parseInt(usize, first, 10) catch {
-        app.setStatus("rename: expected a track number", .{});
+    return .{ .index = first, .name = rest };
+}
+
+fn cmdRenameTrack(app: *App, args: []const u8) void {
+    const parsed = parseRenameArgs(app, args) orelse return;
+    const idx = if (parsed.index) |tok| blk: {
+        const n = std.fmt.parseInt(usize, tok, 10) catch {
+            app.setStatus("rename: expected a track number", .{});
+            return;
+        };
+        if (n == 0 or n > app.session.project.tracks.items.len) {
+            app.setStatus("rename: track must be 1–{d}", .{app.session.project.tracks.items.len});
+            return;
+        }
+        break :blk n - 1;
+    } else cursorTrackIdx(app) orelse {
+        app.setStatus("rename: cursor is on the master row - give a track number", .{});
         return;
     };
-    if (n == 0 or n > app.session.project.tracks.items.len) {
-        app.setStatus("rename: track must be 1–{d}", .{app.session.project.tracks.items.len});
-        return;
-    }
-    app.session.project.renameTrack(n - 1, rest) catch {
+    app.session.project.renameTrack(idx, parsed.name) catch {
         app.setStatus("out of memory", .{});
         return;
     };
     app.dirty = true;
-    app.setStatus("track {d} renamed to \"{s}\"", .{ n, rest });
+    app.setStatus("track {d} renamed to \"{s}\"", .{ idx + 1, parsed.name });
 }
 
 /// Swap the cursor track's instrument kind. Unlike the instrument picker
@@ -1444,30 +1442,14 @@ fn existingGroupArg(app: *App, name: []const u8, s: []const u8) ?u8 {
 }
 
 /// `cursor_group` is the group the tracks-view cursor already sits on
-/// (`cmdRename` only calls this once `app.cursorGroup()` confirms it) -
-/// same "no index: act on the selection" shape `cmdRenameTrack` uses, with
-/// the equivalent single-bare-number-token ambiguity resolved the same way.
+/// (`cmdRename` only calls this once `app.cursorGroup()` confirms it).
 fn cmdRenameGroup(app: *App, cursor_group: u8, args: []const u8) void {
-    const trimmed = std.mem.trim(u8, args, " ");
-    if (trimmed.len == 0) {
-        app.setStatus("usage: rename [<n>] <name>", .{});
-        return;
-    }
-    var it = std.mem.splitScalar(u8, trimmed, ' ');
-    const first = it.next().?;
-    const rest = std.mem.trim(u8, it.rest(), " ");
-
-    const first_is_number = if (std.fmt.parseInt(u8, first, 10)) |_| true else |_| false;
-    var idx: u8 = cursor_group;
-    var name: []const u8 = first;
-    if (!(rest.len == 0 and !first_is_number)) {
-        if (rest.len == 0) {
-            app.setStatus("usage: rename [<n>] <name>", .{});
-            return;
-        }
-        idx = parseGroupArg(app, "rename", first) orelse return;
-        name = rest;
-    }
+    const parsed = parseRenameArgs(app, args) orelse return;
+    const idx = if (parsed.index) |tok|
+        parseGroupArg(app, "rename", tok) orelse return
+    else
+        cursor_group;
+    const name = parsed.name;
 
     if (app.session.groups[idx] == null) {
         app.setStatus("rename: group {d} doesn't exist", .{idx + 1});
@@ -1561,37 +1543,22 @@ fn cmdTrackGroup(app: *App, args: []const u8) void {
 
 /// `cmdRename` only reaches this while the drum grid is actually open, so
 /// `app.drum_cursor[0]` (the grid's own pad cursor) is always the sensible
-/// default - same "no index: act on the selection" shape `cmdRenameTrack`/
-/// `cmdRenameGroup` use, with the equivalent ambiguity resolved the same way.
+/// default.
 fn cmdRenamePad(app: *App, args: []const u8) void {
-    const trimmed = std.mem.trim(u8, args, " ");
-    if (trimmed.len == 0) {
-        app.setStatus("usage: rename [<n>] <name>", .{});
-        return;
-    }
-    var it = std.mem.splitScalar(u8, trimmed, ' ');
-    const first = it.next().?;
-    const rest = std.mem.trim(u8, it.rest(), " ");
-
-    const first_is_number = if (std.fmt.parseInt(u8, first, 10)) |_| true else |_| false;
-    var pad_idx: u8 = @intCast(app.drum_cursor[0]);
-    var name: []const u8 = first;
-    if (!(rest.len == 0 and !first_is_number)) {
-        if (rest.len == 0) {
-            app.setStatus("usage: rename [<n>] <name>", .{});
-            return;
-        }
-        const pad_num = std.fmt.parseInt(u8, first, 10) catch {
-            app.setStatus("rename: bad pad index '{s}'", .{first});
+    const parsed = parseRenameArgs(app, args) orelse return;
+    const pad_idx: u8 = if (parsed.index) |tok| blk: {
+        const pad_num = std.fmt.parseInt(u8, tok, 10) catch {
+            app.setStatus("rename: bad pad index '{s}'", .{tok});
             return;
         };
         if (pad_num < 1 or pad_num > DrumMachine.max_pads) {
             app.setStatus("rename: pad index must be 1-{d}", .{DrumMachine.max_pads});
             return;
         }
-        pad_idx = pad_num - 1;
-        name = rest;
-    }
+        break :blk pad_num - 1;
+    } else @intCast(app.drum_cursor[0]);
+    const name = parsed.name;
+
     const dm = cursorDrumMachine(app) orelse {
         app.setStatus("rename: select a drum-machine track first", .{});
         return;
