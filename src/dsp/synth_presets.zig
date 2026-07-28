@@ -28,10 +28,14 @@ const ModRow = PolySynth.ModRow;
 const dP = PolySynth.dest_pitch;
 const dA = PolySynth.dest_amp;
 
-/// Pad a row list out to a full `mod_matrix` array (comptime only).
+/// Pad a row list out to a full `mod_matrix` array (comptime only). Every
+/// voiced factory patch gets slight per-note oscillator drift and alternating
+/// filter movement; init bypasses this helper and stays neutral.
 fn mods(comptime rows: []const ModRow) [PolySynth.max_mod_rows]ModRow {
     var out = [_]ModRow{.{}} ** PolySynth.max_mod_rows;
     for (rows, 0..) |r, i| out[i] = r;
+    out[rows.len] = .{ .source = .random, .dest = dP, .depth = 0.0015 };
+    out[rows.len + 1] = .{ .source = .alternate, .dest = 21, .depth = 0.003 };
     return out;
 }
 
@@ -2031,6 +2035,20 @@ test "every preset except init wires at least one performance macro" {
         }
         errdefer std.debug.print("preset '{s}' has no macro row\n", .{p.name});
         try std.testing.expect(has_macro);
+    }
+}
+
+test "every voiced preset has per-note variation" {
+    for (presets) |p| {
+        if (std.mem.eql(u8, p.name, "init")) continue;
+        var has_drift = false;
+        var has_alternation = false;
+        for (p.patch.mod_matrix) |row| {
+            if (row.source == .random and row.dest == dP) has_drift = true;
+            if (row.source == .alternate and row.dest == 21) has_alternation = true;
+        }
+        errdefer std.debug.print("preset '{s}' lacks per-note variation\n", .{p.name});
+        try std.testing.expect(has_drift and has_alternation);
     }
 }
 
