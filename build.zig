@@ -4,7 +4,9 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const macos_sdk = if (target.result.os.tag == .macos) b.graph.environ_map.get("SDKROOT") else null;
-    if (macos_sdk) |sdk| b.sysroot = sdk;
+    if (b.graph.host.result.os.tag != .macos) {
+        if (macos_sdk) |sdk| b.sysroot = sdk;
+    }
     const enable_tui = b.option(bool, "tui", "Build the terminal frontend") orelse true;
     const enable_gui = b.option(bool, "gui", "Build the graphical frontend") orelse true;
     const build_options = b.addOptions();
