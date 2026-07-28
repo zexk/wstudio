@@ -182,9 +182,9 @@ pub const FxUnit = struct {
 pub const Fx = struct {
     units: std.ArrayListUnmanaged(*FxUnit) = .empty,
 
-    /// Chain slot cap; sizes every `chain()` scratch buffer (and keeps the
-    /// TUI's chain strip inside 80 columns).
-    pub const max_units = 9;
+    /// Also accommodates migration of 14 legacy synth inserts ahead of an
+    /// existing nine-unit rack chain.
+    pub const max_units = 24;
 
     /// A fresh payload of `kind` with its defaults. Only chorus/delay/reverb
     /// allocate (their mod/delay lines).

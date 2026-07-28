@@ -20,9 +20,8 @@ const StereoCorrelation = meter_mod.StereoCorrelation;
 const LoudnessMeter = meter_mod.LoudnessMeter;
 
 pub const max_tracks = 8192;
-/// Must cover Rack.chain_cap (pattern player + instrument + a full 9-unit
-/// FX chain); setTrackChain silently truncates past it.
-pub const max_chain_devices = 12;
+/// Must cover Rack.chain_cap; setTrackChain silently truncates past it.
+pub const max_chain_devices = 26;
 pub const channels = 2;
 /// Track-grouping submix buses (see `TrackState.group`, `renderTracks`'s
 /// two-stage grouped-track routing). Same small-fixed-bank scale as
