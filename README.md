@@ -76,8 +76,9 @@ change.
 
 ## Configuration
 
-wstudio is scripted with Lua: options, keymaps, custom `:` commands, and
-autocmds. On first run it writes a fully documented template to
+wstudio is scripted with Lua: options, keymaps, custom `:` commands,
+autocmds, and the project itself, down to notes, drum steps, FX chains, and
+arrangement clips. On first run it writes a fully documented template to
 `~/.config/wstudio/init.lua` (see [examples/init.lua](examples/init.lua));
 a broken config never blocks startup. The full API is documented in
 [docs/lua-api.md](docs/lua-api.md). Nix users can enable wstudio via

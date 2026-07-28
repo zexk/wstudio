@@ -7,6 +7,14 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Added
 
+- Lua can now write musical content, not just build a project skeleton:
+  `notes_get`/`notes_set` and `steps_get`/`steps_set` for piano-roll and
+  drum-grid patterns, `fx_list`/`fx_add`/`fx_params`/`fx_param_set` for FX
+  chains on any track, the master bus, or a group, and `clip_add`/
+  `section_set` for laying the arrangement out. Enough to script euclidean
+  rhythms, chord generators, humanize passes, and whole song structures.
+  See the worked examples at the end of
+  [examples/init.lua](examples/init.lua).
 - Drum grid, Elektron-style: per-step tune, trig conditions, rolls, and
   micro-timing, plus per-pad loop length for polymeter.
 - Synth: 32 modulation matrix rows (was 8), per-row unipolar mode,

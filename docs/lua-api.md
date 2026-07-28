@@ -154,6 +154,7 @@ Current option set (see examples/init.lua for defaults and ranges):
 | `audio_block_frames`, `audio_backend`, `tap_timeout_ms` | core |
 | `note_preview_ms`, `cmd_history_lines`, `status_message_ms` | core |
 | `default_browse_dir`, `default_project_path`, `file_browser_show_hidden` | core |
+| `clap_plugin_path` | core |
 | `default_drum_grid`, `default_piano_grid`, `default_arrangement_grid` | core |
 | `default_piano_triplet_grid`, `default_piano_note_length_steps`, `default_piano_pitch` | core |
 | `piano_ghost_notes`, `piano_audition`, `undo_history_entries` | core |
@@ -455,13 +456,39 @@ wstudio.api.set_tempo(bpm)
 
 -- tracks (1-based indices; 0 = track under the cursor)
 wstudio.api.track_count()                 -> integer
-wstudio.api.track_get(i)                  -> { name, kind, gain_db, pan, muted, soloed, group }
+wstudio.api.track_get(i)                  -> { name, kind, gain_db, pan, muted, soloed, armed, group? }
 wstudio.api.track_set(i, { gain_db = -3.0, muted = true })
 wstudio.api.track_add({ kind = "synth", name = "lead" }) -> integer
 wstudio.api.track_del(i)
 wstudio.api.track_duplicate(i)             -> new integer index
 wstudio.api.track_move(i, target)          -> final integer index
 wstudio.api.set_current_track(i)
+
+-- pattern content
+wstudio.api.pattern_get(i)                -> { kind, length_beats, steps_per_beat?, step_count? }
+wstudio.api.pattern_set(i, { length_beats = 8 })
+wstudio.api.notes_get(i)                  -> { { pitch, start_beat, duration_beat, velocity }, ... }
+wstudio.api.notes_set(i, notes)           -- replaces the whole pattern
+wstudio.api.steps_get(i)                  -> { { pad, step, velocity, prob, micro, retrig, cond, tune }, ... }
+wstudio.api.steps_set(i, steps)           -- replaces the whole drum grid
+
+-- FX chains (target: track index, { master = true }, or { group = n })
+wstudio.api.fx_list(target)               -> { { kind, bypassed, instance_id, param_count }, ... }
+wstudio.api.fx_add(target, kind, { pos? }) -> slot
+wstudio.api.fx_del(target, slot)
+wstudio.api.fx_move(target, slot, to)     -> final slot
+wstudio.api.fx_set(target, slot, { bypassed = true })
+wstudio.api.fx_params(target, slot)       -> { { name, value, min, max, list }, ... }
+wstudio.api.fx_param_set(target, slot, param, value)  -- param: index or name
+
+-- arrangement
+wstudio.api.clip_list(i)                  -> { { start_bar, length_bars, start_tick, length_ticks, kind }, ... }
+wstudio.api.clip_add(i, start_bar)        -- stamps the track's live pattern
+wstudio.api.clip_del(i, bar)
+wstudio.api.clip_clear(i)
+wstudio.api.section_list()                -> { { name, beat, tick }, ... }
+wstudio.api.section_set(beat, name)
+wstudio.api.section_del(beat)
 
 -- project lifecycle
 wstudio.api.project_get()                 -> project snapshot
@@ -549,10 +576,44 @@ Design decisions:
 - **These functions need a live session.** During init.lua they raise;
   startup scripting belongs in a `ConfigDone` autocmd (or queued
   `wstudio.cmd` lines), after which the full surface is available.
-- Deeper surface (clips, notes, FX chains, automation) is deliberately
-  deferred. Each will follow the same pattern (`clip_get(track, i)`,
-  `fx_add(track, kind)`), but designing them before anyone scripts them
-  would be guessing. The contract's additive rule means deferring is free.
+- **Pattern content is read and written whole.** `notes_set` and `steps_set`
+  replace everything, and there is deliberately no `note_add`/`note_del`/
+  `note_move`. Lua is better at list manipulation than a C boundary is, and
+  one write is one undo entry, so a generated phrase undoes as the single
+  gesture it was. `steps_set` validates every entry before applying any, so a
+  bad entry at the end of the list cannot leave a half-rewritten grid behind.
+  `notes_*` works on melodic tracks (synth, sampler, soundfont, CLAP) and
+  `steps_*` on drum tracks; each raises on the other kind, naming which
+  function to use instead. `pattern_get(i).kind` reports which one applies.
+  Slicer tracks have a step grid of their own shape and are not scriptable
+  yet, so both raise there. Drum-step velocities are 0-1 like note
+  velocities, quantised on the way in to the grid's own 127 levels.
+- **FX chains are addressed by target, not by the open view.** A bare track
+  index covers the common case; `{ master = true }` and `{ group = n }` reach
+  the buses. Scripting a chain never moves whichever chain the user has open.
+  Slots are 1-based positions in chain order and shift when units are added
+  or removed, the same honesty `track_move` documents; `instance_id` is the
+  stable identity if a script needs to re-find a unit.
+- **FX parameters are whatever the editor draws.** `fx_params` reports the
+  live name, value, range, and whether the param is a discrete list, for the
+  exact param set the FX editor shows for that unit, CLAP's runtime metadata
+  included. `fx_param_set` takes an index or a name. Names are not unique on
+  `eq` and `mb_comp` (one set per band) and CLAP plugins report their own, so
+  a name match takes the first hit; index those kinds by number. Values are
+  clamped to the param's range by the same setter the editor's `h`/`l` nudge
+  uses, rather than raising, so the range in `fx_params` is advisory.
+- **Clips are stamped, not built.** `clip_add` captures the track's live
+  pattern exactly as the arrangement editor's `enter` does, so a script
+  builds a pattern with the functions above and then places it. A clip owns a
+  private copy; editing that copy in place is a separate surface and is
+  parked. Clips are addressed by 1-based bar (what the view labels, and what
+  stamping quantizes to); `clip_del` removes whatever clip covers the bar.
+  Sections are addressed in beats instead, because `:section` places them on
+  the arrangement's own grid rather than on bar boundaries.
+- Instrument parameters, per-clip content, and automation curves stay
+  deferred. Instruments have a `setParamAbsolute` but no matching getter, so
+  a write-only `instrument_param_set` would be worse than none until someone
+  needs it. The contract's additive rule means deferring is free.
 
 ## Error handling
 
@@ -585,8 +646,19 @@ Design decisions:
 6. **Project API (shipped).** Transport and track functions above.
 7. **Metadata (shipped).** Registry-derived functions, events, highlights,
    views, modes, options, and limits through `get_api_info()`.
-8. **Parked.** RPC server over `wstudio.api`, clips/notes/FX
-   surface, stable track ids, timers/async.
+8. **Pattern content (shipped).** `pattern_get`/`pattern_set`,
+   `notes_get`/`notes_set`, `steps_get`/`steps_set`. Whole-pattern reads and
+   writes over the existing `PatternPlayer` and `DrumMachine` accessors, one
+   undo entry per call.
+9. **FX chains (shipped).** `fx_list`/`fx_add`/`fx_del`/`fx_move`/`fx_set`
+   and `fx_params`/`fx_param_set`, over the FX editor's own param
+   reflection. Targets resolve through the index-explicit form undo/redo
+   uses, not the editor's chain cursor.
+10. **Arrangement (shipped).** `clip_list`/`clip_add`/`clip_del`/
+    `clip_clear` and `section_list`/`section_set`/`section_del`, stamping
+    through the same `Session.stampClip` the editor uses.
+11. **Parked.** RPC server over `wstudio.api`, per-clip content editing,
+    instrument params and automation curves, stable track ids, timers/async.
 
 Each phase is independently shippable and testable headless through
 `Runtime.loadString`, the way the existing option tests already work.

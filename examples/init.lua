@@ -97,6 +97,11 @@
 -- Leading `~` expands to $HOME.
 -- wstudio.o.default_project_path = "project.wsj"
 
+-- Where to look for CLAP plugins. Empty (the default) scans the standard
+-- locations ($CLAP_PATH, ~/.clap, /usr/lib/clap, ...); setting a directory
+-- scans only that one. Leading `~` expands to $HOME.
+-- wstudio.o.clap_plugin_path = ""
+
 -- Include dotfiles and dot-directories in the file browser.
 -- wstudio.o.file_browser_show_hidden = false
 
@@ -383,7 +388,7 @@
 --   wstudio.api.track_count()                    -> integer
 --   wstudio.api.track_get(i)                     -> { name, kind, gain_db,
 --                                                     pan, muted, soloed,
---                                                     group }
+--                                                     armed, group? }
 --   wstudio.api.track_set(i, { ... })            -- any of: name, gain_db
 --                                                --   (-60..12), pan (-1..1),
 --                                                --   muted, soloed, armed
@@ -397,6 +402,80 @@
 --                                                --   TrackMove per swap
 --   wstudio.api.set_current_track(i)              -- select without opening
 --                                                --   or retargeting an editor
+--
+-- Pattern content. notes_* works on melodic tracks (synth, sampler,
+-- soundfont, CLAP), steps_* on drum tracks; each raises on the other kind.
+-- Both replace the pattern wholesale, so build the list in Lua and write it
+-- once - that is also one undo entry.
+--   wstudio.api.pattern_get(i)                   -> { kind, length_beats,
+--                                                     steps_per_beat?,
+--                                                     step_count? }
+--                                                --   kind: "melodic",
+--                                                --   "drum", "slicer",
+--                                                --   or "none"
+--   wstudio.api.pattern_set(i, { ... })          -- length_beats, and on a
+--                                                --   drum track step_count
+--                                                --   and steps_per_beat
+--   wstudio.api.notes_get(i)                     -> { { pitch, start_beat,
+--                                                       duration_beat,
+--                                                       velocity }, ... }
+--   wstudio.api.notes_set(i, notes)              -- pitch 0-127, beats from
+--                                                --   the pattern start,
+--                                                --   velocity 0-1
+--   wstudio.api.steps_get(i)                     -> { { pad, step, velocity,
+--                                                       prob, micro, retrig,
+--                                                       cond, tune }, ... }
+--   wstudio.api.steps_set(i, steps)              -- pad and step 1-based;
+--                                                --   prob 0-100, micro
+--                                                --   -50..50, retrig 0-8,
+--                                                --   tune -24..24, cond one
+--                                                --   of "always", "first",
+--                                                --   "not_first", "fill",
+--                                                --   "not_fill", "a1b2",
+--                                                --   "a2b2", "a1b3", "a1b4",
+--                                                --   "a2b4", "a3b4",
+--                                                --   "a4b4", "a1b8"
+--
+-- FX chains. The target is a track index for the common case, or
+-- { master = true } / { group = n } for the buses. Slots are 1-based and
+-- shift on insert/remove; instance_id is stable if you need to re-find one.
+--   wstudio.api.fx_list(target)                  -> { { kind, bypassed,
+--                                                       instance_id,
+--                                                       param_count }, ... }
+--   wstudio.api.fx_add(target, kind, { pos? })   -> slot; kind is one of
+--                                                --   "gate", "comp",
+--                                                --   "mb_comp", "ott",
+--                                                --   "eq", "sat", "crush",
+--                                                --   "chorus", "phaser",
+--                                                --   "flanger", "tape",
+--                                                --   "freq_shift", "delay",
+--                                                --   "reverb"
+--   wstudio.api.fx_del(target, slot)
+--   wstudio.api.fx_move(target, slot, to)        -> final slot
+--   wstudio.api.fx_set(target, slot, { bypassed = true })
+--   wstudio.api.fx_params(target, slot)          -> { { name, value, min,
+--                                                       max, list }, ... }
+--   wstudio.api.fx_param_set(target, slot, param, value)
+-- param is a 1-based index or a name. Names repeat on "eq" and "mb_comp"
+-- (one set per band) and CLAP plugins report their own, so index those by
+-- number. Values clamp to the param's range rather than raising.
+--
+-- Arrangement. clip_add stamps the track's live pattern, exactly like
+-- pressing enter in the arrangement view - build the pattern first, then
+-- place it. Bars are 1-based; sections sit on the arrangement's own grid,
+-- so they are placed in beats.
+--   wstudio.api.clip_list(i)                     -> { { start_bar,
+--                                                       length_bars,
+--                                                       start_tick,
+--                                                       length_ticks,
+--                                                       kind }, ... }
+--   wstudio.api.clip_add(i, start_bar)
+--   wstudio.api.clip_del(i, bar)                 -- removes the clip
+--                                                --   covering that bar
+--   wstudio.api.clip_clear(i)
+--   wstudio.api.section_list()                   -> { { name, beat, tick } }
+--   wstudio.api.section_set(beat, name)
+--   wstudio.api.section_del(beat)
 --
 -- Project lifecycle:
 --   wstudio.api.project_get()                    -> { path?, dirty,
@@ -429,3 +508,78 @@
 --   local i = wstudio.api.track_add({ kind = "drum", name = "beats" })
 --   wstudio.api.track_set(i, { gain_db = -3 })
 -- end, once = true })
+
+-- ---------------------------------------------------------------------------
+-- WORKED EXAMPLES
+-- ---------------------------------------------------------------------------
+-- All of these need a live session, so they go inside a ConfigDone autocmd
+-- (or a user command / keymap you trigger later). Uncomment a whole block
+-- to try one.
+
+-- A euclidean rhythm generator, as a `:pulses <pad> <hits>` command. Spreads
+-- `hits` evenly across the drum grid on `pad`, keeping whatever the other
+-- pads already have. (Not named `euclid`: a built-in of that name already
+-- exists, and built-ins win name collisions, so the command would never
+-- run. `:help` lists every built-in name.)
+--
+-- wstudio.api.create_user_command("pulses", function(opts)
+--   local pad, hits = opts.args:match("^(%d+)%s+(%d+)$")
+--   if not pad then return wstudio.notify("usage: pulses <pad> <hits>") end
+--   pad, hits = tonumber(pad), tonumber(hits)
+--   local steps = wstudio.api.pattern_get(0).step_count
+--   local kept = {}
+--   for _, s in ipairs(wstudio.api.steps_get(0)) do
+--     if s.pad ~= pad then kept[#kept + 1] = s end
+--   end
+--   for i = 0, hits - 1 do
+--     kept[#kept + 1] = { pad = pad, step = math.floor(i * steps / hits) + 1 }
+--   end
+--   wstudio.api.steps_set(0, kept)
+-- end, { desc = "spread N hits evenly over a drum pad", scope = "drum" })
+
+-- A chord progression written straight into the track under the cursor.
+-- Each entry is a root note and the beat it lands on; the triad is built
+-- from it. One notes_set call, so one press of `u` takes the whole thing
+-- back.
+--
+-- wstudio.api.create_user_command("prog", function()
+--   local roots = { { 57, 0 }, { 60, 4 }, { 55, 8 }, { 53, 12 } } -- A C G F
+--   local notes = {}
+--   for _, r in ipairs(roots) do
+--     for _, interval in ipairs({ 0, 4, 7 }) do
+--       notes[#notes + 1] = {
+--         pitch = r[1] + interval,
+--         start_beat = r[2],
+--         duration_beat = 3.5,
+--         velocity = 0.7,
+--       }
+--     end
+--   end
+--   wstudio.api.pattern_set(0, { length_beats = 16 })
+--   wstudio.api.notes_set(0, notes)
+-- end, { desc = "write a four-chord progression" })
+
+-- A mastering chain on the master bus, built once at startup.
+--
+-- wstudio.api.create_autocmd("ConfigDone", { callback = function()
+--   local master = { master = true }
+--   if #wstudio.api.fx_list(master) > 0 then return end
+--   local comp = wstudio.api.fx_add(master, "comp")
+--   wstudio.api.fx_param_set(master, comp, "thresh", -12)
+--   wstudio.api.fx_param_set(master, comp, "ratio", 3)
+--   local limiter = wstudio.api.fx_add(master, "sat")
+--   wstudio.api.fx_param_set(master, limiter, "drive", 4)
+-- end, once = true })
+
+-- Repeat the track's pattern four times down the arrangement and name the
+-- sections. A stamped clip is as long as the pattern it captured, so step by
+-- that length: placing clips closer together just overwrites the last one.
+--
+-- wstudio.api.create_user_command("layout", function()
+--   wstudio.api.clip_clear(0)
+--   wstudio.api.clip_add(0, 1)
+--   local span = wstudio.api.clip_list(0)[1].length_bars
+--   for n = 1, 3 do wstudio.api.clip_add(0, 1 + n * span) end
+--   wstudio.api.section_set(0, "intro")
+--   wstudio.api.section_set(8, "verse")
+-- end, { desc = "repeat the pattern four times down the arrangement" })
