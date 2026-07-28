@@ -169,7 +169,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     _ = app.session.engine.send(.{ .note_on = .{
                         .track = app.drum_track,
                         .note = @intCast(pad.*),
-                        .velocity = 0.9,
+                        .velocity = app.default_velocity,
                     } });
                     app.setStatus("preview: pad {d}", .{pad.* + 1});
                 },

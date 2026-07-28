@@ -54,7 +54,7 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
     // sits directly above the `:` prompt, drawn after the transport
     // line's closing hr below. Carve its rows out of the content area's
     // budget up front so the frame never grows taller than the terminal.
-    const max_suggestion_rows = 10;
+    const max_suggestion_rows = self.completion_popup_rows;
     const suggestion_rows: usize = if (self.modal.mode == .command and self.suggest_popup_open)
         cmd_mod.suggestionRows(self.allCmds(), self.suggestionFilterText(), commands.activeScope(self), max_suggestion_rows)
     else

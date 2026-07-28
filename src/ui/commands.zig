@@ -2556,10 +2556,10 @@ fn cmdWriteQuit(app: *App, args: []const u8) void {
 
 /// Splits a `:bounce`-family arg string into the leading path/dir (possibly
 /// empty - caller supplies the default) and an optional trailing `16`/`24`
-/// bit-depth token (default 16-bit).
-fn parseBounceArgs(args: []const u8) struct { path: []const u8, bit_depth: ws.wav.BitDepth } {
+/// bit-depth token, defaulting to `wstudio.o.bounce_bit_depth`.
+fn parseBounceArgs(app: *App, args: []const u8) struct { path: []const u8, bit_depth: ws.wav.BitDepth } {
     var trimmed = std.mem.trim(u8, args, " ");
-    var bit_depth: ws.wav.BitDepth = .pcm16;
+    var bit_depth: ws.wav.BitDepth = app.bounce_bit_depth;
     if (std.mem.lastIndexOfScalar(u8, trimmed, ' ')) |sp| {
         const tail = std.mem.trim(u8, trimmed[sp + 1 ..], " ");
         if (std.mem.eql(u8, tail, "24")) {
@@ -2581,8 +2581,8 @@ const BounceRange = struct { start_frame: u64, total_frames: u64, has_loop_regio
 
 /// An armed A/B loop region bounces exactly that span (e.g. exporting one
 /// section to try in another tool); otherwise song mode renders the whole
-/// arrangement and pattern mode the longest loop. Both cases add a 2s tail
-/// for reverb and release.
+/// arrangement and pattern mode the longest loop. Both cases append
+/// `wstudio.o.bounce_tail_seconds` so reverb and release ring out.
 fn computeBounceRange(app: *App) BounceRange {
     const engine = app.session.engine;
     const sr = app.session.project.sample_rate;
@@ -2597,20 +2597,22 @@ fn computeBounceRange(app: *App) BounceRange {
     };
     return .{
         .start_frame = start_frame,
-        .total_frames = content_frames + types.secondsToFrames(2.0, sr),
+        .total_frames = content_frames + types.secondsToFrames(app.bounce_tail_seconds, sr),
         .has_loop_region = has_loop_region,
     };
 }
 
 /// Render the live session (patterns + synth params + drum grid) offline to
-/// a PCM WAV (16-bit by default, 24-bit with a trailing `24` argument).
-/// Length = the longest loop plus a 2s tail for reverb and release. The
-/// realtime backend is parked for the duration so the UI thread can drive
-/// the engine without racing the audio thread.
+/// a PCM WAV (`wstudio.o.bounce_bit_depth`, overridden by a trailing
+/// `16`/`24` argument). Length = the longest loop plus
+/// `wstudio.o.bounce_tail_seconds` for reverb and release. The realtime
+/// backend is parked for the duration so the UI thread can drive the engine
+/// without racing the audio thread.
 fn cmdBounce(app: *App, args: []const u8) void {
     var path_buf: [path_buf_len]u8 = undefined;
-    const parsed = parseBounceArgs(args);
-    const path = if (parsed.path.len > 0) expandHome(&path_buf, parsed.path) else "bounce.wav";
+    const parsed = parseBounceArgs(app, args);
+    const requested = if (parsed.path.len > 0) parsed.path else app.default_bounce_path.slice();
+    const path = expandHome(&path_buf, requested);
     const bit_depth = parsed.bit_depth;
 
     const engine = app.session.engine;
@@ -2672,14 +2674,15 @@ fn sanitizeStemName(buf: []u8, name: []const u8, index: usize) []const u8 {
 }
 
 /// `:bounce-stems [dir] [16|24]` - renders every non-empty track soloed in
-/// turn to `<dir>/<track-name>.wav` (default dir: `stems/`), using the same
-/// length/range rules as `:bounce` (armed loop region, else full song/
-/// pattern). Solo state is restored exactly afterward, whatever it was
-/// before this ran.
+/// turn to `<dir>/<track-name>.wav` (default dir: `wstudio.o.default_stems_dir`),
+/// using the same length/range rules as `:bounce` (armed loop region, else
+/// full song/pattern). Solo state is restored exactly afterward, whatever it
+/// was before this ran.
 fn cmdBounceStems(app: *App, args: []const u8) void {
     var path_buf: [path_buf_len]u8 = undefined;
-    const parsed = parseBounceArgs(args);
-    const dir = if (parsed.path.len > 0) expandHome(&path_buf, parsed.path) else "stems";
+    const parsed = parseBounceArgs(app, args);
+    const requested = if (parsed.path.len > 0) parsed.path else app.default_stems_dir.slice();
+    const dir = expandHome(&path_buf, requested);
     const bit_depth = parsed.bit_depth;
 
     const engine = app.session.engine;

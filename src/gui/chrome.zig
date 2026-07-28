@@ -290,7 +290,7 @@ pub fn drawCommandPrompt(app: anytype) void {
     const active = tui_commands.activeScope(&app.core);
     const count = tui_cmd.suggestionCount(app.core.allCmds(), filter, active);
     if (count < 2) return;
-    const rows = @min(count, 8);
+    const rows = @min(count, @as(usize, app.core.completion_popup_rows));
     const row_h: f32 = 39;
     const popup_w = @min(@as(f32, 620), display[0] - 24);
     const popup_h = 31 + row_h * @as(f32, @floatFromInt(rows));

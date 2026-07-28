@@ -83,6 +83,10 @@ pub var palette: Palette = patina_colors;
 pub var knob_drag_pixels: f32 = 180.0;
 pub var envelope_drag_pixels: f32 = 140.0;
 
+/// Pixel height of one piano-roll key row - the GUI's vertical zoom,
+/// `wstudio.o.gui_piano_row_height`. Same live-settable treatment.
+pub var piano_row_height: f32 = 18.0;
+
 /// Master-meter peak-hold fall rate in dB/s - `wstudio.o.gui_meter_decay_db_s`.
 pub var meter_decay_db_per_s: f32 = 24.0;
 

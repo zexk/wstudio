@@ -242,7 +242,7 @@ pub fn draw(app: anytype) void {
 
     const gutter_w: f32 = 58;
     const ruler_h: f32 = 24;
-    const row_h: f32 = 18;
+    const row_h: f32 = gui_style.piano_row_height;
     const controller_h: f32 = 96;
     const available = zgui.getContentRegionAvail();
     const row_count: usize = @intFromFloat(std.math.clamp(@floor((available[1] - ruler_h - controller_h - 8) / row_h), 24, 37));

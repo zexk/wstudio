@@ -150,6 +150,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     gui_style.setTheme(user_config.gui_panel_border);
     gui_style.knob_drag_pixels = user_config.gui_knob_drag_pixels;
     gui_style.envelope_drag_pixels = user_config.gui_envelope_drag_pixels;
+    gui_style.piano_row_height = user_config.gui_piano_row_height;
     gui_style.meter_decay_db_per_s = user_config.gui_meter_decay_db_s;
     zgui.backend.init(window);
     defer zgui.backend.deinit();
@@ -280,6 +281,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 gui_style.setTheme(user_config.gui_panel_border);
                 gui_style.knob_drag_pixels = user_config.gui_knob_drag_pixels;
                 gui_style.envelope_drag_pixels = user_config.gui_envelope_drag_pixels;
+                gui_style.piano_row_height = user_config.gui_piano_row_height;
                 gui_style.meter_decay_db_per_s = user_config.gui_meter_decay_db_s;
                 glfw.swapInterval(if (user_config.gui_vsync) 1 else 0);
                 if (has_alsa and using_midi) midi_in.velocity_curve.store(user_config.default_midi_velocity_curve, .monotonic);

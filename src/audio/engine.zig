@@ -74,6 +74,9 @@ pub const Command = union(enum) {
     set_metronome: bool,
     /// See `wstudio.o.metronome_click_gain`.
     set_metronome_gain: f32,
+    /// Master limiter shape, from `wstudio.o.master_limiter_ceiling_db` (sent
+    /// already converted to linear) and `master_limiter_release_ms`.
+    set_limiter: struct { ceiling: f32, release_ms: f32 },
     /// Arms a `bars`-bar count-in at the current position: the metronome
     /// clicks through it (regardless of `set_metronome`'s on/off state)
     /// while the transport stays stopped, then playback starts for real
@@ -905,6 +908,10 @@ pub const Engine = struct {
             .preview_stop => self.preview.resetAll(),
             .set_metronome => |v| self.metronome_enabled = v,
             .set_metronome_gain => |g| self.metronome.gain = g,
+            .set_limiter => |v| {
+                self.limiter.ceiling = v.ceiling;
+                self.limiter.release_ms = v.release_ms;
+            },
             .record => |bars| {
                 if (bars == 0) {
                     self.transport.play();

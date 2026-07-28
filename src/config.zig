@@ -203,6 +203,24 @@ pub const Config = struct {
     gui_knob_drag_pixels: f32 = 180.0,
     gui_envelope_drag_pixels: f32 = 140.0,
     gui_meter_decay_db_s: f32 = 24.0,
+    bounce_tail_seconds: f32 = 2.0,
+    bounce_bit_depth: @import("wstudio").wav.BitDepth = .pcm16,
+    default_bounce_path: PathBuf = PathBuf.init("bounce.wav"),
+    default_stems_dir: PathBuf = PathBuf.init("stems"),
+    master_limiter_ceiling_db: f32 = -0.4,
+    master_limiter_release_ms: f32 = 80.0,
+    default_drum_steps: u16 = 32,
+    default_slicer_steps: u8 = 16,
+    default_pattern_length_beats: f64 = 4.0,
+    default_swing: f32 = 50.0,
+    completion_popup_rows: u8 = 10,
+    waveform_low_hz: f32 = 200.0,
+    waveform_high_hz: f32 = 4000.0,
+    tui_piano_cell_width: u8 = 3,
+    tui_drum_cell_width: u8 = 3,
+    tui_arrangement_cell_width: u8 = 4,
+    tui_spectrum_db_range: f32 = 70.0,
+    gui_piano_row_height: f32 = 18.0,
 };
 
 pub const Frontend = enum { tui, gui };
@@ -274,6 +292,24 @@ const option_specs = [_]OptionSpec{
     .{ .name = "gui_knob_drag_pixels", .min = 40, .max = 600, .scope = .gui },
     .{ .name = "gui_envelope_drag_pixels", .min = 40, .max = 600, .scope = .gui },
     .{ .name = "gui_meter_decay_db_s", .min = 1, .max = 200, .scope = .gui },
+    .{ .name = "bounce_tail_seconds", .min = 0, .max = 30 },
+    .{ .name = "bounce_bit_depth" },
+    .{ .name = "default_bounce_path", .allow_empty = false },
+    .{ .name = "default_stems_dir", .allow_empty = false },
+    .{ .name = "master_limiter_ceiling_db", .min = -12, .max = 0 },
+    .{ .name = "master_limiter_release_ms", .min = 1, .max = 1000 },
+    .{ .name = "default_drum_steps", .min = 1, .max = 256 },
+    .{ .name = "default_slicer_steps", .min = 1, .max = 64 },
+    .{ .name = "default_pattern_length_beats", .min = 1, .max = 64 },
+    .{ .name = "default_swing", .min = 50, .max = 75 },
+    .{ .name = "completion_popup_rows", .min = 1, .max = 20 },
+    .{ .name = "waveform_low_hz", .min = 20, .max = 2000 },
+    .{ .name = "waveform_high_hz", .min = 1000, .max = 16000 },
+    .{ .name = "tui_piano_cell_width", .min = 1, .max = 7, .scope = .tui },
+    .{ .name = "tui_drum_cell_width", .min = 1, .max = 7, .scope = .tui },
+    .{ .name = "tui_arrangement_cell_width", .min = 2, .max = 12, .scope = .tui },
+    .{ .name = "tui_spectrum_db_range", .min = 20, .max = 120, .scope = .tui },
+    .{ .name = "gui_piano_row_height", .min = 8, .max = 48, .scope = .gui },
 };
 
 comptime {
@@ -282,6 +318,36 @@ comptime {
     }
     if (option_specs.len != @typeInfo(Config).@"struct".fields.len) {
         @compileError("Config field without an option_specs row");
+    }
+}
+
+// The Nix modules expose every option as a typed `programs.wstudio.settings`
+// attribute, and that schema is hand-maintained - `piano_audition` shipped in
+// round 5 and sat unreachable from Nix until this check was added. A test
+// rather than a `comptime` block so a missing row names the option instead of
+// failing every build target. Ranges and descriptions stay hand-written; a
+// wrong range there rejects a valid value loudly, whereas a missing row fails
+// silently, which is the case worth guarding.
+// Read rather than `@embedFile`d: the file lives outside the source package,
+// and wiring a build module for a test-only read costs more than the check.
+// `zig build test` runs from the repo root, the same assumption the
+// project-save tests already make.
+test "nix/settings.nix has a row for every wstudio.o option" {
+    const schema = std.Io.Dir.cwd().readFileAlloc(
+        std.testing.io,
+        "nix/settings.nix",
+        std.testing.allocator,
+        .limited(256 * 1024),
+    ) catch |err| {
+        std.debug.print("cannot read nix/settings.nix ({s}) - run from the repo root\n", .{@errorName(err)});
+        return err;
+    };
+    defer std.testing.allocator.free(schema);
+    inline for (option_specs) |spec| {
+        if (std.mem.indexOf(u8, schema, "\n    " ++ spec.name ++ " =") == null) {
+            std.debug.print("nix/settings.nix has no row for '{s}'\n", .{spec.name});
+            return error.NixSettingsOutOfDate;
+        }
     }
 }
 
@@ -905,6 +971,9 @@ fn runtime(state: *c.lua_State) *Runtime {
 }
 
 fn setOption(state: ?*c.lua_State) callconv(.c) c_int {
+    // One comptimePrint per spec row for the range message; the default
+    // quota runs out around 40 options.
+    @setEvalBranchQuota(100_000);
     const l = state.?;
     const name = std.mem.span(c.luaL_checklstring(l, 2, null));
     inline for (option_specs) |spec| {

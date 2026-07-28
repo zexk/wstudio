@@ -57,8 +57,14 @@ pub const Band = enum { low, mid, high };
 /// frequency, so any noise in a sound pulls it well above where a listener
 /// would put it (kick.wav measures ~60 Hz, snare.wav ~8 kHz, hihat.wav
 /// ~11 kHz). A 2 kHz top split would have painted nearly everything as air.
-const low_hz: f32 = 200.0;
-const high_hz: f32 = 4000.0;
+///
+/// Module-level and mutable because `bandBuckets` is called straight from
+/// both frontends' draw code, which has no App handle to thread a setting
+/// through. `App.applyUserConfig` writes them from
+/// `wstudio.o.waveform_low_hz`/`waveform_high_hz`; only the UI thread ever
+/// touches either side.
+pub var low_hz: f32 = 200.0;
+pub var high_hz: f32 = 4000.0;
 
 /// Fill `out` with each column's dominant frequency band, over exactly the
 /// buckets `peakBucketsWarped` draws. The centroid comes from the mean

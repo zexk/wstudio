@@ -35,6 +35,7 @@ const user_drum_kits = @import("user_drum_kits.zig");
 const cmd_history_store = @import("cmd_history_store.zig");
 const bookmark_store = @import("bookmark_store.zig");
 const fuzzy = @import("fuzzy.zig");
+const waveform = @import("waveform.zig");
 const ansi = @import("ansi.zig");
 const help = @import("help.zig");
 
@@ -460,6 +461,23 @@ pub const App = struct {
     environ: ?*const std.process.Environ.Map = null,
     /// Where a plain `:w` and a pathless autosave land.
     default_project_path: config_mod.PathBuf = config_mod.PathBuf.init("project.wsj"),
+    /// `:bounce`/`:bounce-stems` defaults, from the `bounce_*` and
+    /// `default_bounce_path`/`default_stems_dir` options. The tail is the
+    /// silence appended past the content so reverb and release rings out.
+    bounce_tail_seconds: f32 = 2.0,
+    bounce_bit_depth: ws.wav.BitDepth = .pcm16,
+    default_bounce_path: config_mod.PathBuf = config_mod.PathBuf.init("bounce.wav"),
+    default_stems_dir: config_mod.PathBuf = config_mod.PathBuf.init("stems"),
+    /// Rows the `:` Tab-completion popup may occupy, from
+    /// `completion_popup_rows`. Both frontends read this one.
+    completion_popup_rows: u8 = 10,
+    /// Terminal columns per step/bar in the grid views, from the
+    /// `tui_*_cell_width` options - see `pianoCellWidth` and friends.
+    tui_piano_cell_width: u8 = 3,
+    tui_drum_cell_width: u8 = 3,
+    tui_arrangement_cell_width: u8 = 4,
+    /// dB span the TUI spectrum analyser draws, from `tui_spectrum_db_range`.
+    tui_spectrum_db_range: f32 = 70.0,
     /// Whether dotfiles and dot-directories appear in the file browser.
     file_browser_show_hidden: bool = false,
     /// An open coalescing batch of synth/sampler param nudges (h/l/H/L),
@@ -1037,21 +1055,22 @@ pub const App = struct {
         return if (self.piano_grid == .triplet) 6 else @as(u16, self.piano_division.denominator()) / 4;
     }
 
-    /// Terminal columns per step under the current zoom: 1, 3, or 5.
-    /// and views/piano.zig goes through this.
-    pub fn pianoCellWidth(_: *const App) usize {
-        return 3;
+    /// Terminal columns per step, from `wstudio.o.tui_piano_cell_width`.
+    /// Every column-width computation in editors/piano.zig and
+    /// views/piano.zig goes through this.
+    pub fn pianoCellWidth(self: *const App) usize {
+        return self.tui_piano_cell_width;
     }
 
-    pub fn drumCellWidth(_: *const App) usize {
-        return 3;
+    pub fn drumCellWidth(self: *const App) usize {
+        return self.tui_drum_cell_width;
     }
 
-    /// Terminal columns per bar under the current zoom: 2, 4, or 6.
+    /// Terminal columns per bar, from `wstudio.o.tui_arrangement_cell_width`.
     /// Every column-width computation in editors/arrangement.zig
     /// and views/arrangement.zig goes through this.
-    pub fn arrCellWidth(_: *const App) usize {
-        return 4;
+    pub fn arrCellWidth(self: *const App) usize {
+        return self.tui_arrangement_cell_width;
     }
 
     pub fn handleKey(self: *App, key_in: modal_mod.Key, now_ns: i96) void {
@@ -1423,6 +1442,30 @@ pub const App = struct {
         self.piano_ghost = user_config.piano_ghost_notes;
         self.piano_audition = user_config.piano_audition;
         self.modal.octave = @intCast(user_config.default_octave);
+        self.bounce_tail_seconds = user_config.bounce_tail_seconds;
+        self.bounce_bit_depth = user_config.bounce_bit_depth;
+        self.default_bounce_path = user_config.default_bounce_path;
+        self.default_stems_dir = user_config.default_stems_dir;
+        self.completion_popup_rows = user_config.completion_popup_rows;
+        self.tui_piano_cell_width = user_config.tui_piano_cell_width;
+        self.tui_drum_cell_width = user_config.tui_drum_cell_width;
+        self.tui_arrangement_cell_width = user_config.tui_arrangement_cell_width;
+        self.tui_spectrum_db_range = user_config.tui_spectrum_db_range;
+        waveform.low_hz = user_config.waveform_low_hz;
+        waveform.high_hz = user_config.waveform_high_hz;
+        _ = self.session.engine.send(.{ .set_limiter = .{
+            .ceiling = types.dbToGain(user_config.master_limiter_ceiling_db),
+            .release_ms = user_config.master_limiter_release_ms,
+        } });
+        // New-instrument defaults live on Session because racks are built
+        // there (setInstrument, project load), where the config isn't in
+        // scope. A load overwrites these from the file right after.
+        self.session.defaults = .{
+            .drum_steps = user_config.default_drum_steps,
+            .slicer_steps = user_config.default_slicer_steps,
+            .pattern_length_beats = user_config.default_pattern_length_beats,
+            .swing = user_config.default_swing,
+        };
         if (blank) {
             self.session.project.tempo_bpm = user_config.default_tempo;
             self.session.project.beats_per_bar = user_config.default_beats_per_bar;

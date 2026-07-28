@@ -123,6 +123,11 @@ in
       default = null;
       description = "Whether the piano roll initially shows notes from other tracks.";
     };
+    piano_audition = mkOption {
+      type = types.nullOr types.bool;
+      default = null;
+      description = "Whether moving the piano-roll cursor auditions the pitch under it.";
+    };
     tui_mouse = mkOption {
       type = types.nullOr types.bool;
       default = null;
@@ -226,5 +231,46 @@ in
     gui_meter_decay_db_s =
       rangedNumber 1 200
         "Master-meter peak-hold fall rate, in dB/s. Higher = the hold indicator drops faster.";
+    bounce_tail_seconds =
+      rangedNumber 0 30
+        "Silence appended past the content by :bounce, so reverb and release ring out.";
+    bounce_bit_depth = mkOption {
+      type = types.nullOr (
+        types.enum [
+          "pcm16"
+          "pcm24"
+        ]
+      );
+      default = null;
+      description = "Bit depth :bounce writes when no 16/24 argument is given.";
+    };
+    default_bounce_path = mkOption {
+      type = types.nullOr (types.strMatching ".+");
+      default = null;
+      description = "File a pathless :bounce writes to.";
+    };
+    default_stems_dir = mkOption {
+      type = types.nullOr (types.strMatching ".+");
+      default = null;
+      description = "Directory a pathless :bounce-stems writes into.";
+    };
+    master_limiter_ceiling_db =
+      rangedNumber (-12) 0
+        "Output ceiling of the always-on master limiter, in dBFS.";
+    master_limiter_release_ms =
+      rangedNumber 1 1000
+        "Gain-recovery time of the master limiter after a reduction, in milliseconds.";
+    default_drum_steps = rangedInt 1 256 "Steps a freshly created drum machine starts with.";
+    default_slicer_steps = rangedInt 1 64 "Steps a freshly created slicer starts with.";
+    default_pattern_length_beats = rangedNumber 1 64 "Loop length of a new piano-roll pattern, in beats.";
+    default_swing = rangedNumber 50 75 "Swing percent a new instrument starts at. 50 is straight.";
+    completion_popup_rows = rangedInt 1 20 "Rows the `:` Tab-completion popup may occupy.";
+    waveform_low_hz = rangedNumber 20 2000 "Low/mid split point of the waveform band tint, in Hz.";
+    waveform_high_hz = rangedNumber 1000 16000 "Mid/high split point of the waveform band tint, in Hz.";
+    tui_piano_cell_width = rangedInt 1 7 "Terminal columns per piano-roll step.";
+    tui_drum_cell_width = rangedInt 1 7 "Terminal columns per drum-grid step.";
+    tui_arrangement_cell_width = rangedInt 2 12 "Terminal columns per arrangement bar.";
+    tui_spectrum_db_range = rangedNumber 20 120 "dB span the TUI spectrum analyser draws.";
+    gui_piano_row_height = rangedNumber 8 48 "Pixel height of one piano-roll key row. The GUI's vertical zoom.";
   };
 }

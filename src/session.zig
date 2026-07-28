@@ -40,6 +40,17 @@ fn ticksForBars(bars: u32, beats_per_bar: u8) u32 {
     return bars *| time_grid.barTicks(beats_per_bar);
 }
 
+/// Defaults a brand-new instrument is built with, sourced from
+/// `wstudio.o.default_drum_steps`/`default_slicer_steps`/
+/// `default_pattern_length_beats`/`default_swing`. Field defaults here match
+/// the DSP types' own, so a Session nobody configured behaves as before.
+pub const InstrumentDefaults = struct {
+    drum_steps: u16 = 32,
+    slicer_steps: u8 = 16,
+    pattern_length_beats: f64 = 4.0,
+    swing: f32 = 50.0,
+};
+
 pub const Session = struct {
     allocator: std.mem.Allocator,
     project: Project,
@@ -72,6 +83,11 @@ pub const Session = struct {
     /// engine via `set_metronome` - same pattern as `loop_enabled`/`song_mode`.
     /// A monitoring aid, not song content, so it isn't persisted.
     metronome_enabled: bool = false,
+    /// Shape a freshly created instrument starts at, from the `default_*`
+    /// options. Set by `App.applyUserConfig`; read by `newInstrumentRack`.
+    /// A project load overwrites all four from the file right after the rack
+    /// is built, so these only ever describe a *new* instrument.
+    defaults: InstrumentDefaults = .{},
     /// Master bus FX chain, applied to the summed mix before the master gain
     /// and always-on limiter - same user-built `Fx` chain as a track's rack,
     /// so any unit plugs into either the same way. Persisted
@@ -261,10 +277,14 @@ pub const Session = struct {
             },
             .drum_machine => {
                 rack.instrument = .{ .drum_machine = try DrumMachine.init(self.allocator, sr, &self.engine.transport) };
+                rack.instrument.drum_machine.setStepCount(self.defaults.drum_steps);
+                rack.instrument.drum_machine.swing.store(self.defaults.swing, .monotonic);
                 rack.label = "drums";
             },
             .slicer => {
                 rack.instrument = .{ .slicer = try Slicer.init(self.allocator, sr, &self.engine.transport) };
+                rack.instrument.slicer.setStepCount(self.defaults.slicer_steps);
+                rack.instrument.slicer.setSwing(self.defaults.swing);
                 rack.label = "slicer";
             },
             .clap => return error.ClapPluginRequiresPath,
@@ -274,7 +294,11 @@ pub const Session = struct {
             },
         }
         switch (kind) {
-            .poly_synth, .sampler, .clap, .soundfont => rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &self.engine.transport),
+            .poly_synth, .sampler, .clap, .soundfont => {
+                rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &self.engine.transport);
+                rack.pattern_player.?.length_beats = self.defaults.pattern_length_beats;
+                rack.pattern_player.?.setSwing(self.defaults.swing);
+            },
             else => {},
         }
         return rack;

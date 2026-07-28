@@ -259,7 +259,7 @@ pub fn drawFxView(
         // Limit band count to available horizontal space (6-char dB gutter + bands).
         const draw_bands = @min(spectrum_band_count, cols -| 8);
 
-        const db_range: f32 = 70.0;
+        const db_range: f32 = app.tui_spectrum_db_range;
         const db_offset: f32 = -60.0;
 
         // Axis labels sit in the 6-char gutter at their true heights on
