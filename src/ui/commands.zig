@@ -87,6 +87,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "clap-instrument", .desc = "<plugin-id> <path>  load a CLAP instrument on the cursor track", .run = wrap(cmdClapInstrument) },
     .{ .name = "clap-fx",     .desc = "<plugin-id> <path>  append a CLAP effect to the cursor track", .run = wrap(cmdClapFx) },
     .{ .name = "clap-param",  .desc = "<1-based-index> [value]  inspect or set a CLAP instrument parameter", .run = wrap(cmdClapParam) },
+    .{ .name = "clap-gui",    .desc = "toggle the current CLAP instrument or focused effect's native GUI", .run = wrap(cmdClapGui) },
     .{ .name = "sf-preset",   .desc = "<bank> <program>  jump to a SoundFont preset by its MIDI bank/program number", .run = wrap(cmdSfPreset), .scope = .soundfont },
     .{ .name = "slice",       .desc = "<n>  equal-divide the slicer's loaded clip into n slices (1-64)", .run = wrap(cmdSlice), .scope = .slicer },
     .{ .name = "chop",        .desc = "[1-9]  chop the slicer's clip at detected transients (sensitivity, default 5)", .run = wrap(cmdChop), .scope = .slicer },
@@ -310,6 +311,32 @@ fn cmdClapParam(app: *App, args: []const u8) void {
         std.mem.sliceTo(&info.name, 0),
         formatted,
     });
+}
+
+fn cmdClapGui(app: *App, _: []const u8) void {
+    const plugin = blk: {
+        if (app.view == .track_spectrum or app.view == .master_spectrum or app.view == .group_spectrum) {
+            const fx = spectrum_ed.fxPtr(app, spectrum_ed.currentTarget(app)) orelse break :blk null;
+            const unit = spectrum_ed.focusedUnit(app, fx) orelse break :blk null;
+            break :blk switch (unit.payload) {
+                .clap => |plugin| plugin,
+                else => null,
+            };
+        }
+        const track = app.cursorTrack() orelse break :blk null;
+        break :blk switch (app.session.racks.items[track].instrument) {
+            .clap => |plugin| plugin,
+            else => null,
+        };
+    } orelse {
+        app.setStatus("current instrument or focused effect is not CLAP", .{});
+        return;
+    };
+    const visible = plugin.toggleGui() catch |err| {
+        app.setStatus("CLAP GUI: {s}", .{@errorName(err)});
+        return;
+    };
+    app.setStatus("CLAP GUI {s}: {s}", .{ if (visible) "opened" else "hidden", plugin.name() });
 }
 
 /// `:e <file>` swaps in a different project (refusing on unsaved changes,

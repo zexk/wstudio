@@ -19,6 +19,11 @@ pub const ext_latency: [*:0]const u8 = "clap.latency";
 pub const ext_tail: [*:0]const u8 = "clap.tail";
 pub const ext_thread_check: [*:0]const u8 = "clap.thread-check";
 pub const ext_log: [*:0]const u8 = "clap.log";
+pub const ext_gui: [*:0]const u8 = "clap.gui";
+pub const window_api_win32: [*:0]const u8 = "win32";
+pub const window_api_cocoa: [*:0]const u8 = "cocoa";
+pub const window_api_wayland: [*:0]const u8 = "wayland";
+pub const window_api_x11: [*:0]const u8 = "x11";
 pub const invalid_id: u32 = 0xffffffff;
 
 pub const EventHeader = extern struct {
@@ -195,6 +200,53 @@ pub const HostThreadCheck = extern struct {
 
 pub const HostLog = extern struct {
     log: *const fn (*const Host, i32, [*:0]const u8) callconv(.c) void,
+};
+
+pub const WindowHandle = extern union {
+    cocoa: ?*anyopaque,
+    uikit: ?*anyopaque,
+    x11: c_ulong,
+    win32: ?*anyopaque,
+    ptr: ?*anyopaque,
+};
+
+pub const Window = extern struct {
+    api: [*:0]const u8,
+    handle: WindowHandle,
+};
+
+pub const GuiResizeHints = extern struct {
+    can_resize_horizontally: bool,
+    can_resize_vertically: bool,
+    preserve_aspect_ratio: bool,
+    aspect_ratio_width: u32,
+    aspect_ratio_height: u32,
+};
+
+pub const PluginGui = extern struct {
+    is_api_supported: *const fn (*const Plugin, [*:0]const u8, bool) callconv(.c) bool,
+    get_preferred_api: *const fn (*const Plugin, *?[*:0]const u8, *bool) callconv(.c) bool,
+    create: *const fn (*const Plugin, ?[*:0]const u8, bool) callconv(.c) bool,
+    destroy: *const fn (*const Plugin) callconv(.c) void,
+    set_scale: *const fn (*const Plugin, f64) callconv(.c) bool,
+    get_size: *const fn (*const Plugin, *u32, *u32) callconv(.c) bool,
+    can_resize: *const fn (*const Plugin) callconv(.c) bool,
+    get_resize_hints: *const fn (*const Plugin, *GuiResizeHints) callconv(.c) bool,
+    adjust_size: *const fn (*const Plugin, *u32, *u32) callconv(.c) bool,
+    set_size: *const fn (*const Plugin, u32, u32) callconv(.c) bool,
+    set_parent: *const fn (*const Plugin, *const Window) callconv(.c) bool,
+    set_transient: *const fn (*const Plugin, *const Window) callconv(.c) bool,
+    suggest_title: *const fn (*const Plugin, [*:0]const u8) callconv(.c) void,
+    show: *const fn (*const Plugin) callconv(.c) bool,
+    hide: *const fn (*const Plugin) callconv(.c) bool,
+};
+
+pub const HostGui = extern struct {
+    resize_hints_changed: *const fn (*const Host) callconv(.c) void,
+    request_resize: *const fn (*const Host, u32, u32) callconv(.c) bool,
+    request_show: *const fn (*const Host) callconv(.c) bool,
+    request_hide: *const fn (*const Host) callconv(.c) bool,
+    closed: *const fn (*const Host, bool) callconv(.c) void,
 };
 
 pub const AudioBuffer = extern struct {

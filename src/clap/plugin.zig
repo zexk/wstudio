@@ -99,6 +99,9 @@ const HostContext = struct {
     state_dirty: std.atomic.Value(bool) = .init(false),
     latency_changed: std.atomic.Value(bool) = .init(false),
     tail_changed: std.atomic.Value(bool) = .init(false),
+    gui_show_requested: std.atomic.Value(bool) = .init(false),
+    gui_hide_requested: std.atomic.Value(bool) = .init(false),
+    gui_closed: std.atomic.Value(u8) = .init(0),
     main_thread_id: std.Thread.Id,
 
     fn init() HostContext {
@@ -135,6 +138,7 @@ const HostContext = struct {
         if (std.mem.eql(u8, name, std.mem.span(abi.ext_tail))) return &host_tail;
         if (std.mem.eql(u8, name, std.mem.span(abi.ext_thread_check))) return &host_thread_check;
         if (std.mem.eql(u8, name, std.mem.span(abi.ext_log))) return &host_log;
+        if (std.mem.eql(u8, name, std.mem.span(abi.ext_gui))) return &host_gui;
         return null;
     }
 
@@ -189,6 +193,26 @@ const HostContext = struct {
         }
     }
 
+    fn guiResizeHintsChanged(_: *const abi.Host) callconv(.c) void {}
+
+    fn guiRequestResize(_: *const abi.Host, _: u32, _: u32) callconv(.c) bool {
+        return false; // floating windows own their size
+    }
+
+    fn guiRequestShow(host: *const abi.Host) callconv(.c) bool {
+        fromHost(host).gui_show_requested.store(true, .release);
+        return true;
+    }
+
+    fn guiRequestHide(host: *const abi.Host) callconv(.c) bool {
+        fromHost(host).gui_hide_requested.store(true, .release);
+        return true;
+    }
+
+    fn guiClosed(host: *const abi.Host, was_destroyed: bool) callconv(.c) void {
+        fromHost(host).gui_closed.store(if (was_destroyed) 2 else 1, .release);
+    }
+
     const host_params: abi.HostParams = .{
         .rescan = paramsRescan,
         .clear = paramsClear,
@@ -202,6 +226,13 @@ const HostContext = struct {
         .is_audio_thread = isAudioThread,
     };
     const host_log: abi.HostLog = .{ .log = log };
+    const host_gui: abi.HostGui = .{
+        .resize_hints_changed = guiResizeHintsChanged,
+        .request_resize = guiRequestResize,
+        .request_show = guiRequestShow,
+        .request_hide = guiRequestHide,
+        .closed = guiClosed,
+    };
 };
 
 fn acceptOutputEvent(list: ?*const abi.OutputEvents, event: *const abi.EventHeader) callconv(.c) bool {
@@ -233,6 +264,8 @@ pub const ClapPlugin = struct {
     transport: ?*const Transport = null,
     steady_time: i64 = 0,
     started: bool = false,
+    gui_created: bool = false,
+    gui_visible: bool = false,
 
     pub const device = device_mod.deviceOf(@This());
 
@@ -361,6 +394,7 @@ pub const ClapPlugin = struct {
     }
 
     pub fn deinit(self: *ClapPlugin) void {
+        self.destroyGui();
         if (self.started) self.plugin.stop_processing(self.plugin);
         self.plugin.deactivate(self.plugin);
         self.plugin.destroy(self.plugin);
@@ -614,6 +648,75 @@ pub const ClapPlugin = struct {
         if (self.started) self.plugin.reset(self.plugin);
     }
 
+    fn guiExtension(self: *const ClapPlugin) ?*const abi.PluginGui {
+        return getExt(abi.PluginGui, self.plugin, abi.ext_gui);
+    }
+
+    pub fn hasGui(self: *const ClapPlugin) bool {
+        return self.guiExtension() != null;
+    }
+
+    pub fn toggleGui(self: *ClapPlugin) !bool {
+        if (!self.gui_created) {
+            try self.createGui();
+        } else if (self.gui_visible) {
+            const gui = self.guiExtension() orelse return error.GuiUnavailable;
+            if (!gui.hide(self.plugin)) return error.GuiHideFailed;
+            self.gui_visible = false;
+        } else {
+            const gui = self.guiExtension() orelse return error.GuiUnavailable;
+            if (!gui.show(self.plugin)) return error.GuiShowFailed;
+            self.gui_visible = true;
+        }
+        return self.gui_visible;
+    }
+
+    fn createGui(self: *ClapPlugin) !void {
+        const gui = self.guiExtension() orelse return error.GuiUnavailable;
+        var preferred_api: ?[*:0]const u8 = null;
+        var preferred_floating = false;
+        var created = false;
+        if (gui.get_preferred_api(self.plugin, &preferred_api, &preferred_floating) and preferred_floating) {
+            if (preferred_api) |api| {
+                if (gui.is_api_supported(self.plugin, api, true))
+                    created = gui.create(self.plugin, api, true);
+            }
+        }
+        if (!created) {
+            const apis: []const [*:0]const u8 = switch (@import("builtin").os.tag) {
+                .windows => &.{abi.window_api_win32},
+                .macos => &.{abi.window_api_cocoa},
+                else => &.{ abi.window_api_wayland, abi.window_api_x11 },
+            };
+            for (apis) |api| {
+                if (!gui.is_api_supported(self.plugin, api, true)) continue;
+                if (gui.create(self.plugin, api, true)) {
+                    created = true;
+                    break;
+                }
+            }
+        }
+        if (!created) created = gui.create(self.plugin, null, true);
+        if (!created) return error.FloatingGuiUnsupported;
+        self.gui_created = true;
+        gui.suggest_title(self.plugin, self.plugin.desc.name);
+        if (!gui.show(self.plugin)) {
+            gui.destroy(self.plugin);
+            self.gui_created = false;
+            return error.GuiShowFailed;
+        }
+        self.gui_visible = true;
+    }
+
+    fn destroyGui(self: *ClapPlugin) void {
+        if (!self.gui_created) return;
+        const gui = self.guiExtension() orelse return;
+        if (self.gui_visible) _ = gui.hide(self.plugin);
+        gui.destroy(self.plugin);
+        self.gui_created = false;
+        self.gui_visible = false;
+    }
+
     /// Service callbacks whose CLAP contract requires the host's main
     /// thread. Parameter, latency, and tail queries are uncached, so their
     /// change notifications only need acknowledging. Returns whether the
@@ -624,6 +727,24 @@ pub const ClapPlugin = struct {
         _ = self.host_context.param_rescan_flags.swap(0, .acquire);
         _ = self.host_context.latency_changed.swap(false, .acquire);
         _ = self.host_context.tail_changed.swap(false, .acquire);
+        const closed = self.host_context.gui_closed.swap(0, .acquire);
+        if (closed != 0) {
+            self.gui_visible = false;
+            if (closed == 2 and self.gui_created) {
+                if (self.guiExtension()) |gui| gui.destroy(self.plugin);
+                self.gui_created = false;
+            }
+        }
+        if (self.host_context.gui_hide_requested.swap(false, .acquire) and self.gui_created and self.gui_visible) {
+            if (self.guiExtension()) |gui| self.gui_visible = !gui.hide(self.plugin);
+        }
+        if (self.host_context.gui_show_requested.swap(false, .acquire)) {
+            if (!self.gui_created) {
+                self.createGui() catch {};
+            } else if (!self.gui_visible) {
+                if (self.guiExtension()) |gui| self.gui_visible = gui.show(self.plugin);
+            }
+        }
         return self.host_context.state_dirty.swap(false, .acq_rel);
     }
 };

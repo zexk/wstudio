@@ -7,6 +7,8 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Added
 
+- `:clap-gui` opens plugin-owned floating GUI windows for CLAP instruments
+  and focused effects from either frontend.
 - 18 more `wstudio.o` options: the `:bounce` tail length, bit depth, and
   default output paths; the master limiter's ceiling and release; the step
   count, pattern length, and swing a newly created instrument starts at;
@@ -57,8 +59,6 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Fixed
 
-- External CLAP entries now say `audio only` in both pickers, so users see
-  before loading that native plugin GUI windows are unavailable.
 - `piano_audition` was settable from `init.lua` but missing from the Nix
   modules, the config template, and the docs. Added, and a test now walks
   the option table against all three so none can drift again.

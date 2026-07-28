@@ -7,6 +7,8 @@ const State = struct {
     processing: bool = false,
     gain: f64 = 2,
     host: ?*const abi.Host = null,
+    gui_created: bool = false,
+    gui_visible: bool = false,
 };
 
 var state: State = .{};
@@ -253,6 +255,87 @@ fn tail(_: *const abi.Plugin) callconv(.c) u32 {
 const plugin_latency: abi.PluginLatency = .{ .get = latency };
 const plugin_tail: abi.PluginTail = .{ .get = tail };
 
+fn guiApiSupported(_: *const abi.Plugin, _: [*:0]const u8, floating: bool) callconv(.c) bool {
+    return floating;
+}
+
+fn guiPreferredApi(_: *const abi.Plugin, api: *?[*:0]const u8, floating: *bool) callconv(.c) bool {
+    api.* = abi.window_api_x11;
+    floating.* = true;
+    return true;
+}
+
+fn guiCreate(_: *const abi.Plugin, _: ?[*:0]const u8, floating: bool) callconv(.c) bool {
+    if (!floating or state.gui_created) return false;
+    state.gui_created = true;
+    return true;
+}
+
+fn guiDestroy(_: *const abi.Plugin) callconv(.c) void {
+    state.gui_created = false;
+    state.gui_visible = false;
+}
+
+fn guiSetScale(_: *const abi.Plugin, _: f64) callconv(.c) bool {
+    return false;
+}
+
+fn guiGetSize(_: *const abi.Plugin, _: *u32, _: *u32) callconv(.c) bool {
+    return false;
+}
+
+fn guiCanResize(_: *const abi.Plugin) callconv(.c) bool {
+    return false;
+}
+
+fn guiResizeHints(_: *const abi.Plugin, _: *abi.GuiResizeHints) callconv(.c) bool {
+    return false;
+}
+
+fn guiAdjustSize(_: *const abi.Plugin, _: *u32, _: *u32) callconv(.c) bool {
+    return false;
+}
+
+fn guiSetSize(_: *const abi.Plugin, _: u32, _: u32) callconv(.c) bool {
+    return false;
+}
+
+fn guiSetWindow(_: *const abi.Plugin, _: *const abi.Window) callconv(.c) bool {
+    return false;
+}
+
+fn guiSuggestTitle(_: *const abi.Plugin, _: [*:0]const u8) callconv(.c) void {}
+
+fn guiShow(_: *const abi.Plugin) callconv(.c) bool {
+    if (!state.gui_created) return false;
+    state.gui_visible = true;
+    return true;
+}
+
+fn guiHide(_: *const abi.Plugin) callconv(.c) bool {
+    if (!state.gui_created) return false;
+    state.gui_visible = false;
+    return true;
+}
+
+const plugin_gui: abi.PluginGui = .{
+    .is_api_supported = guiApiSupported,
+    .get_preferred_api = guiPreferredApi,
+    .create = guiCreate,
+    .destroy = guiDestroy,
+    .set_scale = guiSetScale,
+    .get_size = guiGetSize,
+    .can_resize = guiCanResize,
+    .get_resize_hints = guiResizeHints,
+    .adjust_size = guiAdjustSize,
+    .set_size = guiSetSize,
+    .set_parent = guiSetWindow,
+    .set_transient = guiSetWindow,
+    .suggest_title = guiSuggestTitle,
+    .show = guiShow,
+    .hide = guiHide,
+};
+
 fn getExtension(_: *const abi.Plugin, id: [*:0]const u8) callconv(.c) ?*const anyopaque {
     const name = @import("std").mem.span(id);
     if (@import("std").mem.eql(u8, name, "clap.audio-ports")) return &audio_ports;
@@ -261,6 +344,7 @@ fn getExtension(_: *const abi.Plugin, id: [*:0]const u8) callconv(.c) ?*const an
     if (@import("std").mem.eql(u8, name, "clap.state")) return &plugin_state;
     if (@import("std").mem.eql(u8, name, "clap.latency")) return &plugin_latency;
     if (@import("std").mem.eql(u8, name, "clap.tail")) return &plugin_tail;
+    if (@import("std").mem.eql(u8, name, "clap.gui")) return &plugin_gui;
     return null;
 }
 

@@ -10,6 +10,10 @@ pub fn main(init: std.process.Init) !void {
     const plugin = try ws.dsp.ClapPlugin.load(init.gpa, plugin_path, null, 48_000);
     defer plugin.deinit();
     try std.testing.expect(plugin.serviceMainThread());
+    try std.testing.expect(plugin.hasGui());
+    try std.testing.expect(try plugin.toggleGui());
+    try std.testing.expect(!try plugin.toggleGui());
+    try std.testing.expect(try plugin.toggleGui());
     try std.testing.expectEqual(@as(f64, 2.25), plugin.parameterValue(7).?);
     var samples = [_]f32{ 0.25, -0.5, 1.0, -1.0 };
     plugin.device().process(&samples);

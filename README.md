@@ -56,10 +56,12 @@ track and use:
 ```
 
 CLAP audio, notes, MIDI, transport, parameters, opaque state, latency, tails,
-logging, main-thread callbacks, parameter flushes, and dirty-state notifications
-are supported. Plugin identity and state are saved in the `.wsj` project. Native
-plugin GUI windows, surround buses, polyphonic modulation, plugin-requested
-restarts, and plugin-requested thread pools are not supported yet.
+logging, main-thread callbacks, parameter flushes, dirty-state notifications,
+and plugin-owned floating GUI windows are supported. Use `:clap-gui` on a CLAP
+instrument or focused effect to toggle its window. Plugin identity and state are
+saved in the `.wsj` project. Embedded plugin GUIs, surround buses, polyphonic
+modulation, plugin-requested restarts, and plugin-requested thread pools are not
+supported yet.
 
 External controller input currently consumes MIDI 1.0 Channel Voice events
 through ALSA sequencer. MIDI 2.0 Universal MIDI Packets, per-note controllers,
