@@ -276,7 +276,7 @@ pub fn captureTrackKindSwap(app: *App, track_idx: usize) ?undo_mod.Entry {
 /// group it named is gone. Unlike `spectrum.fxPtr`, this resolves the
 /// index baked into the entry rather than `app`'s current eq_track/
 /// eq_group cursor, so undo/redo apply correctly even from a different view.
-fn fxPtrFor(app: *App, target: undo_mod.FxTarget) ?*ws.Fx {
+pub fn fxPtrFor(app: *App, target: undo_mod.FxTarget) ?*ws.Fx {
     return switch (target) {
         .track => |t| if (t >= app.session.racks.items.len) null else &app.session.racks.items[t].fx,
         .master => &app.session.master_fx,
@@ -287,7 +287,7 @@ fn fxPtrFor(app: *App, target: undo_mod.FxTarget) ?*ws.Fx {
 /// Push a chain resync to the engine for a stored `FxTarget` - same idea as
 /// `spectrum.syncChain` but keyed off the entry's own index instead of
 /// `app`'s current cursor.
-fn syncFxTarget(app: *App, target: undo_mod.FxTarget) void {
+pub fn syncFxTarget(app: *App, target: undo_mod.FxTarget) void {
     switch (target) {
         .track => |t| if (t < app.session.racks.items.len) app.session.syncTrackChain(t, app.session.racks.items[t]),
         .master => app.session.syncMasterChain(),
@@ -296,7 +296,7 @@ fn syncFxTarget(app: *App, target: undo_mod.FxTarget) void {
 }
 
 /// Snapshot one FX chain's whole unit list (deep copy).
-fn captureFxRaw(app: *App, target: undo_mod.FxTarget) ?undo_mod.Entry {
+pub fn captureFxRaw(app: *App, target: undo_mod.FxTarget) ?undo_mod.Entry {
     const fx = fxPtrFor(app, target) orelse return null;
     const dup = fx.dupe(app.allocator, app.session.project.sample_rate) catch return null;
     return .{ .fx = .{ .target = target, .fx = dup } };

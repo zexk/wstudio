@@ -12,8 +12,11 @@ const ws_input = @import("wstudio").input;
 const theme_identity = @import("wstudio").theme_identity;
 const pattern_mod = @import("wstudio").dsp.pattern;
 const DrumMachine = @import("wstudio").dsp.DrumMachine;
+const ws_root = @import("wstudio");
 const cmd_mod = @import("ui/cmd.zig");
 const tui_app = @import("ui/app.zig");
+const undo_mod = @import("ui/undo.zig");
+const spectrum_ed = @import("ui/editors/spectrum.zig");
 
 const c = @cImport({
     @cInclude("lua.h");
@@ -65,6 +68,13 @@ const api_functions = [_]ApiFunction{
     .{ .name = "notes_set", .func = apiNotesSet },
     .{ .name = "steps_get", .func = apiStepsGet },
     .{ .name = "steps_set", .func = apiStepsSet },
+    .{ .name = "fx_list", .func = apiFxList },
+    .{ .name = "fx_add", .func = apiFxAdd },
+    .{ .name = "fx_del", .func = apiFxDel },
+    .{ .name = "fx_move", .func = apiFxMove },
+    .{ .name = "fx_set", .func = apiFxSet },
+    .{ .name = "fx_params", .func = apiFxParams },
+    .{ .name = "fx_param_set", .func = apiFxParamSet },
     .{ .name = "project_get", .func = apiProjectGet },
     .{ .name = "project_save", .func = apiProjectSave },
     .{ .name = "project_open", .func = apiProjectOpen },
@@ -1441,6 +1451,8 @@ fn apiGetInfo(state: ?*c.lua_State) callconv(.c) c_int {
     c.lua_setfield(l, -2, "drum_pads");
     c.lua_pushinteger(l, DrumMachine.max_steps);
     c.lua_setfield(l, -2, "drum_steps");
+    c.lua_pushinteger(l, ws_root.Fx.max_units);
+    c.lua_setfield(l, -2, "fx_units");
     c.lua_setfield(l, -2, "limits");
     return 1;
 }
@@ -2133,6 +2145,229 @@ fn apiStepsSet(state: ?*c.lua_State) callconv(.c) c_int {
     return 0;
 }
 
+// ---------------------------------------------------------------------------
+// FX chains and parameters (docs/lua-api.md phase 9).
+
+fn fxError(l: *c.lua_State, err: tui_app.App.ApiFxError) c_int {
+    return switch (err) {
+        error.NoChain => c.luaL_error(l, "no such FX chain"),
+        error.SlotOutOfRange => c.luaL_error(l, "FX slot out of range"),
+        error.ChainFull => c.luaL_error(l, "chain full (max %d units)", @as(c_int, ws_root.Fx.max_units)),
+        error.ClapNeedsPath => c.luaL_error(l, "CLAP plugins load from the plugin picker, not by kind name"),
+        error.OutOfMemory => c.luaL_error(l, "out of memory"),
+    };
+}
+
+const fx_kind_names: [:0]const u8 = blk: {
+    var out: [:0]const u8 = "";
+    for (@typeInfo(ws_root.FxKind).@"enum".fields, 0..) |f, i| {
+        out = out ++ (if (i == 0) "" else ", ") ++ f.name;
+    }
+    break :blk out;
+};
+
+/// A chain target: a track index (1-based, 0 = cursor track) for the common
+/// case, or `{ track = i }` / `{ master = true }` / `{ group = i }` for the
+/// buses. Resolved to the index-explicit form undo/redo already uses.
+fn checkFxTarget(l: *c.lua_State, arg: c_int, app: *tui_app.App) undo_mod.FxTarget {
+    if (c.lua_type(l, arg) != c.LUA_TTABLE) return .{ .track = @intCast(checkTrackIndex(l, arg, app)) };
+    var out: ?undo_mod.FxTarget = null;
+    c.lua_pushnil(l);
+    while (c.lua_next(l, arg) != 0) {
+        if (c.lua_type(l, -2) != c.LUA_TSTRING) {
+            _ = c.luaL_error(l, "target keys must be strings");
+            unreachable;
+        }
+        const key = std.mem.span(c.lua_tolstring(l, -2, null));
+        if (out != null) {
+            _ = c.luaL_error(l, "name exactly one of track, master, group");
+            unreachable;
+        }
+        if (std.mem.eql(u8, key, "master")) {
+            if (c.lua_toboolean(l, -1) != 0) out = .master;
+        } else if (std.mem.eql(u8, key, "track")) {
+            const n = c.luaL_checkinteger(l, -1);
+            if (n < 1 or n > app.session.project.tracks.items.len) {
+                _ = c.luaL_error(l, "track index out of range");
+                unreachable;
+            }
+            out = .{ .track = @intCast(n - 1) };
+        } else if (std.mem.eql(u8, key, "group")) {
+            const n = c.luaL_checkinteger(l, -1);
+            if (n < 1 or n > ws_root.engine.max_groups) {
+                _ = c.luaL_error(l, "group index out of range (1-%d)", @as(c_int, ws_root.engine.max_groups));
+                unreachable;
+            }
+            out = .{ .group = @intCast(n - 1) };
+        } else {
+            _ = c.luaL_error(l, "unknown target field '%s'", c.lua_tolstring(l, -2, null));
+            unreachable;
+        }
+        c.lua_settop(l, -2);
+    }
+    return out orelse {
+        _ = c.luaL_error(l, "target needs one of track, master, group");
+        unreachable;
+    };
+}
+
+/// 1-based Lua slot -> 0-based chain index. Bounds are the App's job, so
+/// that "which chain" and "which slot" report one consistent error.
+fn checkFxSlot(l: *c.lua_State, arg: c_int) usize {
+    const n = c.luaL_checkinteger(l, arg);
+    if (n < 1) {
+        _ = c.luaL_error(l, "FX slot out of range");
+        unreachable;
+    }
+    return @intCast(n - 1);
+}
+
+fn apiFxList(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const target = checkFxTarget(l, 1, app);
+    const fx = app.apiFxChain(target) catch |err| return fxError(l, err);
+    c.lua_createtable(l, @intCast(fx.units.items.len), 0);
+    for (fx.units.items, 1..) |unit, i| {
+        c.lua_createtable(l, 0, 4);
+        const kind = @tagName(unit.kind());
+        _ = c.lua_pushlstring(l, kind.ptr, kind.len);
+        c.lua_setfield(l, -2, "kind");
+        c.lua_pushboolean(l, @intFromBool(unit.bypassed));
+        c.lua_setfield(l, -2, "bypassed");
+        c.lua_pushinteger(l, unit.instance_id);
+        c.lua_setfield(l, -2, "instance_id");
+        c.lua_pushinteger(l, @intCast(spectrum_ed.visibleParamCount(app, unit.kind(), &unit.payload)));
+        c.lua_setfield(l, -2, "param_count");
+        c.lua_rawseti(l, -2, @intCast(i));
+    }
+    return 1;
+}
+
+fn apiFxAdd(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const target = checkFxTarget(l, 1, app);
+    const name = std.mem.span(c.luaL_checklstring(l, 2, null));
+    const kind = std.meta.stringToEnum(ws_root.FxKind, name) orelse
+        return c.luaL_error(l, "unknown FX kind (%s)", fx_kind_names.ptr);
+    var pos: usize = std.math.maxInt(usize); // clamped to the chain end
+    if (c.lua_gettop(l) >= 3 and c.lua_type(l, 3) != c.LUA_TNIL) {
+        c.luaL_checktype(l, 3, c.LUA_TTABLE);
+        switch (c.lua_getfield(l, 3, "pos")) {
+            c.LUA_TNIL => {},
+            c.LUA_TNUMBER => {
+                const n = c.lua_tointegerx(l, -1, null);
+                if (n < 1) return c.luaL_error(l, "pos must be 1 or more");
+                pos = @intCast(n - 1);
+            },
+            else => return c.luaL_error(l, "pos must be a number"),
+        }
+        c.lua_settop(l, -2);
+    }
+    const at = app.apiFxAdd(target, kind, pos) catch |err| return fxError(l, err);
+    c.lua_pushinteger(l, @intCast(at + 1));
+    return 1;
+}
+
+fn apiFxDel(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const target = checkFxTarget(l, 1, app);
+    app.apiFxDel(target, checkFxSlot(l, 2)) catch |err| return fxError(l, err);
+    return 0;
+}
+
+fn apiFxMove(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const target = checkFxTarget(l, 1, app);
+    const slot = checkFxSlot(l, 2);
+    const to = checkFxSlot(l, 3);
+    const at = app.apiFxMove(target, slot, to) catch |err| return fxError(l, err);
+    c.lua_pushinteger(l, @intCast(at + 1));
+    return 1;
+}
+
+fn apiFxSet(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const target = checkFxTarget(l, 1, app);
+    const slot = checkFxSlot(l, 2);
+    c.luaL_checktype(l, 3, c.LUA_TTABLE);
+    var bypassed: ?bool = null;
+    c.lua_pushnil(l);
+    while (c.lua_next(l, 3) != 0) {
+        if (c.lua_type(l, -2) != c.LUA_TSTRING) return c.luaL_error(l, "fx_set keys must be strings");
+        const key = std.mem.span(c.lua_tolstring(l, -2, null));
+        if (!std.mem.eql(u8, key, "bypassed")) return c.luaL_error(l, "unknown FX field '%s'", c.lua_tolstring(l, -2, null));
+        if (c.lua_type(l, -1) != c.LUA_TBOOLEAN) return c.luaL_error(l, "bypassed must be a boolean");
+        bypassed = c.lua_toboolean(l, -1) != 0;
+        c.lua_settop(l, -2);
+    }
+    if (bypassed) |on| app.apiFxBypass(target, slot, on) catch |err| return fxError(l, err);
+    return 0;
+}
+
+/// Every param of one unit, in the order the editor lays them out. Names
+/// repeat on `eq` and `mb_comp` (one set per band) and CLAP reports its own,
+/// so `fx_param_set` takes an index too - see docs/lua-api.md.
+fn apiFxParams(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const target = checkFxTarget(l, 1, app);
+    const slot = checkFxSlot(l, 2);
+    const fx = app.apiFxChain(target) catch |err| return fxError(l, err);
+    if (slot >= fx.units.items.len) return c.luaL_error(l, "FX slot out of range");
+    const unit = fx.units.items[slot];
+    const count = spectrum_ed.visibleParamCount(app, unit.kind(), &unit.payload);
+    c.lua_createtable(l, @intCast(count), 0);
+    var name_buf: [128]u8 = undefined;
+    for (0..count) |i| {
+        const range = spectrum_ed.paramRange(app, &unit.payload, i);
+        c.lua_createtable(l, 0, 5);
+        const name = spectrum_ed.formatParamName(&name_buf, &unit.payload, i);
+        _ = c.lua_pushlstring(l, name.ptr, name.len);
+        c.lua_setfield(l, -2, "name");
+        c.lua_pushnumber(l, spectrum_ed.getParam(&unit.payload, i));
+        c.lua_setfield(l, -2, "value");
+        c.lua_pushnumber(l, range[0]);
+        c.lua_setfield(l, -2, "min");
+        c.lua_pushnumber(l, range[1]);
+        c.lua_setfield(l, -2, "max");
+        c.lua_pushboolean(l, @intFromBool(spectrum_ed.isListParam(unit.kind(), i)));
+        c.lua_setfield(l, -2, "list");
+        c.lua_rawseti(l, -2, @intCast(i + 1));
+    }
+    return 1;
+}
+
+fn apiFxParamSet(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const target = checkFxTarget(l, 1, app);
+    const slot = checkFxSlot(l, 2);
+    const fx = app.apiFxChain(target) catch |err| return fxError(l, err);
+    if (slot >= fx.units.items.len) return c.luaL_error(l, "FX slot out of range");
+    const unit = fx.units.items[slot];
+    const count = spectrum_ed.visibleParamCount(app, unit.kind(), &unit.payload);
+
+    var param: usize = undefined;
+    if (c.lua_type(l, 3) == c.LUA_TSTRING) {
+        const wanted = std.mem.span(c.lua_tolstring(l, 3, null));
+        var name_buf: [128]u8 = undefined;
+        param = for (0..count) |i| {
+            if (std.mem.eql(u8, spectrum_ed.formatParamName(&name_buf, &unit.payload, i), wanted)) break i;
+        } else return c.luaL_error(l, "unknown param '%s'", c.lua_tolstring(l, 3, null));
+    } else {
+        param = checkFxSlot(l, 3);
+    }
+    const value = c.luaL_checknumber(l, 4);
+    if (!std.math.isFinite(value)) return c.luaL_error(l, "value must be finite");
+    app.apiFxParamSet(target, slot, param, @floatCast(value)) catch |err| return fxError(l, err);
+    return 0;
+}
+
 fn apiProjectGet(state: ?*c.lua_State) callconv(.c) c_int {
     const l = state.?;
     const app = requireApp(l);
@@ -2768,7 +3003,7 @@ test "api project functions raise before a session attaches" {
     try rt.loadString("local ok, err = pcall(wstudio.api.track_count); assert(ok == false and err:find('no session') ~= nil)");
     // The content surface needs a session just as much as the rest.
     try rt.loadString(
-        \\for _, name in ipairs({ 'pattern_get', 'notes_get', 'steps_get' }) do
+        \\for _, name in ipairs({ 'pattern_get', 'notes_get', 'steps_get', 'fx_list' }) do
         \\  local ok, err = pcall(wstudio.api[name], 1)
         \\  assert(ok == false and err:find('no session') ~= nil, name)
         \\end

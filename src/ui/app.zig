@@ -1786,6 +1786,99 @@ pub const App = struct {
         self.apiPatternChanged();
     }
 
+    // ------------------------------------------------------------------
+    // FX chains (docs/lua-api.md phase 9). Targets are `undo.FxTarget`, the
+    // index-explicit form undo/redo already uses, so none of this depends
+    // on which chain the user happens to have open - unlike the editor's
+    // own helpers, which resolve through `app.eq_track`/`app.eq_group`.
+
+    pub const ApiFxError = error{ NoChain, SlotOutOfRange, ChainFull, ClapNeedsPath, OutOfMemory };
+
+    pub fn apiFxChain(self: *App, target: undo_mod.FxTarget) ApiFxError!*ws.Fx {
+        return history.fxPtrFor(self, target) orelse error.NoChain;
+    }
+
+    fn apiFxUnit(self: *App, target: undo_mod.FxTarget, slot: usize) ApiFxError!*ws.FxUnit {
+        const fx = try self.apiFxChain(target);
+        if (slot >= fx.units.items.len) return error.SlotOutOfRange;
+        return fx.units.items[slot];
+    }
+
+    /// Insert at `pos` (clamped to the chain's current end) and return the
+    /// slot it landed in. Mirrors the picker's insert: capture first, push
+    /// the undo entry only if the insert actually took.
+    pub fn apiFxAdd(self: *App, target: undo_mod.FxTarget, kind: ws.FxKind, pos: usize) ApiFxError!usize {
+        const fx = try self.apiFxChain(target);
+        const at = @min(pos, fx.units.items.len);
+        history.flushFxNudge(self);
+        const before = history.captureFxRaw(self, target);
+        _ = fx.insert(self.session.allocator, at, kind, self.session.project.sample_rate) catch |err| {
+            history.pushFxIfOk(self, before, false);
+            return switch (err) {
+                error.ChainFull => error.ChainFull,
+                error.OutOfMemory => error.OutOfMemory,
+                error.ClapPluginRequiresPath => error.ClapNeedsPath,
+            };
+        };
+        history.pushFxIfOk(self, before, true);
+        self.dirty = true;
+        history.syncFxTarget(self, target);
+        return at;
+    }
+
+    pub fn apiFxDel(self: *App, target: undo_mod.FxTarget, slot: usize) ApiFxError!void {
+        const fx = try self.apiFxChain(target);
+        if (slot >= fx.units.items.len) return error.SlotOutOfRange;
+        history.flushFxNudge(self);
+        history.push(self, history.captureFxRaw(self, target));
+        fx.remove(self.session.allocator, slot);
+        if (self.fx_focus >= fx.units.items.len) self.fx_focus = fx.units.items.len -| 1;
+        history.syncFxTarget(self, target);
+    }
+
+    /// Adjacent swaps until the unit reaches `to`, the same walk the editor's
+    /// `[`/`]` does, so nothing that indexes chain slots can skip a step.
+    pub fn apiFxMove(self: *App, target: undo_mod.FxTarget, slot: usize, to: usize) ApiFxError!usize {
+        const fx = try self.apiFxChain(target);
+        if (slot >= fx.units.items.len or to >= fx.units.items.len) return error.SlotOutOfRange;
+        if (slot == to) return slot;
+        history.flushFxNudge(self);
+        history.push(self, history.captureFxRaw(self, target));
+        var at = slot;
+        while (at < to) : (at += 1) fx.swap(at, at + 1);
+        while (at > to) : (at -= 1) fx.swap(at, at - 1);
+        history.syncFxTarget(self, target);
+        return to;
+    }
+
+    pub fn apiFxBypass(self: *App, target: undo_mod.FxTarget, slot: usize, on: bool) ApiFxError!void {
+        const unit = try self.apiFxUnit(target, slot);
+        if (unit.bypassed == on) return;
+        history.flushFxNudge(self);
+        history.push(self, history.captureFxRaw(self, target));
+        unit.bypassed = on;
+        history.syncFxTarget(self, target);
+    }
+
+    /// Param count for a unit, narrowed the same way the editor narrows it
+    /// (CLAP reports its own count; `comp`'s scpad row only exists when the
+    /// sidechain track is a drum machine).
+    pub fn apiFxParamCount(self: *App, target: undo_mod.FxTarget, slot: usize) ApiFxError!usize {
+        const unit = try self.apiFxUnit(target, slot);
+        return spectrum_ed.visibleParamCount(self, unit.kind(), &unit.payload);
+    }
+
+    /// Values are clamped to the param's range by the same setter the editor
+    /// nudges through, so a script can't push a unit somewhere the UI can't.
+    pub fn apiFxParamSet(self: *App, target: undo_mod.FxTarget, slot: usize, param: usize, value: f32) ApiFxError!void {
+        const unit = try self.apiFxUnit(target, slot);
+        if (param >= spectrum_ed.visibleParamCount(self, unit.kind(), &unit.payload)) return error.SlotOutOfRange;
+        history.flushFxNudge(self);
+        history.push(self, history.captureFxRaw(self, target));
+        spectrum_ed.setParam(self, &unit.payload, param, value);
+        history.syncFxTarget(self, target);
+    }
+
     pub fn apiProjectSave(self: *App, requested_path: []const u8) !void {
         var path_buf: [reload_path_buf_len]u8 = undefined;
         const source = if (requested_path.len > 0) requested_path else self.projectPath() orelse self.defaultProjectPath();

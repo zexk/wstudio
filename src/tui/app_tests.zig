@@ -7669,6 +7669,60 @@ test "wstudio.api reads and replaces drum grid content" {
     try rt.loadString("wstudio.api.pattern_set(3, { length_beats = 2 }); assert(wstudio.api.pattern_get(3).step_count == 8)");
 }
 
+test "wstudio.api builds and tunes FX chains" {
+    var app = try testApp();
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.tui);
+    defer rt.deinit();
+    rt.app = &app;
+    app.lua_runtime = &rt;
+    const chain = &app.session.racks.items[0].fx;
+
+    // A bare integer targets a track; the buses need the opts table.
+    try rt.loadString("assert(#wstudio.api.fx_list(1) == 0 and #wstudio.api.fx_list({ master = true }) == 0)");
+    try rt.loadString("assert(wstudio.api.fx_add(1, 'sat') == 1)");
+    try rt.loadString("assert(wstudio.api.fx_add(1, 'delay') == 2)");
+    try rt.loadString("assert(wstudio.api.fx_add(1, 'reverb', { pos = 1 }) == 1)");
+    try std.testing.expectEqual(@as(usize, 3), chain.units.items.len);
+    try rt.loadString(
+        \\f = wstudio.api.fx_list(1)
+        \\assert(#f == 3 and f[1].kind == 'reverb' and f[2].kind == 'sat' and f[3].kind == 'delay')
+        \\assert(f[2].bypassed == false and f[2].param_count == 3 and f[2].instance_id ~= f[3].instance_id)
+    );
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.fx_add(1, 'nope')"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.fx_add(1, 'clap')"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.fx_list({ group = 1 })"));
+
+    // Params come back named, with their ranges; set takes name or index.
+    try rt.loadString(
+        \\p = wstudio.api.fx_params(1, 2)
+        \\assert(#p == 3 and p[1].name == 'drive' and p[1].min == 0.0 and p[1].max == 36.0 and p[1].list == false)
+    );
+    try rt.loadString("wstudio.api.fx_param_set(1, 2, 'drive', 12); assert(wstudio.api.fx_params(1, 2)[1].value == 12.0)");
+    try rt.loadString("wstudio.api.fx_param_set(1, 2, 3, 0.25); assert(wstudio.api.fx_params(1, 2)[3].value == 0.25)");
+    // Out of range clamps, exactly as the editor's own h/l nudge does.
+    try rt.loadString("wstudio.api.fx_param_set(1, 2, 'drive', 999); assert(wstudio.api.fx_params(1, 2)[1].value == 36.0)");
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.fx_param_set(1, 2, 'nope', 1)"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.fx_param_set(1, 2, 9, 1)"));
+
+    // Structural edits: bypass, reorder, remove - each its own undo entry.
+    try rt.loadString("wstudio.api.fx_set(1, 1, { bypassed = true }); assert(wstudio.api.fx_list(1)[1].bypassed)");
+    try std.testing.expect(chain.units.items[0].bypassed);
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.fx_set(1, 1, { bogus = true })"));
+    try rt.loadString("assert(wstudio.api.fx_move(1, 1, 3) == 3)");
+    try rt.loadString("f = wstudio.api.fx_list(1); assert(f[1].kind == 'sat' and f[3].kind == 'reverb')");
+    history.doUndo(&app);
+    try rt.loadString("f = wstudio.api.fx_list(1); assert(f[1].kind == 'reverb')");
+    try rt.loadString("wstudio.api.fx_del(1, 1); assert(#wstudio.api.fx_list(1) == 2)");
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.fx_del(1, 9)"));
+
+    // The master bus takes the same calls without disturbing the track chain.
+    try rt.loadString("wstudio.api.fx_add({ master = true }, 'comp'); assert(#wstudio.api.fx_list({ master = true }) == 1)");
+    try std.testing.expectEqual(@as(usize, 1), app.session.master_fx.units.items.len);
+    try std.testing.expectEqual(@as(usize, 2), chain.units.items.len);
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.fx_list({ bogus = 1 })"));
+}
+
 test "applyUserConfig plumbs the round-2 options" {
     var app = try testApp();
     defer app.deinit();
