@@ -95,6 +95,7 @@ programs.wstudio = {
 
 - [docs/](docs/README.md) - editing grammar, UI conventions, undo/redo,
   and GUI color identity
+- [CHANGELOG.md](CHANGELOG.md) - what changed in each release
 - [FORMAT.md](FORMAT.md) - the `.wsj` save format and its version history
 - [CONTRIBUTING.md](CONTRIBUTING.md) - bug reports and development setup
 
