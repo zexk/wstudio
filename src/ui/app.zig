@@ -4178,7 +4178,7 @@ pub const App = struct {
             stem = stem_buf[0..len];
         }
 
-        var match_idx: [64]usize = undefined;
+        var match_idx: [cmds_cap]usize = undefined;
         var match_count: usize = 0;
         var has_prefix = false;
         if (source == .command_name) for (values) |v| {
