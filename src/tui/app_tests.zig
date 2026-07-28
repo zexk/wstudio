@@ -7363,3 +7363,33 @@ test "a loop too long for the u16 step grid draws and edits instead of panicking
     app.handleKey(.{ .char = 'l' }, 0);
     app.handleKey(.{ .char = 'G' }, 0);
 }
+
+test ":track-instrument leaves an editor open on the track it just swapped" {
+    var app = try testApp();
+    defer app.deinit();
+    _ = try app.session.addTrack("slice");
+    try app.session.setInstrument(3, .slicer);
+
+    // Slicer grid open on track 4, swapped to a synth from the command line:
+    // the view has to drop back to tracks, or the next keypress reads
+    // `instrument.slicer` on a rack holding a poly_synth.
+    app.slicer_track = 3;
+    app.view = .slicer_grid;
+    commands.run(&app, "track-instrument 4 synth");
+    try std.testing.expectEqual(app_mod.AppView.tracks, app.view);
+    app.handleKey(.{ .char = 'j' }, 0);
+
+    // Same for the drum grid, and for a sampler editor pointed at a pad of
+    // the machine that's going away.
+    try app.session.setInstrument(3, .drum_machine);
+    app.drum_track = 3;
+    app.view = .drum_grid;
+    commands.run(&app, "track-instrument 4 sampler");
+    try std.testing.expectEqual(app_mod.AppView.tracks, app.view);
+
+    try app.session.setInstrument(3, .drum_machine);
+    app.sampler_target = .{ .drum = 3 };
+    app.view = .sampler_editor;
+    commands.run(&app, "track-instrument 4 synth");
+    try std.testing.expectEqual(app_mod.AppView.tracks, app.view);
+}
