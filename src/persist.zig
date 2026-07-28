@@ -684,7 +684,6 @@ pub const FxUnitSnap = struct {
     kind: FxKind,
     instance_id: u32 = 0,
     bypassed: bool = false,
-    preset_owned: bool = false,
     comp: ?CompSnap = null,
     mb_comp: ?MultibandCompSnap = null,
     ott: ?OttSnap = null,
@@ -1272,7 +1271,6 @@ pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]Fx
             .freq_shift => |f| .{ .kind = .freq_shift, .freq_shift = snapFromDevice(FreqShiftSnap, f) },
             .clap => |plugin| .{ .kind = .clap, .clap = try clapToSnap(aa, plugin) },
         };
-        us.preset_owned = u.preset_owned;
         us.bypassed = u.bypassed;
         us.instance_id = u.instance_id;
     }
@@ -2024,7 +2022,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         if (rs.fx_chain) |fc| try applyFxChain(allocator, &rack.fx, fc, sr, &engine.transport)
         else try applyLegacyFx(allocator, &rack.fx, rs.fx, sr, &engine.transport);
         if (rack.instrument == .poly_synth)
-            try migrateSynthFx(allocator, &rack.instrument.poly_synth, &rack.fx, sr, false);
+            try migrateSynthFx(allocator, &rack.instrument.poly_synth, &rack.fx, sr);
         try racks.append(allocator, rack);
     }
     // zig fmt: on
@@ -2518,7 +2516,6 @@ pub fn applyFxChain(
             },
         };
         unit.bypassed = us.bypassed;
-        unit.preset_owned = us.preset_owned;
         if (us.instance_id != 0 and fx_out.findInstance(us.instance_id) == null) {
             unit.instance_id = us.instance_id;
             if (fx_out.next_instance_id <= us.instance_id) {
@@ -2597,7 +2594,7 @@ pub fn applyFxChain(
 
 /// Move old synth-owned inserts into Rack's shared modular chain. Insert at
 /// chain front because legacy signal flow was synth inserts, then rack FX.
-fn migrateSynthFx(allocator: std.mem.Allocator, s: *PolySynth, fx: *Fx, sr: u32, preset_owned: bool) !void {
+fn migrateSynthFx(allocator: std.mem.Allocator, s: *PolySynth, fx: *Fx, sr: u32) !void {
     var pos: usize = 0;
     for (s.fx_order) |kind| {
         const enabled = switch (kind) {
@@ -2624,7 +2621,6 @@ fn migrateSynthFx(allocator: std.mem.Allocator, s: *PolySynth, fx: *Fx, sr: u32,
             .freq_shift => .freq_shift, .delay => .delay, .reverb => .reverb,
         };
         const unit = try fx.insert(allocator, pos, rack_kind, sr);
-        unit.preset_owned = preset_owned;
         for (&s.mod_matrix) |*row| {
             if (row.fx_instance_id == 0 and fxKindOwnsParam(kind, row.dest))
                 row.fx_instance_id = unit.instance_id;
@@ -2773,7 +2769,7 @@ pub fn applySynthPatch(
     const original = synth.toPatch();
     synth.applyPatch(patch);
     var replacement: Fx = .{};
-    migrateSynthFx(allocator, synth, &replacement, sr, false) catch |err| {
+    migrateSynthFx(allocator, synth, &replacement, sr) catch |err| {
         replacement.deinit(allocator);
         synth.applyPatch(original);
         return err;

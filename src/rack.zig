@@ -172,8 +172,6 @@ pub const FxUnit = struct {
     instance_id: u32,
     /// Bypassed units keep their state but are skipped by `chain()`.
     bypassed: bool = false,
-    /// Unit came from a synth preset recipe. Next synth preset replaces it.
-    preset_owned: bool = false,
     mod_bus: ?*const FxModBus = null,
 
     pub fn kind(self: *const FxUnit) FxKind {
@@ -361,14 +359,6 @@ pub const Fx = struct {
         allocator.destroy(unit);
     }
 
-    pub fn removePresetUnits(self: *Fx, allocator: std.mem.Allocator) void {
-        var i: usize = self.units.items.len;
-        while (i > 0) {
-            i -= 1;
-            if (self.units.items[i].preset_owned) self.remove(allocator, i);
-        }
-    }
-
     /// Swap two slots' positions. Unit memory never moves, so the engine's
     /// device pointers stay valid; re-sync the chain to apply the new order.
     pub fn swap(self: *Fx, a: usize, b: usize) void {
@@ -443,7 +433,6 @@ pub const Fx = struct {
                 .payload = try u.payload.dupe(allocator, sr),
                 .instance_id = u.instance_id,
                 .bypassed = u.bypassed,
-                .preset_owned = u.preset_owned,
             };
             errdefer nu.payload.deinit(allocator);
             try out.units.append(allocator, nu);
