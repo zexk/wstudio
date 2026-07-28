@@ -175,12 +175,7 @@ pub fn captureLanesOf(app: *App, tracks: []const u16) ?undo_mod.Entry {
         list.deinit(app.allocator);
         return null;
     }
-    const owned = list.toOwnedSlice(app.allocator) catch {
-        for (list.items) |*l| l.deinit(app.allocator);
-        list.deinit(app.allocator);
-        return null;
-    };
-    return .{ .lanes = .{ .lanes = owned } };
+    return .{ .lanes = .{ .lanes = list } };
 }
 
 /// `captureLanesOf` over a contiguous lane band - what a visual-mode range
@@ -535,12 +530,13 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             // describe lanes this apply has already overwritten. Bailing on
             // OOM leaves the entry untouched on its stack, same as every
             // other `orelse return null` here.
-            const tracks = app.allocator.alloc(u16, ml.lanes.len) catch return null;
+            const tracks = app.allocator.alloc(u16, ml.lanes.items.len) catch return null;
             defer app.allocator.free(tracks);
-            for (ml.lanes, tracks) |l, *t| t.* = l.track;
+            for (ml.lanes.items, tracks) |l, *t| t.* = l.track;
             const displaced = captureLanesOf(app, tracks) orelse return null;
-            for (ml.lanes) |l| restoreLane(app, l);
-            app.allocator.free(ml.lanes);
+            for (ml.lanes.items) |l| restoreLane(app, l);
+            var owned = ml.lanes;
+            owned.deinit(app.allocator);
             if (app.session.song_mode) app.session.rebuildSongData();
             return displaced;
         },

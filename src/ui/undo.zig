@@ -82,11 +82,14 @@ pub const LaneState = struct {
 /// linewise (`V`) visual range spanning every lane - undoes in a single
 /// step instead of one `u` per lane.
 pub const MultiLaneState = struct {
-    lanes: []LaneState, // owned, as is each lane's clips
+    /// A list rather than a plain slice because `retargetStack` drops the
+    /// lanes a deleted track took with it - shrinking an owned slice and
+    /// then freeing the shortened one is an invalid free.
+    lanes: std.ArrayListUnmanaged(LaneState), // owned, as is each lane's clips
 
     pub fn deinit(self: *MultiLaneState, allocator: std.mem.Allocator) void {
-        for (self.lanes) |*l| l.deinit(allocator);
-        allocator.free(self.lanes);
+        for (self.lanes.items) |*l| l.deinit(allocator);
+        self.lanes.deinit(allocator);
     }
 };
 
@@ -397,14 +400,14 @@ fn retargetStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Alloc
             // lanes' snapshots, which are still perfectly restorable.
             .lanes => |*ml| {
                 var kept: usize = 0;
-                for (ml.lanes) |*l| {
+                for (ml.lanes.items) |*l| {
                     if (remap.apply(l.track)) |nt| {
                         l.track = nt;
-                        ml.lanes[kept] = l.*;
+                        ml.lanes.items[kept] = l.*;
                         kept += 1;
                     } else l.deinit(allocator);
                 }
-                ml.lanes = ml.lanes[0..kept];
+                ml.lanes.shrinkRetainingCapacity(kept);
                 if (kept == 0) keep = false;
             },
             .param_nudge => |*p| if (remap.apply(p.track)) |nt| { p.track = nt; } else { keep = false; },
@@ -497,6 +500,29 @@ test "retarget delete drops the deleted track's entry and shifts later ones down
     // Original tracks 1 and 2 both shift down by one.
     try std.testing.expectEqual(@as(u16, 0), h.undo_stack.items[0].melodic.track);
     try std.testing.expectEqual(@as(u16, 1), h.undo_stack.items[1].melodic.track);
+}
+
+test "retarget shrinks a multi-lane entry without corrupting its allocation" {
+    const a = std.testing.allocator;
+    var h: History = .{};
+    defer h.deinit(a);
+
+    var lanes: std.ArrayListUnmanaged(LaneState) = .empty;
+    for ([_]u16{ 0, 1, 2 }) |track| {
+        const clips = try a.alloc(Clip, 1);
+        clips[0] = Clip.initDrum(0, 4, .{ .step_count = 16 });
+        try lanes.append(a, .{ .track = track, .clips = clips });
+    }
+    h.push(a, .{ .lanes = .{ .lanes = lanes } });
+
+    // Deleting track 1 drops that lane and shifts track 2 down; the entry
+    // survives on its two remaining lanes. `deinit` below then frees the
+    // list, which is the half that used to be an invalid free.
+    try std.testing.expectEqual(@as(usize, 0), h.retarget(a, .{ .delete = 1 }));
+    const kept = h.undo_stack.items[0].lanes.lanes.items;
+    try std.testing.expectEqual(@as(usize, 2), kept.len);
+    try std.testing.expectEqual(@as(u16, 0), kept[0].track);
+    try std.testing.expectEqual(@as(u16, 1), kept[1].track);
 }
 
 test "retarget swap exchanges two entries' track indices, drops nothing" {
