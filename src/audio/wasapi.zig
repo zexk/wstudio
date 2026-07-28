@@ -323,16 +323,20 @@ pub const WasapiCapture = struct {
                 var flags: c.DWORD = 0;
                 if (!ok(c.IAudioCaptureClient_GetBuffer(capture_client, &data, &frames_avail, &flags, null, null))) break;
 
-                var block: CaptureBlock = .{};
-                const n = @min(frames_avail, capture_types.chunk_frames);
-                if (flags & c.AUDCLNT_BUFFERFLAGS_SILENT != 0) {
-                    @memset(block.samples[0..n], 0.0);
-                } else {
-                    const src: [*]const f32 = @ptrCast(@alignCast(data));
-                    @memcpy(block.samples[0..n], src[0..n]);
+                var offset: u32 = 0;
+                while (offset < frames_avail) {
+                    var block: CaptureBlock = .{};
+                    const n = @min(capture_types.chunk_frames, frames_avail - offset);
+                    if (flags & c.AUDCLNT_BUFFERFLAGS_SILENT != 0) {
+                        @memset(block.samples[0..n], 0.0);
+                    } else {
+                        const src: [*]const f32 = @ptrCast(@alignCast(data));
+                        @memcpy(block.samples[0..n], src[offset..][0..n]);
+                    }
+                    block.frames = n;
+                    _ = self.queue.push(block);
+                    offset += n;
                 }
-                block.frames = n;
-                _ = self.queue.push(block);
 
                 _ = c.IAudioCaptureClient_ReleaseBuffer(capture_client, frames_avail);
             }
