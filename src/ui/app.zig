@@ -1879,6 +1879,55 @@ pub const App = struct {
         history.syncFxTarget(self, target);
     }
 
+    // ------------------------------------------------------------------
+    // Arrangement clips and sections (docs/lua-api.md phase 10). Clips are
+    // stamped from the track's live pattern, the same way the arrangement
+    // editor's `enter` does - a script builds the pattern with the phase-8
+    // functions, then places it.
+
+    pub const ApiClipError = error{ NoLane, NoClip, NothingToStamp, OutOfMemory };
+
+    pub fn apiLane(self: *App, idx: usize) ApiClipError!*ws.arrangement.Lane {
+        return self.session.arrangement.lane(idx) orelse error.NoLane;
+    }
+
+    pub fn apiClipAdd(self: *App, idx: usize, start_bar: u32) ApiClipError!void {
+        _ = try self.apiLane(idx);
+        // The same length the editor previews before stamping; 0 means the
+        // track has no instrument (or no pattern), so nothing would land.
+        if (self.session.stampLengthTicks(idx) == 0) return error.NothingToStamp;
+        history.recordLane(self, @intCast(idx));
+        self.session.stampClip(idx, start_bar) catch return error.OutOfMemory;
+        self.apiPatternChanged();
+    }
+
+    pub fn apiClipDel(self: *App, idx: usize, bar: u32) ApiClipError!void {
+        const lane = try self.apiLane(idx);
+        const at = ws.time_grid.barTicks(self.session.project.beats_per_bar) *| bar;
+        if (lane.clipAt(at) == null) return error.NoClip;
+        history.recordLane(self, @intCast(idx));
+        _ = lane.removeAt(self.allocator, at);
+        self.apiPatternChanged();
+    }
+
+    pub fn apiClipClear(self: *App, idx: usize) ApiClipError!void {
+        const lane = try self.apiLane(idx);
+        history.recordLane(self, @intCast(idx));
+        lane.clear(self.allocator);
+        self.apiPatternChanged();
+    }
+
+    pub fn apiSectionSet(self: *App, at: u32, name: []const u8) !void {
+        try self.session.project.setSection(at, name);
+        self.dirty = true;
+    }
+
+    pub fn apiSectionDel(self: *App, at: u32) bool {
+        if (!self.session.project.removeSection(at)) return false;
+        self.dirty = true;
+        return true;
+    }
+
     pub fn apiProjectSave(self: *App, requested_path: []const u8) !void {
         var path_buf: [reload_path_buf_len]u8 = undefined;
         const source = if (requested_path.len > 0) requested_path else self.projectPath() orelse self.defaultProjectPath();

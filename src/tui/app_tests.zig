@@ -7723,6 +7723,57 @@ test "wstudio.api builds and tunes FX chains" {
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.fx_list({ bogus = 1 })"));
 }
 
+test "wstudio.api stamps arrangement clips and names sections" {
+    var app = try testApp();
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.tui);
+    defer rt.deinit();
+    rt.app = &app;
+    app.lua_runtime = &rt;
+
+    // A track with no instrument has nothing to place.
+    try rt.loadString("assert(#wstudio.api.clip_list(1) == 0)");
+    try app.session.setInstrument(1, .empty);
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.clip_add(2, 1)"));
+    try app.session.setInstrument(1, .sampler);
+    try rt.loadString("wstudio.api.notes_set(1, { { pitch = 60, duration_beat = 4 } })");
+    try rt.loadString("wstudio.api.clip_add(1, 1); wstudio.api.clip_add(1, 3)");
+    try rt.loadString(
+        \\cl = wstudio.api.clip_list(1)
+        \\assert(#cl == 2 and cl[1].start_bar == 1 and cl[2].start_bar == 3)
+        \\assert(cl[1].kind == 'melodic' and cl[1].length_bars == 1 and cl[1].start_tick == 0)
+        \\assert(cl[2].start_tick == 256) -- 2 bars * 4 beats * 32 ticks
+    );
+    try std.testing.expectEqual(@as(usize, 2), app.session.arrangement.lane(0).?.clips.items.len);
+    try std.testing.expect(app.dirty);
+
+    // A drum track stamps its grid as a drum clip.
+    try rt.loadString("wstudio.api.steps_set(3, { { pad = 1, step = 1 } }); wstudio.api.clip_add(3, 1)");
+    try rt.loadString("assert(wstudio.api.clip_list(3)[1].kind == 'drum')");
+
+    // Delete by the bar the clip covers; undo puts it back.
+    try rt.loadString("wstudio.api.clip_del(1, 3); assert(#wstudio.api.clip_list(1) == 1)");
+    history.doUndo(&app);
+    try rt.loadString("assert(#wstudio.api.clip_list(1) == 2)");
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.clip_del(1, 9)"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.clip_add(1, 0)"));
+    try rt.loadString("wstudio.api.clip_clear(1); assert(#wstudio.api.clip_list(1) == 0)");
+
+    // Sections are placed in beats, and read back with their exact tick.
+    try rt.loadString("assert(#wstudio.api.section_list() == 0)");
+    try rt.loadString("wstudio.api.section_set(0, 'intro'); wstudio.api.section_set(8, 'verse')");
+    try rt.loadString(
+        \\s = wstudio.api.section_list()
+        \\assert(#s == 2 and s[1].name == 'intro' and s[1].beat == 0.0 and s[1].tick == 0)
+        \\assert(s[2].name == 'verse' and s[2].beat == 8.0 and s[2].tick == 256)
+    );
+    try rt.loadString("wstudio.api.section_set(0, 'top'); assert(wstudio.api.section_list()[1].name == 'top')");
+    try rt.loadString("wstudio.api.section_del(8); assert(#wstudio.api.section_list() == 1)");
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.section_del(8)"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.section_set(0, '')"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.section_set(-1, 'nope')"));
+}
+
 test "applyUserConfig plumbs the round-2 options" {
     var app = try testApp();
     defer app.deinit();

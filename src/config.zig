@@ -75,6 +75,13 @@ const api_functions = [_]ApiFunction{
     .{ .name = "fx_set", .func = apiFxSet },
     .{ .name = "fx_params", .func = apiFxParams },
     .{ .name = "fx_param_set", .func = apiFxParamSet },
+    .{ .name = "clip_list", .func = apiClipList },
+    .{ .name = "clip_add", .func = apiClipAdd },
+    .{ .name = "clip_del", .func = apiClipDel },
+    .{ .name = "clip_clear", .func = apiClipClear },
+    .{ .name = "section_list", .func = apiSectionList },
+    .{ .name = "section_set", .func = apiSectionSet },
+    .{ .name = "section_del", .func = apiSectionDel },
     .{ .name = "project_get", .func = apiProjectGet },
     .{ .name = "project_save", .func = apiProjectSave },
     .{ .name = "project_open", .func = apiProjectOpen },
@@ -2368,6 +2375,126 @@ fn apiFxParamSet(state: ?*c.lua_State) callconv(.c) c_int {
     return 0;
 }
 
+// ---------------------------------------------------------------------------
+// Arrangement clips and sections (docs/lua-api.md phase 10).
+
+fn clipError(l: *c.lua_State, err: tui_app.App.ApiClipError) c_int {
+    return switch (err) {
+        error.NoLane => c.luaL_error(l, "the track has no arrangement lane"),
+        error.NoClip => c.luaL_error(l, "no clip at that bar"),
+        error.NothingToStamp => c.luaL_error(l, "the track has no pattern to stamp"),
+        error.OutOfMemory => c.luaL_error(l, "out of memory"),
+    };
+}
+
+/// Bars are the 1-based labels the arrangement view draws, like loop bars.
+fn checkBar(l: *c.lua_State, arg: c_int) u32 {
+    const n = c.luaL_checkinteger(l, arg);
+    if (n < 1 or n > std.math.maxInt(u32)) {
+        _ = c.luaL_error(l, "bar must be 1 or more");
+        unreachable;
+    }
+    return @intCast(n - 1);
+}
+
+fn apiClipList(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const idx = checkTrackIndex(l, 1, app);
+    const lane = app.apiLane(idx) catch |err| return clipError(l, err);
+    const bar_ticks = ws_root.time_grid.barTicks(app.session.project.beats_per_bar);
+    c.lua_createtable(l, @intCast(lane.clips.items.len), 0);
+    for (lane.clips.items, 1..) |clip, i| {
+        c.lua_createtable(l, 0, 5);
+        c.lua_pushinteger(l, clip.start_tick / bar_ticks + 1);
+        c.lua_setfield(l, -2, "start_bar");
+        c.lua_pushinteger(l, @max(clip.length_ticks / bar_ticks, 1));
+        c.lua_setfield(l, -2, "length_bars");
+        c.lua_pushinteger(l, clip.start_tick);
+        c.lua_setfield(l, -2, "start_tick");
+        c.lua_pushinteger(l, clip.length_ticks);
+        c.lua_setfield(l, -2, "length_ticks");
+        const kind = @tagName(std.meta.activeTag(clip.content));
+        _ = c.lua_pushlstring(l, kind.ptr, kind.len);
+        c.lua_setfield(l, -2, "kind");
+        c.lua_rawseti(l, -2, @intCast(i));
+    }
+    return 1;
+}
+
+fn apiClipAdd(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const idx = checkTrackIndex(l, 1, app);
+    app.apiClipAdd(idx, checkBar(l, 2)) catch |err| return clipError(l, err);
+    return 0;
+}
+
+fn apiClipDel(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const idx = checkTrackIndex(l, 1, app);
+    app.apiClipDel(idx, checkBar(l, 2)) catch |err| return clipError(l, err);
+    return 0;
+}
+
+fn apiClipClear(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const idx = checkTrackIndex(l, 1, app);
+    app.apiClipClear(idx) catch |err| return clipError(l, err);
+    return 0;
+}
+
+/// Sections sit on the arrangement's own tick grid, not on bar boundaries
+/// (`:section` places one wherever the grid cursor is), so they are
+/// addressed in beats - the same zero-based unit `transport_get` reports.
+fn checkSectionTick(l: *c.lua_State, arg: c_int) u32 {
+    const beats = c.luaL_checknumber(l, arg);
+    const ticks = beats * @as(f64, @floatFromInt(ws_root.time_grid.ticks_per_beat));
+    if (!std.math.isFinite(beats) or beats < 0 or ticks > @as(f64, std.math.maxInt(u32))) {
+        _ = c.luaL_error(l, "beat is out of range");
+        unreachable;
+    }
+    return @intFromFloat(@round(ticks));
+}
+
+fn apiSectionList(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const sections = app.session.project.sections.items;
+    c.lua_createtable(l, @intCast(sections.len), 0);
+    for (sections, 1..) |section, i| {
+        c.lua_createtable(l, 0, 3);
+        _ = c.lua_pushlstring(l, section.name.ptr, section.name.len);
+        c.lua_setfield(l, -2, "name");
+        c.lua_pushnumber(l, ws_root.time_grid.tickToBeat(section.tick));
+        c.lua_setfield(l, -2, "beat");
+        c.lua_pushinteger(l, section.tick);
+        c.lua_setfield(l, -2, "tick");
+        c.lua_rawseti(l, -2, @intCast(i));
+    }
+    return 1;
+}
+
+fn apiSectionSet(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const tick = checkSectionTick(l, 1);
+    var len: usize = 0;
+    const name = c.luaL_checklstring(l, 2, &len);
+    if (len == 0) return c.luaL_error(l, "section name cannot be empty");
+    app.apiSectionSet(tick, name[0..len]) catch return c.luaL_error(l, "out of memory");
+    return 0;
+}
+
+fn apiSectionDel(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    if (!app.apiSectionDel(checkSectionTick(l, 1))) return c.luaL_error(l, "no section at that beat");
+    return 0;
+}
+
 fn apiProjectGet(state: ?*c.lua_State) callconv(.c) c_int {
     const l = state.?;
     const app = requireApp(l);
@@ -3003,7 +3130,7 @@ test "api project functions raise before a session attaches" {
     try rt.loadString("local ok, err = pcall(wstudio.api.track_count); assert(ok == false and err:find('no session') ~= nil)");
     // The content surface needs a session just as much as the rest.
     try rt.loadString(
-        \\for _, name in ipairs({ 'pattern_get', 'notes_get', 'steps_get', 'fx_list' }) do
+        \\for _, name in ipairs({ 'pattern_get', 'notes_get', 'steps_get', 'fx_list', 'clip_list', 'section_list' }) do
         \\  local ok, err = pcall(wstudio.api[name], 1)
         \\  assert(ok == false and err:find('no session') ~= nil, name)
         \\end
