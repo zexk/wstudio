@@ -94,7 +94,13 @@ pub const MidiIn = struct {
     fn feed(self: *MidiIn, bytes: []const u8) void {
         var offset: usize = 0;
         while (offset < bytes.len) {
-            const result = self.parser.feed(bytes[offset..]) orelse break;
+            const result = self.parser.feed(bytes[offset..]) orelse {
+                var next = offset + 1;
+                while (next < bytes.len and bytes[next] & 0x80 == 0) next += 1;
+                if (next == bytes.len) break;
+                offset = next;
+                continue;
+            };
             offset += result.consumed;
             self.dispatch(result.msg);
         }
@@ -130,4 +136,13 @@ test "CoreMIDI packet bytes audition and queue notes" {
     midi_in.feed(&.{ 0x90, 64, 100, 65, 80 });
     try std.testing.expectEqual(@as(?MidiIn.RecNote, .{ .pitch = 64, .vel = 100 }), midi_in.note_queue.pop());
     try std.testing.expectEqual(@as(?MidiIn.RecNote, .{ .pitch = 65, .vel = 80 }), midi_in.note_queue.pop());
+}
+
+test "CoreMIDI packet keeps channel messages after unsupported system common" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    var midi_in: MidiIn = .{ .engine = &engine };
+
+    midi_in.feed(&.{ 0xF1, 0, 0x90, 64, 100 });
+    try std.testing.expectEqual(@as(?MidiIn.RecNote, .{ .pitch = 64, .vel = 100 }), midi_in.note_queue.pop());
 }
