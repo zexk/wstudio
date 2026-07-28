@@ -110,8 +110,8 @@ fn drawSlot(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index:
     const selected = app.core.fx_focus == index;
     const draw_list = zgui.getWindowDrawList();
     const accent = if (unit.bypassed) theme.fg3 else kindAccent(unit.kind());
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 36 }, .col = color(if (selected) theme.bg4 else if (hovered) theme.bg3 else theme.bg2), .rounding = 3 });
-    draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 36 }, .col = color(if (selected) theme.focus else theme.line), .rounding = 3, .thickness = if (selected) 2 else 1 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 36 }, .col = color(if (selected) theme.bg4 else if (hovered) theme.bg3 else theme.bg2), .rounding = style.item_rounding });
+    draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 36 }, .col = color(if (selected) theme.focus else theme.line), .rounding = style.item_rounding, .thickness = if (selected) 2 else 1 });
     draw_list.addText(.{ origin[0] + 8, origin[1] + 9 }, color(if (unit.bypassed) theme.fg3 else theme.fg0), "{s}", .{spectrum_ed.stripLabel(unit.kind())});
     draw_list.addCircleFilled(.{ .p = .{ origin[0] + width - 11, origin[1] + 18 }, .r = 3.5, .col = color(accent) });
     if (clicked and !selected) spectrum_ed.setFocus(&app.core, target, index);
@@ -157,7 +157,7 @@ fn drawEffectDisplay(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUni
     _ = zgui.invisibleButton("fx-effect-display", .{ .w = size[0], .h = height });
     const draw_list = zgui.getWindowDrawList();
     const accent = kindAccent(unit.kind());
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + size[0], origin[1] + height }, .col = color(theme.bg0), .rounding = 4 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + size[0], origin[1] + height }, .col = color(theme.bg0), .rounding = style.panel_rounding });
     for (1..4) |i| {
         const x = origin[0] + size[0] * @as(f32, @floatFromInt(i)) / 4;
         const y = origin[1] + height * @as(f32, @floatFromInt(i)) / 4;
@@ -291,7 +291,7 @@ fn drawEqGraph(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, sel
     const hovered = zgui.isItemHovered(.{});
     const mouse = zgui.getMousePos();
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg0), .rounding = 4 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg0), .rounding = style.panel_rounding });
 
     const db_ticks = [_]f32{ -18, -12, -6, 0, 6, 12, 18 };
     for (db_ticks) |db| {
@@ -677,7 +677,7 @@ fn drawBusMonitor(app: anytype, target: spectrum_ed.EqTarget) void {
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("empty-chain-monitor", .{ .w = available[0], .h = height });
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + available[0], origin[1] + height }, .col = color(theme.bg0), .rounding = 4 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + available[0], origin[1] + height }, .col = color(theme.bg0), .rounding = style.panel_rounding });
     draw_list.addText(.{ origin[0] + 12, origin[1] + 10 }, color(targetAccent(target)), "{s} MONITOR", .{targetMonitorLabel(target)});
 
     for (1..6) |i| {

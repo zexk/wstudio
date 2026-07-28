@@ -164,12 +164,14 @@ pub fn fxKindAccent(kind: ws.FxKind) [4]f32 {
 /// The corner radii `setTheme` resolved from `wstudio.o.gui_panel_border`,
 /// for chrome that is painted by hand. A draw-list call can't consult
 /// global ImGui style, so a hand-drawn panel or row that hardcodes its
-/// `.rounding` silently ignores the setting - the picker overlay and the
-/// file browser did exactly that. Elements rounded by their own nature
-/// (piano-roll/step-grid note blocks, knobs, meter bars) still pass their
-/// own radius and are deliberately not covered by this.
+/// `.rounding` silently ignores the setting. `panel_rounding` is for the
+/// large backgrounds (panels, canvases, plots, popups), `item_rounding` for
+/// the small ones (rows, badges, chips, cards, meter bars, outlines).
+/// Only musical content blocks - piano-roll notes, step-grid hits,
+/// arrangement clips - and knobs keep their own radius: those are shapes,
+/// not chrome, so the border setting does not reach them.
 pub var panel_rounding: f32 = 0;
-pub var item_rounding: f32 = 2;
+pub var item_rounding: f32 = 0;
 
 /// `wstudio.o.gui_panel_border`: square (0) or rounded corners for ImGui's
 /// own chrome, plus the two `*_rounding` vars above for hand-drawn panels.
@@ -222,8 +224,8 @@ pub fn setTheme(border: config_mod.PanelBorder) void {
     style.child_rounding = rounding;
     style.popup_rounding = rounding;
     style.tab_rounding = rounding;
-    style.frame_rounding = if (border == .rounded) 4 else 2;
-    style.grab_rounding = if (border == .rounded) 4 else 2;
+    style.frame_rounding = if (border == .rounded) 4 else 0;
+    style.grab_rounding = if (border == .rounded) 4 else 0;
     style.scrollbar_rounding = rounding;
     panel_rounding = rounding;
     item_rounding = style.frame_rounding;

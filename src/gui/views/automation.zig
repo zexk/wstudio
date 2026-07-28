@@ -43,8 +43,8 @@ fn drawHeader(app: anytype, clip: ?*const ws.Clip) void {
     const track_idx = @min(@as(usize, app.core.automation_track), app.core.session.project.tracks.items.len -| 1);
     const track = app.core.session.project.tracks.items[track_idx];
     const accent = trackColor(track.color);
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg2), .rounding = 4 });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(accent), .rounding = 3 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg2), .rounding = style.panel_rounding });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(accent), .rounding = style.item_rounding });
     draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(theme.fg3), "CLIP AUTOMATION", .{});
     draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(theme.fg0), "{s}", .{track.name});
     if (clip) |c| {
@@ -59,7 +59,7 @@ fn drawEmptyState() void {
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("automation-empty", .{ .w = width, .h = 150 });
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 150 }, .col = color(theme.bg2), .rounding = 4 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 150 }, .col = color(theme.bg2), .rounding = style.panel_rounding });
     draw_list.addText(.{ origin[0] + 22, origin[1] + 29 }, color(theme.fg0), "No clip selected", .{});
     draw_list.addText(.{ origin[0] + 22, origin[1] + 59 }, color(theme.fg3), "Place a clip, then press a on it in the arrangement.", .{});
 }
@@ -107,7 +107,7 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
     const height: f32 = std.math.clamp(zgui.getContentRegionAvail()[1] - 104, 280, 560);
     const origin = zgui.getCursorScreenPos();
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg0), .rounding = 4 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg0), .rounding = style.panel_rounding });
 
     const plot_origin = [2]f32{ origin[0] + 58, origin[1] + 14 };
     const plot_size = [2]f32{ @max(1, width - 72), height - 42 };
@@ -217,13 +217,13 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
     draw_list.addCircle(.{ .p = cursor, .r = 8, .col = color(theme.fg0), .thickness = 1 });
     const badge_width: f32 = if (stored_point) 88 else 134;
     const badge = [2]f32{ @min(cursor[0] + 9, plot_end[0] - badge_width - 6), @max(plot_origin[1] + 7, cursor[1] - 29) };
-    draw_list.addRectFilled(.{ .pmin = badge, .pmax = .{ badge[0] + badge_width, badge[1] + 22 }, .col = color(theme.bg4), .rounding = 3 });
+    draw_list.addRectFilled(.{ .pmin = badge, .pmax = .{ badge[0] + badge_width, badge[1] + 22 }, .col = color(theme.bg4), .rounding = style.item_rounding });
     if (stored_point) {
         draw_list.addText(.{ badge[0] + 7, badge[1] + 2 }, color(theme.fg0), "{d:.2}  {d:.2}", .{ cursor_beat, cursor_value });
     } else {
         draw_list.addText(.{ badge[0] + 7, badge[1] + 2 }, color(theme.fg1), "INSERT  {d:.2}  {d:.2}", .{ cursor_beat, cursor_value });
     }
-    draw_list.addRect(.{ .pmin = plot_origin, .pmax = plot_end, .col = color(theme.bg5), .rounding = 2, .thickness = 1 });
+    draw_list.addRect(.{ .pmin = plot_origin, .pmax = plot_end, .col = color(theme.bg5), .rounding = style.panel_rounding, .thickness = 1 });
 }
 
 fn curvePoint(origin: [2]f32, size: [2]f32, beat: f32, value: f32, length_beats: f32, value_range: [2]f32) [2]f32 {

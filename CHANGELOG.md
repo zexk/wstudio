@@ -52,6 +52,10 @@ history lives in [FORMAT.md](FORMAT.md).
 - Several panics: a long piano-roll loop, the bottom of the GUI keyboard,
   command history stepped past its newest entry, and a multi-lane undo
   entry after a track delete.
+- `gui_panel_border = 'square'` now reaches every non-musical GUI element:
+  track rows, badges, chips, FX slots, meters, plots, and canvases were
+  hardcoded to rounded corners, and frames kept a 2px radius even in square
+  mode. Note blocks, clips, and knobs keep their own shape.
 - A project file with no tracks is rejected rather than loaded.
 - Assorted GUI viewport, scroll, and cursor-following gaps against the TUI.
 

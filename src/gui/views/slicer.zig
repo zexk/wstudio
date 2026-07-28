@@ -97,7 +97,7 @@ fn drawSourceWaveform(app: anytype, slicer: *const ws.dsp.Slicer) void {
     const hovered = zgui.isItemHovered(.{});
     const mouse = zgui.getMousePos();
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(theme.bg0), .rounding = 3 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(theme.bg0), .rounding = style.panel_rounding });
 
     var overview: [512]f32 = undefined;
     var bands: [512]waveform.Band = undefined;

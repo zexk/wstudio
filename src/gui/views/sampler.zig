@@ -343,7 +343,7 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
     const hovered = zgui.isItemHovered(.{});
     const mouse = zgui.getMousePos();
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(theme.bg0), .rounding = 3 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(theme.bg0), .rounding = style.panel_rounding });
 
     // Pitch and stretch change how long the region plays, so the region is
     // drawn on its warped timeline while the trim markers stay put on the

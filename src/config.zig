@@ -100,11 +100,12 @@ pub const TuiTheme = enum {
     tokyonight,
 };
 
-/// GUI panel/window corner style. Scoped to ImGui's own chrome (windows,
-/// child panels, popups, buttons) via the global style vars this drives -
-/// elements that are rounded by their own nature rather than as GUI theming
-/// (piano-roll/step-grid note blocks, knobs) draw their own explicit
-/// `.rounding` per call and never read these, so they're untouched either way.
+/// GUI corner style, covering both ImGui's own chrome (windows, child
+/// panels, popups, buttons) and the hand-drawn chrome that reads
+/// `gui/style.zig`'s `panel_rounding`/`item_rounding`: track rows, badges,
+/// FX slots, meters, canvases. `square` means 0 everywhere. Only musical
+/// content blocks (piano-roll notes, step-grid hits, arrangement clips) and
+/// knobs keep an explicit radius, so they're untouched either way.
 pub const PanelBorder = enum { square, rounded };
 
 /// A config-owned path buffer for string-typed `wstudio.o` options.

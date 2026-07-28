@@ -83,7 +83,7 @@ pub fn sectionTitleGate(label: []const u8, accent: [4]f32, gate: ?SectionGate) b
     const pos = zgui.getCursorScreenPos();
     const start_x = zgui.getCursorPos()[0];
     const avail = zgui.getContentRegionAvail()[0];
-    draw_list.addRectFilled(.{ .pmin = .{ pos[0], pos[1] + 1 }, .pmax = .{ pos[0] + 3, pos[1] + 15 }, .col = gui_style.color(accent), .rounding = 1.5 });
+    draw_list.addRectFilled(.{ .pmin = .{ pos[0], pos[1] + 1 }, .pmax = .{ pos[0] + 3, pos[1] + 15 }, .col = gui_style.color(accent), .rounding = gui_style.item_rounding });
     zgui.indent(.{ .indent_w = 10 });
     zgui.textColored(accent, "{s}", .{label});
     zgui.unindent(.{ .indent_w = 10 });
@@ -170,7 +170,7 @@ pub fn meterBar(draw_list: zgui.DrawList, origin: [2]f32, hold_db: [2]f32, bar_w
     const theme = &gui_style.palette;
     for (0..2) |ch| {
         const y = origin[1] + @as(f32, @floatFromInt(ch)) * (bar_h + gap);
-        draw_list.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ origin[0] + bar_w, y + bar_h }, .col = gui_style.color(theme.bg2), .rounding = 2 });
+        draw_list.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ origin[0] + bar_w, y + bar_h }, .col = gui_style.color(theme.bg2), .rounding = gui_style.item_rounding });
         const norm = std.math.clamp((hold_db[ch] - meter_db_min) / -meter_db_min, 0, 1);
         meterFill(draw_list, origin[0], y, bar_w, bar_h, norm);
     }
@@ -186,14 +186,14 @@ pub fn solidMeterBar(draw_list: zgui.DrawList, origin: [2]f32, hold_db: [2]f32, 
             .pmin = .{ origin[0], y },
             .pmax = .{ origin[0] + bar_w, y + bar_h },
             .col = gui_style.color(.{ bar_color[0], bar_color[1], bar_color[2], 0.25 }),
-            .rounding = 2,
+            .rounding = gui_style.item_rounding,
         });
         const norm = std.math.clamp((hold_db[ch] - meter_db_min) / -meter_db_min, 0, 1);
         draw_list.addRectFilled(.{
             .pmin = .{ origin[0], y },
             .pmax = .{ origin[0] + bar_w * norm, y + bar_h },
             .col = gui_style.color(bar_color),
-            .rounding = 2,
+            .rounding = gui_style.item_rounding,
         });
     }
 }
@@ -205,7 +205,7 @@ fn meterFill(draw_list: zgui.DrawList, x: f32, y: f32, w: f32, h: f32, norm: f32
     const red_norm = (meter_red_db - meter_db_min) / -meter_db_min;
     const fill_w = w * norm;
     const green_w = @min(fill_w, w * yellow_norm);
-    draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + green_w, y + h }, .col = gui_style.color(theme.audio), .rounding = 2 });
+    draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + green_w, y + h }, .col = gui_style.color(theme.audio), .rounding = gui_style.item_rounding });
     if (fill_w > w * yellow_norm) {
         draw_list.addRectFilled(.{ .pmin = .{ x + w * yellow_norm, y }, .pmax = .{ x + @min(fill_w, w * red_norm), y + h }, .col = gui_style.color(theme.rhythm) });
     }
@@ -221,7 +221,7 @@ fn meterFill(draw_list: zgui.DrawList, x: f32, y: f32, w: f32, h: f32, norm: f32
 /// LEVEL. `value` is -1..1, see `dsp/meter.zig`'s `StereoCorrelation`.
 pub fn correlationBar(draw_list: zgui.DrawList, origin: [2]f32, value: f32, w: f32, h: f32) void {
     const theme = &gui_style.palette;
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + w, origin[1] + h }, .col = gui_style.color(theme.bg2), .rounding = 2 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + w, origin[1] + h }, .col = gui_style.color(theme.bg2), .rounding = gui_style.item_rounding });
     const mid = origin[0] + w * 0.5;
     draw_list.addLine(.{ .p1 = .{ mid, origin[1] }, .p2 = .{ mid, origin[1] + h }, .col = gui_style.color(theme.fg3), .thickness = 1 });
 
@@ -229,7 +229,7 @@ pub fn correlationBar(draw_list: zgui.DrawList, origin: [2]f32, value: f32, w: f
     const fill_col = if (v >= 0.0) theme.audio else if (v >= -0.5) theme.rhythm else theme.danger;
     const fill_x = mid + (w * 0.5) * @min(v, 0.0);
     const fill_w = (w * 0.5) * @abs(v);
-    draw_list.addRectFilled(.{ .pmin = .{ fill_x, origin[1] }, .pmax = .{ fill_x + fill_w, origin[1] + h }, .col = gui_style.color(fill_col), .rounding = 2 });
+    draw_list.addRectFilled(.{ .pmin = .{ fill_x, origin[1] }, .pmax = .{ fill_x + fill_w, origin[1] + h }, .col = gui_style.color(fill_col), .rounding = gui_style.item_rounding });
 }
 
 pub const EmptyState = struct {
@@ -571,13 +571,13 @@ pub fn stepperCell(label_text: []const u8, id: [:0]const u8, display: []const u8
         .pmin = origin,
         .pmax = .{ origin[0] + cell_w, origin[1] + box_h },
         .col = gui_style.color(box_col),
-        .rounding = 3,
+        .rounding = gui_style.item_rounding,
     });
     if (focused) draw_list.addRect(.{
         .pmin = origin,
         .pmax = .{ origin[0] + cell_w, origin[1] + box_h },
         .col = gui_style.color(accent),
-        .rounding = 3,
+        .rounding = gui_style.item_rounding,
         .thickness = 1.5,
     });
     const fitted = fitText(display, cell_w - 16);
@@ -700,8 +700,8 @@ pub fn waveformPicker(label: [:0]const u8, current: ws.dsp.synth.Waveform, accen
         const selected = wf == current;
         if (zgui.isItemActivated()) result = wf;
 
-        draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + tile_w, origin[1] + tile_h }, .col = gui_style.color(if (selected) theme.bg4 else if (hovered) theme.bg3 else theme.bg2), .rounding = 3 });
-        if (selected) draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + tile_w, origin[1] + tile_h }, .col = gui_style.color(accent), .rounding = 3, .thickness = if (focused) 2 else 1.5 });
+        draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + tile_w, origin[1] + tile_h }, .col = gui_style.color(if (selected) theme.bg4 else if (hovered) theme.bg3 else theme.bg2), .rounding = gui_style.item_rounding });
+        if (selected) draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + tile_w, origin[1] + tile_h }, .col = gui_style.color(accent), .rounding = gui_style.item_rounding, .thickness = if (focused) 2 else 1.5 });
         waveformGlyph(draw_list, .{ origin[0] + 4, origin[1] + 4 }, .{ tile_w - 8, tile_h - 8 }, wf, if (selected) accent else theme.fg2);
 
         if (hovered) {
@@ -781,10 +781,10 @@ pub fn xyPad(label: [:0]const u8, args: XYPad) KnobResult {
         args.y.* = new_y;
     }
 
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + pad_w, origin[1] + args.size }, .col = gui_style.color(theme.bg2), .rounding = 3 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + pad_w, origin[1] + args.size }, .col = gui_style.color(theme.bg2), .rounding = gui_style.item_rounding });
     draw_list.addLine(.{ .p1 = .{ origin[0] + pad_w * 0.5, origin[1] }, .p2 = .{ origin[0] + pad_w * 0.5, origin[1] + args.size }, .col = gui_style.color(theme.line), .thickness = 1 });
     draw_list.addLine(.{ .p1 = .{ origin[0], origin[1] + args.size * 0.5 }, .p2 = .{ origin[0] + pad_w, origin[1] + args.size * 0.5 }, .col = gui_style.color(theme.line), .thickness = 1 });
-    draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + pad_w, origin[1] + args.size }, .col = gui_style.color(if (args.focused) args.accent else theme.bg4), .rounding = 3, .thickness = if (args.focused) 2 else 1 });
+    draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + pad_w, origin[1] + args.size }, .col = gui_style.color(if (args.focused) args.accent else theme.bg4), .rounding = gui_style.item_rounding, .thickness = if (args.focused) 2 else 1 });
 
     const tx = knobValueToT(args.x_range[0], args.x_range[1], args.x.*, args.x_logarithmic);
     const ty = 1.0 - knobValueToT(args.y_range[0], args.y_range[1], args.y.*, false);
@@ -869,7 +869,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
     const origin = zgui.getCursorScreenPos();
     const draw_list = zgui.getWindowDrawList();
     zgui.dummy(.{ .w = width, .h = height });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg2), .rounding = 3 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg2), .rounding = gui_style.panel_rounding });
 
     const fracs = adsrSegFracs(args.attack.*, args.decay.*, args.release.*);
     const xs = [_]f32{
@@ -1067,7 +1067,7 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
     const draw_list = zgui.getWindowDrawList();
     var result = CurveResult{};
 
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg1), .rounding = 3 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg1), .rounding = gui_style.panel_rounding });
     if (args.snap_beats > 0 and args.beat_hi > 0) {
         var b: f64 = 0;
         while (b <= args.beat_hi) : (b += args.snap_beats) {
@@ -1148,7 +1148,7 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
         result.inserted = .{ .beat = beat, .value = value };
     }
 
-    draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg4), .rounding = 3, .thickness = 1 });
+    draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg4), .rounding = gui_style.panel_rounding, .thickness = 1 });
     zgui.setCursorScreenPos(.{ origin[0], origin[1] + height });
     return result;
 }

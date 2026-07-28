@@ -306,8 +306,8 @@ fn drawCommandSuggestions(app: anytype, active: tui_cmd.Scope, filter: []const u
     const draw = zgui.getWindowDrawList();
     const origin = zgui.getWindowPos();
     const size = zgui.getWindowSize();
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + size[0], origin[1] + size[1] }, .col = color(theme.bg1), .rounding = 4 });
-    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 4, origin[1] + size[1] }, .col = color(theme.focus), .rounding = 2 });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + size[0], origin[1] + size[1] }, .col = color(theme.bg1), .rounding = gui_style.panel_rounding });
+    draw.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 4, origin[1] + size[1] }, .col = color(theme.focus), .rounding = gui_style.item_rounding });
     draw.addText(.{ origin[0] + 14, origin[1] + 8 }, color(theme.fg3), "COMMANDS", .{});
     draw.addText(.{ origin[0] + size[0] - 96, origin[1] + 8 }, color(theme.fg3), "TAB TO CYCLE", .{});
 
@@ -320,8 +320,8 @@ fn drawCommandSuggestions(app: anytype, active: tui_cmd.Scope, filter: []const u
         const y = origin[1] + 30 + @as(f32, @floatFromInt(drawn)) * 39;
         const is_selected = match_index == selected;
         if (is_selected) {
-            draw.addRectFilled(.{ .pmin = .{ origin[0] + 7, y }, .pmax = .{ origin[0] + size[0] - 7, y + 35 }, .col = color(theme.bg4), .rounding = 3 });
-            draw.addRectFilled(.{ .pmin = .{ origin[0] + 7, y }, .pmax = .{ origin[0] + 10, y + 35 }, .col = color(theme.focus), .rounding = 2 });
+            draw.addRectFilled(.{ .pmin = .{ origin[0] + 7, y }, .pmax = .{ origin[0] + size[0] - 7, y + 35 }, .col = color(theme.bg4), .rounding = gui_style.item_rounding });
+            draw.addRectFilled(.{ .pmin = .{ origin[0] + 7, y }, .pmax = .{ origin[0] + 10, y + 35 }, .col = color(theme.focus), .rounding = gui_style.item_rounding });
         }
         draw.addText(.{ origin[0] + 20, y + 4 }, color(if (is_selected) theme.fg0 else theme.fg1), ":{s}", .{command.name});
         draw.addText(.{ origin[0] + 185, y + 4 }, color(if (is_selected) theme.fg2 else theme.fg3), "{s}", .{command.desc});

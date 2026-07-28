@@ -85,7 +85,7 @@ pub fn draw(
         const selected = row == cursor_row;
         draw_list.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ grid_x, y + row_h }, .col = color(if (selected) theme.bg4 else if (row % 2 == 0) theme.bg2 else theme.bg1) });
         draw_list.addRectFilled(.{ .pmin = .{ grid_x, y }, .pmax = .{ origin[0] + canvas_w, y + row_h }, .col = color(if (row % 2 == 0) theme.bg1 else theme.bg0) });
-        if (selected) draw_list.addRectFilled(.{ .pmin = .{ origin[0], y + 4 }, .pmax = .{ origin[0] + 4, y + row_h - 4 }, .col = color(accent), .rounding = 2 });
+        if (selected) draw_list.addRectFilled(.{ .pmin = .{ origin[0], y + 4 }, .pmax = .{ origin[0] + 4, y + row_h - 4 }, .col = color(accent), .rounding = style.item_rounding });
         if (kind == .drum) {
             const choke = instrument.choke_group[row];
             if (instrument.pads[row]) |*sample|

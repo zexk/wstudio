@@ -104,7 +104,7 @@ fn drawRowChrome(app: anytype, id: [:0]const u8, display_row: usize, in_visual: 
         .pmin = origin,
         .pmax = .{ rowRight(origin[0], width), origin[1] + height - 2 },
         .col = color(row_bg),
-        .rounding = 3,
+        .rounding = gui_style.item_rounding,
     });
     if (selected) drawTrackRowCursorUnderlay(draw_list, origin, width, height);
     if (clicked) app.core.setTrackRow(display_row);
@@ -129,7 +129,7 @@ fn drawSideStrip(draw_list: zgui.DrawList, origin: [2]f32, height: f32, accent: 
         .pmin = origin,
         .pmax = .{ origin[0] + strip_w, origin[1] + height - 2 },
         .col = color(accent),
-        .rounding = 3,
+        .rounding = gui_style.item_rounding,
         .flags = zgui.DrawFlags.round_corners_left,
     });
     var buf: [8]u8 = undefined;
@@ -148,7 +148,7 @@ fn drawInfoBlockBg(draw_list: zgui.DrawList, origin: [2]f32, width: f32, height:
         .pmin = .{ x0, origin[1] },
         .pmax = .{ rowRight(origin[0], width), origin[1] + height - 2 },
         .col = color(accent),
-        .rounding = 3,
+        .rounding = gui_style.item_rounding,
         .flags = zgui.DrawFlags.round_corners_right,
     });
     return x0;
@@ -295,8 +295,8 @@ fn drawMasterRow(app: anytype, height: f32) void {
 /// background.
 fn drawTrimMeter(draw_list: zgui.DrawList, x: f32, y: f32, width: f32, gain_db: f32, bar_color: [4]f32) void {
     const level = std.math.clamp((gain_db + 60) / 72, 0, 1);
-    draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + width, y + 5 }, .col = color(.{ bar_color[0], bar_color[1], bar_color[2], 0.25 }), .rounding = 2 });
-    draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + width * level, y + 5 }, .col = color(bar_color), .rounding = 2 });
+    draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + width, y + 5 }, .col = color(.{ bar_color[0], bar_color[1], bar_color[2], 0.25 }), .rounding = gui_style.item_rounding });
+    draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + width * level, y + 5 }, .col = color(bar_color), .rounding = gui_style.item_rounding });
 }
 
 fn trackRowInVisual(core: anytype, display_row: usize) bool {
@@ -310,7 +310,7 @@ fn drawTrackRowCursorUnderlay(draw_list: zgui.DrawList, origin: [2]f32, width: f
         .pmin = .{ origin[0] + 1, origin[1] + 1 },
         .pmax = .{ rowRight(origin[0], width) - 1, origin[1] + height - 3 },
         .col = color(.{ theme.track_cursor[0], theme.track_cursor[1], theme.track_cursor[2], 0.18 }),
-        .rounding = 2,
+        .rounding = gui_style.item_rounding,
     });
 }
 
@@ -326,7 +326,7 @@ fn drawTrackRowCursorOutline(chrome: RowChrome, height: f32) void {
             chrome.origin[1] + height - 2 - inset,
         },
         .col = color(if (chrome.selected) theme.track_cursor else if (chrome.in_visual) theme.fg0 else theme.focus),
-        .rounding = 2,
+        .rounding = gui_style.item_rounding,
         .thickness = if (chrome.selected or chrome.in_visual) 2 else 1,
     });
 }
@@ -341,7 +341,7 @@ fn drawTrackBadgeToggle(draw_list: zgui.DrawList, id: [:0]const u8, x: f32, y: f
     const hovered = zgui.isItemHovered(.{});
     const bg = if (active) active_bg else if (hovered) theme.bg4 else theme.bg2;
     const fg = if (active) legibleOn(active_bg) else if (hovered) theme.fg1 else theme.fg3;
-    draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + badge_w, y + badge_h }, .col = color(bg), .rounding = 2 });
+    draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + badge_w, y + badge_h }, .col = color(bg), .rounding = gui_style.item_rounding });
     const label_size = zgui.calcTextSize(label, .{});
     draw_list.addText(.{
         x + (badge_w - label_size[0]) / 2,
@@ -360,7 +360,7 @@ fn drawFxChips(draw_list: zgui.DrawList, fx: *const ws.Fx, start_x: f32, y: f32,
         const label = spectrum_ed.stripLabel(unit.kind());
         const chip_w = zgui.calcTextSize(label, .{})[0] + 12;
         if (x + chip_w > max_x) break;
-        draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + chip_w, y + 20 }, .col = color(theme.bg2), .rounding = 2 });
+        draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + chip_w, y + 20 }, .col = color(theme.bg2), .rounding = gui_style.item_rounding });
         draw_list.addText(.{ x + 6, y + 2 }, color(if (unit.bypassed) theme.fg3 else theme.audio), "{s}", .{label});
         x += chip_w + 4;
     }
