@@ -152,8 +152,8 @@ pub fn remove(
 
 /// Case-insensitive lookup, mirroring `dsp/synth_presets.find`.
 pub fn find(list: []const UserPreset, name: []const u8) ?*const UserPreset {
-    for (list) |p| {
-        if (std.ascii.eqlIgnoreCase(p.name, name)) return &p;
+    for (list) |*p| {
+        if (std.ascii.eqlIgnoreCase(p.name, name)) return p;
     }
     return null;
 }
