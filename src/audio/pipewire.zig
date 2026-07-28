@@ -367,27 +367,5 @@ test "format pod matches spa_format_audio_raw_build byte for byte" {
 }
 
 test "pipewire backend start/render/stop (skipped without a daemon)" {
-    const Counter = struct {
-        calls: std.atomic.Value(u32) = .init(0),
-        fn render(ctx: *anyopaque, out: []types.Sample) void {
-            const self: *@This() = @ptrCast(@alignCast(ctx));
-            _ = self.calls.fetchAdd(1, .monotonic);
-            @memset(out, 0.0);
-        }
-    };
-
-    var counter: Counter = .{};
-    var backend = PipewireBackend{
-        .config = .{},
-        .render = Counter.render,
-        .ctx = &counter,
-    };
-    backend.start() catch return error.SkipZigTest; // no PipeWire here
-    defer backend.stop();
-
-    var spins: u32 = 0;
-    while (counter.calls.load(.monotonic) < 2 and spins < 100_000_000) : (spins += 1) {
-        std.atomic.spinLoopHint();
-    }
-    try std.testing.expect(counter.calls.load(.monotonic) >= 1);
+    try backend_mod.expectDrivesRenderCallback(PipewireBackend, 100_000_000);
 }

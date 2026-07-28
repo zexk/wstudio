@@ -198,27 +198,5 @@ test "alsa capture start/pop/stop (skipped without a device)" {
 }
 
 test "alsa backend start/render/stop (skipped without a device)" {
-    const Counter = struct {
-        calls: std.atomic.Value(u32) = .init(0),
-        fn render(ctx: *anyopaque, out: []types.Sample) void {
-            const self: *@This() = @ptrCast(@alignCast(ctx));
-            _ = self.calls.fetchAdd(1, .monotonic);
-            @memset(out, 0.0);
-        }
-    };
-
-    var counter: Counter = .{};
-    var backend = AlsaBackend{
-        .config = .{},
-        .render = Counter.render,
-        .ctx = &counter,
-    };
-    backend.start() catch return error.SkipZigTest; // no audio device here
-    defer backend.stop();
-
-    var spins: u32 = 0;
-    while (counter.calls.load(.monotonic) < 2 and spins < 1_000_000) : (spins += 1) {
-        std.atomic.spinLoopHint();
-    }
-    try std.testing.expect(counter.calls.load(.monotonic) >= 1);
+    try backend_mod.expectDrivesRenderCallback(AlsaBackend, 1_000_000);
 }

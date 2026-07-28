@@ -151,24 +151,49 @@ pub const NullBackend = struct {
     }
 };
 
-test "null backend drives the render callback in real time" {
-    const Counter = struct {
-        calls: std.atomic.Value(u32) = .init(0),
-        fn render(ctx: *anyopaque, out: []types.Sample) void {
-            const self: *@This() = @ptrCast(@alignCast(ctx));
-            _ = self.calls.fetchAdd(1, .monotonic);
-            @memset(out, 0.0);
-        }
-    };
+/// Counts render callbacks from whatever thread the backend drives them on.
+/// Shared by every backend's smoke test.
+pub const RenderCounter = struct {
+    calls: std.atomic.Value(u32) = .init(0),
 
+    pub fn render(ctx: *anyopaque, out: []types.Sample) void {
+        const self: *RenderCounter = @ptrCast(@alignCast(ctx));
+        _ = self.calls.fetchAdd(1, .monotonic);
+        @memset(out, 0.0);
+    }
+};
+
+/// Smoke test shared by the hardware backends (ALSA, JACK, PipeWire): start,
+/// busy-wait for the driver thread to render, stop. A backend that can't
+/// reach its device/server skips rather than fails, which is the normal case
+/// in CI and in the nix sandbox. `spin_limit` is the give-up bound; PipeWire
+/// needs a far larger one because its connect handshake is asynchronous.
+pub fn expectDrivesRenderCallback(comptime B: type, spin_limit: u32) !void {
+    var counter: RenderCounter = .{};
+    var backend = B{
+        .config = .{},
+        .render = RenderCounter.render,
+        .ctx = &counter,
+    };
+    backend.start() catch return error.SkipZigTest;
+    defer backend.stop();
+
+    var spins: u32 = 0;
+    while (counter.calls.load(.monotonic) < 2 and spins < spin_limit) : (spins += 1) {
+        std.atomic.spinLoopHint();
+    }
+    try std.testing.expect(counter.calls.load(.monotonic) >= 1);
+}
+
+test "null backend drives the render callback in real time" {
     var threaded: std.Io.Threaded = .init(std.testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
 
-    var counter: Counter = .{};
+    var counter: RenderCounter = .{};
     var backend = NullBackend{
         .config = .{ .block_frames = 64 }, // ~1.3 ms blocks
-        .render = Counter.render,
+        .render = RenderCounter.render,
         .ctx = &counter,
     };
     try backend.start(io);
