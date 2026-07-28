@@ -4839,7 +4839,7 @@ test "save/load migrates synth tape FX into rack chain" {
     try testing.expectApproxEqAbs(@as(f32, 0.65), tape.mix, 1e-6);
 }
 
-test "synth preset FX replace prior recipe without touching user rack units" {
+test "a synth preset replaces the whole FX chain and rebinds its mod rows" {
     const testing = std.testing;
     var rack = Rack{
         .instrument = .{ .poly_synth = try PolySynth.init(testing.allocator, 48_000) },
@@ -4854,20 +4854,15 @@ test "synth preset FX replace prior recipe without touching user rack units" {
     first.fx_dist_on = true;
     first.mod_matrix[0] = .{ .source = .mac1, .dest = 85, .depth = 0.5 };
     try applySynthPatch(testing.allocator, &rack, first, 48_000);
-    try testing.expectEqual(@as(usize, 4), rack.fx.units.items.len);
+    try testing.expectEqual(@as(usize, 3), rack.fx.units.items.len);
     const sat = rack.fx.find(.sat).?;
     try testing.expectEqual(sat.instance_id, rack.instrument.poly_synth.mod_matrix[0].fx_instance_id);
-    try testing.expect(rack.fx.units.items[0].preset_owned);
-    try testing.expect(rack.fx.units.items[1].preset_owned);
-    try testing.expect(rack.fx.units.items[2].preset_owned);
-    try testing.expect(!rack.fx.units.items[3].preset_owned);
 
     var second: PolySynth.Patch = .{};
     second.fx_delay_on = true;
     try applySynthPatch(testing.allocator, &rack, second, 48_000);
-    try testing.expectEqual(@as(usize, 2), rack.fx.units.items.len);
+    try testing.expectEqual(@as(usize, 1), rack.fx.units.items.len);
     try testing.expectEqual(rack_mod.FxKind.delay, rack.fx.units.items[0].kind());
-    try testing.expectEqual(rack_mod.FxKind.comp, rack.fx.units.items[1].kind());
 }
 
 test "save/load round-trip persists an EQ band's lowpass/highpass type and slope" {
