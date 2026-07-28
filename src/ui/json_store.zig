@@ -2,6 +2,8 @@
 //! See docs/user-config-storage.md for the storage conventions.
 
 const std = @import("std");
+const builtin = @import("builtin");
+const config_mod = @import("../config.zig");
 
 /// Size every caller's `configPath` buffer. Deliberately not
 /// `std.fs.max_path_bytes`: these are stack buffers and a 4 KiB `$HOME` is
@@ -17,12 +19,37 @@ const max_quarantine_suffix = 100;
 pub const quarantine_buf_len = path_buf_len + ".corrupt.".len +
     std.fmt.count("{d}", .{max_quarantine_suffix - 1});
 
-/// Resolves `~/.config/wstudio/<filename>` via `$HOME` ($USERPROFILE on
-/// Windows, which has no $HOME). Null if unset - callers then just don't
-/// persist across runs rather than blocking startup.
+/// Resolves `<config dir>/<filename>` through the same `userConfigDir` that
+/// places `init.lua`, so every user file this program owns lives in one
+/// directory: `$XDG_CONFIG_HOME/wstudio`, else `%APPDATA%\wstudio` on
+/// Windows, else `~/.config/wstudio`. Null if none of those resolve -
+/// callers then just don't persist across runs rather than blocking
+/// startup.
 pub fn configPath(buf: []u8, comptime filename: []const u8) ?[]const u8 {
+    var dir_buf: [path_buf_len]u8 = undefined;
+    const dir = config_mod.userConfigDir(&dir_buf) orelse return null;
+    const sep: u8 = if (builtin.os.tag == .windows) '\\' else '/';
+    return std.fmt.bufPrint(buf, "{s}{c}" ++ filename, .{ dir, sep }) catch null;
+}
+
+/// Where these files landed before they followed `userConfigDir`: always
+/// `$HOME/.config/wstudio` (`$USERPROFILE` on Windows), regardless of
+/// `$XDG_CONFIG_HOME` or `%APPDATA%`. `load` still reads it when the real
+/// path holds nothing, so a beta user who set either variable keeps their
+/// bookmarks and presets; `save` only ever writes the real path, so the
+/// first save after this moves the file for good. Null when it would name
+/// the same file `configPath` already returned.
+fn legacyConfigPath(buf: []u8, comptime filename: []const u8) ?[]const u8 {
     const home = std.c.getenv("HOME") orelse std.c.getenv("USERPROFILE") orelse return null;
-    return std.fmt.bufPrint(buf, "{s}/.config/wstudio/" ++ filename, .{home}) catch null;
+    const sep: u8 = if (builtin.os.tag == .windows) '\\' else '/';
+    const path = std.fmt.bufPrint(
+        buf,
+        "{s}{c}.config{c}wstudio{c}" ++ filename,
+        .{ std.mem.sliceTo(home, 0), sep, sep, sep },
+    ) catch return null;
+    var current_buf: [path_buf_len]u8 = undefined;
+    const current = configPath(&current_buf, filename) orelse return path;
+    return if (std.mem.eql(u8, current, path)) null else path;
 }
 
 /// Best-effort rescue for a file that exists but didn't parse: rename it
@@ -48,11 +75,11 @@ pub fn quarantine(io: std.Io, path: []const u8) void {
     }
 }
 
-/// Read and parse `Snapshot` from `~/.config/wstudio/<filename>`. Null
-/// (not an error) on a missing `$HOME`, a missing file, or a parse failure
-/// (the last case also quarantines the file) - callers treat all three as
-/// "nothing saved yet". Caller owns the returned `Parsed` and must
-/// `.deinit()` it.
+/// Read and parse `Snapshot` from `configPath`, falling back to
+/// `legacyConfigPath`. Null (not an error) when no config dir resolves, no
+/// file exists at either path, or neither parses (a parse failure also
+/// quarantines the file it read) - callers treat all of those as "nothing
+/// saved yet". Caller owns the returned `Parsed` and must `.deinit()` it.
 pub fn load(
     comptime Snapshot: type,
     allocator: std.mem.Allocator,
@@ -61,7 +88,21 @@ pub fn load(
     limit_bytes: usize,
 ) ?std.json.Parsed(Snapshot) {
     var path_buf: [path_buf_len]u8 = undefined;
-    const path = configPath(&path_buf, filename) orelse return null;
+    if (configPath(&path_buf, filename)) |path| {
+        if (readAt(Snapshot, allocator, io, path, limit_bytes)) |parsed| return parsed;
+    }
+    var legacy_buf: [path_buf_len]u8 = undefined;
+    const legacy = legacyConfigPath(&legacy_buf, filename) orelse return null;
+    return readAt(Snapshot, allocator, io, legacy, limit_bytes);
+}
+
+fn readAt(
+    comptime Snapshot: type,
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    path: []const u8,
+    limit_bytes: usize,
+) ?std.json.Parsed(Snapshot) {
     const data = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(limit_bytes)) catch return null;
     defer allocator.free(data);
     // alloc_always: parseFromSlice defaults to borrowing unescaped strings
@@ -78,8 +119,9 @@ pub fn load(
     };
 }
 
-/// Serialize `snapshot` and write it to `~/.config/wstudio/<filename>` via
-/// a tmp file + rename, creating the directory first if needed.
+/// Serialize `snapshot` and write it to `configPath` via a tmp file +
+/// rename, creating the directory first if needed. Never writes the legacy
+/// path - a save is what migrates a file out of it.
 pub fn save(
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -118,10 +160,20 @@ extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int
 
 /// Point `$HOME` at `tmp` so `configPath` lands in the test's scratch dir.
 /// setenv copies its value, so the local buffer is safe to drop.
+///
+/// `$XDG_CONFIG_HOME` is redirected too, and must be: it outranks `$HOME`
+/// in `userConfigDir`, so a developer who has it set would otherwise have
+/// their real `~/.config/wstudio` written to by the test suite. Pointing it
+/// at `<tmp>/.config` reproduces the `$HOME`-derived layout exactly, which
+/// also keeps the legacy path identical to the real one (so these tests
+/// exercise the real path, not the fallback).
 pub fn testRedirectHome(tmp: *const std.testing.TmpDir) !void {
     var home_buf: [128]u8 = undefined;
     const home = try std.fmt.bufPrintZ(&home_buf, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
     _ = setenv("HOME", home.ptr, 1);
+    var xdg_buf: [160]u8 = undefined;
+    const xdg = try std.fmt.bufPrintZ(&xdg_buf, "{s}/.config", .{home});
+    _ = setenv("XDG_CONFIG_HOME", xdg.ptr, 1);
 }
 
 /// Write unparseable bytes at `filename`'s config path and return that path
@@ -145,6 +197,53 @@ pub fn testExpectQuarantined(io: std.Io, path: []const u8) !void {
     var buf: [quarantine_buf_len]u8 = undefined;
     const quarantine_path = try std.fmt.bufPrint(&buf, "{s}.corrupt", .{path});
     var file = try std.Io.Dir.cwd().openFile(io, quarantine_path, .{});
+    file.close(io);
+}
+
+test "the store follows XDG_CONFIG_HOME and still reads the legacy path" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try testRedirectHome(&tmp);
+    // Every later test in this binary expects the default redirect back.
+    defer testRedirectHome(&tmp) catch {};
+
+    var home_buf: [128]u8 = undefined;
+    const home = try std.fmt.bufPrint(&home_buf, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
+    var xdg_buf: [160]u8 = undefined;
+    const xdg = try std.fmt.bufPrintZ(&xdg_buf, "{s}/xdg", .{home});
+    _ = setenv("XDG_CONFIG_HOME", xdg.ptr, 1);
+
+    const S = struct { n: u32 = 0 };
+    const io = std.testing.io;
+
+    // $XDG_CONFIG_HOME outranks $HOME, and the pre-XDG location stays
+    // readable rather than reading as "nothing saved yet".
+    var path_buf: [path_buf_len]u8 = undefined;
+    const path = configPath(&path_buf, "xdg_probe.json").?;
+    try std.testing.expect(std.mem.startsWith(u8, path, xdg));
+
+    var legacy_buf: [path_buf_len]u8 = undefined;
+    const legacy = legacyConfigPath(&legacy_buf, "xdg_probe.json").?;
+    try std.Io.Dir.cwd().createDirPath(io, std.fs.path.dirname(legacy).?);
+    {
+        const file = try std.Io.Dir.cwd().createFile(io, legacy, .{});
+        defer file.close(io);
+        var buf: [32]u8 = undefined;
+        var fw = file.writer(io, &buf);
+        try fw.interface.writeAll("{\"n\":7}");
+        try fw.interface.flush();
+    }
+    var parsed = load(S, std.testing.allocator, io, "xdg_probe.json", 4096).?;
+    defer parsed.deinit();
+    try std.testing.expectEqual(@as(u32, 7), parsed.value.n);
+
+    // Saving migrates it: the write lands under $XDG_CONFIG_HOME, and that
+    // copy is what the next load returns.
+    try save(std.testing.allocator, io, "xdg_probe.json", S{ .n = 9 });
+    var migrated = load(S, std.testing.allocator, io, "xdg_probe.json", 4096).?;
+    defer migrated.deinit();
+    try std.testing.expectEqual(@as(u32, 9), migrated.value.n);
+    var file = try std.Io.Dir.cwd().openFile(io, path, .{});
     file.close(io);
 }
 

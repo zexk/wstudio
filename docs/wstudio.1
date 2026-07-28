@@ -117,21 +117,25 @@ configuration. On NixOS this is written by the
 .I programs.wstudio
 module.
 .TP
-.I ~/.config/wstudio/bookmarks.json
-File-browser bookmarks. This store and the three below resolve through
-.IR $HOME " (" $USERPROFILE " on Windows) rather than " $XDG_CONFIG_HOME .
+.I $XDG_CONFIG_HOME/wstudio/bookmarks.json
+File-browser bookmarks. This store and the three below sit in the same
+directory as
+.IR init.lua .
 They are optional conveniences: an unreadable or missing file leaves the
-matching list empty and never blocks startup.
+matching list empty and never blocks startup. A file left at the older
+.I ~/.config/wstudio/
+location by a previous release is still read, and moves here on the next
+save.
 .TP
-.I ~/.config/wstudio/cmd_history.json
+.I $XDG_CONFIG_HOME/wstudio/cmd_history.json
 The last 50 submitted
 .B :
 commands.
 .TP
-.I ~/.config/wstudio/instrument_presets.wspreset
+.I $XDG_CONFIG_HOME/wstudio/instrument_presets.wspreset
 User-saved instrument presets, each with its ordered FX chain.
 .TP
-.I ~/.config/wstudio/drum_kits.json
+.I $XDG_CONFIG_HOME/wstudio/drum_kits.json
 User-saved drum pad tuning.
 .TP
 .I *.wsj

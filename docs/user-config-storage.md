@@ -1,7 +1,9 @@
 # User configuration storage
 
-Small pieces of user state live as JSON files under
-`~/.config/wstudio/`:
+Small pieces of user state live as JSON files in the same directory
+`init.lua` does, resolved by `config.userConfigDir`:
+`$XDG_CONFIG_HOME/wstudio`, else `%APPDATA%\wstudio` on Windows, else
+`~/.config/wstudio`.
 
 | File | Contents |
 | --- | --- |
@@ -10,10 +12,16 @@ Small pieces of user state live as JSON files under
 | `instrument_presets.wspreset` | Versioned synth + ordered FX-chain presets |
 | `drum_kits.json` | User-saved drum pad tuning |
 
-These files are optional conveniences, not project content. If the home
-directory cannot be resolved or a file does not exist, startup continues with
-an empty list. On Windows, the path resolver falls back to `USERPROFILE` when
-`HOME` is unavailable.
+These files are optional conveniences, not project content. If no
+configuration directory resolves or a file does not exist, startup continues
+with an empty list.
+
+They previously resolved through `$HOME` alone (`$USERPROFILE` on Windows),
+which put them somewhere other than `init.lua` for anyone with
+`$XDG_CONFIG_HOME` or `%APPDATA%` set. `load` still reads that older
+`~/.config/wstudio/` location when the current one holds nothing, so
+existing files keep working; `save` only writes the current location, so the
+first save after the change migrates the file.
 
 Each store loads once during `App.init`. Changes rewrite the complete
 collection because the files are small and this keeps their formats simple.
