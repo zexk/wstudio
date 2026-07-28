@@ -3,6 +3,8 @@
 const std = @import("std");
 const types = @import("../core/types.zig");
 const backend_mod = @import("backend.zig");
+const capture_types = @import("capture_types.zig");
+const CaptureBlock = capture_types.CaptureBlock;
 
 const AudioComponent = ?*opaque {};
 const AudioUnit = ?*opaque {};
@@ -39,7 +41,7 @@ const AudioBufferList = extern struct {
     mBuffers: [1]AudioBuffer,
 };
 
-const RenderCallback = *const fn (?*anyopaque, *u32, *const anyopaque, u32, u32, *AudioBufferList) callconv(.c) OSStatus;
+const RenderCallback = *const fn (?*anyopaque, *u32, *const anyopaque, u32, u32, ?*AudioBufferList) callconv(.c) OSStatus;
 const AURenderCallbackStruct = extern struct {
     inputProc: RenderCallback,
     inputProcRefCon: ?*anyopaque,
@@ -47,13 +49,18 @@ const AURenderCallbackStruct = extern struct {
 
 const audio_unit_type_output = 0x61756f75; // 'auou'
 const audio_unit_subtype_default_output = 0x64656620; // 'def '
+const audio_unit_subtype_hal_output = 0x6168616c; // 'ahal'
 const audio_unit_manufacturer_apple = 0x6170706c; // 'appl'
 const audio_format_linear_pcm = 0x6c70636d; // 'lpcm'
 const audio_format_flag_is_float = 1 << 0;
 const audio_format_flag_is_packed = 1 << 3;
 const audio_unit_property_stream_format = 8;
 const audio_unit_property_set_render_callback = 23;
+const audio_output_unit_property_enable_io = 2003;
+const audio_output_unit_property_set_input_callback = 2005;
+const audio_unit_scope_global = 0;
 const audio_unit_scope_input = 1;
+const audio_unit_scope_output = 2;
 
 extern fn AudioComponentFindNext(AudioComponent, *const AudioComponentDescription) callconv(.c) AudioComponent;
 extern fn AudioComponentInstanceNew(AudioComponent, *AudioUnit) callconv(.c) OSStatus;
@@ -63,6 +70,7 @@ extern fn AudioUnitInitialize(AudioUnit) callconv(.c) OSStatus;
 extern fn AudioUnitUninitialize(AudioUnit) callconv(.c) OSStatus;
 extern fn AudioOutputUnitStart(AudioUnit) callconv(.c) OSStatus;
 extern fn AudioOutputUnitStop(AudioUnit) callconv(.c) OSStatus;
+extern fn AudioUnitRender(AudioUnit, *u32, *const anyopaque, u32, u32, *AudioBufferList) callconv(.c) OSStatus;
 
 pub const CoreAudioBackend = struct {
     config: backend_mod.Config,
@@ -143,10 +151,10 @@ pub const CoreAudioBackend = struct {
         _: *const anyopaque,
         _: u32,
         frames: u32,
-        io_data: *AudioBufferList,
+        io_data: ?*AudioBufferList,
     ) callconv(.c) OSStatus {
         const self: *CoreAudioBackend = @ptrCast(@alignCast(context.?));
-        const buffer = &io_data.*.mBuffers[0];
+        const buffer = &io_data.?.mBuffers[0];
         const out: []types.Sample = @as([*]types.Sample, @ptrCast(@alignCast(buffer.mData.?)))[0 .. frames * self.config.channels];
         const block_samples: usize = @as(usize, self.config.block_frames) * self.config.channels;
         var offset: usize = 0;
@@ -154,6 +162,105 @@ pub const CoreAudioBackend = struct {
             const end = @min(offset + block_samples, out.len);
             self.render(self.ctx, out[offset..end]);
             offset = end;
+        }
+        return 0;
+    }
+};
+
+pub const CoreAudioCapture = struct {
+    unit: AudioUnit = null,
+    queue: capture_types.Queue = .{},
+    buffer: [types.max_block_frames]types.Sample = undefined,
+
+    pub const Error = error{ DeviceOpenFailed, DeviceConfigFailed };
+
+    pub fn start(self: *CoreAudioCapture, sample_rate: u32) Error!void {
+        const description = AudioComponentDescription{
+            .componentType = audio_unit_type_output,
+            .componentSubType = audio_unit_subtype_hal_output,
+            .componentManufacturer = audio_unit_manufacturer_apple,
+            .componentFlags = 0,
+            .componentFlagsMask = 0,
+        };
+        const component = AudioComponentFindNext(null, &description) orelse return error.DeviceOpenFailed;
+
+        var unit: AudioUnit = null;
+        if (AudioComponentInstanceNew(component, &unit) != 0) return error.DeviceOpenFailed;
+        errdefer _ = AudioComponentInstanceDispose(unit);
+
+        var enabled: u32 = 1;
+        if (AudioUnitSetProperty(unit, audio_output_unit_property_enable_io, audio_unit_scope_input, 1, &enabled, @sizeOf(u32)) != 0)
+            return error.DeviceConfigFailed;
+        var disabled: u32 = 0;
+        if (AudioUnitSetProperty(unit, audio_output_unit_property_enable_io, audio_unit_scope_output, 0, &disabled, @sizeOf(u32)) != 0)
+            return error.DeviceConfigFailed;
+
+        const format = AudioStreamBasicDescription{
+            .mSampleRate = @floatFromInt(sample_rate),
+            .mFormatID = audio_format_linear_pcm,
+            .mFormatFlags = audio_format_flag_is_float | audio_format_flag_is_packed,
+            .mBytesPerPacket = @sizeOf(types.Sample),
+            .mFramesPerPacket = 1,
+            .mBytesPerFrame = @sizeOf(types.Sample),
+            .mChannelsPerFrame = 1,
+            .mBitsPerChannel = @bitSizeOf(types.Sample),
+            .mReserved = 0,
+        };
+        if (AudioUnitSetProperty(unit, audio_unit_property_stream_format, audio_unit_scope_output, 1, &format, @sizeOf(AudioStreamBasicDescription)) != 0)
+            return error.DeviceConfigFailed;
+
+        const callback = AURenderCallbackStruct{ .inputProc = captureCallback, .inputProcRefCon = self };
+        if (AudioUnitSetProperty(unit, audio_output_unit_property_set_input_callback, audio_unit_scope_global, 0, &callback, @sizeOf(AURenderCallbackStruct)) != 0)
+            return error.DeviceConfigFailed;
+        if (AudioUnitInitialize(unit) != 0) return error.DeviceConfigFailed;
+        errdefer _ = AudioUnitUninitialize(unit);
+        if (AudioOutputUnitStart(unit) != 0) return error.DeviceConfigFailed;
+        self.unit = unit;
+    }
+
+    pub fn stop(self: *CoreAudioCapture) void {
+        const unit = self.unit orelse return;
+        self.unit = null;
+        _ = AudioOutputUnitStop(unit);
+        _ = AudioUnitUninitialize(unit);
+        _ = AudioComponentInstanceDispose(unit);
+        while (self.queue.pop() != null) {}
+    }
+
+    pub fn pop(self: *CoreAudioCapture) ?CaptureBlock {
+        return self.queue.pop();
+    }
+
+    fn captureCallback(
+        context: ?*anyopaque,
+        flags: *u32,
+        timestamp: *const anyopaque,
+        _: u32,
+        frames: u32,
+        _: ?*AudioBufferList,
+    ) callconv(.c) OSStatus {
+        const self: *CoreAudioCapture = @ptrCast(@alignCast(context.?));
+        if (frames > self.buffer.len) return -50;
+
+        var buffers = AudioBufferList{
+            .mNumberBuffers = 1,
+            .mBuffers = .{.{
+                .mNumberChannels = 1,
+                .mDataByteSize = frames * @sizeOf(types.Sample),
+                .mData = &self.buffer,
+            }},
+        };
+        const status = AudioUnitRender(self.unit, flags, timestamp, 1, frames, &buffers);
+        if (status != 0) return status;
+
+        var offset: usize = 0;
+        while (offset < frames) {
+            var block: CaptureBlock = .{};
+            const count = @min(capture_types.chunk_frames, frames - offset);
+            @memcpy(block.samples[0..count], self.buffer[offset..][0..count]);
+            block.frames = count;
+            _ = self.queue.push(block);
+            offset += count;
         }
         return 0;
     }

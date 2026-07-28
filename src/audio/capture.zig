@@ -24,15 +24,18 @@ pub const chunk_frames = capture_types.chunk_frames;
 
 const has_alsa = builtin.os.tag == .linux;
 const has_wasapi = builtin.os.tag == .windows;
+const has_coreaudio = builtin.os.tag == .macos;
 
 const AlsaCapture = if (has_alsa) @import("alsa.zig").AlsaCapture else void;
 const WasapiCapture = if (has_wasapi) @import("wasapi.zig").WasapiCapture else void;
+const CoreAudioCapture = if (has_coreaudio) @import("coreaudio.zig").CoreAudioCapture else void;
 
-pub const Active = enum { none, alsa, wasapi };
+pub const Active = enum { none, alsa, wasapi, coreaudio };
 
 pub const AudioInput = struct {
     alsa: AlsaCapture = if (has_alsa) .{} else {},
     wasapi: WasapiCapture = if (has_wasapi) .{} else {},
+    coreaudio: CoreAudioCapture = if (has_coreaudio) .{} else {},
     active: Active = .none,
 
     /// Superset of both backends' error sets (`AlsaCapture.Error`,
@@ -53,6 +56,9 @@ pub const AudioInput = struct {
         } else if (has_wasapi) {
             try self.wasapi.start(sample_rate);
             self.active = .wasapi;
+        } else if (has_coreaudio) {
+            try self.coreaudio.start(sample_rate);
+            self.active = .coreaudio;
         } else {
             return error.Unsupported;
         }
@@ -63,6 +69,7 @@ pub const AudioInput = struct {
             .none => {},
             .alsa => if (has_alsa) self.alsa.stop() else unreachable,
             .wasapi => if (has_wasapi) self.wasapi.stop() else unreachable,
+            .coreaudio => if (has_coreaudio) self.coreaudio.stop() else unreachable,
         }
         self.active = .none;
     }
@@ -74,18 +81,19 @@ pub const AudioInput = struct {
             .none => null,
             .alsa => if (has_alsa) self.alsa.pop() else unreachable,
             .wasapi => if (has_wasapi) self.wasapi.pop() else unreachable,
+            .coreaudio => if (has_coreaudio) self.coreaudio.pop() else unreachable,
         };
     }
 };
 
 test "audio input reports unsupported when neither backend compiles in" {
-    if (has_alsa or has_wasapi) return error.SkipZigTest;
+    if (has_alsa or has_wasapi or has_coreaudio) return error.SkipZigTest;
     var input: AudioInput = .{};
     try std.testing.expectError(error.Unsupported, input.start(48_000));
 }
 
 test "audio input start/pop/stop round-trips on this OS's backend (skipped without a device)" {
-    if (!has_alsa and !has_wasapi) return error.SkipZigTest;
+    if (!has_alsa and !has_wasapi and !has_coreaudio) return error.SkipZigTest;
     var input: AudioInput = .{};
     input.start(48_000) catch return error.SkipZigTest; // no capture device here
     defer input.stop();
