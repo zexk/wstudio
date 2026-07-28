@@ -4058,6 +4058,17 @@ pub const PolySynth = struct {
     }
 };
 
+/// Render `blocks` and fail on the first non-finite sample - the standard
+/// smoke test for a filter/LFO/oscillator setting that could blow a voice up.
+fn expectStaysFinite(synth: *PolySynth, blocks: usize) !void {
+    var buf: [512]Sample = undefined;
+    for (0..blocks) |_| {
+        @memset(&buf, 0.0);
+        synth.processBlock(&buf);
+        for (buf) |s| try std.testing.expect(std.math.isFinite(s));
+    }
+}
+
 test "A4 tuning" {
     try std.testing.expectApproxEqAbs(@as(f32, 440.0), PolySynth.noteToFreq(69), 1e-3);
     try std.testing.expectApproxEqAbs(@as(f32, 261.63), PolySynth.noteToFreq(60), 0.01);
@@ -4070,15 +4081,7 @@ test "filter: high-Q sweep near Nyquist stays finite" {
     synth.filter_res = 1.0;
     synth.noteOn(60, 1.0);
 
-    var buf: [512]Sample = undefined;
-    for (0..32) |_| {
-        @memset(&buf, 0.0);
-        synth.processBlock(&buf);
-        for (buf) |s| {
-            try std.testing.expect(!std.math.isNan(s));
-            try std.testing.expect(!std.math.isInf(s));
-        }
-    }
+    try expectStaysFinite(&synth, 32);
 }
 
 test "filter: all types stay finite under resonance" {
@@ -4090,15 +4093,7 @@ test "filter: all types stay finite under resonance" {
         synth.filter_cutoff = 1_000.0;
         synth.filter_res = 0.9;
         synth.noteOn(60, 1.0);
-        var buf: [512]Sample = undefined;
-        for (0..16) |_| {
-            @memset(&buf, 0.0);
-            synth.processBlock(&buf);
-            for (buf) |s| {
-                try std.testing.expect(!std.math.isNan(s));
-                try std.testing.expect(!std.math.isInf(s));
-            }
-        }
+        try expectStaysFinite(&synth, 16);
     }
 }
 
@@ -4859,12 +4854,7 @@ test "osc_budget: unison capped when many voices active" {
     synth.unison = 16;
     // With 16 active voices, unison_cap = 32/16 = 2 per voice.
     for (0..16) |i| synth.noteOn(@intCast(48 + i), 1.0);
-    var buf: [512]Sample = undefined;
-    for (0..4) |_| { @memset(&buf, 0.0); synth.processBlock(&buf); }
-    for (buf) |s| {
-        try std.testing.expect(!std.math.isNan(s));
-        try std.testing.expect(!std.math.isInf(s));
-    }
+    try expectStaysFinite(&synth, 4);
 }
 
 test "glide: pitch slides over time (log-linear)" {
@@ -4962,15 +4952,7 @@ test "LFO: all shapes stay finite under filter modulation" {
         synth.mod_matrix[0] = .{ .source = .lfo, .dest = 21, .depth = 1.0 };
         synth.filter_cutoff = 2_000.0;
         synth.noteOn(60, 1.0);
-        var buf: [512]Sample = undefined;
-        for (0..32) |_| {
-            @memset(&buf, 0.0);
-            synth.processBlock(&buf);
-            for (buf) |s| {
-                try std.testing.expect(!std.math.isNan(s));
-                try std.testing.expect(!std.math.isInf(s));
-            }
-        }
+        try expectStaysFinite(&synth, 32);
     }
 }
 
