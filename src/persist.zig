@@ -682,6 +682,7 @@ pub const ClapSnap = struct {
 /// loads the unit with its defaults.
 pub const FxUnitSnap = struct {
     kind: FxKind,
+    instance_id: u32 = 0,
     bypassed: bool = false,
     preset_owned: bool = false,
     comp: ?CompSnap = null,
@@ -1273,6 +1274,7 @@ fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnit
         };
         us.preset_owned = u.preset_owned;
         us.bypassed = u.bypassed;
+        us.instance_id = u.instance_id;
     }
     return out;
 }
@@ -2517,6 +2519,13 @@ fn applyFxChain(
         };
         unit.bypassed = us.bypassed;
         unit.preset_owned = us.preset_owned;
+        if (us.instance_id != 0 and fx_out.findInstance(us.instance_id) == null) {
+            unit.instance_id = us.instance_id;
+            if (fx_out.next_instance_id <= us.instance_id) {
+                fx_out.next_instance_id = us.instance_id +% 1;
+                if (fx_out.next_instance_id == 0) fx_out.next_instance_id = 1;
+            }
+        }
         switch (unit.payload) {
             .comp => |*c| if (us.comp) |cs| {
                 if (std.math.isFinite(cs.threshold_db)) c.threshold_db = cs.threshold_db;

@@ -166,6 +166,8 @@ pub const FxKind = std.meta.Tag(FxPayload);
 /// reorder only shuffle the pointer list, never move the unit itself).
 pub const FxUnit = struct {
     payload: FxPayload,
+    /// Stable across reorder/save/load. Matrix routes target this, not slot.
+    instance_id: u32,
     /// Bypassed units keep their state but are skipped by `chain()`.
     bypassed: bool = false,
     /// Unit came from a synth preset recipe. Next synth preset replaces it.
@@ -183,10 +185,33 @@ pub const FxUnit = struct {
 /// (Session.master_fx) - the same units plug into either one the same way.
 pub const Fx = struct {
     units: std.ArrayListUnmanaged(*FxUnit) = .empty,
+    next_instance_id: u32 = 1,
 
     /// Also accommodates migration of 14 legacy synth inserts ahead of an
     /// existing nine-unit rack chain.
     pub const max_units = 24;
+
+    fn allocInstanceId(self: *Fx) u32 {
+        while (true) {
+            const id = self.next_instance_id;
+            self.next_instance_id +%= 1;
+            if (self.next_instance_id == 0) self.next_instance_id = 1;
+            if (id == 0) continue;
+            var used = false;
+            for (self.units.items) |u| {
+                if (u.instance_id == id) {
+                    used = true;
+                    break;
+                }
+            }
+            if (!used) return id;
+        }
+    }
+
+    pub fn findInstance(self: *const Fx, id: u32) ?*FxUnit {
+        for (self.units.items) |u| if (u.instance_id == id) return u;
+        return null;
+    }
 
     /// A fresh payload of `kind` with its defaults. Only chorus/delay/reverb
     /// allocate (their mod/delay lines).
@@ -218,7 +243,7 @@ pub const Fx = struct {
         if (self.units.items.len >= max_units) return error.ChainFull;
         const unit = try allocator.create(FxUnit);
         errdefer allocator.destroy(unit);
-        unit.* = .{ .payload = try initPayload(allocator, kind, sr) };
+        unit.* = .{ .payload = try initPayload(allocator, kind, sr), .instance_id = self.allocInstanceId() };
         errdefer unit.payload.deinit(allocator);
         try self.units.insert(allocator, @min(pos, self.units.items.len), unit);
         return unit;
@@ -237,7 +262,7 @@ pub const Fx = struct {
         errdefer plugin.deinit();
         const unit = try allocator.create(FxUnit);
         errdefer allocator.destroy(unit);
-        unit.* = .{ .payload = .{ .clap = plugin } };
+        unit.* = .{ .payload = .{ .clap = plugin }, .instance_id = self.allocInstanceId() };
         try self.units.insert(allocator, @min(pos, self.units.items.len), unit);
         return unit;
     }
@@ -329,10 +354,16 @@ pub const Fx = struct {
         for (self.units.items) |u| {
             const nu = try allocator.create(FxUnit);
             errdefer allocator.destroy(nu);
-            nu.* = .{ .payload = try u.payload.dupe(allocator, sr), .bypassed = u.bypassed };
+            nu.* = .{
+                .payload = try u.payload.dupe(allocator, sr),
+                .instance_id = u.instance_id,
+                .bypassed = u.bypassed,
+                .preset_owned = u.preset_owned,
+            };
             errdefer nu.payload.deinit(allocator);
             try out.units.append(allocator, nu);
         }
+        out.next_instance_id = self.next_instance_id;
         return out;
     }
 };
@@ -469,6 +500,23 @@ test "chain follows insertion order, not a fixed slot order" {
         @as(*anyopaque, @ptrCast(&eq.payload.eq)), ch[2].ptr,
         // zig fmt: on
     );
+}
+
+test "FX instance IDs survive reorder and duplication" {
+    var fx: Fx = .{};
+    defer fx.deinit(std.testing.allocator);
+    const comp = try fx.insert(std.testing.allocator, 0, .comp, 48_000);
+    const delay = try fx.insert(std.testing.allocator, 1, .delay, 48_000);
+    const comp_id = comp.instance_id;
+    const delay_id = delay.instance_id;
+    fx.swap(0, 1);
+    try std.testing.expectEqual(delay_id, fx.units.items[0].instance_id);
+    try std.testing.expectEqual(comp_id, fx.units.items[1].instance_id);
+
+    var copy = try fx.dupe(std.testing.allocator, 48_000);
+    defer copy.deinit(std.testing.allocator);
+    try std.testing.expect(copy.findInstance(comp_id) != null);
+    try std.testing.expect(copy.findInstance(delay_id) != null);
 }
 
 test "Fx: duplicates allowed, bypass skips, remove frees, cap enforced" {
