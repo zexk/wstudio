@@ -1,17 +1,18 @@
 //! Wavetable storage + lookup for the synth's `.wavetable` oscillator mode.
 //! A table is a flat run of fixed-length frames; playback picks a fractional
 //! frame position (`frame_pos`, 0..1) and crossfades between the two nearest
-//! frames, each read with linear-interpolated phase - no band-limiting, so
-//! high notes on harmonically dense tables will alias (accepted for v1, see
-//! docs/ for the tradeoff).
+//! frames, each read with linear-interpolated phase. Octave mip levels remove
+//! harmonics above playback Nyquist before high notes can fold them downward.
 
 const std = @import("std");
 const types = @import("../core/types.zig");
 const wav = @import("../core/wav.zig");
+const fft = @import("fft.zig");
 
 const Sample = types.Sample;
 
 pub const frame_len: usize = 2048;
+pub const mip_levels: usize = 11;
 
 /// Bundled "basic shapes" table (sine/triangle/saw/square, one frame each -
 /// see tools/genwavetable.zig). The oscillator's own frame_pos crossfade
@@ -19,7 +20,7 @@ pub const frame_len: usize = 2048;
 const default_wav = @embedFile("../assets/wavetable/basic_shapes.wav");
 
 pub const Wavetable = struct {
-    /// Flattened frame data: `frame_count * frame_len` samples.
+    /// Flattened frame data: level, frame, then sample.
     frames: []f32,
     frame_count: usize,
 };
@@ -30,11 +31,29 @@ pub const Wavetable = struct {
 pub fn fromSamples(allocator: std.mem.Allocator, samples: []const f32) !Wavetable {
     const complete = samples.len / frame_len;
     const frame_count = @max(1, complete + @intFromBool(samples.len % frame_len != 0));
-    const total = frame_count * frame_len;
-    const frames = try allocator.alloc(f32, total);
-    const n = @min(total, samples.len);
+    const level_len = frame_count * frame_len;
+    const frames = try allocator.alloc(f32, level_len * mip_levels);
+    const n = @min(level_len, samples.len);
     @memcpy(frames[0..n], samples[0..n]);
-    if (n < total) @memset(frames[n..], 0.0);
+    if (n < level_len) @memset(frames[n..level_len], 0.0);
+    var real: [frame_len]f32 = undefined;
+    var imag: [frame_len]f32 = undefined;
+    for (0..frame_count) |frame| {
+        @memcpy(&real, frames[frame * frame_len ..][0..frame_len]);
+        @memset(&imag, 0.0);
+        fft.fft(frame_len, &real, &imag);
+        for (1..mip_levels) |level| {
+            var filtered_real = real;
+            var filtered_imag = imag;
+            const highest = (frame_len / 2) >> @intCast(level);
+            @memset(filtered_real[highest + 1 .. frame_len - highest], 0.0);
+            @memset(filtered_imag[highest + 1 .. frame_len - highest], 0.0);
+            for (&filtered_imag) |*x| x.* = -x.*;
+            fft.fft(frame_len, &filtered_real, &filtered_imag);
+            const dst = level * level_len + frame * frame_len;
+            for (filtered_real, frames[dst..][0..frame_len]) |x, *out| out.* = x / frame_len;
+        }
+    }
     return .{ .frames = frames, .frame_count = frame_count };
 }
 
@@ -61,9 +80,10 @@ pub fn dupe(table: Wavetable, allocator: std.mem.Allocator) !Wavetable {
 
 /// Reads `table` at fractional frame position `frame_pos` (0..1, clamped)
 /// and phase `phase` (wrapped to 0..1), bilinearly interpolating across
-/// both frame and sample axes.
-pub fn lookup(table: Wavetable, frame_pos: f32, phase: f32) Sample {
-    if (table.frame_count == 0 or table.frames.len < table.frame_count *| frame_len) return 0.0;
+/// both frame and sample axes. `phase_inc` selects octave mip level.
+pub fn lookup(table: Wavetable, frame_pos: f32, phase: f32, phase_inc: f32) Sample {
+    const level_len = table.frame_count *| frame_len;
+    if (table.frame_count == 0 or table.frames.len < level_len *| mip_levels) return 0.0;
     const safe_frame_pos = if (std.math.isFinite(frame_pos)) frame_pos else 0.0;
     const safe_phase = if (std.math.isFinite(phase)) phase else 0.0;
     const fc: f32 = @floatFromInt(table.frame_count - 1);
@@ -78,12 +98,18 @@ pub fn lookup(table: Wavetable, frame_pos: f32, phase: f32) Sample {
     const s1: usize = (s0 + 1) % frame_len;
     const frac_s = sp - @floor(sp);
 
-    const a0 = table.frames[f0 * frame_len + s0];
-    const a1 = table.frames[f0 * frame_len + s1];
+    const safe_inc = if (std.math.isFinite(phase_inc)) @abs(phase_inc) else 0.0;
+    const allowed: usize = if (safe_inc > 0.0) @intFromFloat(@floor(0.5 / safe_inc)) else frame_len / 2;
+    var level: usize = 0;
+    while (level + 1 < mip_levels and ((frame_len / 2) >> @intCast(level)) > allowed) level += 1;
+    const base = level * level_len;
+
+    const a0 = table.frames[base + f0 * frame_len + s0];
+    const a1 = table.frames[base + f0 * frame_len + s1];
     const va = a0 + (a1 - a0) * frac_s;
 
-    const b0 = table.frames[f1 * frame_len + s0];
-    const b1 = table.frames[f1 * frame_len + s1];
+    const b0 = table.frames[base + f1 * frame_len + s0];
+    const b1 = table.frames[base + f1 * frame_len + s1];
     const vb = b0 + (b1 - b0) * frac_s;
 
     return va + (vb - va) * frac_f;
@@ -98,10 +124,10 @@ test "lookup: single-frame table matches a plain sine read" {
     var table = try fromSamples(allocator, &frame);
     defer deinit(&table, allocator);
 
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), lookup(table, 0.0, 0.0), 0.001);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), lookup(table, 0.5, 0.25), 0.01);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), lookup(table, 0.0, 0.0, 0.0), 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), lookup(table, 0.5, 0.25, 0.0), 0.01);
     // frame_pos is irrelevant with only one frame.
-    try std.testing.expectApproxEqAbs(lookup(table, 0.0, 0.25), lookup(table, 1.0, 0.25), 0.0001);
+    try std.testing.expectApproxEqAbs(lookup(table, 0.0, 0.25, 0.0), lookup(table, 1.0, 0.25, 0.0), 0.0001);
 }
 
 test "lookup: frame_pos crossfades between distinct frames" {
@@ -112,9 +138,9 @@ test "lookup: frame_pos crossfades between distinct frames" {
     var table = try fromSamples(allocator, &samples);
     defer deinit(&table, allocator);
 
-    try std.testing.expectApproxEqAbs(@as(f32, -1.0), lookup(table, 0.0, 0.1), 0.0001);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), lookup(table, 1.0, 0.1), 0.0001);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), lookup(table, 0.5, 0.1), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, -1.0), lookup(table, 0.0, 0.1, 0.0), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), lookup(table, 1.0, 0.1, 0.0), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), lookup(table, 0.5, 0.1, 0.0), 0.0001);
 }
 
 test "fromSamples pads a trailing partial frame instead of dropping it" {
@@ -126,7 +152,7 @@ test "fromSamples pads a trailing partial frame instead of dropping it" {
 
     try std.testing.expectEqual(@as(usize, 2), table.frame_count);
     try std.testing.expectEqual(@as(f32, 0.75), table.frames[frame_len]);
-    for (table.frames[frame_len + 1 ..]) |sample| try std.testing.expectEqual(@as(f32, 0.0), sample);
+    for (table.frames[frame_len + 1 .. frame_len * 2]) |sample| try std.testing.expectEqual(@as(f32, 0.0), sample);
 }
 
 test "loadDefault: bundled basic-shapes table has 4 frames" {
@@ -153,13 +179,23 @@ test "dupe: independent buffer, same content" {
 test "lookup handles invalid coordinates and malformed tables safely" {
     var empty_frames: [0]f32 = .{};
     const empty = Wavetable{ .frames = &empty_frames, .frame_count = 0 };
-    try std.testing.expectEqual(@as(f32, 0.0), lookup(empty, 0.0, 0.0));
+    try std.testing.expectEqual(@as(f32, 0.0), lookup(empty, 0.0, 0.0, 0.0));
 
     var short_frames = [_]f32{0.5};
     const short = Wavetable{ .frames = &short_frames, .frame_count = 1 };
-    try std.testing.expectEqual(@as(f32, 0.0), lookup(short, 0.0, 0.0));
+    try std.testing.expectEqual(@as(f32, 0.0), lookup(short, 0.0, 0.0, 0.0));
 
     var table = try fromSamples(std.testing.allocator, &.{0.25});
     defer deinit(&table, std.testing.allocator);
-    try std.testing.expectEqual(lookup(table, 0.0, 0.0), lookup(table, std.math.nan(f32), std.math.inf(f32)));
+    try std.testing.expectEqual(lookup(table, 0.0, 0.0, 0.0), lookup(table, std.math.nan(f32), std.math.inf(f32), std.math.nan(f32)));
+}
+
+test "lookup selects band-limited mip level for high notes" {
+    var samples: [frame_len]f32 = undefined;
+    for (&samples, 0..) |*sample, i| sample.* = if (i % 2 == 0) 1.0 else -1.0;
+    var table = try fromSamples(std.testing.allocator, &samples);
+    defer deinit(&table, std.testing.allocator);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), lookup(table, 0.0, 0.0, 0.0), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), lookup(table, 0.0, 0.0, 0.25), 1e-4);
 }

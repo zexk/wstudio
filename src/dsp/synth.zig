@@ -2259,7 +2259,7 @@ pub const PolySynth = struct {
                 if (self.osc_c_on) {
                     for (0..n_c) |ui| {
                         const samp = if (self.osc_c_waveform == .wavetable)
-                            wavetable.lookup(self.osc_c_wt, wt_pos_c, v.phases_c[ui])
+                            wavetable.lookup(self.osc_c_wt, wt_pos_c, v.phases_c[ui], phase_incs_c[ui])
                         else
                             oscWave(self.osc_c_waveform, v.phases_c[ui], pw_c, phase_incs_c[ui]);
                         c_l += samp * pan_l_c[ui];
@@ -3111,7 +3111,7 @@ pub const PolySynth = struct {
     /// caller can substitute per-voice matrix-modulated values.
     fn oscSample(waveform: Waveform, wt: Wavetable, warp_mode: WarpMode, phase: f32, inc: f32, pw: f32, warp_amount: f32, wt_pos: f32) Sample {
         const p = warpPhase(warp_mode, phase, warp_amount);
-        if (waveform == .wavetable) return wavetable.lookup(wt, wt_pos, p);
+        if (waveform == .wavetable) return wavetable.lookup(wt, wt_pos, p, inc);
         return oscWave(waveform, p, pw, warpedInc(warp_mode, phase, inc, warp_amount, p));
     }
 

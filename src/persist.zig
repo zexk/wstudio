@@ -1338,21 +1338,21 @@ fn exportSamples(
                 if (s.wt_user) {
                     const base = try std.fmt.allocPrint(aa, "t{d}oscA.wav", .{ti});
                     const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
-                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.wt.frames);
+                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.wt.frames[0 .. s.wt.frame_count * wavetable_mod.frame_len]);
                     rs.synth.?.wt_file = rel;
                     try written.put(aa, base, {});
                 }
                 if (s.osc_b_wt_user) {
                     const base = try std.fmt.allocPrint(aa, "t{d}oscB.wav", .{ti});
                     const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
-                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.osc_b_wt.frames);
+                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.osc_b_wt.frames[0 .. s.osc_b_wt.frame_count * wavetable_mod.frame_len]);
                     rs.synth.?.osc_b_wt_file = rel;
                     try written.put(aa, base, {});
                 }
                 if (s.osc_c_wt_user) {
                     const base = try std.fmt.allocPrint(aa, "t{d}oscC.wav", .{ti});
                     const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
-                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.osc_c_wt.frames);
+                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.osc_c_wt.frames[0 .. s.osc_c_wt.frame_count * wavetable_mod.frame_len]);
                     rs.synth.?.osc_c_wt_file = rel;
                     try written.put(aa, base, {});
                 }
