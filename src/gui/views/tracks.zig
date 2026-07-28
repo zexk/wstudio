@@ -59,7 +59,7 @@ pub fn draw(app: anytype) void {
     zgui.separator();
     const row_count = app.core.trackRows().len + 1;
     const available_height = zgui.getContentRegionAvail()[1];
-    const row_height = std.math.clamp((available_height - 154) / @as(f32, @floatFromInt(row_count)), 52, 82);
+    const row_height = std.math.clamp((available_height - 154) / @as(f32, @floatFromInt(row_count)), 52, 112);
     for (app.core.trackRows(), 0..) |row, display_row| {
         switch (row) {
             .track => |track_index| drawMixerRow(app, track_index, display_row, row_height),

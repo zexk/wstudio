@@ -63,15 +63,13 @@ const Target = union(enum) {
 fn drawSharedSections(app: anytype, target: Target) void {
     const available = zgui.getContentRegionAvail()[0];
     const gap: f32 = 10;
-    // ~270px per section column, same per-column budget the old 3-at-820
-    // breakpoint gave before FADE became the fourth section.
-    const columns: usize = if (available >= 1080) sampler_ed.pad_sections.len else 1;
+    const columns = sectionColumns(available, gap);
     const column_width = (available - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns));
     for (sampler_ed.pad_sections, 0..) |section, index| {
-        if (index > 0 and columns > 1) zgui.sameLine(.{ .spacing = gap });
+        if (index % columns != 0) zgui.sameLine(.{ .spacing = gap });
         var child_buf: [32]u8 = undefined;
         const child_id = std.fmt.bufPrintZ(&child_buf, "sampler-module-{d}", .{index}) catch continue;
-        if (zgui.beginChild(child_id, .{ .w = if (columns > 1 and index + 1 < columns) column_width else 0, .h = 205, .child_flags = .{ .border = true } })) {
+        if (zgui.beginChild(child_id, .{ .w = column_width, .h = 205, .child_flags = .{ .border = true } })) {
             const section_color = switch (section.kind) {
                 .envelope => theme.rhythm,
                 .output => theme.audio,
@@ -94,6 +92,17 @@ fn drawSharedSections(app: anytype, target: Target) void {
         }
         zgui.endChild();
     }
+}
+
+fn sectionColumns(available: f32, gap: f32) usize {
+    return @min(sampler_ed.pad_sections.len, @as(usize, @intFromFloat(@max(1, @floor((available + gap) / (270 + gap))))));
+}
+
+test "sampler sections add columns as space becomes available" {
+    try std.testing.expectEqual(@as(usize, 1), sectionColumns(539, 10));
+    try std.testing.expectEqual(@as(usize, 2), sectionColumns(820, 10));
+    try std.testing.expectEqual(@as(usize, 3), sectionColumns(1079, 10));
+    try std.testing.expectEqual(@as(usize, 4), sectionColumns(1360, 10));
 }
 
 fn drawAmpEnvelope(app: anytype, target: Target) void {

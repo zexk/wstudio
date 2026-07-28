@@ -36,14 +36,23 @@ pub fn draw(app: anytype) void {
         return;
     }
 
-    widgets.sectionTitle("PROGRAM", theme.rhythm);
-    drawPresetRow(app, track, sf);
-    zgui.spacing();
+    const available = zgui.getContentRegionAvail()[0];
+    const panel_width = @min(available, 900);
+    zgui.setCursorPosX(zgui.getCursorPos()[0] + @max(0, (available - panel_width) * 0.5));
+    if (zgui.beginChild("soundfont-panel", .{ .w = panel_width, .h = 0, .child_flags = .{ .border = true, .auto_resize_y = true } })) {
+        widgets.sectionTitle("PROGRAM", theme.rhythm);
+        drawPresetRow(app, track, sf);
+        zgui.spacing();
 
-    widgets.sectionTitle("OUT", theme.focus);
-    drawParam(app, track, sf, 0, "Gain", "%.2f");
-    drawParam(app, track, sf, 1, "Pan", format.pan_cfmt);
-    drawParam(app, track, sf, 2, "Transpose", "%.0f st");
+        widgets.sectionTitle("OUT", theme.focus);
+        drawParam(app, track, sf, 0, "Gain", "%.2f");
+        zgui.sameLine(.{ .spacing = 28 });
+        drawParam(app, track, sf, 1, "Pan", format.pan_cfmt);
+        zgui.sameLine(.{ .spacing = 28 });
+        drawParam(app, track, sf, 2, "Transpose", "%.0f st");
+        zgui.spacing();
+    }
+    zgui.endChild();
 }
 
 fn drawHeader(app: anytype, track: u16, sf: *const ws.dsp.SoundfontPlayer) void {
