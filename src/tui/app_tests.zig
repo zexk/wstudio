@@ -4514,6 +4514,7 @@ test "arrangement visual time edits remove, insert, and loop selected time" {
     app.view = .arrangement;
     app.cursor = 0;
     app.arr_cursor_bar = 0;
+    try app.session.project.setSection(640, "outro");
 
     // Four quarter-note cells equal one musical bar.
     app.handleKey(.{ .char = 'V' }, 0);
@@ -4530,7 +4531,9 @@ test "arrangement visual time edits remove, insert, and loop selected time" {
     app.handleKey(.{ .char = 'D' }, 0);
     try std.testing.expect(app.session.arrangement.lane(0).?.clipAt(512) != null);
     try std.testing.expect(app.session.arrangement.lane(1).?.clipAt(512) != null);
+    try std.testing.expectEqual(@as(u32, 512), app.session.project.sections.items[0].tick);
     app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(@as(u32, 640), app.session.project.sections.items[0].tick);
 
     // Yank first bar, then insert it at bar 5. Existing material moves right.
     app.arr_cursor_bar = 0;
@@ -4543,6 +4546,38 @@ test "arrangement visual time edits remove, insert, and loop selected time" {
     try std.testing.expect(app.session.arrangement.lane(1).?.clipAt(640) != null);
     try std.testing.expect(app.session.arrangement.lane(0).?.clipAt(768) != null);
     try std.testing.expect(app.session.arrangement.lane(1).?.clipAt(768) != null);
+}
+
+test "arrangement sections add, navigate, select, and delete" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .arrangement;
+    try app.session.project.setSection(0, "intro");
+    try app.session.project.setSection(128, "verse");
+    try app.session.project.setSection(256, "chorus");
+    try app.session.stampClip(0, 0);
+
+    app.arr_cursor_bar = 0;
+    app.handleKey(.{ .char = '}' }, 0);
+    try std.testing.expectEqual(@as(u32, 4), app.arr_cursor_bar);
+    app.handleKey(.{ .char = '}' }, 0);
+    try std.testing.expectEqual(@as(u32, 8), app.arr_cursor_bar);
+    app.handleKey(.{ .char = '{' }, 0);
+    try std.testing.expectEqual(@as(u32, 4), app.arr_cursor_bar);
+    app.handleKey(.{ .char = 's' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
+    try std.testing.expectEqual(@as(?usize, null), app.arr_visual_lane_anchor);
+    try std.testing.expectEqual(@as(u32, 7), app.arr_cursor_bar);
+
+    _ = app.modal.setMode(.normal);
+    app.arr_visual_anchor = null;
+    app.arr_cursor_bar = 12;
+    for (":section outro") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqualStrings("outro", app.session.project.sections.items[3].name);
+    for (":section-del") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(@as(usize, 3), app.session.project.sections.items.len);
 }
 
 test "arrangement blockwise visual bounds the cut to the lane band j/k grows" {

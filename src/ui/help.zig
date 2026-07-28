@@ -368,6 +368,9 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("z / Z",        "finer / coarser timing grid (1/4 through 1/128)");
     t.key("a",            "open gain/pan automation editor for the clip at cursor");
     t.key("/",            "fuzzy-search lane (track) names, n / N repeat forward / backward");
+    t.key("{ / }",        "jump to previous / next named section");
+    t.key("s",            "select current named section across every lane");
+    t.key(":section",     "<name>  add or rename a section at cursor; :section-del removes it");
     t.key("tab",          "back to the tracks view");
 
     t.taggedSection(.automation, "AUTOMATION  (per-clip breakpoints - opened via 'a' in the arrangement)");

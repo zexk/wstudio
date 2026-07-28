@@ -877,6 +877,11 @@ pub const LaneSnap = struct {
     clips: []const ClipSnap = &.{},
 };
 
+pub const SectionSnap = struct {
+    tick: u32,
+    name: []const u8,
+};
+
 pub const Snapshot = struct {
     version: u32 = file_version,
     tempo_bpm: f64 = 120.0,
@@ -893,6 +898,8 @@ pub const Snapshot = struct {
     racks: []const RackSnap,
     /// Song timeline, one lane per track. Empty for v1 files.
     arrangement: []const LaneSnap = &.{},
+    /// Named song sections. Additive: older files load with none.
+    sections: []const SectionSnap = &.{},
     /// Whether the loaded project plays the arrangement (true) or live loops.
     song_mode: bool = false,
     /// v6: master bus FX, applied to the summed mix before gain/limiter.
@@ -960,6 +967,8 @@ pub fn save(
         for (lane.clips.items, clips) |clip, *c| c.* = try clipToSnap(aa, clip);
         ls.* = .{ .clips = clips };
     }
+    const sections = try aa.alloc(SectionSnap, session.project.sections.items.len);
+    for (session.project.sections.items, sections) |section, *ss| ss.* = .{ .tick = section.tick, .name = section.name };
 
     const snap: Snapshot = .{
         .tempo_bpm = session.project.tempo_bpm,
@@ -971,6 +980,7 @@ pub fn save(
         .tracks = tracks,
         .racks = racks,
         .arrangement = lanes,
+        .sections = sections,
         .song_mode = session.song_mode,
         .master_fx_chain = try chainToSnap(aa, &session.master_fx, session.project.sample_rate),
         .groups = groups,
@@ -1754,6 +1764,10 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     project.loop_start_bar = snap.loop_start_bar;
     project.loop_end_bar = snap.loop_end_bar;
     project.loop_enabled = snap.loop_enabled and snap.loop_end_bar > snap.loop_start_bar;
+    for (snap.sections) |section| {
+        if (section.name.len == 0) continue;
+        try project.setSection(section.tick, section.name);
+    }
 
     // zig fmt: off
     for (snap.tracks) |t| {
@@ -3435,6 +3449,7 @@ test "buildSession: arrangement clips and song_mode round-trip" {
             .{ .label = "drums", .kind = .drum_machine, .drum = .{ .step_count = 16, .pattern = &drum_pattern } },
         },
         .song_mode = true,
+        .sections = &.{.{ .tick = 128, .name = "verse" }},
         .arrangement = &.{
             .{ .clips = &.{
                 .{ .start_bar = 2, .length_bars = 1, .kind = .melodic, .length_beats = 4.0, .notes = &.{
@@ -3451,6 +3466,7 @@ test "buildSession: arrangement clips and song_mode round-trip" {
     defer session.deinit();
 
     try testing.expect(session.song_mode);
+    try testing.expectEqualStrings("verse", session.project.sections.items[0].name);
 
     // Melodic clip restored on lane 0.
     const lane0 = session.arrangement.lane(0).?;

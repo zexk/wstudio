@@ -88,11 +88,18 @@ pub fn drawArrangement(
         const in_loop = loop_on and
             bar >= p.loop_start_bar *| ticks_per_bar and
             bar < p.loop_end_bar *| ticks_per_bar;
+        const section_name: ?[]const u8 = for (p.sections.items) |section| {
+            if (section.tick == bar) break section.name;
+        } else null;
         try w.writeAll(if (in_loop) yel ++ "│" ++ rst else if (downbeat) blu ++ "│" ++ rst else dim ++ "│" ++ rst);
         if (cw == 2) {
             // Compact: no room for a bar number without corrupting column
             // alignment - the separator's colour already marks downbeat/loop.
             try w.writeAll(if (in_loop) yel ++ "·" ++ rst else " ");
+        } else if (section_name) |name| {
+            const shown = name[0..@min(name.len, cw - 1)];
+            try w.print("{s}{s}{s}", .{ bold, shown, rst });
+            try w.splatByteAll(' ', cw - 1 - shown.len);
         } else if (downbeat) {
             try w.print("{s}{d: <3}{s}", .{ if (in_loop) yel else dim, bar / ticks_per_bar + 1, rst });
             try w.splatByteAll(' ', cw - 4);

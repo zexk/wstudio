@@ -175,7 +175,24 @@ pub fn captureLanesOf(app: *App, tracks: []const u16) ?undo_mod.Entry {
         list.deinit(app.allocator);
         return null;
     }
-    return .{ .lanes = .{ .lanes = list } };
+    const sections = app.allocator.alloc(ws.Section, app.session.project.sections.items.len) catch {
+        for (list.items) |*lane| lane.deinit(app.allocator);
+        list.deinit(app.allocator);
+        return null;
+    };
+    var copied: usize = 0;
+    for (app.session.project.sections.items, sections) |section, *copy| {
+        const name = app.allocator.dupe(u8, section.name) catch {
+            for (sections[0..copied]) |done| app.allocator.free(done.name);
+            app.allocator.free(sections);
+            for (list.items) |*lane| lane.deinit(app.allocator);
+            list.deinit(app.allocator);
+            return null;
+        };
+        copy.* = .{ .tick = section.tick, .name = name };
+        copied += 1;
+    }
+    return .{ .lanes = .{ .lanes = list, .sections = sections } };
 }
 
 /// `captureLanesOf` over a contiguous lane band - what a visual-mode range
@@ -534,9 +551,18 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             defer app.allocator.free(tracks);
             for (ml.lanes.items, tracks) |l, *t| t.* = l.track;
             const displaced = captureLanesOf(app, tracks) orelse return null;
+            app.session.project.sections.ensureTotalCapacity(app.allocator, ml.sections.len) catch {
+                var orphan = displaced;
+                orphan.deinit(app.allocator);
+                return null;
+            };
             for (ml.lanes.items) |l| restoreLane(app, l);
             var owned = ml.lanes;
             owned.deinit(app.allocator);
+            for (app.session.project.sections.items) |section| app.allocator.free(section.name);
+            app.session.project.sections.clearRetainingCapacity();
+            for (ml.sections) |section| app.session.project.sections.appendAssumeCapacity(section);
+            app.allocator.free(ml.sections);
             if (app.session.song_mode) app.session.rebuildSongData();
             return displaced;
         },

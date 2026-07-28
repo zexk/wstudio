@@ -81,6 +81,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "volume",      .desc = "[<dB>]  master volume (–40 to +6)",   .run = wrap(cmdVol) },
     .{ .name = "vol",         .desc = "[<dB>]  master volume (alias for :volume)", .run = wrap(cmdVol) },
     .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(cmdSeek) },
+    .{ .name = "section",     .desc = "<name>  add or rename section at arrangement cursor", .run = wrap(cmdSection) },
+    .{ .name = "section-del", .desc = "delete section at arrangement cursor", .run = wrap(cmdSectionDel) },
     .{ .name = "load",        .desc = "[file]  load the WAV/SF2 type for the current view and selected instrument; omit the file to browse", .run = wrap(cmdLoad) },
     .{ .name = "clap-instrument", .desc = "<plugin-id> <path>  load a CLAP instrument on the cursor track", .run = wrap(cmdClapInstrument) },
     .{ .name = "clap-fx",     .desc = "<plugin-id> <path>  append a CLAP effect to the cursor track", .run = wrap(cmdClapFx) },
@@ -3006,6 +3008,39 @@ fn cmdSeek(app: *App, args: []const u8) void {
     };
     _ = app.session.engine.send(.{ .seek_frames = frames });
     app.setStatus("seek → bar {d}", .{bar_1});
+}
+
+fn cmdSection(app: *App, args: []const u8) void {
+    if (app.view != .arrangement) {
+        app.setStatus("section: open arrangement first", .{});
+        return;
+    }
+    const name = std.mem.trim(u8, args, " ");
+    if (name.len == 0) {
+        app.setStatus("usage: section <name>", .{});
+        return;
+    }
+    const tick = app.arr_cursor_bar *| app.arr_grid.ticks();
+    app.session.project.setSection(tick, name) catch {
+        app.setStatus("section failed (out of memory)", .{});
+        return;
+    };
+    app.dirty = true;
+    app.setStatus("section \"{s}\" at tick {d}", .{ name, tick });
+}
+
+fn cmdSectionDel(app: *App, _: []const u8) void {
+    if (app.view != .arrangement) {
+        app.setStatus("section-del: open arrangement first", .{});
+        return;
+    }
+    const tick = app.arr_cursor_bar *| app.arr_grid.ticks();
+    if (!app.session.project.removeSection(tick)) {
+        app.setStatus("no section at cursor", .{});
+        return;
+    }
+    app.dirty = true;
+    app.setStatus("section deleted", .{});
 }
 
 fn cmdVol(app: *App, args: []const u8) void {

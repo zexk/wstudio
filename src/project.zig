@@ -34,6 +34,11 @@ pub const Track = struct {
     group: ?u8 = null,
 };
 
+pub const Section = struct {
+    tick: u32,
+    name: []const u8,
+};
+
 pub const Project = struct {
     allocator: std.mem.Allocator,
     name: []const u8 = "untitled",
@@ -50,6 +55,7 @@ pub const Project = struct {
     loop_start_bar: u32 = 0,
     loop_end_bar: u32 = 0,
     tracks: std.ArrayList(Track) = .empty,
+    sections: std.ArrayList(Section) = .empty,
 
     pub fn init(allocator: std.mem.Allocator) Project {
         return .{ .allocator = allocator };
@@ -70,6 +76,57 @@ pub const Project = struct {
     pub fn deinit(self: *Project) void {
         for (self.tracks.items) |t| self.allocator.free(t.name);
         self.tracks.deinit(self.allocator);
+        for (self.sections.items) |section| self.allocator.free(section.name);
+        self.sections.deinit(self.allocator);
+    }
+
+    pub fn setSection(self: *Project, tick: u32, name: []const u8) !void {
+        const owned = try self.allocator.dupe(u8, name);
+        errdefer self.allocator.free(owned);
+        for (self.sections.items) |*section| {
+            if (section.tick != tick) continue;
+            self.allocator.free(section.name);
+            section.name = owned;
+            return;
+        }
+        var index = self.sections.items.len;
+        for (self.sections.items, 0..) |section, i| {
+            if (section.tick > tick) {
+                index = i;
+                break;
+            }
+        }
+        try self.sections.insert(self.allocator, index, .{ .tick = tick, .name = owned });
+    }
+
+    pub fn removeSection(self: *Project, tick: u32) bool {
+        for (self.sections.items, 0..) |section, i| {
+            if (section.tick != tick) continue;
+            const removed = self.sections.orderedRemove(i);
+            self.allocator.free(removed.name);
+            return true;
+        }
+        return false;
+    }
+
+    pub fn insertTime(self: *Project, at: u32, width: u32) void {
+        for (self.sections.items) |*section| {
+            if (section.tick >= at) section.tick +|= width;
+        }
+    }
+
+    pub fn removeTime(self: *Project, lo: u32, hi: u32) void {
+        if (hi <= lo) return;
+        var i: usize = 0;
+        while (i < self.sections.items.len) {
+            if (self.sections.items[i].tick >= lo and self.sections.items[i].tick < hi) {
+                const removed = self.sections.orderedRemove(i);
+                self.allocator.free(removed.name);
+            } else {
+                if (self.sections.items[i].tick >= hi) self.sections.items[i].tick -= hi - lo;
+                i += 1;
+            }
+        }
     }
 
     /// Appends a track. Duplicates the name so the caller's string need not
@@ -170,4 +227,20 @@ test "framesPerBar remains valid with invalid timing fields" {
     p.tempo_bpm = std.math.floatMin(f64);
     p.beats_per_bar = std.math.maxInt(u8);
     try std.testing.expectEqual(std.math.maxInt(u64), p.framesPerBar());
+}
+
+test "sections stay sorted and follow time edits" {
+    var p = Project.init(std.testing.allocator);
+    defer p.deinit();
+    try p.setSection(20, "chorus");
+    try p.setSection(0, "intro");
+    try p.setSection(20, "verse");
+    try std.testing.expectEqualStrings("intro", p.sections.items[0].name);
+    try std.testing.expectEqualStrings("verse", p.sections.items[1].name);
+
+    p.insertTime(10, 5);
+    try std.testing.expectEqual(@as(u32, 25), p.sections.items[1].tick);
+    p.removeTime(0, 5);
+    try std.testing.expectEqual(@as(usize, 1), p.sections.items.len);
+    try std.testing.expectEqual(@as(u32, 20), p.sections.items[0].tick);
 }

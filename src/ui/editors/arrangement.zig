@@ -229,6 +229,18 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 app.searchArrangement(-1);
                 return true;
             },
+            '{' => {
+                moveSection(app, -1);
+                return true;
+            },
+            '}' => {
+                moveSection(app, 1);
+                return true;
+            },
+            's' => {
+                selectSection(app);
+                return true;
+            },
             '[' => {
                 cycleDrumVariant(app, -1);
                 return true;
@@ -513,6 +525,7 @@ fn removeTimeSelection(app: *App) void {
             return;
         };
     }
+    if (lanes.height() == app.session.project.tracks.items.len) app.session.project.removeTime(r.lo, hi);
     app.arr_cursor_bar = r.lo / app.arr_grid.ticks();
     if (app.session.song_mode) app.session.rebuildSongData();
     app.setStatus("removed {d} bar(s) across {d} lane(s)", .{ (hi - r.lo) / app.arr_grid.ticks(), lanes.height() });
@@ -604,6 +617,7 @@ fn pasteSelection(app: *App, insert: bool) void {
                 return;
             };
         }
+        if (clip.lane_span >= lane_count) app.session.project.insertTime(cursor_tick, clip.width_ticks);
     }
     var end_bar = cursor_tick;
     for (clip.clips, clip.lane_offsets) |c, off| {
@@ -650,6 +664,54 @@ fn repeatLastEdit(app: *App) void {
 fn moveBar(app: *App, delta: i64) void {
     const nb = @as(i64, app.arr_cursor_bar) + delta;
     app.arr_cursor_bar = @intCast(std.math.clamp(nb, 0, maxCursorBar(app)));
+}
+
+fn moveSection(app: *App, direction: i8) void {
+    const sections = app.session.project.sections.items;
+    const tick = cursorTick(app);
+    if (direction > 0) {
+        for (sections) |section| {
+            if (section.tick > tick) {
+                app.arr_cursor_bar = section.tick / app.arr_grid.ticks();
+                return;
+            }
+        }
+    } else {
+        var i = sections.len;
+        while (i > 0) {
+            i -= 1;
+            if (sections[i].tick < tick) {
+                app.arr_cursor_bar = sections[i].tick / app.arr_grid.ticks();
+                return;
+            }
+        }
+    }
+    app.setStatus("no more sections", .{});
+}
+
+fn selectSection(app: *App) void {
+    const sections = app.session.project.sections.items;
+    if (sections.len == 0) {
+        app.setStatus("no sections", .{});
+        return;
+    }
+    const tick = cursorTick(app);
+    var current: usize = 0;
+    for (sections, 0..) |section, i| {
+        if (section.tick > tick) break;
+        current = i;
+    }
+    const lo = sections[current].tick;
+    const hi = if (current + 1 < sections.len) sections[current + 1].tick else app.session.arrangement.lengthTicks();
+    if (hi <= lo) {
+        app.setStatus("section is empty", .{});
+        return;
+    }
+    app.arr_visual_anchor = lo / app.arr_grid.ticks();
+    app.arr_cursor_bar = (hi - 1) / app.arr_grid.ticks();
+    app.arr_visual_lane_anchor = null;
+    app.modal.mode = .visual;
+    app.setStatus("section: {s}", .{sections[current].name});
 }
 
 /// `z`/`Z`: enlarge/compact horizontal cells without moving bar indices.

@@ -11,6 +11,7 @@ const Pad = ws.dsp.Pad;
 const Clip = ws.Clip;
 const Fx = ws.Fx;
 const Rack = ws.Rack;
+const Section = ws.Section;
 
 /// Default entries kept on the undo side; the oldest fall off beyond this.
 /// Overridable per-session via `History.cap` (see `wstudio.o.undo_history_entries`).
@@ -86,10 +87,13 @@ pub const MultiLaneState = struct {
     /// lanes a deleted track took with it - shrinking an owned slice and
     /// then freeing the shortened one is an invalid free.
     lanes: std.ArrayListUnmanaged(LaneState), // owned, as is each lane's clips
+    sections: []Section = &.{},
 
     pub fn deinit(self: *MultiLaneState, allocator: std.mem.Allocator) void {
         for (self.lanes.items) |*l| l.deinit(allocator);
         self.lanes.deinit(allocator);
+        for (self.sections) |section| allocator.free(section.name);
+        allocator.free(self.sections);
     }
 };
 

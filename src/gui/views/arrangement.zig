@@ -97,6 +97,13 @@ pub fn draw(app: anytype) void {
         if (on_bar and tick_index < total_ticks_u64) draw_list.addText(.{ x + 7, origin[1] + 7 }, color(theme.fg2), "{d}", .{tick_index / ticks_per_bar + 1});
     }
 
+    for (app.core.session.project.sections.items) |section| {
+        const x = timeline_x + @as(f32, @floatFromInt(section.tick)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
+        if (x < timeline_x or x > origin[0] + canvas_w) continue;
+        draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(theme.focus), .thickness = 2 });
+        draw_list.addText(.{ x + 5, origin[1] + 7 }, color(theme.focus), "{s}", .{section.name});
+    }
+
     if (app.core.modal.mode == .visual and app.core.cursor < track_count) {
         const anchor = (app.core.arr_visual_anchor orelse app.core.arr_cursor_bar) * app.core.arr_grid.ticks();
         const lo = @min(anchor, cursor_tick);
