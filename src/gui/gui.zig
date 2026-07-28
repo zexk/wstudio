@@ -186,7 +186,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     try audio.start(init.io, user_config.audio_backend);
     defer audio.stop();
 
-    // Live MIDI input, same wiring as tui/main.zig - a hardware keyboard
+    // Live MIDI input, same wiring as tui/tui.zig - a hardware keyboard
     // auditions and records here exactly as it does in the terminal. Bound
     // to the session's engine, so `:e` has to rebind it below alongside the
     // audio host. Failing to open a MIDI port is not fatal: the app runs
@@ -255,7 +255,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 audio = guiAudio(app.core.session.project.sample_rate, user_config.audio_block_frames, app.core.session.engine);
                 // A restart failure here leaves the session silent rather
                 // than tearing down a running app with unsaved work in it -
-                // same call as tui/main.zig's.
+                // same call as tui/tui.zig's.
                 audio.start(init.io, user_config.audio_backend) catch {};
                 if (has_alsa) {
                     midi_in = .{ .engine = app.core.session.engine, .velocity_curve = .init(user_config.default_midi_velocity_curve) };
@@ -270,7 +270,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
         // `audio_block_frames`/`gui_font_size`/`gui_window_*` deliberately
         // aren't among these (font atlas rebuilds and backend restarts are
         // out of scope for a rare, frame-loop-triggered reload) - see
-        // tui/main.zig's matching block for the same call.
+        // tui/tui.zig's matching block for the same call.
         if (app.core.pending_config_reload) {
             app.core.pending_config_reload = false;
             if (runtime.reload(init.io)) |_| {

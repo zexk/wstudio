@@ -19,7 +19,7 @@
 //! `config.zig`): a terminal-capability toggle in the yazi/kickstart.nvim
 //! mold, for anyone rendering with a Nerd Font wstudio didn't install
 //! itself (a system-wide patched font, a remote session, etc.) where the
-//! `zig build install-font` filesystem probe can't see it. `tui/main.zig`
+//! `zig build install-font` filesystem probe can't see it. `tui/tui.zig`
 //! ORs the two together at startup and on `:reload-config`, so either one
 //! turning on is enough - there's no Lua-side way to force icons off once
 //! the embedded font really is installed.

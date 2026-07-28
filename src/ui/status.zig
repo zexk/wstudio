@@ -1,5 +1,5 @@
 //! Per-view footer status renderers, shared by both frontends. The TUI
-//! writes these SGR-styled bytes straight to the terminal (tui/main.zig's
+//! writes these SGR-styled bytes straight to the terminal (tui/tui.zig's
 //! draw); the GUI strips the codes and re-renders the plain text with its
 //! own presentation (gui/chrome.zig's tuiStatusText). Each view's body
 //! renderer stays in tui/views/<name>.zig - only the status line moved

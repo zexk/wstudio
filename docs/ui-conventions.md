@@ -2,12 +2,12 @@
 
 Layout and chrome rules every view follows, plus the design decisions
 behind them. The authoritative code lives in `src/tui/style.zig` (plus the
-shared SGR palette in `src/ui/ansi.zig`) and `tui/main.zig`'s `draw`; views
+shared SGR palette in `src/ui/ansi.zig`) and `tui/tui.zig`'s `draw`; views
 implement these rules per file.
 
 ## Frame anatomy and the row budget
 
-`tui/main.zig`'s `draw` owns four rows of chrome: the header line and the `hr`
+`tui/tui.zig`'s `draw` owns four rows of chrome: the header line and the `hr`
 divider above a view (`content_top = 2`), and the meter row, prompt
 row, and status row below it. A view receives the full terminal `rows`
 and must emit exactly `rows - 4` lines, padding with `endLine` at the
@@ -72,5 +72,5 @@ cell per glyph, keeping hand-aligned columns intact.
 
 Some widths are shared contracts, not per-view choices: the tracks
 view's name column width and its mouse hit-testing gutter move
-together, and form-width knobs are reset per frame in `tui/main.zig`'s `draw`.
+together, and form-width knobs are reset per frame in `tui/tui.zig`'s `draw`.
 Change one side of such a pair and the other silently misaligns.

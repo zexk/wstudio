@@ -20,7 +20,7 @@ pub const panic = std.debug.FullPanic(panicHandler);
 
 fn panicHandler(msg: []const u8, first_trace_addr: ?usize) noreturn {
     if (build_options.tui) {
-        const app = @import("tui/main.zig");
+        const app = @import("tui/tui.zig");
         if (app.active_terminal) |t| t.deinit();
     }
     std.debug.defaultPanic(msg, first_trace_addr);
@@ -111,7 +111,7 @@ fn startFrontend(init: std.process.Init, frontend: config_mod.Frontend, path: ?[
         .tui => if (build_options.tui) {
             const init_path: ?[]u8 = if (path) |p| try dupeInitPath(init.gpa, p) else null;
             defer if (init_path) |p| init.gpa.free(p);
-            return @import("tui/main.zig").run(init.gpa, init.io, init.environ_map, init_path, runtime);
+            return @import("tui/tui.zig").run(init.gpa, init.io, init.environ_map, init_path, runtime);
         } else unreachable,
     }
 }
@@ -285,8 +285,8 @@ fn renderDemo(allocator: std.mem.Allocator, io: std.Io) !void {
 test {
     _ = config_mod;
     _ = @import("ui/app.zig");
-    _ = @import("tui/main.zig");
     _ = @import("tui/tui.zig");
+    _ = @import("tui/render.zig");
     _ = @import("tui/input_decode.zig");
     if (builtin.os.tag == .windows) {
         _ = @import("tui/terminal_windows.zig");

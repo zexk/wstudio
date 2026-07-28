@@ -76,8 +76,8 @@ affect one frontend carry a `tui_` or `gui_` prefix, and `wstudio.frontend`
 (`"tui"` or `"gui"`, known from argv before `init.lua` runs) lets configs
 branch. Everything unprefixed must work identically in both.
 
-`main.zig` currently constructs the `Runtime` only on the TUI path; the GUI
-path must gain the same call so one `init.lua` configures both.
+`main.zig` constructs the `Runtime` in `runFrontend`, before either frontend
+starts, so one `init.lua` configures both.
 
 ### Threading
 
