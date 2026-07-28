@@ -274,18 +274,14 @@ fn drawSynthGrid(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize, 
         return;
     }
 
-    var bufs: [3][16 * 1024]u8 = undefined;
-    var writers: [3]std.Io.Writer = undefined;
-    var col_rows = [_]usize{0} ** 3;
+    var bufs: [4][16 * 1024]u8 = undefined;
+    var writers: [4]std.Io.Writer = undefined;
+    var col_rows = [_]usize{0} ** 4;
     for (0..n) |i| writers[i] = std.Io.Writer.fixed(&bufs[i]);
     const placements = if (subview == .main) synth_layout.mainPlacements(n) else synth_layout.modPlacements(n);
     for (sections, 0..) |sec, si| {
         const col = placements[si].col;
-        // Sections of a band share a row (see synth_layout's packColumns),
-        // so a column whose card in the previous band was shorter than its
-        // neighbours' has to be padded down to the next band's row before
-        // its next card starts. Without this the buffers still zip, but
-        // every column drifts off the row the cursor math expects.
+        // Keep rendered rows aligned with cursor placement.
         while (col_rows[col] < placements[si].row0) : (col_rows[col] += 1) try endLine(&writers[col]);
         try render_fns[si](&writers[col], synth, c);
         try endLine(&writers[col]);

@@ -111,19 +111,13 @@ fn drawSections(
 ) void {
     const gap: f32 = 12;
     const available_width = zgui.getContentRegionAvail()[0];
-    const columns: usize = if (available_width >= 1080) 3 else if (available_width >= 650) 2 else 1;
+    const columns: usize = if (available_width >= 1500) 4 else if (available_width >= 1080) 3 else if (available_width >= 650) 2 else 1;
     // Keeps j/k/{/}/g/G in sync with the column grid actually on screen -
     // synth_layout.numCols buckets the same way from a terminal-width
     // number, so this just maps GUI's own column count onto that bucketing
     // (see App.last_cols's doc comment: it's read back by handleKey, not
     // fed a parameter, so it has to be kept current here every frame).
-    app.core.last_cols = if (columns >= 3) 160 else if (columns == 2) 108 else 80;
-    // The same placements the cursor walks, drawn in the same order it
-    // walks them: one card per section, laid out band by band, each band a
-    // row of cards. ImGui's line layout does the row alignment for free -
-    // cards in a band share a line, so the next band starts below the
-    // tallest of them, and every module in a row starts at the same y the
-    // way a synth's module strips do.
+    app.core.last_cols = if (columns == 4) 210 else if (columns == 3) 160 else if (columns == 2) 108 else 80;
     const placements = placementsFor(columns);
     const column_w = @max(280, (available_width - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns)));
 
@@ -137,9 +131,13 @@ fn drawSections(
         }
     }
 
-    for (sections, placements, 0..) |section, placement, index| {
-        if (placement.col > 0) zgui.sameLine(.{ .spacing = gap });
-        drawCard(app, synth, section, child_prefix, index, if (placement.col + 1 == columns) 0 else column_w);
+    for (0..columns) |col| {
+        if (col > 0) zgui.sameLine(.{ .spacing = gap });
+        zgui.beginGroup();
+        for (sections, placements, 0..) |section, placement, index| {
+            if (placement.col == col) drawCard(app, synth, section, child_prefix, index, column_w);
+        }
+        zgui.endGroup();
     }
 }
 

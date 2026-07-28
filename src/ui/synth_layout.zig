@@ -45,12 +45,7 @@ pub const Tone = enum { source, filter, env, mod, util };
 pub const SectionDef = struct {
     title: []const u8,
     tone: Tone,
-    /// Row of cards this section belongs to. Sections sharing a band sit
-    /// side by side (band member `i` lands in column `i % num_cols`), so
-    /// the pairs that are read together - the two filters, the two
-    /// envelopes, the three oscillators - stay adjacent instead of being
-    /// scattered by a bin-packer chasing even column heights. Bands must
-    /// be declared in ascending order.
+    /// Related section group. Bands must be declared in ascending order.
     band: u8,
     params: []const ParamEntry,
 };
@@ -177,42 +172,18 @@ pub const mod_sections = [_]SectionDef{
 
 pub const Placement = struct { col: usize, row0: usize };
 
-/// Band-driven grid placement, evaluated at comptime (both `sections` and
-/// `num_cols` are always compile-time known - see `main_order_*`/
-/// `mod_order_*` below): the `i`th section of a band lands in column
-/// `i % num_cols`, and every section of a band starts on the *same* row,
-/// the band's row. A band is therefore a true row of cards across the grid,
-/// not three columns that happen to contain related cards at unrelated
-/// heights, and the 1-column bucket degenerates to plain declaration order.
-/// Each section occupies a header, its params, and one blank row that
-/// separates it from the band below.
-///
-/// This replaced a greedy shortest-column-first bin-packer. Even columns
-/// are worth less than a grid: that packer put FILTER 1 and FILTER 2 in
-/// different columns with AMP ENV between them, and no synth front panel
-/// lays out that way - every one of them is a strict grid of fixed module
-/// strips (Serum's OSC A / OSC B / OSC C / SUB / NOISE / FILTER row being
-/// the canonical example). Row-aligning bands costs nothing in total
-/// height here either: the tallest column already set the body height.
+/// Height-balanced placement. Fixed band rows left most of a wide 16:9
+/// viewport empty while pushing later cards below it. Declaration order
+/// still keeps related sections adjacent in keyboard traversal.
 fn packColumns(comptime sections: []const SectionDef, comptime num_cols: usize) [sections.len]Placement {
     var out: [sections.len]Placement = undefined;
-    var band_row: usize = 0;
-    // Rows used so far *within the current band*, per column. A band wider
-    // than the grid wraps (4 sections into 3 columns puts the 4th under the
-    // 1st), so this is per-column rather than a single counter.
     var col_h = [_]usize{0} ** num_cols;
-    var band_index: usize = 0;
     for (sections, 0..) |sec, i| {
-        if (i > 0 and sections[i - 1].band != sec.band) {
-            var tallest: usize = 0;
-            for (col_h) |h| tallest = @max(tallest, h);
-            band_row += tallest;
-            col_h = [_]usize{0} ** num_cols;
-            band_index = 0;
+        var col: usize = 0;
+        for (col_h[1..], 1..) |height, candidate| {
+            if (height < col_h[col]) col = candidate;
         }
-        const col = band_index % num_cols;
-        band_index += 1;
-        out[i] = .{ .col = col, .row0 = band_row + col_h[col] };
+        out[i] = .{ .col = col, .row0 = col_h[col] };
         col_h[col] += sec.params.len + 2;
     }
     return out;
@@ -247,15 +218,8 @@ pub const PositionedEntry = struct {
     section: usize,
 };
 
-/// Traversal order: the table's own order. Since a band is a row of cards,
-/// declaration order *is* reading order - `j` runs down OSC A, then into
-/// OSC B beside it, then OSC C, then down into the next band - and it is
-/// identical in all three column buckets, so the cursor lands on the same
-/// param whether the window is one column wide or three.
-///
-/// This used to walk column-major (all of column 0, then all of column 1),
-/// which only made sense while columns were independent bin-packed stacks
-/// with no row relationship between them.
+/// Traversal follows declaration order and stays identical in every column
+/// bucket, so resizing does not change keyboard order.
 fn computeOrder(comptime sections: []const SectionDef, comptime placements: [sections.len]Placement, comptime num_cols: usize) [totalEntries(sections)]PositionedEntry {
     _ = num_cols;
     var out: [totalEntries(sections)]PositionedEntry = undefined;
@@ -279,27 +243,32 @@ fn computeOrder(comptime sections: []const SectionDef, comptime placements: [sec
 const main_placements_1 = packColumns(&main_sections, 1);
 const main_placements_2 = packColumns(&main_sections, 2);
 const main_placements_3 = packColumns(&main_sections, 3);
+const main_placements_4 = packColumns(&main_sections, 4);
 pub const main_order_1 = computeOrder(&main_sections, main_placements_1, 1);
 pub const main_order_2 = computeOrder(&main_sections, main_placements_2, 2);
 pub const main_order_3 = computeOrder(&main_sections, main_placements_3, 3);
+pub const main_order_4 = computeOrder(&main_sections, main_placements_4, 4);
 pub const main_heights_1 = columnHeights(&main_sections, main_placements_1, 1);
 pub const main_heights_2 = columnHeights(&main_sections, main_placements_2, 2);
 pub const main_heights_3 = columnHeights(&main_sections, main_placements_3, 3);
+pub const main_heights_4 = columnHeights(&main_sections, main_placements_4, 4);
 
 const mod_placements_1 = packColumns(&mod_sections, 1);
 const mod_placements_2 = packColumns(&mod_sections, 2);
 const mod_placements_3 = packColumns(&mod_sections, 3);
+const mod_placements_4 = packColumns(&mod_sections, 4);
 pub const mod_order_1 = computeOrder(&mod_sections, mod_placements_1, 1);
 pub const mod_order_2 = computeOrder(&mod_sections, mod_placements_2, 2);
 pub const mod_order_3 = computeOrder(&mod_sections, mod_placements_3, 3);
+pub const mod_order_4 = computeOrder(&mod_sections, mod_placements_4, 4);
 pub const mod_heights_1 = columnHeights(&mod_sections, mod_placements_1, 1);
 pub const mod_heights_2 = columnHeights(&mod_sections, mod_placements_2, 2);
 pub const mod_heights_3 = columnHeights(&mod_sections, mod_placements_3, 3);
+pub const mod_heights_4 = columnHeights(&mod_sections, mod_placements_4, 4);
 
-/// Column-count bucket for a given terminal width. 108/160 mirror the old
-/// `two_col_min_cols` threshold (kept) plus a new 3-column tier for very
-/// wide terminals.
+/// Column-count bucket for a given terminal width.
 pub fn numCols(cols: usize) usize {
+    if (cols >= 210) return 4;
     if (cols >= 160) return 3;
     if (cols >= 108) return 2;
     return 1;
@@ -318,7 +287,8 @@ pub fn mainPlacements(n: usize) []const Placement {
     return switch (n) {
         1 => &main_placements_1,
         2 => &main_placements_2,
-        else => &main_placements_3,
+        3 => &main_placements_3,
+        else => &main_placements_4,
     };
 }
 
@@ -326,7 +296,8 @@ pub fn modPlacements(n: usize) []const Placement {
     return switch (n) {
         1 => &mod_placements_1,
         2 => &mod_placements_2,
-        else => &mod_placements_3,
+        3 => &mod_placements_3,
+        else => &mod_placements_4,
     };
 }
 
@@ -334,7 +305,8 @@ pub fn mainOrder(n: usize) []const PositionedEntry {
     return switch (n) {
         1 => &main_order_1,
         2 => &main_order_2,
-        else => &main_order_3,
+        3 => &main_order_3,
+        else => &main_order_4,
     };
 }
 
@@ -342,7 +314,8 @@ pub fn mainHeights(n: usize) []const usize {
     return switch (n) {
         1 => &main_heights_1,
         2 => &main_heights_2,
-        else => &main_heights_3,
+        3 => &main_heights_3,
+        else => &main_heights_4,
     };
 }
 
@@ -350,7 +323,8 @@ pub fn modOrder(n: usize) []const PositionedEntry {
     return switch (n) {
         1 => &mod_order_1,
         2 => &mod_order_2,
-        else => &mod_order_3,
+        3 => &mod_order_3,
+        else => &mod_order_4,
     };
 }
 
@@ -358,7 +332,8 @@ pub fn modHeights(n: usize) []const usize {
     return switch (n) {
         1 => &mod_heights_1,
         2 => &mod_heights_2,
-        else => &mod_heights_3,
+        3 => &mod_heights_3,
+        else => &mod_heights_4,
     };
 }
 
@@ -425,6 +400,14 @@ pub fn firstEntry(order: []const PositionedEntry) u16 {
 
 pub fn lastEntry(order: []const PositionedEntry) u16 {
     return if (order.len > 0) order[order.len - 1].id else 0;
+}
+
+test "wide synth layout adds a shorter fourth column" {
+    var three_max: usize = 0;
+    var four_max: usize = 0;
+    for (main_heights_3) |height| three_max = @max(three_max, height);
+    for (main_heights_4) |height| four_max = @max(four_max, height);
+    try std.testing.expect(four_max < three_max);
 }
 
 // ---------------------------------------------------------------------------
