@@ -429,6 +429,17 @@ fn targetSynth(app: *App) ?*ws.dsp.PolySynth {
     };
 }
 
+fn applySynthPreset(app: *App, patch: ws.dsp.PolySynth.Patch) bool {
+    if (app.preset_picker_track >= app.session.racks.items.len) return false;
+    const rack = app.session.racks.items[app.preset_picker_track];
+    ws.persist.applySynthPatch(app.allocator, rack, patch, app.session.project.sample_rate) catch |e| {
+        app.setStatus("synth preset: {s}", .{@errorName(e)});
+        return false;
+    };
+    app.session.syncTrackChain(app.preset_picker_track, rack);
+    return true;
+}
+
 fn targetDrum(app: *App) ?*ws.dsp.DrumMachine {
     if (app.preset_picker_track >= app.session.racks.items.len) return null;
     return switch (app.session.racks.items[app.preset_picker_track].instrument) {
@@ -505,8 +516,7 @@ pub fn applySelected(app: *App) void {
     switch (chosen.source) {
         .user => |i| switch (app.preset_picker_kind) {
             .synth => {
-                const s = targetSynth(app) orelse return;
-                s.applyPatch(app.user_synth_presets.items[i].patch);
+                if (!applySynthPreset(app, app.user_synth_presets.items[i].patch)) return;
                 app.setStatus("synth preset: {s} (saved)", .{chosen.name});
             },
             .drum => {
@@ -519,8 +529,7 @@ pub fn applySelected(app: *App) void {
             .soundfont => unreachable,
         },
         .factory => |i| {
-            const s = targetSynth(app) orelse return;
-            s.applyPatch(ws.dsp.synth_presets.presets[i].patch);
+            if (!applySynthPreset(app, ws.dsp.synth_presets.presets[i].patch)) return;
             app.setStatus("synth preset: {s}", .{chosen.name});
         },
         .kit => |i| {

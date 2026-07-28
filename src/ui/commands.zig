@@ -1939,11 +1939,16 @@ fn cmdSynthPreset(app: *App, args: []const u8) void {
             return;
         };
         // zig fmt: on
-    const s = cursorSynth(app) orelse {
+    _ = cursorSynth(app) orelse {
         app.setStatus("synth-preset: select a synth track first", .{});
         return;
     };
-    s.applyPatch(patch);
+    const rack = app.session.racks.items[app.cursor];
+    ws.persist.applySynthPatch(app.allocator, rack, patch, app.session.project.sample_rate) catch |e| {
+        app.setStatus("synth-preset: {s}", .{@errorName(e)});
+        return;
+    };
+    app.session.syncTrackChain(@intCast(app.cursor), rack);
     app.dirty = true;
     app.setStatus("synth preset: {s}", .{trimmed});
 }

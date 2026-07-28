@@ -168,6 +168,8 @@ pub const FxUnit = struct {
     payload: FxPayload,
     /// Bypassed units keep their state but are skipped by `chain()`.
     bypassed: bool = false,
+    /// Unit came from a synth preset recipe. Next synth preset replaces it.
+    preset_owned: bool = false,
 
     pub fn kind(self: *const FxUnit) FxKind {
         return std.meta.activeTag(self.payload);
@@ -247,6 +249,14 @@ pub const Fx = struct {
         const unit = self.units.orderedRemove(idx);
         unit.payload.deinit(allocator);
         allocator.destroy(unit);
+    }
+
+    pub fn removePresetUnits(self: *Fx, allocator: std.mem.Allocator) void {
+        var i: usize = self.units.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (self.units.items[i].preset_owned) self.remove(allocator, i);
+        }
     }
 
     /// Swap two slots' positions. Unit memory never moves, so the engine's

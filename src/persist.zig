@@ -683,6 +683,7 @@ pub const ClapSnap = struct {
 pub const FxUnitSnap = struct {
     kind: FxKind,
     bypassed: bool = false,
+    preset_owned: bool = false,
     comp: ?CompSnap = null,
     mb_comp: ?MultibandCompSnap = null,
     ott: ?OttSnap = null,
@@ -1270,6 +1271,7 @@ fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnit
             .freq_shift => |f| .{ .kind = .freq_shift, .freq_shift = snapFromDevice(FreqShiftSnap, f) },
             .clap => |plugin| .{ .kind = .clap, .clap = try clapToSnap(aa, plugin) },
         };
+        us.preset_owned = u.preset_owned;
         us.bypassed = u.bypassed;
     }
     return out;
@@ -2020,7 +2022,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         if (rs.fx_chain) |fc| try applyFxChain(allocator, &rack.fx, fc, sr, &engine.transport)
         else try applyLegacyFx(allocator, &rack.fx, rs.fx, sr, &engine.transport);
         if (rack.instrument == .poly_synth)
-            try migrateSynthFx(allocator, rack, sr);
+            try migrateSynthFx(allocator, rack, sr, false);
         try racks.append(allocator, rack);
     }
     // zig fmt: on
@@ -2514,6 +2516,7 @@ fn applyFxChain(
             },
         };
         unit.bypassed = us.bypassed;
+        unit.preset_owned = us.preset_owned;
         switch (unit.payload) {
             .comp => |*c| if (us.comp) |cs| {
                 if (std.math.isFinite(cs.threshold_db)) c.threshold_db = cs.threshold_db;
@@ -2585,7 +2588,7 @@ fn applyFxChain(
 
 /// Move old synth-owned inserts into Rack's shared modular chain. Insert at
 /// chain front because legacy signal flow was synth inserts, then rack FX.
-fn migrateSynthFx(allocator: std.mem.Allocator, rack: *Rack, sr: u32) !void {
+fn migrateSynthFx(allocator: std.mem.Allocator, rack: *Rack, sr: u32, preset_owned: bool) !void {
     const s = &rack.instrument.poly_synth;
     var pos: usize = 0;
     for (s.fx_order) |kind| {
@@ -2613,6 +2616,7 @@ fn migrateSynthFx(allocator: std.mem.Allocator, rack: *Rack, sr: u32) !void {
             .freq_shift => .freq_shift, .delay => .delay, .reverb => .reverb,
         };
         const unit = try rack.fx.insert(allocator, pos, rack_kind, sr);
+        unit.preset_owned = preset_owned;
         pos += 1;
         switch (unit.payload) {
             .gate => |*v| {
@@ -2725,6 +2729,18 @@ fn migrateSynthFx(allocator: std.mem.Allocator, rack: *Rack, sr: u32) !void {
     s.fx_freq_shift_on = false;
     s.fx_delay_on = false;
     s.fx_reverb_on = false;
+}
+
+pub fn applySynthPatch(
+    allocator: std.mem.Allocator,
+    rack: *Rack,
+    patch: PolySynth.Patch,
+    sr: u32,
+) !void {
+    if (rack.instrument != .poly_synth) return error.NotSynth;
+    rack.fx.removePresetUnits(allocator);
+    rack.instrument.poly_synth.applyPatch(patch);
+    try migrateSynthFx(allocator, rack, sr, true);
 }
 
 /// v9-and-older fallback: expand the fixed struct-of-optionals rack into
@@ -4782,6 +4798,32 @@ test "save/load migrates synth tape FX into rack chain" {
     try testing.expectApproxEqAbs(@as(f32, 10.0), tape.flutter_rate_hz, 1e-6);
     try testing.expectApproxEqAbs(@as(f32, 0.5), tape.flutter_depth, 1e-6);
     try testing.expectApproxEqAbs(@as(f32, 0.65), tape.mix, 1e-6);
+}
+
+test "synth preset FX replace prior recipe without touching user rack units" {
+    const testing = std.testing;
+    var rack = Rack{
+        .instrument = .{ .poly_synth = try PolySynth.init(testing.allocator, 48_000) },
+        .label = "test",
+    };
+    defer rack.deinit(testing.allocator);
+    _ = try rack.fx.insert(testing.allocator, 0, .comp, 48_000);
+
+    var first: PolySynth.Patch = .{};
+    first.fx_chorus_on = true;
+    first.fx_reverb_on = true;
+    try applySynthPatch(testing.allocator, &rack, first, 48_000);
+    try testing.expectEqual(@as(usize, 3), rack.fx.units.items.len);
+    try testing.expect(rack.fx.units.items[0].preset_owned);
+    try testing.expect(rack.fx.units.items[1].preset_owned);
+    try testing.expect(!rack.fx.units.items[2].preset_owned);
+
+    var second: PolySynth.Patch = .{};
+    second.fx_delay_on = true;
+    try applySynthPatch(testing.allocator, &rack, second, 48_000);
+    try testing.expectEqual(@as(usize, 2), rack.fx.units.items.len);
+    try testing.expectEqual(rack_mod.FxKind.delay, rack.fx.units.items[0].kind());
+    try testing.expectEqual(rack_mod.FxKind.comp, rack.fx.units.items[1].kind());
 }
 
 test "save/load round-trip persists an EQ band's lowpass/highpass type and slope" {
