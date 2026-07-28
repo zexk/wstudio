@@ -108,7 +108,7 @@ pub const effect_specs = [_]EffectSpec{
     .{ .label = "FREQ SHIFT", .editor_title = "FREQ SHIFT",     .strip_label = "FRQS", .badge_label = "frq",  .category = "MODULATION", .description = "Shift the full frequency spectrum",          .display_label = "MODULATION" },
     .{ .label = "DELAY",      .editor_title = "DELAY",          .strip_label = "DLY",  .badge_label = "dly",  .category = "TIME",       .description = "Stereo echoes with feedback",                .display_label = "ECHO DECAY" },
     .{ .label = "REVERB",     .editor_title = "REVERB",         .strip_label = "VERB", .badge_label = "rev",  .category = "TIME",       .description = "Place the sound in a room",                   .display_label = "ROOM DECAY" },
-    .{ .label = "CLAP",       .editor_title = "CLAP PLUGIN",    .strip_label = "CLAP", .badge_label = "clp",  .category = "PLUGIN",     .description = "External CLAP audio plugin",                 .display_label = "PLUGIN" },
+    .{ .label = "CLAP",       .editor_title = "CLAP PLUGIN",    .strip_label = "CLAP", .badge_label = "clp",  .category = "PLUGIN",     .description = "External CLAP audio plugin; native GUI unavailable", .display_label = "PLUGIN" },
 };
 // zig fmt: on
 

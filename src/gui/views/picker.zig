@@ -107,7 +107,7 @@ pub fn drawInstrument(app: anytype) void {
         var id_buf: [48]u8 = undefined;
         const id = std.fmt.bufPrintZ(&id_buf, "instrument-plugin-card-{d}", .{external_i}) catch continue;
         var desc_buf: [128]u8 = undefined;
-        const desc = std.fmt.bufPrint(&desc_buf, "CLAP  |  {s}", .{plugin.vendor}) catch "CLAP";
+        const desc = std.fmt.bufPrint(&desc_buf, "CLAP  |  audio only  |  {s}", .{plugin.vendor}) catch "CLAP  |  audio only";
         const ordinal = app_mod.instrument_picker_items.len + external_i;
         if (drawCard(id, plugin.name, desc, theme.focus, app.core.picker_cursor == ordinal, width, "")) {
             app.core.picker_cursor = @intCast(ordinal);
@@ -168,7 +168,7 @@ pub fn drawFx(app: anytype) void {
             var id_buf: [48]u8 = undefined;
             const id = std.fmt.bufPrintZ(&id_buf, "fx-plugin-card-{d}", .{external_i}) catch continue;
             var desc_buf: [128]u8 = undefined;
-            const desc = std.fmt.bufPrint(&desc_buf, "CLAP  |  {s}", .{plugin.vendor}) catch "CLAP";
+            const desc = std.fmt.bufPrint(&desc_buf, "CLAP  |  audio only  |  {s}", .{plugin.vendor}) catch "CLAP  |  audio only";
             const ordinal = count + external_i;
             if (drawCard(id, plugin.name, desc, theme.focus, app.core.fx_picker_cursor == ordinal, width, filter)) {
                 app.core.fx_picker_cursor = @intCast(ordinal);

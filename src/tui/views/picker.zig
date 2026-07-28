@@ -60,7 +60,7 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
         try w.writeAll(rst);
         try endLine(w);
     }
-    try w.writeAll(bold ++ " EXTERNAL" ++ rst ++ dim ++ "  CLAP");
+    try w.writeAll(bold ++ " EXTERNAL" ++ rst ++ dim ++ "  CLAP, audio only");
     try endLine(w);
     const external_count = app.external_plugins.count(.instrument);
     for (0..external_count) |external_i| {
@@ -129,7 +129,7 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
         try w.writeAll(rst);
         try endLine(w);
     }
-    try w.writeAll(bold ++ " EXTERNAL" ++ rst ++ dim ++ "  CLAP");
+    try w.writeAll(bold ++ " EXTERNAL" ++ rst ++ dim ++ "  CLAP, audio only");
     try endLine(w);
     for (0..external_count) |external_i| {
         const plugin = spectrum_ed.externalPickerAt(app, external_i).?;
