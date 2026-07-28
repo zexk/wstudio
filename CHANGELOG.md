@@ -25,9 +25,13 @@ history lives in [FORMAT.md](FORMAT.md).
 - Sampler and slicer: per-pad tone filter and gated playback,
   `:chop-random`, `:spread`, `:bpm-sync`, waveforms tinted by frequency
   content, and regions drawn on the warped playback timeline.
-- File browser: `p` auditions the file under the cursor, `v` bulk-loads a
+- File browser: `a` auditions the file under the cursor, `v` bulk-loads a
   range of samples into consecutive pads, and it reopens where the last
   sample came from.
+- Arrangement: holding `enter` after stamping a clip keeps the cursor on it
+  so `h`/`l` resize it live, mirroring the piano roll's note stamp. The
+  GUI's bar cursor is a plain grid cell again instead of a stamp-length
+  preview.
 - Groups: mute and solo a whole group from its tracks-view row, with badges
   in the GUI.
 - The GUI gained live MIDI input, matching the TUI.
