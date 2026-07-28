@@ -61,9 +61,17 @@ pub fn upsert(
             return;
         }
     }
-    const owned_name = try allocator.dupe(u8, name);
-    errdefer allocator.free(owned_name);
-    try list.append(allocator, .{ .name = owned_name, .patch = patch });
+    const owned_name = allocator.dupe(u8, name) catch |e| return e;
+    // The append has to be the last thing that can leave `owned_name`
+    // unowned: once the entry is in the list, the list owns the name and
+    // freeing it here would leave a dangling `p.name` behind for the next
+    // upsert (or `deinit`) to read. A failed `save` therefore keeps the
+    // preset in memory and only reports the write error, same as
+    // `user_drum_kits.upsert`.
+    list.append(allocator, .{ .name = owned_name, .patch = patch }) catch |e| {
+        allocator.free(owned_name);
+        return e;
+    };
     try save(allocator, io, list.items);
 }
 
@@ -175,6 +183,22 @@ test "a malformed presets file is quarantined, not silently discarded" {
     const patch: Patch = .{};
     try upsert(testing.allocator, testing.io, &loaded, "rescued", patch);
     try testing.expectEqual(@as(usize, 1), loaded.items.len);
+}
+
+test "a preset whose save fails stays owned by the list" {
+    const testing = std.testing;
+    var list: std.ArrayListUnmanaged(UserPreset) = .empty;
+    defer deinit(testing.allocator, &list);
+
+    // A read-only config dir, an unset $HOME, a full disk: the write fails
+    // but the entry is already in the list. It used to be freed anyway, so
+    // the next upsert walked a dangling `p.name` (a segfault in practice)
+    // and `deinit` double-freed it.
+    upsert(testing.allocator, std.Io.failing, &list, "one", .{}) catch {};
+    upsert(testing.allocator, std.Io.failing, &list, "two", .{}) catch {};
+    try testing.expectEqual(@as(usize, 2), list.items.len);
+    try testing.expectEqualStrings("one", list.items[0].name);
+    try testing.expectEqualStrings("two", list.items[1].name);
 }
 
 test "load returns an empty list when there's nothing saved yet" {
