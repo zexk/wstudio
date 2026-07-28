@@ -2797,6 +2797,13 @@ pub fn applySynthPatch(
     };
     errdefer replacement.deinit(allocator);
     try synth.applyPatchWithWavetables(patch);
+    // `migrateSynthFx` bound every row that modulates an FX param to the
+    // unit it created for that param, but it ran against `probe` - the whole
+    // point of the probe being that a failed migration leaves the live synth
+    // untouched. `applyPatchWithWavetables` just rewrote the real matrix from
+    // the patch, whose rows carry no instance id, so carry the bindings over
+    // or every migrated modulation lands on nothing.
+    for (&synth.mod_matrix, probe.mod_matrix) |*row, migrated| row.fx_instance_id = migrated.fx_instance_id;
     clearMigratedSynthFx(synth);
     rack.fx.deinit(allocator);
     rack.fx = replacement;
@@ -4918,6 +4925,20 @@ test "a synth preset replaces the whole FX chain and rebinds its mod rows" {
     try applySynthPatch(testing.allocator, &rack, second, 48_000);
     try testing.expectEqual(@as(usize, 1), rack.fx.units.items.len);
     try testing.expectEqual(rack_mod.FxKind.delay, rack.fx.units.items[0].kind());
+
+    // The same path a `:synth-preset` runs, against a shipped preset that
+    // modulates an FX param (warm-pad's mac3 -> reverb mix). A row left on
+    // instance 0 modulates nothing, which is exactly how this broke once.
+    const warm = for (@import("dsp/synth_presets.zig").presets) |p| {
+        if (std.mem.eql(u8, p.name, "warm-pad")) break p;
+    } else return error.PresetMissing;
+    try applySynthPatch(testing.allocator, &rack, warm.patch, 48_000);
+    const reverb = rack.fx.find(.reverb).?;
+    for (rack.instrument.poly_synth.mod_matrix) |row| {
+        if (row.dest != 115) continue; // reverb mix
+        try testing.expectEqual(reverb.instance_id, row.fx_instance_id);
+        break;
+    } else return error.PresetRowMissing;
 }
 
 test "save/load round-trip persists an EQ band's lowpass/highpass type and slope" {
