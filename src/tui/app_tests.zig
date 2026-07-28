@@ -7271,6 +7271,23 @@ test "applyUserConfig plumbs the round-3 options" {
     try std.testing.expectEqualStrings("bpm 122", app.cmd_history.items[0]);
 }
 
+test "stepping past the newest history entry blanks the prompt cursor too" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try redirectHome(&tmp);
+
+    var app = try testApp();
+    defer app.deinit();
+    for (":bpm 121") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+
+    app.handleKey(.{ .char = ':' }, 0);
+    app.handleKey(.ctrl_p, 0); // recall "bpm 121", cursor at its end
+    app.handleKey(.ctrl_n, 0); // past the newest: fresh, empty line
+    try std.testing.expectEqual(@as(usize, 0), app.modal.cmd_len);
+    try std.testing.expectEqual(@as(usize, 0), app.modal.cmd_cursor);
+}
+
 test "applyUserConfig plumbs the round-4 editor options" {
     var app = try testApp();
     defer app.deinit();

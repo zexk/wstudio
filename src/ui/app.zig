@@ -3621,6 +3621,7 @@ pub const App = struct {
         self.cmd_history_pos += 1;
         if (self.cmd_history_pos == self.cmd_history.items.len) {
             self.modal.cmd_len = 0;
+            self.modal.cmd_cursor = 0;
         } else {
             self.loadCommandHistory();
         }
