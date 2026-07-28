@@ -37,13 +37,13 @@ pub fn beginOverlay() void {
         .pmin = panel,
         .pmax = .{ panel[0] + panel_w, panel[1] + panel_h },
         .col = color(theme.bg1),
-        .rounding = 6,
+        .rounding = style.panel_rounding,
     });
     draw_list.addRect(.{
         .pmin = panel,
         .pmax = .{ panel[0] + panel_w, panel[1] + panel_h },
         .col = color(theme.focus),
-        .rounding = 6,
+        .rounding = style.panel_rounding,
         .thickness = 1,
     });
     zgui.setCursorScreenPos(.{ panel[0] + 18, panel[1] + 16 });
@@ -56,7 +56,9 @@ pub fn endOverlay() void {
     zgui.popStyleColor(.{});
 }
 
-fn overlayWidth() f32 {
+/// Row width inside the overlay panel. `pub` so the file browser - a picker
+/// in everything but name - lays its entries out on the same measure.
+pub fn overlayWidth() f32 {
     return @min(zgui.getContentRegionAvail()[0], 884);
 }
 
@@ -182,9 +184,9 @@ fn drawCard(id: [:0]const u8, label: []const u8, desc: []const u8, accent: [4]f3
     if (selected) zgui.setScrollHereY(.{});
     const hovered = zgui.isItemHovered(.{});
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(if (hovered) theme.bg3 else theme.bg2), .rounding = 4 });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 4, origin[1] + height }, .col = color(accent), .rounding = 2 });
-    if (selected) draw_list.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 1 }, .col = color(theme.focus), .rounding = 4, .thickness = 2 });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(if (hovered) theme.bg3 else theme.bg2), .rounding = style.item_rounding });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 4, origin[1] + height }, .col = color(accent), .rounding = style.item_rounding });
+    if (selected) draw_list.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 1 }, .col = color(theme.focus), .rounding = style.item_rounding, .thickness = 2 });
     drawFuzzyLabel(draw_list, .{ origin[0] + 14, origin[1] + 10 }, label, filter, accent, theme.fg0);
     draw_list.addText(.{ origin[0] + 14, origin[1] + 35 }, color(theme.fg3), "{s}", .{desc});
     return clicked;

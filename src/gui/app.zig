@@ -142,8 +142,7 @@ fn drawView(app: *App, view: tui_app.AppView) void {
         .soundfont_editor => soundfont_view.draw(app),
         .track_spectrum, .master_spectrum, .group_spectrum => fx_view.draw(app),
         .automation => automation_view.draw(app),
-        .instrument_picker, .fx_picker, .synth_fx_picker, .preset_picker, .automation_param_picker => {},
-        .file_browser => file_browser_view.draw(app),
+        .instrument_picker, .fx_picker, .synth_fx_picker, .preset_picker, .automation_param_picker, .file_browser => {},
         .help => help_view.draw(app),
     }
 }
@@ -154,13 +153,18 @@ fn drawPicker(app: *App) void {
         .fx_picker, .synth_fx_picker => picker_view.drawFx(app),
         .preset_picker => picker_view.drawPreset(app),
         .automation_param_picker => automation_view.drawParamPicker(app),
+        .file_browser => file_browser_view.draw(app),
         else => unreachable,
     }
 }
 
 fn isPickerView(view: tui_app.AppView) bool {
     return switch (view) {
-        .instrument_picker, .fx_picker, .synth_fx_picker, .preset_picker, .automation_param_picker => true,
+        // The file browser is a picker in everything but name: a modal list
+        // over whatever view opened it, dismissed with esc, chosen with
+        // enter. It gets the same Telescope overlay rather than a workspace
+        // of its own.
+        .instrument_picker, .fx_picker, .synth_fx_picker, .preset_picker, .automation_param_picker, .file_browser => true,
         else => false,
     };
 }
@@ -176,6 +180,12 @@ fn pickerBaseView(app: *const App) tui_app.AppView {
             .soundfont => .soundfont_editor,
         },
         .automation_param_picker => .automation,
+        // `openBrowser` parks the view it was opened from in `prev_view` and
+        // restores it on close, so that's what belongs behind the overlay.
+        // It is never a picker itself (the browser is only reachable from a
+        // workspace view), but fall back rather than recurse if that ever
+        // changes.
+        .file_browser => if (isPickerView(app.core.prev_view)) .tracks else app.core.prev_view,
         else => app.core.view,
     };
 }

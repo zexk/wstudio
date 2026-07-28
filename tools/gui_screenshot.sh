@@ -33,7 +33,7 @@ STATE_FILE="${WSTUDIO_GUI_SHOT_STATE:-/tmp/wstudio-gui-shot.env}"
 GEOMETRY="${WSTUDIO_GUI_SHOT_GEOMETRY:-1440x900x24}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="$REPO_ROOT/zig-out/bin/wstudio"
-TEMPLATE_INIT="$REPO_ROOT/examples/init.lua"
+TEMPLATE_INIT="${TEMPLATE_INIT:-$REPO_ROOT/examples/init.lua}"
 
 nx() {
   nix shell nixpkgs#xdotool nixpkgs#imagemagick --command "$@"

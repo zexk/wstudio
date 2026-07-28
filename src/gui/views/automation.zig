@@ -278,8 +278,8 @@ pub fn drawParamPicker(app: anytype) void {
             if (selected) zgui.setScrollHereY(.{});
             const hovered = zgui.isItemHovered(.{});
             const draw_list = zgui.getWindowDrawList();
-            draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 34 }, .col = color(if (selected) theme.bg4 else if (hovered) theme.bg3 else theme.bg2), .rounding = 3 });
-            if (selected) draw_list.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + 33 }, .col = color(theme.focus), .rounding = 3, .thickness = 2 });
+            draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 34 }, .col = color(if (selected) theme.bg4 else if (hovered) theme.bg3 else theme.bg2), .rounding = style.item_rounding });
+            if (selected) draw_list.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + 33 }, .col = color(theme.focus), .rounding = style.item_rounding, .thickness = 2 });
             draw_list.addText(.{ origin[0] + 12, origin[1] + 8 }, color(if (selected) theme.fg0 else theme.fg1), "{s}", .{p.label});
             var range_buf: [48]u8 = undefined;
             const range = compactParamRange(&range_buf, p.label, p.range);

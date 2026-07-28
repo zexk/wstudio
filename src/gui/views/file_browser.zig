@@ -1,3 +1,9 @@
+//! The file browser, drawn as a Telescope-style overlay like every other
+//! picker (see `picker.beginOverlay`): it is a modal "choose one of these
+//! rows" list over whatever view opened it, not a workspace of its own. The
+//! panel frame, backdrop, scroll clipping and row width all come from the
+//! shared overlay, so this file only emits the heading and the rows.
+
 const std = @import("std");
 const zgui = @import("zgui");
 const picker = @import("picker.zig");
@@ -10,6 +16,8 @@ pub fn draw(app: anytype) void {
     if (app.core.browser_bookmark_mode) {
         zgui.textColored(theme.audio, "BOOKMARKS", .{});
         zgui.separator();
+        zgui.textDisabled("j/k move   enter open   d delete   esc close", .{});
+        zgui.spacing();
         drawBookmarks(app);
         return;
     }
@@ -25,25 +33,24 @@ pub fn draw(app: anytype) void {
     }
     zgui.textDisabled("{s}", .{app.core.browser_dir});
     zgui.separator();
+    zgui.textDisabled("/ search   j/k move   enter open   - up   m mark   esc close", .{});
+    zgui.spacing();
 
     if (app.core.browser_entries.items.len == 0) {
         zgui.textDisabled("(empty)", .{});
         return;
     }
 
-    if (zgui.beginChild("files", .{ .w = 0, .h = -1, .child_flags = .{ .border = true } })) {
-        for (app.core.browser_entries.items, 0..) |entry, i| {
-            if (drawEntry(entry.name, entry.is_dir, app.core.browser_cursor == i, i, pattern)) {
-                app.core.browser_cursor = i;
-                app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-                // handleKey may have just freed/replaced browser_entries
-                // (descending into a directory, or closing the browser on a
-                // file pick) - the slice this loop is iterating is stale now.
-                break;
-            }
+    for (app.core.browser_entries.items, 0..) |entry, i| {
+        if (drawEntry(entry.name, entry.is_dir, app.core.browser_cursor == i, i, pattern)) {
+            app.core.browser_cursor = i;
+            app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+            // handleKey may have just freed/replaced browser_entries
+            // (descending into a directory, or closing the browser on a
+            // file pick) - the slice this loop is iterating is stale now.
+            break;
         }
     }
-    zgui.endChild();
 }
 
 fn purposeLabel(purpose: anytype, buf: []u8) []const u8 {
@@ -57,20 +64,17 @@ fn drawBookmarks(app: anytype) void {
         zgui.textDisabled("(no bookmarks)", .{});
         return;
     }
-    if (zgui.beginChild("bookmarks", .{ .w = 0, .h = -1, .child_flags = .{ .border = true } })) {
-        for (app.core.bookmarks.items, 0..) |bookmark, i| {
-            if (drawEntry(bookmark.path, bookmark.is_dir, app.core.bookmark_cursor == i, i, "")) {
-                app.core.bookmark_cursor = i;
-                app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-                break;
-            }
+    for (app.core.bookmarks.items, 0..) |bookmark, i| {
+        if (drawEntry(bookmark.path, bookmark.is_dir, app.core.bookmark_cursor == i, i, "")) {
+            app.core.bookmark_cursor = i;
+            app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+            break;
         }
     }
-    zgui.endChild();
 }
 
 fn drawEntry(name: []const u8, is_dir: bool, selected: bool, index: usize, filter: []const u8) bool {
-    const width = zgui.getContentRegionAvail()[0];
+    const width = picker.overlayWidth();
     const height: f32 = 24;
     const origin = zgui.getCursorScreenPos();
     var id_buf: [48]u8 = undefined;
@@ -83,7 +87,7 @@ fn drawEntry(name: []const u8, is_dir: bool, selected: bool, index: usize, filte
         .pmin = origin,
         .pmax = .{ origin[0] + width, origin[1] + height },
         .col = color(if (selected) theme.bg4 else theme.bg2),
-        .rounding = 3,
+        .rounding = style.item_rounding,
     });
     // Hover paints a fill too - without this the cursor row and a hovered
     // row read the same.
@@ -91,7 +95,7 @@ fn drawEntry(name: []const u8, is_dir: bool, selected: bool, index: usize, filte
         .pmin = .{ origin[0] + 1, origin[1] + 1 },
         .pmax = .{ origin[0] + width - 1, origin[1] + height - 1 },
         .col = color(theme.focus),
-        .rounding = 3,
+        .rounding = style.item_rounding,
         .thickness = 1,
     });
     // Trailing "/" marks directories, same as the TUI listing.

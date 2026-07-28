@@ -161,11 +161,18 @@ pub fn fxKindAccent(kind: ws.FxKind) [4]f32 {
     };
 }
 
+/// The corner radii `setTheme` resolved from `wstudio.o.gui_panel_border`,
+/// for chrome that is painted by hand. A draw-list call can't consult
+/// global ImGui style, so a hand-drawn panel or row that hardcodes its
+/// `.rounding` silently ignores the setting - the picker overlay and the
+/// file browser did exactly that. Elements rounded by their own nature
+/// (piano-roll/step-grid note blocks, knobs, meter bars) still pass their
+/// own radius and are deliberately not covered by this.
+pub var panel_rounding: f32 = 0;
+pub var item_rounding: f32 = 2;
+
 /// `wstudio.o.gui_panel_border`: square (0) or rounded corners for ImGui's
-/// own chrome. Only the style vars below read this - draw-list elements
-/// that are rounded by their own nature (piano-roll/step-grid note blocks,
-/// knobs, ...) pass their own explicit `.rounding` per call and never
-/// consult global style, so this can't touch them either way.
+/// own chrome, plus the two `*_rounding` vars above for hand-drawn panels.
 pub fn setTheme(border: config_mod.PanelBorder) void {
     const style = zgui.getStyle();
     const rounding: f32 = if (border == .rounded) 6 else 0;
@@ -218,6 +225,8 @@ pub fn setTheme(border: config_mod.PanelBorder) void {
     style.frame_rounding = if (border == .rounded) 4 else 2;
     style.grab_rounding = if (border == .rounded) 4 else 2;
     style.scrollbar_rounding = rounding;
+    panel_rounding = rounding;
+    item_rounding = style.frame_rounding;
     style.window_padding = .{ 12, 12 };
     style.frame_padding = .{ 8, 6 };
     style.item_spacing = .{ 8, 8 };
