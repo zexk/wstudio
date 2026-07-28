@@ -17,6 +17,7 @@
 const std = @import("std");
 const Session = @import("session.zig").Session;
 const wav = @import("core/wav.zig");
+const types = @import("core/types.zig");
 const Project = @import("project.zig").Project;
 const ws_arrangement = @import("arrangement.zig");
 const time_grid = @import("time_grid.zig");
@@ -4701,4 +4702,107 @@ test "golden-file corpus: v11's ninth pad (past the pre-v11 8-pad cap) loads use
     // files predate `used` and materialize all 8 regardless; see
     // buildSession.)
     for (0..8) |i| try testing.expect(dm.pads[i] == null);
+}
+
+/// Render `blocks` blocks from `session` starting at frame 0 into `out`.
+fn renderFromStart(session: *Session, out: []f32, block_frames: usize) void {
+    session.engine.transport.seekFrames(0);
+    session.engine.transport.play();
+    var i: usize = 0;
+    while (i + block_frames <= out.len) : (i += block_frames) {
+        session.engine.process(out[i..][0..block_frames]);
+    }
+}
+
+// The property every per-field round-trip test only approximates: a project
+// read back off disk has to *sound* like the session that wrote it. Field
+// assertions can only check what someone thought to assert, and they say
+// nothing about the derived, engine-side state a load has to rebuild -
+// chains, sidechain routing, group buses, the song buffers. Rendering both
+// and comparing samples covers all of it at once, and it is what actually
+// matters about a save file.
+//
+// Kept cheap on purpose: a handful of shapes, 32 blocks each.
+test "a loaded project renders sample-identical to the session that saved it" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/render.wsj", .{&tmp.sub_path});
+
+    const Cases = struct {
+        /// A synth pattern through a track FX chain, into a group bus with
+        /// its own FX, into a master chain - every routing stage at once.
+        fn full(s: *Session) !void {
+            try s.setInstrument(0, .poly_synth);
+            const pp = &s.racks.items[0].pattern_player.?;
+            pp.length_beats = 4.0;
+            pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+            pp.addNote(.{ .pitch = 67, .start_beat = 1.5, .duration_beat = 0.5, .velocity = 0.5 });
+            _ = try s.racks.items[0].fx.insert(s.allocator, 0, .delay, s.project.sample_rate);
+            s.syncTrackChain(0, s.racks.items[0]);
+            // Both writes App.setTrackGain/setTrackPan make - the struct the
+            // file is built from, and the engine that renders.
+            s.project.tracks.items[0].gain_db = -3.0;
+            s.project.tracks.items[0].pan = -0.4;
+            _ = s.engine.send(.{ .set_track_gain = .{ .track = 0, .gain = types.dbToGain(-3.0) } });
+            _ = s.engine.send(.{ .set_track_pan = .{ .track = 0, .pan = -0.4 } });
+            const g = try s.addGroup("bus");
+            s.assignTrackGroup(0, g);
+            s.setGroupGain(g, -4.5);
+            _ = try s.groups[g].?.fx.insert(s.allocator, 0, .reverb, s.project.sample_rate);
+            s.syncGroupChain(g);
+            _ = try s.master_fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
+            s.syncMasterChain();
+            s.project.tempo_bpm = 137.5;
+        }
+
+        /// A drum kit's pads and steps, which load regenerates rather than
+        /// reads back (see `DrumSnap.kit`).
+        fn drums(s: *Session) !void {
+            try s.setInstrument(0, .drum_machine);
+            const dm = &s.racks.items[0].instrument.drum_machine;
+            try dm.loadKitVariant(drum_kit.byName("default").?);
+            dm.toggleStep(0, 0);
+            dm.toggleStep(1, 4);
+            dm.setStepVel(1, 4, 77);
+        }
+
+        /// Song mode: the device song buffers are rebuilt from placed clips
+        /// on load, not stored.
+        fn song(s: *Session) !void {
+            try s.setInstrument(0, .poly_synth);
+            const pp = &s.racks.items[0].pattern_player.?;
+            pp.length_beats = 4.0;
+            pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+            try s.stampClipAtTick(0, 0);
+            try s.stampClipAtTick(0, time_grid.barTicks(4) * 2);
+            s.setSongMode(true);
+        }
+    };
+
+    const block_frames = 256;
+    const total = 32 * block_frames;
+    const live = try testing.allocator.alloc(f32, total);
+    defer testing.allocator.free(live);
+    const reloaded = try testing.allocator.alloc(f32, total);
+    defer testing.allocator.free(reloaded);
+
+    inline for (.{ Cases.full, Cases.drums, Cases.song }) |build| {
+        var s = try Session.initDefault(testing.allocator);
+        defer s.deinit();
+        try build(&s);
+        try save(testing.allocator, &s, testing.io, wsj_path);
+        var l = try load(testing.allocator, testing.io, wsj_path);
+        defer l.deinit();
+
+        renderFromStart(&s, live, block_frames);
+        renderFromStart(&l, reloaded, block_frames);
+
+        var peak: f32 = 0;
+        for (live) |v| peak = @max(peak, @abs(v));
+        // A silent render would pass the comparison for the wrong reason.
+        try testing.expect(peak > 1e-4);
+        for (live, reloaded) |a, b| try testing.expectApproxEqAbs(a, b, 1e-6);
+    }
 }
