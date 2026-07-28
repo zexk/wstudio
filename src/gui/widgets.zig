@@ -4,6 +4,59 @@ const zgui = @import("zgui");
 const format = @import("../ui/format.zig");
 const gui_style = @import("style.zig");
 
+/// Keep the row at `top_y` (screen space, `getCursorScreenPos()[1]` read
+/// just before the row is submitted) inside the window or child being drawn,
+/// the way a terminal pager does: nudge the scroll only when the row would
+/// otherwise fall outside it.
+///
+/// ImGui has no "scroll into view if off-screen" of its own. `setScrollHereY`
+/// re-centres on the item every single frame, which pins the viewport to the
+/// cursor and leaves the wheel and the scrollbar with nothing to do - the
+/// right trade for a modal picker, the wrong one for a workspace view you
+/// also want to scroll by hand. Without either, a view just doesn't follow:
+/// `j` past the fold moves the cursor into content ImGui is happily clipping
+/// away, and the frontend looks frozen.
+/// Screen-space band the focused param occupied this frame, if the view drew
+/// one. Recorded by the widgets that take a `focused` flag and consumed once
+/// by `scrollFocusIntoView`.
+///
+/// Deferred rather than acted on in place because a param usually sits
+/// inside a non-scrolling card child, while the window that actually
+/// scrolls is the workspace one outside it - `setScrollY` from inside the
+/// child would move a scrollbar that doesn't exist.
+var focus_row: ?struct { top: f32, height: f32 } = null;
+
+pub fn noteFocusRow(focused: bool, top: f32, height: f32) void {
+    if (focused) focus_row = .{ .top = top, .height = height };
+}
+
+/// Drop whatever was recorded without acting on it - for the frame a picker
+/// overlay is up and the base view underneath it must not be scrolled.
+pub fn clearFocusRow() void {
+    focus_row = null;
+}
+
+/// Bring the focused param recorded this frame on screen. Call once per
+/// frame from the scrolling window, after the view has finished drawing.
+pub fn scrollFocusIntoView() void {
+    const row = focus_row orelse return;
+    focus_row = null;
+    keepRowVisible(row.top, row.height);
+}
+
+pub fn keepRowVisible(top_y: f32, height: f32) void {
+    const win_top = zgui.getWindowPos()[1];
+    const win_bottom = win_top + zgui.getWindowSize()[1];
+    const pad = zgui.getStyle().window_padding[1];
+    const delta: f32 = if (top_y < win_top + pad)
+        top_y - (win_top + pad)
+    else if (top_y + height > win_bottom - pad)
+        (top_y + height) - (win_bottom - pad)
+    else
+        return;
+    zgui.setScrollY(std.math.clamp(zgui.getScrollY() + delta, 0, zgui.getScrollMaxY()));
+}
+
 /// A section header used inside a bordered/tinted card column: a small
 /// accent chip (matching the header overview panels' accent bars) plus the
 /// label, then a separator and a bit of breathing room before the params.
@@ -37,6 +90,7 @@ pub fn sectionTitleGate(label: []const u8, accent: [4]f32, gate: ?SectionGate) b
 
     var clicked = false;
     if (gate) |g| {
+        noteFocusRow(g.focused, pos[1], zgui.getFontSize() + 8);
         const text: [:0]const u8 = if (g.on) "ON" else "OFF";
         const pill_w = zgui.calcTextSize(text, .{})[0] + 16;
         zgui.sameLine(.{ .spacing = 0 });
@@ -328,6 +382,8 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
     const draw_list = zgui.getWindowDrawList();
 
     _ = zgui.invisibleButton(label, .{ .w = args.diameter, .h = args.diameter });
+    // Covers the dial plus the label/value line under it in `knobCell`.
+    noteFocusRow(args.focused, cursor[1], args.diameter + zgui.getFontSize() + 6);
     const active = zgui.isItemActive();
     const hovered = zgui.isItemHovered(.{});
     const activated = zgui.isItemActivated();
@@ -499,6 +555,7 @@ pub fn stepperCell(label_text: []const u8, id: [:0]const u8, display: []const u8
     zgui.beginGroup();
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton(id, .{ .w = cell_w, .h = box_h });
+    noteFocusRow(focused, origin[1], box_h + zgui.getFontSize() + 6);
     const hovered = zgui.isItemHovered(.{});
     var delta: i8 = 0;
     if (zgui.isItemActivated()) {
@@ -569,6 +626,7 @@ pub fn listStepper(label_text: []const u8, id: [:0]const u8, args: ListStepper) 
     const theme = &gui_style.palette;
     var changed = false;
     const row_origin = zgui.getCursorScreenPos();
+    noteFocusRow(args.focused, row_origin[1], zgui.getFontSize() * 2 + 12);
     zgui.beginGroup();
     zgui.textColored(if (args.focused) args.accent else theme.fg1, "{s}", .{label_text});
     var prev_buf: [48]u8 = undefined;
@@ -632,6 +690,7 @@ pub fn waveformPicker(label: [:0]const u8, current: ws.dsp.synth.Waveform, accen
     var result: ?ws.dsp.synth.Waveform = null;
 
     zgui.beginGroup();
+    noteFocusRow(focused, zgui.getCursorScreenPos()[1], tile_h);
     for (waveforms, 0..) |wf, i| {
         if (i > 0) zgui.sameLine(.{ .spacing = gap });
         const origin = zgui.getCursorScreenPos();

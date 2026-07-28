@@ -95,6 +95,9 @@ fn drawRowChrome(app: anytype, id: [:0]const u8, display_row: usize, in_visual: 
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
     const hovered = zgui.isItemHovered(.{});
     const selected = app.core.track_row == display_row;
+    // `j`/`k` past the fold have to bring the viewport with them, or the
+    // cursor walks into clipped content and the view looks stuck.
+    widgets.noteFocusRow(selected, origin[1], height);
     const draw_list = zgui.getWindowDrawList();
     const row_bg = if (hovered and !selected) theme.bg4 else theme.bg3;
     draw_list.addRectFilled(.{

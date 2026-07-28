@@ -22,6 +22,7 @@ const soundfont_view = @import("views/soundfont.zig");
 const slicer_view = @import("views/slicer.zig");
 const synth_view = @import("views/synth.zig");
 const tracks_view = @import("views/tracks.zig");
+const widgets = @import("widgets.zig");
 const zgui = @import("zgui");
 
 pub const App = struct {
@@ -121,6 +122,11 @@ fn drawWorkspace(app: *App) void {
         const workspace_view = if (overlay) pickerBaseView(app) else app.core.view;
         drawViewHeader(workspace_view);
         drawView(app, workspace_view);
+        // The view has finished submitting; this is the window that actually
+        // scrolls, so bring whatever row it marked as focused on screen. A
+        // picker overlay does its own scrolling inside its own child, and
+        // must not drag the base view underneath it around.
+        if (!overlay) widgets.scrollFocusIntoView() else widgets.clearFocusRow();
         if (overlay) {
             picker_view.beginOverlay();
             drawPicker(app);
