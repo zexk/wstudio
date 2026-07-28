@@ -306,19 +306,24 @@ pub const Session = struct {
 
         self.racks.items[track_idx] = rack;
 
-        self.syncTrackChain(@intCast(track_idx), rack);
+        self.adoptRack(track_idx, rack);
+    }
 
-        // Keep the new device coherent with the current playback mode: its
-        // lane is empty now, so in song mode it must follow the (empty) song
-        // buffer rather than looping its live pattern over the arrangement.
-        if (self.song_mode) {
-            self.rebuildSongData();
-            if (rack.pattern_player) |*pp| pp.song_mode = true;
-            switch (rack.instrument) {
-                .drum_machine => |*dm| dm.song_mode = true,
-                .slicer => |*sl| sl.song_mode = true,
-                else => {},
-            }
+    /// Publish a rack that has just been swapped into `track_idx` to the
+    /// engine, then keep the new device coherent with the current playback
+    /// mode: its lane was just cleared or rebuilt, so in song mode it must
+    /// follow the song buffer rather than loop its live pattern over the
+    /// arrangement. The buffer is regenerated before the per-device flags
+    /// flip so the audio thread never sees a flag ahead of valid data.
+    fn adoptRack(self: *Session, track_idx: usize, rack: *Rack) void {
+        self.syncTrackChain(@intCast(track_idx), rack);
+        if (!self.song_mode) return;
+        self.rebuildSongData();
+        if (rack.pattern_player) |*pp| pp.song_mode = true;
+        switch (rack.instrument) {
+            .drum_machine => |*dm| dm.song_mode = true,
+            .slicer => |*sl| sl.song_mode = true,
+            else => {},
         }
     }
 
@@ -481,17 +486,7 @@ pub const Session = struct {
 
         self.racks.items[track_idx] = rack;
 
-        self.syncTrackChain(@intCast(track_idx), rack);
-
-        if (self.song_mode) {
-            self.rebuildSongData();
-            if (rack.pattern_player) |*pp| pp.song_mode = true;
-            switch (rack.instrument) {
-                .drum_machine => |*dm| dm.song_mode = true,
-                .slicer => |*sl| sl.song_mode = true,
-                else => {},
-            }
-        }
+        self.adoptRack(track_idx, rack);
 
         return preserved;
     }
@@ -524,17 +519,7 @@ pub const Session = struct {
         }
         self.allocator.free(clips);
 
-        self.syncTrackChain(@intCast(track_idx), rack);
-
-        if (self.song_mode) {
-            self.rebuildSongData();
-            if (rack.pattern_player) |*pp| pp.song_mode = true;
-            switch (rack.instrument) {
-                .drum_machine => |*dm| dm.song_mode = true,
-                .slicer => |*sl| sl.song_mode = true,
-                else => {},
-            }
-        }
+        self.adoptRack(track_idx, rack);
     }
 
     pub fn setClapInstrument(
@@ -561,11 +546,7 @@ pub const Session = struct {
         _ = self.engine.send(.all_notes_off);
         if (self.arrangement.lane(track_idx)) |lane| lane.clear(self.allocator);
         self.racks.items[track_idx] = rack;
-        self.syncTrackChain(@intCast(track_idx), rack);
-        if (self.song_mode) {
-            self.rebuildSongData();
-            rack.pattern_player.?.song_mode = true;
-        }
+        self.adoptRack(track_idx, rack);
     }
 
     /// Replace one drum-machine track with one sampler track per materialized
