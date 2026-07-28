@@ -442,6 +442,13 @@ pub const App = struct {
     /// path is known yet, from `default_browse_dir`. Empty means "cwd", the
     /// pre-existing behavior - see `openBrowser`.
     default_browse_dir: config_mod.PathBuf = .{},
+    /// Directory the last `:load`-family file came from (sample, pad, clip,
+    /// slice, wavetable, soundfont, MIDI import - anything routed through
+    /// `commands.readFileForLoad`, including a browser audition). The browser
+    /// reopens here for every purpose but `.open_project`, so hunting down a
+    /// second sample starts in the folder the first one came from. Empty
+    /// until something is loaded; not persisted across runs.
+    last_load_dir: config_mod.PathBuf = .{},
     clap_plugin_path: config_mod.PathBuf = .{},
     external_plugins: ws.plugin_catalog.Catalog,
     environ: ?*const std.process.Environ.Map = null,
@@ -2896,14 +2903,31 @@ pub const App = struct {
     // no path open it - see commands.zig)
     // -----------------------------------------------------------------------
 
-    /// Enter the browser for `purpose`, starting in the current project's
-    /// directory, or `default_browse_dir` (cwd if unset) when no project
-    /// path is known yet. Leaves the view untouched if that starting
-    /// directory can't be listed.
+    /// Remember `path`'s directory as where the browser reopens - see
+    /// `last_load_dir`. Called for every file the `:load` family reads,
+    /// browser-picked or typed, so both routes leave the same trail.
+    pub fn noteLoadDir(self: *App, path: []const u8) void {
+        const dir = std.fs.path.dirname(path) orelse return; // bare filename: cwd, already the fallback
+        if (dir.len == 0 or dir.len > self.last_load_dir.buf.len) return;
+        @memcpy(self.last_load_dir.buf[0..dir.len], dir);
+        self.last_load_dir.len = @intCast(dir.len);
+    }
+
+    /// Enter the browser for `purpose`, starting where the last sample came
+    /// from (`last_load_dir`), else the current project's directory, else
+    /// `default_browse_dir` (cwd if unset). Opening a project ignores
+    /// `last_load_dir` - a .wsj lives with the project, not with the samples.
+    /// Leaves the view untouched if that starting directory can't be listed.
     pub fn openBrowser(self: *App, purpose: BrowserPurpose) void {
         self.browser_purpose = purpose;
         var expand_buf: [reload_path_buf_len]u8 = undefined;
-        const start: []const u8 = if (self.projectPath()) |p|
+        const remembers = switch (purpose) {
+            .open_project => false,
+            else => true,
+        };
+        const start: []const u8 = if (remembers and self.last_load_dir.len > 0)
+            self.last_load_dir.slice()
+        else if (self.projectPath()) |p|
             (std.fs.path.dirname(p) orelse ".")
         else if (self.default_browse_dir.len > 0)
             commands.expandHome(&expand_buf, self.default_browse_dir.slice())

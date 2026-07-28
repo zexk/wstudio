@@ -1601,7 +1601,7 @@ fn cmdRenamePad(app: *App, args: []const u8) void {
 /// Reads a `:load`-family source file, setting status and returning `null`
 /// on failure. Shared by every `load*FromPath` handler below.
 fn readFileForLoad(app: *App, path: []const u8) ?[]u8 {
-    return std.Io.Dir.cwd().readFileAlloc(
+    const data = std.Io.Dir.cwd().readFileAlloc(
         app.io,
         path,
         app.allocator,
@@ -1610,6 +1610,10 @@ fn readFileForLoad(app: *App, path: []const u8) ?[]u8 {
         app.setStatus("load: cannot read '{s}': {s}", .{ path, @errorName(e) });
         return null;
     };
+    // Every `:load`-family read lands here, so this is the one place that
+    // has to remember where the browser reopens - see `App.last_load_dir`.
+    app.noteLoadDir(path);
+    return data;
 }
 
 /// The filename minus its extension, for status messages and clip naming.

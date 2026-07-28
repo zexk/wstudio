@@ -5667,6 +5667,29 @@ test "file browser lists dirs first, then extension-filtered files, hiding dotfi
     try std.testing.expectEqualStrings("b.wav", entries[2].name);
 }
 
+test "the browser reopens where the last sample came from, but not for projects" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(std.testing.io, "kits");
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "kits/kick.wav", .data = "x" });
+
+    var app = try appRootedAt(&tmp);
+    defer app.deinit();
+    try app.session.setInstrument(0, .sampler);
+
+    app.openBrowser(.load_sample);
+    app.handleKey(.{ .char = 'l' }, 0); // descend into kits/
+    app.handleKey(.enter, 0); // pick kick.wav (dummy bytes: the read counts, the decode fails)
+
+    // Second hunt starts in kits/, not back at the project directory.
+    app.openBrowser(.load_sample);
+    try std.testing.expect(std.mem.endsWith(u8, app.browser_dir, "kits"));
+
+    // A project lives with the project, not with the samples.
+    app.openBrowser(.open_project);
+    try std.testing.expect(!std.mem.endsWith(u8, app.browser_dir, "kits"));
+}
+
 test "file browser: / fuzzy-searches filenames; n/N repeat and wrap around" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
