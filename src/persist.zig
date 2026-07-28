@@ -2019,12 +2019,22 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     errdefer arrangement.deinit(allocator);
     for (racks.items) |_| try arrangement.addLane(allocator);
 
+    // Record-arm is session state, not file state - nothing to read back -
+    // but the array is positional and must stay exactly as long as `racks`
+    // (see `Session.insertTrackSlots`). Left empty, `toggleArm`'s bounds
+    // check silently swallowed every `r` on a loaded project, and the first
+    // track insert/delete indexed past the end and panicked.
+    var armed: std.ArrayListUnmanaged(bool) = .empty;
+    errdefer armed.deinit(allocator);
+    try armed.appendNTimes(allocator, false, racks.items.len);
+
     // zig fmt: off
     var self: Session = .{
         .allocator = allocator,
         .project = project,
         .engine = engine,
         .racks = racks,
+        .armed = armed,
         .retired_racks = .empty,
         .retired_fx = .empty,
         .arrangement = arrangement,
@@ -2735,6 +2745,40 @@ test "buildSession: constructs valid Session from snapshot" {
     try testing.expectApproxEqAbs(@as(f32, 7.0), dm.pads[0].?.pad.pitch_semitones, 1e-4);
     try testing.expect(dm.pads[0].?.pad.reverse);
     try testing.expectApproxEqAbs(@as(f32, 0.5), dm.pads[0].?.pad.end_norm, 1e-4);
+}
+
+test "buildSession: a loaded session's armed array is as long as its racks" {
+    const testing = std.testing;
+
+    const snap: Snapshot = .{
+        .sample_rate = 48_000,
+        .tracks = &.{ .{ .name = "lead" }, .{ .name = "bass" }, .{ .name = "drums" } },
+        .racks = &.{
+            .{ .label = "lead", .kind = .empty },
+            .{ .label = "bass", .kind = .empty },
+            .{ .label = "drums", .kind = .empty },
+        },
+    };
+
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+
+    // `armed` is positional and parallel to `racks`. It used to come back
+    // empty from a load, which made `toggleArm` a silent no-op on every
+    // opened project and panicked the first track insert or delete.
+    try testing.expectEqual(session.racks.items.len, session.armed.items.len);
+    for (session.armed.items) |a| try testing.expect(!a);
+
+    session.toggleArm(2);
+    try testing.expect(session.isArmed(2));
+
+    _ = try session.addTrack("added");
+    try testing.expectEqual(session.racks.items.len, session.armed.items.len);
+    try testing.expect(session.isArmed(2));
+
+    try session.deleteTrack(0);
+    try testing.expectEqual(session.racks.items.len, session.armed.items.len);
+    try testing.expect(session.isArmed(1));
 }
 
 test "buildSession: legacy master FX loads in the old fixed order" {
