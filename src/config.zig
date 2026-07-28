@@ -2891,6 +2891,62 @@ test "Lua API round 5 workflow options set and read" {
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_piano_note_length_steps = 0"));
 }
 
+test "Lua API round 6 options set and read" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString(
+        \\wstudio.o.bounce_tail_seconds = 8.5
+        \\wstudio.o.bounce_bit_depth = "pcm24"
+        \\wstudio.o.default_bounce_path = "~/Music/mix.wav"
+        \\wstudio.o.default_stems_dir = "~/Music/stems"
+        \\wstudio.o.master_limiter_ceiling_db = -1.5
+        \\wstudio.o.master_limiter_release_ms = 250
+        \\wstudio.o.default_drum_steps = 64
+        \\wstudio.o.default_slicer_steps = 32
+        \\wstudio.o.default_pattern_length_beats = 8
+        \\wstudio.o.default_swing = 62
+        \\wstudio.o.completion_popup_rows = 4
+        \\wstudio.o.waveform_low_hz = 120
+        \\wstudio.o.waveform_high_hz = 6000
+        \\wstudio.o.tui_piano_cell_width = 5
+        \\wstudio.o.tui_drum_cell_width = 1
+        \\wstudio.o.tui_arrangement_cell_width = 6
+        \\wstudio.o.tui_spectrum_db_range = 96
+        \\wstudio.o.gui_piano_row_height = 28
+        \\assert(wstudio.o.bounce_bit_depth == "pcm24" and wstudio.o.default_swing == 62)
+    );
+    try std.testing.expectApproxEqAbs(@as(f32, 8.5), rt.config.bounce_tail_seconds, 1e-6);
+    try std.testing.expectEqual(@import("wstudio").wav.BitDepth.pcm24, rt.config.bounce_bit_depth);
+    try std.testing.expectEqualStrings("~/Music/mix.wav", rt.config.default_bounce_path.slice());
+    try std.testing.expectEqualStrings("~/Music/stems", rt.config.default_stems_dir.slice());
+    try std.testing.expectApproxEqAbs(@as(f32, -1.5), rt.config.master_limiter_ceiling_db, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 250), rt.config.master_limiter_release_ms, 1e-6);
+    try std.testing.expectEqual(@as(u16, 64), rt.config.default_drum_steps);
+    try std.testing.expectEqual(@as(u8, 32), rt.config.default_slicer_steps);
+    try std.testing.expectEqual(@as(f64, 8), rt.config.default_pattern_length_beats);
+    try std.testing.expectApproxEqAbs(@as(f32, 62), rt.config.default_swing, 1e-6);
+    try std.testing.expectEqual(@as(u8, 4), rt.config.completion_popup_rows);
+    try std.testing.expectApproxEqAbs(@as(f32, 120), rt.config.waveform_low_hz, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 6000), rt.config.waveform_high_hz, 1e-6);
+    try std.testing.expectEqual(@as(u8, 5), rt.config.tui_piano_cell_width);
+    try std.testing.expectEqual(@as(u8, 1), rt.config.tui_drum_cell_width);
+    try std.testing.expectEqual(@as(u8, 6), rt.config.tui_arrangement_cell_width);
+    try std.testing.expectApproxEqAbs(@as(f32, 96), rt.config.tui_spectrum_db_range, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 28), rt.config.gui_piano_row_height, 1e-6);
+
+    // Each range is enforced at its own edge, and the empty-path rule
+    // covers the two new path options too.
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.bounce_tail_seconds = 31"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.bounce_bit_depth = 'pcm32'"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_bounce_path = ''"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_stems_dir = ''"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.master_limiter_ceiling_db = 1"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_swing = 49"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.completion_popup_rows = 0"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.tui_piano_cell_width = 8"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.gui_piano_row_height = 4"));
+}
+
 test "Lua API session default options set and read" {
     var rt = try Runtime.init(.tui);
     defer rt.deinit();

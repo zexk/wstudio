@@ -7870,6 +7870,63 @@ test "applyUserConfig plumbs the round-5 workflow options" {
     try std.testing.expectEqual(@as(f64, 0.5), app.piano_note_len);
 }
 
+test "applyUserConfig plumbs the round-6 options" {
+    var app = try testApp();
+    defer app.deinit();
+    const config_mod = @import("../config.zig");
+    var cfg: config_mod.Config = .{};
+    cfg.bounce_tail_seconds = 8.5;
+    cfg.bounce_bit_depth = .pcm24;
+    cfg.default_bounce_path = config_mod.PathBuf.init("mix.wav");
+    cfg.default_stems_dir = config_mod.PathBuf.init("parts");
+    cfg.master_limiter_ceiling_db = -6;
+    cfg.master_limiter_release_ms = 250;
+    cfg.default_drum_steps = 64;
+    cfg.default_slicer_steps = 32;
+    cfg.default_pattern_length_beats = 8;
+    cfg.default_swing = 62;
+    cfg.completion_popup_rows = 4;
+    cfg.waveform_low_hz = 120;
+    cfg.waveform_high_hz = 6000;
+    cfg.tui_piano_cell_width = 5;
+    cfg.tui_drum_cell_width = 1;
+    cfg.tui_arrangement_cell_width = 6;
+    cfg.tui_spectrum_db_range = 96;
+    app.applyUserConfig(cfg, false);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 8.5), app.bounce_tail_seconds, 1e-6);
+    try std.testing.expectEqual(ws.wav.BitDepth.pcm24, app.bounce_bit_depth);
+    try std.testing.expectEqualStrings("mix.wav", app.default_bounce_path.slice());
+    try std.testing.expectEqualStrings("parts", app.default_stems_dir.slice());
+    try std.testing.expectEqual(@as(u8, 4), app.completion_popup_rows);
+    // The cell-width options reach the views through these three accessors.
+    try std.testing.expectEqual(@as(usize, 5), app.pianoCellWidth());
+    try std.testing.expectEqual(@as(usize, 1), app.drumCellWidth());
+    try std.testing.expectEqual(@as(usize, 6), app.arrCellWidth());
+    try std.testing.expectApproxEqAbs(@as(f32, 96), app.tui_spectrum_db_range, 1e-6);
+    // waveform.zig is module-level state; both frontends' draw code reads it.
+    try std.testing.expectApproxEqAbs(@as(f32, 120), @import("../ui/waveform.zig").low_hz, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 6000), @import("../ui/waveform.zig").high_hz, 1e-6);
+
+    // The limiter rides the engine command queue, so it needs a drain.
+    var block: [64]ws.types.Sample = undefined;
+    app.session.engine.process(&block);
+    try std.testing.expectApproxEqAbs(ws.types.dbToGain(@as(f32, -6)), app.session.engine.limiter.ceiling, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 250), app.session.engine.limiter.release_ms, 1e-6);
+
+    // New-instrument defaults land on Session and apply to the next rack
+    // built, not to instruments that already exist.
+    try std.testing.expectEqual(@as(u16, 64), app.session.defaults.drum_steps);
+    try app.session.setInstrument(0, .drum_machine);
+    try std.testing.expectEqual(@as(u16, 64), app.session.racks.items[0].instrument.drum_machine.step_count);
+    try std.testing.expectApproxEqAbs(@as(f32, 62), app.session.racks.items[0].instrument.drum_machine.swing.load(.monotonic), 1e-6);
+    try app.session.setInstrument(0, .slicer);
+    try std.testing.expectEqual(@as(u8, 32), app.session.racks.items[0].instrument.slicer.step_count);
+    try app.session.setInstrument(0, .poly_synth);
+    try std.testing.expectEqual(@as(f64, 8), app.session.racks.items[0].pattern_player.?.length_beats);
+    try std.testing.expectApproxEqAbs(@as(f32, 62), app.session.racks.items[0].pattern_player.?.swing.load(.monotonic), 1e-6);
+}
+
 test "applyUserConfig plumbs session defaults" {
     var app = try testApp();
     defer app.deinit();

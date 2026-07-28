@@ -3137,6 +3137,39 @@ test "save/load round-trip persists a compressor's sidechain_source" {
     try testing.expectEqual(@as(?u8, 2), sc.pad);
 }
 
+// `wstudio.o.default_drum_steps`/`default_slicer_steps`/
+// `default_pattern_length_beats` shape a *new* instrument only. A file
+// carries its own, so loading one must not inherit whatever the user's
+// config happens to say - the load session's defaults are set deliberately
+// wrong here to catch that.
+test "a loaded project keeps its own pattern shape, not the config defaults" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/shape.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try session.setInstrument(0, .drum_machine);
+    session.racks.items[0].instrument.drum_machine.setStepCount(48);
+    _ = try session.addTrack("keys");
+    try session.setInstrument(1, .poly_synth);
+    session.racks.items[1].pattern_player.?.length_beats = 12.0;
+    _ = try session.addTrack("chops");
+    try session.setInstrument(2, .slicer);
+    session.racks.items[2].instrument.slicer.setStepCount(24);
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    loaded.defaults = .{ .drum_steps = 8, .slicer_steps = 8, .pattern_length_beats = 1.0, .swing = 70.0 };
+
+    try testing.expectEqual(@as(u16, 48), loaded.racks.items[0].instrument.drum_machine.step_count);
+    try testing.expectEqual(@as(f64, 12.0), loaded.racks.items[1].pattern_player.?.length_beats);
+    try testing.expectEqual(@as(u8, 24), loaded.racks.items[2].instrument.slicer.step_count);
+}
+
 test "save/load round-trip persists a slicer's slices, pattern, and swing" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
