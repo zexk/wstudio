@@ -770,7 +770,7 @@ fn secOscC(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_c_wt_pos}));
 }
 
-/// 8 mod-matrix rows, 3 editor rows each (source / dest / depth). Dest and
+/// Mod-matrix rows, 3 editor fields each (source / dest / depth). Dest and
 /// depth dim while the row's source is off, mirroring the on/off gating the
 /// oscillator sections use.
 /// One line per slot: `N  <source>  <dest>  [bar]  <depth>`. `w`/`b` move
@@ -783,7 +783,7 @@ fn secMatrix(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try synthSection(w, "MATRIX", mag);
 
     for (synth.mod_matrix, 0..) |row, k| {
-        const base: u16 = @intCast(59 + k * 3);
+        const base = PolySynth.matrixParamId(k, 0);
         const off = row.source == .none;
         const sel_src = c == base;
         const sel_dst = c == base + 1;

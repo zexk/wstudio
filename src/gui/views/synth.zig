@@ -468,7 +468,7 @@ fn sectionColor(tone: synth_layout.Tone) [4]f32 {
 /// anything read across, and 8 slots stacked three-deep is 24 rows of
 /// column-0 real estate.
 fn drawMatrixRow(app: anytype, synth: *ws.dsp.PolySynth, base_id: u16, accent: [4]f32) void {
-    const slot = (base_id - 59) / 3;
+    const slot = (ws.dsp.PolySynth.matrixParamAddr(base_id) orelse return).row;
     if (slot >= synth.mod_matrix.len) return;
     const row = synth.mod_matrix[slot];
     const on = row.source != .none;

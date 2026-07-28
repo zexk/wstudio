@@ -55,6 +55,22 @@ pub const SectionDef = struct {
     params: []const ParamEntry,
 };
 
+const max_mod_rows = 32;
+const matrix_params = blk: {
+    @setEvalBranchQuota(30_000);
+    var out: [max_mod_rows * 2]ParamEntry = undefined;
+    for (0..max_mod_rows) |row| {
+        const label = std.fmt.comptimePrint("{d}", .{row + 1});
+        const id: u16 = @intCast(if (row < 8) 59 + row * 3 else 301 + (row - 8) * 3);
+        out[row * 2] = .{ .id = id, .label = label, .fields = 3 };
+        out[row * 2 + 1] = .{
+            .id = @intCast(269 + row),
+            .label = std.fmt.comptimePrint("{s} pol", .{label}),
+        };
+    }
+    break :blk out;
+};
+
 // zig fmt: off
 pub const main_sections = [_]SectionDef{
     .{ .title = "OSC A", .tone = .source, .band = 0, .params = &.{
@@ -151,16 +167,7 @@ pub const mod_sections = [_]SectionDef{
     // triplet - entry fields must be contiguous ids, and 59-82 is packed
     // 3-per-row - so it gets its own entry, placed right after so j/k
     // still walks a row's controls together.
-    .{ .title = "MATRIX", .tone = .mod, .band = 1, .params = &.{
-        .{ .id = 59, .label = "1", .fields = 3 }, .{ .id = 269, .label = "1 pol" },
-        .{ .id = 62, .label = "2", .fields = 3 }, .{ .id = 270, .label = "2 pol" },
-        .{ .id = 65, .label = "3", .fields = 3 }, .{ .id = 271, .label = "3 pol" },
-        .{ .id = 68, .label = "4", .fields = 3 }, .{ .id = 272, .label = "4 pol" },
-        .{ .id = 71, .label = "5", .fields = 3 }, .{ .id = 273, .label = "5 pol" },
-        .{ .id = 74, .label = "6", .fields = 3 }, .{ .id = 274, .label = "6 pol" },
-        .{ .id = 77, .label = "7", .fields = 3 }, .{ .id = 275, .label = "7 pol" },
-        .{ .id = 80, .label = "8", .fields = 3 }, .{ .id = 276, .label = "8 pol" },
-    } },
+    .{ .title = "MATRIX", .tone = .mod, .band = 1, .params = &matrix_params },
 };
 // zig fmt: on
 
@@ -435,7 +442,7 @@ comptime {
             if (sec.band < sections[i - 1].band) @compileError("synth_layout: bands must be declared in ascending order");
         }
     }
-    var seen = [_]bool{false} ** 277;
+    var seen = [_]bool{false} ** 373;
     for (main_sections) |sec| {
         for (sec.params) |p| {
             var f: u8 = 0;

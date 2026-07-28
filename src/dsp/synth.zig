@@ -1050,7 +1050,10 @@ pub const PolySynth = struct {
     /// With e.g. 8 active voices, unison is capped at 4 each → 32 total.
     pub const osc_budget: usize = 32;
 
-    pub const max_mod_rows = 8;
+    pub const max_mod_rows = 32;
+    const legacy_mod_rows = 8;
+    const legacy_mod_param_base: u16 = 59;
+    const extra_mod_param_base: u16 = 301;
     pub const max_arp_octaves = 4;
     /// Virtual matrix destinations that aren't editor params: note pitch
     /// (amt = octaves) and voice amplitude (gain factor 1 + amt). Chosen
@@ -1082,6 +1085,27 @@ pub const PolySynth = struct {
     /// automation lanes already point at.
     pub const mod_unipolar_id_base: u16 = 269;
 
+    pub const MatrixParamAddr = struct { row: u8, field: u2 };
+
+    pub fn matrixParamId(row: usize, field: u2) u16 {
+        std.debug.assert(row < max_mod_rows and field < 3);
+        const base = if (row < legacy_mod_rows)
+            legacy_mod_param_base + row * 3
+        else
+            extra_mod_param_base + (row - legacy_mod_rows) * 3;
+        return @intCast(base + field);
+    }
+
+    pub fn matrixParamAddr(id: u16) ?MatrixParamAddr {
+        const rel: usize = if (id >= legacy_mod_param_base and id < legacy_mod_param_base + legacy_mod_rows * 3)
+            id - legacy_mod_param_base
+        else if (id >= extra_mod_param_base and id < extra_mod_param_base + (max_mod_rows - legacy_mod_rows) * 3)
+            legacy_mod_rows * 3 + id - extra_mod_param_base
+        else
+            return null;
+        return .{ .row = @intCast(rel / 3), .field = @intCast(rel % 3) };
+    }
+
     /// Automatable params that aren't legal matrix destinations: the global
     /// LFO rate/phase/slew controls (an LFO's own motion is set on its row,
     /// not modulated - and they're read before `evalMatrix` runs, so a row
@@ -1097,6 +1121,7 @@ pub const PolySynth = struct {
     };
 
     fn isModDestExcluded(id: u16) bool {
+        if (matrixParamAddr(id)) |addr| if (addr.field == 2) return true;
         for (mod_dest_excluded_ids) |e| if (e == id) return true;
         return false;
     }
@@ -3641,30 +3666,25 @@ pub const PolySynth = struct {
     /// the block reader - the editor sends edits over the command queue rather
     /// than writing these fields directly.
     pub fn adjustParam(self: *PolySynth, id: u16, steps: i32) void {
+        if (matrixParamAddr(id)) |addr| {
+            const row = &self.mod_matrix[addr.row];
+            switch (addr.field) {
+                0 => row.source = cycleEnum(ModSource, row.source, steps),
+                1 => {
+                    const n: i32 = mod_dest_ids.len;
+                    const cur: i32 = @intCast(modDestIndex(row.dest) orelse 0);
+                    row.dest = mod_dest_ids[@intCast(@mod(cur + steps, n))];
+                },
+                2 => row.depth = std.math.clamp(row.depth + @as(f32, @floatFromInt(steps)) * 0.01, -1.0, 1.0),
+                else => unreachable,
+            }
+            return;
+        }
         switch (id) {
             // fx_mb_style: h/l always picks classic/ott by direction, not a
             // wrap (see `param_specs`'s note on id 149).
             149 => {
                 self.fx_mb_style = if (steps > 0) .ott else .classic;
-                return;
-            },
-            // MATRIX (59–82): 3 ids per row - source, dest, depth.
-            59...82 => {
-                const row = &self.mod_matrix[(id - 59) / 3];
-                switch ((id - 59) % 3) {
-                    // Source steps one variant per press (matches the other
-                    // enum params); wraps.
-                    0 => row.source = cycleEnum(ModSource, row.source, steps),
-                    // Dest walks the mod_dest_ids table by the full step
-                    // count (H/L jump 10 through the ~40 entries); wraps.
-                    1 => {
-                        const n: i32 = mod_dest_ids.len;
-                        const cur: i32 = @intCast(modDestIndex(row.dest) orelse 0);
-                        row.dest = mod_dest_ids[@intCast(@mod(cur + steps, n))];
-                    },
-                    2 => row.depth = std.math.clamp(row.depth + @as(f32, @floatFromInt(steps)) * 0.01, -1.0, 1.0),
-                    else => unreachable,
-                }
                 return;
             },
             mod_unipolar_id_base...mod_unipolar_id_base + max_mod_rows - 1 => {
@@ -3717,25 +3737,20 @@ pub const PolySynth = struct {
     /// way.
     pub fn setParamAbsolute(self: *PolySynth, id: u16, value: f32) void {
         if (!std.math.isFinite(value)) return;
+        if (matrixParamAddr(id)) |addr| {
+            const row = &self.mod_matrix[addr.row];
+            switch (addr.field) {
+                0 => row.source = enumFromValue(ModSource, value),
+                1 => {
+                    const d: u16 = if (value > 0.0 and value <= 65535.0) @intFromFloat(@round(value)) else 21;
+                    row.dest = if (modDestIndex(d) != null) d else 21;
+                },
+                2 => row.depth = std.math.clamp(value, -1.0, 1.0),
+                else => unreachable,
+            }
+            return;
+        }
         switch (id) {
-            // MATRIX: dest takes the raw param id (falls back to cutoff if
-            // the value isn't a legal dest - e.g. a hand-edited curve).
-            59...82 => {
-                const row = &self.mod_matrix[(id - 59) / 3];
-                switch ((id - 59) % 3) {
-                    0 => row.source = enumFromValue(ModSource, value),
-                    1 => {
-                        const d: u16 = if (value > 0.0 and value <= 65535.0)
-                            @intFromFloat(@round(value))
-                        else
-                            21;
-                        row.dest = if (modDestIndex(d) != null) d else 21;
-                    },
-                    2 => row.depth = std.math.clamp(value, -1.0, 1.0),
-                    else => unreachable,
-                }
-                return;
-            },
             mod_unipolar_id_base...mod_unipolar_id_base + max_mod_rows - 1 => {
                 self.mod_matrix[id - mod_unipolar_id_base].unipolar = value >= 0.5;
                 return;
@@ -3790,16 +3805,16 @@ pub const PolySynth = struct {
     }
 
     pub fn paramValue(self: *const PolySynth, id: u16) ?f32 {
+        if (matrixParamAddr(id)) |addr| {
+            const row = self.mod_matrix[addr.row];
+            return switch (addr.field) {
+                0 => enumToValue(row.source),
+                1 => @floatFromInt(row.dest),
+                2 => row.depth,
+                else => unreachable,
+            };
+        }
         switch (id) {
-            59...82 => {
-                const row = self.mod_matrix[(id - 59) / 3];
-                return switch ((id - 59) % 3) {
-                    0 => enumToValue(row.source),
-                    1 => @floatFromInt(row.dest),
-                    2 => row.depth,
-                    else => unreachable,
-                };
-            },
             mod_unipolar_id_base...mod_unipolar_id_base + max_mod_rows - 1 => {
                 return if (self.mod_matrix[id - mod_unipolar_id_base].unipolar) 1.0 else 0.0;
             },
@@ -3884,6 +3899,30 @@ pub const PolySynth = struct {
         .{ .id = 76, .label = "MT6 DEPTH",  .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
         .{ .id = 79, .label = "MT7 DEPTH",  .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
         .{ .id = 82, .label = "MT8 DEPTH",  .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 303,.label = "MT9 DEPTH",  .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 306,.label = "MT10 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 309,.label = "MT11 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 312,.label = "MT12 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 315,.label = "MT13 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 318,.label = "MT14 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 321,.label = "MT15 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 324,.label = "MT16 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 327,.label = "MT17 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 330,.label = "MT18 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 333,.label = "MT19 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 336,.label = "MT20 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 339,.label = "MT21 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 342,.label = "MT22 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 345,.label = "MT23 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 348,.label = "MT24 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 351,.label = "MT25 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 354,.label = "MT26 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 357,.label = "MT27 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 360,.label = "MT28 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 363,.label = "MT29 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 366,.label = "MT30 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 369,.label = "MT31 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 372,.label = "MT32 DEPTH", .section = "MATRIX",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
         .{ .id = 84, .label = "DIST DRIVE", .section = "FX DIST", .range = .{ 0.0,    36.0 },    .step = 0.5 },
         .{ .id = 85, .label = "DIST MIX",   .section = "FX DIST", .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 87, .label = "CRUSH BITS", .section = "FX CRUSH",.range = .{ 1.0,    16.0 },    .step = 1.0 },
@@ -5072,6 +5111,19 @@ test "setParamAbsolute ignores non-finite values for every table-driven paramete
         synth.setParamAbsolute(id, -std.math.inf(f32));
         try std.testing.expectEqual(before, synth.paramValue(id).?);
     }
+}
+
+test "matrix parameter IDs preserve legacy rows and address row 32" {
+    try std.testing.expectEqual(@as(u16, 59), PolySynth.matrixParamId(0, 0));
+    try std.testing.expectEqual(@as(u16, 82), PolySynth.matrixParamId(7, 2));
+    try std.testing.expectEqual(@as(u16, 370), PolySynth.matrixParamId(31, 0));
+
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.adjustParam(PolySynth.matrixParamId(31, 0), 1);
+    synth.setParamAbsolute(PolySynth.matrixParamId(31, 2), 0.75);
+    try std.testing.expectEqual(ModSource.lfo, synth.mod_matrix[31].source);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), synth.mod_matrix[31].depth, 1e-6);
 }
 
 test "applyParamSpecs ignores non-finite continuous snapshot fields" {

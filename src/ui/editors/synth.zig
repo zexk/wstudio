@@ -261,6 +261,16 @@ fn arpModeName(mode: anytype) []const u8 {
 /// Writes `id`'s current value the way the editor displays it. Silent for
 /// ids with no display of their own (FX reorder handles, dead ids).
 pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Writer) !void {
+    if (ws.dsp.PolySynth.matrixParamAddr(id)) |addr| {
+        const row = synth.mod_matrix[addr.row];
+        switch (addr.field) {
+            0 => try w.writeAll(synth_layout.modSourceName(row.source)),
+            1 => try w.writeAll(ws.dsp.PolySynth.modDestLabel(row.dest)),
+            2 => try w.print("{s}{d:.2}", .{ @as([]const u8, if (row.depth >= 0.0) "+" else ""), row.depth }),
+            else => unreachable,
+        }
+        return;
+    }
     switch (id) {
         0 => try w.writeAll(switch (synth.waveform) {
             .sine => "sine",
@@ -376,17 +386,6 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         56 => try w.print("{d}", .{synth.osc_c_unison}),
         57 => try w.print("{d:.1} ct", .{synth.osc_c_unison_detune}),
         58 => try w.writeAll(uniModeName(synth.osc_c_unison_mode)),
-        59...82 => {
-            const row = synth.mod_matrix[(id - 59) / 3];
-            switch ((id - 59) % 3) {
-                // zig fmt: off
-                0 => try w.writeAll(synth_layout.modSourceName(row.source)),
-                1 => try w.writeAll(ws.dsp.PolySynth.modDestLabel(row.dest)),
-                2 => try w.print("{s}{d:.2}", .{ @as([]const u8, if (row.depth >= 0.0) "+" else ""), row.depth }),
-                // zig fmt: on
-                else => {},
-            }
-        },
         ws.dsp.PolySynth.mod_unipolar_id_base...ws.dsp.PolySynth.mod_unipolar_id_base + ws.dsp.PolySynth.max_mod_rows - 1 => {
             const row = synth.mod_matrix[id - ws.dsp.PolySynth.mod_unipolar_id_base];
             try w.writeAll(if (row.unipolar) "unipolar" else "bipolar");
@@ -503,7 +502,6 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         else => {},
     }
 }
-
 
 /// `writeParamValue` into a caller-owned buffer, for the GUI's per-widget
 /// value text. 40 bytes covers every arm above; a shorter one truncates
