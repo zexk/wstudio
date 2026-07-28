@@ -8,6 +8,18 @@ permissions:
   contents: read
 
 jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+
+      - name: Build and test
+        run: nix develop --command zig build check
+
+      - name: Build with runtime safety
+        run: nix develop --command zig build -Doptimize=ReleaseSafe
+
   health:
     runs-on: ubuntu-latest
     steps:

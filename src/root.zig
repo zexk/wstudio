@@ -48,6 +48,10 @@ pub const wasapi = if (@import("builtin").os.tag == .windows)
     @import("audio/wasapi.zig")
 else
     struct {};
+pub const coreaudio = if (@import("builtin").os.tag == .macos)
+    @import("audio/coreaudio.zig")
+else
+    struct {};
 pub const midi_in = if (@import("builtin").os.tag == .linux)
     @import("audio/midi_in.zig")
 else
@@ -110,6 +114,7 @@ test {
     _ = pipewire;
     _ = jack;
     _ = wasapi;
+    _ = coreaudio;
     _ = dsp;
     _ = Session;
     _ = persist;

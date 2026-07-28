@@ -17,11 +17,13 @@ const backend_mod = @import("backend.zig");
 
 const has_linux_backends = builtin.os.tag == .linux;
 const has_wasapi = builtin.os.tag == .windows;
+const has_coreaudio = builtin.os.tag == .macos;
 
 const PipewireBackend = if (has_linux_backends) @import("pipewire.zig").PipewireBackend else void;
 const JackBackend = if (has_linux_backends) @import("jack.zig").JackBackend else void;
 const AlsaBackend = if (has_linux_backends) @import("alsa.zig").AlsaBackend else void;
 const WasapiBackend = if (has_wasapi) @import("wasapi.zig").WasapiBackend else void;
+const CoreAudioBackend = if (has_coreaudio) @import("coreaudio.zig").CoreAudioBackend else void;
 
 /// The user-facing `audio_backend` option (see docs/lua-api.md). The
 /// Linux names are ignored on Windows, where anything but `none` means
@@ -34,6 +36,7 @@ pub const Active = enum {
     jack,
     alsa,
     wasapi,
+    coreaudio,
 };
 
 pub const AudioHost = struct {
@@ -44,6 +47,7 @@ pub const AudioHost = struct {
     jack: JackBackend,
     alsa: AlsaBackend,
     wasapi: WasapiBackend,
+    coreaudio: CoreAudioBackend,
     fallback: backend_mod.NullBackend,
     /// Which backend start() landed on; null while stopped.
     active: ?Active = null,
@@ -57,6 +61,7 @@ pub const AudioHost = struct {
             .jack = if (has_linux_backends) .{ .config = config, .render = render, .ctx = ctx } else {},
             .alsa = if (has_linux_backends) .{ .config = config, .render = render, .ctx = ctx } else {},
             .wasapi = if (has_wasapi) .{ .config = config, .render = render, .ctx = ctx } else {},
+            .coreaudio = if (has_coreaudio) .{ .config = config, .render = render, .ctx = ctx } else {},
             .fallback = .{ .config = config, .render = render, .ctx = ctx },
         };
     }
@@ -95,6 +100,12 @@ pub const AudioHost = struct {
                     self.active = .wasapi;
                 } else |_| {}
             }
+        } else if (has_coreaudio) {
+            if (choice != .none) {
+                if (self.coreaudio.start()) {
+                    self.active = .coreaudio;
+                } else |_| {}
+            }
         }
         if (self.active == null) {
             try self.fallback.start(io);
@@ -111,6 +122,7 @@ pub const AudioHost = struct {
             .jack => if (has_linux_backends) self.jack.stop() else unreachable,
             .alsa => if (has_linux_backends) self.alsa.stop() else unreachable,
             .wasapi => if (has_wasapi) self.wasapi.stop() else unreachable,
+            .coreaudio => if (has_coreaudio) self.coreaudio.stop() else unreachable,
         }
     }
 
@@ -122,6 +134,7 @@ pub const AudioHost = struct {
             .jack => "jack",
             .alsa => "alsa",
             .wasapi => "wasapi",
+            .coreaudio => "coreaudio",
         };
     }
 };

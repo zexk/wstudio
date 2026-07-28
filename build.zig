@@ -37,6 +37,9 @@ pub fn build(b: *std.Build) void {
         // translate-c on @cImport of windows.h, same as glibc's above.
         wstudio_mod.addCMacro("_FORTIFY_SOURCE", "0");
     }
+    if (target.result.os.tag == .macos) {
+        wstudio_mod.linkFramework("AudioToolbox", .{});
+    }
 
     const win32_icon: ?std.Build.Module.RcSourceFile = if (target.result.os.tag == .windows)
         .{ .file = b.path("assets/icon/wstudio.rc") }
