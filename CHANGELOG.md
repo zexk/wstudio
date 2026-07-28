@@ -59,6 +59,9 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Fixed
 
+- Applying a synth preset bound its FX modulation to nothing, so a preset
+  whose macro sweeps a reverb or delay parameter (warm-pad, pluck, and
+  others) applied with that routing dead.
 - Both frontends now title themselves `<project> - wstudio`, from the
   project file's name without its directory or extension. The GUI window
   said "wstudio GUI prototype" and never updated on a blank session, and
