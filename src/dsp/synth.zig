@@ -1295,6 +1295,9 @@ pub const PolySynth = struct {
         random: f32 = 0.0,
         alternate: f32 = -1.0,
         noise_lp: f32 = 0.0,
+        /// Per-sample ramps for A, B, C, sub, noise, then final output.
+        mix_gain: [5]f32 = @splat(0.0),
+        out_gain: f32 = 0.0,
     };
 
     /// Point the tempo-synced LFO/arp divisions at the project transport.
@@ -1981,6 +1984,7 @@ pub const PolySynth = struct {
 
     pub fn processBlock(self: *PolySynth, buf: []Sample) void {
         const frames = buf.len / 2;
+        if (frames == 0) return;
 
         // Block-rate LFOs: sample once before the voice loop so all voices
         // receive the same values, avoiding inter-voice phase desync.
@@ -2159,6 +2163,14 @@ pub const PolySynth = struct {
                 + sub_level_v * sub_level_v
                 + noise_lvl_v * noise_lvl_v);
             // zig fmt: on
+            const ring = self.osc_b_on and self.mod_mode == .ring;
+            const mix_targets: [5]f32 = if (ring)
+                .{ scale_a * ring_mix_norm, 0.0, scale_c * c_level * ring_mix_norm, sub_level_v * ring_mix_norm, noise_lvl_v * ring_mix_norm }
+            else
+                .{ scale_a * mix_norm, scale_b * b_level * mix_norm, scale_c * c_level * mix_norm, sub_level_v * mix_norm, noise_lvl_v * mix_norm };
+            var mix_steps: [5]f32 = undefined;
+            for (&mix_steps, mix_targets, v.mix_gain) |*step, target, current| step.* = (target - current) / @as(f32, @floatFromInt(frames));
+            const out_step = (gain_v - v.out_gain) / @as(f32, @floatFromInt(frames));
 
             // Stereo pan gains per unison voice - constant-power, √2-compensated so
             // spread=0 gives the same per-channel amplitude as the original mono path.
@@ -2274,38 +2286,40 @@ pub const PolySynth = struct {
                 // polyBLEP band-limiting OSC A/B/C do - an octave down still
                 // leaves plenty of harmonics above Nyquist to fold back.
                 var sub_out: f32 = 0.0;
-                if (sub_level_v > 0.0) {
+                if (mix_targets[3] > 0.0 or v.mix_gain[3] > 0.0) {
                     // zig fmt: on
                     const sub_wf: Waveform = if (self.sub_shape == .sine) .sine else .square;
-                    sub_out = oscWave(sub_wf, v.sub_phase, 0.5, sub_phase_inc) * sub_level_v;
+                    sub_out = oscWave(sub_wf, v.sub_phase, 0.5, sub_phase_inc);
                     v.sub_phase += sub_phase_inc;
                     if (v.sub_phase >= 1.0) v.sub_phase -= 1.0;
                 }
 
                 // Noise: always centre.
                 var nse_out: f32 = 0.0;
-                if (noise_lvl_v > 0.0) {
+                if (mix_targets[4] > 0.0 or v.mix_gain[4] > 0.0) {
                     const raw = nextNoise(&v.noise_rand_state);
                     v.noise_lp = (1.0 - noise_lp_a) * raw + noise_lp_a * v.noise_lp;
-                    nse_out = v.noise_lp * noise_lvl_v;
+                    nse_out = v.noise_lp;
                 }
 
                 // Stereo mix.
                 // Ring: dry↔ring crossfade - depth=0 → A unmodulated; depth=1 → A·b_mono.
                 // Formula: (1-d) + d·b_mono stays in [-1,1] for d∈[0,1], b_mono∈[-1,1].
                 // FM/AM/none: standard A + B mix (B contribution already modulated above).
-                const ring_factor: f32 = if (self.osc_b_on and self.mod_mode == .ring) blk: {
+                const ring_factor: f32 = if (ring) blk: {
                     const depth = std.math.clamp(mod_amount_v, 0.0, 1.0);
                     break :blk (1.0 - depth) + depth * b_mono;
                 } else 0.0;
-                const osc_l: f32 = if (self.osc_b_on and self.mod_mode == .ring)
-                    (a_l * scale_a * ring_factor + c_l * scale_c * c_level + sub_out + nse_out) * ring_mix_norm
+                for (&v.mix_gain, mix_steps) |*gain, step| gain.* += step;
+                v.out_gain += out_step;
+                const osc_l: f32 = if (ring)
+                    a_l * v.mix_gain[0] * ring_factor + c_l * v.mix_gain[2] + sub_out * v.mix_gain[3] + nse_out * v.mix_gain[4]
                 else
-                    (a_l * scale_a + b_l * scale_b * b_level + c_l * scale_c * c_level + sub_out + nse_out) * mix_norm;
-                const osc_r: f32 = if (self.osc_b_on and self.mod_mode == .ring)
-                    (a_r * scale_a * ring_factor + c_r * scale_c * c_level + sub_out + nse_out) * ring_mix_norm
+                    a_l * v.mix_gain[0] + b_l * v.mix_gain[1] + c_l * v.mix_gain[2] + sub_out * v.mix_gain[3] + nse_out * v.mix_gain[4];
+                const osc_r: f32 = if (ring)
+                    a_r * v.mix_gain[0] * ring_factor + c_r * v.mix_gain[2] + sub_out * v.mix_gain[3] + nse_out * v.mix_gain[4]
                 else
-                    (a_r * scale_a + b_r * scale_b * b_level + c_r * scale_c * c_level + sub_out + nse_out) * mix_norm;
+                    a_r * v.mix_gain[0] + b_r * v.mix_gain[1] + c_r * v.mix_gain[2] + sub_out * v.mix_gain[3] + nse_out * v.mix_gain[4];
 
                 // Stereo filter: same coefficients, independent L/R histories.
                 // zig fmt: off
@@ -2328,7 +2342,7 @@ pub const PolySynth = struct {
                     filt_r = if (self.filter_routing == .series) filt2_r else (filt1_r + filt2_r) * 0.5;
                 }
 
-                const sg = v.env * v.velocity * gain_v * amp_mod;
+                const sg = v.env * v.velocity * v.out_gain * amp_mod;
                 buf[i * 2]     += filt_l * sg;
                 buf[i * 2 + 1] += filt_r * sg;
                 // zig fmt: on
@@ -4566,6 +4580,24 @@ test "random and alternate modulation are stable per triggered voice" {
     try std.testing.expect(first_random != second.random);
     try std.testing.expectEqual(-first_alternate, second.alternate);
     try std.testing.expectApproxEqAbs(first_random, s.evalMatrix(first, .{ 0.0, 0.0, 0.0 }).amt(PolySynth.dest_pitch), 1e-6);
+}
+
+test "live mixer gains ramp to each block target" {
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    s.noteOn(60, 1.0);
+    var buf: [64]Sample = @splat(0.0);
+    s.processBlock(&buf);
+    const v = &s.voices[s.newest_voice];
+    try std.testing.expectApproxEqAbs(s.gain, v.out_gain, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), v.mix_gain[0], 1e-6);
+
+    s.gain = 0.1;
+    s.osc_b_on = true;
+    s.osc_b_level = 0.5;
+    s.processBlock(&buf);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.1), v.out_gain, 1e-6);
+    try std.testing.expect(v.mix_gain[1] > 0.0);
 }
 
 test "unipolar mod row: reachable through the flat param id space" {
