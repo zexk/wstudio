@@ -3,6 +3,7 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    if (target.result.os.tag == .macos) b.sysroot = b.graph.environ_map.get("SDKROOT");
     const enable_tui = b.option(bool, "tui", "Build the terminal frontend") orelse true;
     const enable_gui = b.option(bool, "gui", "Build the graphical frontend") orelse true;
     const build_options = b.addOptions();
