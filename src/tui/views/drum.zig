@@ -9,8 +9,7 @@ const icons = @import("../../ui/icons.zig");
 const drum_ed = @import("../../ui/editors/drum.zig");
 const step_grid = @import("../../ui/editors/step_grid.zig");
 
-// Aliases so the moved render bodies reference the shared palette/primitives
-// by their original bare names.
+// Bare-name aliases for the shared palette/primitives.
 const rst = style.rst;
 const bold = style.bold;
 const dim = style.dim;

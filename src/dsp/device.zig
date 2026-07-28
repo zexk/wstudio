@@ -147,3 +147,18 @@ pub fn deviceOf(comptime T: type) fn (*T) Device {
     }.device;
     return shim;
 }
+
+/// Stress `effect` with 50 blocks of full-scale white noise and fail if any
+/// output sample leaves +/-`limit` - the standard "does the feedback path
+/// blow up" smoke test for a filter/delay-line effect. The seed is fixed so
+/// a failure is reproducible; `limit` is per-effect headroom, not a spec.
+pub fn expectBoundedUnderNoise(effect: anytype, limit: types.Sample) !void {
+    var prng = std.Random.DefaultPrng.init(42);
+    const rand = prng.random();
+    var buf: [512]types.Sample = undefined;
+    for (0..50) |_| {
+        for (&buf) |*s| s.* = rand.float(f32) * 2.0 - 1.0;
+        effect.processBlock(&buf);
+        for (buf) |s| try std.testing.expect(@abs(s) < limit);
+    }
+}

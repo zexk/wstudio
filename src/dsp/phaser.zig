@@ -100,15 +100,7 @@ test "mix 0 passes the input untouched" {
 test "output stays bounded under sustained input with feedback" {
     var phaser = Phaser.init(48_000);
     phaser.feedback = 0.9;
-    var prng = std.Random.DefaultPrng.init(42);
-    const rand = prng.random();
-    var buf: [512]Sample = undefined;
-    var i: usize = 0;
-    while (i < 50) : (i += 1) {
-        for (&buf) |*s| s.* = rand.float(f32) * 2.0 - 1.0;
-        phaser.processBlock(&buf);
-        for (buf) |s| try std.testing.expect(@abs(s) < 10.0);
-    }
+    try dsp.expectBoundedUnderNoise(&phaser, 10.0);
 }
 
 test "silence in, silence out" {

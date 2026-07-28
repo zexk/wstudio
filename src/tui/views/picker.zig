@@ -8,8 +8,7 @@ const synth_ed = @import("../../ui/editors/synth.zig");
 const spectrum_ed = @import("../../ui/editors/spectrum.zig");
 const app_mod = @import("../../ui/app.zig");
 
-// Aliases so the moved render bodies reference the shared palette/primitives
-// by their original bare names.
+// Bare-name aliases for the shared palette/primitives.
 const rst = style.rst;
 const bold = style.bold;
 const dim = style.dim;

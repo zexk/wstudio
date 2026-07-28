@@ -98,15 +98,7 @@ test "mix 0 passes the input untouched" {
 
 test "output stays bounded under sustained input" {
     var tape = Tape.init(48_000);
-    var prng = std.Random.DefaultPrng.init(7);
-    const rand = prng.random();
-    var buf: [512]Sample = undefined;
-    var i: usize = 0;
-    while (i < 50) : (i += 1) {
-        for (&buf) |*s| s.* = rand.float(f32) * 2.0 - 1.0;
-        tape.processBlock(&buf);
-        for (buf) |s| try std.testing.expect(@abs(s) < 2.0);
-    }
+    try dsp.expectBoundedUnderNoise(&tape, 2.0);
 }
 
 test "silence in, silence out" {

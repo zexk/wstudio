@@ -8,8 +8,7 @@ const icons = @import("../../ui/icons.zig");
 const format = @import("../../ui/format.zig");
 const spectrum_ed = @import("../../ui/editors/spectrum.zig");
 
-// Aliases so the moved render bodies reference the shared palette/primitives
-// by their original bare names.
+// Bare-name aliases for the shared palette/primitives.
 const rst = style.rst;
 const bold = style.bold;
 const dim = style.dim;
