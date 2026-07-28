@@ -3,7 +3,8 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    if (target.result.os.tag == .macos) b.sysroot = b.graph.environ_map.get("SDKROOT");
+    const macos_sdk = if (target.result.os.tag == .macos) b.graph.environ_map.get("SDKROOT") else null;
+    if (macos_sdk) |sdk| b.sysroot = sdk;
     const enable_tui = b.option(bool, "tui", "Build the terminal frontend") orelse true;
     const enable_gui = b.option(bool, "gui", "Build the graphical frontend") orelse true;
     const build_options = b.addOptions();
@@ -39,7 +40,8 @@ pub fn build(b: *std.Build) void {
         wstudio_mod.addCMacro("_FORTIFY_SOURCE", "0");
     }
     if (target.result.os.tag == .macos) {
-        wstudio_mod.linkFramework("AudioToolbox", .{});
+        wstudio_mod.linkFramework("AudioUnit", .{});
+        if (macos_sdk) |sdk| addMacosFrameworkPath(b, wstudio_mod, sdk);
     }
 
     const win32_icon: ?std.Build.Module.RcSourceFile = if (target.result.os.tag == .windows)
@@ -60,6 +62,7 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
+    if (macos_sdk) |sdk| addMacosFrameworkPath(b, exe.root_module, sdk);
     exe.root_module.addIncludePath(lua_dep.path("src/"));
     exe.root_module.linkLibrary(lua);
     if (win32_icon) |icon| exe.root_module.addWin32ResourceFile(icon);
@@ -98,6 +101,10 @@ pub fn build(b: *std.Build) void {
         zgui.artifact("imgui").root_module.addCMacro("GLFW_INCLUDE_NONE", "1");
         const zopengl = b.dependency("zopengl", .{});
         const glfw = zglfw.artifact("glfw");
+        if (macos_sdk) |sdk| {
+            addMacosFrameworkPath(b, glfw.root_module, sdk);
+            addMacosFrameworkPath(b, zgui.artifact("imgui").root_module, sdk);
+        }
         if (target.result.os.tag == .linux) {
             // zglfw adds X11 as a link input to its static archive. Zig 0.16
             // then stores the resolved libX11.so path as an archive member,
@@ -219,6 +226,10 @@ pub fn build(b: *std.Build) void {
     const check_step = b.step("check", "Build wstudio and run all tests");
     check_step.dependOn(&exe.step);
     check_step.dependOn(test_step);
+}
+
+fn addMacosFrameworkPath(b: *std.Build, module: *std.Build.Module, sdk: []const u8) void {
+    module.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/Frameworks" }) });
 }
 
 fn removeSystemLibrary(module: *std.Build.Module, name: []const u8) void {
