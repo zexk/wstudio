@@ -408,14 +408,12 @@ fn operatorBarBackward(app: *App, n: i32) void {
     step_grid.operatorBarBackward(&app.slicer_cursor[1], n, app.slicerInst().step_count, step_grid.bar_len);
 }
 
-/// Arm `d`/`y` as a pending operator, remembering the cursor step as the
-/// range anchor - same field visual mode's `v` sets.
+/// Arm `d`/`y` as a pending operator - see docs/editing-grammar.md.
 fn armOperator(app: *App, op: u8) void {
     step_grid.armOperator(app, &app.slicer_visual_anchor, &app.slicer_visual_slice_anchor, &app.slicer_cursor[1], &app.slicer_op_pending, op, "slice");
 }
 
-/// Complete an operator+motion: run the range delete/yank between the
-/// anchor `armOperator` set and the cursor's new position.
+/// Run the armed operator over anchor-to-cursor.
 fn finishOperator(app: *App, op: u8) void {
     if (op == 'd') deleteSelection(app) else yankSelection(app);
 }

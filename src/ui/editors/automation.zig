@@ -28,14 +28,9 @@ pub const gutter: usize = 3;
 /// targets, always available on any clip (mix-bus params). `synth_param`
 /// names one of the current track's instrument's continuous params by its
 /// `setParamAbsolute` id - despite the name (kept from when only PolySynth
-/// had automatable params), this now also covers Sampler tracks;
+/// had automatable params), it covers Sampler and SoundFont tracks too;
 /// `instrumentAutomatableParams`/`findAutomatableParam` below resolve the id
-/// against whichever instrument the track actually holds. The persisted
-/// storage (`Clip.Automation.synth_params`) was always instrument-agnostic -
-/// just a param-id-keyed list, see arrangement.zig - so no format change was
-/// needed to extend this past PolySynth.
-/// Replaces the old fixed 3-way gain/pan/filter_cutoff enum now that any
-/// continuous param can be targeted, not just cutoff.
+/// against whichever instrument the track actually holds.
 pub const AutomationFocus = union(enum) {
     gain,
     pan,
@@ -274,11 +269,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     }
 }
 
-/// Visual mode's reduced key set: motions extend the selection, y/d/p act
-/// on it and return to normal, escape cancels. Everything else is
-/// swallowed (returns true) so it can't jump views or switch curves
-/// mid-selection; digits fall through (return false) so modal.handleNormal
-/// keeps accumulating the count prefix.
+/// Visual mode's reduced key set - see docs/editing-grammar.md for the
+/// swallow-everything-else and digits-fall-through rules every editor shares.
 fn handleVisual(app: *App, key: modal_mod.Key, clip: *ws.Clip) bool {
     switch (key) {
         // zig fmt: off
@@ -492,17 +484,14 @@ fn operatorBarBackward(app: *App, clip: *const ws.Clip, n: i32) void {
     step_grid.operatorBarBackward(&app.automation_cursor_step, n, maxStep(app, clip) + 1, barLenSteps(app));
 }
 
-/// Arm `d`/`y` as a pending operator (see the operator-pending block in
-/// handleKey): remembers the cursor as the range anchor, same field visual
-/// mode's `v` sets, so the eventual delete/yank reuses selectionRange as-is.
+/// Arm `d`/`y` as a pending operator - see docs/editing-grammar.md.
 fn armOperator(app: *App, op: u8) void {
     app.automation_visual_anchor = app.automation_cursor_step;
     app.automation_op_pending = op;
     app.setStatus("{c}: h/l/H/L/g/G/w/b act on the range, {c}{c} acts on the whole curve", .{ op, op, op });
 }
 
-/// Complete an operator+motion: run the range delete/yank between the
-/// anchor `armOperator` set and the cursor's new position.
+/// Run the armed operator over anchor-to-cursor.
 fn finishOperator(app: *App, clip: *ws.Clip, op: u8) void {
     if (op == 'd') deleteSelection(app, clip) else yankSelection(app, clip);
 }

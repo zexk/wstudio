@@ -144,10 +144,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     }
 }
 
-/// Arm `d`/`y` as a pending operator (see the operator-pending block in
-/// handleKey): remembers the cursor bar as the range anchor, same field
-/// visual mode's `v` sets, so the eventual delete/yank reuses
-/// selectionRange as-is.
+/// Arm `d`/`y` as a pending operator - see docs/editing-grammar.md.
 fn armOperator(app: *App, op: u8) void {
     app.arr_visual_anchor = app.arr_cursor_bar;
     // The operator form is single-lane (undo snapshots one lane), so it
@@ -157,8 +154,7 @@ fn armOperator(app: *App, op: u8) void {
     app.setStatus("{c}: h/l/H/L act on the range, {c}{c} acts on the whole lane", .{ op, op, op });
 }
 
-/// Complete an operator+motion: run the range delete/yank between the
-/// anchor `armOperator` set and the cursor's new position.
+/// Run the armed operator over anchor-to-cursor.
 fn finishOperator(app: *App, op: u8) void {
     if (op == 'd') deleteSelection(app) else yankSelection(app);
 }
@@ -196,11 +192,8 @@ fn yankWholeLane(app: *App) void {
     wholeLaneRange(app, lane, yankSelection);
 }
 
-/// Visual mode's reduced key set: motions extend the selection, y/d/p act
-/// on it and return to normal, escape cancels. Everything else is
-/// swallowed (returns true) so it can't jump views or open another editor
-/// mid-selection; digits fall through (return false) so modal.handleNormal
-/// keeps accumulating the count prefix.
+/// Visual mode's reduced key set - see docs/editing-grammar.md for the
+/// swallow-everything-else and digits-fall-through rules every editor shares.
 fn handleVisual(app: *App, key: modal_mod.Key, lane_count: usize) bool {
     switch (key) {
         // zig fmt: off

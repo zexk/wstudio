@@ -603,7 +603,7 @@ fn drawFx(app: anytype, synth: *ws.dsp.PolySynth) void {
 /// or a named stepper for a list-valued param. The value text is always
 /// `synth_ed.paramValueText`'s - the same unit-aware string the status line
 /// prints, so a filter type reads "ladder" and a cutoff reads "1.20 kHz"
-/// instead of the raw float this used to render.
+/// rather than a raw float.
 fn drawParam(app: anytype, synth: *ws.dsp.PolySynth, id: u16, label_text: []const u8, accent: [4]f32, flow: *Flow) void {
     const value = synth.paramValue(id) orelse return;
     var value_buf: [40]u8 = undefined;

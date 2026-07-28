@@ -512,8 +512,7 @@ const lfo_slot_ids = [3][6]u16{
     .{ 97, 98, 258, 261, 264, 267 },
 };
 
-/// A slot's live values, so `secLfoSlot` can draw all three from one body
-/// instead of the three near-identical copies this used to be.
+/// A slot's live values, so `secLfoSlot` draws all three from one body.
 fn lfoSlotState(synth: *const PolySynth, slot: u8) struct {
     shape: ws.dsp.synth.LfoShape,
     rate: f32,

@@ -917,14 +917,11 @@ fn operatorBarBackward(app: *App, max_step: u16, n: i32) void {
     step_grid.operatorBarBackward(&app.piano_cursor_step, n, max_step, barLenSteps(app));
 }
 
-/// Arm `d`/`y` as a pending operator (see the operator-pending block in
-/// handleKey): remembers the cursor as the range anchor, same field visual
-/// mode's `v` sets, so the eventual delete/yank reuses selectionRange as-is.
+/// Arm `d`/`y` as a pending operator - see docs/editing-grammar.md.
 fn armOperator(app: *App, op: u8) void {
     app.piano_visual_anchor = app.piano_cursor_step;
-    // The operator form is linewise - `d3l` clears every pitch across the
-    // range it covers, same as it always did. `v` first is the route to a
-    // blockwise operator, exactly as in vim.
+    // Linewise: `d3l` clears every pitch across the range it covers. `v`
+    // first is the route to a blockwise operator, exactly as in vim.
     app.piano_visual_pitch_anchor = null;
     app.piano_op_pending = op;
     if (op == 'd')
@@ -933,18 +930,14 @@ fn armOperator(app: *App, op: u8) void {
         app.setStatus("y: h/l/H/L/g/G/w/b act on the range, yy yanks the whole pattern", .{});
 }
 
-/// Complete an operator+motion: run the range delete/yank between the
-/// anchor `armOperator` set and the cursor's new position.
+/// Run the armed operator over anchor-to-cursor.
 fn finishOperator(app: *App, pp: *pattern_mod.PatternPlayer, op: u8) void {
     if (op == 'd') deleteSelection(app, pp) else yankSelection(app, pp);
 }
 
 // zig fmt: off
-/// Visual mode's reduced key set: motions extend the selection, y/d/p act
-/// on it and return to normal, escape cancels. Everything else is
-/// swallowed (returns true) so it can't jump views or open another editor
-/// mid-selection; digits fall through (return false) so modal.handleNormal
-/// keeps accumulating the count prefix.
+/// Visual mode's reduced key set - see docs/editing-grammar.md for the
+/// swallow-everything-else and digits-fall-through rules every editor shares.
 fn handleVisual(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, max_step: u16) bool {
     switch (key) {
         .escape => { exitVisual(app); app.setStatus("selection cancelled", .{}); return true; },

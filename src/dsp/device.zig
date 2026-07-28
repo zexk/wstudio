@@ -120,8 +120,8 @@ pub const Device = struct {
 /// void`, the vtable's `event` slot forwards to it; otherwise it stays null,
 /// same split every effect (no events) vs. instrument (events) already had.
 /// Usage: `pub const device = dsp.deviceOf(@This());` inside `T`'s own
-/// definition - kills the identical `@ptrCast(@alignCast(ptr))` shim + static
-/// vtable literal every device implementation used to hand-write.
+/// definition - keeps the `@ptrCast(@alignCast(ptr))` shim and the static
+/// vtable literal out of every device implementation.
 pub fn deviceOf(comptime T: type) fn (*T) Device {
     const shim = struct {
         fn processOpaque(ptr: *anyopaque, buf: []types.Sample) void {

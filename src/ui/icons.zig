@@ -41,14 +41,10 @@ pub const master = "\u{f025}"; // fa-headphones
 pub const loop = "\u{f0547}"; // md-repeat_variant
 pub const logo = "\u{f1de}"; // fa-sliders
 /// md-content_cut - scissors read unambiguously as "chop" even at one
-/// terminal cell, a better fit for the Slicer instrument's whole workflow
-/// (:chop, variants A-H) than the old placeholder (aliasing `logo`'s sliders
-/// glyph, since the app logo happens to also be a plausible-if-generic fit).
+/// terminal cell, matching the Slicer's whole workflow (:chop, variants A-H).
 pub const slicer = "\u{f0190}";
 /// md-music_box_multiple - stacked instrument cards each showing a note,
 /// reading as "a bank of programs" for a SoundFont's many instrument zones.
-/// Replaces the old placeholder (aliasing `eq`'s equalizer bars, picked only
-/// because re-subsetting the font was a separate task at the time).
 pub const soundfont = "\u{f0333}";
 
 const std = @import("std");
