@@ -1649,6 +1649,55 @@ pub fn loadPadFromPath(app: *App, pad_idx: u8, path: []const u8) void {
     app.setStatus("pad {d} loaded: {s}", .{ pad_idx + 1, stem });
 }
 
+/// The file browser's visual-mode enter: load every file in the selected
+/// range into consecutive drum pads, starting at the drum grid's cursor pad
+/// and walking up. Always top-down in list order, whichever direction the
+/// selection was extended. Directories inside the range are skipped, as is
+/// any file that fails to decode - one bad WAV in a folder shouldn't cost
+/// the other fifteen. `entries` are names relative to `app.browser_dir`.
+pub fn loadPadsFromEntries(app: *App, entries: []const app_mod.BrowserEntry) void {
+    const dm = cursorDrumMachine(app) orelse {
+        app.setStatus("load: select a drum-machine track first", .{});
+        return;
+    };
+    var pad: u8 = @intCast(app.drum_cursor[0]);
+    var loaded: u16 = 0;
+    var failed: u16 = 0;
+    var no_room: u16 = 0;
+    for (entries) |entry| {
+        if (entry.is_dir) continue;
+        if (pad >= DrumMachine.max_pads) {
+            no_room += 1;
+            continue;
+        }
+        const path = std.fs.path.join(app.allocator, &.{ app.browser_dir, entry.name }) catch continue;
+        defer app.allocator.free(path);
+        const data = readFileForLoad(app, path) orelse {
+            failed += 1;
+            continue;
+        };
+        defer app.allocator.free(data);
+        dm.loadPadWav(pad, data, stemOf(path)) catch {
+            failed += 1;
+            continue;
+        };
+        dm.pads[pad].?.pad.user_sample = true; // loadPadWav above materialized it
+        pad += 1;
+        loaded += 1;
+    }
+    if (loaded > 0) app.dirty = true;
+    if (failed == 0 and no_room == 0) {
+        app.setStatus("loaded {d} pads from {s}", .{ loaded, std.fs.path.basename(app.browser_dir) });
+    } else {
+        app.setStatus("loaded {d} pads from {s} ({d} failed, {d} past the last pad)", .{
+            loaded,
+            std.fs.path.basename(app.browser_dir),
+            failed,
+            no_room,
+        });
+    }
+}
+
 /// The track index of the drum machine on the cursor's track, or - if the
 /// drum grid is open - the one being edited. Null when neither is a drum
 /// machine. The index (not just the `*DrumMachine`) is what undo snapshots

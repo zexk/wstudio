@@ -5776,6 +5776,65 @@ test "file browser: enter on a file loads a sample and closes the browser" {
     try std.testing.expectEqual(@as(usize, 2), app.session.racks.items[0].instrument.sampler.pad.samples.len);
 }
 
+test "file browser: v selects a range, enter loads it into consecutive pads" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var app = try appRootedAt(&tmp);
+    defer app.deinit();
+    try app.session.setInstrument(0, .drum_machine);
+
+    var wav_buf: [64]u8 = undefined;
+    var fw = std.Io.Writer.fixed(&wav_buf);
+    try ws.wav.write(&fw, app.session.project.sample_rate, 1, &[_]f32{ 0.5, -0.5 }, .pcm16);
+    for ([_][]const u8{ "a.wav", "b.wav", "c.wav", "d.wav" }) |name|
+        try tmp.dir.writeFile(std.testing.io, .{ .sub_path = name, .data = fw.buffered() });
+
+    app.view = .drum_grid;
+    app.drum_track = 0;
+    app.drum_cursor = .{ 1, 0 }; // filling starts at pad 2, not pad 1
+    app.openBrowser(.{ .load_pad = 1 });
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'j' }, 0);
+    app.handleKey(.{ .char = 'j' }, 0); // a..c selected, d left out
+    try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
+    app.handleKey(.enter, 0);
+
+    try std.testing.expectEqual(AppView.drum_grid, app.view);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expect(app.browser_visual_anchor == null);
+    try std.testing.expect(app.dirty);
+
+    const dm = &app.session.racks.items[0].instrument.drum_machine;
+    try std.testing.expect(dm.pads[0] == null); // below the cursor pad, untouched
+    for ([_][]const u8{ "a", "b", "c" }, 1..) |stem, pad| {
+        const p = dm.pads[pad] orelse return error.PadNotLoaded;
+        try std.testing.expectEqualStrings(stem, ws.dsp.pad.trimmedName(&p.pad.name));
+        try std.testing.expect(p.pad.user_sample);
+    }
+    try std.testing.expect(dm.pads[4] == null); // d.wav was outside the selection
+}
+
+test "file browser: v in an empty directory arms nothing (the showcmd chip would slice it)" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(std.testing.io, "empty");
+
+    var app = try appRootedAt(&tmp);
+    defer app.deinit();
+    try app.session.setInstrument(0, .drum_machine);
+    app.view = .drum_grid;
+    app.openBrowser(.{ .load_pad = 0 });
+    app.handleKey(.{ .char = 'l' }, 0); // descend into empty/
+    try std.testing.expectEqual(@as(usize, 0), app.browser_entries.items.len);
+
+    app.handleKey(.{ .char = 'v' }, 0);
+    try std.testing.expect(app.browser_visual_anchor == null);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    var buf: [24]u8 = undefined;
+    try std.testing.expectEqualStrings("", app.pendingCmdText(&buf));
+}
+
 test "file browser: esc/q cancels without picking, restoring the previous view" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();

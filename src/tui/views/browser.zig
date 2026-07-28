@@ -12,6 +12,7 @@ const bold = style.bold;
 const dim = style.dim;
 const acc = style.acc;
 const sel = style.sel;
+const yel = style.yel;
 const endLine = style.endLine;
 
 fn purposeLabel(purpose: app_mod.BrowserPurpose, buf: []u8) []const u8 {
@@ -52,10 +53,19 @@ pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     const end = @min(off + visible, entries.len);
 
     const pattern = app.searchPattern();
+    // Visual mode: an inclusive index range over the listing, marked the
+    // same way the tracks view marks its own row selection (`~` + yel).
+    // Directories inside the range never light up - loadPadsFromEntries
+    // skips them, so showing them as selected would be a lie.
+    const sel_anchor = app.browser_visual_anchor orelse app.browser_cursor;
+    const sel_lo = @min(sel_anchor, app.browser_cursor);
+    const sel_hi = @max(sel_anchor, app.browser_cursor);
+
     for (entries[off..end], off..) |entry, i| {
         const is_sel = i == app.browser_cursor;
-        if (is_sel) try w.writeAll(sel);
-        try w.writeAll(if (is_sel) "  > " else "    ");
+        const in_sel = app.browser_visual_anchor != null and i >= sel_lo and i <= sel_hi and !entry.is_dir;
+        if (is_sel) try w.writeAll(sel) else if (in_sel) try w.writeAll(yel);
+        try w.writeAll(if (is_sel) "  > " else if (in_sel) "  ~ " else "    ");
         try writeHighlighted(w, entry.name, pattern, is_sel);
         if (entry.is_dir) try w.writeAll("/");
         try w.writeAll(rst);

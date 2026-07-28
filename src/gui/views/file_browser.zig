@@ -34,7 +34,7 @@ pub fn draw(app: anytype) void {
     }
     zgui.textDisabled("{s}", .{app.core.browser_dir});
     zgui.separator();
-    zgui.textDisabled("/ search   j/k move   enter open   - up   m mark   esc close", .{});
+    zgui.textDisabled("/ search   j/k move   enter open   v select   - up   m mark   esc close", .{});
     zgui.spacing();
 
     if (app.core.browser_entries.items.len == 0) {
@@ -42,8 +42,16 @@ pub fn draw(app: anytype) void {
         return;
     }
 
+    // Visual mode: an inclusive index range over the listing, outlined like
+    // the tracks view outlines its own visual rows. Directories inside the
+    // range stay unmarked - loadPadsFromEntries skips them.
+    const anchor = app.core.browser_visual_anchor;
+    const sel_lo = @min(anchor orelse 0, app.core.browser_cursor);
+    const sel_hi = @max(anchor orelse 0, app.core.browser_cursor);
+
     for (app.core.browser_entries.items, 0..) |entry, i| {
-        if (drawEntry(entry.name, entry.is_dir, app.core.browser_cursor == i, i, pattern)) {
+        const in_visual = anchor != null and i >= sel_lo and i <= sel_hi and !entry.is_dir;
+        if (drawEntry(entry.name, entry.is_dir, app.core.browser_cursor == i, in_visual, i, pattern)) {
             app.core.browser_cursor = i;
             app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             // handleKey may have just freed/replaced browser_entries
@@ -66,7 +74,7 @@ fn drawBookmarks(app: anytype) void {
         return;
     }
     for (app.core.bookmarks.items, 0..) |bookmark, i| {
-        if (drawEntry(bookmark.path, bookmark.is_dir, app.core.bookmark_cursor == i, i, "")) {
+        if (drawEntry(bookmark.path, bookmark.is_dir, app.core.bookmark_cursor == i, false, i, "")) {
             app.core.bookmark_cursor = i;
             app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             break;
@@ -74,7 +82,7 @@ fn drawBookmarks(app: anytype) void {
     }
 }
 
-fn drawEntry(name: []const u8, is_dir: bool, selected: bool, index: usize, filter: []const u8) bool {
+fn drawEntry(name: []const u8, is_dir: bool, selected: bool, in_visual: bool, index: usize, filter: []const u8) bool {
     const width = picker.overlayWidth();
     const height: f32 = 24;
     const origin = zgui.getCursorScreenPos();
@@ -86,20 +94,21 @@ fn drawEntry(name: []const u8, is_dir: bool, selected: bool, index: usize, filte
     widgets.noteFocusRow(selected, origin[1], height);
     const hovered = zgui.isItemHovered(.{});
     const draw_list = zgui.getWindowDrawList();
-    if (selected or hovered) draw_list.addRectFilled(.{
+    if (selected or hovered or in_visual) draw_list.addRectFilled(.{
         .pmin = origin,
         .pmax = .{ origin[0] + width, origin[1] + height },
         .col = color(if (selected) theme.bg4 else theme.bg2),
         .rounding = style.item_rounding,
     });
     // Hover paints a fill too - without this the cursor row and a hovered
-    // row read the same.
-    if (selected) draw_list.addRect(.{
+    // row read the same. A visual-range row gets the fg0 outline the tracks
+    // view already uses for its own visual rows.
+    if (selected or in_visual) draw_list.addRect(.{
         .pmin = .{ origin[0] + 1, origin[1] + 1 },
         .pmax = .{ origin[0] + width - 1, origin[1] + height - 1 },
-        .col = color(theme.focus),
+        .col = color(if (selected) theme.focus else theme.fg0),
         .rounding = style.item_rounding,
-        .thickness = 1,
+        .thickness = if (in_visual and !selected) 2 else 1,
     });
     // Trailing "/" marks directories, same as the TUI listing.
     var name_buf: [512]u8 = undefined;

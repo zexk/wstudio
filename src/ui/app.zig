@@ -650,6 +650,12 @@ pub const App = struct {
     /// indices. Same anchor-field shape arrangement/drum/automation's own
     /// visual modes already use.
     tracks_visual_anchor: ?usize = null,
+    /// File browser visual mode: `v` sets the anchor, `j`/`k`/`g`/`G`/`/`
+    /// extend, enter loads every selected file into consecutive drum pads
+    /// (see commands.loadPadsFromEntries). In `browser_entries` index space.
+    /// Only armed for the `.load_pad` purpose - every other purpose picks
+    /// exactly one file, so a range would have nowhere to go.
+    browser_visual_anchor: ?usize = null,
     /// Visual-mode range clipboards (y/d/P while `.visual`), separate from
     /// the whole-pattern/single-clip clipboards above.
     piano_range_clip: ?PianoClip = null,
@@ -1187,6 +1193,10 @@ pub const App = struct {
                 .arrangement => spanOf(self.arr_visual_anchor, self.arr_cursor_bar),
                 .automation => spanOf(self.automation_visual_anchor, self.automation_cursor_step),
                 .tracks => spanOf(self.tracks_visual_anchor, self.track_row),
+                // Files only, unlike every other view's plain span: the
+                // directories a selection reaches over are skipped by the
+                // load, so counting them would promise pads that never fill.
+                .file_browser => self.browserVisualCount(),
                 else => null,
             };
             if (width) |wd| w.print("v{d}", .{wd}) catch {};
@@ -1207,6 +1217,23 @@ pub const App = struct {
 
     /// Inclusive width of a visual selection on one axis, or null when no
     /// anchor is set (pendingCmdText's per-view helper).
+    /// How many files the browser's visual selection would actually load -
+    /// the marked rows, directories excluded. Null when nothing is selected.
+    fn browserVisualCount(self: *const App) ?u64 {
+        const anchor = self.browser_visual_anchor orelse return null;
+        // `v` in an empty listing leaves an anchor with nothing under it,
+        // and a stale one can outlive the entries it indexed - clamping
+        // alone would still slice [0..1] out of an empty list.
+        if (self.browser_entries.items.len == 0) return 0;
+        const lo = @min(anchor, self.browser_cursor);
+        const hi = @min(@max(anchor, self.browser_cursor), self.browser_entries.items.len - 1);
+        var n: u64 = 0;
+        for (self.browser_entries.items[lo .. hi + 1]) |e| {
+            if (!e.is_dir) n += 1;
+        }
+        return n;
+    }
+
     fn spanOf(anchor: anytype, cursor: anytype) ?u64 {
         const a = anchor orelse return null;
         const lo = @min(@as(u64, a), @as(u64, cursor));
@@ -2981,6 +3008,7 @@ pub const App = struct {
         self.browser_entries = new_entries;
         self.browser_cursor = 0;
         self.browser_scroll = 0;
+        self.clearBrowserVisual();
     }
 
     /// Directories first, then alphabetical (case-insensitive) within each
@@ -2993,14 +3021,17 @@ pub const App = struct {
     // zig fmt: off
     /// j/k move, enter/l/space descend into a dir or pick a file, h/backspace
     /// go to the parent dir, g/G jump to the list ends, `~` jumps home,
-    /// esc/q cancel back to the view that opened the browser.
+    /// `v` starts a multi-file selection (pad loads only), esc/q cancel back
+    /// to the view that opened the browser.
     fn handleBrowserKey(self: *App, key: modal_mod.Key) void {
         if (self.browser_bookmark_mode) {
             self.handleBookmarkListKey(key);
             return;
         }
         switch (key) {
-            .escape => self.closeBrowser(),
+            // Like every other visual view: the first esc drops the
+            // selection, the second leaves.
+            .escape => if (self.browser_visual_anchor != null) self.clearBrowserVisual() else self.closeBrowser(),
             .enter => self.browserActivate(),
             .backspace => self.browserGoUp(),
             .char => |c| switch (c) {
@@ -3022,6 +3053,16 @@ pub const App = struct {
                 },
                 'n' => self.searchBrowser(1),
                 'N' => self.searchBrowser(-1),
+                'v' => {
+                    if (self.browser_purpose != .load_pad) {
+                        self.setStatus("visual: only when loading drum pads", .{});
+                        return;
+                    }
+                    if (self.browser_entries.items.len == 0) return;
+                    self.browser_visual_anchor = self.browser_cursor;
+                    self.modal.mode = .visual;
+                    self.setStatus("visual: j/k extend, enter loads into pads", .{});
+                },
                 'p' => self.auditionBrowserEntry(),
                 'b' => self.toggleBookmark(),
                 'B' => {
@@ -3128,6 +3169,16 @@ pub const App = struct {
     /// resolve a file against the browser's purpose and close.
     fn browserActivate(self: *App) void {
         if (self.browser_cursor >= self.browser_entries.items.len) return;
+        // A live multi-file selection wins over the single-entry paths
+        // below, including descending into a directory the range happens to
+        // end on - directories inside the span are skipped, not entered.
+        if (self.browser_visual_anchor) |anchor| {
+            const lo = @min(anchor, self.browser_cursor);
+            const hi = @max(anchor, self.browser_cursor);
+            commands.loadPadsFromEntries(self, self.browser_entries.items[lo .. hi + 1]);
+            self.closeBrowser();
+            return;
+        }
         const entry = self.browser_entries.items[self.browser_cursor];
         const joined = std.fs.path.join(self.allocator, &.{ self.browser_dir, entry.name }) catch return;
         defer self.allocator.free(joined);
@@ -3172,7 +3223,18 @@ pub const App = struct {
         _ = self.session.engine.send(.preview_stop);
         self.freeBrowserEntries();
         self.browser_bookmark_mode = false;
+        self.clearBrowserVisual();
         self.view = self.prev_view;
+    }
+
+    /// Drop the multi-file selection and the `.visual` mode it put the modal
+    /// in. Called on esc, on close, and whenever the listing is replaced -
+    /// the anchor is an index into `browser_entries`, so a new directory
+    /// makes it meaningless.
+    fn clearBrowserVisual(self: *App) void {
+        if (self.browser_visual_anchor == null) return;
+        self.browser_visual_anchor = null;
+        self.modal.mode = .normal;
     }
 
     // zig fmt: off
