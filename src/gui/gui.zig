@@ -139,10 +139,9 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     _ = window.setCharCallback(onChar);
     _ = window.setScrollCallback(onScroll);
 
-    var app = App.init(init.gpa, init.io, init_path, user_config) catch |err| {
-        if (init_path) |path| std.debug.print("wstudio: cannot load '{s}': {s}\n", .{ path, @errorName(err) });
-        return err;
-    };
+    // `App.init` reports an unreadable project itself and starts blank; an
+    // error here is a real init failure (out of memory), not a bad path.
+    var app = try App.init(init.gpa, init.io, init_path, user_config);
     defer app.deinit();
     app.core.scanExternalPlugins(init.environ_map);
     // Same hooks as the TUI: `wstudio.notify`/`wstudio.cmd` land on the
@@ -220,14 +219,25 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 app.core.resetForNewSession();
                 switch (kind) {
                     .load => app.core.setProjectPath(app.core.pendingReloadPath()),
-                    .restore_backup => app.core.setStatus("restored from autosave backup; :write to keep it", .{}),
+                    // The recovered content only exists in memory - the real
+                    // project file still holds the older save - so it has to
+                    // count as unsaved work, or quitting discards it without
+                    // a word. Keep the original path: `:w` writes back to the
+                    // project, not to `<path>~`.
+                    .restore_backup => {
+                        app.core.dirty = true;
+                        app.core.setStatus("restored from autosave backup; :write to keep it", .{});
+                    },
                     .blank => app.core.clearProjectPath(),
                     .none => unreachable,
                 }
                 // A blank session is a new project, not a load - no event.
                 if (kind != .blank) app.core.emitEvent(.{ .ProjectLoadPost = .{ .path = app.core.pendingReloadPath() } });
                 audio = guiAudio(app.core.session.project.sample_rate, user_config.audio_block_frames, app.core.session.engine);
-                try audio.start(init.io, user_config.audio_backend);
+                // A restart failure here leaves the session silent rather
+                // than tearing down a running app with unsaved work in it -
+                // same call as tui/main.zig's.
+                audio.start(init.io, user_config.audio_backend) catch {};
                 if (has_alsa) {
                     midi_in = .{ .engine = app.core.session.engine, .velocity_curve = .init(user_config.default_midi_velocity_curve) };
                     if (midi_in.start()) {
