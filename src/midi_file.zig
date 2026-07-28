@@ -153,6 +153,7 @@ pub fn parse(allocator: std.mem.Allocator, data: []const u8) ParseError!ParseRes
         try parseTrack(allocator, data[track_start..track_end], ticks_per_beat, &notes, &tempo_bpm);
         pos = track_end;
     }
+    if (track_i != ntrks) return error.Truncated;
 
     std.mem.sort(Note, notes.items, {}, struct {
         fn lessThan(_: void, a: Note, b: Note) bool {
@@ -199,12 +200,12 @@ fn parseTrack(
         const delta = try readVarLen(track, &pos);
         tick = std.math.add(u64, tick, delta) catch return error.InvalidHeader;
         last_tick = tick;
-        if (pos >= track.len) break;
+        if (pos >= track.len) return error.Truncated;
         const first = track[pos];
 
         if (first == 0xFF) { // meta event
             pos += 1;
-            if (pos >= track.len) break;
+            if (pos >= track.len) return error.Truncated;
             const meta_type = track[pos];
             pos += 1;
             const len = try readVarLen(track, &pos);
@@ -470,4 +471,15 @@ test "parse rejects cumulative delta-time overflow" {
     try buf.appendSlice(allocator, track.items);
 
     try std.testing.expectError(error.InvalidHeader, parse(allocator, buf.items));
+}
+
+test "parse rejects fewer tracks than header declares" {
+    const file = "MThd\x00\x00\x00\x06\x00\x00\x00\x01\x01\xe0";
+    try std.testing.expectError(error.Truncated, parse(std.testing.allocator, file));
+}
+
+test "parse rejects incomplete event at track end" {
+    const file = "MThd\x00\x00\x00\x06\x00\x00\x00\x01\x01\xe0" ++
+        "MTrk\x00\x00\x00\x02\x00\xff";
+    try std.testing.expectError(error.Truncated, parse(std.testing.allocator, file));
 }
