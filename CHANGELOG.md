@@ -7,6 +7,13 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Added
 
+- 18 more `wstudio.o` options: the `:bounce` tail length, bit depth, and
+  default output paths; the master limiter's ceiling and release; the step
+  count, pattern length, and swing a newly created instrument starts at;
+  the terminal columns per piano-roll, drum, and arrangement cell; the
+  completion popup height; the spectrum analyser's dB span; the waveform
+  band-tint split points; and the GUI piano-roll row height, which now
+  scales the roll up to a full 88 keys at small heights.
 - Lua can now write musical content, not just build a project skeleton:
   `notes_get`/`notes_set` and `steps_get`/`steps_set` for piano-roll and
   drum-grid patterns, `fx_list`/`fx_add`/`fx_params`/`fx_param_set` for FX
@@ -50,6 +57,13 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Fixed
 
+- `piano_audition` was settable from `init.lua` but missing from the Nix
+  modules, the config template, and the docs. Added, and a test now walks
+  the option table against all three so none can drift again.
+- The drum grid's `a` pad audition played at a fixed velocity instead of
+  honouring `wstudio.o.default_velocity`.
+- The GUI command-suggestion popup showed 8 rows where the TUI showed 10;
+  both now follow `wstudio.o.completion_popup_rows` (default 10).
 - Bookmarks, command history, instrument presets, and drum kits now live in
   the same directory as `init.lua` (`$XDG_CONFIG_HOME/wstudio`, or
   `%APPDATA%\wstudio` on Windows). Files left in the old `~/.config/wstudio`

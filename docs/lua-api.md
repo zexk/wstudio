@@ -162,14 +162,33 @@ Current option set (see examples/init.lua for defaults and ranges):
 | `default_song_mode`, `metronome_click_gain` | core |
 | `count_in_bars`, `default_midi_velocity_curve` | core |
 | `default_automation_gain_step_db`, `default_automation_pan_step` | core |
+| `bounce_tail_seconds`, `bounce_bit_depth` | core |
+| `default_bounce_path`, `default_stems_dir` | core |
+| `master_limiter_ceiling_db`, `master_limiter_release_ms` | core |
+| `default_drum_steps`, `default_slicer_steps` | core |
+| `default_pattern_length_beats`, `default_swing` | core |
+| `completion_popup_rows`, `waveform_low_hz`, `waveform_high_hz` | core |
 | `frame_poll_ms`, `tui_mouse`, `tui_theme`, `has_nerdfonts` | tui |
+| `tui_piano_cell_width`, `tui_drum_cell_width`, `tui_arrangement_cell_width` | tui |
+| `tui_spectrum_db_range` | tui |
 | `gui_font_size`, `gui_vsync`, `gui_theme`, `gui_panel_border` | gui |
 | `gui_window_width`, `gui_window_height` | gui |
 | `gui_knob_drag_pixels`, `gui_envelope_drag_pixels`, `gui_meter_decay_db_s` | gui |
+| `gui_piano_row_height` | gui |
 
 Enum-typed options (`gui_theme`, `tui_theme`, `preferred_frontend`,
-`audio_backend`) read and write as strings; the spec table derives the
-valid-name list and its error message from the Zig enum.
+`audio_backend`, `bounce_bit_depth`) read and write as strings; the spec
+table derives the valid-name list and its error message from the Zig enum.
+
+The `default_drum_steps`, `default_slicer_steps`,
+`default_pattern_length_beats`, and `default_swing` options shape a *newly
+created* instrument only. A `.wsj` carries its own pattern shape, so loading
+a project never inherits them.
+
+The Nix modules mirror this list one-for-one as
+`programs.wstudio.settings.<name>` (`nix/settings.nix`). That schema is
+hand-written, so a test walks the option table and fails naming any option
+without a row.
 
 ### Theming and highlights
 

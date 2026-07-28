@@ -127,6 +127,10 @@
 -- Draw notes from the other tracks behind the active piano roll.
 -- wstudio.o.piano_ghost_notes = false
 
+-- Sound the pitch under the piano-roll cursor as it moves, so you hear
+-- where you are without placing a note.
+-- wstudio.o.piano_audition = false
+
 -- Entries kept on the undo stack before the oldest start dropping off.
 -- Range 8-512.
 -- wstudio.o.undo_history_entries = 64
@@ -184,6 +188,19 @@
 -- icon font) is detected automatically and turns icons on either way.
 -- wstudio.o.has_nerdfonts = false
 
+-- [tui] Terminal columns each grid cell is drawn with: one piano-roll or
+-- drum step, and one arrangement bar. Wider reads more clearly, narrower
+-- fits more of the pattern on screen. Piano/drum range 1-7, arrangement
+-- range 2-12. At the narrowest widths there is no room left for the ruler's
+-- bar numbers, only its tick marks.
+-- wstudio.o.tui_piano_cell_width = 3
+-- wstudio.o.tui_drum_cell_width = 3
+-- wstudio.o.tui_arrangement_cell_width = 4
+
+-- [tui] Decibel span the spectrum analyser draws, from its top down.
+-- Range 20-120. Smaller zooms in on the loud end.
+-- wstudio.o.tui_spectrum_db_range = 70
+
 -- [gui] Font size, in pixels. Range 8-40.
 -- wstudio.o.gui_font_size = 15
 
@@ -215,6 +232,53 @@
 -- [gui] Master-meter peak-hold fall rate, in dB/s. Higher = the hold
 -- indicator drops faster. Range 1-200.
 -- wstudio.o.gui_meter_decay_db_s = 24
+
+-- [gui] Pixel height of one piano-roll key row - the roll's vertical zoom.
+-- Range 8-48. Smaller fits more of the keyboard on screen (up to a full 88
+-- keys); larger gives fatter, easier-to-grab note blocks.
+-- wstudio.o.gui_piano_row_height = 18
+
+-- Rows the `:` command's Tab-completion popup may occupy before it stops
+-- listing more. Range 1-20. The TUI carves these out of the content area,
+-- so a tall popup shortens the view underneath it while it is open.
+-- wstudio.o.completion_popup_rows = 10
+
+-- Silence appended past the end of the content by :bounce and
+-- :bounce-stems, so reverb tails and long releases ring out instead of
+-- being cut off. In seconds, range 0-30.
+-- wstudio.o.bounce_tail_seconds = 2
+
+-- Bit depth :bounce writes when the command line has no trailing 16/24:
+-- "pcm16" or "pcm24".
+-- wstudio.o.bounce_bit_depth = "pcm16"
+
+-- Where a pathless :bounce writes, and the directory a pathless
+-- :bounce-stems fills. Leading `~` expands to $HOME.
+-- wstudio.o.default_bounce_path = "bounce.wav"
+-- wstudio.o.default_stems_dir = "stems"
+
+-- The always-on master limiter, the last thing in the signal path. The
+-- ceiling is its output limit in dBFS (range -12 to 0; the default leaves
+-- a little headroom for the 16-bit round), and the release is how quickly
+-- it lets go after pulling a peak down, in milliseconds (range 1-1000).
+-- wstudio.o.master_limiter_ceiling_db = -0.4
+-- wstudio.o.master_limiter_release_ms = 80
+
+-- Shape a NEWLY created instrument starts at. A project loaded from disk
+-- carries its own and is never affected by these. Drum steps range 1-256,
+-- slicer steps 1-64, melodic pattern length 1-64 beats. Swing is a percent
+-- (range 50-75); 50 is straight, higher pushes every off-beat later.
+-- wstudio.o.default_drum_steps = 32
+-- wstudio.o.default_slicer_steps = 16
+-- wstudio.o.default_pattern_length_beats = 4
+-- wstudio.o.default_swing = 50
+
+-- Split points, in Hz, of the three-way frequency tint waveforms are drawn
+-- with (bass/body/air, the read a DJ waveform gives at a glance). Anything
+-- below the low split draws as bass, anything above the high split as air.
+-- Low range 20-2000, high range 1000-16000.
+-- wstudio.o.waveform_low_hz = 200
+-- wstudio.o.waveform_high_hz = 4000
 
 -- ---------------------------------------------------------------------------
 -- COLORS: wstudio.api.set_hl

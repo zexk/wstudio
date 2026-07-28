@@ -321,32 +321,43 @@ comptime {
     }
 }
 
-// The Nix modules expose every option as a typed `programs.wstudio.settings`
-// attribute, and that schema is hand-maintained - `piano_audition` shipped in
-// round 5 and sat unreachable from Nix until this check was added. A test
-// rather than a `comptime` block so a missing row names the option instead of
-// failing every build target. Ranges and descriptions stay hand-written; a
-// wrong range there rejects a valid value loudly, whereas a missing row fails
-// silently, which is the case worth guarding.
-// Read rather than `@embedFile`d: the file lives outside the source package,
-// and wiring a build module for a test-only read costs more than the check.
-// `zig build test` runs from the repo root, the same assumption the
-// project-save tests already make.
-test "nix/settings.nix has a row for every wstudio.o option" {
-    const schema = std.Io.Dir.cwd().readFileAlloc(
-        std.testing.io,
-        "nix/settings.nix",
-        std.testing.allocator,
-        .limited(256 * 1024),
-    ) catch |err| {
-        std.debug.print("cannot read nix/settings.nix ({s}) - run from the repo root\n", .{@errorName(err)});
-        return err;
+// Three surfaces outside this file list every option by hand: the Nix
+// modules' typed settings schema, the init.lua template a first run writes
+// out, and the docs table. All three drifted in round 5 - `piano_audition`
+// shipped reachable only from Lua, missing from all of them - so a test now
+// walks the spec table against each. A test rather than a `comptime` block
+// so a gap names the option instead of failing every build target; and the
+// files are read rather than `@embedFile`d because two of them live outside
+// the source package. `zig build test` runs from the repo root, the same
+// assumption the project-save tests already make.
+//
+// Only presence is checked. Ranges and prose stay hand-written: a wrong
+// range in the Nix schema rejects a valid value loudly, whereas a missing
+// row fails silently, and silent is the case worth guarding.
+test "every wstudio.o option appears in the Nix schema, template, and docs" {
+    const surfaces = [_]struct { path: []const u8, prefix: []const u8, suffix: []const u8 }{
+        .{ .path = "nix/settings.nix", .prefix = "\n    ", .suffix = " =" },
+        .{ .path = "examples/init.lua", .prefix = "\n-- wstudio.o.", .suffix = " =" },
+        .{ .path = "docs/lua-api.md", .prefix = "`", .suffix = "`" },
     };
-    defer std.testing.allocator.free(schema);
-    inline for (option_specs) |spec| {
-        if (std.mem.indexOf(u8, schema, "\n    " ++ spec.name ++ " =") == null) {
-            std.debug.print("nix/settings.nix has no row for '{s}'\n", .{spec.name});
-            return error.NixSettingsOutOfDate;
+    for (surfaces) |surface| {
+        const text = std.Io.Dir.cwd().readFileAlloc(
+            std.testing.io,
+            surface.path,
+            std.testing.allocator,
+            .limited(1024 * 1024),
+        ) catch |err| {
+            std.debug.print("cannot read {s} ({s}) - run from the repo root\n", .{ surface.path, @errorName(err) });
+            return err;
+        };
+        defer std.testing.allocator.free(text);
+        inline for (option_specs) |spec| {
+            var needle_buf: [128]u8 = undefined;
+            const needle = try std.fmt.bufPrint(&needle_buf, "{s}{s}{s}", .{ surface.prefix, spec.name, surface.suffix });
+            if (std.mem.indexOf(u8, text, needle) == null) {
+                std.debug.print("{s} does not document '{s}'\n", .{ surface.path, spec.name });
+                return error.OptionSurfaceOutOfDate;
+            }
         }
     }
 }
