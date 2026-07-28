@@ -1674,6 +1674,118 @@ pub const App = struct {
         return self.cursor;
     }
 
+    // ------------------------------------------------------------------
+    // Pattern content (docs/lua-api.md phase 8). Reads hand out the
+    // validated live pattern; writes wrap it in the same undo capture and
+    // song-rebuild the editors use, so one Lua call is one undo entry.
+
+    pub const ApiPatternError = error{ NoInstrument, NotMelodic, NotDrum, TooManyNotes };
+
+    pub const ApiPatternInfo = struct {
+        /// "melodic", "drum", "slicer", or "none" - what the content
+        /// functions below will accept for this track.
+        kind: []const u8,
+        length_beats: f64,
+        /// Grid shape, present only for the step-sequenced kinds.
+        steps_per_beat: ?u8 = null,
+        step_count: ?u16 = null,
+    };
+
+    pub fn apiPatternInfo(self: *const App, idx: usize) ApiPatternInfo {
+        const rack = self.session.racks.items[idx];
+        switch (rack.instrument) {
+            .empty => return .{ .kind = "none", .length_beats = 0 },
+            .drum_machine => |*dm| return .{
+                .kind = "drum",
+                .length_beats = @as(f64, @floatFromInt(dm.step_count)) / @as(f64, @floatFromInt(dm.steps_per_beat)),
+                .steps_per_beat = dm.steps_per_beat,
+                .step_count = dm.step_count,
+            },
+            .slicer => |*sl| return .{
+                .kind = "slicer",
+                .length_beats = @as(f64, @floatFromInt(sl.step_count)) / 4.0,
+                .steps_per_beat = 4,
+                .step_count = sl.step_count,
+            },
+            else => {},
+        }
+        const pp = if (rack.pattern_player) |*p| p else return .{ .kind = "none", .length_beats = 0 };
+        return .{ .kind = "melodic", .length_beats = pp.length_beats };
+    }
+
+    /// The live melodic pattern, or an error naming why this track has none.
+    pub fn apiPatternPlayer(self: *App, idx: usize) ApiPatternError!*pattern_mod.PatternPlayer {
+        const rack = self.session.racks.items[idx];
+        return switch (rack.instrument) {
+            .empty => error.NoInstrument,
+            .drum_machine, .slicer => error.NotMelodic,
+            else => if (rack.pattern_player) |*pp| pp else error.NoInstrument,
+        };
+    }
+
+    pub fn apiDrumMachine(self: *App, idx: usize) ApiPatternError!*DrumMachine {
+        return switch (self.session.racks.items[idx].instrument) {
+            .drum_machine => |*dm| dm,
+            .empty => error.NoInstrument,
+            else => error.NotDrum,
+        };
+    }
+
+    /// Take the pre-edit undo snapshot for a drum grid rewrite and hand back
+    /// the machine to write into. `apiPatternChanged` closes the edit.
+    pub fn apiDrumEdit(self: *App, idx: usize) ApiPatternError!*DrumMachine {
+        const dm = try self.apiDrumMachine(idx);
+        history.recordDrum(self, @intCast(idx));
+        return dm;
+    }
+
+    /// Shared tail of every content write: song mode plays the flattened
+    /// arrangement, so an edit to a live pattern only lands once the clips
+    /// referencing it are rebuilt.
+    pub fn apiPatternChanged(self: *App) void {
+        self.dirty = true;
+        if (self.session.song_mode) self.session.rebuildSongData();
+    }
+
+    pub fn apiSetNotes(self: *App, idx: usize, notes: []const pattern_mod.Note) ApiPatternError!void {
+        const pp = try self.apiPatternPlayer(idx);
+        if (notes.len > pattern_mod.max_notes) return error.TooManyNotes;
+        history.recordMelodic(self, @intCast(idx));
+        pp.setNotes(notes, pp.length_beats);
+        self.apiPatternChanged();
+    }
+
+    pub const ApiPatternUpdate = struct {
+        length_beats: ?f64 = null,
+        step_count: ?u16 = null,
+        steps_per_beat: ?u8 = null,
+    };
+
+    /// A melodic track only has a loop length; a drum track's length is its
+    /// grid, so `length_beats` there resolves to a step count at the current
+    /// (or requested) resolution rather than being a separate field.
+    pub fn apiSetPattern(self: *App, idx: usize, update: ApiPatternUpdate) ApiPatternError!void {
+        switch (self.session.racks.items[idx].instrument) {
+            .drum_machine => {
+                const dm = try self.apiDrumEdit(idx);
+                if (update.steps_per_beat) |spb| _ = dm.setStepsPerBeatPreservingTime(spb);
+                if (update.step_count) |n| dm.setStepCount(n);
+                if (update.length_beats) |beats| {
+                    const steps = beats * @as(f64, @floatFromInt(dm.steps_per_beat));
+                    dm.setStepCount(@max(pattern_mod.clampStep(steps), 1));
+                }
+            },
+            else => {
+                const pp = try self.apiPatternPlayer(idx);
+                if (update.step_count != null or update.steps_per_beat != null) return error.NotDrum;
+                const beats = update.length_beats orelse return;
+                history.recordMelodic(self, @intCast(idx));
+                pp.length_beats = if (std.math.isFinite(beats)) @max(1.0, beats) else 4.0;
+            },
+        }
+        self.apiPatternChanged();
+    }
+
     pub fn apiProjectSave(self: *App, requested_path: []const u8) !void {
         var path_buf: [reload_path_buf_len]u8 = undefined;
         const source = if (requested_path.len > 0) requested_path else self.projectPath() orelse self.defaultProjectPath();

@@ -7574,6 +7574,101 @@ test "wstudio.api project lifecycle snapshot, save, open, and new" {
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.project_new({ bogus = true })"));
 }
 
+test "wstudio.api reads and replaces melodic pattern content" {
+    var app = try testApp();
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.tui);
+    defer rt.deinit();
+    rt.app = &app;
+    app.lua_runtime = &rt;
+
+    try rt.loadString("p = wstudio.api.pattern_get(1); assert(p.kind == 'melodic' and p.length_beats == 4.0 and p.step_count == nil)");
+    try rt.loadString("assert(#wstudio.api.notes_get(1) == 0)");
+
+    // A whole-pattern write is one undo entry, and reads it back verbatim.
+    try rt.loadString(
+        \\wstudio.api.notes_set(1, {
+        \\  { pitch = 60, start_beat = 0.0, duration_beat = 0.5, velocity = 0.4 },
+        \\  { pitch = 64, start_beat = 1.5 },
+        \\})
+    );
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    try std.testing.expectEqual(@as(u16, 2), pp.note_count);
+    try std.testing.expect(app.dirty);
+    try rt.loadString(
+        \\n = wstudio.api.notes_get(1)
+        \\assert(#n == 2)
+        \\assert(n[1].pitch == 60 and n[1].start_beat == 0.0 and n[1].duration_beat == 0.5)
+        \\assert(math.abs(n[1].velocity - 0.4) < 1e-6)
+        \\-- omitted fields fall back to the same defaults a step edit uses
+        \\assert(n[2].pitch == 64 and n[2].duration_beat == 1.0)
+    );
+    history.doUndo(&app);
+    try std.testing.expectEqual(@as(u16, 0), pp.note_count);
+
+    // pattern_set moves the loop length; the drum-only fields are refused.
+    try rt.loadString("wstudio.api.pattern_set(1, { length_beats = 8 }); assert(wstudio.api.pattern_get(1).length_beats == 8.0)");
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.pattern_set(1, { step_count = 16 })"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.pattern_set(1, { bogus = 1 })"));
+
+    // Kind gating and validation both raise rather than half-apply.
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.notes_get(3)"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.steps_get(1)"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.notes_set(1, { { pitch = 200 } })"));
+    try std.testing.expectEqual(@as(u16, 0), pp.note_count);
+    try rt.loadString("big = {}; for i = 1, 513 do big[i] = { pitch = 60 } end");
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.notes_set(1, big)"));
+}
+
+test "wstudio.api reads and replaces drum grid content" {
+    var app = try testApp();
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.tui);
+    defer rt.deinit();
+    rt.app = &app;
+    app.lua_runtime = &rt;
+    const dm = &app.session.racks.items[2].instrument.drum_machine;
+
+    try rt.loadString("p = wstudio.api.pattern_get(3); assert(p.kind == 'drum' and p.steps_per_beat == 4 and p.step_count == 32 and p.length_beats == 8.0)");
+    try rt.loadString("assert(#wstudio.api.steps_get(3) == 0)");
+
+    try rt.loadString(
+        \\wstudio.api.steps_set(3, {
+        \\  { pad = 1, step = 1 },
+        \\  { pad = 2, step = 5, velocity = 0.5, prob = 70, micro = -12, retrig = 3, tune = -5, cond = 'a1b2' },
+        \\})
+    );
+    try std.testing.expect(dm.stepActive(0, 0));
+    try std.testing.expect(dm.stepActive(1, 4));
+    try std.testing.expectEqual(@as(u8, 64), dm.stepVel(1, 4)); // 0.5 * 127, rounded
+    try std.testing.expectEqual(@as(u8, 70), dm.stepProb(1, 4));
+    try std.testing.expectEqual(@as(i8, -12), dm.stepMicro(1, 4));
+    try std.testing.expectEqual(@as(u8, 3), dm.stepRetrig(1, 4));
+    try std.testing.expectEqual(@as(i8, -5), dm.stepTune(1, 4));
+    try std.testing.expectEqual(ws.dsp.DrumMachine.Cond.a1b2, dm.stepCond(1, 4));
+    try rt.loadString(
+        \\s = wstudio.api.steps_get(3)
+        \\assert(#s == 2)
+        \\assert(s[1].pad == 1 and s[1].step == 1 and s[1].velocity == 1.0 and s[1].cond == 'always')
+        \\assert(s[2].pad == 2 and s[2].step == 5 and s[2].prob == 70 and s[2].retrig == 3 and s[2].cond == 'a1b2')
+    );
+
+    // A rewrite replaces the whole grid, and undoes as one entry.
+    try rt.loadString("wstudio.api.steps_set(3, { { pad = 4, step = 9 } })");
+    try std.testing.expect(!dm.stepActive(0, 0) and dm.stepActive(3, 8));
+    history.doUndo(&app);
+    try std.testing.expect(dm.stepActive(0, 0) and dm.stepActive(1, 4));
+
+    // A bad entry anywhere in the list leaves the grid untouched.
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.steps_set(3, { { pad = 1, step = 1 }, { pad = 1, step = 99 } })"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.steps_set(3, { { pad = 1, step = 1, cond = 'nope' } })"));
+    try std.testing.expect(dm.stepActive(1, 4));
+
+    // pattern_set resizes the grid; length_beats resolves to a step count.
+    try rt.loadString("wstudio.api.pattern_set(3, { step_count = 64 }); assert(wstudio.api.pattern_get(3).step_count == 64)");
+    try rt.loadString("wstudio.api.pattern_set(3, { length_beats = 2 }); assert(wstudio.api.pattern_get(3).step_count == 8)");
+}
+
 test "applyUserConfig plumbs the round-2 options" {
     var app = try testApp();
     defer app.deinit();

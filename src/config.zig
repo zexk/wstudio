@@ -10,6 +10,8 @@ const builtin = @import("builtin");
 const init_lua_template = @import("init_template").source;
 const ws_input = @import("wstudio").input;
 const theme_identity = @import("wstudio").theme_identity;
+const pattern_mod = @import("wstudio").dsp.pattern;
+const DrumMachine = @import("wstudio").dsp.DrumMachine;
 const cmd_mod = @import("ui/cmd.zig");
 const tui_app = @import("ui/app.zig");
 
@@ -57,6 +59,12 @@ const api_functions = [_]ApiFunction{
     .{ .name = "track_duplicate", .func = apiTrackDuplicate },
     .{ .name = "track_move", .func = apiTrackMove },
     .{ .name = "set_current_track", .func = apiSetCurrentTrack },
+    .{ .name = "pattern_get", .func = apiPatternGet },
+    .{ .name = "pattern_set", .func = apiPatternSet },
+    .{ .name = "notes_get", .func = apiNotesGet },
+    .{ .name = "notes_set", .func = apiNotesSet },
+    .{ .name = "steps_get", .func = apiStepsGet },
+    .{ .name = "steps_set", .func = apiStepsSet },
     .{ .name = "project_get", .func = apiProjectGet },
     .{ .name = "project_save", .func = apiProjectSave },
     .{ .name = "project_open", .func = apiProjectOpen },
@@ -1414,7 +1422,7 @@ fn apiGetInfo(state: ?*c.lua_State) callconv(.c) c_int {
     }
     c.lua_setfield(l, -2, "options");
 
-    c.lua_createtable(l, 0, 6);
+    c.lua_createtable(l, 0, 10);
     c.lua_pushinteger(l, @import("wstudio").engine.max_tracks);
     c.lua_setfield(l, -2, "tracks");
     c.lua_pushinteger(l, @import("wstudio").engine.max_groups);
@@ -1427,6 +1435,12 @@ fn apiGetInfo(state: ?*c.lua_State) callconv(.c) c_int {
     c.lua_setfield(l, -2, "user_commands");
     c.lua_pushinteger(l, max_autocmds);
     c.lua_setfield(l, -2, "autocmds");
+    c.lua_pushinteger(l, pattern_mod.max_notes);
+    c.lua_setfield(l, -2, "pattern_notes");
+    c.lua_pushinteger(l, DrumMachine.max_pads);
+    c.lua_setfield(l, -2, "drum_pads");
+    c.lua_pushinteger(l, DrumMachine.max_steps);
+    c.lua_setfield(l, -2, "drum_steps");
     c.lua_setfield(l, -2, "limits");
     return 1;
 }
@@ -1879,6 +1893,243 @@ fn apiSetCurrentTrack(state: ?*c.lua_State) callconv(.c) c_int {
     const l = state.?;
     const app = requireApp(l);
     app.apiSelectTrack(checkTrackIndex(l, 1, app));
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Pattern content: notes and drum steps (docs/lua-api.md phase 8).
+
+fn patternError(l: *c.lua_State, err: tui_app.App.ApiPatternError) c_int {
+    return switch (err) {
+        error.NoInstrument => c.luaL_error(l, "the track has no instrument"),
+        error.NotMelodic => c.luaL_error(l, "not a melodic track - use steps_get/steps_set on a drum track"),
+        error.NotDrum => c.luaL_error(l, "not a drum track - use notes_get/notes_set on a melodic track"),
+        error.TooManyNotes => c.luaL_error(l, "too many notes (max %d)", @as(c_int, pattern_mod.max_notes)),
+    };
+}
+
+/// One number field of a Lua table, with a range check. Returns `fallback`
+/// when the key is absent - the whole notes/steps surface takes partial
+/// entries and fills the rest with the same defaults a UI edit would.
+fn tableNumber(l: *c.lua_State, table: c_int, key: [*:0]const u8, fallback: f64, min: f64, max: f64) f64 {
+    defer c.lua_settop(l, -2);
+    if (c.lua_getfield(l, table, key) == c.LUA_TNIL) return fallback;
+    if (c.lua_isnumber(l, -1) == 0) {
+        _ = c.luaL_error(l, "%s must be a number", key);
+        unreachable;
+    }
+    const value = c.lua_tonumberx(l, -1, null);
+    if (!std.math.isFinite(value) or value < min or value > max) {
+        _ = c.luaL_error(l, "%s is out of range (%f to %f)", key, min, max);
+        unreachable;
+    }
+    return value;
+}
+
+fn apiPatternGet(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const info = app.apiPatternInfo(checkTrackIndex(l, 1, app));
+    c.lua_createtable(l, 0, 4);
+    _ = c.lua_pushlstring(l, info.kind.ptr, info.kind.len);
+    c.lua_setfield(l, -2, "kind");
+    c.lua_pushnumber(l, info.length_beats);
+    c.lua_setfield(l, -2, "length_beats");
+    if (info.steps_per_beat) |spb| {
+        c.lua_pushinteger(l, spb);
+        c.lua_setfield(l, -2, "steps_per_beat");
+    }
+    if (info.step_count) |n| {
+        c.lua_pushinteger(l, n);
+        c.lua_setfield(l, -2, "step_count");
+    }
+    return 1;
+}
+
+fn apiPatternSet(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const idx = checkTrackIndex(l, 1, app);
+    c.luaL_checktype(l, 2, c.LUA_TTABLE);
+    var update: tui_app.App.ApiPatternUpdate = .{};
+    c.lua_pushnil(l);
+    while (c.lua_next(l, 2) != 0) {
+        if (c.lua_type(l, -2) != c.LUA_TSTRING) return c.luaL_error(l, "pattern_set keys must be strings");
+        const key = std.mem.span(c.lua_tolstring(l, -2, null));
+        if (c.lua_isnumber(l, -1) == 0) return c.luaL_error(l, "%s must be a number", key.ptr);
+        const value = c.lua_tonumberx(l, -1, null);
+        if (!std.math.isFinite(value)) return c.luaL_error(l, "%s must be finite", key.ptr);
+        if (std.mem.eql(u8, key, "length_beats")) {
+            if (value < 0.25 or value > 4096.0) return c.luaL_error(l, "length_beats is out of range (0.25 to 4096)");
+            update.length_beats = value;
+        } else if (std.mem.eql(u8, key, "step_count")) {
+            if (value < 1 or value > @as(f64, DrumMachine.max_steps)) return c.luaL_error(l, "step_count is out of range");
+            update.step_count = @intFromFloat(value);
+        } else if (std.mem.eql(u8, key, "steps_per_beat")) {
+            if (value < 1 or value > 32) return c.luaL_error(l, "steps_per_beat is out of range (1 to 32)");
+            update.steps_per_beat = @intFromFloat(value);
+        } else {
+            return c.luaL_error(l, "unknown pattern field '%s'", c.lua_tolstring(l, -2, null));
+        }
+        c.lua_settop(l, -2);
+    }
+    app.apiSetPattern(idx, update) catch |err| return patternError(l, err);
+    return 0;
+}
+
+fn apiNotesGet(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const idx = checkTrackIndex(l, 1, app);
+    const pp = app.apiPatternPlayer(idx) catch |err| return patternError(l, err);
+    var buf: [pattern_mod.max_notes]pattern_mod.Note = undefined;
+    const count = pp.copyNotes(&buf);
+    c.lua_createtable(l, @intCast(count), 0);
+    for (buf[0..count], 1..) |note, i| {
+        c.lua_createtable(l, 0, 4);
+        c.lua_pushinteger(l, note.pitch);
+        c.lua_setfield(l, -2, "pitch");
+        c.lua_pushnumber(l, note.start_beat);
+        c.lua_setfield(l, -2, "start_beat");
+        c.lua_pushnumber(l, note.duration_beat);
+        c.lua_setfield(l, -2, "duration_beat");
+        c.lua_pushnumber(l, note.velocity);
+        c.lua_setfield(l, -2, "velocity");
+        c.lua_rawseti(l, -2, @intCast(i));
+    }
+    return 1;
+}
+
+/// `notes_set(track, notes)` replaces the whole pattern in one undo entry -
+/// scripts build the list in Lua and write it once, so there is no
+/// per-note add/remove surface to keep consistent.
+fn apiNotesSet(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const idx = checkTrackIndex(l, 1, app);
+    c.luaL_checktype(l, 2, c.LUA_TTABLE);
+    const n = c.lua_rawlen(l, 2);
+    if (n > pattern_mod.max_notes) return c.luaL_error(l, "too many notes (max %d)", @as(c_int, pattern_mod.max_notes));
+    var buf: [pattern_mod.max_notes]pattern_mod.Note = undefined;
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        if (c.lua_rawgeti(l, 2, @intCast(i + 1)) != c.LUA_TTABLE) return c.luaL_error(l, "note %d is not a table", @as(c_int, @intCast(i + 1)));
+        buf[i] = .{
+            .pitch = @intFromFloat(tableNumber(l, -1, "pitch", 60, 0, 127)),
+            .start_beat = tableNumber(l, -1, "start_beat", 0, 0, 1_000_000),
+            .duration_beat = tableNumber(l, -1, "duration_beat", 1, 0, 1_000_000),
+            .velocity = @floatCast(tableNumber(l, -1, "velocity", pattern_mod.default_velocity, 0, 1)),
+        };
+        c.lua_settop(l, -2);
+    }
+    app.apiSetNotes(idx, buf[0..n]) catch |err| return patternError(l, err);
+    return 0;
+}
+
+/// Every hit on a drum grid, as a flat list. Pads and steps are 1-based
+/// like every other index the API hands out.
+fn apiStepsGet(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const idx = checkTrackIndex(l, 1, app);
+    const dm = app.apiDrumMachine(idx) catch |err| return patternError(l, err);
+    c.lua_createtable(l, 0, 0);
+    var count: c.lua_Integer = 0;
+    for (0..DrumMachine.max_pads) |pad| {
+        const p: u8 = @intCast(pad);
+        for (0..dm.step_count) |step| {
+            const s: u16 = @intCast(step);
+            if (!dm.stepActive(p, s)) continue;
+            count += 1;
+            c.lua_createtable(l, 0, 8);
+            c.lua_pushinteger(l, @intCast(pad + 1));
+            c.lua_setfield(l, -2, "pad");
+            c.lua_pushinteger(l, @intCast(step + 1));
+            c.lua_setfield(l, -2, "step");
+            c.lua_pushnumber(l, DrumMachine.velGain(dm.stepVel(p, s)));
+            c.lua_setfield(l, -2, "velocity");
+            c.lua_pushinteger(l, dm.stepProb(p, s));
+            c.lua_setfield(l, -2, "prob");
+            c.lua_pushinteger(l, dm.stepMicro(p, s));
+            c.lua_setfield(l, -2, "micro");
+            c.lua_pushinteger(l, dm.stepRetrig(p, s));
+            c.lua_setfield(l, -2, "retrig");
+            c.lua_pushinteger(l, dm.stepTune(p, s));
+            c.lua_setfield(l, -2, "tune");
+            const cond = @tagName(dm.stepCond(p, s));
+            _ = c.lua_pushlstring(l, cond.ptr, cond.len);
+            c.lua_setfield(l, -2, "cond");
+            c.lua_rawseti(l, -2, count);
+        }
+    }
+    return 1;
+}
+
+/// The trig condition names, derived from the enum so the valid list in the
+/// error message can never drift from what `stringToEnum` accepts.
+const cond_names: [:0]const u8 = blk: {
+    var out: [:0]const u8 = "";
+    for (@typeInfo(DrumMachine.Cond).@"enum".fields, 0..) |f, i| {
+        out = out ++ (if (i == 0) "" else ", ") ++ f.name;
+    }
+    break :blk out;
+};
+
+fn checkCond(l: *c.lua_State, table: c_int) DrumMachine.Cond {
+    defer c.lua_settop(l, -2);
+    if (c.lua_getfield(l, table, "cond") == c.LUA_TNIL) return .always;
+    if (c.lua_type(l, -1) != c.LUA_TSTRING) {
+        _ = c.luaL_error(l, "cond must be a string");
+        unreachable;
+    }
+    const name = std.mem.span(c.lua_tolstring(l, -1, null));
+    return std.meta.stringToEnum(DrumMachine.Cond, name) orelse {
+        _ = c.luaL_error(l, "unknown cond (%s)", cond_names.ptr);
+        unreachable;
+    };
+}
+
+/// `steps_set(track, steps)` replaces the whole grid. Two passes: the first
+/// validates every entry so a bad one at the end can't leave a half-written
+/// pattern behind, matching what track_set and transport_set promise.
+fn apiStepsSet(state: ?*c.lua_State) callconv(.c) c_int {
+    const l = state.?;
+    const app = requireApp(l);
+    const idx = checkTrackIndex(l, 1, app);
+    c.luaL_checktype(l, 2, c.LUA_TTABLE);
+    var dm = app.apiDrumMachine(idx) catch |err| return patternError(l, err);
+    const step_count = dm.step_count;
+    const n = c.lua_rawlen(l, 2);
+
+    for (0..2) |pass| {
+        if (pass == 1) {
+            dm = app.apiDrumEdit(idx) catch |err| return patternError(l, err);
+            for (0..DrumMachine.max_pads) |pad| dm.clearPad(@intCast(pad));
+        }
+        var i: usize = 0;
+        while (i < n) : (i += 1) {
+            if (c.lua_rawgeti(l, 2, @intCast(i + 1)) != c.LUA_TTABLE) return c.luaL_error(l, "step %d is not a table", @as(c_int, @intCast(i + 1)));
+            const pad: u8 = @intFromFloat(tableNumber(l, -1, "pad", 1, 1, DrumMachine.max_pads) - 1);
+            const step: u16 = @intFromFloat(tableNumber(l, -1, "step", 1, 1, @floatFromInt(step_count)) - 1);
+            const velocity = tableNumber(l, -1, "velocity", 1.0, 0, 1);
+            const prob = tableNumber(l, -1, "prob", 100, 0, 100);
+            const micro = tableNumber(l, -1, "micro", 0, -50, 50);
+            const retrig = tableNumber(l, -1, "retrig", 0, 0, 8);
+            const tune = tableNumber(l, -1, "tune", 0, -24, 24);
+            const cond = checkCond(l, -1);
+            if (pass == 1) {
+                if (!dm.stepActive(pad, step)) dm.toggleStep(pad, step);
+                dm.setStepVel(pad, step, @intFromFloat(@round(velocity * 127.0)));
+                dm.setStepProb(pad, step, @intFromFloat(prob));
+                dm.setStepMicro(pad, step, @intFromFloat(micro));
+                dm.setStepRetrig(pad, step, @intFromFloat(retrig));
+                dm.setStepTune(pad, step, @intFromFloat(tune));
+                dm.setStepCond(pad, step, cond);
+            }
+            c.lua_settop(l, -2);
+        }
+    }
+    app.apiPatternChanged();
     return 0;
 }
 
@@ -2515,6 +2766,13 @@ test "api project functions raise before a session attaches" {
     try rt.loadString("assert(wstudio.api.has('get_context')); assert(not wstudio.api.has('future_api'))");
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.play()"));
     try rt.loadString("local ok, err = pcall(wstudio.api.track_count); assert(ok == false and err:find('no session') ~= nil)");
+    // The content surface needs a session just as much as the rest.
+    try rt.loadString(
+        \\for _, name in ipairs({ 'pattern_get', 'notes_get', 'steps_get' }) do
+        \\  local ok, err = pcall(wstudio.api[name], 1)
+        \\  assert(ok == false and err:find('no session') ~= nil, name)
+        \\end
+    );
 }
 
 test "API metadata is derived from live registries" {

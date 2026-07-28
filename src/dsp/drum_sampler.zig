@@ -840,6 +840,14 @@ pub const DrumMachine = struct {
         return note.prob;
     }
 
+    /// Set the chance outright, clamped to 0-100. The keyboard only walks
+    /// `prob_presets`; scripts (and anything else wanting an exact value)
+    /// need the direct setter, same split `stepVel` already has.
+    pub fn setStepProb(self: *DrumMachine, pad: u8, step: u16, percent: i32) void {
+        if (pad >= max_pads or step >= self.step_count) return;
+        if (self.midi[pad][step]) |*note| note.prob = @intCast(std.math.clamp(percent, 0, 100));
+    }
+
     pub fn cycleStepProb(self: *DrumMachine, pad: u8, step: u16) void {
         if (pad >= max_pads or step >= self.step_count) return;
         const note = if (self.midi[pad][step]) |*n| n else return;
@@ -881,6 +889,13 @@ pub const DrumMachine = struct {
         return note.retrig;
     }
 
+    /// Set the roll size outright, clamped to 0-8 (the widest
+    /// `retrig_presets` entry). Direct-setter twin of `cycleStepRetrig`.
+    pub fn setStepRetrig(self: *DrumMachine, pad: u8, step: u16, hits: i32) void {
+        if (pad >= max_pads or step >= self.step_count) return;
+        if (self.midi[pad][step]) |*note| note.retrig = @intCast(std.math.clamp(hits, 0, 8));
+    }
+
     pub fn cycleStepRetrig(self: *DrumMachine, pad: u8, step: u16) void {
         if (pad >= max_pads or step >= self.step_count) return;
         const note = if (self.midi[pad][step]) |*n| n else return;
@@ -898,6 +913,12 @@ pub const DrumMachine = struct {
         if (pad >= max_pads or step >= self.step_count) return .always;
         const note = self.midi[pad][step] orelse return .always;
         return note.cond;
+    }
+
+    /// Set the condition outright. Direct-setter twin of `cycleStepCond`.
+    pub fn setStepCond(self: *DrumMachine, pad: u8, step: u16, cond: Cond) void {
+        if (pad >= max_pads or step >= self.step_count) return;
+        if (self.midi[pad][step]) |*note| note.cond = cond;
     }
 
     /// Walk the condition list by `delta` (wrapping), the keyboard stand-in
