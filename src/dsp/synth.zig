@@ -17,6 +17,7 @@ const FreqShifter = @import("freq_shift.zig").FreqShifter;
 const Tape = @import("tape.zig").Tape;
 const wavetable = @import("wavetable.zig");
 const Wavetable = wavetable.Wavetable;
+pub const BundledWavetable = wavetable.Bundled;
 const Transport = @import("../transport.zig").Transport;
 const FxModBus = @import("fx_mod.zig").Bus;
 
@@ -614,6 +615,7 @@ pub const PolySynth = struct {
     /// Sampler's audio clip, table content isn't preset data. No default:
     /// only `init()` constructs a `PolySynth`, and it always sets this.
     wt: Wavetable,
+    wt_bundled: ?BundledWavetable = .basic,
     /// True once `wt` holds a `:load-wavetable`-imported table rather than
     /// the bundled default - gates whether persistence sidecars it (same
     /// convention as Sampler's `pad.user_sample`).
@@ -651,6 +653,7 @@ pub const PolySynth = struct {
     // zig fmt: on
     /// OSC B's `.wavetable` table data - see `wt`'s doc comment.
     osc_b_wt: Wavetable,
+    osc_b_wt_bundled: ?BundledWavetable = .basic,
     osc_b_wt_user: bool = false,
     osc_b_wt_pos: f32 = 0.0,
     // zig fmt: off
@@ -672,6 +675,7 @@ pub const PolySynth = struct {
     /// OSC C's `.wavetable` table data - see `wt`'s doc comment. Its
     /// position param stays outside the mod matrix, like the rest of OSC C.
     osc_c_wt: Wavetable,
+    osc_c_wt_bundled: ?BundledWavetable = .basic,
     osc_c_wt_user: bool = false,
     osc_c_wt_pos: f32 = 0.0,
     // zig fmt: off
@@ -1359,17 +1363,52 @@ pub const PolySynth = struct {
                 wavetable.deinit(&self.wt, self.allocator);
                 self.wt = new_table;
                 self.wt_user = true;
+                self.wt_bundled = null;
             },
             .b => {
                 wavetable.deinit(&self.osc_b_wt, self.allocator);
                 self.osc_b_wt = new_table;
                 self.osc_b_wt_user = true;
+                self.osc_b_wt_bundled = null;
             },
             .c => {
                 wavetable.deinit(&self.osc_c_wt, self.allocator);
                 self.osc_c_wt = new_table;
                 self.osc_c_wt_user = true;
+                self.osc_c_wt_bundled = null;
             },
+        }
+    }
+
+    /// Select bundled tables transactionally. Null keeps current slot, which
+    /// lets user presets remain independent from imported wavetable audio.
+    pub fn selectBundledWavetables(self: *PolySynth, a: ?BundledWavetable, b: ?BundledWavetable, c: ?BundledWavetable) !void {
+        var new_a: ?Wavetable = if (a) |kind| try wavetable.loadBundled(self.allocator, kind) else null;
+        errdefer if (new_a) |*table| wavetable.deinit(table, self.allocator);
+        var new_b: ?Wavetable = if (b) |kind| try wavetable.loadBundled(self.allocator, kind) else null;
+        errdefer if (new_b) |*table| wavetable.deinit(table, self.allocator);
+        var new_c: ?Wavetable = if (c) |kind| try wavetable.loadBundled(self.allocator, kind) else null;
+        errdefer if (new_c) |*table| wavetable.deinit(table, self.allocator);
+        if (new_a) |table| {
+            wavetable.deinit(&self.wt, self.allocator);
+            self.wt = table;
+            self.wt_user = false;
+            self.wt_bundled = a;
+            new_a = null;
+        }
+        if (new_b) |table| {
+            wavetable.deinit(&self.osc_b_wt, self.allocator);
+            self.osc_b_wt = table;
+            self.osc_b_wt_user = false;
+            self.osc_b_wt_bundled = b;
+            new_b = null;
+        }
+        if (new_c) |table| {
+            wavetable.deinit(&self.osc_c_wt, self.allocator);
+            self.osc_c_wt = table;
+            self.osc_c_wt_user = false;
+            self.osc_c_wt_bundled = c;
+            new_c = null;
         }
     }
 
@@ -1385,6 +1424,8 @@ pub const PolySynth = struct {
     /// this type - no audio is rendered or embedded to define one.
     pub const Patch = struct {
         waveform: Waveform = .saw,
+        /// Optional bundled table choice. Null preserves imported/current audio.
+        wt_table: ?BundledWavetable = null,
         pulse_width: f32 = 0.5,
         detune_cents: f32 = 0.0,
         unison: u8 = 1,
@@ -1397,6 +1438,7 @@ pub const PolySynth = struct {
 
         osc_b_on: bool = false,
         osc_b_waveform: Waveform = .saw,
+        osc_b_wt_table: ?BundledWavetable = null,
         osc_b_pulse_width: f32 = 0.5,
         osc_b_semi: f32 = 0.0,
         osc_b_detune_cents: f32 = 0.0,
@@ -1410,6 +1452,7 @@ pub const PolySynth = struct {
 
         osc_c_on: bool = false,
         osc_c_waveform: Waveform = .saw,
+        osc_c_wt_table: ?BundledWavetable = null,
         osc_c_pulse_width: f32 = 0.5,
         osc_c_semi: f32 = 0.0,
         osc_c_detune_cents: f32 = 0.0,
@@ -1607,6 +1650,11 @@ pub const PolySynth = struct {
         }
     }
 
+    pub fn applyPatchWithWavetables(self: *PolySynth, patch: Patch) !void {
+        try self.selectBundledWavetables(patch.wt_table, patch.osc_b_wt_table, patch.osc_c_wt_table);
+        self.applyPatch(patch);
+    }
+
     /// The inverse of `applyPatch`: snapshot this synth's current params into
     /// a `Patch` (e.g. to save a hand-tuned sound as a reusable preset - see
     /// `tui/user_presets.zig`). The legacy carrier fields stay at their
@@ -1618,6 +1666,9 @@ pub const PolySynth = struct {
                 @field(patch, f.name) = @field(self, f.name);
             }
         }
+        patch.wt_table = self.wt_bundled;
+        patch.osc_b_wt_table = self.osc_b_wt_bundled;
+        patch.osc_c_wt_table = self.osc_c_wt_bundled;
         return patch;
     }
 
@@ -4433,6 +4484,21 @@ test "applyPatch: legacy fenv/lfo fields migrate to matrix rows" {
     s.applyPatch(.{ .fenv_amount = 2.0, .mod_matrix = rows });
     try std.testing.expectEqual(ModSource.wheel, s.mod_matrix[0].source);
     try std.testing.expectEqual(ModSource.none, s.mod_matrix[1].source);
+}
+
+test "applyPatchWithWavetables selects bundled audio while null preserves it" {
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    const basic_sample = s.wt.frames[17];
+
+    try s.applyPatchWithWavetables(.{ .waveform = .wavetable, .wt_table = .metallic });
+    try std.testing.expectEqual(BundledWavetable.metallic, s.wt_bundled.?);
+    try std.testing.expect(s.wt.frames[17] != basic_sample);
+
+    const metallic_sample = s.wt.frames[17];
+    try s.applyPatchWithWavetables(.{ .waveform = .wavetable });
+    try std.testing.expectEqual(BundledWavetable.metallic, s.wt_bundled.?);
+    try std.testing.expectEqual(metallic_sample, s.wt.frames[17]);
 }
 
 test "matrix param ids round-trip through paramValue/setParamAbsolute" {

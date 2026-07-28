@@ -91,6 +91,7 @@ pub const NoteSnap = struct {
 pub const SynthSnap = struct {
     // OSC A
     waveform: synth_mod.Waveform = .saw,
+    wt_bundled: ?synth_mod.BundledWavetable = .basic,
     pulse_width: f32 = 0.5,
     detune_cents: f32 = 0.0,
     unison: u8 = 1,
@@ -106,6 +107,7 @@ pub const SynthSnap = struct {
     // OSC B
     osc_b_on: bool = false,
     osc_b_waveform: synth_mod.Waveform = .saw,
+    osc_b_wt_bundled: ?synth_mod.BundledWavetable = .basic,
     osc_b_pulse_width: f32 = 0.5,
     osc_b_semi: f32 = 0.0,
     osc_b_detune_cents: f32 = 0.0,
@@ -118,6 +120,7 @@ pub const SynthSnap = struct {
     // OSC C
     osc_c_on: bool = false,
     osc_c_waveform: synth_mod.Waveform = .saw,
+    osc_c_wt_bundled: ?synth_mod.BundledWavetable = .basic,
     osc_c_pulse_width: f32 = 0.5,
     osc_c_semi: f32 = 0.0,
     osc_c_detune_cents: f32 = 0.0,
@@ -1829,7 +1832,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                 rack.instrument.poly_synth.attachTransport(&engine.transport);
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
                 if (rs.synth) |ss| {
-                    applyToSynth(&rack.instrument.poly_synth, &ss);
+                    try applyToSynth(&rack.instrument.poly_synth, &ss);
                     // Same clamp the clip loader applies: a zero/negative/
                     // non-finite loop length breaks the piano roll's step
                     // math and the playback wrap.
@@ -2433,8 +2436,9 @@ fn isValidFxOrder(order: [14]synth_mod.FxUnitKind) bool {
 /// negative attack time) straight onto the audio thread. Enum fields
 /// (waveform, filter_type, mod_mode, …) need no clamp - `std.json` already
 /// rejects any value that isn't one of the declared tags at parse time.
-fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) void {
+fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) !void {
     const clamp = std.math.clamp;
+    try s.selectBundledWavetables(ss.wt_bundled, ss.osc_b_wt_bundled, ss.osc_c_wt_bundled);
     // Every plain param_specs field (id->field->range, shared with the live
     // h/l-nudge and automation paths) - see PolySynth.applyParamSpecs. What's
     // left below is what param_specs deliberately excludes: the mod matrix
@@ -2737,6 +2741,10 @@ fn migrateSynthFx(allocator: std.mem.Allocator, s: *PolySynth, fx: *Fx, sr: u32)
             .clap => unreachable,
         }
     }
+    clearMigratedSynthFx(s);
+}
+
+fn clearMigratedSynthFx(s: *PolySynth) void {
     s.fx_gate_on = false;
     s.fx_eq_on = false;
     s.fx_comp_on = false;
@@ -2780,14 +2788,16 @@ pub fn applySynthPatch(
 ) !void {
     if (rack.instrument != .poly_synth) return error.NotSynth;
     const synth = &rack.instrument.poly_synth;
-    const original = synth.toPatch();
-    synth.applyPatch(patch);
+    var probe = synth.*;
+    probe.applyPatch(patch);
     var replacement: Fx = .{};
-    migrateSynthFx(allocator, synth, &replacement, sr) catch |err| {
+    migrateSynthFx(allocator, &probe, &replacement, sr) catch |err| {
         replacement.deinit(allocator);
-        synth.applyPatch(original);
         return err;
     };
+    errdefer replacement.deinit(allocator);
+    try synth.applyPatchWithWavetables(patch);
+    clearMigratedSynthFx(synth);
     rack.fx.deinit(allocator);
     rack.fx = replacement;
 }
@@ -4675,7 +4685,7 @@ test "applyToSynth: pre-v17 legacy mod fields migrate onto matrix rows" {
     var s = try PolySynth.init(std.testing.allocator, 48_000);
     defer s.deinit();
     const legacy: SynthSnap = .{ .fenv_amount = 2.0, .lfo_depth = 0.8, .lfo_target = .filter };
-    applyToSynth(&s, &legacy);
+    try applyToSynth(&s, &legacy);
     try std.testing.expectEqual(synth_mod.ModSource.fenv, s.mod_matrix[0].source);
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), s.mod_matrix[0].depth, 1e-6);
     try std.testing.expectEqual(synth_mod.ModSource.lfo, s.mod_matrix[1].source);
@@ -4685,7 +4695,7 @@ test "applyToSynth: pre-v17 legacy mod fields migrate onto matrix rows" {
     // A v17 snapshot with a present-but-empty matrix means "no routing" -
     // the stale legacy fields (written at defaults, but be paranoid) lose.
     const empty: SynthSnap = .{ .mod_matrix = &.{}, .fenv_amount = 2.0 };
-    applyToSynth(&s, &empty);
+    try applyToSynth(&s, &empty);
     try std.testing.expectEqual(synth_mod.ModSource.none, s.mod_matrix[0].source);
 }
 

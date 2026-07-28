@@ -17,7 +17,17 @@ pub const mip_levels: usize = 11;
 /// Bundled "basic shapes" table (sine/triangle/saw/square, one frame each -
 /// see tools/genwavetable.zig). The oscillator's own frame_pos crossfade
 /// gives the morph between them; no baked intermediate frames needed.
-const default_wav = @embedFile("../assets/wavetable/basic_shapes.wav");
+pub const Bundled = enum { basic, spectral, formant, metallic, analog };
+
+fn bundledWav(kind: Bundled) []const u8 {
+    return switch (kind) {
+        .basic => @embedFile("../assets/wavetable/basic_shapes.wav"),
+        .spectral => @embedFile("../assets/wavetable/spectral.wav"),
+        .formant => @embedFile("../assets/wavetable/formant.wav"),
+        .metallic => @embedFile("../assets/wavetable/metallic.wav"),
+        .analog => @embedFile("../assets/wavetable/analog.wav"),
+    };
+}
 
 pub const Wavetable = struct {
     /// Flattened frame data: level, frame, then sample.
@@ -66,8 +76,12 @@ pub fn fromWav(allocator: std.mem.Allocator, bytes: []const u8) !Wavetable {
 }
 
 /// The bundled default table, owned by the caller like any other Wavetable.
+pub fn loadBundled(allocator: std.mem.Allocator, kind: Bundled) !Wavetable {
+    return fromWav(allocator, bundledWav(kind));
+}
+
 pub fn loadDefault(allocator: std.mem.Allocator) !Wavetable {
-    return fromWav(allocator, default_wav);
+    return loadBundled(allocator, .basic);
 }
 
 pub fn deinit(table: *Wavetable, allocator: std.mem.Allocator) void {
@@ -160,6 +174,15 @@ test "loadDefault: bundled basic-shapes table has 4 frames" {
     var table = try loadDefault(allocator);
     defer deinit(&table, allocator);
     try std.testing.expectEqual(@as(usize, 4), table.frame_count);
+}
+
+test "every bundled wavetable loads as four finite frames" {
+    inline for (std.meta.tags(Bundled)) |kind| {
+        var table = try loadBundled(std.testing.allocator, kind);
+        defer deinit(&table, std.testing.allocator);
+        try std.testing.expectEqual(@as(usize, 4), table.frame_count);
+        for (table.frames) |sample| try std.testing.expect(std.math.isFinite(sample));
+    }
 }
 
 test "dupe: independent buffer, same content" {

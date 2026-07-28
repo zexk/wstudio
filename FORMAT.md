@@ -86,6 +86,10 @@ additive; v23 is a third). Check `persist.zig`'s per-field doc comments for
 specifics (e.g. `Sampler.mono`, `PatternPlayer.swing`, `:bounce`'s bit-depth
 option).
 
+Bundled wavetable identities (`SynthSnap.wt_bundled` and OSC B/C counterparts)
+are additive fields. Missing values select `basic`, matching every project
+saved before bundled spectral, formant, metallic, and analog tables shipped.
+
 `test/fixtures/wsj/v1.wsj` through `v25.wsj` are tiny, hand-written fixtures
 of each historical shape (no `variants` for v2, no `master_fx_chain` for v9,
 etc.), one per row of the table above. `persist.zig`'s "golden-file corpus"

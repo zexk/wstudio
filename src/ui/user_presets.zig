@@ -164,9 +164,9 @@ pub fn apply(allocator: std.mem.Allocator, rack: *ws.Rack, preset: *const UserPr
     if (rack.instrument != .poly_synth) return error.NotSynth;
     var replacement = try preset.fx.dupe(allocator, sample_rate);
     errdefer replacement.deinit(allocator);
+    try rack.instrument.poly_synth.applyPatchWithWavetables(preset.patch);
     rack.fx.deinit(allocator);
     rack.fx = replacement;
-    rack.instrument.poly_synth.applyPatch(preset.patch);
 }
 
 pub fn deinit(allocator: std.mem.Allocator, list: *std.ArrayListUnmanaged(UserPreset)) void {

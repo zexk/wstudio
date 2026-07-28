@@ -188,7 +188,7 @@ pub const presets = [_]Preset{
     // wobble-bass - wavetable osc so the LFO scans timbre in step with the
     // filter wobble; ladder filter + drive for the low-end snarl
     .{ .name = "wobble-bass", .category = "bass", .tags = &.{ "wstudio", "dubstep" }, .patch = .{
-        .waveform = .wavetable, .wt_pos = 0.55, .voice_mode = .mono, .glide_s = 0.02,
+        .waveform = .wavetable, .wt_table = .spectral, .wt_pos = 0.55, .voice_mode = .mono, .glide_s = 0.02,
         .sub_level = 0.5,
         .attack_s = 0.005, .decay_s = 0.1, .sustain = 1.0, .release_s = 0.15,
         .filter_type = .ladder, .filter_cutoff = 400.0, .filter_res = 0.3,
@@ -327,7 +327,7 @@ pub const presets = [_]Preset{
     // neuro-bass - wavetable osc with sample&hold timbre flicker, formant
     // filter 2 doing the vowel talk, OTT + drive on top
     .{ .name = "neuro-bass", .category = "bass", .tags = &.{ "wstudio", "neurofunk" }, .patch = .{
-        .waveform = .wavetable, .wt_pos = 0.65, .voice_mode = .mono, .glide_s = 0.01,
+        .waveform = .wavetable, .wt_table = .formant, .wt_pos = 0.65, .voice_mode = .mono, .glide_s = 0.01,
         .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 0.0, .osc_b_detune_cents = 6.0, .osc_b_level = 1.0,
         .mod_mode = .fm_b_to_a, .mod_amount = 4.5,
         .attack_s = 0.004, .decay_s = 0.18, .sustain = 0.9, .release_s = 0.12,
@@ -640,7 +640,7 @@ pub const presets = [_]Preset{
     // ambient-drone - dual chaos LFOs: one stirs the filter, one drifts
     // the wavetable morph; big HP'd reverb wash
     .{ .name = "ambient-drone", .category = "pad", .tags = &.{ "wstudio", "ambient" }, .patch = .{
-        .waveform = .wavetable, .wt_pos = 0.25, .unison = 5, .unison_detune = 14.0, .unison_spread = 0.8,
+        .waveform = .wavetable, .wt_table = .analog, .wt_pos = 0.25, .unison = 5, .unison_detune = 14.0, .unison_spread = 0.8,
         .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = -12.0, .osc_b_level = 0.5,
         .attack_s = 3.0, .decay_s = 1.0, .sustain = 0.85, .release_s = 3.5, .env_curve = -0.5,
         .filter_type = .lp, .filter_cutoff = 1600.0, .filter_res = 0.1,
@@ -1713,7 +1713,7 @@ pub const presets = [_]Preset{
 
     // dnb: airy sampled-choir color for breakdowns and liquid intros
     .{ .name = "jungle-atmos", .category = "pad", .tags = &.{ "wstudio", "dnb", "jungle" }, .patch = .{
-        .waveform = .wavetable, .wt_pos = 0.7, .unison = 4, .unison_detune = 9.0, .unison_spread = 0.75,
+        .waveform = .wavetable, .wt_table = .analog, .wt_pos = 0.7, .unison = 4, .unison_detune = 9.0, .unison_spread = 0.75,
         .noise_level = 0.08, .noise_color = 0.65,
         .attack_s = 1.1, .decay_s = 0.8, .sustain = 0.75, .release_s = 2.2,
         .filter_type = .formant, .filter_cutoff = 520.0, .filter_res = 0.18,
@@ -1767,7 +1767,7 @@ pub const presets = [_]Preset{
 
     // dubstep: dark suspended pad that leaves the sub range clear
     .{ .name = "dubstep-void", .category = "pad", .tags = &.{ "wstudio", "dubstep" }, .patch = .{
-        .waveform = .wavetable, .wt_pos = 0.25, .unison = 5, .unison_detune = 20.0, .unison_spread = 0.85,
+        .waveform = .wavetable, .wt_table = .metallic, .wt_pos = 0.25, .unison = 5, .unison_detune = 20.0, .unison_spread = 0.85,
         .osc_b_on = true, .osc_b_waveform = .triangle, .osc_b_semi = 7.0, .osc_b_level = 0.35,
         .attack_s = 1.6, .decay_s = 0.8, .sustain = 0.8, .release_s = 2.5,
         .filter_type = .lp, .filter_cutoff = 1800.0, .filter_res = 0.2,
@@ -1787,7 +1787,7 @@ pub const presets = [_]Preset{
 
     // future bass: elastic mono low end with a bright wavetable snap
     .{ .name = "future-bassline", .category = "bass", .tags = &.{ "wstudio", "future-bass" }, .patch = .{
-        .waveform = .wavetable, .wt_pos = 0.42, .voice_mode = .mono, .glide_s = 0.025,
+        .waveform = .wavetable, .wt_table = .spectral, .wt_pos = 0.42, .voice_mode = .mono, .glide_s = 0.025,
         .sub_level = 0.55, .sub_shape = .sine,
         .attack_s = 0.003, .decay_s = 0.16, .sustain = 0.7, .release_s = 0.1,
         .filter_type = .ladder, .filter_cutoff = 720.0, .filter_res = 0.18, .filter_drive = 2.8,
@@ -1806,7 +1806,7 @@ pub const presets = [_]Preset{
 
     // future bass: breathy vocal bed for wide chords and breakdowns
     .{ .name = "future-vox", .category = "pad", .tags = &.{ "wstudio", "future-bass" }, .patch = .{
-        .waveform = .wavetable, .wt_pos = 0.62, .unison = 6, .unison_detune = 17.0, .unison_spread = 0.9,
+        .waveform = .wavetable, .wt_table = .formant, .wt_pos = 0.62, .unison = 6, .unison_detune = 17.0, .unison_spread = 0.9,
         .attack_s = 0.45, .decay_s = 0.5, .sustain = 0.8, .release_s = 1.4,
         .filter_type = .formant, .filter_cutoff = 650.0, .filter_res = 0.3,
         .lfo_shape = .sine, .lfo_rate_hz = 0.3, .lfo_sync = .n2_1, .lfo_slew_ms = 35.0,
@@ -2062,7 +2062,7 @@ test "every preset renders finite, audible, bounded output" {
     for (presets) |p| {
         var s = try PolySynth.init(std.testing.allocator, 48_000);
         defer s.deinit();
-        s.applyPatch(p.patch);
+        try s.applyPatchWithWavetables(p.patch);
         s.noteOn(48, 1.0);
         var buf: [512]f32 = undefined;
         var peak: f32 = 0.0;

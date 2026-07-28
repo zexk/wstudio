@@ -109,9 +109,8 @@ pub fn build(b: *std.Build) void {
         exe.root_module.linkLibrary(zgui.artifact("imgui"));
     }
 
-    // `zig build genwavetable` renders the default wavetable to
-    // assets/wavetable/basic_shapes.wav. Run once after editing the shape
-    // math in tools/genwavetable.zig, then commit the refreshed WAV.
+    // `zig build genwavetable` renders bundled wavetables. Run once after
+    // editing tools/genwavetable.zig, then commit refreshed WAV files.
     const genwavetable = b.addExecutable(.{
         .name = "genwavetable",
         .root_module = b.createModule(.{
@@ -124,7 +123,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     const run_genwavetable = b.addRunArtifact(genwavetable);
-    const genwavetable_step = b.step("genwavetable", "Render the default wavetable to assets/wavetable/basic_shapes.wav");
+    const genwavetable_step = b.step("genwavetable", "Render bundled wavetables to assets/wavetable/");
     genwavetable_step.dependOn(&run_genwavetable.step);
 
     // `zig build gendemo` writes the curated, fully arranged demo song to
