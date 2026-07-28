@@ -287,11 +287,18 @@ fn nextChunk(data: []const u8, pos: usize) ParseError!?Chunk {
     if (size > data.len - body_start) return error.Truncated;
     const body = data[body_start .. body_start + size];
     const padded = size + (size & 1);
+    if (padded > data.len - body_start) return error.Truncated;
     return .{ .id = data[pos..][0..4].*, .data = body, .next = body_start + padded };
 }
 
 fn eqlId(id: [4]u8, s: *const [4]u8) bool {
     return std.mem.eql(u8, &id, s);
+}
+
+test "RIFF chunk requires padding after odd-sized body" {
+    try std.testing.expectError(error.Truncated, nextChunk("JUNK\x01\x00\x00\x00x", 0));
+    const chunk = (try nextChunk("JUNK\x01\x00\x00\x00x\x00", 0)).?;
+    try std.testing.expectEqual(@as(usize, 10), chunk.next);
 }
 
 // ---------------------------------------------------------------------------
