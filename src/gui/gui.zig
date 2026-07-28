@@ -4,11 +4,15 @@
 //! view dispatch live in app.zig; per-view rendering in views/<name>.zig.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const ws = @import("wstudio");
 const config_mod = @import("../config.zig");
 const tui_app = @import("../ui/app.zig");
 const app_mod = @import("app.zig");
 const gui_style = @import("style.zig");
+const drum_ed = @import("../ui/editors/drum.zig");
+const piano_ed = @import("../ui/editors/piano.zig");
+const slicer_ed = @import("../ui/editors/slicer.zig");
 const glfw = @import("zglfw");
 const zgui = @import("zgui");
 const zopengl = @import("zopengl");
@@ -164,6 +168,25 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     try audio.start(init.io, user_config.audio_backend);
     defer audio.stop();
 
+    // Live MIDI input, same wiring as tui/main.zig - a hardware keyboard
+    // auditions and records here exactly as it does in the terminal. Bound
+    // to the session's engine, so `:e` has to rebind it below alongside the
+    // audio host. Failing to open a MIDI port is not fatal: the app runs
+    // without one, same as with no audio backend.
+    const has_alsa = builtin.os.tag == .linux;
+    const MidiIn = if (has_alsa) ws.midi_in.MidiIn else void;
+    var midi_in: MidiIn = undefined;
+    var using_midi = false;
+    if (has_alsa) {
+        midi_in = .{ .engine = app.core.session.engine, .velocity_curve = .init(user_config.default_midi_velocity_curve) };
+        if (midi_in.start()) {
+            using_midi = true;
+        } else |_| {}
+    }
+    defer if (has_alsa) {
+        if (using_midi) midi_in.stop();
+    };
+
     frame_ctx = .{ .window = window, .app = &app, .audio = &audio };
     defer frame_ctx = null;
     _ = glfwSetWindowRefreshCallback(window, onWindowRefresh);
@@ -186,6 +209,12 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
             };
             if (loaded) |session| {
                 audio.stop();
+                // Both readers point at the engine `deinit` is about to
+                // free - stop them before it, restart them on the new one.
+                if (has_alsa and using_midi) {
+                    midi_in.stop();
+                    using_midi = false;
+                }
                 app.core.session.deinit();
                 app.core.session = session;
                 app.core.resetForNewSession();
@@ -199,6 +228,12 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 if (kind != .blank) app.core.emitEvent(.{ .ProjectLoadPost = .{ .path = app.core.pendingReloadPath() } });
                 audio = guiAudio(app.core.session.project.sample_rate, user_config.audio_block_frames, app.core.session.engine);
                 try audio.start(init.io, user_config.audio_backend);
+                if (has_alsa) {
+                    midi_in = .{ .engine = app.core.session.engine, .velocity_curve = .init(user_config.default_midi_velocity_curve) };
+                    if (midi_in.start()) {
+                        using_midi = true;
+                    } else |_| {}
+                }
             }
         }
         // `:reload-config` - re-source init.lua and re-apply whatever it
@@ -218,6 +253,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 gui_style.envelope_drag_pixels = user_config.gui_envelope_drag_pixels;
                 gui_style.meter_decay_db_per_s = user_config.gui_meter_decay_db_s;
                 glfw.swapInterval(if (user_config.gui_vsync) 1 else 0);
+                if (has_alsa and using_midi) midi_in.velocity_curve.store(user_config.default_midi_velocity_curve, .monotonic);
                 app.core.setStatus("config reloaded", .{});
             } else |e| {
                 user_config = runtime.config;
@@ -233,6 +269,32 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
             user_config.gui_theme = runtime.config.gui_theme;
             gui_style.selectIdentity(runtime.resolvedTheme(user_config.gui_theme));
             gui_style.setTheme(user_config.gui_panel_border);
+        }
+
+        // MIDI input follows the tracks cursor so live playing always targets
+        // the selected track. Written from this thread, read (monotonic) in
+        // the MIDI reader thread.
+        if (has_alsa and using_midi) {
+            midi_in.active_track.store(@intCast(app.core.cursor), .monotonic);
+            // A MIDI CC can mutate saved instrument params straight from the
+            // reader thread (PolySynth.applyCC); it has no App pointer to
+            // flag `dirty` itself, so pick its signal up once per frame.
+            if (midi_in.dirty.swap(false, .acquire)) app.core.dirty = true;
+            // Every note-on the reader thread saw also landed in
+            // `note_queue` (the audition already went straight to the engine
+            // from that thread). Drain it through the same insert-mode
+            // record path qwerty playing uses, gated the same way: only in
+            // insert mode, only for the view whose pattern is being edited.
+            // Unlike qwerty, the played velocity comes through.
+            while (midi_in.note_queue.pop()) |rec| {
+                if (app.core.modal.mode != .insert) continue;
+                switch (app.core.view) {
+                    .drum_grid => drum_ed.recordNote(&app.core, rec.pitch, rec.vel),
+                    .slicer_grid => slicer_ed.recordNote(&app.core, rec.pitch, rec.vel),
+                    .piano_roll => piano_ed.recordNote(&app.core, rec.pitch, @as(f32, @floatFromInt(rec.vel)) / 127.0),
+                    else => {},
+                }
+            }
         }
         drawFrame();
     }
