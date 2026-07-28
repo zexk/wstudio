@@ -158,6 +158,7 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 6500.0, .filter_res = 0.15,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 180.0, .filter_routing = .series,
         .mod_matrix = mods(&.{
+            .{ .source = .random, .dest = dP,  .depth = 0.003 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac3, .dest = 111, .depth = 0.4 },
             .{ .source = .mac3, .dest = 115, .depth = 0.35 },
@@ -430,7 +431,7 @@ pub const presets = [_]Preset{
         .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.5,
         .osc_c_on = true, .osc_c_waveform = .sine, .osc_c_semi = 19.0, .osc_c_level = 0.3,
         .attack_s = 0.004, .decay_s = 0.1, .sustain = 0.9, .release_s = 0.1,
-        .filter_type = .lp, .filter_cutoff = 900.0, .filter_res = 0.05,
+        .filter_type = .lp, .filter_cutoff = 900.0, .filter_res = 0.05, .filter_drive = 2.0,
         .sub_level = 0.4, .sub_shape = .sine,
         .mod_matrix = mods(&.{
             .{ .source = .keytrack, .dest = 21, .depth = 0.25 },
@@ -575,7 +576,7 @@ pub const presets = [_]Preset{
     // future-chord - OTT is the genre's whole sound; kept wide and bright
     .{ .name = "future-chord", .category = "stab", .tags = &.{ "wstudio", "future-bass" }, .patch = .{
         .waveform = .saw, .unison = 7, .unison_detune = 20.0, .unison_spread = 0.9,
-        .attack_s = 0.02, .decay_s = 0.3, .sustain = 0.85, .release_s = 0.4,
+        .attack_s = 0.02, .decay_s = 0.3, .sustain = 0.85, .release_s = 0.4, .env_curve = 0.25,
         .filter_type = .lp, .filter_cutoff = 5000.0, .filter_res = 0.12,
         .lfo_shape = .sine, .lfo_rate_hz = 5.0,
         .mod_matrix = mods(&.{
@@ -763,7 +764,7 @@ pub const presets = [_]Preset{
         .osc_b_on = true, .osc_b_waveform = .square, .osc_b_semi = 0.0, .osc_b_detune_cents = 10.0, .osc_b_level = 0.9,
         .voice_mode = .mono, .glide_s = 0.0,
         .attack_s = 0.002, .decay_s = 0.18, .sustain = 0.7, .release_s = 0.1,
-        .filter_type = .lp, .filter_cutoff = 750.0, .filter_res = 0.3,
+        .filter_type = .lp, .filter_cutoff = 750.0, .filter_res = 0.3, .filter_drive = 3.0,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.16, .fenv_sustain = 0.2, .fenv_release_s = 0.08,
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21, .depth = 0.45 },
@@ -804,6 +805,7 @@ pub const presets = [_]Preset{
         .attack_s = 0.002, .decay_s = 1.0, .sustain = 0.2, .release_s = 0.6,
         .filter_type = .lp, .filter_cutoff = 3200.0, .filter_res = 0.05,
         .mod_matrix = mods(&.{
+            .{ .source = .random,   .dest = 15,  .depth = 0.018 },
             .{ .source = .velocity, .dest = 15,  .depth = 0.12 },
             .{ .source = .mac2,     .dest = 15,  .depth = 0.2 },
             .{ .source = .mac3,     .dest = 179, .depth = 0.3 },
@@ -912,7 +914,7 @@ pub const presets = [_]Preset{
         .osc_b_on = true, .osc_b_waveform = .saw, .osc_b_semi = 0.0, .osc_b_detune_cents = 1.0, .osc_b_level = 0.9,
         .voice_mode = .legato, .glide_s = 0.01,
         .attack_s = 0.001, .decay_s = 0.05, .sustain = 1.0, .release_s = 0.02,
-        .filter_type = .ladder, .filter_cutoff = 3400.0, .filter_res = 0.15,
+        .filter_type = .ladder, .filter_cutoff = 3400.0, .filter_res = 0.15, .filter_drive = 2.0,
         .fenv_attack_s = 2.15, .fenv_decay_s = 0.3, .fenv_sustain = 1.0, .fenv_release_s = 0.2,
         .mod_matrix = mods(&.{
             .{ .source = .fenv, .dest = 21,  .depth = 0.1 },
@@ -1006,6 +1008,7 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.08,
         .lfo_shape = .sine, .lfo_rate_hz = 0.4,
         .mod_matrix = mods(&.{
+            .{ .source = .random, .dest = dP,  .depth = 0.0035 },
             .{ .source = .lfo,      .dest = 21,  .depth = 0.04 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.2 },
@@ -1077,7 +1080,7 @@ pub const presets = [_]Preset{
         .osc_b_on = true, .osc_b_waveform = .square, .osc_b_semi = 0.0, .osc_b_detune_cents = 8.0, .osc_b_level = 0.6,
         .attack_s = 0.003, .decay_s = 0.18, .sustain = 0.8, .release_s = 0.12,
         .filter_type = .lp, .filter_cutoff = 900.0, .filter_res = 0.15,
-        .lfo2_shape = .sine, .lfo2_rate_hz = 0.4,
+        .lfo2_shape = .sine, .lfo2_rate_hz = 0.4, .lfo2_sync = .n1_1, .lfo2_retrig = .key,
         .sub_level = 0.5, .sub_shape = .sine,
         .mod_matrix = mods(&.{
             .{ .source = .lfo2,     .dest = 8,  .depth = 0.15 },
@@ -1111,7 +1114,7 @@ pub const presets = [_]Preset{
         .attack_s = 0.3, .decay_s = 0.4, .sustain = 0.8, .release_s = 0.5,
         .filter_type = .lp, .filter_cutoff = 18_000.0, .filter_res = 0.0,
         .lfo_shape = .triangle, .lfo_rate_hz = 3.0,
-        .lfo2_shape = .sine, .lfo2_rate_hz = 0.5,
+        .lfo2_shape = .sine, .lfo2_rate_hz = 0.5, .lfo2_sync = .n1_2, .lfo2_retrig = .key,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP, .depth = 0.06 },
             .{ .source = .lfo2, .dest = 1,  .depth = 0.25 },
@@ -1128,9 +1131,9 @@ pub const presets = [_]Preset{
     .{ .name = "choir-pad", .category = "pad", .tags = &.{ "wstudio", "ambient" }, .patch = .{
         .waveform = .saw, .unison = 4, .unison_detune = 10.0, .unison_spread = 0.6,
         .noise_level = 0.04, .noise_color = 0.6,
-        .attack_s = 1.0, .decay_s = 1.0, .sustain = 0.8, .release_s = 2.0,
+        .attack_s = 1.0, .decay_s = 1.0, .sustain = 0.8, .release_s = 2.0, .env_curve = -0.35,
         .filter_type = .formant, .filter_cutoff = 80.0, .filter_res = 0.3,
-        .lfo_shape = .sine, .lfo_rate_hz = 0.2,
+        .lfo_shape = .sine, .lfo_rate_hz = 0.2, .lfo_slew_ms = 45.0,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = 21,  .depth = 0.15 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.3 },
@@ -1144,7 +1147,7 @@ pub const presets = [_]Preset{
     // trap - detuned saw pluck
     .{ .name = "trap-pluck", .category = "pluck", .tags = &.{ "wstudio", "trap" }, .patch = .{
         .waveform = .saw, .unison = 2, .unison_detune = 14.0, .unison_spread = 0.5,
-        .attack_s = 0.002, .decay_s = 0.25, .sustain = 0.0, .release_s = 0.2,
+        .attack_s = 0.002, .decay_s = 0.25, .sustain = 0.0, .release_s = 0.2, .env_curve = 0.68,
         .filter_type = .lp, .filter_cutoff = 4000.0, .filter_res = 0.12,
         .mod_matrix = mods(&.{
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
@@ -1160,9 +1163,9 @@ pub const presets = [_]Preset{
         .waveform = .saw, .unison = 3, .unison_detune = 18.0, .unison_spread = 0.6,
         .osc_b_on = true, .osc_b_waveform = .square, .osc_b_pulse_width = 0.4, .osc_b_semi = 0.0, .osc_b_detune_cents = 14.0, .osc_b_level = 0.8,
         .osc_c_on = true, .osc_c_waveform = .saw, .osc_c_semi = -12.0, .osc_c_level = 0.5,
-        .attack_s = 0.006, .decay_s = 0.3, .sustain = 0.0, .release_s = 0.2,
+        .attack_s = 0.006, .decay_s = 0.3, .sustain = 0.0, .release_s = 0.2, .env_curve = 0.62,
         .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.25,
-        .fenv_attack_s = 0.004, .fenv_decay_s = 0.28, .fenv_sustain = 0.0, .fenv_release_s = 0.15,
+        .fenv_attack_s = 0.004, .fenv_decay_s = 0.28, .fenv_sustain = 0.0, .fenv_release_s = 0.15, .fenv_curve = 0.55,
         .mod_matrix = mods(&.{
             .{ .source = .fenv, .dest = 21,  .depth = 0.375 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
@@ -1181,7 +1184,7 @@ pub const presets = [_]Preset{
         .osc_b_on = true, .osc_b_waveform = .saw, .osc_b_semi = -12.0, .osc_b_level = 0.6,
         .voice_mode = .mono, .glide_s = 0.02,
         .attack_s = 0.005, .decay_s = 0.2, .sustain = 0.8, .release_s = 0.15,
-        .filter_type = .lp, .filter_cutoff = 2000.0, .filter_res = 0.35,
+        .filter_type = .lp, .filter_cutoff = 2000.0, .filter_res = 0.35, .filter_drive = 3.5,
         .fenv_attack_s = 0.004, .fenv_decay_s = 0.25, .fenv_sustain = 0.3, .fenv_release_s = 0.15,
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21,  .depth = 0.4 },
@@ -1205,6 +1208,7 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .lfo,      .dest = dP,  .depth = 0.12 },
             .{ .source = .velocity, .dest = 36,  .depth = 0.15 },
+            .{ .source = .random,   .dest = 36,  .depth = 0.04 },
             .{ .source = .mac2,     .dest = 36,  .depth = 0.2 },
             .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
         }),
@@ -1215,9 +1219,9 @@ pub const presets = [_]Preset{
     // soul - Motown horn-section stab, velocity is the section leaning in
     .{ .name = "soul-brass", .category = "brass", .tags = &.{ "wstudio", "soul" }, .patch = .{
         .waveform = .saw, .unison = 3, .unison_detune = 9.0, .unison_spread = 0.4,
-        .attack_s = 0.02, .decay_s = 0.3, .sustain = 0.6, .release_s = 0.2,
+        .attack_s = 0.02, .decay_s = 0.3, .sustain = 0.6, .release_s = 0.2, .env_curve = 0.32,
         .filter_type = .lp, .filter_cutoff = 3200.0, .filter_res = 0.1,
-        .fenv_attack_s = 0.015, .fenv_decay_s = 0.35, .fenv_sustain = 0.3, .fenv_release_s = 0.2,
+        .fenv_attack_s = 0.015, .fenv_decay_s = 0.35, .fenv_sustain = 0.3, .fenv_release_s = 0.2, .fenv_curve = 0.38,
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21,  .depth = 0.4 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.45 },
@@ -1240,14 +1244,15 @@ pub const presets = [_]Preset{
         .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 19.0, .osc_b_detune_cents = 3.0, .osc_b_level = 0.8,
         .osc_c_on = true, .osc_c_waveform = .sine, .osc_c_semi = 0.0, .osc_c_level = 0.3,
         .mod_mode = .fm_b_to_a, .mod_amount = 0.9,
-        .attack_s = 0.001, .decay_s = 1.2, .sustain = 0.15, .release_s = 0.5,
+        .attack_s = 0.001, .decay_s = 1.2, .sustain = 0.15, .release_s = 0.5, .env_curve = 0.58,
         .filter_type = .lp, .filter_cutoff = 6500.0, .filter_res = 0.0,
-        .fenv_attack_s = 0.001, .fenv_decay_s = 0.18, .fenv_sustain = 0.0, .fenv_release_s = 0.1,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.18, .fenv_sustain = 0.0, .fenv_release_s = 0.1, .fenv_curve = 0.7,
         .lfo_shape = .sine, .lfo_rate_hz = 4.5,
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 15,  .depth = 0.16 },
             .{ .source = .lfo,      .dest = dA,  .depth = 0.04 },
             .{ .source = .velocity, .dest = 15,  .depth = 0.2 },
+            .{ .source = .random,   .dest = 15,  .depth = 0.015 },
             .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
             .{ .source = .mac3,     .dest = 179, .depth = 0.3 },
         }),
@@ -1261,9 +1266,9 @@ pub const presets = [_]Preset{
         .waveform = .sine, .voice_mode = .mono, .glide_s = 0.0,
         .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.9,
         .mod_mode = .fm_b_to_a, .mod_amount = 1.6,
-        .attack_s = 0.002, .decay_s = 0.25, .sustain = 0.35, .release_s = 0.1,
+        .attack_s = 0.002, .decay_s = 0.25, .sustain = 0.35, .release_s = 0.1, .env_curve = 0.48,
         .filter_type = .lp, .filter_cutoff = 1100.0, .filter_res = 0.1,
-        .fenv_attack_s = 0.001, .fenv_decay_s = 0.12, .fenv_sustain = 0.0, .fenv_release_s = 0.06,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.12, .fenv_sustain = 0.0, .fenv_release_s = 0.06, .fenv_curve = 0.62,
         .sub_level = 0.3, .sub_shape = .sine,
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21, .depth = 0.3 },
@@ -1282,7 +1287,7 @@ pub const presets = [_]Preset{
         .waveform = .square, .pulse_width = 0.3, .voice_mode = .mono, .glide_s = 0.0,
         .attack_s = 0.003, .decay_s = 0.1, .sustain = 0.85, .release_s = 0.08,
         .filter_type = .lp, .filter_cutoff = 9000.0, .filter_res = 0.05,
-        .lfo_shape = .sine, .lfo_rate_hz = 5.8,
+        .lfo_shape = .sine, .lfo_rate_hz = 5.8, .lfo_retrig = .key, .lfo_phase_offset = 0.25,
         .lfo2_shape = .sine, .lfo2_rate_hz = 0.9,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP,  .depth = 0.15 },
@@ -1299,11 +1304,12 @@ pub const presets = [_]Preset{
         .waveform = .saw, .voice_mode = .mono, .glide_s = 0.0,
         .attack_s = 0.002, .decay_s = 0.09, .sustain = 0.2, .release_s = 0.05,
         .filter_type = .lp, .filter_cutoff = 750.0, .filter_res = 0.25,
-        .fenv_attack_s = 0.001, .fenv_decay_s = 0.08, .fenv_sustain = 0.0, .fenv_release_s = 0.04,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.08, .fenv_sustain = 0.0, .fenv_release_s = 0.04, .fenv_curve = 0.72,
         .sub_level = 0.3, .sub_shape = .square,
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21, .depth = 0.35 },
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
+            .{ .source = .alternate, .dest = 21, .depth = 0.02 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 22, .depth = 0.2 },
         }),
@@ -1333,10 +1339,11 @@ pub const presets = [_]Preset{
     .{ .name = "kawaii-pluck", .category = "pluck", .tags = &.{ "wstudio", "kawaii" }, .patch = .{
         .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 24.0, .osc_b_detune_cents = 3.0, .osc_b_level = 0.6,
         .mod_mode = .fm_b_to_a, .mod_amount = 2.0,
-        .attack_s = 0.001, .decay_s = 0.35, .sustain = 0.0, .release_s = 0.3,
+        .attack_s = 0.001, .decay_s = 0.35, .sustain = 0.0, .release_s = 0.3, .env_curve = 0.72,
         .filter_type = .lp, .filter_cutoff = 10_000.0, .filter_res = 0.0,
         .mod_matrix = mods(&.{
             .{ .source = .velocity, .dest = 15,  .depth = 0.12 },
+            .{ .source = .random,   .dest = 15,  .depth = 0.02 },
             .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
             .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
         }),
@@ -1354,9 +1361,9 @@ pub const presets = [_]Preset{
     .{ .name = "vapor-pad", .category = "pad", .tags = &.{ "wstudio", "vaporwave" }, .patch = .{
         .waveform = .saw, .unison = 3, .unison_detune = 10.0, .unison_spread = 0.6,
         .osc_b_on = true, .osc_b_waveform = .triangle, .osc_b_semi = 0.0, .osc_b_detune_cents = 9.0, .osc_b_level = 0.7,
-        .attack_s = 2.2, .decay_s = 1.0, .sustain = 0.8, .release_s = 2.8,
+        .attack_s = 2.2, .decay_s = 1.0, .sustain = 0.8, .release_s = 2.8, .env_curve = -0.45,
         .filter_type = .lp, .filter_cutoff = 2400.0, .filter_res = 0.08,
-        .lfo_shape = .sine, .lfo_rate_hz = 0.8,
+        .lfo_shape = .sine, .lfo_rate_hz = 0.8, .lfo_slew_ms = 55.0,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP,  .depth = 0.08 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
@@ -1378,7 +1385,7 @@ pub const presets = [_]Preset{
         .attack_s = 0.004, .decay_s = 0.15, .sustain = 0.85, .release_s = 0.12,
         .filter_type = .lp, .filter_cutoff = 6000.0, .filter_res = 0.1,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 150.0, .filter_routing = .series,
-        .lfo_shape = .sine, .lfo_rate_hz = 5.5,
+        .lfo_shape = .sine, .lfo_rate_hz = 5.5, .lfo_retrig = .key, .lfo_phase_offset = 0.25,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,      .dest = dP,  .depth = 0.08 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
@@ -1395,11 +1402,12 @@ pub const presets = [_]Preset{
         .waveform = .saw, .voice_mode = .mono, .glide_s = 0.0,
         .osc_b_on = true, .osc_b_waveform = .saw, .osc_b_semi = -12.0, .osc_b_level = 0.8,
         .attack_s = 0.002, .decay_s = 0.12, .sustain = 0.7, .release_s = 0.06,
-        .filter_type = .lp, .filter_cutoff = 1000.0, .filter_res = 0.2,
+        .filter_type = .lp, .filter_cutoff = 1000.0, .filter_res = 0.2, .filter_drive = 2.8,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.1, .fenv_sustain = 0.2, .fenv_release_s = 0.05,
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21, .depth = 0.25 },
             .{ .source = .velocity, .dest = 21, .depth = 0.2 },
+            .{ .source = .alternate, .dest = 21, .depth = 0.018 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 22, .depth = 0.2 },
         }),
@@ -1413,10 +1421,10 @@ pub const presets = [_]Preset{
     .{ .name = "koto-pluck", .category = "pluck", .tags = &.{ "wstudio", "anime" }, .patch = .{
         .waveform = .triangle,
         .noise_level = 0.1, .noise_color = 0.3,
-        .attack_s = 0.001, .decay_s = 0.4, .sustain = 0.0, .release_s = 0.15,
+        .attack_s = 0.001, .decay_s = 0.4, .sustain = 0.0, .release_s = 0.15, .env_curve = 0.76,
         .filter_type = .comb, .filter_cutoff = 800.0, .filter_res = 0.55,
         .filter2_on = true, .filter2_type = .lp, .filter2_cutoff = 3500.0, .filter2_res = 0.1, .filter_routing = .series,
-        .fenv_attack_s = 0.001, .fenv_decay_s = 0.08, .fenv_sustain = 0.0, .fenv_release_s = 0.05,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.08, .fenv_sustain = 0.0, .fenv_release_s = 0.05, .fenv_curve = 0.72,
         .mod_matrix = mods(&.{
             .{ .source = .keytrack, .dest = 21, .depth = 1.0 },
             .{ .source = .fenv,     .dest = 47, .depth = 0.5 },
@@ -1432,7 +1440,7 @@ pub const presets = [_]Preset{
         .waveform = .sine, .voice_mode = .mono, .glide_s = 0.05,
         .attack_s = 0.02, .decay_s = 0.2, .sustain = 0.9, .release_s = 0.25,
         .filter_type = .lp, .filter_cutoff = 12_000.0, .filter_res = 0.0,
-        .lfo_shape = .sine, .lfo_rate_hz = 5.2,
+        .lfo_shape = .sine, .lfo_rate_hz = 5.2, .lfo_retrig = .key, .lfo_phase_offset = 0.25,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP,  .depth = 0.15 },
             .{ .source = .mac3, .dest = 115, .depth = 0.4 },
@@ -1448,7 +1456,7 @@ pub const presets = [_]Preset{
     .{ .name = "funky-worm", .category = "lead", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .patch = .{
         .waveform = .triangle, .voice_mode = .mono, .glide_s = 0.1,
         .attack_s = 0.005, .decay_s = 0.3, .sustain = 0.7, .release_s = 0.15,
-        .filter_type = .ladder, .filter_cutoff = 1200.0, .filter_res = 0.55,
+        .filter_type = .ladder, .filter_cutoff = 1200.0, .filter_res = 0.55, .filter_drive = 3.0,
         .fenv_attack_s = 0.004, .fenv_decay_s = 0.25, .fenv_sustain = 0.4, .fenv_release_s = 0.12,
         .lfo2_shape = .sine, .lfo2_rate_hz = 5.0,
         .mod_matrix = mods(&.{
@@ -1464,7 +1472,7 @@ pub const presets = [_]Preset{
     .{ .name = "gfunk-bass", .category = "bass", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .patch = .{
         .waveform = .saw, .voice_mode = .mono, .glide_s = 0.03,
         .attack_s = 0.004, .decay_s = 0.3, .sustain = 0.6, .release_s = 0.15,
-        .filter_type = .ladder, .filter_cutoff = 480.0, .filter_res = 0.1,
+        .filter_type = .ladder, .filter_cutoff = 480.0, .filter_res = 0.1, .filter_drive = 2.2,
         .sub_level = 0.6, .sub_shape = .sine,
         .mod_matrix = mods(&.{
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
@@ -1482,7 +1490,7 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 2800.0, .filter_res = 0.1,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 150.0, .filter_routing = .series,
         .fenv_attack_s = 0.04, .fenv_decay_s = 0.5, .fenv_sustain = 0.4, .fenv_release_s = 0.3,
-        .lfo2_shape = .sine, .lfo2_rate_hz = 0.5,
+        .lfo2_shape = .sine, .lfo2_rate_hz = 0.5, .lfo2_phase_offset = 0.25, .lfo2_slew_ms = 25.0,
         .mod_matrix = mods(&.{
             .{ .source = .fenv, .dest = 21,  .depth = 0.2 },
             .{ .source = .lfo2, .dest = dP,  .depth = 0.02 },
@@ -1500,7 +1508,7 @@ pub const presets = [_]Preset{
         .waveform = .triangle, .detune_cents = -4.0,
         .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.4,
         .noise_level = 0.03, .noise_color = 0.4,
-        .attack_s = 0.002, .decay_s = 0.9, .sustain = 0.1, .release_s = 0.4,
+        .attack_s = 0.002, .decay_s = 0.9, .sustain = 0.1, .release_s = 0.4, .env_curve = 0.55,
         .filter_type = .lp, .filter_cutoff = 2200.0, .filter_res = 0.05,
         .mod_matrix = mods(&.{
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
@@ -1519,10 +1527,11 @@ pub const presets = [_]Preset{
     .{ .name = "shaolin-bell", .category = "keys", .tags = &.{ "wstudio", "hip-hop", "boom-bap" }, .patch = .{
         .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 24.0, .osc_b_detune_cents = 18.0, .osc_b_level = 0.7,
         .mod_mode = .fm_b_to_a, .mod_amount = 2.8,
-        .attack_s = 0.001, .decay_s = 1.0, .sustain = 0.0, .release_s = 0.8,
+        .attack_s = 0.001, .decay_s = 1.0, .sustain = 0.0, .release_s = 0.8, .env_curve = 0.7,
         .filter_type = .lp, .filter_cutoff = 5000.0, .filter_res = 0.0,
         .mod_matrix = mods(&.{
             .{ .source = .velocity, .dest = 15, .depth = 0.12 },
+            .{ .source = .random,   .dest = 15,  .depth = 0.025 },
             .{ .source = .mac2,     .dest = 15, .depth = 0.25 },
             .{ .source = .mac4,     .dest = 89, .depth = 0.3 },
         }),
@@ -1539,7 +1548,7 @@ pub const presets = [_]Preset{
         .attack_s = 0.01, .decay_s = 0.2, .sustain = 0.9, .release_s = 0.15,
         .filter_type = .lp, .filter_cutoff = 1500.0, .filter_res = 0.1,
         .lfo_shape = .sine, .lfo_rate_hz = 5.0,
-        .lfo2_shape = .chaos, .lfo2_rate_hz = 0.15,
+        .lfo2_shape = .chaos, .lfo2_rate_hz = 0.15, .lfo2_slew_ms = 80.0,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dA,  .depth = 0.05 },
             .{ .source = .lfo2, .dest = dP,  .depth = 0.02 },
@@ -1563,7 +1572,7 @@ pub const presets = [_]Preset{
         .attack_s = 0.008, .decay_s = 0.32, .sustain = 0.15, .release_s = 0.18,
         .filter_type = .lp, .filter_cutoff = 2500.0, .filter_res = 0.4,
         .fenv_attack_s = 0.005, .fenv_decay_s = 0.28, .fenv_sustain = 0.05, .fenv_release_s = 0.15,
-        .env3_attack_s = 0.006, .env3_decay_s = 0.22, .env3_sustain = 0.0, .env3_release_s = 0.06,
+        .env3_attack_s = 0.006, .env3_decay_s = 0.22, .env3_sustain = 0.0, .env3_release_s = 0.06, .env3_curve = 0.72,
         .lfo_shape = .triangle, .lfo_rate_hz = 6.5,
         .mod_matrix = mods(&.{
             .{ .source = .env3, .dest = dP, .depth = 1.0 },
@@ -1595,7 +1604,7 @@ pub const presets = [_]Preset{
         // actually implements what was already being claimed; the hard
         // snap back to `a` at the phase wrap is the classic aggressive
         // "reset" zap this genre wants, not a bug.
-        .lfo_shape = .custom, .lfo_rate_hz = 3.5,
+        .lfo_shape = .custom, .lfo_rate_hz = 3.5, .lfo_sync = .n1_8, .lfo_retrig = .key,
         .lfo_custom = .{
             lfoPoints(&.{
                 .{ .phase = 0.0,  .value = -1.0 },
@@ -1632,7 +1641,7 @@ pub const presets = [_]Preset{
         .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 0.0, .osc_b_level = 1.0,
         .mod_mode = .fm_b_to_a, .mod_amount = 6.5,
         .attack_s = 0.001, .decay_s = 0.08, .sustain = 0.9, .release_s = 0.05,
-        .filter_type = .lp, .filter_cutoff = 1600.0, .filter_res = 0.35,
+        .filter_type = .lp, .filter_cutoff = 1600.0, .filter_res = 0.35, .filter_drive = 5.0,
         .sub_level = 0.4, .sub_shape = .sine,
         .mod_matrix = mods(&.{
             .{ .source = .mac1, .dest = 21, .depth = 0.4 },
@@ -1650,10 +1659,11 @@ pub const presets = [_]Preset{
     .{ .name = "happy-piano", .category = "keys", .tags = &.{ "wstudio", "happy-hardcore", "j-core" }, .patch = .{
         .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_detune_cents = 5.0,
         .mod_mode = .fm_b_to_a, .mod_amount = 2.2,
-        .attack_s = 0.001, .decay_s = 0.5, .sustain = 0.05, .release_s = 0.35,
+        .attack_s = 0.001, .decay_s = 0.5, .sustain = 0.05, .release_s = 0.35, .env_curve = 0.7,
         .filter_type = .lp, .filter_cutoff = 9000.0, .filter_res = 0.05,
         .mod_matrix = mods(&.{
             .{ .source = .velocity, .dest = 15,  .depth = 0.15 },
+            .{ .source = .random,   .dest = 15,  .depth = 0.018 },
             .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
             .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
         }),
@@ -1666,9 +1676,9 @@ pub const presets = [_]Preset{
     // runs itself: hold a chord, it ping-pongs two octaves at 16 Hz
     .{ .name = "square-arp", .category = "pluck", .tags = &.{ "wstudio", "j-core", "nerdcore" }, .patch = .{
         .waveform = .square, .pulse_width = 0.35,
-        .attack_s = 0.001, .decay_s = 0.07, .sustain = 0.0, .release_s = 0.04,
+        .attack_s = 0.001, .decay_s = 0.07, .sustain = 0.0, .release_s = 0.04, .env_curve = 0.8,
         .filter_type = .lp, .filter_cutoff = 12_000.0, .filter_res = 0.15,
-        .arp_on = true, .arp_mode = .updown, .arp_octaves = 2, .arp_rate_hz = 16.0, .arp_gate = 0.55,
+        .arp_on = true, .arp_mode = .updown, .arp_octaves = 2, .arp_rate_hz = 16.0, .arp_sync = .n1_16, .arp_gate = 0.55,
         .mod_matrix = mods(&.{
             .{ .source = .mac2, .dest = 1,   .depth = 0.2 },
             .{ .source = .mac3, .dest = 111, .depth = 0.3 },
@@ -1686,9 +1696,9 @@ pub const presets = [_]Preset{
         .waveform = .saw, .unison = 3, .unison_detune = 12.0, .unison_spread = 0.55,
         .osc_b_on = true, .osc_b_waveform = .square, .osc_b_semi = 3.0, .osc_b_level = 0.55,
         .osc_c_on = true, .osc_c_waveform = .saw, .osc_c_semi = 7.0, .osc_c_level = 0.45,
-        .attack_s = 0.003, .decay_s = 0.22, .sustain = 0.05, .release_s = 0.18,
+        .attack_s = 0.003, .decay_s = 0.22, .sustain = 0.05, .release_s = 0.18, .env_curve = 0.58,
         .filter_type = .lp, .filter_cutoff = 2400.0, .filter_res = 0.18,
-        .fenv_attack_s = 0.001, .fenv_decay_s = 0.18, .fenv_sustain = 0.0, .fenv_release_s = 0.12,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.18, .fenv_sustain = 0.0, .fenv_release_s = 0.12, .fenv_curve = 0.6,
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21,  .depth = 0.45 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
@@ -1708,7 +1718,7 @@ pub const presets = [_]Preset{
         .attack_s = 1.1, .decay_s = 0.8, .sustain = 0.75, .release_s = 2.2,
         .filter_type = .formant, .filter_cutoff = 520.0, .filter_res = 0.18,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 170.0, .filter_routing = .series,
-        .lfo_shape = .sine, .lfo_rate_hz = 0.17,
+        .lfo_shape = .sine, .lfo_rate_hz = 0.17, .lfo_slew_ms = 65.0,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = 185, .depth = 0.12 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.35 },
@@ -1730,7 +1740,7 @@ pub const presets = [_]Preset{
         // growl-bass's harder vowel-snap above - this one loops seamlessly
         // (the last point matches the first) for a smoother "ah-wah" motion
         // instead of a hard reset each cycle.
-        .lfo_shape = .custom, .lfo_rate_hz = 3.0,
+        .lfo_shape = .custom, .lfo_rate_hz = 3.0, .lfo_sync = .n1_8t, .lfo_retrig = .key,
         .lfo_custom = .{
             lfoPoints(&.{
                 .{ .phase = 0.0,  .value = 1.0 },
@@ -1762,7 +1772,7 @@ pub const presets = [_]Preset{
         .attack_s = 1.6, .decay_s = 0.8, .sustain = 0.8, .release_s = 2.5,
         .filter_type = .lp, .filter_cutoff = 1800.0, .filter_res = 0.2,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 220.0, .filter_routing = .series,
-        .lfo2_shape = .chaos, .lfo2_rate_hz = 0.22,
+        .lfo2_shape = .chaos, .lfo2_rate_hz = 0.22, .lfo2_phase_offset = 0.41, .lfo2_slew_ms = 90.0,
         .mod_matrix = mods(&.{
             .{ .source = .lfo2, .dest = 185, .depth = 0.18 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
@@ -1780,7 +1790,7 @@ pub const presets = [_]Preset{
         .waveform = .wavetable, .wt_pos = 0.42, .voice_mode = .mono, .glide_s = 0.025,
         .sub_level = 0.55, .sub_shape = .sine,
         .attack_s = 0.003, .decay_s = 0.16, .sustain = 0.7, .release_s = 0.1,
-        .filter_type = .ladder, .filter_cutoff = 720.0, .filter_res = 0.18,
+        .filter_type = .ladder, .filter_cutoff = 720.0, .filter_res = 0.18, .filter_drive = 2.8,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.13, .fenv_sustain = 0.2, .fenv_release_s = 0.08,
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21,  .depth = 0.35 },
@@ -1799,7 +1809,7 @@ pub const presets = [_]Preset{
         .waveform = .wavetable, .wt_pos = 0.62, .unison = 6, .unison_detune = 17.0, .unison_spread = 0.9,
         .attack_s = 0.45, .decay_s = 0.5, .sustain = 0.8, .release_s = 1.4,
         .filter_type = .formant, .filter_cutoff = 650.0, .filter_res = 0.3,
-        .lfo_shape = .sine, .lfo_rate_hz = 0.3,
+        .lfo_shape = .sine, .lfo_rate_hz = 0.3, .lfo_sync = .n2_1, .lfo_slew_ms = 35.0,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = 21,  .depth = 0.16 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.45 },
@@ -1817,9 +1827,9 @@ pub const presets = [_]Preset{
     .{ .name = "deep-pluck", .category = "pluck", .tags = &.{ "wstudio", "deep-house" }, .patch = .{
         .waveform = .triangle, .unison = 2, .unison_detune = 5.0, .unison_spread = 0.35,
         .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.3,
-        .attack_s = 0.002, .decay_s = 0.24, .sustain = 0.0, .release_s = 0.18,
-        .filter_type = .ladder, .filter_cutoff = 780.0, .filter_res = 0.22,
-        .fenv_attack_s = 0.001, .fenv_decay_s = 0.2, .fenv_sustain = 0.0, .fenv_release_s = 0.12,
+        .attack_s = 0.002, .decay_s = 0.24, .sustain = 0.0, .release_s = 0.18, .env_curve = 0.66,
+        .filter_type = .ladder, .filter_cutoff = 780.0, .filter_res = 0.22, .filter_drive = 2.2,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.2, .fenv_sustain = 0.0, .fenv_release_s = 0.12, .fenv_curve = 0.7,
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21,  .depth = 0.5 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
@@ -1837,7 +1847,7 @@ pub const presets = [_]Preset{
         .osc_b_on = true, .osc_b_waveform = .square, .osc_b_pulse_width = 0.42, .osc_b_semi = 0.0, .osc_b_level = 0.35,
         .attack_s = 0.015, .decay_s = 0.25, .sustain = 0.75, .release_s = 0.22,
         .filter_type = .lp, .filter_cutoff = 1900.0, .filter_res = 0.2,
-        .lfo_shape = .sine, .lfo_rate_hz = 5.0,
+        .lfo_shape = .sine, .lfo_rate_hz = 5.0, .lfo_retrig = .key, .lfo_phase_offset = 0.25,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP,  .depth = 0.035 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.45 },
@@ -1853,8 +1863,8 @@ pub const presets = [_]Preset{
         .waveform = .square, .pulse_width = 0.47,
         .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 3.0, .osc_b_level = 0.5,
         .osc_c_on = true, .osc_c_waveform = .sine, .osc_c_semi = 7.0, .osc_c_level = 0.4,
-        .attack_s = 0.004, .decay_s = 0.2, .sustain = 0.0, .release_s = 0.16,
-        .filter_type = .ladder, .filter_cutoff = 1300.0, .filter_res = 0.28,
+        .attack_s = 0.004, .decay_s = 0.2, .sustain = 0.0, .release_s = 0.16, .env_curve = 0.62,
+        .filter_type = .ladder, .filter_cutoff = 1300.0, .filter_res = 0.28, .filter_drive = 2.5,
         .mod_matrix = mods(&.{
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
@@ -1873,7 +1883,7 @@ pub const presets = [_]Preset{
         .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.45,
         .attack_s = 0.003, .decay_s = 0.11, .sustain = 0.35, .release_s = 0.08,
         .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.12,
-        .lfo_shape = .sine, .lfo_rate_hz = 0.8,
+        .lfo_shape = .sine, .lfo_rate_hz = 0.8, .lfo_sync = .n1_2, .lfo_retrig = .key,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = 1,   .depth = 0.12 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
@@ -1889,12 +1899,13 @@ pub const presets = [_]Preset{
         .waveform = .sine,
         .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 14.0, .osc_b_level = 0.7,
         .mod_mode = .fm_b_to_a, .mod_amount = 0.85,
-        .attack_s = 0.003, .decay_s = 1.5, .sustain = 0.3, .release_s = 1.0,
+        .attack_s = 0.003, .decay_s = 1.5, .sustain = 0.3, .release_s = 1.0, .env_curve = 0.5,
         .filter_type = .lp, .filter_cutoff = 4200.0, .filter_res = 0.04,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.16, .fenv_sustain = 0.0, .fenv_release_s = 0.1,
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 15,  .depth = 0.1 },
             .{ .source = .velocity, .dest = 15,  .depth = 0.16 },
+            .{ .source = .random,   .dest = 15,  .depth = 0.015 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.35 },
             .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
             .{ .source = .mac3,     .dest = 179, .depth = 0.35 },
@@ -1909,7 +1920,7 @@ pub const presets = [_]Preset{
         .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.2,
         .sub_level = 0.5, .sub_shape = .sine,
         .attack_s = 0.006, .decay_s = 0.18, .sustain = 0.72, .release_s = 0.16,
-        .filter_type = .ladder, .filter_cutoff = 720.0, .filter_res = 0.08,
+        .filter_type = .ladder, .filter_cutoff = 720.0, .filter_res = 0.08, .filter_drive = 2.0,
         .fenv_attack_s = 0.002, .fenv_decay_s = 0.16, .fenv_sustain = 0.25, .fenv_release_s = 0.1,
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21, .depth = 0.22 },
@@ -1927,7 +1938,7 @@ pub const presets = [_]Preset{
     .{ .name = "vapor-keys", .category = "keys", .tags = &.{ "wstudio", "vaporwave" }, .patch = .{
         .waveform = .triangle, .detune_cents = -5.0,
         .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_detune_cents = 7.0, .osc_b_level = 0.42,
-        .attack_s = 0.008, .decay_s = 1.1, .sustain = 0.18, .release_s = 1.2,
+        .attack_s = 0.008, .decay_s = 1.1, .sustain = 0.18, .release_s = 1.2, .env_curve = 0.48,
         .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.06,
         .mod_matrix = mods(&.{
             .{ .source = .velocity, .dest = 21,  .depth = 0.2 },
@@ -1950,6 +1961,7 @@ pub const presets = [_]Preset{
         .attack_s = 0.012, .decay_s = 0.3, .sustain = 0.82, .release_s = 0.3,
         .filter_type = .lp, .filter_cutoff = 650.0, .filter_res = 0.08,
         .mod_matrix = mods(&.{
+            .{ .source = .random,   .dest = dP,  .depth = 0.003 },
             .{ .source = .keytrack, .dest = 21, .depth = 0.18 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.35 },
             .{ .source = .mac2,     .dest = 11, .depth = 0.22 },
@@ -1967,7 +1979,7 @@ pub const presets = [_]Preset{
         .attack_s = 0.008, .decay_s = 0.18, .sustain = 0.82, .release_s = 0.2,
         .filter_type = .lp, .filter_cutoff = 5200.0, .filter_res = 0.14,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 140.0, .filter_routing = .series,
-        .lfo_shape = .sine, .lfo_rate_hz = 5.6,
+        .lfo_shape = .sine, .lfo_rate_hz = 5.6, .lfo_retrig = .key, .lfo_phase_offset = 0.25,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP,  .depth = 0.06 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.45 },
@@ -1987,7 +1999,7 @@ pub const presets = [_]Preset{
         .attack_s = 0.55, .decay_s = 0.5, .sustain = 0.85, .release_s = 1.5,
         .filter_type = .lp, .filter_cutoff = 3600.0, .filter_res = 0.08,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 130.0, .filter_routing = .series,
-        .lfo2_shape = .sine, .lfo2_rate_hz = 0.32,
+        .lfo2_shape = .sine, .lfo2_rate_hz = 0.32, .lfo2_phase_offset = 0.25, .lfo2_slew_ms = 25.0,
         .mod_matrix = mods(&.{
             .{ .source = .lfo2, .dest = 8,   .depth = 0.16 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.42 },
