@@ -3095,7 +3095,7 @@ pub const App = struct {
                     self.modal.mode = .visual;
                     self.setStatus("visual: j/k extend, enter loads into pads", .{});
                 },
-                'p' => self.auditionBrowserEntry(),
+                'a' => self.auditionBrowserEntry(),
                 'b' => self.toggleBookmark(),
                 'B' => {
                     if (self.bookmarks.items.len == 0) {
@@ -3239,7 +3239,8 @@ pub const App = struct {
         self.closeBrowser();
     }
 
-    /// `p`: audition the file under the cursor (directories have nothing to
+    /// `a`: audition the file under the cursor - the same audition key the
+    /// pad, slice, preset, and soundfont views use (directories have nothing to
     /// play). Retriggering while one is still ringing is fine - the preview
     /// Sampler steals its own voice.
     fn auditionBrowserEntry(self: *App) void {

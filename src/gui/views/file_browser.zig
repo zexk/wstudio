@@ -34,7 +34,7 @@ pub fn draw(app: anytype) void {
     }
     zgui.textDisabled("{s}", .{app.core.browser_dir});
     zgui.separator();
-    zgui.textDisabled("/ search   j/k move   enter open   v select   - up   m mark   esc close", .{});
+    zgui.textDisabled("/ search   j/k move   enter open   a audition   v select   h up   b mark   esc close", .{});
     zgui.spacing();
 
     if (app.core.browser_entries.items.len == 0) {

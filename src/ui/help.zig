@@ -423,7 +423,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("/",            "fuzzy-search filenames, n / N repeat forward / backward - matches are highlighted");
     t.key("v",            "drum pad loads only: start a multi-file selection - j/k/g/G extend it");
     t.key("enter (visual)","load every selected file into consecutive pads from the cursor pad up (vG enter takes the whole folder)");
-    t.key("p",            "audition the file under the cursor - plays off-mixer, picks nothing");
+    t.key("a",            "audition the file under the cursor - plays off-mixer, picks nothing");
     t.key("b",            "bookmark / unbookmark the entry under the cursor (persists across sessions)");
     t.key("B",            "open the bookmark list - enter/l jumps, d removes, esc/q back");
     t.key("esc / q",      "cancel back to the previous view");
