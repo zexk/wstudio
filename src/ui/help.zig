@@ -348,7 +348,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("H / L",        "move cursor left / right (4 bars)");
     t.key("0",            "jump cursor to bar 0 (a count first makes it a digit instead: 10l)");
     t.key("j / k",        "move between track lanes");
-    t.key("enter",        "stamp the live pattern as a clip");
+    t.key("enter",        "stamp the live pattern as a clip - HOLD it and h/l resize the new clip");
     t.key("e",            "edit melodic clip in the piano roll (edits save into the clip)");
     t.key(":load",        "[file.wav]  load a WAV onto a sampler track and stamp it whole at the cursor bar");
     t.key("[ / ]",        "cycle drum/slicer pattern variant to stamp");

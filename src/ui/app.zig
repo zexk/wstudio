@@ -606,6 +606,12 @@ pub const App = struct {
     /// Arrangement view: bar cursor and horizontal scroll (lane = `cursor`).
     arr_cursor_bar: u32 = 0,
     arr_scroll_bar: u32 = 0,
+    /// Same idea as `piano_stamp`/`drum_stamp` for the arrangement: enter
+    /// stamping a clip starts a session where h/l live-resize it (reusing
+    /// resizeClip) and the cursor stays on the clip; dropping it jumps the
+    /// cursor past the clip's end for sequential placing. See
+    /// editors/arrangement.zig.
+    arr_stamp: bool = false,
     /// Arrangement view: vertical scroll over lanes - first visible lane
     /// index. Clamped directly in drawArrangement against the exact `rows`
     /// budget, same pattern as `arr_scroll_bar`'s horizontal clamp (and

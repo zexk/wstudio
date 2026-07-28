@@ -184,8 +184,12 @@ pub fn draw(app: anytype) void {
     }
 
     if (app.core.cursor < track_count) {
+        // One grid cell wide by default - a plain cursor for cutting and
+        // moving. It widens to the clip under it (which, right after
+        // `enter`, is the clip being stamped: hold enter and h/l resize it
+        // live, see editors/arrangement.zig's arr_stamp block).
         var cursor_start_tick = cursor_tick;
-        var cursor_span_ticks = app.core.session.stampLengthTicks(app.core.cursor);
+        var cursor_span_ticks = app.core.arr_grid.ticks();
         if (app.core.session.arrangement.lane(app.core.cursor)) |lane| {
             if (lane.clipAt(cursor_tick)) |clip| {
                 cursor_start_tick = clip.start_tick;
@@ -196,15 +200,18 @@ pub fn draw(app: anytype) void {
         const cursor_x = timeline_x + @as(f32, @floatFromInt(cursor_start_tick)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
         const cursor_w = @max(2, @as(f32, @floatFromInt(cursor_span_ticks)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w);
         const cursor_y = origin[1] + ruler_h + @as(f32, @floatFromInt(app.core.cursor)) * lane_h;
+        // A held-enter stamp session tints the cursor so the widened box
+        // reads as "adjusting this clip", not just "sitting on it".
+        const cursor_col = if (app.core.arr_stamp) theme.rhythm else theme.focus;
         draw_list.addRectFilled(.{
             .pmin = .{ cursor_x + 1, cursor_y + 1 },
             .pmax = .{ @min(cursor_x + cursor_w, origin[0] + canvas_w - 1), cursor_y + lane_h - 1 },
-            .col = color(.{ theme.focus[0], theme.focus[1], theme.focus[2], 0.16 }),
+            .col = color(.{ cursor_col[0], cursor_col[1], cursor_col[2], 0.16 }),
         });
         draw_list.addRect(.{
             .pmin = .{ cursor_x + 1, cursor_y + 1 },
             .pmax = .{ @min(cursor_x + cursor_w, origin[0] + canvas_w - 1), cursor_y + lane_h - 1 },
-            .col = color(theme.focus),
+            .col = color(cursor_col),
             .thickness = 2,
         });
     }

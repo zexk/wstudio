@@ -68,6 +68,28 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         }
     }
 
+    // Clip-stamp mode: a HELD enter keeps the cursor on the clip it just
+    // stamped so h/l edge-resize it live (the same resizeClip `-`/`+` use),
+    // mirroring the piano roll's note stamp and the drum grid's step stamp.
+    // Releasing enter drops it (`.enter_release`, from frontends that can
+    // see key-up) and jumps the cursor past the clip's end for sequential
+    // placing; legacy terminals never send the release, so enter/esc still
+    // drop explicitly and any other key drops first and is then handled
+    // normally below.
+    if (app.arr_stamp) {
+        switch (key) {
+            // zig fmt: off
+            .escape, .enter, .enter_release => { dropStamp(app); app.setStatus("clip placed", .{}); return true; },
+            .char => |c| switch (c) {
+                'h' => { resizeClip(app, -app.takeCount()); return true; },
+                'l' => { resizeClip(app, app.takeCount()); return true; },
+                // zig fmt: on
+                else => dropStamp(app),
+            },
+            else => dropStamp(app),
+        }
+    }
+
     switch (key) {
         .escape, .tab => { app.autoSongMode(false); app.view = .tracks; return true; },
         .enter => { stampClip(app); return true; },
@@ -534,8 +556,19 @@ fn cycleDrumVariant(app: *App, delta: i32) void {
     }
 }
 
-/// Capture the cursor track's live pattern as a clip at the cursor bar,
-/// then jump the cursor to the clip's end for quick sequential placing.
+/// End a stamp session: the cursor jumps past the clip's end so the next
+/// enter places the following one. Deferred from `stampClip` so the cursor
+/// stays on the clip while enter is held and h/l can resize it.
+fn dropStamp(app: *App) void {
+    app.arr_stamp = false;
+    const lane = app.session.arrangement.lane(app.cursor) orelse return;
+    const clip = lane.clipAt(cursorTick(app)) orelse return;
+    app.arr_cursor_bar = clip.endTick() / app.arr_grid.ticks();
+}
+
+/// Capture the cursor track's live pattern as a clip at the cursor bar and
+/// open a stamp session on it (see the `arr_stamp` block in handleKey);
+/// dropping that jumps the cursor to the clip's end for sequential placing.
 fn stampClip(app: *App) void {
     if (app.cursor >= app.session.racks.items.len) return;
     switch (std.meta.activeTag(app.session.racks.items[app.cursor].instrument)) {
@@ -555,12 +588,12 @@ fn stampClip(app: *App) void {
     if (app.session.arrangement.lane(app.cursor)) |lane| {
         if (lane.clipAt(cursor_tick)) |clip| {
             switch (clip.content) {
-                .drum => |d| app.setStatus("stamped {d}-bar clip (pat {c})", .{
+                .drum => |d| app.setStatus("stamped {d}-bar clip (pat {c}) - hold: h/l length; release/esc drops", .{
                     clip.length_ticks / ws.time_grid.ticks_per_beat, DrumMachine.variantLetter(d.variant),
                 }),
-                .melodic => app.setStatus("stamped {d} ticks", .{clip.length_ticks}),
+                .melodic => app.setStatus("stamped {d} ticks - hold: h/l length; release/esc drops", .{clip.length_ticks}),
             }
-            app.arr_cursor_bar = clip.endTick() / app.arr_grid.ticks();
+            app.arr_stamp = true;
         }
     }
     // Keep song playback in sync with the edit if it's driving the transport.

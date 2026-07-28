@@ -1622,6 +1622,7 @@ test "arrangement places moves and cuts clips on the 1/128 grid" {
 
     app.arr_cursor_bar = 1;
     app.handleKey(.enter, 0);
+    app.handleKey(.enter_release, 0); // end the hold-to-resize stamp session
     const lane = app.session.arrangement.lane(0).?;
     try std.testing.expectEqual(@as(u32, 1), lane.clips.items[0].start_tick);
     const old_len = lane.clips.items[0].length_ticks;
@@ -1630,6 +1631,28 @@ test "arrangement places moves and cuts clips on the 1/128 grid" {
     try std.testing.expectEqual(old_len - 1, lane.clips.items[0].length_ticks);
     app.handleKey(.{ .char = '>' }, 0);
     try std.testing.expectEqual(@as(u32, 2), lane.clips.items[0].start_tick);
+}
+
+test "arrangement: held enter resizes the fresh clip, release places it" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_cursor_bar = 0;
+
+    app.handleKey(.enter, 0);
+    try std.testing.expect(app.arr_stamp);
+    const lane = app.session.arrangement.lane(0).?;
+    const len = lane.clips.items[0].length_ticks;
+    // The cursor stays on the clip while enter is held, so l grows it.
+    try std.testing.expectEqual(@as(u32, 0), app.arr_cursor_bar);
+    app.handleKey(.{ .char = 'l' }, 0);
+    try std.testing.expectEqual(len + app.arr_grid.ticks(), lane.clips.items[0].length_ticks);
+
+    // Release drops the session and jumps past the clip for the next stamp.
+    app.handleKey(.enter_release, 0);
+    try std.testing.expect(!app.arr_stamp);
+    try std.testing.expectEqual(lane.clips.items[0].endTick() / app.arr_grid.ticks(), app.arr_cursor_bar);
 }
 
 test "automation editor: nudge, `.` repeat, and visual range yank/delete/paste" {
@@ -2319,9 +2342,11 @@ test "undo restores clips a stamp evicted" {
     app.cursor = 0;
     app.arr_cursor_bar = 0;
     app.handleKey(.enter, 0);
+    app.handleKey(.enter_release, 0); // end the hold-to-resize stamp session
     pp.notes[0].pitch = 72; // different content for the second stamp
     app.arr_cursor_bar = 0;
     app.handleKey(.enter, 0);
+    app.handleKey(.enter_release, 0);
     const lane = app.session.arrangement.lane(0).?;
     try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
     try std.testing.expectEqual(@as(u7, 72), lane.clips.items[0].content.melodic.notes[0].pitch);
