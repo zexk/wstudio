@@ -128,13 +128,11 @@ fn dupeInitPath(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return allocator.dupe(u8, path);
 }
 
-const version = "1.0.0-beta.3";
-
 fn printVersion(io: std.Io) !void {
     var stdout_buffer: [64]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
     const stdout = &stdout_writer.interface;
-    try stdout.print("wstudio {s}\n", .{version});
+    try stdout.print("wstudio {s}\n", .{ws.version});
     try stdout.flush();
 }
 
@@ -157,7 +155,7 @@ fn printHelp(io: std.Io) !void {
             "                      (~/.config/wstudio/init.lua, then /etc/xdg/wstudio/init.lua);\n" ++
             "                      -u NONE skips loading any config file. May appear\n" ++
             "                      anywhere on the command line.\n",
-        .{version},
+        .{ws.version},
     );
     try stdout.flush();
 }
