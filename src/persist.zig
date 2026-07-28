@@ -130,20 +130,28 @@ pub const SynthSnap = struct {
     decay_s: f32 = 0.08,
     sustain: f32 = 0.7,
     release_s: f32 = 0.25,
+    /// Envelope segment curvature and filter input drive (additive
+    /// optional-with-default fields, no version bump - absent in every file
+    /// predating them, and their defaults are exactly the straight ramps and
+    /// bypassed drive those files were saved with).
+    env_curve: f32 = 0.0,
     // Filter
     filter_type: synth_mod.FilterType = .lp,
     filter_cutoff: f32 = 18_000.0,
     filter_res: f32 = 0.0,
+    filter_drive: f32 = 1.0,
     filter2_on: bool = false,
     filter2_type: synth_mod.FilterType = .lp,
     filter2_cutoff: f32 = 18_000.0,
     filter2_res: f32 = 0.0,
+    filter2_drive: f32 = 1.0,
     filter_routing: synth_mod.FilterRouting = .series,
     // Filter envelope
     fenv_attack_s: f32 = 0.005,
     fenv_decay_s: f32 = 0.5,
     fenv_sustain: f32 = 0.0,
     fenv_release_s: f32 = 0.3,
+    fenv_curve: f32 = 0.0,
     // LFO
     lfo_shape: synth_mod.LfoShape = .sine,
     lfo_rate_hz: f32 = 1.0,
@@ -308,6 +316,7 @@ pub const SynthSnap = struct {
     env3_decay_s: f32 = 0.3,
     env3_sustain: f32 = 0.0,
     env3_release_s: f32 = 0.3,
+    env3_curve: f32 = 0.0,
     // Wavetable oscillators (v20): frame-scan position is additive, but
     // the sidecar-path fields are a new field *shape* (a path, not a plain
     // value) - bumped file_version for clarity, same call as the OTT unit.

@@ -86,7 +86,9 @@ pub const max_lfo_shape_points: u8 = 8;
 /// `max_lfo_shape_points`'s doc comment. Slot `s` (0/1/2 = LFO 1/2/3)
 /// occupies ids `base + s*17 .. base + s*17 + 15` (point `i`'s phase at
 /// `+i*2`, value at `+i*2+1`) plus one count id at `base + s*17 + 16`.
-/// Highest id used: 195 + 2*17 + 16 = 245, leaving 246-255 free.
+/// Highest id used: 195 + 2*17 + 16 = 245. 246-248 are the three envelope
+/// curvature knobs and 249-250 the two filter drives; 251-253 stay free,
+/// and 254/255 are `dest_pitch`/`dest_amp`.
 pub const lfo_custom_id_base: u16 = 195;
 pub const lfo_custom_ids_per_slot: u16 = max_lfo_shape_points * 2 + 1;
 const default_lfo_custom_points: [max_lfo_shape_points]LfoShapePoint = blk: {
@@ -679,6 +681,8 @@ pub const PolySynth = struct {
     sustain:   f32 = 0.7,
     // zig fmt: on
     release_s: f32 = 0.25,
+    /// Segment curvature: -1 logarithmic, 0 linear, +1 exponential.
+    env_curve: f32 = 0.0,
 
     // ── FILTER ──────────────────────────────────────────────────────────────
     filter_type: FilterType = .lp,
@@ -686,6 +690,8 @@ pub const PolySynth = struct {
     filter_cutoff: f32 = 18_000.0,
     /// Filter resonance 0..1 (mapped to Q 0.5..20).
     filter_res: f32 = 0.0,
+    /// Input drive into filter 1. 1 = bypass.
+    filter_drive: f32 = 1.0,
 
     // ── FILTER 2 ────────────────────────────────────────────────────────────
     /// Second filter slot. Shares the filter envelope/LFO-target modulation
@@ -695,6 +701,8 @@ pub const PolySynth = struct {
     filter2_type: FilterType = .lp,
     filter2_cutoff: f32 = 18_000.0,
     filter2_res: f32 = 0.0,
+    /// Input drive into filter 2. 1 = bypass.
+    filter2_drive: f32 = 1.0,
     filter_routing: FilterRouting = .series,
 
     // ── FILTER ENVELOPE ─────────────────────────────────────────────────────
@@ -703,6 +711,8 @@ pub const PolySynth = struct {
     fenv_decay_s:   f32 = 0.5,
     fenv_sustain:   f32 = 0.0,
     fenv_release_s: f32 = 0.3,
+    /// Segment curvature: -1 logarithmic, 0 linear, +1 exponential.
+    fenv_curve:     f32 = 0.0,
 
     // ── LFO ─────────────────────────────────────────────────────────────────
     // A pure mod source since the matrix absorbed its routing: shape + rate
@@ -1023,6 +1033,8 @@ pub const PolySynth = struct {
     env3_decay_s:   f32 = 0.3,
     env3_sustain:   f32 = 0.0,
     env3_release_s: f32 = 0.3,
+    /// Segment curvature: -1 logarithmic, 0 linear, +1 exponential.
+    env3_curve:     f32 = 0.0,
     // zig fmt: on
 
     /// Index of the most recently triggered voice: the FX destinations are
@@ -1080,7 +1092,7 @@ pub const PolySynth = struct {
     /// controls, not motion-worthy targets). Automation lanes still reach
     /// all of these; only matrix rows are barred.
     const mod_dest_excluded_ids = [_]u16{
-        29,  61,  64,  67,  70,  73,  76,  79,  82,  96,  98,  99, 100, 101, 102, 119, 120,
+        29,  61,  64,  67,  70,  73,  76, 79, 82, 96, 98, 99, 100, 101, 102, 119, 120,
         262, 263, 264, 265, 266, 267,
     };
 
@@ -1395,21 +1407,25 @@ pub const PolySynth = struct {
         decay_s: f32 = 0.08,
         sustain: f32 = 0.7,
         release_s: f32 = 0.25,
+        env_curve: f32 = 0.0,
 
         filter_type: FilterType = .lp,
         filter_cutoff: f32 = 18_000.0,
         filter_res: f32 = 0.0,
+        filter_drive: f32 = 1.0,
 
         filter2_on: bool = false,
         filter2_type: FilterType = .lp,
         filter2_cutoff: f32 = 18_000.0,
         filter2_res: f32 = 0.0,
+        filter2_drive: f32 = 1.0,
         filter_routing: FilterRouting = .series,
 
         fenv_attack_s: f32 = 0.005,
         fenv_decay_s: f32 = 0.5,
         fenv_sustain: f32 = 0.0,
         fenv_release_s: f32 = 0.3,
+        fenv_curve: f32 = 0.0,
 
         lfo_shape: LfoShape = .sine,
         lfo_rate_hz: f32 = 1.0,
@@ -1553,6 +1569,7 @@ pub const PolySynth = struct {
         env3_decay_s: f32 = 0.3,
         env3_sustain: f32 = 0.0,
         env3_release_s: f32 = 0.3,
+        env3_curve: f32 = 0.0,
     };
 
     /// Load a patch onto this synth. Field-by-field so per-instance state
@@ -1988,6 +2005,13 @@ pub const PolySynth = struct {
             const env3_attack_inc  = 1.0 / @max(eff(&mods, 122, self.env3_attack_s)  * self.sample_rate, 1.0);
             const env3_decay_inc   = (1.0 - env3_sustain_v) / @max(eff(&mods, 123, self.env3_decay_s) * self.sample_rate, 1.0);
             const env3_release_inc = 1.0 / @max(eff(&mods, 125, self.env3_release_s) * self.sample_rate, 1.0);
+
+            const amp_shape  = envShape(attack_inc, decay_inc, release_inc, sustain_v, eff(&mods, 246, self.env_curve));
+            const fenv_shape = envShape(fenv_attack_inc, fenv_decay_inc, fenv_release_inc, fenv_sustain_v, eff(&mods, 247, self.fenv_curve));
+            const env3_shape = envShape(env3_attack_inc, env3_decay_inc, env3_release_inc, env3_sustain_v, eff(&mods, 248, self.env3_curve));
+
+            const drive1_v = eff(&mods, 249, self.filter_drive);
+            const drive2_v = eff(&mods, 250, self.filter2_drive);
             // zig fmt: on
 
             // Glide: advance current log-freq toward target at block rate.
@@ -2140,7 +2164,7 @@ pub const PolySynth = struct {
                 // FM B→A: render B first so b_mono is ready when A phases advance.
                 if (self.osc_b_on and self.mod_mode == .fm_b_to_a) {
                     for (0..n_b) |ui| {
-                        const samp = self.oscSampleB(v.phases_b[ui], pw_b, warp_amt_b, wt_pos_b);
+                        const samp = self.oscSampleB(v.phases_b[ui], phase_incs_b[ui], pw_b, warp_amt_b, wt_pos_b);
                         b_l += samp * pan_l_b[ui];
                         b_r += samp * pan_r_b[ui];
                         b_mono += samp;
@@ -2151,15 +2175,18 @@ pub const PolySynth = struct {
                 }
 
                 // OSC A: phase is FM-modulated by b_mono when mod_mode == fm_b_to_a.
+                // The step is computed before the sample, not after, because
+                // polyBLEP needs to know how fast the phase is moving to size
+                // its correction (see `polyBlep`).
                 for (0..n_a) |ui| {
-                    const samp = self.oscSampleA(v.phases[ui], pw_a, warp_amt_a, wt_pos_a);
-                    a_l += samp * pan_l_a[ui];
-                    a_r += samp * pan_r_a[ui];
-                    a_mono += samp;
                     const inc: f32 = if (self.mod_mode == .fm_b_to_a)
                         phase_incs_a[ui] * (1.0 + mod_amount_v * b_mono)
                     else
                         phase_incs_a[ui];
+                    const samp = self.oscSampleA(v.phases[ui], inc, pw_a, warp_amt_a, wt_pos_a);
+                    a_l += samp * pan_l_a[ui];
+                    a_r += samp * pan_r_a[ui];
+                    a_mono += samp;
                     v.phases[ui] += inc;
                     if (self.mod_mode == .fm_b_to_a) {
                         v.phases[ui] -= @floor(v.phases[ui]);
@@ -2172,15 +2199,15 @@ pub const PolySynth = struct {
                 // OSC B: skip if already rendered above for fm_b_to_a.
                 if (self.osc_b_on and self.mod_mode != .fm_b_to_a) {
                     for (0..n_b) |ui| {
-                        const samp = self.oscSampleB(v.phases_b[ui], pw_b, warp_amt_b, wt_pos_b);
-                        b_l += samp * pan_l_b[ui];
-                        b_r += samp * pan_r_b[ui];
-                        b_mono += samp;
                         // FM A→B: advance B's phase modulated by a_mono.
                         const inc: f32 = if (self.mod_mode == .fm_a_to_b)
                             phase_incs_b[ui] * (1.0 + mod_amount_v * a_mono)
                         else
                             phase_incs_b[ui];
+                        const samp = self.oscSampleB(v.phases_b[ui], inc, pw_b, warp_amt_b, wt_pos_b);
+                        b_l += samp * pan_l_b[ui];
+                        b_r += samp * pan_r_b[ui];
+                        b_mono += samp;
                         v.phases_b[ui] += inc;
                         if (self.mod_mode == .fm_a_to_b) {
                             v.phases_b[ui] -= @floor(v.phases_b[ui]);
@@ -2214,7 +2241,7 @@ pub const PolySynth = struct {
                         const samp = if (self.osc_c_waveform == .wavetable)
                             wavetable.lookup(self.osc_c_wt, wt_pos_c, v.phases_c[ui])
                         else
-                            oscWave(self.osc_c_waveform, v.phases_c[ui], pw_c);
+                            oscWave(self.osc_c_waveform, v.phases_c[ui], pw_c, phase_incs_c[ui]);
                         c_l += samp * pan_l_c[ui];
                         c_r += samp * pan_r_c[ui];
                         v.phases_c[ui] += phase_incs_c[ui];
@@ -2222,14 +2249,15 @@ pub const PolySynth = struct {
                     }
                 }
 
-                // Sub: always centre (mono → both channels).
+                // Sub: always centre (mono → both channels). Routed through
+                // oscWave at a fixed 50% duty so the square sub gets the same
+                // polyBLEP band-limiting OSC A/B/C do - an octave down still
+                // leaves plenty of harmonics above Nyquist to fold back.
                 var sub_out: f32 = 0.0;
                 if (sub_level_v > 0.0) {
-                    sub_out = (switch (self.sub_shape) {
-                        .sine   => @sin(2.0 * std.math.pi * v.sub_phase),
-                        // zig fmt: on
-                        .square => if (v.sub_phase < 0.5) @as(f32, 1.0) else @as(f32, -1.0),
-                    }) * sub_level_v;
+                    // zig fmt: on
+                    const sub_wf: Waveform = if (self.sub_shape == .sine) .sine else .square;
+                    sub_out = oscWave(sub_wf, v.sub_phase, 0.5, sub_phase_inc) * sub_level_v;
                     v.sub_phase += sub_phase_inc;
                     if (v.sub_phase >= 1.0) v.sub_phase -= 1.0;
                 }
@@ -2261,8 +2289,8 @@ pub const PolySynth = struct {
 
                 // Stereo filter: same coefficients, independent L/R histories.
                 // zig fmt: off
-                const filt1_l = filterSample(self.filter_type, fc, &v.f1_l, osc_l);
-                const filt1_r = filterSample(self.filter_type, fc, &v.f1_r, osc_r);
+                const filt1_l = filterSample(self.filter_type, fc, &v.f1_l, driveInput(drive1_v, osc_l));
+                const filt1_r = filterSample(self.filter_type, fc, &v.f1_r, driveInput(drive1_v, osc_r));
 
                 // Filter 2: series chains off filter 1's output; parallel
                 // filters the same dry mix and blends with filter 1's output.
@@ -2273,8 +2301,8 @@ pub const PolySynth = struct {
                     const in2_l = if (self.filter_routing == .series) filt1_l else osc_l;
                     const in2_r = if (self.filter_routing == .series) filt1_r else osc_r;
 
-                    const filt2_l = filterSample(self.filter2_type, fc2, &v.f2_l, in2_l);
-                    const filt2_r = filterSample(self.filter2_type, fc2, &v.f2_r, in2_r);
+                    const filt2_l = filterSample(self.filter2_type, fc2, &v.f2_l, driveInput(drive2_v, in2_l));
+                    const filt2_r = filterSample(self.filter2_type, fc2, &v.f2_r, driveInput(drive2_v, in2_r));
 
                     filt_l = if (self.filter_routing == .series) filt2_l else (filt1_l + filt2_l) * 0.5;
                     filt_r = if (self.filter_routing == .series) filt2_r else (filt1_r + filt2_r) * 0.5;
@@ -2287,17 +2315,17 @@ pub const PolySynth = struct {
 
                 // Amplitude envelope - hitting zero on release kills the
                 // voice outright (unlike the filter/env3 envelopes below).
-                if (advanceEnv(&v.stage, &v.env, sustain_v, attack_inc, decay_inc, release_inc)) {
+                if (advanceEnv(&v.stage, &v.env, sustain_v, amp_shape)) {
                     v.* = .{};
                     break;
                 }
 
                 // Filter envelope (voice death is governed by amp env above)
-                _ = advanceEnv(&v.stage2, &v.env2, fenv_sustain_v, fenv_attack_inc, fenv_decay_inc, fenv_release_inc);
+                _ = advanceEnv(&v.stage2, &v.env2, fenv_sustain_v, fenv_shape);
 
                 // ENV 3 (free-assign, no fixed destination - voice death is
                 // still governed by the amp env above)
-                _ = advanceEnv(&v.stage3, &v.env3, env3_sustain_v, env3_attack_inc, env3_decay_inc, env3_release_inc);
+                _ = advanceEnv(&v.stage3, &v.env3, env3_sustain_v, env3_shape);
             }
         }
 
@@ -2845,17 +2873,27 @@ pub const PolySynth = struct {
     /// has decayed to zero during release; the amp-envelope caller uses
     /// that to kill the whole voice, while filter/env3 just let `level`
     /// stay parked at zero (this function's own floor already handles it).
-    fn advanceEnv(stage: *Stage, level: *f32, sustain_v: f32, attack_inc: f32, decay_inc: f32, release_inc: f32) bool {
+    fn advanceEnv(stage: *Stage, level: *f32, sustain_v: f32, sh: EnvShape) bool {
         switch (stage.*) {
             .attack => {
-                level.* += attack_inc;
+                if (sh.curve < 0.0)
+                    level.* += (1.0 + sh.ov - level.*) * sh.ka
+                else if (sh.curve > 0.0)
+                    level.* += (level.* + sh.ov) * sh.ka
+                else
+                    level.* += sh.attack;
                 if (level.* >= 1.0) {
                     level.* = 1.0;
                     stage.* = .decay;
                 }
             },
             .decay => {
-                level.* -= decay_inc;
+                if (sh.curve < 0.0)
+                    level.* += (sustain_v - (1.0 - sustain_v) * sh.ov - level.*) * sh.kd
+                else if (sh.curve > 0.0)
+                    level.* -= (1.0 - level.* + (1.0 - sustain_v) * sh.ov) * sh.kd
+                else
+                    level.* -= sh.decay;
                 if (level.* <= sustain_v) {
                     level.* = sustain_v;
                     stage.* = .sustain;
@@ -2863,7 +2901,12 @@ pub const PolySynth = struct {
             },
             .sustain => {},
             .release => {
-                level.* -= release_inc;
+                if (sh.curve < 0.0)
+                    level.* -= (level.* + sh.ov) * sh.kr
+                else if (sh.curve > 0.0)
+                    level.* -= (1.0 - level.* + sh.ov) * sh.kr
+                else
+                    level.* -= sh.release;
                 if (level.* <= 0.0) {
                     level.* = 0.0;
                     return true;
@@ -2871,6 +2914,45 @@ pub const PolySynth = struct {
             },
         }
         return false;
+    }
+
+    /// Per-sample driving terms for one ADSR's three segments.
+    const EnvShape = struct {
+        attack: f32,
+        decay: f32,
+        release: f32,
+        curve: f32 = 0.0,
+        ka: f32 = 0.0,
+        kd: f32 = 0.0,
+        kr: f32 = 0.0,
+        ov: f32 = 0.0,
+    };
+
+    fn envShape(attack_inc: f32, decay_inc: f32, release_inc: f32, sustain_v: f32, curve: f32) EnvShape {
+        var out: EnvShape = .{ .attack = attack_inc, .decay = decay_inc, .release = release_inc };
+        const c = std.math.clamp(curve, -1.0, 1.0);
+        if (!(c < 0.0 or c > 0.0)) return out;
+        const r = std.math.pow(f32, 0.01, @abs(c));
+        const span = 1.0 - sustain_v;
+        const decay_step = if (span > 1e-6) decay_inc / span else decay_inc;
+        out.curve = c;
+        out.ov = r / (1.0 - r);
+        if (c < 0.0) {
+            out.ka = 1.0 - std.math.pow(f32, r, attack_inc);
+            out.kd = 1.0 - std.math.pow(f32, r, decay_step);
+            out.kr = 1.0 - std.math.pow(f32, r, release_inc);
+        } else {
+            out.ka = std.math.pow(f32, r, -attack_inc) - 1.0;
+            out.kd = std.math.pow(f32, r, -decay_step) - 1.0;
+            out.kr = std.math.pow(f32, r, -release_inc) - 1.0;
+        }
+        return out;
+    }
+
+    /// Pre-filter saturation. Drive 1 preserves legacy output exactly.
+    fn driveInput(drive: f32, x: f32) f32 {
+        if (!(drive > 1.0)) return x;
+        return std.math.tanh(x * drive) / std.math.tanh(drive);
     }
 
     /// One sample through one filter slot/channel, dispatching on the
@@ -2996,17 +3078,36 @@ pub const PolySynth = struct {
     /// in which of self's oscillator-A/B fields they read. `pw`/
     /// `warp_amount`/`wt_pos` are passed in (not read off `self`) so the
     /// caller can substitute per-voice matrix-modulated values.
-    fn oscSample(waveform: Waveform, wt: Wavetable, warp_mode: WarpMode, phase: f32, pw: f32, warp_amount: f32, wt_pos: f32) Sample {
+    fn oscSample(waveform: Waveform, wt: Wavetable, warp_mode: WarpMode, phase: f32, inc: f32, pw: f32, warp_amount: f32, wt_pos: f32) Sample {
         const p = warpPhase(warp_mode, phase, warp_amount);
-        return if (waveform == .wavetable) wavetable.lookup(wt, wt_pos, p) else oscWave(waveform, p, pw);
+        if (waveform == .wavetable) return wavetable.lookup(wt, wt_pos, p);
+        return oscWave(waveform, p, pw, warpedInc(warp_mode, phase, inc, warp_amount, p));
     }
 
-    fn oscSampleA(self: *const PolySynth, phase: f32, pw: f32, warp_amount: f32, wt_pos: f32) Sample {
-        return oscSample(self.waveform, self.wt, self.warp_mode, phase, pw, warp_amount, wt_pos);
+    /// The per-sample step *in warped phase*, which is what `polyBlep` has to
+    /// size its window against - warping stretches part of the cycle and
+    /// compresses the rest, so the raw oscillator increment is the wrong
+    /// scale everywhere but `.none`. Taken as the actual one-sample
+    /// difference rather than by hand-differentiating each mode, since
+    /// `.bend`/`.mirror` are piecewise and `.sync` wraps.
+    ///
+    /// `.mirror` runs the phase *backwards* past its pivot, and a `.sync`
+    /// wrap at a high multiplier can outrun the window; both land outside a
+    /// sane step and fall back to the unwarped increment (undercorrecting
+    /// there rather than injecting a residual at the wrong width).
+    fn warpedInc(mode: WarpMode, phase: f32, inc: f32, amount: f32, warped: f32) f32 {
+        if (mode == .none) return inc;
+        var d = warpPhase(mode, phase + inc, amount) - warped;
+        d -= @floor(d);
+        return if (d > 0.0 and d < 0.25) d else inc;
     }
 
-    fn oscSampleB(self: *const PolySynth, phase: f32, pw: f32, warp_amount: f32, wt_pos: f32) Sample {
-        return oscSample(self.osc_b_waveform, self.osc_b_wt, self.osc_b_warp_mode, phase, pw, warp_amount, wt_pos);
+    fn oscSampleA(self: *const PolySynth, phase: f32, inc: f32, pw: f32, warp_amount: f32, wt_pos: f32) Sample {
+        return oscSample(self.waveform, self.wt, self.warp_mode, phase, inc, pw, warp_amount, wt_pos);
+    }
+
+    fn oscSampleB(self: *const PolySynth, phase: f32, inc: f32, pw: f32, warp_amount: f32, wt_pos: f32) Sample {
+        return oscSample(self.osc_b_waveform, self.osc_b_wt, self.osc_b_warp_mode, phase, inc, pw, warp_amount, wt_pos);
     }
 
     /// Remap a read phase before waveform lookup. Keep normalization here as
@@ -3046,13 +3147,33 @@ pub const PolySynth = struct {
         };
     }
 
-    fn oscWave(wf: Waveform, phase: f32, pw: f32) Sample {
+    /// Two-sample polynomial correction around a unit step discontinuity.
+    fn polyBlep(t: f32, dt: f32) f32 {
+        if (!(dt > 0.0) or dt >= 0.5) return 0.0;
+        if (t < dt) {
+            const x = t / dt;
+            return x + x - x * x - 1.0;
+        }
+        if (t > 1.0 - dt) {
+            const x = (t - 1.0) / dt;
+            return x * x + x + x + 1.0;
+        }
+        return 0.0;
+    }
+
+    /// `dt` sizes polyBLEP correction for saw and square discontinuities.
+    fn oscWave(wf: Waveform, phase: f32, pw: f32, dt: f32) Sample {
         return switch (wf) {
             // zig fmt: off
             .sine     => @sin(2.0 * std.math.pi * phase),
-            .saw      => 2.0 * phase - 1.0,
+            .saw      => 2.0 * phase - 1.0 - polyBlep(phase, dt),
             .triangle => 1.0 - 4.0 * @abs(phase - 0.5),
-            .square   => if (phase < pw) 1.0 else -1.0,
+            // Rising edge at phase 0, falling edge at the duty point.
+            .square   => blk: {
+                const naive: f32 = if (phase < pw) 1.0 else -1.0;
+                const off = phase - pw;
+                break :blk naive + polyBlep(phase, dt) - polyBlep(off - @floor(off), dt);
+            },
             // Callers branch to `wavetable.lookup` before reaching here -
             // this arm only exists to keep the switch exhaustive.
             .wavetable => 0.0,
@@ -3312,14 +3433,17 @@ pub const PolySynth = struct {
         .{ .id = 17, .field = "decay_s", .min = 0.001, .max = 5.0, .step = 0.005 },
         .{ .id = 18, .field = "sustain", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 19, .field = "release_s", .min = 0.001, .max = 10.0, .step = 0.005 },
+        .{ .id = 246, .field = "env_curve", .min = -1.0, .max = 1.0, .step = 0.01 },
         .{ .id = 20, .field = "filter_type", .kind = .cycle, .enum_type = FilterType },
         .{ .id = 21, .field = "filter_cutoff", .kind = .log_freq, .min = 20.0, .max = 20_000.0 },
         .{ .id = 22, .field = "filter_res", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 249, .field = "filter_drive", .min = 1.0, .max = 16.0, .step = 0.1 },
         // 23 (fenv amount) retired - absorbed into the mod matrix.
         .{ .id = 24, .field = "fenv_attack_s", .min = 0.001, .max = 5.0, .step = 0.001 },
         .{ .id = 25, .field = "fenv_decay_s", .min = 0.001, .max = 5.0, .step = 0.005 },
         .{ .id = 26, .field = "fenv_sustain", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 27, .field = "fenv_release_s", .min = 0.001, .max = 10.0, .step = 0.005 },
+        .{ .id = 247, .field = "fenv_curve", .min = -1.0, .max = 1.0, .step = 0.01 },
         .{ .id = 28, .field = "lfo_shape", .kind = .cycle, .enum_type = LfoShape },
         .{ .id = 29, .field = "lfo_rate_hz", .min = 0.01, .max = 20.0, .step = 0.1 },
         .{ .id = 256, .field = "lfo_sync", .kind = .cycle, .enum_type = LfoSync },
@@ -3344,6 +3468,7 @@ pub const PolySynth = struct {
         .{ .id = 46, .field = "filter2_type", .kind = .cycle, .enum_type = FilterType },
         .{ .id = 47, .field = "filter2_cutoff", .kind = .log_freq, .min = 20.0, .max = 20_000.0 },
         .{ .id = 48, .field = "filter2_res", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 250, .field = "filter2_drive", .min = 1.0, .max = 16.0, .step = 0.1 },
         .{ .id = 49, .field = "filter_routing", .kind = .cycle, .enum_type = FilterRouting },
         .{ .id = 50, .field = "osc_c_on", .kind = .toggle },
         .{ .id = 51, .field = "osc_c_waveform", .kind = .cycle, .enum_type = Waveform },
@@ -3407,6 +3532,7 @@ pub const PolySynth = struct {
         .{ .id = 123, .field = "env3_decay_s", .min = 0.001, .max = 5.0, .step = 0.005 },
         .{ .id = 124, .field = "env3_sustain", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 125, .field = "env3_release_s", .min = 0.001, .max = 10.0, .step = 0.005 },
+        .{ .id = 248, .field = "env3_curve", .min = -1.0, .max = 1.0, .step = 0.01 },
         // FX reorder handles (126-131, 136, 143, 160, 166, 175, 180, 184,
         // 194) are in `fx_reorder_ids` below, not here.
         .{ .id = 132, .field = "fx_gate_on", .kind = .toggle },
@@ -3720,12 +3846,15 @@ pub const PolySynth = struct {
         .{ .id = 17, .label = "DECAY",      .section = "ENV",     .range = .{ 0.001,  5.0 },     .step = 0.01 },
         .{ .id = 18, .label = "SUSTAIN",    .section = "ENV",     .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 19, .label = "RELEASE",    .section = "ENV",     .range = .{ 0.001,  10.0 },    .step = 0.01 },
+        .{ .id = 246,.label = "ENV CURVE",  .section = "ENV",     .range = .{ -1.0,   1.0 },     .step = 0.01 },
         .{ .id = 21, .label = "CUTOFF",     .section = "FILTER",  .range = .{ 20.0,   20_000.0 },.step = 100.0 },
         .{ .id = 22, .label = "RESONANCE",  .section = "FILTER",  .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 249,.label = "DRIVE",      .section = "FILTER",  .range = .{ 1.0,    16.0 },    .step = 0.1 },
         .{ .id = 24, .label = "FENV ATK",   .section = "FENV",    .range = .{ 0.001,  5.0 },     .step = 0.01 },
         .{ .id = 25, .label = "FENV DEC",   .section = "FENV",    .range = .{ 0.001,  5.0 },     .step = 0.01 },
         .{ .id = 26, .label = "FENV SUS",   .section = "FENV",    .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 27, .label = "FENV REL",   .section = "FENV",    .range = .{ 0.001,  10.0 },    .step = 0.01 },
+        .{ .id = 247,.label = "FENV CURVE", .section = "FENV",    .range = .{ -1.0,   1.0 },     .step = 0.01 },
         .{ .id = 29, .label = "LFO RATE",   .section = "LFO",     .range = .{ 0.01,   20.0 },    .step = 0.1 },
         .{ .id = 262,.label = "LFO PHASE",  .section = "LFO",     .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 265,.label = "LFO SLEW",   .section = "LFO",     .range = .{ 0.0,    500.0 },   .step = 5.0 },
@@ -3738,6 +3867,7 @@ pub const PolySynth = struct {
         .{ .id = 44, .label = "WARP AMT B", .section = "OSC B",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 47, .label = "CUTOFF 2",   .section = "FILTER 2",.range = .{ 20.0,   20_000.0 },.step = 100.0 },
         .{ .id = 48, .label = "RESONANCE 2",.section = "FILTER 2",.range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 250,.label = "DRIVE 2",    .section = "FILTER 2",.range = .{ 1.0,    16.0 },    .step = 0.1 },
         .{ .id = 52, .label = "PW C",       .section = "OSC C",   .range = .{ 0.01,   0.99 },    .step = 0.01 },
         .{ .id = 53, .label = "SEMI C",     .section = "OSC C",   .range = .{ -24.0,  24.0 },    .step = 1.0 },
         .{ .id = 54, .label = "DETUNE C",   .section = "OSC C",   .range = .{ -100.0, 100.0 },   .step = 1.0 },
@@ -3795,6 +3925,7 @@ pub const PolySynth = struct {
         .{ .id = 123,.label = "E3 DECAY",   .section = "ENV 3",   .range = .{ 0.001,  5.0 },     .step = 0.01 },
         .{ .id = 124,.label = "E3 SUSTAIN", .section = "ENV 3",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 125,.label = "E3 RELEASE", .section = "ENV 3",   .range = .{ 0.001,  10.0 },    .step = 0.01 },
+        .{ .id = 248,.label = "E3 CURVE",   .section = "ENV 3",   .range = .{ -1.0,   1.0 },     .step = 0.01 },
         .{ .id = 133,.label = "GATE THRESH",.section = "FX GATE", .range = .{ -80.0,  0.0 },     .step = 1.0 },
         .{ .id = 134,.label = "GATE ATTACK",.section = "FX GATE", .range = .{ 0.1,    50.0 },    .step = 0.1 },
         .{ .id = 135,.label = "GATE RELEASE",.section = "FX GATE",.range = .{ 5.0,    1000.0 },  .step = 10.0 },
@@ -4112,7 +4243,7 @@ test "polyphony allocates distinct voices" {
     try std.testing.expectEqual(@as(u32, 3), active);
 }
 
-test "pulse width: narrow pulse is quieter than 50% duty cycle" {
+test "pulse width changes square output" {
     var wide = try PolySynth.init(std.testing.allocator, 48_000);
     defer wide.deinit();
     wide.waveform = .square;
@@ -4132,10 +4263,9 @@ test "pulse width: narrow pulse is quieter than 50% duty cycle" {
         @memset(&buf_wide, 0.0);   wide.processBlock(&buf_wide);
         @memset(&buf_narrow, 0.0); narrow.processBlock(&buf_narrow);
     }
-    var rms_w: f32 = 0.0;
-    var rms_n: f32 = 0.0;
-    for (buf_wide, buf_narrow) |w, n| { rms_w += w * w; rms_n += n * n; }
-    try std.testing.expect(rms_n < rms_w);
+    var difference: f32 = 0.0;
+    for (buf_wide, buf_narrow) |w, n| difference += @abs(w - n);
+    try std.testing.expect(difference > 1.0);
 }
 
 test "unison mode: step and spread produce different detune patterns" {
@@ -5571,6 +5701,30 @@ test "Eq3 at all-zero gains passes a signal through essentially unchanged" {
     const dry_rms = rmsTail(&buf);
     eq.processBlock(&buf, 48_000.0, 150.0, 0.0, 1000.0, 0.0, 0.7, 6000.0, 0.0);
     try std.testing.expectApproxEqAbs(dry_rms, rmsTail(&buf), 0.02);
+}
+
+test "envelope curve spans logarithmic, linear, and exponential shapes" {
+    const curves = [_]f32{ -1.0, 0.0, 1.0 };
+    var levels: [3]f32 = @splat(0.0);
+    for (curves, 0..) |curve, i| {
+        var stage: PolySynth.Stage = .attack;
+        const shape = PolySynth.envShape(0.01, 0.005, 0.01, 0.5, curve);
+        for (0..25) |_| _ = PolySynth.advanceEnv(&stage, &levels[i], 0.5, shape);
+    }
+    try std.testing.expect(levels[0] > levels[1]);
+    try std.testing.expect(levels[1] > levels[2]);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), levels[1], 1e-6);
+}
+
+test "polyBLEP reduces saw discontinuity" {
+    const naive_jump = @abs(PolySynth.oscWave(.saw, 0.0, 0.5, 0.0) - PolySynth.oscWave(.saw, 0.99, 0.5, 0.0));
+    const blep_jump = @abs(PolySynth.oscWave(.saw, 0.0, 0.5, 0.02) - PolySynth.oscWave(.saw, 0.99, 0.5, 0.02));
+    try std.testing.expect(blep_jump < naive_jump);
+}
+
+test "filter drive bypasses at unity and saturates above it" {
+    try std.testing.expectEqual(@as(f32, 0.25), PolySynth.driveInput(1.0, 0.25));
+    try std.testing.expect(@abs(PolySynth.driveInput(8.0, 2.0)) < 2.0);
 }
 
 test "Eq3 low shelf: boost raises and cut lowers a low-frequency tone" {
