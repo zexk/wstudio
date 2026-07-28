@@ -75,7 +75,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         const sr: f64 = @floatFromInt(app.session.project.sample_rate);
         const bpm: f64 = app.session.project.tempo_bpm;
         const raw_beats: f64 = @as(f64, @floatFromInt(snap.position_frames)) / (sr * 60.0 / bpm);
-        break :blk @intFromFloat(@mod(raw_beats, pp.length_beats) * spbf);
+        break :blk ws.dsp.pattern.clampStep(@mod(raw_beats, pp.length_beats) * spbf);
     } else std.math.maxInt(u16);
 
     // zig fmt: off
@@ -129,7 +129,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     // Prefix = 6 chars (" C4  │"), each step cell is `cw` chars (App.pianoCellWidth,
     // selected with `z`/`Z`: 1 compact, 3 normal, 5 expanded).
     const cw: usize = app.pianoCellWidth();
-    const loop_step: u16 = @intFromFloat(pp.length_beats * spbf);
+    const loop_step: u16 = ws.dsp.pattern.clampStep(pp.length_beats * spbf);
     const max_step_cols: usize = (cols -| 6) / cw;
     // `left` can be non-zero after horizontal autoscroll. Do not keep
     // drawing a full-loop-sized window from that offset: it would produce

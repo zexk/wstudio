@@ -7343,3 +7343,23 @@ test ":colorscheme reports, switches (scoped per frontend), and rejects bad name
     try std.testing.expectEqual(@import("../config.zig").GuiTheme.graphite, gui_rt.config.gui_theme);
     try std.testing.expect(app.pending_colorscheme);
 }
+
+test "a loop too long for the u16 step grid draws and edits instead of panicking" {
+    var app = try testApp();
+    defer app.deinit();
+    app.piano_track = 0;
+    app.view = .piano_roll;
+    app.piano_division = .one_twenty_eighth; // 32 steps per beat
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+    // 512 bars of 4: 2048 * 32 = 65536, one past what a u16 step index holds.
+    // Reachable by holding `+` in the roll, or importing a long MIDI file.
+    pp.length_beats = 2048.0;
+
+    var buf: [64 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try main_mod.draw(&app, &w, .{ .cols = 100, .rows = 24 });
+
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.handleKey(.{ .char = 'G' }, 0);
+}

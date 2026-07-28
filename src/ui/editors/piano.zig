@@ -59,7 +59,7 @@ pub fn switchTo(app: *App, track: u16) void {
             for (pp.notes[1..pp.note_count]) |note| {
                 if (note.start_beat < first.start_beat) first = note;
             }
-            app.piano_cursor_step = @intFromFloat(@round(first.start_beat * stepsPerBeatF(app)));
+            app.piano_cursor_step = pattern_mod.clampStep(@round(first.start_beat * stepsPerBeatF(app)));
             app.piano_cursor_pitch = first.pitch;
         }
     }
@@ -75,7 +75,7 @@ pub fn switchTo(app: *App, track: u16) void {
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const pp = currentPatternPlayer(app) orelse return false;
 
-    const max_step: u16 = @intFromFloat(pp.length_beats * stepsPerBeatF(app));
+    const max_step: u16 = pattern_mod.clampStep(pp.length_beats * stepsPerBeatF(app));
 
     // Visual mode: a step-range selection, bounded on the pitch axis by `v`
     // (blockwise) or spanning every pitch under `V` (linewise). Motions and
@@ -441,7 +441,7 @@ fn movePitch(app: *App, delta: i32) void {
 fn toggleGrid(app: *App) void {
     const old_beat = stepToBeat(app, app.piano_cursor_step);
     app.piano_grid = if (app.piano_grid == .straight) .triplet else .straight;
-    app.piano_cursor_step = @intFromFloat(@round(old_beat * stepsPerBeatF(app)));
+    app.piano_cursor_step = pattern_mod.clampStep(@round(old_beat * stepsPerBeatF(app)));
     app.piano_note_len = 1.0 / stepsPerBeatF(app);
     ensureVisible(app);
     app.setStatus("grid: {s}", .{if (app.piano_grid == .triplet) "triplet (6/beat)" else "straight (4/beat)"});
@@ -452,7 +452,7 @@ fn zoom(app: *App, delta: i8) void {
     const old_beat = stepToBeat(app, app.piano_cursor_step);
     app.piano_grid = .straight;
     app.piano_division = if (delta > 0) app.piano_division.finer() else app.piano_division.coarser();
-    app.piano_cursor_step = @intFromFloat(@round(old_beat * stepsPerBeatF(app)));
+    app.piano_cursor_step = pattern_mod.clampStep(@round(old_beat * stepsPerBeatF(app)));
     app.piano_note_len = 1.0 / stepsPerBeatF(app);
     ensureVisible(app);
     app.setStatus("grid: {s}", .{app.piano_division.label()});
@@ -570,7 +570,7 @@ pub fn recordNote(app: *App, pitch: u7, velocity: f32) void {
     const sr: f64 = @floatFromInt(app.session.project.sample_rate);
     const bpm: f64 = app.session.project.tempo_bpm;
     const raw_beats: f64 = @as(f64, @floatFromInt(snap.position_frames)) / (sr * 60.0 / bpm);
-    const step: u16 = @intFromFloat(@mod(raw_beats, pp.length_beats) * stepsPerBeatF(app));
+    const step: u16 = pattern_mod.clampStep(@mod(raw_beats, pp.length_beats) * stepsPerBeatF(app));
     const start_beat = stepToBeat(app, step);
     if (pp.noteStartsAt(pitch, start_beat)) return;
     var before = history.captureMelodic(app, app.piano_track);
@@ -641,7 +641,7 @@ fn resizeOrLen(app: *App, delta: f64) void {
 /// and linked-clip path as keyboard grab mode.
 pub fn moveNoteTo(app: *App, source_pitch: u7, source_step: u16, target_pitch: u7, target_step: u16) bool {
     const pp = currentPatternPlayer(app) orelse return false;
-    const max_step: u16 = @intFromFloat(pp.length_beats * stepsPerBeatF(app));
+    const max_step: u16 = pattern_mod.clampStep(pp.length_beats * stepsPerBeatF(app));
     app.piano_cursor_pitch = source_pitch;
     app.piano_cursor_step = source_step;
     if (pp.noteAt(source_pitch, stepToBeat(app, source_step)) == null) return false;
@@ -1157,7 +1157,7 @@ fn stepAt(scroll_step: u16, x: usize, cw: usize) ?u16 {
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
     _ = cols; // column count is derived from scroll + cell width, not terminal-width-dependent
     const pp = currentPatternPlayer(app) orelse return;
-    const max_step: u16 = @intFromFloat(pp.length_beats * stepsPerBeatF(app));
+    const max_step: u16 = pattern_mod.clampStep(pp.length_beats * stepsPerBeatF(app));
 
     // zig fmt: off
     switch (ev.kind) {

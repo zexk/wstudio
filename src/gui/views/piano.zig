@@ -61,7 +61,7 @@ test "rowPitch stops at the bottom of the keyboard instead of wrapping" {
 
 fn previewNote(source: ws.dsp.pattern.Note, edit: ?MouseEdit, steps_per_beat: usize) ws.dsp.pattern.Note {
     const active = edit orelse return source;
-    const source_step: u16 = @intFromFloat(@round(source.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
+    const source_step: u16 = ws.dsp.pattern.clampStep(@round(source.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
     if (source.pitch != active.source_pitch or source_step != active.source_step) return source;
     var note = source;
     switch (active.kind) {
@@ -256,7 +256,15 @@ pub fn draw(app: anytype) void {
     }
 
     const steps_per_beat: usize = app.core.pianoStepsPerBeat();
-    const steps: usize = @intFromFloat(@ceil(beats * @as(f32, @floatFromInt(steps_per_beat))));
+    // Capped at what a u16 step index holds: every `pointer_step` below is
+    // taken modulo this and then narrowed to u16 (MouseEdit's fields, the
+    // cursor), and a loop long enough to overflow that is reachable - see
+    // `pattern.clampStep`.
+    const steps: usize = @intFromFloat(std.math.clamp(
+        @ceil(beats * @as(f32, @floatFromInt(steps_per_beat))),
+        1,
+        @as(f32, std.math.maxInt(u16)),
+    ));
     if (app.core.modal.mode == .visual) {
         const anchor = @min(@as(usize, app.core.piano_visual_anchor orelse app.core.piano_cursor_step), steps - 1);
         const cursor_step = @min(@as(usize, app.core.piano_cursor_step), steps - 1);
@@ -311,7 +319,7 @@ pub fn draw(app: anytype) void {
         const width = @max(3, @as(f32, @floatCast(note.duration_beat)) * beat_w - 2);
         const y = grid_y + @as(f32, @floatFromInt(top_pitch - note.pitch)) * row_h + 2;
         const right = @min(x + width, origin[0] + canvas_w - 1);
-        const start_step: u16 = @intFromFloat(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
+        const start_step: u16 = ws.dsp.pattern.clampStep(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
         const selected = app.core.piano_cursor_pitch == note.pitch and app.core.piano_cursor_step == start_step;
         const note_alpha = 0.62 + std.math.clamp(note.velocity, 0, 1) * 0.38;
         draw_list.addRectFilled(.{ .pmin = .{ x + 1, y }, .pmax = .{ right, y + row_h - 4 }, .col = color(.{ theme.audio[0], theme.audio[1], theme.audio[2], note_alpha }), .rounding = 3 });
@@ -364,7 +372,7 @@ pub fn draw(app: anytype) void {
         const pointer_beat = @as(f64, @floatCast((mouse[0] - grid_x) / beat_w));
         if (zgui.isMouseClicked(.left)) {
             if (noteCovering(pp, pointer_pitch, pointer_beat)) |note| {
-                const source_step: u16 = @intFromFloat(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
+                const source_step: u16 = ws.dsp.pattern.clampStep(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
                 const start_x = grid_x + @as(f32, @floatCast(note.start_beat)) * beat_w;
                 const end_x = grid_x + @as(f32, @floatCast(note.start_beat + note.duration_beat)) * beat_w;
                 app.core.piano_cursor_pitch = note.pitch;
@@ -379,7 +387,7 @@ pub fn draw(app: anytype) void {
                     .grab_step_offset = @intCast(pointer_step -| source_step),
                     .target_pitch = note.pitch,
                     .target_step = source_step,
-                    .duration_steps = @intCast(@max(1, @as(usize, @intFromFloat(@round(note.duration_beat * @as(f64, @floatFromInt(steps_per_beat))))))),
+                    .duration_steps = @max(1, ws.dsp.pattern.clampStep(@round(note.duration_beat * @as(f64, @floatFromInt(steps_per_beat))))),
                 };
             } else {
                 app.core.piano_cursor_pitch = pointer_pitch;
@@ -389,7 +397,7 @@ pub fn draw(app: anytype) void {
         } else if (zgui.isMouseClicked(.right)) {
             if (noteCovering(pp, pointer_pitch, pointer_beat)) |note| {
                 app.core.piano_cursor_pitch = note.pitch;
-                app.core.piano_cursor_step = @intFromFloat(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
+                app.core.piano_cursor_step = ws.dsp.pattern.clampStep(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
                 app.core.handleKey(.{ .char = 'x' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             }
         }
@@ -441,7 +449,7 @@ fn drawVelocityLane(app: anytype, pp: *ws.dsp.PatternPlayer, width: f32, gutter_
         const x = grid_x + @as(f32, @floatCast(note.start_beat)) * beat_w;
         const bar_width = @max(3, beat_w / @as(f32, @floatFromInt(steps_per_beat)) - 2);
         const bar_height = std.math.clamp(note.velocity, 0.05, 1) * (height - 16);
-        const start_step: u16 = @intFromFloat(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
+        const start_step: u16 = ws.dsp.pattern.clampStep(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
         const selected = note.pitch == app.core.piano_cursor_pitch and start_step == app.core.piano_cursor_step;
         draw_list.addRectFilled(.{
             .pmin = .{ x + 1, origin[1] + height - bar_height },
@@ -479,7 +487,7 @@ fn dragVelocity(app: anytype, pp: *ws.dsp.PatternPlayer, origin: [2]f32, grid_x:
     const cell_w = beat_w / @as(f32, @floatFromInt(steps_per_beat));
     const step_f = @floor((mouse[0] - grid_x) / cell_w);
     if (step_f >= @as(f32, @floatCast(pp.length_beats)) * @as(f32, @floatFromInt(steps_per_beat))) return;
-    const step: u16 = @intFromFloat(step_f);
+    const step: u16 = ws.dsp.pattern.clampStep(step_f);
     const note = velocityBarAt(pp, app.core.piano_cursor_pitch, step, steps_per_beat) orelse return;
     const wanted = std.math.clamp((origin[1] + height - mouse[1]) / (height - 16), 0.05, 1.0);
     if (@abs(wanted - note.velocity) < 1e-4) return;
@@ -498,7 +506,7 @@ fn velocityBarAt(pp: *ws.dsp.PatternPlayer, cursor_pitch: u7, step: u16, steps_p
     defer pp.notes_lock.unlock();
     var best: ?ws.dsp.pattern.Note = null;
     for (pp.notes[0..pp.note_count]) |note| {
-        const start: u16 = @intFromFloat(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
+        const start: u16 = ws.dsp.pattern.clampStep(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
         if (start != step) continue;
         const dist = @abs(@as(i32, note.pitch) - @as(i32, cursor_pitch));
         if (best == null or dist < @abs(@as(i32, best.?.pitch) - @as(i32, cursor_pitch))) best = note;

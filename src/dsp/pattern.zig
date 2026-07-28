@@ -21,6 +21,25 @@ pub const max_notes: u16 = 512;
 /// qwerty piano) - recorded MIDI carries its own.
 pub const default_velocity: f32 = 0.85;
 
+/// A step position (already multiplied out to `beats * steps_per_beat`) as
+/// the u16 every piano-roll step index uses, saturated instead of cast raw.
+/// `length_beats` has no ceiling - a held `+` in the roll adds a bar per
+/// press, and a long MIDI import takes whatever the file ends at - so on a
+/// fine grid the product runs past 65535 and a bare `@intFromFloat` panics
+/// on the next frame drawn. Negatives and NaN land on 0.
+pub fn clampStep(steps: f64) u16 {
+    if (!(steps > 0.0)) return 0; // false for NaN
+    return @intFromFloat(@min(steps, @as(f64, std.math.maxInt(u16))));
+}
+
+test "clampStep saturates a loop too long for the step grid" {
+    try std.testing.expectEqual(@as(u16, 16), clampStep(16.0));
+    try std.testing.expectEqual(@as(u16, 65535), clampStep(65536.0)); // 2048 beats at 1/128
+    try std.testing.expectEqual(@as(u16, 65535), clampStep(1e30));
+    try std.testing.expectEqual(@as(u16, 0), clampStep(-1.0));
+    try std.testing.expectEqual(@as(u16, 0), clampStep(std.math.nan(f64)));
+}
+
 // zig fmt: off
 pub const Note = struct {
     pitch:         u7,
