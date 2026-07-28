@@ -232,6 +232,7 @@ pub fn build(b: *std.Build) void {
 
 fn addMacosFrameworkPath(b: *std.Build, module: *std.Build.Module, sdk: []const u8) void {
     module.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/Frameworks" }) });
+    module.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/lib" }) });
 }
 
 fn removeSystemLibrary(module: *std.Build.Module, name: []const u8) void {
