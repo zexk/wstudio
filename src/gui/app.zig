@@ -38,6 +38,9 @@ pub const App = struct {
     synth_edit_active: bool = false,
     meter_hold_db: [2]f32 = .{ -100, -100 },
     meter_last_ns: i128 = 0,
+    /// Which view the one shared workspace window last drew - see
+    /// `drawWorkspace`, which resets the scroll when this changes.
+    last_workspace_view: tui_app.AppView = .tracks,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, user_config: config_mod.Config) !App {
         var core = try tui_app.App.initWithSampleRate(allocator, io, user_config.default_sample_rate);
@@ -120,6 +123,14 @@ fn drawWorkspace(app: *App) void {
     if (zgui.begin("Workspace", .{ .flags = .{ .no_title_bar = true, .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
         const overlay = isPickerView(app.core.view);
         const workspace_view = if (overlay) pickerBaseView(app) else app.core.view;
+        // One ImGui window backs every view and ImGui keeps scroll per
+        // window, so a view opened after a scrolled one starts at the other
+        // one's offset - looking, at worst, like it rendered nothing. Reset
+        // on the switch; the cursor-follow below then places it.
+        if (app.last_workspace_view != workspace_view) {
+            app.last_workspace_view = workspace_view;
+            zgui.setScrollY(0);
+        }
         drawViewHeader(workspace_view);
         drawView(app, workspace_view);
         // The view has finished submitting; this is the window that actually
