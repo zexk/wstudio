@@ -1,7 +1,7 @@
 # wstudio
 
 <p align="center">
-  <img src="docs/assets/promo/wstudio-github-banner-1500x300.png" alt="wstudio: make music the vim way" width="100%">
+  <img src="docs/assets/promo/wstudio-github-banner-1280x640.png" alt="wstudio: make music the vim way" width="100%">
 </p>
 
 A keyboard-centric digital audio workstation written in
