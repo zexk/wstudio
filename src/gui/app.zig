@@ -78,7 +78,10 @@ pub const App = struct {
 
     pub fn draw(self: *App, audio_label: []const u8) void {
         if (self.core.view != .piano_roll) self.piano_mouse_edit = null;
-        if (self.core.view != .automation or !zgui.isMouseDown(.left)) self.automation_edit_active = false;
+        if (self.automation_edit_active and (self.core.view != .automation or !zgui.isMouseDown(.left))) {
+            if (self.core.session.song_mode) self.core.session.rebuildSongData();
+            self.automation_edit_active = false;
+        }
         if (self.core.view != .piano_roll or !zgui.isMouseDown(.left)) self.piano_velocity_edit_active = false;
         if (self.core.view != .piano_roll or !zgui.isMouseDown(.right)) self.core.piano_erase_active = false;
         if (self.core.view != .synth_editor or !zgui.isMouseDown(.left)) self.synth_edit_active = false;

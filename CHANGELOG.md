@@ -9,6 +9,8 @@ history lives in [FORMAT.md](FORMAT.md).
 
 - Holding GUI navigation keys now repeats movement, parameter nudges, and
   prompt editing while edit and performance keys remain edge-triggered.
+- GUI automation drags rebuild arrangement playback once on release instead
+  of once per rendered frame, keeping long arrangements responsive.
 - `:clap-gui` opens plugin-owned floating GUI windows for CLAP instruments
   and focused effects from either frontend.
 - 18 more `wstudio.o` options: the `:bounce` tail length, bit depth, and

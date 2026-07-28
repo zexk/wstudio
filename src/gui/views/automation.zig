@@ -134,7 +134,6 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
         points.*[m.index] = .{ .beat = m.beat, .value = m.value };
         app.core.automation_cursor_step = @intFromFloat(@round(m.beat * 4));
         app.core.dirty = true;
-        app.core.session.rebuildSongData();
     }
     if (curve_result.inserted) |ins| {
         app.core.automation_cursor_step = @intFromFloat(@round(ins.beat * 4));
@@ -144,7 +143,6 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
         recordAutomationGesture(app);
         if (ws.dsp.automation.removePoint(app.core.allocator, points, beat)) {
             app.core.dirty = true;
-            app.core.session.rebuildSongData();
         }
     }
     if (curve_result.activated_index) |i| {
@@ -244,7 +242,6 @@ fn setPointAt(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, beat: 
     recordAutomationGesture(app);
     ws.dsp.automation.setPoint(app.core.allocator, points, beat, value) catch return;
     app.core.dirty = true;
-    app.core.session.rebuildSongData();
 }
 
 fn recordAutomationGesture(app: anytype) void {
