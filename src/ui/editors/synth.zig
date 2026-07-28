@@ -799,13 +799,20 @@ fn reorderSelectedFx(app: *App, dir: i32) void {
 /// `u` would then silently undo both at once instead of stepping back
 /// through them individually.
 fn sendFxToggle(app: *App, id: u16) void {
+    sendParamSteps(app, id, 1);
+}
+
+/// One discrete param edit on some id other than the cursor's, pushed as
+/// its own undo entry (see `sendFxToggle`'s comment for why it flushes
+/// immediately instead of coalescing like a held `h`/`l` run).
+fn sendParamSteps(app: *App, id: u16, steps: i32) void {
     app.dirty = true;
-    history.noteParamNudge(app, app.synth_track, id, 1);
+    history.noteParamNudge(app, app.synth_track, id, steps);
     history.flushParamNudge(app);
     _ = app.session.engine.send(.{ .set_track_param = .{
         .track = app.synth_track,
         .id = id,
-        .steps = 1,
+        .steps = steps,
     } });
 }
 
@@ -923,6 +930,55 @@ fn removeFocusedFx(app: *App) void {
     app.setStatus("{s} removed", .{spectrum.unitLabel(asFxKind(kind))});
 }
 
+/// `m` on any param in any subview: points the first free mod-matrix row
+/// at that param and jumps to the row's source field, so a route is made
+/// from where its destination lives instead of walking `mod_dest_ids` by
+/// hand from the MOD pane - with 32 rows and every automatable param a
+/// legal dest, stepping `dest` into place was the slowest thing in the
+/// editor. The row is left inert (source `off`, depth 0) rather than
+/// guessing a source and a depth: one param write, so one `u` undoes the
+/// gesture, and an accidental press is a no-op the next `m` reuses.
+fn assignModFromCursor(app: *App) void {
+    if (app.synth_track >= app.session.racks.items.len) return;
+    const rack = app.session.racks.items[app.synth_track];
+    const synth = switch (rack.instrument) {
+        .poly_synth => |*s| s,
+        else => return,
+    };
+    const Synth = ws.dsp.PolySynth;
+    const dest = app.synth_cursor;
+    var label_buf: [48]u8 = undefined;
+    const label = paramLabel(dest, &label_buf);
+
+    // A row's own source/dest/depth fields are automatable but barred as
+    // matrix destinations (see mod_dest_excluded_ids), so `m` on one would
+    // otherwise report the generic rejection below and read as a bug.
+    if (Synth.matrixParamAddr(dest) != null) {
+        app.setStatus("a matrix row can't be a modulation destination", .{});
+        return;
+    }
+    const target = Synth.modDestIndex(dest) orelse {
+        app.setStatus("{s} can't be modulated", .{label});
+        return;
+    };
+    const row = for (synth.mod_matrix, 0..) |r, i| {
+        if (r.source == .none) break i;
+    } else {
+        app.setStatus("every one of the {d} matrix rows is in use", .{Synth.max_mod_rows});
+        return;
+    };
+
+    history.flushParamNudge(app);
+    const cur = Synth.modDestIndex(synth.mod_matrix[row].dest) orelse 0;
+    const steps = @as(i32, @intCast(target)) - @as(i32, @intCast(cur));
+    if (steps != 0) sendParamSteps(app, Synth.matrixParamId(row, 1), steps);
+
+    app.synth_subview = .mod;
+    app.synth_cursor = Synth.matrixParamId(row, 0);
+    updateScroll(app);
+    app.setStatus("matrix row {d} -> {s}: h/l picks a source, w then h/l sets depth", .{ row + 1, label });
+}
+
 /// `}`/`{` in the FX subview: moves the cursor to the next/previous
 /// section's first id in `fx_order`'s current sequence (not id order - see
 /// the `'}', '{'` key handler's own comment). No wrap, matching `.main`/
@@ -1026,6 +1082,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // removeFocusedFx. No-op outside .fx.
             'a' => { openFxPicker(app); return true; },
             'x' => { removeFocusedFx(app); return true; },
+            // Claims 'm' from modal.handle's global mute for this view - the
+            // synth editor has no track-mute affordance to lose, and the
+            // tracks view still owns muting. See assignModFromCursor.
+            'm' => { assignModFromCursor(app); return true; },
             // Jumps to the next/prev section's first id. `.fx`'s order
             // follows fx_order, which need not be id-sorted once the user
             // has reordered - jumpFxSection walks it by position, not by

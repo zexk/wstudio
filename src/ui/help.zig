@@ -290,6 +290,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("{ / }",        "prev / next section (within the current subview)");
     t.key("h / l",        "adjust value (fine)");
     t.key("H / L",        "adjust value (coarse ×10)");
+    t.key("m",            "modulate the param under the cursor - points the first free MATRIX row at it and jumps there");
     t.key("p",            "open piano roll for this track");
     t.key("s",            "FX chain for this track");
     t.key("f",            "preset picker - factory + saved patches, / filters by name/tag/author, d deletes a save");

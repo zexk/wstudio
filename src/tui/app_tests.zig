@@ -3735,6 +3735,45 @@ test "synth editor search walks every candidate without overrunning its buffer" 
     try std.testing.expectEqual(@as(u16, 21), app.synth_cursor);
 }
 
+test "m points the first free matrix row at the param under the cursor" {
+    var app = try testApp();
+    defer app.deinit();
+    const Synth = ws.dsp.PolySynth;
+    var block: [64]types.Sample = undefined;
+
+    app.handleKey(.enter, 0);
+    const synth = &app.session.racks.items[0].instrument.poly_synth;
+
+    // Filter cutoff, from the MAIN subview: row 0 takes it as its dest and
+    // the cursor lands on that row's source field, ready for h/l.
+    app.synth_cursor = 21;
+    app.handleKey(.{ .char = 'm' }, 0);
+    app.session.engine.process(&block);
+    try std.testing.expectEqual(synth_ed_mod.Subview.mod, app.synth_subview);
+    try std.testing.expectEqual(Synth.matrixParamId(0, 0), app.synth_cursor);
+    try std.testing.expectEqual(@as(u16, 21), synth.mod_matrix[0].dest);
+    // Left inert on purpose - a source and a depth are the user's to pick.
+    try std.testing.expectEqual(ws.dsp.synth.ModSource.none, synth.mod_matrix[0].source);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), synth.mod_matrix[0].depth, 1e-6);
+
+    // With row 0 in use, the next assign takes row 1 rather than stealing it.
+    synth.mod_matrix[0].source = .lfo;
+    const other = Synth.mod_dest_ids[0];
+    app.synth_cursor = other;
+    app.handleKey(.{ .char = 'm' }, 0);
+    app.session.engine.process(&block);
+    try std.testing.expectEqual(Synth.matrixParamId(1, 0), app.synth_cursor);
+    try std.testing.expectEqual(other, synth.mod_matrix[1].dest);
+
+    // The cursor now sits on a matrix field, which is barred as a dest: the
+    // press is rejected and nothing moves.
+    app.handleKey(.{ .char = 'm' }, 0);
+    app.session.engine.process(&block);
+    try std.testing.expectEqual(Synth.matrixParamId(1, 0), app.synth_cursor);
+    try std.testing.expectEqual(ws.dsp.synth.ModSource.none, synth.mod_matrix[2].source);
+    try std.testing.expectEqual(@as(u16, 21), synth.mod_matrix[0].dest);
+}
+
 test "draw renders synth editor without errors" {
     var app = try testApp();
     defer app.deinit();
