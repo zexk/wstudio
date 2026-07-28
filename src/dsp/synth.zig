@@ -156,7 +156,7 @@ pub const LfoTarget  = enum { none, filter, pitch, amp };
 /// macro knobs are synth-global; fenv/aenv/velocity/keytrack are per-voice.
 /// Macros are plain 0..1 values fanned out through matrix rows - one knob
 /// (or one automation lane, ids 99-102) moving many destinations at once.
-pub const ModSource  = enum { none, lfo, fenv, aenv, velocity, keytrack, wheel, lfo2, lfo3, mac1, mac2, mac3, mac4, env3,
+pub const ModSource  = enum { none, lfo, fenv, aenv, velocity, keytrack, wheel, lfo2, lfo3, mac1, mac2, mac3, mac4, env3, random, alternate,
 
     /// True for the sources that swing through negative values. The
     /// envelopes, velocity, the wheel, and the macros are all already
@@ -164,7 +164,7 @@ pub const ModSource  = enum { none, lfo, fenv, aenv, velocity, keytrack, wheel, 
     /// deliberately a no-op rather than squashing their range into 0.5..1.
     pub fn isBipolar(self: ModSource) bool {
         return switch (self) {
-            .lfo, .lfo2, .lfo3, .keytrack => true,
+            .lfo, .lfo2, .lfo3, .keytrack, .random, .alternate => true,
             else => false,
         };
     }
@@ -804,6 +804,10 @@ pub const PolySynth = struct {
     fx_mod_bus: FxModBus = .{},
     /// MIDI mod wheel (CC1), 0..1 - the `.wheel` matrix source.
     mod_wheel: f32 = 0.0,
+    /// Per-trigger modulation state. Values are copied into each voice so
+    /// later notes cannot change modulation under notes already sounding.
+    mod_rand_state: u32 = 0xA341316C,
+    mod_alternate: bool = false,
 
     // ── VOICE ────────────────────────────────────────────────────────────────
     voice_mode: VoiceMode = .poly,
@@ -1288,6 +1292,8 @@ pub const PolySynth = struct {
         sub_phase: f32 = 0.0,
         // Noise oscillator - xorshift32 (must never be 0)
         noise_rand_state: u32 = 1,
+        random: f32 = 0.0,
+        alternate: f32 = -1.0,
         noise_lp: f32 = 0.0,
     };
 
@@ -1700,6 +1706,7 @@ pub const PolySynth = struct {
     /// leaves a running growl alone while every real new note re-arms it.
     fn triggerVoice(self: *PolySynth, note: u7, velocity: f32, was_active: bool, prev_log: f32) Voice {
         self.retriggerLfos();
+        self.mod_alternate = !self.mod_alternate;
         const target_log = std.math.log2(noteToFreq(note));
         const start_log = if (was_active and self.glide_s > 0.0) prev_log else target_log;
         return .{
@@ -1714,6 +1721,8 @@ pub const PolySynth = struct {
                 (target_log - start_log) / @max(self.glide_s * self.sample_rate, 1.0)
             else 0.0,
             .noise_rand_state = (@as(u32, note) *% 0x9E3779B9) | 1,
+            .random           = nextNoise(&self.mod_rand_state),
+            .alternate        = if (self.mod_alternate) 1.0 else -1.0,
         };
     }
 
@@ -1932,6 +1941,8 @@ pub const PolySynth = struct {
                 .mac3     => self.macro3,
                 .mac4     => self.macro4,
                 .env3     => if (v) |vv| vv.env3 else 0.0,
+                .random    => if (v) |vv| vv.random else 0.0,
+                .alternate => if (v) |vv| vv.alternate else 0.0,
                 // zig fmt: on
             };
             const polar = if (row.unipolar and row.source.isBipolar()) src * 0.5 + 0.5 else src;
@@ -4536,6 +4547,25 @@ test "unipolar mod row: folds a bipolar source to 0..1, leaves unipolar ones alo
     uni.noteOn(60, 0.5);
     const voice_acc = uni.evalMatrix(&uni.voices[uni.newest_voice], .{ 0.0, 0.0, 0.0 });
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), voice_acc.amt(PolySynth.dest_amp), 1e-6);
+}
+
+test "random and alternate modulation are stable per triggered voice" {
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    s.mod_matrix[0] = .{ .source = .random, .dest = PolySynth.dest_pitch, .depth = 1.0 };
+    s.mod_matrix[1] = .{ .source = .alternate, .dest = PolySynth.dest_amp, .depth = 1.0 };
+
+    s.noteOn(60, 1.0);
+    const first = &s.voices[s.newest_voice];
+    const first_random = first.random;
+    const first_alternate = first.alternate;
+    s.noteOn(64, 1.0);
+    const second = &s.voices[s.newest_voice];
+
+    try std.testing.expect(first_random >= -1.0 and first_random < 1.0);
+    try std.testing.expect(first_random != second.random);
+    try std.testing.expectEqual(-first_alternate, second.alternate);
+    try std.testing.expectApproxEqAbs(first_random, s.evalMatrix(first, .{ 0.0, 0.0, 0.0 }).amt(PolySynth.dest_pitch), 1e-6);
 }
 
 test "unipolar mod row: reachable through the flat param id space" {
