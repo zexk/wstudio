@@ -272,7 +272,22 @@ pub fn pushChar(codepoint: u21) void {
     if (codepoint >= 0x20 and codepoint < 0x7f) queued_char = @intCast(codepoint);
 }
 
-fn pressedModalKey(_: ws.input.Mode) ?ws.input.Key {
+fn keyRepeats(mode: ws.input.Mode, key: ws.input.Key) bool {
+    return switch (mode) {
+        .command, .search => switch (key) {
+            .char, .backspace, .arrow_up, .arrow_down, .arrow_left, .arrow_right => true,
+            else => false,
+        },
+        .normal, .visual => switch (key) {
+            .arrow_up, .arrow_down, .arrow_left, .arrow_right => true,
+            .char => |c| c == 'h' or c == 'j' or c == 'k' or c == 'l',
+            else => false,
+        },
+        .insert => false,
+    };
+}
+
+fn pressedModalKey(mode: ws.input.Mode) ?ws.input.Key {
     const ctrl = zgui.isKeyDown(.mod_ctrl);
     if (ctrl and zgui.isKeyPressed(.a, false)) return .ctrl_a;
     if (ctrl and zgui.isKeyPressed(.c, false)) return .ctrl_c;
@@ -295,19 +310,21 @@ fn pressedModalKey(_: ws.input.Mode) ?ws.input.Key {
         .{ .gui = .left_arrow, .modal = .arrow_left },
         .{ .gui = .right_arrow, .modal = .arrow_right },
     };
-    for (special) |entry| if (zgui.isKeyPressed(entry.gui, false)) return entry.modal;
+    for (special) |entry| if (zgui.isKeyPressed(entry.gui, keyRepeats(mode, entry.modal))) return entry.modal;
 
     if (zgui.isKeyPressed(.space, false)) return .{ .char = ' ' };
     const shifted = zgui.isKeyDown(.mod_shift);
     const letters = "abcdefghijklmnopqrstuvwxyz";
     inline for (letters, 0..) |c, i| {
         const key: zgui.Key = @enumFromInt(@intFromEnum(zgui.Key.a) + i);
-        if (zgui.isKeyPressed(key, false)) return .{ .char = if (shifted) std.ascii.toUpper(c) else c };
+        const modal_key: ws.input.Key = .{ .char = if (shifted) std.ascii.toUpper(c) else c };
+        if (zgui.isKeyPressed(key, keyRepeats(mode, modal_key))) return modal_key;
     }
     const digits = "0123456789";
     inline for (digits, 0..) |c, i| {
         const key: zgui.Key = @enumFromInt(@intFromEnum(zgui.Key.zero) + i);
-        if (zgui.isKeyPressed(key, false)) return .{ .char = numberRowChar(c, shifted) };
+        const modal_key: ws.input.Key = .{ .char = numberRowChar(c, shifted) };
+        if (zgui.isKeyPressed(key, keyRepeats(mode, modal_key))) return modal_key;
     }
     // Edge-detect on the named OEM key (so holding it doesn't repeat-fire,
     // matching every other normal-mode binding), but resolve the character
@@ -318,11 +335,20 @@ fn pressedModalKey(_: ws.input.Mode) ?ws.input.Key {
         .semicolon,  .slash,         .equal,        .left_bracket,
         .back_slash, .right_bracket, .grave_accent,
     };
-    for (oem_keys) |key| if (zgui.isKeyPressed(key, false)) {
+    for (oem_keys) |key| if (zgui.isKeyPressed(key, mode == .command or mode == .search)) {
         if (queued_char) |c| return .{ .char = c };
         return null;
     };
     return null;
+}
+
+test "GUI key repeat stays on navigation and prompt editing" {
+    try std.testing.expect(keyRepeats(.normal, .{ .char = 'j' }));
+    try std.testing.expect(keyRepeats(.visual, .arrow_right));
+    try std.testing.expect(keyRepeats(.command, .backspace));
+    try std.testing.expect(keyRepeats(.search, .{ .char = 'x' }));
+    try std.testing.expect(!keyRepeats(.normal, .{ .char = 'x' }));
+    try std.testing.expect(!keyRepeats(.insert, .{ .char = 'j' }));
 }
 
 fn numberRowChar(digit: u8, shifted: bool) u8 {
