@@ -22,6 +22,7 @@ fn purposeLabel(purpose: app_mod.BrowserPurpose, buf: []u8) []const u8 {
 }
 
 pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize) !void {
+    if (app.browser_recent_mode) return drawRecentProjects(app, w, rows);
     if (app.browser_bookmark_mode) return drawBookmarkList(app, w, rows);
 
     var label_buf: [32]u8 = undefined;
@@ -68,6 +69,28 @@ pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize) !void {
         try w.writeAll(if (is_sel) "  > " else if (in_sel) "  ~ " else "    ");
         try writeHighlighted(w, entry.name, pattern, is_sel);
         if (entry.is_dir) try w.writeAll("/");
+        try w.writeAll(rst);
+        try endLine(w);
+    }
+    for (end - off..visible) |_| try endLine(w);
+}
+
+fn drawRecentProjects(app: anytype, w: *std.Io.Writer, rows: usize) !void {
+    try w.writeAll(bold ++ " RECENT PROJECTS" ++ rst);
+    try endLine(w);
+    try w.writeAll(dim ++ "persisted in recent_projects.json" ++ rst);
+    try endLine(w);
+    const visible = @max(rows -| 6, 1);
+    if (app.recent_project_cursor < app.recent_project_scroll) app.recent_project_scroll = app.recent_project_cursor;
+    if (app.recent_project_cursor >= app.recent_project_scroll + visible)
+        app.recent_project_scroll = app.recent_project_cursor - visible + 1;
+    const off = app.recent_project_scroll;
+    const end = @min(off + visible, app.recent_projects.items.len);
+    for (app.recent_projects.items[off..end], off..) |path, i| {
+        const is_sel = i == app.recent_project_cursor;
+        if (is_sel) try w.writeAll(sel);
+        try w.writeAll(if (is_sel) "  > " else "    ");
+        try w.writeAll(path);
         try w.writeAll(rst);
         try endLine(w);
     }

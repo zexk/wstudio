@@ -505,7 +505,9 @@ pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
         try w.writeAll(dim ++ "  " ++ rst);
         try w.writeAll(app.status_buf[0..app.status_len]);
     }
-    if (app.browser_bookmark_mode) {
+    if (app.browser_recent_mode) {
+        try w.writeAll(dim ++ "  " ++ rst ++ "enter: open  esc: cancel");
+    } else if (app.browser_bookmark_mode) {
         try w.writeAll(dim ++ "  " ++ rst ++ "enter: jump  d: remove  esc: back");
     } else {
         try w.writeAll(dim ++ "  " ++ rst ++ "enter: open  /: search  B: locations  esc: cancel");

@@ -99,6 +99,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "edit!",       .desc = "[file]  open a project, discarding changes; no file reverts the current one", .run = wrap(cmdEditForce) },
     .{ .name = "e",           .desc = "[file]  open a project (alias for :edit)", .run = wrap(cmdEdit) },
     .{ .name = "e!",          .desc = "[file]  open a project, discarding changes (alias for :edit!)", .run = wrap(cmdEditForce) },
+    .{ .name = "recent",      .desc = "open a picker of the 10 most recently loaded or saved projects", .run = wrap(cmdRecent) },
     .{ .name = "restore-backup", .desc = "load the <project>~ autosave backup over the current session", .run = wrap(cmdRestoreBackup) },
     .{ .name = "new",         .desc = "start a blank project (refuses if unsaved changes)", .run = wrap(cmdNew) },
     .{ .name = "new!",        .desc = "start a blank project, discarding unsaved changes", .run = wrap(cmdNewForce) },
@@ -189,6 +190,7 @@ fn cmdQuitForce(app: *App, _: []const u8) void { app.should_quit = true; }
 
 fn cmdEdit(app: *App, args: []const u8) void { editOrRevert(app, args, false); }
 fn cmdEditForce(app: *App, args: []const u8) void { editOrRevert(app, args, true); }
+fn cmdRecent(app: *App, _: []const u8) void { app.openRecentProjects(); }
 // zig fmt: on
 
 fn clapArgs(app: *App, args: []const u8, usage: []const u8) ?struct { id: []const u8, path: []const u8 } {

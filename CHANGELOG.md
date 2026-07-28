@@ -11,6 +11,7 @@ history lives in [FORMAT.md](FORMAT.md).
   prompt editing while edit and performance keys remain edge-triggered.
 - GUI automation drags rebuild arrangement playback once on release instead
   of once per rendered frame, keeping long arrangements responsive.
+- `:recent` opens a picker for the 10 most recently loaded or saved projects.
 - `:clap-gui` opens plugin-owned floating GUI windows for CLAP instruments
   and focused effects from either frontend.
 - 18 more `wstudio.o` options: the `:bounce` tail length, bit depth, and

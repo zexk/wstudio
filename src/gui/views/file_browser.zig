@@ -14,6 +14,14 @@ const theme = &style.palette;
 const color = style.color;
 
 pub fn draw(app: anytype) void {
+    if (app.core.browser_recent_mode) {
+        zgui.textColored(theme.audio, "RECENT PROJECTS", .{});
+        zgui.separator();
+        zgui.textDisabled("j/k move   enter open   esc close", .{});
+        zgui.spacing();
+        drawRecentProjects(app);
+        return;
+    }
     if (app.core.browser_bookmark_mode) {
         zgui.textColored(theme.audio, "BOOKMARKS", .{});
         zgui.separator();
@@ -57,6 +65,16 @@ pub fn draw(app: anytype) void {
             // handleKey may have just freed/replaced browser_entries
             // (descending into a directory, or closing the browser on a
             // file pick) - the slice this loop is iterating is stale now.
+            break;
+        }
+    }
+}
+
+fn drawRecentProjects(app: anytype) void {
+    for (app.core.recent_projects.items, 0..) |path, i| {
+        if (drawEntry(path, false, app.core.recent_project_cursor == i, false, i, "")) {
+            app.core.recent_project_cursor = i;
+            app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             break;
         }
     }

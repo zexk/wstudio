@@ -34,6 +34,7 @@ const user_presets = @import("user_presets.zig");
 const user_drum_kits = @import("user_drum_kits.zig");
 const cmd_history_store = @import("cmd_history_store.zig");
 const bookmark_store = @import("bookmark_store.zig");
+const recent_project_store = @import("recent_project_store.zig");
 const fuzzy = @import("fuzzy.zig");
 const waveform = @import("waveform.zig");
 const ansi = @import("ansi.zig");
@@ -864,6 +865,10 @@ pub const App = struct {
     /// once at `init`, rewritten on every add/remove so it survives across
     /// runs like `cmd_history`.
     bookmarks: std.ArrayListUnmanaged(bookmark_store.Bookmark) = .empty,
+    recent_projects: std.ArrayListUnmanaged([]const u8) = .empty,
+    browser_recent_mode: bool = false,
+    recent_project_cursor: usize = 0,
+    recent_project_scroll: usize = 0,
     /// `B` swaps the browser's listing for `bookmarks` in place - own
     /// cursor/scroll so returning to the directory listing (`esc`/`q`)
     /// doesn't disturb where you were browsing.
@@ -924,6 +929,7 @@ pub const App = struct {
             .cmd_history = cmd_history,
             .cmd_history_pos = cmd_history.items.len,
             .bookmarks = bookmark_store.load(allocator, io),
+            .recent_projects = recent_project_store.load(allocator, io),
             .external_plugins = ws.plugin_catalog.Catalog.init(allocator),
         };
         app.rebuildCmdTable();
@@ -971,6 +977,7 @@ pub const App = struct {
         self.browser_entries.deinit(self.allocator);
         if (self.browser_dir.len > 0) self.allocator.free(self.browser_dir);
         bookmark_store.deinit(self.allocator, &self.bookmarks);
+        recent_project_store.deinit(self.allocator, &self.recent_projects);
         cmd_history_store.deinit(self.allocator, &self.cmd_history);
         self.history.deinit(self.allocator);
         self.session.deinit();
@@ -3354,6 +3361,10 @@ pub const App = struct {
     /// `v` starts a multi-file selection (pad loads only), esc/q cancel back
     /// to the view that opened the browser.
     fn handleBrowserKey(self: *App, key: modal_mod.Key) void {
+        if (self.browser_recent_mode) {
+            self.handleRecentProjectKey(key);
+            return;
+        }
         if (self.browser_bookmark_mode) {
             self.handleBookmarkListKey(key);
             return;
@@ -3408,6 +3419,45 @@ pub const App = struct {
             },
             else => {},
         }
+    }
+
+    pub fn openRecentProjects(self: *App) void {
+        if (self.recent_projects.items.len == 0) {
+            self.setStatus("no recent projects", .{});
+            return;
+        }
+        self.prev_view = self.view;
+        self.browser_purpose = .open_project;
+        self.browser_recent_mode = true;
+        self.recent_project_cursor = 0;
+        self.view = .file_browser;
+    }
+
+    fn handleRecentProjectKey(self: *App, key: modal_mod.Key) void {
+        switch (key) {
+            .escape => self.closeBrowser(),
+            .enter => self.openRecentProject(),
+            .char => |c| switch (c) {
+                'j' => if (self.recent_project_cursor + 1 < self.recent_projects.items.len) { self.recent_project_cursor += 1; },
+                'k' => if (self.recent_project_cursor > 0) { self.recent_project_cursor -= 1; },
+                'g' => self.recent_project_cursor = 0,
+                'G' => self.recent_project_cursor = self.recent_projects.items.len -| 1,
+                'l', ' ' => self.openRecentProject(),
+                'q' => self.closeBrowser(),
+                else => {},
+            },
+            else => {},
+        }
+    }
+
+    fn openRecentProject(self: *App) void {
+        if (self.recent_project_cursor >= self.recent_projects.items.len) return;
+        if (self.dirty) {
+            self.setStatus("unsaved changes - :write to save, :edit! to discard", .{});
+            return;
+        }
+        self.requestReload(self.recent_projects.items[self.recent_project_cursor]);
+        self.closeBrowser();
     }
     // zig fmt: on
 
@@ -3554,6 +3604,7 @@ pub const App = struct {
         _ = self.session.engine.send(.preview_stop);
         self.freeBrowserEntries();
         self.browser_bookmark_mode = false;
+        self.browser_recent_mode = false;
         self.clearBrowserVisual();
         self.view = self.prev_view;
     }
@@ -4786,6 +4837,10 @@ pub const App = struct {
 
     pub fn setProjectPath(self: *App, path: []const u8) void {
         self.project_path_len = copyTruncated(&self.project_path_buf, path);
+        const canonical = std.Io.Dir.cwd().realPathFileAlloc(self.io, path, self.allocator) catch null;
+        defer if (canonical) |owned| self.allocator.free(owned);
+        recent_project_store.touch(self.allocator, &self.recent_projects, canonical orelse path) catch return;
+        recent_project_store.save(self.allocator, self.io, self.recent_projects.items) catch {};
     }
 
     pub fn clearProjectPath(self: *App) void {

@@ -106,6 +106,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("(in :) up/down","recall previous / next command");
     t.key("(in :) ^P/^N", "recall previous / next command (readline style)");
     t.key("(in :) tab",   "complete the command name");
+    t.key(":recent",      "open one of the 10 most recently loaded or saved projects");
     t.key("(in :/) ^A/^E", "move to start / end; ^U/^K deletes before / after the cursor");
     t.key("/",            "search prompt - fuzzy over track names / arrangement lanes / browser filenames / synth params, plain-text in this help");
     t.key("n / N",        "repeat last search forward / backward (tracks, arrangement, file browser, synth editor, help)");
