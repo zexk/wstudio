@@ -1921,7 +1921,7 @@ pub const App = struct {
                             'U' => { history.doRedo(self); return; },
                             't' => { self.tapTempo(now_ns); return; },
                             'l' => { self.session.resetLoudness(); self.setStatus("integrated LUFS reset", .{}); return; },
-                            'd', 'Y', 'J', 'K', 'R', 'p', 'I', 'r', '<', '>', '[', ']', 'v', 'V', 'z' => {
+                            'd', 'Y', 'J', 'K', 'R', 'p', 'I', 'r', 'f', '<', '>', '[', ']', 'v', 'V', 'z' => {
                                 self.setStatus("master bus: n/a", .{});
                                 return;
                             },
@@ -1957,7 +1957,7 @@ pub const App = struct {
                                 self.setStatus("visual: j/k extend, g groups the selection, esc cancels", .{});
                                 return;
                             },
-                            'Y', 'J', 'K', 'p', 'I', 'r', '<', '>', '[', ']' => {
+                            'Y', 'J', 'K', 'p', 'I', 'r', 'f', '<', '>', '[', ']' => {
                                 self.setStatus("group row: n/a", .{});
                                 return;
                             },
@@ -1974,6 +1974,10 @@ pub const App = struct {
                             },
                             'a' => { self.doTrackAdd(null); return; },
                             'I' => { self.openInstrumentPicker(self.cursor, true); return; },
+                            // Same key the instrument editors use, one level
+                            // up: a synth preset is a whole rack (patch +
+                            // FX chain), so it belongs to the track row.
+                            'f' => { preset_ed.openForTrack(self, @intCast(self.cursor)); return; },
                             'r' => { self.doTrackArmToggle(self.cursor); return; },
                             'd' => { self.tracks_del_pending = true; return; },
                             'Y' => { self.doTrackDup(self.cursor); return; },

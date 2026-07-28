@@ -289,6 +289,28 @@ pub fn open(app: *App, kind: Kind, track: u16) void {
     app.view = .preset_picker;
 }
 
+/// Open the picker for whatever instrument `track` holds, picking the kind
+/// from the rack rather than from which editor happened to be open. A synth
+/// preset now carries the whole rack (patch + ordered FX chain), so the
+/// natural place to reach for one is the track itself, not a pane three
+/// keys deep inside it - `f` in the tracks view lands here.
+pub fn openForTrack(app: *App, track: u16) void {
+    if (track >= app.session.racks.items.len) return;
+    const kind: Kind = switch (app.session.racks.items[track].instrument) {
+        .poly_synth => .synth,
+        .drum_machine => .drum,
+        .soundfont => .soundfont,
+        // Sampler and slicer presets would be their loaded audio, and a
+        // CLAP plugin keeps its own preset system behind its own state
+        // blob; neither has a table to browse here.
+        else => {
+            app.setStatus("track {d} has no presets to browse", .{track + 1});
+            return;
+        },
+    };
+    open(app, kind, track);
+}
+
 pub fn close(app: *App) void {
     if (app.preset_audition_active) {
         if (targetSynth(app)) |s| {

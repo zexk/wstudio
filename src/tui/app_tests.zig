@@ -3719,6 +3719,30 @@ test "synth editor jk moves cursor, hl adjusts waveform" {
     try std.testing.expect(synth.attack_s > old_attack);
 }
 
+test "f in the tracks view opens the preset picker for the cursor track's instrument" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Track 0 is a synth: the picker opens on the rack-level synth presets
+    // and escape returns to the tracks view it came from.
+    app.handleKey(.{ .char = 'f' }, 0);
+    try std.testing.expectEqual(AppView.preset_picker, app.view);
+    try std.testing.expectEqual(preset_ed.Kind.synth, app.preset_picker_kind);
+    try std.testing.expectEqual(@as(u16, 0), app.preset_picker_track);
+    app.handleKey(.escape, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+
+    // The kind follows the instrument, not whichever editor was last open.
+    commands.run(&app, "track-add");
+    const drum = app.session.racks.items.len - 1;
+    commands.run(&app, "track-instrument drum");
+    app.setTrackRow(drum);
+    app.cursor = @intCast(drum);
+    app.handleKey(.{ .char = 'f' }, 0);
+    try std.testing.expectEqual(AppView.preset_picker, app.view);
+    try std.testing.expectEqual(preset_ed.Kind.drum, app.preset_picker_kind);
+}
+
 test "synth editor search walks every candidate without overrunning its buffer" {
     var app = try testApp();
     defer app.deinit();
