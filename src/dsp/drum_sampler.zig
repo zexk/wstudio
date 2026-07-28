@@ -354,6 +354,12 @@ pub const DrumMachine = struct {
     swing: std.atomic.Value(f32) = .init(50.0),
     /// Per-pad choke group (0 = none). See `chokeTrigger`.
     choke_group: [max_pads]u8 = [_]u8{0} ** max_pads,
+    /// Name of the last factory kit flavour applied, borrowed from
+    /// `drum_kit.variants` (static storage, never freed). Empty on a fresh
+    /// machine, which is the blank "init" kit in all but name. Persisted so
+    /// a project reload can regenerate the audio instead of shipping it -
+    /// see `persist.DrumSnap.kit`.
+    kit: []const u8 = "",
     /// Per-pad loop length in steps, 0 = follow the pattern (the default and
     /// the only behaviour before this existed). A shorter length makes that
     /// row wrap on its own, so a 7-step hat drifts against a 16-step kick for
@@ -484,6 +490,7 @@ pub const DrumMachine = struct {
         out.swing.store(self.swing.load(.monotonic), .monotonic);
         out.choke_group = self.choke_group;
         out.pad_len = self.pad_len;
+        out.kit = self.kit; // static storage - see the field's doc comment
 
         // Set the target count first (not after the loop) so a mid-loop
         // allocation failure leaves `out.deinit()` freeing exactly the
@@ -1087,7 +1094,12 @@ pub const DrumMachine = struct {
 
     pub fn padName(self: *const DrumMachine, pad: u8) []const u8 {
         if (pad >= max_pads) return "----";
-        if (self.pads[pad]) |*s| return s.clipName();
+        // A pad the "init" kit blanked stays materialized but holds no audio
+        // (see `loadKitVariant`) - it reads as empty, same as one that was
+        // never touched.
+        if (self.pads[pad]) |*s| {
+            if (s.pad.samples.len > 0) return s.clipName();
+        }
         return "empty";
     }
 
@@ -1190,6 +1202,7 @@ pub const DrumMachine = struct {
     /// embedded assets, so extra kit flavours cost no shipped bytes. Marks
     /// every pad as non-user so it isn't exported to the sample sidecar.
     pub fn loadKitVariant(self: *DrumMachine, variant: *const drum_kit.KitVariant) !void {
+        self.kit = variant.name;
         for (variant.pads, 0..) |slot, i| {
             const gen = slot.gen orelse {
                 // Empty slot (the "init" kit): blank the pad rather than

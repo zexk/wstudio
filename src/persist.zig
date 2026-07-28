@@ -453,6 +453,12 @@ pub const DrumSnap = struct {
     /// version bump needed - an omitted/legacy entry means every pad follows
     /// the pattern, which is how the file played when it was saved.
     pad_len: []const u16 = &.{},
+    /// Name of the factory kit flavour last applied (`dsp/drum_kit.zig`'s
+    /// `variants`), regenerated on load - the generated audio itself is
+    /// never written to the sidecar, only user samples are. Additive: an
+    /// omitted/unknown name just means no kit to regenerate, leaving the
+    /// pads as the file's own `used` flags describe them.
+    kit: []const u8 = "",
 };
 
 pub const CompSnap = struct {
@@ -1022,6 +1028,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                 .steps_per_beat = dm.steps_per_beat,
                 .variant = dm.variant,
                 .swing = dm.swing.load(.monotonic),
+                .kit = dm.kit,
             };
             // Dense, always DrumMachine.max_pads entries - position IS the
             // pad index everywhere below, same "slice for JSON-length
@@ -1822,6 +1829,14 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                 rack.instrument = .{ .drum_machine = try DrumMachine.init(allocator, sr, &engine.transport) };
                 if (rs.drum) |ds| {
                     const dmp = &rack.instrument.drum_machine;
+                    // Regenerate the kit first: its pads are the audio the
+                    // file never carried (only user samples reach the
+                    // sidecar), and the per-pad snapshot below then layers
+                    // this project's params over them. An unknown name -
+                    // a kit that no longer exists - just leaves them empty.
+                    if (ds.kit.len > 0) {
+                        if (drum_kit.byName(ds.kit)) |variant| dmp.loadKitVariant(variant) catch {};
+                    }
                     if (ds.variants.len > 0) {
                         // v3: restore the bank. init() already gave the
                         // machine one default variant (slot 0's own
@@ -1900,11 +1915,14 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         // genuinely unused).
                         const was_used = ps.used or snap.version < 11;
                         if (!was_used) continue;
-                        // init() may have already materialized this pad (the
-                        // default kit fills 0-7) - deinit it first so we don't
-                        // leak its sample buffer when replacing it.
-                        if (dmp.pads[pi]) |*old| old.deinit();
-                        dmp.pads[pi] = Sampler.init(allocator, sr) catch continue;
+                        // The kit load above may have already materialized
+                        // this pad - keep that sampler (its generated audio
+                        // is what the file deliberately didn't carry) and
+                        // just apply the params over it. applyPadSnap never
+                        // touches `.samples`.
+                        if (dmp.pads[pi] == null) {
+                            dmp.pads[pi] = Sampler.init(allocator, sr) catch continue;
+                        }
                         applyPadSnap(&dmp.pads[pi].?.pad, ps);
                     }
                 }
@@ -4071,6 +4089,44 @@ test "save prunes a sidecar WAV left behind when a sample moves pads" {
     const new_rel = try std.fmt.allocPrint(testing.allocator, "{s}/t0p5.wav", .{sidecar_dir});
     defer testing.allocator.free(new_rel);
     try std.Io.Dir.cwd().access(testing.io, new_rel, .{});
+}
+
+test "save/load round-trip regenerates the kit rather than shipping its audio" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try session.setInstrument(0, .drum_machine);
+    const dm = &session.racks.items[0].instrument.drum_machine;
+    try dm.loadKitVariant(drum_kit.byName("boombap").?);
+    dm.pads[0].?.pad.pitch_semitones = -2.0;
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    // Generated audio is never user audio, so no sidecar is written for it.
+    var sidecar_buf: [96]u8 = undefined;
+    const sidecar = try std.fmt.bufPrint(&sidecar_buf, ".zig-cache/tmp/{s}/proj_samples", .{&tmp.sub_path});
+    try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().access(testing.io, sidecar, .{}));
+
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    const ldm = &loaded.racks.items[0].instrument.drum_machine;
+    try testing.expectEqualStrings("boombap", ldm.kit);
+    try testing.expect(ldm.pads[0].?.pad.samples.len > 0); // regenerated, not silent
+    try testing.expectEqualStrings("kick", ldm.padName(0));
+    // The file still wins on params.
+    try testing.expectApproxEqAbs(@as(f32, -2.0), ldm.pads[0].?.pad.pitch_semitones, 1e-4);
+
+    // A machine left on the blank "init" kit reloads blank.
+    try dm.loadKitVariant(drum_kit.byName("init").?);
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var blank = try load(testing.allocator, testing.io, wsj_path);
+    defer blank.deinit();
+    const bdm = &blank.racks.items[0].instrument.drum_machine;
+    for (0..8) |p| try testing.expectEqualStrings("empty", bdm.padName(@intCast(p)));
 }
 
 test "save/load round-trip persists a pad rename with no sample change" {

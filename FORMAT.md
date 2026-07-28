@@ -13,7 +13,7 @@ the rename is the only step that touches the real path, and it's atomic on
 every platform wstudio targets.
 
 User-loaded sample audio (a drum pad or sampler clip loaded from a WAV, as
-opposed to the shipped/generated kit) is exported alongside the `.wsj` into
+opposed to a generated kit pad) is exported alongside the `.wsj` into
 a sidecar directory, not embedded in the JSON. See
 [Sample sidecar](#sample-sidecar) below.
 
@@ -92,6 +92,14 @@ etc.), one per row of the table above. `persist.zig`'s "golden-file corpus"
 test loads every file in that directory and fails loudly if one stops
 parsing - add a new fixture there alongside any future version bump.
 
+`DrumSnap.kit` names the factory kit flavour the machine was last set to
+(`dsp/drum_kit.zig`'s `variants`). Its pads are generated on load rather
+than stored, so a kit costs a name in the JSON and nothing on disk; only
+user-loaded audio reaches the sidecar. A file that omits it - or names a
+flavour this build no longer has - loads with whatever the per-pad `used`
+flags describe, which for a machine left on the blank `init` kit is
+nothing at all.
+
 Drum patterns and drum arrangement clips optionally store
 `steps_per_beat`. Its default is 4, the historical fixed 1/16-note grid, so
 projects written before the field existed retain identical timing. New files
@@ -99,8 +107,8 @@ use values through 32 for grids as fine as 1/128 notes.
 
 ## Sample sidecar
 
-A pad's audio is either the shipped/generated default (nothing written to
-disk beyond the params) or **user-loaded**, in which case saving exports it
+A pad's audio is either generated from its kit (nothing written to
+disk beyond the params and the kit name) or **user-loaded**, in which case saving exports it
 as a mono 16-bit WAV into `<stem>_samples/` next to the `.wsj` (`<stem>` is
 the project filename without its extension, so `song.wsj` becomes
 `song_samples/`, created lazily, only once a session actually holds a user
