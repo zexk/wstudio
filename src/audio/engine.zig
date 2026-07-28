@@ -1256,6 +1256,20 @@ fn testDrumMachine(transport: *const Transport) !DrumMachine {
     return dm;
 }
 
+/// A deliberately extreme compressor: limiting ratio and a near-instant
+/// envelope, so the tests below can measure gain reduction within a couple
+/// of blocks rather than waiting out a musical release. Only the threshold
+/// varies - low enough that the master tests' summed mix triggers it, higher
+/// for the sidechain tests where the detector is a single quiet track.
+fn testCompressor(threshold_db: f32) Compressor {
+    var comp = Compressor.init(48_000);
+    comp.threshold_db = threshold_db;
+    comp.ratio = 20.0;
+    comp.attack_ms = 0.1;
+    comp.release_ms = 0.1;
+    return comp;
+}
+
 test "engine rejects a zero sample rate" {
     try std.testing.expectError(error.InvalidSampleRate, Engine.init(std.testing.allocator, 0));
 }
@@ -1531,11 +1545,7 @@ test "master FX chain processes the summed mix before gain/limiter" {
 
     // A master compressor riding near-instantly on a very low threshold and
     // steep ratio should crush the level well below the uncompressed pass.
-    var comp = Compressor.init(48_000);
-    comp.threshold_db = -60.0;
-    comp.ratio = 20.0;
-    comp.attack_ms = 0.1;
-    comp.release_ms = 0.1;
+    var comp = testCompressor(-60.0);
     engine.setMasterChain(&.{comp.device()});
 
     var block2: [512]Sample = undefined;
@@ -1561,11 +1571,7 @@ test "grouped tracks submix through their group's FX chain; ungrouped tracks are
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
     _ = engine.send(.{ .note_on = .{ .track = 1, .note = 60, .velocity = 1.0 } });
 
-    var comp = Compressor.init(48_000);
-    comp.threshold_db = -60.0;
-    comp.ratio = 20.0;
-    comp.attack_ms = 0.1;
-    comp.release_ms = 0.1;
+    var comp = testCompressor(-60.0);
     engine.setGroupChain(0, true, &.{comp.device()});
     _ = engine.send(.{ .set_track_group = .{ .track = 0, .group = 0 } }); // track 1 stays ungrouped
 
@@ -1593,11 +1599,7 @@ test "renderTracks routes a compressor's sidechain detector from a different (so
     defer kick.deinit();
     var bass = try PolySynth.init(std.testing.allocator, 48_000);
     defer bass.deinit();
-    var comp = Compressor.init(48_000);
-    comp.threshold_db = -30.0;
-    comp.ratio = 20.0;
-    comp.attack_ms = 0.1;
-    comp.release_ms = 0.1;
+    var comp = testCompressor(-30.0);
 
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
@@ -1634,11 +1636,7 @@ test "renderTracks routes a compressor's sidechain detector from a different (so
 test "renderTracks routes a compressor's sidechain detector from a single drum pad, isolated from the rest of the kit" {
     var bass = try PolySynth.init(std.testing.allocator, 48_000);
     defer bass.deinit();
-    var comp = Compressor.init(48_000);
-    comp.threshold_db = -30.0;
-    comp.ratio = 20.0;
-    comp.attack_ms = 0.1;
-    comp.release_ms = 0.1;
+    var comp = testCompressor(-30.0);
 
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
@@ -1666,11 +1664,7 @@ test "renderTracks routes a compressor's sidechain detector from a single drum p
     // Self-detection baseline: same quiet bass, no sidechain routing.
     var bass2 = try PolySynth.init(std.testing.allocator, 48_000);
     defer bass2.deinit();
-    var comp2 = Compressor.init(48_000);
-    comp2.threshold_db = -30.0;
-    comp2.ratio = 20.0;
-    comp2.attack_ms = 0.1;
-    comp2.release_ms = 0.1;
+    var comp2 = testCompressor(-30.0);
     var engine2 = try Engine.init(std.testing.allocator, 48_000);
     defer engine2.deinit();
     engine2.trackAt(1).* = .{ .active = true };
@@ -1731,11 +1725,7 @@ test "a compressor keyed to a pad on its OWN track reads the pad, not self-detec
     // silence and the loud snare passes uncompressed; the old finalize-time
     // captured flag made same-track pad keys fall back to self-detection,
     // which would squash the snare hard.
-    var comp = Compressor.init(48_000);
-    comp.threshold_db = -30.0;
-    comp.ratio = 20.0;
-    comp.attack_ms = 0.1;
-    comp.release_ms = 0.1;
+    var comp = testCompressor(-30.0);
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
     var drum = try testDrumMachine(&engine.transport);
@@ -1752,11 +1742,7 @@ test "a compressor keyed to a pad on its OWN track reads the pad, not self-detec
 
     // Identical setup, self-detecting (no routing): the loud snare drives
     // the envelope and gets squashed.
-    var comp2 = Compressor.init(48_000);
-    comp2.threshold_db = -30.0;
-    comp2.ratio = 20.0;
-    comp2.attack_ms = 0.1;
-    comp2.release_ms = 0.1;
+    var comp2 = testCompressor(-30.0);
     var engine2 = try Engine.init(std.testing.allocator, 48_000);
     defer engine2.deinit();
     var drum2 = try testDrumMachine(&engine2.transport);
@@ -1782,11 +1768,7 @@ test "a sidechain source that never renders falls back to self-detection, not a 
     // input), never reading the capture slot's uninitialized buffer.
     var bass = try PolySynth.init(std.testing.allocator, 48_000);
     defer bass.deinit();
-    var comp = Compressor.init(48_000);
-    comp.threshold_db = -30.0;
-    comp.ratio = 20.0;
-    comp.attack_ms = 0.1;
-    comp.release_ms = 0.1;
+    var comp = testCompressor(-30.0);
 
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
@@ -1803,11 +1785,7 @@ test "a sidechain source that never renders falls back to self-detection, not a 
     // Same setup with the routing cleared: the self-detection baseline.
     var bass2 = try PolySynth.init(std.testing.allocator, 48_000);
     defer bass2.deinit();
-    var comp2 = Compressor.init(48_000);
-    comp2.threshold_db = -30.0;
-    comp2.ratio = 20.0;
-    comp2.attack_ms = 0.1;
-    comp2.release_ms = 0.1;
+    var comp2 = testCompressor(-30.0);
     var engine2 = try Engine.init(std.testing.allocator, 48_000);
     defer engine2.deinit();
     engine2.trackAt(1).* = .{ .active = true };
