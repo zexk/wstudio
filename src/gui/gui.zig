@@ -30,6 +30,26 @@ const icon_glyph_ranges = [_]zgui.Wchar{
     0xf0bd1, 0xf0bd1, 0xf0ea2, 0xf0ea2, 0,
 };
 
+/// Keep the window title on the project that is actually open. It used to be
+/// set once, from the command-line path, so it went stale the moment the
+/// project changed - `:e`, `:w <newname>`, `:new` - and a session started
+/// blank never got one at all. `last`/`last_len` hold the path it was last
+/// built from, so this is a string compare on an unchanged frame.
+fn syncWindowTitle(window: *glfw.Window, app: *const App, last: []u8, last_len: *usize) void {
+    const path = app.core.projectPath() orelse "";
+    if (std.mem.eql(u8, last[0..last_len.*], path)) return;
+    if (path.len > last.len) return;
+    @memcpy(last[0..path.len], path);
+    last_len.* = path.len;
+
+    var title_buf: [1024]u8 = undefined;
+    const title = if (path.len == 0)
+        std.fmt.bufPrintZ(&title_buf, "wstudio GUI prototype", .{}) catch return
+    else
+        std.fmt.bufPrintZ(&title_buf, "wstudio GUI prototype - {s}", .{path}) catch return;
+    window.setTitle(title);
+}
+
 fn guiAudio(sample_rate: u32, block_frames: u32, engine: *ws.Engine) ws.AudioHost {
     return ws.AudioHost.init(
         .{ .sample_rate = sample_rate, .block_frames = block_frames },
@@ -159,10 +179,9 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     // A project opened on the command line loaded before the runtime
     // attached, so its event fires here, right after ConfigDone.
     if (app.core.projectPath()) |p| app.core.emitEvent(.{ .ProjectLoadPost = .{ .path = p } });
-    if (init_path) |path| {
-        var title_buf: [1024]u8 = undefined;
-        if (std.fmt.bufPrintZ(&title_buf, "wstudio GUI prototype - {s}", .{path})) |title| window.setTitle(title) else |_| {}
-    }
+    var title_path_buf: [1024]u8 = undefined;
+    var title_path_len: usize = 0;
+    syncWindowTitle(window, &app, &title_path_buf, &title_path_len);
     var audio = guiAudio(app.core.session.project.sample_rate, user_config.audio_block_frames, app.core.session.engine);
     try audio.start(init.io, user_config.audio_backend);
     defer audio.stop();
@@ -280,6 +299,8 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
             gui_style.selectIdentity(runtime.resolvedTheme(user_config.gui_theme));
             gui_style.setTheme(user_config.gui_panel_border);
         }
+
+        syncWindowTitle(window, &app, &title_path_buf, &title_path_len);
 
         // MIDI input follows the tracks cursor so live playing always targets
         // the selected track. Written from this thread, read (monotonic) in
