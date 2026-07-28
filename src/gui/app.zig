@@ -34,6 +34,10 @@ pub const App = struct {
     waveform_drag: ?sampler_view.RegionHandle = null,
     automation_edit_active: bool = false,
     piano_velocity_edit_active: bool = false,
+    /// A right-drag erase sweep is in flight - one undo entry covers it, so
+    /// this says whether it has already been recorded (see the roll's
+    /// right-button branch).
+    piano_erase_active: bool = false,
     instrument_edit_active: bool = false,
     synth_edit_active: bool = false,
     meter_hold_db: [2]f32 = .{ -100, -100 },
@@ -80,6 +84,7 @@ pub const App = struct {
         if (self.core.view != .piano_roll) self.piano_mouse_edit = null;
         if (self.core.view != .automation or !zgui.isMouseDown(.left)) self.automation_edit_active = false;
         if (self.core.view != .piano_roll or !zgui.isMouseDown(.left)) self.piano_velocity_edit_active = false;
+        if (self.core.view != .piano_roll or !zgui.isMouseDown(.right)) self.piano_erase_active = false;
         if (self.core.view != .synth_editor or !zgui.isMouseDown(.left)) self.synth_edit_active = false;
         if (self.instrument_edit_active and (!zgui.isMouseDown(.left) and !zgui.isAnyItemActive() or switch (self.core.view) {
             .sampler_editor, .soundfont_editor => false,
@@ -122,7 +127,6 @@ pub const App = struct {
             self.core.handleKey(key, std.Io.Timestamp.now(self.core.io, .awake).nanoseconds);
         }
     }
-
 };
 
 fn bodyHeight(prompt_open: bool) f32 {

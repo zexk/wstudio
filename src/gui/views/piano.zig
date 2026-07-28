@@ -29,6 +29,15 @@ pub const MouseEdit = struct {
     target_pitch: u7,
     target_step: u16,
     duration_steps: u16,
+    /// This `resize` is the tail of a draw gesture (FL's click-and-drag to
+    /// place a note at the length you drag out), not a grab of an existing
+    /// note's edge: the length holds at the default until the pointer leaves
+    /// the cell it started in, and the committed length becomes the new
+    /// default rather than pushing a second undo entry.
+    from_draw: bool = false,
+    /// Shift was held when the drag started: FL's clone-on-drag leaves a
+    /// copy of the note behind at the source.
+    clone: bool = false,
 };
 
 /// Pitch drawn on `row` of a roll whose top row is `top_pitch`, or null once
@@ -80,6 +89,10 @@ fn previewNote(source: ws.dsp.pattern.Note, edit: ?MouseEdit, steps_per_beat: us
 }
 
 fn updateMouseEdit(edit: *MouseEdit, pointer_pitch: u7, pointer_step: usize) void {
+    // A draw that hasn't left its starting cell keeps the default note
+    // length - only an actual drag sizes the note, so a plain click still
+    // places one of the length `[`/`]` set.
+    if (edit.from_draw and pointer_step == edit.source_step) return;
     switch (edit.kind) {
         .move => {
             edit.target_pitch = pointer_pitch;
@@ -115,6 +128,28 @@ test "mouse note edits preview before commit" {
     var edit = left;
     updateMouseEdit(&edit, 60, 99);
     try std.testing.expectEqual(@as(u16, 5), edit.target_step);
+}
+
+test "a pen keeps the default length until the pointer leaves its cell" {
+    // Placed at step 4 with a 4-step default: clicking without dragging must
+    // commit those 4 steps, not the one step the pointer's own cell spans.
+    var pen: MouseEdit = .{
+        .kind = .resize,
+        .from_draw = true,
+        .source_pitch = 60,
+        .source_step = 4,
+        .target_pitch = 60,
+        .target_step = 4,
+        .duration_steps = 4,
+    };
+    updateMouseEdit(&pen, 60, 4);
+    try std.testing.expectEqual(@as(u16, 4), pen.duration_steps);
+    // Dragging right sizes it to the pointer, inclusive of its cell.
+    updateMouseEdit(&pen, 60, 9);
+    try std.testing.expectEqual(@as(u16, 6), pen.duration_steps);
+    // And back left, down to a single step.
+    updateMouseEdit(&pen, 60, 3);
+    try std.testing.expectEqual(@as(u16, 1), pen.duration_steps);
 }
 
 fn drawToolbar(app: anytype) void {
@@ -368,6 +403,32 @@ pub fn draw(app: anytype) void {
     // rather than skipped, since a hover still has to name some pitch.
     const pointer_pitch: u7 = rowPitch(top_pitch, pointer_row) orelse 0;
 
+    // Key gutter: click (or slide down the keys) to hear the pitch, FL's
+    // preview keyboard. Selects the row too, matching the drum/slicer
+    // gutter-click convention.
+    if (hovered and mouse[0] < grid_x and mouse[1] >= grid_y and zgui.isMouseDown(.left)) {
+        if (zgui.isMouseClicked(.left) or pointer_pitch != app.core.piano_cursor_pitch) {
+            app.core.piano_cursor_pitch = pointer_pitch;
+            app.core.playNote(app.core.piano_track, pointer_pitch, app.core.now_ns);
+        }
+    }
+
+    // Scroll wheel over the roll: pitch by semitone, ctrl for an octave
+    // (the GUI's ctrl-is-coarse scroll convention), shift for FL's
+    // horizontal scroll. Routed through the keys so audition and the shared
+    // cursor-follow scrolling come along.
+    if (hovered and gui_style.wheel_delta != 0) {
+        gui_style.wheel_consumed = true;
+        const up = gui_style.wheel_delta > 0;
+        const key: u8 = if (zgui.isKeyDown(.mod_shift))
+            (if (up) 'h' else 'l')
+        else if (zgui.isKeyDown(.mod_ctrl))
+            (if (up) 'K' else 'J')
+        else
+            (if (up) 'k' else 'j');
+        app.core.handleKey(.{ .char = key }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+    }
+
     if (hovered and mouse[0] >= grid_x and mouse[1] >= grid_y) {
         const pointer_beat = @as(f64, @floatCast((mouse[0] - grid_x) / beat_w));
         if (zgui.isMouseClicked(.left)) {
@@ -388,23 +449,47 @@ pub fn draw(app: anytype) void {
                     .target_pitch = note.pitch,
                     .target_step = source_step,
                     .duration_steps = @max(1, ws.dsp.pattern.clampStep(@round(note.duration_beat * @as(f64, @floatFromInt(steps_per_beat))))),
+                    .clone = zgui.isKeyDown(.mod_shift),
                 };
-            } else {
-                app.core.piano_cursor_pitch = pointer_pitch;
-                app.core.piano_cursor_step = @intCast(pointer_step);
-                app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+            } else if (piano_ed.insertNoteAt(&app.core, pointer_pitch, @intCast(pointer_step))) {
+                // FL's draw gesture: the note is placed on press and the
+                // drag that follows sizes it, so `resize` picks up where the
+                // insert left off (see `from_draw`).
+                app.piano_mouse_edit = .{
+                    .kind = .resize,
+                    .from_draw = true,
+                    .source_pitch = pointer_pitch,
+                    .source_step = @intCast(pointer_step),
+                    .target_pitch = pointer_pitch,
+                    .target_step = @intCast(pointer_step),
+                    .duration_steps = @max(1, ws.dsp.pattern.clampStep(@round(app.core.piano_note_len * @as(f64, @floatFromInt(steps_per_beat))))),
+                };
             }
-        } else if (zgui.isMouseClicked(.right)) {
+        } else if (zgui.isMouseDown(.right)) {
+            // Right-drag is an erase brush (FL's delete tool): every note
+            // swept goes, and the whole sweep is one undo entry - the same
+            // record-once-per-gesture split the velocity lane's drag uses.
             if (noteCovering(pp, pointer_pitch, pointer_beat)) |note| {
-                app.core.piano_cursor_pitch = note.pitch;
-                app.core.piano_cursor_step = ws.dsp.pattern.clampStep(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
-                app.core.handleKey(.{ .char = 'x' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+                if (!app.piano_erase_active) {
+                    history.recordMelodic(&app.core, app.core.piano_track);
+                    app.piano_erase_active = true;
+                }
+                const start_step: u16 = ws.dsp.pattern.clampStep(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
+                _ = piano_ed.eraseNoteAt(&app.core, note.pitch, start_step);
             }
         }
     }
 
     if (zgui.isMouseDown(.left)) {
-        if (app.piano_mouse_edit) |*edit| updateMouseEdit(edit, pointer_pitch, pointer_step);
+        if (app.piano_mouse_edit) |*edit| {
+            const before = edit.target_pitch;
+            updateMouseEdit(edit, pointer_pitch, pointer_step);
+            // Dragging a note across rows previews each pitch it lands on,
+            // like FL's audible drag.
+            if (edit.kind == .move and edit.target_pitch != before) {
+                app.core.playNote(app.core.piano_track, edit.target_pitch, app.core.now_ns);
+            }
+        }
     }
 
     if (zgui.isMouseReleased(.left)) {
@@ -412,8 +497,20 @@ pub fn draw(app: anytype) void {
             updateMouseEdit(active, pointer_pitch, pointer_step);
             const edit = active.*;
             switch (edit.kind) {
-                .move => _ = piano_ed.moveNoteTo(&app.core, edit.source_pitch, edit.source_step, edit.target_pitch, edit.target_step),
-                .resize => _ = piano_ed.resizeNoteSteps(&app.core, edit.source_pitch, edit.source_step, edit.duration_steps),
+                .move => {
+                    if (piano_ed.moveNoteTo(&app.core, edit.source_pitch, edit.source_step, edit.target_pitch, edit.target_step) and edit.clone) {
+                        _ = piano_ed.cloneNoteBack(&app.core, edit.source_pitch, edit.source_step, edit.target_pitch, edit.target_step);
+                    }
+                },
+                // A drawn note's length rides the insert's undo entry and
+                // becomes the new default; a grabbed edge is its own edit.
+                .resize => {
+                    if (edit.from_draw) {
+                        piano_ed.setDrawnLength(&app.core, edit.source_pitch, edit.source_step, edit.duration_steps);
+                    } else {
+                        _ = piano_ed.resizeNoteSteps(&app.core, edit.source_pitch, edit.source_step, edit.duration_steps);
+                    }
+                },
                 .resize_left => _ = piano_ed.resizeNoteFromLeft(&app.core, edit.source_pitch, edit.source_step, edit.target_step),
             }
             app.piano_mouse_edit = null;

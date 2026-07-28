@@ -700,6 +700,76 @@ pub fn resizeNoteFromLeft(app: *App, pitch: u7, start_step: u16, new_start_step:
     return true;
 }
 
+/// GUI draw adapter: place a note at `pitch`/`step` and preview it, without
+/// opening the keyboard stamp session `toggleOrStamp` would. The GUI has no
+/// key-release to close a stamp with, so routing a mouse draw through Enter
+/// left one open and silently turned the next h/j/k/l into a drag of the
+/// note just drawn; the mouse drag that follows the click shapes its length
+/// instead (see `setDrawnLength`).
+pub fn insertNoteAt(app: *App, pitch: u7, step: u16) bool {
+    const pp = currentPatternPlayer(app) orelse return false;
+    if (app.piano_stamp) dropStamp(app);
+    if (app.piano_grab) dropGrab(app);
+    app.piano_cursor_pitch = pitch;
+    app.piano_cursor_step = step;
+    const before = pp.note_count;
+    insertNote(app);
+    if (pp.note_count == before) return false;
+    app.playNote(app.piano_track, pitch, app.now_ns);
+    return true;
+}
+
+/// GUI draw-drag adapter: length of the note the same gesture just inserted,
+/// which also becomes the default for the next one - FL's "last drawn length
+/// sticks". No undo entry of its own: the insert's entry already covers the
+/// gesture, so one undo takes the drawn note away rather than two.
+pub fn setDrawnLength(app: *App, pitch: u7, start_step: u16, duration_steps: u16) void {
+    const pp = currentPatternPlayer(app) orelse return;
+    const note = pp.noteAt(pitch, stepToBeat(app, start_step)) orelse return;
+    const step_beats = 1.0 / stepsPerBeatF(app);
+    note.duration_beat = std.math.clamp(@as(f64, @floatFromInt(@max(duration_steps, 1))) * step_beats, step_beats, pp.length_beats);
+    app.piano_note_len = note.duration_beat;
+    app.setStatus("drew {d:.2} beats - default len", .{note.duration_beat});
+    syncLinkedClip(app);
+}
+
+/// GUI erase-brush adapter: remove one note with no undo entry of its own,
+/// so a right-drag across a phrase undoes as one step. The caller records
+/// once when the sweep starts, the same split `setVelocity` uses.
+pub fn eraseNoteAt(app: *App, pitch: u7, start_step: u16) bool {
+    const pp = currentPatternPlayer(app) orelse return false;
+    const start_beat = stepToBeat(app, start_step);
+    if (!pp.noteStartsAt(pitch, start_beat)) return false;
+    pp.removeNote(pitch, start_beat);
+    app.piano_cursor_pitch = pitch;
+    app.piano_cursor_step = start_step;
+    syncLinkedClip(app);
+    return true;
+}
+
+/// GUI shift+drag adapter: FL's clone-on-drag. `moveNoteTo` has already
+/// carried the note to its target, so this puts a copy back where the drag
+/// started, reading length and velocity off the moved note. Shares the
+/// move's undo entry (captured before either half existed in its new shape),
+/// so one undo removes the clone too.
+pub fn cloneNoteBack(app: *App, source_pitch: u7, source_step: u16, target_pitch: u7, target_step: u16) bool {
+    const pp = currentPatternPlayer(app) orelse return false;
+    const moved = pp.noteAt(target_pitch, stepToBeat(app, target_step)) orelse return false;
+    const start_beat = stepToBeat(app, source_step);
+    if (pp.noteStartsAt(source_pitch, start_beat)) return false;
+    if (!pp.tryAddNote(.{
+        .pitch = source_pitch,
+        .start_beat = start_beat,
+        .duration_beat = moved.duration_beat,
+        .velocity = moved.velocity,
+    })) {
+        app.setStatus("pattern full ({d} notes max)", .{pattern_mod.max_notes});
+        return false;
+    }
+    syncLinkedClip(app);
+    return true;
+}
+
 /// GUI velocity-lane drag adapter: set one note's velocity outright, with the
 /// cursor, status, and linked-clip writeback `<`/`>` use. Deliberately does
 /// NOT push undo - a drag calls this every frame, so the caller records one
