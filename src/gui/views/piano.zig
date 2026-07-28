@@ -245,7 +245,12 @@ pub fn draw(app: anytype) void {
     const row_h: f32 = gui_style.piano_row_height;
     const controller_h: f32 = 96;
     const available = zgui.getContentRegionAvail();
-    const row_count: usize = @intFromFloat(std.math.clamp(@floor((available[1] - ruler_h - controller_h - 8) / row_h), 24, 37));
+    // The ceiling used to be 37, which is what the default 18px row height
+    // fits. Now that `gui_piano_row_height` is a user setting, a small row
+    // height has to be allowed to show more keys - otherwise it just leaves
+    // the bottom of the window empty. 88 is a full piano's worth; the floor
+    // stays 24 so a tall row height still shows a usable span.
+    const row_count: usize = @intFromFloat(std.math.clamp(@floor((available[1] - ruler_h - controller_h - 8) / row_h), 24, 88));
     piano_ed.followPitch(&app.core, @intCast(row_count));
     const top_pitch: u7 = app.core.piano_scroll_pitch;
     const bottom_pitch: u7 = top_pitch -| @as(u7, @intCast(row_count - 1));
