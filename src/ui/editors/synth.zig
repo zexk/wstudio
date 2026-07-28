@@ -542,10 +542,22 @@ pub fn searchCandidates(app: *App, buf: []SearchCandidate) []const SearchCandida
     return buf[0..n];
 }
 
-/// Upper bound on `searchCandidates`' output - MAIN's 63 fields=1 entries +
-/// MOD's 38 (24 matrix fields + 14 lfo/env3/macro) + FX's worst case (all
-/// 14 units on, 51 ids). Sized with headroom, not tuned tight.
-pub const max_search_candidates: usize = 160;
+/// Exact bound on `searchCandidates`' output: every MAIN and MOD field plus
+/// FX's worst case (all 14 units on). Derived from the very tables
+/// `searchCandidates` walks - a hand-counted 160 held until the mod matrix
+/// grew from 8 rows to 32, at which point `/` in the synth editor wrote
+/// past the caller's buffer and panicked.
+pub const max_search_candidates: usize = blk: {
+    var n: usize = 0;
+    for (synth_layout.main_sections) |sec| {
+        for (sec.params) |p| n += p.fields;
+    }
+    for (synth_layout.mod_sections) |sec| {
+        for (sec.params) |p| n += p.fields;
+    }
+    for (std.enums.values(FxUnitKind)) |kind| n += fxIdCount(kind);
+    break :blk n;
+};
 
 /// Every cursor-reachable `.fx` id, in on-screen (fx_order) sequence rather
 /// than numeric order - the list j/k and g/G walk. Sized generously above

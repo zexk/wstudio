@@ -17,6 +17,7 @@
 //! than forcing a runtime-shaped subview through a comptime-static one.
 
 const std = @import("std");
+const ws = @import("wstudio");
 
 const mod_source_names = [_][]const u8{ "off", "lfo", "fenv", "aenv", "vel", "key", "whl", "lfo2", "lfo3", "mc1", "mc2", "mc3", "mc4", "env3" };
 
@@ -50,16 +51,19 @@ pub const SectionDef = struct {
     params: []const ParamEntry,
 };
 
-const max_mod_rows = 32;
+/// One slot entry (source/dest/depth) plus one polarity toggle per matrix
+/// row. Ids come from `PolySynth` itself rather than being re-derived here:
+/// the row count and both id bases live there, and a layout that guessed
+/// them would silently disagree the next time the matrix grows.
+const max_mod_rows = ws.dsp.PolySynth.max_mod_rows;
 const matrix_params = blk: {
     @setEvalBranchQuota(30_000);
     var out: [max_mod_rows * 2]ParamEntry = undefined;
     for (0..max_mod_rows) |row| {
         const label = std.fmt.comptimePrint("{d}", .{row + 1});
-        const id: u16 = @intCast(if (row < 8) 59 + row * 3 else 301 + (row - 8) * 3);
-        out[row * 2] = .{ .id = id, .label = label, .fields = 3 };
+        out[row * 2] = .{ .id = ws.dsp.PolySynth.matrixParamId(row, 0), .label = label, .fields = 3 };
         out[row * 2 + 1] = .{
-            .id = @intCast(269 + row),
+            .id = @intCast(ws.dsp.PolySynth.mod_unipolar_id_base + row),
             .label = std.fmt.comptimePrint("{s} pol", .{label}),
         };
     }

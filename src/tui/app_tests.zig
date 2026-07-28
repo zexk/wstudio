@@ -3719,6 +3719,22 @@ test "synth editor jk moves cursor, hl adjusts waveform" {
     try std.testing.expect(synth.attack_s > old_attack);
 }
 
+test "synth editor search walks every candidate without overrunning its buffer" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // max_search_candidates was hand-counted and went stale when the mod
+    // matrix grew 8 rows to 32, so `/` wrote past the caller's buffer.
+    var cbuf: [synth_ed_mod.max_search_candidates]synth_ed_mod.SearchCandidate = undefined;
+    const candidates = synth_ed_mod.searchCandidates(&app, &cbuf);
+    try std.testing.expect(candidates.len > 200);
+
+    app.handleKey(.enter, 0);
+    for ("/cutoff") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(@as(u16, 21), app.synth_cursor);
+}
+
 test "draw renders synth editor without errors" {
     var app = try testApp();
     defer app.deinit();

@@ -788,9 +788,9 @@ fn secMatrix(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
 
         if (focused) {
             try w.writeAll(bcyn ++ bold);
-            try w.print("\u{25B8} {d} ", .{k + 1});
+            try w.print("\u{25B8} {d: <2} ", .{k + 1});
         } else {
-            try w.print("  {d} ", .{k + 1});
+            try w.print("  {d: <2} ", .{k + 1});
         }
         try w.writeAll(rst);
 
