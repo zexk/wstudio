@@ -1223,7 +1223,7 @@ fn applySnapToDevice(device: anytype, snap: anytype) void {
 // zig fmt: off
 /// Shared by track racks and the master bus - both hold a user-built `Fx`
 /// chain. One FxUnitSnap per slot, in chain order.
-fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnitSnap {
+pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnitSnap {
     const out = try aa.alloc(FxUnitSnap, fx.units.items.len);
     for (fx.units.items, out) |u, *us| {
         us.* = switch (u.payload) {
@@ -2024,7 +2024,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         if (rs.fx_chain) |fc| try applyFxChain(allocator, &rack.fx, fc, sr, &engine.transport)
         else try applyLegacyFx(allocator, &rack.fx, rs.fx, sr, &engine.transport);
         if (rack.instrument == .poly_synth)
-            try migrateSynthFx(allocator, rack, sr, false);
+            try migrateSynthFx(allocator, &rack.instrument.poly_synth, &rack.fx, sr, false);
         try racks.append(allocator, rack);
     }
     // zig fmt: on
@@ -2489,7 +2489,7 @@ fn applyLfoCustomSnap(dst_points: *[synth_mod.max_lfo_shape_points]synth_mod.Lfo
 /// racks and the master bus - both hold a user-built `Fx` chain. Snaps past
 /// the chain cap are dropped (only reachable by hand-editing the file).
 /// A unit whose params field is null keeps its defaults.
-fn applyFxChain(
+pub fn applyFxChain(
     allocator: std.mem.Allocator,
     fx_out: *Fx,
     chain: []const FxUnitSnap,
@@ -2597,8 +2597,7 @@ fn applyFxChain(
 
 /// Move old synth-owned inserts into Rack's shared modular chain. Insert at
 /// chain front because legacy signal flow was synth inserts, then rack FX.
-fn migrateSynthFx(allocator: std.mem.Allocator, rack: *Rack, sr: u32, preset_owned: bool) !void {
-    const s = &rack.instrument.poly_synth;
+fn migrateSynthFx(allocator: std.mem.Allocator, s: *PolySynth, fx: *Fx, sr: u32, preset_owned: bool) !void {
     var pos: usize = 0;
     for (s.fx_order) |kind| {
         const enabled = switch (kind) {
@@ -2624,7 +2623,7 @@ fn migrateSynthFx(allocator: std.mem.Allocator, rack: *Rack, sr: u32, preset_own
             .flanger => .flanger, .tape => .tape, .phaser => .phaser,
             .freq_shift => .freq_shift, .delay => .delay, .reverb => .reverb,
         };
-        const unit = try rack.fx.insert(allocator, pos, rack_kind, sr);
+        const unit = try fx.insert(allocator, pos, rack_kind, sr);
         unit.preset_owned = preset_owned;
         for (&s.mod_matrix) |*row| {
             if (row.fx_instance_id == 0 and fxKindOwnsParam(kind, row.dest))
@@ -2770,9 +2769,17 @@ pub fn applySynthPatch(
     sr: u32,
 ) !void {
     if (rack.instrument != .poly_synth) return error.NotSynth;
-    rack.fx.removePresetUnits(allocator);
-    rack.instrument.poly_synth.applyPatch(patch);
-    try migrateSynthFx(allocator, rack, sr, true);
+    const synth = &rack.instrument.poly_synth;
+    const original = synth.toPatch();
+    synth.applyPatch(patch);
+    var replacement: Fx = .{};
+    migrateSynthFx(allocator, synth, &replacement, sr, false) catch |err| {
+        replacement.deinit(allocator);
+        synth.applyPatch(original);
+        return err;
+    };
+    rack.fx.deinit(allocator);
+    rack.fx = replacement;
 }
 
 /// v9-and-older fallback: expand the fixed struct-of-optionals rack into

@@ -7,7 +7,7 @@ Small pieces of user state live as JSON files under
 | --- | --- |
 | `bookmarks.json` | File-browser bookmarks |
 | `cmd_history.json` | The last 50 submitted `:` commands |
-| `synth_presets.json` | User-saved synth patches |
+| `instrument_presets.wspreset` | Versioned synth + ordered FX-chain presets |
 | `drum_kits.json` | User-saved drum pad tuning |
 
 These files are optional conveniences, not project content. If the home
@@ -30,6 +30,18 @@ then create a valid file without destroying the unreadable original.
 atomic-write operations. Each caller retains its own snapshot type and
 allocation logic because entries range from plain strings to structures with
 nested owned fields.
+
+## Instrument preset boundary
+
+`instrument_presets.wspreset` is JSON with format marker
+`wstudio-instrument-preset` and its own version, independent from `.wsj`.
+Each entry contains synth parameters and complete ordered FX chain. Applying
+or auditioning one replaces both together. Track name, color, mixer state,
+group routing, notes, patterns, clips, and automation remain project content.
+
+On first startup without new file, `synth_presets.json` entries import as
+synth-only presets and new file is written. Old user presets never contained
+external rack FX, so empty imported chain preserves their full saved state.
 
 ## Drum kit boundary
 

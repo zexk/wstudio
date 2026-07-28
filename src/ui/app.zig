@@ -773,10 +773,9 @@ pub const App = struct {
     piano_audition: bool = false,
     /// Undo/redo history for content edits (u / U in the editing views).
     history: undo_mod.History = .{},
-    /// User-saved synth presets (`:synth-preset-save <name>`), loaded once
-    /// at startup from `~/.config/wstudio/synth_presets.json` and rewritten
-    /// wholesale on every save. Complements the compiled-in, read-only
-    /// factory list in `dsp/synth_presets.zig`.
+    /// User-saved synth + FX presets (`:synth-preset-save <name>`), loaded
+    /// from `~/.config/wstudio/instrument_presets.wspreset` and rewritten
+    /// wholesale on save. Complements compiled-in factory list.
     user_synth_presets: std.ArrayListUnmanaged(user_presets.UserPreset) = .empty,
     /// User-saved drum kits (`:drum-kit-save <name>`) - pad tuning only, no
     /// audio (see `tui/user_drum_kits.zig`'s own doc comment for why),
@@ -866,10 +865,9 @@ pub const App = struct {
     /// `automation_param_scroll`.
     preset_picker_cursor: usize = 0,
     preset_picker_scroll: usize = 0,
-    /// Synth state before the picker opened. Audition applies patches to the
-    /// live synth, so cancel restores this snapshot instead of committing the
-    /// last sound heard while browsing.
+    /// Synth and FX state before picker opened. Cancel restores both.
     preset_audition_original: ws.dsp.PolySynth.Patch = .{},
+    preset_audition_original_fx: ?ws.Fx = null,
     preset_audition_active: bool = false,
     /// Last submitted `/` filter for the preset picker - separate from the
     /// global search register because it narrows a list rather than jumping
@@ -899,7 +897,7 @@ pub const App = struct {
             .allocator = allocator,
             .io = io,
             .session = try ws.Session.initDefaultWithSampleRate(allocator, sample_rate),
-            .user_synth_presets = user_presets.load(allocator, io),
+            .user_synth_presets = user_presets.load(allocator, io, sample_rate),
             .user_drum_kits = user_drum_kits.load(allocator, io),
             .cmd_history = cmd_history,
             .cmd_history_pos = cmd_history.items.len,
@@ -940,6 +938,7 @@ pub const App = struct {
         self.recording_accum.deinit(self.allocator);
         self.external_plugins.deinit();
         user_presets.deinit(self.allocator, &self.user_synth_presets);
+        if (self.preset_audition_original_fx) |*fx| fx.deinit(self.allocator);
         user_drum_kits.deinit(self.allocator, &self.user_drum_kits);
         if (self.arr_range_clip) |r| r.deinit(self.allocator);
         if (self.automation_range_clip) |r| self.allocator.free(r.points);

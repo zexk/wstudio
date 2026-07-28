@@ -1932,22 +1932,27 @@ fn cmdSynthPreset(app: *App, args: []const u8) void {
         app.setStatus("synth presets{s}: {s}", .{ marker, w.buffered() });
         return;
     }
-    const patch = user_presets.find(app.user_synth_presets.items, trimmed) orelse
-        // zig fmt: off
-        ws.dsp.synth_presets.find(trimmed) orelse {
-            app.setStatus("synth-preset: unknown '{s}' - :synth-preset lists names", .{trimmed});
-            return;
-        };
-        // zig fmt: on
+    const user = user_presets.find(app.user_synth_presets.items, trimmed);
+    const factory = ws.dsp.synth_presets.find(trimmed);
+    if (user == null and factory == null) {
+        app.setStatus("synth-preset: unknown '{s}' - :synth-preset lists names", .{trimmed});
+        return;
+    }
     _ = cursorSynth(app) orelse {
         app.setStatus("synth-preset: select a synth track first", .{});
         return;
     };
     const rack = app.session.racks.items[app.cursor];
-    ws.persist.applySynthPatch(app.allocator, rack, patch, app.session.project.sample_rate) catch |e| {
-        app.setStatus("synth-preset: {s}", .{@errorName(e)});
-        return;
-    };
+    if (user) |preset|
+        user_presets.apply(app.allocator, rack, preset, app.session.project.sample_rate) catch |e| {
+            app.setStatus("synth-preset: {s}", .{@errorName(e)});
+            return;
+        }
+    else
+        ws.persist.applySynthPatch(app.allocator, rack, factory.?, app.session.project.sample_rate) catch |e| {
+            app.setStatus("synth-preset: {s}", .{@errorName(e)});
+            return;
+        };
     app.session.syncTrackChain(@intCast(app.cursor), rack);
     app.dirty = true;
     app.setStatus("synth preset: {s}", .{trimmed});
@@ -1966,7 +1971,8 @@ fn cmdSynthPresetSave(app: *App, args: []const u8) void {
         app.setStatus("synth-preset-save: select a synth track first", .{});
         return;
     };
-    user_presets.upsert(app.allocator, app.io, &app.user_synth_presets, name, s.toPatch()) catch |e| {
+    const rack = app.session.racks.items[app.cursor];
+    user_presets.upsert(app.allocator, app.io, &app.user_synth_presets, name, s.toPatch(), &rack.fx, app.session.project.sample_rate) catch |e| {
         app.setStatus("synth-preset-save: failed to save ({s})", .{@errorName(e)});
         return;
     };

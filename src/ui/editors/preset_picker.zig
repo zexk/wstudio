@@ -277,15 +277,30 @@ pub fn open(app: *App, kind: Kind, track: u16) void {
     app.preset_picker_scroll = 0;
     app.preset_filter_len = 0;
     app.preset_audition_active = false;
+    if (app.preset_audition_original_fx) |*fx| fx.deinit(app.allocator);
+    app.preset_audition_original_fx = null;
     if (kind == .synth) {
-        if (targetSynth(app)) |s| app.preset_audition_original = s.toPatch();
+        if (targetSynth(app)) |s| {
+            app.preset_audition_original = s.toPatch();
+            const rack = app.session.racks.items[track];
+            app.preset_audition_original_fx = rack.fx.dupe(app.allocator, app.session.project.sample_rate) catch null;
+        }
     }
     app.view = .preset_picker;
 }
 
 pub fn close(app: *App) void {
     if (app.preset_audition_active) {
-        if (targetSynth(app)) |s| s.applyPatch(app.preset_audition_original);
+        if (targetSynth(app)) |s| {
+            s.applyPatch(app.preset_audition_original);
+            if (app.preset_audition_original_fx) |fx| {
+                const rack = app.session.racks.items[app.preset_picker_track];
+                rack.fx.deinit(app.allocator);
+                rack.fx = fx;
+                app.preset_audition_original_fx = null;
+                app.session.syncTrackChain(app.preset_picker_track, rack);
+            }
+        }
         app.preset_audition_active = false;
     }
     app.view = app.preset_picker_return;
@@ -379,10 +394,9 @@ fn auditionSelected(app: *App) void {
         return;
     }
     if (app.preset_picker_kind != .synth) return;
-    const s = targetSynth(app) orelse return;
     switch (chosen.source) {
-        .user => |i| s.applyPatch(app.user_synth_presets.items[i].patch),
-        .factory => |i| s.applyPatch(ws.dsp.synth_presets.presets[i].patch),
+        .user => |i| if (!applyUserPreset(app, &app.user_synth_presets.items[i])) return,
+        .factory => |i| if (!applySynthPreset(app, ws.dsp.synth_presets.presets[i].patch)) return,
         .kit, .soundfont => return,
     }
     app.preset_audition_active = true;
@@ -440,6 +454,17 @@ fn applySynthPreset(app: *App, patch: ws.dsp.PolySynth.Patch) bool {
     return true;
 }
 
+fn applyUserPreset(app: *App, preset: *const user_presets.UserPreset) bool {
+    if (app.preset_picker_track >= app.session.racks.items.len) return false;
+    const rack = app.session.racks.items[app.preset_picker_track];
+    user_presets.apply(app.allocator, rack, preset, app.session.project.sample_rate) catch |e| {
+        app.setStatus("synth preset: {s}", .{@errorName(e)});
+        return false;
+    };
+    app.session.syncTrackChain(app.preset_picker_track, rack);
+    return true;
+}
+
 fn targetDrum(app: *App) ?*ws.dsp.DrumMachine {
     if (app.preset_picker_track >= app.session.racks.items.len) return null;
     return switch (app.session.racks.items[app.preset_picker_track].instrument) {
@@ -486,7 +511,7 @@ fn deleteSelected(app: *App) void {
     const shown_len = @min(chosen.name.len, name_buf.len);
     @memcpy(name_buf[0..shown_len], chosen.name[0..shown_len]);
     switch (app.preset_picker_kind) {
-        .synth => _ = user_presets.remove(app.allocator, app.io, &app.user_synth_presets, chosen.name) catch |e| {
+        .synth => _ = user_presets.remove(app.allocator, app.io, &app.user_synth_presets, chosen.name, app.session.project.sample_rate) catch |e| {
             app.setStatus("delete: {s}", .{@errorName(e)});
             return;
         },
@@ -516,7 +541,7 @@ pub fn applySelected(app: *App) void {
     switch (chosen.source) {
         .user => |i| switch (app.preset_picker_kind) {
             .synth => {
-                if (!applySynthPreset(app, app.user_synth_presets.items[i].patch)) return;
+                if (!applyUserPreset(app, &app.user_synth_presets.items[i])) return;
                 app.setStatus("synth preset: {s} (saved)", .{chosen.name});
             },
             .drum => {
@@ -551,6 +576,8 @@ pub fn applySelected(app: *App) void {
         },
     }
     app.dirty = true;
+    if (app.preset_audition_original_fx) |*fx| fx.deinit(app.allocator);
+    app.preset_audition_original_fx = null;
     app.preset_audition_active = false;
     close(app);
 }
