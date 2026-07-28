@@ -23,11 +23,28 @@ fn drawReference(app: anytype) void {
     help_model.buildHelp(&t, app.core.allCmds(), app.core.userKeymapsSlice());
     if (t.count == 0) return;
 
-    const line_h: f32 = 20;
+    // Measured, not the hardcoded 20 this used to assume: at the default
+    // font a line is 24px, so the window claimed ~35 lines fit where 30 did
+    // and the body overflowed its child.
+    const line_h = @max(1.0, zgui.getTextLineHeightWithSpacing());
     const header_h: f32 = 26;
     const body_h = @max(200, zgui.getContentRegionAvail()[1] - header_h);
     const visible: usize = @intFromFloat(@max(1.0, body_h / line_h));
     const max_scroll = t.count -| visible;
+
+    // The wheel scrolls the same `help_scroll` window `j`/`k` do. Claim it
+    // before ImGui can: this body renders a fixed slice of lines rather than
+    // the whole text, so an ImGui scrollbar here would slide the slice
+    // around under a line counter that knows nothing about it - two scroll
+    // positions for one view, and `j` snapping back to the other one.
+    if (style.wheel_delta != 0) {
+        style.wheel_consumed = true;
+        const step: isize = if (zgui.isKeyDown(.mod_ctrl)) 10 else 3;
+        const delta: isize = if (style.wheel_delta > 0) -step else step;
+        const next = @as(isize, @intCast(app.core.help_scroll)) + delta;
+        app.core.help_scroll = @intCast(std.math.clamp(next, 0, @as(isize, @intCast(max_scroll))));
+    }
+
     if (app.core.help_scroll > max_scroll) app.core.help_scroll = max_scroll;
     const off = app.core.help_scroll;
     const end = @min(off + visible, t.count);
@@ -37,7 +54,11 @@ fn drawReference(app: anytype) void {
     zgui.textDisabled("esc: close   j/k/d/u: scroll   /: search   {d}-{d}/{d}", .{ off + 1, end, t.count });
     zgui.separator();
 
-    if (zgui.beginChild("help-reference-body", .{ .w = 0, .h = body_h })) {
+    if (zgui.beginChild("help-reference-body", .{
+        .w = 0,
+        .h = body_h,
+        .window_flags = .{ .no_scrollbar = true, .no_scroll_with_mouse = true },
+    })) {
         var i = off;
         while (i < end) : (i += 1) drawLine(app, t.line(i), i);
     }
