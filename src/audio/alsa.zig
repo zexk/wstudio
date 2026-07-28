@@ -118,6 +118,7 @@ pub const AlsaCapture = struct {
     pub const Error = error{ DeviceOpenFailed, DeviceConfigFailed, ThreadSpawnFailed };
 
     pub fn start(self: *AlsaCapture, sample_rate: u32) Error!void {
+        while (self.queue.pop() != null) {}
         var pcm: ?*c.snd_pcm_t = null;
         if (c.snd_pcm_open(&pcm, "default", c.SND_PCM_STREAM_CAPTURE, 0) < 0) {
             return error.DeviceOpenFailed;
@@ -158,9 +159,6 @@ pub const AlsaCapture = struct {
             _ = c.snd_pcm_close(pcm);
             self.pcm = null;
         }
-        // Drop anything left over so a stale tail doesn't bleed into the
-        // next record pass's accumulation.
-        while (self.queue.pop() != null) {}
     }
 
     pub fn pop(self: *AlsaCapture) ?CaptureBlock {
@@ -195,6 +193,19 @@ test "alsa capture start/pop/stop (skipped without a device)" {
         if (got == null) std.atomic.spinLoopHint();
     }
     try std.testing.expect(got != null);
+}
+
+test "alsa capture stop preserves queued tail" {
+    var capture: AlsaCapture = .{};
+    var block: CaptureBlock = .{};
+    block.frames = 1;
+    block.samples[0] = 0.5;
+    try std.testing.expect(capture.queue.push(block));
+
+    capture.stop();
+    const tail = capture.pop().?;
+    try std.testing.expectEqual(@as(u32, 1), tail.frames);
+    try std.testing.expectEqual(@as(f32, 0.5), tail.samples[0]);
 }
 
 test "alsa backend start/render/stop (skipped without a device)" {

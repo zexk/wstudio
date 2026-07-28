@@ -175,6 +175,7 @@ pub const CoreAudioCapture = struct {
     pub const Error = error{ DeviceOpenFailed, DeviceConfigFailed };
 
     pub fn start(self: *CoreAudioCapture, sample_rate: u32) Error!void {
+        while (self.queue.pop() != null) {}
         const description = AudioComponentDescription{
             .componentType = audio_unit_type_output,
             .componentSubType = audio_unit_subtype_hal_output,
@@ -224,7 +225,6 @@ pub const CoreAudioCapture = struct {
         _ = AudioOutputUnitStop(unit);
         _ = AudioUnitUninitialize(unit);
         _ = AudioComponentInstanceDispose(unit);
-        while (self.queue.pop() != null) {}
     }
 
     pub fn pop(self: *CoreAudioCapture) ?CaptureBlock {

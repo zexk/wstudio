@@ -212,6 +212,7 @@ pub const WasapiCapture = struct {
     pub const Error = error{ ComInitFailed, DeviceOpenFailed, DeviceConfigFailed, ThreadSpawnFailed };
 
     pub fn start(self: *WasapiCapture, sample_rate: u32) Error!void {
+        while (self.queue.pop() != null) {}
         if (!ok(c.CoInitializeEx(null, c.COINIT_MULTITHREADED))) return error.ComInitFailed;
         errdefer c.CoUninitialize();
 
@@ -300,7 +301,6 @@ pub const WasapiCapture = struct {
             self.event = null;
         }
         c.CoUninitialize();
-        while (self.queue.pop() != null) {}
     }
 
     pub fn pop(self: *WasapiCapture) ?CaptureBlock {
