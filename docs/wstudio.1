@@ -17,6 +17,9 @@ wstudio \- keyboard-centric digital audio workstation
 .B render
 .br
 .B wstudio
+.B clap\-scan
+.br
+.B wstudio
 .RB { \-v | \-\-version }
 .br
 .B wstudio
@@ -35,8 +38,10 @@ selects and yanks ranges, and
 mode runs
 .B :
 commands. It ships with synths, samplers, a drum machine, a
-sample-chopping slicer, and a full effects rack (gate, compression, EQ,
-saturation, bitcrush, chorus, phaser, delay, reverb) built in.
+sample-chopping slicer, a SoundFont player, and a full effects rack (gate,
+compressor, multiband compressor, OTT, EQ, saturation, bitcrush, chorus,
+phaser, flanger, tape, frequency shifter, delay, reverb) built in. It also
+hosts external CLAP 1.2 instruments and effects.
 .PP
 With no arguments,
 .B wstudio
@@ -70,6 +75,24 @@ reverb to
 in the current directory, then exit. Does not open a frontend; useful for
 sanity-checking the audio pipeline.
 .TP
+.B clap\-scan
+List every installed CLAP plugin as
+.I <plugin-id> <name> <path>
+and exit. Discovery follows
+.I CLAP_PATH
+and the platform paths the CLAP specification requires, or only
+.I wstudio.o.clap_plugin_path
+when that option is set.
+.TP
+.BI \-u " path"
+Load
+.I path
+as the Lua configuration instead of the usual search
+.RI ( $XDG_CONFIG_HOME/wstudio/init.lua ", then " /etc/xdg/wstudio/init.lua ).
+.B \-u NONE
+skips loading any configuration file. May appear anywhere on the command
+line.
+.TP
 .BR \-v ", " \-\-version
 Print the version and exit.
 .TP
@@ -94,11 +117,32 @@ configuration. On NixOS this is written by the
 .I programs.wstudio
 module.
 .TP
+.I ~/.config/wstudio/bookmarks.json
+File-browser bookmarks. This store and the three below resolve through
+.IR $HOME " (" $USERPROFILE " on Windows) rather than " $XDG_CONFIG_HOME .
+They are optional conveniences: an unreadable or missing file leaves the
+matching list empty and never blocks startup.
+.TP
+.I ~/.config/wstudio/cmd_history.json
+The last 50 submitted
+.B :
+commands.
+.TP
+.I ~/.config/wstudio/instrument_presets.wspreset
+User-saved instrument presets, each with its ordered FX chain.
+.TP
+.I ~/.config/wstudio/drum_kits.json
+User-saved drum pad tuning.
+.TP
 .I *.wsj
 wstudio project files, passed as the optional
 .I path
 argument.
+.TP
+.I *.wsj~
+The autosave backup written beside a project, loaded by
+.BR :restore-backup .
 .SH SEE ALSO
-The Lua configuration API and file format history ship with the source
-distribution under
-.IR docs/lua-api.md " and " FORMAT.md .
+The Lua configuration API, the user-state storage conventions, and the file
+format history ship with the source distribution under
+.IR docs/lua-api.md ", " docs/user-config-storage.md ", and " FORMAT.md .
