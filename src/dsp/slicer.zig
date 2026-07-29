@@ -341,6 +341,15 @@ pub const Slicer = struct {
         return pad_mod.trimmedName(&self.name);
     }
 
+    /// Set the display name directly, independent of the loaded audio -
+    /// mirrors `Sampler.rename`, and is what `:rename` reaches while a
+    /// slicer editor is open.
+    pub fn rename(self: *Slicer, name: []const u8) void {
+        while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.sample_lock.unlock();
+        self.name = pad_mod.fixedName(name);
+    }
+
     // -----------------------------------------------------------------------
     // Loading + slicing (control thread only, not while audio thread runs)
 

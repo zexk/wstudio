@@ -108,7 +108,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "track-add",   .desc = "[name]  add a synth track",           .run = wrap(cmdTrackAdd) },
     .{ .name = "track-del",   .desc = "[n]  delete track n (default: cursor)", .run = wrap(cmdTrackDel) },
     .{ .name = "d",           .desc = "[n]  delete track n (alias for :track-del)", .run = wrap(cmdTrackDel) },
-    .{ .name = "rename",      .desc = "[<n>] <name>  rename the cursor's target - a pad (drum grid open), a group (cursor on a group row), else a track; n picks a different one of that same kind", .run = wrap(cmdRename) },
+    .{ .name = "rename",      .desc = "[<n>] <name>  rename what the open editor is editing - a drum pad, a slicer/sampler clip, a group (cursor on a group row), else a track; n picks a different pad or track", .run = wrap(cmdRename) },
     .{ .name = "track-instrument", .desc = "[<n>] <synth|sampler|drum|slicer|soundfont>  change track n's instrument, keeping its notes where the old and new kinds are compatible (no n: cursor track)", .run = wrap(cmdTrackInstrument) },
     .{ .name = "group-add",   .desc = "create an untitled track-grouping submix bus", .run = wrap(cmdGroupAdd) },
     .{ .name = "group-gain",  .desc = "<n> [<dB>]  group bus fader, post-FX (-60..12; no dB: report)", .run = wrap(cmdGroupGain) },
@@ -1310,14 +1310,60 @@ fn cmdTrackDel(app: *App, args: []const u8) void {
     app.doTrackDel(idx);
 }
 
-/// Adaptive like `:load`: renames whichever thing the cursor is on - a
-/// pad while the drum grid is open, a group when the tracks-view cursor
-/// sits on a group row, otherwise the cursor track. `[<n>]` targets a
-/// different one of that same kind without moving the cursor there first.
+/// Adaptive like `:load`: renames whatever the open editor is editing - a
+/// pad in the drum grid, the loaded clip in a slicer or sampler editor, a
+/// group when the tracks-view cursor sits on a group row, otherwise the
+/// cursor track. `[<n>]` targets a different one of that same kind without
+/// moving the cursor there first.
 fn cmdRename(app: *App, args: []const u8) void {
-    if (app.view == .drum_grid) return cmdRenamePad(app, args);
+    switch (app.view) {
+        .drum_grid => return cmdRenamePad(app, args),
+        .slicer_grid => return cmdRenameSlicerClip(app, args),
+        // The sampler editor is opened on one of three things; it renames
+        // whichever it was pointed at, not the track hosting it.
+        .sampler_editor => switch (app.sampler_target) {
+            .drum => return cmdRenamePad(app, args),
+            .slice => return cmdRenameSlicerClip(app, args),
+            .sampler => return cmdRenameSamplerClip(app, args),
+        },
+        else => {},
+    }
     if (app.cursorGroup()) |g| return cmdRenameGroup(app, g, args);
     cmdRenameTrack(app, args);
+}
+
+/// `:rename` while a slicer grid (or a slice's params) is open. A slicer has
+/// one clip shared by every slice, so there is exactly one name to set - no
+/// `[<n>]` target, unlike the drum grid's per-pad names.
+fn cmdRenameSlicerClip(app: *App, args: []const u8) void {
+    const name = std.mem.trim(u8, args, " ");
+    if (name.len == 0) {
+        app.setStatus("usage: rename <name>", .{});
+        return;
+    }
+    const sl = cursorSlicer(app) orelse {
+        app.setStatus("rename: no slicer here", .{});
+        return;
+    };
+    sl.rename(name);
+    app.dirty = true;
+    app.setStatus("slicer clip renamed: {s}", .{sl.clipName()});
+}
+
+/// Same shape for a standalone sampler track's own clip.
+fn cmdRenameSamplerClip(app: *App, args: []const u8) void {
+    const name = std.mem.trim(u8, args, " ");
+    if (name.len == 0) {
+        app.setStatus("usage: rename <name>", .{});
+        return;
+    }
+    const sampler = app.editingSampler() orelse {
+        app.setStatus("rename: no sampler here", .{});
+        return;
+    };
+    sampler.rename(name);
+    app.dirty = true;
+    app.setStatus("sample renamed: {s}", .{sampler.clipName()});
 }
 
 /// The `:rename [<n>] <name>` argument shape, shared by the track, group and
@@ -1840,8 +1886,9 @@ fn cursorSynth(app: *App) ?*ws.dsp.PolySynth {
 }
 
 /// The track index of the slicer the command should act on: the cursor's
-/// track, or - if the slicer grid is open - the one being edited. Null when
-/// neither is a slicer. Mirrors `cursorDrumMachine`'s two-fallback shape.
+/// track, or - if the slicer grid (or one of its slices' params) is open -
+/// the one being edited. Null when neither is a slicer. Mirrors
+/// `cursorDrumMachine`'s two-fallback shape.
 fn cursorSlicerTrack(app: *App) ?u16 {
     if (app.cursor < app.session.racks.items.len and
         app.session.racks.items[app.cursor].instrument == .slicer)
@@ -1849,6 +1896,14 @@ fn cursorSlicerTrack(app: *App) ?u16 {
     if (app.view == .slicer_grid and app.slicer_track < app.session.racks.items.len and
         app.session.racks.items[app.slicer_track].instrument == .slicer)
         return app.slicer_track;
+    // The slice editor is a slicer view too - it just reaches the machine
+    // through its own target rather than `slicer_track`.
+    if (app.view == .sampler_editor) {
+        if (app.sampler_target == .slice) {
+            const t = app.sampler_target.slice;
+            if (t < app.session.racks.items.len and app.session.racks.items[t].instrument == .slicer) return t;
+        }
+    }
     return null;
 }
 
