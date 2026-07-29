@@ -470,6 +470,12 @@ test "finishRecording stamps a Sampler clip from a synthetic capture, mirroring 
     try std.testing.expectEqual(old_note_count, app.session.racks.items[1].pattern_player.?.note_count);
     try std.testing.expectEqual(old_length_beats, app.session.racks.items[1].pattern_player.?.length_beats);
     try std.testing.expectEqual(old_clip_count, app.session.arrangement.lane(1).?.clips.items.len);
+
+    history.doRedo(&app);
+    try std.testing.expect(app.session.racks.items[1].instrument.sampler.pad.user_sample);
+    try std.testing.expectEqual(@as(usize, 5), app.session.racks.items[1].instrument.sampler.pad.samples.len);
+    try std.testing.expectEqual(@as(u16, 1), app.session.racks.items[1].pattern_player.?.note_count);
+    try std.testing.expectEqual(@as(usize, 1), app.session.arrangement.lane(1).?.clips.items.len);
 }
 
 test "finishRecording with no captured audio skips the stamp and reports it" {

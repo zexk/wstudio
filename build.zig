@@ -183,6 +183,22 @@ pub fn build(b: *std.Build) void {
     const stretch_demo_step = b.step("stretch-demo", "Render stretch_ratio test clips to zig-out/stretch-demo/*.wav");
     stretch_demo_step.dependOn(&run_stretch_demo.step);
 
+    const beta7_soak = b.addExecutable(.{
+        .name = "beta7-soak",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/beta7_soak.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "wstudio", .module = wstudio_mod },
+            },
+        }),
+    });
+    const run_beta7_soak = b.addRunArtifact(beta7_soak);
+    if (b.args) |args| run_beta7_soak.addArgs(args) else run_beta7_soak.addArg("demo.wsj");
+    const beta7_soak_step = b.step("beta7-soak", "Run one-hour simulated playback plus save/load/export soak");
+    beta7_soak_step.dependOn(&run_beta7_soak.step);
+
     // `zig build install-font` writes the TUI's bundled icon font to the
     // user's font directory (see tools/install_font.zig for why it's needed).
     const install_font = b.addExecutable(.{

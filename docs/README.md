@@ -19,6 +19,8 @@ code keeps a one-line pointer.
 - [beta-6-goals.md](beta-6-goals.md): bounded VST3 hosting baseline.
 - [beta-7-goals.md](beta-7-goals.md): complete-project production workflow
   journeys, blocker policy, and exit criteria.
+- [beta-7-validation.md](beta-7-validation.md): exact journey, soak, export,
+  fault-injection, and environment coverage commands.
 - [road-to-1.0.md](road-to-1.0.md): release themes from beta.5 through the
   1.0 feature freeze.
 - [ui-conventions.md](ui-conventions.md): TUI layout and chrome
