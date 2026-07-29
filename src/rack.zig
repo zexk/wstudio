@@ -166,6 +166,11 @@ pub const FxPayload = union(enum) {
                 const copy = try Vst3Plugin.load(allocator, plugin.pluginPath(), plugin.classId(), sr, false);
                 errdefer copy.deinit();
                 if (plugin.transport) |transport| copy.attachTransport(transport);
+                const component = try plugin.saveComponentState(allocator);
+                defer allocator.free(component);
+                const controller = try plugin.saveControllerState(allocator);
+                defer if (controller) |c| allocator.free(c);
+                try copy.loadState(component, controller orelse &.{});
                 return .{ .vst3 = copy };
             },
             else => return self.*,
@@ -537,6 +542,11 @@ pub const Rack = struct {
                 var copy_owned = true;
                 errdefer if (copy_owned) copy.deinit();
                 copy.attachTransport(transport);
+                const component = try plugin.saveComponentState(allocator);
+                defer allocator.free(component);
+                const controller = try plugin.saveControllerState(allocator);
+                defer if (controller) |c| allocator.free(c);
+                try copy.loadState(component, controller orelse &.{});
                 rack.instrument = .{ .vst3 = copy };
                 copy_owned = false;
             },
