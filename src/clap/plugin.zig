@@ -805,9 +805,9 @@ pub const ClapPlugin = struct {
                     self.output_channels = layout.output_channels;
                     self.note_dialect = note_support.dialect;
                     self.supports_midi = note_support.supports_midi;
-                    self.restart_in_progress.store(false, .release);
                 } else std.log.err("CLAP restart activation failed: {s}", .{self.name()});
             } else std.log.err("CLAP restart found unsupported audio ports: {s}", .{self.name()});
+            self.restart_in_progress.store(false, .release);
         }
         if (self.host_context.callback_requested.swap(false, .acquire))
             self.plugin.on_main_thread(self.plugin);
