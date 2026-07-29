@@ -6,6 +6,42 @@ const module_mod = @import("module.zig");
 const scan = @import("scan.zig");
 const device_mod = @import("../dsp/device.zig");
 const types = @import("../core/types.zig");
+const Transport = @import("../transport.zig").Transport;
+
+const max_events = 256;
+const HostEventList = struct {
+    interface: abi.EventList = .{ .vtable = &vtable },
+    events: [max_events]abi.Event = undefined,
+    len: usize = 0,
+
+    fn from(raw: *anyopaque) *HostEventList {
+        return @ptrCast(@alignCast(raw));
+    }
+    fn query(_: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+        if (!std.mem.eql(u8, iid, &abi.event_list_iid)) {
+            object.* = null;
+            return -1;
+        }
+        object.* = null;
+        return 0;
+    }
+    fn ref(_: *anyopaque) callconv(abi.abi_callconv) u32 {
+        return 1;
+    }
+    fn count(raw: *anyopaque) callconv(abi.abi_callconv) i32 {
+        return @intCast(from(raw).len);
+    }
+    fn get(raw: *anyopaque, index: i32, event: *abi.Event) callconv(abi.abi_callconv) abi.Result {
+        const self = from(raw);
+        if (index < 0 or index >= self.len) return -1;
+        event.* = self.events[@intCast(index)];
+        return 0;
+    }
+    fn add(_: *anyopaque, _: *abi.Event) callconv(abi.abi_callconv) abi.Result {
+        return -1;
+    }
+    const vtable: abi.EventListVTable = .{ .query_interface = query, .add_ref = ref, .release = ref, .get_event_count = count, .get_event = get, .add_event = add };
+};
 
 pub const Vst3Plugin = struct {
     allocator: std.mem.Allocator,
@@ -22,6 +58,9 @@ pub const Vst3Plugin = struct {
     output_right: []f32,
     input_ptrs: [2][*]f32 = undefined,
     output_ptrs: [2][*]f32 = undefined,
+    events: HostEventList = .{},
+    active_notes: [128]bool = .{false} ** 128,
+    transport: ?*const Transport = null,
 
     pub const device = device_mod.deviceOf(Vst3Plugin);
 
@@ -151,6 +190,7 @@ pub const Vst3Plugin = struct {
         self.output_ptrs = .{ self.output_left.ptr, self.output_right.ptr };
         var input = abi.AudioBusBuffers{ .num_channels = self.input_channels, .silence_flags = 0, .buffers = .{ .channel_buffers_32 = &self.input_ptrs } };
         var output = abi.AudioBusBuffers{ .num_channels = self.output_channels, .silence_flags = 0, .buffers = .{ .channel_buffers_32 = &self.output_ptrs } };
+        var context = self.makeProcessContext();
         var data: abi.ProcessData = .{
             .process_mode = 0,
             .symbolic_sample_size = 0,
@@ -161,15 +201,73 @@ pub const Vst3Plugin = struct {
             .outputs = @ptrCast(&output),
             .input_parameter_changes = null,
             .output_parameter_changes = null,
-            .input_events = null,
+            .input_events = @ptrCast(&self.events.interface),
             .output_events = null,
-            .process_context = null,
+            .process_context = @ptrCast(&context),
         };
-        if (self.processor.vtable.process(self.processor, &data) != 0) return;
+        const result = self.processor.vtable.process(self.processor, &data);
+        self.events.len = 0;
+        if (result != 0) return;
         for (0..frames) |frame| {
             buf[frame * 2] = self.output_left[frame];
             buf[frame * 2 + 1] = if (self.output_channels == 1) self.output_left[frame] else self.output_right[frame];
         }
+    }
+
+    pub fn handleEvent(self: *Vst3Plugin, event: device_mod.Event) void {
+        switch (event) {
+            .note_on => |note| self.pushNote(true, note.note, note.velocity),
+            .note_off => |note| self.pushNote(false, note.note, 0),
+            .all_off => for (&self.active_notes, 0..) |active, note| if (active) self.pushNote(false, @intCast(note), 0),
+            else => {},
+        }
+    }
+
+    fn pushNote(self: *Vst3Plugin, on: bool, note: u7, velocity: f32) void {
+        if (self.events.len == max_events) return;
+        var event: abi.Event = std.mem.zeroes(abi.Event);
+        event.flags = 1;
+        if (on) {
+            event.event_type = 0;
+            event.payload.note_on = .{ .channel = 0, .pitch = note, .tuning = 0, .velocity = velocity, .length = 0, .note_id = note };
+        } else {
+            event.event_type = 1;
+            event.payload.note_off = .{ .channel = 0, .pitch = note, .velocity = velocity, .note_id = note, .tuning = 0 };
+        }
+        self.events.events[self.events.len] = event;
+        self.events.len += 1;
+        self.active_notes[note] = on;
+    }
+
+    pub fn attachTransport(self: *Vst3Plugin, transport: *const Transport) void {
+        self.transport = transport;
+    }
+
+    fn makeProcessContext(self: *const Vst3Plugin) abi.ProcessContext {
+        const transport = self.transport orelse return std.mem.zeroes(abi.ProcessContext);
+        const beats = transport.positionBeats();
+        const beats_per_bar: f64 = @floatFromInt(@max(transport.time_signature.beats_per_bar, 1));
+        var state: u32 = (1 << 17) | (1 << 9) | (1 << 11) | (1 << 10) | (1 << 13);
+        if (transport.playing) state |= 1 << 1;
+        if (transport.loop_enabled) state |= (1 << 2) | (1 << 12);
+        return .{
+            .state = state,
+            .sample_rate = @floatFromInt(transport.sample_rate),
+            .project_time_samples = @intCast(transport.position_frames),
+            .system_time = 0,
+            .continuous_time_samples = @intCast(transport.position_frames),
+            .project_time_music = beats,
+            .bar_position_music = @floor(beats / beats_per_bar) * beats_per_bar,
+            .cycle_start_music = @as(f64, @floatFromInt(transport.loop_start_frames)) / transport.framesPerBeat(),
+            .cycle_end_music = @as(f64, @floatFromInt(transport.loop_end_frames)) / transport.framesPerBeat(),
+            .tempo = transport.tempo_bpm,
+            .time_sig_numerator = transport.time_signature.beats_per_bar,
+            .time_sig_denominator = transport.time_signature.beat_unit,
+            .chord = .{ .key_note = 0, .root_note = 0, .chord_mask = 0 },
+            .smpte_offset_subframes = 0,
+            .frame_rate = .{ .frames_per_second = 0, .flags = 0 },
+            .samples_to_next_clock = 0,
+        };
     }
 
     pub fn reset(_: *Vst3Plugin) void {}

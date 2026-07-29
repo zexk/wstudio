@@ -3,6 +3,7 @@ const abi = @import("abi.zig");
 
 const instrument_id = abi.uid(0x57535449, 0x4E535452, 0x554D454E, 0x54000001);
 const effect_id = abi.uid(0x57535445, 0x46464543, 0x54000000, 0x00000001);
+const mono_effect_id = abi.uid(0x5753544D, 0x4F4E4F46, 0x58000000, 0x00000001);
 
 fn copyText(destination: []u8, source: []const u8) void {
     @memcpy(destination[0..source.len], source);
@@ -33,7 +34,7 @@ fn getFactoryInfo(_: *anyopaque, info: *abi.FactoryInfo) callconv(abi.abi_callco
 }
 
 fn countClasses(_: *anyopaque) callconv(abi.abi_callconv) i32 {
-    return 2;
+    return 3;
 }
 
 fn getClassInfo(_: *anyopaque, _: i32, _: *abi.ClassInfo) callconv(abi.abi_callconv) abi.Result {
@@ -42,7 +43,7 @@ fn getClassInfo(_: *anyopaque, _: i32, _: *abi.ClassInfo) callconv(abi.abi_callc
 
 fn createInstance(_: *anyopaque, cid: [*]const u8, iid: [*]const u8, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
     if (!std.mem.eql(u8, iid[0..16], &abi.component_iid)) return -1;
-    const instance = if (std.mem.eql(u8, cid[0..16], &instrument_id)) &instrument else if (std.mem.eql(u8, cid[0..16], &effect_id)) &effect else return -1;
+    const instance = if (std.mem.eql(u8, cid[0..16], &instrument_id)) &instrument else if (std.mem.eql(u8, cid[0..16], &effect_id)) &effect else if (std.mem.eql(u8, cid[0..16], &mono_effect_id)) &mono_effect else return -1;
     object.* = @ptrCast(&instance.component);
     return 0;
 }
@@ -61,6 +62,11 @@ fn getClassInfo2(_: *anyopaque, index: i32, info: *abi.ClassInfo2) callconv(abi.
         1 => {
             info.cid = effect_id;
             copyText(&info.name, "wstudio VST3 Test Effect");
+            copyText(&info.subcategories, "Fx");
+        },
+        2 => {
+            info.cid = mono_effect_id;
+            copyText(&info.name, "wstudio VST3 Test Mono Effect");
             copyText(&info.subcategories, "Fx");
         },
         else => return -1,
@@ -82,9 +88,10 @@ var factory: abi.PluginFactory2 = .{ .vtable = &factory_vtable };
 
 const ComponentFace = struct { vtable: *const abi.ComponentVTable, owner: *Instance };
 const ProcessorFace = struct { vtable: *const abi.AudioProcessorVTable, owner: *Instance };
-const Instance = struct { component: ComponentFace, processor: ProcessorFace, instrument: bool };
+const Instance = struct { component: ComponentFace, processor: ProcessorFace, instrument: bool, channels: u8 };
 var instrument: Instance = undefined;
 var effect: Instance = undefined;
+var mono_effect: Instance = undefined;
 
 fn componentOwner(raw: *anyopaque) *Instance {
     return (@as(*ComponentFace, @ptrCast(@alignCast(raw)))).owner;
@@ -122,7 +129,7 @@ fn getBusInfo(raw: *anyopaque, media: i32, direction: i32, index: i32, info: *ab
     info.* = std.mem.zeroes(abi.BusInfo);
     info.media_type = 0;
     info.direction = direction;
-    info.channel_count = 2;
+    info.channel_count = componentOwner(raw).channels;
     info.bus_type = 0;
     info.flags = 1;
     return 0;
@@ -182,8 +189,11 @@ fn setProcessing(_: *anyopaque, _: u8) callconv(abi.abi_callconv) abi.Result {
 fn process(raw: *anyopaque, data: *abi.ProcessData) callconv(abi.abi_callconv) abi.Result {
     const frames: usize = @intCast(data.num_samples);
     const output = &data.outputs.?[0];
+    const events: *abi.EventList = @ptrCast(@alignCast(data.input_events.?));
+    const context: *abi.ProcessContext = @ptrCast(@alignCast(data.process_context.?));
+    const instrument_value: f32 = if (events.vtable.get_event_count(events) > 0) @floatCast(context.tempo / 480.0) else 0;
     for (0..frames) |frame| for (0..@as(usize, @intCast(output.num_channels))) |channel| {
-        output.buffers.channel_buffers_32[channel][frame] = if (processorOwner(raw).instrument) 0.25 else data.inputs.?[0].buffers.channel_buffers_32[channel][frame] * 2;
+        output.buffers.channel_buffers_32[channel][frame] = if (processorOwner(raw).instrument) instrument_value else data.inputs.?[0].buffers.channel_buffers_32[channel][frame] * 2;
     };
     return 0;
 }
@@ -205,8 +215,9 @@ var processor_vtable: abi.AudioProcessorVTable = .{
 };
 
 export fn ModuleEntry(_: ?*anyopaque) callconv(abi.abi_callconv) bool {
-    instrument = .{ .component = .{ .vtable = &component_vtable, .owner = &instrument }, .processor = .{ .vtable = &processor_vtable, .owner = &instrument }, .instrument = true };
-    effect = .{ .component = .{ .vtable = &component_vtable, .owner = &effect }, .processor = .{ .vtable = &processor_vtable, .owner = &effect }, .instrument = false };
+    instrument = .{ .component = .{ .vtable = &component_vtable, .owner = &instrument }, .processor = .{ .vtable = &processor_vtable, .owner = &instrument }, .instrument = true, .channels = 2 };
+    effect = .{ .component = .{ .vtable = &component_vtable, .owner = &effect }, .processor = .{ .vtable = &processor_vtable, .owner = &effect }, .instrument = false, .channels = 2 };
+    mono_effect = .{ .component = .{ .vtable = &component_vtable, .owner = &mono_effect }, .processor = .{ .vtable = &processor_vtable, .owner = &mono_effect }, .instrument = false, .channels = 1 };
     return true;
 }
 

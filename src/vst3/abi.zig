@@ -102,6 +102,39 @@ pub const ComponentVTable = extern struct {
 pub const Component = extern struct { vtable: *const ComponentVTable };
 
 pub const ProcessSetup = extern struct { process_mode: i32, symbolic_sample_size: i32, max_samples_per_block: i32, sample_rate: f64 };
+pub const NoteOnEvent = extern struct { channel: i16, pitch: i16, tuning: f32, velocity: f32, length: i32, note_id: i32 };
+pub const NoteOffEvent = extern struct { channel: i16, pitch: i16, velocity: f32, note_id: i32, tuning: f32 };
+pub const EventPayload = extern union { note_on: NoteOnEvent, note_off: NoteOffEvent, reserved: [4]u64 };
+pub const Event = extern struct { bus_index: i32, sample_offset: i32, ppq_position: f64, flags: u16, event_type: u16, payload: EventPayload };
+pub const EventListVTable = extern struct {
+    query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
+    add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    release: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    get_event_count: *const fn (*anyopaque) callconv(abi_callconv) i32,
+    get_event: *const fn (*anyopaque, i32, *Event) callconv(abi_callconv) Result,
+    add_event: *const fn (*anyopaque, *Event) callconv(abi_callconv) Result,
+};
+pub const EventList = extern struct { vtable: *const EventListVTable };
+pub const FrameRate = extern struct { frames_per_second: u32, flags: u32 };
+pub const Chord = extern struct { key_note: u8, root_note: u8, chord_mask: i16 };
+pub const ProcessContext = extern struct {
+    state: u32,
+    sample_rate: f64,
+    project_time_samples: i64,
+    system_time: i64,
+    continuous_time_samples: i64,
+    project_time_music: f64,
+    bar_position_music: f64,
+    cycle_start_music: f64,
+    cycle_end_music: f64,
+    tempo: f64,
+    time_sig_numerator: i32,
+    time_sig_denominator: i32,
+    chord: Chord,
+    smpte_offset_subframes: i32,
+    frame_rate: FrameRate,
+    samples_to_next_clock: i32,
+};
 pub const AudioBusBuffers = extern struct {
     num_channels: i32,
     silence_flags: u64,
@@ -157,6 +190,7 @@ pub const plugin_factory_iid = uid(0x7A4D811C, 0x52114A1F, 0xAED9D2EE, 0x0B43BF9
 pub const plugin_factory_2_iid = uid(0x0007B650, 0xF24B4C0B, 0xA464EDB9, 0xF00B2ABB);
 pub const component_iid = uid(0xE831FF31, 0xF2D54301, 0x928EBBEE, 0x25697802);
 pub const audio_processor_iid = uid(0x42043F99, 0xB7DA453C, 0xA569E79D, 0x9AAEC33D);
+pub const event_list_iid = uid(0x3A2C4214, 0x346349FE, 0xB2C4F397, 0xB9695A44);
 
 pub fn formatUid(value: Tuid) [32]u8 {
     var canonical = value;
