@@ -25,6 +25,8 @@ code keeps a one-line pointer.
   Lua/config, commands, input grammar, CLI behavior, and plugin persistence.
 - [beta-9-goals.md](beta-9-goals.md): release-candidate blocker policy,
   clean-install journeys, artifact checks, and exit gate.
+- [beta-9-validation.md](beta-9-validation.md): automated release-candidate
+  gate results, package checks, and exact environment skips.
 - [compatibility-inventory.md](compatibility-inventory.md): beta.8 freeze,
   migration, removal, and internal dispositions with authoritative registries.
 - [road-to-1.0.md](road-to-1.0.md): release themes from beta.5 through the
