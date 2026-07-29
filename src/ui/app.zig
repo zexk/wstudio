@@ -2591,13 +2591,13 @@ pub const App = struct {
     }
 
     /// `-`/`+` on a group row: ride the bus fader (session.setGroupGain
-    /// clamps to the track-gain range). Mixer-style live state, so - like
-    /// track gain/pan - deliberately not undo-tracked.
+    /// clamps to the track-gain range).
     fn doGroupGainStep(self: *App, g: u8, delta_db: f32) void {
         if (g >= engine_mod.max_groups) return;
         if (self.session.groups[g]) |*grp| {
+            const before = grp.gain_db;
             self.session.setGroupGain(g, grp.gain_db + delta_db);
-            self.dirty = true;
+            history.recordGroupGain(self, g, before);
             const sign: []const u8 = if (grp.gain_db >= 0) "+" else "";
             self.setStatus("group {d} gain: {s}{d:.1}dB", .{ g + 1, sign, grp.gain_db });
         }
@@ -4800,7 +4800,9 @@ pub const App = struct {
     fn doTrackPan(self: *App, track: u16, delta: f32) void {
         if (track >= self.session.project.tracks.items.len) return;
         const t = &self.session.project.tracks.items[track];
+        const before = t.pan;
         self.apiSetTrackPan(track, t.pan + delta);
+        history.recordTrackMixer(self, track, .pan, before);
         const pct: i32 = @intFromFloat(@abs(t.pan) * 100.0);
         if (pct == 0) self.setStatus("track {d} pan: center", .{track + 1})
         else if (t.pan < 0) self.setStatus("track {d} pan: L{d}%", .{ track + 1, pct })
@@ -4811,7 +4813,9 @@ pub const App = struct {
     fn doTrackGainStep(self: *App, track: u16, delta_db: f32) void {
         if (track >= self.session.project.tracks.items.len) return;
         const t = &self.session.project.tracks.items[track];
+        const before = t.gain_db;
         self.apiSetTrackGainDb(track, t.gain_db + delta_db);
+        history.recordTrackMixer(self, track, .gain, before);
         const sign: []const u8 = if (t.gain_db >= 0) "+" else "";
         self.setStatus("track {d} gain: {s}{d:.1}dB", .{ track + 1, sign, t.gain_db });
     }

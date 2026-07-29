@@ -826,7 +826,7 @@ fn adjustGroupGain(app: *App, delta: f32) void {
     if (app.eq_group >= ws.engine.max_groups) return;
     const cur = (app.session.groups[app.eq_group] orelse return).gain_db;
     app.session.setGroupGain(app.eq_group, cur + delta);
-    app.dirty = true;
+    history.recordGroupGain(app, app.eq_group, cur);
     app.setStatus("bus gain: {d:.1}dB", .{app.session.groups[app.eq_group].?.gain_db});
 }
 

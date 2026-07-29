@@ -1512,8 +1512,9 @@ fn cmdGroupGain(app: *App, args: []const u8) void {
         app.setStatus("group-gain: expected a dB value, e.g. :group-gain 1 -6", .{});
         return;
     };
+    const before = app.session.groups[idx].?.gain_db;
     app.session.setGroupGain(idx, db);
-    app.dirty = true;
+    history.recordGroupGain(app, idx, before);
     app.setStatus("group {d} gain: {d:.1}dB", .{ idx + 1, app.session.groups[idx].?.gain_db });
 }
 
@@ -2954,7 +2955,9 @@ fn cmdGain(app: *App, args: []const u8) void {
         app.setStatus("gain: expected a dB value, e.g. :gain 2 -6", .{});
         return;
     };
+    const before = track.gain_db;
     app.apiSetTrackGainDb(track_idx, db);
+    history.recordTrackMixer(app, @intCast(track_idx), .gain, before);
     app.setStatus("track {d} gain: {d:.1}dB", .{ track_1, track.gain_db });
 }
 
@@ -2992,7 +2995,9 @@ fn cmdPan(app: *App, args: []const u8) void {
         app.setStatus("pan: expected a value between -1.0 and 1.0", .{});
         return;
     };
+    const before = track.pan;
     app.apiSetTrackPan(track_idx, val);
+    history.recordTrackMixer(app, @intCast(track_idx), .pan, before);
     const pct: i32 = @intFromFloat(@abs(track.pan) * 100.0);
     if (pct == 0) app.setStatus("track {d} pan: center", .{track_1})
     else if (track.pan < 0) app.setStatus("track {d} pan: L{d}%", .{ track_1, pct })

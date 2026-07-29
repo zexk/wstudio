@@ -2539,6 +2539,31 @@ test "commands reject non-finite numbers, malformed signatures, and overflowing 
     try std.testing.expectApproxEqAbs(@as(f32, -6.0), app.session.project.tracks.items[0].gain_db, 1e-6);
 }
 
+test "track gain and pan plus group gain round-trip through undo" {
+    var app = try testApp();
+    defer app.deinit();
+
+    commands.run(&app, "gain 1 -6");
+    try std.testing.expectApproxEqAbs(@as(f32, -6), app.session.project.tracks.items[0].gain_db, 1e-6);
+    history.doUndo(&app);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), app.session.project.tracks.items[0].gain_db, 1e-6);
+    history.doRedo(&app);
+    try std.testing.expectApproxEqAbs(@as(f32, -6), app.session.project.tracks.items[0].gain_db, 1e-6);
+
+    commands.run(&app, "pan 1 0.5");
+    history.doUndo(&app);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), app.session.project.tracks.items[0].pan, 1e-6);
+    history.doRedo(&app);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), app.session.project.tracks.items[0].pan, 1e-6);
+
+    const group = try app.session.addGroup("bus");
+    commands.run(&app, "group-gain 1 -9");
+    history.doUndo(&app);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), app.session.groups[group].?.gain_db, 1e-6);
+    history.doRedo(&app);
+    try std.testing.expectApproxEqAbs(@as(f32, -9), app.session.groups[group].?.gain_db, 1e-6);
+}
+
 test "arrangement 0: jumps to bar 0 with no pending count, but continues a count otherwise (10l)" {
     var app = try testApp();
     defer app.deinit();

@@ -149,6 +149,14 @@ pub const SwingState = struct {
     value: f32,
 };
 
+pub const MixerField = enum { gain, pan };
+
+pub const MixerState = struct {
+    target: union(enum) { track: u16, group: u8 },
+    field: MixerField,
+    value: f32,
+};
+
 /// A synth/sampler param-nudge batch still open (cursor hasn't moved off
 /// the param yet). `before` is the absolute value captured when the batch
 /// opened; `steps` is the net signed delta dialed in so far, kept ONLY for
@@ -243,6 +251,7 @@ pub const Entry = union(enum) {
     fx: FxState,
     param_nudge: ParamNudgeState,
     swing: SwingState,
+    mixer: MixerState,
     /// A deleted track's full backup; applying re-inserts it (undo of a
     /// delete, or redo of a restore).
     track_insert: TrackFullState,
@@ -265,6 +274,7 @@ pub const Entry = union(enum) {
             .fx => |*f| f.deinit(allocator),
             .param_nudge => {},
             .swing => {},
+            .mixer => {},
             .track_insert => |*t| t.deinit(allocator),
             .track_delete => {},
             .track_kind_swap => |*t| t.deinit(allocator),
@@ -280,6 +290,7 @@ pub const Entry = union(enum) {
             .fx => "fx",
             .param_nudge => "param",
             .swing => "swing",
+            .mixer => "mixer",
             .track_insert, .track_delete => "track",
             .track_kind_swap => "instrument",
         };
@@ -382,6 +393,10 @@ fn dropGroupStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Allo
                 .group => |g| g == idx,
                 else => false,
             },
+            .mixer => |m| switch (m.target) {
+                .group => |g| g == idx,
+                else => false,
+            },
             else => false,
         };
         if (drop) {
@@ -424,6 +439,10 @@ fn retargetStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Alloc
             },
             .param_nudge => |*p| if (remap.apply(p.track)) |nt| { p.track = nt; } else { keep = false; },
             .swing => |*s| if (remap.apply(s.track)) |nt| { s.track = nt; } else { keep = false; },
+            .mixer => |*m| switch (m.target) {
+                .track => |t| if (remap.apply(t)) |nt| { m.target = .{ .track = nt }; } else { keep = false; },
+                .group => {},
+            },
             .track_kind_swap => |*t| if (remap.apply(t.track)) |nt| { t.track = nt; } else { keep = false; },
             .fx => |*f| switch (f.target) {
                 .track => |t| if (remap.apply(t)) |nt| { f.target = .{ .track = nt }; } else { keep = false; },

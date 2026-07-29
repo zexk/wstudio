@@ -120,6 +120,21 @@ pub fn recordSwing(app: *App, track: u16, before: f32) void {
     if (swingValue(app, track) != before) push(app, .{ .swing = .{ .track = track, .value = before } });
 }
 
+pub fn recordTrackMixer(app: *App, track: u16, field: undo_mod.MixerField, before: f32) void {
+    if (track >= app.session.project.tracks.items.len) return;
+    const t = app.session.project.tracks.items[track];
+    const after = switch (field) {
+        .gain => t.gain_db,
+        .pan => t.pan,
+    };
+    if (after != before) push(app, .{ .mixer = .{ .target = .{ .track = track }, .field = field, .value = before } });
+}
+
+pub fn recordGroupGain(app: *App, group: u8, before: f32) void {
+    const after = (app.session.groups[group] orelse return).gain_db;
+    if (after != before) push(app, .{ .mixer = .{ .target = .{ .group = group }, .field = .gain, .value = before } });
+}
+
 /// Deep-copies `src` into a freshly-allocated slice, or null on OOM (with
 /// every already-duped clip and the slice itself cleaned up first) - shared
 /// by captureLane and captureTrackFull's own clip-copy step.
@@ -615,6 +630,30 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
                 else => if (rack.pattern_player) |*pp| pp.swing.store(s.value, .monotonic) else return null,
             }
             return .{ .swing = .{ .track = s.track, .value = displaced } };
+        },
+        .mixer => |m| {
+            const displaced: f32 = switch (m.target) {
+                .track => |track| blk: {
+                    if (track >= app.session.project.tracks.items.len) return null;
+                    const t = app.session.project.tracks.items[track];
+                    const old = switch (m.field) {
+                        .gain => t.gain_db,
+                        .pan => t.pan,
+                    };
+                    switch (m.field) {
+                        .gain => app.apiSetTrackGainDb(track, m.value),
+                        .pan => app.apiSetTrackPan(track, m.value),
+                    }
+                    break :blk old;
+                },
+                .group => |group| blk: {
+                    if (m.field != .gain or group >= ws.engine.max_groups or app.session.groups[group] == null) return null;
+                    const old = app.session.groups[group].?.gain_db;
+                    app.session.setGroupGain(group, m.value);
+                    break :blk old;
+                },
+            };
+            return .{ .mixer = .{ .target = m.target, .field = m.field, .value = displaced } };
         },
         .track_insert => |state| {
             var s = state;
