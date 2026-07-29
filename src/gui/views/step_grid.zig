@@ -86,6 +86,16 @@ pub fn draw(
         draw_list.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ grid_x, y + row_h }, .col = color(if (selected) theme.bg4 else if (row % 2 == 0) theme.bg2 else theme.bg1) });
         draw_list.addRectFilled(.{ .pmin = .{ grid_x, y }, .pmax = .{ origin[0] + canvas_w, y + row_h }, .col = color(if (row % 2 == 0) theme.bg1 else theme.bg0) });
         if (selected) draw_list.addRectFilled(.{ .pmin = .{ origin[0], y + 4 }, .pmax = .{ origin[0] + 4, y + row_h - 4 }, .col = color(accent), .rounding = style.item_rounding });
+        // A slice that is sounding right now lights its whole row, so the
+        // grid says which chop you are hearing and not only which step the
+        // playhead is on (dsp/slicer.zig's `slicePlaying`).
+        if (kind == .slicer and instrument.slicePlaying(@intCast(row))) {
+            draw_list.addRectFilled(.{
+                .pmin = .{ origin[0], y },
+                .pmax = .{ origin[0] + canvas_w, y + row_h },
+                .col = color(.{ theme.danger[0], theme.danger[1], theme.danger[2], 0.16 }),
+            });
+        }
         if (kind == .drum) {
             const choke = instrument.choke_group[row];
             if (instrument.pads[row]) |*sample|

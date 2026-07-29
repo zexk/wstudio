@@ -122,6 +122,18 @@ fn drawSourceWaveform(app: anytype, slicer: *const ws.dsp.Slicer) void {
         waveform.bandBuckets(slicer.samples, bands[0..count], slicer.sample_rate, 0.0, 1.0, 1.0);
     }
 
+    // Which chop is sounding, drawn on the clip itself: with 32 slices of
+    // one break, the step ruler says when a hit lands but never which
+    // region made the sound. Under the peaks so it tints rather than hides.
+    for (slicer.slices[0..slicer.slice_count], 0..) |slice, i| {
+        if (!slicer.slicePlaying(@intCast(i))) continue;
+        draw_list.addRectFilled(.{
+            .pmin = .{ origin[0] + slice.start_norm * width, origin[1] },
+            .pmax = .{ origin[0] + slice.end_norm * width, origin[1] + height },
+            .col = style.color(.{ theme.danger[0], theme.danger[1], theme.danger[2], 0.20 }),
+        });
+    }
+
     for (overview[0..count], 0..) |peak, i| {
         const x = origin[0] + width * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(count));
         const h = @max(1, peak * height / 2 * 0.94);

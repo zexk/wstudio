@@ -1029,6 +1029,18 @@ pub const Slicer = struct {
         return self.current_step.load(.monotonic);
     }
 
+    /// Is slice `slice` sounding right now? For display only - read without
+    /// taking `sample_lock`, the same race-tolerant convention every other
+    /// UI-side read here uses (worst case the highlight is one block stale,
+    /// never a crash: the pool is a fixed inline array).
+    pub fn slicePlaying(self: *const Slicer, slice: u8) bool {
+        if (slice >= self.slice_count) return false;
+        for (self.voices[slice]) |sv| {
+            if (sv.active) return true;
+        }
+        return false;
+    }
+
     /// Nudge swing by `delta` percent, clamped to [swing_min, swing_max].
     pub fn adjustSwing(self: *Slicer, delta: f32) void {
         if (!std.math.isFinite(delta)) return;
