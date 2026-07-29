@@ -8,6 +8,7 @@
 
 const std = @import("std");
 const types = @import("../core/types.zig");
+const dsp = @import("device.zig");
 
 const Sample = types.Sample;
 
@@ -30,7 +31,10 @@ pub const Limiter = struct {
 
     /// Limit an interleaved stereo buffer in place.
     pub fn processBlock(self: *Limiter, buf: []Sample) void {
-        const release = @exp(-1.0 / (self.release_ms * 0.001 * self.sample_rate));
+        const ceiling = dsp.sanitizeParam(self.ceiling, 0.25, 1.0, 0.955);
+        const release_ms = dsp.sanitizeParam(self.release_ms, 1.0, 1000.0, 80.0);
+        if (!std.math.isFinite(self.gain) or self.gain < 0.0 or self.gain > 1.0) self.gain = 1.0;
+        const release = @exp(-1.0 / (release_ms * 0.001 * self.sample_rate));
         var i: usize = 0;
         while (i + 1 < buf.len) : (i += 2) {
             // External plugins are allowed upstream. Contain malformed
@@ -42,7 +46,7 @@ pub const Limiter = struct {
             // stereo peak cannot pass the ceiling (instant attack).
             self.gain = 1.0 - release * (1.0 - self.gain);
             const level = @max(@abs(buf[i]), @abs(buf[i + 1])) * self.gain;
-            if (level > self.ceiling) self.gain *= self.ceiling / level;
+            if (level > ceiling) self.gain *= ceiling / level;
             // zig fmt: off
             buf[i]     *= self.gain;
             // zig fmt: on
@@ -81,6 +85,18 @@ test "non-finite input cannot poison limiter output or state" {
     var next = [_]Sample{ 0.25, -0.25 };
     lim.processBlock(&next);
     for (next) |sample| try std.testing.expect(std.math.isFinite(sample));
+}
+
+test "invalid parameters and stale gain cannot poison limiter state" {
+    var lim = Limiter.init(48_000);
+    lim.ceiling = -std.math.inf(f32);
+    lim.release_ms = -100.0;
+    lim.gain = std.math.nan(f32);
+    var buf = [_]Sample{ 2.0, -2.0, 0.25, -0.25 };
+    lim.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
+    try std.testing.expect(std.math.isFinite(lim.gain));
+    try std.testing.expect(lim.gain >= 0.0 and lim.gain <= 1.0);
 }
 
 test "quiet input passes through untouched" {
