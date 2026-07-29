@@ -15,6 +15,8 @@ wstudio \- keyboard-centric digital audio workstation
 .br
 .B wstudio
 .B render
+.RI [ project.wsj
+.RI [ output.wav ]]
 .br
 .B wstudio
 .B clap\-scan
@@ -77,6 +79,9 @@ reverb to
 .I out.wav
 in the current directory, then exit. Does not open a frontend; useful for
 sanity-checking the audio pipeline.
+With a project path, renders that saved session instead. Optional output path
+defaults to
+.IR bounce.wav .
 .TP
 .B clap\-scan
 List every installed CLAP plugin as

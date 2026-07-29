@@ -49,7 +49,11 @@ pub fn main(init: std.process.Init) !void {
     if (rest.items.len > 0) {
         const cmd = rest.items[0];
         const path: ?[]const u8 = if (rest.items.len > 1) rest.items[1] else null;
-        if (std.mem.eql(u8, cmd, "render")) return renderDemo(init.gpa, init.io);
+        if (std.mem.eql(u8, cmd, "render")) {
+            if (rest.items.len == 1) return renderDemo(init.gpa, init.io);
+            if (rest.items.len > 3) return renderUsage(init.io);
+            return renderProject(init.gpa, init.io, rest.items[1], if (rest.items.len == 3) rest.items[2] else "bounce.wav");
+        }
         if (std.mem.eql(u8, cmd, "clap-scan")) return scanClap(init);
         if (std.mem.eql(u8, cmd, "vst3-scan")) return scanVst3(init);
         if (std.mem.eql(u8, cmd, "devices")) return listDevices(init.io);
@@ -150,6 +154,8 @@ fn printHelp(io: std.Io) !void {
             "  wstudio --tui [path] Launch the TUI, optionally opening a .wsj project\n" ++
             "  wstudio --gui [path] Launch the GUI, optionally opening a .wsj project\n" ++
             "  wstudio render      Render the built-in demo melody to out.wav\n" ++
+            "  wstudio render <project.wsj> [output.wav]\n" ++
+            "                      Render a saved project (default: bounce.wav)\n" ++
             "  wstudio clap-scan   List installed CLAP plugin IDs and paths\n" ++
             "  wstudio vst3-scan   List installed VST3 plugin IDs and paths\n" ++
             "  wstudio devices     List audio and live MIDI device IDs\n" ++
@@ -201,6 +207,41 @@ fn scanVst3(init: std.process.Init) !void {
         try stdout.print("{s}\t{s}\t{s}\n", .{ plugin.id, plugin.name, plugin.path });
     }
     try stdout.flush();
+}
+
+fn renderUsage(io: std.Io) !void {
+    var stderr_buffer: [128]u8 = undefined;
+    var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
+    try stderr_writer.interface.writeAll("usage: wstudio render [project.wsj [output.wav]]\n");
+    try stderr_writer.interface.flush();
+    return error.InvalidArguments;
+}
+
+fn renderProject(allocator: std.mem.Allocator, io: std.Io, project_path: []const u8, output_path: []const u8) !void {
+    var session = try ws.persist.load(allocator, io, project_path);
+    defer session.deinit();
+
+    const bounce_range = ws.bounce.range(&session, 2.0);
+    const samples = try allocator.alloc(ws.types.Sample, @as(usize, @intCast(bounce_range.total_frames)) * ws.engine.channels);
+    defer allocator.free(samples);
+    ws.bounce.render(&session, samples, bounce_range.start_frame);
+
+    const file = try std.Io.Dir.cwd().createFile(io, output_path, .{});
+    defer file.close(io);
+    var file_buffer: [8192]u8 = undefined;
+    var file_writer = file.writer(io, &file_buffer);
+    try ws.wav.write(&file_writer.interface, session.project.sample_rate, ws.engine.channels, samples, .pcm16);
+    try file_writer.interface.flush();
+
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
+    try stdout_writer.interface.print("rendered {d:.2}s ({d} frames) at {d} Hz -> {s}\n", .{
+        ws.types.framesToSeconds(bounce_range.total_frames, session.project.sample_rate),
+        bounce_range.total_frames,
+        session.project.sample_rate,
+        output_path,
+    });
+    try stdout_writer.interface.flush();
 }
 
 const out_path = "out.wav";

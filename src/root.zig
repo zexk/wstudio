@@ -72,6 +72,7 @@ pub const dsp = @import("dsp.zig");
 
 pub const Session = @import("session.zig").Session;
 pub const persist = @import("persist.zig");
+pub const bounce = @import("bounce.zig");
 
 pub const midi = @import("midi.zig");
 pub const midi_file = @import("midi_file.zig");
@@ -114,6 +115,7 @@ test {
     _ = types;
     _ = ring_buffer;
     _ = wav;
+    _ = bounce;
     _ = Transport;
     _ = Project;
     _ = engine;

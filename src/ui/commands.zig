@@ -2622,29 +2622,12 @@ fn parseBounceArgs(app: *App, args: []const u8) struct { path: []const u8, bit_d
     return .{ .path = trimmed, .bit_depth = bit_depth };
 }
 
-const BounceRange = struct { start_frame: u64, total_frames: u64, has_loop_region: bool };
-
 /// An armed A/B loop region bounces exactly that span (e.g. exporting one
 /// section to try in another tool); otherwise song mode renders the whole
 /// arrangement and pattern mode the longest loop. Both cases append
 /// `wstudio.o.bounce_tail_seconds` so reverb and release ring out.
-fn computeBounceRange(app: *App) BounceRange {
-    const engine = app.session.engine;
-    const sr = app.session.project.sample_rate;
-    const loop = engine.transport;
-    const has_loop_region = loop.loop_enabled and loop.loop_end_frames > loop.loop_start_frames;
-    const start_frame: u64 = if (has_loop_region) loop.loop_start_frames else 0;
-    const content_frames: u64 = if (has_loop_region) loop.loop_end_frames - loop.loop_start_frames else blk: {
-        const max_beats = if (app.session.song_mode) inner: {
-            break :inner @max(1.0, ws.time_grid.tickToBeat(app.session.arrangement.lengthTicks()));
-        } else @max(1.0, app.contentBeats());
-        break :blk @intFromFloat(engine.transport.framesPerBeat() * max_beats);
-    };
-    return .{
-        .start_frame = start_frame,
-        .total_frames = content_frames + types.secondsToFrames(app.bounce_tail_seconds, sr),
-        .has_loop_region = has_loop_region,
-    };
+fn computeBounceRange(app: *App) ws.bounce.Range {
+    return ws.bounce.range(&app.session, app.bounce_tail_seconds);
 }
 
 /// Render the live session (patterns + synth params + drum grid) offline to
@@ -2827,41 +2810,7 @@ fn parkAudio(app: *App) bool {
 /// then restore the live transport position and playing state. Assumes the
 /// caller owns the engine (audio thread parked).
 pub fn renderBounce(app: *App, buffer: []types.Sample, start_frame: u64) void {
-    const engine = app.session.engine;
-    const was_playing = engine.transport.playing;
-    const saved_pos = engine.transport.position_frames;
-    // An armed A/B loop would otherwise wrap the render forever; the caller
-    // has already turned an armed loop region into `start_frame` + a matching
-    // buffer length, so straight-line render here always yields the right span.
-    const was_looping = engine.transport.loop_enabled;
-    engine.transport.loop_enabled = false;
-
-    resetDevices(app);
-    engine.limiter.reset();
-    engine.transport.seekFrames(start_frame);
-    engine.transport.play();
-
-    const block = types.default_block_frames * engine_mod.channels;
-    var offset: usize = 0;
-    while (offset < buffer.len) {
-        const end = @min(offset + block, buffer.len);
-        engine.process(buffer[offset..end]);
-        offset = end;
-    }
-
-    resetDevices(app);
-    engine.limiter.reset();
-    engine.transport.seekFrames(saved_pos);
-    engine.transport.loop_enabled = was_looping;
-    if (was_playing) engine.transport.play() else engine.transport.stop();
-}
-
-/// Clear every device's tails/voices/sequencer state across all racks.
-fn resetDevices(app: *App) void {
-    var buf: [ws.Rack.chain_cap]dsp.Device = undefined;
-    for (app.session.racks.items) |rack| {
-        for (rack.chain(&buf)) |dev| dev.reset();
-    }
+    ws.bounce.render(&app.session, buffer, start_frame);
 }
 
 fn cmdBpm(app: *App, args: []const u8) void {

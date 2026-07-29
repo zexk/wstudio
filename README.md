@@ -23,6 +23,7 @@ nix develop                     # zig, zls, audio libs
 zig build run                   # launch the TUI on a blank project
 zig build run -- demo.wsj       # open the curated four-track demo
 zig build run -- --gui demo.wsj # open the GUI instead
+zig build run -- render demo.wsj demo.wav # render saved project without frontend
 ```
 
 Without Nix, install Zig 0.16 and ALSA development libraries (Linux only)

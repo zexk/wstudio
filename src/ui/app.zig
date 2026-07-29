@@ -1022,15 +1022,7 @@ pub const App = struct {
     /// Total content length in beats: the longest piano-roll loop and the
     /// longest drum-machine pattern across all tracks.
     pub fn contentBeats(self: *App) f64 {
-        var max_beats: f64 = 0;
-        for (self.session.racks.items) |rack| {
-            if (rack.pattern_player) |pp| max_beats = @max(max_beats, pp.length_beats);
-            switch (rack.instrument) {
-                .drum_machine => |*dm| max_beats = @max(max_beats, @as(f64, @floatFromInt(dm.step_count)) / 4.0),
-                else => {},
-            }
-        }
-        return max_beats;
+        return ws.bounce.contentBeats(&self.session);
     }
 
     /// Frame position shown by frontend transport meters. Pattern playback
