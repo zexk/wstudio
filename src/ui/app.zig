@@ -922,19 +922,18 @@ pub const App = struct {
     }
 
     pub fn initWithSampleRate(allocator: std.mem.Allocator, io: std.Io, sample_rate: u32) !App {
-        const cmd_history = cmd_history_store.load(allocator, io);
         var app: App = .{
             .allocator = allocator,
             .io = io,
             .session = try ws.Session.initDefaultWithSampleRate(allocator, sample_rate),
             .user_synth_presets = user_presets.load(allocator, io, sample_rate),
             .user_drum_kits = user_drum_kits.load(allocator, io),
-            .cmd_history = cmd_history,
-            .cmd_history_pos = cmd_history.items.len,
             .bookmarks = bookmark_store.load(allocator, io),
             .recent_projects = recent_project_store.load(allocator, io),
             .external_plugins = ws.plugin_catalog.Catalog.init(allocator),
         };
+        app.cmd_history = cmd_history_store.load(allocator, io);
+        app.cmd_history_pos = app.cmd_history.items.len;
         app.rebuildCmdTable();
         return app;
     }
