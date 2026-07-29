@@ -17,6 +17,8 @@ code keeps a one-line pointer.
   corrupt-file quarantine, and the boundary between drum tuning and audio.
 - [beta-5-goals.md](beta-5-goals.md): code-backed goals and exit criteria for
   the next beta release.
+- [road-to-1.0.md](road-to-1.0.md): release themes from beta.5 through the
+  1.0 feature freeze.
 - [ui-conventions.md](ui-conventions.md): TUI layout and chrome
   conventions (row budget, status row, prompt row, frame bracketing,
   icon fallback) plus the design decisions behind them.

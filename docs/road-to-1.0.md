@@ -1,0 +1,57 @@
+# Road to 1.0
+
+Four more beta releases remain after beta.5. Each release gets one main
+theme. Scope narrows toward 1.0 instead of growing until the final tag.
+
+## 1.0.0-beta.5: close known gaps
+
+Finish the existing [beta.5 goals](beta-5-goals.md): device routing, complete
+undo coverage, CLAP lifecycle support, and GUI integration coverage.
+
+No new instrument or effect work belongs in this release.
+
+## 1.0.0-beta.6: VST3 hosting
+
+Add VST3 instruments and effects to the format-neutral plugin catalog that
+already distinguishes CLAP, VST3, and VST2.
+
+Target the same useful baseline already offered for CLAP: discovery, audio and
+note processing, parameters, saved identity and state, latency, and floating
+plugin windows.
+
+Treat VST2 as a separate adapter, not a small compatibility mode. Add it only
+if wstudio already has VST2 distribution rights from before Steinberg stopped
+accepting new VST2 host licenses in October 2018. Without those rights, VST2
+stays outside the 1.0 plan regardless of implementation cost.
+
+## 1.0.0-beta.7: production workflow
+
+Use complete projects and beta feedback to close blockers across recording,
+editing, arrangement, automation, mixing, plugin use, save/load, and export.
+
+Prefer fixes and missing links between existing features. No new instrument,
+effect, plugin format, or editing subsystem.
+
+## 1.0.0-beta.8: compatibility freeze
+
+Settle public surfaces before release: `.wsj` migrations, Lua API behavior,
+configuration names, commands, keyboard grammar, and plugin persistence.
+
+After this beta, incompatible changes require a documented migration or wait
+until after 1.0.
+
+## 1.0.0-beta.9: release candidate
+
+Feature freeze. Fix crashes, data loss, audio corruption, platform failures,
+and release or documentation defects. Verify clean installs, bundled demo,
+project round trips, device setup, plugins, and release artifacts on Linux,
+Windows, and macOS.
+
+## 1.0.0
+
+Release beta.9 code as 1.0 once no release-blocking regression remains. Do not
+attach a final feature batch to the stable tag.
+
+VST3 is the last planned large feature. Embedded plugin GUIs, surround buses,
+polyphonic plugin modulation, and MIDI 2.0 are not 1.0 requirements. VST2 is
+not a requirement and remains conditional on existing distribution rights.
