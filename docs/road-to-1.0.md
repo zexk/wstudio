@@ -12,12 +12,13 @@ No new instrument or effect work belongs in this release.
 
 ## 1.0.0-beta.6: VST3 hosting
 
-Add VST3 instruments and effects to the format-neutral plugin catalog that
-already distinguishes CLAP, VST3, and VST2.
+Implement the bounded [beta.6 VST3 goals](beta-6-goals.md). Add VST3
+instruments and effects to the format-neutral plugin catalog that already
+distinguishes CLAP, VST3, and VST2.
 
 Target the same useful baseline already offered for CLAP: discovery, audio and
-note processing, parameters, saved identity and state, latency, and floating
-plugin windows.
+note processing, parameters, saved identity and state, latency, and generic
+parameter editing. Native custom editor windows remain separate platform work.
 
 VST2 stays outside the 1.0 plan. It requires a separate host adapter and its
 distribution license is no longer available to new hosts.
