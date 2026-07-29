@@ -268,11 +268,12 @@ fn entryCount(app: *App) usize {
 
 /// Open the picker over `track`'s presets. The filter starts clean each
 /// time (a stale narrowing from the last visit would look like missing
-/// presets); escape returns to whichever view opened it.
+/// presets). Presets own the whole rack, so the picker always returns to the
+/// tracks view.
 pub fn open(app: *App, kind: Kind, track: u16) void {
     app.preset_picker_kind = kind;
     app.preset_picker_track = track;
-    app.preset_picker_return = app.view;
+    app.preset_picker_return = .tracks;
     app.preset_picker_cursor = 0;
     app.preset_picker_scroll = 0;
     app.preset_filter_len = 0;

@@ -213,11 +213,7 @@ fn pickerBaseView(app: *const App) tui_app.AppView {
         .instrument_picker => .tracks,
         .fx_picker => app.core.fx_picker_return,
         .synth_fx_picker => .synth_editor,
-        .preset_picker => switch (app.core.preset_picker_kind) {
-            .synth => .synth_editor,
-            .drum => .drum_grid,
-            .soundfont => .soundfont_editor,
-        },
+        .preset_picker => .tracks,
         .automation_param_picker => .automation,
         // `openBrowser` parks the view it was opened from in `prev_view` and
         // restores it on close, so that's what belongs behind the overlay.

@@ -6,7 +6,6 @@ const spectrum_ed = @import("../../ui/editors/spectrum.zig");
 const format = @import("../../ui/format.zig");
 const gui_style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
-const icons = @import("../../ui/icons.zig");
 const zgui = @import("zgui");
 
 const color = gui_style.color;
@@ -180,14 +179,14 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     const block_fg = legibleOn(accent);
     const block_muted = [4]f32{ block_fg[0], block_fg[1], block_fg[2], 0.62 };
     drawFxChips(draw_list, &rack.fx, text_x + 150, origin[1] + 12, block_x0 - 12);
+    const controls_y = origin[1] + (height - 2 - badge_h) / 2;
 
     var gain_buf: [24]u8 = undefined;
     const gain = std.fmt.bufPrint(&gain_buf, "{d:.1} dB", .{track.gain_db}) catch "gain";
     var pan_buf: [24]u8 = undefined;
     const pan = format.panLabel(&pan_buf, track.pan);
-    draw_list.addText(.{ block_x0 + block_inset, origin[1] + 14 }, color(block_fg), "{s}", .{gain});
-    draw_list.addText(.{ block_x0 + block_inset + 78, origin[1] + 14 }, color(block_muted), "{s}", .{pan});
-    drawTrimMeter(draw_list, block_x0 + block_inset, origin[1] + height - 15, block_w - 2 * block_inset, track.gain_db, block_fg);
+    draw_list.addText(.{ block_x0 + block_inset, controls_y + 1 }, color(block_fg), "{s}", .{gain});
+    draw_list.addText(.{ block_x0 + block_inset + 78, controls_y + 1 }, color(block_muted), "{s}", .{pan});
 
     // Always three fixed slots (unlike the old read-only badges, which only
     // occupied space when already on) so each has a stable, clickable hit
@@ -196,13 +195,13 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     // stays in step with `:track-set`/wstudio.api.track_set and undoes the
     // same way a keyboard toggle does.
     var badge_id_buf: [40]u8 = undefined;
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "solo-{d}", .{track_index}) catch "solo", badgeX(block_x0, 0), origin[1] + 12, icons.solo, track.soloed, theme.rhythm)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "solo-{d}", .{track_index}) catch "solo", badgeX(block_x0, 0), controls_y, "S", track.soloed, theme.rhythm)) {
         app.core.apiSetTrackSoloed(track_index, !track.soloed);
     }
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "mute-{d}", .{track_index}) catch "mute", badgeX(block_x0, 1), origin[1] + 12, icons.mute, track.muted, theme.danger)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "mute-{d}", .{track_index}) catch "mute", badgeX(block_x0, 1), controls_y, "M", track.muted, theme.danger)) {
         app.core.apiSetTrackMuted(track_index, !track.muted);
     }
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "arm-{d}", .{track_index}) catch "arm", badgeX(block_x0, 2), origin[1] + 12, "R", app.core.session.isArmed(track_index), theme.danger)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "arm-{d}", .{track_index}) catch "arm", badgeX(block_x0, 2), controls_y, "R", app.core.session.isArmed(track_index), theme.danger)) {
         app.core.apiSetTrackArmed(track_index, !app.core.session.isArmed(track_index));
     }
     drawTrackRowCursorOutline(chrome, height);
@@ -239,9 +238,9 @@ fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) 
 
     const block_x0 = drawInfoBlockBg(draw_list, origin, width, height, accent);
     const block_fg = legibleOn(accent);
+    const controls_y = origin[1] + (height - 2 - badge_h) / 2;
     drawFxChips(draw_list, &group.fx, text_x + 150, origin[1] + 12, block_x0 - 12);
-    draw_list.addText(.{ block_x0 + block_inset, origin[1] + 14 }, color(block_fg), "{d:.1} dB", .{group.gain_db});
-    drawTrimMeter(draw_list, block_x0 + block_inset, origin[1] + height - 15, block_w - 2 * block_inset, group.gain_db, block_fg);
+    draw_list.addText(.{ block_x0 + block_inset, controls_y + 1 }, color(block_fg), "{d:.1} dB", .{group.gain_db});
 
     // Same badge slots a track row gets, in the same two positions, acting
     // on every member at once (App.doGroupToggle - the group row's own m/S).
@@ -249,11 +248,11 @@ fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) 
     // shifting these two left out of line with the track rows above.
     var badge_id_buf: [40]u8 = undefined;
     const soloed = app.core.groupFlagState(group_index, true).all;
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-solo-{d}", .{group_index}) catch "gsolo", badgeX(block_x0, 0), origin[1] + 12, icons.solo, soloed, theme.rhythm)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-solo-{d}", .{group_index}) catch "gsolo", badgeX(block_x0, 0), controls_y, "S", soloed, theme.rhythm)) {
         app.core.doGroupToggle(group_index, true);
     }
     const muted = app.core.groupFlagState(group_index, false).all;
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-mute-{d}", .{group_index}) catch "gmute", badgeX(block_x0, 1), origin[1] + 12, icons.mute, muted, theme.danger)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-mute-{d}", .{group_index}) catch "gmute", badgeX(block_x0, 1), controls_y, "M", muted, theme.danger)) {
         app.core.doGroupToggle(group_index, false);
     }
     drawTrackRowCursorOutline(chrome, height);
@@ -280,23 +279,14 @@ fn drawMasterRow(app: anytype, height: f32) void {
     const block_x0 = drawInfoBlockBg(draw_list, origin, width, height, accent);
     const block_fg = legibleOn(accent);
     drawFxChips(draw_list, &app.core.session.master_fx, text_x + 150, origin[1] + 12, block_x0 - 12);
-    draw_list.addText(.{ block_x0 + block_inset, origin[1] + 14 }, color(block_fg), "{d:.1} dB", .{app.core.master_gain_db});
+    const center_y = origin[1] + (height - 2) / 2;
+    draw_list.addText(.{ block_x0 + block_inset, center_y - 16 }, color(block_fg), "{d:.1} dB", .{app.core.master_gain_db});
     // meter_hold_db is refreshed once per frame by chrome.zig's transport
     // draw (always runs first, see app.zig's App.draw) - reusing it here
     // keeps this meter in sync with the transport's LEVEL readout instead
     // of re-deriving its own peak-hold state from the raw peak.
-    widgets.solidMeterBar(draw_list, .{ block_x0 + block_inset, origin[1] + height - 21 }, app.meter_hold_db, block_w - 2 * block_inset, 5, 3, block_fg);
+    widgets.solidMeterBar(draw_list, .{ block_x0 + block_inset, center_y + 6 }, app.meter_hold_db, block_w - 2 * block_inset, 5, 3, block_fg);
     drawTrackRowCursorOutline(chrome, height);
-}
-
-/// `bar_color` is the block's own contrast text color, not the track's raw
-/// accent - the meter now sits on top of a block already filled with that
-/// accent, where the accent itself would be invisible against its own
-/// background.
-fn drawTrimMeter(draw_list: zgui.DrawList, x: f32, y: f32, width: f32, gain_db: f32, bar_color: [4]f32) void {
-    const level = std.math.clamp((gain_db + 60) / 72, 0, 1);
-    draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + width, y + 5 }, .col = color(.{ bar_color[0], bar_color[1], bar_color[2], 0.25 }), .rounding = gui_style.item_rounding });
-    draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + width * level, y + 5 }, .col = color(bar_color), .rounding = gui_style.item_rounding });
 }
 
 fn trackRowInVisual(core: anytype, display_row: usize) bool {
