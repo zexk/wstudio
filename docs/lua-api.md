@@ -278,8 +278,9 @@ probe can't see.
 
 `audio_backend` picks the playback backend: `"auto"` (the default) tries
 PipeWire, then JACK, then ALSA, falling through to the silent wall-clock
-backend; the other names force one backend (still falling back to silence
-when it cannot start). On Windows everything except `"none"` means WASAPI.
+backend; the other names force one backend and report its startup error instead
+of silently changing the selection. On Windows everything except `"none"`
+means WASAPI.
 PipeWire and JACK are loaded at runtime, so a missing library behaves like
 a missing server. JACK cannot resample: a server running at a different
 rate than the project fails over to ALSA under `"auto"`.
@@ -290,6 +291,8 @@ IDs. ALSA accepts PCM names such as `"hw:2,0"`; find them with `aplay -L` and
 AudioDeviceIDs. Empty strings use system defaults. PipeWire and JACK ignore
 these options because routing belongs to their server graph.
 `wstudio devices` lists usable IDs for the current OS.
+An explicit output device that cannot open fails startup with its backend error;
+it never falls back to silent playback.
 
 `midi_input_device` selects a live MIDI source. Linux accepts an ALSA
 sequencer address from `aconnect -l`, such as `"24:0"`, and subscribes it

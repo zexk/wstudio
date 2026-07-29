@@ -66,10 +66,10 @@
 -- wstudio.o.audio_block_frames = 256
 
 -- Audio backend: "auto", "pipewire", "jack", "alsa", or "none" (silent).
--- "auto" tries PipeWire, then JACK, then ALSA; whatever fails falls back
--- to the next one and finally to silence. On Windows everything except
--- "none" means WASAPI. JACK requires the server to run at the project's
--- sample rate; "auto" falls through to ALSA when it doesn't.
+-- "auto" tries PipeWire, then JACK, then ALSA; default-device failures fall
+-- back to silence. A forced backend or explicit output device reports failure
+-- instead. On Windows everything except "none" means WASAPI. JACK requires the
+-- server to run at the project's sample rate; "auto" falls through to ALSA.
 -- wstudio.o.audio_backend = "auto"
 
 -- Backend-native playback and capture device IDs. ALSA uses PCM names from

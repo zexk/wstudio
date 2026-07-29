@@ -66,48 +66,73 @@ pub const AudioHost = struct {
         };
     }
 
-    /// Start the chosen backend, falling back to the silent NullBackend
-    /// when the choice (or every `auto` candidate) fails. Only the
-    /// fallback's own failure propagates - a session without a device is
-    /// fine, a session without a clock is not.
+    /// Start chosen backend. Automatic selection with default device may fall
+    /// back to silence; explicit backend or device failures propagate.
     pub fn start(self: *AudioHost, io: std.Io, choice: Choice) !void {
         std.debug.assert(self.active == null);
+        var last_error: ?anyerror = null;
         if (has_linux_backends) {
             switch (choice) {
                 .auto => {
                     if (self.pipewire.start()) {
                         self.active = .pipewire;
-                    } else |_| if (self.jack.start()) {
+                    } else |err| {
+                        last_error = err;
+                    }
+                    if (self.active == null) if (self.jack.start()) {
                         self.active = .jack;
-                    } else |_| if (self.alsa.start()) {
+                    } else |err| {
+                        last_error = err;
+                    };
+                    if (self.active == null) if (self.alsa.start()) {
                         self.active = .alsa;
-                    } else |_| {}
+                    } else |err| {
+                        last_error = err;
+                    };
                 },
-                .pipewire => if (self.pipewire.start()) {
-                    self.active = .pipewire;
-                } else |_| {},
-                .jack => if (self.jack.start()) {
-                    self.active = .jack;
-                } else |_| {},
-                .alsa => if (self.alsa.start()) {
-                    self.active = .alsa;
-                } else |_| {},
+                .pipewire => {
+                    if (self.pipewire.start()) {
+                        self.active = .pipewire;
+                    } else |err| {
+                        last_error = err;
+                    }
+                },
+                .jack => {
+                    if (self.jack.start()) {
+                        self.active = .jack;
+                    } else |err| {
+                        last_error = err;
+                    }
+                },
+                .alsa => {
+                    if (self.alsa.start()) {
+                        self.active = .alsa;
+                    } else |err| {
+                        last_error = err;
+                    }
+                },
                 .none => {},
             }
         } else if (has_wasapi) {
             if (choice != .none) {
                 if (self.wasapi.start()) {
                     self.active = .wasapi;
-                } else |_| {}
+                } else |err| {
+                    last_error = err;
+                }
             }
         } else if (has_coreaudio) {
             if (choice != .none) {
                 if (self.coreaudio.start()) {
                     self.active = .coreaudio;
-                } else |_| {}
+                } else |err| {
+                    last_error = err;
+                }
             }
         }
         if (self.active == null) {
+            const explicit = self.config.output_device.len > 0 or (choice != .auto and choice != .none);
+            if (explicit) return last_error orelse error.AudioBackendUnavailable;
             try self.fallback.start(io);
             self.active = .silent;
         }
@@ -153,4 +178,19 @@ test "audio host honors the explicit none choice" {
     defer host.stop();
     try std.testing.expectEqual(@as(?Active, .silent), host.active);
     try std.testing.expectEqualStrings("none (silent)", host.label());
+}
+
+test "audio host propagates explicit backend configuration errors" {
+    if (!has_linux_backends) return error.SkipZigTest;
+    const Silent = struct {
+        fn render(_: *anyopaque, out: []@import("../core/types.zig").Sample) void {
+            @memset(out, 0.0);
+        }
+    };
+    var threaded: std.Io.Threaded = .init(std.testing.allocator, .{});
+    defer threaded.deinit();
+
+    var host = AudioHost.init(.{ .sample_rate = 0 }, Silent.render, @ptrFromInt(16));
+    try std.testing.expectError(error.InvalidConfig, host.start(threaded.io(), .alsa));
+    try std.testing.expectEqual(@as(?Active, null), host.active);
 }
