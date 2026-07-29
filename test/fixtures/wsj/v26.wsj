@@ -1,0 +1,24 @@
+{
+  "version": 26,
+  "tracks": [
+    { "name": "shelves" }
+  ],
+  "racks": [
+    {
+      "label": "shelves",
+      "kind": "empty",
+      "fx_chain": [
+        { "kind": "eq", "eq": { "bands": [
+          { "freq": 100.0, "q": 0.7, "gain_db": 3.0, "kind": "lowshelf" },
+          { "freq": 10000.0, "q": 0.7, "gain_db": -2.0, "kind": "highshelf" },
+          { "freq": 250.0 },
+          { "freq": 500.0 },
+          { "freq": 1000.0 },
+          { "freq": 2000.0 },
+          { "freq": 4000.0 },
+          { "freq": 8000.0 }
+        ] } }
+      ]
+    }
+  ]
+}

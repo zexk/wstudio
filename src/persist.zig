@@ -4724,7 +4724,16 @@ test "golden-file corpus: every historical .wsj fixture still loads" {
     }
 
     // Guards against a misconfigured path silently turning this into a no-op.
-    try testing.expectEqual(@as(usize, 25), count);
+    try testing.expectEqual(@as(usize, file_version), count);
+}
+
+test "golden-file corpus: v26's shelf EQ kinds load" {
+    const testing = std.testing;
+    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v26.wsj");
+    defer session.deinit();
+    const eq = &session.racks.items[0].fx.units.items[0].payload.eq;
+    try testing.expectEqual(eq_mod.BandKind.lowshelf, eq.bands[0].kind);
+    try testing.expectEqual(eq_mod.BandKind.highshelf, eq.bands[1].kind);
 }
 
 test "golden-file corpus: v25's soundfont rack loads with no font (no sidecar to resolve) but keeps its OUT params" {
