@@ -6103,6 +6103,23 @@ test "file browser: v in an empty directory arms nothing (the showcmd chip would
     try std.testing.expectEqualStrings("", app.pendingCmdText(&buf));
 }
 
+test "file browser: showcmd clamps both ends of a stale visual range" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "a.wav", .data = "x" });
+
+    var app = try appRootedAt(&tmp);
+    defer app.deinit();
+    try app.session.setInstrument(0, .drum_machine);
+    app.openBrowser(.{ .load_pad = 0 });
+    app.modal.mode = .visual;
+    app.browser_visual_anchor = 10;
+    app.browser_cursor = 12;
+
+    var buf: [24]u8 = undefined;
+    try std.testing.expectEqualStrings("v1", app.pendingCmdText(&buf));
+}
+
 test "file browser: esc/q cancels without picking, restoring the previous view" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();

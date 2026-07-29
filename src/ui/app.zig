@@ -1275,8 +1275,9 @@ pub const App = struct {
         // and a stale one can outlive the entries it indexed - clamping
         // alone would still slice [0..1] out of an empty list.
         if (self.browser_entries.items.len == 0) return 0;
-        const lo = @min(anchor, self.browser_cursor);
-        const hi = @min(@max(anchor, self.browser_cursor), self.browser_entries.items.len - 1);
+        const last = self.browser_entries.items.len - 1;
+        const lo = @min(@min(anchor, self.browser_cursor), last);
+        const hi = @min(@max(anchor, self.browser_cursor), last);
         var n: u64 = 0;
         for (self.browser_entries.items[lo .. hi + 1]) |e| {
             if (!e.is_dir) n += 1;
