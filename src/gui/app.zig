@@ -45,9 +45,8 @@ pub const App = struct {
     pub fn init(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, user_config: config_mod.Config) !App {
         var core = try tui_app.App.initWithSampleRate(allocator, io, user_config.default_sample_rate);
         errdefer core.deinit();
-        // An unreadable project on the command line reports and starts blank,
-        // the same as the TUI. Failing the whole launch over it means a typo'd
-        // path gives you no editor at all to fix it in.
+        // Startup project failures are fatal so scripts and desktop launchers
+        // receive a nonzero exit instead of an unrelated blank session.
         var loaded_path = false;
         if (init_path) |path| {
             if (ws.persist.load(allocator, io, path)) |session| {
@@ -57,6 +56,7 @@ pub const App = struct {
                 loaded_path = true;
             } else |err| {
                 std.debug.print("wstudio: cannot load '{s}': {s}\n", .{ path, @errorName(err) });
+                return err;
             }
         }
         core.applyUserConfig(user_config, !loaded_path);

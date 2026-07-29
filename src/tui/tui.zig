@@ -330,6 +330,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
             app.promptIfBackupNewer(p);
         } else |e| {
             std.debug.print("wstudio: cannot load '{s}': {s}\n", .{ p, @errorName(e) });
+            return e;
         }
     } else {
         // No project argument: a crashed pathless session's autosave lands

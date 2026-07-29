@@ -159,8 +159,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     _ = window.setCharCallback(onChar);
     _ = window.setScrollCallback(onScroll);
 
-    // `App.init` reports an unreadable project itself and starts blank; an
-    // error here is a real init failure (out of memory), not a bad path.
+    // `App.init` reports an unreadable project before returning its error.
     var app = try App.init(init.gpa, init.io, init_path, user_config);
     defer app.deinit();
     app.core.scanExternalPlugins(init.environ_map);

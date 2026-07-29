@@ -3,6 +3,15 @@
 Notable user-visible changes per release. The `.wsj` format's own version
 history lives in [FORMAT.md](FORMAT.md).
 
+## v1.0.0-beta.8
+
+### Changed
+
+- Launching either frontend with an unreadable or invalid project now reports
+  the path and reason on stderr and exits nonzero. Earlier builds reported the
+  error but opened a blank session, which could hide automation failures.
+- CLI commands now reject extra positional arguments instead of ignoring them.
+
 ## v1.0.0-beta.4
 
 ### Added
