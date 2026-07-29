@@ -157,6 +157,15 @@ in
           "graphite"
           "graphite_light"
           "umbra"
+          "catppuccin_mocha"
+          "catppuccin_latte"
+          "dracula"
+          "gruvbox_dark"
+          "gruvbox_light"
+          "nord"
+          "solarized_dark"
+          "solarized_light"
+          "tokyonight"
         ]
       );
       default = null;
@@ -181,6 +190,15 @@ in
           "graphite"
           "graphite_light"
           "umbra"
+          "catppuccin_mocha"
+          "catppuccin_latte"
+          "dracula"
+          "gruvbox_dark"
+          "gruvbox_light"
+          "nord"
+          "solarized_dark"
+          "solarized_light"
+          "tokyonight"
         ]
       );
       default = null;

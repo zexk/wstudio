@@ -370,6 +370,21 @@ test "every wstudio.o option appears in the Nix schema, template, and docs" {
     }
 }
 
+test "Nix theme enums match Lua" {
+    const text = try std.Io.Dir.cwd().readFileAlloc(
+        std.testing.io,
+        "nix/settings.nix",
+        std.testing.allocator,
+        .limited(1024 * 1024),
+    );
+    defer std.testing.allocator.free(text);
+    inline for (@typeInfo(GuiTheme).@"enum".fields) |field| {
+        const quoted = "\"" ++ field.name ++ "\"";
+        try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, text, quoted));
+    }
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, text, "\"none\""));
+}
+
 pub const max_keymaps = 128;
 pub const max_keymap_lhs = 4;
 const keymap_cmd_cap = 64;

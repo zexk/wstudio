@@ -129,15 +129,11 @@ for now and it costs a few lines.
 Shipped shape (Neovim's `vim.o`): a proxy table whose `__index`/`__newindex`
 validate in Zig and fail loudly on unknown names or out-of-range values.
 
-Two changes to the implementation, no change to the surface:
+Implementation uses one comptime option table, with no extra public surface:
 
-1. **Comptime option table.** `src/config.zig` currently validates each
-   option in a hand-written if-chain, get and set separately: the exact
-   hand-synced pattern this codebase has repeatedly replaced with comptime
-   spec tables (`synth_layout.zig`, `param_specs`, `pad.zig`). Replace it
-   with one table of `.{ name, field, min, max, scope }` rows; getter,
-   setter, validation, and the future `:help` listing all derive from it.
-   Adding an option becomes one line.
+1. **Comptime option table.** `src/config.zig` derives getter, setter,
+   validation, and API metadata from `option_specs`. Adding an option means
+   adding its config field and one spec row.
 
 2. **Scope column.** Each option is marked `core`, `tui`, or `gui`. Scope is
    documentation and naming discipline (prefix enforcement), not access
