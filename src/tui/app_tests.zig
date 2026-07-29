@@ -6118,6 +6118,10 @@ test "file browser: showcmd clamps both ends of a stale visual range" {
 
     var buf: [24]u8 = undefined;
     try std.testing.expectEqualStrings("v1", app.pendingCmdText(&buf));
+
+    app.browser_cursor = 0;
+    app.handleKey(.enter, 0);
+    try std.testing.expect(app.browser_visual_anchor == null);
 }
 
 test "file browser: esc/q cancels without picking, restoring the previous view" {

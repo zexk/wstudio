@@ -3575,7 +3575,7 @@ pub const App = struct {
         // end on - directories inside the span are skipped, not entered.
         if (self.browser_visual_anchor) |anchor| {
             const lo = @min(anchor, self.browser_cursor);
-            const hi = @max(anchor, self.browser_cursor);
+            const hi = @min(@max(anchor, self.browser_cursor), self.browser_entries.items.len - 1);
             commands.loadPadsFromEntries(self, self.browser_entries.items[lo .. hi + 1]);
             self.closeBrowser();
             return;
