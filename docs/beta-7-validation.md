@@ -15,6 +15,8 @@ directories.
   stereo 48 kHz 16-bit PCM files.
 - ReleaseSafe soak: 172,802,048 frames in 42,188 blocks, ten save/load round
   trips, three exports, finite audible peak 0.501, no crash or hang.
+- Valgrind 3.26 Memcheck on baseline-CPU debug build and full demo export:
+  zero errors, zero bytes in use at exit.
 - CLAP/VST3 scans: no third-party plugins installed, compatibility listening
   pass skipped.
 - Physical recording and Windows/macOS hardware passes remain environment
@@ -30,6 +32,11 @@ zig-out/bin/wstudio render demo.wsj "$tmp_dir/master.wav"
 zig-out/bin/wstudio render-stems demo.wsj "$tmp_dir/stems"
 file "$tmp_dir/master.wav" "$tmp_dir"/stems/*.wav
 zig build beta7-soak -Doptimize=ReleaseSafe
+zig build -Dcpu=baseline
+valgrind --leak-check=full --show-leak-kinds=definite,indirect \
+  --errors-for-leak-kinds=definite,indirect --track-origins=yes \
+  --error-exitcode=99 zig-out/bin/wstudio render demo.wsj \
+  .zig-cache/valgrind-render.wav
 zig build -Dtarget=x86_64-windows-gnu
 ```
 
@@ -143,5 +150,3 @@ Known skips:
   fixture integration still runs.
 - Windows and macOS hardware journeys require those hosts. Windows cross-build
   covers compilation only from Linux.
-- Valgrind coverage skipped when `valgrind` is absent. Zig allocator leak and
-  bounds checks remain active in test builds.

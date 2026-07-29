@@ -146,6 +146,7 @@
               alsa-lib
               libGL
               pipewire
+              valgrind
               libx11
               libxcursor
               libxi
