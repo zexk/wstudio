@@ -136,3 +136,16 @@ that pad on its shipped/generated audio with every other param (gain, ADSR,
 trim, and the rest) still applied from the snapshot. A stale or deleted
 sidecar file degrades one pad's sound; it never fails the whole project
 load.
+
+## External plugin failures
+
+CLAP and VST3 snapshots use transactional hard failure, unlike sample
+sidecars. Missing binary, missing saved plugin ID or class ID, malformed state,
+or rejected state aborts project loading. Frontends build a replacement session
+before touching active session, so failed reload leaves every current track,
+automation target, and history entry unchanged.
+
+CLAP identity is binary path plus stable plugin ID. VST3 identity is bundle
+path plus 32-character class ID. Empty CLAP state means no state stream. VST3
+keeps component and controller streams separate, including when either stream
+is empty.

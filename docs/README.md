@@ -23,6 +23,8 @@ code keeps a one-line pointer.
   fault-injection, and environment coverage commands.
 - [beta-8-goals.md](beta-8-goals.md): compatibility freeze for project files,
   Lua/config, commands, input grammar, CLI behavior, and plugin persistence.
+- [compatibility-inventory.md](compatibility-inventory.md): beta.8 freeze,
+  migration, removal, and internal dispositions with authoritative registries.
 - [road-to-1.0.md](road-to-1.0.md): release themes from beta.5 through the
   1.0 feature freeze.
 - [ui-conventions.md](ui-conventions.md): TUI layout and chrome
