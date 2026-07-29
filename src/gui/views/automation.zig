@@ -244,7 +244,7 @@ fn setPointAt(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, beat: 
     app.core.dirty = true;
 }
 
-fn recordAutomationGesture(app: anytype) void {
+pub fn recordAutomationGesture(app: anytype) void {
     if (app.automation_edit_active) return;
     history.recordLane(&app.core, app.core.automation_track);
     app.automation_edit_active = true;

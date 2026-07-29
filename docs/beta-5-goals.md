@@ -64,8 +64,8 @@ audio-port behavior through the bundled CLAP test plugin.
 ## GUI integration coverage
 
 Shared modal behavior has broad integration coverage through the TUI harness.
-GUI-specific behavior mostly has compile checks and narrow unit tests despite
-owning drag, viewport, picker, and held-key state.
+GUI checks cover drag history boundaries; viewport, picker, and held-key state
+still need direct coverage.
 
 Goal:
 

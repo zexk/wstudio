@@ -370,6 +370,33 @@ test "GUI number row respects shift" {
     try std.testing.expectEqualStrings(")!@#$%^&*(", &shifted);
 }
 
+test "GUI drag gestures record one history entry per activation" {
+    var app: App = .{ .core = try tui_app.App.init(std.testing.allocator, std.testing.io) };
+    defer app.deinit();
+    try app.core.session.setInstrument(0, .poly_synth);
+
+    app.recordSynthEdit();
+    app.recordSynthEdit();
+    try std.testing.expectEqual(@as(usize, 1), app.core.history.undo_stack.items.len);
+    app.synth_edit_active = false;
+    app.recordSynthEdit();
+    try std.testing.expectEqual(@as(usize, 2), app.core.history.undo_stack.items.len);
+
+    automation_view.recordAutomationGesture(&app);
+    automation_view.recordAutomationGesture(&app);
+    try std.testing.expectEqual(@as(usize, 3), app.core.history.undo_stack.items.len);
+    app.automation_edit_active = false;
+    automation_view.recordAutomationGesture(&app);
+    try std.testing.expectEqual(@as(usize, 4), app.core.history.undo_stack.items.len);
+
+    piano_view.recordVelocityGesture(&app);
+    piano_view.recordVelocityGesture(&app);
+    try std.testing.expectEqual(@as(usize, 5), app.core.history.undo_stack.items.len);
+    app.piano_velocity_edit_active = false;
+    piano_view.recordVelocityGesture(&app);
+    try std.testing.expectEqual(@as(usize, 6), app.core.history.undo_stack.items.len);
+}
+
 test {
     _ = @import("views/piano.zig");
 }

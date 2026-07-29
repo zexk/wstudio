@@ -593,11 +593,14 @@ fn dragVelocity(app: anytype, pp: *ws.dsp.PatternPlayer, origin: [2]f32, grid_x:
     const note = velocityBarAt(pp, app.core.piano_cursor_pitch, step, steps_per_beat) orelse return;
     const wanted = std.math.clamp((origin[1] + height - mouse[1]) / (height - 16), 0.05, 1.0);
     if (@abs(wanted - note.velocity) < 1e-4) return;
-    if (!app.piano_velocity_edit_active) {
-        history.recordMelodic(&app.core, app.core.piano_track);
-        app.piano_velocity_edit_active = true;
-    }
+    recordVelocityGesture(app);
     _ = piano_ed.setVelocity(&app.core, note.pitch, step, wanted);
+}
+
+pub fn recordVelocityGesture(app: anytype) void {
+    if (app.piano_velocity_edit_active) return;
+    history.recordMelodic(&app.core, app.core.piano_track);
+    app.piano_velocity_edit_active = true;
 }
 
 /// The bar under the velocity lane's pointer: the note starting on `step`
