@@ -8181,7 +8181,6 @@ test "scrolling down from the bottom of the help view doesn't overflow" {
     try tui_mod.draw(&app, &w, .{ .cols = 100, .rows = 24 });
 }
 
-
 test "the synth editor draws at the 4-column terminal width" {
     var app = try testApp();
     defer app.deinit();
