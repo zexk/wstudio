@@ -73,6 +73,70 @@ pub const PluginFactory2 = extern struct {
     vtable: *const PluginFactory2VTable,
 };
 
+pub const BusInfo = extern struct {
+    media_type: i32,
+    direction: i32,
+    channel_count: i32,
+    name: [128]u16,
+    bus_type: i32,
+    flags: u32,
+};
+
+pub const ComponentVTable = extern struct {
+    query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
+    add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    release: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    initialize: *const fn (*anyopaque, ?*FUnknown) callconv(abi_callconv) Result,
+    terminate: *const fn (*anyopaque) callconv(abi_callconv) Result,
+    get_controller_class_id: *const fn (*anyopaque, *Tuid) callconv(abi_callconv) Result,
+    set_io_mode: *const fn (*anyopaque, i32) callconv(abi_callconv) Result,
+    get_bus_count: *const fn (*anyopaque, i32, i32) callconv(abi_callconv) i32,
+    get_bus_info: *const fn (*anyopaque, i32, i32, i32, *BusInfo) callconv(abi_callconv) Result,
+    get_routing_info: *const fn (*anyopaque, *anyopaque, *anyopaque) callconv(abi_callconv) Result,
+    activate_bus: *const fn (*anyopaque, i32, i32, i32, u8) callconv(abi_callconv) Result,
+    set_active: *const fn (*anyopaque, u8) callconv(abi_callconv) Result,
+    set_state: *const fn (*anyopaque, *anyopaque) callconv(abi_callconv) Result,
+    get_state: *const fn (*anyopaque, *anyopaque) callconv(abi_callconv) Result,
+};
+
+pub const Component = extern struct { vtable: *const ComponentVTable };
+
+pub const ProcessSetup = extern struct { process_mode: i32, symbolic_sample_size: i32, max_samples_per_block: i32, sample_rate: f64 };
+pub const AudioBusBuffers = extern struct {
+    num_channels: i32,
+    silence_flags: u64,
+    buffers: extern union { channel_buffers_32: [*][*]f32, channel_buffers_64: [*][*]f64 },
+};
+pub const ProcessData = extern struct {
+    process_mode: i32,
+    symbolic_sample_size: i32,
+    num_samples: i32,
+    num_inputs: i32,
+    num_outputs: i32,
+    inputs: ?[*]AudioBusBuffers,
+    outputs: ?[*]AudioBusBuffers,
+    input_parameter_changes: ?*anyopaque,
+    output_parameter_changes: ?*anyopaque,
+    input_events: ?*anyopaque,
+    output_events: ?*anyopaque,
+    process_context: ?*anyopaque,
+};
+
+pub const AudioProcessorVTable = extern struct {
+    query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
+    add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    release: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    set_bus_arrangements: *const fn (*anyopaque, ?[*]u64, i32, ?[*]u64, i32) callconv(abi_callconv) Result,
+    get_bus_arrangement: *const fn (*anyopaque, i32, i32, *u64) callconv(abi_callconv) Result,
+    can_process_sample_size: *const fn (*anyopaque, i32) callconv(abi_callconv) Result,
+    get_latency_samples: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    setup_processing: *const fn (*anyopaque, *ProcessSetup) callconv(abi_callconv) Result,
+    set_processing: *const fn (*anyopaque, u8) callconv(abi_callconv) Result,
+    process: *const fn (*anyopaque, *ProcessData) callconv(abi_callconv) Result,
+    get_tail_samples: *const fn (*anyopaque) callconv(abi_callconv) u32,
+};
+pub const AudioProcessor = extern struct { vtable: *const AudioProcessorVTable };
+
 pub fn uid(a: u32, b: u32, c: u32, d: u32) Tuid {
     if (builtin.os.tag == .windows) return .{
         @truncate(a),       @truncate(a >> 8),  @truncate(a >> 16), @truncate(a >> 24),
@@ -91,6 +155,8 @@ pub fn uid(a: u32, b: u32, c: u32, d: u32) Tuid {
 pub const f_unknown_iid = uid(0x00000000, 0x00000000, 0xC0000000, 0x00000046);
 pub const plugin_factory_iid = uid(0x7A4D811C, 0x52114A1F, 0xAED9D2EE, 0x0B43BF9F);
 pub const plugin_factory_2_iid = uid(0x0007B650, 0xF24B4C0B, 0xA464EDB9, 0xF00B2ABB);
+pub const component_iid = uid(0xE831FF31, 0xF2D54301, 0x928EBBEE, 0x25697802);
+pub const audio_processor_iid = uid(0x42043F99, 0xB7DA453C, 0xA569E79D, 0x9AAEC33D);
 
 pub fn formatUid(value: Tuid) [32]u8 {
     var canonical = value;
@@ -101,6 +167,19 @@ pub fn formatUid(value: Tuid) [32]u8 {
         value[12], value[13], value[14], value[15],
     };
     return std.fmt.bytesToHex(canonical, .lower);
+}
+
+pub fn parseUid(text: []const u8) !Tuid {
+    if (text.len != 32) return error.InvalidClassId;
+    var canonical: Tuid = undefined;
+    _ = std.fmt.hexToBytes(&canonical, text) catch return error.InvalidClassId;
+    if (builtin.os.tag != .windows) return canonical;
+    return .{
+        canonical[3],  canonical[2],  canonical[1],  canonical[0],
+        canonical[5],  canonical[4],  canonical[7],  canonical[6],
+        canonical[8],  canonical[9],  canonical[10], canonical[11],
+        canonical[12], canonical[13], canonical[14], canonical[15],
+    };
 }
 
 comptime {
@@ -116,4 +195,6 @@ test "VST3 UID uses platform ABI byte order" {
         .{ 0xe8, 0x31, 0xff, 0x31, 0xf2, 0xd5, 0x43, 0x01, 0x92, 0x8e, 0xbb, 0xee, 0x25, 0x69, 0x78, 0x02 };
     try std.testing.expectEqual(expected, component);
     try std.testing.expectEqualStrings("e831ff31f2d54301928ebbee25697802", &formatUid(component));
+    try std.testing.expectEqual(component, try parseUid("e831ff31f2d54301928ebbee25697802"));
+    try std.testing.expectError(error.InvalidClassId, parseUid("nope"));
 }
