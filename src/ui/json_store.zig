@@ -140,6 +140,7 @@ pub fn save(
     const json_bytes = try std.json.Stringify.valueAlloc(aa, snapshot, .{ .whitespace = .indent_2 });
 
     const tmp_path = try std.fmt.allocPrint(aa, "{s}.tmp", .{path});
+    errdefer std.Io.Dir.cwd().deleteFile(io, tmp_path) catch {};
     {
         const file = try std.Io.Dir.cwd().createFile(io, tmp_path, .{});
         defer file.close(io);
@@ -268,4 +269,19 @@ test "quarantine preserves an earlier corrupt file" {
     const numbered = try std.fmt.bufPrint(&numbered_buf, "{s}.1", .{corrupt});
     var second = try std.Io.Dir.cwd().openFile(std.testing.io, numbered, .{});
     second.close(std.testing.io);
+}
+
+test "failed save removes temporary file" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try testRedirectHome(&tmp);
+
+    var path_buf: [path_buf_len]u8 = undefined;
+    const path = configPath(&path_buf, "blocked.json").?;
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, path);
+    try std.testing.expectError(error.IsDir, save(std.testing.allocator, std.testing.io, "blocked.json", .{ .n = @as(u32, 1) }));
+
+    var tmp_path_buf: [path_buf_len + 4]u8 = undefined;
+    const tmp_path = try std.fmt.bufPrint(&tmp_path_buf, "{s}.tmp", .{path});
+    try std.testing.expectError(error.FileNotFound, std.Io.Dir.cwd().access(std.testing.io, tmp_path, .{}));
 }
