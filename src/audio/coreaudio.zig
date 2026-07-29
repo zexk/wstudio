@@ -41,6 +41,12 @@ const AudioBufferList = extern struct {
     mBuffers: [1]AudioBuffer,
 };
 
+const AudioObjectPropertyAddress = extern struct {
+    mSelector: u32,
+    mScope: u32,
+    mElement: u32,
+};
+
 const RenderCallback = *const fn (?*anyopaque, *u32, *const anyopaque, u32, u32, ?*AudioBufferList) callconv(.c) OSStatus;
 const AURenderCallbackStruct = extern struct {
     inputProc: RenderCallback,
@@ -56,11 +62,17 @@ const audio_format_flag_is_float = 1 << 0;
 const audio_format_flag_is_packed = 1 << 3;
 const audio_unit_property_stream_format = 8;
 const audio_unit_property_set_render_callback = 23;
+const audio_output_unit_property_current_device = 2000;
 const audio_output_unit_property_enable_io = 2003;
 const audio_output_unit_property_set_input_callback = 2005;
 const audio_unit_scope_global = 0;
 const audio_unit_scope_input = 1;
 const audio_unit_scope_output = 2;
+const audio_hardware_property_default_input_device = 0x64496e20; // 'dIn '
+const audio_object_property_scope_global = 0x676c6f62; // 'glob'
+const audio_object_property_element_main = 0;
+const audio_object_system_object = 1;
+const audio_object_unknown = 0;
 
 extern fn AudioComponentFindNext(AudioComponent, *const AudioComponentDescription) callconv(.c) AudioComponent;
 extern fn AudioComponentInstanceNew(AudioComponent, *AudioUnit) callconv(.c) OSStatus;
@@ -71,6 +83,7 @@ extern fn AudioUnitUninitialize(AudioUnit) callconv(.c) OSStatus;
 extern fn AudioOutputUnitStart(AudioUnit) callconv(.c) OSStatus;
 extern fn AudioOutputUnitStop(AudioUnit) callconv(.c) OSStatus;
 extern fn AudioUnitRender(AudioUnit, *u32, *const anyopaque, u32, u32, *AudioBufferList) callconv(.c) OSStatus;
+extern fn AudioObjectGetPropertyData(u32, *const AudioObjectPropertyAddress, u32, ?*const anyopaque, *u32, *anyopaque) callconv(.c) OSStatus;
 
 pub const CoreAudioBackend = struct {
     config: backend_mod.Config,
@@ -174,8 +187,26 @@ pub const CoreAudioCapture = struct {
 
     pub const Error = error{ DeviceOpenFailed, DeviceConfigFailed };
 
+    /// The system's default input device, or null when the Mac has none.
+    /// A HAL unit is handed out and starts happily either way, so without
+    /// this the no-mic case looks like a running capture that simply
+    /// never fires its callback - `start` failing is what lets a record
+    /// pass fall back to MIDI-only.
+    fn defaultInputDevice() ?u32 {
+        const address = AudioObjectPropertyAddress{
+            .mSelector = audio_hardware_property_default_input_device,
+            .mScope = audio_object_property_scope_global,
+            .mElement = audio_object_property_element_main,
+        };
+        var device: u32 = audio_object_unknown;
+        var size: u32 = @sizeOf(u32);
+        if (AudioObjectGetPropertyData(audio_object_system_object, &address, 0, null, &size, &device) != 0) return null;
+        return if (device == audio_object_unknown) null else device;
+    }
+
     pub fn start(self: *CoreAudioCapture, sample_rate: u32) Error!void {
         while (self.queue.pop() != null) {}
+        const device = defaultInputDevice() orelse return error.DeviceOpenFailed;
         const description = AudioComponentDescription{
             .componentType = audio_unit_type_output,
             .componentSubType = audio_unit_subtype_hal_output,
@@ -194,6 +225,13 @@ pub const CoreAudioCapture = struct {
             return error.DeviceConfigFailed;
         var disabled: u32 = 0;
         if (AudioUnitSetProperty(unit, audio_output_unit_property_enable_io, audio_unit_scope_output, 0, &disabled, @sizeOf(u32)) != 0)
+            return error.DeviceConfigFailed;
+
+        // A HAL unit defaults to the default *output* device, so capture
+        // reads the wrong hardware on any Mac whose input and output
+        // devices differ until it's pointed at the input one.
+        var current = device;
+        if (AudioUnitSetProperty(unit, audio_output_unit_property_current_device, audio_unit_scope_global, 0, &current, @sizeOf(u32)) != 0)
             return error.DeviceConfigFailed;
 
         const format = AudioStreamBasicDescription{
