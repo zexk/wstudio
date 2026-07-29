@@ -543,6 +543,7 @@ fn parseImpl(allocator: std.mem.Allocator, bytes: []const u8, target_sample_rate
     var h = hydra orelse return error.MalformedChunk;
     if (h.phdr.len < 2 or h.inst.len < 2 or h.shdr.len == 0) return error.NoPresets;
     if (raw_sample_data.len == 0) return error.NoSamples;
+    if (raw_sample_data.len & 1 != 0) return error.MalformedChunk;
 
     // Raw sample data is 16-bit signed PCM mono, per spec. Convert once to
     // f32 and resample to the engine's rate up front (see SoundFont.
@@ -1059,6 +1060,18 @@ test "parse: honors declared RIFF size" {
     try std.testing.expectError(error.MalformedChunk, SoundFont.parse(allocator, truncated, 44_100));
 
     try std.testing.expectError(error.Truncated, SoundFont.parse(allocator, "RIFF\xff\xff\xff\xffsfbk", 44_100));
+}
+
+test "parse: rejects odd-sized 16-bit sample data" {
+    const allocator = std.testing.allocator;
+    const base = try buildTestSf2(allocator, false, 44_100);
+    defer allocator.free(base);
+    const malformed = try allocator.dupe(u8, base);
+    defer allocator.free(malformed);
+    const smpl = std.mem.indexOf(u8, malformed, "smpl").?;
+    const size = readU32(malformed, smpl + 4);
+    std.mem.writeInt(u32, malformed[smpl + 4 ..][0..4], size - 1, .little);
+    try std.testing.expectError(error.MalformedChunk, SoundFont.parse(allocator, malformed, 44_100));
 }
 
 test "parse: a duplicated pdta LIST is ignored, not leaked" {
