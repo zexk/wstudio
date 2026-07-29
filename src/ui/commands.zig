@@ -2643,39 +2643,12 @@ fn cmdBounce(app: *App, args: []const u8) void {
     const path = expandHome(&path_buf, requested);
     const bit_depth = parsed.bit_depth;
 
-    const engine = app.session.engine;
     const sr = app.session.project.sample_rate;
     const range = computeBounceRange(app);
-    const buffer = app.allocator.alloc(
-        types.Sample,
-        @as(usize, @intCast(range.total_frames)) * engine_mod.channels,
-    ) catch {
-        app.setStatus("bounce: out of memory", .{});
-        return;
-    };
-    defer app.allocator.free(buffer);
-
-    if (!parkAudio(app)) {
-        engine.bounce_active.store(false, .release);
-        app.setStatus("bounce: audio thread did not park", .{});
-        return;
-    }
-    renderBounce(app, buffer, range.start_frame);
-    engine.bounce_active.store(false, .release);
-    engine.bounce_parked.store(false, .release);
-
-    const file = std.Io.Dir.cwd().createFile(app.io, path, .{}) catch |e| {
+    writeParkedBounce(app, path, range, bit_depth) catch |e| {
         app.setStatus("bounce: {s}: {s}", .{ path, @errorName(e) });
         return;
     };
-    defer file.close(app.io);
-    var fbuf: [8192]u8 = undefined;
-    var fw = file.writer(app.io, &fbuf);
-    ws.wav.write(&fw.interface, sr, engine_mod.channels, buffer, bit_depth) catch |e| {
-        app.setStatus("bounce: write failed: {s}", .{@errorName(e)});
-        return;
-    };
-    fw.interface.flush() catch {};
 
     if (range.has_loop_region) {
         app.setStatus("bounced {d:.1}s (loop region) -> {s}", .{ types.framesToSeconds(range.total_frames, sr), path });
@@ -2697,17 +2670,7 @@ fn cmdBounceStems(app: *App, args: []const u8) void {
     const bit_depth = parsed.bit_depth;
 
     const engine = app.session.engine;
-    const sr = app.session.project.sample_rate;
     const range = computeBounceRange(app);
-    const buffer = app.allocator.alloc(
-        types.Sample,
-        @as(usize, @intCast(range.total_frames)) * engine_mod.channels,
-    ) catch {
-        app.setStatus("bounce-stems: out of memory", .{});
-        return;
-    };
-    defer app.allocator.free(buffer);
-
     std.Io.Dir.cwd().createDirPath(app.io, dir) catch |e| {
         app.setStatus("bounce-stems: {s}: {s}", .{ dir, @errorName(e) });
         return;
@@ -2736,32 +2699,15 @@ fn cmdBounceStems(app: *App, args: []const u8) void {
             _ = engine.send(.{ .set_track_solo = .{ .track = @intCast(j), .soloed = t2.soloed } });
         }
 
-        if (!parkAudio(app)) {
-            engine.bounce_active.store(false, .release);
-            app.setStatus("bounce-stems: audio thread did not park", .{});
-            return;
-        }
-        renderBounce(app, buffer, range.start_frame);
-        engine.bounce_active.store(false, .release);
-        engine.bounce_parked.store(false, .release);
-
         const stem_name = ws.bounce.stemName(&stem_buf, t.name, i);
         const file_path = std.fmt.bufPrint(&file_path_buf, "{s}/{s}.wav", .{ dir, stem_name }) catch {
             app.setStatus("bounce-stems: path too long for track {d}", .{i + 1});
             continue;
         };
-        const file = std.Io.Dir.cwd().createFile(app.io, file_path, .{}) catch |e| {
-            app.setStatus("bounce-stems: {s}: {s}", .{ file_path, @errorName(e) });
-            continue;
-        };
-        defer file.close(app.io);
-        var fbuf: [8192]u8 = undefined;
-        var fw = file.writer(app.io, &fbuf);
-        ws.wav.write(&fw.interface, sr, engine_mod.channels, buffer, bit_depth) catch |e| {
+        writeParkedBounce(app, file_path, range, bit_depth) catch |e| {
             app.setStatus("bounce-stems: write failed for {s}: {s}", .{ stem_name, @errorName(e) });
             continue;
         };
-        fw.interface.flush() catch {};
         rendered += 1;
     }
 
@@ -2787,6 +2733,22 @@ fn parkAudio(app: *App) bool {
         std.atomic.spinLoopHint();
     }
     return true;
+}
+
+fn writeParkedBounce(app: *App, path: []const u8, range: ws.bounce.Range, bit_depth: ws.wav.BitDepth) !void {
+    const engine = app.session.engine;
+    if (!parkAudio(app)) return error.AudioThreadDidNotPark;
+    defer {
+        engine.bounce_active.store(false, .release);
+        engine.bounce_parked.store(false, .release);
+    }
+
+    const file = try std.Io.Dir.cwd().createFile(app.io, path, .{});
+    defer file.close(app.io);
+    var file_buffer: [8192]u8 = undefined;
+    var file_writer = file.writer(app.io, &file_buffer);
+    try ws.bounce.writeWav(&app.session, &file_writer.interface, range, bit_depth);
+    try file_writer.interface.flush();
 }
 
 /// Render the session from `start_frame` into `buffer` (interleaved stereo),

@@ -236,11 +236,7 @@ fn renderProject(allocator: std.mem.Allocator, io: std.Io, project_path: []const
     defer session.deinit();
 
     const bounce_range = ws.bounce.range(&session, 2.0);
-    const samples = try allocator.alloc(ws.types.Sample, @as(usize, @intCast(bounce_range.total_frames)) * ws.engine.channels);
-    defer allocator.free(samples);
-    ws.bounce.render(&session, samples, bounce_range.start_frame);
-
-    try writeBounce(io, output_path, session.project.sample_rate, samples);
+    try writeBounce(io, output_path, &session, bounce_range);
 
     var stdout_buffer: [1024]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
@@ -259,8 +255,6 @@ fn renderProjectStems(allocator: std.mem.Allocator, io: std.Io, project_path: []
     try std.Io.Dir.cwd().createDirPath(io, output_dir);
 
     const bounce_range = ws.bounce.range(&session, 2.0);
-    const samples = try allocator.alloc(ws.types.Sample, @as(usize, @intCast(bounce_range.total_frames)) * ws.engine.channels);
-    defer allocator.free(samples);
 
     var name_buffer: [64]u8 = undefined;
     var path_buffer: [4096]u8 = undefined;
@@ -272,10 +266,9 @@ fn renderProjectStems(allocator: std.mem.Allocator, io: std.Io, project_path: []
             _ = session.engine.send(.{ .set_track_solo = .{ .track = @intCast(j), .soloed = candidate.soloed } });
         }
 
-        ws.bounce.render(&session, samples, bounce_range.start_frame);
         const name = ws.bounce.stemName(&name_buffer, session.project.tracks.items[i].name, i);
         const path = try std.fmt.bufPrint(&path_buffer, "{s}/{s}.wav", .{ output_dir, name });
-        try writeBounce(io, path, session.project.sample_rate, samples);
+        try writeBounce(io, path, &session, bounce_range);
         rendered += 1;
     }
 
@@ -285,12 +278,12 @@ fn renderProjectStems(allocator: std.mem.Allocator, io: std.Io, project_path: []
     try stdout_writer.interface.flush();
 }
 
-fn writeBounce(io: std.Io, path: []const u8, sample_rate: u32, samples: []const ws.types.Sample) !void {
+fn writeBounce(io: std.Io, path: []const u8, session: *ws.Session, bounce_range: ws.bounce.Range) !void {
     const file = try std.Io.Dir.cwd().createFile(io, path, .{});
     defer file.close(io);
     var file_buffer: [8192]u8 = undefined;
     var file_writer = file.writer(io, &file_buffer);
-    try ws.wav.write(&file_writer.interface, sample_rate, ws.engine.channels, samples, .pcm16);
+    try ws.bounce.writeWav(session, &file_writer.interface, bounce_range, .pcm16);
     try file_writer.interface.flush();
 }
 

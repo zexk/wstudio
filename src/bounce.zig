@@ -5,6 +5,7 @@ const types = @import("core/types.zig");
 const engine_mod = @import("audio/engine.zig");
 const dsp = @import("dsp/device.zig");
 const time_grid = @import("time_grid.zig");
+const wav = @import("core/wav.zig");
 const Session = @import("session.zig").Session;
 
 pub const Range = struct { start_frame: u64, total_frames: u64, has_loop_region: bool };
@@ -88,6 +89,41 @@ pub fn render(session: *Session, buffer: []types.Sample, start_frame: u64) void 
     engine.transport.seekFrames(saved_pos);
     engine.transport.loop_enabled = was_looping;
     if (was_playing) engine.transport.play() else engine.transport.stop();
+}
+
+/// Render directly to PCM WAV using one fixed audio block of memory.
+pub fn writeWav(session: *Session, writer: *std.Io.Writer, bounce_range: Range, bit_depth: wav.BitDepth) wav.WriteError!void {
+    const engine = session.engine;
+    const was_playing = engine.transport.playing;
+    const saved_pos = engine.transport.position_frames;
+    const was_looping = engine.transport.loop_enabled;
+    defer {
+        resetDevices(session);
+        engine.limiter.reset();
+        engine.transport.seekFrames(saved_pos);
+        engine.transport.loop_enabled = was_looping;
+        if (was_playing) engine.transport.play() else engine.transport.stop();
+    }
+
+    engine.transport.loop_enabled = false;
+    resetDevices(session);
+    engine.limiter.reset();
+    engine.transport.seekFrames(bounce_range.start_frame);
+    engine.transport.play();
+
+    const frame_count = std.math.cast(usize, bounce_range.total_frames) orelse return error.FileTooLarge;
+    const sample_count = std.math.mul(usize, frame_count, engine_mod.channels) catch return error.FileTooLarge;
+    var wav_writer = try wav.StreamWriter.init(writer, session.project.sample_rate, engine_mod.channels, sample_count, bit_depth);
+    var block: [types.default_block_frames * engine_mod.channels]types.Sample = undefined;
+    var frames_left = bounce_range.total_frames;
+    while (frames_left > 0) {
+        const frames: usize = @intCast(@min(frames_left, types.default_block_frames));
+        const samples = block[0 .. frames * engine_mod.channels];
+        engine.process(samples);
+        try wav_writer.writeSamples(samples);
+        frames_left -= frames;
+    }
+    try wav_writer.finish();
 }
 
 fn resetDevices(session: *Session) void {

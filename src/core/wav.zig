@@ -8,6 +8,64 @@ const types = @import("types.zig");
 pub const BitDepth = enum(u16) { pcm16 = 16, pcm24 = 24 };
 pub const WriteError = std.Io.Writer.Error || error{ InvalidFormat, FileTooLarge };
 
+pub const StreamWriter = struct {
+    writer: *std.Io.Writer,
+    bit_depth: BitDepth,
+    samples_left: usize,
+    data_pad: bool,
+
+    pub fn init(w: *std.Io.Writer, sample_rate: u32, channel_count: u16, sample_count: usize, bit_depth: BitDepth) WriteError!StreamWriter {
+        if (sample_rate == 0 or channel_count == 0 or sample_count % channel_count != 0) return error.InvalidFormat;
+        const bits_per_sample: u16 = @intFromEnum(bit_depth);
+        const bytes_per_sample: u32 = bits_per_sample / 8;
+        const data_len_usize = std.math.mul(usize, sample_count, bytes_per_sample) catch return error.FileTooLarge;
+        const riff_size_u64 = @as(u64, 36) + data_len_usize + (data_len_usize & 1);
+        if (riff_size_u64 > std.math.maxInt(u32)) return error.FileTooLarge;
+        const data_len: u32 = @intCast(data_len_usize);
+        const block_align_u32 = @as(u32, channel_count) * bytes_per_sample;
+        if (block_align_u32 > std.math.maxInt(u16)) return error.InvalidFormat;
+        const byte_rate_u64 = @as(u64, sample_rate) * block_align_u32;
+        if (byte_rate_u64 > std.math.maxInt(u32)) return error.InvalidFormat;
+
+        try w.writeAll("RIFF");
+        try w.writeInt(u32, @intCast(riff_size_u64), .little);
+        try w.writeAll("WAVEfmt ");
+        try w.writeInt(u32, 16, .little);
+        try w.writeInt(u16, 1, .little);
+        try w.writeInt(u16, channel_count, .little);
+        try w.writeInt(u32, sample_rate, .little);
+        try w.writeInt(u32, @intCast(byte_rate_u64), .little);
+        try w.writeInt(u16, @intCast(block_align_u32), .little);
+        try w.writeInt(u16, bits_per_sample, .little);
+        try w.writeAll("data");
+        try w.writeInt(u32, data_len, .little);
+        return .{ .writer = w, .bit_depth = bit_depth, .samples_left = sample_count, .data_pad = data_len & 1 != 0 };
+    }
+
+    pub fn writeSamples(self: *StreamWriter, samples: []const types.Sample) WriteError!void {
+        if (samples.len > self.samples_left) return error.InvalidFormat;
+        switch (self.bit_depth) {
+            .pcm16 => for (samples) |s| {
+                const clamped = if (std.math.isFinite(s)) std.math.clamp(s, -1.0, 1.0) else 0.0;
+                try self.writer.writeInt(i16, @intFromFloat(clamped * 32767.0), .little);
+            },
+            .pcm24 => for (samples) |s| {
+                const clamped = if (std.math.isFinite(s)) std.math.clamp(s, -1.0, 1.0) else 0.0;
+                const v: u32 = @bitCast(@as(i32, @intFromFloat(clamped * 8_388_607.0)));
+                try self.writer.writeByte(@truncate(v));
+                try self.writer.writeByte(@truncate(v >> 8));
+                try self.writer.writeByte(@truncate(v >> 16));
+            },
+        }
+        self.samples_left -= samples.len;
+    }
+
+    pub fn finish(self: *StreamWriter) WriteError!void {
+        if (self.samples_left != 0) return error.InvalidFormat;
+        if (self.data_pad) try self.writer.writeByte(0);
+    }
+};
+
 /// Writes a PCM WAV at the given bit depth. `samples` is interleaved f32 in
 /// [-1, 1] (values outside are clamped). Caller flushes the writer.
 pub fn write(
@@ -17,52 +75,9 @@ pub fn write(
     samples: []const types.Sample,
     bit_depth: BitDepth,
 ) WriteError!void {
-    if (sample_rate == 0 or channel_count == 0) return error.InvalidFormat;
-    if (samples.len % channel_count != 0) return error.InvalidFormat;
-    const bits_per_sample: u16 = @intFromEnum(bit_depth);
-    const bytes_per_sample: u32 = bits_per_sample / 8;
-    const data_len_usize = std.math.mul(usize, samples.len, bytes_per_sample) catch return error.FileTooLarge;
-    const riff_size_u64 = @as(u64, 36) + data_len_usize + (data_len_usize & 1);
-    if (riff_size_u64 > std.math.maxInt(u32)) return error.FileTooLarge;
-    const data_len: u32 = @intCast(data_len_usize);
-    const data_pad: u32 = data_len & 1;
-    const riff_size: u32 = @intCast(riff_size_u64);
-    const block_align_u32 = @as(u32, channel_count) * bytes_per_sample;
-    if (block_align_u32 > std.math.maxInt(u16)) return error.InvalidFormat;
-    const byte_rate_u64 = @as(u64, sample_rate) * block_align_u32;
-    if (byte_rate_u64 > std.math.maxInt(u32)) return error.InvalidFormat;
-    const byte_rate: u32 = @intCast(byte_rate_u64);
-    const block_align: u16 = @intCast(block_align_u32);
-
-    try w.writeAll("RIFF");
-    try w.writeInt(u32, riff_size, .little);
-    try w.writeAll("WAVE");
-
-    try w.writeAll("fmt ");
-    try w.writeInt(u32, 16, .little);
-    try w.writeInt(u16, 1, .little); // PCM
-    try w.writeInt(u16, channel_count, .little);
-    try w.writeInt(u32, sample_rate, .little);
-    try w.writeInt(u32, byte_rate, .little);
-    try w.writeInt(u16, block_align, .little);
-    try w.writeInt(u16, bits_per_sample, .little);
-
-    try w.writeAll("data");
-    try w.writeInt(u32, data_len, .little);
-    switch (bit_depth) {
-        .pcm16 => for (samples) |s| {
-            const clamped = if (std.math.isFinite(s)) std.math.clamp(s, -1.0, 1.0) else 0.0;
-            try w.writeInt(i16, @intFromFloat(clamped * 32767.0), .little);
-        },
-        .pcm24 => for (samples) |s| {
-            const clamped = if (std.math.isFinite(s)) std.math.clamp(s, -1.0, 1.0) else 0.0;
-            const v: i32 = @intFromFloat(clamped * 8_388_607.0);
-            try w.writeInt(u8, @truncate(@as(u32, @bitCast(v))), .little);
-            try w.writeInt(u8, @truncate(@as(u32, @bitCast(v)) >> 8), .little);
-            try w.writeInt(u8, @truncate(@as(u32, @bitCast(v)) >> 16), .little);
-        },
-    }
-    if (data_pad != 0) try w.writeByte(0);
+    var stream = try StreamWriter.init(w, sample_rate, channel_count, samples.len, bit_depth);
+    try stream.writeSamples(samples);
+    try stream.finish();
 }
 
 // ---------------------------------------------------------------------------
@@ -241,6 +256,24 @@ test "24-bit header and sample encoding" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), result.samples[0], 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), result.samples[1], 1.0 / 8_388_608.0 + 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, -1.0), result.samples[2], 1.0 / 8_388_608.0 + 1e-6);
+}
+
+test "streamed blocks match one-shot WAV output" {
+    const samples = [_]types.Sample{ 0.0, 0.5, -0.5, 1.0, -1.0, 0.25 };
+    inline for ([_]BitDepth{ .pcm16, .pcm24 }) |depth| {
+        var expected_buf: [128]u8 = undefined;
+        var expected = std.Io.Writer.fixed(&expected_buf);
+        try write(&expected, 48_000, 2, &samples, depth);
+
+        var actual_buf: [128]u8 = undefined;
+        var actual = std.Io.Writer.fixed(&actual_buf);
+        var stream = try StreamWriter.init(&actual, 48_000, 2, samples.len, depth);
+        try stream.writeSamples(samples[0..2]);
+        try stream.writeSamples(samples[2..]);
+        try stream.finish();
+
+        try std.testing.expectEqualSlices(u8, expected.buffered(), actual.buffered());
+    }
 }
 
 test "writer replaces non-finite samples with silence" {
