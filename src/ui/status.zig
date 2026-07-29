@@ -443,7 +443,7 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
         try writeViewBadgeColored(right, "PATTERN", .yellow);
     }
 
-    const cursor_tick = app.arr_cursor_bar * app.arr_grid.ticks();
+    const cursor_tick = app.arr_cursor_bar *| app.arr_grid.ticks();
     const ticks_per_bar = ws.time_grid.barTicks(app.session.project.beats_per_bar);
     try w.writeAll(dim ++ "  bar " ++ rst);
     try w.print("{d}.{d}", .{

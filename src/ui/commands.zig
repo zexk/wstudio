@@ -2301,14 +2301,14 @@ pub fn loadClipFromPath(app: *App, path: []const u8) void {
     app.session.racks.items[track].pattern_player.?.setNotes(&notes, length_beats);
 
     history.recordLane(app, @intCast(track));
-    app.session.stampClipAtTick(track, app.arr_cursor_bar * app.arr_grid.ticks()) catch {
+    app.session.stampClipAtTick(track, app.arr_cursor_bar *| app.arr_grid.ticks()) catch {
         app.setStatus("load: stamp failed (out of memory)", .{});
         return;
     };
     if (app.session.song_mode) app.session.rebuildSongData();
 
     app.dirty = true;
-    app.setStatus("clip loaded: {s} ({d:.1} beats, bar {d})", .{ stem, length_beats, app.arr_cursor_bar + 1 });
+    app.setStatus("clip loaded: {s} ({d:.1} beats, bar {d})", .{ stem, length_beats, app.arr_cursor_bar +| 1 });
 }
 
 fn cmdLoadSlice(app: *App, args: []const u8) void {

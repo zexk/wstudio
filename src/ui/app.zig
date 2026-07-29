@@ -2886,7 +2886,7 @@ pub const App = struct {
             const notes = [_]pattern_mod.Note{.{ .pitch = s.root_note, .start_beat = 0.0, .duration_beat = length_beats }};
             self.session.racks.items[track_idx].pattern_player.?.setNotes(&notes, length_beats);
 
-            self.session.stampClipAtTick(track_idx, self.arr_cursor_bar * self.arr_grid.ticks()) catch {
+            self.session.stampClipAtTick(track_idx, self.arr_cursor_bar *| self.arr_grid.ticks()) catch {
                 if (backup) |*b| b.deinit(self.allocator);
                 continue;
             };

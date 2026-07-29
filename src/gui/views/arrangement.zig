@@ -105,9 +105,9 @@ pub fn draw(app: anytype) void {
     }
 
     if (app.core.modal.mode == .visual and app.core.cursor < track_count) {
-        const anchor = (app.core.arr_visual_anchor orelse app.core.arr_cursor_bar) * app.core.arr_grid.ticks();
+        const anchor = (app.core.arr_visual_anchor orelse app.core.arr_cursor_bar) *| app.core.arr_grid.ticks();
         const lo = @min(anchor, cursor_tick);
-        const hi = @max(anchor, cursor_tick) + app.core.arr_grid.ticks();
+        const hi = @max(anchor, cursor_tick) +| app.core.arr_grid.ticks();
         const x1 = timeline_x + @as(f32, @floatFromInt(lo)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
         const x2 = timeline_x + @as(f32, @floatFromInt(hi)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
         // The lane axis: `v` (blockwise) bounds it to the anchored band,
