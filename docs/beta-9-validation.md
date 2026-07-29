@@ -26,6 +26,15 @@ stay under `.zig-cache/` or temporary directories.
 - Valgrind 3.26 Memcheck on baseline-CPU build and full demo render: zero
   errors and zero bytes in use at exit.
 - `actionlint` accepted CI and release workflows.
+- DevShell real-plugin pass found Odin 2 CLAP and LSP VST3 entries. Odin 2
+  inserted through TUI, exposed generic parameters, and survived save/reload.
+  Its floating GUI was unavailable under Xvfb, but requesting it no longer
+  crashed host. Real CLAP testing also fixed audio-thread reporting during
+  `start_processing` and removed an invalid null window-API fallback.
+
+Open blocker found by real-plugin pass: LSP VST3 effects scan and appear in TUI
+picker, but activation returns `ProcessingStartFailed`. Bundled VST3 fixture
+still passes, so real-plugin compatibility remains below beta.9 gate.
 
 ## Automated gate
 
@@ -59,7 +68,7 @@ Windows host.
   audible manual inspection. Clean launch and demo-open views passed.
 - Physical audio input and MIDI selection need connected hardware activity.
 - Third-party CLAP/VST3 compatibility needs installed test plugins. Current
-  scans found none; bundled fixture tests passed through `zig build test`.
+  devShell fixtures expose unresolved LSP VST3 activation above.
 - Windows runtime journey needs a Windows host.
 - macOS native GUI/runtime journey needs macOS hardware and Xcode SDK. Linux
   built the flake's headless aarch64 macOS package only.
