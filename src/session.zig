@@ -1284,19 +1284,22 @@ pub const Session = struct {
 
         for (lane.clips.items) |c| {
             const clip_start_beat = time_grid.tickToBeat(c.start_tick);
+            const clip_span_beats = time_grid.tickToBeat(c.length_ticks);
             for (c.automation.gain) |p| {
+                if (p.beat > clip_span_beats) continue;
                 // Points are edited in dB; the engine curve stores linear
                 // gain, the same unit `TrackState.gain` already uses.
-                gain_pts.append(self.allocator, .{
+                self.appendFlatAutomation(&gain_pts, .{
                     .beat = clip_start_beat + p.beat,
                     .value = types.dbToGain(p.value),
-                }) catch @panic("out of memory flattening gain automation");
+                });
             }
             for (c.automation.pan) |p| {
-                pan_pts.append(self.allocator, .{
+                if (p.beat > clip_span_beats) continue;
+                self.appendFlatAutomation(&pan_pts, .{
                     .beat = clip_start_beat + p.beat,
                     .value = p.value,
-                }) catch @panic("out of memory flattening pan automation");
+                });
             }
             for (c.automation.synth_params.items) |sp| {
                 var s: usize = 0;
@@ -1307,13 +1310,14 @@ pub const Session = struct {
                     param_count += 1;
                 }
                 for (sp.points) |p| {
+                    if (p.beat > clip_span_beats) continue;
                     // Already the unit PolySynth.setParamAbsolute expects
                     // (Hz for cutoff, etc.) - no conversion needed, unlike
                     // gain's dB->linear.
-                    param_pts[s].append(self.allocator, .{
+                    self.appendFlatAutomation(&param_pts[s], .{
                         .beat = clip_start_beat + p.beat,
                         .value = p.value,
-                    }) catch @panic("out of memory flattening parameter automation");
+                    });
                 }
             }
         }
@@ -1323,6 +1327,14 @@ pub const Session = struct {
         // last rebuild must not linger in a stale slot forever.
         self.engine.clearTrackSynthParams(track);
         for (0..param_count) |slot| self.engine.setTrackSynthParam(track, @intCast(slot), param_ids[slot], param_pts[slot].items);
+    }
+
+    fn appendFlatAutomation(self: *Session, points: *std.ArrayList(AutomationPoint), point: AutomationPoint) void {
+        if (points.items.len > 0 and @abs(points.items[points.items.len - 1].beat - point.beat) < 1e-9) {
+            points.items[points.items.len - 1] = point;
+            return;
+        }
+        points.append(self.allocator, point) catch @panic("out of memory flattening automation");
     }
 
     /// Whole bars needed to hold `len_beats`, at least one.
@@ -2091,6 +2103,26 @@ test "leaving song mode clears instrument parameter automation" {
     var block: [512]@import("core/types.zig").Sample = undefined;
     s.engine.process(&block);
     try std.testing.expectEqual(@as(f32, 1234.0), s.racks.items[0].instrument.poly_synth.filter_cutoff);
+}
+
+test "later clip automation owns a shared boundary" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .poly_synth);
+
+    const lane = s.arrangement.lane(0).?;
+    try lane.place(s.allocator, try Clip.initMelodic(s.allocator, 0, 32, &.{}, 1.0));
+    try lane.place(s.allocator, try Clip.initMelodic(s.allocator, 32, 32, &.{}, 1.0));
+    const first = try lane.clips.items[0].automation.synthParamPoints(s.allocator, 21);
+    const second = try lane.clips.items[1].automation.synthParamPoints(s.allocator, 21);
+    try automation_mod.setPoint(s.allocator, first, 1.0, 5000.0);
+    try automation_mod.setPoint(s.allocator, second, 0.0, 1000.0);
+
+    s.setSongMode(true);
+    _ = s.engine.send(.{ .seek_frames = 24_000 });
+    var block: [512]@import("core/types.zig").Sample = undefined;
+    s.engine.process(&block);
+    try std.testing.expectEqual(@as(f32, 1000.0), s.racks.items[0].instrument.poly_synth.filter_cutoff);
 }
 
 test "armed follows insert/remove/duplicate/swap, parallel to racks" {
