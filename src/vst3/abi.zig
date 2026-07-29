@@ -17,6 +17,14 @@ pub const FUnknownVTable = extern struct {
 pub const FUnknown = extern struct {
     vtable: *const FUnknownVTable,
 };
+pub const HostApplicationVTable = extern struct {
+    query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
+    add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    release: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    get_name: *const fn (*anyopaque, *[128]u16) callconv(abi_callconv) Result,
+    create_instance: *const fn (*anyopaque, *const Tuid, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
+};
+pub const HostApplication = extern struct { vtable: *const HostApplicationVTable };
 
 pub const FactoryInfo = extern struct {
     vendor: [64]u8,
@@ -276,6 +284,7 @@ pub const f_unknown_iid = uid(0x00000000, 0x00000000, 0xC0000000, 0x00000046);
 pub const plugin_factory_iid = uid(0x7A4D811C, 0x52114A1F, 0xAED9D2EE, 0x0B43BF9F);
 pub const plugin_factory_2_iid = uid(0x0007B650, 0xF24B4C0B, 0xA464EDB9, 0xF00B2ABB);
 pub const component_iid = uid(0xE831FF31, 0xF2D54301, 0x928EBBEE, 0x25697802);
+pub const host_application_iid = uid(0x58E595CC, 0xDB2D4969, 0x8B6AAF8C, 0x36A664E5);
 pub const audio_processor_iid = uid(0x42043F99, 0xB7DA453C, 0xA569E79D, 0x9AAEC33D);
 pub const event_list_iid = uid(0x3A2C4214, 0x346349FE, 0xB2C4F397, 0xB9695A44);
 pub const edit_controller_iid = uid(0xDCD7BBE3, 0x7742448D, 0xA874AACC, 0x979C759E);

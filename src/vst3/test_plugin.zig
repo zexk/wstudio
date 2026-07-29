@@ -111,7 +111,13 @@ fn componentQuery(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) c
     }
     return 0;
 }
-fn initialize(_: *anyopaque, _: ?*abi.FUnknown) callconv(abi.abi_callconv) abi.Result {
+fn initialize(_: *anyopaque, context: ?*abi.FUnknown) callconv(abi.abi_callconv) abi.Result {
+    const host = context orelse return -1;
+    var raw: ?*anyopaque = null;
+    if (host.vtable.query_interface(host, &abi.host_application_iid, &raw) != 0) return -1;
+    const application: *abi.HostApplication = @ptrCast(@alignCast(raw orelse return -1));
+    var name: [128]u16 = undefined;
+    if (application.vtable.get_name(application, &name) != 0 or name[0] != 'w') return -1;
     return 0;
 }
 fn terminate(_: *anyopaque) callconv(abi.abi_callconv) abi.Result {

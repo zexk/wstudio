@@ -81,6 +81,7 @@ const MemoryStream = struct {
 };
 const HostContext = struct {
     handler: abi.ComponentHandler = .{ .vtable = &vtable },
+    application: abi.HostApplication = .{ .vtable = &application_vtable },
     restart_flags: std.atomic.Value(i32) = .init(0),
     state_dirty: std.atomic.Value(bool) = .init(false),
 
@@ -110,6 +111,24 @@ const HostContext = struct {
         return 0;
     }
     const vtable: abi.ComponentHandlerVTable = .{ .query_interface = query, .add_ref = ref, .release = ref, .begin_edit = begin, .perform_edit = perform, .end_edit = end, .restart_component = restart };
+    fn appQuery(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+        if (!std.mem.eql(u8, iid, &abi.host_application_iid) and !std.mem.eql(u8, iid, &abi.f_unknown_iid)) {
+            object.* = null;
+            return -1;
+        }
+        object.* = raw;
+        return 0;
+    }
+    fn appName(_: *anyopaque, name: *[128]u16) callconv(abi.abi_callconv) abi.Result {
+        name.* = std.mem.zeroes([128]u16);
+        for ("wstudio", 0..) |byte, i| name[i] = byte;
+        return 0;
+    }
+    fn appCreate(_: *anyopaque, _: *const abi.Tuid, _: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+        object.* = null;
+        return -1;
+    }
+    const application_vtable: abi.HostApplicationVTable = .{ .query_interface = appQuery, .add_ref = ref, .release = ref, .get_name = appName, .create_instance = appCreate };
 };
 const HostEventList = struct {
     interface: abi.EventList = .{ .vtable = &vtable },
@@ -273,6 +292,9 @@ pub const Vst3Plugin = struct {
         const class_id = try abi.parseUid(id);
         var module = try module_mod.Module.open(module_path);
         errdefer module.close();
+        const host_context = try allocator.create(HostContext);
+        errdefer allocator.destroy(host_context);
+        host_context.* = .{};
 
         var component_raw: ?*anyopaque = null;
         if (module.factory.vtable.create_instance(module.factory, &class_id, &abi.component_iid, &component_raw) != 0)
@@ -283,7 +305,7 @@ pub const Vst3Plugin = struct {
             if (initialized) _ = component.vtable.terminate(component);
             _ = component.vtable.release(component);
         }
-        if (component.vtable.initialize(component, null) != 0) return error.ComponentInitializeFailed;
+        if (component.vtable.initialize(component, @ptrCast(&host_context.application)) != 0) return error.ComponentInitializeFailed;
         initialized = true;
 
         var processor_raw: ?*anyopaque = null;
@@ -293,15 +315,12 @@ pub const Vst3Plugin = struct {
         errdefer _ = processor.vtable.release(processor);
 
         var controller: ?*abi.EditController = null;
-        const host_context = try allocator.create(HostContext);
-        errdefer allocator.destroy(host_context);
-        host_context.* = .{};
         var controller_id: abi.Tuid = undefined;
         if (component.vtable.get_controller_class_id(component, &controller_id) == 0) {
             var controller_raw: ?*anyopaque = null;
             if (module.factory.vtable.create_instance(module.factory, &controller_id, &abi.edit_controller_iid, &controller_raw) == 0) {
                 controller = @ptrCast(@alignCast(controller_raw orelse return error.ControllerCreateFailed));
-                if (controller.?.vtable.initialize(controller.?, null) != 0) return error.ControllerInitializeFailed;
+                if (controller.?.vtable.initialize(controller.?, @ptrCast(&host_context.application)) != 0) return error.ControllerInitializeFailed;
                 if (controller.?.vtable.set_component_handler(controller.?, &host_context.handler) != 0) return error.ComponentHandlerRejected;
             }
         }
