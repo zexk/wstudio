@@ -231,6 +231,8 @@ pub const Vst3Plugin = struct {
     processor: *abi.AudioProcessor,
     controller: ?*abi.EditController,
     midi_mapping: ?*abi.MidiMapping,
+    component_connection: ?*abi.ConnectionPoint,
+    controller_connection: ?*abi.ConnectionPoint,
     host_context: *HostContext,
     bundle_path: []u8,
     class_id: [32]u8,
@@ -311,6 +313,39 @@ pub const Vst3Plugin = struct {
         errdefer {
             if (midi_mapping) |value| _ = value.vtable.release(value);
         }
+        var component_connection: ?*abi.ConnectionPoint = null;
+        var controller_connection: ?*abi.ConnectionPoint = null;
+        if (controller) |value| {
+            var component_connection_raw: ?*anyopaque = null;
+            var controller_connection_raw: ?*anyopaque = null;
+            const component_result = component.vtable.query_interface(component, &abi.connection_point_iid, &component_connection_raw);
+            const controller_result = value.vtable.query_interface(value, &abi.connection_point_iid, &controller_connection_raw);
+            if (component_result == 0 and controller_result == 0) {
+                component_connection = @ptrCast(@alignCast(component_connection_raw orelse return error.ConnectionPointQueryFailed));
+                controller_connection = @ptrCast(@alignCast(controller_connection_raw orelse return error.ConnectionPointQueryFailed));
+                if (component_connection.?.vtable.connect(component_connection.?, controller_connection.?) != 0 or
+                    controller_connection.?.vtable.connect(controller_connection.?, component_connection.?) != 0)
+                {
+                    _ = component_connection.?.vtable.disconnect(component_connection.?, controller_connection.?);
+                    _ = component_connection.?.vtable.release(component_connection.?);
+                    _ = controller_connection.?.vtable.release(controller_connection.?);
+                    return error.ConnectionPointConnectFailed;
+                }
+            } else {
+                if (component_connection_raw) |raw| {
+                    const point: *abi.ConnectionPoint = @ptrCast(@alignCast(raw));
+                    _ = point.vtable.release(point);
+                }
+                if (controller_connection_raw) |raw| {
+                    const point: *abi.ConnectionPoint = @ptrCast(@alignCast(raw));
+                    _ = point.vtable.release(point);
+                }
+            }
+        }
+        errdefer {
+            if (component_connection) |value| _ = value.vtable.release(value);
+            if (controller_connection) |value| _ = value.vtable.release(value);
+        }
 
         if (processor.vtable.can_process_sample_size(processor, 0) != 0) return error.Sample32Unsupported;
         const input_count = component.vtable.get_bus_count(component, 0, 0);
@@ -369,6 +404,8 @@ pub const Vst3Plugin = struct {
             .processor = processor,
             .controller = controller,
             .midi_mapping = midi_mapping,
+            .component_connection = component_connection,
+            .controller_connection = controller_connection,
             .host_context = host_context,
             .bundle_path = owned_path,
             .class_id = abi.formatUid(class_id),
@@ -388,6 +425,14 @@ pub const Vst3Plugin = struct {
         _ = self.component.vtable.set_active(self.component, 0);
         _ = self.processor.vtable.release(self.processor);
         if (self.midi_mapping) |value| _ = value.vtable.release(value);
+        if (self.controller_connection) |controller| {
+            if (self.component_connection) |component| {
+                _ = controller.vtable.disconnect(controller, component);
+                _ = component.vtable.disconnect(component, controller);
+            }
+        }
+        if (self.component_connection) |value| _ = value.vtable.release(value);
+        if (self.controller_connection) |value| _ = value.vtable.release(value);
         if (self.controller) |value| {
             _ = value.vtable.set_component_handler(value, null);
             _ = value.vtable.terminate(value);
