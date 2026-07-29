@@ -73,10 +73,18 @@ a real bug. The template is the fully-documented, all-defaults file
 used to generate a missing user config, so it's the closest thing to
 "what a fresh install looks like."
 
+`start` also gives wstudio an isolated HOME, XDG config, and XDG state, and
+copies any requested project there. User state and adjacent autosave backups
+therefore cannot affect capture or modify source checkout.
+
 **Screenshotting the root window**, not a specific window ID, is
 deliberate: the virtual display only ever has the one wstudio window on
 it (no window manager, no reparenting), so root capture is simpler and
 more robust than tracking a window ID across `run` calls.
+
+`shot` waits one second before capture because X window creation happens before
+first buffer swap. Without that wait, one-shot capture can record Xvfb's black
+root while wstudio is about to draw normally.
 
 ## State and cleanup
 
@@ -87,9 +95,7 @@ a later `start` will refuse to clobber a live session. Logs from the
 running session land in `/tmp/wstudio-gui-shot.{xvfb,app}.log` for
 debugging a failed `start`.
 
-As with the TUI pipeline, `:q!`-equivalent exits can leave a
-`<project>.wsj~` autosave next to the project file - remove it between
-runs if you relaunched with the same project.
+`stop` removes isolated HOME, including any autosave produced during capture.
 
 ## Reading the render
 

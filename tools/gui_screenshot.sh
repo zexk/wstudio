@@ -31,6 +31,7 @@ set -euo pipefail
 
 STATE_FILE="${WSTUDIO_GUI_SHOT_STATE:-/tmp/wstudio-gui-shot.env}"
 GEOMETRY="${WSTUDIO_GUI_SHOT_GEOMETRY:-1440x900x24}"
+CLEAN_HOME="${WSTUDIO_GUI_SHOT_HOME:-/tmp/wstudio-gui-shot-home}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="$REPO_ROOT/zig-out/bin/wstudio"
 TEMPLATE_INIT="${TEMPLATE_INIT:-$REPO_ROOT/examples/init.lua}"
@@ -91,11 +92,21 @@ cmd_start() {
   # ~/.config/wstudio/init.lua - a user-tuned gui_font_size (or window
   # size, theme, ...) skews every layout measurement a screenshot pass
   # would otherwise catch as a real bug.
+  rm -rf "$CLEAN_HOME"
+  mkdir -p "$CLEAN_HOME/.config" "$CLEAN_HOME/.local/state"
+
   local -a args=(-u "$TEMPLATE_INIT" --gui)
-  [ -n "$project" ] && args+=("$project")
+  if [ -n "$project" ]; then
+    local clean_project="$CLEAN_HOME/$(basename "$project")"
+    cp "$project" "$clean_project"
+    args+=("$clean_project")
+  fi
   (
     unset WAYLAND_DISPLAY
     export DISPLAY=":$display"
+    export HOME="$CLEAN_HOME"
+    export XDG_CONFIG_HOME="$CLEAN_HOME/.config"
+    export XDG_STATE_HOME="$CLEAN_HOME/.local/state"
     exec "$BIN" "${args[@]}"
   ) >/tmp/wstudio-gui-shot.app.log 2>&1 &
   local app_pid=$!
@@ -104,6 +115,7 @@ cmd_start() {
   # than a fixed name (it used to be the literal "wstudio GUI prototype").
   if ! DISPLAY=":$display" nx timeout 10 xdotool search --sync --name "wstudio" >/dev/null; then
     kill "$app_pid" "$xvfb_pid" 2>/dev/null || true
+    rm -rf "$CLEAN_HOME"
     echo "gui_screenshot: window never appeared, see /tmp/wstudio-gui-shot.app.log" >&2
     exit 1
   fi
@@ -125,6 +137,9 @@ cmd_run() {
 cmd_shot() {
   local out="${1:?usage: gui_screenshot.sh shot OUTPUT.png}"
   load_state
+  # Window creation precedes first buffer swap, so an immediate capture can
+  # catch Xvfb's black root before wstudio draws its first frame.
+  sleep 1
   DISPLAY="$DISPLAY" nx import -window root "$out"
   echo "wrote $out"
 }
@@ -136,6 +151,7 @@ cmd_stop() {
   wait "$APP_PID" 2>/dev/null || true
   wait "$XVFB_PID" 2>/dev/null || true
   rm -f "$STATE_FILE"
+  rm -rf "$CLEAN_HOME"
   echo "stopped"
 }
 

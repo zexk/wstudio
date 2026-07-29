@@ -20,6 +20,9 @@ stay under `.zig-cache/` or temporary directories.
   round trips, three exports, finite peak 0.501.
 - Installed Nix binary: reported `1.0.0-beta.9`, rendered `demo.wsj` outside
   source checkout, and completed empty CLAP/VST3 scans.
+- Isolated TUI and GUI sessions opened `demo.wsj` with template config and
+  rendered expected track views. Screenshot harnesses used private tmux/Xvfb,
+  clean HOME/XDG directories, and copied projects.
 
 ## Automated gate
 
@@ -43,8 +46,8 @@ Windows host.
 
 ## Environment checks still required
 
-- TUI and GUI interactive clean-install journeys need terminal, display, and
-  audible manual inspection.
+- Full TUI and GUI edit/save/reopen journeys still need interactive input and
+  audible manual inspection. Clean launch and demo-open views passed.
 - Physical audio input and MIDI selection need connected hardware activity.
 - Third-party CLAP/VST3 compatibility needs installed test plugins. Current
   scans found none; bundled fixture tests passed through `zig build test`.
