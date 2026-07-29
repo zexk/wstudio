@@ -70,40 +70,55 @@ pub const Registry = struct {
         defer module.close();
         const factory = module.factory;
 
-        var factory2_raw: ?*anyopaque = null;
-        if (factory.vtable.query_interface(factory, &abi.plugin_factory_2_iid, &factory2_raw) != 0) return;
-        const factory2: *abi.PluginFactory2 = @ptrCast(@alignCast(factory2_raw orelse return));
-        defer _ = factory2.vtable.release(factory2);
-
         var factory_info: abi.FactoryInfo = undefined;
-        const have_factory_info = factory2.vtable.get_factory_info(factory2, &factory_info) == 0;
-        const count = factory2.vtable.count_classes(factory2);
+        const have_factory_info = factory.vtable.get_factory_info(factory, &factory_info) == 0;
+        const fallback_vendor = if (have_factory_info) std.mem.sliceTo(&factory_info.vendor, 0) else "";
+
+        var factory2_raw: ?*anyopaque = null;
+        if (factory.vtable.query_interface(factory, &abi.plugin_factory_2_iid, &factory2_raw) == 0) {
+            const factory2: *abi.PluginFactory2 = @ptrCast(@alignCast(factory2_raw orelse return));
+            defer _ = factory2.vtable.release(factory2);
+            const count = factory2.vtable.count_classes(factory2);
+            if (count <= 0) return;
+            for (0..@as(usize, @intCast(count))) |index| {
+                var info: abi.ClassInfo2 = undefined;
+                if (factory2.vtable.get_class_info_2(factory2, @intCast(index), &info) != 0) continue;
+                if (!std.mem.eql(u8, std.mem.sliceTo(&info.category, 0), "Audio Module Class")) continue;
+                const class_vendor = std.mem.sliceTo(&info.vendor, 0);
+                try self.append(bundle, info.cid, std.mem.sliceTo(&info.name, 0), if (class_vendor.len > 0) class_vendor else fallback_vendor, hasSubcategory(std.mem.sliceTo(&info.subcategories, 0), "Instrument"));
+            }
+            return;
+        }
+
+        // No IPluginFactory2 (optional in the VST3 spec) - fall back to the
+        // mandatory base factory. No per-class vendor or subcategories here,
+        // so every class from this bundle reports as a non-instrument with
+        // the bundle's factory-level vendor.
+        const count = factory.vtable.count_classes(factory);
         if (count <= 0) return;
         for (0..@as(usize, @intCast(count))) |index| {
-            var info: abi.ClassInfo2 = undefined;
-            if (factory2.vtable.get_class_info_2(factory2, @intCast(index), &info) != 0) continue;
+            var info: abi.ClassInfo = undefined;
+            if (factory.vtable.get_class_info(factory, @intCast(index), &info) != 0) continue;
             if (!std.mem.eql(u8, std.mem.sliceTo(&info.category, 0), "Audio Module Class")) continue;
-            try self.append(bundle, &info, if (have_factory_info) std.mem.sliceTo(&factory_info.vendor, 0) else "");
+            try self.append(bundle, info.cid, std.mem.sliceTo(&info.name, 0), fallback_vendor, false);
         }
     }
 
-    fn append(self: *Registry, bundle: []const u8, info: *const abi.ClassInfo2, fallback_vendor: []const u8) !void {
-        const id = abi.formatUid(info.cid);
+    fn append(self: *Registry, bundle: []const u8, cid: abi.Tuid, name: []const u8, vendor: []const u8, instrument: bool) !void {
+        const id = abi.formatUid(cid);
         for (self.plugins.items) |plugin| if (std.mem.eql(u8, &plugin.id, &id)) return;
-        const name = std.mem.sliceTo(&info.name, 0);
         if (name.len == 0) return;
-        const class_vendor = std.mem.sliceTo(&info.vendor, 0);
         var plugin: PluginInfo = .{
             .path = try self.allocator.dupe(u8, bundle),
             .id = id,
             .name = undefined,
             .vendor = undefined,
-            .instrument = hasSubcategory(std.mem.sliceTo(&info.subcategories, 0), "Instrument"),
+            .instrument = instrument,
         };
         errdefer self.allocator.free(plugin.path);
         plugin.name = try self.allocator.dupe(u8, name);
         errdefer self.allocator.free(plugin.name);
-        plugin.vendor = try self.allocator.dupe(u8, if (class_vendor.len > 0) class_vendor else fallback_vendor);
+        plugin.vendor = try self.allocator.dupe(u8, vendor);
         errdefer self.allocator.free(plugin.vendor);
         try self.plugins.append(self.allocator, plugin);
     }
