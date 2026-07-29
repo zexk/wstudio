@@ -5,6 +5,8 @@ instrument, effect, or speculative subsystem.
 
 ## Device routing
 
+Status: implemented; physical Windows and macOS device verification remains.
+
 Audio input and output currently use default devices. Linux MIDI requires an
 external `aconnect`, macOS connects every current MIDI source, and Windows has
 no live MIDI input backend.
@@ -16,6 +18,10 @@ Goal:
 - Connect selected MIDI sources without an external `aconnect` step on Linux.
 - Add live MIDI input on Windows.
 - Keep current default-device behavior when no device is selected.
+
+`wstudio devices` lists backend-native identifiers. Shared Lua options select
+audio input, audio output, and live MIDI input for both frontends. PipeWire and
+JACK continue to use their server graph for audio routing.
 
 Done when both frontends expose the same saved device choices and each
 supported OS can play, capture, and receive MIDI from selected devices.
