@@ -190,6 +190,9 @@ pub fn drawFx(app: anytype) void {
 
 const fxAccent = style.fxKindAccent;
 
+/// Width of a card's left accent bar.
+const accent_bar_w: f32 = 4;
+
 fn drawCard(id: [:0]const u8, label: []const u8, desc: []const u8, accent: [4]f32, selected: bool, width: f32, filter: []const u8) bool {
     const height: f32 = 62;
     const origin = zgui.getCursorScreenPos();
@@ -200,7 +203,13 @@ fn drawCard(id: [:0]const u8, label: []const u8, desc: []const u8, accent: [4]f3
     const hovered = zgui.isItemHovered(.{});
     const draw_list = zgui.getWindowDrawList();
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(if (hovered) theme.bg3 else theme.bg2), .rounding = style.item_rounding });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 4, origin[1] + height }, .col = color(accent), .rounding = style.item_rounding });
+    // The accent bar is the card's own rect clipped to its left edge, not a
+    // 4px rect of its own: ImGui clamps a corner radius to half the smaller
+    // side, so a narrow rect rounds tighter than the card behind it and its
+    // square corners poke past the card's rounded ones.
+    draw_list.pushClipRect(.{ .pmin = origin, .pmax = .{ origin[0] + accent_bar_w, origin[1] + height }, .intersect_with_current = true });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(accent), .rounding = style.item_rounding });
+    draw_list.popClipRect();
     if (selected) draw_list.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + height - 1 }, .col = color(theme.focus), .rounding = style.item_rounding, .thickness = 2 });
     drawFuzzyLabel(draw_list, .{ origin[0] + 14, origin[1] + 10 }, label, filter, accent, theme.fg0);
     draw_list.addText(.{ origin[0] + 14, origin[1] + 35 }, color(theme.fg3), "{s}", .{desc});
