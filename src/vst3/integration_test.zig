@@ -5,10 +5,11 @@ pub fn main(init: std.process.Init) !void {
     var args = std.process.Args.Iterator.init(init.minimal.args);
     _ = args.next();
     const module_path = args.next() orelse return error.MissingPluginPath;
+    const bundle_path = args.next() orelse return error.MissingBundlePath;
 
     var registry = ws.vst3.scan.Registry.init(init.gpa);
     defer registry.deinit();
-    try registry.scanModule(module_path, "wstudio-test.vst3");
+    try registry.scanModule(module_path, bundle_path);
     try std.testing.expectEqual(@as(usize, 3), registry.plugins.items.len);
     var instruments: usize = 0;
     for (registry.plugins.items) |plugin| instruments += @intFromBool(plugin.instrument);
@@ -16,11 +17,11 @@ pub fn main(init: std.process.Init) !void {
     try std.testing.expectEqualStrings("wstudio", registry.plugins.items[0].vendor);
 
     for (0..3) |_| {
-        const repeated = try ws.vst3.Vst3Plugin.loadModule(init.gpa, module_path, "wstudio-test.vst3", "57535445464645435400000000000001", 48_000, false);
+        const repeated = try ws.vst3.Vst3Plugin.loadModule(init.gpa, module_path, bundle_path, "57535445464645435400000000000001", 48_000, false);
         repeated.deinit();
     }
 
-    var instrument = try ws.vst3.Vst3Plugin.loadModule(init.gpa, module_path, "wstudio-test.vst3", "575354494e535452554d454e54000001", 48_000, true);
+    var instrument = try ws.vst3.Vst3Plugin.loadModule(init.gpa, module_path, bundle_path, "575354494e535452554d454e54000001", 48_000, true);
     defer instrument.deinit();
     var transport: ws.Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120, .position_frames = 48_000, .playing = true };
     instrument.attachTransport(&transport);
@@ -37,7 +38,7 @@ pub fn main(init: std.process.Init) !void {
     try std.testing.expectEqual(@as(u32, 7), instrument.latencySamples());
     try std.testing.expectEqual(@as(u32, 7), instrument.device().latencyFrames());
 
-    var effect = try ws.vst3.Vst3Plugin.loadModule(init.gpa, module_path, "wstudio-test.vst3", "57535445464645435400000000000001", 48_000, false);
+    var effect = try ws.vst3.Vst3Plugin.loadModule(init.gpa, module_path, bundle_path, "57535445464645435400000000000001", 48_000, false);
     defer effect.deinit();
     try std.testing.expectEqual(@as(usize, 1), effect.parameterCount());
     try std.testing.expectEqual(@as(u32, 100), effect.parameterInfo(0).?.id);
@@ -61,7 +62,7 @@ pub fn main(init: std.process.Init) !void {
     effect.processBlock(&effect_audio);
     try std.testing.expectApproxEqAbs(@as(f32, 0.2), effect_audio[0], 0.0001);
 
-    var mono = try ws.vst3.Vst3Plugin.loadModule(init.gpa, module_path, "wstudio-test.vst3", "5753544d4f4e4f465800000000000001", 48_000, false);
+    var mono = try ws.vst3.Vst3Plugin.loadModule(init.gpa, module_path, bundle_path, "5753544d4f4e4f465800000000000001", 48_000, false);
     defer mono.deinit();
     var mono_audio = [_]ws.types.Sample{ 0.2, 0.6 };
     mono.processBlock(&mono_audio);

@@ -275,7 +275,19 @@ pub fn build(b: *std.Build) void {
         }),
     });
     const run_vst3_integration_test = b.addRunArtifact(vst3_integration_test);
-    run_vst3_integration_test.addArtifactArg(vst3_test_plugin);
+    if (target.result.os.tag == .macos) {
+        // Unlike Windows/Linux, macOS module loading resolves bundleEntry/
+        // bundleExit through a CFBundleRef, which needs a real bundle
+        // directory on disk rather than the bare .dylib the other platforms
+        // load directly - so the test plugin gets copied into one.
+        const wf = b.addWriteFiles();
+        const module = wf.addCopyFile(vst3_test_plugin.getEmittedBin(), "wstudio-test.vst3/Contents/MacOS/wstudio-test");
+        run_vst3_integration_test.addFileArg(module);
+        run_vst3_integration_test.addDirectoryArg(wf.getDirectory().path(b, "wstudio-test.vst3"));
+    } else {
+        run_vst3_integration_test.addArtifactArg(vst3_test_plugin);
+        run_vst3_integration_test.addArg("wstudio-test.vst3");
+    }
     test_step.dependOn(&run_vst3_integration_test.step);
 
     const check_step = b.step("check", "Build wstudio and run all tests");
