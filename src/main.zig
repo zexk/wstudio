@@ -51,6 +51,7 @@ pub fn main(init: std.process.Init) !void {
         const path: ?[]const u8 = if (rest.items.len > 1) rest.items[1] else null;
         if (std.mem.eql(u8, cmd, "render")) return renderDemo(init.gpa, init.io);
         if (std.mem.eql(u8, cmd, "clap-scan")) return scanClap(init);
+        if (std.mem.eql(u8, cmd, "devices")) return listDevices(init.io);
         if (std.mem.eql(u8, cmd, "--version") or std.mem.eql(u8, cmd, "-v")) return printVersion(init.io);
         if (std.mem.eql(u8, cmd, "--help") or std.mem.eql(u8, cmd, "-h")) return printHelp(init.io);
         if (std.mem.eql(u8, cmd, "--gui")) return runFrontend(init, .gui, init_override, path);
@@ -149,6 +150,7 @@ fn printHelp(io: std.Io) !void {
             "  wstudio --gui [path] Launch the GUI, optionally opening a .wsj project\n" ++
             "  wstudio render      Render the built-in demo melody to out.wav\n" ++
             "  wstudio clap-scan   List installed CLAP plugin IDs and paths\n" ++
+            "  wstudio devices     List audio and live MIDI device IDs\n" ++
             "  wstudio --version   Print the version\n" ++
             "  wstudio --help      Print this message\n\n" ++
             "  -u {{path}}           Load this init.lua instead of the usual search\n" ++
@@ -158,6 +160,13 @@ fn printHelp(io: std.Io) !void {
         .{ws.version},
     );
     try stdout.flush();
+}
+
+fn listDevices(io: std.Io) !void {
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
+    try ws.device_list.write(&stdout_writer.interface);
+    try stdout_writer.interface.flush();
 }
 
 fn scanClap(init: std.process.Init) !void {

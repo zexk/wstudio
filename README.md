@@ -40,6 +40,10 @@ wstudio hosts stereo CLAP instruments and effects using the
 wstudio clap-scan
 ```
 
+List backend-native audio and live MIDI device IDs with `wstudio devices`.
+Use those values for `wstudio.o.audio_output_device`,
+`wstudio.o.audio_input_device`, and `wstudio.o.midi_input_device`.
+
 The instrument and effect pickers divide devices into `Internal` and
 `External` sections. External CLAP plugins are scanned automatically from
 the platform's canonical directories. Set

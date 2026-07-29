@@ -289,6 +289,7 @@ IDs. ALSA accepts PCM names such as `"hw:2,0"`; find them with `aplay -L` and
 `arecord -L`. WASAPI accepts endpoint ID strings. Core Audio accepts numeric
 AudioDeviceIDs. Empty strings use system defaults. PipeWire and JACK ignore
 these options because routing belongs to their server graph.
+`wstudio devices` lists usable IDs for the current OS.
 
 `midi_input_device` selects a live MIDI source. Linux accepts an ALSA
 sequencer address from `aconnect -l`, such as `"24:0"`, and subscribes it

@@ -31,6 +31,14 @@ pub const audio_host = @import("audio/host.zig");
 pub const AudioHost = audio_host.AudioHost;
 pub const audio_input = @import("audio/capture.zig");
 pub const AudioInput = audio_input.AudioInput;
+pub const device_list = switch (@import("builtin").os.tag) {
+    .linux => @import("audio/device_list_linux.zig"),
+    .windows => @import("audio/device_list_windows.zig"),
+    .macos => @import("audio/device_list_macos.zig"),
+    else => struct {
+        pub fn write(_: *std.Io.Writer) !void {}
+    },
+};
 pub const midi_velocity = @import("audio/midi_velocity.zig");
 pub const alsa = if (@import("builtin").os.tag == .linux)
     @import("audio/alsa.zig")

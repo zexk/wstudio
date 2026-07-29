@@ -20,6 +20,9 @@ wstudio \- keyboard-centric digital audio workstation
 .B clap\-scan
 .br
 .B wstudio
+.B devices
+.br
+.B wstudio
 .RB { \-v | \-\-version }
 .br
 .B wstudio
@@ -83,6 +86,15 @@ and exit. Discovery follows
 and the platform paths the CLAP specification requires, or only
 .I wstudio.o.clap_plugin_path
 when that option is set.
+.TP
+.B devices
+List backend-native audio input, audio output, and live MIDI input device
+identifiers for use with
+.IR wstudio.o.audio_input_device ,
+.IR wstudio.o.audio_output_device ,
+and
+.IR wstudio.o.midi_input_device ,
+then exit.
 .TP
 .BI \-u " path"
 Load
