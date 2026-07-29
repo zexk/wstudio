@@ -42,19 +42,36 @@ jobs:
 
       - name: Package Linux release
         run: |
-          mkdir -p dist/wstudio-linux-x86_64
-          cp zig-out/bin/wstudio demo.wsj README.md CHANGELOG.md LICENSE dist/wstudio-linux-x86_64/
+          mkdir -p dist/wstudio-linux-x86_64/examples
+          cp zig-out/bin/wstudio demo.wsj README.md CHANGELOG.md FORMAT.md LICENSE dist/wstudio-linux-x86_64/
+          cp -R docs dist/wstudio-linux-x86_64/
+          cp examples/init.lua dist/wstudio-linux-x86_64/examples/
           tar -C dist -czf dist/wstudio-linux-x86_64.tar.gz wstudio-linux-x86_64
+
+      - name: Verify Linux release
+        run: |
+          release_dir=$(mktemp -d)
+          tar -C "$release_dir" -xzf dist/wstudio-linux-x86_64.tar.gz
+          cd "$release_dir/wstudio-linux-x86_64"
+          test -x wstudio
+          test -f docs/lua-api.md
+          test -f examples/init.lua
+          ./wstudio --version | grep -Fx "wstudio ${TAG#v}"
+          ./wstudio render demo.wsj master.wav
+          file master.wav | grep -F "stereo 48000 Hz"
 
       - name: Build Windows release
         run: zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-windows-gnu
 
       - name: Package Windows release
         run: |
-          mkdir -p dist/wstudio-windows-x86_64
-          cp zig-out/bin/wstudio.exe demo.wsj README.md CHANGELOG.md LICENSE dist/wstudio-windows-x86_64/
+          mkdir -p dist/wstudio-windows-x86_64/examples
+          cp zig-out/bin/wstudio.exe demo.wsj README.md CHANGELOG.md FORMAT.md LICENSE dist/wstudio-windows-x86_64/
+          cp -R docs dist/wstudio-windows-x86_64/
+          cp examples/init.lua dist/wstudio-windows-x86_64/examples/
           cd dist
           zip -r wstudio-windows-x86_64.zip wstudio-windows-x86_64
+          unzip -t wstudio-windows-x86_64.zip
 
       - uses: actions/upload-artifact@v4
         with:
@@ -80,12 +97,24 @@ jobs:
         run: |
           set -euo pipefail
           package() {
-            mkdir -p "dist/$1"
-            cp zig-out/bin/wstudio demo.wsj README.md CHANGELOG.md LICENSE "dist/$1/"
+            mkdir -p "dist/$1/examples"
+            cp zig-out/bin/wstudio demo.wsj README.md CHANGELOG.md FORMAT.md LICENSE "dist/$1/"
+            cp -R docs "dist/$1/"
+            cp examples/init.lua "dist/$1/examples/"
             tar -C dist -czf "dist/$1.tar.gz" "$1"
           }
           zig build -Doptimize=ReleaseSafe
           package wstudio-macos-arm64
+          release_dir=$(mktemp -d)
+          tar -C "$release_dir" -xzf dist/wstudio-macos-arm64.tar.gz
+          cd "$release_dir/wstudio-macos-arm64"
+          test -x wstudio
+          test -f docs/lua-api.md
+          test -f examples/init.lua
+          ./wstudio --version | grep -Fx "wstudio ${TAG#v}"
+          ./wstudio render demo.wsj master.wav
+          file master.wav | grep -F "stereo 48000 Hz"
+          cd "$GITHUB_WORKSPACE"
           SDKROOT="$(xcrun --show-sdk-path)" \
             zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-macos
           package wstudio-macos-x86_64
