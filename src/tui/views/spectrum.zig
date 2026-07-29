@@ -423,12 +423,12 @@ pub fn drawFxView(
         try synthSection(w, hdr, sectionColor(.eq));
 
         const kind_idx = cur_band * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_kind;
-        const kind_names = [_][]const u8{
-            spectrum_ed.eq_kind_specs[0].label,
-            spectrum_ed.eq_kind_specs[1].label,
-            spectrum_ed.eq_kind_specs[2].label,
-            spectrum_ed.eq_kind_specs[3].label,
-            spectrum_ed.eq_kind_specs[4].label,
+        // Derived, not hand-listed: eq_kind_specs is comptime-tied to
+        // BandKind, so a new band kind can't leave this row a name short.
+        const kind_names = comptime blk: {
+            var names: [spectrum_ed.eq_kind_specs.len][]const u8 = undefined;
+            for (spectrum_ed.eq_kind_specs, &names) |spec, *name| name.* = spec.label;
+            break :blk names;
         };
         // zig fmt: off
         try enumRow(w, in_submenu and cur_field == spectrum_ed.eq_field_kind, false, sectionColor(.eq), "kind", &kind_names,
