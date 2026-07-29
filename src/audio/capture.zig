@@ -37,6 +37,7 @@ pub const AudioInput = struct {
     wasapi: WasapiCapture = if (has_wasapi) .{} else {},
     coreaudio: CoreAudioCapture = if (has_coreaudio) .{} else {},
     active: Active = .none,
+    stopped: Active = .none,
 
     /// Superset of both backends' error sets (`AlsaCapture.Error`,
     /// `WasapiCapture.Error`) plus `Unsupported` for a platform with
@@ -62,22 +63,26 @@ pub const AudioInput = struct {
         } else {
             return error.Unsupported;
         }
+        self.stopped = .none;
     }
 
     pub fn stop(self: *AudioInput) void {
-        switch (self.active) {
+        const active = self.active;
+        switch (active) {
             .none => {},
             .alsa => if (has_alsa) self.alsa.stop() else unreachable,
             .wasapi => if (has_wasapi) self.wasapi.stop() else unreachable,
             .coreaudio => if (has_coreaudio) self.coreaudio.stop() else unreachable,
         }
         self.active = .none;
+        self.stopped = active;
     }
 
     /// Drains one queued block, if any - called every frame while a
     /// record pass has audio targets (`App.tick`).
     pub fn pop(self: *AudioInput) ?CaptureBlock {
-        return switch (self.active) {
+        const source = if (self.active != .none) self.active else self.stopped;
+        return switch (source) {
             .none => null,
             .alsa => if (has_alsa) self.alsa.pop() else unreachable,
             .wasapi => if (has_wasapi) self.wasapi.pop() else unreachable,
@@ -105,4 +110,19 @@ test "audio input start/pop/stop round-trips on this OS's backend (skipped witho
         if (got == null) std.atomic.spinLoopHint();
     }
     try std.testing.expect(got != null);
+}
+
+test "audio input exposes queued ALSA tail after stop" {
+    if (!has_alsa) return error.SkipZigTest;
+    var input: AudioInput = .{};
+    var block: CaptureBlock = .{};
+    block.frames = 1;
+    block.samples[0] = 0.5;
+    try std.testing.expect(input.alsa.queue.push(block));
+    input.active = .alsa;
+
+    input.stop();
+    const tail = input.pop().?;
+    try std.testing.expectEqual(@as(u32, 1), tail.frames);
+    try std.testing.expectEqual(@as(f32, 0.5), tail.samples[0]);
 }
