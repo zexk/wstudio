@@ -25,8 +25,9 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io) std.ArrayListUnmanaged([]c
 pub fn touch(allocator: std.mem.Allocator, list: *std.ArrayListUnmanaged([]const u8), path: []const u8) !void {
     for (list.items, 0..) |old, i| {
         if (!std.mem.eql(u8, old, path)) continue;
-        allocator.free(list.orderedRemove(i));
-        break;
+        const owned = list.orderedRemove(i);
+        list.insertAssumeCapacity(0, owned);
+        return;
     }
     const owned = try allocator.dupe(u8, path);
     errdefer allocator.free(owned);
@@ -55,6 +56,10 @@ test "touch moves duplicates to front and caps list" {
     try touch(std.testing.allocator, &list, "5.wsj");
     try std.testing.expectEqualStrings("5.wsj", list.items[0]);
     try std.testing.expectEqual(max_entries, list.items.len);
+
+    const owned = list.items[4];
+    try touch(std.testing.allocator, &list, owned);
+    try std.testing.expectEqual(@intFromPtr(owned.ptr), @intFromPtr(list.items[0].ptr));
 }
 
 test "save and load preserve order" {
