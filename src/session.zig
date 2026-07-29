@@ -961,6 +961,7 @@ pub const Session = struct {
             for (0..self.racks.items.len) |i| {
                 self.engine.setTrackAutomation(@intCast(i), .gain, &.{});
                 self.engine.setTrackAutomation(@intCast(i), .pan, &.{});
+                self.engine.clearTrackSynthParams(@intCast(i));
             }
         }
         _ = self.engine.send(.all_notes_off);
@@ -2071,6 +2072,25 @@ test "song-mode gain automation ramps a track's level down over the clip" {
         for (block) |v| back_loud = @max(back_loud, @abs(v));
     }
     try std.testing.expect(back_loud > loud * 0.5);
+}
+
+test "leaving song mode clears instrument parameter automation" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .poly_synth);
+
+    const lane = s.arrangement.lane(0).?;
+    try lane.place(s.allocator, try Clip.initMelodic(s.allocator, 0, 32, &.{}, 1.0));
+    const clip = lane.clipAt(0).?;
+    const points = try clip.automation.synthParamPoints(s.allocator, 21);
+    try automation_mod.setPoint(s.allocator, points, 0.0, 5000.0);
+
+    s.setSongMode(true);
+    s.setSongMode(false);
+    s.racks.items[0].instrument.poly_synth.filter_cutoff = 1234.0;
+    var block: [512]@import("core/types.zig").Sample = undefined;
+    s.engine.process(&block);
+    try std.testing.expectEqual(@as(f32, 1234.0), s.racks.items[0].instrument.poly_synth.filter_cutoff);
 }
 
 test "armed follows insert/remove/duplicate/swap, parallel to racks" {
