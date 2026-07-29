@@ -4807,7 +4807,7 @@ pub const App = struct {
         if (self.cursor >= self.session.project.tracks.items.len) return;
         const track = &self.session.project.tracks.items[self.cursor];
         const n: i32 = @intCast(ansi.track_palette.len + 1); // +1 for "none"
-        const cur: i32 = @intCast(track.color);
+        const cur: i32 = @mod(@as(i32, track.color), n);
         track.color = @intCast(@mod(cur + dir, n));
         self.dirty = true;
         if (track.color == 0) {

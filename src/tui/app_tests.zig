@@ -3545,6 +3545,12 @@ test "[/] cycle the cursor track's color, wrapping through none" {
     app.handleKey(.{ .char = '[' }, 0);
     try std.testing.expectEqual(@as(u8, 16), app.session.project.tracks.items[0].color);
 
+    // Invalid state still cycles into the supported range instead of
+    // indexing past the color-name table while building the status.
+    app.session.project.tracks.items[0].color = 255;
+    app.handleKey(.{ .char = ']' }, 0);
+    try std.testing.expectEqual(@as(u8, 1), app.session.project.tracks.items[0].color);
+
     // The master row has no color to cycle.
     app.cursor = app.session.project.tracks.items.len;
     app.handleKey(.{ .char = ']' }, 0);
