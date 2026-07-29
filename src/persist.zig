@@ -2414,16 +2414,23 @@ fn applySynthParamAutomationSnap(
                 break :blk [2]f32{ -std.math.floatMax(f32), std.math.floatMax(f32) };
             } else [2]f32{ -std.math.floatMax(f32), std.math.floatMax(f32) };
             const points = try automationFromSnap(allocator, sp.points, range[0], range[1]);
-            const dst = try automation.synthParamPoints(allocator, sp.param_id);
-            dst.* = points;
+            try replaceSynthParamPoints(allocator, automation, sp.param_id, points);
         }
         return;
     }
     if (legacy_filter_cutoff.len > 0) {
         const points = try automationFromSnap(allocator, legacy_filter_cutoff, 20.0, 20_000.0);
-        const dst = try automation.synthParamPoints(allocator, 21);
-        dst.* = points;
+        try replaceSynthParamPoints(allocator, automation, 21, points);
     }
+}
+
+fn replaceSynthParamPoints(allocator: std.mem.Allocator, automation: *ws_arrangement.Clip.Automation, param_id: u32, points: []AutomationPoint) !void {
+    const dst = automation.synthParamPoints(allocator, param_id) catch |err| {
+        allocator.free(points);
+        return err;
+    };
+    if (dst.len > 0) allocator.free(dst.*);
+    dst.* = points;
 }
 
 /// Load automation breakpoints, clamping values to the same range the live
@@ -3676,6 +3683,19 @@ test "clipFromSnap clamps automation points to the clip span" {
 
     try std.testing.expectEqual(@as(f64, 1.0), clip.automation.gain[0].beat);
     try std.testing.expectEqual(@as(f64, 1.0), clip.automation.synth_params.items[0].points[0].beat);
+}
+
+test "clipFromSnap replaces duplicate synth automation lanes without leaking" {
+    var clip = try clipFromSnap(std.testing.allocator, .{
+        .synth_param_automation = &.{
+            .{ .param_id = 21, .points = &.{.{ .beat = 0.0, .value = 1000.0 }} },
+            .{ .param_id = 21, .points = &.{.{ .beat = 0.0, .value = 2000.0 }} },
+        },
+    }, 4, file_version);
+    defer clip.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), clip.automation.synth_params.items.len);
+    try std.testing.expectEqual(@as(f32, 2000.0), clip.automation.synth_params.items[0].points[0].value);
 }
 
 test "load sanitizes non-finite project, automation, pad, and note fields" {
