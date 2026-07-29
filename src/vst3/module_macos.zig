@@ -31,7 +31,7 @@ pub fn callEntry(bundle: Bundle) !void {
         return error.MissingModuleEntry;
     defer CFRelease(name);
     const ptr = CFBundleGetFunctionPointerForName(bundle, name) orelse return error.MissingModuleEntry;
-    const entry: *const fn (Bundle) callconv(abi.abi_callconv) bool = @ptrCast(ptr);
+    const entry: *const fn (Bundle) callconv(abi.abi_callconv) bool = @ptrCast(@alignCast(ptr));
     if (!entry(bundle)) return error.ModuleEntryFailed;
 }
 
@@ -39,7 +39,7 @@ pub fn callExit(bundle: Bundle) void {
     const name = CFStringCreateWithCString(kCFAllocatorDefault, "bundleExit", utf8_encoding) orelse return;
     defer CFRelease(name);
     const ptr = CFBundleGetFunctionPointerForName(bundle, name) orelse return;
-    const exit: *const fn () callconv(abi.abi_callconv) bool = @ptrCast(ptr);
+    const exit: *const fn () callconv(abi.abi_callconv) bool = @ptrCast(@alignCast(ptr));
     _ = exit();
 }
 

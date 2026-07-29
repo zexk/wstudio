@@ -35,7 +35,7 @@ fn objectName(object: u32, property: ?CFStringRef, buf: []u8) ?[]const u8 {
             .mElement = audio_object_property_element_main,
         };
         var size: u32 = @sizeOf(CFStringRef);
-        if (AudioObjectGetPropertyData(object, &address, 0, null, &size, &name) != 0) return null;
+        if (AudioObjectGetPropertyData(object, &address, 0, null, &size, @ptrCast(&name)) != 0) return null;
     }
     defer CFRelease(name);
     if (CFStringGetCString(name, buf.ptr, @intCast(buf.len), utf8_encoding) == 0) return null;
