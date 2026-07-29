@@ -15,6 +15,8 @@ code keeps a one-line pointer.
   parameter-nudge coalescing, and the deliberately limited undo scope.
 - [user-config-storage.md](user-config-storage.md): paths, atomic JSON writes,
   corrupt-file quarantine, and the boundary between drum tuning and audio.
+- [beta-5-goals.md](beta-5-goals.md): code-backed goals and exit criteria for
+  the next beta release.
 - [ui-conventions.md](ui-conventions.md): TUI layout and chrome
   conventions (row budget, status row, prompt row, frame bracketing,
   icon fallback) plus the design decisions behind them.
