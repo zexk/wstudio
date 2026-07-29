@@ -559,10 +559,18 @@ pub const max_search_candidates: usize = blk: {
     break :blk n;
 };
 
+/// Exact bound on `fxVisualIds`' output: every id of every unit, for the
+/// all-units-on case. Derived from `fxIdCount` for the same reason
+/// `max_search_candidates` is - a hand-counted headroom figure here held
+/// only until a unit's param count grew.
+pub const max_fx_ids: usize = blk: {
+    var n: usize = 0;
+    for (std.enums.values(FxUnitKind)) |kind| n += fxIdCount(kind);
+    break :blk n;
+};
+
 /// Every cursor-reachable `.fx` id, in on-screen (fx_order) sequence rather
-/// than numeric order - the list j/k and g/G walk. Sized generously above
-/// the current real total (51 ids across 9 units) for headroom as more
-/// units are added.
+/// than numeric order - the list j/k and g/G walk.
 fn fxVisualIds(order: []const FxUnitKind, buf: []u16) []const u16 {
     var n: usize = 0;
     for (order) |kind| {
@@ -584,13 +592,13 @@ fn fxVisualIds(order: []const FxUnitKind, buf: []u16) []const u16 {
 /// (harmless - nothing renders there for the cursor to land on anyway).
 fn fxAwareFirstId(app: *App) u16 {
     var kbuf: [14]FxUnitKind = undefined;
-    var buf: [96]u16 = undefined;
+    var buf: [max_fx_ids]u16 = undefined;
     const ids = fxVisualIds(fxOnOrder(app, &kbuf), &buf);
     return if (ids.len > 0) ids[0] else fx_first_id;
 }
 fn fxAwareLastId(app: *App) u16 {
     var kbuf: [14]FxUnitKind = undefined;
-    var buf: [96]u16 = undefined;
+    var buf: [max_fx_ids]u16 = undefined;
     const ids = fxVisualIds(fxOnOrder(app, &kbuf), &buf);
     return if (ids.len > 0) ids[ids.len - 1] else fx_last_id;
 }
@@ -1130,7 +1138,7 @@ fn moveCursor(app: *App, delta: i32) void {
     // mid-screen once reordering makes id order diverge from visual
     // order. See fxVisualIds.
     var kbuf: [14]FxUnitKind = undefined;
-    var buf: [96]u16 = undefined;
+    var buf: [max_fx_ids]u16 = undefined;
     const ids = fxVisualIds(fxOnOrder(app, &kbuf), &buf);
     if (ids.len == 0) return;
     const cur: u16 = @intCast(std.mem.indexOfScalar(u16, ids, app.synth_cursor) orelse 0);
