@@ -19,10 +19,8 @@ Target the same useful baseline already offered for CLAP: discovery, audio and
 note processing, parameters, saved identity and state, latency, and floating
 plugin windows.
 
-Treat VST2 as a separate adapter, not a small compatibility mode. Add it only
-if wstudio already has VST2 distribution rights from before Steinberg stopped
-accepting new VST2 host licenses in October 2018. Without those rights, VST2
-stays outside the 1.0 plan regardless of implementation cost.
+VST2 stays outside the 1.0 plan. It requires a separate host adapter and its
+distribution license is no longer available to new hosts.
 
 ## 1.0.0-beta.7: production workflow
 
@@ -54,4 +52,4 @@ attach a final feature batch to the stable tag.
 
 VST3 is the last planned large feature. Embedded plugin GUIs, surround buses,
 polyphonic plugin modulation, and MIDI 2.0 are not 1.0 requirements. VST2 is
-not a requirement and remains conditional on existing distribution rights.
+not a 1.0 requirement.
