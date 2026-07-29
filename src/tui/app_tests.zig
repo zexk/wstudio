@@ -8196,3 +8196,19 @@ test "the synth editor draws at the 4-column terminal width" {
         try tui_mod.draw(&app, &w, .{ .cols = cols, .rows = 60 });
     }
 }
+
+test "every mod-matrix source has a name the synth editor can draw" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .synth_editor;
+    const synth = &app.session.racks.items[0].instrument.poly_synth;
+    var buf: [512 * 1024]u8 = undefined;
+
+    // `h`/`l` on a matrix source cycles the whole ModSource enum; the name
+    // table stopped at env3, so the two sources past it panicked on draw.
+    for (std.enums.values(ws.dsp.synth.ModSource)) |source| {
+        synth.mod_matrix[0].source = source;
+        var w = std.Io.Writer.fixed(&buf);
+        try tui_mod.draw(&app, &w, .{ .cols = 210, .rows = 60 });
+    }
+}
