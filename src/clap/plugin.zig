@@ -261,9 +261,12 @@ pub const ClapPlugin = struct {
     audio_inputs_count: u32,
     note_dialect: NoteDialect,
     supports_midi: bool,
+    sample_rate: u32,
     transport: ?*const Transport = null,
     steady_time: i64 = 0,
     started: bool = false,
+    restart_in_progress: std.atomic.Value(bool) = .init(false),
+    restart_ready: std.atomic.Value(bool) = .init(false),
     gui_created: bool = false,
     gui_visible: bool = false,
 
@@ -328,6 +331,7 @@ pub const ClapPlugin = struct {
             .audio_inputs_count = audio_inputs_count,
             .note_dialect = note_support.dialect,
             .supports_midi = note_support.supports_midi,
+            .sample_rate = sample_rate,
             .output_events = .{ .ctx = host_context, .try_push = acceptOutputEvent },
         };
         self.events.bind();
@@ -412,6 +416,13 @@ pub const ClapPlugin = struct {
     pub fn processBlock(self: *ClapPlugin, buf: []types.Sample) void {
         const frames = buf.len / 2;
         if (frames == 0 or frames > types.max_block_frames or buf.len % 2 != 0) return;
+        if (self.host_context.restart_requested.swap(false, .acquire)) {
+            self.restart_in_progress.store(true, .release);
+            if (self.started) self.plugin.stop_processing(self.plugin);
+            self.started = false;
+            self.restart_ready.store(true, .release);
+        }
+        if (self.restart_in_progress.load(.acquire)) return;
         if (!self.started) {
             self.started = self.plugin.start_processing(self.plugin);
             if (!self.started) return;
@@ -722,6 +733,19 @@ pub const ClapPlugin = struct {
     /// change notifications only need acknowledging. Returns whether the
     /// plugin marked its opaque state dirty since the previous service.
     pub fn serviceMainThread(self: *ClapPlugin) bool {
+        if (self.restart_ready.swap(false, .acquire)) {
+            self.plugin.deactivate(self.plugin);
+            const audio_inputs_count: ?u32 = validateAudioPorts(self.plugin) catch null;
+            if (audio_inputs_count) |count| {
+                const note_support = detectNoteSupport(self.plugin);
+                if (self.plugin.activate(self.plugin, @floatFromInt(self.sample_rate), 1, types.max_block_frames)) {
+                    self.audio_inputs_count = count;
+                    self.note_dialect = note_support.dialect;
+                    self.supports_midi = note_support.supports_midi;
+                    self.restart_in_progress.store(false, .release);
+                } else std.log.err("CLAP restart activation failed: {s}", .{self.name()});
+            } else std.log.err("CLAP restart found unsupported audio ports: {s}", .{self.name()});
+        }
         if (self.host_context.callback_requested.swap(false, .acquire))
             self.plugin.on_main_thread(self.plugin);
         _ = self.host_context.param_rescan_flags.swap(0, .acquire);

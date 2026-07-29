@@ -43,9 +43,9 @@ creates a history entry or is documented as intentionally outside history.
 
 ## Finish CLAP lifecycle support
 
-The host records plugin restart requests but does not service them. It does not
-offer the CLAP thread-pool extension, accepts only one stereo input and one
-stereo output, and supports floating rather than embedded plugin GUIs.
+The host services plugin restart requests at audio/main-thread boundaries. It
+does not offer the CLAP thread-pool extension, accepts only one stereo input and
+one stereo output, and supports floating rather than embedded plugin GUIs.
 
 Goal:
 

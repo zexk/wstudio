@@ -18,6 +18,12 @@ pub fn main(init: std.process.Init) !void {
     var samples = [_]f32{ 0.25, -0.5, 1.0, -1.0 };
     plugin.device().process(&samples);
     try std.testing.expectEqualSlices(f32, &.{ 0.625, -1.25, 2.5, -2.5 }, &samples);
+    samples = .{ 1, 2, 3, 4 };
+    plugin.device().process(&samples);
+    try std.testing.expectEqualSlices(f32, &.{ 1, 2, 3, 4 }, &samples);
+    _ = plugin.serviceMainThread();
+    plugin.device().process(&samples);
+    try std.testing.expectEqualSlices(f32, &.{ 2.5, 5, 7.5, 10 }, &samples);
     try std.testing.expectEqual(@as(u32, 1), plugin.parameterCount());
     const param = plugin.parameterInfo(0).?;
     try std.testing.expectEqual(@as(u32, 7), param.id);

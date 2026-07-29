@@ -9,6 +9,7 @@ const State = struct {
     host: ?*const abi.Host = null,
     gui_created: bool = false,
     gui_visible: bool = false,
+    restart_sent: bool = false,
 };
 
 var state: State = .{};
@@ -61,6 +62,7 @@ fn pluginInit(_: *const abi.Plugin) callconv(.c) bool {
     host_latency.changed(host);
     const host_tail: *const abi.HostTail = @ptrCast(@alignCast(host.get_extension(host, abi.ext_tail) orelse return false));
     host_tail.changed(host);
+    state.restart_sent = false;
     return true;
 }
 
@@ -91,6 +93,11 @@ fn reset(_: *const abi.Plugin) callconv(.c) void {}
 fn process(_: *const abi.Plugin, block: *const abi.Process) callconv(.c) i32 {
     if (!state.processing or block.audio_inputs_count > 1 or block.audio_outputs_count != 1)
         return 0;
+    if (!state.restart_sent) {
+        state.restart_sent = true;
+        const host = state.host orelse return 0;
+        host.request_restart(host);
+    }
     const output = block.audio_outputs.?[0];
     if (output.channel_count != 2) return 0;
     const output_channels = output.data32 orelse return 0;
