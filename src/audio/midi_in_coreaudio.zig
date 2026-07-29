@@ -1,5 +1,5 @@
-//! CoreMIDI input. Connects every current system MIDI source to one input
-//! port and forwards channel messages into the engine.
+//! CoreMIDI input. Connects a configured source index, or every current
+//! source when unset, and forwards channel messages into the engine.
 
 const std = @import("std");
 const Engine = @import("engine.zig").Engine;
@@ -50,9 +50,9 @@ pub const MidiIn = struct {
     parser: midi.Parser = .{},
 
     pub const RecNote = struct { pitch: u7, vel: u7 };
-    pub const Error = error{ ClientCreateFailed, PortCreateFailed };
+    pub const Error = error{ ClientCreateFailed, PortCreateFailed, SourceInvalid, SourceConnectFailed };
 
-    pub fn start(self: *MidiIn) Error!void {
+    pub fn start(self: *MidiIn, source_name: []const u8) Error!void {
         const name = CFStringCreateWithCString(null, "wstudio", utf8_encoding) orelse return error.ClientCreateFailed;
         defer CFRelease(name);
 
@@ -63,9 +63,17 @@ pub const MidiIn = struct {
         }
         if (MIDIInputPortCreate(self.client, name, read, self, &self.port) != 0) return error.PortCreateFailed;
 
-        for (0..@intCast(@max(MIDIGetNumberOfSources(), 0))) |i| {
-            const source = MIDIGetSource(@intCast(i));
-            if (source != 0) _ = MIDIPortConnectSource(self.port, source, null);
+        const count: usize = @intCast(@max(MIDIGetNumberOfSources(), 0));
+        if (source_name.len > 0) {
+            const index = std.fmt.parseInt(usize, source_name, 10) catch return error.SourceInvalid;
+            if (index >= count) return error.SourceInvalid;
+            const source = MIDIGetSource(@intCast(index));
+            if (source == 0 or MIDIPortConnectSource(self.port, source, null) != 0) return error.SourceConnectFailed;
+        } else {
+            for (0..count) |i| {
+                const source = MIDIGetSource(@intCast(i));
+                if (source != 0) _ = MIDIPortConnectSource(self.port, source, null);
+            }
         }
     }
 

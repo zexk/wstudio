@@ -197,7 +197,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     var using_midi = false;
     if (has_midi) {
         midi_in = .{ .engine = app.core.session.engine, .velocity_curve = .init(user_config.default_midi_velocity_curve) };
-        if (midi_in.start()) {
+        if (midi_in.start(user_config.midi_input_device.slice())) {
             using_midi = true;
         } else |_| {}
     }
@@ -259,7 +259,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 audio.start(init.io, user_config.audio_backend) catch {};
                 if (has_midi) {
                     midi_in = .{ .engine = app.core.session.engine, .velocity_curve = .init(user_config.default_midi_velocity_curve) };
-                    if (midi_in.start()) {
+                    if (midi_in.start(user_config.midi_input_device.slice())) {
                         using_midi = true;
                     } else |_| {}
                 }

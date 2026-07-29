@@ -1,8 +1,5 @@
-//! ALSA Sequencer MIDI input. Opens a virtual port, spawns a reader thread,
-//! and pushes Engine Commands for every incoming note, CC, and pitch-bend.
-//!
-//! Connect a hardware device with:  aconnect <device> wstudio:0
-//! List available devices with:     aconnect -l
+//! ALSA Sequencer MIDI input. Opens a virtual port, optionally subscribes a
+//! configured source, and pushes note, CC, and pitch-bend commands.
 
 const std = @import("std");
 const Engine = @import("engine.zig").Engine;
@@ -45,9 +42,9 @@ pub const MidiIn = struct {
     /// recorded take keeps its dynamics instead of flattening to the default.
     pub const RecNote = struct { pitch: u7, vel: u7 };
 
-    pub const Error = error{ SeqOpenFailed, PortCreateFailed, ThreadSpawnFailed };
+    pub const Error = error{ SeqOpenFailed, PortCreateFailed, SourceParseFailed, SourceConnectFailed, ThreadSpawnFailed };
 
-    pub fn start(self: *MidiIn) Error!void {
+    pub fn start(self: *MidiIn, source_name: []const u8) Error!void {
         if (c.snd_seq_open(&self.seq, "default", c.SND_SEQ_OPEN_INPUT, 0) < 0)
             return error.SeqOpenFailed;
         errdefer {
@@ -65,6 +62,14 @@ pub const MidiIn = struct {
         );
         if (port < 0) return error.PortCreateFailed;
         self.port = port;
+
+        if (source_name.len > 0) {
+            var source_buf: [std.fs.max_path_bytes + 1]u8 = undefined;
+            const source_z = std.fmt.bufPrintZ(&source_buf, "{s}", .{source_name}) catch return error.SourceParseFailed;
+            var source: c.snd_seq_addr_t = undefined;
+            if (c.snd_seq_parse_address(self.seq, &source, source_z) < 0) return error.SourceParseFailed;
+            if (c.snd_seq_connect_from(self.seq, self.port, source.client, source.port) < 0) return error.SourceConnectFailed;
+        }
 
         self.running.store(true, .release);
         self.thread = std.Thread.spawn(.{}, run, .{self}) catch {

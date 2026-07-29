@@ -374,7 +374,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
     if (has_midi) {
         // zig fmt: off
         midi_in = .{ .engine = app.session.engine, .velocity_curve = .init(user_config.default_midi_velocity_curve) };
-        if (midi_in.start()) {
+        if (midi_in.start(user_config.midi_input_device.slice())) {
             using_midi = true;
         } else |_| {}
         // zig fmt: on
@@ -488,7 +488,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
                 using_midi = false;
                 if (has_midi) {
                     midi_in = .{ .engine = app.session.engine, .velocity_curve = .init(user_config.default_midi_velocity_curve) };
-                    if (midi_in.start()) { using_midi = true; } else |_| {}
+                    if (midi_in.start(user_config.midi_input_device.slice())) { using_midi = true; } else |_| {}
                 }
                 app.audio_label = audio.label();
                 switch (kind) {

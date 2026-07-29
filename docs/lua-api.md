@@ -160,7 +160,7 @@ Current option set (see examples/init.lua for defaults and ranges):
 | `piano_ghost_notes`, `piano_audition`, `undo_history_entries` | core |
 | `default_metronome_enabled` | core |
 | `default_song_mode`, `metronome_click_gain` | core |
-| `count_in_bars`, `default_midi_velocity_curve` | core |
+| `count_in_bars`, `default_midi_velocity_curve`, `midi_input_device` | core |
 | `default_automation_gain_step_db`, `default_automation_pan_step` | core |
 | `bounce_tail_seconds`, `bounce_bit_depth` | core |
 | `default_bounce_path`, `default_stems_dir` | core |
@@ -288,6 +288,12 @@ rate than the project fails over to ALSA under `"auto"`.
 `"hw:2,0"`. Empty strings use ALSA's `"default"` PCM. Find available names
 with `aplay -L` and `arecord -L`. PipeWire, JACK, WASAPI, and Core Audio
 currently ignore these options.
+
+`midi_input_device` selects a live MIDI source. Linux accepts an ALSA
+sequencer address from `aconnect -l`, such as `"24:0"`, and subscribes it
+without a separate `aconnect` command. macOS accepts a zero-based CoreMIDI
+source index. Empty preserves manual subscription on Linux and connects every
+current source on macOS.
 
 `preferred_frontend` picks the frontend a flagless `wstudio` launch runs
 (`--tui`/`--gui` always win, as does a build carrying only one frontend).

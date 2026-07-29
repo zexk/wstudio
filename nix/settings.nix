@@ -60,6 +60,11 @@ in
       default = null;
       description = "ALSA capture PCM name. Empty uses the default PCM.";
     };
+    midi_input_device = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      description = "Backend-native live MIDI input source.";
+    };
     tap_timeout_ms = rangedInt 100 10000 "Multi-key timeout in milliseconds.";
     note_preview_ms = rangedInt 20 2000 "Audition note release delay in milliseconds.";
     cmd_history_lines = rangedInt 10 500 "Maximum number of command history entries.";
