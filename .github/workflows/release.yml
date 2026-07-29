@@ -97,8 +97,27 @@ jobs:
         run: |
           set -euo pipefail
           package() {
-            mkdir -p "dist/$1/examples"
-            cp zig-out/bin/wstudio demo.wsj README.md CHANGELOG.md FORMAT.md LICENSE "dist/$1/"
+            version=${TAG#v}
+            build_version=${version%%-*}
+            app="dist/$1/wstudio.app/Contents"
+            iconset=$(mktemp -d)/wstudio.iconset
+            mkdir -p "$app/MacOS" "$app/Resources" "$iconset" "dist/$1/examples"
+            cp zig-out/bin/wstudio "$app/MacOS/"
+            sed -e "s/@VERSION@/$version/g" -e "s/@BUILD_VERSION@/$build_version/g" \
+              assets/macos/Info.plist > "$app/Info.plist"
+            cp assets/icon/hicolor/16x16/apps/wstudio.png "$iconset/icon_16x16.png"
+            cp assets/icon/hicolor/32x32/apps/wstudio.png "$iconset/icon_16x16@2x.png"
+            cp assets/icon/hicolor/32x32/apps/wstudio.png "$iconset/icon_32x32.png"
+            cp assets/icon/hicolor/64x64/apps/wstudio.png "$iconset/icon_32x32@2x.png"
+            cp assets/icon/hicolor/128x128/apps/wstudio.png "$iconset/icon_128x128.png"
+            cp assets/icon/hicolor/256x256/apps/wstudio.png "$iconset/icon_128x128@2x.png"
+            cp assets/icon/hicolor/256x256/apps/wstudio.png "$iconset/icon_256x256.png"
+            cp assets/icon/hicolor/512x512/apps/wstudio.png "$iconset/icon_256x256@2x.png"
+            cp assets/icon/hicolor/512x512/apps/wstudio.png "$iconset/icon_512x512.png"
+            cp assets/icon/wstudio-1024.png "$iconset/icon_512x512@2x.png"
+            iconutil -c icns "$iconset" -o "$app/Resources/wstudio.icns"
+            ln -s wstudio.app/Contents/MacOS/wstudio "dist/$1/wstudio"
+            cp demo.wsj README.md CHANGELOG.md FORMAT.md LICENSE "dist/$1/"
             cp -R docs "dist/$1/"
             cp examples/init.lua "dist/$1/examples/"
             tar -C dist -czf "dist/$1.tar.gz" "$1"
@@ -109,6 +128,10 @@ jobs:
           tar -C "$release_dir" -xzf dist/wstudio-macos-arm64.tar.gz
           cd "$release_dir/wstudio-macos-arm64"
           test -x wstudio
+          test -x wstudio.app/Contents/MacOS/wstudio
+          test -f wstudio.app/Contents/Resources/wstudio.icns
+          plutil -lint wstudio.app/Contents/Info.plist
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' wstudio.app/Contents/Info.plist)" = "${TAG#v}"
           test -f docs/lua-api.md
           test -f examples/init.lua
           ./wstudio --version | grep -Fx "wstudio ${TAG#v}"
