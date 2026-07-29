@@ -147,10 +147,7 @@ fn drawWorkspace(app: *App) void {
         // window, so a view opened after a scrolled one starts at the other
         // one's offset - looking, at worst, like it rendered nothing. Reset
         // on the switch; the cursor-follow below then places it.
-        if (app.last_workspace_view != workspace_view) {
-            app.last_workspace_view = workspace_view;
-            zgui.setScrollY(0);
-        }
+        if (workspaceViewChanged(&app.last_workspace_view, workspace_view)) zgui.setScrollY(0);
         drawViewHeader(workspace_view);
         drawView(app, workspace_view);
         // The view has finished submitting; this is the window that actually
@@ -225,6 +222,12 @@ fn pickerBaseView(app: *const App) tui_app.AppView {
         .file_browser => if (isPickerView(app.core.prev_view)) .tracks else app.core.prev_view,
         else => app.core.view,
     };
+}
+
+fn workspaceViewChanged(previous: *tui_app.AppView, current: tui_app.AppView) bool {
+    if (previous.* == current) return false;
+    previous.* = current;
+    return true;
 }
 
 fn drawViewHeader(view: tui_app.AppView) void {
@@ -368,6 +371,15 @@ test "GUI number row respects shift" {
     }
     try std.testing.expectEqualStrings("0123456789", &plain);
     try std.testing.expectEqualStrings(")!@#$%^&*(", &shifted);
+}
+
+test "workspace viewport resets once when view changes" {
+    var previous: tui_app.AppView = .tracks;
+    try std.testing.expect(!workspaceViewChanged(&previous, .tracks));
+    try std.testing.expect(workspaceViewChanged(&previous, .piano_roll));
+    try std.testing.expectEqual(tui_app.AppView.piano_roll, previous);
+    try std.testing.expect(!workspaceViewChanged(&previous, .piano_roll));
+    try std.testing.expect(workspaceViewChanged(&previous, .arrangement));
 }
 
 test "GUI drag gestures record one history entry per activation" {

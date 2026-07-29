@@ -46,15 +46,28 @@ pub fn scrollFocusIntoView() void {
 
 pub fn keepRowVisible(top_y: f32, height: f32) void {
     const win_top = zgui.getWindowPos()[1];
-    const win_bottom = win_top + zgui.getWindowSize()[1];
     const pad = zgui.getStyle().window_padding[1];
+    const current = zgui.getScrollY();
+    const target = rowScrollTarget(top_y, height, win_top, zgui.getWindowSize()[1], pad, current, zgui.getScrollMaxY());
+    if (target != current) zgui.setScrollY(target);
+}
+
+fn rowScrollTarget(top_y: f32, height: f32, win_top: f32, win_height: f32, pad: f32, current: f32, max: f32) f32 {
     const delta: f32 = if (top_y < win_top + pad)
         top_y - (win_top + pad)
-    else if (top_y + height > win_bottom - pad)
-        (top_y + height) - (win_bottom - pad)
+    else if (top_y + height > win_top + win_height - pad)
+        (top_y + height) - (win_top + win_height - pad)
     else
-        return;
-    zgui.setScrollY(std.math.clamp(zgui.getScrollY() + delta, 0, zgui.getScrollMaxY()));
+        return current;
+    return std.math.clamp(current + delta, 0, max);
+}
+
+test "cursor following scrolls only when focused row leaves viewport" {
+    try std.testing.expectEqual(@as(f32, 40), rowScrollTarget(130, 20, 100, 100, 10, 40, 200));
+    try std.testing.expectEqual(@as(f32, 65), rowScrollTarget(185, 20, 100, 100, 10, 40, 200));
+    try std.testing.expectEqual(@as(f32, 20), rowScrollTarget(70, 20, 100, 100, 10, 60, 200));
+    try std.testing.expectEqual(@as(f32, 0), rowScrollTarget(0, 20, 100, 100, 10, 5, 200));
+    try std.testing.expectEqual(@as(f32, 200), rowScrollTarget(400, 20, 100, 100, 10, 190, 200));
 }
 
 /// A section header used inside a bordered/tinted card column: a small
