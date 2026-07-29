@@ -9,6 +9,7 @@ const types = @import("../core/types.zig");
 const Transport = @import("../transport.zig").Transport;
 
 const max_events = 256;
+const max_param_changes = 64;
 const HostEventList = struct {
     interface: abi.EventList = .{ .vtable = &vtable },
     events: [max_events]abi.Event = undefined,
@@ -43,11 +44,92 @@ const HostEventList = struct {
     const vtable: abi.EventListVTable = .{ .query_interface = query, .add_ref = ref, .release = ref, .get_event_count = count, .get_event = get, .add_event = add };
 };
 
+const ParamQueue = struct {
+    interface: abi.ParamValueQueue = .{ .vtable = &vtable },
+    id: u32 = 0,
+    value: f64 = 0,
+
+    fn from(raw: *anyopaque) *ParamQueue {
+        return @ptrCast(@alignCast(raw));
+    }
+    fn query(_: *anyopaque, _: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+        object.* = null;
+        return -1;
+    }
+    fn ref(_: *anyopaque) callconv(abi.abi_callconv) u32 {
+        return 1;
+    }
+    fn getId(raw: *anyopaque) callconv(abi.abi_callconv) u32 {
+        return from(raw).id;
+    }
+    fn count(_: *anyopaque) callconv(abi.abi_callconv) i32 {
+        return 1;
+    }
+    fn get(raw: *anyopaque, index: i32, offset: *i32, value: *f64) callconv(abi.abi_callconv) abi.Result {
+        if (index != 0) return -1;
+        offset.* = 0;
+        value.* = from(raw).value;
+        return 0;
+    }
+    fn add(raw: *anyopaque, _: i32, value: f64, index: *i32) callconv(abi.abi_callconv) abi.Result {
+        from(raw).value = value;
+        index.* = 0;
+        return 0;
+    }
+    const vtable: abi.ParamValueQueueVTable = .{ .query_interface = query, .add_ref = ref, .release = ref, .get_parameter_id = getId, .get_point_count = count, .get_point = get, .add_point = add };
+};
+
+const ParamChanges = struct {
+    interface: abi.ParameterChanges = .{ .vtable = &vtable },
+    queues: [max_param_changes]ParamQueue = undefined,
+    len: usize = 0,
+
+    fn from(raw: *anyopaque) *ParamChanges {
+        return @ptrCast(@alignCast(raw));
+    }
+    fn query(_: *anyopaque, _: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+        object.* = null;
+        return -1;
+    }
+    fn ref(_: *anyopaque) callconv(abi.abi_callconv) u32 {
+        return 1;
+    }
+    fn count(raw: *anyopaque) callconv(abi.abi_callconv) i32 {
+        return @intCast(from(raw).len);
+    }
+    fn get(raw: *anyopaque, index: i32) callconv(abi.abi_callconv) ?*abi.ParamValueQueue {
+        const self = from(raw);
+        if (index < 0 or index >= self.len) return null;
+        return &self.queues[@intCast(index)].interface;
+    }
+    fn add(raw: *anyopaque, id: *const u32, index: *i32) callconv(abi.abi_callconv) ?*abi.ParamValueQueue {
+        const self = from(raw);
+        for (self.queues[0..self.len], 0..) |*queue, i| {
+            if (queue.id == id.*) {
+                index.* = @intCast(i);
+                return &queue.interface;
+            }
+        }
+        if (self.len == max_param_changes) return null;
+        self.queues[self.len] = .{ .id = id.* };
+        index.* = @intCast(self.len);
+        self.len += 1;
+        return &self.queues[self.len - 1].interface;
+    }
+    fn push(self: *ParamChanges, id: u32, value: f64) void {
+        var queue_index: i32 = 0;
+        const queue = add(self, &id, &queue_index) orelse return;
+        _ = queue.vtable.add_point(queue, 0, value, &queue_index);
+    }
+    const vtable: abi.ParameterChangesVTable = .{ .query_interface = query, .add_ref = ref, .release = ref, .get_parameter_count = count, .get_parameter_data = get, .add_parameter_data = add };
+};
+
 pub const Vst3Plugin = struct {
     allocator: std.mem.Allocator,
     module: module_mod.Module,
     component: *abi.Component,
     processor: *abi.AudioProcessor,
+    controller: ?*abi.EditController,
     bundle_path: []u8,
     class_id: [32]u8,
     input_channels: u8,
@@ -61,6 +143,7 @@ pub const Vst3Plugin = struct {
     events: HostEventList = .{},
     active_notes: [128]bool = .{false} ** 128,
     transport: ?*const Transport = null,
+    param_changes: ParamChanges = .{},
 
     pub const device = device_mod.deviceOf(Vst3Plugin);
 
@@ -94,6 +177,22 @@ pub const Vst3Plugin = struct {
             return error.MissingAudioProcessor;
         const processor: *abi.AudioProcessor = @ptrCast(@alignCast(processor_raw orelse return error.MissingAudioProcessor));
         errdefer _ = processor.vtable.release(processor);
+
+        var controller: ?*abi.EditController = null;
+        var controller_id: abi.Tuid = undefined;
+        if (component.vtable.get_controller_class_id(component, &controller_id) == 0) {
+            var controller_raw: ?*anyopaque = null;
+            if (module.factory.vtable.create_instance(module.factory, &controller_id, &abi.edit_controller_iid, &controller_raw) == 0) {
+                controller = @ptrCast(@alignCast(controller_raw orelse return error.ControllerCreateFailed));
+                if (controller.?.vtable.initialize(controller.?, null) != 0) return error.ControllerInitializeFailed;
+            }
+        }
+        errdefer {
+            if (controller) |value| {
+                _ = value.vtable.terminate(value);
+                _ = value.vtable.release(value);
+            }
+        }
 
         if (processor.vtable.can_process_sample_size(processor, 0) != 0) return error.Sample32Unsupported;
         const input_count = component.vtable.get_bus_count(component, 0, 0);
@@ -150,6 +249,7 @@ pub const Vst3Plugin = struct {
             .module = module,
             .component = component,
             .processor = processor,
+            .controller = controller,
             .bundle_path = owned_path,
             .class_id = abi.formatUid(class_id),
             .input_channels = @intCast(input_channels),
@@ -166,6 +266,10 @@ pub const Vst3Plugin = struct {
         _ = self.processor.vtable.set_processing(self.processor, 0);
         _ = self.component.vtable.set_active(self.component, 0);
         _ = self.processor.vtable.release(self.processor);
+        if (self.controller) |value| {
+            _ = value.vtable.terminate(value);
+            _ = value.vtable.release(value);
+        }
         _ = self.component.vtable.terminate(self.component);
         _ = self.component.vtable.release(self.component);
         self.module.close();
@@ -199,7 +303,7 @@ pub const Vst3Plugin = struct {
             .num_outputs = 1,
             .inputs = if (self.input_channels == 0) null else @ptrCast(&input),
             .outputs = @ptrCast(&output),
-            .input_parameter_changes = null,
+            .input_parameter_changes = @ptrCast(&self.param_changes.interface),
             .output_parameter_changes = null,
             .input_events = @ptrCast(&self.events.interface),
             .output_events = null,
@@ -207,6 +311,7 @@ pub const Vst3Plugin = struct {
         };
         const result = self.processor.vtable.process(self.processor, &data);
         self.events.len = 0;
+        self.param_changes.len = 0;
         if (result != 0) return;
         for (0..frames) |frame| {
             buf[frame * 2] = self.output_left[frame];
@@ -219,6 +324,7 @@ pub const Vst3Plugin = struct {
             .note_on => |note| self.pushNote(true, note.note, note.velocity),
             .note_off => |note| self.pushNote(false, note.note, 0),
             .all_off => for (&self.active_notes, 0..) |active, note| if (active) self.pushNote(false, @intCast(note), 0),
+            .vst3_param => |param| if (param.target == @as(*anyopaque, @ptrCast(self))) self.setParameter(param.id, param.value),
             else => {},
         }
     }
@@ -241,6 +347,30 @@ pub const Vst3Plugin = struct {
 
     pub fn attachTransport(self: *Vst3Plugin, transport: *const Transport) void {
         self.transport = transport;
+    }
+
+    pub fn parameterCount(self: *const Vst3Plugin) usize {
+        const controller = self.controller orelse return 0;
+        return @intCast(@max(controller.vtable.get_parameter_count(controller), 0));
+    }
+
+    pub fn parameterInfo(self: *const Vst3Plugin, index: usize) ?abi.ParameterInfo {
+        const controller = self.controller orelse return null;
+        var info: abi.ParameterInfo = undefined;
+        if (controller.vtable.get_parameter_info(controller, @intCast(index), &info) != 0) return null;
+        return info;
+    }
+
+    pub fn parameterValue(self: *const Vst3Plugin, id: u32) ?f64 {
+        const controller = self.controller orelse return null;
+        return controller.vtable.get_param_normalized(controller, id);
+    }
+
+    pub fn setParameter(self: *Vst3Plugin, id: u32, value: f64) void {
+        const controller = self.controller orelse return;
+        const normalized = std.math.clamp(value, 0, 1);
+        if (controller.vtable.set_param_normalized(controller, id, normalized) == 0)
+            self.param_changes.push(id, normalized);
     }
 
     fn makeProcessContext(self: *const Vst3Plugin) abi.ProcessContext {

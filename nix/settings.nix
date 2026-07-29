@@ -203,6 +203,11 @@ in
       default = null;
       description = "Extra CLAP plugin search directory. Empty uses the platform default search paths.";
     };
+    vst3_plugin_path = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      description = "Extra VST3 plugin search directory. Empty uses the platform default search paths.";
+    };
     undo_history_entries =
       rangedInt 8 512
         "Entries kept on the undo stack before the oldest start dropping off.";

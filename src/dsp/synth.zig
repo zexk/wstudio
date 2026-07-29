@@ -4099,7 +4099,7 @@ pub const PolySynth = struct {
             .set_param  => |e| self.adjustParam(e.id, e.steps),
             // zig fmt: on
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
-            .clap_param, .set_sidechain_buf, .capture_pad => {},
+            .clap_param, .vst3_param, .set_sidechain_buf, .capture_pad => {},
         }
     }
 
