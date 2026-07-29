@@ -6183,6 +6183,31 @@ test "enter in an editor with nothing loaded opens that editor's file browser" {
     try std.testing.expectEqual(app_mod.BrowserPurpose.load_soundfont, app.browser_purpose);
 }
 
+test "loading a standalone sample restores prior sampler state on undo" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    var app = try appRootedAt(&tmp);
+    defer app.deinit();
+    try app.session.setInstrument(0, .sampler);
+
+    const old_sample_count = app.session.racks.items[0].instrument.sampler.pad.samples.len;
+    const old_root_note = app.session.racks.items[0].instrument.sampler.root_note;
+    var wav_buf: [64]u8 = undefined;
+    var fw = std.Io.Writer.fixed(&wav_buf);
+    try ws.wav.write(&fw, app.session.project.sample_rate, 1, &[_]f32{ 0.1, 0.2, 0.3 }, .pcm16);
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "sample.wav", .data = fw.buffered() });
+    var path_buf: [128]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/sample.wav", .{&tmp.sub_path});
+
+    commands.loadSampleFromPath(&app, path);
+    try std.testing.expectEqual(@as(usize, 3), app.session.racks.items[0].instrument.sampler.pad.samples.len);
+
+    history.doUndo(&app);
+    try std.testing.expectEqual(old_sample_count, app.session.racks.items[0].instrument.sampler.pad.samples.len);
+    try std.testing.expectEqual(old_root_note, app.session.racks.items[0].instrument.sampler.root_note);
+}
+
 test ":load in arrangement refuses without a sampler track, then targets a whole clip" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();

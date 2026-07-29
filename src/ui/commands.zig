@@ -2116,6 +2116,7 @@ pub fn auditionPath(app: *App, path: []const u8) void {
 /// purpose (the browser hands over an already-resolved path - no `~` to
 /// expand).
 pub fn loadSampleFromPath(app: *App, path: []const u8) void {
+    const track = app.cursor;
     const s = cursorSampler(app) orelse {
         app.setStatus("load: select a sampler track first", .{});
         return;
@@ -2123,12 +2124,17 @@ pub fn loadSampleFromPath(app: *App, path: []const u8) void {
     const data = readFileForLoad(app, path) orelse return;
     defer app.allocator.free(data);
     const stem = stemOf(path);
+    var backup = history.captureTrackKindSwap(app, track) orelse {
+        app.setStatus("load: out of memory", .{});
+        return;
+    };
     s.loadWav(data, stem) catch |e| {
+        backup.deinit(app.allocator);
         app.setStatus("load: parse error: {s}", .{@errorName(e)});
         return;
     };
     s.pad.user_sample = true;
-    app.dirty = true;
+    history.push(app, backup);
     if (s.detectRootNote()) |r| {
         var nbuf: [8]u8 = undefined;
         app.setStatus("sample loaded: {s} (root {s} detected)", .{ stem, ws.midi.noteName(r.note, &nbuf) });
