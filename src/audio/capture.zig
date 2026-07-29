@@ -55,10 +55,10 @@ pub const AudioInput = struct {
             try self.alsa.start(sample_rate, device_name);
             self.active = .alsa;
         } else if (has_wasapi) {
-            try self.wasapi.start(sample_rate);
+            try self.wasapi.start(sample_rate, device_name);
             self.active = .wasapi;
         } else if (has_coreaudio) {
-            try self.coreaudio.start(sample_rate);
+            try self.coreaudio.start(sample_rate, device_name);
             self.active = .coreaudio;
         } else {
             return error.Unsupported;

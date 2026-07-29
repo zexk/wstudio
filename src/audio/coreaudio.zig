@@ -98,9 +98,13 @@ pub const CoreAudioBackend = struct {
     pub fn start(self: *CoreAudioBackend) Error!void {
         try backend_mod.validateConfig(self.config, max_channels);
 
+        const selected_device = if (self.config.output_device.len > 0)
+            std.fmt.parseInt(u32, self.config.output_device, 10) catch return error.DeviceOpenFailed
+        else
+            null;
         const description = AudioComponentDescription{
             .componentType = audio_unit_type_output,
-            .componentSubType = audio_unit_subtype_default_output,
+            .componentSubType = if (selected_device != null) audio_unit_subtype_hal_output else audio_unit_subtype_default_output,
             .componentManufacturer = audio_unit_manufacturer_apple,
             .componentFlags = 0,
             .componentFlagsMask = 0,
@@ -110,6 +114,12 @@ pub const CoreAudioBackend = struct {
         var unit: AudioUnit = null;
         if (AudioComponentInstanceNew(component, &unit) != 0) return error.DeviceOpenFailed;
         errdefer _ = AudioComponentInstanceDispose(unit);
+
+        if (selected_device) |device| {
+            var current = device;
+            if (AudioUnitSetProperty(unit, audio_output_unit_property_current_device, audio_unit_scope_global, 0, &current, @sizeOf(u32)) != 0)
+                return error.DeviceConfigFailed;
+        }
 
         const format = AudioStreamBasicDescription{
             .mSampleRate = @floatFromInt(self.config.sample_rate),
@@ -204,9 +214,12 @@ pub const CoreAudioCapture = struct {
         return if (device == audio_object_unknown) null else device;
     }
 
-    pub fn start(self: *CoreAudioCapture, sample_rate: u32) Error!void {
+    pub fn start(self: *CoreAudioCapture, sample_rate: u32, device_name: []const u8) Error!void {
         while (self.queue.pop() != null) {}
-        const device = defaultInputDevice() orelse return error.DeviceOpenFailed;
+        const device = if (device_name.len > 0)
+            std.fmt.parseInt(u32, device_name, 10) catch return error.DeviceOpenFailed
+        else
+            defaultInputDevice() orelse return error.DeviceOpenFailed;
         const description = AudioComponentDescription{
             .componentType = audio_unit_type_output,
             .componentSubType = audio_unit_subtype_hal_output,

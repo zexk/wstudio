@@ -53,12 +53,12 @@ in
     audio_output_device = mkOption {
       type = types.nullOr types.str;
       default = null;
-      description = "ALSA playback PCM name. Empty uses the default PCM.";
+      description = "Backend-native playback device ID. Empty uses the system default.";
     };
     audio_input_device = mkOption {
       type = types.nullOr types.str;
       default = null;
-      description = "ALSA capture PCM name. Empty uses the default PCM.";
+      description = "Backend-native capture device ID. Empty uses the system default.";
     };
     midi_input_device = mkOption {
       type = types.nullOr types.str;

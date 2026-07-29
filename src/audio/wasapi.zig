@@ -22,6 +22,19 @@ fn ok(hr: c.HRESULT) bool {
     return hr >= 0;
 }
 
+fn openDevice(enumerator: ?*c.IMMDeviceEnumerator, flow: c.EDataFlow, id: []const u8) ?*c.IMMDevice {
+    var device: ?*c.IMMDevice = null;
+    if (id.len == 0) {
+        if (!ok(c.IMMDeviceEnumerator_GetDefaultAudioEndpoint(enumerator, flow, c.eConsole, &device))) return null;
+    } else {
+        var id_buf: [std.fs.max_path_bytes + 1]u16 = undefined;
+        const id_len = std.unicode.utf8ToUtf16Le(&id_buf, id) catch return null;
+        id_buf[id_len] = 0;
+        if (!ok(c.IMMDeviceEnumerator_GetDevice(enumerator, @ptrCast(&id_buf), &device))) return null;
+    }
+    return device;
+}
+
 // audiosessiontypes.h defines these as unsuffixed hex literals; the first
 // overflows translate-c's c_int, so both are spelled out here instead.
 const stream_flag_auto_convert_pcm: c.DWORD = 0x80000000; // AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
@@ -64,9 +77,7 @@ pub const WasapiBackend = struct {
         ))) return error.DeviceOpenFailed;
         defer _ = c.IMMDeviceEnumerator_Release(enumerator);
 
-        var device: ?*c.IMMDevice = null;
-        if (!ok(c.IMMDeviceEnumerator_GetDefaultAudioEndpoint(enumerator, c.eRender, c.eConsole, &device)))
-            return error.DeviceOpenFailed;
+        const device = openDevice(enumerator, c.eRender, self.config.output_device) orelse return error.DeviceOpenFailed;
         defer _ = c.IMMDevice_Release(device);
 
         var client: ?*c.IAudioClient = null;
@@ -211,7 +222,7 @@ pub const WasapiCapture = struct {
 
     pub const Error = error{ ComInitFailed, DeviceOpenFailed, DeviceConfigFailed, ThreadSpawnFailed };
 
-    pub fn start(self: *WasapiCapture, sample_rate: u32) Error!void {
+    pub fn start(self: *WasapiCapture, sample_rate: u32, device_name: []const u8) Error!void {
         while (self.queue.pop() != null) {}
         if (!ok(c.CoInitializeEx(null, c.COINIT_MULTITHREADED))) return error.ComInitFailed;
         errdefer c.CoUninitialize();
@@ -226,9 +237,7 @@ pub const WasapiCapture = struct {
         ))) return error.DeviceOpenFailed;
         defer _ = c.IMMDeviceEnumerator_Release(enumerator);
 
-        var device: ?*c.IMMDevice = null;
-        if (!ok(c.IMMDeviceEnumerator_GetDefaultAudioEndpoint(enumerator, c.eCapture, c.eConsole, &device)))
-            return error.DeviceOpenFailed;
+        const device = openDevice(enumerator, c.eCapture, device_name) orelse return error.DeviceOpenFailed;
         defer _ = c.IMMDevice_Release(device);
 
         var client: ?*c.IAudioClient = null;

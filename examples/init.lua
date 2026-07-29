@@ -72,9 +72,9 @@
 -- sample rate; "auto" falls through to ALSA when it doesn't.
 -- wstudio.o.audio_backend = "auto"
 
--- ALSA playback and capture device names. Empty strings use "default".
--- Find names with `aplay -L` and `arecord -L`. Other backends currently
--- ignore these options.
+-- Backend-native playback and capture device IDs. ALSA uses PCM names from
+-- `aplay -L` / `arecord -L`; Windows uses WASAPI endpoint IDs; macOS uses
+-- numeric AudioDeviceIDs. Empty strings select system defaults.
 -- wstudio.o.audio_output_device = ""
 -- wstudio.o.audio_input_device = ""
 

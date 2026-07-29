@@ -284,10 +284,11 @@ PipeWire and JACK are loaded at runtime, so a missing library behaves like
 a missing server. JACK cannot resample: a server running at a different
 rate than the project fails over to ALSA under `"auto"`.
 
-`audio_output_device` and `audio_input_device` select ALSA PCM names, such as
-`"hw:2,0"`. Empty strings use ALSA's `"default"` PCM. Find available names
-with `aplay -L` and `arecord -L`. PipeWire, JACK, WASAPI, and Core Audio
-currently ignore these options.
+`audio_output_device` and `audio_input_device` select backend-native device
+IDs. ALSA accepts PCM names such as `"hw:2,0"`; find them with `aplay -L` and
+`arecord -L`. WASAPI accepts endpoint ID strings. Core Audio accepts numeric
+AudioDeviceIDs. Empty strings use system defaults. PipeWire and JACK ignore
+these options because routing belongs to their server graph.
 
 `midi_input_device` selects a live MIDI source. Linux accepts an ALSA
 sequencer address from `aconnect -l`, such as `"24:0"`, and subscribes it
