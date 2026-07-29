@@ -55,6 +55,7 @@ else
 pub const midi_in = switch (@import("builtin").os.tag) {
     .linux => @import("audio/midi_in.zig"),
     .macos => @import("audio/midi_in_coreaudio.zig"),
+    .windows => @import("audio/midi_in_windows.zig"),
     else => struct {},
 };
 

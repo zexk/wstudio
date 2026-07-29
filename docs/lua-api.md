@@ -291,9 +291,9 @@ currently ignore these options.
 
 `midi_input_device` selects a live MIDI source. Linux accepts an ALSA
 sequencer address from `aconnect -l`, such as `"24:0"`, and subscribes it
-without a separate `aconnect` command. macOS accepts a zero-based CoreMIDI
-source index. Empty preserves manual subscription on Linux and connects every
-current source on macOS.
+without a separate `aconnect` command. macOS and Windows accept a zero-based
+source index. Empty preserves manual subscription on Linux, connects every
+current source on macOS, and selects source 0 on Windows.
 
 `preferred_frontend` picks the frontend a flagless `wstudio` launch runs
 (`--tui`/`--gui` always win, as does a build carrying only one frontend).

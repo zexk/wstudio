@@ -79,8 +79,9 @@
 -- wstudio.o.audio_input_device = ""
 
 -- MIDI input source. Linux uses an ALSA sequencer address from `aconnect -l`,
--- such as "24:0". macOS uses a zero-based CoreMIDI source index. Empty keeps
--- a manual ALSA subscription on Linux and connects every source on macOS.
+-- such as "24:0". macOS and Windows use a zero-based source index. Empty
+-- keeps a manual ALSA subscription on Linux, connects every source on macOS,
+-- and selects source 0 on Windows.
 -- wstudio.o.midi_input_device = ""
 
 -- Multi-key timeout, in milliseconds: how long tap-tempo taps and similar

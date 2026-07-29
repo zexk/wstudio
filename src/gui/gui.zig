@@ -191,7 +191,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     // to the session's engine, so `:e` has to rebind it below alongside the
     // audio host. Failing to open a MIDI port is not fatal: the app runs
     // without one, same as with no audio backend.
-    const has_midi = builtin.os.tag == .linux or builtin.os.tag == .macos;
+    const has_midi = builtin.os.tag == .linux or builtin.os.tag == .macos or builtin.os.tag == .windows;
     const MidiIn = if (has_midi) ws.midi_in.MidiIn else void;
     var midi_in: MidiIn = undefined;
     var using_midi = false;

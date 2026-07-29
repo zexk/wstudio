@@ -361,7 +361,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
     };
 
     // zig fmt: off
-    const has_midi = builtin.os.tag == .linux or builtin.os.tag == .macos;
+    const has_midi = builtin.os.tag == .linux or builtin.os.tag == .macos or builtin.os.tag == .windows;
     const MidiIn   = if (has_midi) ws.midi_in.MidiIn else void;
     var midi_in: MidiIn = undefined;
     // zig fmt: on
