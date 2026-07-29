@@ -726,11 +726,22 @@ pub const DrumMachine = struct {
             }
         }
 
+        // A pad's own loop length is in steps, so it has to be rescaled with
+        // them or the row's musical length changes under the user: a 7-of-16
+        // hat is a bar and three quarters, and must stay that after a zoom.
+        var lens = self.pad_len;
+        for (&lens) |*len| {
+            if (len.* == 0) continue;
+            const scaled: u32 = @divTrunc(@as(u32, len.*) * new_spb + old_spb / 2, old_spb);
+            len.* = if (scaled == 0 or scaled >= new_count) 0 else @intCast(scaled);
+        }
+
         while (!self.pad_lock.tryLock()) std.atomic.spinLoopHint();
         freeMidi(self.allocator, &self.midi);
         self.midi = next;
         self.step_count = new_count;
         self.steps_per_beat = new_spb;
+        self.pad_len = lens;
         self.pad_lock.unlock();
         committed = true;
         return true;
@@ -2334,6 +2345,20 @@ test "a pad's own loop length wraps that row early and drifts against the rest" 
     dm.nudgePadLen(0, -1);
     try std.testing.expectEqual(@as(u16, 15), dm.padSteps(0, 16));
     dm.nudgePadLen(0, 99);
+    try std.testing.expectEqual(@as(u16, 0), dm.pad_len[0]);
+
+    // A grid change preserves musical time, so the loop length rides along
+    // with the steps - 7 of 16 is a bar and three quarters at every zoom.
+    dm.setPadLen(0, 7);
+    try std.testing.expect(dm.setStepsPerBeatPreservingTime(8));
+    try std.testing.expectEqual(@as(u16, 32), dm.step_count);
+    try std.testing.expectEqual(@as(u16, 14), dm.padSteps(0, 32));
+    try std.testing.expect(dm.setStepsPerBeatPreservingTime(4));
+    try std.testing.expectEqual(@as(u16, 7), dm.padSteps(0, 16));
+    // Coarsening a row that ends up at the pattern's own length drops the
+    // override rather than storing a redundant one.
+    dm.setPadLen(0, 15);
+    try std.testing.expect(dm.setStepsPerBeatPreservingTime(2));
     try std.testing.expectEqual(@as(u16, 0), dm.pad_len[0]);
 }
 

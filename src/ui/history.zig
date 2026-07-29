@@ -60,6 +60,7 @@ pub fn captureDrum(app: *App, track: u16) ?undo_mod.Entry {
         .variants = [_]ws.dsp.DrumMachine.Variant{.{}} ** ws.dsp.DrumMachine.max_variants,
         .variant_count = dm.variant_count,
         .variant = dm.variant,
+        .pad_len = dm.pad_len,
     };
     for (0..dm.variant_count) |i| {
         const v = dm.variantData(@intCast(i)); // borrowed view - dupe before storing
@@ -96,6 +97,7 @@ pub fn captureSlicer(app: *App, track: u16) ?undo_mod.Entry {
         .variants = [_]ws.dsp.Slicer.Variant{.{}} ** ws.dsp.Slicer.max_variants,
         .variant_count = sl.variant_count,
         .variant = sl.variant,
+        .slice_len = sl.slice_len,
     };
     for (0..sl.variant_count) |i| {
         const v = sl.variantData(@intCast(i)); // borrowed view - dupe before storing
@@ -551,6 +553,9 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             dm.variant_count = d.variant_count;
             dm.variant = @min(d.variant, d.variant_count - 1);
             dm.applyVariant(dm.variants[dm.variant]);
+            // After applyVariant: the restored pattern's step count is what
+            // decides whether a length is still an override.
+            for (d.pad_len, 0..) |len, pad| dm.setPadLen(@intCast(pad), len);
             if (app.drum_cursor[1] >= dm.step_count) app.drum_cursor[1] = dm.step_count - 1;
             return displaced;
         },
@@ -574,6 +579,7 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             sl.variant_count = d.variant_count;
             sl.variant = @min(d.variant, d.variant_count - 1);
             sl.applyVariant(sl.variants[sl.variant]);
+            for (d.slice_len, 0..) |len, s| sl.setSliceLen(@intCast(s), len); // after applyVariant, as the drum arm notes
             sl.resetAll(); // ringing tails would finish through relocated slices
             app.slicer_cursor[0] = @min(app.slicer_cursor[0], sl.slice_count -| 1);
             app.slicer_cursor[1] = @min(app.slicer_cursor[1], sl.step_count -| 1);

@@ -1000,11 +1000,22 @@ pub const Slicer = struct {
             }
         }
 
+        // Rescaled with the steps, same as `DrumMachine.pad_len`: a slice's
+        // own loop length is in steps, and the row's musical length has to
+        // survive the zoom.
+        var lens = self.slice_len;
+        for (&lens) |*len| {
+            if (len.* == 0) continue;
+            const scaled: u32 = @divTrunc(@as(u32, len.*) * new_spb + old_spb / 2, old_spb);
+            len.* = if (scaled == 0 or scaled >= new_count) 0 else @intCast(scaled);
+        }
+
         while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
         freeMidi(self.allocator, &self.midi);
         self.midi = next;
         self.step_count = new_count;
         self.steps_per_beat = new_spb;
+        self.slice_len = lens;
         self.sample_lock.unlock();
         committed = true;
         return true;

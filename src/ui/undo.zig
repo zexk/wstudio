@@ -42,6 +42,10 @@ pub const DrumState = struct {
     variants: [DrumMachine.max_variants]DrumMachine.Variant,
     variant_count: u8,
     variant: u8,
+    /// Per-pad loop length (`DrumMachine.pad_len`): content, not a mixer
+    /// param - it changes which steps fire, and m/M pushes an entry, so it
+    /// has to be in the snapshot for that entry to restore anything.
+    pad_len: [DrumMachine.max_pads]u16,
 
     pub fn deinit(self: *DrumState, allocator: std.mem.Allocator) void {
         for (self.variants[0..self.variant_count]) |*v| DrumMachine.freeMidi(allocator, &v.midi);
@@ -69,6 +73,9 @@ pub const SlicerState = struct {
     variants: [Slicer.max_variants]Slicer.Variant,
     variant_count: u8,
     variant: u8,
+    /// Per-slice loop length, captured for the same reason
+    /// `DrumState.pad_len` is.
+    slice_len: [Slicer.max_slices]u16,
 
     pub fn deinit(self: *SlicerState, allocator: std.mem.Allocator) void {
         for (self.variants[0..self.variant_count]) |*v| Slicer.freeMidi(allocator, &v.midi);

@@ -991,6 +991,28 @@ test "drum grid +/- resize the loop by a bar, not a single step" {
     try std.testing.expectEqual(start + 8, dm.step_count);
 }
 
+test "drum grid m/M set a pad's own loop length, undoably, and rescale on zoom" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    app.view = .drum_grid;
+    app.drum_cursor = .{ 0, 0 };
+    const dm = app.drumMachine();
+    const steps = dm.step_count;
+
+    app.handleKey(.{ .char = 'm' }, 0); // down from "follows the pattern"
+    try std.testing.expectEqual(steps - 1, dm.padSteps(0, steps));
+    try std.testing.expectEqual(steps, dm.padSteps(1, steps)); // other rows untouched
+    history.doUndo(&app);
+    try std.testing.expectEqual(@as(u16, 0), dm.pad_len[0]);
+    history.doRedo(&app);
+    try std.testing.expectEqual(steps - 1, dm.pad_len[0]);
+
+    // A grid change preserves musical time, loop length included.
+    app.handleKey(.{ .char = 'z' }, 0);
+    try std.testing.expectEqual((steps - 1) * 2, dm.pad_len[0]);
+}
+
 test "drum grid Z refuses to coarsen the grid when it would collide two hits" {
     var app = try testApp();
     defer app.deinit();
