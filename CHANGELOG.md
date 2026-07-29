@@ -3,7 +3,7 @@
 Notable user-visible changes per release. The `.wsj` format's own version
 history lives in [FORMAT.md](FORMAT.md).
 
-## Unreleased
+## v1.0.0-beta.4
 
 ### Added
 

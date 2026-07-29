@@ -13,7 +13,7 @@
         "aarch64-darwin"
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
-      version = "1.0.0-beta.3";
+      version = "1.0.0-beta.4";
       neutralTerminal =
         pkgs:
         pkgs.writeShellApplication {
