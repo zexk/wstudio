@@ -34,8 +34,9 @@ effect, plugin format, or editing subsystem.
 
 ## 1.0.0-beta.8: compatibility freeze
 
-Settle public surfaces before release: `.wsj` migrations, Lua API behavior,
-configuration names, commands, keyboard grammar, and plugin persistence.
+Settle [beta.8 compatibility-freeze goals](beta-8-goals.md): `.wsj`
+migrations, Lua API behavior, configuration names, commands, keyboard grammar,
+CLI behavior, documentation, and plugin persistence.
 
 After this beta, incompatible changes require a documented migration or wait
 until after 1.0.
