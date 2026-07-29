@@ -62,6 +62,10 @@ pub const Registry = struct {
         const module_path = try std.fs.path.join(self.allocator, &.{ bundle, relative });
         defer self.allocator.free(module_path);
 
+        try self.scanModule(module_path, bundle);
+    }
+
+    pub fn scanModule(self: *Registry, module_path: []const u8, bundle: []const u8) !void {
         var module = try Module.open(module_path);
         defer module.close();
         const factory = module.factory;
@@ -85,7 +89,7 @@ pub const Registry = struct {
 
     fn append(self: *Registry, bundle: []const u8, info: *const abi.ClassInfo2, fallback_vendor: []const u8) !void {
         const id = abi.formatUid(info.cid);
-        for (self.plugins.items) |plugin| if (plugin.id == id) return;
+        for (self.plugins.items) |plugin| if (std.mem.eql(u8, &plugin.id, &id)) return;
         const name = std.mem.sliceTo(&info.name, 0);
         if (name.len == 0) return;
         const class_vendor = std.mem.sliceTo(&info.vendor, 0);
@@ -119,16 +123,19 @@ const Module = struct {
     fn open(path: []const u8) !Module {
         var library = try DynLib.open(path);
         errdefer library.close();
-        const entry_name, const exit_name = switch (builtin.os.tag) {
-            .windows => .{ "InitDll", "ExitDll" },
-            .linux => .{ "ModuleEntry", "ModuleExit" },
-            else => .{ "", "" },
-        };
         var exit: ?*const fn () callconv(abi.abi_callconv) bool = null;
-        if (entry_name.len > 0) {
-            const entry = library.lookup(*const fn (?*anyopaque) callconv(abi.abi_callconv) bool, entry_name) orelse return error.MissingModuleEntry;
-            if (!entry(null)) return error.ModuleEntryFailed;
-            exit = library.lookup(*const fn () callconv(abi.abi_callconv) bool, exit_name);
+        switch (builtin.os.tag) {
+            .windows => {
+                const entry = library.lookup(*const fn () callconv(abi.abi_callconv) bool, "InitDll") orelse return error.MissingModuleEntry;
+                if (!entry()) return error.ModuleEntryFailed;
+                exit = library.lookup(*const fn () callconv(abi.abi_callconv) bool, "ExitDll");
+            },
+            .linux => {
+                const entry = library.lookup(*const fn (?*anyopaque) callconv(abi.abi_callconv) bool, "ModuleEntry") orelse return error.MissingModuleEntry;
+                if (!entry(null)) return error.ModuleEntryFailed;
+                exit = library.lookup(*const fn () callconv(abi.abi_callconv) bool, "ModuleExit");
+            },
+            else => {},
         }
         errdefer {
             if (exit) |leave| _ = leave();
