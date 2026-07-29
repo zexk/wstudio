@@ -16,7 +16,7 @@ STATE_FILE="${WSTUDIO_TUI_SHOT_STATE:-/tmp/wstudio-tui-shot.env}"
 CLEAN_HOME="${WSTUDIO_TUI_SHOT_HOME:-/tmp/wstudio-tui-shot-home}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="$REPO_ROOT/zig-out/bin/wstudio"
-TEMPLATE_INIT="$REPO_ROOT/examples/init.lua"
+TEMPLATE_INIT="${TEMPLATE_INIT:-$REPO_ROOT/examples/init.lua}"
 RENDERER="$REPO_ROOT/tools/ansi2png.py"
 PYENV="${WSTUDIO_TUI_SHOT_PYENV:-/tmp/wstudio-tui-shot-python}"
 
@@ -67,7 +67,7 @@ cmd_start() {
     app_args+=("$clean_project")
   fi
   local command
-  printf -v command '%q ' env -i \
+  local -a clean_env=(
     "HOME=$CLEAN_HOME" \
     "XDG_CONFIG_HOME=$CLEAN_HOME/.config" \
     "XDG_STATE_HOME=$CLEAN_HOME/.local/state" \
@@ -75,8 +75,15 @@ cmd_start() {
     "LANG=C.UTF-8" \
     "LC_ALL=C.UTF-8" \
     "TERM=tmux-256color" \
-    "COLORTERM=truecolor" \
-    "$BIN" "${app_args[@]}"
+    "COLORTERM=truecolor"
+  )
+  [ -n "${WSTUDIO_TEST_CLAP_PATH:-}" ] && clean_env+=("WSTUDIO_TEST_CLAP_PATH=$WSTUDIO_TEST_CLAP_PATH")
+  [ -n "${WSTUDIO_TEST_VST3_PATH:-}" ] && clean_env+=("WSTUDIO_TEST_VST3_PATH=$WSTUDIO_TEST_VST3_PATH")
+  [ -n "${DISPLAY:-}" ] && clean_env+=("DISPLAY=$DISPLAY")
+  [ -n "${XAUTHORITY:-}" ] && clean_env+=("XAUTHORITY=$XAUTHORITY")
+  printf -v command '%q ' env -i "${clean_env[@]}" "$BIN" "${app_args[@]}"
+  command+=" 2>/tmp/wstudio-tui-shot.app.log"
+  : >/tmp/wstudio-tui-shot.app.log
 
   tmx new-session -d -s "$SESSION" -x "$COLS" -y "$ROWS" \
     -e "TERM=tmux-256color" -e "COLORTERM=truecolor" "$command"

@@ -134,26 +134,35 @@
       homeManagerModules.default = import ./home-manager-module.nix { inherit self; };
 
       devShells = forAllSystems (pkgs: {
-        default = pkgs.mkShell {
-          packages =
-            with pkgs;
-            [
-              zig
-              zls
-              pkg-config
-            ]
-            ++ lib.optionals stdenv.hostPlatform.isLinux [
-              alsa-lib
-              libGL
-              pipewire
-              valgrind
-              libx11
-              libxcursor
-              libxi
-              libxinerama
-              libxrandr
-            ];
-        };
+        default = pkgs.mkShell (
+          {
+            packages =
+              with pkgs;
+              [
+                zig
+                zls
+                pkg-config
+              ]
+              ++ lib.optionals stdenv.hostPlatform.isLinux [
+                alsa-lib
+                libGL
+                pipewire
+                valgrind
+                libx11
+                libxcursor
+                libxi
+                libxinerama
+                libxrandr
+                odin2
+                lsp-plugins
+              ];
+          }
+          // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+            CLAP_PATH = "${pkgs.odin2}/lib/clap";
+            WSTUDIO_TEST_CLAP_PATH = "${pkgs.odin2}/lib/clap";
+            WSTUDIO_TEST_VST3_PATH = "${pkgs.lsp-plugins}/lib/vst3";
+          }
+        );
       });
 
       packages = forAllSystems (pkgs: {

@@ -27,6 +27,10 @@ zig build run -- render demo.wsj demo.wav # render saved project without fronten
 zig build run -- render-stems demo.wsj stems # render each track without frontend
 ```
 
+On Linux, devShell also supplies Odin 2 for CLAP checks and LSP Plugins for
+VST3 checks. Launch either frontend with
+`-u tools/plugin_test_init.lua` to scan only those known plugins.
+
 Without Nix, install Zig 0.16 and ALSA development libraries (Linux only)
 and build the same way; see [CONTRIBUTING.md](CONTRIBUTING.md) for the
 full development setup. Once running: `enter` on a blank track opens the
