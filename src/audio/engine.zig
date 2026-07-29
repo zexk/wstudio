@@ -959,7 +959,11 @@ pub const Engine = struct {
                     (c.source == .track and c.track != self.active_spectrum_track) or
                     (c.source == .group and c.group != self.active_spectrum_group))
                 {
-                    self.track_spectrum.accumulated = 0;
+                    switch (c.source) {
+                        .track, .group => self.track_spectrum.reset(),
+                        .master => self.master_spectrum.reset(),
+                        .none => {},
+                    }
                 }
                 self.active_spectrum_source = c.source;
                 self.active_spectrum_track = c.track;

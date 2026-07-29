@@ -90,6 +90,13 @@ pub const SpectrumAnalyzer = struct {
         allocator.free(self.mags);
     }
 
+    pub fn reset(self: *SpectrumAnalyzer) void {
+        self.accumulated = 0;
+        self.gen.store(self.gen.load(.acquire) +% 1, .release);
+        for (&self.bin_atomics) |*bin| bin.store(@bitCast(@as(f32, -120.0)), .monotonic);
+        self.gen.store(self.gen.load(.monotonic) +% 1, .release);
+    }
+
     fn precomputeBands(self: *SpectrumAnalyzer) void {
         const sr_f: f32 = @floatFromInt(self.sample_rate);
         const n_f: f32 = @floatFromInt(self.fft_size);
@@ -213,6 +220,19 @@ test "push preserves samples past an FFT boundary" {
     sa.analyze();
 
     try std.testing.expectEqualSlices(f32, &.{ 4, 5 }, sa.buffer[0..2]);
+}
+
+test "reset clears partial input and published bins" {
+    var sa = try SpectrumAnalyzer.initConfig(std.testing.allocator, 48_000, 4, 2);
+    defer sa.deinit(std.testing.allocator);
+    sa.active.store(true, .monotonic);
+    sa.accumulated = 3;
+    sa.bin_atomics[0].store(@bitCast(@as(f32, -6.0)), .monotonic);
+
+    sa.reset();
+
+    try std.testing.expectEqual(@as(usize, 0), sa.accumulated);
+    try std.testing.expectEqual(@as(f32, -120.0), sa.snapshot().?.bins[0]);
 }
 
 test "SpectrumAnalyzer produces non-zero output for sine" {
