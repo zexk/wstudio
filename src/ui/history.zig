@@ -106,6 +106,20 @@ pub fn recordSlicer(app: *App, track: u16) void {
     push(app, captureSlicer(app, track));
 }
 
+fn swingValue(app: *App, track: u16) ?f32 {
+    if (track >= app.session.racks.items.len) return null;
+    const rack = app.session.racks.items[track];
+    return switch (rack.instrument) {
+        .drum_machine => |*dm| dm.swing.load(.monotonic),
+        .slicer => |*sl| sl.swing.load(.monotonic),
+        else => if (rack.pattern_player) |*pp| pp.swing.load(.monotonic) else null,
+    };
+}
+
+pub fn recordSwing(app: *App, track: u16, before: f32) void {
+    if (swingValue(app, track) != before) push(app, .{ .swing = .{ .track = track, .value = before } });
+}
+
 /// Deep-copies `src` into a freshly-allocated slice, or null on OOM (with
 /// every already-duped clip and the slice itself cleaned up first) - shared
 /// by captureLane and captureTrackFull's own clip-copy step.
@@ -591,6 +605,16 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             const displaced = liveParamValue(app, p.track, p.id) orelse return null;
             _ = app.session.engine.setTrackParam(p.track, p.id, p.value);
             return .{ .param_nudge = .{ .track = p.track, .id = p.id, .value = displaced } };
+        },
+        .swing => |s| {
+            const displaced = swingValue(app, s.track) orelse return null;
+            const rack = app.session.racks.items[s.track];
+            switch (rack.instrument) {
+                .drum_machine => |*dm| dm.swing.store(s.value, .monotonic),
+                .slicer => |*sl| sl.swing.store(s.value, .monotonic),
+                else => if (rack.pattern_player) |*pp| pp.swing.store(s.value, .monotonic) else return null,
+            }
+            return .{ .swing = .{ .track = s.track, .value = displaced } };
         },
         .track_insert => |state| {
             var s = state;

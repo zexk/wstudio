@@ -319,10 +319,40 @@ test ":swing sets the cursor track's pattern swing, clamped, and reports with no
     app.handleKey(.enter, 100);
     try std.testing.expectApproxEqAbs(@as(f32, 75.0), pp.swing.load(.monotonic), 1e-6);
 
+    app.handleKey(.{ .char = 'u' }, 100);
+    try std.testing.expectApproxEqAbs(@as(f32, 62.0), pp.swing.load(.monotonic), 1e-6);
+    app.handleKey(.{ .char = 'U' }, 100);
+    try std.testing.expectApproxEqAbs(@as(f32, 75.0), pp.swing.load(.monotonic), 1e-6);
+
     // No args reports the current value without changing it.
     for (":swing") |c| app.handleKey(.{ .char = c }, 100);
     app.handleKey(.enter, 100);
     try std.testing.expectApproxEqAbs(@as(f32, 75.0), pp.swing.load(.monotonic), 1e-6);
+}
+
+test "drum and slicer swing nudges are undoable" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.drum_track = 2;
+    app.view = .drum_grid;
+    _ = drum_ed.handleKey(&app, .{ .char = '>' });
+    try std.testing.expectApproxEqAbs(@as(f32, 51), app.drumMachine().swing.load(.monotonic), 1e-6);
+    history.doUndo(&app);
+    try std.testing.expectApproxEqAbs(@as(f32, 50), app.drumMachine().swing.load(.monotonic), 1e-6);
+    history.doRedo(&app);
+    try std.testing.expectApproxEqAbs(@as(f32, 51), app.drumMachine().swing.load(.monotonic), 1e-6);
+
+    _ = try app.session.addTrack("slice");
+    try app.session.setInstrument(3, .slicer);
+    app.slicer_track = 3;
+    app.view = .slicer_grid;
+    _ = slicer_ed.handleKey(&app, .{ .char = '>' });
+    try std.testing.expectApproxEqAbs(@as(f32, 51), app.slicerInst().swing.load(.monotonic), 1e-6);
+    history.doUndo(&app);
+    try std.testing.expectApproxEqAbs(@as(f32, 50), app.slicerInst().swing.load(.monotonic), 1e-6);
+    history.doRedo(&app);
+    try std.testing.expectApproxEqAbs(@as(f32, 51), app.slicerInst().swing.load(.monotonic), 1e-6);
 }
 
 test ":export-midi then :import-midi round-trips the cursor track's pattern" {

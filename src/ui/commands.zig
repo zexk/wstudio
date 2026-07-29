@@ -1017,8 +1017,7 @@ fn cmdSnapScale(app: *App, args: []const u8) void {
 /// the default) to 75 (hardest shuffle) - the melodic counterpart to the
 /// drum machine's `<`/`>` swing, so a melodic track can match a swung drum
 /// groove. Same track-resolution rule as `:clear`/`:humanize`. With no args,
-/// reports the current setting (matches `:scale`). Not undo-tracked - a
-/// mixer-style live param, same as the drum machine's own swing.
+/// reports the current setting (matches `:scale`).
 fn cmdSwing(app: *App, args: []const u8) void {
     const m = resolveMelodic(app) orelse {
         app.setStatus("swing: no piano-roll pattern", .{});
@@ -1033,7 +1032,9 @@ fn cmdSwing(app: *App, args: []const u8) void {
         app.setStatus("swing: expected a percent, e.g. :swing 62", .{});
         return;
     };
+    const before = m.pp.swing.load(.monotonic);
     m.pp.setSwing(pct);
+    history.recordSwing(app, @intCast(m.track), before);
     app.setStatus("swing: {d:.0}%", .{m.pp.swing.load(.monotonic)});
 }
 

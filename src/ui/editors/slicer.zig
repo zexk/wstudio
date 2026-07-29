@@ -321,8 +321,9 @@ fn cycleVariant(app: *App, delta: i32) void {
 /// Nudge the slicer's swing and echo the new value.
 fn adjustSwing(app: *App, delta: f32) void {
     const sl = app.slicerInst();
+    const before = sl.swing.load(.monotonic);
     sl.adjustSwing(delta);
-    app.dirty = true;
+    history.recordSwing(app, app.slicer_track, before);
     app.setStatus("swing {d:.0}%", .{sl.swing.load(.monotonic)});
 }
 

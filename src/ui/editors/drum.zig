@@ -727,8 +727,9 @@ fn startPadRenamePrompt(app: *App) void {
 /// Nudge the drum machine's swing and echo the new value.
 fn adjustSwing(app: *App, delta: f32) void {
     const dm = app.drumMachine();
+    const before = dm.swing.load(.monotonic);
     dm.adjustSwing(delta);
-    app.dirty = true;
+    history.recordSwing(app, app.drum_track, before);
     app.setStatus("swing {d:.0}%", .{dm.swing.load(.monotonic)});
 }
 

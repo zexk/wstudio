@@ -29,7 +29,7 @@ supported OS can play, capture, and receive MIDI from selected devices.
 ## Complete undo coverage
 
 History already covers content edits, arrangement edits, rack swaps, FX edits,
-and parameter nudges. Plain track creation, swing, and mixer gain and pan remain
+parameter nudges, plain track creation, and swing. Mixer gain and pan remain
 explicit exceptions.
 
 Goal:

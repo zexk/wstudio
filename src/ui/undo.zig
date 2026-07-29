@@ -144,6 +144,11 @@ pub const ParamNudgeState = struct {
     value: f32,
 };
 
+pub const SwingState = struct {
+    track: u16,
+    value: f32,
+};
+
 /// A synth/sampler param-nudge batch still open (cursor hasn't moved off
 /// the param yet). `before` is the absolute value captured when the batch
 /// opened; `steps` is the net signed delta dialed in so far, kept ONLY for
@@ -237,6 +242,7 @@ pub const Entry = union(enum) {
     lanes: MultiLaneState,
     fx: FxState,
     param_nudge: ParamNudgeState,
+    swing: SwingState,
     /// A deleted track's full backup; applying re-inserts it (undo of a
     /// delete, or redo of a restore).
     track_insert: TrackFullState,
@@ -258,6 +264,7 @@ pub const Entry = union(enum) {
             .lanes => |*l| l.deinit(allocator),
             .fx => |*f| f.deinit(allocator),
             .param_nudge => {},
+            .swing => {},
             .track_insert => |*t| t.deinit(allocator),
             .track_delete => {},
             .track_kind_swap => |*t| t.deinit(allocator),
@@ -272,6 +279,7 @@ pub const Entry = union(enum) {
             .lane, .lanes => "clip",
             .fx => "fx",
             .param_nudge => "param",
+            .swing => "swing",
             .track_insert, .track_delete => "track",
             .track_kind_swap => "instrument",
         };
@@ -415,6 +423,7 @@ fn retargetStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Alloc
                 if (kept == 0) keep = false;
             },
             .param_nudge => |*p| if (remap.apply(p.track)) |nt| { p.track = nt; } else { keep = false; },
+            .swing => |*s| if (remap.apply(s.track)) |nt| { s.track = nt; } else { keep = false; },
             .track_kind_swap => |*t| if (remap.apply(t.track)) |nt| { t.track = nt; } else { keep = false; },
             .fx => |*f| switch (f.target) {
                 .track => |t| if (remap.apply(t)) |nt| { f.target = .{ .track = nt }; } else { keep = false; },
