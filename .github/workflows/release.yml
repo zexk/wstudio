@@ -4,15 +4,29 @@ on:
   push:
     tags:
       - "v*"
+  # Lets a tag that already has a release get missing assets uploaded
+  # without deleting and re-pushing it. Dispatch from the default branch so
+  # this file is the one that runs, and name the tag to build:
+  #   gh workflow run release.yml -f tag=v1.0.0-beta.4
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and upload assets for
+        required: true
 
 permissions:
   contents: write
 
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
 jobs:
-  build:
+  linux-windows:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
@@ -41,16 +55,72 @@ jobs:
           cp zig-out/bin/wstudio.exe demo.wsj README.md CHANGELOG.md LICENSE dist/wstudio-windows-x86_64/
           cd dist
           zip -r wstudio-windows-x86_64.zip wstudio-windows-x86_64
-          sha256sum wstudio-linux-x86_64.tar.gz wstudio-windows-x86_64.zip > SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-windows
+          path: |
+            dist/wstudio-linux-x86_64.tar.gz
+            dist/wstudio-windows-x86_64.zip
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: cachix/install-nix-action@v31
+
+      # macos-latest is Apple Silicon, so arm64 is the native build and
+      # x86_64 cross-compiles beside it for Intel Macs.
+      - name: Build and package macOS releases
+        run: |
+          set -euo pipefail
+          for arch in aarch64 x86_64; do
+            case "$arch" in
+              aarch64) name=wstudio-macos-arm64 ;;
+              x86_64) name=wstudio-macos-x86_64 ;;
+            esac
+            nix develop --command zig build -Doptimize=ReleaseSafe -Dtarget="$arch-macos"
+            mkdir -p "dist/$name"
+            cp zig-out/bin/wstudio demo.wsj README.md CHANGELOG.md LICENSE "dist/$name/"
+            tar -C dist -czf "dist/$name.tar.gz" "$name"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/wstudio-macos-*.tar.gz
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [linux-windows, macos]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksum every archive
+        run: cd dist && sha256sum ./*.tar.gz ./*.zip > SHA256SUMS
 
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        # Creating fails when the tag already has a release, which is the
+        # re-run case: upload the assets into it instead, leaving whatever
+        # release notes are already there alone.
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            dist/wstudio-linux-x86_64.tar.gz \
-            dist/wstudio-windows-x86_64.zip \
+          gh release create "$TAG" \
+            dist/wstudio-*.tar.gz \
+            dist/wstudio-*.zip \
             dist/SHA256SUMS \
             --generate-notes \
             --prerelease \
-            --title "wstudio ${GITHUB_REF_NAME#v}"
+            --title "wstudio ${TAG#v}" \
+          || gh release upload "$TAG" \
+            dist/wstudio-*.tar.gz \
+            dist/wstudio-*.zip \
+            dist/SHA256SUMS \
+            --clobber
