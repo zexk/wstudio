@@ -22,7 +22,8 @@ pub const quarantine_buf_len = path_buf_len + ".corrupt.".len +
 /// Resolves `<config dir>/<filename>` through the same `userConfigDir` that
 /// places `init.lua`, so every user file this program owns lives in one
 /// directory: `$XDG_CONFIG_HOME/wstudio`, else `%APPDATA%\wstudio` on
-/// Windows, else `~/.config/wstudio`. Null if none of those resolve -
+/// Windows, else macOS Application Support, else `~/.config/wstudio`.
+/// Null if none of those resolve -
 /// callers then just don't persist across runs rather than blocking
 /// startup.
 pub fn configPath(buf: []u8, comptime filename: []const u8) ?[]const u8 {

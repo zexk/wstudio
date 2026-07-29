@@ -827,6 +827,13 @@ pub const Runtime = struct {
         }
         var path_buf: [std.fs.max_path_bytes]u8 = undefined;
         if (userConfigPath(&path_buf)) |path| {
+            if (builtin.os.tag == .macos) {
+                if (try loadIfPresent(self, io, path)) return true;
+                var legacy_buf: [std.fs.max_path_bytes]u8 = undefined;
+                if (legacyMacConfigPath(&legacy_buf)) |legacy| {
+                    if (try loadIfPresent(self, io, legacy)) return true;
+                }
+            }
             return self.loadOrGenerateUserConfig(io, path, system_config_path);
         }
         return loadIfPresent(self, io, system_config_path);
@@ -921,13 +928,30 @@ pub const Runtime = struct {
     }
 };
 
-/// Make `require "foo"` find `~/.config/wstudio/lua/foo.lua` (or
-/// `foo/init.lua`), mirroring Neovim's runtime `lua/` directory.
+/// Make `require "foo"` find `lua/foo.lua` (or `foo/init.lua`) below
+/// `userConfigDir`, mirroring Neovim's runtime `lua/` directory.
 fn prependUserLuaPath(state: *c.lua_State) void {
     var dir_buf: [std.fs.max_path_bytes]u8 = undefined;
     const dir = userConfigDir(&dir_buf) orelse return;
-    var prefix_buf: [2 * std.fs.max_path_bytes + 32]u8 = undefined;
-    const prefix = std.fmt.bufPrint(&prefix_buf, "{s}/lua/?.lua;{s}/lua/?/init.lua;", .{ dir, dir }) catch return;
+    var prefix_buf: [4 * std.fs.max_path_bytes + 64]u8 = undefined;
+    const prefix = if (builtin.os.tag == .macos) blk: {
+        var legacy_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const legacy_path = legacyMacConfigPath(&legacy_buf) orelse break :blk std.fmt.bufPrint(
+            &prefix_buf,
+            "{s}/lua/?.lua;{s}/lua/?/init.lua;",
+            .{ dir, dir },
+        ) catch return;
+        const legacy_dir = std.fs.path.dirname(legacy_path).?;
+        break :blk std.fmt.bufPrint(
+            &prefix_buf,
+            "{s}/lua/?.lua;{s}/lua/?/init.lua;{s}/lua/?.lua;{s}/lua/?/init.lua;",
+            .{ dir, dir, legacy_dir, legacy_dir },
+        ) catch return;
+    } else std.fmt.bufPrint(
+        &prefix_buf,
+        "{s}/lua/?.lua;{s}/lua/?/init.lua;",
+        .{ dir, dir },
+    ) catch return;
     _ = c.lua_getglobal(state, "package");
     _ = c.lua_pushlstring(state, prefix.ptr, prefix.len);
     _ = c.lua_getfield(state, -2, "path");
@@ -982,8 +1006,16 @@ fn configDirFromEnv(buf: []u8, os: std.Target.Os.Tag, xdg: ?[]const u8, appdata:
     if (os == .windows) {
         if (appdata) |dir| return std.fmt.bufPrint(buf, "{s}{c}wstudio", .{ dir, sep }) catch null;
     }
+    if (os == .macos) {
+        if (home) |dir| return std.fmt.bufPrint(buf, "{s}/Library/Application Support/wstudio", .{dir}) catch null;
+    }
     if (home) |dir| return std.fmt.bufPrint(buf, "{s}{c}.config{c}wstudio", .{ dir, sep, sep }) catch null;
     return null;
+}
+
+fn legacyMacConfigPath(buf: []u8) ?[]const u8 {
+    const home = envValue("HOME") orelse return null;
+    return std.fmt.bufPrint(buf, "{s}/.config/wstudio/init.lua", .{home}) catch null;
 }
 
 pub fn userConfigPath(buf: []u8) ?[]const u8 {
@@ -998,6 +1030,8 @@ test "config directory follows platform conventions" {
     try std.testing.expectEqualStrings("C:\\Users\\Ada\\AppData\\Roaming\\wstudio", configDirFromEnv(&buf, .windows, null, "C:\\Users\\Ada\\AppData\\Roaming", null).?);
     try std.testing.expectEqualStrings("D:\\xdg\\wstudio", configDirFromEnv(&buf, .windows, "D:\\xdg", "C:\\AppData", "C:\\Users\\Ada").?);
     try std.testing.expectEqualStrings("/home/ada/.config/wstudio", configDirFromEnv(&buf, .linux, null, null, "/home/ada").?);
+    try std.testing.expectEqualStrings("/Users/ada/Library/Application Support/wstudio", configDirFromEnv(&buf, .macos, null, null, "/Users/ada").?);
+    try std.testing.expectEqualStrings("/tmp/xdg/wstudio", configDirFromEnv(&buf, .macos, "/tmp/xdg", null, "/Users/ada").?);
 }
 
 fn runtime(state: *c.lua_State) *Runtime {

@@ -216,7 +216,7 @@ redeclared when `:reload-config` sources the config again, so a Lua module can
 be a complete, repeatable colorscheme:
 
 ```lua
--- ~/.config/wstudio/lua/colors/mocha.lua
+-- <user config directory>/lua/colors/mocha.lua
 local api = wstudio.api
 api.set_hl("bg0", { fg = "#11111b" })
 api.set_hl("bg1", { fg = "#181825" })
@@ -664,7 +664,7 @@ Design decisions:
    options, Nix modules.
 2. **Foundations (shipped).** Comptime option spec table replacing the if-chains;
    config loading on the GUI path; `wstudio.frontend`; `package.path` for
-   `~/.config/wstudio/lua/`; `wstudio.notify`; `wstudio.cmd` /
+   user config directory's `lua/`; `wstudio.notify`; `wstudio.cmd` /
    `wstudio.api.exec` (needs the Runtime threaded into `App`).
 3. **Commands (shipped).** `create_user_command` / `del_user_command`,
    `:help` and completion integration.

@@ -3,7 +3,7 @@
 Small pieces of user state live as JSON files in the same directory
 `init.lua` does, resolved by `config.userConfigDir`:
 `$XDG_CONFIG_HOME/wstudio`, else `%APPDATA%\wstudio` on Windows, else
-`~/.config/wstudio`.
+`~/Library/Application Support/wstudio` on macOS, else `~/.config/wstudio`.
 
 | File | Contents |
 | --- | --- |
@@ -18,10 +18,10 @@ with an empty list.
 
 They previously resolved through `$HOME` alone (`$USERPROFILE` on Windows),
 which put them somewhere other than `init.lua` for anyone with
-`$XDG_CONFIG_HOME` or `%APPDATA%` set. `load` still reads that older
-`~/.config/wstudio/` location when the current one holds nothing, so
-existing files keep working; `save` only writes the current location, so the
-first save after the change migrates the file.
+`$XDG_CONFIG_HOME` or `%APPDATA%` set. macOS also previously used
+`~/.config/wstudio`. `load` still reads that older location when the current
+one holds nothing, so existing files keep working; `save` only writes the
+current location, so the first save after the change migrates the file.
 
 Each store loads once during `App.init`. Changes rewrite the complete
 collection because the files are small and this keeps their formats simple.

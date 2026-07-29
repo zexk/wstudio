@@ -84,8 +84,12 @@ pub const ModalInput = input.ModalInput;
 
 const std = @import("std");
 
-/// `$XDG_DATA_HOME/fonts`, falling back to `$HOME/.local/share/fonts`.
+/// Platform user font directory.
 pub fn iconFontDir(buf: []u8) ![]const u8 {
+    if (@import("builtin").os.tag == .macos) {
+        if (std.c.getenv("HOME")) |home| return std.fmt.bufPrint(buf, "{s}/Library/Fonts", .{std.mem.sliceTo(home, 0)});
+        return error.NoFontDir;
+    }
     if (std.c.getenv("XDG_DATA_HOME")) |xdg| return std.fmt.bufPrint(buf, "{s}/fonts", .{std.mem.sliceTo(xdg, 0)});
     if (std.c.getenv("HOME")) |home| return std.fmt.bufPrint(buf, "{s}/.local/share/fonts", .{std.mem.sliceTo(home, 0)});
     return error.NoFontDir;
