@@ -1005,6 +1005,7 @@ pub fn save(
     const json_bytes = try std.json.Stringify.valueAlloc(aa, snap, .{ .whitespace = .indent_2 });
 
     const tmp_path = try std.fmt.allocPrint(aa, "{s}.tmp", .{path});
+    errdefer std.Io.Dir.cwd().deleteFile(io, tmp_path) catch {};
     {
         const file = try std.Io.Dir.cwd().createFile(io, tmp_path, .{});
         defer file.close(io);
@@ -1472,6 +1473,7 @@ fn writeSampleWav(
         dir_ready.* = true;
     }
     const tmp = try std.fmt.allocPrint(aa, "{s}.tmp", .{full});
+    errdefer std.Io.Dir.cwd().deleteFile(io, tmp) catch {};
     {
         const file = try std.Io.Dir.cwd().createFile(io, tmp, .{});
         defer file.close(io);
@@ -1502,6 +1504,7 @@ fn writeSampleBytes(
         dir_ready.* = true;
     }
     const tmp = try std.fmt.allocPrint(aa, "{s}.tmp", .{full});
+    errdefer std.Io.Dir.cwd().deleteFile(io, tmp) catch {};
     {
         const file = try std.Io.Dir.cwd().createFile(io, tmp, .{});
         defer file.close(io);
@@ -3243,6 +3246,23 @@ test "save/load round-trip persists a compressor's sidechain_source" {
     const sc = loaded.racks.items[0].fx.units.items[0].payload.comp.sidechain_source.?;
     try testing.expectEqual(@as(u16, 7), sc.track);
     try testing.expectEqual(@as(?u8, 2), sc.pad);
+}
+
+test "failed save removes temporary project file" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/blocked.wsj", .{&tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(testing.io, wsj_path);
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try testing.expectError(error.IsDir, save(testing.allocator, &session, testing.io, wsj_path));
+
+    var tmp_path_buf: [68]u8 = undefined;
+    const tmp_path = try std.fmt.bufPrint(&tmp_path_buf, "{s}.tmp", .{wsj_path});
+    try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().access(testing.io, tmp_path, .{}));
 }
 
 // `wstudio.o.default_drum_steps`/`default_slicer_steps`/
