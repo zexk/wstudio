@@ -87,6 +87,13 @@ and the platform paths the CLAP specification requires, or only
 .I wstudio.o.clap_plugin_path
 when that option is set.
 .TP
+.B vst3\-scan
+List every installed VST3 audio-module class as
+.I <class-id> <name> <path>
+and exit. Discovery uses standard platform VST3 directories, or only
+.I wstudio.o.vst3_plugin_path
+when that option is set.
+.TP
 .B devices
 List backend-native audio input, audio output, and live MIDI input device
 identifiers for use with

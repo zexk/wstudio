@@ -614,7 +614,7 @@ Design decisions:
   one write is one undo entry, so a generated phrase undoes as the single
   gesture it was. `steps_set` validates every entry before applying any, so a
   bad entry at the end of the list cannot leave a half-rewritten grid behind.
-  `notes_*` works on melodic tracks (synth, sampler, soundfont, CLAP) and
+  `notes_*` works on melodic tracks (synth, sampler, soundfont, CLAP, VST3) and
   `steps_*` on drum tracks; each raises on the other kind, naming which
   function to use instead. `pattern_get(i).kind` reports which one applies.
   Slicer tracks have a step grid of their own shape and are not scriptable
@@ -628,9 +628,9 @@ Design decisions:
   stable identity if a script needs to re-find a unit.
 - **FX parameters are whatever the editor draws.** `fx_params` reports the
   live name, value, range, and whether the param is a discrete list, for the
-  exact param set the FX editor shows for that unit, CLAP's runtime metadata
+  exact param set the FX editor shows for that unit, external plugin runtime metadata
   included. `fx_param_set` takes an index or a name. Names are not unique on
-  `eq` and `mb_comp` (one set per band) and CLAP plugins report their own, so
+  `eq` and `mb_comp` (one set per band) and CLAP/VST3 plugins report their own, so
   a name match takes the first hit; index those kinds by number. Values are
   clamped to the param's range by the same setter the editor's `h`/`l` nudge
   uses, rather than raising, so the range in `fx_params` is advisory.

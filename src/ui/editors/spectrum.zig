@@ -512,7 +512,7 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
     };
 }
 
-/// Parameter label copied into `buf` for CLAP's runtime metadata, or the
+/// Parameter label copied into `buf` for external runtime metadata, or the
 /// static built-in label. The returned slice remains valid for the caller's
 /// rendering operation.
 pub fn formatParamName(buf: []u8, p: *const FxPayload, idx: usize) []const u8 {

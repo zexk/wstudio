@@ -30,7 +30,7 @@ and build the same way; see [CONTRIBUTING.md](CONTRIBUTING.md) for the
 full development setup. Once running: `enter` on a blank track opens the
 instrument picker, `space` plays/stops, and `:help` lists every command.
 
-## CLAP plugins
+## External plugins
 
 wstudio hosts stereo CLAP instruments and effects using the
 [CLAP 1.2 ABI](https://github.com/free-audio/clap). Discovery follows
@@ -49,6 +49,22 @@ The instrument and effect pickers divide devices into `Internal` and
 the platform's canonical directories. Set
 `wstudio.o.clap_plugin_path = "/path/to/clap"` in `init.lua` to scan only a
 fixed custom directory instead.
+
+wstudio also hosts VST3 instruments and effects. Discovery uses standard Linux,
+Windows, and macOS VST3 directories. Set
+`wstudio.o.vst3_plugin_path = "/path/to/vst3"` to scan one custom directory,
+or inspect discovery with:
+
+```sh
+wstudio vst3-scan
+```
+
+VST3 supports one mono or stereo main output for instruments, and one mono or
+stereo main input and output for effects. Notes, mapped MIDI CC and pitch bend,
+transport, generic parameter editing, opaque component/controller state,
+latency queries, and restart notifications are supported. Native VST3 editor
+windows, multiple buses, sidechains, surround, and sample-accurate parameter
+ramps are not supported.
 
 The scan prints `<plugin-id> <name> <path>`. In either frontend, select a
 track and use:

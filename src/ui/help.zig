@@ -128,7 +128,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.group("BASICS");
     t.key("j / k",        "move cursor down / up over rows - tracks, group rows, then MASTER last");
     t.key("enter",        "open the selected instrument editor - on a group row / MASTER: open its FX chain");
-    t.key("p",            "piano roll for melodic tracks (synth, sampler, SoundFont, or CLAP)");
+    t.key("p",            "piano roll for melodic tracks (synth, sampler, SoundFont, CLAP, or VST3)");
     t.key("s",            "FX chain for selected track - same on a group row / MASTER");
     t.key("m",            "mute / unmute selected track - on a group row: every member track at once");
     t.key("S",            "solo / unsolo selected track - on a group row: every member track at once");

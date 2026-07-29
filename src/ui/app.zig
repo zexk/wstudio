@@ -4374,7 +4374,7 @@ pub const App = struct {
         if (!playing and was_playing) self.finishRecording();
     }
 
-    /// CLAP main-thread callbacks and dirty-state notifications share the
+    /// External-plugin main-thread callbacks and dirty-state notifications share the
     /// frontend-neutral frame tick so TUI and GUI hosts behave identically.
     fn servicePluginHosts(self: *App) void {
         for (self.session.racks.items) |rack| {
