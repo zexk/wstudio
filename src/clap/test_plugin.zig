@@ -10,6 +10,8 @@ const State = struct {
     gui_created: bool = false,
     gui_visible: bool = false,
     restart_sent: bool = false,
+    thread_pool_ran: bool = false,
+    thread_tasks: @import("std").atomic.Value(u32) = .init(0),
 };
 
 var state: State = .{};
@@ -63,6 +65,8 @@ fn pluginInit(_: *const abi.Plugin) callconv(.c) bool {
     const host_tail: *const abi.HostTail = @ptrCast(@alignCast(host.get_extension(host, abi.ext_tail) orelse return false));
     host_tail.changed(host);
     state.restart_sent = false;
+    state.thread_pool_ran = false;
+    state.thread_tasks.store(0, .monotonic);
     return true;
 }
 
@@ -97,6 +101,13 @@ fn process(_: *const abi.Plugin, block: *const abi.Process) callconv(.c) i32 {
         state.restart_sent = true;
         const host = state.host orelse return 0;
         host.request_restart(host);
+    }
+    if (!state.thread_pool_ran) {
+        state.thread_pool_ran = true;
+        const host = state.host orelse return 0;
+        const host_pool: *const abi.HostThreadPool = @ptrCast(@alignCast(host.get_extension(host, abi.ext_thread_pool) orelse return 0));
+        state.thread_tasks.store(0, .monotonic);
+        if (host_pool.request_exec(host, 4) and state.thread_tasks.load(.acquire) == 0b1111) state.gain += 0.5;
     }
     const output = block.audio_outputs.?[0];
     if (output.channel_count != 2) return 0;
@@ -153,6 +164,12 @@ const audio_ports: abi.PluginAudioPorts = .{
     .count = audioPortCount,
     .get = getAudioPort,
 };
+
+fn threadPoolExec(_: *const abi.Plugin, task_index: u32) callconv(.c) void {
+    if (task_index < 32) _ = state.thread_tasks.fetchOr(@as(u32, 1) << @intCast(task_index), .release);
+}
+
+const thread_pool: abi.PluginThreadPool = .{ .exec = threadPoolExec };
 
 fn notePortCount(_: *const abi.Plugin, is_input: bool) callconv(.c) u32 {
     return if (is_input) 1 else 0;
@@ -352,6 +369,7 @@ fn getExtension(_: *const abi.Plugin, id: [*:0]const u8) callconv(.c) ?*const an
     if (@import("std").mem.eql(u8, name, "clap.latency")) return &plugin_latency;
     if (@import("std").mem.eql(u8, name, "clap.tail")) return &plugin_tail;
     if (@import("std").mem.eql(u8, name, "clap.gui")) return &plugin_gui;
+    if (@import("std").mem.eql(u8, name, "clap.thread-pool")) return &thread_pool;
     return null;
 }
 

@@ -9,8 +9,10 @@ const dynlib_compat = @import("dynlib_compat.zig");
 const open_entry = @import("open_entry.zig");
 
 const max_events = 256;
+const max_thread_pool_workers = 4;
 
 threadlocal var on_audio_thread = false;
+threadlocal var on_thread_pool = false;
 
 const NoteDialect = enum { none, clap, midi };
 
@@ -102,6 +104,8 @@ const HostContext = struct {
     gui_show_requested: std.atomic.Value(bool) = .init(false),
     gui_hide_requested: std.atomic.Value(bool) = .init(false),
     gui_closed: std.atomic.Value(u8) = .init(0),
+    plugin: ?*const abi.Plugin = null,
+    plugin_thread_pool: ?*const abi.PluginThreadPool = null,
     main_thread_id: std.Thread.Id,
 
     fn init() HostContext {
@@ -139,7 +143,26 @@ const HostContext = struct {
         if (std.mem.eql(u8, name, std.mem.span(abi.ext_thread_check))) return &host_thread_check;
         if (std.mem.eql(u8, name, std.mem.span(abi.ext_log))) return &host_log;
         if (std.mem.eql(u8, name, std.mem.span(abi.ext_gui))) return &host_gui;
+        if (std.mem.eql(u8, name, std.mem.span(abi.ext_thread_pool))) return &host_thread_pool;
         return null;
+    }
+
+    fn requestExec(host: *const abi.Host, num_tasks: u32) callconv(.c) bool {
+        const self = fromHost(host);
+        if (!on_audio_thread or on_thread_pool or num_tasks == 0) return false;
+        const plugin = self.plugin orelse return false;
+        const pool = self.plugin_thread_pool orelse return false;
+        // ponytail: spawn bounded workers per request; keep persistent workers if profiling shows thread startup misses deadlines.
+        const worker_count: usize = @min(num_tasks, max_thread_pool_workers);
+        var jobs: [max_thread_pool_workers]ThreadPoolJob = undefined;
+        var threads: [max_thread_pool_workers]?std.Thread = .{null} ** max_thread_pool_workers;
+        for (0..worker_count) |i| {
+            jobs[i] = .{ .plugin = plugin, .pool = pool, .next = @intCast(i), .step = @intCast(worker_count), .count = num_tasks };
+            threads[i] = std.Thread.spawn(.{}, ThreadPoolJob.run, .{&jobs[i]}) catch null;
+            if (threads[i] == null) jobs[i].run();
+        }
+        for (threads[0..worker_count]) |thread| if (thread) |t| t.join();
+        return true;
     }
 
     fn requestRestart(host: *const abi.Host) callconv(.c) void {
@@ -233,6 +256,26 @@ const HostContext = struct {
         .request_hide = guiRequestHide,
         .closed = guiClosed,
     };
+    const host_thread_pool: abi.HostThreadPool = .{ .request_exec = requestExec };
+};
+
+const ThreadPoolJob = struct {
+    plugin: *const abi.Plugin,
+    pool: *const abi.PluginThreadPool,
+    next: u32,
+    step: u32,
+    count: u32,
+
+    fn run(self: *const ThreadPoolJob) void {
+        on_audio_thread = true;
+        on_thread_pool = true;
+        defer {
+            on_thread_pool = false;
+            on_audio_thread = false;
+        }
+        var task = self.next;
+        while (task < self.count) : (task += self.step) self.pool.exec(self.plugin, task);
+    }
 };
 
 fn acceptOutputEvent(list: ?*const abi.OutputEvents, event: *const abi.EventHeader) callconv(.c) bool {
@@ -301,6 +344,8 @@ pub const ClapPlugin = struct {
         errdefer plugin.destroy(plugin);
         if (!abi.versionIsCompatible(plugin.desc.clap_version)) return error.IncompatibleClapVersion;
         if (!plugin.init(plugin)) return error.PluginInitFailed;
+        host_context.plugin = plugin;
+        host_context.plugin_thread_pool = getExt(abi.PluginThreadPool, plugin, abi.ext_thread_pool);
         const audio_inputs_count = try validateAudioPorts(plugin);
         const note_support = detectNoteSupport(plugin);
         if (!plugin.activate(plugin, @floatFromInt(sample_rate), 1, types.max_block_frames))

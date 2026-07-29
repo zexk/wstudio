@@ -20,6 +20,7 @@ pub const ext_tail: [*:0]const u8 = "clap.tail";
 pub const ext_thread_check: [*:0]const u8 = "clap.thread-check";
 pub const ext_log: [*:0]const u8 = "clap.log";
 pub const ext_gui: [*:0]const u8 = "clap.gui";
+pub const ext_thread_pool: [*:0]const u8 = "clap.thread-pool";
 pub const window_api_win32: [*:0]const u8 = "win32";
 pub const window_api_cocoa: [*:0]const u8 = "cocoa";
 pub const window_api_wayland: [*:0]const u8 = "wayland";
@@ -293,6 +294,14 @@ pub const Host = extern struct {
     request_restart: *const fn (*const Host) callconv(.c) void,
     request_process: *const fn (*const Host) callconv(.c) void,
     request_callback: *const fn (*const Host) callconv(.c) void,
+};
+
+pub const PluginThreadPool = extern struct {
+    exec: *const fn (*const Plugin, u32) callconv(.c) void,
+};
+
+pub const HostThreadPool = extern struct {
+    request_exec: *const fn (*const Host, u32) callconv(.c) bool,
 };
 
 pub const Plugin = extern struct {
