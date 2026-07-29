@@ -704,12 +704,11 @@ pub const Vst3Plugin = struct {
         if (self.restart_ready.swap(false, .acquire)) {
             _ = self.component.vtable.set_active(self.component, 0);
             var setup: abi.ProcessSetup = .{ .process_mode = 0, .symbolic_sample_size = 0, .max_samples_per_block = types.max_block_frames, .sample_rate = @floatFromInt(self.sample_rate) };
-            if (self.processor.vtable.setup_processing(self.processor, &setup) == 0 and
+            if (!(self.processor.vtable.setup_processing(self.processor, &setup) == 0 and
                 self.component.vtable.set_active(self.component, 1) == 0 and
-                self.processor.vtable.set_processing(self.processor, 1) == 0)
-            {
-                self.restart_in_progress.store(false, .release);
-            } else std.log.err("VST3 restart failed: {s}", .{self.classId()});
+                self.processor.vtable.set_processing(self.processor, 1) == 0))
+                std.log.err("VST3 restart failed: {s}", .{self.classId()});
+            self.restart_in_progress.store(false, .release);
         }
         _ = self.host_context.restart_flags.swap(0, .acquire);
         return self.host_context.state_dirty.swap(false, .acquire);
