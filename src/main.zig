@@ -58,6 +58,7 @@ pub fn main(init: std.process.Init) !void {
             if (rest.items.len < 2 or rest.items.len > 3) return renderStemsUsage(init.io);
             return renderProjectStems(init.gpa, init.io, rest.items[1], if (rest.items.len == 3) rest.items[2] else "stems");
         }
+        if (!validArgCount(cmd, rest.items.len)) return unexpectedArg(init.io, rest.items[validArgLimit(cmd)]);
         if (std.mem.eql(u8, cmd, "clap-scan")) return scanClap(init);
         if (std.mem.eql(u8, cmd, "vst3-scan")) return scanVst3(init);
         if (std.mem.eql(u8, cmd, "devices")) return listDevices(init.io);
@@ -68,6 +69,23 @@ pub fn main(init: std.process.Init) !void {
         return runPreferred(init, init_override, cmd);
     }
     return runPreferred(init, init_override, null);
+}
+
+fn validArgLimit(cmd: []const u8) usize {
+    if (std.mem.eql(u8, cmd, "--gui") or std.mem.eql(u8, cmd, "--tui")) return 2;
+    return 1;
+}
+
+fn validArgCount(cmd: []const u8, count: usize) bool {
+    return count <= validArgLimit(cmd);
+}
+
+fn unexpectedArg(io: std.Io, arg: []const u8) !void {
+    var stderr_buffer: [256]u8 = undefined;
+    var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
+    try stderr_writer.interface.print("wstudio: unexpected argument: {s}\n", .{arg});
+    try stderr_writer.interface.flush();
+    return error.InvalidArguments;
 }
 
 fn missingInitArg(io: std.Io) !void {
@@ -417,4 +435,12 @@ test "project paths are not truncated" {
     defer std.testing.allocator.free(owned);
 
     try std.testing.expectEqualStrings(path, owned);
+}
+
+test "CLI argument counts reject extras" {
+    try std.testing.expect(validArgCount("devices", 1));
+    try std.testing.expect(!validArgCount("devices", 2));
+    try std.testing.expect(validArgCount("--gui", 2));
+    try std.testing.expect(!validArgCount("--gui", 3));
+    try std.testing.expect(!validArgCount("song.wsj", 2));
 }
