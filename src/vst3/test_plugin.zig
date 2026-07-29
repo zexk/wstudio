@@ -372,6 +372,14 @@ export fn ExitDll() callconv(abi.abi_callconv) bool {
     return true;
 }
 
+export fn bundleEntry(_: ?*anyopaque) callconv(abi.abi_callconv) bool {
+    return ModuleEntry(null);
+}
+
+export fn bundleExit() callconv(abi.abi_callconv) bool {
+    return true;
+}
+
 export fn GetPluginFactory() callconv(abi.abi_callconv) ?*abi.PluginFactory {
     return @ptrCast(&factory);
 }
