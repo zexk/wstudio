@@ -23,6 +23,9 @@ stay under `.zig-cache/` or temporary directories.
 - Isolated TUI and GUI sessions opened `demo.wsj` with template config and
   rendered expected track views. Screenshot harnesses used private tmux/Xvfb,
   clean HOME/XDG directories, and copied projects.
+- Valgrind 3.26 Memcheck on baseline-CPU build and full demo render: zero
+  errors and zero bytes in use at exit.
+- `actionlint` accepted CI and release workflows.
 
 ## Automated gate
 
@@ -35,6 +38,12 @@ zig build -Dtarget=x86_64-windows-gnu
 zig build beta7-soak -Doptimize=ReleaseSafe
 nix flake check --no-build
 nix build .#default .#windows .#macos --no-link
+zig build -Dcpu=baseline
+nix develop --command valgrind --leak-check=full \
+  --show-leak-kinds=definite,indirect \
+  --errors-for-leak-kinds=definite,indirect --track-origins=yes \
+  --error-exitcode=99 zig-out/bin/wstudio render demo.wsj \
+  .zig-cache/beta9-valgrind-render.wav
 ```
 
 Tag pushes run `.github/workflows/release.yml`. Each native release job builds
