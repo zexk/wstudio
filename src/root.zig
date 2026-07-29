@@ -83,10 +83,15 @@ pub const input = @import("input/modal.zig");
 pub const ModalInput = input.ModalInput;
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 /// Platform user font directory.
 pub fn iconFontDir(buf: []u8) ![]const u8 {
-    if (@import("builtin").os.tag == .macos) {
+    if (builtin.os.tag == .windows) {
+        if (std.c.getenv("LOCALAPPDATA")) |local| return std.fmt.bufPrint(buf, "{s}\\Microsoft\\Windows\\Fonts", .{std.mem.sliceTo(local, 0)});
+        return error.NoFontDir;
+    }
+    if (builtin.os.tag == .macos) {
         if (std.c.getenv("HOME")) |home| return std.fmt.bufPrint(buf, "{s}/Library/Fonts", .{std.mem.sliceTo(home, 0)});
         return error.NoFontDir;
     }

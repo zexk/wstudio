@@ -212,6 +212,11 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
+    if (target.result.os.tag == .windows) {
+        install_font.root_module.link_libc = true;
+        install_font.root_module.linkSystemLibrary("advapi32", .{});
+        install_font.root_module.linkSystemLibrary("gdi32", .{});
+    }
     const run_install_font = b.addRunArtifact(install_font);
     const install_font_step = b.step("install-font", "Install the TUI's icon font for your user");
     install_font_step.dependOn(&run_install_font.step);

@@ -11,9 +11,42 @@
 //! plain ASCII rather than a stray tofu box next to it.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const ws = @import("wstudio");
 
+const win = if (builtin.os.tag == .windows) @cImport({
+    @cInclude("windows.h");
+}) else struct {};
+
 const font_name = "wstudio-icons.ttf";
+
+fn registerWindowsFont(path: []const u8) !void {
+    if (builtin.os.tag != .windows) return;
+
+    var path_w: [1024]u16 = undefined;
+    const path_len = try std.unicode.utf8ToUtf16Le(&path_w, path);
+    path_w[path_len] = 0;
+
+    const key_path = std.unicode.utf8ToUtf16LeStringLiteral("Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts");
+    const value_name = std.unicode.utf8ToUtf16LeStringLiteral("Symbols Nerd Font Mono (TrueType)");
+    var root: win.HKEY = null;
+    if (win.RegOpenCurrentUser(win.KEY_CREATE_SUB_KEY | win.KEY_SET_VALUE, &root) != win.ERROR_SUCCESS)
+        return error.FontRegistrationFailed;
+    defer _ = win.RegCloseKey(root);
+    var key: win.HKEY = null;
+    if (win.RegCreateKeyExW(root, key_path, 0, null, 0, win.KEY_SET_VALUE, null, &key, null) != win.ERROR_SUCCESS)
+        return error.FontRegistrationFailed;
+    defer _ = win.RegCloseKey(key);
+    if (win.RegSetValueExW(
+        key,
+        value_name,
+        0,
+        win.REG_SZ,
+        @ptrCast(&path_w),
+        @intCast((path_len + 1) * @sizeOf(u16)),
+    ) != win.ERROR_SUCCESS) return error.FontRegistrationFailed;
+    if (win.AddFontResourceExW(&path_w, 0, null) == 0) return error.FontRegistrationFailed;
+}
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -26,7 +59,7 @@ pub fn main(init: std.process.Init) !void {
     const dir = ws.iconFontDir(&path_buf) catch {
         try stdout.writeAll(
             "install-font: could not determine a font directory " ++
-                "(neither $XDG_DATA_HOME nor $HOME is set)\n",
+                "from platform environment\n",
         );
         try stdout.flush();
         return error.NoFontDir;
@@ -37,16 +70,19 @@ pub fn main(init: std.process.Init) !void {
     var full_buf: [1024]u8 = undefined;
     const full_path = try std.fmt.bufPrint(&full_buf, "{s}/{s}", .{ dir, font_name });
 
-    const file = try std.Io.Dir.cwd().createFile(io, full_path, .{});
-    defer file.close(io);
-    var fbuf: [4096]u8 = undefined;
-    var fw = file.writer(io, &fbuf);
-    try fw.interface.writeAll(ws.icon_font_ttf);
-    try fw.interface.flush();
+    {
+        const file = try std.Io.Dir.cwd().createFile(io, full_path, .{});
+        defer file.close(io);
+        var fbuf: [4096]u8 = undefined;
+        var fw = file.writer(io, &fbuf);
+        try fw.interface.writeAll(ws.icon_font_ttf);
+        try fw.interface.flush();
+    }
+    try registerWindowsFont(full_path);
 
     try stdout.print(
         "installed: {s}\n" ++
-            "run `fc-cache -f` (or restart your terminal) so it picks up the new " ++
+            (if (builtin.os.tag == .linux) "run `fc-cache -f` (or restart your terminal) so it picks up the new " else "restart your terminal so it picks up the new ") ++
             "font, then set your terminal's font to \"Symbols Nerd Font Mono\" - " ++
             "or just add it as a fallback font alongside your usual one, since it " ++
             "only needs to cover a handful of Private Use Area codepoints.\n",
