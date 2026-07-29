@@ -90,7 +90,11 @@ pub fn load(
 ) ?std.json.Parsed(Snapshot) {
     var path_buf: [path_buf_len]u8 = undefined;
     if (configPath(&path_buf, filename)) |path| {
-        if (readAt(Snapshot, allocator, io, path, limit_bytes)) |parsed| return parsed;
+        const current_exists = if (std.Io.Dir.cwd().statFile(io, path, .{})) |_| true else |err| switch (err) {
+            error.FileNotFound => false,
+            else => return null,
+        };
+        if (current_exists) return readAt(Snapshot, allocator, io, path, limit_bytes);
     }
     var legacy_buf: [path_buf_len]u8 = undefined;
     const legacy = legacyConfigPath(&legacy_buf, filename) orelse return null;
@@ -247,6 +251,10 @@ test "the store follows XDG_CONFIG_HOME and still reads the legacy path" {
     try std.testing.expectEqual(@as(u32, 9), migrated.value.n);
     var file = try std.Io.Dir.cwd().openFile(io, path, .{});
     file.close(io);
+
+    _ = try testWriteCorrupt(io, &path_buf, "xdg_probe.json");
+    try std.testing.expect(load(S, std.testing.allocator, io, "xdg_probe.json", 4096) == null);
+    try testExpectQuarantined(io, path);
 }
 
 test "quarantine preserves an earlier corrupt file" {
