@@ -618,7 +618,7 @@ pub const Engine = struct {
                 beat_k = @intFromFloat(@ceil(pos_f / fpb));
             }
 
-            const bpb: u64 = self.transport.time_signature.beats_per_bar;
+            const bpb: u64 = @max(self.transport.time_signature.beats_per_bar, 1);
             self.metronome_next_beat = self.fireBeatBoundaries(beat_k, fpb, bpb, pos_f, frames);
         }
 
@@ -634,7 +634,7 @@ pub const Engine = struct {
     /// the only timing cue you have while nothing else is playing.
     fn firePreRoll(self: *Engine, out: []Sample, frames: u32) void {
         const fpb = self.transport.framesPerBeat();
-        const bpb: u64 = self.transport.time_signature.beats_per_bar;
+        const bpb: u64 = @max(self.transport.time_signature.beats_per_bar, 1);
         const pos_f: f64 = @floatFromInt(self.pre_roll_elapsed);
 
         self.pre_roll_next_beat = self.fireBeatBoundaries(self.pre_roll_next_beat, fpb, bpb, pos_f, frames);
@@ -1414,6 +1414,23 @@ test "metronome accents beat 1 of every bar" {
     var block: [64]Sample = undefined;
     engine.process(&block); // fires beat 0 (the downbeat) at frame 0
     try std.testing.expect(engine.metronome.is_accent);
+}
+
+test "metronome tolerates an invalid zero-beat time signature" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.transport.time_signature.beats_per_bar = 0;
+    engine.metronome_enabled = true;
+    engine.transport.play();
+
+    var block: [64]Sample = undefined;
+    engine.process(&block);
+    try std.testing.expect(engine.metronome.is_accent);
+
+    engine.transport.stop();
+    engine.pre_roll_frames_remaining = 1;
+    engine.process(&block);
+    try std.testing.expect(engine.transport.playing);
 }
 
 test "record count-in clicks immediately, keeps the transport stopped, then starts on the beat" {
