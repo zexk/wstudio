@@ -485,13 +485,16 @@ const Hydra = struct {
 
 fn parseImpl(allocator: std.mem.Allocator, bytes: []const u8, target_sample_rate: u32) ParseError!SoundFont {
     if (bytes.len < 12 or !eqlId(bytes[0..4].*, "RIFF") or !eqlId(bytes[8..12].*, "sfbk")) return error.NotSf2;
+    const riff_size = readU32(bytes, 4);
+    if (riff_size < 4 or riff_size > bytes.len - 8) return error.Truncated;
+    const riff = bytes[0 .. 8 + riff_size];
 
     var raw_sample_data: []const u8 = &.{};
     var hydra: ?Hydra = null;
     errdefer if (hydra) |*h| h.deinit(allocator);
 
     var pos: usize = 12;
-    while (try nextChunk(bytes, pos)) |chunk| : (pos = chunk.next) {
+    while (try nextChunk(riff, pos)) |chunk| : (pos = chunk.next) {
         if (!eqlId(chunk.id, "LIST") or chunk.data.len < 4) continue;
         const list_type = chunk.data[0..4].*;
         if (eqlId(list_type, "sdta")) {
@@ -1046,6 +1049,18 @@ test "parse: rejects non-RIFF and non-sfbk data" {
     try std.testing.expectError(error.NotSf2, SoundFont.parse(allocator, "RIFF\x00\x00\x00\x00WAVE", 48_000));
 }
 
+test "parse: honors declared RIFF size" {
+    const allocator = std.testing.allocator;
+    const base = try buildTestSf2(allocator, false, 44_100);
+    defer allocator.free(base);
+    const truncated = try allocator.dupe(u8, base);
+    defer allocator.free(truncated);
+    std.mem.writeInt(u32, truncated[4..8], 4, .little);
+    try std.testing.expectError(error.MalformedChunk, SoundFont.parse(allocator, truncated, 44_100));
+
+    try std.testing.expectError(error.Truncated, SoundFont.parse(allocator, "RIFF\xff\xff\xff\xffsfbk", 44_100));
+}
+
 test "parse: a duplicated pdta LIST is ignored, not leaked" {
     const allocator = std.testing.allocator;
     const base = try buildTestSf2(allocator, false, 44_100);
@@ -1057,6 +1072,7 @@ test "parse: a duplicated pdta LIST is ignored, not leaked" {
     const pdta_off = std.mem.lastIndexOf(u8, base, "pdta").?;
     const dup = try std.mem.concat(allocator, u8, &.{ base, base[pdta_off - 8 ..] });
     defer allocator.free(dup);
+    std.mem.writeInt(u32, dup[4..8], @intCast(dup.len - 8), .little);
 
     var sf = try SoundFont.parse(allocator, dup, 44_100);
     defer sf.deinit();
