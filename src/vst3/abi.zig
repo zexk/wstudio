@@ -167,6 +167,13 @@ pub const EditControllerVTable = extern struct {
     create_view: *const fn (*anyopaque, [*:0]const u8) callconv(abi_callconv) ?*anyopaque,
 };
 pub const EditController = extern struct { vtable: *const EditControllerVTable };
+pub const MidiMappingVTable = extern struct {
+    query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
+    add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    release: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    get_midi_controller_assignment: *const fn (*anyopaque, i32, i16, i16, *u32) callconv(abi_callconv) Result,
+};
+pub const MidiMapping = extern struct { vtable: *const MidiMappingVTable };
 pub const ParamValueQueueVTable = extern struct {
     query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
     add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
@@ -263,6 +270,7 @@ pub const component_iid = uid(0xE831FF31, 0xF2D54301, 0x928EBBEE, 0x25697802);
 pub const audio_processor_iid = uid(0x42043F99, 0xB7DA453C, 0xA569E79D, 0x9AAEC33D);
 pub const event_list_iid = uid(0x3A2C4214, 0x346349FE, 0xB2C4F397, 0xB9695A44);
 pub const edit_controller_iid = uid(0xDCD7BBE3, 0x7742448D, 0xA874AACC, 0x979C759E);
+pub const midi_mapping_iid = uid(0xDF0FF9F7, 0x49B74669, 0xB63AB732, 0x7ADBF5E5);
 pub const component_handler_iid = uid(0x93A0BEA3, 0x0BD045DB, 0x8E890B0C, 0xC1E46AC6);
 
 pub fn formatUid(value: Tuid) [32]u8 {

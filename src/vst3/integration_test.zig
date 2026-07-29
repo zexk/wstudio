@@ -42,6 +42,9 @@ pub fn main(init: std.process.Init) !void {
     effect.processBlock(&effect_audio);
     try std.testing.expectApproxEqAbs(@as(f32, 0.1), effect_audio[0], 0.0001);
     try std.testing.expectApproxEqAbs(@as(f32, -0.2), effect_audio[1], 0.0001);
+    effect.handleEvent(.{ .cc = .{ .cc = 1, .value = 127 } });
+    effect.processBlock(&effect_audio);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.2), effect_audio[0], 0.0001);
 
     var mono = try ws.vst3.Vst3Plugin.loadModule(init.gpa, module_path, "wstudio-test.vst3", "5753544d4f4e4f465800000000000001", 48_000, false);
     defer mono.deinit();

@@ -91,7 +91,8 @@ var factory: abi.PluginFactory2 = .{ .vtable = &factory_vtable };
 const ComponentFace = struct { vtable: *const abi.ComponentVTable, owner: *Instance };
 const ProcessorFace = struct { vtable: *const abi.AudioProcessorVTable, owner: *Instance };
 const ControllerFace = struct { vtable: *const abi.EditControllerVTable, owner: *Instance };
-const Instance = struct { component: ComponentFace, processor: ProcessorFace, controller: ControllerFace, instrument: bool, channels: u8, param: f64 = 1 };
+const MappingFace = struct { vtable: *const abi.MidiMappingVTable, owner: *Instance };
+const Instance = struct { component: ComponentFace, processor: ProcessorFace, controller: ControllerFace, mapping: MappingFace, instrument: bool, channels: u8, param: f64 = 1 };
 var instrument: Instance = undefined;
 var effect: Instance = undefined;
 var mono_effect: Instance = undefined;
@@ -245,6 +246,10 @@ fn controllerOwner(raw: *anyopaque) *Instance {
     return (@as(*ControllerFace, @ptrCast(@alignCast(raw)))).owner;
 }
 fn controllerQuery(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+    if (std.mem.eql(u8, iid, &abi.midi_mapping_iid)) {
+        object.* = @ptrCast(&controllerOwner(raw).mapping);
+        return 0;
+    }
     if (!std.mem.eql(u8, iid, &abi.edit_controller_iid)) {
         object.* = null;
         return -1;
@@ -252,6 +257,23 @@ fn controllerQuery(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) 
     object.* = raw;
     return 0;
 }
+fn mappingOwner(raw: *anyopaque) *Instance {
+    return (@as(*MappingFace, @ptrCast(@alignCast(raw)))).owner;
+}
+fn mappingQuery(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+    if (!std.mem.eql(u8, iid, &abi.midi_mapping_iid)) {
+        object.* = null;
+        return -1;
+    }
+    object.* = raw;
+    return 0;
+}
+fn midiAssignment(_: *anyopaque, bus: i32, channel: i16, controller_number: i16, id: *u32) callconv(abi.abi_callconv) abi.Result {
+    if (bus != 0 or channel != 0 or (controller_number != 1 and controller_number != 129)) return -1;
+    id.* = 100;
+    return 0;
+}
+var mapping_vtable: abi.MidiMappingVTable = .{ .query_interface = mappingQuery, .add_ref = addRef, .release = release, .get_midi_controller_assignment = midiAssignment };
 fn getParameterCount(_: *anyopaque) callconv(abi.abi_callconv) i32 {
     return 1;
 }
@@ -321,9 +343,9 @@ var controller_vtable: abi.EditControllerVTable = .{
 };
 
 export fn ModuleEntry(_: ?*anyopaque) callconv(abi.abi_callconv) bool {
-    instrument = .{ .component = .{ .vtable = &component_vtable, .owner = &instrument }, .processor = .{ .vtable = &processor_vtable, .owner = &instrument }, .controller = .{ .vtable = &controller_vtable, .owner = &instrument }, .instrument = true, .channels = 2 };
-    effect = .{ .component = .{ .vtable = &component_vtable, .owner = &effect }, .processor = .{ .vtable = &processor_vtable, .owner = &effect }, .controller = .{ .vtable = &controller_vtable, .owner = &effect }, .instrument = false, .channels = 2 };
-    mono_effect = .{ .component = .{ .vtable = &component_vtable, .owner = &mono_effect }, .processor = .{ .vtable = &processor_vtable, .owner = &mono_effect }, .controller = .{ .vtable = &controller_vtable, .owner = &mono_effect }, .instrument = false, .channels = 1 };
+    instrument = .{ .component = .{ .vtable = &component_vtable, .owner = &instrument }, .processor = .{ .vtable = &processor_vtable, .owner = &instrument }, .controller = .{ .vtable = &controller_vtable, .owner = &instrument }, .mapping = .{ .vtable = &mapping_vtable, .owner = &instrument }, .instrument = true, .channels = 2 };
+    effect = .{ .component = .{ .vtable = &component_vtable, .owner = &effect }, .processor = .{ .vtable = &processor_vtable, .owner = &effect }, .controller = .{ .vtable = &controller_vtable, .owner = &effect }, .mapping = .{ .vtable = &mapping_vtable, .owner = &effect }, .instrument = false, .channels = 2 };
+    mono_effect = .{ .component = .{ .vtable = &component_vtable, .owner = &mono_effect }, .processor = .{ .vtable = &processor_vtable, .owner = &mono_effect }, .controller = .{ .vtable = &controller_vtable, .owner = &mono_effect }, .mapping = .{ .vtable = &mapping_vtable, .owner = &mono_effect }, .instrument = false, .channels = 1 };
     return true;
 }
 

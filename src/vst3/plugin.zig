@@ -198,6 +198,7 @@ pub const Vst3Plugin = struct {
     component: *abi.Component,
     processor: *abi.AudioProcessor,
     controller: ?*abi.EditController,
+    midi_mapping: ?*abi.MidiMapping,
     bundle_path: []u8,
     class_id: [32]u8,
     input_channels: u8,
@@ -261,6 +262,15 @@ pub const Vst3Plugin = struct {
                 _ = value.vtable.release(value);
             }
         }
+        var midi_mapping: ?*abi.MidiMapping = null;
+        if (controller) |value| {
+            var mapping_raw: ?*anyopaque = null;
+            if (value.vtable.query_interface(value, &abi.midi_mapping_iid, &mapping_raw) == 0)
+                midi_mapping = @ptrCast(@alignCast(mapping_raw orelse return error.MidiMappingQueryFailed));
+        }
+        errdefer {
+            if (midi_mapping) |value| _ = value.vtable.release(value);
+        }
 
         if (processor.vtable.can_process_sample_size(processor, 0) != 0) return error.Sample32Unsupported;
         const input_count = component.vtable.get_bus_count(component, 0, 0);
@@ -318,6 +328,7 @@ pub const Vst3Plugin = struct {
             .component = component,
             .processor = processor,
             .controller = controller,
+            .midi_mapping = midi_mapping,
             .bundle_path = owned_path,
             .class_id = abi.formatUid(class_id),
             .input_channels = @intCast(input_channels),
@@ -334,6 +345,7 @@ pub const Vst3Plugin = struct {
         _ = self.processor.vtable.set_processing(self.processor, 0);
         _ = self.component.vtable.set_active(self.component, 0);
         _ = self.processor.vtable.release(self.processor);
+        if (self.midi_mapping) |value| _ = value.vtable.release(value);
         if (self.controller) |value| {
             _ = value.vtable.terminate(value);
             _ = value.vtable.release(value);
@@ -392,9 +404,18 @@ pub const Vst3Plugin = struct {
             .note_on => |note| self.pushNote(true, note.note, note.velocity),
             .note_off => |note| self.pushNote(false, note.note, 0),
             .all_off => for (&self.active_notes, 0..) |active, note| if (active) self.pushNote(false, @intCast(note), 0),
+            .cc => |cc| self.pushMidiMapping(cc.cc, @as(f64, @floatFromInt(cc.value)) / 127.0),
+            .pitch_bend => |bend| self.pushMidiMapping(129, @as(f64, @floatFromInt(@as(i32, bend.bend) + 8192)) / 16383.0),
             .vst3_param => |param| if (param.target == @as(*anyopaque, @ptrCast(self))) self.setParameter(param.id, param.value),
             else => {},
         }
+    }
+
+    fn pushMidiMapping(self: *Vst3Plugin, controller_number: i16, value: f64) void {
+        const mapping = self.midi_mapping orelse return;
+        var id: u32 = 0;
+        if (mapping.vtable.get_midi_controller_assignment(mapping, 0, 0, controller_number, &id) == 0)
+            self.param_changes.push(id, std.math.clamp(value, 0, 1));
     }
 
     fn pushNote(self: *Vst3Plugin, on: bool, note: u7, velocity: f32) void {
