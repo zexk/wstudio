@@ -37,7 +37,8 @@ pub fn contentBeats(session: *const Session) f64 {
     for (session.racks.items) |rack| {
         if (rack.pattern_player) |pp| max_beats = @max(max_beats, pp.length_beats);
         switch (rack.instrument) {
-            .drum_machine => |*dm| max_beats = @max(max_beats, @as(f64, @floatFromInt(dm.step_count)) / 4.0),
+            .drum_machine => |*dm| max_beats = @max(max_beats, @as(f64, @floatFromInt(dm.step_count)) / @as(f64, @floatFromInt(dm.steps_per_beat))),
+            .slicer => |*sl| max_beats = @max(max_beats, @as(f64, @floatFromInt(sl.step_count)) / 4.0),
             else => {},
         }
     }
@@ -171,6 +172,20 @@ test "range uses longest pattern and preserves loop selection" {
     const selected = range(&session, 0);
     try std.testing.expectEqual(@as(u64, 12_000), selected.start_frame);
     try std.testing.expectEqual(@as(u64, 24_000), selected.total_frames);
+}
+
+test "contentBeats includes drum resolution and slicer length" {
+    var session = try Session.initDefaultWithSampleRate(std.testing.allocator, 48_000);
+    defer session.deinit();
+
+    try session.setInstrument(0, .drum_machine);
+    session.racks.items[0].instrument.drum_machine.step_count = 12;
+    session.racks.items[0].instrument.drum_machine.steps_per_beat = 3;
+    try std.testing.expectEqual(@as(f64, 4.0), contentBeats(&session));
+
+    try session.setInstrument(0, .slicer);
+    session.racks.items[0].instrument.slicer.setStepCount(20);
+    try std.testing.expectEqual(@as(f64, 5.0), contentBeats(&session));
 }
 
 test "stemName sanitizes paths and handles empty names" {
