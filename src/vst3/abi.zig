@@ -115,6 +115,66 @@ pub const EventListVTable = extern struct {
     add_event: *const fn (*anyopaque, *Event) callconv(abi_callconv) Result,
 };
 pub const EventList = extern struct { vtable: *const EventListVTable };
+pub const ParameterInfo = extern struct {
+    id: u32,
+    title: [128]u16,
+    short_title: [128]u16,
+    units: [128]u16,
+    step_count: i32,
+    default_normalized_value: f64,
+    unit_id: i32,
+    flags: i32,
+};
+pub const ComponentHandlerVTable = extern struct {
+    query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
+    add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    release: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    begin_edit: *const fn (*anyopaque, u32) callconv(abi_callconv) Result,
+    perform_edit: *const fn (*anyopaque, u32, f64) callconv(abi_callconv) Result,
+    end_edit: *const fn (*anyopaque, u32) callconv(abi_callconv) Result,
+    restart_component: *const fn (*anyopaque, i32) callconv(abi_callconv) Result,
+};
+pub const ComponentHandler = extern struct { vtable: *const ComponentHandlerVTable };
+pub const EditControllerVTable = extern struct {
+    query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
+    add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    release: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    initialize: *const fn (*anyopaque, ?*FUnknown) callconv(abi_callconv) Result,
+    terminate: *const fn (*anyopaque) callconv(abi_callconv) Result,
+    set_component_state: *const fn (*anyopaque, *anyopaque) callconv(abi_callconv) Result,
+    set_state: *const fn (*anyopaque, *anyopaque) callconv(abi_callconv) Result,
+    get_state: *const fn (*anyopaque, *anyopaque) callconv(abi_callconv) Result,
+    get_parameter_count: *const fn (*anyopaque) callconv(abi_callconv) i32,
+    get_parameter_info: *const fn (*anyopaque, i32, *ParameterInfo) callconv(abi_callconv) Result,
+    get_param_string_by_value: *const fn (*anyopaque, u32, f64, *[128]u16) callconv(abi_callconv) Result,
+    get_param_value_by_string: *const fn (*anyopaque, u32, [*]u16, *f64) callconv(abi_callconv) Result,
+    normalized_param_to_plain: *const fn (*anyopaque, u32, f64) callconv(abi_callconv) f64,
+    plain_param_to_normalized: *const fn (*anyopaque, u32, f64) callconv(abi_callconv) f64,
+    get_param_normalized: *const fn (*anyopaque, u32) callconv(abi_callconv) f64,
+    set_param_normalized: *const fn (*anyopaque, u32, f64) callconv(abi_callconv) Result,
+    set_component_handler: *const fn (*anyopaque, ?*ComponentHandler) callconv(abi_callconv) Result,
+    create_view: *const fn (*anyopaque, [*:0]const u8) callconv(abi_callconv) ?*anyopaque,
+};
+pub const EditController = extern struct { vtable: *const EditControllerVTable };
+pub const ParamValueQueueVTable = extern struct {
+    query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
+    add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    release: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    get_parameter_id: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    get_point_count: *const fn (*anyopaque) callconv(abi_callconv) i32,
+    get_point: *const fn (*anyopaque, i32, *i32, *f64) callconv(abi_callconv) Result,
+    add_point: *const fn (*anyopaque, i32, f64, *i32) callconv(abi_callconv) Result,
+};
+pub const ParamValueQueue = extern struct { vtable: *const ParamValueQueueVTable };
+pub const ParameterChangesVTable = extern struct {
+    query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
+    add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    release: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    get_parameter_count: *const fn (*anyopaque) callconv(abi_callconv) i32,
+    get_parameter_data: *const fn (*anyopaque, i32) callconv(abi_callconv) ?*ParamValueQueue,
+    add_parameter_data: *const fn (*anyopaque, *const u32, *i32) callconv(abi_callconv) ?*ParamValueQueue,
+};
+pub const ParameterChanges = extern struct { vtable: *const ParameterChangesVTable };
 pub const FrameRate = extern struct { frames_per_second: u32, flags: u32 };
 pub const Chord = extern struct { key_note: u8, root_note: u8, chord_mask: i16 };
 pub const ProcessContext = extern struct {
@@ -191,6 +251,8 @@ pub const plugin_factory_2_iid = uid(0x0007B650, 0xF24B4C0B, 0xA464EDB9, 0xF00B2
 pub const component_iid = uid(0xE831FF31, 0xF2D54301, 0x928EBBEE, 0x25697802);
 pub const audio_processor_iid = uid(0x42043F99, 0xB7DA453C, 0xA569E79D, 0x9AAEC33D);
 pub const event_list_iid = uid(0x3A2C4214, 0x346349FE, 0xB2C4F397, 0xB9695A44);
+pub const edit_controller_iid = uid(0xDCD7BBE3, 0x7742448D, 0xA874AACC, 0x979C759E);
+pub const component_handler_iid = uid(0x93A0BEA3, 0x0BD045DB, 0x8E890B0C, 0xC1E46AC6);
 
 pub fn formatUid(value: Tuid) [32]u8 {
     var canonical = value;
