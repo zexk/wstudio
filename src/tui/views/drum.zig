@@ -160,25 +160,9 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
             // five bands shared with the slicer grid and the GUI's fill
             // shading (editors/step_grid.zig).
             const glyph: u8 = if (!active) ' ' else step_grid.velocityBand(dm.stepVel(@intCast(p), @intCast(s))).glyph();
-            // The brackets carry two bits the velocity glyph has no room for:
-            // [ ] plain, ( ) tuned (matching the (/) keys), < > modified
-            // (chance, a trig condition, a roll, or a timing shift), { } both.
-            // The exact values are on the status line - a 3-column cell can't
-            // hold "1:2, 70%, x4, -12%".
-            const live = active and !out_of_loop;
-            const tuned = live and dm.stepTune(@intCast(p), @intCast(s)) != 0;
-            const cond = live and (dm.stepProb(@intCast(p), @intCast(s)) != 100 or
-                dm.stepCond(@intCast(p), @intCast(s)) != .always or
-                dm.stepRetrig(@intCast(p), @intCast(s)) >= 2 or
-                dm.stepMicro(@intCast(p), @intCast(s)) != 0);
-            const brackets: [2]u8 = if (tuned and cond)
-                .{ '{', '}' }
-            else if (tuned)
-                .{ '(', ')' }
-            else if (cond)
-                .{ '<', '>' }
-            else
-                .{ '[', ']' };
+            // ( ) matches the (/) tune keys; see step_grid.stepBrackets for
+            // the rest of the alphabet (the slicer grid prints the same set).
+            const brackets = step_grid.stepBrackets(dm, @intCast(p), @intCast(s), active and !out_of_loop);
             if (cell_width == 1) {
                 try w.writeByte(glyph);
             } else {

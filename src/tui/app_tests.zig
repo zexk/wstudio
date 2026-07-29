@@ -643,6 +643,69 @@ test "slicer grid: velocity cycle + fine nudge on an active step only" {
     try std.testing.expectEqual(@as(u8, 95), app.slicerInst().stepVel(0, 0));
 }
 
+test "slicer grid: parameter locks, per-slice loop, and grid zoom" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+    app.slicerInst().sliceInto(2);
+    app.slicer_cursor = .{ 0, 4 };
+
+    // Every lock needs a hit under the cursor, same refusal as c/_.
+    for ([_]u8{ '%', '&', 'R', 't', ';' }) |k| _ = slicer_ed.handleKey(&app, .{ .char = k });
+    try std.testing.expectEqual(@as(u8, 100), app.slicerInst().stepProb(0, 4));
+    try std.testing.expectEqual(@as(i8, 0), app.slicerInst().stepTune(0, 4));
+
+    _ = slicer_ed.handleKey(&app, .enter);
+    _ = slicer_ed.handleKey(&app, .{ .char = '%' });
+    _ = slicer_ed.handleKey(&app, .{ .char = '&' });
+    _ = slicer_ed.handleKey(&app, .{ .char = 'R' });
+    _ = slicer_ed.handleKey(&app, .{ .char = 'T' });
+    _ = slicer_ed.handleKey(&app, .{ .char = '\'' });
+    const sl = app.slicerInst();
+    try std.testing.expect(sl.stepProb(0, 4) != 100);
+    try std.testing.expect(sl.stepCond(0, 4) != .always);
+    try std.testing.expect(sl.stepRetrig(0, 4) >= 2);
+    try std.testing.expectEqual(@as(i8, 1), sl.stepTune(0, 4));
+    try std.testing.expectEqual(@as(i8, 1), sl.stepMicro(0, 4));
+    // ! is machine-wide, not per step.
+    _ = slicer_ed.handleKey(&app, .{ .char = '!' });
+    try std.testing.expect(sl.fill_on.load(.monotonic));
+
+    // $ loops the row over cursor+1 steps; pressed again there it reverts.
+    _ = slicer_ed.handleKey(&app, .{ .char = '$' });
+    try std.testing.expectEqual(@as(u16, 5), sl.sliceSteps(0, sl.step_count));
+    try std.testing.expectEqual(sl.step_count, sl.sliceSteps(1, sl.step_count));
+    _ = slicer_ed.handleKey(&app, .{ .char = '$' });
+    try std.testing.expectEqual(@as(u16, 0), sl.slice_len[0]);
+    _ = slicer_ed.handleKey(&app, .{ .char = '$' });
+    // The length is content, so it rides the undo stack like a step does.
+    history.doUndo(&app);
+    try std.testing.expectEqual(@as(u16, 0), sl.slice_len[0]);
+    history.doRedo(&app);
+    try std.testing.expectEqual(@as(u16, 5), sl.slice_len[0]);
+
+    // z halves the grid: same music, twice the steps, and the hit and the
+    // row's own loop length both move with it.
+    const steps_before = sl.step_count;
+    _ = slicer_ed.handleKey(&app, .{ .char = 'z' });
+    try std.testing.expectEqual(@as(u8, 8), sl.steps_per_beat);
+    try std.testing.expectEqual(steps_before * 2, sl.step_count);
+    try std.testing.expect(sl.stepActive(0, 8));
+    try std.testing.expectEqual(@as(u16, 10), sl.sliceSteps(0, sl.step_count));
+    _ = slicer_ed.handleKey(&app, .{ .char = 'Z' });
+    try std.testing.expectEqual(@as(u8, 4), sl.steps_per_beat);
+    try std.testing.expectEqual(steps_before, sl.step_count);
+    try std.testing.expect(sl.stepActive(0, 4));
+    try std.testing.expectEqual(@as(u16, 5), sl.sliceSteps(0, sl.step_count));
+
+    // Undo unwinds the locks one entry at a time, back to a bare hit.
+    while (app.history.undo_stack.items.len > 0) history.doUndo(&app);
+    try std.testing.expectEqual(@as(u8, 100), app.slicerInst().stepProb(0, 4));
+    try std.testing.expectEqual(@as(i8, 0), app.slicerInst().stepTune(0, 4));
+}
+
 test "slicer grid: advancing entry, pattern double, and source-order sequence" {
     var app = try testApp();
     defer app.deinit();

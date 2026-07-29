@@ -238,6 +238,16 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("X / F",        "clear / fill the cursor slice's row");
     t.key("c",            "cycle step velocity through presets (full/hard/mid/soft)");
     t.key("_ / =",        "step velocity down / up (fine, 1-127)");
+    t.key("z / Z",        "finer / coarser timing grid (1/4 through 1/128)");
+    t.key("t / T",        "tune the step under the cursor down / up a semitone (±24, count-scaled)");
+    t.key("R",            "cycle the step into a roll (off/2/3/4/6/8 hits packed into the step)");
+    t.key("%",            "cycle the step's fire chance (100/75/50/25/10%)");
+    t.key("&",            "cycle the step's trig condition (1ST, FILL, 1:2, 2:4 … - ANDed with the chance)");
+    t.key("!",            "flip the FILL switch every FILL/!FILL step reads - instant variation, no editing");
+    t.key("; / '",        "drag the step early / late (±50% of a step) - per-hit feel, where < > swings every off-beat");
+    t.key("",             "  cells: [x] plain, (x) tuned, <x> chance/condition/roll, {x} both");
+    t.key("$",            "loop THIS slice over the cursor's step count - a 7-step hat drifts against a 16-step kick");
+    t.key("",             "  ($ again on the same step puts the slice back on the pattern's length)");
     t.key("d / y",        "+motion: delete / yank a step range; dd clears the row, yy yanks the pattern");
     t.key("v / V",        "visual: a (slice, step) block, j/k grow it / visual line: every slice - y/d/p");
     t.key("p",            "paste the yanked range at the cursor step");

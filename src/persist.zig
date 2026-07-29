@@ -772,6 +772,10 @@ pub const SlicerSnap = struct {
     /// Additive: per-slice choke group (0 = none - see
     /// `Slicer.chokeTrigger`). Dense, parallel to `slices`.
     choke_group: []const u8 = &.{},
+    /// Per-slice loop length in steps, 0 = follows the pattern (see
+    /// `Slicer.slice_len`, and `DrumSnap.pad_len`'s identical note on why
+    /// this needs no version bump).
+    slice_len: []const u16 = &.{},
 };
 
 /// A SoundFont (.sf2) player track: the loaded font's sidecar path, the
@@ -1172,6 +1176,10 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
             const choke = try aa.alloc(u8, Slicer.max_slices);
             for (choke, sl.choke_group) |*c, g| c.* = g;
             sls.choke_group = choke;
+
+            const slice_len = try aa.alloc(u16, Slicer.max_slices);
+            @memcpy(slice_len, &sl.slice_len);
+            sls.slice_len = slice_len;
 
             rs.slicer = sls;
         },
@@ -2052,6 +2060,14 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                     for (sls.choke_group, 0..) |g, i| {
                         if (i >= Slicer.max_slices) break;
                         sl.choke_group[i] = @min(g, Slicer.max_choke_groups);
+                    }
+                    // After the step count is settled above - setSliceLen
+                    // reads it to decide whether a length is an override at
+                    // all (same order the drum load uses).
+                    for (&sl.slice_len) |*l| l.* = 0;
+                    for (sls.slice_len, 0..) |l, i| {
+                        if (i >= Slicer.max_slices) break;
+                        sl.setSliceLen(@intCast(i), l);
                     }
                     sl.setSwing(sls.swing);
                 }
@@ -3310,6 +3326,7 @@ test "save/load round-trip persists a slicer's variant bank and choke groups" {
         sl.setStepVel(3, 7, 60);
         sl.choke_group[0] = 1;
         sl.choke_group[1] = 1;
+        sl.setSliceLen(2, 7); // a row that wraps early has to survive the file
     }
 
     try save(testing.allocator, &session, testing.io, wsj_path);
@@ -3328,6 +3345,8 @@ test "save/load round-trip persists a slicer's variant bank and choke groups" {
     try testing.expectEqual(@as(u8, 1), sl.choke_group[0]);
     try testing.expectEqual(@as(u8, 1), sl.choke_group[1]);
     try testing.expectEqual(@as(u8, 0), sl.choke_group[2]);
+    try testing.expectEqual(@as(u16, 7), sl.sliceSteps(2, sl.step_count));
+    try testing.expectEqual(sl.step_count, sl.sliceSteps(3, sl.step_count));
 }
 
 test "save/load round-trip keeps a slicer lane's stamped clips playable in song mode" {

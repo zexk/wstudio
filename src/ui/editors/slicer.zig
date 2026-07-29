@@ -211,6 +211,34 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 },
                 '_' => nudgeVel(app, -app.takeCount()),
                 '=' => nudgeVel(app, app.takeCount()),
+                // The per-step parameter locks the note storage carries, on
+                // the drum grid's own keys wherever the slicer hasn't already
+                // spent them (its chop gestures came first): %/& are the two
+                // halves of a trig condition (chance and rule, ANDed), ! flips
+                // the machine-wide fill switch the FILL rules read, ;/' drag
+                // one hit early or late, R packs the step into a roll, and t/T
+                // detune just this hit. The drum grid reaches cond on T, roll
+                // on r and tune on (/), all of which mean something else here.
+                '%' => cycleStepProb(app),
+                '&' => cycleStepCond(app, app.takeCount()),
+                '!' => {
+                    const on = sl.toggleFill();
+                    app.setStatus("fill {s}", .{if (on) "ON" else "off"});
+                },
+                ';' => nudgeMicro(app, -app.takeCount()),
+                '\'' => nudgeMicro(app, app.takeCount()),
+                'R' => cycleStepRetrig(app),
+                't' => nudgeTune(app, -app.takeCount()),
+                'T' => nudgeTune(app, app.takeCount()),
+                // z/Z: grid zoom, same keys and same preserve-the-timing
+                // resize the drum grid uses.
+                'z' => zoom(app, 1),
+                'Z' => zoom(app, -1),
+                // $: this slice's own loop length, set where the cursor sits
+                // instead of the drum grid's m/M nudges (m merges slices
+                // here) - vim's "end of line", and pressing it on the length
+                // it already has puts the row back on the pattern.
+                '$' => setSliceLoop(app),
                 // v: blockwise - a (slice, step) rectangle, one slice tall
                 // until j/k grow it. V: linewise - the step range across
                 // every slice (visual mode's old unconditional behaviour).
@@ -300,6 +328,116 @@ fn nudgeVel(app: *App, delta: i32) void {
     history.recordSlicer(app, app.slicer_track);
     sl.nudgeStepVel(slice, step, delta);
     app.setStatus("vel {d}", .{sl.stepVel(slice, step)});
+}
+
+/// The cursor step, or null with a status message when it holds no hit -
+/// every per-step parameter lock below edits the note, so there has to be
+/// one. Same guard the drum editor repeats per helper.
+fn cursorHit(app: *App) ?struct { sl: *Slicer, slice: u8, step: u16 } {
+    const sl = app.slicerInst();
+    const slice: u8 = @intCast(app.slicer_cursor[0]);
+    const step = app.slicer_cursor[1];
+    if (!sl.stepActive(slice, step)) {
+        app.setStatus("no step here - enter places one", .{});
+        return null;
+    }
+    return .{ .sl = sl, .slice = slice, .step = step };
+}
+
+/// `t`/`T`: detune just the hit under the cursor, on top of the slice's own
+/// pitch - Elektron's pitch parameter lock, the cheap slice of p-locks that
+/// turns one chop into a melody.
+fn nudgeTune(app: *App, delta: i32) void {
+    const hit = cursorHit(app) orelse return;
+    history.recordSlicer(app, app.slicer_track);
+    hit.sl.nudgeStepTune(hit.slice, hit.step, delta);
+    app.dirty = true;
+    const semis = hit.sl.stepTune(hit.slice, hit.step);
+    app.setStatus("tune {s}{d} st", .{ if (semis > 0) "+" else "", semis });
+}
+
+/// `;`/`'`: shift the hit under the cursor early or late, in percent of a
+/// step (±50, half a step either way).
+fn nudgeMicro(app: *App, delta: i32) void {
+    const hit = cursorHit(app) orelse return;
+    history.recordSlicer(app, app.slicer_track);
+    hit.sl.nudgeStepMicro(hit.slice, hit.step, delta);
+    app.dirty = true;
+    const pct = hit.sl.stepMicro(hit.slice, hit.step);
+    app.setStatus("micro {s}{d}%", .{ if (pct > 0) "+" else "", pct });
+}
+
+/// `R`: step the hit under the cursor through the roll sizes - a stutter on
+/// one chop without programming it by hand.
+fn cycleStepRetrig(app: *App) void {
+    const hit = cursorHit(app) orelse return;
+    history.recordSlicer(app, app.slicer_track);
+    hit.sl.cycleStepRetrig(hit.slice, hit.step);
+    app.dirty = true;
+    const n = hit.sl.stepRetrig(hit.slice, hit.step);
+    if (n < 2) app.setStatus("roll off", .{}) else app.setStatus("roll x{d}", .{n});
+}
+
+/// `%`: step the hit under the cursor through the fire-chance presets.
+fn cycleStepProb(app: *App) void {
+    const hit = cursorHit(app) orelse return;
+    history.recordSlicer(app, app.slicer_track);
+    hit.sl.cycleStepProb(hit.slice, hit.step);
+    app.dirty = true;
+    app.setStatus("chance {d}%", .{hit.sl.stepProb(hit.slice, hit.step)});
+}
+
+/// `&`: walk the hit's trig condition (1ST, FILL, the A:B ratios).
+fn cycleStepCond(app: *App, delta: i32) void {
+    const hit = cursorHit(app) orelse return;
+    history.recordSlicer(app, app.slicer_track);
+    hit.sl.cycleStepCond(hit.slice, hit.step, delta);
+    app.dirty = true;
+    app.setStatus("cond {s}", .{hit.sl.stepCond(hit.slice, hit.step).label()});
+}
+
+/// `$`: loop the cursor slice over its first `cursor + 1` steps, so a 7-step
+/// hat drifts against a 16-step kick (`DrumMachine.pad_len`'s m/M, aimed
+/// instead of nudged). On the length it already has it goes back to the
+/// pattern's own.
+fn setSliceLoop(app: *App) void {
+    const sl = app.slicerInst();
+    const slice: u8 = @intCast(app.slicer_cursor[0]);
+    const len = app.slicer_cursor[1] + 1;
+    history.recordSlicer(app, app.slicer_track);
+    sl.setSliceLen(slice, if (sl.slice_len[slice] == len) 0 else len);
+    app.dirty = true;
+    if (sl.slice_len[slice] == 0)
+        app.setStatus("slice {d}: follows the pattern ({d} steps)", .{ slice + 1, sl.step_count })
+    else
+        app.setStatus("slice {d}: loops over {d} of {d} steps", .{ slice + 1, sl.slice_len[slice], sl.step_count });
+}
+
+/// `z`/`Z`: change the pattern's native grid without moving a hit in musical
+/// time - the drum grid's own zoom, refusal semantics included (the resize
+/// is refused outright rather than ever rounding two hits onto one step).
+fn zoom(app: *App, delta: i8) void {
+    const next = if (delta > 0) app.slicer_grid.finer() else app.slicer_grid.coarser();
+    if (next == app.slicer_grid) return;
+    const spb = next.denominator() / 4;
+    const sl = app.slicerInst();
+    const new_count = @as(u32, sl.step_count) * spb / sl.steps_per_beat;
+    if (new_count == 0 or new_count > Slicer.max_steps) {
+        app.setStatus("grid {s} would exceed the step ceiling - shorten the pattern first", .{next.label()});
+        return;
+    }
+    // Captured before the mutation but only pushed once it lands - a refused
+    // resize must not leave a no-op undo entry behind.
+    var entry = history.captureSlicer(app, app.slicer_track);
+    if (!sl.setStepsPerBeatPreservingTime(spb)) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("grid {s} would collide two hits onto one step - move or delete one first", .{next.label()});
+        return;
+    }
+    history.push(app, entry);
+    app.slicer_grid = next;
+    if (app.slicer_cursor[1] >= sl.step_count) app.slicer_cursor[1] = sl.step_count -| 1;
+    app.setStatus("grid: {s} ({d} steps)", .{ app.slicer_grid.label(), sl.step_count });
 }
 
 /// Cycle the active pattern variant, keeping the step cursor inside the

@@ -360,6 +360,9 @@ pub const App = struct {
     /// First visible step column, cursor-follow - same convention as
     /// `drum_step_scroll`.
     slicer_step_scroll: u32 = 0,
+    /// The slicer grid's own zoom, same as `drum_grid` (`z`/`Z` step it, and
+    /// the machine's `steps_per_beat` follows).
+    slicer_grid: GridDivision = .sixteenth,
     /// Track currently shown in the slicer_grid view (a slicer rack).
     slicer_track: u16 = 0,
     /// What the sampler_editor view edits: a drum pad or a standalone Sampler.

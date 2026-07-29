@@ -170,6 +170,43 @@ pub fn drawSlicerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
     if (sl.stepActive(sIdx, s)) {
         try w.writeAll(dim ++ "  vel " ++ rst);
         try w.print("{d}", .{sl.stepVel(sIdx, s)});
+        // Each parameter lock only appears once set - same "an unset lock is
+        // the overwhelming case, and saying so every frame is noise" rule the
+        // drum status above follows.
+        const semis = sl.stepTune(sIdx, s);
+        if (semis != 0) {
+            try w.writeAll(dim ++ "  tune " ++ rst);
+            try w.print("{s}{d}", .{ if (semis > 0) "+" else "", semis });
+        }
+        const prob = sl.stepProb(sIdx, s);
+        if (prob != 100) {
+            try w.writeAll(dim ++ "  chance " ++ rst);
+            try w.print("{d}%", .{prob});
+        }
+        const cond = sl.stepCond(sIdx, s);
+        if (cond != .always) {
+            try w.writeAll(dim ++ "  cond " ++ rst);
+            try w.writeAll(cond.label());
+        }
+        const roll = sl.stepRetrig(sIdx, s);
+        if (roll >= 2) {
+            try w.writeAll(dim ++ "  roll " ++ rst);
+            try w.print("x{d}", .{roll});
+        }
+        const micro = sl.stepMicro(sIdx, s);
+        if (micro != 0) {
+            try w.writeAll(dim ++ "  micro " ++ rst);
+            try w.print("{s}{d}%", .{ if (micro > 0) "+" else "", micro });
+        }
+    }
+    // Machine-wide and changes what plays, so it stays visible while engaged
+    // rather than only on the steps that read it.
+    if (sl.fill_on.load(.monotonic)) {
+        try w.writeAll(dim ++ "  " ++ rst ++ bold ++ "FILL" ++ rst);
+    }
+    if (sl.slice_len[sIdx] != 0) {
+        try w.writeAll(dim ++ "  loop " ++ rst);
+        try w.print("{d}", .{sl.sliceSteps(sIdx, sl.step_count)});
     }
     try w.writeAll(dim ++ "  swing " ++ rst);
     try w.print("{d:.0}%", .{sl.swing.load(.monotonic)});

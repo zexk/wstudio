@@ -69,6 +69,25 @@ pub fn velocityBand(vel: u8) VelocityBand {
     };
 }
 
+/// The brackets around a TUI cell's velocity glyph, carrying the two bits
+/// the glyph has no room for: [ ] plain, ( ) tuned, < > modified (chance, a
+/// trig condition, a roll, or a timing shift), { } both. The exact values
+/// are on the status line - a 3-column cell can't hold "1:2, 70%, x4, -12%".
+/// `live` is false for an empty cell, or one past its row's own loop length
+/// which never fires, so those read plain whatever they hold.
+pub fn stepBrackets(inst: anytype, row: u8, step: u16, live: bool) [2]u8 {
+    if (!live) return .{ '[', ']' };
+    const tuned = inst.stepTune(row, step) != 0;
+    const modified = inst.stepProb(row, step) != 100 or
+        inst.stepCond(row, step) != .always or
+        inst.stepRetrig(row, step) >= 2 or
+        inst.stepMicro(row, step) != 0;
+    if (tuned and modified) return .{ '{', '}' };
+    if (tuned) return .{ '(', ')' };
+    if (modified) return .{ '<', '>' };
+    return .{ '[', ']' };
+}
+
 pub fn StepRange(comptime T: type) type {
     return struct { lo: T, hi: T };
 }

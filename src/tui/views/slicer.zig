@@ -267,6 +267,7 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
         }
         try w.print(" #{d: <3}    ", .{sIdx + 1});
         try w.writeAll(rst);
+        const slice_len = sl.sliceSteps(@intCast(sIdx), sl.step_count);
         col = 0;
         while (col < visible and scroll + col < step_count_u32) : (col += 1) {
             const s = scroll + col;
@@ -275,11 +276,17 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
             const is_cursor = (sIdx == cur_slice and s == cur_step_u32);
             const is_play = is_playing and (s == playing_step);
             const in_sel = visual_active and s >= sel_lo and s <= sel_hi and sIdx >= sel_rows.lo and sIdx <= sel_rows.hi;
-            try w.writeAll(style.stepCellSgr(active, is_cursor, is_play, in_sel));
-            // Glyph tracks the step's velocity - same five bands as the
-            // drum grid (editors/step_grid.zig).
+            // Past this slice's own loop length ($) the cells stay editable
+            // but never fire, so they read as empty whatever they hold - the
+            // only in-grid signal that the row wraps early (views/drum.zig).
+            const out_of_loop = s >= slice_len;
+            try w.writeAll(style.stepCellSgr(active and !out_of_loop, is_cursor, is_play and !out_of_loop, in_sel));
+            // Glyph tracks the step's velocity, brackets the parameter locks -
+            // same five bands and same bracket set as the drum grid
+            // (editors/step_grid.zig).
             const glyph: u8 = if (!active) ' ' else step_grid.velocityBand(sl.stepVel(@intCast(sIdx), @intCast(s))).glyph();
-            try w.print("[{c}]", .{glyph});
+            const brackets = step_grid.stepBrackets(sl, @intCast(sIdx), @intCast(s), active and !out_of_loop);
+            try w.print("{c}{c}{c}", .{ brackets[0], glyph, brackets[1] });
             try w.writeAll(rst);
         }
         try endLine(w);

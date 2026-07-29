@@ -184,10 +184,7 @@ pub fn draw(
             // A timing shift slides the whole hit within its cell, so the
             // grid shows the feel rather than just flagging it. Capped at
             // half a cell either way, matching setStepMicro's own clamp.
-            const micro_px: f32 = if (kind == .drum)
-                cell_w * @as(f32, @floatFromInt(instrument.stepMicro(@intCast(row), @intCast(step)))) / 100.0
-            else
-                0;
+            const micro_px: f32 = cell_w * @as(f32, @floatFromInt(instrument.stepMicro(@intCast(row), @intCast(step)))) / 100.0;
             const pmin = [2]f32{ x + inset + micro_px, y + row_h - height - 3 };
             const pmax = [2]f32{ x + cell_w - inset + micro_px, y + row_h - 3 };
             draw_list.addRectFilled(.{ .pmin = pmin, .pmax = pmax, .col = color(.{ hit_color[0], hit_color[1], hit_color[2], 0.62 + velocity * 0.38 }), .rounding = @min(3, cell_w * 0.12) });
@@ -203,8 +200,8 @@ pub fn draw(
             // A conditional step (chance or a trig condition) gets a dot in
             // its top-left, opposite the accent triangle so a step can show
             // both. Which condition is on the status line.
-            if (kind == .drum and (instrument.stepProb(@intCast(row), @intCast(step)) != 100 or
-                instrument.stepCond(@intCast(row), @intCast(step)) != .always))
+            if (instrument.stepProb(@intCast(row), @intCast(step)) != 100 or
+                instrument.stepCond(@intCast(row), @intCast(step)) != .always)
             {
                 draw_list.addCircleFilled(.{
                     .p = .{ pmin[0] + 4, pmin[1] + 4 },
@@ -214,59 +211,57 @@ pub fn draw(
             }
             // A roll draws its hits as ticks along the top edge, so the
             // count reads without selecting the step.
-            if (kind == .drum) {
-                const hits = instrument.stepRetrig(@intCast(row), @intCast(step));
-                if (hits >= 2) {
-                    const span = pmax[0] - pmin[0];
-                    for (0..@min(hits, 8)) |h| {
-                        const tx = pmin[0] + span * (@as(f32, @floatFromInt(h)) + 0.5) / @as(f32, @floatFromInt(@min(hits, 8)));
-                        draw_list.addLine(.{
-                            .p1 = .{ tx, pmin[1] + 2 },
-                            .p2 = .{ tx, pmin[1] + 6 },
-                            .col = color(theme.fg0),
-                            .thickness = 1,
-                        });
-                    }
+            const hits = instrument.stepRetrig(@intCast(row), @intCast(step));
+            if (hits >= 2) {
+                const span = pmax[0] - pmin[0];
+                for (0..@min(hits, 8)) |h| {
+                    const tx = pmin[0] + span * (@as(f32, @floatFromInt(h)) + 0.5) / @as(f32, @floatFromInt(@min(hits, 8)));
+                    draw_list.addLine(.{
+                        .p1 = .{ tx, pmin[1] + 2 },
+                        .p2 = .{ tx, pmin[1] + 6 },
+                        .col = color(theme.fg0),
+                        .thickness = 1,
+                    });
                 }
             }
             // A tuned step gets a bar along its bottom edge, above or below
             // the hit's own baseline depending on the direction - the TUI's
             // paren brackets can only say "tuned", this says which way.
-            if (kind == .drum) {
-                const semis = instrument.stepTune(@intCast(row), @intCast(step));
-                if (semis != 0) {
-                    const mark_y = if (semis > 0) pmin[1] - 3 else pmax[1] + 1;
-                    draw_list.addRectFilled(.{
-                        .pmin = .{ pmin[0], mark_y },
-                        .pmax = .{ pmax[0], mark_y + 2 },
-                        .col = color(theme.modulation),
-                    });
-                }
+            const semis = instrument.stepTune(@intCast(row), @intCast(step));
+            if (semis != 0) {
+                const mark_y = if (semis > 0) pmin[1] - 3 else pmax[1] + 1;
+                draw_list.addRectFilled(.{
+                    .pmin = .{ pmin[0], mark_y },
+                    .pmax = .{ pmax[0], mark_y + 2 },
+                    .col = color(theme.modulation),
+                });
             }
         }
     }
 
     // Drawn after the hits, not before: a row that loops on its own shorter
     // length keeps its parked steps editable, but they never fire, so the
-    // shade has to sit over them (dsp/drum_sampler.zig's `pad_len`).
-    if (kind == .drum) {
-        for (row_start..row_end, 0..) |row, display_row| {
-            const len = instrument.padSteps(@intCast(row), @intCast(step_count));
-            if (len >= step_count) continue;
-            const x = grid_x + @as(f32, @floatFromInt(len)) * cell_w;
-            const y = grid_y + @as(f32, @floatFromInt(display_row)) * row_h;
-            draw_list.addRectFilled(.{
-                .pmin = .{ x, y },
-                .pmax = .{ grid_x + @as(f32, @floatFromInt(step_count)) * cell_w, y + row_h },
-                .col = color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.74 }),
-            });
-            draw_list.addLine(.{
-                .p1 = .{ x, y },
-                .p2 = .{ x, y + row_h },
-                .col = color(theme.modulation),
-                .thickness = 2,
-            });
-        }
+    // shade has to sit over them (`DrumMachine.pad_len`/`Slicer.slice_len` -
+    // each machine names its own accessor for its own row).
+    for (row_start..row_end, 0..) |row, display_row| {
+        const len = if (kind == .drum)
+            instrument.padSteps(@intCast(row), @intCast(step_count))
+        else
+            instrument.sliceSteps(@intCast(row), @intCast(step_count));
+        if (len >= step_count) continue;
+        const x = grid_x + @as(f32, @floatFromInt(len)) * cell_w;
+        const y = grid_y + @as(f32, @floatFromInt(display_row)) * row_h;
+        draw_list.addRectFilled(.{
+            .pmin = .{ x, y },
+            .pmax = .{ grid_x + @as(f32, @floatFromInt(step_count)) * cell_w, y + row_h },
+            .col = color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.74 }),
+        });
+        draw_list.addLine(.{
+            .p1 = .{ x, y },
+            .p2 = .{ x, y + row_h },
+            .col = color(theme.modulation),
+            .thickness = 2,
+        });
     }
 
     if (row_count > 0) {
