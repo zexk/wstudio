@@ -4724,7 +4724,7 @@ test "golden-file corpus: every historical .wsj fixture still loads" {
     }
 
     // Guards against a misconfigured path silently turning this into a no-op.
-    try testing.expectEqual(@as(usize, 24), count);
+    try testing.expectEqual(@as(usize, 25), count);
 }
 
 test "golden-file corpus: v25's soundfont rack loads with no font (no sidecar to resolve) but keeps its OUT params" {
