@@ -12,3 +12,6 @@ for future crops and exports.
 
 Each image also has a Patina Light sibling with `-light` before the dimensions
 or `-source`, for example `wstudio-social-card-light-1200x630.png`.
+
+All artwork uses a fixed pixel-art palette with hard color transitions. Keep
+edges on the pixel grid and use nearest-neighbor scaling for future exports.
