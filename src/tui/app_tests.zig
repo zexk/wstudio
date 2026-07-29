@@ -8180,3 +8180,19 @@ test "scrolling down from the bottom of the help view doesn't overflow" {
     var w = std.Io.Writer.fixed(&buf);
     try tui_mod.draw(&app, &w, .{ .cols = 100, .rows = 24 });
 }
+
+
+test "the synth editor draws at the 4-column terminal width" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .synth_editor;
+    var buf: [512 * 1024]u8 = undefined;
+
+    // synth_layout.numCols opens a fourth column at 210 cols; two of the
+    // per-column scratch arrays here were still sized for three, so every
+    // draw this wide indexed past the end.
+    for ([_]u16{ 107, 108, 159, 160, 209, 210, 400 }) |cols| {
+        var w = std.Io.Writer.fixed(&buf);
+        try tui_mod.draw(&app, &w, .{ .cols = cols, .rows = 60 });
+    }
+}

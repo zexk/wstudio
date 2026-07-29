@@ -270,9 +270,14 @@ pub const mod_heights_2 = columnHeights(&mod_sections, mod_placements_2, 2);
 pub const mod_heights_3 = columnHeights(&mod_sections, mod_placements_3, 3);
 pub const mod_heights_4 = columnHeights(&mod_sections, mod_placements_4, 4);
 
+/// Ceiling on what `numCols` can return. Renderers size their per-column
+/// scratch arrays off this, so widening the grid can't leave one of them
+/// a bucket short.
+pub const max_cols = 4;
+
 /// Column-count bucket for a given terminal width.
 pub fn numCols(cols: usize) usize {
-    if (cols >= 210) return 4;
+    if (cols >= 210) return max_cols;
     if (cols >= 160) return 3;
     if (cols >= 108) return 2;
     return 1;

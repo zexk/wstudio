@@ -273,9 +273,9 @@ fn drawSynthGrid(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize, 
         return;
     }
 
-    var bufs: [4][16 * 1024]u8 = undefined;
-    var writers: [4]std.Io.Writer = undefined;
-    var col_rows = [_]usize{0} ** 4;
+    var bufs: [synth_layout.max_cols][16 * 1024]u8 = undefined;
+    var writers: [synth_layout.max_cols]std.Io.Writer = undefined;
+    var col_rows = [_]usize{0} ** synth_layout.max_cols;
     for (0..n) |i| writers[i] = std.Io.Writer.fixed(&bufs[i]);
     const placements = if (subview == .main) synth_layout.mainPlacements(n) else synth_layout.modPlacements(n);
     for (sections, 0..) |sec, si| {
@@ -287,7 +287,7 @@ fn drawSynthGrid(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize, 
         col_rows[col] += sec.params.len + 2;
     }
 
-    var iters: [3]std.mem.SplitIterator(u8, .sequence) = undefined;
+    var iters: [synth_layout.max_cols]std.mem.SplitIterator(u8, .sequence) = undefined;
     for (0..n) |i| iters[i] = std.mem.splitSequence(u8, writers[i].buffered(), "\r\n");
 
     var row: usize = 0;
@@ -296,7 +296,7 @@ fn drawSynthGrid(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize, 
         // whether the row is about to be skipped by the scroll check below
         // - otherwise a scrolled-past row's lines are never consumed and
         // every column desyncs from `row` for the rest of the frame.
-        var lines: [3][]const u8 = .{ "", "", "" };
+        var lines = [_][]const u8{""} ** synth_layout.max_cols;
         for (0..n) |i| {
             if (row < heights[i]) lines[i] = iters[i].next() orelse "";
         }
