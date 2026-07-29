@@ -61,6 +61,7 @@ const audio_format_linear_pcm = 0x6c70636d; // 'lpcm'
 const audio_format_flag_is_float = 1 << 0;
 const audio_format_flag_is_packed = 1 << 3;
 const audio_unit_property_stream_format = 8;
+const audio_unit_property_maximum_frames_per_slice = 14;
 const audio_unit_property_set_render_callback = 23;
 const audio_output_unit_property_current_device = 2000;
 const audio_output_unit_property_enable_io = 2003;
@@ -264,6 +265,9 @@ pub const CoreAudioCapture = struct {
         const callback = AURenderCallbackStruct{ .inputProc = captureCallback, .inputProcRefCon = self };
         if (AudioUnitSetProperty(unit, audio_output_unit_property_set_input_callback, audio_unit_scope_global, 0, &callback, @sizeOf(AURenderCallbackStruct)) != 0)
             return error.DeviceConfigFailed;
+        var maximum_frames: u32 = types.max_block_frames;
+        if (AudioUnitSetProperty(unit, audio_unit_property_maximum_frames_per_slice, audio_unit_scope_global, 0, &maximum_frames, @sizeOf(u32)) != 0)
+            return error.DeviceConfigFailed;
         if (AudioUnitInitialize(unit) != 0) return error.DeviceConfigFailed;
         errdefer _ = AudioUnitUninitialize(unit);
         if (AudioOutputUnitStart(unit) != 0) return error.DeviceConfigFailed;
@@ -272,8 +276,8 @@ pub const CoreAudioCapture = struct {
 
     pub fn stop(self: *CoreAudioCapture) void {
         const unit = self.unit orelse return;
-        self.unit = null;
         _ = AudioOutputUnitStop(unit);
+        self.unit = null;
         _ = AudioUnitUninitialize(unit);
         _ = AudioComponentInstanceDispose(unit);
     }
