@@ -133,7 +133,9 @@ pub fn parse(allocator: std.mem.Allocator, data: []const u8) ParseError!ParseRes
     if (data.len < 14 or !std.mem.eql(u8, data[0..4], "MThd")) return error.InvalidHeader;
     const header_len = readU32Be(data[4..8]);
     if (header_len < 6 or data.len < 8 + header_len) return error.InvalidHeader;
+    const format = readU16Be(data[8..10]);
     const ntrks = readU16Be(data[10..12]);
+    if (format > 1 or ntrks == 0 or (format == 0 and ntrks != 1)) return error.InvalidHeader;
     const division = readU16Be(data[12..14]);
     if (division & 0x8000 != 0 or division == 0) return error.UnsupportedDivision; // SMPTE or zero, not supported
     const ticks_per_beat: f64 = @floatFromInt(division);
@@ -380,6 +382,12 @@ test "write sanitizes non-finite tempo and note fields" {
 
 test "parse rejects a file without an MThd header" {
     try std.testing.expectError(error.InvalidHeader, parse(std.testing.allocator, "not a midi file"));
+}
+
+test "parse rejects unsupported format and invalid track counts" {
+    try std.testing.expectError(error.InvalidHeader, parse(std.testing.allocator, "MThd\x00\x00\x00\x06\x00\x02\x00\x01\x01\xe0"));
+    try std.testing.expectError(error.InvalidHeader, parse(std.testing.allocator, "MThd\x00\x00\x00\x06\x00\x00\x00\x02\x01\xe0"));
+    try std.testing.expectError(error.InvalidHeader, parse(std.testing.allocator, "MThd\x00\x00\x00\x06\x00\x01\x00\x00\x01\xe0"));
 }
 
 test "parse handles a format-1 file with tracks split across channels, merging both onto one timeline" {
