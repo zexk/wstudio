@@ -58,7 +58,7 @@ pub fn range(session: *const Session, tail_seconds: f32) Range {
     };
     return .{
         .start_frame = start_frame,
-        .total_frames = content_frames + types.secondsToFrames(tail_seconds, session.project.sample_rate),
+        .total_frames = content_frames +| types.secondsToFrames(tail_seconds, session.project.sample_rate),
         .has_loop_region = has_loop_region,
     };
 }
@@ -186,6 +186,12 @@ test "contentBeats includes drum resolution and slicer length" {
     try session.setInstrument(0, .slicer);
     session.racks.items[0].instrument.slicer.setStepCount(20);
     try std.testing.expectEqual(@as(f64, 5.0), contentBeats(&session));
+}
+
+test "range saturates overflowing render length" {
+    var session = try Session.initDefaultWithSampleRate(std.testing.allocator, 48_000);
+    defer session.deinit();
+    try std.testing.expectEqual(std.math.maxInt(u64), range(&session, std.math.inf(f32)).total_frames);
 }
 
 test "stemName sanitizes paths and handles empty names" {
