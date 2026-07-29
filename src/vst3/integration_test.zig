@@ -15,6 +15,11 @@ pub fn main(init: std.process.Init) !void {
     try std.testing.expectEqual(@as(usize, 1), instruments);
     try std.testing.expectEqualStrings("wstudio", registry.plugins.items[0].vendor);
 
+    for (0..3) |_| {
+        const repeated = try ws.vst3.Vst3Plugin.loadModule(init.gpa, module_path, "wstudio-test.vst3", "57535445464645435400000000000001", 48_000, false);
+        repeated.deinit();
+    }
+
     var instrument = try ws.vst3.Vst3Plugin.loadModule(init.gpa, module_path, "wstudio-test.vst3", "575354494e535452554d454e54000001", 48_000, true);
     defer instrument.deinit();
     var transport: ws.Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120, .position_frames = 48_000, .playing = true };

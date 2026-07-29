@@ -696,3 +696,17 @@ pub const Vst3Plugin = struct {
         return self.host_context.state_dirty.swap(false, .acquire);
     }
 };
+
+test "VST3 memory stream reads writes and seeks" {
+    var stream = MemoryStream.init(std.testing.allocator);
+    defer stream.deinit();
+    const input = "state";
+    var count: i32 = 0;
+    try std.testing.expectEqual(@as(abi.Result, 0), stream.interface.vtable.write(&stream.interface, input.ptr, input.len, &count));
+    try std.testing.expectEqual(@as(i32, input.len), count);
+    var position: i64 = -1;
+    try std.testing.expectEqual(@as(abi.Result, 0), stream.interface.vtable.seek(&stream.interface, 0, 0, &position));
+    var output: [5]u8 = undefined;
+    try std.testing.expectEqual(@as(abi.Result, 0), stream.interface.vtable.read(&stream.interface, &output, output.len, &count));
+    try std.testing.expectEqualStrings(input, &output);
+}
