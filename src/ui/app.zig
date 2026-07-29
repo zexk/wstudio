@@ -1412,6 +1412,8 @@ pub const App = struct {
         self.note_preview_ns = @as(i96, user_config.note_preview_ms) * std.time.ns_per_ms;
         self.status_message_ns = @as(i96, user_config.status_message_ms) * std.time.ns_per_ms;
         self.cmd_history_cap = user_config.cmd_history_lines;
+        while (self.cmd_history.items.len > self.cmd_history_cap) self.allocator.free(self.cmd_history.orderedRemove(0));
+        self.cmd_history_pos = self.cmd_history.items.len;
         self.default_velocity = user_config.default_velocity;
         self.master_gain_db = user_config.default_master_gain_db;
         _ = self.session.engine.send(.{ .set_master_gain = types.dbToGain(self.master_gain_db) });

@@ -7960,14 +7960,19 @@ test "applyUserConfig plumbs the round-3 options" {
     cfg.status_message_ms = 1234;
     cfg.default_browse_dir.buf[0..4].* = "/tmp".*;
     cfg.default_browse_dir.len = 4;
+    for ([_][]const u8{ "one", "two", "three", "four" }) |line|
+        try app.cmd_history.append(app.allocator, try app.allocator.dupe(u8, line));
     app.applyUserConfig(cfg, true);
     try std.testing.expectEqual(@as(f32, 0.4), app.default_velocity);
     try std.testing.expectEqual(@as(i96, 500 * std.time.ns_per_ms), app.note_preview_ns);
     try std.testing.expectEqual(@as(usize, 3), app.cmd_history_cap);
     try std.testing.expectEqual(@as(i96, 1234 * std.time.ns_per_ms), app.status_message_ns);
     try std.testing.expectEqualStrings("/tmp", app.default_browse_dir.slice());
+    try std.testing.expectEqual(@as(usize, 3), app.cmd_history.items.len);
+    try std.testing.expectEqualStrings("two", app.cmd_history.items[0]);
+    try std.testing.expectEqual(@as(usize, 3), app.cmd_history_pos);
 
-    // The lowered cmd_history_cap trims on the next push, not retroactively.
+    // New commands keep the already-trimmed history bounded.
     for ([_][]const u8{ ":bpm 121", ":bpm 122", ":bpm 123", ":bpm 124" }) |line| {
         for (line) |c| app.handleKey(.{ .char = c }, 0);
         app.handleKey(.enter, 0);
