@@ -143,6 +143,9 @@ pub const WasapiBackend = struct {
         self.running.store(true, .release);
         self.thread = std.Thread.spawn(.{}, run, .{self}) catch {
             self.running.store(false, .release);
+            self.client = null;
+            self.render_client = null;
+            self.event = null;
             return error.ThreadSpawnFailed;
         };
     }
@@ -288,6 +291,9 @@ pub const WasapiCapture = struct {
         self.running.store(true, .release);
         self.thread = std.Thread.spawn(.{}, run, .{self}) catch {
             self.running.store(false, .release);
+            self.client = null;
+            self.capture_client = null;
+            self.event = null;
             return error.ThreadSpawnFailed;
         };
     }
