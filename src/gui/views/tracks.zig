@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const ws = @import("wstudio");
+const format = @import("../../ui/format.zig");
 const spectrum_ed = @import("../../ui/editors/spectrum.zig");
 const gui_style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
@@ -18,7 +19,7 @@ const theme = &gui_style.palette;
 /// right edge instead of the old `width - <magic offset>` scheme, which
 /// left a growing dead gap on wide windows.
 const strip_w: f32 = 34;
-const block_w: f32 = 216;
+const block_w: f32 = 252;
 const block_margin: f32 = 8;
 
 fn blockX0(origin_x: f32, width: f32) f32 {
@@ -37,7 +38,7 @@ fn rowRight(origin_x: f32, width: f32) f32 {
 /// Horizontal padding inside the info block - the gain readout, the trim
 /// meter and the badge cluster all breathe from this same inset, so the
 /// block's contents sit symmetrically instead of crowding its right corner.
-const block_inset: f32 = 18;
+const block_inset: f32 = 16;
 
 /// Mute/solo/arm chips: fixed size, laid out right-to-left from the info
 /// block's inner right edge, so slot 0 is the rightmost.
@@ -47,6 +48,100 @@ const badge_pitch: f32 = 22;
 
 fn badgeX(block_x0: f32, slot: f32) f32 {
     return block_x0 + block_w - block_inset - badge_w - slot * badge_pitch;
+}
+
+/// The mixer row's top line inside the info block: gain, pan, then the
+/// badge cluster, each group separated by `group_gap` and the outer two
+/// flush against `block_inset` on their own side. Sized so the three add up
+/// to the block's inner width with exactly two gaps left over - the whole
+/// point is that nothing bunches in the middle with dead space at the edges.
+const group_gap: f32 = 10;
+const badge_cluster_w: f32 = badge_pitch * 2 + badge_w;
+const gain_w: f32 = 76;
+const pan_w: f32 = block_w - 2 * block_inset - 2 * group_gap - gain_w - badge_cluster_w;
+
+test "info-block groups fill the inner width without bunching" {
+    try std.testing.expectEqual(block_w - 2 * block_inset, gain_w + group_gap + pan_w + group_gap + badge_cluster_w);
+    // The badge cluster ends exactly on the right inset, mirroring gain's
+    // left one - `badgeX` counts back from the block's right edge.
+    try std.testing.expectEqual(block_inset + gain_w + group_gap + pan_w + group_gap, badgeX(0, 2));
+}
+
+/// Mixer-console pan readout: `C`, or the side plus how far it leans (L100
+/// … C … R100). Null-terminated because it is handed to ImGui as a drag's
+/// value format - and deliberately without the `%` `ui/format.zig`'s own
+/// `panLabel` carries, since a stray `%` in a printf format string is what
+/// ImGui would try to expand.
+fn panFmt(buf: []u8, pan: f32) [:0]const u8 {
+    if (@abs(pan) < format.pan_center_epsilon) return "C";
+    return std.fmt.bufPrintZ(buf, "{s}{d:.0}", .{ format.panLetter(pan), @abs(pan) * 100 }) catch "C";
+}
+
+test "pan drag reads as a mixer console, not a signed percentage" {
+    var buf: [8]u8 = undefined;
+    try std.testing.expectEqualStrings("C", panFmt(&buf, 0));
+    try std.testing.expectEqualStrings("C", panFmt(&buf, -0.001));
+    try std.testing.expectEqualStrings("L100", panFmt(&buf, -1.0));
+    try std.testing.expectEqualStrings("R42", panFmt(&buf, 0.42));
+}
+
+const MixerDrag = struct {
+    id: [:0]const u8,
+    x: f32,
+    y: f32,
+    w: f32,
+    value: f32,
+    min: f32,
+    max: f32,
+    /// Units per pixel of horizontal drag.
+    speed: f32,
+    /// What a right-click or double-click snaps back to.
+    default: f32,
+    cfmt: [:0]const u8,
+};
+
+const MixerDragResult = struct {
+    value: f32,
+    changed: bool,
+    activated: bool,
+    /// The edit is over and worth an undo entry - a released drag, or the
+    /// click that reset the control.
+    finished: bool,
+};
+
+/// One mixer control inside a row's info block. A drag rather than a
+/// slider: dragging is what a mixer strip does, and it comes with ImGui's
+/// own shift (coarse, 10x) and alt (fine, 1/100) modifiers, which a
+/// position-mapped slider cannot have. Right-click or double-click snaps
+/// back to `default` - ImGui's own type-a-value box is off (`no_input`)
+/// precisely so right-click is free for the reset, which is the gesture
+/// people actually reach for on a fader.
+fn mixerDrag(args: MixerDrag) MixerDragResult {
+    var value = args.value;
+    zgui.setCursorScreenPos(.{ args.x, args.y });
+    zgui.setNextItemWidth(args.w);
+    var changed = zgui.dragFloat(args.id, .{
+        .v = &value,
+        .speed = args.speed,
+        .min = args.min,
+        .max = args.max,
+        .cfmt = args.cfmt,
+        .flags = .{ .always_clamp = true, .no_input = true },
+    });
+    const reset = zgui.isItemHovered(.{}) and
+        (zgui.isMouseClicked(.right) or zgui.isMouseDoubleClicked(.left));
+    if (reset) {
+        value = args.default;
+        changed = true;
+    }
+    return .{
+        .value = value,
+        .changed = changed,
+        // A right-click reset never activates the drag itself, so it has to
+        // open the undo entry it also closes, or the reset isn't undoable.
+        .activated = reset or zgui.isItemActivated(),
+        .finished = reset or zgui.isItemDeactivatedAfterEdit(),
+    };
 }
 
 pub fn draw(app: anytype) void {
@@ -180,27 +275,42 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     const center_y = origin[1] + (height - 2) / 2;
     const controls_y = center_y - 17;
 
-    var gain = track.gain_db;
-    zgui.setCursorScreenPos(.{ block_x0 + 10, controls_y });
-    zgui.setNextItemWidth(62);
-    const gain_before = gain;
-    if (zgui.sliderFloat(std.fmt.bufPrintZ(&id_buf, "##gain-{d}", .{track_index}) catch "##gain", .{ .v = &gain, .min = -60, .max = 12, .cfmt = "%.1f dB" })) {
-        app.core.apiSetTrackGainDb(track_index, gain);
-    }
-    if (zgui.isItemActivated()) app.beginTrackMixerEdit(track_index, .gain, gain_before);
-    if (zgui.isItemDeactivatedAfterEdit()) app.finishTrackMixerEdit();
+    const gain_before = track.gain_db;
+    const gain = mixerDrag(.{
+        .id = std.fmt.bufPrintZ(&id_buf, "##gain-{d}", .{track_index}) catch "##gain",
+        .x = block_x0 + block_inset,
+        .y = controls_y,
+        .w = gain_w,
+        .value = gain_before,
+        .min = -60,
+        .max = 12,
+        .speed = 0.2,
+        .default = 0,
+        .cfmt = "%.1f dB",
+    });
+    if (gain.activated) app.beginTrackMixerEdit(track_index, .gain, gain_before);
+    if (gain.changed) app.core.apiSetTrackGainDb(track_index, gain.value);
+    if (gain.finished) app.finishTrackMixerEdit();
 
-    var pan_percent = track.pan * 100;
-    zgui.setCursorScreenPos(.{ block_x0 + 76, controls_y });
-    zgui.setNextItemWidth(50);
     const pan_before = track.pan;
-    if (zgui.sliderFloat(std.fmt.bufPrintZ(&id_buf, "##pan-{d}", .{track_index}) catch "##pan", .{ .v = &pan_percent, .min = -100, .max = 100, .cfmt = "%+.0f%%" })) {
-        app.core.apiSetTrackPan(track_index, pan_percent / 100);
-    }
-    if (zgui.isItemActivated()) app.beginTrackMixerEdit(track_index, .pan, pan_before);
-    if (zgui.isItemDeactivatedAfterEdit()) app.finishTrackMixerEdit();
+    var pan_buf: [8]u8 = undefined;
+    const pan = mixerDrag(.{
+        .id = std.fmt.bufPrintZ(&id_buf, "##pan-{d}", .{track_index}) catch "##pan",
+        .x = block_x0 + block_inset + gain_w + group_gap,
+        .y = controls_y,
+        .w = pan_w,
+        .value = pan_before * 100,
+        .min = -100,
+        .max = 100,
+        .speed = 0.5,
+        .default = 0,
+        .cfmt = panFmt(&pan_buf, pan_before),
+    });
+    if (pan.activated) app.beginTrackMixerEdit(track_index, .pan, pan_before);
+    if (pan.changed) app.core.apiSetTrackPan(track_index, pan.value / 100);
+    if (pan.finished) app.finishTrackMixerEdit();
 
-    widgets.solidMeterBar(draw_list, .{ block_x0 + 10, center_y + 10 }, app.track_meter_hold_db[track_index], block_w - 20, 4, 2, block_fg);
+    widgets.solidMeterBar(draw_list, .{ block_x0 + block_inset, center_y + 10 }, app.track_meter_hold_db[track_index], block_w - 2 * block_inset, 4, 2, block_fg);
 
     // Always three fixed slots (unlike the old read-only badges, which only
     // occupied space when already on) so each has a stable, clickable hit
