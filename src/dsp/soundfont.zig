@@ -500,7 +500,7 @@ fn parseImpl(allocator: std.mem.Allocator, bytes: []const u8, target_sample_rate
         if (eqlId(list_type, "sdta")) {
             var sp: usize = 4;
             while (try nextChunk(chunk.data, sp)) |sc| : (sp = sc.next) {
-                if (eqlId(sc.id, "smpl")) raw_sample_data = sc.data;
+                if (eqlId(sc.id, "smpl") and raw_sample_data.len == 0) raw_sample_data = sc.data;
             }
         } else if (eqlId(list_type, "pdta") and hydra == null) {
             var phdr: []PresetHeader = &.{};
@@ -1091,6 +1091,20 @@ test "parse: a duplicated pdta LIST is ignored, not leaked" {
     defer sf.deinit();
     try std.testing.expectEqual(@as(usize, 1), sf.presets.len);
     try std.testing.expectEqual(@as(usize, 1), sf.presets[0].regions.len);
+}
+
+test "parse: later empty sample chunk does not replace valid sample data" {
+    const allocator = std.testing.allocator;
+    const base = try buildTestSf2(allocator, false, 44_100);
+    defer allocator.free(base);
+    const empty_sdta = "LIST\x0c\x00\x00\x00sdtasmpl\x00\x00\x00\x00";
+    const dup = try std.mem.concat(allocator, u8, &.{ base, empty_sdta });
+    defer allocator.free(dup);
+    std.mem.writeInt(u32, dup[4..8], @intCast(dup.len - 8), .little);
+
+    var sf = try SoundFont.parse(allocator, dup, 44_100);
+    defer sf.deinit();
+    try std.testing.expectEqual(@as(usize, 200), sf.sample_data.len);
 }
 
 test "dupe: independent buffers, same content" {
