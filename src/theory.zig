@@ -169,12 +169,15 @@ pub const Scale = struct {
         const root_idx = idx orelse return fixedChord(pitch, false, seventh);
         const base: i32 = @as(i32, pitch) - pc;
         const steps: []const usize = if (seventh) &[_]usize{ 0, 2, 4, 6 } else &[_]usize{ 0, 2, 4 };
-        var out: Chord = .{ .count = @intCast(steps.len) };
-        for (steps, 0..) |s, i| {
+        var out: Chord = .{};
+        for (steps) |s| {
             const deg = root_idx + s;
             const oct: i32 = @intCast(deg / n);
             const note_pc = iv[deg % n];
-            out.pitches[i] = clampPitch(base + @as(i32, note_pc) + 12 * oct);
+            const note = base + @as(i32, note_pc) + 12 * oct;
+            if (note > 127) continue;
+            out.pitches[out.count] = @intCast(note);
+            out.count += 1;
         }
         return out;
     }
@@ -185,13 +188,14 @@ fn fixedChord(pitch: u7, minor: bool, seventh: bool) Scale.Chord {
         (if (seventh) &[_]i32{ 0, 3, 7, 10 } else &[_]i32{ 0, 3, 7 })
     else
         (if (seventh) &[_]i32{ 0, 4, 7, 11 } else &[_]i32{ 0, 4, 7 });
-    var out: Scale.Chord = .{ .count = @intCast(shape.len) };
-    for (shape, 0..) |iv, i| out.pitches[i] = clampPitch(@as(i32, pitch) + iv);
+    var out: Scale.Chord = .{};
+    for (shape) |iv| {
+        const note = @as(i32, pitch) + iv;
+        if (note > 127) continue;
+        out.pitches[out.count] = @intCast(note);
+        out.count += 1;
+    }
     return out;
-}
-
-fn clampPitch(p: i32) u7 {
-    return @intCast(std.math.clamp(p, 0, 127));
 }
 
 // ============================================================
@@ -257,6 +261,12 @@ test "chordAt: minor pentatonic uses the fixed minor shape" {
     const c = s.chordAt(60, true);
     try std.testing.expectEqual(@as(u3, 4), c.count);
     try std.testing.expectEqualSlices(u7, &.{ 60, 63, 67, 70 }, &c.pitches);
+}
+
+test "chordAt: voices past the MIDI ceiling are omitted" {
+    const c = (Scale{ .root = 7, .kind = .major }).chordAt(127, true);
+    try std.testing.expectEqual(@as(u3, 1), c.count);
+    try std.testing.expectEqual(@as(u7, 127), c.pitches[0]);
 }
 
 test "Chord.inverted: raises the lowest voices, clamps a full rotation, bails at 127" {
