@@ -126,6 +126,30 @@ pub fn writeWav(session: *Session, writer: *std.Io.Writer, bounce_range: Range, 
     try wav_writer.finish();
 }
 
+/// Stream to sibling temporary file, then replace destination atomically.
+pub fn writeFile(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    path: []const u8,
+    session: *Session,
+    bounce_range: Range,
+    bit_depth: wav.BitDepth,
+) !void {
+    const tmp_path = try std.fmt.allocPrint(allocator, "{s}.tmp", .{path});
+    defer allocator.free(tmp_path);
+    errdefer std.Io.Dir.cwd().deleteFile(io, tmp_path) catch {};
+
+    {
+        const file = try std.Io.Dir.cwd().createFile(io, tmp_path, .{});
+        defer file.close(io);
+        var file_buffer: [8192]u8 = undefined;
+        var file_writer = file.writer(io, &file_buffer);
+        try writeWav(session, &file_writer.interface, bounce_range, bit_depth);
+        try file_writer.interface.flush();
+    }
+    try std.Io.Dir.cwd().rename(tmp_path, std.Io.Dir.cwd(), path, io);
+}
+
 fn resetDevices(session: *Session) void {
     var buf: [@import("rack.zig").Rack.chain_cap]dsp.Device = undefined;
     for (session.racks.items) |rack| {
@@ -153,4 +177,28 @@ test "stemName sanitizes paths and handles empty names" {
     var buf: [64]u8 = undefined;
     try std.testing.expectEqualStrings("1-bass_lead", stemName(&buf, "bass/lead", 0));
     try std.testing.expectEqualStrings("3-track", stemName(&buf, "", 2));
+}
+
+test "failed export preserves destination and removes temporary file" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/bounce.wav", .{&tmp.sub_path});
+    var tmp_path_buf: [260]u8 = undefined;
+    const tmp_path = try std.fmt.bufPrint(&tmp_path_buf, "{s}.tmp", .{path});
+    {
+        const file = try std.Io.Dir.cwd().createFile(std.testing.io, path, .{});
+        defer file.close(std.testing.io);
+        try file.writeStreamingAll(std.testing.io, "existing");
+    }
+
+    var session = try Session.initDefaultWithSampleRate(std.testing.allocator, 48_000);
+    defer session.deinit();
+    const too_large: Range = .{ .start_frame = 0, .total_frames = std.math.maxInt(u32), .has_loop_region = false };
+    try std.testing.expectError(error.FileTooLarge, writeFile(std.testing.allocator, std.testing.io, path, &session, too_large, .pcm16));
+
+    const data = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, path, std.testing.allocator, .limited(16));
+    defer std.testing.allocator.free(data);
+    try std.testing.expectEqualStrings("existing", data);
+    try std.testing.expectError(error.FileNotFound, std.Io.Dir.cwd().access(std.testing.io, tmp_path, .{}));
 }

@@ -2743,12 +2743,7 @@ fn writeParkedBounce(app: *App, path: []const u8, range: ws.bounce.Range, bit_de
         engine.bounce_parked.store(false, .release);
     }
 
-    const file = try std.Io.Dir.cwd().createFile(app.io, path, .{});
-    defer file.close(app.io);
-    var file_buffer: [8192]u8 = undefined;
-    var file_writer = file.writer(app.io, &file_buffer);
-    try ws.bounce.writeWav(&app.session, &file_writer.interface, range, bit_depth);
-    try file_writer.interface.flush();
+    try ws.bounce.writeFile(app.allocator, app.io, path, &app.session, range, bit_depth);
 }
 
 /// Render the session from `start_frame` into `buffer` (interleaved stereo),

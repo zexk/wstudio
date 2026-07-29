@@ -236,7 +236,7 @@ fn renderProject(allocator: std.mem.Allocator, io: std.Io, project_path: []const
     defer session.deinit();
 
     const bounce_range = ws.bounce.range(&session, 2.0);
-    try writeBounce(io, output_path, &session, bounce_range);
+    try ws.bounce.writeFile(allocator, io, output_path, &session, bounce_range, .pcm16);
 
     var stdout_buffer: [1024]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
@@ -268,7 +268,7 @@ fn renderProjectStems(allocator: std.mem.Allocator, io: std.Io, project_path: []
 
         const name = ws.bounce.stemName(&name_buffer, session.project.tracks.items[i].name, i);
         const path = try std.fmt.bufPrint(&path_buffer, "{s}/{s}.wav", .{ output_dir, name });
-        try writeBounce(io, path, &session, bounce_range);
+        try ws.bounce.writeFile(allocator, io, path, &session, bounce_range, .pcm16);
         rendered += 1;
     }
 
@@ -276,15 +276,6 @@ fn renderProjectStems(allocator: std.mem.Allocator, io: std.Io, project_path: []
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
     try stdout_writer.interface.print("rendered {d} stem(s) -> {s}/\n", .{ rendered, output_dir });
     try stdout_writer.interface.flush();
-}
-
-fn writeBounce(io: std.Io, path: []const u8, session: *ws.Session, bounce_range: ws.bounce.Range) !void {
-    const file = try std.Io.Dir.cwd().createFile(io, path, .{});
-    defer file.close(io);
-    var file_buffer: [8192]u8 = undefined;
-    var file_writer = file.writer(io, &file_buffer);
-    try ws.bounce.writeWav(session, &file_writer.interface, bounce_range, .pcm16);
-    try file_writer.interface.flush();
 }
 
 const out_path = "out.wav";
