@@ -202,6 +202,7 @@ pub const PatternPlayer = struct {
     pub fn clearNotes(self: *PatternPlayer) void {
         while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.notes_lock.unlock();
+        for (self.notes[0..self.note_count]) |note| self.queueNoteOff(note.pitch);
         self.note_count = 0;
     }
 
@@ -1683,6 +1684,25 @@ test "deleting a sounding note releases it when other notes remain" {
     pp.processBlock(&buf);
     try std.testing.expect(!pp.sounding[60]);
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+}
+
+test "clearing notes releases a sounding note" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+
+    transport.play();
+    var buf = [_]types.Sample{0.0} ** 512;
+    pp.processBlock(&buf);
+    try std.testing.expect(pp.sounding[60]);
+
+    pp.clearNotes();
+    transport.advance(256);
+    pp.processBlock(&buf);
+    try std.testing.expect(!pp.sounding[60]);
+    try std.testing.expectEqual(@as(u16, 0), pp.note_count);
 }
 
 test "time-sliding a sounding note chokes it instead of stranding its note_off" {
