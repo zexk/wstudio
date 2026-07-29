@@ -14,6 +14,55 @@ const theme = &style.palette;
 /// survives across frames while the mouse button is held.
 pub const RegionHandle = enum { start, end, fade_in, fade_out };
 
+/// Height of everything below the waveform pane, measured on the previous
+/// frame - the module panels size to their own content (see
+/// `drawSharedSections`), so it is only known once they are drawn. The pane
+/// gives that space back instead of the view growing an outer scrollbar: a
+/// module is a unit, and the thing that yields is the pane that has pixels
+/// to spare. Only one sampler target draws per frame, so one value is enough.
+var below_height: f32 = 0;
+
+/// How much the view still overflowed its window after that (window/child
+/// padding this layout can't see from here), taken straight off the pane's
+/// height until it fits. Sticky: a corrected overflow reads as zero, so
+/// re-deriving it each frame would flip the pane between two heights
+/// forever. It is cleared when the window resizes, which is the only thing
+/// that changes how much room there is to divide up.
+var pane_trim: f32 = 0;
+var trim_window_h: f32 = 0;
+
+/// Close the layout: measure the panels and settle the pane's trim. Called
+/// at the end of every draw path that drew a waveform pane.
+fn settleLayout(below_top: f32) void {
+    below_height = zgui.getCursorPosY() - below_top;
+    const win_h = zgui.getWindowHeight();
+    pane_trim = nextTrim(pane_trim, zgui.getScrollMaxY(), win_h, trim_window_h);
+    trim_window_h = win_h;
+}
+
+/// The trim rule on its own: a resize starts over, anything else adds this
+/// frame's overflow (zero once it fits, which is what makes it settle).
+fn nextTrim(current: f32, overflow: f32, win_h: f32, last_win_h: f32) f32 {
+    if (win_h != last_win_h) return 0;
+    return @min(current + overflow, 240);
+}
+
+test "the pane's trim settles on an overflow and starts over on a resize" {
+    // Overflow accumulates until the view fits, then holds - re-deriving it
+    // from a corrected (zero) overflow would flip the pane's height forever.
+    var trim = nextTrim(0, 11, 802, 802);
+    try std.testing.expectEqual(@as(f32, 11), trim);
+    trim = nextTrim(trim, 11, 802, 802);
+    try std.testing.expectEqual(@as(f32, 22), trim);
+    trim = nextTrim(trim, 0, 802, 802);
+    try std.testing.expectEqual(@as(f32, 22), trim);
+    // Capped, so a layout that can never fit shrinks the pane to its floor
+    // instead of running away.
+    try std.testing.expectEqual(@as(f32, 240), nextTrim(200, 90, 802, 802));
+    // A resized window has different room to divide up: measure again.
+    try std.testing.expectEqual(@as(f32, 0), nextTrim(22, 11, 640, 802));
+}
+
 pub fn draw(app: anytype) void {
     switch (app.core.sampler_target) {
         .sampler => drawStandalone(app),
@@ -190,10 +239,12 @@ fn drawStandalone(app: anytype) void {
     }
     zgui.spacing();
 
+    const below_top = zgui.getCursorPosY();
     drawSharedSections(app, target);
     widgets.sectionTitle(sampler_ed.key_section.title, theme.rhythm);
     drawParam(app, target, sampler_ed.key_section.rows[0].id, sampler_ed.key_section.rows[0].label, sampler_ed.key_section.rows[0].gui_format);
     drawToggle(app, target, sampler_ed.key_section.rows[1].id, "MONO", "POLY", theme.focus);
+    settleLayout(below_top);
 }
 
 fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
@@ -235,7 +286,9 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
     drawWaveformRegion(app, target, pad.samples);
     zgui.spacing();
 
+    const below_top = zgui.getCursorPosY();
     drawSharedSections(app, target);
+    settleLayout(below_top);
 }
 
 fn drawPadEmptyState(app: anytype, title: []const u8, explanation: []const u8) void {
@@ -346,7 +399,7 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
     const end = target.value(1) orelse 1;
 
     const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = std.math.clamp(zgui.getContentRegionAvail()[1] * 0.42, 180, 300);
+    const height: f32 = std.math.clamp(zgui.getContentRegionAvail()[1] - below_height - pane_trim, 120, 300);
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("##waveform-region", .{ .w = width, .h = height });
     const hovered = zgui.isItemHovered(.{});
