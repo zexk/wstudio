@@ -51,6 +51,7 @@ pub fn main(init: std.process.Init) !void {
         const path: ?[]const u8 = if (rest.items.len > 1) rest.items[1] else null;
         if (std.mem.eql(u8, cmd, "render")) return renderDemo(init.gpa, init.io);
         if (std.mem.eql(u8, cmd, "clap-scan")) return scanClap(init);
+        if (std.mem.eql(u8, cmd, "vst3-scan")) return scanVst3(init);
         if (std.mem.eql(u8, cmd, "devices")) return listDevices(init.io);
         if (std.mem.eql(u8, cmd, "--version") or std.mem.eql(u8, cmd, "-v")) return printVersion(init.io);
         if (std.mem.eql(u8, cmd, "--help") or std.mem.eql(u8, cmd, "-h")) return printHelp(init.io);
@@ -150,6 +151,7 @@ fn printHelp(io: std.Io) !void {
             "  wstudio --gui [path] Launch the GUI, optionally opening a .wsj project\n" ++
             "  wstudio render      Render the built-in demo melody to out.wav\n" ++
             "  wstudio clap-scan   List installed CLAP plugin IDs and paths\n" ++
+            "  wstudio vst3-scan   List installed VST3 plugin IDs and paths\n" ++
             "  wstudio devices     List audio and live MIDI device IDs\n" ++
             "  wstudio --version   Print the version\n" ++
             "  wstudio --help      Print this message\n\n" ++
@@ -173,6 +175,22 @@ fn scanClap(init: std.process.Init) !void {
     var paths = try ws.dsp.clap_scan.searchPaths(init.gpa, init.environ_map);
     defer ws.dsp.clap_scan.freeSearchPaths(init.gpa, &paths);
     var registry = ws.dsp.clap_scan.Registry.init(init.gpa);
+    defer registry.deinit();
+    try registry.scanPaths(init.io, paths.items);
+
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    for (registry.plugins.items) |plugin| {
+        try stdout.print("{s}\t{s}\t{s}\n", .{ plugin.id, plugin.name, plugin.path });
+    }
+    try stdout.flush();
+}
+
+fn scanVst3(init: std.process.Init) !void {
+    var paths = try ws.vst3.scan.searchPaths(init.gpa, init.environ_map);
+    defer ws.vst3.scan.freeSearchPaths(init.gpa, &paths);
+    var registry = ws.vst3.scan.Registry.init(init.gpa);
     defer registry.deinit();
     try registry.scanPaths(init.io, paths.items);
 
