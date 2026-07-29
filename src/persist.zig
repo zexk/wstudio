@@ -2386,6 +2386,12 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap, beats_per_bar: u8, v
     out.automation.gain = try automationFromSnap(allocator, cs.gain_automation, -60.0, 12.0);
     out.automation.pan = try automationFromSnap(allocator, cs.pan_automation, -1.0, 1.0);
     try applySynthParamAutomationSnap(allocator, &out.automation, cs.synth_param_automation, cs.filter_cutoff_automation);
+    const clip_beats = time_grid.tickToBeat(out.length_ticks);
+    for (out.automation.gain) |*point| point.beat = @min(point.beat, clip_beats);
+    for (out.automation.pan) |*point| point.beat = @min(point.beat, clip_beats);
+    for (out.automation.synth_params.items) |*curve| {
+        for (curve.points) |*point| point.beat = @min(point.beat, clip_beats);
+    }
     return out;
 }
 // zig fmt: on
@@ -3658,6 +3664,18 @@ test "automationFromSnap sorts unsorted points and clamps out-of-range values" {
     try testing.expectApproxEqAbs(@as(f32, -60.0), pts[0].value, 1e-6);
     try testing.expectApproxEqAbs(@as(f64, 3.0), pts[1].beat, 1e-9);
     try testing.expectApproxEqAbs(@as(f32, 12.0), pts[1].value, 1e-6);
+}
+
+test "clipFromSnap clamps automation points to the clip span" {
+    var clip = try clipFromSnap(std.testing.allocator, .{
+        .length_ticks = 32,
+        .gain_automation = &.{.{ .beat = 99.0, .value = 0.0 }},
+        .synth_param_automation = &.{.{ .param_id = 21, .points = &.{.{ .beat = 99.0, .value = 1000.0 }} }},
+    }, 4, file_version);
+    defer clip.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(f64, 1.0), clip.automation.gain[0].beat);
+    try std.testing.expectEqual(@as(f64, 1.0), clip.automation.synth_params.items[0].points[0].beat);
 }
 
 test "load sanitizes non-finite project, automation, pad, and note fields" {
