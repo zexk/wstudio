@@ -3493,7 +3493,7 @@ pub const App = struct {
         for (self.bookmarks.items, 0..) |b, i| {
             if (std.mem.eql(u8, b.path, joined)) {
                 self.allocator.free(b.path);
-                _ = self.bookmarks.swapRemove(i);
+                _ = self.bookmarks.orderedRemove(i);
                 self.setStatus("unbookmarked: {s}", .{entry.name});
                 bookmark_store.save(self.allocator, self.io, self.bookmarks.items) catch {};
                 return;
@@ -3524,7 +3524,7 @@ pub const App = struct {
                 'd' => {
                     if (self.bookmark_cursor >= self.bookmarks.items.len) return;
                     self.allocator.free(self.bookmarks.items[self.bookmark_cursor].path);
-                    _ = self.bookmarks.swapRemove(self.bookmark_cursor);
+                    _ = self.bookmarks.orderedRemove(self.bookmark_cursor);
                     if (self.bookmarks.items.len == 0) self.browser_bookmark_mode = false
                     else self.bookmark_cursor = @min(self.bookmark_cursor, self.bookmarks.items.len - 1);
                     bookmark_store.save(self.allocator, self.io, self.bookmarks.items) catch {};
