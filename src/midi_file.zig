@@ -206,6 +206,7 @@ fn parseTrack(
         const first = track[pos];
 
         if (first == 0xFF) { // meta event
+            running_status = 0;
             pos += 1;
             if (pos >= track.len) return error.Truncated;
             const meta_type = track[pos];
@@ -221,6 +222,7 @@ fn parseTrack(
             continue;
         }
         if (first == 0xF0 or first == 0xF7) { // sysex
+            running_status = 0;
             pos += 1;
             const len = try readVarLen(track, &pos);
             if (len > track.len - pos) return error.Truncated;
@@ -497,4 +499,14 @@ test "parse rejects status bytes inside channel data" {
     const file = "MThd\x00\x00\x00\x06\x00\x00\x00\x01\x01\xe0" ++
         "MTrk\x00\x00\x00\x04\x00\x90\x3c\x80";
     try std.testing.expectError(error.InvalidHeader, parse(std.testing.allocator, file));
+}
+
+test "SysEx and meta events cancel running status" {
+    const sysex = "MThd\x00\x00\x00\x06\x00\x00\x00\x01\x01\xe0" ++
+        "MTrk\x00\x00\x00\x0a\x00\x90\x3c\x64\x00\xf0\x00\x00\x3e\x64";
+    try std.testing.expectError(error.InvalidHeader, parse(std.testing.allocator, sysex));
+
+    const meta = "MThd\x00\x00\x00\x06\x00\x00\x00\x01\x01\xe0" ++
+        "MTrk\x00\x00\x00\x0b\x00\x90\x3c\x64\x00\xff\x01\x00\x00\x3e\x64";
+    try std.testing.expectError(error.InvalidHeader, parse(std.testing.allocator, meta));
 }
