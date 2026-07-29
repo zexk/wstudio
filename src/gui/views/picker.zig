@@ -66,6 +66,15 @@ pub fn overlayWidth() f32 {
     return @min(zgui.getContentRegionAvail()[0], 884);
 }
 
+pub fn selectInstrument(app: anytype, ordinal: usize, now_ns: i96) void {
+    app.core.picker_cursor = @intCast(ordinal);
+    app.core.handleKey(.enter, now_ns);
+}
+
+pub fn dismiss(app: anytype, now_ns: i96) void {
+    app.core.handleKey(.escape, now_ns);
+}
+
 pub fn drawInstrument(app: anytype) void {
     if (app.core.picker_replace) {
         zgui.textColored(theme.focus, "REPLACE INSTRUMENT", .{});
@@ -93,8 +102,7 @@ pub fn drawInstrument(app: anytype) void {
             else => theme.focus,
         };
         if (drawCard(id, entry.label, entry.description, accent, app.core.picker_cursor == i, width, "")) {
-            app.core.picker_cursor = @intCast(i);
-            app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+            selectInstrument(app, i, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
         }
     }
     zgui.spacing();
@@ -110,8 +118,7 @@ pub fn drawInstrument(app: anytype) void {
         const desc = std.fmt.bufPrint(&desc_buf, "CLAP  |  {s}", .{plugin.vendor}) catch "CLAP";
         const ordinal = app_mod.instrument_picker_items.len + external_i;
         if (drawCard(id, plugin.name, desc, theme.focus, app.core.picker_cursor == ordinal, width, "")) {
-            app.core.picker_cursor = @intCast(ordinal);
-            app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+            selectInstrument(app, ordinal, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
         }
     }
     if (external_count == 0) zgui.textDisabled("No external instruments found", .{});

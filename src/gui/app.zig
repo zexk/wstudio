@@ -123,7 +123,12 @@ pub const App = struct {
             self.core.handleKey(.enter_release, std.Io.Timestamp.now(self.core.io, .awake).nanoseconds);
         }
         if (pressedModalKey(self.core.modal.mode)) |key| {
-            self.core.handleKey(key, std.Io.Timestamp.now(self.core.io, .awake).nanoseconds);
+            const now_ns = std.Io.Timestamp.now(self.core.io, .awake).nanoseconds;
+            if (key == .escape and isPickerView(self.core.view)) {
+                picker_view.dismiss(self, now_ns);
+                return;
+            }
+            self.core.handleKey(key, now_ns);
         }
     }
 };
@@ -407,6 +412,21 @@ test "GUI drag gestures record one history entry per activation" {
     app.piano_velocity_edit_active = false;
     piano_view.recordVelocityGesture(&app);
     try std.testing.expectEqual(@as(usize, 6), app.core.history.undo_stack.items.len);
+}
+
+test "GUI picker cards select and escape dismisses" {
+    var app: App = .{ .core = try tui_app.App.init(std.testing.allocator, std.Io.failing) };
+    defer app.deinit();
+
+    app.core.handleKey(.enter, 0);
+    picker_view.dismiss(&app, 0);
+    try std.testing.expectEqual(tui_app.AppView.tracks, app.core.view);
+    try std.testing.expectEqual(ws.InstrumentKind.empty, std.meta.activeTag(app.core.session.racks.items[0].instrument));
+
+    app.core.handleKey(.enter, 0);
+    picker_view.selectInstrument(&app, 1, 0);
+    try std.testing.expectEqual(ws.InstrumentKind.sampler, std.meta.activeTag(app.core.session.racks.items[0].instrument));
+    try std.testing.expectEqual(tui_app.AppView.sampler_editor, app.core.view);
 }
 
 test {
