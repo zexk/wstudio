@@ -239,8 +239,9 @@ fn parseTrack(
         const ch: u4 = @intCast(status & 0x0F);
         const n_data: usize = if (kind == 0xC or kind == 0xD) 1 else 2;
         if (pos + n_data > track.len) return error.Truncated;
-        const d1 = track[pos] & 0x7F;
-        const d2: u8 = if (n_data == 2) track[pos + 1] & 0x7F else 0;
+        if (track[pos] & 0x80 != 0 or (n_data == 2 and track[pos + 1] & 0x80 != 0)) return error.InvalidHeader;
+        const d1 = track[pos];
+        const d2: u8 = if (n_data == 2) track[pos + 1] else 0;
         pos += n_data;
 
         switch (kind) {
@@ -490,4 +491,10 @@ test "parse rejects incomplete event at track end" {
     const file = "MThd\x00\x00\x00\x06\x00\x00\x00\x01\x01\xe0" ++
         "MTrk\x00\x00\x00\x02\x00\xff";
     try std.testing.expectError(error.Truncated, parse(std.testing.allocator, file));
+}
+
+test "parse rejects status bytes inside channel data" {
+    const file = "MThd\x00\x00\x00\x06\x00\x00\x00\x01\x01\xe0" ++
+        "MTrk\x00\x00\x00\x04\x00\x90\x3c\x80";
+    try std.testing.expectError(error.InvalidHeader, parse(std.testing.allocator, file));
 }
