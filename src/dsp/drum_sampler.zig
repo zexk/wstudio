@@ -549,6 +549,7 @@ pub const DrumMachine = struct {
     /// Nudge swing by `delta` percent, clamped to [swing_min, swing_max].
     /// Control thread; the audio thread picks it up next block.
     pub fn adjustSwing(self: *DrumMachine, delta: f32) void {
+        if (!std.math.isFinite(delta)) return;
         const s = std.math.clamp(self.swing.load(.monotonic) + delta, swing_min, swing_max);
         self.swing.store(s, .monotonic);
     }
@@ -1935,6 +1936,15 @@ test "song mode swing follows the clip's sixteenth-note grid" {
     var peak: f32 = 0;
     for (buf) |sample| peak = @max(peak, @abs(sample));
     try std.testing.expect(peak > 0.01);
+}
+
+test "adjustSwing ignores non-finite deltas" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try testMachine(&transport);
+    defer dm.deinit();
+    dm.adjustSwing(12.0);
+    dm.adjustSwing(std.math.nan(f32));
+    try std.testing.expectEqual(@as(f32, 62.0), dm.swing.load(.monotonic));
 }
 
 test "note_on triggers pad directly" {

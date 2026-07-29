@@ -649,6 +649,7 @@ pub const Slicer = struct {
 
     /// Nudge swing by `delta` percent, clamped to [swing_min, swing_max].
     pub fn adjustSwing(self: *Slicer, delta: f32) void {
+        if (!std.math.isFinite(delta)) return;
         const s = std.math.clamp(self.swing.load(.monotonic) + delta, swing_min, swing_max);
         self.swing.store(s, .monotonic);
     }
@@ -923,7 +924,7 @@ test "slicer starts with no sample" {
     try std.testing.expectEqual(@as(u8, 0), s.slice_count);
 }
 
-test "setSwing ignores non-finite values" {
+test "swing setters ignore non-finite values" {
     var transport = Transport{ .sample_rate = 48_000 };
     var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
     defer s.deinit();
@@ -931,6 +932,8 @@ test "setSwing ignores non-finite values" {
     s.setSwing(std.math.nan(f32));
     try std.testing.expectEqual(@as(f32, 62.0), s.swing.load(.monotonic));
     s.setSwing(std.math.inf(f32));
+    try std.testing.expectEqual(@as(f32, 62.0), s.swing.load(.monotonic));
+    s.adjustSwing(std.math.nan(f32));
     try std.testing.expectEqual(@as(f32, 62.0), s.swing.load(.monotonic));
 }
 
