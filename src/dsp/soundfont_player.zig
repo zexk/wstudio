@@ -387,6 +387,7 @@ pub const SoundfontPlayer = struct {
             .note_off      => |e| self.noteOff(e.note),
             .set_param     => |e| self.adjustParam(e.id, e.steps),
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
+            .automation_param => |e| if (e.id <= std.math.maxInt(u16)) self.setParamAbsolute(@intCast(e.id), e.value),
             .all_off       => self.resetAll(),
             .cc, .pitch_bend, .clap_param, .vst3_param, .set_sidechain_buf, .capture_pad => {},
             // zig fmt: on

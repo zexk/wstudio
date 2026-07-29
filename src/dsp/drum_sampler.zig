@@ -1568,7 +1568,7 @@ pub const DrumMachine = struct {
             .set_param => |e| self.adjustParam(e.id, e.steps),
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
             .capture_pad => |e| self.addPadCapture(e.pad, e.buf),
-            .note_off, .cc, .pitch_bend, .clap_param, .vst3_param, .set_sidechain_buf => {},
+            .note_off, .cc, .pitch_bend, .automation_param, .clap_param, .vst3_param, .set_sidechain_buf => {},
             .all_off  => self.resetAll(),
             // zig fmt: on
         }

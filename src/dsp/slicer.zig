@@ -830,7 +830,7 @@ pub const Slicer = struct {
             },
             .set_param => |e| self.adjustParam(e.id, e.steps),
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
-            .cc, .pitch_bend, .clap_param, .vst3_param, .set_sidechain_buf, .capture_pad => {},
+            .cc, .pitch_bend, .automation_param, .clap_param, .vst3_param, .set_sidechain_buf, .capture_pad => {},
             .all_off => self.resetAll(),
         }
     }

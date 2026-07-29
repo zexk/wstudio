@@ -4099,6 +4099,7 @@ pub const PolySynth = struct {
             .set_param  => |e| self.adjustParam(e.id, e.steps),
             // zig fmt: on
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
+            .automation_param => |e| if (e.id <= std.math.maxInt(u16)) self.setParamAbsolute(@intCast(e.id), e.value),
             .clap_param, .vst3_param, .set_sidechain_buf, .capture_pad => {},
         }
     }
@@ -4534,8 +4535,8 @@ test "adjustParam: matrix dest walks the dest table and wraps" {
 
 test "mod_dest_ids covers every non-excluded automatable param" {
     for (PolySynth.automatable_params) |p| {
-        if (PolySynth.isModDestExcluded(p.id)) continue;
-        try std.testing.expect(PolySynth.modDestIndex(p.id) != null);
+        if (PolySynth.isModDestExcluded(@intCast(p.id))) continue;
+        try std.testing.expect(PolySynth.modDestIndex(@intCast(p.id)) != null);
     }
 }
 

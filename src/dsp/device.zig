@@ -38,6 +38,7 @@ pub const Event = union(enum) {
     /// some ids are wired on a given device (see e.g.
     /// PolySynth.setParamAbsolute); unhandled ids are a no-op.
     set_param_abs: struct { id: u16, value: f32 },
+    automation_param: struct { id: u32, value: f32 },
     /// CLAP parameters use stable opaque u32 IDs. `target` keeps a
     /// track-wide event broadcast from changing every CLAP in the chain.
     clap_param: struct { target: *anyopaque, id: u32, cookie: ?*anyopaque, value: f64 },
@@ -79,7 +80,7 @@ pub const Event = union(enum) {
 /// editor can look either table up through one shared type regardless of
 /// which instrument the current track holds.
 pub const AutomatableParam = struct {
-    id: u16,
+    id: u32,
     label: []const u8,
     section: []const u8,
     range: [2]f32,

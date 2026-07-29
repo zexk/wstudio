@@ -1278,7 +1278,8 @@ pub const Session = struct {
         var param_pts: [engine_mod.max_synth_slots]std.ArrayList(AutomationPoint) =
             @splat(.empty);
         defer for (&param_pts) |*points| points.deinit(self.allocator);
-        var param_used = [_]bool{false} ** engine_mod.max_synth_slots;
+        var param_ids: [engine_mod.max_synth_slots]u32 = undefined;
+        var param_count: usize = 0;
 
         for (lane.clips.items) |c| {
             const clip_start_beat = time_grid.tickToBeat(c.start_tick);
@@ -1297,8 +1298,13 @@ pub const Session = struct {
                 }) catch @panic("out of memory flattening pan automation");
             }
             for (c.automation.synth_params.items) |sp| {
-                const s: usize = sp.param_id;
-                param_used[s] = true;
+                var s: usize = 0;
+                while (s < param_count and param_ids[s] != sp.param_id) : (s += 1) {}
+                if (s == param_count) {
+                    if (param_count == engine_mod.max_synth_slots) continue;
+                    param_ids[param_count] = sp.param_id;
+                    param_count += 1;
+                }
                 for (sp.points) |p| {
                     // Already the unit PolySynth.setParamAbsolute expects
                     // (Hz for cutoff, etc.) - no conversion needed, unlike
@@ -1315,9 +1321,7 @@ pub const Session = struct {
         // Clear every slot first - a param removed from every clip since the
         // last rebuild must not linger in a stale slot forever.
         self.engine.clearTrackSynthParams(track);
-        for (param_used, 0..) |used, pid| {
-            if (used) self.engine.setTrackSynthParam(track, @intCast(pid), param_pts[pid].items);
-        }
+        for (0..param_count) |slot| self.engine.setTrackSynthParam(track, @intCast(slot), param_ids[slot], param_pts[slot].items);
     }
 
     /// Whole bars needed to hold `len_beats`, at least one.

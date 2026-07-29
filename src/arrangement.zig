@@ -36,7 +36,7 @@ pub const Clip = struct {
     /// param-id-keyed list, so extending it to Sampler needed no format
     /// change or rename.
     pub const SynthParamCurve = struct {
-        param_id: u16,
+        param_id: u32,
         points: []AutomationPoint = &.{},
     };
 
@@ -82,7 +82,7 @@ pub const Clip = struct {
         }
 
         /// Read-only lookup - null if this param has no lane on this clip yet.
-        pub fn findSynthParam(self: *const Automation, param_id: u16) ?[]const AutomationPoint {
+        pub fn findSynthParam(self: *const Automation, param_id: u32) ?[]const AutomationPoint {
             for (self.synth_params.items) |sp| {
                 if (sp.param_id == param_id) return sp.points;
             }
@@ -93,7 +93,7 @@ pub const Clip = struct {
         /// lane for it first if none exists yet (the param picker's "start
         /// automating this" action) - same "own the pointer, mutate through
         /// it" shape `gain`/`pan` fields already offer via `&self.gain`.
-        pub fn synthParamPoints(self: *Automation, allocator: std.mem.Allocator, param_id: u16) !*[]AutomationPoint {
+        pub fn synthParamPoints(self: *Automation, allocator: std.mem.Allocator, param_id: u32) !*[]AutomationPoint {
             for (self.synth_params.items) |*sp| {
                 if (sp.param_id == param_id) return &sp.points;
             }

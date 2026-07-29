@@ -73,7 +73,7 @@ pub const AutomationPointSnap = struct {
 /// One synth-instrument-param automation lane - see `ClipSnap.
 /// synth_param_automation`.
 pub const SynthParamAutomationSnap = struct {
-    param_id: u16,
+    param_id: u32,
     points: []const AutomationPointSnap = &.{},
 };
 
@@ -2402,10 +2402,10 @@ fn applySynthParamAutomationSnap(
 ) !void {
     if (synth_param_automation.len > 0) {
         for (synth_param_automation) |sp| {
-            const range = if (synth_mod.PolySynth.findAutomatableParam(sp.param_id)) |info|
-                info.range
-            else
-                [2]f32{ -std.math.floatMax(f32), std.math.floatMax(f32) };
+            const range = if (sp.param_id <= std.math.maxInt(u16)) blk: {
+                if (synth_mod.PolySynth.findAutomatableParam(@intCast(sp.param_id))) |info| break :blk info.range;
+                break :blk [2]f32{ -std.math.floatMax(f32), std.math.floatMax(f32) };
+            } else [2]f32{ -std.math.floatMax(f32), std.math.floatMax(f32) };
             const points = try automationFromSnap(allocator, sp.points, range[0], range[1]);
             const dst = try automation.synthParamPoints(allocator, sp.param_id);
             dst.* = points;

@@ -10,6 +10,7 @@ const Transport = @import("../transport.zig").Transport;
 
 const max_events = 256;
 const max_param_changes = 64;
+const max_parameters = 256;
 const MemoryStream = struct {
     interface: abi.Stream = .{ .vtable = &vtable },
     allocator: std.mem.Allocator,
@@ -251,6 +252,12 @@ pub const Vst3Plugin = struct {
     restart_in_progress: std.atomic.Value(bool) = .init(false),
     restart_ready: std.atomic.Value(bool) = .init(false),
     sample_rate: u32,
+    instrument: bool,
+    parameter_indices: [max_parameters]u16 = undefined,
+    parameter_count: usize = 0,
+    parameter_names: [max_parameters][64]u8 = undefined,
+    automatable_params: [max_parameters]device_mod.AutomatableParam = undefined,
+    automatable_count: usize = 0,
 
     pub const device = device_mod.deviceOf(Vst3Plugin);
 
@@ -416,7 +423,28 @@ pub const Vst3Plugin = struct {
             .output_left = output_left,
             .output_right = output_right,
             .sample_rate = sample_rate,
+            .instrument = instrument,
         };
+        if (controller) |value| {
+            const count: usize = @intCast(@min(@max(value.vtable.get_parameter_count(value), 0), max_parameters));
+            for (0..count) |raw_index| {
+                var info: abi.ParameterInfo = undefined;
+                if (value.vtable.get_parameter_info(value, @intCast(raw_index), &info) != 0 or info.flags & 1 == 0) continue;
+                const index = self.parameter_count;
+                self.parameter_indices[index] = @intCast(raw_index);
+                self.parameter_count += 1;
+                const title = std.mem.sliceTo(&info.title, 0);
+                const len = std.unicode.utf16LeToUtf8(&self.parameter_names[index], title) catch 0;
+                self.automatable_params[self.automatable_count] = .{
+                    .id = info.id,
+                    .label = self.parameter_names[index][0..len],
+                    .section = "VST3",
+                    .range = .{ 0, 1 },
+                    .step = 0.01,
+                };
+                self.automatable_count += 1;
+            }
+        }
         return self;
     }
 
@@ -502,6 +530,7 @@ pub const Vst3Plugin = struct {
             .all_off => for (&self.active_notes, 0..) |active, note| if (active) self.pushNote(false, @intCast(note), 0),
             .cc => |cc| self.pushMidiMapping(cc.cc, @as(f64, @floatFromInt(cc.value)) / 127.0),
             .pitch_bend => |bend| self.pushMidiMapping(129, @as(f64, @floatFromInt(@as(i32, bend.bend) + 8192)) / 16383.0),
+            .automation_param => |param| if (self.instrument) self.setParameter(param.id, param.value),
             .vst3_param => |param| if (param.target == @as(*anyopaque, @ptrCast(self))) self.setParameter(param.id, param.value),
             else => {},
         }
@@ -543,15 +572,19 @@ pub const Vst3Plugin = struct {
     }
 
     pub fn parameterCount(self: *const Vst3Plugin) usize {
-        const controller = self.controller orelse return 0;
-        return @intCast(@max(controller.vtable.get_parameter_count(controller), 0));
+        return self.parameter_count;
     }
 
     pub fn parameterInfo(self: *const Vst3Plugin, index: usize) ?abi.ParameterInfo {
         const controller = self.controller orelse return null;
         var info: abi.ParameterInfo = undefined;
-        if (controller.vtable.get_parameter_info(controller, @intCast(index), &info) != 0) return null;
+        if (index >= self.parameter_count) return null;
+        if (controller.vtable.get_parameter_info(controller, self.parameter_indices[index], &info) != 0) return null;
         return info;
+    }
+
+    pub fn automationParams(self: *const Vst3Plugin) []const device_mod.AutomatableParam {
+        return self.automatable_params[0..self.automatable_count];
     }
 
     pub fn parameterName(self: *const Vst3Plugin, index: usize, buf: []u8) ?[]const u8 {

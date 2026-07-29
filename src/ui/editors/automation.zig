@@ -34,7 +34,7 @@ pub const gutter: usize = 3;
 pub const AutomationFocus = union(enum) {
     gain,
     pan,
-    synth_param: u16,
+    synth_param: u32,
 };
 
 /// Gain (dB, matches `:gain`/`Track.gain_db`) and pan (-1..1, matches
@@ -109,8 +109,8 @@ pub fn curvePointsConst(clip: *const ws.Clip, target: AutomationFocus) []const A
 }
 
 /// The current automation track's own `automatable_params` table - PolySynth,
-/// Sampler, or SoundFont params, and empty for any other instrument kind (drum
-/// machine/slicer/CLAP/empty have no shared `setParamAbsolute` id space,
+/// Sampler, SoundFont, or VST3 params, and empty for any other instrument kind
+/// (drum machine/slicer/CLAP/empty have no shared automation id space,
 /// matching the picker's own gate in `openParamPicker`). `pub` so app.zig's picker key/mouse
 /// handling can resolve the same table without duplicating the instrument
 /// dispatch.
@@ -119,7 +119,7 @@ pub fn instrumentAutomatableParams(app: *App) []const ws.dsp.device.AutomatableP
     return app.session.racks.items[app.automation_track].instrument.automatableParams();
 }
 
-pub fn findAutomatableParam(app: *App, id: u16) ?*const ws.dsp.device.AutomatableParam {
+pub fn findAutomatableParam(app: *App, id: u32) ?*const ws.dsp.device.AutomatableParam {
     for (instrumentAutomatableParams(app)) |*param| if (param.id == id) return param;
     return null;
 }
@@ -547,8 +547,7 @@ fn deletePoint(app: *App, clip: *ws.Clip) void {
 
 /// Open the instrument-param picker (`p`) for any track kind exposing a
 /// `setParamAbsolute` id space. Drum machine/slicer params remain per-pad or
-/// per-slice rather than a single track curve, and CLAP uses dynamic ids, so
-/// those kinds are outside this picker's static parameter model.
+/// per-slice rather than a single track curve. CLAP remains outside this picker.
 /// Places the cursor on the currently-focused param if there is one, else 0,
 /// so re-opening the picker on an already-automated param starts there.
 fn openParamPicker(app: *App) void {
@@ -573,7 +572,7 @@ fn openParamPicker(app: *App) void {
 /// Chosen from the picker (enter/click) - creates an empty lane for the
 /// param on the current clip if none exists yet, switches focus to it, and
 /// returns to the automation view.
-pub fn selectParam(app: *App, param_id: u16) void {
+pub fn selectParam(app: *App, param_id: u32) void {
     const clip = currentClip(app) orelse return;
     _ = clip.automation.synthParamPoints(app.allocator, param_id) catch {
         app.setStatus("couldn't add param lane (out of memory)", .{});
