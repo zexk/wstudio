@@ -12,6 +12,8 @@ pub const Config = struct {
     sample_rate: u32 = types.default_sample_rate,
     block_frames: types.FrameCount = types.default_block_frames,
     channels: u16 = 2,
+    /// Backend-native output device name. Empty selects the system default.
+    output_device: []const u8 = "",
 };
 
 /// Fills `out` (interleaved, out.len = block_frames * channels).

@@ -72,6 +72,12 @@
 -- sample rate; "auto" falls through to ALSA when it doesn't.
 -- wstudio.o.audio_backend = "auto"
 
+-- ALSA playback and capture device names. Empty strings use "default".
+-- Find names with `aplay -L` and `arecord -L`. Other backends currently
+-- ignore these options.
+-- wstudio.o.audio_output_device = ""
+-- wstudio.o.audio_input_device = ""
+
 -- Multi-key timeout, in milliseconds: how long tap-tempo taps and similar
 -- key sequences stay connected. Range 100-10000.
 -- wstudio.o.tap_timeout_ms = 2000

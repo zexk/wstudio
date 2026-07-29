@@ -357,6 +357,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
     var config: backend_mod.Config = .{
         .sample_rate = app.session.project.sample_rate,
         .block_frames = user_config.audio_block_frames,
+        .output_device = user_config.audio_output_device.slice(),
     };
 
     // zig fmt: off
@@ -478,6 +479,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
                 config = .{
                     .sample_rate = app.session.project.sample_rate,
                     .block_frames = user_config.audio_block_frames,
+                    .output_device = user_config.audio_output_device.slice(),
                 };
                 audio = ws.AudioHost.init(config, renderTrampoline, app.session.engine);
                 // A restart failure here just leaves the session silent

@@ -50,6 +50,16 @@ in
       default = null;
       description = "Audio backend. auto tries PipeWire, then JACK, then ALSA, then silence.";
     };
+    audio_output_device = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      description = "ALSA playback PCM name. Empty uses the default PCM.";
+    };
+    audio_input_device = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      description = "ALSA capture PCM name. Empty uses the default PCM.";
+    };
     tap_timeout_ms = rangedInt 100 10000 "Multi-key timeout in milliseconds.";
     note_preview_ms = rangedInt 20 2000 "Audition note release delay in milliseconds.";
     cmd_history_lines = rangedInt 10 500 "Maximum number of command history entries.";
@@ -254,15 +264,17 @@ in
       default = null;
       description = "Directory a pathless :bounce-stems writes into.";
     };
-    master_limiter_ceiling_db =
-      rangedNumber (-12) 0
-        "Output ceiling of the always-on master limiter, in dBFS.";
+    master_limiter_ceiling_db = rangedNumber (
+      -12
+    ) 0 "Output ceiling of the always-on master limiter, in dBFS.";
     master_limiter_release_ms =
       rangedNumber 1 1000
         "Gain-recovery time of the master limiter after a reduction, in milliseconds.";
     default_drum_steps = rangedInt 1 256 "Steps a freshly created drum machine starts with.";
     default_slicer_steps = rangedInt 1 64 "Steps a freshly created slicer starts with.";
-    default_pattern_length_beats = rangedNumber 1 64 "Loop length of a new piano-roll pattern, in beats.";
+    default_pattern_length_beats =
+      rangedNumber 1 64
+        "Loop length of a new piano-roll pattern, in beats.";
     default_swing = rangedNumber 50 75 "Swing percent a new instrument starts at. 50 is straight.";
     completion_popup_rows = rangedInt 1 20 "Rows the `:` Tab-completion popup may occupy.";
     waveform_low_hz = rangedNumber 20 2000 "Low/mid split point of the waveform band tint, in Hz.";
@@ -271,6 +283,8 @@ in
     tui_drum_cell_width = rangedInt 1 7 "Terminal columns per drum-grid step.";
     tui_arrangement_cell_width = rangedInt 2 12 "Terminal columns per arrangement bar.";
     tui_spectrum_db_range = rangedNumber 20 120 "dB span the TUI spectrum analyser draws.";
-    gui_piano_row_height = rangedNumber 8 48 "Pixel height of one piano-roll key row. The GUI's vertical zoom.";
+    gui_piano_row_height =
+      rangedNumber 8 48
+        "Pixel height of one piano-roll key row. The GUI's vertical zoom.";
   };
 }

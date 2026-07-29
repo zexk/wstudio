@@ -47,9 +47,9 @@ fn syncWindowTitle(window: *glfw.Window, app: *const App, last: []u8, last_len: 
     window.setTitle(title);
 }
 
-fn guiAudio(sample_rate: u32, block_frames: u32, engine: *ws.Engine) ws.AudioHost {
+fn guiAudio(sample_rate: u32, block_frames: u32, output_device: []const u8, engine: *ws.Engine) ws.AudioHost {
     return ws.AudioHost.init(
-        .{ .sample_rate = sample_rate, .block_frames = block_frames },
+        .{ .sample_rate = sample_rate, .block_frames = block_frames, .output_device = output_device },
         renderAudio,
         engine,
     );
@@ -182,7 +182,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     var title_path_buf: [1024]u8 = undefined;
     var title_path_len: usize = 0;
     syncWindowTitle(window, &app, &title_path_buf, &title_path_len);
-    var audio = guiAudio(app.core.session.project.sample_rate, user_config.audio_block_frames, app.core.session.engine);
+    var audio = guiAudio(app.core.session.project.sample_rate, user_config.audio_block_frames, user_config.audio_output_device.slice(), app.core.session.engine);
     try audio.start(init.io, user_config.audio_backend);
     defer audio.stop();
 
@@ -252,7 +252,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 }
                 // A blank session is a new project, not a load - no event.
                 if (kind != .blank) app.core.emitEvent(.{ .ProjectLoadPost = .{ .path = app.core.pendingReloadPath() } });
-                audio = guiAudio(app.core.session.project.sample_rate, user_config.audio_block_frames, app.core.session.engine);
+                audio = guiAudio(app.core.session.project.sample_rate, user_config.audio_block_frames, user_config.audio_output_device.slice(), app.core.session.engine);
                 // A restart failure here leaves the session silent rather
                 // than tearing down a running app with unsaved work in it -
                 // same call as tui/tui.zig's.

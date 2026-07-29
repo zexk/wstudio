@@ -167,6 +167,8 @@ pub const Config = struct {
     frame_poll_ms: u16 = 30,
     audio_block_frames: u32 = 256,
     audio_backend: @import("wstudio").audio_host.Choice = .auto,
+    audio_output_device: PathBuf = .{},
+    audio_input_device: PathBuf = .{},
     tap_timeout_ms: u32 = 2000,
     note_preview_ms: u16 = 220,
     cmd_history_lines: u16 = 50,
@@ -256,6 +258,8 @@ const option_specs = [_]OptionSpec{
     .{ .name = "frame_poll_ms", .min = 5, .max = 1000, .scope = .tui },
     .{ .name = "audio_block_frames", .min = 16, .max = 4096 },
     .{ .name = "audio_backend" },
+    .{ .name = "audio_output_device" },
+    .{ .name = "audio_input_device" },
     .{ .name = "tap_timeout_ms", .min = 100, .max = 10000 },
     .{ .name = "note_preview_ms", .min = 20, .max = 2000 },
     .{ .name = "cmd_history_lines", .min = 10, .max = 500 },
@@ -2985,6 +2989,9 @@ test "path options read and write as strings, rejecting oversized paths" {
     try std.testing.expectEqualStrings("~/Music/Samples", rt.config.default_browse_dir.slice());
     try rt.loadString("wstudio.o.clap_plugin_path = '/opt/clap'; assert(wstudio.o.clap_plugin_path == '/opt/clap')");
     try std.testing.expectEqualStrings("/opt/clap", rt.config.clap_plugin_path.slice());
+    try rt.loadString("wstudio.o.audio_output_device = 'hw:2,0'; wstudio.o.audio_input_device = 'plughw:1,0'");
+    try std.testing.expectEqualStrings("hw:2,0", rt.config.audio_output_device.slice());
+    try std.testing.expectEqualStrings("plughw:1,0", rt.config.audio_input_device.slice());
     const prefix = "wstudio.o.default_browse_dir = '";
     var src_buf: [prefix.len + std.fs.max_path_bytes + 1 + 2:0]u8 = undefined;
     @memcpy(src_buf[0..prefix.len], prefix);

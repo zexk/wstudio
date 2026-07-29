@@ -425,6 +425,8 @@ pub const App = struct {
     /// pass by `startPendingRecording`, closed by `finishRecording` -
     /// never held open otherwise.
     audio_input: ws.AudioInput = .{},
+    /// Backend-native capture device name. Empty selects the system default.
+    audio_input_device: config_mod.PathBuf = .{},
     /// Audio-armed track indices resolved by `toggle_play` at the moment
     /// `.record` is sent, before the pre-roll count-in even starts. Moved
     /// into `recording_active` once the count-in actually completes (see
@@ -1421,6 +1423,7 @@ pub const App = struct {
         self.master_gain_db = user_config.default_master_gain_db;
         _ = self.session.engine.send(.{ .set_master_gain = types.dbToGain(self.master_gain_db) });
         self.count_in_bars = user_config.count_in_bars;
+        self.audio_input_device = user_config.audio_input_device;
         self.automation_gain_step_db = user_config.default_automation_gain_step_db;
         self.automation_pan_step = user_config.default_automation_pan_step;
         self.history.cap = user_config.undo_history_entries;
@@ -2823,7 +2826,7 @@ pub const App = struct {
     /// leaves the pass MIDI-only rather than failing the whole record.
     fn startPendingRecording(self: *App) void {
         if (self.recording_pending_len == 0) return;
-        if (self.audio_input.start(self.session.project.sample_rate)) |_| {
+        if (self.audio_input.start(self.session.project.sample_rate, self.audio_input_device.slice())) |_| {
             self.recording_active_len = self.recording_pending_len;
             @memcpy(
                 self.recording_active_buf[0..self.recording_active_len],

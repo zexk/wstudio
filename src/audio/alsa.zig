@@ -15,7 +15,6 @@ pub const AlsaBackend = struct {
     config: backend_mod.Config,
     render: backend_mod.RenderFn,
     ctx: *anyopaque,
-    device: [*:0]const u8 = "default",
     pcm: ?*c.snd_pcm_t = null,
     thread: ?std.Thread = null,
     running: std.atomic.Value(bool) = .init(false),
@@ -33,8 +32,11 @@ pub const AlsaBackend = struct {
     pub fn start(self: *AlsaBackend) Error!void {
         try backend_mod.validateConfig(self.config, max_channels);
 
+        var device_buf: [std.fs.max_path_bytes + 1]u8 = undefined;
+        const device = std.fmt.bufPrintZ(&device_buf, "{s}", .{if (self.config.output_device.len > 0) self.config.output_device else "default"}) catch
+            return error.DeviceOpenFailed;
         var pcm: ?*c.snd_pcm_t = null;
-        if (c.snd_pcm_open(&pcm, self.device, c.SND_PCM_STREAM_PLAYBACK, 0) < 0) {
+        if (c.snd_pcm_open(&pcm, device, c.SND_PCM_STREAM_PLAYBACK, 0) < 0) {
             return error.DeviceOpenFailed;
         }
         errdefer _ = c.snd_pcm_close(pcm);
@@ -117,10 +119,13 @@ pub const AlsaCapture = struct {
 
     pub const Error = error{ DeviceOpenFailed, DeviceConfigFailed, ThreadSpawnFailed };
 
-    pub fn start(self: *AlsaCapture, sample_rate: u32) Error!void {
+    pub fn start(self: *AlsaCapture, sample_rate: u32, device_name: []const u8) Error!void {
         while (self.queue.pop() != null) {}
+        var device_buf: [std.fs.max_path_bytes + 1]u8 = undefined;
+        const device = std.fmt.bufPrintZ(&device_buf, "{s}", .{if (device_name.len > 0) device_name else "default"}) catch
+            return error.DeviceOpenFailed;
         var pcm: ?*c.snd_pcm_t = null;
-        if (c.snd_pcm_open(&pcm, "default", c.SND_PCM_STREAM_CAPTURE, 0) < 0) {
+        if (c.snd_pcm_open(&pcm, device, c.SND_PCM_STREAM_CAPTURE, 0) < 0) {
             return error.DeviceOpenFailed;
         }
         errdefer _ = c.snd_pcm_close(pcm);
@@ -183,7 +188,7 @@ pub const AlsaCapture = struct {
 
 test "alsa capture start/pop/stop (skipped without a device)" {
     var capture: AlsaCapture = .{};
-    capture.start(types.default_sample_rate) catch return error.SkipZigTest; // no capture device here
+    capture.start(types.default_sample_rate, "") catch return error.SkipZigTest; // no capture device here
     defer capture.stop();
 
     var spins: u32 = 0;
