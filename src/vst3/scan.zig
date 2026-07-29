@@ -66,7 +66,7 @@ pub const Registry = struct {
     }
 
     pub fn scanModule(self: *Registry, module_path: []const u8, bundle: []const u8) !void {
-        var module = try Module.open(module_path);
+        var module = try Module.open(bundle, module_path);
         defer module.close();
         const factory = module.factory;
 

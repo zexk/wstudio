@@ -290,7 +290,7 @@ pub const Vst3Plugin = struct {
 
     pub fn loadModule(allocator: std.mem.Allocator, module_path: []const u8, bundle_path: []const u8, id: []const u8, sample_rate: u32, instrument: bool) !*Vst3Plugin {
         const class_id = try abi.parseUid(id);
-        var module = try module_mod.Module.open(module_path);
+        var module = try module_mod.Module.open(bundle_path, module_path);
         errdefer module.close();
         const host_context = try allocator.create(HostContext);
         errdefer allocator.destroy(host_context);
