@@ -31,6 +31,13 @@ pub fn main(init: std.process.Init) !void {
     try std.testing.expectEqual(@as(u32, 100), effect.parameterInfo(0).?.id);
     effect.setParameter(100, 0.5);
     try std.testing.expectEqual(@as(f64, 0.5), effect.parameterValue(100).?);
+    const component_state = try effect.saveComponentState(init.gpa);
+    defer init.gpa.free(component_state);
+    const controller_state = (try effect.saveControllerState(init.gpa)).?;
+    defer init.gpa.free(controller_state);
+    effect.setParameter(100, 0.25);
+    try effect.loadState(component_state, controller_state);
+    try std.testing.expectEqual(@as(f64, 0.5), effect.parameterValue(100).?);
     var effect_audio = [_]ws.types.Sample{ 0.1, -0.2, 0.3, -0.4 };
     effect.processBlock(&effect_audio);
     try std.testing.expectApproxEqAbs(@as(f32, 0.1), effect_audio[0], 0.0001);

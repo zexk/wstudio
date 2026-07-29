@@ -79,6 +79,7 @@ they showed up in the same week as one.
 | v24 | CLAP instruments and effects persist the plugin binary path, stable plugin ID, and opaque CLAP state as Base64. Instrument snapshots also carry their piano-roll notes, loop length, and swing. |
 | v25 | A new instrument kind: the SoundFont (.sf2) player (`RackSnap.soundfont`: `SoundfontSnap` - the loaded font's sidecar path, selected preset index, gain/pan/transpose, and a piano-roll pattern like poly_synth/sampler get). Purely additive data-wise, but the bump makes pre-v25 builds hard-reject a file using the new `InstrumentKind` variant instead of failing on an unknown enum name, same rationale as every FX-kind-growth bump (v15/v16/v18/v19/v20/v21/v24). The loaded .sf2's raw bytes are exported to the sample sidecar (see below) since the parsed, already-resolved in-memory form can't losslessly reconstruct the original file. |
 | v26 | Low-shelf and high-shelf parametric EQ band kinds. The bump makes older builds reject projects using the new saved enum names instead of failing while parsing them. |
+| v27 | VST3 instruments and effects persist bundle path, class ID, separate component and controller state streams, and instrument piano-roll data. The bump makes older builds reject projects using new VST3 enum variants. |
 
 Since v11, every field added has been the additive/no-bump kind described
 above (v12/v13/v14 above are the exceptions - genuine semantic changes, not
@@ -90,7 +91,7 @@ Bundled wavetable identities (`SynthSnap.wt_bundled` and OSC B/C counterparts)
 are additive fields. Missing values select `basic`, matching every project
 saved before bundled spectral, formant, metallic, and analog tables shipped.
 
-`test/fixtures/wsj/v1.wsj` through `v25.wsj` are tiny, hand-written fixtures
+`test/fixtures/wsj/` contains tiny, hand-written fixtures
 of each historical shape (no `variants` for v2, no `master_fx_chain` for v9,
 etc.), one per row of the table above. `persist.zig`'s "golden-file corpus"
 test loads every file in that directory and fails loudly if one stops

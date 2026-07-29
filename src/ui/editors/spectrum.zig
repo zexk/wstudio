@@ -109,6 +109,7 @@ pub const effect_specs = [_]EffectSpec{
     .{ .label = "DELAY",      .editor_title = "DELAY",          .strip_label = "DLY",  .badge_label = "dly",  .category = "TIME",       .description = "Stereo echoes with feedback",                .display_label = "ECHO DECAY" },
     .{ .label = "REVERB",     .editor_title = "REVERB",         .strip_label = "VERB", .badge_label = "rev",  .category = "TIME",       .description = "Place the sound in a room",                   .display_label = "ROOM DECAY" },
     .{ .label = "CLAP",       .editor_title = "CLAP PLUGIN",    .strip_label = "CLAP", .badge_label = "clp",  .category = "PLUGIN",     .description = "External CLAP audio plugin",                 .display_label = "PLUGIN" },
+    .{ .label = "VST3",       .editor_title = "VST3 PLUGIN",    .strip_label = "VST3", .badge_label = "vst",  .category = "PLUGIN",     .description = "External VST3 audio plugin",                 .display_label = "PLUGIN" },
 };
 // zig fmt: on
 
@@ -180,6 +181,7 @@ pub fn paramCount(k: FxKind) usize {
         .delay => delay_specs.len,
         .ott => ott_specs.len,
         .clap => 0,
+        .vst3 => 0,
     };
 }
 
@@ -199,6 +201,7 @@ fn trackIsDrumMachine(app: *App, track: u16) bool {
 /// falls through to the static `paramCount`.
 pub fn visibleParamCount(app: *App, k: FxKind, p: *const FxPayload) usize {
     if (k == .clap) return @intCast(p.clap.parameterCount());
+    if (k == .vst3) return p.vst3.parameterCount();
     if (k == .comp) {
         const show_scpad = if (p.comp.sidechain_source) |sc| trackIsDrumMachine(app, sc.track) else false;
         if (!show_scpad) return paramCount(k) - 1;
@@ -505,6 +508,7 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
         .delay => tableName(&delay_specs, idx),
         .ott => tableName(&ott_specs, idx),
         .clap => "param",
+        .vst3 => "param",
     };
 }
 
@@ -514,6 +518,8 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
 pub fn formatParamName(buf: []u8, p: *const FxPayload, idx: usize) []const u8 {
     return switch (p.*) {
         .clap => |plugin| plugin.parameterName(@intCast(idx), buf) orelse
+            std.fmt.bufPrint(buf, "param {d}", .{idx + 1}) catch "param",
+        .vst3 => |plugin| plugin.parameterName(idx, buf) orelse
             std.fmt.bufPrint(buf, "param {d}", .{idx + 1}) catch "param",
         else => paramName(p, idx),
     };
@@ -599,6 +605,10 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
             const value: f64 = plugin.parameterValue(info.id) orelse info.default_value;
             break :blk clapValue(value, info.default_value, range);
         },
+        .vst3 => |plugin| blk: {
+            const info = plugin.parameterInfo(idx) orelse break :blk 0;
+            break :blk @floatCast(plugin.parameterValue(info.id) orelse info.default_normalized_value);
+        },
     };
 }
 
@@ -652,6 +662,7 @@ pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
             const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk .{ 0, 1 };
             break :blk clapRange(info.min_value, info.max_value) orelse .{ 0, 1 };
         },
+        .vst3 => .{ 0, 1 },
     };
 }
 
@@ -759,6 +770,7 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
             const range = clapRange(info.min_value, info.max_value) orelse return;
             plugin.setParameter(info.id, info.cookie, clapValue(value, info.default_value, range));
         },
+        .vst3 => |plugin| if (plugin.parameterInfo(idx)) |info| plugin.setParameter(info.id, value),
     }
 }
 // zig fmt: on
@@ -813,6 +825,7 @@ fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
             const span = range[1] - range[0];
             break :blk @max(if (coarse) span / 10.0 else span / 100.0, std.math.floatEps(f32));
         },
+        .vst3 => if (coarse) 0.1 else 0.01,
     };
 }
 
@@ -971,6 +984,7 @@ pub fn insertFromPicker(app: *App, k: FxKind) void {
             error.ChainFull => app.setStatus("chain full ({d} units)", .{Fx.max_units}),
             error.OutOfMemory => app.setStatus("{s}: out of memory", .{unitLabel(k)}),
             error.ClapPluginRequiresPath => app.setStatus("choose CLAP plugins from the plugin picker", .{}),
+            error.Vst3PluginRequiresPath => app.setStatus("choose VST3 plugins from the plugin picker", .{}),
         }
         syncAnalyzer(app, target);
         return;
@@ -991,11 +1005,7 @@ pub fn insertExternalFromPicker(app: *App, plugin: *const ws.plugin_catalog.Plug
     const before = history.captureFx(app, target);
     const loaded = switch (plugin.format) {
         .clap => fx.insertClap(app.session.allocator, pos, plugin.path, plugin.id, app.session.project.sample_rate),
-        .vst3 => {
-            app.setStatus("VST3 loading is not available yet", .{});
-            history.pushFxIfOk(app, before, false);
-            return;
-        },
+        .vst3 => fx.insertVst3(app.session.allocator, pos, plugin.path, plugin.id, app.session.project.sample_rate),
         .vst2 => unreachable,
     };
     _ = loaded catch |err| {
@@ -1493,6 +1503,12 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
             const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk "?";
             const range = clapRange(info.min_value, info.max_value) orelse break :blk "?";
             const value = clapValue(plugin.parameterValue(info.id) orelse info.default_value, info.default_value, range);
+            break :blk plugin.formatParameter(info.id, value, buf) orelse
+                std.fmt.bufPrint(buf, "{d:.3}", .{value}) catch "?";
+        },
+        .vst3 => |plugin| blk: {
+            const info = plugin.parameterInfo(idx) orelse break :blk "?";
+            const value = plugin.parameterValue(info.id) orelse info.default_normalized_value;
             break :blk plugin.formatParameter(info.id, value, buf) orelse
                 std.fmt.bufPrint(buf, "{d:.3}", .{value}) catch "?";
         },

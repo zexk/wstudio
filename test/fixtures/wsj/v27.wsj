@@ -1,0 +1,9 @@
+{
+  "version": 27,
+  "tracks": [
+    { "name": "empty" }
+  ],
+  "racks": [
+    { "label": "empty", "kind": "empty" }
+  ]
+}

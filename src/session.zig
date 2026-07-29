@@ -288,13 +288,14 @@ pub const Session = struct {
                 rack.label = "slicer";
             },
             .clap => return error.ClapPluginRequiresPath,
+            .vst3 => return error.Vst3PluginRequiresPath,
             .soundfont => {
                 rack.instrument = .{ .soundfont = SoundfontPlayer.init(self.allocator, sr) };
                 rack.label = "soundfont";
             },
         }
         switch (kind) {
-            .poly_synth, .sampler, .clap, .soundfont => {
+            .poly_synth, .sampler, .clap, .vst3, .soundfont => {
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &self.engine.transport);
                 rack.pattern_player.?.length_beats = self.defaults.pattern_length_beats;
                 rack.pattern_player.?.setSwing(self.defaults.swing);
@@ -357,7 +358,7 @@ pub const Session = struct {
     /// even though this command can't build a fresh one from a bare kind.
     fn isMelodicKind(kind: InstrumentKind) bool {
         return switch (kind) {
-            .poly_synth, .sampler, .clap, .soundfont => true,
+            .poly_synth, .sampler, .clap, .vst3, .soundfont => true,
             .empty, .drum_machine, .slicer => false,
         };
     }
@@ -565,6 +566,25 @@ pub const Session = struct {
             .label = plugin.name(),
             .pattern_player = null,
         };
+        rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &self.engine.transport);
+        try self.retired_racks.append(self.allocator, self.racks.items[track_idx]);
+        _ = self.engine.send(.all_notes_off);
+        if (self.arrangement.lane(track_idx)) |lane| lane.clear(self.allocator);
+        self.racks.items[track_idx] = rack;
+        self.adoptRack(track_idx, rack);
+    }
+
+    pub fn setVst3Instrument(self: *Session, track_idx: usize, path: []const u8, plugin_id: []const u8, name: []const u8) !void {
+        if (track_idx >= self.racks.items.len) return;
+        const plugin = try rack_mod.Vst3Plugin.load(self.allocator, path, plugin_id, self.project.sample_rate, true);
+        errdefer plugin.deinit();
+        plugin.attachTransport(&self.engine.transport);
+        const label = try self.allocator.dupe(u8, name);
+        errdefer self.allocator.free(label);
+
+        const rack = try self.allocator.create(Rack);
+        errdefer self.allocator.destroy(rack);
+        rack.* = .{ .instrument = .{ .vst3 = plugin }, .label = label, .owned_label = true, .pattern_player = null };
         rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &self.engine.transport);
         try self.retired_racks.append(self.allocator, self.racks.items[track_idx]);
         _ = self.engine.send(.all_notes_off);
@@ -1198,7 +1218,7 @@ pub const Session = struct {
                     }
                     sl.setSongClips(clips[0..n], total_ticks, 32);
                 },
-                .poly_synth, .sampler, .clap, .soundfont => {
+                .poly_synth, .sampler, .clap, .vst3, .soundfont => {
                     const pp = if (rack.pattern_player) |*p| p else continue;
                     var notes: [pattern_mod.max_notes]Note = undefined;
                     var n: usize = 0;

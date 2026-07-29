@@ -101,6 +101,17 @@ pub const ComponentVTable = extern struct {
 
 pub const Component = extern struct { vtable: *const ComponentVTable };
 
+pub const StreamVTable = extern struct {
+    query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
+    add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    release: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    read: *const fn (*anyopaque, *anyopaque, i32, *i32) callconv(abi_callconv) Result,
+    write: *const fn (*anyopaque, *const anyopaque, i32, *i32) callconv(abi_callconv) Result,
+    seek: *const fn (*anyopaque, i64, i32, *i64) callconv(abi_callconv) Result,
+    tell: *const fn (*anyopaque, *i64) callconv(abi_callconv) Result,
+};
+pub const Stream = extern struct { vtable: *const StreamVTable };
+
 pub const ProcessSetup = extern struct { process_mode: i32, symbolic_sample_size: i32, max_samples_per_block: i32, sample_rate: f64 };
 pub const NoteOnEvent = extern struct { channel: i16, pitch: i16, tuning: f32, velocity: f32, length: i32, note_id: i32 };
 pub const NoteOffEvent = extern struct { channel: i16, pitch: i16, velocity: f32, note_id: i32, tuning: f32 };

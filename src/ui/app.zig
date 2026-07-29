@@ -1886,6 +1886,7 @@ pub const App = struct {
                 error.ChainFull => error.ChainFull,
                 error.OutOfMemory => error.OutOfMemory,
                 error.ClapPluginRequiresPath => error.ClapNeedsPath,
+                error.Vst3PluginRequiresPath => error.ClapNeedsPath,
             };
         };
         history.pushFxIfOk(self, before, true);
@@ -3017,7 +3018,7 @@ pub const App = struct {
                     self.openBrowser(.load_slice);
                 }
             },
-            .clap => {
+            .clap, .vst3 => {
                 self.piano_track = @intCast(cursor);
                 self.view = .piano_roll;
             },
@@ -3061,8 +3062,9 @@ pub const App = struct {
                     self.setStatus("{s}: {s}", .{ plugin.name, @errorName(err) });
                     return;
                 },
-                .vst3 => {
-                    self.setStatus("VST3 loading is not available yet", .{});
+                .vst3 => self.session.setVst3Instrument(self.cursor, plugin.path, plugin.id, plugin.name) catch |err| {
+                    if (backup) |*b| b.deinit(self.allocator);
+                    self.setStatus("{s}: {s}", .{ plugin.name, @errorName(err) });
                     return;
                 },
                 .vst2 => unreachable,
@@ -3073,7 +3075,7 @@ pub const App = struct {
             // (like `setInstrument`) has no note-preserving counterpart - see
             // `Session.changeInstrumentKind`'s doc comment on why a bare
             // kind-to-CLAP swap can't be built without a path/id.
-            self.setStatus("{s}  CLAP  {s}", .{ plugin.name, if (self.picker_replace) "(notes cleared)" else "inserted" });
+            self.setStatus("{s}  {s}  {s}", .{ plugin.name, ws.plugin_catalog.formatLabel(plugin.format), if (self.picker_replace) "(notes cleared)" else "inserted" });
             self.view = .tracks;
             self.openTrack(self.cursor);
             return;
@@ -3116,7 +3118,7 @@ pub const App = struct {
             .sampler => "j/k: move  h/l: adjust  i: play  ?: help",
             .drum_machine => "enter: step  i: play  space: record  ?: help",
             .slicer => "enter: step  i: play  :load  ?: help",
-            .clap => "enter: piano roll  i: play  ?: help",
+            .clap, .vst3 => "enter: piano roll  i: play  ?: help",
             .soundfont => "h/l: adjust  :load-soundfont  i: play  ?: help",
         };
         self.setStatus("{s} inserted  {s}", .{ item.label, hint });
@@ -3787,7 +3789,7 @@ pub const App = struct {
                         } });
                         if (self.view == .slicer_grid) slicer_ed.recordNote(self, n.pitch, Slicer.vel_full);
                     },
-                    .poly_synth, .sampler, .clap, .soundfont => {
+                    .poly_synth, .sampler, .clap, .vst3, .soundfont => {
                         self.playNote(track_idx, n.pitch, now_ns);
                         if (self.view == .piano_roll) piano_ed.recordNote(self, n.pitch, self.default_velocity);
                     },
@@ -4994,6 +4996,7 @@ pub fn apiKindName(kind: ws.InstrumentKind) []const u8 {
         .drum_machine => "drum",
         .slicer => "slicer",
         .clap => "clap",
+        .vst3 => "vst3",
         .soundfont => "soundfont",
     };
 }

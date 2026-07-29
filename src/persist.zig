@@ -57,7 +57,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// added and what older files load as) and the bump-vs-additive policy
 /// live in FORMAT.md; per-field migration specifics stay as doc comments
 /// on the snapshot fields they concern.
-pub const file_version: u32 = 26;
+pub const file_version: u32 = 27;
 
 /// Slicer.s own step-grid ceiling (mirrors arrangement.zig.s
 /// `slicer_max_steps`) - `velToSnap`/`applyVelSnap` only ever see Slicer.s
@@ -669,12 +669,22 @@ pub const FxSnap = struct {
 
 /// Mirrors rack.zig's FxKind - persist keeps its own copy so snapshots stay
 /// pure data, same pattern as `InstrumentKind` below.
-pub const FxKind = enum { gate, comp, mb_comp, ott, eq, sat, crush, chorus, phaser, flanger, tape, freq_shift, delay, reverb, clap };
+pub const FxKind = enum { gate, comp, mb_comp, ott, eq, sat, crush, chorus, phaser, flanger, tape, freq_shift, delay, reverb, clap, vst3 };
 
 pub const ClapSnap = struct {
     path: []const u8 = "",
     plugin_id: []const u8 = "",
     state_base64: []const u8 = "",
+    notes: []const NoteSnap = &.{},
+    length_beats: f64 = 4.0,
+    swing: f32 = 50.0,
+};
+
+pub const Vst3Snap = struct {
+    path: []const u8 = "",
+    class_id: []const u8 = "",
+    component_state_base64: []const u8 = "",
+    controller_state_base64: []const u8 = "",
     notes: []const NoteSnap = &.{},
     length_beats: f64 = 4.0,
     swing: f32 = 50.0,
@@ -702,9 +712,10 @@ pub const FxUnitSnap = struct {
     tape: ?TapeSnap = null,
     freq_shift: ?FreqShiftSnap = null,
     clap: ?ClapSnap = null,
+    vst3: ?Vst3Snap = null,
 };
 
-pub const InstrumentKind = enum { empty, poly_synth, sampler, drum_machine, slicer, clap, soundfont };
+pub const InstrumentKind = enum { empty, poly_synth, sampler, drum_machine, slicer, clap, vst3, soundfont };
 
 /// A single-clip sampler: the pad's params, its root note, and the piano-roll
 /// pattern. User-loaded clip audio rides along via `pad.sample_file` (v5);
@@ -782,6 +793,7 @@ pub const RackSnap = struct {
     drum: ?DrumSnap = null,
     slicer: ?SlicerSnap = null,
     clap: ?ClapSnap = null,
+    vst3: ?Vst3Snap = null,
     soundfont: ?SoundfontSnap = null,
     /// Legacy fixed rack (v9 and older). Only read when `fx_chain` is null.
     fx: FxSnap = .{},
@@ -1172,6 +1184,16 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
             }
             rs.clap = cs;
         },
+        .vst3 => |plugin| {
+            rs.kind = .vst3;
+            var vs = try vst3ToSnap(aa, plugin);
+            if (rack.pattern_player) |*pp| {
+                vs.length_beats = pp.length_beats;
+                vs.notes = try notesToSnap(aa, pp);
+                vs.swing = pp.swing.load(.monotonic);
+            }
+            rs.vst3 = vs;
+        },
         .soundfont => |*sf| {
             rs.kind = .soundfont;
             var sfs: SoundfontSnap = .{
@@ -1205,6 +1227,25 @@ fn clapToSnap(aa: std.mem.Allocator, plugin: *rack_mod.ClapPlugin) !ClapSnap {
         .path = try aa.dupe(u8, plugin.pluginPath()),
         .plugin_id = try aa.dupe(u8, plugin.id()),
         .state_base64 = state_base64,
+    };
+}
+
+fn vst3ToSnap(aa: std.mem.Allocator, plugin: *rack_mod.Vst3Plugin) !Vst3Snap {
+    const component = try plugin.saveComponentState(aa);
+    defer aa.free(component);
+    const component_encoded = try aa.alloc(u8, std.base64.standard.Encoder.calcSize(component.len));
+    _ = std.base64.standard.Encoder.encode(component_encoded, component);
+    var controller_encoded: []const u8 = "";
+    if (try plugin.saveControllerState(aa)) |controller| {
+        defer aa.free(controller);
+        const encoded = try aa.alloc(u8, std.base64.standard.Encoder.calcSize(controller.len));
+        controller_encoded = std.base64.standard.Encoder.encode(encoded, controller);
+    }
+    return .{
+        .path = try aa.dupe(u8, plugin.pluginPath()),
+        .class_id = try aa.dupe(u8, plugin.classId()),
+        .component_state_base64 = component_encoded,
+        .controller_state_base64 = controller_encoded,
     };
 }
 
@@ -1283,6 +1324,7 @@ pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]Fx
             .tape => |t| .{ .kind = .tape, .tape = snapFromDevice(TapeSnap, t) },
             .freq_shift => |f| .{ .kind = .freq_shift, .freq_shift = snapFromDevice(FreqShiftSnap, f) },
             .clap => |plugin| .{ .kind = .clap, .clap = try clapToSnap(aa, plugin) },
+            .vst3 => |plugin| .{ .kind = .vst3, .vst3 = try vst3ToSnap(aa, plugin) },
         };
         us.bypassed = u.bypassed;
         us.instance_id = u.instance_id;
@@ -2018,6 +2060,21 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                 loadNotes(&rack.pattern_player.?, cs.notes);
                 rack.pattern_player.?.setSwing(cs.swing);
             },
+            .vst3 => {
+                const vs = rs.vst3 orelse return error.MalformedProject;
+                if (vs.path.len == 0 or vs.class_id.len != 32) return error.MalformedProject;
+                const plugin = try rack_mod.Vst3Plugin.load(allocator, vs.path, vs.class_id, sr, true);
+                var plugin_owned = true;
+                errdefer if (plugin_owned) plugin.deinit();
+                plugin.attachTransport(&engine.transport);
+                try loadVst3State(allocator, plugin, vs.component_state_base64, vs.controller_state_base64);
+                rack.instrument = .{ .vst3 = plugin };
+                plugin_owned = false;
+                rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
+                rack.pattern_player.?.length_beats = finiteClamp(f64, vs.length_beats, 1.0, std.math.floatMax(f64), 4.0);
+                loadNotes(&rack.pattern_player.?, vs.notes);
+                rack.pattern_player.?.setSwing(vs.swing);
+            },
             .soundfont => {
                 rack.instrument = .{ .soundfont = SoundfontPlayer.init(allocator, sr) };
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
@@ -2125,6 +2182,18 @@ fn loadClapState(
     defer allocator.free(state);
     try std.base64.standard.Decoder.decode(state, encoded);
     if (!try plugin.loadState(state)) return error.PluginStateUnsupported;
+}
+
+fn loadVst3State(allocator: std.mem.Allocator, plugin: *rack_mod.Vst3Plugin, component_encoded: []const u8, controller_encoded: []const u8) !void {
+    const component_size = try std.base64.standard.Decoder.calcSizeForSlice(component_encoded);
+    const component = try allocator.alloc(u8, component_size);
+    defer allocator.free(component);
+    try std.base64.standard.Decoder.decode(component, component_encoded);
+    const controller_size = try std.base64.standard.Decoder.calcSizeForSlice(controller_encoded);
+    const controller = try allocator.alloc(u8, controller_size);
+    defer allocator.free(controller);
+    try std.base64.standard.Decoder.decode(controller, controller_encoded);
+    try plugin.loadState(component, controller);
 }
 
 /// Widen a possibly-short (older/legacy) bitplane slice into a fixed
@@ -2522,13 +2591,21 @@ pub fn applyFxChain(
                 try loadClapState(allocator, loaded.payload.clap, cs.state_base64);
                 break :blk loaded;
             },
+            .vst3 => blk: {
+                const vs = us.vst3 orelse return error.MalformedProject;
+                if (vs.path.len == 0 or vs.class_id.len != 32) return error.MalformedProject;
+                const loaded = try fx_out.insertVst3(allocator, fx_out.units.items.len, vs.path, vs.class_id, sr);
+                if (transport) |value| loaded.payload.vst3.attachTransport(value);
+                try loadVst3State(allocator, loaded.payload.vst3, vs.component_state_base64, vs.controller_state_base64);
+                break :blk loaded;
+            },
             else => |saved_kind| blk: {
                 const kind: rack_mod.FxKind = switch (saved_kind) {
                     .gate => .gate, .comp => .comp, .mb_comp => .mb_comp, .ott => .ott,
                     .eq => .eq, .sat => .sat, .crush => .crush, .chorus => .chorus,
                     .phaser => .phaser, .flanger => .flanger, .tape => .tape,
                     .freq_shift => .freq_shift, .delay => .delay, .reverb => .reverb,
-                    .clap => unreachable,
+                    .clap, .vst3 => unreachable,
                 };
                 break :blk try fx_out.insert(allocator, fx_out.units.items.len, kind, sr);
             },
@@ -2605,7 +2682,7 @@ pub fn applyFxChain(
             .flanger => |*fl| if (us.flanger) |fs| applySnapToDevice(fl, fs),
             .tape => |*t| if (us.tape) |ts| applySnapToDevice(t, ts),
             .freq_shift => |*f| if (us.freq_shift) |fs| applySnapToDevice(f, fs),
-            .clap => {},
+            .clap, .vst3 => {},
         }
     }
 }
@@ -2738,7 +2815,7 @@ fn migrateSynthFx(allocator: std.mem.Allocator, s: *PolySynth, fx: *Fx, sr: u32)
                 v.damp = s.fx_reverb_damp;
                 v.mix = s.fx_reverb_mix;
             },
-            .clap => unreachable,
+            .clap, .vst3 => unreachable,
         }
     }
     clearMigratedSynthFx(s);

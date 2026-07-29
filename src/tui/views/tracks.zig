@@ -105,7 +105,7 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
         .sampler => icons.sampler,
         .drum_machine => icons.drum,
         .slicer => icons.slicer,
-        .clap => icons.synth,
+        .clap, .vst3 => icons.synth,
         .soundfont => icons.soundfont,
     } else switch (inst_tag) {
         .empty => " ",
@@ -113,7 +113,7 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
         .sampler => "P",
         .drum_machine => "D",
         .slicer => "C",
-        .clap => "S",
+        .clap, .vst3 => "S",
         .soundfont => "F",
     };
     try lw.writeAll(kind_icon);

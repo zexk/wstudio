@@ -10,6 +10,74 @@ const Transport = @import("../transport.zig").Transport;
 
 const max_events = 256;
 const max_param_changes = 64;
+const MemoryStream = struct {
+    interface: abi.Stream = .{ .vtable = &vtable },
+    allocator: std.mem.Allocator,
+    data: std.ArrayListUnmanaged(u8) = .empty,
+    position: usize = 0,
+
+    fn from(raw: *anyopaque) *MemoryStream {
+        return @ptrCast(@alignCast(raw));
+    }
+    fn query(raw: *anyopaque, _: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+        object.* = raw;
+        return 0;
+    }
+    fn ref(_: *anyopaque) callconv(abi.abi_callconv) u32 {
+        return 1;
+    }
+    fn read(raw: *anyopaque, destination: *anyopaque, count: i32, read_count: *i32) callconv(abi.abi_callconv) abi.Result {
+        const self = from(raw);
+        if (count < 0) return -1;
+        const len = @min(@as(usize, @intCast(count)), self.data.items.len -| self.position);
+        @memcpy(@as([*]u8, @ptrCast(destination))[0..len], self.data.items[self.position..][0..len]);
+        self.position += len;
+        read_count.* = @intCast(len);
+        return 0;
+    }
+    fn write(raw: *anyopaque, source: *const anyopaque, count: i32, written: *i32) callconv(abi.abi_callconv) abi.Result {
+        const self = from(raw);
+        if (count < 0) return -1;
+        const len: usize = @intCast(count);
+        const end = std.math.add(usize, self.position, len) catch return -1;
+        self.data.resize(self.allocator, end) catch return -1;
+        @memcpy(self.data.items[self.position..end], @as([*]const u8, @ptrCast(source))[0..len]);
+        self.position = end;
+        written.* = count;
+        return 0;
+    }
+    fn seek(raw: *anyopaque, offset: i64, mode: i32, result: *i64) callconv(abi.abi_callconv) abi.Result {
+        const self = from(raw);
+        const base: i64 = switch (mode) {
+            0 => 0,
+            1 => @intCast(self.position),
+            2 => @intCast(self.data.items.len),
+            else => return -1,
+        };
+        const target = std.math.add(i64, base, offset) catch return -1;
+        if (target < 0) return -1;
+        self.position = @intCast(target);
+        result.* = target;
+        return 0;
+    }
+    fn tell(raw: *anyopaque, result: *i64) callconv(abi.abi_callconv) abi.Result {
+        result.* = @intCast(from(raw).position);
+        return 0;
+    }
+    const vtable: abi.StreamVTable = .{ .query_interface = query, .add_ref = ref, .release = ref, .read = read, .write = write, .seek = seek, .tell = tell };
+
+    fn init(allocator: std.mem.Allocator) MemoryStream {
+        return .{ .allocator = allocator };
+    }
+    fn initRead(allocator: std.mem.Allocator, bytes: []const u8) !MemoryStream {
+        var self = init(allocator);
+        try self.data.appendSlice(allocator, bytes);
+        return self;
+    }
+    fn deinit(self: *MemoryStream) void {
+        self.data.deinit(self.allocator);
+    }
+};
 const HostEventList = struct {
     interface: abi.EventList = .{ .vtable = &vtable },
     events: [max_events]abi.Event = undefined,
@@ -349,6 +417,14 @@ pub const Vst3Plugin = struct {
         self.transport = transport;
     }
 
+    pub fn pluginPath(self: *const Vst3Plugin) []const u8 {
+        return self.bundle_path;
+    }
+
+    pub fn classId(self: *const Vst3Plugin) []const u8 {
+        return &self.class_id;
+    }
+
     pub fn parameterCount(self: *const Vst3Plugin) usize {
         const controller = self.controller orelse return 0;
         return @intCast(@max(controller.vtable.get_parameter_count(controller), 0));
@@ -359,6 +435,52 @@ pub const Vst3Plugin = struct {
         var info: abi.ParameterInfo = undefined;
         if (controller.vtable.get_parameter_info(controller, @intCast(index), &info) != 0) return null;
         return info;
+    }
+
+    pub fn parameterName(self: *const Vst3Plugin, index: usize, buf: []u8) ?[]const u8 {
+        const info = self.parameterInfo(index) orelse return null;
+        const title = std.mem.sliceTo(&info.title, 0);
+        const len = std.unicode.utf16LeToUtf8(buf, title) catch return null;
+        return buf[0..len];
+    }
+
+    pub fn formatParameter(self: *const Vst3Plugin, id: u32, value: f64, buf: []u8) ?[]const u8 {
+        const controller = self.controller orelse return null;
+        var text: [128]u16 = undefined;
+        if (controller.vtable.get_param_string_by_value(controller, id, value, &text) != 0) return null;
+        const len = std.unicode.utf16LeToUtf8(buf, std.mem.sliceTo(&text, 0)) catch return null;
+        return buf[0..len];
+    }
+
+    pub fn saveComponentState(self: *Vst3Plugin, allocator: std.mem.Allocator) ![]u8 {
+        var stream = MemoryStream.init(allocator);
+        defer stream.deinit();
+        if (self.component.vtable.get_state(self.component, &stream.interface) != 0) return error.ComponentStateSaveFailed;
+        return try allocator.dupe(u8, stream.data.items);
+    }
+
+    pub fn saveControllerState(self: *Vst3Plugin, allocator: std.mem.Allocator) !?[]u8 {
+        const controller = self.controller orelse return null;
+        var stream = MemoryStream.init(allocator);
+        defer stream.deinit();
+        if (controller.vtable.get_state(controller, &stream.interface) != 0) return error.ControllerStateSaveFailed;
+        return @as(?[]u8, try allocator.dupe(u8, stream.data.items));
+    }
+
+    pub fn loadState(self: *Vst3Plugin, component_bytes: []const u8, controller_bytes: []const u8) !void {
+        self.param_changes.len = 0;
+        var component_stream = try MemoryStream.initRead(self.allocator, component_bytes);
+        defer component_stream.deinit();
+        if (self.component.vtable.set_state(self.component, &component_stream.interface) != 0) return error.ComponentStateLoadFailed;
+        if (self.controller) |controller| {
+            component_stream.position = 0;
+            if (controller.vtable.set_component_state(controller, &component_stream.interface) != 0) return error.ControllerComponentStateLoadFailed;
+            if (controller_bytes.len > 0) {
+                var controller_stream = try MemoryStream.initRead(self.allocator, controller_bytes);
+                defer controller_stream.deinit();
+                if (controller.vtable.set_state(controller, &controller_stream.interface) != 0) return error.ControllerStateLoadFailed;
+            }
+        }
     }
 
     pub fn parameterValue(self: *const Vst3Plugin, id: u32) ?f64 {

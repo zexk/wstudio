@@ -148,8 +148,21 @@ fn activateBus(_: *anyopaque, _: i32, _: i32, _: i32, _: u8) callconv(abi.abi_ca
 fn setActive(_: *anyopaque, _: u8) callconv(abi.abi_callconv) abi.Result {
     return 0;
 }
-fn noState(_: *anyopaque, _: *anyopaque) callconv(abi.abi_callconv) abi.Result {
-    return -1;
+fn streamWrite(stream_raw: *anyopaque, value: f64) abi.Result {
+    const stream: *abi.Stream = @ptrCast(@alignCast(stream_raw));
+    var written: i32 = 0;
+    return stream.vtable.write(stream, &value, @sizeOf(f64), &written);
+}
+fn streamRead(stream_raw: *anyopaque, value: *f64) abi.Result {
+    const stream: *abi.Stream = @ptrCast(@alignCast(stream_raw));
+    var read_count: i32 = 0;
+    return stream.vtable.read(stream, value, @sizeOf(f64), &read_count);
+}
+fn componentSetState(raw: *anyopaque, stream: *anyopaque) callconv(abi.abi_callconv) abi.Result {
+    return streamRead(stream, &componentOwner(raw).param);
+}
+fn componentGetState(raw: *anyopaque, stream: *anyopaque) callconv(abi.abi_callconv) abi.Result {
+    return streamWrite(stream, componentOwner(raw).param);
 }
 
 var component_vtable: abi.ComponentVTable = .{
@@ -165,8 +178,8 @@ var component_vtable: abi.ComponentVTable = .{
     .get_routing_info = noRouting,
     .activate_bus = activateBus,
     .set_active = setActive,
-    .set_state = noState,
-    .get_state = noState,
+    .set_state = componentSetState,
+    .get_state = componentGetState,
 };
 
 fn processorQuery(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
@@ -277,6 +290,12 @@ fn setNormalized(raw: *anyopaque, id: u32, value: f64) callconv(abi.abi_callconv
 fn setHandler(_: *anyopaque, _: ?*abi.ComponentHandler) callconv(abi.abi_callconv) abi.Result {
     return 0;
 }
+fn controllerSetState(raw: *anyopaque, stream: *anyopaque) callconv(abi.abi_callconv) abi.Result {
+    return streamRead(stream, &controllerOwner(raw).param);
+}
+fn controllerGetState(raw: *anyopaque, stream: *anyopaque) callconv(abi.abi_callconv) abi.Result {
+    return streamWrite(stream, controllerOwner(raw).param);
+}
 fn createView(_: *anyopaque, _: [*:0]const u8) callconv(abi.abi_callconv) ?*anyopaque {
     return null;
 }
@@ -286,9 +305,9 @@ var controller_vtable: abi.EditControllerVTable = .{
     .release = release,
     .initialize = initialize,
     .terminate = terminate,
-    .set_component_state = noState,
-    .set_state = noState,
-    .get_state = noState,
+    .set_component_state = controllerSetState,
+    .set_state = controllerSetState,
+    .get_state = controllerGetState,
     .get_parameter_count = getParameterCount,
     .get_parameter_info = getParameterInfo,
     .get_param_string_by_value = getString,

@@ -21,6 +21,7 @@ const Flanger = @import("dsp/flanger.zig").Flanger;
 const Tape = @import("dsp/tape.zig").Tape;
 const FreqShifter = @import("dsp/freq_shift.zig").FreqShifter;
 pub const ClapPlugin = @import("clap/plugin.zig").ClapPlugin;
+pub const Vst3Plugin = @import("vst3/plugin.zig").Vst3Plugin;
 const PatternPlayer = @import("dsp/pattern.zig").PatternPlayer;
 const Transport = @import("transport.zig").Transport;
 const FxModBus = @import("dsp/fx_mod.zig").Bus;
@@ -43,6 +44,7 @@ pub const Instrument = union(enum) {
     /// rule as `drum_machine`.
     slicer: Slicer,
     clap: *ClapPlugin,
+    vst3: *Vst3Plugin,
     /// SoundFont (.sf2) multi-timbral player - a preset picked from a
     /// loaded font, played chromatically like `poly_synth`/`sampler`.
     soundfont: SoundfontPlayer,
@@ -53,6 +55,7 @@ pub const Instrument = union(enum) {
         return switch (self.*) {
             .empty => null,
             .clap => |plugin| plugin.device(),
+            .vst3 => |plugin| plugin.device(),
             inline else => |*p| p.device(),
         };
     }
@@ -61,6 +64,7 @@ pub const Instrument = union(enum) {
         switch (self.*) {
             .empty => {},
             .clap => |plugin| plugin.deinit(),
+            .vst3 => |plugin| plugin.deinit(),
             inline else => |*p| p.deinit(),
         }
     }
@@ -70,7 +74,7 @@ pub const Instrument = union(enum) {
             .poly_synth => &PolySynth.automatable_params,
             .sampler => &Sampler.automatable_params,
             .soundfont => &SoundfontPlayer.automatable_params,
-            .drum_machine, .slicer, .clap, .empty => &.{},
+            .drum_machine, .slicer, .clap, .vst3, .empty => &.{},
         };
     }
 };
@@ -98,12 +102,14 @@ pub const FxPayload = union(enum) {
     delay: StereoDelay,
     reverb: Reverb,
     clap: *ClapPlugin,
+    vst3: *Vst3Plugin,
 
     /// Returns a dsp.Device fat-pointer whose `.ptr` is stable as long as
     /// the parent FxUnit (heap-allocated by Fx.insert) is alive.
     pub fn device(self: *FxPayload) dsp.Device {
         return switch (self.*) {
             .clap => |plugin| plugin.device(),
+            .vst3 => |plugin| plugin.device(),
             inline else => |*p| p.device(),
         };
     }
@@ -111,6 +117,7 @@ pub const FxPayload = union(enum) {
     pub fn deinit(self: *FxPayload, allocator: std.mem.Allocator) void {
         switch (self.*) {
             .clap => |plugin| plugin.deinit(),
+            .vst3 => |plugin| plugin.deinit(),
             .chorus => |*c| c.deinit(allocator),
             .delay => |*d| d.deinit(allocator),
             .reverb => |*r| r.deinit(allocator),
@@ -153,6 +160,12 @@ pub const FxPayload = union(enum) {
                     _ = try copy.loadState(state);
                 }
                 return .{ .clap = copy };
+            },
+            .vst3 => |plugin| {
+                const copy = try Vst3Plugin.load(allocator, plugin.pluginPath(), plugin.classId(), sr, false);
+                errdefer copy.deinit();
+                if (plugin.transport) |transport| copy.attachTransport(transport);
+                return .{ .vst3 = copy };
             },
             else => return self.*,
         }
@@ -233,6 +246,7 @@ pub const FxUnit = struct {
                 v.shift_hz = base;
             },
             .clap => |v| v.device().process(buf),
+            .vst3 => |v| v.device().process(buf),
             inline else => |*v| v.processBlock(buf),
         }
     }
@@ -316,6 +330,7 @@ pub const Fx = struct {
             .delay   => .{ .delay = try StereoDelay.init(allocator, sr, 2.0) },
             .reverb  => .{ .reverb = try Reverb.init(allocator, sr) },
             .clap    => return error.ClapPluginRequiresPath,
+            .vst3    => return error.Vst3PluginRequiresPath,
             // zig fmt: on
         };
     }
@@ -346,6 +361,17 @@ pub const Fx = struct {
         const unit = try allocator.create(FxUnit);
         errdefer allocator.destroy(unit);
         unit.* = .{ .payload = .{ .clap = plugin }, .instance_id = self.allocInstanceId() };
+        try self.units.insert(allocator, @min(pos, self.units.items.len), unit);
+        return unit;
+    }
+
+    pub fn insertVst3(self: *Fx, allocator: std.mem.Allocator, pos: usize, path: []const u8, plugin_id: []const u8, sr: u32) !*FxUnit {
+        if (self.units.items.len >= max_units) return error.ChainFull;
+        const plugin = try Vst3Plugin.load(allocator, path, plugin_id, sr, false);
+        errdefer plugin.deinit();
+        const unit = try allocator.create(FxUnit);
+        errdefer allocator.destroy(unit);
+        unit.* = .{ .payload = .{ .vst3 = plugin }, .instance_id = self.allocInstanceId() };
         try self.units.insert(allocator, @min(pos, self.units.items.len), unit);
         return unit;
     }
@@ -493,6 +519,14 @@ pub const Rack = struct {
                     _ = try copy.loadState(state);
                 }
                 rack.instrument = .{ .clap = copy };
+                copy_owned = false;
+            },
+            .vst3 => |plugin| {
+                const copy = try Vst3Plugin.load(allocator, plugin.pluginPath(), plugin.classId(), sr, true);
+                var copy_owned = true;
+                errdefer if (copy_owned) copy.deinit();
+                copy.attachTransport(transport);
+                rack.instrument = .{ .vst3 = copy };
                 copy_owned = false;
             },
             .soundfont => |*sf| rack.instrument = .{ .soundfont = try sf.dupe() },
