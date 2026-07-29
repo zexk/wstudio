@@ -411,7 +411,6 @@ test "finishRecording stamps a Sampler clip from a synthetic capture, mirroring 
     // Same contrived-tempo trick `:load`'s own test uses: 1 frame == 1 beat,
     // so the beats-from-length math stays exact.
     app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
-
     app.session.toggleArm(1);
     app.recording_active_len = 1;
     app.recording_active_buf[0] = 1;
@@ -6206,6 +6205,10 @@ test ":load in arrangement refuses without a sampler track, then targets a whole
     // Contrived tempo so 1 frame = 1 beat exactly (sr*60/bpm == 1), keeping
     // the wav tiny while the beats math stays exact and easy to assert on.
     app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
+    const old_sample_count = app.session.racks.items[0].instrument.sampler.pad.samples.len;
+    const old_user_sample = app.session.racks.items[0].instrument.sampler.pad.user_sample;
+    const old_note_count = app.session.racks.items[0].pattern_player.?.note_count;
+    const old_length_beats = app.session.racks.items[0].pattern_player.?.length_beats;
 
     var wav_buf: [64]u8 = undefined;
     var fw = std.Io.Writer.fixed(&wav_buf);
@@ -6229,6 +6232,13 @@ test ":load in arrangement refuses without a sampler track, then targets a whole
     try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
     try std.testing.expectEqual(@as(u32, 64), lane.clips.items[0].start_tick);
     try std.testing.expectEqual(@as(u32, 256), lane.clips.items[0].length_ticks); // ceil(5 beats / 4 per bar)
+
+    history.doUndo(&app);
+    try std.testing.expectEqual(old_sample_count, app.session.racks.items[0].instrument.sampler.pad.samples.len);
+    try std.testing.expectEqual(old_user_sample, app.session.racks.items[0].instrument.sampler.pad.user_sample);
+    try std.testing.expectEqual(old_note_count, app.session.racks.items[0].pattern_player.?.note_count);
+    try std.testing.expectEqual(old_length_beats, app.session.racks.items[0].pattern_player.?.length_beats);
+    try std.testing.expectEqual(@as(usize, 0), app.session.arrangement.lane(0).?.clips.items.len);
 }
 
 test ":e with no path always browses; selecting a file refuses when dirty" {

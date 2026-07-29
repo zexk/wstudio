@@ -2287,7 +2287,12 @@ pub fn loadClipFromPath(app: *App, path: []const u8) void {
     const data = readFileForLoad(app, path) orelse return;
     defer app.allocator.free(data);
     const stem = stemOf(path);
+    var backup = history.captureTrackKindSwap(app, track) orelse {
+        app.setStatus("load: out of memory", .{});
+        return;
+    };
     s.loadWav(data, stem) catch |e| {
+        backup.deinit(app.allocator);
         app.setStatus("load: parse error: {s}", .{@errorName(e)});
         return;
     };
@@ -2300,11 +2305,13 @@ pub fn loadClipFromPath(app: *App, path: []const u8) void {
     const notes = [_]pattern_mod.Note{.{ .pitch = s.root_note, .start_beat = 0.0, .duration_beat = length_beats }};
     app.session.racks.items[track].pattern_player.?.setNotes(&notes, length_beats);
 
-    history.recordLane(app, @intCast(track));
     app.session.stampClipAtTick(track, app.arr_cursor_bar *| app.arr_grid.ticks()) catch {
-        app.setStatus("load: stamp failed (out of memory)", .{});
+        history.push(app, backup);
+        app.dirty = true;
+        app.setStatus("load: stamp failed; undo restores previous sample", .{});
         return;
     };
+    history.push(app, backup);
     if (app.session.song_mode) app.session.rebuildSongData();
 
     app.dirty = true;
