@@ -72,9 +72,11 @@ pub fn draw(app: anytype) void {
         const rack = app.core.session.racks.items[ti];
         const rack_label: []const u8 = if (std.meta.activeTag(rack.instrument) == .empty) "-- empty --" else rack.label;
         draw_list.addText(.{ origin[0] + 34, y + 32 }, color(theme.fg3), "[{s}]", .{rack_label});
+        // Only the cursor's lane gets a hint. Labelling every other empty
+        // lane "Empty lane" says nothing the blank row didn't already.
         const lane = app.core.session.arrangement.lane(@intCast(ti));
-        if (lane == null or lane.?.clips.items.len == 0) {
-            draw_list.addText(.{ timeline_x + 12, y + lane_h * 0.5 - 8 }, color(if (selected) theme.fg2 else theme.fg3), "{s}", .{if (selected) "Press s to stamp a clip at the cursor" else "Empty lane"});
+        if (selected and (lane == null or lane.?.clips.items.len == 0)) {
+            draw_list.addText(.{ timeline_x + 12, y + lane_h * 0.5 - 8 }, color(theme.fg2), "Press s to stamp a clip at the cursor", .{});
         }
         draw_list.addLine(.{ .p1 = .{ origin[0], y + lane_h }, .p2 = .{ origin[0] + canvas_w, y + lane_h }, .col = color(theme.line), .thickness = 1 });
     }
@@ -178,7 +180,9 @@ pub fn draw(app: anytype) void {
                     }
                     for (0..drum.step_count) |step| {
                         var hits: u8 = 0;
-                        for (drum.pattern) |pattern| hits += @intCast((pattern >> @intCast(step)) & 1);
+                        for (drum.midi) |row| {
+                            if (step < row.len and row[step] != null) hits +|= 1;
+                        }
                         if (hits == 0) continue;
                         const hit_x = pmin[0] + (@as(f32, @floatFromInt(step)) + 0.5) / @as(f32, @floatFromInt(drum.step_count)) * (pmax[0] - pmin[0]);
                         const hit_h = @min(15, @as(f32, @floatFromInt(hits)) * 2);
@@ -191,16 +195,20 @@ pub fn draw(app: anytype) void {
     }
 
     if (app.core.cursor < track_count) {
-        // One grid cell wide by default - a plain cursor for cutting and
-        // moving. It widens to the clip under it (which, right after
-        // `enter`, is the clip being stamped: hold enter and h/l resize it
-        // live, see editors/arrangement.zig's arr_stamp block).
+        // Always one grid cell wide, so the cursor stays readable as a
+        // cursor over a clip - a box the size of the clip under it made
+        // every edit ambiguous (which of the two is being addressed?).
+        // The one exception is a held-enter stamp session, where the box
+        // *is* the clip being sized: hold enter and h/l resize it live
+        // (see editors/arrangement.zig's arr_stamp block).
         var cursor_start_tick = cursor_tick;
         var cursor_span_ticks = app.core.arr_grid.ticks();
-        if (app.core.session.arrangement.lane(app.core.cursor)) |lane| {
-            if (lane.clipAt(cursor_tick)) |clip| {
-                cursor_start_tick = clip.start_tick;
-                cursor_span_ticks = clip.length_ticks;
+        if (app.core.arr_stamp) {
+            if (app.core.session.arrangement.lane(app.core.cursor)) |lane| {
+                if (lane.clipAt(cursor_tick)) |clip| {
+                    cursor_start_tick = clip.start_tick;
+                    cursor_span_ticks = clip.length_ticks;
+                }
             }
         }
         cursor_span_ticks = @max(cursor_span_ticks, app.core.arr_grid.ticks());
