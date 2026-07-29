@@ -940,7 +940,7 @@ pub const Engine = struct {
                 if (bars == 0) {
                     self.transport.play();
                 } else {
-                    const bpb: f64 = @floatFromInt(self.transport.time_signature.beats_per_bar);
+                    const bpb: f64 = @floatFromInt(@max(self.transport.time_signature.beats_per_bar, 1));
                     const total_beats = @as(f64, @floatFromInt(bars)) * bpb;
                     self.pre_roll_frames_remaining = @intFromFloat(total_beats * self.transport.framesPerBeat());
                     self.pre_roll_elapsed = 0;
@@ -1463,6 +1463,11 @@ test "metronome tolerates an invalid zero-beat time signature" {
     engine.pre_roll_frames_remaining = 1;
     engine.process(&block);
     try std.testing.expect(engine.transport.playing);
+
+    engine.transport.stop();
+    _ = engine.send(.{ .record = 1 });
+    engine.process(&block);
+    try std.testing.expect(engine.pre_roll_frames_remaining > 0);
 }
 
 test "record count-in clicks immediately, keeps the transport stopped, then starts on the beat" {
