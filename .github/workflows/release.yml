@@ -69,24 +69,31 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
-      - uses: cachix/install-nix-action@v31
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
 
-      # Native build only, no -Dtarget: an explicit target puts zig in
-      # cross-compile mode, where it stops picking up the system Xcode SDK
-      # and the nix apple-sdk's Security.framework headers fail on a
-      # missing libDER. That leaves Intel Macs uncovered for now.
-      - name: Build and package macOS release
+      # macos-latest is Apple Silicon, so arm64 is the native build and the
+      # Intel one cross-compiles beside it. Zig only auto-detects an SDK for
+      # the native case, so the cross build is handed Xcode's explicitly.
+      - name: Build and package macOS releases
         run: |
           set -euo pipefail
-          nix develop --command zig build -Doptimize=ReleaseSafe
-          mkdir -p dist/wstudio-macos-arm64
-          cp zig-out/bin/wstudio demo.wsj README.md CHANGELOG.md LICENSE dist/wstudio-macos-arm64/
-          tar -C dist -czf dist/wstudio-macos-arm64.tar.gz wstudio-macos-arm64
+          package() {
+            mkdir -p "dist/$1"
+            cp zig-out/bin/wstudio demo.wsj README.md CHANGELOG.md LICENSE "dist/$1/"
+            tar -C dist -czf "dist/$1.tar.gz" "$1"
+          }
+          zig build -Doptimize=ReleaseSafe
+          package wstudio-macos-arm64
+          SDKROOT="$(xcrun --show-sdk-path)" \
+            zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-macos
+          package wstudio-macos-x86_64
 
       - uses: actions/upload-artifact@v4
         with:
           name: macos
-          path: dist/wstudio-macos-arm64.tar.gz
+          path: dist/wstudio-macos-*.tar.gz
 
   publish:
     runs-on: ubuntu-latest
