@@ -43,10 +43,11 @@ until after 1.0.
 
 ## 1.0.0-beta.9: release candidate
 
-Feature freeze. Fix crashes, data loss, audio corruption, platform failures,
-and release or documentation defects. Verify clean installs, bundled demo,
-project round trips, device setup, plugins, and release artifacts on Linux,
-Windows, and macOS.
+Follow the bounded [beta.9 release-candidate goals](beta-9-goals.md). Feature
+freeze. Fix crashes, data loss, audio corruption, platform failures, and
+release or documentation defects. Verify clean installs, bundled demo, project
+round trips, device setup, plugins, and release artifacts on Linux, Windows,
+and macOS.
 
 ## 1.0.0
 
