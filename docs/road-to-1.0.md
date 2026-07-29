@@ -25,8 +25,9 @@ distribution license is no longer available to new hosts.
 
 ## 1.0.0-beta.7: production workflow
 
-Use complete projects and beta feedback to close blockers across recording,
-editing, arrangement, automation, mixing, plugin use, save/load, and export.
+Use complete projects and beta feedback to close the bounded
+[beta.7 production-workflow goals](beta-7-goals.md) across recording, editing,
+arrangement, automation, mixing, plugin use, save/load, and export.
 
 Prefer fixes and missing links between existing features. No new instrument,
 effect, plugin format, or editing subsystem.

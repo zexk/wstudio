@@ -15,8 +15,10 @@ code keeps a one-line pointer.
   parameter-nudge coalescing, and the deliberately limited undo scope.
 - [user-config-storage.md](user-config-storage.md): paths, atomic JSON writes,
   corrupt-file quarantine, and the boundary between drum tuning and audio.
-- [beta-5-goals.md](beta-5-goals.md): code-backed goals and exit criteria for
-  the next beta release.
+- [beta-5-goals.md](beta-5-goals.md): beta.5 goals and exit criteria.
+- [beta-6-goals.md](beta-6-goals.md): bounded VST3 hosting baseline.
+- [beta-7-goals.md](beta-7-goals.md): complete-project production workflow
+  journeys, blocker policy, and exit criteria.
 - [road-to-1.0.md](road-to-1.0.md): release themes from beta.5 through the
   1.0 feature freeze.
 - [ui-conventions.md](ui-conventions.md): TUI layout and chrome
