@@ -780,8 +780,18 @@ pub const Engine = struct {
 
         if (self.pre_roll_frames_remaining > 0) {
             // Count-in: click through the armed bar, no track audio, and
-            // the transport itself stays stopped until it's done.
-            self.firePreRoll(out, frames);
+            // the transport itself stays stopped until it's done. If the
+            // count-in ends mid-block, render only up to that point here so
+            // the remainder of the block still gets real track audio instead
+            // of the whole block going silent on the punch-in.
+            const roll_frames: u32 = @intCast(@min(self.pre_roll_frames_remaining, frames));
+            self.firePreRoll(out[0 .. roll_frames * channels], roll_frames);
+            const rest = frames - roll_frames;
+            if (rest > 0) {
+                const tail = out[roll_frames * channels ..];
+                self.renderTracks(tail, rest);
+                if (self.metronome_enabled) self.fireMetronome(tail, rest);
+            }
         } else {
             self.renderTracks(out, frames);
             if (self.metronome_enabled) self.fireMetronome(out, frames);
