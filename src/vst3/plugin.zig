@@ -78,6 +78,38 @@ const MemoryStream = struct {
         self.data.deinit(self.allocator);
     }
 };
+const HostContext = struct {
+    handler: abi.ComponentHandler = .{ .vtable = &vtable },
+    restart_flags: std.atomic.Value(i32) = .init(0),
+    state_dirty: std.atomic.Value(bool) = .init(false),
+
+    fn from(raw: *anyopaque) *HostContext {
+        return @ptrCast(@alignCast(raw));
+    }
+    fn query(raw: *anyopaque, _: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+        object.* = raw;
+        return 0;
+    }
+    fn ref(_: *anyopaque) callconv(abi.abi_callconv) u32 {
+        return 1;
+    }
+    fn begin(_: *anyopaque, _: u32) callconv(abi.abi_callconv) abi.Result {
+        return 0;
+    }
+    fn perform(raw: *anyopaque, _: u32, _: f64) callconv(abi.abi_callconv) abi.Result {
+        from(raw).state_dirty.store(true, .release);
+        return 0;
+    }
+    fn end(raw: *anyopaque, _: u32) callconv(abi.abi_callconv) abi.Result {
+        from(raw).state_dirty.store(true, .release);
+        return 0;
+    }
+    fn restart(raw: *anyopaque, flags: i32) callconv(abi.abi_callconv) abi.Result {
+        _ = from(raw).restart_flags.fetchOr(flags, .release);
+        return 0;
+    }
+    const vtable: abi.ComponentHandlerVTable = .{ .query_interface = query, .add_ref = ref, .release = ref, .begin_edit = begin, .perform_edit = perform, .end_edit = end, .restart_component = restart };
+};
 const HostEventList = struct {
     interface: abi.EventList = .{ .vtable = &vtable },
     events: [max_events]abi.Event = undefined,
@@ -199,6 +231,7 @@ pub const Vst3Plugin = struct {
     processor: *abi.AudioProcessor,
     controller: ?*abi.EditController,
     midi_mapping: ?*abi.MidiMapping,
+    host_context: *HostContext,
     bundle_path: []u8,
     class_id: [32]u8,
     input_channels: u8,
@@ -213,6 +246,9 @@ pub const Vst3Plugin = struct {
     active_notes: [128]bool = .{false} ** 128,
     transport: ?*const Transport = null,
     param_changes: ParamChanges = .{},
+    restart_in_progress: std.atomic.Value(bool) = .init(false),
+    restart_ready: std.atomic.Value(bool) = .init(false),
+    sample_rate: u32,
 
     pub const device = device_mod.deviceOf(Vst3Plugin);
 
@@ -248,12 +284,16 @@ pub const Vst3Plugin = struct {
         errdefer _ = processor.vtable.release(processor);
 
         var controller: ?*abi.EditController = null;
+        const host_context = try allocator.create(HostContext);
+        errdefer allocator.destroy(host_context);
+        host_context.* = .{};
         var controller_id: abi.Tuid = undefined;
         if (component.vtable.get_controller_class_id(component, &controller_id) == 0) {
             var controller_raw: ?*anyopaque = null;
             if (module.factory.vtable.create_instance(module.factory, &controller_id, &abi.edit_controller_iid, &controller_raw) == 0) {
                 controller = @ptrCast(@alignCast(controller_raw orelse return error.ControllerCreateFailed));
                 if (controller.?.vtable.initialize(controller.?, null) != 0) return error.ControllerInitializeFailed;
+                if (controller.?.vtable.set_component_handler(controller.?, &host_context.handler) != 0) return error.ComponentHandlerRejected;
             }
         }
         errdefer {
@@ -329,6 +369,7 @@ pub const Vst3Plugin = struct {
             .processor = processor,
             .controller = controller,
             .midi_mapping = midi_mapping,
+            .host_context = host_context,
             .bundle_path = owned_path,
             .class_id = abi.formatUid(class_id),
             .input_channels = @intCast(input_channels),
@@ -337,6 +378,7 @@ pub const Vst3Plugin = struct {
             .input_right = input_right,
             .output_left = output_left,
             .output_right = output_right,
+            .sample_rate = sample_rate,
         };
         return self;
     }
@@ -347,6 +389,7 @@ pub const Vst3Plugin = struct {
         _ = self.processor.vtable.release(self.processor);
         if (self.midi_mapping) |value| _ = value.vtable.release(value);
         if (self.controller) |value| {
+            _ = value.vtable.set_component_handler(value, null);
             _ = value.vtable.terminate(value);
             _ = value.vtable.release(value);
         }
@@ -358,12 +401,20 @@ pub const Vst3Plugin = struct {
         self.allocator.free(self.input_right);
         self.allocator.free(self.output_left);
         self.allocator.free(self.output_right);
+        self.allocator.destroy(self.host_context);
         self.allocator.destroy(self);
     }
 
     pub fn processBlock(self: *Vst3Plugin, buf: []types.Sample) void {
         const frames = buf.len / 2;
         if (frames == 0 or frames > types.max_block_frames or buf.len % 2 != 0) return;
+        const restart_flags = self.host_context.restart_flags.load(.acquire);
+        if (restart_flags & 3 != 0 and !self.restart_in_progress.load(.acquire)) {
+            self.restart_in_progress.store(true, .release);
+            _ = self.processor.vtable.set_processing(self.processor, 0);
+            self.restart_ready.store(true, .release);
+        }
+        if (self.restart_in_progress.load(.acquire)) return;
         for (0..frames) |frame| {
             self.input_left[frame] = if (self.input_channels == 1) (buf[frame * 2] + buf[frame * 2 + 1]) * 0.5 else buf[frame * 2];
             self.input_right[frame] = buf[frame * 2 + 1];
@@ -546,5 +597,20 @@ pub const Vst3Plugin = struct {
     pub fn reset(_: *Vst3Plugin) void {}
     pub fn latencySamples(self: *const Vst3Plugin) u32 {
         return self.processor.vtable.get_latency_samples(self.processor);
+    }
+
+    pub fn serviceMainThread(self: *Vst3Plugin) bool {
+        if (self.restart_ready.swap(false, .acquire)) {
+            _ = self.component.vtable.set_active(self.component, 0);
+            var setup: abi.ProcessSetup = .{ .process_mode = 0, .symbolic_sample_size = 0, .max_samples_per_block = types.max_block_frames, .sample_rate = @floatFromInt(self.sample_rate) };
+            if (self.processor.vtable.setup_processing(self.processor, &setup) == 0 and
+                self.component.vtable.set_active(self.component, 1) == 0 and
+                self.processor.vtable.set_processing(self.processor, 1) == 0)
+            {
+                self.restart_in_progress.store(false, .release);
+            } else std.log.err("VST3 restart failed: {s}", .{self.classId()});
+        }
+        _ = self.host_context.restart_flags.swap(0, .acquire);
+        return self.host_context.state_dirty.swap(false, .acquire);
     }
 };

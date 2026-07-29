@@ -92,7 +92,7 @@ const ComponentFace = struct { vtable: *const abi.ComponentVTable, owner: *Insta
 const ProcessorFace = struct { vtable: *const abi.AudioProcessorVTable, owner: *Instance };
 const ControllerFace = struct { vtable: *const abi.EditControllerVTable, owner: *Instance };
 const MappingFace = struct { vtable: *const abi.MidiMappingVTable, owner: *Instance };
-const Instance = struct { component: ComponentFace, processor: ProcessorFace, controller: ControllerFace, mapping: MappingFace, instrument: bool, channels: u8, param: f64 = 1 };
+const Instance = struct { component: ComponentFace, processor: ProcessorFace, controller: ControllerFace, mapping: MappingFace, instrument: bool, channels: u8, param: f64 = 1, handler: ?*abi.ComponentHandler = null };
 var instrument: Instance = undefined;
 var effect: Instance = undefined;
 var mono_effect: Instance = undefined;
@@ -306,10 +306,15 @@ fn getNormalized(raw: *anyopaque, id: u32) callconv(abi.abi_callconv) f64 {
 }
 fn setNormalized(raw: *anyopaque, id: u32, value: f64) callconv(abi.abi_callconv) abi.Result {
     if (id != 100) return -1;
-    controllerOwner(raw).param = value;
+    const owner = controllerOwner(raw);
+    owner.param = value;
+    if (value == 0.25) {
+        if (owner.handler) |handler| _ = handler.vtable.restart_component(handler, 2);
+    }
     return 0;
 }
-fn setHandler(_: *anyopaque, _: ?*abi.ComponentHandler) callconv(abi.abi_callconv) abi.Result {
+fn setHandler(raw: *anyopaque, handler: ?*abi.ComponentHandler) callconv(abi.abi_callconv) abi.Result {
+    controllerOwner(raw).handler = handler;
     return 0;
 }
 fn controllerSetState(raw: *anyopaque, stream: *anyopaque) callconv(abi.abi_callconv) abi.Result {

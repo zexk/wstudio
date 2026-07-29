@@ -36,6 +36,9 @@ pub fn main(init: std.process.Init) !void {
     const controller_state = (try effect.saveControllerState(init.gpa)).?;
     defer init.gpa.free(controller_state);
     effect.setParameter(100, 0.25);
+    var restart_audio = [_]ws.types.Sample{ 0, 0 };
+    effect.processBlock(&restart_audio);
+    _ = effect.serviceMainThread();
     try effect.loadState(component_state, controller_state);
     try std.testing.expectEqual(@as(f64, 0.5), effect.parameterValue(100).?);
     var effect_audio = [_]ws.types.Sample{ 0.1, -0.2, 0.3, -0.4 };
