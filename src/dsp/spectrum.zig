@@ -114,7 +114,8 @@ pub const SpectrumAnalyzer = struct {
         if (!self.active.load(.monotonic)) return;
         const frames = samples.len / 2;
         var src: usize = 0;
-        while (src < frames and self.accumulated < self.fft_size) : (src += 1) {
+        while (src < frames) : (src += 1) {
+            if (self.accumulated == self.fft_size) self.analyze();
             const mono = (samples[src * 2] + samples[src * 2 + 1]) * 0.5;
             self.buffer[self.accumulated] = mono;
             self.accumulated += 1;
@@ -200,6 +201,18 @@ test "invalid analyzer sizes are rejected before allocation" {
             SpectrumAnalyzer.initConfig(std.testing.allocator, 48_000, cfg.fft, cfg.hop),
         );
     }
+}
+
+test "push preserves samples past an FFT boundary" {
+    var sa = try SpectrumAnalyzer.initConfig(std.testing.allocator, 48_000, 4, 2);
+    defer sa.deinit(std.testing.allocator);
+    sa.active.store(true, .monotonic);
+    const samples = [_]Sample{ 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5 };
+
+    sa.push(&samples);
+    sa.analyze();
+
+    try std.testing.expectEqualSlices(f32, &.{ 4, 5 }, sa.buffer[0..2]);
 }
 
 test "SpectrumAnalyzer produces non-zero output for sine" {
