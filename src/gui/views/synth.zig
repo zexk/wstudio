@@ -219,16 +219,20 @@ fn drawSectionCard(app: anytype, synth: *ws.dsp.PolySynth, section: synth_layout
         // Polarity toggles are drawn as the last cell of their own matrix
         // row above, not as a standalone param.
         if (isMatrixPolarity(entry.id)) continue;
-        if (isEnvelopeTail(entry.id) or isFilterResonance(entry.id)) continue;
+        // The ADSR plot and the filter pad are the visual cue and the mouse
+        // surface - they draw above the params they cover, and then those
+        // params still get their own knob cells. A knob is where an exact
+        // value is read, where the keyboard cursor lands, and the one
+        // control shape every other param in the card already uses.
         if (isEnvelopeBase(entry.id)) {
             flow.brk();
             drawEnvelope(app, synth, entry.id);
-            continue;
+            flow.brk();
         }
         if (isFilterCutoff(entry.id)) {
             flow.brk();
             drawFilterPad(app, synth, entry.id);
-            continue;
+            flow.brk();
         }
         var label_buf: [48]u8 = undefined;
         drawParam(app, synth, entry.id, synth_ed.paramLabel(entry.id, &label_buf), accent, &flow);
@@ -249,13 +253,6 @@ fn isEnvelopeBase(id: u16) bool {
     return id == 16 or id == 24 or id == 122;
 }
 
-fn isEnvelopeTail(id: u16) bool {
-    return switch (id) {
-        17, 18, 19, 25, 26, 27, 123, 124, 125 => true,
-        else => false,
-    };
-}
-
 fn isFilterCutoff(id: u16) bool {
     return id == 21 or id == 47;
 }
@@ -263,10 +260,6 @@ fn isFilterCutoff(id: u16) bool {
 fn isMatrixPolarity(id: u16) bool {
     const base = ws.dsp.PolySynth.mod_unipolar_id_base;
     return id >= base and id < base + ws.dsp.PolySynth.max_mod_rows;
-}
-
-fn isFilterResonance(id: u16) bool {
-    return id == 22 or id == 48;
 }
 
 fn sendParam(app: anytype, id: u16, value: f32) void {

@@ -69,25 +69,34 @@ fn drawSharedSections(app: anytype, target: Target) void {
         if (index % columns != 0) zgui.sameLine(.{ .spacing = gap });
         var child_buf: [32]u8 = undefined;
         const child_id = std.fmt.bufPrintZ(&child_buf, "sampler-module-{d}", .{index}) catch continue;
-        if (zgui.beginChild(child_id, .{ .w = column_width, .h = 205, .child_flags = .{ .border = true } })) {
+        // Auto-height, not a fixed 205px: a panel shorter than its content
+        // grew an inner scrollbar, which turns one module of an instrument
+        // into a sublist to scroll through. The panel is a unit; it sizes to
+        // what it holds.
+        if (zgui.beginChild(child_id, .{
+            .w = column_width,
+            .h = 0,
+            .child_flags = .{ .border = true, .auto_resize_y = true },
+            .window_flags = .{ .no_scrollbar = true, .no_scroll_with_mouse = true },
+        })) {
             const section_color = switch (section.kind) {
                 .envelope => theme.rhythm,
                 .output => theme.audio,
                 else => theme.focus,
             };
             widgets.sectionTitle(section.title, section_color);
-            if (section.kind == .envelope) {
-                drawAmpEnvelope(app, target);
-            } else {
-                for (section.rows) |row| {
-                    const toggle_accent = if (target == .pad) theme.modulation else theme.focus;
-                    if (row.id == ws.dsp.pad.reverse_id)
-                        drawToggle(app, target, row.id, "REVERSE", "FORWARD", toggle_accent)
-                    else if (row.id == ws.dsp.pad.gate_id)
-                        drawToggle(app, target, row.id, "GATE", "ONE-SHOT", toggle_accent)
-                    else
-                        drawParam(app, target, row.id, row.label, row.gui_format);
-                }
+            // The ADSR plot is the visual cue and the mouse surface; the four
+            // knobs under it stay, same as the synth editor's envelopes -
+            // that is where an exact value is read and where j/k land.
+            if (section.kind == .envelope) drawAmpEnvelope(app, target);
+            for (section.rows) |row| {
+                const toggle_accent = if (target == .pad) theme.modulation else theme.focus;
+                if (row.id == ws.dsp.pad.reverse_id)
+                    drawToggle(app, target, row.id, "REVERSE", "FORWARD", toggle_accent)
+                else if (row.id == ws.dsp.pad.gate_id)
+                    drawToggle(app, target, row.id, "GATE", "ONE-SHOT", toggle_accent)
+                else
+                    drawParam(app, target, row.id, row.label, row.gui_format);
             }
         }
         zgui.endChild();
