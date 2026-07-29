@@ -100,8 +100,13 @@ System Common and SysEx input are intentionally ignored.
 ## Status: beta
 
 The first public beta is live and audible. Expect rough edges, and keep
-project-file backups while the `.wsj` format continues to evolve. See
-[CONTRIBUTING.md](CONTRIBUTING.md) to report a bug or send a focused
+project-file backups while the `.wsj` format continues to evolve. Linux is
+used daily by the maintainer and is the most exercised platform; Windows has
+had some manual testing, with TUI, GUI, and audio confirmed working. macOS
+has no hardware available to test on: it only gets CI compiling and running
+the test suite, with no human having run it. If you're on a Mac, trying it
+and reporting back is one of the most useful things you can do right now.
+See [CONTRIBUTING.md](CONTRIBUTING.md) to report a bug or send a focused
 change.
 
 ## Configuration
