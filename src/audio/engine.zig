@@ -290,6 +290,8 @@ pub const UiSnapshot = struct {
     pre_rolling: bool,
     position_frames: u64,
     peak: [channels]f32,
+    /// Per-track post-FX, post-gain/pan peaks before any group processing.
+    track_peak: [max_tracks][channels]f32 = [_][channels]f32{.{ 0.0, 0.0 }} ** max_tracks,
     /// Master-bus phase correlation, -1 (out of phase) .. +1 (in phase) -
     /// see `dsp/meter.zig`'s `StereoCorrelation`.
     correlation: f32,
@@ -361,6 +363,7 @@ pub const Engine = struct {
     groups: [max_groups]GroupState = [_]GroupState{.{}} ** max_groups,
     group_scratch: [max_groups][types.max_block_frames * channels]Sample = undefined,
     peak: [channels]f32 = .{ 0.0, 0.0 },
+    track_peak: [max_tracks][channels]f32 = [_][channels]f32{.{ 0.0, 0.0 }} ** max_tracks,
     /// Single analyzer reused for whichever track/group is being viewed.
     track_spectrum: SpectrumAnalyzer,
     master_spectrum: SpectrumAnalyzer,
@@ -398,6 +401,7 @@ pub const Engine = struct {
         pre_rolling: std.atomic.Value(bool) = .init(false),
         position_frames: std.atomic.Value(u64) = .init(0),
         peak_bits: [channels]std.atomic.Value(u32) = .{ .init(0), .init(0) },
+        track_peak_bits: [max_tracks][channels]std.atomic.Value(u32) = [_][channels]std.atomic.Value(u32){.{ .init(0), .init(0) }} ** max_tracks,
         correlation_bits: std.atomic.Value(u32) = .init(@bitCast(@as(f32, 1.0))),
         lufs_momentary_bits: std.atomic.Value(u32) = .init(@bitCast(LoudnessMeter.floor_lufs)),
         lufs_short_term_bits: std.atomic.Value(u32) = .init(@bitCast(LoudnessMeter.floor_lufs)),
@@ -772,6 +776,7 @@ pub const Engine = struct {
 
         self.drainCommands();
         @memset(out, 0.0);
+        self.track_peak = [_][channels]f32{.{ 0.0, 0.0 }} ** max_tracks;
 
         if (self.pre_roll_frames_remaining > 0) {
             // Count-in: click through the armed bar, no track audio, and
@@ -814,6 +819,9 @@ pub const Engine = struct {
         inline for (0..channels) |ch| {
             self.shared.peak_bits[ch].store(@bitCast(self.peak[ch]), .monotonic);
         }
+        for (0..max_tracks) |track| inline for (0..channels) |ch| {
+            self.shared.track_peak_bits[track][ch].store(@bitCast(self.track_peak[track][ch]), .monotonic);
+        };
         self.shared.correlation_bits.store(@bitCast(self.master_correlation.value()), .monotonic);
         self.shared.lufs_momentary_bits.store(@bitCast(self.master_loudness.momentary()), .monotonic);
         self.shared.lufs_short_term_bits.store(@bitCast(self.master_loudness.shortTerm()), .monotonic);
@@ -826,6 +834,7 @@ pub const Engine = struct {
             .pre_rolling = self.shared.pre_rolling.load(.monotonic),
             .position_frames = self.shared.position_frames.load(.monotonic),
             .peak = undefined,
+            .track_peak = undefined,
             .correlation = @bitCast(self.shared.correlation_bits.load(.monotonic)),
             .lufs_momentary = @bitCast(self.shared.lufs_momentary_bits.load(.monotonic)),
             .lufs_short_term = @bitCast(self.shared.lufs_short_term_bits.load(.monotonic)),
@@ -834,6 +843,9 @@ pub const Engine = struct {
         inline for (0..channels) |ch| {
             snap.peak[ch] = @bitCast(self.shared.peak_bits[ch].load(.monotonic));
         }
+        for (0..max_tracks) |track| inline for (0..channels) |ch| {
+            snap.track_peak[track][ch] = @bitCast(self.shared.track_peak_bits[track][ch].load(.monotonic));
+        };
         return snap;
     }
 
@@ -1139,8 +1151,12 @@ pub const Engine = struct {
             break :blk out;
         };
         for (0..frames) |i| {
-            dest[i * channels] += scratch[i * channels] * gain_l;
-            dest[i * channels + 1] += scratch[i * channels + 1] * gain_r;
+            const left = scratch[i * channels] * gain_l;
+            const right = scratch[i * channels + 1] * gain_r;
+            dest[i * channels] += left;
+            dest[i * channels + 1] += right;
+            self.track_peak[ti][0] = @max(self.track_peak[ti][0], @abs(left));
+            self.track_peak[ti][1] = @max(self.track_peak[ti][1], @abs(right));
         }
 
         if (self.active_spectrum_source == .track and
@@ -1366,6 +1382,10 @@ test "notes sound even while transport is stopped (live preview)" {
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
     engine.process(&block);
     try std.testing.expect(engine.peak[0] > 0.01);
+    const snap = engine.uiSnapshot();
+    try std.testing.expect(snap.track_peak[0][0] > 0.01);
+    try std.testing.expect(snap.track_peak[0][1] > 0.01);
+    try std.testing.expectEqual(@as(f32, 0.0), snap.track_peak[1][0]);
     try std.testing.expectEqual(@as(u64, 0), engine.transport.position_frames);
 }
 

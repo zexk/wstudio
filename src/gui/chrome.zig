@@ -56,7 +56,7 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
 
         drawTransportReadout(icons.save ++ "  PROJECT", project_title, true);
         drawTransportReadout(icons.master ++ "  AUDIO", audio_label, false);
-        drawLevelMeters(app, snap.peak);
+        drawLevelMeters(app, snap);
         drawPhaseMeter(snap.correlation);
         drawLoudnessReadout(snap);
     }
@@ -68,11 +68,12 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
 // hold, so the master bus gets that treatment here instead of reusing the
 // TUI's block-cell renderer. Draw itself lives in widgets.zig, shared with
 // the tracks view's master-row meter.
-fn drawLevelMeters(app: anytype, peak: [2]f32) void {
+fn drawLevelMeters(app: anytype, snap: ws.engine.UiSnapshot) void {
     const now = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
     const dt: f32 = if (app.meter_last_ns == 0) 0 else @max(0.0, @as(f32, @floatFromInt(now - app.meter_last_ns)) / 1_000_000_000.0);
     app.meter_last_ns = now;
-    widgets.updateMeterHold(&app.meter_hold_db, peak, dt);
+    widgets.updateMeterHold(&app.meter_hold_db, snap.peak, dt);
+    for (&app.track_meter_hold_db, snap.track_peak) |*hold, peak| widgets.updateMeterHold(hold, peak, dt);
 
     zgui.sameLine(.{ .spacing = 24 });
     zgui.beginGroup();

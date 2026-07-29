@@ -26,6 +26,9 @@ const widgets = @import("widgets.zig");
 const zgui = @import("zgui");
 
 pub const App = struct {
+    pub const TrackMixerField = enum { gain, pan };
+    const TrackMixerEdit = struct { track: u16, field: TrackMixerField, before: f32 };
+
     core: tui_app.App,
     arrangement_clip: ?arrangement_view.ClipSelection = null,
     piano_mouse_edit: ?piano_view.MouseEdit = null,
@@ -36,7 +39,9 @@ pub const App = struct {
     piano_velocity_edit_active: bool = false,
     instrument_edit_active: bool = false,
     synth_edit_active: bool = false,
+    track_mixer_edit: ?TrackMixerEdit = null,
     meter_hold_db: [2]f32 = .{ -100, -100 },
+    track_meter_hold_db: [ws.engine.max_tracks][2]f32 = [_][2]f32{.{ -100, -100 }} ** ws.engine.max_tracks,
     meter_last_ns: i128 = 0,
     /// Which view the one shared workspace window last drew - see
     /// `drawWorkspace`, which resets the scroll when this changes.
@@ -107,6 +112,19 @@ pub const App = struct {
         if (self.synth_edit_active) return;
         history.push(&self.core, history.captureTrackKindSwap(&self.core, self.core.synth_track));
         self.synth_edit_active = true;
+    }
+
+    pub fn beginTrackMixerEdit(self: *App, track: u16, field: TrackMixerField, before: f32) void {
+        self.track_mixer_edit = .{ .track = track, .field = field, .before = before };
+    }
+
+    pub fn finishTrackMixerEdit(self: *App) void {
+        const edit = self.track_mixer_edit orelse return;
+        history.recordTrackMixer(&self.core, edit.track, switch (edit.field) {
+            .gain => .gain,
+            .pan => .pan,
+        }, edit.before);
+        self.track_mixer_edit = null;
     }
 
     pub fn handleShortcuts(self: *App) void {
@@ -408,6 +426,16 @@ test "GUI drag gestures record one history entry per activation" {
     app.piano_velocity_edit_active = false;
     piano_view.recordVelocityGesture(&app);
     try std.testing.expectEqual(@as(usize, 6), app.core.history.undo_stack.items.len);
+
+    app.beginTrackMixerEdit(0, .gain, 0);
+    app.core.apiSetTrackGainDb(0, -6);
+    app.finishTrackMixerEdit();
+    app.finishTrackMixerEdit();
+    try std.testing.expectEqual(@as(usize, 7), app.core.history.undo_stack.items.len);
+    app.beginTrackMixerEdit(0, .pan, 0);
+    app.core.apiSetTrackPan(0, 0.5);
+    app.finishTrackMixerEdit();
+    try std.testing.expectEqual(@as(usize, 8), app.core.history.undo_stack.items.len);
 }
 
 test "GUI picker cards select and escape dismisses" {

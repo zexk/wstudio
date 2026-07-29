@@ -3,7 +3,6 @@
 const std = @import("std");
 const ws = @import("wstudio");
 const spectrum_ed = @import("../../ui/editors/spectrum.zig");
-const format = @import("../../ui/format.zig");
 const gui_style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
 const zgui = @import("zgui");
@@ -177,16 +176,31 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
 
     const block_x0 = drawInfoBlockBg(draw_list, origin, width, height, accent);
     const block_fg = legibleOn(accent);
-    const block_muted = [4]f32{ block_fg[0], block_fg[1], block_fg[2], 0.62 };
     drawFxChips(draw_list, &rack.fx, text_x + 150, origin[1] + 12, block_x0 - 12);
-    const controls_y = origin[1] + (height - 2 - badge_h) / 2;
+    const center_y = origin[1] + (height - 2) / 2;
+    const controls_y = center_y - 17;
 
-    var gain_buf: [24]u8 = undefined;
-    const gain = std.fmt.bufPrint(&gain_buf, "{d:.1} dB", .{track.gain_db}) catch "gain";
-    var pan_buf: [24]u8 = undefined;
-    const pan = format.panLabel(&pan_buf, track.pan);
-    draw_list.addText(.{ block_x0 + block_inset, controls_y + 1 }, color(block_fg), "{s}", .{gain});
-    draw_list.addText(.{ block_x0 + block_inset + 78, controls_y + 1 }, color(block_muted), "{s}", .{pan});
+    var gain = track.gain_db;
+    zgui.setCursorScreenPos(.{ block_x0 + 10, controls_y });
+    zgui.setNextItemWidth(62);
+    const gain_before = gain;
+    if (zgui.sliderFloat(std.fmt.bufPrintZ(&id_buf, "##gain-{d}", .{track_index}) catch "##gain", .{ .v = &gain, .min = -60, .max = 12, .cfmt = "%.1f dB" })) {
+        app.core.apiSetTrackGainDb(track_index, gain);
+    }
+    if (zgui.isItemActivated()) app.beginTrackMixerEdit(track_index, .gain, gain_before);
+    if (zgui.isItemDeactivatedAfterEdit()) app.finishTrackMixerEdit();
+
+    var pan_percent = track.pan * 100;
+    zgui.setCursorScreenPos(.{ block_x0 + 76, controls_y });
+    zgui.setNextItemWidth(50);
+    const pan_before = track.pan;
+    if (zgui.sliderFloat(std.fmt.bufPrintZ(&id_buf, "##pan-{d}", .{track_index}) catch "##pan", .{ .v = &pan_percent, .min = -100, .max = 100, .cfmt = "%+.0f%%" })) {
+        app.core.apiSetTrackPan(track_index, pan_percent / 100);
+    }
+    if (zgui.isItemActivated()) app.beginTrackMixerEdit(track_index, .pan, pan_before);
+    if (zgui.isItemDeactivatedAfterEdit()) app.finishTrackMixerEdit();
+
+    widgets.solidMeterBar(draw_list, .{ block_x0 + 10, center_y + 10 }, app.track_meter_hold_db[track_index], block_w - 20, 4, 2, block_fg);
 
     // Always three fixed slots (unlike the old read-only badges, which only
     // occupied space when already on) so each has a stable, clickable hit
