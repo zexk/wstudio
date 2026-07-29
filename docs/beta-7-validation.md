@@ -5,6 +5,21 @@ journeys. Run commands from repository root in Nix development shell. Generated
 audio and round-trip files stay under `.zig-cache/` or caller-selected temporary
 directories.
 
+## Recorded result
+
+2026-07-29 automated gate passed on Linux:
+
+- `zig build check`: passed, including bundled CLAP/VST3 integration fixtures.
+- `zig build -Dtarget=x86_64-windows-gnu`: passed.
+- Internal master and four numbered stem exports: passed as audible-format
+  stereo 48 kHz 16-bit PCM files.
+- ReleaseSafe soak: 172,802,048 frames in 42,188 blocks, ten save/load round
+  trips, three exports, finite audible peak 0.501, no crash or hang.
+- CLAP/VST3 scans: no third-party plugins installed, compatibility listening
+  pass skipped.
+- Physical recording and Windows/macOS hardware passes remain environment
+  skips listed below.
+
 ## Clean-checkout gate
 
 ```sh
