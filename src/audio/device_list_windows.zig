@@ -7,6 +7,8 @@ const c = @cImport({
     @cInclude("windows.h");
     @cInclude("mmdeviceapi.h");
     @cInclude("mmsystem.h");
+    @cInclude("propsys.h");
+    @cInclude("functiondiscoverykeys_devpkey.h");
 });
 
 fn ok(hr: c.HRESULT) bool {
@@ -29,7 +31,22 @@ fn writeAudio(w: *std.Io.Writer, enumerator: ?*c.IMMDeviceEnumerator, flow: c.ED
         defer c.CoTaskMemFree(id);
         var utf8: [std.fs.max_path_bytes]u8 = undefined;
         const len = std.unicode.utf16LeToUtf8(&utf8, std.mem.span(id)) catch continue;
-        try w.print("  {s}\n", .{utf8[0..len]});
+
+        var name: []const u8 = "unknown";
+        var name_utf8: [512]u8 = undefined;
+        var properties: ?*c.IPropertyStore = null;
+        if (ok(c.IMMDevice_OpenPropertyStore(device, c.STGM_READ, &properties))) {
+            defer _ = c.IPropertyStore_Release(properties);
+            var value: c.PROPVARIANT = std.mem.zeroes(c.PROPVARIANT);
+            defer _ = c.PropVariantClear(&value);
+            if (ok(c.IPropertyStore_GetValue(properties, &c.PKEY_Device_FriendlyName, &value)) and
+                value.unnamed_0.unnamed_0.vt == c.VT_LPWSTR and value.unnamed_0.unnamed_0.unnamed_0.pwszVal != null)
+            {
+                const name_len = std.unicode.utf16LeToUtf8(&name_utf8, std.mem.span(value.unnamed_0.unnamed_0.unnamed_0.pwszVal)) catch 0;
+                if (name_len > 0) name = name_utf8[0..name_len];
+            }
+        }
+        try w.print("  {s}\t{s}\n", .{ utf8[0..len], name });
     }
 }
 

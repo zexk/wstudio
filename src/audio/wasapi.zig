@@ -25,7 +25,7 @@ fn ok(hr: c.HRESULT) bool {
 fn openDevice(enumerator: ?*c.IMMDeviceEnumerator, flow: c.EDataFlow, id: []const u8) ?*c.IMMDevice {
     var device: ?*c.IMMDevice = null;
     if (id.len == 0) {
-        if (!ok(c.IMMDeviceEnumerator_GetDefaultAudioEndpoint(enumerator, flow, c.eConsole, &device))) return null;
+        if (!ok(c.IMMDeviceEnumerator_GetDefaultAudioEndpoint(enumerator, flow, c.eMultimedia, &device))) return null;
     } else {
         var id_buf: [std.fs.max_path_bytes + 1]u16 = undefined;
         const id_len = std.unicode.utf8ToUtf16Le(&id_buf, id) catch return null;
