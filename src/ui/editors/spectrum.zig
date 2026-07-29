@@ -991,7 +991,12 @@ pub fn insertExternalFromPicker(app: *App, plugin: *const ws.plugin_catalog.Plug
     const before = history.captureFx(app, target);
     const loaded = switch (plugin.format) {
         .clap => fx.insertClap(app.session.allocator, pos, plugin.path, plugin.id, app.session.project.sample_rate),
-        .vst3, .vst2 => unreachable,
+        .vst3 => {
+            app.setStatus("VST3 loading is not available yet", .{});
+            history.pushFxIfOk(app, before, false);
+            return;
+        },
+        .vst2 => unreachable,
     };
     _ = loaded catch |err| {
         history.pushFxIfOk(app, before, false);

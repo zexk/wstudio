@@ -108,14 +108,15 @@ pub fn drawInstrument(app: anytype) void {
     zgui.spacing();
     zgui.textColored(theme.fg2, "EXTERNAL", .{});
     zgui.sameLine(.{});
-    zgui.textDisabled("CLAP", .{});
+    zgui.textDisabled("CLAP / VST3", .{});
     const external_count = app.core.external_plugins.count(.instrument);
     for (0..external_count) |external_i| {
         const plugin = app.core.external_plugins.at(.instrument, external_i).?;
         var id_buf: [48]u8 = undefined;
         const id = std.fmt.bufPrintZ(&id_buf, "instrument-plugin-card-{d}", .{external_i}) catch continue;
         var desc_buf: [128]u8 = undefined;
-        const desc = std.fmt.bufPrint(&desc_buf, "CLAP  |  {s}", .{plugin.vendor}) catch "CLAP";
+        const format = ws.plugin_catalog.formatLabel(plugin.format);
+        const desc = std.fmt.bufPrint(&desc_buf, "{s}  |  {s}", .{ format, plugin.vendor }) catch format;
         const ordinal = app_mod.instrument_picker_items.len + external_i;
         if (drawCard(id, plugin.name, desc, theme.focus, app.core.picker_cursor == ordinal, width, "")) {
             selectInstrument(app, ordinal, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
@@ -168,14 +169,15 @@ pub fn drawFx(app: anytype) void {
         zgui.spacing();
         zgui.textColored(theme.fg2, "EXTERNAL", .{});
         zgui.sameLine(.{});
-        zgui.textDisabled("CLAP", .{});
+        zgui.textDisabled("CLAP / VST3", .{});
         const external_count = total_count - count;
         for (0..external_count) |external_i| {
             const plugin = spectrum_ed.externalPickerAt(&app.core, external_i).?;
             var id_buf: [48]u8 = undefined;
             const id = std.fmt.bufPrintZ(&id_buf, "fx-plugin-card-{d}", .{external_i}) catch continue;
             var desc_buf: [128]u8 = undefined;
-            const desc = std.fmt.bufPrint(&desc_buf, "CLAP  |  {s}", .{plugin.vendor}) catch "CLAP";
+            const format = ws.plugin_catalog.formatLabel(plugin.format);
+            const desc = std.fmt.bufPrint(&desc_buf, "{s}  |  {s}", .{ format, plugin.vendor }) catch format;
             const ordinal = count + external_i;
             if (drawCard(id, plugin.name, desc, theme.focus, app.core.fx_picker_cursor == ordinal, width, filter)) {
                 app.core.fx_picker_cursor = @intCast(ordinal);

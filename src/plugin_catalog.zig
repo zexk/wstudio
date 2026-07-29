@@ -2,9 +2,18 @@
 
 const std = @import("std");
 const clap_scan = @import("clap/scan.zig");
+const vst3_scan = @import("vst3/scan.zig");
 
 pub const Format = enum { clap, vst3, vst2 };
 pub const Role = enum { instrument, effect };
+
+pub fn formatLabel(format: Format) []const u8 {
+    return switch (format) {
+        .clap => "CLAP",
+        .vst3 => "VST3",
+        .vst2 => "VST2",
+    };
+}
 
 pub const Plugin = struct {
     format: Format,
@@ -42,17 +51,21 @@ pub const Catalog = struct {
         self.scanned = false;
     }
 
-    pub fn scanClap(self: *Catalog, io: std.Io, paths: []const []const u8) !void {
+    pub fn scan(self: *Catalog, io: std.Io, clap_paths: []const []const u8, vst3_paths: []const []const u8) !void {
         self.clear();
         var registry = clap_scan.Registry.init(self.allocator);
         defer registry.deinit();
-        try registry.scanPaths(io, paths);
+        try registry.scanPaths(io, clap_paths);
         for (registry.plugins.items) |plugin| {
             if (hasFeature(plugin.features.items, "instrument"))
                 try self.appendClap(plugin, .instrument);
             if (hasFeature(plugin.features.items, "audio-effect"))
                 try self.appendClap(plugin, .effect);
         }
+        var vst3 = vst3_scan.Registry.init(self.allocator);
+        defer vst3.deinit();
+        try vst3.scanPaths(io, vst3_paths);
+        for (vst3.plugins.items) |plugin| try self.appendVst3(plugin);
         std.mem.sort(Plugin, self.plugins.items, {}, lessThan);
         self.scanned = true;
     }
@@ -86,6 +99,25 @@ pub const Catalog = struct {
         };
         errdefer self.allocator.free(plugin.path);
         plugin.id = try self.allocator.dupe(u8, source.id);
+        errdefer self.allocator.free(plugin.id);
+        plugin.name = try self.allocator.dupe(u8, source.name);
+        errdefer self.allocator.free(plugin.name);
+        plugin.vendor = try self.allocator.dupe(u8, source.vendor);
+        errdefer self.allocator.free(plugin.vendor);
+        try self.plugins.append(self.allocator, plugin);
+    }
+
+    fn appendVst3(self: *Catalog, source: vst3_scan.PluginInfo) !void {
+        var plugin: Plugin = .{
+            .format = .vst3,
+            .role = if (source.instrument) .instrument else .effect,
+            .path = try self.allocator.dupe(u8, source.path),
+            .id = undefined,
+            .name = undefined,
+            .vendor = undefined,
+        };
+        errdefer self.allocator.free(plugin.path);
+        plugin.id = try self.allocator.dupe(u8, &source.id);
         errdefer self.allocator.free(plugin.id);
         plugin.name = try self.allocator.dupe(u8, source.name);
         errdefer self.allocator.free(plugin.name);

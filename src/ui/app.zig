@@ -460,6 +460,7 @@ pub const App = struct {
     /// until something is loaded; not persisted across runs.
     last_load_dir: config_mod.PathBuf = .{},
     clap_plugin_path: config_mod.PathBuf = .{},
+    vst3_plugin_path: config_mod.PathBuf = .{},
     external_plugins: ws.plugin_catalog.Catalog,
     environ: ?*const std.process.Environ.Map = null,
     /// Where a plain `:w` and a pathless autosave land.
@@ -1435,6 +1436,7 @@ pub const App = struct {
         self.session.setSongMode(user_config.default_song_mode);
         self.default_browse_dir = user_config.default_browse_dir;
         self.clap_plugin_path = user_config.clap_plugin_path;
+        self.vst3_plugin_path = user_config.vst3_plugin_path;
         var project_path_buf: [std.fs.max_path_bytes]u8 = undefined;
         const project_path = commands.expandHome(&project_path_buf, user_config.default_project_path.slice());
         self.default_project_path = .{};
@@ -1488,18 +1490,31 @@ pub const App = struct {
     pub fn scanExternalPlugins(self: *App, environ: *const std.process.Environ.Map) void {
         self.environ = environ;
         var expanded_buf: [std.fs.max_path_bytes]u8 = undefined;
-        const custom_path = commands.expandHome(&expanded_buf, self.clap_plugin_path.slice());
-        var custom = [_][]const u8{custom_path};
-        var owned_paths: std.ArrayListUnmanaged([]u8) = .empty;
-        const paths: []const []const u8 = if (self.clap_plugin_path.len > 0)
-            &custom
+        const clap_custom_path = commands.expandHome(&expanded_buf, self.clap_plugin_path.slice());
+        var clap_custom = [_][]const u8{clap_custom_path};
+        var clap_owned: std.ArrayListUnmanaged([]u8) = .empty;
+        const clap_paths: []const []const u8 = if (self.clap_plugin_path.len > 0)
+            &clap_custom
         else blk: {
-            owned_paths = ws.dsp.clap_scan.searchPaths(self.allocator, environ) catch return;
-            break :blk owned_paths.items;
+            clap_owned = ws.dsp.clap_scan.searchPaths(self.allocator, environ) catch return;
+            break :blk clap_owned.items;
         };
         defer if (self.clap_plugin_path.len == 0)
-            ws.dsp.clap_scan.freeSearchPaths(self.allocator, &owned_paths);
-        self.external_plugins.scanClap(self.io, paths) catch |err| {
+            ws.dsp.clap_scan.freeSearchPaths(self.allocator, &clap_owned);
+
+        var vst3_expanded_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const vst3_custom_path = commands.expandHome(&vst3_expanded_buf, self.vst3_plugin_path.slice());
+        var vst3_custom = [_][]const u8{vst3_custom_path};
+        var vst3_owned: std.ArrayListUnmanaged([]u8) = .empty;
+        const vst3_paths: []const []const u8 = if (self.vst3_plugin_path.len > 0)
+            &vst3_custom
+        else blk: {
+            vst3_owned = ws.vst3.scan.searchPaths(self.allocator, environ) catch return;
+            break :blk vst3_owned.items;
+        };
+        defer if (self.vst3_plugin_path.len == 0)
+            ws.vst3.scan.freeSearchPaths(self.allocator, &vst3_owned);
+        self.external_plugins.scan(self.io, clap_paths, vst3_paths) catch |err| {
             self.setStatus("plugin scan failed: {s}", .{@errorName(err)});
         };
     }
@@ -3046,7 +3061,11 @@ pub const App = struct {
                     self.setStatus("{s}: {s}", .{ plugin.name, @errorName(err) });
                     return;
                 },
-                .vst3, .vst2 => unreachable,
+                .vst3 => {
+                    self.setStatus("VST3 loading is not available yet", .{});
+                    return;
+                },
+                .vst2 => unreachable,
             }
             history.push(self, backup);
             self.dirty = true;

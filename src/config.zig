@@ -176,6 +176,7 @@ pub const Config = struct {
     status_message_ms: u16 = 3000,
     default_browse_dir: PathBuf = .{},
     clap_plugin_path: PathBuf = .{},
+    vst3_plugin_path: PathBuf = .{},
     default_project_path: PathBuf = PathBuf.init("project.wsj"),
     file_browser_show_hidden: bool = false,
     default_drum_grid: @import("wstudio").time_grid.Division = .sixteenth,
@@ -268,6 +269,7 @@ const option_specs = [_]OptionSpec{
     .{ .name = "status_message_ms", .min = 200, .max = 10000 },
     .{ .name = "default_browse_dir" },
     .{ .name = "clap_plugin_path" },
+    .{ .name = "vst3_plugin_path" },
     .{ .name = "default_project_path", .allow_empty = false },
     .{ .name = "file_browser_show_hidden" },
     .{ .name = "default_drum_grid" },
@@ -2991,6 +2993,8 @@ test "path options read and write as strings, rejecting oversized paths" {
     try std.testing.expectEqualStrings("~/Music/Samples", rt.config.default_browse_dir.slice());
     try rt.loadString("wstudio.o.clap_plugin_path = '/opt/clap'; assert(wstudio.o.clap_plugin_path == '/opt/clap')");
     try std.testing.expectEqualStrings("/opt/clap", rt.config.clap_plugin_path.slice());
+    try rt.loadString("wstudio.o.vst3_plugin_path = '/opt/vst3'; assert(wstudio.o.vst3_plugin_path == '/opt/vst3')");
+    try std.testing.expectEqualStrings("/opt/vst3", rt.config.vst3_plugin_path.slice());
     try rt.loadString("wstudio.o.audio_output_device = 'hw:2,0'; wstudio.o.audio_input_device = 'plughw:1,0'");
     try std.testing.expectEqualStrings("hw:2,0", rt.config.audio_output_device.slice());
     try std.testing.expectEqualStrings("plughw:1,0", rt.config.audio_input_device.slice());

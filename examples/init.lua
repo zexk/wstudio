@@ -114,6 +114,10 @@
 -- scans only that one. Leading `~` expands to $HOME.
 -- wstudio.o.clap_plugin_path = ""
 
+-- Where to look for VST3 plugins. Empty scans standard platform locations;
+-- setting a directory scans only that one. Leading `~` expands to $HOME.
+-- wstudio.o.vst3_plugin_path = ""
+
 -- Include dotfiles and dot-directories in the file browser.
 -- wstudio.o.file_browser_show_hidden = false
 
