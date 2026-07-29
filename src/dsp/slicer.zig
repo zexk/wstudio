@@ -12,15 +12,36 @@
 //! 1/n fraction of the one shared clip. That's the whole trick that makes
 //! "one sample, N independently playable chops" cheap.
 //!
-//! Its own step sequencer deliberately does NOT share code with
+//! Each slice's step data is a compact MIDI note (`midi`, a per-slice,
+//! heap-owned slice sized to `step_count`) - the same architecture
+//! `dsp/drum_sampler.zig` moved to, and for the same reason: the old `u64`
+//! bitmask plus parallel `vel` array is exactly why steps were once
+//! hard-capped at 64 (one word's bit width, not a chosen musical limit).
+//! `step_count`/`steps_per_beat` now set the pattern's length and the grid's
+//! zoom, and growing either just grows the per-slice slices. The note type
+//! itself (`MidiNote`, and the `Cond` trig conditions with it) is
+//! DrumMachine's, imported rather than re-declared, so a step means exactly
+//! the same thing in both grids and the shared editors/renderers can treat
+//! the two machines alike.
+//!
+//! The step *sequencer* still deliberately does NOT share code with
 //! DrumMachine's, despite the conceptual overlap (both fire per-step
 //! triggers with swing and per-step velocity, hold pattern variants A-H,
-//! carry per-row choke groups, and flatten arrangement clips into a
-//! SongClip timeline for song mode) - DrumMachine is the heaviest-tested,
-//! most atomics-delicate file in the codebase (see its own doc comment),
-//! and entangling a second consumer with its internals is a real risk for
-//! a modest amount of shared code. This file mirrors those algorithms
-//! independently instead.
+//! carry per-row choke groups and per-row loop lengths, and flatten
+//! arrangement clips into a SongClip timeline for song mode) - DrumMachine
+//! is the heaviest-tested, most atomics-delicate file in the codebase (see
+//! its own doc comment), and entangling a second consumer with its internals
+//! is a real risk. This file mirrors those algorithms independently; only
+//! the note *data* is shared.
+//!
+//! `midi`/`Variant.midi`/`SongClip.midi` are heap-owned per-slice slices
+//! rather than inline `[max_slices][max_steps]` arrays for the same reason
+//! DrumMachine's are: at u16's ceiling an inline array would blow up
+//! `@sizeOf(Slicer)` across the 8-slot variant bank into multi-MB territory,
+//! and `init`/`dupe` return this struct by value. Resizes take `sample_lock`
+//! (already held by `processBlock` for the whole block) around the swap so
+//! the audio thread never observes a torn slice header; per-cell writes stay
+//! lock-free, the same tolerated convention as `choke_group`.
 
 const std = @import("std");
 const types = @import("../core/types.zig");
@@ -29,12 +50,26 @@ const Transport = @import("../transport.zig").Transport;
 const pad_mod = @import("pad.zig");
 const Pad = pad_mod.Pad;
 const Voice = pad_mod.Voice;
+const DrumMachine = @import("drum_sampler.zig").DrumMachine;
+const Note = @import("pattern.zig").Note;
 
 const Sample = types.Sample;
 
 pub const Slicer = struct {
     pub const max_slices: u8 = 64;
-    pub const max_steps: u8 = 64;
+    /// Step-grid capacity: the u16 step index's own ceiling, not a musical
+    /// wall - see `DrumMachine.max_steps`, which this mirrors.
+    pub const max_steps: u16 = std.math.maxInt(u16);
+
+    /// The drum machine's note and trig-condition types, reused verbatim: a
+    /// slicer step and a drum step carry the same payload (velocity, length,
+    /// chance, condition, micro-timing, retrig, tune), so sharing the type
+    /// is what lets the grids, the editors and the save format treat them
+    /// alike instead of growing a second near-identical set of each.
+    pub const MidiNote = DrumMachine.MidiNote;
+    pub const Cond = DrumMachine.Cond;
+    /// The tail of an in-flight roll - see `DrumMachine.Roll`.
+    pub const Roll = DrumMachine.Roll;
     /// Max pattern variants (A..H) one slicer can hold - same bank size as
     /// `DrumMachine.max_variants`.
     pub const max_variants: u8 = 8;
@@ -53,8 +88,11 @@ pub const Slicer = struct {
 
     pub const vel_full: u8 = 127;
     /// Named preset bands `cycleStepVel` steps through - same ladder as
-    /// DrumMachine's, so the two grids' `c` key feels identical.
+    /// DrumMachine's, so the two grids' `c` key feels identical. Same goes
+    /// for the chance and roll ladders below.
     const vel_presets = [_]u8{ 127, 95, 63, 31 };
+    const prob_presets = [_]u8{ 100, 75, 50, 25, 10 };
+    const retrig_presets = [_]u8{ 0, 2, 3, 4, 6, 8 };
     pub fn velGain(level: u8) f32 {
         return @as(f32, @floatFromInt(level)) / @as(f32, @floatFromInt(vel_full));
     }
@@ -68,26 +106,65 @@ pub const Slicer = struct {
         v: Voice = .{},
     };
 
-    /// One pattern variant: a bank slot for the step grid. The active
-    /// variant lives in the atomic `pattern`/`step_count` fields; inactive
-    /// ones rest here as plain data (control thread only). Mirrors
-    /// `DrumMachine.Variant`, rows indexed by slice instead of pad.
+    /// A step's note tagged with the row that owns it - `pitch` is the slice
+    /// index, the same "pad tag, not a pitch" convention
+    /// `DrumMachine.gridNote` documents.
+    pub const gridNote = DrumMachine.gridNote;
+
+    /// Allocate `max_slices` fresh per-slice note slices, each `len` long and
+    /// null-filled. The building block every resize/dupe path shares.
+    pub fn allocMidi(allocator: std.mem.Allocator, len: u16) ![max_slices][]?MidiNote {
+        var out: [max_slices][]?MidiNote = undefined;
+        var i: usize = 0;
+        errdefer for (out[0..i]) |s| allocator.free(s);
+        while (i < max_slices) : (i += 1) {
+            out[i] = try allocator.alloc(?MidiNote, len);
+            @memset(out[i], null);
+        }
+        return out;
+    }
+
+    /// Free every slice's row. Safe (a no-op) on still-empty (`&.{}`) slots,
+    /// e.g. a never-materialized variant bank slot.
+    pub fn freeMidi(allocator: std.mem.Allocator, midi: *[max_slices][]?MidiNote) void {
+        for (midi) |s| allocator.free(s);
+    }
+
+    /// Deep-copy every slice's row into fresh allocations.
+    pub fn dupeMidi(allocator: std.mem.Allocator, src: *const [max_slices][]?MidiNote) ![max_slices][]?MidiNote {
+        var out: [max_slices][]?MidiNote = undefined;
+        var i: usize = 0;
+        errdefer for (out[0..i]) |s| allocator.free(s);
+        while (i < max_slices) : (i += 1) {
+            out[i] = try allocator.dupe(?MidiNote, src[i]);
+        }
+        return out;
+    }
+
+    /// One pattern variant: a bank slot for the step grid. The active variant
+    /// lives in the live `midi`/`step_count` fields; inactive ones rest here
+    /// as plain data (control thread only). `midi` is heap-owned - see the
+    /// file's top doc comment. Mirrors `DrumMachine.Variant`, rows indexed by
+    /// slice instead of pad.
     pub const Variant = struct {
-        pattern: [max_slices]u64 = [_]u64{0} ** max_slices,
-        vel: [max_slices][max_steps]u8 = [_][max_steps]u8{[_]u8{vel_full} ** max_steps} ** max_slices,
-        step_count: u8 = 16,
+        midi: [max_slices][]?MidiNote = [_][]?MidiNote{&.{}} ** max_slices,
+        step_count: u16 = 16,
+        /// Number of sequencer steps in one quarter-note beat.
+        steps_per_beat: u8 = 4,
     };
 
-    /// A slicer clip flattened onto the arrangement's step timeline -
-    /// same shape and repeat-to-fill-span semantics as
-    /// `DrumMachine.SongClip` (the audio thread reads these under
-    /// `sample_lock`, which `processBlock` already holds).
+    /// A slicer clip flattened onto the arrangement's step timeline - same
+    /// shape and repeat-to-fill-span semantics as `DrumMachine.SongClip` (the
+    /// audio thread reads these under `sample_lock`, which `processBlock`
+    /// already holds). `midi` is heap-owned: `setSongClips` takes ownership
+    /// of whatever is passed in (build fresh rows per call, e.g. via
+    /// `dupeMidi`, and don't reuse or free them yourself afterward).
     pub const SongClip = struct {
         start_step: u32,
         span_steps: u32,
-        step_count: u8,
-        pattern: [max_slices]u64,
-        vel: [max_slices][max_steps]u8 = [_][max_steps]u8{[_]u8{vel_full} ** max_steps} ** max_slices,
+        step_count: u16,
+        steps_per_beat: u8 = 4,
+        midi: [max_slices][]?MidiNote,
     };
 
     allocator: std.mem.Allocator,
@@ -123,26 +200,50 @@ pub const Slicer = struct {
     voices: [max_slices][max_voices_per_slice]SliceVoice = undefined,
     next_age: u64 = 0,
 
-    /// Bitmask per slice, one bit per step (see DrumMachine's identical
-    /// field for the atomics rationale).
-    pattern: [max_slices]std.atomic.Value(u64) = undefined,
-    /// Per-step velocity (0-127; 127 = full), one atomic per step per slice.
-    vel: [max_slices][max_steps]std.atomic.Value(u8) = undefined,
-    step_count: u8 = 16,
+    /// Canonical live pattern: one heap-owned, `step_count`-long row per
+    /// slice. Control thread writes (resize under `sample_lock`; per-cell
+    /// writes lock-free, matching `choke_group`'s convention), audio thread
+    /// reads directly in `processBlock`. Always mirrors the active variant;
+    /// edits land here and are synced back to `variants[variant]` when
+    /// switching away.
+    midi: [max_slices][]?MidiNote,
+    /// Cached row length of every entry in `midi` - control thread writes,
+    /// audio thread reads (plain field, no atomics, same convention as
+    /// `choke_group`).
+    step_count: u16 = 16,
+    /// Native timing resolution of the active pattern. Four is 1/16 notes;
+    /// 32 is 1/128 notes.
+    steps_per_beat: u8 = 4,
     swing: std.atomic.Value(f32) = .init(50.0),
 
     // ── Pattern variants (control thread only) ──────────────────────────────
     /// Bank slots. Slot `variant` is stale while active - read it through
-    /// `variantData`, which pulls the live atomics instead.
+    /// `variantData`, which pulls the live state instead. Only slots
+    /// `0..variant_count` ever hold a real allocation; every mutator that
+    /// touches this array must iterate that range, not `0..max_variants` -
+    /// see `DrumMachine.variants`, which has the same ownership rule.
     variants: [max_variants]Variant = [_]Variant{.{}} ** max_variants,
     variant_count: u8 = 1,
-    /// Index of the active variant (the one in the live `pattern`).
+    /// Index of the active variant (the one in the live `midi`).
     variant: u8 = 0,
 
     /// Per-slice choke group (0 = none). Grouped slices opt back into the
     /// classic cut-the-previous-hit behavior `triggerSlice` alone
     /// deliberately skips - see `chokeTrigger`.
     choke_group: [max_slices]u8 = [_]u8{0} ** max_slices,
+    /// Per-slice loop length in steps, 0 = follow the pattern - Elektron's
+    /// per-track lengths, see `DrumMachine.pad_len` for the full rationale.
+    /// Machine-level (not per-variant) and clamped at use time, same as
+    /// `choke_group`/`swing`, which is also why song mode picks it up free.
+    slice_len: [max_slices]u16 = [_]u16{0} ** max_slices,
+    /// Performance switch the `fill`/`not_fill` trig conditions read - see
+    /// `DrumMachine.fill_on`.
+    fill_on: std.atomic.Value(bool) = .init(false),
+    /// Hits the sequencer has decided on but not yet emitted, one slot per
+    /// slice (audio thread only) - a roll's tail lands blocks after the step
+    /// that started it, and a `micro`-shifted hit can land before its own
+    /// step boundary. See `DrumMachine.rolls`.
+    rolls: [max_slices]?Roll = [_]?Roll{null} ** max_slices,
 
     /// When true, processBlock fires from `song_clips` under the playhead
     /// instead of looping the live pattern - same switch DrumMachine has.
@@ -160,49 +261,77 @@ pub const Slicer = struct {
 
     // Audio-thread-only state:
     next_step_k: u64 = 0,
-    current_step: std.atomic.Value(u8) = .init(0),
+    current_step: std.atomic.Value(u16) = .init(0),
 
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32, transport: *const Transport) !Slicer {
         const samples = try allocator.alloc(f32, 0);
         errdefer allocator.free(samples);
         const song_clips = try allocator.alloc(SongClip, max_song_clips);
+        errdefer allocator.free(song_clips);
+        const default_step_count: u16 = 16;
+        var midi = try allocMidi(allocator, default_step_count);
+        errdefer freeMidi(allocator, &midi);
         var self: Slicer = .{
             .allocator = allocator,
             .sample_rate = sample_rate,
             .transport = transport,
             .samples = samples,
             .song_clips = song_clips,
+            .midi = midi,
+            .step_count = default_step_count,
         };
         for (&self.slices) |*p| p.* = .{ .samples = samples };
         // zig fmt: off
         for (&self.voices) |*row| for (row) |*v| { v.* = .{}; };
-        for (&self.pattern) |*p| p.* = .init(0);
-        for (&self.vel) |*row| for (row) |*p| { p.* = .init(vel_full); };
         // zig fmt: on
         return self;
     }
 
     pub fn deinit(self: *Slicer) void {
         self.allocator.free(self.samples);
+        for (self.song_clips[0..self.song_clip_count]) |*clip| freeMidi(self.allocator, &clip.midi);
         self.allocator.free(self.song_clips);
+        freeMidi(self.allocator, &self.midi);
+        for (self.variants[0..self.variant_count]) |*v| freeMidi(self.allocator, &v.midi);
     }
 
-    /// Deep copy for track duplication: the clip audio gets a fresh
-    /// allocation so the two slicers share no memory; every slice re-aliases
-    /// the NEW buffer. Voice state resets - no mid-flight hit worth carrying.
+    /// Deep copy for track duplication: the clip audio and every heap-owned
+    /// note row get fresh allocations so the two slicers share no memory;
+    /// every slice re-aliases the NEW buffer. Voice state resets - no
+    /// mid-flight hit worth carrying. Song-mode state isn't carried, same as
+    /// `DrumMachine.dupe`: the caller rebuilds it from the arrangement.
     pub fn dupe(self: *const Slicer) !Slicer {
-        var copy = self.*;
+        var copy = try Slicer.init(self.allocator, self.sample_rate, self.transport);
+        errdefer copy.deinit();
+
+        self.allocator.free(copy.samples);
         copy.samples = try self.allocator.dupe(f32, self.samples);
-        errdefer self.allocator.free(copy.samples);
-        copy.song_clips = try self.allocator.dupe(SongClip, self.song_clips);
+        copy.slices = self.slices;
+        copy.slice_count = self.slice_count;
         for (&copy.slices) |*p| p.samples = copy.samples;
-        copy.sample_lock = .unlocked;
-        // zig fmt: off
-        for (&copy.voices) |*row| for (row) |*v| { v.* = .{}; };
-        // zig fmt: on
-        copy.next_age = 0;
-        copy.next_step_k = 0;
-        copy.current_step = .init(0);
+        copy.name = self.name;
+        copy.user_sample = self.user_sample;
+
+        freeMidi(copy.allocator, &copy.midi);
+        copy.midi = try dupeMidi(self.allocator, &self.midi);
+        copy.step_count = self.step_count;
+        copy.steps_per_beat = self.steps_per_beat;
+        copy.swing.store(self.swing.load(.monotonic), .monotonic);
+        copy.choke_group = self.choke_group;
+        copy.slice_len = self.slice_len;
+
+        // Target count first (not after the loop) so a mid-loop allocation
+        // failure leaves `copy.deinit()` freeing exactly the intended range -
+        // see `DrumMachine.dupe`'s identical comment.
+        copy.variant_count = self.variant_count;
+        for (self.variants[0..self.variant_count], 0..) |*src_slot, i| {
+            copy.variants[i] = .{
+                .midi = try dupeMidi(self.allocator, &src_slot.midi),
+                .step_count = src_slot.step_count,
+                .steps_per_beat = src_slot.steps_per_beat,
+            };
+        }
+        copy.variant = self.variant;
         return copy;
     }
 
@@ -382,8 +511,12 @@ pub const Slicer = struct {
         var i: usize = self.slice_count;
         while (i > idx + 1) : (i -= 1) {
             self.slices[i] = self.slices[i - 1];
-            self.pattern[i].store(self.pattern[i - 1].load(.monotonic), .release);
-            for (&self.vel[i], &self.vel[i - 1]) |*dst, *src| dst.store(src.load(.monotonic), .release);
+            // Rows move by swapping the slice headers, not by copying cells:
+            // every row is the same `step_count` length, so a swap is both
+            // cheaper and allocation-free.
+            std.mem.swap([]?MidiNote, &self.midi[i], &self.midi[i - 1]);
+            self.slice_len[i] = self.slice_len[i - 1];
+            self.choke_group[i] = self.choke_group[i - 1];
         }
         const left = &self.slices[idx];
         const mid = left.start_norm + (left.end_norm - left.start_norm) / 2.0;
@@ -392,41 +525,53 @@ pub const Slicer = struct {
         left.end_norm = mid;
         self.slices[idx + 1] = right;
         // The new right half starts silent - it inherited its sound from the
-        // left, not its programming.
-        self.pattern[idx + 1].store(0, .release);
-        for (&self.vel[idx + 1]) |*p| p.store(vel_full, .release);
+        // left (params and choke group), not its programming.
+        self.clearRow(idx + 1);
+        self.slice_len[idx + 1] = 0;
+        self.choke_group[idx + 1] = self.choke_group[idx];
         self.slice_count += 1;
         self.clearVoices();
         return true;
     }
 
     /// Merge the cursor slice with the one after it: the region extends to
-    /// the right slice's end, both patterns are OR-combined (max velocity
-    /// where they collide), and every later slice shifts up one. Returns
-    /// false when `idx` is the last slice or out of range.
+    /// the right slice's end, both rows are combined (the louder note wins
+    /// where two land on the same step), and every later slice shifts up one.
+    /// Returns false when `idx` is the last slice or out of range.
     pub fn mergeSliceRight(self: *Slicer, idx: u8) bool {
         if (idx >= self.slice_count or @as(u16, idx) + 1 >= self.slice_count) return false;
         while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.sample_lock.unlock();
         self.slices[idx].end_norm = self.slices[idx + 1].end_norm;
-        const merged = self.pattern[idx].load(.monotonic) | self.pattern[idx + 1].load(.monotonic);
-        self.pattern[idx].store(merged, .release);
-        for (&self.vel[idx], &self.vel[idx + 1], 0..) |*dst, *src, s| {
-            const bit = @as(u64, 1) << @intCast(s);
-            if (self.pattern[idx + 1].load(.monotonic) & bit != 0)
-                dst.store(@max(dst.load(.monotonic), src.load(.monotonic)), .release);
+        for (self.midi[idx], self.midi[idx + 1]) |*dst, src| {
+            const incoming = src orelse continue;
+            if (dst.*) |kept| {
+                if (incoming.velocity <= kept.velocity) continue;
+            }
+            var moved = incoming;
+            moved.pitch = @intCast(idx); // the note now belongs to this row
+            dst.* = moved;
         }
         var i: usize = idx + 1;
         while (i + 1 < self.slice_count) : (i += 1) {
             self.slices[i] = self.slices[i + 1];
-            self.pattern[i].store(self.pattern[i + 1].load(.monotonic), .release);
-            for (&self.vel[i], &self.vel[i + 1]) |*dst, *src| dst.store(src.load(.monotonic), .release);
+            std.mem.swap([]?MidiNote, &self.midi[i], &self.midi[i + 1]);
+            self.slice_len[i] = self.slice_len[i + 1];
+            self.choke_group[i] = self.choke_group[i + 1];
         }
-        self.pattern[self.slice_count - 1].store(0, .release);
-        for (&self.vel[self.slice_count - 1]) |*p| p.store(vel_full, .release);
+        self.clearRow(self.slice_count - 1);
+        self.slice_len[self.slice_count - 1] = 0;
+        self.choke_group[self.slice_count - 1] = 0;
         self.slice_count -= 1;
         self.clearVoices();
         return true;
+    }
+
+    /// Blank one slice's row in place (no reallocation) - the shared tail of
+    /// `clearSlice` and every row-shifting edit above.
+    fn clearRow(self: *Slicer, slice: u8) void {
+        if (slice >= max_slices) return;
+        @memset(self.midi[slice], null);
     }
 
     /// Kill every voice after audio or slice regions change.
@@ -473,24 +618,38 @@ pub const Slicer = struct {
     // -----------------------------------------------------------------------
     // Pattern variants (control thread) - mirrors DrumMachine's bank exactly.
 
-    /// Sync the live pattern back into its bank slot.
+    /// Sync the live pattern back into its bank slot. Silently leaves the
+    /// slot's stale data in place on allocation failure (rare OOM,
+    /// non-fatal - same tolerance `DrumMachine.storeActiveVariant` takes).
     fn storeActiveVariant(self: *Slicer) void {
         const slot = &self.variants[self.variant];
-        for (&slot.pattern, &self.pattern) |*bank, *live| bank.* = live.load(.acquire);
-        for (&slot.vel, &self.vel) |*bank_row, *live_row| {
-            for (bank_row, live_row) |*bank, *live| bank.* = live.load(.acquire);
-        }
+        const fresh = dupeMidi(self.allocator, &self.midi) catch return;
+        freeMidi(self.allocator, &slot.midi);
+        slot.midi = fresh;
         slot.step_count = self.step_count;
+        slot.steps_per_beat = self.steps_per_beat;
     }
 
     /// Replace the live pattern with `slot`'s data (control thread). Used to
-    /// activate a bank variant and by undo's whole-state restore.
+    /// activate a bank variant, to paste a yanked pattern, and by undo's
+    /// whole-state restore. Silently leaves the live pattern unchanged on
+    /// allocation failure.
     pub fn applyVariant(self: *Slicer, slot: Variant) void {
-        for (&self.pattern, slot.pattern) |*live, bits| live.store(bits, .release);
-        for (&self.vel, slot.vel) |*live_row, bank_row| {
-            for (live_row, bank_row) |*live, v| live.store(v, .release);
-        }
-        self.setStepCount(slot.step_count);
+        const want: u16 = std.math.clamp(slot.step_count, 1, max_steps);
+        // A never-materialized bank slot (rows still `&.{}`) means "a blank
+        // pattern of that length", not "zero-length rows": every step
+        // accessor indexes `midi[slice][step]` for `step < step_count`, so
+        // the rows have to actually be that long.
+        const fresh = (if (slot.midi[0].len == 0)
+            allocMidi(self.allocator, want)
+        else
+            dupeMidi(self.allocator, &slot.midi)) catch return;
+        while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
+        freeMidi(self.allocator, &self.midi);
+        self.midi = fresh;
+        self.step_count = @intCast(fresh[0].len);
+        self.steps_per_beat = std.math.clamp(slot.steps_per_beat, 1, 32);
+        self.sample_lock.unlock();
     }
 
     /// Switch the active variant to `v`, saving the live pattern first.
@@ -509,11 +668,17 @@ pub const Slicer = struct {
     }
 
     /// Duplicate the active variant into a new slot and switch to it - the
-    /// live pattern already matches the copy. False when the bank is full.
+    /// live pattern already matches the copy. False when the bank is full or
+    /// the copy can't be allocated.
     pub fn addVariant(self: *Slicer) bool {
         if (self.variant_count >= max_variants) return false;
         self.storeActiveVariant();
-        self.variants[self.variant_count] = self.variants[self.variant];
+        const fresh = dupeMidi(self.allocator, &self.variants[self.variant].midi) catch return false;
+        self.variants[self.variant_count] = .{
+            .midi = fresh,
+            .step_count = self.step_count,
+            .steps_per_beat = self.steps_per_beat,
+        };
         self.variant = self.variant_count;
         self.variant_count += 1;
         return true;
@@ -522,8 +687,14 @@ pub const Slicer = struct {
     /// Remove the active variant, shifting later slots down. The slot that
     /// takes its index (or the new last) becomes active. False when it's the
     /// only one left.
+    ///
+    /// The shift moves ownership of each row: the removed slot's own rows are
+    /// freed first, and the vacated tail slot is left aliasing the pointer it
+    /// was moved from - which is why every mutator here iterates
+    /// `0..variant_count` and never past it (same rule as DrumMachine's).
     pub fn removeVariant(self: *Slicer) bool {
         if (self.variant_count <= 1) return false;
+        freeMidi(self.allocator, &self.variants[self.variant].midi);
         var i = self.variant;
         while (i + 1 < self.variant_count) : (i += 1) self.variants[i] = self.variants[i + 1];
         self.variant_count -= 1;
@@ -532,16 +703,17 @@ pub const Slicer = struct {
         return true;
     }
 
-    /// Variant `v`'s pattern data. The active one is read from the live
-    /// atomics (its bank slot is stale until the next switch).
+    /// Variant `v`'s pattern data. The active one is read from the live rows
+    /// (its bank slot is stale until the next switch). The returned rows
+    /// ALIAS this slicer's storage - copy them with `dupeMidi` before
+    /// keeping them past the next edit, same contract DrumMachine's has.
     pub fn variantData(self: *const Slicer, v: u8) Variant {
         if (v == self.variant) {
-            var out: Variant = .{ .step_count = self.step_count };
-            for (&out.pattern, &self.pattern) |*dst, *live| dst.* = live.load(.acquire);
-            for (&out.vel, &self.vel) |*dst_row, *live_row| {
-                for (dst_row, live_row) |*dst, *live| dst.* = live.load(.acquire);
-            }
-            return out;
+            return .{
+                .midi = self.midi,
+                .step_count = self.step_count,
+                .steps_per_beat = self.steps_per_beat,
+            };
         }
         return self.variants[@min(v, max_variants - 1)];
     }
@@ -560,12 +732,15 @@ pub const Slicer = struct {
     // -----------------------------------------------------------------------
     // Song-mode clip timeline (mirrors DrumMachine's)
 
-    /// Replace the song-mode clip timeline (control thread). Taken under
+    /// Replace the song-mode clip timeline (control thread). Takes ownership
+    /// of every clip's `midi` rows - build them fresh per call (e.g. via
+    /// `dupeMidi`) and don't free or reuse them afterward. Taken under
     /// `sample_lock` - `processBlock` holds it for the whole block, so
     /// `fireSongStep` never reads a half-written list.
     pub fn setSongClips(self: *Slicer, clips: []const SongClip, length_steps: u32, steps_per_beat: u8) void {
         while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.sample_lock.unlock();
+        for (self.song_clips[0..self.song_clip_count]) |*old| freeMidi(self.allocator, &old.midi);
         const count = @min(clips.len, @as(usize, max_song_clips));
         for (clips[0..count], self.song_clips[0..count]) |src, *dst| dst.* = src;
         self.song_clip_count = @intCast(count);
@@ -574,32 +749,37 @@ pub const Slicer = struct {
     }
 
     // -----------------------------------------------------------------------
-    // Step grid (control thread edits; audio thread reads in processBlock)
+    // Step grid (control thread edits; audio thread reads in processBlock).
+    // Every accessor below mirrors `DrumMachine`'s of the same name, over the
+    // same `MidiNote` payload - see that file for the per-field rationale.
 
-    pub fn toggleStep(self: *Slicer, slice: u8, step: u8) void {
-        if (slice >= max_slices or step >= max_steps) return;
-        const bit = @as(u64, 1) << @intCast(step);
-        _ = self.pattern[slice].fetchXor(bit, .release);
+    pub fn toggleStep(self: *Slicer, slice: u8, step: u16) void {
+        if (slice >= max_slices or step >= self.step_count) return;
+        self.midi[slice][step] = if (self.midi[slice][step] == null)
+            gridNote(slice, step, vel_full)
+        else
+            null;
     }
 
-    pub fn stepActive(self: *const Slicer, slice: u8, step: u8) bool {
-        if (slice >= max_slices or step >= max_steps) return false;
-        return (self.pattern[slice].load(.monotonic) >> @intCast(step)) & 1 == 1;
+    pub fn stepActive(self: *const Slicer, slice: u8, step: u16) bool {
+        if (slice >= max_slices or step >= self.step_count) return false;
+        return self.midi[slice][step] != null;
     }
 
-    pub fn stepVel(self: *const Slicer, slice: u8, step: u8) u8 {
-        if (slice >= max_slices or step >= max_steps) return vel_full;
-        return self.vel[slice][step].load(.monotonic);
+    pub fn stepVel(self: *const Slicer, slice: u8, step: u16) u8 {
+        if (slice >= max_slices or step >= self.step_count) return vel_full;
+        const note = self.midi[slice][step] orelse return vel_full;
+        return note.velocity;
     }
 
-    pub fn setStepVel(self: *Slicer, slice: u8, step: u8, level: u8) void {
-        if (slice >= max_slices or step >= max_steps) return;
-        self.vel[slice][step].store(level, .release);
+    pub fn setStepVel(self: *Slicer, slice: u8, step: u16, level: u8) void {
+        if (slice >= max_slices or step >= self.step_count) return;
+        if (self.midi[slice][step]) |*note| note.velocity = @intCast(@min(level, vel_full));
     }
 
     /// Step one step's velocity through the named preset bands - same
     /// single-key gesture as `DrumMachine.cycleStepVel`.
-    pub fn cycleStepVel(self: *Slicer, slice: u8, step: u8) void {
+    pub fn cycleStepVel(self: *Slicer, slice: u8, step: u16) void {
         const cur = self.stepVel(slice, step);
         var idx: usize = vel_presets.len - 1; // not a preset value -> next lands on preset[0]
         for (vel_presets, 0..) |v, i| {
@@ -612,38 +792,231 @@ pub const Slicer = struct {
 
     /// Nudge one step's velocity by `delta`, clamped to 1..127 - 0 would be
     /// silent; use x to remove a step instead of zeroing its velocity.
-    pub fn nudgeStepVel(self: *Slicer, slice: u8, step: u8, delta: i32) void {
+    pub fn nudgeStepVel(self: *Slicer, slice: u8, step: u16, delta: i32) void {
         const cur: i32 = self.stepVel(slice, step);
         const next = std.math.clamp(cur + delta, 1, 127);
         self.setStepVel(slice, step, @intCast(next));
     }
 
-    /// Wipe one slice's row: no steps, all velocities back to full.
+    /// Fire chance of the step in percent; 100 on an empty step.
+    pub fn stepProb(self: *const Slicer, slice: u8, step: u16) u8 {
+        if (slice >= max_slices or step >= self.step_count) return 100;
+        const note = self.midi[slice][step] orelse return 100;
+        return note.prob;
+    }
+
+    pub fn setStepProb(self: *Slicer, slice: u8, step: u16, percent: i32) void {
+        if (slice >= max_slices or step >= self.step_count) return;
+        if (self.midi[slice][step]) |*note| note.prob = @intCast(std.math.clamp(percent, 0, 100));
+    }
+
+    pub fn cycleStepProb(self: *Slicer, slice: u8, step: u16) void {
+        if (slice >= max_slices or step >= self.step_count) return;
+        const note = if (self.midi[slice][step]) |*n| n else return;
+        for (prob_presets, 0..) |p, i| {
+            if (note.prob == p) {
+                note.prob = prob_presets[(i + 1) % prob_presets.len];
+                return;
+            }
+        }
+        note.prob = prob_presets[0];
+    }
+
+    /// Timing offset as a percent of one step; 0 on an empty step.
+    pub fn stepMicro(self: *const Slicer, slice: u8, step: u16) i8 {
+        if (slice >= max_slices or step >= self.step_count) return 0;
+        const note = self.midi[slice][step] orelse return 0;
+        return note.micro;
+    }
+
+    pub fn setStepMicro(self: *Slicer, slice: u8, step: u16, pct: i32) void {
+        if (slice >= max_slices or step >= self.step_count) return;
+        if (self.midi[slice][step]) |*note| note.micro = @intCast(std.math.clamp(pct, -50, 50));
+    }
+
+    pub fn nudgeStepMicro(self: *Slicer, slice: u8, step: u16, delta: i32) void {
+        self.setStepMicro(slice, step, @as(i32, self.stepMicro(slice, step)) + delta);
+    }
+
+    /// Hits packed into this step; 0/1 is a plain single hit.
+    pub fn stepRetrig(self: *const Slicer, slice: u8, step: u16) u8 {
+        if (slice >= max_slices or step >= self.step_count) return 0;
+        const note = self.midi[slice][step] orelse return 0;
+        return note.retrig;
+    }
+
+    pub fn setStepRetrig(self: *Slicer, slice: u8, step: u16, hits: i32) void {
+        if (slice >= max_slices or step >= self.step_count) return;
+        if (self.midi[slice][step]) |*note| note.retrig = @intCast(std.math.clamp(hits, 0, 8));
+    }
+
+    pub fn cycleStepRetrig(self: *Slicer, slice: u8, step: u16) void {
+        if (slice >= max_slices or step >= self.step_count) return;
+        const note = if (self.midi[slice][step]) |*n| n else return;
+        for (retrig_presets, 0..) |r, i| {
+            if (note.retrig == r) {
+                note.retrig = retrig_presets[(i + 1) % retrig_presets.len];
+                return;
+            }
+        }
+        note.retrig = retrig_presets[0];
+    }
+
+    /// Trig condition of the step; `always` on an empty step.
+    pub fn stepCond(self: *const Slicer, slice: u8, step: u16) Cond {
+        if (slice >= max_slices or step >= self.step_count) return .always;
+        const note = self.midi[slice][step] orelse return .always;
+        return note.cond;
+    }
+
+    pub fn setStepCond(self: *Slicer, slice: u8, step: u16, cond: Cond) void {
+        if (slice >= max_slices or step >= self.step_count) return;
+        if (self.midi[slice][step]) |*note| note.cond = cond;
+    }
+
+    pub fn cycleStepCond(self: *Slicer, slice: u8, step: u16, delta: i32) void {
+        const tags = std.meta.tags(Cond);
+        const cur = @intFromEnum(self.stepCond(slice, step));
+        const n: i32 = @intCast(tags.len);
+        const next = @mod(@as(i32, cur) + delta, n);
+        self.setStepCond(slice, step, @enumFromInt(@as(u8, @intCast(next))));
+    }
+
+    /// Flip the fill switch every `fill`/`not_fill` condition reads, and
+    /// report the new state.
+    pub fn toggleFill(self: *Slicer) bool {
+        const next = !self.fill_on.load(.monotonic);
+        self.fill_on.store(next, .monotonic);
+        return next;
+    }
+
+    /// Per-step transpose in semitones; 0 on an empty step.
+    pub fn stepTune(self: *const Slicer, slice: u8, step: u16) i8 {
+        if (slice >= max_slices or step >= self.step_count) return 0;
+        const note = self.midi[slice][step] orelse return 0;
+        return note.tune;
+    }
+
+    pub fn setStepTune(self: *Slicer, slice: u8, step: u16, semis: i32) void {
+        if (slice >= max_slices or step >= self.step_count) return;
+        if (self.midi[slice][step]) |*note| note.tune = @intCast(std.math.clamp(semis, -24, 24));
+    }
+
+    pub fn nudgeStepTune(self: *Slicer, slice: u8, step: u16, delta: i32) void {
+        self.setStepTune(slice, step, @as(i32, self.stepTune(slice, step)) + delta);
+    }
+
+    /// Steps slice `s` actually loops over inside a `pattern_len`-long
+    /// pattern: its own `slice_len` when that's set and fits, else the whole
+    /// pattern. See `DrumMachine.padSteps`.
+    pub fn sliceSteps(self: *const Slicer, s: u8, pattern_len: u16) u16 {
+        if (s >= max_slices or pattern_len == 0) return @max(pattern_len, 1);
+        const own = self.slice_len[s];
+        if (own == 0 or own > pattern_len) return pattern_len;
+        return @max(own, 1);
+    }
+
+    /// Set slice `s`'s own loop length; 0 (or anything past the pattern) goes
+    /// back to following the pattern.
+    pub fn setSliceLen(self: *Slicer, s: u8, len: u16) void {
+        if (s >= max_slices) return;
+        self.slice_len[s] = if (len >= self.step_count) 0 else len;
+    }
+
+    /// Nudge slice `s`'s loop length, treating "follows the pattern" as the
+    /// full length so stepping down from it lands one below.
+    pub fn nudgeSliceLen(self: *Slicer, s: u8, delta: i32) void {
+        if (s >= max_slices) return;
+        const cur: i32 = self.sliceSteps(s, self.step_count);
+        self.setSliceLen(s, @intCast(std.math.clamp(cur + delta, 1, self.step_count)));
+    }
+
+    /// Wipe one slice's row: no steps at all.
     pub fn clearSlice(self: *Slicer, slice: u8) void {
-        if (slice >= max_slices) return;
-        self.pattern[slice].store(0, .release);
-        for (&self.vel[slice]) |*p| p.store(vel_full, .release);
+        self.clearRow(slice);
     }
 
     /// Fill one slice's row with full-velocity steps across the active length.
     pub fn fillSlice(self: *Slicer, slice: u8) void {
         if (slice >= max_slices) return;
-        self.pattern[slice].store(stepMask(self.step_count), .release);
-        for (&self.vel[slice]) |*p| p.store(vel_full, .release);
+        for (self.midi[slice], 0..) |*cell, step| cell.* = gridNote(slice, @intCast(step), vel_full);
     }
 
-    pub fn setStepCount(self: *Slicer, n: u8) void {
-        self.step_count = std.math.clamp(n, 1, max_steps);
+    /// Resize the live pattern to `n` steps, clamped to `[1, max_steps]`.
+    /// Existing notes up to `min(old, new)` survive; a shrink then regrow does
+    /// not resurrect anything past the new count. Silently leaves the pattern
+    /// unchanged on allocation failure - a user-triggered, rare-OOM control
+    /// thread action, not a hot path. Mirrors `DrumMachine.setStepCount`.
+    pub fn setStepCount(self: *Slicer, n: u16) void {
+        const new_count = std.math.clamp(n, 1, max_steps);
+        if (new_count == self.step_count) return;
+        var next = allocMidi(self.allocator, new_count) catch return;
+        const keep = @min(self.step_count, new_count);
+        for (0..max_slices) |slice| @memcpy(next[slice][0..keep], self.midi[slice][0..keep]);
+
+        while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
+        freeMidi(self.allocator, &self.midi);
+        self.midi = next;
+        self.step_count = new_count;
+        self.sample_lock.unlock();
     }
 
-    /// Bitmask covering exactly `n` low bits (n >= max_steps = all set).
-    /// Mirrors `DrumMachine.stepMask`.
-    pub fn stepMask(n: u8) u64 {
-        if (n >= max_steps) return ~@as(u64, 0);
-        return (@as(u64, 1) << @intCast(n)) - 1;
+    /// Change the native grid without moving hits in musical time - refuses
+    /// (leaving the pattern untouched) rather than ever dropping a hit. See
+    /// `DrumMachine.setStepsPerBeatPreservingTime`, which this mirrors.
+    pub fn setStepsPerBeatPreservingTime(self: *Slicer, new_spb: u8) bool {
+        if (new_spb == self.steps_per_beat) return true;
+        if (new_spb < 1 or new_spb > 32) return false;
+        const old_spb = self.steps_per_beat;
+        const new_count_u32: u32 = @intCast(@divTrunc(@as(u32, self.step_count) * new_spb, old_spb));
+        if (new_count_u32 < 1 or new_count_u32 > max_steps) return false;
+        const new_count: u16 = @intCast(new_count_u32);
+
+        var next = allocMidi(self.allocator, new_count) catch return false;
+        var committed = false;
+        defer if (!committed) freeMidi(self.allocator, &next);
+
+        for (0..max_slices) |slice| {
+            for (self.midi[slice]) |maybe_note| {
+                const note = maybe_note orelse continue;
+                const mapped_u32: u32 = @intCast(@divTrunc(@as(u32, note.step) * new_spb + old_spb / 2, old_spb));
+                if (mapped_u32 >= new_count) return false;
+                const mapped: u16 = @intCast(mapped_u32);
+                if (next[slice][mapped] != null) return false;
+                const dur_u32: u32 = @intCast(@divTrunc(@as(u32, note.duration_steps) * new_spb + old_spb / 2, old_spb));
+                var moved = note;
+                moved.step = mapped;
+                moved.duration_steps = @intCast(std.math.clamp(dur_u32, 1, max_steps));
+                next[slice][mapped] = moved;
+            }
+        }
+
+        while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
+        freeMidi(self.allocator, &self.midi);
+        self.midi = next;
+        self.step_count = new_count;
+        self.steps_per_beat = new_spb;
+        self.sample_lock.unlock();
+        committed = true;
+        return true;
     }
 
-    pub fn currentStep(self: *const Slicer) u8 {
+    /// One slice's notes in beat-relative form - what a piano-roll style
+    /// consumer (bounce, MIDI export) wants. Mirrors
+    /// `DrumMachine.copyPadMidi`.
+    pub fn copySliceMidi(self: *const Slicer, slice: u8, out: []Note) u16 {
+        if (slice >= max_slices) return 0;
+        var count: u16 = 0;
+        for (self.midi[slice]) |maybe_note| {
+            const note = maybe_note orelse continue;
+            if (count >= out.len) break;
+            out[count] = note.toPattern(self.steps_per_beat);
+            count += 1;
+        }
+        return count;
+    }
+
+    pub fn currentStep(self: *const Slicer) u16 {
         return self.current_step.load(.monotonic);
     }
 
@@ -669,6 +1042,12 @@ pub const Slicer = struct {
     /// group for the MPC "mono" chop feel, or pair just two for an
     /// open/closed-hat-style gate).
     pub fn chokeTrigger(self: *Slicer, slice: u8, vel: f32, block_start: u32) void {
+        self.chokeTriggerTuned(slice, vel, block_start, 0);
+    }
+
+    /// `chokeTrigger` plus a per-hit transpose (a step's parameter-locked
+    /// `tune`), carried on the voice - see `pad.Voice.tune`.
+    pub fn chokeTriggerTuned(self: *Slicer, slice: u8, vel: f32, block_start: u32, tune: i8) void {
         if (slice >= self.slice_count) return;
         const group = self.choke_group[slice];
         if (group != 0) {
@@ -678,7 +1057,7 @@ pub const Slicer = struct {
                 // zig fmt: on
             }
         }
-        self.triggerSlice(slice, vel, block_start);
+        self.triggerSliceTuned(slice, vel, block_start, tune);
     }
 
     /// Trigger `slice` (0-based), stealing the oldest voice in its own small
@@ -688,6 +1067,11 @@ pub const Slicer = struct {
     /// rolls) rather than the drum-kit convention of always cutting the
     /// previous hit. Choke groups opt out of that - see `chokeTrigger`.
     pub fn triggerSlice(self: *Slicer, slice: u8, vel: f32, block_start: u32) void {
+        self.triggerSliceTuned(slice, vel, block_start, 0);
+    }
+
+    /// `triggerSlice` with a per-hit transpose - see `chokeTriggerTuned`.
+    pub fn triggerSliceTuned(self: *Slicer, slice: u8, vel: f32, block_start: u32, tune: i8) void {
         if (slice >= self.slice_count) return;
         var pool = &self.voices[slice];
         var slot: usize = 0;
@@ -701,7 +1085,7 @@ pub const Slicer = struct {
         pool[slot] = .{
             .active = true,
             .age = self.next_age,
-            .v = .{ .active = true, .played = 0, .block_start = block_start, .vel = vel },
+            .v = .{ .active = true, .played = 0, .block_start = block_start, .vel = vel, .tune = tune },
         };
         self.next_age +%= 1;
     }
@@ -716,7 +1100,7 @@ pub const Slicer = struct {
 
         if (self.transport.playing and self.slice_count > 0) {
             const pos_f = @as(f64, @floatFromInt(self.transport.position_frames));
-            const fps = self.transport.framesPerStep(if (self.song_mode) self.song_steps_per_beat else 4);
+            const fps = self.transport.framesPerStep(if (self.song_mode) self.song_steps_per_beat else self.steps_per_beat);
             const swing_pct = self.swing.load(.monotonic);
             var step_k = self.next_step_k;
 
@@ -726,6 +1110,13 @@ pub const Slicer = struct {
                 step_k = @intFromFloat(@ceil(pos_f / fps));
             }
 
+            // Every step that could still place a hit inside this block.
+            // "Could" rather than "does": a step's own `micro` can pull a hit
+            // up to half a step ahead of its boundary, so a step whose
+            // boundary is still in the future has to be considered early. The
+            // hits themselves are emitted by `drainRolls`. Same shape as
+            // `DrumMachine.processBlock`'s scan.
+            const max_early = fps * 0.5;
             while (true) {
                 var fire_pos = @as(f64, @floatFromInt(step_k)) * fps;
                 if (self.song_mode) {
@@ -739,31 +1130,31 @@ pub const Slicer = struct {
                 } else if (step_k & 1 == 1) {
                     fire_pos += fps * @as(f64, swing_pct - 50.0) / 50.0;
                 }
-                if (fire_pos >= pos_f + @as(f64, @floatFromInt(frames))) break;
-
-                const fire_frame: u32 = if (fire_pos <= pos_f)
-                    0
-                else
-                    @intCast(@min(
-                        @as(u64, @intFromFloat(fire_pos - pos_f)),
-                        @as(u64, frames - 1),
-                    ));
+                if (fire_pos - max_early >= pos_f + @as(f64, @floatFromInt(frames))) break;
 
                 if (self.song_mode) {
-                    self.fireSongStep(step_k, fire_frame);
+                    self.fireSongStep(step_k, fire_pos, fps);
                 } else {
-                    const step_idx: u8 = @intCast(step_k % self.step_count);
+                    // Each slice wraps at its own length (`slice_len`), so
+                    // rows can run out of phase with each other; the UI
+                    // playhead still follows the pattern's own length.
+                    const fill_on = self.fill_on.load(.monotonic);
                     for (0..self.slice_count) |s| {
-                        if ((self.pattern[s].load(.acquire) >> @intCast(step_idx)) & 1 == 1) {
-                            self.chokeTrigger(@intCast(s), velGain(self.stepVel(@intCast(s), step_idx)), fire_frame);
-                        }
+                        const len = self.sliceSteps(@intCast(s), self.step_count);
+                        const idx: u16 = @intCast(step_k % len);
+                        const note = self.midi[s][idx] orelse continue;
+                        if (!trigFires(note, @intCast(s), step_k, step_k / len, fill_on)) continue;
+                        self.scheduleNote(@intCast(s), note, fire_pos, fps);
                     }
-                    self.current_step.store(step_idx, .monotonic);
+                    self.current_step.store(@intCast(step_k % self.step_count), .monotonic);
                 }
                 step_k += 1;
             }
 
             self.next_step_k = step_k;
+            // After the step scan, so a roll started by a step in this very
+            // block still gets its tail hits considered here.
+            self.drainRolls(pos_f, frames);
         }
 
         for (self.slices[0..self.slice_count], self.voices[0..self.slice_count]) |*pad, *pool| {
@@ -782,22 +1173,30 @@ pub const Slicer = struct {
     /// `song_length_steps` this goes silent instead of wrapping - the
     /// arrangement plays once through, not on a loop. Mirrors
     /// `DrumMachine.fireSongStep`; caller (processBlock) holds sample_lock.
-    fn fireSongStep(self: *Slicer, step_k: u64, fire_frame: u32) void {
+    fn fireSongStep(self: *Slicer, step_k: u64, fire_pos: f64, tick_frames: f64) void {
         if (self.song_length_steps == 0 or step_k >= self.song_length_steps) return;
         const lk: u32 = @intCast(step_k);
         for (self.song_clips[0..self.song_clip_count]) |*clip| {
             if (lk < clip.start_step or lk >= clip.start_step + clip.span_steps) continue;
             if (clip.step_count == 0) return;
             const elapsed = lk - clip.start_step;
-            const scaled = elapsed * 4;
+            const scaled = elapsed * clip.steps_per_beat;
             if (scaled % self.song_steps_per_beat != 0) continue;
-            const local: u32 = scaled / self.song_steps_per_beat % clip.step_count;
+            const local: u32 = scaled / self.song_steps_per_beat;
+            const fill_on = self.fill_on.load(.monotonic);
+            // The song timeline ticks finer than the clip's own grid, so a
+            // roll has to be spaced across a *clip* step, not a song tick.
+            const step_frames = tick_frames *
+                @as(f64, @floatFromInt(self.song_steps_per_beat)) /
+                @as(f64, @floatFromInt(@max(clip.steps_per_beat, 1)));
             for (0..self.slice_count) |s| {
-                if ((clip.pattern[s] >> @intCast(local)) & 1 == 1) {
-                    self.chokeTrigger(@intCast(s), velGain(clip.vel[s][local]), fire_frame);
-                }
+                const len = self.sliceSteps(@intCast(s), clip.step_count);
+                const idx: u16 = @intCast(local % len);
+                const note = clip.midi[s][idx] orelse continue;
+                if (!trigFires(note, @intCast(s), step_k, local / len, fill_on)) continue;
+                self.scheduleNote(@intCast(s), note, fire_pos, step_frames);
             }
-            self.current_step.store(@intCast(local), .monotonic);
+            self.current_step.store(@intCast(local % clip.step_count), .monotonic);
             return; // clips never overlap
         }
         // No clip under the playhead: keep the UI step indicator moving
@@ -805,8 +1204,82 @@ pub const Slicer = struct {
         self.current_step.store(@intCast(lk % self.step_count), .monotonic);
     }
 
+    /// Does `note` fire on this pass? Probability and condition are ANDed,
+    /// Elektron-style - see `DrumMachine.trigFires`, which this mirrors (and
+    /// whose `Cond` this shares).
+    fn trigFires(note: MidiNote, slice: u8, step_k: u64, pass: u64, fill_on: bool) bool {
+        if (!note.cond.holds(pass, fill_on)) return false;
+        if (note.prob >= 100) return true;
+        if (note.prob == 0) return false;
+        return rollPercent(step_k, slice) < note.prob;
+    }
+
+    /// A 0-99 roll from the absolute step and the slice - stateless on the
+    /// audio thread, and the same stretch of transport rolls the same way
+    /// twice. See `DrumMachine.rollPercent`.
+    fn rollPercent(step_k: u64, slice: u8) u8 {
+        var z: u64 = step_k *% 0x9E3779B97F4A7C15 +% (@as(u64, slice) *% 0xBF58476D1CE4E5B9);
+        z = (z ^ (z >> 30)) *% 0xBF58476D1CE4E5B9;
+        z = (z ^ (z >> 27)) *% 0x94D049BB133111EB;
+        z ^= z >> 31;
+        return @intCast(z % 100);
+    }
+
+    /// Schedule `note` on slice `s`. `step_pos` is its step's absolute
+    /// transport position; `micro` shifts the hit off that, and a roll spreads
+    /// further hits across the step's own `step_frames`. Nothing is emitted
+    /// here - `drainRolls` does that once the hits' real positions land inside
+    /// a block, which is what lets a hit sit before its own step boundary or
+    /// after the block that scheduled it.
+    fn scheduleNote(self: *Slicer, s: u8, note: MidiNote, step_pos: f64, step_frames: f64) void {
+        const offset = step_frames * @as(f64, @floatFromInt(note.micro)) / 100.0;
+        const hits: u8 = @max(note.retrig, 1);
+        const interval = if (hits > 1 and step_frames > 0.0)
+            step_frames / @as(f64, @floatFromInt(hits))
+        else
+            0.0;
+        self.rolls[s] = .{
+            .remaining = hits,
+            .next_pos = step_pos + offset,
+            .interval = interval,
+            .vel = velGain(note.velocity),
+            .tune = note.tune,
+        };
+    }
+
+    /// Emit every scheduled hit landing in `[pos_f, pos_f + frames)` - see
+    /// `DrumMachine.drainRolls` for the clamp/drop rules this mirrors.
+    fn drainRolls(self: *Slicer, pos_f: f64, frames: u32) void {
+        const frames_f: f64 = @floatFromInt(frames);
+        const block_end = pos_f + frames_f;
+        for (&self.rolls, 0..) |*slot, s| {
+            const roll = if (slot.*) |*r| r else continue;
+            while (roll.remaining > 0 and roll.next_pos < block_end) {
+                if (roll.next_pos >= pos_f - frames_f) {
+                    const off: u32 = if (roll.next_pos <= pos_f) 0 else @intCast(@min(
+                        @as(u64, @intFromFloat(roll.next_pos - pos_f)),
+                        @as(u64, frames - 1),
+                    ));
+                    self.chokeTriggerTuned(@intCast(s), roll.vel, off, roll.tune);
+                }
+                roll.remaining -= 1;
+                // A single hit has no interval to advance by; bail rather than
+                // spinning on next_pos += 0.
+                if (roll.remaining == 0 or roll.interval <= 0.0) {
+                    roll.remaining = 0;
+                    break;
+                }
+                roll.next_pos += roll.interval;
+            }
+            if (roll.remaining == 0) slot.* = null;
+        }
+    }
+
     pub fn resetAll(self: *Slicer) void {
         self.clearVoices();
+        // Drop any roll tail with the voices it would have fed - a stop or a
+        // panic must not leave hits scheduled past it.
+        self.rolls = [_]?Roll{null} ** max_slices;
     }
 
     /// `deviceOf`'s expected name; forwards to `resetAll`.
@@ -1230,6 +1703,13 @@ test "cycleStepVel walks the preset ladder; nudge clamps at 1" {
     var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
     defer s.deinit();
     s.sliceInto(1);
+    // Velocity lives on the note, so an empty step has nothing to cycle - it
+    // reads as full and stays there until a step is placed (same semantics as
+    // the drum machine's).
+    s.cycleStepVel(0, 0);
+    try std.testing.expectEqual(@as(u8, 127), s.stepVel(0, 0));
+
+    s.toggleStep(0, 0);
     try std.testing.expectEqual(@as(u8, 127), s.stepVel(0, 0));
     s.cycleStepVel(0, 0);
     try std.testing.expectEqual(@as(u8, 95), s.stepVel(0, 0));
@@ -1330,13 +1810,16 @@ test "song mode fires the clip covering the playhead, silent past the end" {
     // Live pattern has slice 0 on step 0 - must NOT fire in song mode.
     s.toggleStep(0, 0);
 
-    var clip: Slicer.SongClip = .{
+    // `setSongClips` takes ownership of each clip's rows, so both machines
+    // below get their own freshly-allocated copy.
+    var midi = try Slicer.allocMidi(std.testing.allocator, 16);
+    midi[2][0] = Slicer.gridNote(2, 0, Slicer.vel_full); // slice 2 on the clip's step 0
+    const clip: Slicer.SongClip = .{
         .start_step = 0,
         .span_steps = 16,
         .step_count = 16,
-        .pattern = [_]u64{0} ** Slicer.max_slices,
+        .midi = midi,
     };
-    clip.pattern[2] = 1; // slice 2 on the clip's step 0
     s.setSongClips(&.{clip}, 16, 4);
     s.song_mode = true;
 
@@ -1350,7 +1833,9 @@ test "song mode fires the clip covering the playhead, silent past the end" {
     var s2 = try Slicer.init(std.testing.allocator, 48_000, &transport);
     defer s2.deinit();
     s2.sliceInto(4);
-    s2.setSongClips(&.{clip}, 16, 4);
+    var clip2 = clip;
+    clip2.midi = try Slicer.dupeMidi(std.testing.allocator, &midi);
+    s2.setSongClips(&.{clip2}, 16, 4);
     s2.song_mode = true;
     var t2 = Transport{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
     t2.play();

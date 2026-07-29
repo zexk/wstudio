@@ -11,7 +11,7 @@ const modal_mod = ws.input;
 const Slicer = ws.dsp.Slicer;
 const app_mod = @import("../app.zig");
 const App = app_mod.App;
-const SlicerRangeClip = app_mod.SlicerRangeClip;
+const StepRangeClip = app_mod.StepRangeClip;
 const history = @import("../history.zig");
 const commands = @import("../commands.zig");
 const step_grid = @import("step_grid.zig");
@@ -117,7 +117,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         .enter => {
             if (sl.slice_count == 0 and !sl.hasAudio()) { commands.cmdLoad(app, ""); return true; }
             history.recordSlicer(app, app.slicer_track);
-            sl.toggleStep(slice.*, step.*);
+            sl.toggleStep(@intCast(slice.*), step.*);
             return true;
         },
         .ctrl_r => { history.doRedo(app); return true; },
@@ -175,7 +175,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                         app.setStatus("slice limit reached ({d})", .{Slicer.max_slices});
                     } else {
                         history.recordSlicer(app, app.slicer_track);
-                        _ = sl.splitSlice(slice.*);
+                        _ = sl.splitSlice(@intCast(slice.*));
                         app.setStatus("split slice {d} - now {d} slices", .{ slice.* + 1, sl.slice_count });
                     }
                 },
@@ -184,7 +184,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                         app.setStatus("no slice to the right to merge", .{});
                     } else {
                         history.recordSlicer(app, app.slicer_track);
-                        _ = sl.mergeSliceRight(slice.*);
+                        _ = sl.mergeSliceRight(@intCast(slice.*));
                         app.setStatus("merged into slice {d} - now {d} slices", .{ slice.* + 1, sl.slice_count });
                     }
                 },
@@ -203,10 +203,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 '>' => adjustSwing(app, 1.0),
                 // zig fmt: on
                 'c' => {
-                    if (sl.stepActive(slice.*, step.*)) {
+                    if (sl.stepActive(@intCast(slice.*), step.*)) {
                         history.recordSlicer(app, app.slicer_track);
-                        sl.cycleStepVel(slice.*, step.*);
-                        app.setStatus("vel {d}", .{sl.stepVel(slice.*, step.*)});
+                        sl.cycleStepVel(@intCast(slice.*), step.*);
+                        app.setStatus("vel {d}", .{sl.stepVel(@intCast(slice.*), step.*)});
                     } else app.setStatus("no step here - enter places one", .{});
                 },
                 '_' => nudgeVel(app, -app.takeCount()),
@@ -215,18 +215,18 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // until j/k grow it. V: linewise - the step range across
                 // every slice (visual mode's old unconditional behaviour).
                 // See step_grid.rowRange.
-                'v' => step_grid.enterVisual(app, &app.slicer_visual_anchor, &app.slicer_visual_slice_anchor, step.*, slice.*, true, "slice"),
-                'V' => step_grid.enterVisual(app, &app.slicer_visual_anchor, &app.slicer_visual_slice_anchor, step.*, slice.*, false, "slice"),
+                'v' => step_grid.enterVisual(app, &app.slicer_visual_anchor, &app.slicer_visual_slice_anchor, step.*, @as(u8, @intCast(slice.*)), true, "slice"),
+                'V' => step_grid.enterVisual(app, &app.slicer_visual_anchor, &app.slicer_visual_slice_anchor, step.*, @as(u8, @intCast(slice.*)), false, "slice"),
                 'x' => clearCursorStep(app),
                 'd' => armOperator(app, 'd'),
                 'y' => armOperator(app, 'y'),
                 'X' => {
                     history.recordSlicer(app, app.slicer_track);
-                    sl.clearSlice(slice.*);
+                    sl.clearSlice(@intCast(slice.*));
                 },
                 'F' => {
                     history.recordSlicer(app, app.slicer_track);
-                    sl.fillSlice(slice.*);
+                    sl.fillSlice(@intCast(slice.*));
                 },
                 'u' => history.doUndo(app),
                 'U' => history.doRedo(app),
@@ -253,7 +253,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     } else app.setStatus("can't delete the only pattern", .{});
                 },
                 'C' => {
-                    sl.cycleChokeGroup(slice.*);
+                    sl.cycleChokeGroup(@intCast(slice.*));
                     app.dirty = true;
                     const g = sl.choke_group[slice.*];
                     if (g == 0)
@@ -280,7 +280,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 /// for coalesced undo - same route editors/sampler.zig's adjustParam takes.
 fn nudgeSliceParam(app: *App, param: u8, steps: i32) void {
     const sl = app.slicerInst();
-    const slice = app.slicer_cursor[0];
+    const slice: u8 = @intCast(app.slicer_cursor[0]);
     if (slice >= sl.slice_count) return;
     app.dirty = true;
     const id = Slicer.paramId(slice, param);
@@ -292,7 +292,7 @@ fn nudgeSliceParam(app: *App, param: u8, steps: i32) void {
 /// named presets).
 fn nudgeVel(app: *App, delta: i32) void {
     const sl = app.slicerInst();
-    const slice = app.slicer_cursor[0];
+    const slice: u8 = @intCast(app.slicer_cursor[0]);
     const step = app.slicer_cursor[1];
     // zig fmt: off
     if (!sl.stepActive(slice, step)) { app.setStatus("no step here - enter places one", .{}); return; }
@@ -358,7 +358,7 @@ fn moveSlice(app: *App, delta: i32) void {
 
 fn stepEnter(app: *App) void {
     const sl = app.slicerInst();
-    const slice = app.slicer_cursor[0];
+    const slice: u8 = @intCast(app.slicer_cursor[0]);
     const step = app.slicer_cursor[1];
     if (!sl.stepActive(slice, step)) {
         history.recordSlicer(app, app.slicer_track);
@@ -425,7 +425,7 @@ fn finishOperator(app: *App, op: u8) void {
 /// `x`: clears just the (slice, step) under the cursor.
 fn clearCursorStep(app: *App) void {
     const sl = app.slicerInst();
-    const slice = app.slicer_cursor[0];
+    const slice: u8 = @intCast(app.slicer_cursor[0]);
     const step = app.slicer_cursor[1];
     // zig fmt: off
     if (!sl.stepActive(slice, step)) { app.setStatus("no step here", .{}); return; }
@@ -438,7 +438,7 @@ fn clearCursorStep(app: *App) void {
 /// `dd`: clear every step on the cursor slice's row (same clear as X).
 fn clearSliceRow(app: *App) void {
     history.recordSlicer(app, app.slicer_track);
-    app.slicerInst().clearSlice(app.slicer_cursor[0]);
+    app.slicerInst().clearSlice(@intCast(app.slicer_cursor[0]));
     app.setStatus("cleared slice {d}'s row", .{@as(u32, app.slicer_cursor[0]) + 1});
 }
 
@@ -484,7 +484,7 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
                     app.slicer_cursor[1] = a;
                 }
                 if (app.slicer_visual_slice_anchor) |a| {
-                    app.slicer_visual_slice_anchor = app.slicer_cursor[0];
+                    app.slicer_visual_slice_anchor = @intCast(app.slicer_cursor[0]);
                     app.slicer_cursor[0] = a;
                 }
                 return true;
@@ -508,16 +508,22 @@ fn exitVisual(app: *App) void {
 /// `v`, every slice under `V` (a null anchor) - and every slice for the
 /// operator forms too, which never set one.
 fn sliceRange(app: *App) step_grid.RowRange {
-    return step_grid.rowRange(u8, app.slicer_visual_slice_anchor, app.slicer_cursor[0], Slicer.max_slices);
+    return step_grid.rowRange(u8, app.slicer_visual_slice_anchor, @intCast(app.slicer_cursor[0]), Slicer.max_slices);
 }
 
 /// Yank the selected slice band's steps within the selected range into the
-/// range clipboard, rebased so the range's first step is bit 0.
+/// range clipboard, rebased so the range's first step is bit 0. No width cap
+/// - the clipboard is heap-allocated to fit the range (see `StepRangeClip`).
 fn yankSelection(app: *App) void {
     const sl = app.slicerInst();
-    const r = step_grid.selectionRange(u8, app.slicer_visual_anchor, app.slicer_cursor[1]);
+    const r = step_grid.selectionRange(u16, app.slicer_visual_anchor, app.slicer_cursor[1]);
     const rows = sliceRange(app);
-    const clip = step_grid.yankRange(SlicerRangeClip, sl, rows, r);
+    const clip = step_grid.yankRangeDyn(StepRangeClip, app.allocator, sl, rows, r) catch {
+        app.setStatus("yank failed - out of memory", .{});
+        exitVisual(app);
+        return;
+    };
+    if (app.slicer_range_clip) |*old| old.deinit(app.allocator);
     app.slicer_range_clip = clip;
     app.setStatus("yanked {d} steps x {d} slice(s)", .{ clip.width, rows.height() });
     exitVisual(app);
@@ -526,11 +532,12 @@ fn yankSelection(app: *App) void {
 /// Clear the selected slice band's steps within the selected range.
 fn deleteSelection(app: *App) void {
     const sl = app.slicerInst();
-    const r = step_grid.selectionRange(u8, app.slicer_visual_anchor, app.slicer_cursor[1]);
+    const r = step_grid.selectionRange(u16, app.slicer_visual_anchor, app.slicer_cursor[1]);
     history.recordSlicer(app, app.slicer_track);
     step_grid.clearRange(sl, sliceRange(app), r);
-    app.last_edit = .{ .slicer_range_delete = .{ .width = r.hi - r.lo + 1 } };
-    app.setStatus("cleared {d} steps", .{r.hi - r.lo + 1});
+    const width: u16 = r.hi - r.lo + 1;
+    app.last_edit = .{ .slicer_range_delete = .{ .width = width } };
+    app.setStatus("cleared {d} steps", .{width});
     exitVisual(app);
 }
 
@@ -547,7 +554,7 @@ fn pasteSelection(app: *App) void {
     const sl = app.slicerInst();
     history.recordSlicer(app, app.slicer_track);
     const base_row = step_grid.pasteBaseRow(clip, app.slicer_cursor[0], Slicer.max_slices);
-    const n = step_grid.pasteRange(sl, Slicer.max_slices, clip, app.slicer_cursor[1], base_row);
+    const n = step_grid.pasteRangeDyn(sl, Slicer.max_slices, clip, app.slicer_cursor[1], base_row);
     app.last_edit = .slicer_range_paste;
     app.setStatus("pasted {d} steps", .{n});
     exitVisual(app);
@@ -559,7 +566,7 @@ fn repeatLastEdit(app: *App) void {
     switch (app.last_edit) {
         .slicer_range_delete => |v| {
             const sl = app.slicerInst();
-            const hi: u8 = @min(sl.step_count -| 1, app.slicer_cursor[1] +| (v.width - 1));
+            const hi: u16 = @min(sl.step_count -| 1, app.slicer_cursor[1] +| (v.width -| 1));
             app.slicer_visual_anchor = hi;
             deleteSelection(app);
         },

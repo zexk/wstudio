@@ -157,7 +157,7 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !v
 
 pub fn drawSlicerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     const sl = app.slicerInst();
-    const sIdx = app.slicer_cursor[0];
+    const sIdx: u8 = @intCast(app.slicer_cursor[0]);
     const s = app.slicer_cursor[1];
     try writeModeBadge(w, app.modal.mode);
     try writeViewBadge(right, "SLICER", app.modal.mode);

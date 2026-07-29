@@ -171,7 +171,7 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
     // convention the step scroll below uses).
     if (sl.slice_count > 0 and app.slicer_cursor[0] >= sl.slice_count) app.slicer_cursor[0] = sl.slice_count - 1;
     if (app.slicer_cursor[1] >= sl.step_count) app.slicer_cursor[1] = sl.step_count -| 1;
-    const cur_slice = app.slicer_cursor[0];
+    const cur_slice: u8 = @intCast(app.slicer_cursor[0]);
     const cur_step = app.slicer_cursor[1];
     const step_count_u32: u32 = sl.step_count;
     const track_name = app.session.project.tracks.items[app.slicer_track].name;

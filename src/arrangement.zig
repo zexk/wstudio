@@ -7,12 +7,6 @@ const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 const automation_mod = @import("dsp/automation.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
 
-/// Slicer's own step-grid ceiling (`Slicer.max_steps`, unimported here to
-/// avoid a cross-module dependency just for one constant) - `Clip.Drum`'s
-/// `vel` field mirrors it directly rather than `DrumMachine.max_steps`,
-/// since the two diverged once the drum machine's own ceiling grew.
-const slicer_max_steps: u16 = 64;
-
 /// A clip placed on a track lane. Positions use `time_grid.ticks_per_beat`.
 pub const Clip = struct {
     start_tick: u32,
@@ -117,28 +111,18 @@ pub const Clip = struct {
 
     /// A private copy of a drum-machine (or slicer) pattern - the two share
     /// the same 64-row step-grid shape (`Slicer.max_slices ==
-    /// DrumMachine.max_pads`), so slicer clips reuse this content kind
-    /// wholesale rather than adding a third. `pattern`/`vel` are Slicer's own
-    /// fixed-size bitmask+velocity data (Slicer keeps its own 64-step
-    /// ceiling, independent of DrumMachine's); `midi` is the drum-machine's
-    /// heap-owned per-pad note data (empty `&.{}` slices for a slicer stamp).
-    /// Callers know which side is live from the source track's instrument
-    /// kind, not from this struct - see `Session.stampClipAtTick`.
+    /// DrumMachine.max_pads`) and, since the slicer moved to the same note
+    /// storage, the same payload type, so slicer clips reuse this content
+    /// kind wholesale rather than adding a third.
     pub const Drum = struct {
-        pattern: [DrumMachine.max_pads]u64 = [_]u64{0} ** DrumMachine.max_pads,
-        /// Per-step velocity (0-127; 127 = full, see DrumMachine.velGain) -
-        /// Slicer's own fixed-size step data.
-        vel: [DrumMachine.max_pads][slicer_max_steps]u8 =
-            [_][slicer_max_steps]u8{[_]u8{DrumMachine.vel_full} ** slicer_max_steps} ** DrumMachine.max_pads,
-        /// Drum-machine step data: heap-owned per-pad note slices, length ==
-        /// step_count. `Clip.deinit`/`Clip.dupe` own freeing/duping this.
+        /// Step data: heap-owned per-row note slices, length == step_count.
+        /// `Clip.deinit`/`Clip.dupe` own freeing/duping this.
         midi: [DrumMachine.max_pads][]?DrumMachine.MidiNote =
             [_][]?DrumMachine.MidiNote{&.{}} ** DrumMachine.max_pads,
         step_count: u16,
         steps_per_beat: u8 = 4,
         /// Which variant (A..H) this was stamped from - display label only;
-        /// the pattern/vel/midi above are the payload, so bank edits never
-        /// reach clips.
+        /// `midi` above is the payload, so bank edits never reach clips.
         variant: u8 = 0,
     };
 
@@ -185,9 +169,9 @@ pub const Clip = struct {
     }
 
     /// Deep copy: melodic notes get a fresh allocation, drum payloads dupe
-    /// their heap-owned `midi` slices (`pattern`/`vel` stay plain values),
-    /// automation points get a fresh allocation either way. Used by clip
-    /// yank/paste and the undo lane snapshots.
+    /// their heap-owned `midi` rows, automation points get a fresh
+    /// allocation either way. Used by clip yank/paste and the undo lane
+    /// snapshots.
     pub fn dupe(self: Clip, allocator: std.mem.Allocator) !Clip {
         var out: Clip = switch (self.content) {
             .melodic => |m| try initMelodic(
@@ -437,9 +421,9 @@ test "place inserts sorted and reports lane length" {
     var lane: Lane = .{};
     defer lane.deinit(a);
 
-    try lane.place(a, Clip.initDrum(4, 2, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
-    try lane.place(a, Clip.initDrum(0, 2, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
-    try lane.place(a, Clip.initDrum(2, 2, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(4, 2, .{ .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(0, 2, .{ .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(2, 2, .{ .step_count = 16 }));
 
     try testing.expectEqual(@as(usize, 3), lane.clips.items.len);
     try testing.expectEqual(@as(u32, 0), lane.clips.items[0].start_tick);
@@ -454,8 +438,8 @@ test "place evicts overlapping clips" {
     defer lane.deinit(a);
 
     // A 4-bar clip at 0, then a 2-bar clip at 2 must evict the first.
-    try lane.place(a, Clip.initDrum(0, 4, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
-    try lane.place(a, Clip.initDrum(2, 2, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(0, 4, .{ .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(2, 2, .{ .step_count = 16 }));
 
     try testing.expectEqual(@as(usize, 1), lane.clips.items.len);
     try testing.expectEqual(@as(u32, 2), lane.clips.items[0].start_tick);
@@ -468,7 +452,7 @@ test "clip constructors enforce non-empty lengths" {
     try testing.expectEqual(@as(u32, 1), melodic.length_ticks);
     try testing.expectEqual(@as(f64, 1.0), melodic.content.melodic.length_beats);
 
-    const drum = Clip.initDrum(0, 0, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 });
+    const drum = Clip.initDrum(0, 0, .{ .step_count = 16 });
     try testing.expectEqual(@as(u32, 1), drum.length_ticks);
 }
 
@@ -477,7 +461,6 @@ test "clip end and lane length saturate at the timeline limit" {
     var lane: Lane = .{};
     defer lane.deinit(a);
     try lane.place(a, Clip.initDrum(std.math.maxInt(u32) - 1, 4, .{
-        .pattern = [_]u64{0} ** DrumMachine.max_pads,
         .step_count = 16,
     }));
     try testing.expectEqual(std.math.maxInt(u32), lane.clips.items[0].endTick());
@@ -495,7 +478,7 @@ test "clipAt and removeAt cover the clip's whole span" {
     var lane: Lane = .{};
     defer lane.deinit(a);
 
-    try lane.place(a, Clip.initDrum(1, 3, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(1, 3, .{ .step_count = 16 }));
     try testing.expect(lane.clipAt(0) == null);
     try testing.expect(lane.clipAt(1) != null);
     try testing.expect(lane.clipAt(3) != null);
@@ -508,7 +491,7 @@ test "clipAt and removeAt cover the clip's whole span" {
 
 test "clip dupe deep-copies automation independently of content kind" {
     const a = testing.allocator;
-    var src = Clip.initDrum(0, 2, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 });
+    var src = Clip.initDrum(0, 2, .{ .step_count = 16 });
     var gain: []AutomationPoint = &.{};
     try automation_mod.setPoint(a, &gain, 0.0, -6.0);
     src.automation.gain = gain;
@@ -554,10 +537,7 @@ test "melodic clip owns a private note copy" {
 }
 
 test "clip constructors keep the end tick representable" {
-    const drum = Clip.initDrum(std.math.maxInt(u32), 128, .{
-        .pattern = [_]u64{0} ** DrumMachine.max_pads,
-        .step_count = 16,
-    });
+    const drum = Clip.initDrum(std.math.maxInt(u32), 128, .{ .step_count = 16 });
     try testing.expectEqual(std.math.maxInt(u32) - 1, drum.start_tick);
     try testing.expectEqual(@as(u32, 1), drum.length_ticks);
     try testing.expectEqual(std.math.maxInt(u32), drum.endTick());
@@ -572,7 +552,7 @@ test "cutRange removes a clip fully inside the cut" {
     const a = testing.allocator;
     var lane: Lane = .{};
     defer lane.deinit(a);
-    try lane.place(a, Clip.initDrum(2, 2, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(2, 2, .{ .step_count = 16 }));
 
     try lane.cutRange(a, 0, 8);
     try testing.expectEqual(@as(usize, 0), lane.clips.items.len);
@@ -582,7 +562,7 @@ test "cutRange trims the tail of a clip overlapping the cut's start" {
     const a = testing.allocator;
     var lane: Lane = .{};
     defer lane.deinit(a);
-    try lane.place(a, Clip.initDrum(0, 4, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(0, 4, .{ .step_count = 16 }));
 
     try lane.cutRange(a, 2, 6);
     try testing.expectEqual(@as(usize, 1), lane.clips.items.len);
@@ -594,7 +574,7 @@ test "cutRange trims the head of a clip overlapping the cut's end" {
     const a = testing.allocator;
     var lane: Lane = .{};
     defer lane.deinit(a);
-    try lane.place(a, Clip.initDrum(4, 4, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(4, 4, .{ .step_count = 16 }));
 
     try lane.cutRange(a, 0, 6);
     try testing.expectEqual(@as(usize, 1), lane.clips.items.len);
@@ -608,7 +588,7 @@ test "cutRange splits a clip the cut passes clean through the middle of" {
     defer lane.deinit(a);
     // A 4-bar clip (ticks 0-4), cutting out bar 2 (ticks 2-3) should leave
     // a 2-tick left remainder and a 1-tick right remainder.
-    try lane.place(a, Clip.initDrum(0, 4, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(0, 4, .{ .step_count = 16 }));
 
     try lane.cutRange(a, 2, 3);
     try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
@@ -622,7 +602,7 @@ test "cutRange splits correctly when the reservation has to grow the clip list" 
     const a = testing.allocator;
     var lane: Lane = .{};
     defer lane.deinit(a);
-    try lane.place(a, Clip.initDrum(0, 4, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(0, 4, .{ .step_count = 16 }));
     // Capacity == len, so the split's reservation reallocates mid-cut. The
     // left remainder must still be trimmed in the NEW buffer.
     lane.clips.shrinkAndFree(a, lane.clips.items.len);
@@ -637,8 +617,8 @@ test "cutRange leaves clips outside the range untouched and no-ops on an empty r
     const a = testing.allocator;
     var lane: Lane = .{};
     defer lane.deinit(a);
-    try lane.place(a, Clip.initDrum(0, 2, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
-    try lane.place(a, Clip.initDrum(10, 2, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(0, 2, .{ .step_count = 16 }));
+    try lane.place(a, Clip.initDrum(10, 2, .{ .step_count = 16 }));
 
     try lane.cutRange(a, 4, 6);
     try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
@@ -685,7 +665,7 @@ test "arrangement adds and removes lanes" {
 
     try arr.addLane(a);
     try arr.addLane(a);
-    try arr.lane(0).?.place(a, Clip.initDrum(0, 5, .{ .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16 }));
+    try arr.lane(0).?.place(a, Clip.initDrum(0, 5, .{ .step_count = 16 }));
     try testing.expectEqual(@as(u32, 5), arr.lengthTicks());
 
     arr.removeLane(a, 0);

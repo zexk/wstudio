@@ -58,12 +58,12 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// added and what older files load as) and the bump-vs-additive policy
 /// live in FORMAT.md; per-field migration specifics stay as doc comments
 /// on the snapshot fields they concern.
-pub const file_version: u32 = 27;
+pub const file_version: u32 = 28;
 
-/// Slicer.s own step-grid ceiling (mirrors arrangement.zig.s
-/// `slicer_max_steps`) - `velToSnap`/`applyVelSnap` only ever see Slicer.s
-/// fixed-size vel arrays now that the drum machine.s own step data is the
-/// sparse `notes` list (see `DrumNoteSnap`).
+/// The step-grid ceiling both machines had while their step data was a `u64`
+/// bitmask plus a parallel velocity array - one word's bit width. Only the
+/// legacy read paths (`legacyPatternVelToMidi`, `legacyStepVel`) still care:
+/// nothing writes that shape any more.
 const legacy_max_steps: u16 = 64;
 
 pub const AutomationPointSnap = struct {
@@ -750,16 +750,22 @@ pub const SlicerSnap = struct {
     /// Legacy live-pattern fields: always the active variant's data (same
     /// convention as `DrumSnap`'s), so pre-variant readers and hand edits
     /// see a coherent single pattern.
-    step_count: u8 = 16,
-    /// Dense, parallel to `slices` - same "slice not fixed array" shape
-    /// every other pattern-indexed field in this file uses.
+    step_count: u16 = 16,
+    /// v28: native pattern resolution (see `Slicer.steps_per_beat`). Absent
+    /// in older files means 1/16 notes, which is all they could hold.
+    steps_per_beat: u8 = 4,
+    /// v28: sparse per-slice note list mirroring the active variant, the same
+    /// role `pattern` played for older readers - see `VariantSnap.notes`.
+    notes: []const DrumNoteSnap = &.{},
+    /// Read-only since v28 (see `notes`): the old per-slice bitmask and its
+    /// parallel velocity array. Dense, parallel to `slices`.
     pattern: []const u64 = &.{},
     vel: []const []const u8 = &.{},
     swing: f32 = 50.0,
-    /// Additive, no version bump (see FORMAT.md's policy): the whole
-    /// variant bank, reusing `VariantSnap` (a slicer variant is the same
-    /// 64-row grid a drum variant is). Empty in older files - the slicer
-    /// then gets a single variant from the legacy fields above.
+    /// The whole variant bank, reusing `VariantSnap` (a slicer variant is the
+    /// same 64-row grid a drum variant is, and since v28 the same note
+    /// payload too). Empty in older files - the slicer then gets a single
+    /// variant from the legacy fields above.
     variants: []const VariantSnap = &.{},
     /// Additive: index of the active variant within `variants`.
     variant: u8 = 0,
@@ -1122,6 +1128,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
             rs.kind = .slicer;
             var sls: SlicerSnap = .{
                 .step_count = sl.step_count,
+                .steps_per_beat = sl.steps_per_beat,
                 .swing = sl.swing.load(.monotonic),
                 // Always saved - see the drum pad loop's identical comment
                 // above (exportSamples overwrites this for user-sample clips).
@@ -1144,17 +1151,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
             sls.slices = slices;
             // zig fmt: on
 
-            const pattern = try aa.alloc(u64, sl.slice_count);
-            for (pattern, 0..) |*p, i| p.* = sl.pattern[i].load(.acquire);
-            sls.pattern = pattern;
-
-            const vel = try aa.alloc([]const u8, sl.slice_count);
-            for (vel, 0..) |*row, i| {
-                const r = try aa.alloc(u8, Slicer.max_steps);
-                for (r, 0..) |*v, s| v.* = sl.vel[i][s].load(.acquire);
-                row.* = r;
-            }
-            sls.vel = vel;
+            sls.notes = try midiToNoteSnaps(aa, &sl.midi);
 
             // The whole variant bank; the active slot reads through
             // variantData (its bank copy is stale) - mirrors the drum
@@ -1163,9 +1160,11 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
             const variants = try aa.alloc(VariantSnap, sl.variant_count);
             for (variants, 0..) |*vs, vi| {
                 const v = sl.variantData(@intCast(vi));
-                const vp = try aa.alloc(u64, Slicer.max_slices);
-                for (vp, v.pattern) |*p, bits| p.* = bits;
-                vs.* = .{ .step_count = v.step_count, .pattern = vp, .vel = try velToSnap(aa, &v.vel) };
+                vs.* = .{
+                    .step_count = v.step_count,
+                    .steps_per_beat = v.steps_per_beat,
+                    .notes = try midiToNoteSnaps(aa, &v.midi),
+                };
             }
             sls.variants = variants;
             sls.variant = sl.variant;
@@ -1584,8 +1583,7 @@ fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
         },
         .drum => |d| {
             c.kind = .drum;
-            c.drum_pattern = try aa.dupe(u64, &d.pattern);
-            c.drum_vel = try velToSnap(aa, &d.vel);
+            c.drum_notes = try midiToNoteSnaps(aa, &d.midi);
             c.step_count = d.step_count;
             c.steps_per_beat = d.steps_per_beat;
             c.variant = d.variant;
@@ -2013,35 +2011,44 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         applyPadSnap(p, ps);
                     }
                     if (sls.variants.len > 0) {
-                        // Variant bank present: same load shape as the
-                        // drum's (bound to whichever side is shorter, bits
-                        // masked to each slot's own step count).
+                        // Variant bank present: same load shape as the drum's
+                        // above, including freeing init()'s own default slot
+                        // before rebuilding each one to the file's step count.
+                        for (sl.variants[0..sl.variant_count]) |*slot| Slicer.freeMidi(allocator, &slot.midi);
                         const vcount: u8 = @intCast(@min(sls.variants.len, Slicer.max_variants));
                         for (sls.variants[0..vcount], sl.variants[0..vcount]) |vs, *slot| {
-                            const sc: u8 = @intCast(std.math.clamp(vs.step_count, 1, @as(u16, Slicer.max_steps)));
+                            const sc = std.math.clamp(vs.step_count, 1, Slicer.max_steps);
                             slot.step_count = sc;
-                            const mask = Slicer.stepMask(sc);
-                            const vpn = @min(vs.pattern.len, slot.pattern.len);
-                            for (vs.pattern[0..vpn], slot.pattern[0..vpn]) |bits, *p| p.* = bits & mask;
-                            applyVelSnap(&slot.vel, vs.vel, vs.vel_lo, vs.vel_hi);
+                            slot.steps_per_beat = std.math.clamp(vs.steps_per_beat, 1, 32);
+                            slot.midi = try Slicer.allocMidi(allocator, sc);
+                            if (snap.version >= 28) {
+                                applyNoteSnap(&slot.midi, sc, vs.notes);
+                            } else {
+                                legacyPatternVelToMidi(&slot.midi, sc, vs.pattern, vs.vel, vs.vel_lo, vs.vel_hi);
+                            }
                         }
                         sl.variant_count = vcount;
                         sl.variant = @min(sls.variant, vcount - 1);
-                        sl.applyVariant(sl.variants[sl.variant]);
+                        const active = &sl.variants[sl.variant];
+                        Slicer.freeMidi(allocator, &sl.midi);
+                        sl.midi = try Slicer.dupeMidi(allocator, &active.midi);
+                        sl.step_count = active.step_count;
+                        sl.steps_per_beat = active.steps_per_beat;
                     } else {
-                        // Pre-variant file: one variant from the legacy
-                        // flat fields.
-                        sl.setStepCount(sls.step_count);
-                        const pn = @min(sls.pattern.len, count);
-                        for (sls.pattern[0..pn], 0..) |bits, i| {
-                            sl.pattern[i].store(bits & Slicer.stepMask(sl.step_count), .monotonic);
+                        // Pre-variant file: one variant from the legacy flat
+                        // fields.
+                        const sc = std.math.clamp(sls.step_count, 1, Slicer.max_steps);
+                        Slicer.freeMidi(allocator, &sl.midi);
+                        sl.midi = try Slicer.allocMidi(allocator, sc);
+                        if (snap.version >= 28) {
+                            applyNoteSnap(&sl.midi, sc, sls.notes);
+                        } else {
+                            legacyPatternVelToMidi(&sl.midi, sc, sls.pattern, sls.vel, &.{}, &.{});
                         }
-                        const vn = @min(sls.vel.len, count);
-                        for (sls.vel[0..vn], 0..) |row, i| {
-                            const sn = @min(row.len, Slicer.max_steps);
-                            for (row[0..sn], 0..) |v, s| sl.vel[i][s].store(v, .monotonic);
-                        }
+                        sl.step_count = sc;
+                        sl.steps_per_beat = std.math.clamp(sls.steps_per_beat, 1, 32);
                     }
+                    for (&sl.choke_group) |*c| c.* = 0;
                     for (sls.choke_group, 0..) |g, i| {
                         if (i >= Slicer.max_slices) break;
                         sl.choke_group[i] = @min(g, Slicer.max_choke_groups);
@@ -2200,57 +2207,6 @@ fn loadVst3State(allocator: std.mem.Allocator, plugin: *rack_mod.Vst3Plugin, com
     try plugin.loadState(component, controller);
 }
 
-/// Widen a possibly-short (older/legacy) bitplane slice into a fixed
-/// max_pads-length array, zero-filling any pads the slice didn't cover.
-fn padBitplane(bits: []const u64) [DrumMachine.max_pads]u64 {
-    var out = [_]u64{0} ** DrumMachine.max_pads;
-    const n = @min(bits.len, out.len);
-    @memcpy(out[0..n], bits[0..n]);
-    return out;
-}
-
-/// Build a v12 `vel` snapshot (per-pad slice of per-step u8 slices) from a
-/// live `[max_pads][legacy_max_steps]u8` velocity array - Slicer.s own
-/// fixed-size step data (the drum machine.s own is the sparse `notes`
-/// list now; see `DrumNoteSnap`).
-fn velToSnap(
-    aa: std.mem.Allocator,
-    vel: *const [DrumMachine.max_pads][legacy_max_steps]u8,
-) ![]const []const u8 {
-    const out = try aa.alloc([]const u8, DrumMachine.max_pads);
-    for (out, vel) |*row, *src| row.* = try aa.dupe(u8, src);
-    return out;
-}
-
-/// Apply a velocity snapshot into a live `Variant.vel`/`Clip.Drum.vel`-shaped
-/// array. A v12 `vel` (per-pad, per-step 0-127 slices) takes priority when
-/// present; a pre-v12 file only carries the old 2-bit `vel_lo`/`vel_hi`
-/// bitplanes, remapped onto the new scale via `DrumMachine.legacyVelToNew`.
-/// Both absent leaves `dst` at its caller-supplied default (full velocity).
-fn applyVelSnap(
-    dst: *[DrumMachine.max_pads][legacy_max_steps]u8,
-    vel: []const []const u8,
-    vel_lo: []const u64,
-    vel_hi: []const u64,
-) void {
-    if (vel.len > 0) {
-        const pn = @min(vel.len, dst.len);
-        for (vel[0..pn], dst[0..pn]) |row, *dst_row| {
-            const sn = @min(row.len, dst_row.len);
-            for (row[0..sn], dst_row[0..sn]) |level, *dst_level| dst_level.* = @min(level, DrumMachine.vel_full);
-        }
-        return;
-    }
-    const pn = @min(@min(vel_lo.len, vel_hi.len), dst.len);
-    for (vel_lo[0..pn], vel_hi[0..pn], dst[0..pn]) |lo, hi, *dst_row| {
-        for (dst_row, 0..) |*p, s| {
-            const l: u2 = @intCast((lo >> @intCast(s)) & 1);
-            const h: u2 = @intCast((hi >> @intCast(s)) & 1);
-            p.* = DrumMachine.legacyVelToNew((h << 1) | l);
-        }
-    }
-}
-
 /// Build a v23 sparse note-list snapshot from a live/borrowed `midi` array
 /// (see `DrumMachine.dupeMidi`'s doc comment - this only reads, never
 /// frees or holds the source past the call).
@@ -2370,12 +2326,10 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap, beats_per_bar: u8, v
         },
         .drum => blk2: {
             var d: ws_arrangement.Clip.Drum = .{
-                .pattern = padBitplane(cs.drum_pattern),
                 .step_count = std.math.clamp(cs.step_count, 1, DrumMachine.max_steps),
                 .steps_per_beat = std.math.clamp(cs.steps_per_beat, 1, 32),
                 .variant = @min(cs.variant, DrumMachine.max_variants - 1),
             };
-            applyVelSnap(&d.vel, cs.drum_vel, cs.drum_vel_lo, cs.drum_vel_hi);
             d.midi = try DrumMachine.allocMidi(allocator, d.step_count);
             if (version >= 23) {
                 applyNoteSnap(&d.midi, d.step_count, cs.drum_notes);
@@ -3405,7 +3359,7 @@ test "save/load round-trip keeps a slicer lane's stamped clips playable in song 
     const sl = &loaded.racks.items[0].instrument.slicer;
     try testing.expect(sl.song_mode);
     try testing.expect(sl.song_clip_count == 1);
-    try testing.expectEqual(@as(u64, 1), sl.song_clips[0].pattern[2]);
+    try testing.expect(sl.song_clips[0].midi[2][0] != null);
 }
 
 test "save/load round-trip restores a slicer's user-loaded sample audio" {
@@ -3597,17 +3551,15 @@ test "save/load round-trip persists a frequency shifter's shift and mix" {
 test "buildSession: arrangement clips and song_mode round-trip" {
     const testing = std.testing;
 
-    const drum_pattern: [DrumMachine.max_pads]u64 = blk: {
-        var p = [_]u64{0} ** DrumMachine.max_pads;
-        p[0] = 1;
-        break :blk p;
-    };
+    // One hit on pad 0's step 0, in the sparse note shape a current file
+    // writes (the legacy `pattern` bitmask is read-only since v23).
+    const drum_notes = [_]DrumNoteSnap{.{ .pad = 0, .step = 0 }};
 
     const snap: Snapshot = .{
         .tracks = &.{ .{ .name = "keys" }, .{ .name = "drums" } },
         .racks = &.{
             .{ .label = "synth", .kind = .poly_synth, .synth = .{} },
-            .{ .label = "drums", .kind = .drum_machine, .drum = .{ .step_count = 16, .pattern = &drum_pattern } },
+            .{ .label = "drums", .kind = .drum_machine, .drum = .{ .step_count = 16, .notes = &drum_notes } },
         },
         .song_mode = true,
         .sections = &.{.{ .tick = 128, .name = "verse" }},
@@ -3618,7 +3570,7 @@ test "buildSession: arrangement clips and song_mode round-trip" {
                 } },
             } },
             .{ .clips = &.{
-                .{ .start_bar = 0, .length_bars = 1, .kind = .drum, .step_count = 16, .drum_pattern = &drum_pattern },
+                .{ .start_bar = 0, .length_bars = 1, .kind = .drum, .step_count = 16, .drum_notes = &drum_notes },
             } },
         },
     };
@@ -3640,7 +3592,7 @@ test "buildSession: arrangement clips and song_mode round-trip" {
     // Drum clip restored on lane 1.
     const lane1 = session.arrangement.lane(1).?;
     try testing.expectEqual(@as(usize, 1), lane1.clips.items.len);
-    try testing.expectEqual(@as(u64, 1), lane1.clips.items[0].content.drum.pattern[0]);
+    try testing.expect(lane1.clips.items[0].content.drum.midi[0][0] != null);
 
     // song_mode = true means the devices were handed their song buffers.
     try testing.expect(session.racks.items[0].pattern_player.?.song_mode);
@@ -3653,7 +3605,7 @@ test "buildSession: arrangement clips and song_mode round-trip" {
 test "clipToSnap/clipFromSnap round-trip gain/pan automation" {
     const testing = std.testing;
     var clip = ws_arrangement.Clip.initDrum(0, 1, .{
-        .pattern = [_]u64{0} ** DrumMachine.max_pads, .step_count = 16,
+        .midi = try DrumMachine.allocMidi(testing.allocator, 16), .step_count = 16,
     });
     try automation_mod.setPoint(testing.allocator, &clip.automation.gain, 0.0, -6.0);
     try automation_mod.setPoint(testing.allocator, &clip.automation.gain, 2.0, 0.0);
@@ -3792,16 +3744,19 @@ test "clip load clamps invalid loop, step, and velocity values" {
     defer melodic.deinit(testing.allocator);
     try testing.expectEqual(@as(f64, 1.0), melodic.content.melodic.length_beats);
 
+    // A legacy (pre-v23) drum clip: one hit on pad 0's step 0, whose stored
+    // velocity is past the 0-127 scale and has to clamp on migration.
     var drum = try clipFromSnap(testing.allocator, .{
         .start_bar = 0,
         .length_bars = 1,
         .kind = .drum,
         .step_count = 0,
+        .drum_pattern = &.{1},
         .drum_vel = &.{&.{255}},
-    }, 4, file_version);
+    }, 4, 22);
     defer drum.deinit(testing.allocator);
-    try testing.expectEqual(@as(u8, 1), drum.content.drum.step_count);
-    try testing.expectEqual(DrumMachine.vel_full, drum.content.drum.vel[0][0]);
+    try testing.expectEqual(@as(u16, 1), drum.content.drum.step_count);
+    try testing.expectEqual(DrumMachine.vel_full, drum.content.drum.midi[0][0].?.velocity);
 }
 
 // zig fmt: off

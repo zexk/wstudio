@@ -50,15 +50,18 @@ pub const DrumState = struct {
 
 /// One slicer's whole state: the chop layout (slice regions + per-slice
 /// params) and the whole pattern-variant bank (active slot read from the
-/// live atomics, same as DrumState), so structural chops (:chop/:slice/
-/// split/merge) and grid edits undo through the same entry. Plain value -
-/// no allocation. Each captured Pad's `samples` field aliases whatever
-/// clip was loaded at capture time and is NOT restored - applying
-/// re-points every slice at the slicer's CURRENT buffer (same rule
-/// persist.zig's `reset_slices = false` load path documents), so an entry
-/// captured before a slicer-view `:load` still applies safely after it. Swing
-/// and choke groups are mixer-style params, not captured - same call
-/// DrumState made.
+/// live state, same as DrumState), so structural chops (:chop/:slice/
+/// split/merge) and grid edits undo through the same entry. Each captured
+/// Pad's `samples` field aliases whatever clip was loaded at capture time
+/// and is NOT restored - applying re-points every slice at the slicer's
+/// CURRENT buffer (same rule persist.zig's `reset_slices = false` load path
+/// documents), so an entry captured before a slicer-view `:load` still
+/// applies safely after it. Swing and choke groups are mixer-style params,
+/// not captured - same call DrumState made.
+///
+/// Each captured slot's `midi` is a heap-owned deep copy, exactly like
+/// `DrumState`'s since the slicer moved to the same note storage; `deinit`
+/// frees `variants[0..variant_count]` for the same reason.
 pub const SlicerState = struct {
     track: u16,
     slice_count: u8,
@@ -66,6 +69,10 @@ pub const SlicerState = struct {
     variants: [Slicer.max_variants]Slicer.Variant,
     variant_count: u8,
     variant: u8,
+
+    pub fn deinit(self: *SlicerState, allocator: std.mem.Allocator) void {
+        for (self.variants[0..self.variant_count]) |*v| Slicer.freeMidi(allocator, &v.midi);
+    }
 };
 
 /// One arrangement lane's clips (deep copies; melodic notes owned).
@@ -268,7 +275,7 @@ pub const Entry = union(enum) {
         switch (self.*) {
             .melodic => |*m| m.deinit(allocator),
             .drum => |*d| d.deinit(allocator),
-            .slicer => {},
+            .slicer => |*s| s.deinit(allocator),
             .lane => |*l| l.deinit(allocator),
             .lanes => |*l| l.deinit(allocator),
             .fx => |*f| f.deinit(allocator),

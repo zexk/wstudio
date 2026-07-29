@@ -173,7 +173,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 history.flushParamNudge(app);
                 if (is_slice) {
                     const bank = app.slicer_cursor[0] / 8;
-                    const slice: u8 = bank * 8 + (c - '1');
+                    const slice: u8 = @intCast(bank * 8 + (c - '1'));
                     if (slice < app.slicerInst().slice_count) app.slicer_cursor[0] = slice;
                 } else {
                     const bank = app.drum_cursor[0] / 8;
@@ -328,7 +328,7 @@ pub fn adjustParam(app: *App, steps: i32) void {
             _ = app.session.engine.send(.{ .set_track_param = .{ .track = t, .id = id, .steps = steps } });
         },
         .slice => |t| {
-            const id = ws.dsp.Slicer.paramId(app.slicer_cursor[0], app.sampler_param);
+            const id = ws.dsp.Slicer.paramId(@intCast(app.slicer_cursor[0]), app.sampler_param);
             history.noteParamNudge(app, t, id, steps);
             _ = app.session.engine.send(.{ .set_track_param = .{ .track = t, .id = id, .steps = steps } });
         },

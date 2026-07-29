@@ -189,44 +189,33 @@ pub const PianoClip = struct {
     length_beats: f64,
 };
 
-/// A visual-mode range yank from the drum grid: one step-range's worth of
-/// active/velocity bits across every pad, rebased so the selection's first
-/// step becomes bit 0. Paste places it starting at the cursor step.
-/// Heap-owned and sized to the yanked range's actual width (word `i / 64`,
-/// bit `i % 64` of `active[pad]` is step `lo + i`) - the drum machine's own
-/// step storage dropped its 64-step ceiling (see dsp/drum_sampler.zig), so
-/// the clipboard no longer clamps range width either (see
-/// step_grid.yankRangeDyn/pasteRangeDyn). `SlicerRangeClip` keeps the old
-/// fixed 64-bit shape below since the slicer's own storage stays capped at
-/// `Slicer.max_steps = 64`.
-pub const DrumRangeClip = struct {
+/// A visual-mode range yank from a step grid - the drum machine's pads or
+/// the slicer's slices, which are the same 64-row grid over the same note
+/// storage: one step-range's worth of active/velocity bits across every row,
+/// rebased so the selection's first step becomes bit 0. Paste places it
+/// starting at the cursor step. Heap-owned and sized to the yanked range's
+/// actual width (word `i / 64`, bit `i % 64` of `active[row]` is step
+/// `lo + i`) - neither machine's step storage has a 64-step ceiling any more,
+/// so the clipboard doesn't clamp range width either (see
+/// step_grid.yankRangeDyn/pasteRangeDyn).
+pub const StepRangeClip = struct {
     width: u16,
-    /// The pad band the yank covered, inclusive. `v` (blockwise) narrows it
-    /// to the rows between the pad anchor and the cursor; `V` (linewise)
-    /// spans every pad. Only this band is allocated, and only it is freed.
+    /// The row band the yank covered, inclusive. `v` (blockwise) narrows it
+    /// to the rows between the row anchor and the cursor; `V` (linewise)
+    /// spans every row. Only this band is allocated, and only it is freed.
     row_lo: u8 = 0,
     row_hi: u8 = DrumMachine.max_pads - 1,
     active: [DrumMachine.max_pads][]u64,
     /// Per-step velocity within the yanked range (index = step - range
-    /// start), one heap-owned `width`-long slice per pad.
+    /// start), one heap-owned `width`-long slice per row.
     vel: [DrumMachine.max_pads][]u8,
 
-    pub fn deinit(self: *const DrumRangeClip, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *const StepRangeClip, allocator: std.mem.Allocator) void {
         for (self.row_lo..@as(usize, self.row_hi) + 1) |row| {
             allocator.free(self.active[row]);
             allocator.free(self.vel[row]);
         }
     }
-};
-
-/// A visual-mode range yank from the slicer grid - same shape as
-/// `DrumRangeClip`, one row per slice instead of per pad.
-pub const SlicerRangeClip = struct {
-    width: u8,
-    row_lo: u8 = 0,
-    row_hi: u8 = Slicer.max_slices - 1,
-    active: [Slicer.max_slices]u64 = [_]u64{0} ** Slicer.max_slices,
-    vel: [Slicer.max_slices][Slicer.max_steps]u8 = [_][Slicer.max_steps]u8{[_]u8{Slicer.vel_full} ** Slicer.max_steps} ** Slicer.max_slices,
 };
 
 /// A visual-mode range yank from the arrangement: deep-copied clips with
@@ -276,7 +265,7 @@ pub const RepeatOp = union(enum) {
     piano_range_paste,
     drum_range_delete: struct { width: u16 },
     drum_range_paste,
-    slicer_range_delete: struct { width: u8 },
+    slicer_range_delete: struct { width: u16 },
     slicer_range_paste,
     arr_move_clip: struct { delta: i32 },
     arr_resize_clip: struct { delta: i32 },
@@ -365,9 +354,9 @@ pub const App = struct {
     drum_grid: GridDivision = .sixteenth,
     /// Track currently shown in the drum_grid view (a drum_machine rack).
     drum_track: u16 = 0,
-    /// [slice, step] cursor for the slicer_grid view - same shape as
-    /// `drum_cursor`.
-    slicer_cursor: [2]u8 = .{ 0, 0 },
+    /// [slice, step] cursor for the slicer_grid view - same shape and width
+    /// as `drum_cursor` now that the slicer's step index is a u16 too.
+    slicer_cursor: [2]u16 = .{ 0, 0 },
     /// First visible step column, cursor-follow - same convention as
     /// `drum_step_scroll`.
     slicer_step_scroll: u32 = 0,
@@ -655,7 +644,7 @@ pub const App = struct {
     /// handleVisual.
     piano_visual_anchor: ?u16 = null,
     drum_visual_anchor: ?u16 = null,
-    slicer_visual_anchor: ?u8 = null,
+    slicer_visual_anchor: ?u16 = null,
     arr_visual_anchor: ?u32 = null,
     /// The row half of the same selection - vim's visual vs visual-line,
     /// applied to a 2D grid. `v` sets these to the cursor row so the
@@ -701,8 +690,8 @@ pub const App = struct {
     /// Visual-mode range clipboards (y/d/P while `.visual`), separate from
     /// the whole-pattern/single-clip clipboards above.
     piano_range_clip: ?PianoClip = null,
-    drum_range_clip: ?DrumRangeClip = null,
-    slicer_range_clip: ?SlicerRangeClip = null,
+    drum_range_clip: ?StepRangeClip = null,
+    slicer_range_clip: ?StepRangeClip = null,
     arr_range_clip: ?ArrRangeClip = null,
     /// Which clipboard the last piano/drum yank filled, so normal-mode p/P
     /// pastes whatever was yanked most recently (vim's unnamed-register
@@ -973,6 +962,7 @@ pub const App = struct {
         if (self.arr_range_clip) |r| r.deinit(self.allocator);
         if (self.automation_range_clip) |r| self.allocator.free(r.points);
         if (self.drum_range_clip) |*c| c.deinit(self.allocator);
+        if (self.slicer_range_clip) |*c| c.deinit(self.allocator);
         if (self.drum_clip) |*c| DrumMachine.freeMidi(self.allocator, &c.midi);
         if (self.pending_fx_nudge) |*p| p.deinit(self.allocator);
         self.freeBrowserEntries();

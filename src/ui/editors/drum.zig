@@ -11,7 +11,7 @@ const modal_mod = ws.input;
 const DrumMachine = ws.dsp.DrumMachine;
 const app_mod = @import("../app.zig");
 const App = app_mod.App;
-const DrumRangeClip = app_mod.DrumRangeClip;
+const StepRangeClip = app_mod.StepRangeClip;
 const history = @import("../history.zig");
 const spectrum = @import("spectrum.zig");
 const preset_picker = @import("preset_picker.zig");
@@ -648,12 +648,12 @@ fn padRange(app: *App) step_grid.RowRange {
 
 /// Yank the selected pad band's steps within the selected range into the
 /// range clipboard, rebased so the range's first step is bit 0. No width cap
-/// - the clipboard is heap-allocated to fit the range (see `DrumRangeClip`).
+/// - the clipboard is heap-allocated to fit the range (see `StepRangeClip`).
 fn yankSelection(app: *App) void {
     const dm = app.drumMachine();
     const r = step_grid.selectionRange(u16, app.drum_visual_anchor, app.drum_cursor[1]);
     const rows = padRange(app);
-    const clip = step_grid.yankRangeDyn(DrumRangeClip, app.allocator, dm, rows, r) catch {
+    const clip = step_grid.yankRangeDyn(StepRangeClip, app.allocator, dm, rows, r) catch {
         app.setStatus("yank failed - out of memory", .{});
         exitVisual(app);
         return;

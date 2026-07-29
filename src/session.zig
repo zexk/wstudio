@@ -914,14 +914,12 @@ pub const Session = struct {
             // as the same `.drum` clip content - no third clip kind.
             .slicer => |*sl| {
                 var drum: Clip.Drum = .{
-                    .pattern = undefined,
+                    .midi = try Slicer.dupeMidi(self.allocator, &sl.midi),
                     .step_count = sl.step_count,
+                    .steps_per_beat = sl.steps_per_beat,
                     .variant = sl.variant,
                 };
-                for (&drum.pattern, &drum.vel, 0..) |*p, *vel_row, i| {
-                    p.* = sl.pattern[i].load(.acquire);
-                    for (vel_row, &sl.vel[i]) |*v, *live| v.* = live.load(.acquire);
-                }
+                errdefer Slicer.freeMidi(self.allocator, &drum.midi);
                 try lane.place(self.allocator, Clip.initDrum(
                     // zig fmt: off
                     start_tick, self.stampLengthTicks(track_idx), drum,
@@ -1211,9 +1209,9 @@ pub const Session = struct {
                         clips[n] = .{
                             .start_step = c.start_tick,
                             .span_steps = c.length_ticks,
-                            .step_count = @intCast(drum.step_count),
-                            .pattern = drum.pattern,
-                            .vel = drum.vel,
+                            .step_count = drum.step_count,
+                            .steps_per_beat = drum.steps_per_beat,
+                            .midi = Slicer.dupeMidi(self.allocator, &drum.midi) catch continue,
                         };
                         n += 1;
                     }
@@ -1813,7 +1811,7 @@ test "song mode preserves fine-grid slicer clip timing" {
     try s.setInstrument(0, .slicer);
     const sl = &s.racks.items[0].instrument.slicer;
     sl.slice_count = 1;
-    sl.pattern[0].store(1, .monotonic);
+    sl.toggleStep(0, 0);
 
     // One arrangement tick is a 1/128 note. The old slicer flattening divided
     // by eight, moving this clip back to tick zero.

@@ -93,11 +93,21 @@ pub fn captureSlicer(app: *App, track: u16) ?undo_mod.Entry {
         .track = track,
         .slice_count = sl.slice_count,
         .slices = sl.slices,
-        .variants = sl.variants,
+        .variants = [_]ws.dsp.Slicer.Variant{.{}} ** ws.dsp.Slicer.max_variants,
         .variant_count = sl.variant_count,
         .variant = sl.variant,
     };
-    st.variants[sl.variant] = sl.variantData(sl.variant);
+    for (0..sl.variant_count) |i| {
+        const v = sl.variantData(@intCast(i)); // borrowed view - dupe before storing
+        st.variants[i] = .{
+            .midi = ws.dsp.Slicer.dupeMidi(app.allocator, &v.midi) catch {
+                for (st.variants[0..i]) |*done| ws.dsp.Slicer.freeMidi(app.allocator, &done.midi);
+                return null;
+            },
+            .step_count = v.step_count,
+            .steps_per_beat = v.steps_per_beat,
+        };
+    }
     return .{ .slicer = st };
 }
 
@@ -556,10 +566,14 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             sl.slices = d.slices;
             for (&sl.slices) |*p| p.samples = sl.samples;
             sl.sample_lock.unlock();
+            // Same ownership transfer the `.drum` arm above documents: `d` is
+            // consumed here, so the live bank's rows are freed and `d`'s
+            // already-deep-copied rows become the bank's own.
+            for (sl.variants[0..sl.variant_count]) |*slot| ws.dsp.Slicer.freeMidi(app.allocator, &slot.midi);
             sl.variants = d.variants;
             sl.variant_count = d.variant_count;
             sl.variant = @min(d.variant, d.variant_count - 1);
-            sl.applyVariant(d.variants[sl.variant]);
+            sl.applyVariant(sl.variants[sl.variant]);
             sl.resetAll(); // ringing tails would finish through relocated slices
             app.slicer_cursor[0] = @min(app.slicer_cursor[0], sl.slice_count -| 1);
             app.slicer_cursor[1] = @min(app.slicer_cursor[1], sl.step_count -| 1);

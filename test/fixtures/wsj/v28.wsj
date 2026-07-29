@@ -1,0 +1,25 @@
+{
+  "version": 28,
+  "tracks": [
+    { "name": "chops" }
+  ],
+  "racks": [
+    {
+      "label": "slicer",
+      "kind": "slicer",
+      "slicer": {
+        "name": "break",
+        "slices": [
+          { "start_norm": 0.0, "end_norm": 0.5 },
+          { "start_norm": 0.5, "end_norm": 1.0 }
+        ],
+        "step_count": 16,
+        "steps_per_beat": 4,
+        "notes": [
+          { "pad": 0, "step": 0, "velocity": 127 },
+          { "pad": 1, "step": 6, "velocity": 95, "micro": -12, "retrig": 3 }
+        ]
+      }
+    }
+  ]
+}

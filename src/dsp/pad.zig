@@ -217,6 +217,12 @@ pub const Voice = struct {
     /// Trigger velocity applied on top of the pad gain. 1.0 = full hit;
     /// sequencer steps fire at their per-step level (DrumMachine.velGain).
     vel: f32 = 1.0,
+    /// Per-hit transpose in semitones, on top of the pad's own
+    /// `pitch_semitones` - a step's parameter-locked tune (see
+    /// `MidiNote.tune`). DrumMachine reaches the same effect by triggering
+    /// its pad's Sampler on a different note; a Slicer voice has no note to
+    /// shift, so the offset rides on the voice itself.
+    tune: i8 = 0,
     /// WSOLA state, touched only when `pad.stretch_ratio != 1.0` - see
     /// `renderVoiceStretched`. Reconstructed from scalars each grain hop
     /// rather than a cached buffer, since `pad.samples` is already fully
@@ -335,7 +341,8 @@ pub fn renderVoice(
     if (region_len <= 1.0) { voice.active = false; return; }
     // zig fmt: on
 
-    const rate: f64 = std.math.pow(f64, 2.0, @as(f64, pad.pitch_semitones) / 12.0);
+    const semis: f64 = @as(f64, pad.pitch_semitones) + @as(f64, @floatFromInt(voice.tune));
+    const rate: f64 = std.math.pow(f64, 2.0, semis / 12.0);
 
     // Linear pan: center keeps unity in both channels (matches the prior
     // mono-to-both behaviour at pan = 0).

@@ -12,22 +12,15 @@
 //! App-state, no instrument or undo involvement) that sharing them costs
 //! nothing extra to keep in sync.
 //!
-//! Step-index types differ between the two: Slicer keeps its original u8
-//! (max_steps=64); the drum machine widened to u16 once its own storage
-//! ceiling grew past that (see dsp/drum_sampler.zig - the pattern itself
-//! is now unbounded, a heap-owned per-pad slice, not a fixed array).
-//! Cursor motion (`moveClamped`/`jumpBar`/`operatorBarForward`/
-//! `operatorBarBackward`) is generic over that width (`anytype`, dispatched
-//! on the pointee's type) so both editors share one implementation with no
-//! drift. The visual-mode clipboard now forks in two: Slicer's storage
-//! stays capped at `max_steps = 64`, so `SlicerRangeClip` keeps the original
-//! fixed 64-bit-wide bitmask and the plain `yankRange`/`pasteRange` below.
-//! The drum machine's own step storage is unbounded (heap-owned per-pad
-//! slice, see dsp/drum_sampler.zig), so `DrumRangeClip` is heap-allocated
-//! and sized to the yanked range's actual width - `yankRangeDyn`/
-//! `pasteRangeDyn` do the word-indexed bitset math that needs.
-//! `doublePattern`'s cap is an explicit parameter so the drum and slicer
-//! call sites can each pass their own.
+//! Both machines index steps as u16 over unbounded, heap-owned per-row note
+//! slices (see dsp/drum_sampler.zig and dsp/slicer.zig), so everything here
+//! is shared outright: cursor motion (`moveClamped`/`jumpBar`/
+//! `operatorBarForward`/`operatorBarBackward`) stays generic over the
+//! pointee's width, and the visual-mode clipboard is one heap-allocated
+//! `StepRangeClip` sized to the yanked range's actual width, filled and
+//! replayed by `yankRangeDyn`/`pasteRangeDyn`. `doublePattern`'s cap is
+//! still an explicit parameter, since each machine passes its own
+//! `max_steps`.
 
 const std = @import("std");
 
@@ -272,32 +265,6 @@ pub fn doublePattern(inst: anytype, max_rows: usize, max_steps: anytype) bool {
     return true;
 }
 
-/// Yank the `rows` band's steps within `r` into a `Clip` (SlicerRangeClip -
-/// duck-types `width`/`active`/`vel` as fixed arrays), rebased so the
-/// range's first step is bit 0. Rows are stored at their absolute index;
-/// the band is recorded as `row_lo`/`row_hi` so paste knows how tall the
-/// block is and whether it was linewise (see `pasteBaseRow`). `r` can never
-/// be more than 64 steps wide here since Slicer's own step indices already
-/// top out at `max_steps = 64`.
-pub fn yankRange(comptime Clip: type, inst: anytype, rows: RowRange, r: anytype) Clip {
-    var clip: Clip = .{
-        .width = @intCast(@as(u32, r.hi) - @as(u32, r.lo) + 1),
-        .row_lo = @intCast(rows.lo),
-        .row_hi = @intCast(rows.hi),
-    };
-    for (rows.lo..rows.hi + 1) |row| {
-        var s = r.lo;
-        while (s <= r.hi) : (s += 1) {
-            if (!inst.stepActive(@intCast(row), s)) continue;
-            const offset: u6 = @intCast(@as(u32, s) - @as(u32, r.lo));
-            const bit = @as(u64, 1) << offset;
-            clip.active[row] |= bit;
-            clip.vel[row][offset] = inst.stepVel(@intCast(row), s);
-        }
-    }
-    return clip;
-}
-
 /// Clear the `rows` band's steps within `r`.
 pub fn clearRange(inst: anytype, rows: RowRange, r: anytype) void {
     for (rows.lo..rows.hi + 1) |row| {
@@ -306,31 +273,12 @@ pub fn clearRange(inst: anytype, rows: RowRange, r: anytype) void {
     }
 }
 
-/// Paste `clip` starting at step `base`, its first row landing on
-/// `base_row` (see `pasteBaseRow`), overwriting whatever already sits at
-/// each destination cell. Returns how many steps landed before running off
-/// the end of the pattern.
-pub fn pasteRange(inst: anytype, max_rows: usize, clip: anytype, base: anytype, base_row: usize) @TypeOf(base) {
-    const T = @TypeOf(base);
-    var i: T = 0;
-    while (i < clip.width) : (i += 1) {
-        const target = base +| i;
-        if (target >= inst.step_count) break;
-        for (clip.row_lo..@as(usize, clip.row_hi) + 1) |row| {
-            const dest = base_row + (row - clip.row_lo);
-            if (dest >= max_rows) break;
-            const bit = @as(u64, 1) << @intCast(i);
-            const active = clip.active[row] & bit != 0;
-            setStep(inst, @intCast(dest), target, active, clip.vel[row][i]);
-        }
-    }
-    return i;
-}
-
-/// `yankRange`'s heap-allocated counterpart for a `Clip` whose `active`/
-/// `vel` fields are per-row slices sized to the range's actual width (word
-/// `i / 64`, bit `i % 64` of `active[row]` is step `r.lo + i`) rather than a
-/// fixed 64-bit shape - see `DrumRangeClip`. `r` may be any width; the
+/// Yank the `rows` band's steps within `r` into a heap-allocated `Clip`
+/// whose `active`/`vel` fields are per-row slices sized to the range's actual
+/// width (word `i / 64`, bit `i % 64` of `active[row]` is step `r.lo + i`) -
+/// see `StepRangeClip`. Rows are stored at their absolute index; the band is
+/// recorded as `row_lo`/`row_hi` so paste knows how tall the block is and
+/// whether it was linewise (see `pasteBaseRow`). `r` may be any width; the
 /// caller owns the result and must free it with `Clip.deinit`.
 pub fn yankRangeDyn(comptime Clip: type, allocator: std.mem.Allocator, inst: anytype, rows: RowRange, r: anytype) !Clip {
     const width: u32 = @as(u32, r.hi) - @as(u32, r.lo) + 1;
@@ -369,7 +317,7 @@ pub fn yankRangeDyn(comptime Clip: type, allocator: std.mem.Allocator, inst: any
 }
 
 /// `pasteRange`'s counterpart for a dynamically-sized `clip` (see
-/// `yankRangeDyn`/`DrumRangeClip`).
+/// `yankRangeDyn`/`StepRangeClip`).
 pub fn pasteRangeDyn(inst: anytype, max_rows: usize, clip: anytype, base: anytype, base_row: usize) @TypeOf(base) {
     const T = @TypeOf(base);
     var i: T = 0;
