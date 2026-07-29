@@ -3,6 +3,13 @@
 Notable user-visible changes per release. The `.wsj` format's own version
 history lives in [FORMAT.md](FORMAT.md).
 
+## v1.0.0-beta.9
+
+### Added
+
+- GUI track rows now provide live output meters and sliders for volume and
+  pan, with matching group and master controls.
+
 ## v1.0.0-beta.8
 
 ### Changed

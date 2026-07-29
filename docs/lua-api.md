@@ -110,7 +110,7 @@ Zig. Zig never stores Lua values directly, only registry ids.
 ## The `wstudio` global
 
 ```
-wstudio.version          -- "1.0.0-beta.4"
+wstudio.version          -- "1.0.0-beta.9"
 wstudio.frontend         -- "tui" | "gui"
 wstudio.o                -- option proxy (shipped)
 wstudio.keymap           -- keymap.set / keymap.del
