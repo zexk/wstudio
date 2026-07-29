@@ -43,9 +43,9 @@ creates a history entry or is documented as intentionally outside history.
 
 ## Finish CLAP lifecycle support
 
-The host services plugin restart requests at audio/main-thread boundaries and
-offers bounded CLAP thread-pool execution. It accepts only one stereo input and
-one stereo output, and supports floating rather than embedded plugin GUIs.
+The host services plugin restart requests at audio/main-thread boundaries,
+offers bounded CLAP thread-pool execution, and accepts mono or stereo main
+buses. It supports floating rather than embedded plugin GUIs.
 
 Goal:
 

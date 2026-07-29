@@ -53,6 +53,19 @@ const instrument_descriptor: abi.PluginDescriptor = .{
     .features = &instrument_features,
 };
 
+const mono_descriptor: abi.PluginDescriptor = .{
+    .clap_version = abi.version,
+    .id = "studio.wstudio.test.mono",
+    .name = "wstudio CLAP mono test",
+    .vendor = "wstudio",
+    .url = null,
+    .manual_url = null,
+    .support_url = null,
+    .plugin_version = "1.0",
+    .description = "Doubles mono input",
+    .features = &features,
+};
+
 fn pluginInit(_: *const abi.Plugin) callconv(.c) bool {
     const host = state.host orelse return false;
     host.request_callback(host);
@@ -110,10 +123,10 @@ fn process(_: *const abi.Plugin, block: *const abi.Process) callconv(.c) i32 {
         if (host_pool.request_exec(host, 4) and state.thread_tasks.load(.acquire) == 0b1111) state.gain += 0.5;
     }
     const output = block.audio_outputs.?[0];
-    if (output.channel_count != 2) return 0;
+    if (output.channel_count != 1 and output.channel_count != 2) return 0;
     const output_channels = output.data32 orelse return 0;
     const left_out = output_channels[0] orelse return 0;
-    const right_out = output_channels[1] orelse return 0;
+    const right_out = if (output.channel_count == 2) output_channels[1] orelse return 0 else null;
     if (block.in_events) |events| {
         for (0..events.size(events)) |index| {
             const header = events.get(events, @intCast(index)) orelse continue;
@@ -125,18 +138,18 @@ fn process(_: *const abi.Plugin, block: *const abi.Process) callconv(.c) i32 {
     }
     if (block.audio_inputs_count == 1) {
         const input = block.audio_inputs.?[0];
-        if (input.channel_count != 2) return 0;
+        if (input.channel_count != 1 and input.channel_count != 2) return 0;
         const input_channels = input.data32 orelse return 0;
         const left_in = input_channels[0] orelse return 0;
-        const right_in = input_channels[1] orelse return 0;
+        const right_in = if (input.channel_count == 2) input_channels[1] orelse return 0 else null;
         for (0..block.frames_count) |frame| {
             left_out[frame] = left_in[frame] * @as(f32, @floatCast(state.gain));
-            right_out[frame] = right_in[frame] * @as(f32, @floatCast(state.gain));
+            if (right_out) |out| out[frame] = right_in.?[frame] * @as(f32, @floatCast(state.gain));
         }
     } else {
         for (0..block.frames_count) |frame| {
             left_out[frame] = @floatCast(state.gain);
-            right_out[frame] = @floatCast(state.gain);
+            if (right_out) |out| out[frame] = @floatCast(state.gain);
         }
     }
     return 1;
@@ -147,14 +160,14 @@ fn audioPortCount(plugin_ptr: *const abi.Plugin, is_input: bool) callconv(.c) u3
     return 1;
 }
 
-fn getAudioPort(_: *const abi.Plugin, index: u32, _: bool, info: *abi.AudioPortInfo) callconv(.c) bool {
+fn getAudioPort(plugin_ptr: *const abi.Plugin, index: u32, _: bool, info: *abi.AudioPortInfo) callconv(.c) bool {
     if (index != 0) return false;
     info.* = .{
         .id = 0,
         .name = @splat(0),
         .flags = 1,
-        .channel_count = 2,
-        .port_type = "stereo",
+        .channel_count = if (plugin_ptr.desc == &mono_descriptor) 1 else 2,
+        .port_type = if (plugin_ptr.desc == &mono_descriptor) "mono" else "stereo",
         .in_place_pair = abi.invalid_id,
     };
     return true;
@@ -407,14 +420,30 @@ const instrument_plugin: abi.Plugin = .{
     .on_main_thread = onMainThread,
 };
 
+const mono_plugin: abi.Plugin = .{
+    .desc = &mono_descriptor,
+    .plugin_data = &state,
+    .init = pluginInit,
+    .destroy = pluginDestroy,
+    .activate = pluginActivate,
+    .deactivate = pluginDeactivate,
+    .start_processing = startProcessing,
+    .stop_processing = stopProcessing,
+    .reset = reset,
+    .process = process,
+    .get_extension = getExtension,
+    .on_main_thread = onMainThread,
+};
+
 fn pluginCount(_: *const abi.PluginFactory) callconv(.c) u32 {
-    return 2;
+    return 3;
 }
 
 fn pluginDescriptor(_: *const abi.PluginFactory, index: u32) callconv(.c) ?*const abi.PluginDescriptor {
     return switch (index) {
         0 => &descriptor,
         1 => &instrument_descriptor,
+        2 => &mono_descriptor,
         else => null,
     };
 }
@@ -428,6 +457,7 @@ fn createPlugin(
     state.host = host;
     if (@import("std").mem.eql(u8, requested, @import("std").mem.span(descriptor.id))) return &plugin;
     if (@import("std").mem.eql(u8, requested, @import("std").mem.span(instrument_descriptor.id))) return &instrument_plugin;
+    if (@import("std").mem.eql(u8, requested, @import("std").mem.span(mono_descriptor.id))) return &mono_plugin;
     return null;
 }
 

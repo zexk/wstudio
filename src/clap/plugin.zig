@@ -16,6 +16,14 @@ threadlocal var on_thread_pool = false;
 
 const NoteDialect = enum { none, clap, midi };
 
+/// Supported main-bus layouts: no input or one mono/stereo input, plus one
+/// mono/stereo output. Mono inputs downmix host stereo; mono outputs duplicate.
+const AudioPortLayout = struct {
+    input_count: u32,
+    input_channels: u32,
+    output_channels: u32,
+};
+
 /// Looks up CLAP extension `ext_id` on `plugin` and casts it to `*const T`,
 /// or null if the plugin doesn't implement it - shared by every extension
 /// query below, which otherwise each repeat the same
@@ -302,6 +310,8 @@ pub const ClapPlugin = struct {
     events: EventList = EventList.init(),
     output_events: abi.OutputEvents,
     audio_inputs_count: u32,
+    input_channels: u32,
+    output_channels: u32,
     note_dialect: NoteDialect,
     supports_midi: bool,
     sample_rate: u32,
@@ -346,7 +356,7 @@ pub const ClapPlugin = struct {
         if (!plugin.init(plugin)) return error.PluginInitFailed;
         host_context.plugin = plugin;
         host_context.plugin_thread_pool = getExt(abi.PluginThreadPool, plugin, abi.ext_thread_pool);
-        const audio_inputs_count = try validateAudioPorts(plugin);
+        const audio_layout = try validateAudioPorts(plugin);
         const note_support = detectNoteSupport(plugin);
         if (!plugin.activate(plugin, @floatFromInt(sample_rate), 1, types.max_block_frames))
             return error.PluginActivateFailed;
@@ -373,7 +383,9 @@ pub const ClapPlugin = struct {
             .input_right = input_right,
             .output_left = output_left,
             .output_right = output_right,
-            .audio_inputs_count = audio_inputs_count,
+            .audio_inputs_count = audio_layout.input_count,
+            .input_channels = audio_layout.input_channels,
+            .output_channels = audio_layout.output_channels,
             .note_dialect = note_support.dialect,
             .supports_midi = note_support.supports_midi,
             .sample_rate = sample_rate,
@@ -383,22 +395,24 @@ pub const ClapPlugin = struct {
         return self;
     }
 
-    fn validateAudioPorts(plugin: *const abi.Plugin) !u32 {
+    fn validateAudioPorts(plugin: *const abi.Plugin) !AudioPortLayout {
         const ports = getExt(abi.PluginAudioPorts, plugin, abi.ext_audio_ports) orelse
             return error.MissingAudioPorts;
         const input_count = ports.count(plugin, true);
         const output_count = ports.count(plugin, false);
         if (input_count > 1 or output_count != 1) return error.UnsupportedAudioPortLayout;
 
+        var input_channels: u32 = 0;
         if (input_count == 1) {
             var input_info: abi.AudioPortInfo = undefined;
-            if (!ports.get(plugin, 0, true, &input_info) or input_info.channel_count != 2)
+            if (!ports.get(plugin, 0, true, &input_info) or (input_info.channel_count != 1 and input_info.channel_count != 2))
                 return error.UnsupportedAudioPortLayout;
+            input_channels = input_info.channel_count;
         }
         var output_info: abi.AudioPortInfo = undefined;
-        if (!ports.get(plugin, 0, false, &output_info) or output_info.channel_count != 2)
+        if (!ports.get(plugin, 0, false, &output_info) or (output_info.channel_count != 1 and output_info.channel_count != 2))
             return error.UnsupportedAudioPortLayout;
-        return input_count;
+        return .{ .input_count = input_count, .input_channels = input_channels, .output_channels = output_info.channel_count };
     }
 
     fn detectNoteSupport(plugin: *const abi.Plugin) struct {
@@ -474,7 +488,10 @@ pub const ClapPlugin = struct {
         }
 
         for (0..frames) |frame| {
-            self.input_left[frame] = buf[frame * 2];
+            self.input_left[frame] = if (self.input_channels == 1)
+                (buf[frame * 2] + buf[frame * 2 + 1]) * 0.5
+            else
+                buf[frame * 2];
             self.input_right[frame] = buf[frame * 2 + 1];
             self.output_left[frame] = 0;
             self.output_right[frame] = 0;
@@ -484,14 +501,14 @@ pub const ClapPlugin = struct {
         var input_audio = abi.AudioBuffer{
             .data32 = &self.input_channel_ptrs,
             .data64 = null,
-            .channel_count = 2,
+            .channel_count = self.input_channels,
             .latency = 0,
             .constant_mask = 0,
         };
         var output_audio = abi.AudioBuffer{
             .data32 = &self.output_channel_ptrs,
             .data64 = null,
-            .channel_count = 2,
+            .channel_count = self.output_channels,
             .latency = 0,
             .constant_mask = 0,
         };
@@ -523,7 +540,7 @@ pub const ClapPlugin = struct {
         if (status == 0) return;
         for (0..frames) |frame| {
             buf[frame * 2] = self.output_left[frame];
-            buf[frame * 2 + 1] = self.output_right[frame];
+            buf[frame * 2 + 1] = if (self.output_channels == 1) self.output_left[frame] else self.output_right[frame];
         }
     }
 
@@ -780,11 +797,13 @@ pub const ClapPlugin = struct {
     pub fn serviceMainThread(self: *ClapPlugin) bool {
         if (self.restart_ready.swap(false, .acquire)) {
             self.plugin.deactivate(self.plugin);
-            const audio_inputs_count: ?u32 = validateAudioPorts(self.plugin) catch null;
-            if (audio_inputs_count) |count| {
+            const audio_layout: ?AudioPortLayout = validateAudioPorts(self.plugin) catch null;
+            if (audio_layout) |layout| {
                 const note_support = detectNoteSupport(self.plugin);
                 if (self.plugin.activate(self.plugin, @floatFromInt(self.sample_rate), 1, types.max_block_frames)) {
-                    self.audio_inputs_count = count;
+                    self.audio_inputs_count = layout.input_count;
+                    self.input_channels = layout.input_channels;
+                    self.output_channels = layout.output_channels;
                     self.note_dialect = note_support.dialect;
                     self.supports_midi = note_support.supports_midi;
                     self.restart_in_progress.store(false, .release);
