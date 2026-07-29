@@ -143,7 +143,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("Y",            "duplicate selected track (instrument, FX, clips) at the end");
     t.key("J / K",        "move selected track down / up");
     t.group("ORGANIZE AND MIX");
-    t.key("[ / ]",        "cycle selected track's color (7 colors + none)");
+    t.key("[ / ]",        "cycle selected track's color (16 colors + none)");
     t.key("R",            "rename selected track (opens :rename <n>) - group row: renames the group instead");
     t.key("v",            "visual mode: select a row range - g groups it, then R renames it (:rename)");
     t.key("z",            "fold / unfold the group under the cursor - its member rows hide behind the group's row");

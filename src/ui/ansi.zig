@@ -22,6 +22,14 @@ pub const red  = "\x1b[31m";   // red   – clip / error
 pub const sel  = "\x1b[7m";    // reverse-video – selected row / cursor
 pub const blu  = "\x1b[34m";   // blue   – voice / routing
 pub const mag  = "\x1b[35m";   // magenta – modulation / movement
+pub const blk  = "\x1b[30m";
+pub const wht  = "\x1b[37m";
+pub const bblk = "\x1b[90m";
+pub const bred = "\x1b[91m";
+pub const bgrn = "\x1b[92m";
+pub const byel = "\x1b[93m";
+pub const bblu = "\x1b[94m";
+pub const bmag = "\x1b[95m";
 pub const bcyn = "\x1b[96m";   // bright cyan – cursor / selected row
 pub const bwht = "\x1b[97m";   // bright white – selected value
 // zig fmt: on
@@ -31,8 +39,8 @@ pub const bwht = "\x1b[97m";   // bright white – selected value
 /// than inventing new ANSI codes - a track color and, say, the mute
 /// indicator's yellow are different row segments, so sharing a hue causes
 /// no real ambiguity. `color == 0` (not in this array) means uncolored.
-pub const track_palette = [_][]const u8{ red, yel, grn, acc, blu, mag, bwht };
-pub const track_color_names = [_][]const u8{ "red", "yellow", "green", "cyan", "blue", "magenta", "white" };
+pub const track_palette = [_][]const u8{ red, yel, grn, acc, blu, mag, bwht, blk, wht, bblk, bred, bgrn, byel, bblu, bmag, bcyn };
+pub const track_color_names = [_][]const u8{ "red", "yellow", "green", "cyan", "blue", "magenta", "bright white", "black", "white", "bright black", "bright red", "bright green", "bright yellow", "bright blue", "bright magenta", "bright cyan" };
 comptime {
     std.debug.assert(track_palette.len == ws.track_color_count);
     std.debug.assert(track_color_names.len == ws.track_color_count);

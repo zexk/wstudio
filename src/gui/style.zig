@@ -37,7 +37,7 @@ pub const Palette = struct {
     danger: [4]f32,
     rhythm: [4]f32,
     audio: [4]f32,
-    tracks: [7][4]f32,
+    tracks: [16][4]f32,
 };
 
 /// Renders a shared hex identity (src/theme_identity.zig, also read by the
@@ -45,6 +45,8 @@ pub const Palette = struct {
 /// hex tables live in one place so the GUI and TUI can't drift into two
 /// different ideas of what "patina" or "umbra" look like.
 fn fromIdentity(id: ws.theme_identity.Identity) Palette {
+    var tracks: [16][4]f32 = undefined;
+    for (id.tracks, 0..) |track, i| tracks[i] = rgb(track);
     return .{
         .light = id.light,
         .bg0 = rgb(id.bg0),
@@ -66,7 +68,7 @@ fn fromIdentity(id: ws.theme_identity.Identity) Palette {
         .danger = rgb(id.danger),
         .rhythm = rgb(id.rhythm),
         .audio = rgb(id.audio),
-        .tracks = .{ rgb(id.tracks[0]), rgb(id.tracks[1]), rgb(id.tracks[2]), rgb(id.tracks[3]), rgb(id.tracks[4]), rgb(id.tracks[5]), rgb(id.tracks[6]) },
+        .tracks = tracks,
     };
 }
 
@@ -101,10 +103,10 @@ pub var wheel_delta: f32 = 0;
 pub var wheel_x_delta: f32 = 0;
 pub var wheel_consumed: bool = false;
 
-test "track cursor stays outside every theme's track rotation" {
+test "every theme exposes full base16 track rotation" {
     for (std.meta.tags(ws.theme_identity.Name)) |name| {
         const theme = fromIdentity(ws.theme_identity.get(name).*);
-        for (theme.tracks) |track| try std.testing.expect(!std.meta.eql(theme.track_cursor, track));
+        try std.testing.expectEqual(@as(usize, 16), theme.tracks.len);
     }
 }
 

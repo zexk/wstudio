@@ -3537,13 +3537,13 @@ test "[/] cycle the cursor track's color, wrapping through none" {
     try std.testing.expectEqual(@as(u8, 1), app.session.project.tracks.items[0].color);
     try std.testing.expect(app.dirty);
 
-    // Cycle all the way around: 7 colors + "none" = 8 states total.
-    for (0..7) |_| app.handleKey(.{ .char = ']' }, 0);
+    // Cycle all the way around: 16 colors + "none" = 17 states total.
+    for (0..16) |_| app.handleKey(.{ .char = ']' }, 0);
     try std.testing.expectEqual(@as(u8, 0), app.session.project.tracks.items[0].color);
 
     // Backward wraps the other way, straight to the last color.
     app.handleKey(.{ .char = '[' }, 0);
-    try std.testing.expectEqual(@as(u8, 7), app.session.project.tracks.items[0].color);
+    try std.testing.expectEqual(@as(u8, 16), app.session.project.tracks.items[0].color);
 
     // The master row has no color to cycle.
     app.cursor = app.session.project.tracks.items.len;

@@ -19,6 +19,7 @@ const Session = @import("session.zig").Session;
 const wav = @import("core/wav.zig");
 const types = @import("core/types.zig");
 const Project = @import("project.zig").Project;
+const track_color_count = @import("project.zig").track_color_count;
 const ws_arrangement = @import("arrangement.zig");
 const time_grid = @import("time_grid.zig");
 const rack_mod = @import("rack.zig");
@@ -1817,7 +1818,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     // zig fmt: off
     for (snap.tracks) |t| {
         // Clamped to the palette's actual size (tui/style.zig's
-        // track_palette, 7 entries) - the renderer already treats an
+        // track_palette) - the renderer already treats an
         // out-of-range color as "uncolored" gracefully, but clamping here
         // too matches this file's established hand-edited-.wsj hygiene.
         // `group` is only bound-checked here (< max_groups); whether that
@@ -1827,7 +1828,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
             .name = t.name,
             .gain_db = finiteClamp(f32, t.gain_db, -60.0, 12.0, 0.0),
             .pan = finiteClamp(f32, t.pan, -1.0, 1.0, 0.0),
-            .muted = t.muted, .soloed = t.soloed, .color = @min(t.color, 7),
+            .muted = t.muted, .soloed = t.soloed, .color = @min(t.color, track_color_count),
             .group = if (t.group) |g| (if (g < engine_mod.max_groups) g else null) else null,
         });
     }
@@ -4305,7 +4306,7 @@ test "buildSession: track color round-trips and clamps out-of-range values" {
     const snap: Snapshot = .{
         .tracks = &.{
             .{ .name = "lead", .color = 3 },
-            .{ .name = "bass", .color = 255 }, // hand-edited, past the 7-color palette
+            .{ .name = "bass", .color = 255 }, // hand-edited, past the palette
         },
         .racks = &.{ .{ .label = "empty", .kind = .empty }, .{ .label = "empty", .kind = .empty } },
     };
@@ -4314,7 +4315,7 @@ test "buildSession: track color round-trips and clamps out-of-range values" {
     defer session.deinit();
 
     try testing.expectEqual(@as(u8, 3), session.project.tracks.items[0].color);
-    try testing.expectEqual(@as(u8, 7), session.project.tracks.items[1].color);
+    try testing.expectEqual(@as(u8, 16), session.project.tracks.items[1].color);
 }
 
 test "buildSession: empty and sampler racks round-trip" {

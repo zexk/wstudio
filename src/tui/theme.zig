@@ -25,23 +25,13 @@ const config_mod = @import("../config.zig");
 
 const Slot = struct { index: u8, hex: u24 };
 
-/// ANSI color index -> hex, covering the 8 slots ansi.zig's SGR constants
-/// use (1-6, 14, 15 - see its `pub const` block). Chosen by role, not by
-/// the constant's literal 16-color name: `acc` reads "\x1b[36m" (cyan) in
-/// every call site, but the role it actually plays - the general
-/// interactive/label accent - is `focus` in the GUI's identity, so that's
-/// what index 6 becomes here.
-fn slots(id: *const ws.theme_identity.Identity) [8]Slot {
-    return .{
-        .{ .index = 1, .hex = id.danger }, // red  - clip / error
-        .{ .index = 2, .hex = id.audio }, // grn  - playing / active steps
-        .{ .index = 3, .hex = id.rhythm }, // yel  - INSERT mode / muted
-        .{ .index = 4, .hex = id.blue }, // blu  - voice / routing
-        .{ .index = 5, .hex = id.modulation }, // mag  - modulation / movement
-        .{ .index = 6, .hex = id.focus }, // acc  - interactive / instrument labels
-        .{ .index = 14, .hex = id.track_cursor }, // bcyn - cursor / selected row
-        .{ .index = 15, .hex = id.fg0 }, // bwht - selected value
-    };
+/// ANSI color index -> hex. Track colors and terminal normal/bright slots
+/// share one full 16-color table in the theme identity.
+fn slots(id: *const ws.theme_identity.Identity) [16]Slot {
+    const track_for_slot = [16]u8{ 7, 0, 2, 1, 4, 5, 3, 8, 9, 10, 11, 12, 13, 14, 15, 6 };
+    var result: [16]Slot = undefined;
+    for (&result, 0..) |*slot, index| slot.* = .{ .index = @intCast(index), .hex = id.tracks[track_for_slot[index]] };
+    return result;
 }
 
 fn writeHex(w: *std.Io.Writer, hex: u24) !void {
@@ -76,8 +66,8 @@ pub fn oscFor(theme: config_mod.TuiTheme, overrides: *const ws.theme_identity.Ov
     return w.buffered();
 }
 
-/// Big enough for 8 OSC-4 sets plus OSC 10/11, each well under 24 bytes.
-pub const osc_buf_len = 256;
+/// Big enough for 16 OSC-4 sets plus OSC 10/11, each well under 24 bytes.
+pub const osc_buf_len = 512;
 
 /// Apply `theme` to `term` (any type exposing `write([]const u8)` - both
 /// terminal.zig's and terminal_windows.zig's `Terminal`, kept generic here
@@ -100,7 +90,9 @@ test "oscFor is empty for .none, non-empty and index-bearing otherwise" {
     try std.testing.expectEqualStrings("", oscFor(.none, &overrides, &buf));
     const patina = oscFor(.patina, &overrides, &buf);
     try std.testing.expect(patina.len > 0);
+    try std.testing.expect(std.mem.indexOf(u8, patina, "\x1b]4;0;rgb:") != null);
     try std.testing.expect(std.mem.indexOf(u8, patina, "\x1b]4;6;rgb:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, patina, "\x1b]4;15;rgb:") != null);
     try std.testing.expect(std.mem.indexOf(u8, patina, "\x1b]10;rgb:") != null);
     try std.testing.expect(std.mem.indexOf(u8, patina, "\x1b]11;rgb:") != null);
 
@@ -117,7 +109,7 @@ test "reset_osc covers palette, fg, and bg resets" {
 
 test "oscFor applies semantic highlight overrides" {
     var overrides: ws.theme_identity.Overrides = .{};
-    overrides.set(.focus, 0x123abc);
+    overrides.set(.track4, 0x123abc);
     var buf: [osc_buf_len]u8 = undefined;
     const osc = oscFor(.patina, &overrides, &buf);
     try std.testing.expect(std.mem.indexOf(u8, osc, "\x1b]4;6;rgb:12/3a/bc") != null);

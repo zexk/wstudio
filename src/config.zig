@@ -3343,7 +3343,7 @@ test "API metadata is derived from live registries" {
     try rt.loadString(
         \\info = wstudio.api.get_api_info()
         \\assert(info.version == wstudio.version and info.api_level == 1 and info.frontend == "gui")
-        \\assert(#info.functions > 20 and #info.events > 10 and #info.highlight_groups == 27)
+        \\assert(#info.functions > 20 and #info.events > 10 and #info.highlight_groups == 36)
         \\for _, name in ipairs(info.functions) do assert(type(wstudio.api[name]) == "function", name) end
         \\local function contains(xs, value) for _, x in ipairs(xs) do if x == value then return true end end return false end
         \\assert(contains(info.functions, "get_api_info") and contains(info.functions, "transport_set"))

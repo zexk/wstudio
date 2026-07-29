@@ -120,7 +120,7 @@ fn drawRowChrome(app: anytype, id: [:0]const u8, display_row: usize, in_visual: 
 /// edge, round only on that side (round_corners_left) so it reads as a
 /// bookend rather than a chip floating over the body. `legibleOn` picks the
 /// text color per swatch since track accents range from near-white to
-/// fairly saturated across the 7-color rotation and both light and dark
+/// fairly saturated across the 16-color rotation and both light and dark
 /// themes - a single hardcoded text color goes illegible on some of them.
 fn drawSideStrip(draw_list: zgui.DrawList, origin: [2]f32, height: f32, accent: [4]f32, comptime fmt: []const u8, args: anytype) void {
     draw_list.addRectFilled(.{

@@ -31,8 +31,18 @@ pub const Identity = struct {
     rhythm: u24,
     audio: u24,
     blue: u24,
-    tracks: [7]u24,
+    tracks: [16]u24,
 };
+
+fn mixed(a: u24, b: u24) u24 {
+    return ((((a >> 16) + (b >> 16)) / 2) << 16) |
+        (((((a >> 8) & 0xff) + ((b >> 8) & 0xff)) / 2) << 8) |
+        (((a & 0xff) + (b & 0xff)) / 2);
+}
+
+fn trackColors(bg0: u24, bg5: u24, fg0: u24, red: u24, yellow: u24, green: u24, cyan: u24, blue: u24, magenta: u24) [16]u24 {
+    return .{ mixed(red, bg0), mixed(yellow, bg0), mixed(green, bg0), mixed(cyan, bg0), mixed(blue, bg0), mixed(magenta, bg0), fg0, bg0, mixed(fg0, bg0), bg5, red, green, yellow, blue, magenta, cyan };
+}
 
 /// The Patina identity is intentionally green through the full surface
 /// stack, not neutral charcoal with a branded accent. See
@@ -58,7 +68,7 @@ pub const patina: Identity = .{
     .rhythm = 0xc9cf73,
     .audio = 0x71b9ac,
     .blue = 0x9b9acb,
-    .tracks = .{ 0xf08777, 0xf06468, 0xc9cf73, 0x71b9ac, 0xd69ac0, 0xd6a15f, 0x9b9acb },
+    .tracks = trackColors(0x06100e, 0x38584d, 0xf2eadb, 0xf06468, 0xc9cf73, 0x71b9ac, 0xf08777, 0x9b9acb, 0xd69ac0),
 };
 
 /// Light counterpart specified alongside Patina in the color identity doc.
@@ -84,7 +94,7 @@ pub const patina_light: Identity = .{
     .rhythm = 0x626a19,
     .audio = 0x247067,
     .blue = 0x8b8abd,
-    .tracks = .{ 0xd86f61, 0xde6870, 0xb6bd5f, 0x65aaa0, 0xc787ac, 0xc9964d, 0x8b8abd },
+    .tracks = trackColors(0xdce6dd, 0xa9c0b2, 0x17231f, 0xde6870, 0xb6bd5f, 0x65aaa0, 0xd86f61, 0x8b8abd, 0xc787ac),
 };
 
 /// Neutral-charcoal counterpart: the same lightness ramp and warm text with
@@ -112,7 +122,7 @@ pub const graphite: Identity = .{
     .rhythm = 0xc9cf73,
     .audio = 0x71b9ac,
     .blue = 0x9b9acb,
-    .tracks = .{ 0xf08777, 0xf06468, 0xc9cf73, 0x71b9ac, 0xd69ac0, 0xd6a15f, 0x9b9acb },
+    .tracks = trackColors(0x0b0b0d, 0x4c4c58, 0xf2eadb, 0xf06468, 0xc9cf73, 0x71b9ac, 0xf08777, 0x9b9acb, 0xd69ac0),
 };
 
 /// Light counterpart to `graphite`, by the same derivation the doc uses for
@@ -142,7 +152,7 @@ pub const graphite_light: Identity = .{
     .rhythm = 0x626a19,
     .audio = 0x247067,
     .blue = 0x8b8abd,
-    .tracks = .{ 0xd86f61, 0xde6870, 0xb6bd5f, 0x65aaa0, 0xc787ac, 0xc9964d, 0x8b8abd },
+    .tracks = trackColors(0xe1e1e7, 0xb5b5bc, 0x1d1d18, 0xde6870, 0xb6bd5f, 0x65aaa0, 0xd86f61, 0x8b8abd, 0xc787ac),
 };
 
 /// The original violet GUI palette, restored as an optional theme.
@@ -167,7 +177,7 @@ pub const umbra: Identity = .{
     .rhythm = 0xc1a77b,
     .audio = 0x7cb0af,
     .blue = 0x7899c1,
-    .tracks = .{ 0xb07bbc, 0xb97873, 0xc1a77b, 0x7cb0af, 0xc68fc1, 0x7899c1, 0x86b978 },
+    .tracks = trackColors(0x0c040f, 0x553e5a, 0xd9d1da, 0xb97873, 0xc1a77b, 0x86b978, 0x7cb0af, 0x7899c1, 0xc68fc1),
 };
 
 /// Adapt an upstream editor palette to wstudio's semantic surface and accent
@@ -200,7 +210,7 @@ fn importedTheme(
         .rhythm = accents.yellow,
         .audio = accents.cyan,
         .blue = accents.blue,
-        .tracks = .{ accents.red, accents.orange, accents.yellow, accents.green, accents.cyan, accents.magenta, accents.blue },
+        .tracks = trackColors(backgrounds[0], backgrounds[5], foregrounds[0], accents.red, accents.yellow, accents.green, accents.cyan, accents.blue, accents.magenta),
     };
 }
 
@@ -270,6 +280,15 @@ pub const Highlight = enum {
     track5,
     track6,
     track7,
+    track8,
+    track9,
+    track10,
+    track11,
+    track12,
+    track13,
+    track14,
+    track15,
+    track16,
 };
 
 pub const highlight_count = @typeInfo(Highlight).@"enum".fields.len;
@@ -290,9 +309,9 @@ pub const Overrides = struct {
         inline for (@typeInfo(Highlight).@"enum".fields) |field| {
             const hl: Highlight = @enumFromInt(field.value);
             if (self.get(hl)) |color| {
-                if (comptime field.name.len == 6 and std.mem.startsWith(u8, field.name, "track")) {
-                    const index = comptime field.name[field.name.len - 1] - '1';
-                    result.tracks[index] = color;
+                if (comptime field.name.len > 5 and std.mem.startsWith(u8, field.name, "track") and std.ascii.isDigit(field.name[5])) {
+                    const index = comptime std.fmt.parseInt(usize, field.name[5..], 10) catch unreachable;
+                    result.tracks[index - 1] = color;
                 } else {
                     @field(result, field.name) = color;
                 }
@@ -326,9 +345,9 @@ const std = @import("std");
 test "highlight overrides are sparse and include track colors" {
     var overrides: Overrides = .{};
     overrides.set(.focus, 0x123456);
-    overrides.set(.track7, 0xabcdef);
+    overrides.set(.track16, 0xabcdef);
     const resolved = overrides.apply(patina);
     try std.testing.expectEqual(@as(u24, 0x123456), resolved.focus);
-    try std.testing.expectEqual(@as(u24, 0xabcdef), resolved.tracks[6]);
+    try std.testing.expectEqual(@as(u24, 0xabcdef), resolved.tracks[15]);
     try std.testing.expectEqual(patina.bg0, resolved.bg0);
 }

@@ -12,7 +12,7 @@ pub const TrackKind = enum { audio, midi };
 /// importing the tui-layer style module into this control-layer one) so
 /// `Session.insertTrack` can auto-assign colors; `style.zig` comptime-asserts
 /// its palette length matches this constant to keep the two in sync.
-pub const track_color_count: u8 = 7;
+pub const track_color_count: u8 = 16;
 
 pub const Track = struct {
     name: []const u8,

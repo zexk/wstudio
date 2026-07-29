@@ -208,7 +208,7 @@ wstudio.api.set_hl("focus", {})           -- clear override, reveal base
 
 The semantic groups are `bg0` through `bg5`, `fg0` through `fg3`, `line`,
 `line_soft`, `focus`, `focus_soft`, `track_cursor`, `modulation`, `danger`,
-`rhythm`, `audio`, `blue`, and `track1` through `track7`. Colors are
+`rhythm`, `audio`, `blue`, and `track1` through `track16`. Colors are
 `#rrggbb`. `set_hl` works while `init.lua` is loading and after startup;
 live changes repaint the GUI or reprogram an enabled TUI palette on the next
 frame. An empty spec clears that one override. Overrides are reset and then
