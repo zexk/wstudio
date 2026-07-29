@@ -169,6 +169,7 @@ pub const PatternPlayer = struct {
     pub fn setSongNotes(self: *PatternPlayer, notes: []const Note, length_beats: f64) void {
         while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.notes_lock.unlock();
+        for (self.song_notes[0..self.song_note_count]) |note| self.queueNoteOff(note.pitch);
         const count = @min(notes.len, @as(usize, max_notes));
         for (notes[0..count], self.song_notes[0..count]) |n, *dst| dst.* = sanitizeNote(n);
         self.song_note_count = @intCast(count);
@@ -190,6 +191,7 @@ pub const PatternPlayer = struct {
     pub fn setNotes(self: *PatternPlayer, notes: []const Note, length_beats: f64) void {
         while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.notes_lock.unlock();
+        for (self.notes[0..self.note_count]) |note| self.queueNoteOff(note.pitch);
         const count = @min(notes.len, @as(usize, max_notes));
         for (notes[0..count], self.notes[0..count]) |n, *dst| dst.* = sanitizeNote(n);
         self.note_count = @intCast(count);
@@ -1642,6 +1644,25 @@ test "clearing the active pattern releases sounding notes" {
     transport.advance(256);
     pp.processBlock(&buf);
     try std.testing.expect(!pp.sounding[60]);
+}
+
+test "replacing a nonempty pattern releases old sounding notes" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+
+    transport.play();
+    var buf = [_]types.Sample{0.0} ** 512;
+    pp.processBlock(&buf);
+    try std.testing.expect(pp.sounding[60]);
+
+    pp.setNotes(&.{.{ .pitch = 64, .start_beat = 2.0, .duration_beat = 1.0 }}, 4.0);
+    transport.advance(256);
+    pp.processBlock(&buf);
+    try std.testing.expect(!pp.sounding[60]);
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
 }
 
 test "deleting a sounding note releases it when other notes remain" {
