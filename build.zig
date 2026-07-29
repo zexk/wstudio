@@ -4,6 +4,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const macos_sdk = if (target.result.os.tag == .macos) b.graph.environ_map.get("SDKROOT") else null;
+    // A macOS target that is not this machine: zig only auto-detects an SDK
+    // for the native case, so everything else has to be pointed at one.
+    const macos_cross = target.result.os.tag == .macos and
+        (b.graph.host.result.os.tag != .macos or target.result.cpu.arch != b.graph.host.result.cpu.arch);
     if (b.graph.host.result.os.tag != .macos) {
         if (macos_sdk) |sdk| b.sysroot = sdk;
     }
@@ -46,7 +50,7 @@ pub fn build(b: *std.Build) void {
         wstudio_mod.linkFramework("CoreAudio", .{});
         wstudio_mod.linkFramework("CoreMIDI", .{});
         wstudio_mod.linkFramework("CoreFoundation", .{});
-        if (macos_sdk) |sdk| addMacosFrameworkPath(b, wstudio_mod, sdk);
+        if (macos_sdk) |sdk| addMacosFrameworkPath(b, wstudio_mod, sdk, macos_cross);
     }
 
     const win32_icon: ?std.Build.Module.RcSourceFile = if (target.result.os.tag == .windows)
@@ -67,7 +71,7 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
-    if (macos_sdk) |sdk| addMacosFrameworkPath(b, exe.root_module, sdk);
+    if (macos_sdk) |sdk| addMacosFrameworkPath(b, exe.root_module, sdk, macos_cross);
     exe.root_module.addIncludePath(lua_dep.path("src/"));
     exe.root_module.linkLibrary(lua);
     if (win32_icon) |icon| exe.root_module.addWin32ResourceFile(icon);
@@ -107,8 +111,8 @@ pub fn build(b: *std.Build) void {
         const zopengl = b.dependency("zopengl", .{});
         const glfw = zglfw.artifact("glfw");
         if (macos_sdk) |sdk| {
-            addMacosFrameworkPath(b, glfw.root_module, sdk);
-            addMacosFrameworkPath(b, zgui.artifact("imgui").root_module, sdk);
+            addMacosFrameworkPath(b, glfw.root_module, sdk, macos_cross);
+            addMacosFrameworkPath(b, zgui.artifact("imgui").root_module, sdk, macos_cross);
         }
         if (target.result.os.tag == .linux) {
             // zglfw adds X11 as a link input to its static archive. Zig 0.16
@@ -233,9 +237,13 @@ pub fn build(b: *std.Build) void {
     check_step.dependOn(test_step);
 }
 
-fn addMacosFrameworkPath(b: *std.Build, module: *std.Build.Module, sdk: []const u8) void {
+fn addMacosFrameworkPath(b: *std.Build, module: *std.Build.Module, sdk: []const u8, cross: bool) void {
     module.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/Frameworks" }) });
     module.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/lib" }) });
+    // Only a native build gets the SDK's headers for free. Cross-compiling
+    // leaves framework headers that reach for plain system ones
+    // (Security.framework wants libDER) with nothing to resolve against.
+    if (cross) module.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) });
 }
 
 fn removeSystemLibrary(module: *std.Build.Module, name: []const u8) void {
