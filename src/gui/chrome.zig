@@ -150,11 +150,6 @@ pub fn drawStatus(app: anytype) void {
     const display = zgui.io.getDisplaySize();
     zgui.setNextWindowPos(.{ .x = 0, .y = display[1] - 34, .cond = .always });
     zgui.setNextWindowSize(.{ .w = display[0], .h = 34, .cond = .always });
-    // The default 1px window border would show up as a stray hairline
-    // separating the bar from the workspace above it - the filled bg3
-    // rect below is the only divider this bar should have.
-    zgui.pushStyleVar1f(.{ .idx = .window_border_size, .v = 0 });
-    defer zgui.popStyleVar(.{});
     if (zgui.begin("Status", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true } })) {
         const draw = zgui.getWindowDrawList();
         const pos = zgui.getWindowPos();
@@ -293,7 +288,11 @@ pub fn drawCommandPrompt(app: anytype) void {
     if (count < 2) return;
     const rows = @min(count, @as(usize, app.core.completion_popup_rows));
     const row_h: f32 = 39;
-    const popup_w = @min(@as(f32, 620), display[0] - 24);
+    // Full window width, not a 620px card: the description column is the
+    // whole point of the popup, and a DAW's command descriptions are long
+    // enough that capping the panel truncated them on a window with room
+    // to spare.
+    const popup_w = display[0] - 24;
     const popup_h = 31 + row_h * @as(f32, @floatFromInt(rows));
     zgui.setNextWindowPos(.{ .x = 12, .y = prompt_y - popup_h - 6, .cond = .always });
     zgui.setNextWindowSize(.{ .w = popup_w, .h = popup_h, .cond = .always });

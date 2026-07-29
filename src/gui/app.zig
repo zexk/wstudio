@@ -8,7 +8,6 @@ const config_mod = @import("../config.zig");
 const tui_app = @import("../ui/app.zig");
 const history = @import("../ui/history.zig");
 const chrome = @import("chrome.zig");
-const style = @import("style.zig");
 const arrangement_view = @import("views/arrangement.zig");
 const automation_view = @import("views/automation.zig");
 const drum_view = @import("views/drum.zig");
@@ -171,7 +170,6 @@ fn drawWorkspace(app: *App) void {
         // one's offset - looking, at worst, like it rendered nothing. Reset
         // on the switch; the cursor-follow below then places it.
         if (workspaceViewChanged(&app.last_workspace_view, workspace_view)) zgui.setScrollY(0);
-        drawViewHeader(workspace_view);
         drawView(app, workspace_view);
         // The view has finished submitting; this is the window that actually
         // scrolls, so bring whatever row it marked as focused on screen. A
@@ -247,38 +245,6 @@ fn workspaceViewChanged(previous: *tui_app.AppView, current: tui_app.AppView) bo
     if (previous.* == current) return false;
     previous.* = current;
     return true;
-}
-
-fn drawViewHeader(view: tui_app.AppView) void {
-    zgui.textDisabled("WSTUDIO", .{});
-    zgui.sameLine(.{ .spacing = 10 });
-    zgui.textColored(style.palette.focus, "/  {s}", .{viewTitle(view)});
-    zgui.separator();
-    zgui.spacing();
-}
-
-fn viewTitle(view: tui_app.AppView) []const u8 {
-    return switch (view) {
-        .tracks => "TRACKS",
-        .arrangement => "ARRANGEMENT",
-        .piano_roll => "PIANO ROLL",
-        .drum_grid => "DRUM GRID",
-        .slicer_grid => "SLICER",
-        .synth_editor => "SYNTH",
-        .sampler_editor => "SAMPLER",
-        .soundfont_editor => "SOUNDFONT",
-        .track_spectrum => "TRACK SPECTRUM + FX",
-        .master_spectrum => "MASTER SPECTRUM + FX",
-        .group_spectrum => "GROUP SPECTRUM + FX",
-        .automation => "AUTOMATION",
-        .instrument_picker => "ADD INSTRUMENT",
-        .fx_picker => "ADD EFFECT",
-        .synth_fx_picker => "ADD SYNTH EFFECT",
-        .preset_picker => "PRESETS",
-        .automation_param_picker => "ADD AUTOMATION PARAMETER",
-        .file_browser => "FILES",
-        .help => "HELP",
-    };
 }
 
 /// The character GLFW's char callback delivered this frame (see

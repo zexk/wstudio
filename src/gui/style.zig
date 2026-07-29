@@ -226,6 +226,12 @@ pub fn setTheme(border: config_mod.PanelBorder) void {
     style.setColor(.text_selected_bg, .{ palette.focus[0], palette.focus[1], palette.focus[2], 0.35 });
     style.setColor(.nav_cursor, palette.focus);
     style.setColor(.modal_window_dim_bg, .{ palette.bg0[0], palette.bg0[1], palette.bg0[2], 0.78 });
+    // The app fills the OS window with four edge-to-edge panes (transport,
+    // workspace, status, prompt); ImGui's default 1px window border draws a
+    // hairline frame around each of them, which reads as one stray border
+    // around the whole application. The OS decoration is the only outer
+    // border. Child borders stay - those are real section dividers.
+    style.window_border_size = 0;
     style.window_rounding = rounding;
     style.child_rounding = rounding;
     style.popup_rounding = rounding;
