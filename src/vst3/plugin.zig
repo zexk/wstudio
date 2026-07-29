@@ -677,6 +677,10 @@ pub const Vst3Plugin = struct {
         return self.processor.vtable.get_latency_samples(self.processor);
     }
 
+    pub fn latencyFrames(self: *const Vst3Plugin) u32 {
+        return self.latencySamples();
+    }
+
     pub fn serviceMainThread(self: *Vst3Plugin) bool {
         if (self.restart_ready.swap(false, .acquire)) {
             _ = self.component.vtable.set_active(self.component, 0);

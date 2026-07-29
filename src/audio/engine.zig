@@ -716,6 +716,13 @@ pub const Engine = struct {
         }
     }
 
+    pub fn trackLatencyFrames(self: *const Engine, track: u16) u32 {
+        if (track >= max_tracks) return 0;
+        var total: u32 = 0;
+        for (self.tracks[track].chain.slice()) |device| total +|= device.latencyFrames();
+        return total;
+    }
+
     /// Same shape as `setTrackChain` but for the master bus - no instrument
     /// slot, just whichever FX stages `Session.master_fx` has active.
     pub fn setMasterChain(self: *Engine, devices: []const dsp.Device) void {

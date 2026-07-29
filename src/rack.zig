@@ -256,6 +256,10 @@ pub const FxUnit = struct {
         self.payload.device().reset();
     }
 
+    fn latencyFrames(self: *FxUnit) u32 {
+        return self.payload.device().latencyFrames();
+    }
+
     const vtable: dsp.Device.VTable = .{
         .process = struct {
             fn call(ptr: *anyopaque, buf: []types.Sample) void {
@@ -267,6 +271,12 @@ pub const FxUnit = struct {
             fn call(ptr: *anyopaque) void {
                 const self: *FxUnit = @ptrCast(@alignCast(ptr));
                 self.reset();
+            }
+        }.call,
+        .latency_frames = struct {
+            fn call(ptr: *anyopaque) u32 {
+                const self: *FxUnit = @ptrCast(@alignCast(ptr));
+                return self.latencyFrames();
             }
         }.call,
     };

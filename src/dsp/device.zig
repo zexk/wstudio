@@ -102,6 +102,11 @@ pub const Device = struct {
         event: ?*const fn (ptr: *anyopaque, ev: Event) void = null,
         /// Clear tails, voices, and envelopes (e.g. on transport stop).
         reset: *const fn (ptr: *anyopaque) void,
+        latency_frames: *const fn (ptr: *anyopaque) u32 = struct {
+            fn zero(_: *anyopaque) u32 {
+                return 0;
+            }
+        }.zero,
     };
 
     pub fn process(self: Device, buf: []types.Sample) void {
@@ -114,6 +119,10 @@ pub const Device = struct {
 
     pub fn reset(self: Device) void {
         self.vtable.reset(self.ptr);
+    }
+
+    pub fn latencyFrames(self: Device) u32 {
+        return self.vtable.latency_frames(self.ptr);
     }
 };
 
@@ -138,10 +147,15 @@ pub fn deviceOf(comptime T: type) fn (*T) Device {
             const self: *T = @ptrCast(@alignCast(ptr));
             self.handleEvent(ev);
         }
+        fn latencyOpaque(ptr: *anyopaque) u32 {
+            const self: *T = @ptrCast(@alignCast(ptr));
+            return if (@hasDecl(T, "latencyFrames")) self.latencyFrames() else 0;
+        }
         const vtable: Device.VTable = .{
             .process = processOpaque,
             .reset = resetOpaque,
             .event = if (@hasDecl(T, "handleEvent")) eventOpaque else null,
+            .latency_frames = latencyOpaque,
         };
         fn device(self: *T) Device {
             return .{ .ptr = self, .vtable = &vtable };

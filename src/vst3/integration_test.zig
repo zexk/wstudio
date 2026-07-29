@@ -23,7 +23,14 @@ pub fn main(init: std.process.Init) !void {
     var instrument_audio = [_]ws.types.Sample{0} ** 8;
     instrument.processBlock(&instrument_audio);
     try std.testing.expectEqual(@as(f32, 0.25), instrument_audio[0]);
+    try std.testing.expectEqual(@as(usize, 1), instrument.automationParams().len);
+    instrument.handleEvent(.{ .automation_param = .{ .id = 100, .value = 0.75 } });
+    instrument.handleEvent(.{ .note_on = .{ .note = 60, .velocity = 1 } });
+    @memset(&instrument_audio, 0);
+    instrument.processBlock(&instrument_audio);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.1875), instrument_audio[0], 0.0001);
     try std.testing.expectEqual(@as(u32, 7), instrument.latencySamples());
+    try std.testing.expectEqual(@as(u32, 7), instrument.device().latencyFrames());
 
     var effect = try ws.vst3.Vst3Plugin.loadModule(init.gpa, module_path, "wstudio-test.vst3", "57535445464645435400000000000001", 48_000, false);
     defer effect.deinit();
@@ -48,10 +55,6 @@ pub fn main(init: std.process.Init) !void {
     effect.handleEvent(.{ .cc = .{ .cc = 1, .value = 127 } });
     effect.processBlock(&effect_audio);
     try std.testing.expectApproxEqAbs(@as(f32, 0.2), effect_audio[0], 0.0001);
-    try std.testing.expectEqual(@as(usize, 1), effect.automationParams().len);
-    effect.handleEvent(.{ .automation_param = .{ .id = 100, .value = 0.75 } });
-    effect.processBlock(&effect_audio);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.3), effect_audio[0], 0.0001);
 
     var mono = try ws.vst3.Vst3Plugin.loadModule(init.gpa, module_path, "wstudio-test.vst3", "5753544d4f4e4f465800000000000001", 48_000, false);
     defer mono.deinit();
