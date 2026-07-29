@@ -65,7 +65,8 @@ audio-port behavior through the bundled CLAP test plugin.
 
 Shared modal behavior has broad integration coverage through the TUI harness.
 GUI checks cover drag history boundaries, cursor following, viewport changes,
-and picker selection and dismissal; held-key state still needs direct coverage.
+picker selection and dismissal, and held navigation versus edge-triggered edit
+keys.
 
 Goal:
 
