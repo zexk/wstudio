@@ -58,7 +58,7 @@ pub const pad_sections = [_]Section{
     } },
 };
 pub const key_section: Section = .{ .kind = .key, .title = "KEY", .rows = &.{
-    .{ .id = Sampler.root_note_id, .label = "Root note", .gui_format = "%.0f" },
+    .{ .id = Sampler.root_note_id, .label = "Root note", .gui_format = format.note_cfmt },
     .{ .id = Sampler.mono_id,      .label = "Voice",     .gui_format = "%.0f" },
 } };
 // zig fmt: on

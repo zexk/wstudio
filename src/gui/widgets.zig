@@ -362,6 +362,7 @@ fn stripNegativeZero(s: []const u8, digits: u2) []const u8 {
 fn knobFormatValue(buf: []u8, cfmt: [:0]const u8, value: f32) []const u8 {
     if (std.mem.eql(u8, cfmt, format.pan_cfmt)) return format.panLabel(buf, value);
     if (std.mem.eql(u8, cfmt, format.filter_cfmt)) return format.filterLabel(buf, value);
+    if (std.mem.eql(u8, cfmt, format.note_cfmt)) return format.noteLabel(buf, value);
     const at = std.mem.indexOf(u8, cfmt, "%.") orelse {
         const s = std.fmt.bufPrint(buf, "{d:.2}", .{value}) catch return "";
         return stripNegativeZero(s, 2);
