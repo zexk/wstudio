@@ -9,6 +9,28 @@ const Session = @import("session.zig").Session;
 
 pub const Range = struct { start_frame: u64, total_frames: u64, has_loop_region: bool };
 
+/// Prefix one-based track index, then reduce name to filesystem-safe chars.
+/// Index keeps cloned or identically named tracks from overwriting each other.
+pub fn stemName(buf: []u8, name: []const u8, index: usize) []const u8 {
+    const prefix = std.fmt.bufPrint(buf, "{d}-", .{index + 1}) catch return buf[0..0];
+    var len: usize = prefix.len;
+    for (name) |c| {
+        if (len >= buf.len) break;
+        buf[len] = switch (c) {
+            'a'...'z', 'A'...'Z', '0'...'9', '-', '_', ' ' => c,
+            else => '_',
+        };
+        len += 1;
+    }
+    if (len == prefix.len) {
+        const fallback = "track";
+        const end = @min(len + fallback.len, buf.len);
+        @memcpy(buf[len..end], fallback[0 .. end - len]);
+        len = end;
+    }
+    return buf[0..len];
+}
+
 pub fn contentBeats(session: *const Session) f64 {
     var max_beats: f64 = 0;
     for (session.racks.items) |rack| {
@@ -89,4 +111,10 @@ test "range uses longest pattern and preserves loop selection" {
     const selected = range(&session, 0);
     try std.testing.expectEqual(@as(u64, 12_000), selected.start_frame);
     try std.testing.expectEqual(@as(u64, 24_000), selected.total_frames);
+}
+
+test "stemName sanitizes paths and handles empty names" {
+    var buf: [64]u8 = undefined;
+    try std.testing.expectEqualStrings("1-bass_lead", stemName(&buf, "bass/lead", 0));
+    try std.testing.expectEqualStrings("3-track", stemName(&buf, "", 2));
 }

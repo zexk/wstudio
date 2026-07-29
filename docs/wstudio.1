@@ -19,6 +19,11 @@ wstudio \- keyboard-centric digital audio workstation
 .RI [ output.wav ]]
 .br
 .B wstudio
+.B render-stems
+.I project.wsj
+.RI [ output-dir ]
+.br
+.B wstudio
 .B clap\-scan
 .br
 .B wstudio
@@ -82,6 +87,12 @@ sanity-checking the audio pipeline.
 With a project path, renders that saved session instead. Optional output path
 defaults to
 .IR bounce.wav .
+.TP
+.B render-stems
+Render each non-empty track from a saved session to a numbered WAV file.
+Number prefixes prevent duplicate track names from overwriting stems.
+Optional output directory defaults to
+.IR stems/ .
 .TP
 .B clap\-scan
 List every installed CLAP plugin as

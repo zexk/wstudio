@@ -54,6 +54,10 @@ pub fn main(init: std.process.Init) !void {
             if (rest.items.len > 3) return renderUsage(init.io);
             return renderProject(init.gpa, init.io, rest.items[1], if (rest.items.len == 3) rest.items[2] else "bounce.wav");
         }
+        if (std.mem.eql(u8, cmd, "render-stems")) {
+            if (rest.items.len < 2 or rest.items.len > 3) return renderStemsUsage(init.io);
+            return renderProjectStems(init.gpa, init.io, rest.items[1], if (rest.items.len == 3) rest.items[2] else "stems");
+        }
         if (std.mem.eql(u8, cmd, "clap-scan")) return scanClap(init);
         if (std.mem.eql(u8, cmd, "vst3-scan")) return scanVst3(init);
         if (std.mem.eql(u8, cmd, "devices")) return listDevices(init.io);
@@ -156,6 +160,8 @@ fn printHelp(io: std.Io) !void {
             "  wstudio render      Render the built-in demo melody to out.wav\n" ++
             "  wstudio render <project.wsj> [output.wav]\n" ++
             "                      Render a saved project (default: bounce.wav)\n" ++
+            "  wstudio render-stems <project.wsj> [output-dir]\n" ++
+            "                      Render each non-empty track (default: stems/)\n" ++
             "  wstudio clap-scan   List installed CLAP plugin IDs and paths\n" ++
             "  wstudio vst3-scan   List installed VST3 plugin IDs and paths\n" ++
             "  wstudio devices     List audio and live MIDI device IDs\n" ++
@@ -217,6 +223,14 @@ fn renderUsage(io: std.Io) !void {
     return error.InvalidArguments;
 }
 
+fn renderStemsUsage(io: std.Io) !void {
+    var stderr_buffer: [128]u8 = undefined;
+    var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
+    try stderr_writer.interface.writeAll("usage: wstudio render-stems project.wsj [output-dir]\n");
+    try stderr_writer.interface.flush();
+    return error.InvalidArguments;
+}
+
 fn renderProject(allocator: std.mem.Allocator, io: std.Io, project_path: []const u8, output_path: []const u8) !void {
     var session = try ws.persist.load(allocator, io, project_path);
     defer session.deinit();
@@ -226,12 +240,7 @@ fn renderProject(allocator: std.mem.Allocator, io: std.Io, project_path: []const
     defer allocator.free(samples);
     ws.bounce.render(&session, samples, bounce_range.start_frame);
 
-    const file = try std.Io.Dir.cwd().createFile(io, output_path, .{});
-    defer file.close(io);
-    var file_buffer: [8192]u8 = undefined;
-    var file_writer = file.writer(io, &file_buffer);
-    try ws.wav.write(&file_writer.interface, session.project.sample_rate, ws.engine.channels, samples, .pcm16);
-    try file_writer.interface.flush();
+    try writeBounce(io, output_path, session.project.sample_rate, samples);
 
     var stdout_buffer: [1024]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
@@ -242,6 +251,47 @@ fn renderProject(allocator: std.mem.Allocator, io: std.Io, project_path: []const
         output_path,
     });
     try stdout_writer.interface.flush();
+}
+
+fn renderProjectStems(allocator: std.mem.Allocator, io: std.Io, project_path: []const u8, output_dir: []const u8) !void {
+    var session = try ws.persist.load(allocator, io, project_path);
+    defer session.deinit();
+    try std.Io.Dir.cwd().createDirPath(io, output_dir);
+
+    const bounce_range = ws.bounce.range(&session, 2.0);
+    const samples = try allocator.alloc(ws.types.Sample, @as(usize, @intCast(bounce_range.total_frames)) * ws.engine.channels);
+    defer allocator.free(samples);
+
+    var name_buffer: [64]u8 = undefined;
+    var path_buffer: [4096]u8 = undefined;
+    var rendered: usize = 0;
+    for (0..session.project.tracks.items.len) |i| {
+        if (std.meta.activeTag(session.racks.items[i].instrument) == .empty) continue;
+        for (session.project.tracks.items, 0..) |*candidate, j| {
+            candidate.soloed = j == i;
+            _ = session.engine.send(.{ .set_track_solo = .{ .track = @intCast(j), .soloed = candidate.soloed } });
+        }
+
+        ws.bounce.render(&session, samples, bounce_range.start_frame);
+        const name = ws.bounce.stemName(&name_buffer, session.project.tracks.items[i].name, i);
+        const path = try std.fmt.bufPrint(&path_buffer, "{s}/{s}.wav", .{ output_dir, name });
+        try writeBounce(io, path, session.project.sample_rate, samples);
+        rendered += 1;
+    }
+
+    var stdout_buffer: [256]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
+    try stdout_writer.interface.print("rendered {d} stem(s) -> {s}/\n", .{ rendered, output_dir });
+    try stdout_writer.interface.flush();
+}
+
+fn writeBounce(io: std.Io, path: []const u8, sample_rate: u32, samples: []const ws.types.Sample) !void {
+    const file = try std.Io.Dir.cwd().createFile(io, path, .{});
+    defer file.close(io);
+    var file_buffer: [8192]u8 = undefined;
+    var file_writer = file.writer(io, &file_buffer);
+    try ws.wav.write(&file_writer.interface, sample_rate, ws.engine.channels, samples, .pcm16);
+    try file_writer.interface.flush();
 }
 
 const out_path = "out.wav";

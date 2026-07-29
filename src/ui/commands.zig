@@ -126,7 +126,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "xa",          .desc = "[file]  save project and quit (alias for :write-quit)", .run = wrap(cmdWriteQuit) },
     .{ .name = "bounce",       .desc = "[file] [16|24]  render session to WAV (default: bounce.wav, 16-bit)", .run = wrap(cmdBounce) },
     .{ .name = "export",       .desc = "[file] [16|24]  render session to WAV (alias for :bounce)",          .run = wrap(cmdBounce) },
-    .{ .name = "bounce-stems", .desc = "[dir] [16|24]  render each non-empty track soloed to <dir>/<track>.wav (default: stems/)", .run = wrap(cmdBounceStems) },
+    .{ .name = "bounce-stems", .desc = "[dir] [16|24]  render each non-empty track soloed to <dir>/<N>-<track>.wav (default: stems/)", .run = wrap(cmdBounceStems) },
     .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern, or every pad in a drum machine", .run = wrap(cmdClear) },
     .{ .name = "%d",          .desc = "erase all notes/hits in the pattern (alias for :clear)",  .run = wrap(cmdClear) },
     .{ .name = "humanize",    .desc = "[amount]  jitter the pattern's note timing/velocity 0-100% (default 15)", .run = wrap(cmdHumanize) },
@@ -2684,25 +2684,8 @@ fn cmdBounce(app: *App, args: []const u8) void {
     }
 }
 
-/// Fills `buf` with `name` reduced to filesystem-safe characters (alnum,
-/// space, `-`, `_`); anything else becomes `_`. Falls back to `track<N>`
-/// (1-based) if that leaves nothing.
-fn sanitizeStemName(buf: []u8, name: []const u8, index: usize) []const u8 {
-    var len: usize = 0;
-    for (name) |c| {
-        if (len >= buf.len) break;
-        buf[len] = switch (c) {
-            'a'...'z', 'A'...'Z', '0'...'9', '-', '_', ' ' => c,
-            else => '_',
-        };
-        len += 1;
-    }
-    if (len == 0) return std.fmt.bufPrint(buf, "track{d}", .{index + 1}) catch buf[0..0];
-    return buf[0..len];
-}
-
 /// `:bounce-stems [dir] [16|24]` - renders every non-empty track soloed in
-/// turn to `<dir>/<track-name>.wav` (default dir: `wstudio.o.default_stems_dir`),
+/// turn to `<dir>/<N>-<track-name>.wav` (default dir: `wstudio.o.default_stems_dir`),
 /// using the same length/range rules as `:bounce` (armed loop region, else
 /// full song/pattern). Solo state is restored exactly afterward, whatever it
 /// was before this ran.
@@ -2762,7 +2745,7 @@ fn cmdBounceStems(app: *App, args: []const u8) void {
         engine.bounce_active.store(false, .release);
         engine.bounce_parked.store(false, .release);
 
-        const stem_name = sanitizeStemName(&stem_buf, t.name, i);
+        const stem_name = ws.bounce.stemName(&stem_buf, t.name, i);
         const file_path = std.fmt.bufPrint(&file_path_buf, "{s}/{s}.wav", .{ dir, stem_name }) catch {
             app.setStatus("bounce-stems: path too long for track {d}", .{i + 1});
             continue;
