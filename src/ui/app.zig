@@ -3051,11 +3051,13 @@ pub const App = struct {
             switch (plugin.format) {
                 .clap => self.session.setClapInstrument(self.cursor, plugin.path, plugin.id) catch |err| {
                     if (backup) |*b| b.deinit(self.allocator);
+                    std.log.err("failed to load {s}: {s}", .{ plugin.name, @errorName(err) });
                     self.setStatus("{s}: {s}", .{ plugin.name, @errorName(err) });
                     return;
                 },
                 .vst3 => self.session.setVst3Instrument(self.cursor, plugin.path, plugin.id, plugin.name) catch |err| {
                     if (backup) |*b| b.deinit(self.allocator);
+                    std.log.err("failed to load {s}: {s}", .{ plugin.name, @errorName(err) });
                     self.setStatus("{s}: {s}", .{ plugin.name, @errorName(err) });
                     return;
                 },

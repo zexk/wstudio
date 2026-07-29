@@ -1010,6 +1010,7 @@ pub fn insertExternalFromPicker(app: *App, plugin: *const ws.plugin_catalog.Plug
     };
     _ = loaded catch |err| {
         history.pushFxIfOk(app, before, false);
+        std.log.err("failed to load {s}: {s}", .{ plugin.name, @errorName(err) });
         app.setStatus("{s}: {s}", .{ plugin.name, @errorName(err) });
         syncAnalyzer(app, target);
         return;

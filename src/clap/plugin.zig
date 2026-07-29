@@ -475,6 +475,8 @@ pub const ClapPlugin = struct {
     pub fn processBlock(self: *ClapPlugin, buf: []types.Sample) void {
         const frames = buf.len / 2;
         if (frames == 0 or frames > types.max_block_frames or buf.len % 2 != 0) return;
+        on_audio_thread = true;
+        defer on_audio_thread = false;
         if (self.host_context.restart_requested.swap(false, .acquire)) {
             self.restart_in_progress.store(true, .release);
             if (self.started) self.plugin.stop_processing(self.plugin);
@@ -528,8 +530,6 @@ pub const ClapPlugin = struct {
             .in_events = &self.events.interface,
             .out_events = &self.output_events,
         };
-        on_audio_thread = true;
-        defer on_audio_thread = false;
         if (self.host_context.param_flush_requested.swap(false, .acquire)) {
             if (self.paramsExtension()) |params|
                 params.flush(self.plugin, &empty_input_events, &self.output_events);
@@ -769,7 +769,6 @@ pub const ClapPlugin = struct {
                 }
             }
         }
-        if (!created) created = gui.create(self.plugin, null, true);
         if (!created) return error.FloatingGuiUnsupported;
         self.gui_created = true;
         gui.suggest_title(self.plugin, self.plugin.desc.name);

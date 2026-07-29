@@ -97,6 +97,9 @@ fn pluginDeactivate(_: *const abi.Plugin) callconv(.c) void {
 
 fn startProcessing(_: *const abi.Plugin) callconv(.c) bool {
     if (!state.active) return false;
+    const host = state.host orelse return false;
+    const threads: *const abi.HostThreadCheck = @ptrCast(@alignCast(host.get_extension(host, abi.ext_thread_check) orelse return false));
+    if (!threads.is_audio_thread(host)) return false;
     state.processing = true;
     return true;
 }
@@ -302,8 +305,8 @@ fn guiPreferredApi(_: *const abi.Plugin, api: *?[*:0]const u8, floating: *bool) 
     return true;
 }
 
-fn guiCreate(_: *const abi.Plugin, _: ?[*:0]const u8, floating: bool) callconv(.c) bool {
-    if (!floating or state.gui_created) return false;
+fn guiCreate(_: *const abi.Plugin, api: ?[*:0]const u8, floating: bool) callconv(.c) bool {
+    if (!floating or api == null or state.gui_created) return false;
     state.gui_created = true;
     return true;
 }
