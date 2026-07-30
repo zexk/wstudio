@@ -781,3 +781,22 @@ fn drawOscillatorShape(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, wave
         prev = point;
     }
 }
+
+test "cursorSection finds the section holding a param, including a multi-field row" {
+    const testing = std.testing;
+    // Every param the layout lists must resolve, including the interior ids of
+    // a multi-field row (a matrix row is one entry covering several ids) - a
+    // cursor that lands in a gap used to leave the view with no focused card.
+    inline for (.{ &synth_layout.main_sections, &synth_layout.mod_sections }) |sections| {
+        for (sections, 0..) |section, index| {
+            for (section.params) |entry| {
+                for (0..entry.fields) |offset| {
+                    const id: u16 = entry.id + @as(u16, @intCast(offset));
+                    try testing.expectEqual(@as(?usize, index), cursorSection(sections, id));
+                }
+            }
+        }
+    }
+    // An id no section claims is null rather than an out-of-bounds index.
+    try testing.expectEqual(@as(?usize, null), cursorSection(&synth_layout.main_sections, 60_000));
+}

@@ -419,6 +419,26 @@ test "GUI picker cards select and escape dismisses" {
     try std.testing.expectEqual(tui_app.AppView.sampler_editor, app.core.view);
 }
 
+// Zig only analyzes tests in files the test root references explicitly, so a
+// view's tests are invisible unless it is named here - a whole file's worth
+// of them silently stopped running once already (05f01b7). Every GUI file,
+// listed, so adding a test anywhere under src/gui is enough to have it run.
 test {
+    _ = @import("chrome.zig");
+    _ = @import("style.zig");
+    _ = @import("widgets.zig");
+    _ = @import("views/arrangement.zig");
+    _ = @import("views/automation.zig");
+    _ = @import("views/drum.zig");
+    _ = @import("views/file_browser.zig");
+    _ = @import("views/fx.zig");
+    _ = @import("views/help.zig");
+    _ = @import("views/picker.zig");
     _ = @import("views/piano.zig");
+    _ = @import("views/sampler.zig");
+    _ = @import("views/slicer.zig");
+    _ = @import("views/soundfont.zig");
+    _ = @import("views/step_grid.zig");
+    _ = @import("views/synth.zig");
+    _ = @import("views/tracks.zig");
 }

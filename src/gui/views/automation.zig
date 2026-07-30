@@ -313,3 +313,39 @@ fn containsAny(label: []const u8, needles: []const []const u8) bool {
     }
     return false;
 }
+
+test "curvePoint maps the lane's corners and clamps past them" {
+    const testing = std.testing;
+    const origin = [2]f32{ 40, 80 };
+    const size = [2]f32{ 400, 200 };
+    const range = [2]f32{ -12, 12 };
+
+    // Beat 0 at the left, the lane's last beat at the right; the value axis is
+    // inverted (a high value draws near the top).
+    const low = curvePoint(origin, size, 0, range[0], 16, range);
+    try testing.expectApproxEqAbs(origin[0], low[0], 0.01);
+    try testing.expectApproxEqAbs(origin[1] + size[1], low[1], 0.01);
+    const high = curvePoint(origin, size, 16, range[1], 16, range);
+    try testing.expectApproxEqAbs(origin[0] + size[0], high[0], 0.01);
+    try testing.expectApproxEqAbs(origin[1], high[1], 0.01);
+    const mid = curvePoint(origin, size, 8, 0, 16, range);
+    try testing.expectApproxEqAbs(origin[0] + size[0] / 2, mid[0], 0.01);
+    try testing.expectApproxEqAbs(origin[1] + size[1] / 2, mid[1], 0.01);
+
+    // A point past the lane's length (a clip shortened under it) stays on the
+    // widget instead of drawing off into the next panel.
+    const past = curvePoint(origin, size, 99, 999, 16, range);
+    try testing.expectApproxEqAbs(origin[0] + size[0], past[0], 0.01);
+    try testing.expectApproxEqAbs(origin[1], past[1], 0.01);
+}
+
+test "compactParamRange labels the unit the param's name implies" {
+    const testing = std.testing;
+    var buf: [64]u8 = undefined;
+    try testing.expectEqualStrings("0 .. 100%", compactParamRange(&buf, "MIX", .{ 0, 1 }));
+    try testing.expectEqualStrings("20.00 .. 20000.00 Hz", compactParamRange(&buf, "FILTER CUTOFF", .{ 20, 20_000 }));
+    try testing.expectEqualStrings("-24.00 .. 24.00 st", compactParamRange(&buf, "PITCH SEMI", .{ -24, 24 }));
+    try testing.expectEqualStrings("-50.00 .. 50.00 ct", compactParamRange(&buf, "DETUNE", .{ -50, 50 }));
+    try testing.expectEqualStrings("-60.00 .. 0.00 dB", compactParamRange(&buf, "COMP THRESH", .{ -60, 0 }));
+    try testing.expectEqualStrings("1.00 .. 8.00", compactParamRange(&buf, "VOICES", .{ 1, 8 }));
+}

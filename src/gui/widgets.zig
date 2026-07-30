@@ -64,7 +64,10 @@ fn rowScrollTarget(top_y: f32, height: f32, win_top: f32, win_height: f32, pad: 
 
 test "cursor following scrolls only when focused row leaves viewport" {
     try std.testing.expectEqual(@as(f32, 40), rowScrollTarget(130, 20, 100, 100, 10, 40, 200));
-    try std.testing.expectEqual(@as(f32, 65), rowScrollTarget(185, 20, 100, 100, 10, 40, 200));
+    // Row bottom 205, viewport bottom minus padding 190: scroll the 15 that
+    // brings it flush, not a padding's worth more (this case asserted 65 and
+    // had never run - see the test block in gui/app.zig).
+    try std.testing.expectEqual(@as(f32, 55), rowScrollTarget(185, 20, 100, 100, 10, 40, 200));
     try std.testing.expectEqual(@as(f32, 20), rowScrollTarget(70, 20, 100, 100, 10, 60, 200));
     try std.testing.expectEqual(@as(f32, 0), rowScrollTarget(0, 20, 100, 100, 10, 5, 200));
     try std.testing.expectEqual(@as(f32, 200), rowScrollTarget(400, 20, 100, 100, 10, 190, 200));

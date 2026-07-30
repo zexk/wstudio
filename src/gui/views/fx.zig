@@ -731,3 +731,28 @@ fn targetMonitorLabel(target: spectrum_ed.EqTarget) []const u8 {
         .group => "GROUP SPECTRUM",
     };
 }
+
+test "EQ pixel mapping round-trips a frequency and a gain" {
+    const testing = std.testing;
+    // The curve is log-frequency, linear-dB; a drag reads pixels back through
+    // the inverse, so a mapping that is not each other's inverse moves a band
+    // under the mouse. 20 Hz sits at the left edge, 20 kHz at the right.
+    const origin = [2]f32{ 100, 50 };
+    const size = [2]f32{ 800, 300 };
+    try testing.expectApproxEqAbs(origin[0], eqFreqX(origin[0], size[0], eq_freq_min), 0.01);
+    try testing.expectApproxEqAbs(origin[0] + size[0], eqFreqX(origin[0], size[0], eq_freq_max), 0.01);
+    for ([_]f32{ 20, 100, 440, 1000, 5000, 20_000 }) |freq| {
+        const back = eqXFreq(origin[0], size[0], eqFreqX(origin[0], size[0], freq));
+        try testing.expectApproxEqRel(freq, back, 0.001);
+    }
+    // 0 dB is the middle line, +18 the top (y grows downward).
+    try testing.expectApproxEqAbs(origin[1] + size[1] / 2, eqDbY(origin[1], size[1], 0), 0.01);
+    try testing.expectApproxEqAbs(origin[1], eqDbY(origin[1], size[1], eq_db_max), 0.01);
+    for ([_]f32{ -18, -6, 0, 6, 18 }) |db| {
+        const back = eqYDb(origin[1], size[1], eqDbY(origin[1], size[1], db));
+        try testing.expectApproxEqAbs(db, back, 0.01);
+    }
+    // Out of range clamps to an edge rather than drawing off the curve.
+    try testing.expectApproxEqAbs(origin[0], eqFreqX(origin[0], size[0], 1), 0.01);
+    try testing.expectApproxEqAbs(origin[1] + size[1], eqDbY(origin[1], size[1], -40), 0.01);
+}
