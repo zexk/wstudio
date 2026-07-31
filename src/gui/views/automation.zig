@@ -10,6 +10,11 @@ const color = style.color;
 const trackColor = style.trackColor;
 const theme = &style.palette;
 
+/// The envelope pane yields to the point readout under it instead of pushing
+/// it off screen (see widgets.PaneFit). One layout for every curve, so the fit
+/// needs no key.
+var pane_fit: widgets.PaneFit = .{};
+
 pub fn draw(app: anytype) void {
     const clip = automation_ed.currentClip(&app.core);
     drawHeader(app, clip);
@@ -31,7 +36,9 @@ pub fn draw(app: anytype) void {
     zgui.spacing();
     widgets.sectionTitle("ENVELOPE", theme.modulation);
     drawCurve(app, points, @max(0.25, length_beats), value_range);
+    const below_top = zgui.getCursorPosY();
     drawEditor(points.*);
+    pane_fit.settle(below_top, 0);
 }
 
 fn drawHeader(app: anytype, clip: ?*const ws.Clip) void {
@@ -104,7 +111,7 @@ fn focusedPointIndex(app: anytype, points: []const ws.dsp.automation.AutomationP
 
 fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_beats: f32, value_range: [2]f32) void {
     const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = std.math.clamp(zgui.getContentRegionAvail()[1] - 104, 280, 560);
+    const height: f32 = pane_fit.height(180, 560);
     const origin = zgui.getCursorScreenPos();
     const draw_list = zgui.getWindowDrawList();
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg0), .rounding = style.panel_rounding });

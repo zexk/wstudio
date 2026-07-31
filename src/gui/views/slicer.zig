@@ -10,6 +10,12 @@ const step_grid = @import("step_grid.zig");
 
 const theme = &style.palette;
 
+/// The source-waveform pane yields to the slice sequence under it, which
+/// always pages a whole bank of slices (see editors/step_grid.zig) and so has
+/// a floor the pane must respect rather than push off screen. Keyed on the
+/// slice count, not on how many banks fit - that one moves with the pane.
+var pane_fit: widgets.PaneFit = .{};
+
 pub fn draw(app: anytype) void {
     const track = app.core.slicer_track;
     if (track >= app.core.session.racks.items.len) return;
@@ -33,6 +39,7 @@ pub fn draw(app: anytype) void {
         drawSourceWaveform(app, slicer);
     }
     zgui.spacing();
+    const below_top = zgui.getCursorPosY();
     drawSliceState(app, slicer);
     zgui.spacing();
     widgets.sectionTitle("SLICE SEQUENCE", theme.focus);
@@ -50,6 +57,7 @@ pub fn draw(app: anytype) void {
         app.core.slicer_visual_slice_anchor,
         &app.core.slicer_paint_state,
     );
+    pane_fit.settle(below_top, slicer.slice_count);
 }
 
 fn drawEmptyState(app: anytype) void {
@@ -91,7 +99,7 @@ fn drawSourceWaveform(app: anytype, slicer: *const ws.dsp.Slicer) void {
         return;
     }
     const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = std.math.clamp(zgui.getContentRegionAvail()[1] * 0.42, 180, 300);
+    const height: f32 = pane_fit.height(120, 300);
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("##slicer-source-wave", .{ .w = width, .h = height });
     const hovered = zgui.isItemHovered(.{});

@@ -10,6 +10,16 @@ const color = style.color;
 const rgb = style.rgb;
 const theme = &style.palette;
 
+/// The EQ graph and the empty chain's monitor yield their height to the
+/// controls under them rather than pushing them off screen (see
+/// widgets.PaneFit). One fit each: they never share a frame, and a trim
+/// measured for the band controls has nothing to say about an empty state.
+/// The effect display sizes itself off `gridFloor` instead, because its param
+/// cards stretch - measuring content that grows into whatever the pane gives
+/// back would leave the two chasing each other.
+var eq_fit: widgets.PaneFit = .{};
+var monitor_fit: widgets.PaneFit = .{};
+
 pub fn draw(app: anytype) void {
     const target = spectrum_ed.currentTarget(&app.core);
     const fx = spectrum_ed.fxPtr(&app.core, target) orelse {
@@ -142,17 +152,25 @@ fn drawEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void
         drawEqEditor(app, target, unit);
     } else {
         ensureEqAnalyzer(app, target);
-        drawEffectDisplay(app, target, unit);
-        zgui.spacing();
         const param_count = spectrum_ed.visibleParamCount(&app.core, unit.kind(), &unit.payload);
-        drawParamGrid(app, target, unit, param_count);
+        const grid = paramGrid(param_count);
+        // Plus the `spacing()` below, which costs an item spacing twice over
+        // (once for the pane itself, once for the spacer) - unreserved, the
+        // grid came up exactly that short and clipped its last row.
+        drawEffectDisplay(app, target, unit, gridFloor(grid.rows) + 2 * zgui.getStyle().item_spacing[1]);
+        zgui.spacing();
+        drawParamGrid(app, target, unit, grid);
         if (unit.bypassed) zgui.textColored(theme.danger, "BYPASSED  (b to re-enable)", .{});
     }
 }
 
-fn drawEffectDisplay(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void {
+fn drawEffectDisplay(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, grid_floor: f32) void {
     const size = zgui.getContentRegionAvail();
-    const height: f32 = std.math.clamp(size[1] * 0.48, 150, 260);
+    // The cards below are a unit: whatever they need at their shortest is
+    // theirs, and the display keeps the rest instead of taking a fixed share
+    // and pushing the last row off the window (see the sampler's pane in
+    // widgets.PaneFit for the same rule where the panels are content-sized).
+    const height: f32 = std.math.clamp(size[1] - grid_floor, 100, 260);
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("fx-effect-display", .{ .w = size[0], .h = height });
     const draw_list = zgui.getWindowDrawList();
@@ -215,16 +233,45 @@ fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
     };
 }
 
-fn drawParamGrid(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, param_count: usize) void {
+/// Shortest and tallest a param card is allowed to be, and the gap drawn
+/// between rows of them.
+const param_row_min: f32 = 82;
+const param_row_max: f32 = 150;
+const param_row_gap: f32 = 8;
+
+/// How the cards pack at the width the editor draws them in. Both the grid
+/// and the display pane above it read this, so they agree on the shape before
+/// either is drawn.
+fn paramGrid(param_count: usize) spectrum_ed.ParamGrid {
     const available = zgui.getContentRegionAvail()[0];
-    const max_columns: usize = @intFromFloat(@max(1, @floor((available + 8) / 210)));
-    const grid = spectrum_ed.paramGrid(param_count, @min(max_columns, 4));
-    const gap: f32 = 8;
-    const available_height = zgui.getContentRegionAvail()[1];
+    const max_columns: usize = @intFromFloat(@max(1, @floor((available + param_row_gap) / 210)));
+    return spectrum_ed.paramGrid(param_count, @min(max_columns, 4));
+}
+
+/// Vertical cost of getting from one row of cards to the next: the gap dummy
+/// plus the item spacing ImGui adds after both it and the row. Left out of
+/// the row height, the grid overflowed the window by exactly this per row and
+/// the last row of knobs was cut in half.
+fn rowGapCost() f32 {
+    return param_row_gap + 2 * zgui.getStyle().item_spacing[1];
+}
+
+/// Least height the grid can be drawn in - what the display pane above it
+/// must leave over.
+fn gridFloor(rows: usize) f32 {
+    if (rows == 0) return 0;
+    const count: f32 = @floatFromInt(rows);
+    return count * param_row_min + (count - 1) * rowGapCost();
+}
+
+fn drawParamGrid(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, grid: spectrum_ed.ParamGrid) void {
+    const available = zgui.getContentRegionAvail()[0];
+    const gap: f32 = param_row_gap;
+    const available_height = zgui.getContentRegionAvail()[1] - rowGapCost() * @as(f32, @floatFromInt(grid.rows -| 1));
     const row_height = std.math.clamp(
-        (available_height - gap * @as(f32, @floatFromInt(grid.rows -| 1))) / @as(f32, @floatFromInt(@max(grid.rows, 1))),
-        82,
-        150,
+        available_height / @as(f32, @floatFromInt(@max(grid.rows, 1))),
+        param_row_min,
+        param_row_max,
     );
     const knob_diameter = std.math.clamp(row_height - 44, 38, 64);
 
@@ -259,9 +306,12 @@ fn drawEqEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) vo
     const selected_band = @min(app.core.fx_param / spectrum_ed.eq_fields_per_band, unit.payload.eq.bands.len - 1);
     drawEqGraph(app, target, unit, selected_band);
     zgui.spacing();
+    const below_top = zgui.getCursorPosY();
     drawEqBandStrip(app, unit, selected_band);
-    zgui.spacing();
     drawEqBandControls(app, target, unit, selected_band);
+    // The strip and the controls are the same height for every band, so the
+    // graph has one layout to fit into: no key needed.
+    eq_fit.settle(below_top, 0);
 }
 
 fn ensureEqAnalyzer(app: anytype, target: spectrum_ed.EqTarget) void {
@@ -285,7 +335,7 @@ fn ensureEqAnalyzer(app: anytype, target: spectrum_ed.EqTarget) void {
 
 fn drawEqGraph(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, selected_band: usize) void {
     const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = 238;
+    const height: f32 = eq_fit.height(100, 238);
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("eq-response-graph", .{ .w = width, .h = height });
     const hovered = zgui.isItemHovered(.{});
@@ -447,8 +497,13 @@ fn drawEqBandControls(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUn
     const freq_idx = band_index * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_freq;
     const q_idx = band_index * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_q;
     const gain_idx = band_index * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_gain;
+    // One strip of three, the way an EQ band's controls sit on hardware.
+    // Stacked, they cost three rows the graph above had to give up - and at
+    // the smallest window the editor still scrolled.
     drawEqSlider(app, target, unit, freq_idx, "Frequency", "%.0f Hz", true);
+    zgui.sameLine(.{ .spacing = 28 });
     drawEqSlider(app, target, unit, q_idx, "Q", "%.2f", true);
+    zgui.sameLine(.{ .spacing = 28 });
     if (ws.dsp.eq.usesGain(band.kind))
         drawEqSlider(app, target, unit, gain_idx, "Gain", "%.1f dB", false)
     else
@@ -659,6 +714,7 @@ fn drawEmptyState(app: anytype, target: spectrum_ed.EqTarget) void {
     ensureEqAnalyzer(app, target);
     drawBusMonitor(app, target);
     zgui.spacing();
+    const below_top = zgui.getCursorPosY();
     var explanation_buf: [96]u8 = undefined;
     const explanation = std.fmt.bufPrint(&explanation_buf, "Insert an effect to shape this {s}.", .{targetRole(target)}) catch "Insert an effect.";
     if (widgets.emptyState(.{
@@ -669,11 +725,13 @@ fn drawEmptyState(app: anytype, target: spectrum_ed.EqTarget) void {
         .action = "ADD EFFECT",
         .accent = targetAccent(target),
     })) spectrum_ed.openPicker(&app.core, target);
+    // The empty-state card is one fixed size whatever the bus is.
+    monitor_fit.settle(below_top, 0);
 }
 
 fn drawBusMonitor(app: anytype, target: spectrum_ed.EqTarget) void {
     const available = zgui.getContentRegionAvail();
-    const height = std.math.clamp(available[1] * 0.62, 190, 330);
+    const height = monitor_fit.height(120, 330);
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("empty-chain-monitor", .{ .w = available[0], .h = height });
     const draw_list = zgui.getWindowDrawList();
