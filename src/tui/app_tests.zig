@@ -1054,6 +1054,26 @@ test "drum grid +/- resize the loop by a bar, not a single step" {
     try std.testing.expectEqual(start + 8, dm.step_count);
 }
 
+test "slicer grid +/- resize the loop by a bar, not a single step" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+    app.slicer_cursor = .{ 0, 0 };
+    const sl = app.slicerInst();
+    const start = sl.step_count;
+
+    app.handleKey(.{ .char = '+' }, 0);
+    try std.testing.expectEqual(start + 4, sl.step_count);
+    app.handleKey(.{ .char = '-' }, 0);
+    try std.testing.expectEqual(start, sl.step_count);
+
+    // A count prefix scales the resize by whole bars too.
+    for ("2+") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(start + 8, sl.step_count);
+}
+
 test "drum grid m/M set a pad's own loop length, undoably, and rescale on zoom" {
     var app = try testApp();
     defer app.deinit();

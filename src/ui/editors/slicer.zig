@@ -151,14 +151,18 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     } });
                     app.setStatus("preview: slice {d}", .{slice.* + 1});
                 },
+                // Resize by a whole (decorative) bar, not a single step -
+                // the drum grid's same rule (see editors/drum.zig).
                 '-' => {
+                    const delta: u16 = @intCast(step_grid.bar_len * app.takeCount());
                     history.recordSlicer(app, app.slicer_track);
-                    sl.setStepCount(sl.step_count -| 1);
+                    sl.setStepCount(sl.step_count -| delta);
                     if (step.* >= sl.step_count) step.* = sl.step_count - 1;
                 },
                 '+' => {
+                    const delta: u16 = @intCast(step_grid.bar_len * app.takeCount());
                     history.recordSlicer(app, app.slicer_track);
-                    sl.setStepCount(sl.step_count + 1);
+                    sl.setStepCount(sl.step_count +| delta);
                 },
                 'E' => doublePattern(app),
                 'O' => sequenceSourceOrder(app),
