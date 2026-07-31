@@ -130,8 +130,8 @@
         };
     in
     {
-      nixosModules.default = import ./nixos-module.nix { inherit self; };
-      homeManagerModules.default = import ./home-manager-module.nix { inherit self; };
+      nixosModules.default = import ./nix/nixos-module.nix { inherit self; };
+      homeManagerModules.default = import ./nix/home-manager-module.nix { inherit self; };
 
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell (

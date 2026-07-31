@@ -7,7 +7,7 @@
 }:
 let
   cfg = config.programs.wstudio;
-  settingsText = import ./nix/render-settings.nix {
+  settingsText = import ./render-settings.nix {
     inherit lib;
     inherit (cfg) settings;
   };
@@ -26,10 +26,10 @@ in
       type = lib.types.lines;
       default = "";
       example = "wstudio.o.default_tempo = 128";
-      description = "Lua source written to wstudio/init.lua.";
+      description = "System-wide Lua configuration for wstudio.";
     };
     settings = lib.mkOption {
-      type = lib.types.submodule (import ./nix/settings.nix { inherit lib; });
+      type = lib.types.submodule (import ./settings.nix { inherit lib; });
       default = { };
       description = "wstudio startup preferences. Cannot be used with luaConfig.";
     };
@@ -42,8 +42,8 @@ in
         message = "programs.wstudio.luaConfig and programs.wstudio.settings are mutually exclusive";
       }
     ];
-    home.packages = [ cfg.package ];
-    xdg.configFile."wstudio/init.lua" = lib.mkIf (configText != "") {
+    environment.systemPackages = [ cfg.package ];
+    environment.etc."xdg/wstudio/init.lua" = lib.mkIf (configText != "") {
       text = configText;
     };
   };
