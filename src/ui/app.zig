@@ -949,7 +949,7 @@ pub const App = struct {
                     .name = uc.name(),
                     .desc = uc.desc(),
                     .run = user_cmd_runners[i],
-                    .scope = uc.scope,
+                    .scope = cmd_mod.ScopeSet.one(uc.scope),
                 };
                 n += 1;
             }

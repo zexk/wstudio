@@ -16,18 +16,64 @@ const fuzzy = @import("fuzzy.zig");
 /// (usually more specific) error, e.g. "select a drum-machine track first".
 pub const Scope = enum { any, drum, sampler, synth, slicer, soundfont };
 
+/// Empty means every instrument. Otherwise each bit names one supported
+/// instrument, so commands shared by several kinds need one definition.
+pub const ScopeSet = packed struct(u5) {
+    drum: bool = false,
+    sampler: bool = false,
+    synth: bool = false,
+    slicer: bool = false,
+    soundfont: bool = false,
+
+    pub fn one(scope: Scope) ScopeSet {
+        var set: ScopeSet = .{};
+        switch (scope) {
+            .any => {},
+            .drum => set.drum = true,
+            .sampler => set.sampler = true,
+            .synth => set.synth = true,
+            .slicer => set.slicer = true,
+            .soundfont => set.soundfont = true,
+        }
+        return set;
+    }
+
+    fn empty(self: ScopeSet) bool {
+        return @as(u5, @bitCast(self)) == 0;
+    }
+};
+
+pub const scopes = struct {
+    pub const drum: ScopeSet = .{ .drum = true };
+    pub const synth: ScopeSet = .{ .synth = true };
+    pub const slicer: ScopeSet = .{ .slicer = true };
+    pub const soundfont: ScopeSet = .{ .soundfont = true };
+    pub const melodic: ScopeSet = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true };
+    pub const pattern: ScopeSet = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true };
+    pub const sampler_slicer: ScopeSet = .{ .sampler = true, .slicer = true };
+    pub const drum_slicer: ScopeSet = .{ .drum = true, .slicer = true };
+};
+
 pub const Def = struct {
     name: []const u8,
     /// Short usage + description shown by :help, e.g. "[<value>]  set tempo"
     desc: []const u8,
     run: *const fn (ctx: *anyopaque, args: []const u8) void,
-    scope: Scope = .any,
+    scope: ScopeSet = .{},
 };
 
-/// True if `c` should be offered under `active` - either it works anywhere,
-/// or `active` matches the one instrument kind it's scoped to.
+/// True if `c` should be offered under `active`: either it works anywhere,
+/// or its set contains active instrument kind.
 pub fn visible(c: Def, active: Scope) bool {
-    return c.scope == .any or c.scope == active;
+    if (c.scope.empty()) return true;
+    return switch (active) {
+        .any => false,
+        .drum => c.scope.drum,
+        .sampler => c.scope.sampler,
+        .synth => c.scope.synth,
+        .slicer => c.scope.slicer,
+        .soundfont => c.scope.soundfont,
+    };
 }
 
 /// Walk `cmds` and run the first entry whose name matches `text`.
@@ -260,9 +306,9 @@ test "suggestionCount/writeSuggestionBox skip alias entries" {
 const scoped_test_cmds: []const Def = &.{
     // zig fmt: off
     .{ .name = "bpm",       .desc = "tempo",      .run = undefined },
-    .{ .name = "drum-kit",  .desc = "choose kit", .run = undefined, .scope = .drum },
+    .{ .name = "drum-kit",  .desc = "choose kit", .run = undefined, .scope = scopes.drum },
     // zig fmt: on
-    .{ .name = "synth-preset", .desc = "choose preset", .run = undefined, .scope = .synth },
+    .{ .name = "synth-preset", .desc = "choose preset", .run = undefined, .scope = scopes.synth },
 };
 
 test "suggestionCount/writeSuggestionBox hide out-of-scope commands" {
@@ -280,6 +326,23 @@ test "suggestionCount/writeSuggestionBox hide out-of-scope commands" {
     const text = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, text, "drum-kit") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "synth-preset") == null);
+}
+
+test "combined scopes expose commands only to supported instruments" {
+    const combined = &.{
+        Def{ .name = "transpose", .desc = "", .run = undefined, .scope = scopes.melodic },
+        Def{ .name = "clear", .desc = "", .run = undefined, .scope = scopes.pattern },
+        Def{ .name = "bpm-sync", .desc = "", .run = undefined, .scope = scopes.sampler_slicer },
+        Def{ .name = "spread", .desc = "", .run = undefined, .scope = scopes.drum_slicer },
+    };
+    try std.testing.expect(visible(combined[0], .soundfont));
+    try std.testing.expect(!visible(combined[0], .drum));
+    try std.testing.expect(visible(combined[1], .drum));
+    try std.testing.expect(!visible(combined[1], .any));
+    try std.testing.expect(visible(combined[2], .sampler));
+    try std.testing.expect(!visible(combined[2], .synth));
+    try std.testing.expect(visible(combined[3], .slicer));
+    try std.testing.expect(!visible(combined[3], .sampler));
 }
 
 test "writePrompt shows the usage hint once a space follows an exact command name" {
