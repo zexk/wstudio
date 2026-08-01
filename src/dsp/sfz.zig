@@ -101,10 +101,14 @@ pub fn parse(
 
     var fixed_name = [_]u8{0} ** 20;
     @memcpy(fixed_name[0..@min(name.len, fixed_name.len)], name[0..@min(name.len, fixed_name.len)]);
+    const owned_regions = try regions.toOwnedSlice(allocator);
+    errdefer allocator.free(owned_regions);
+    const owned_samples = try samples.toOwnedSlice(allocator);
+    errdefer allocator.free(owned_samples);
     const presets = try allocator.alloc(Preset, 1);
     errdefer allocator.free(presets);
-    presets[0] = .{ .name = fixed_name, .bank = 0, .program = 0, .regions = try regions.toOwnedSlice(allocator) };
-    return .{ .allocator = allocator, .sample_data = try samples.toOwnedSlice(allocator), .presets = presets };
+    presets[0] = .{ .name = fixed_name, .bank = 0, .program = 0, .regions = owned_regions };
+    return .{ .allocator = allocator, .sample_data = owned_samples, .presets = presets };
 }
 
 fn apply(s: *Settings, key: []const u8, value: []const u8) ParseError!void {
@@ -202,4 +206,19 @@ test "SFZ global and group inheritance resolve into shared sample bank" {
     try std.testing.expectEqual(@as(u8, 80), r.vel_hi);
     try std.testing.expectApproxEqAbs(@as(f32, 0.4), r.release_s, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.501187), r.attenuation_gain, 1e-5);
+}
+
+fn parseForAllocationTest(allocator: std.mem.Allocator, dir: std.Io.Dir) !void {
+    var bank = try parse(allocator, std.testing.io, dir, "<region>\nsample=tone.wav\n", "Piano", 48_000);
+    bank.deinit();
+}
+
+test "SFZ parse cleans partial bank after allocation failure" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var wav_buf: [128]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&wav_buf);
+    try @import("../core/wav.zig").write(&writer, 48_000, 1, &.{ 0.25, -0.25 }, .pcm16);
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "tone.wav", .data = writer.buffered() });
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, parseForAllocationTest, .{tmp.dir});
 }
