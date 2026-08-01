@@ -38,3 +38,13 @@ MIDI and audio recording to the enabled A/B frame range. Punch passes disable
 loop wrapping while recording, keep playback running after punch-out, and stamp
 captured audio at the punch-in bar. Hardware capture remains covered by the
 explicit skip above.
+
+## Arrangement markers
+
+Existing named sections satisfy the marker candidate without a new model or
+format change. `:section` adds or renames at the arrangement cursor,
+`:section-del` removes, `{` and `}` seek to previous and next sections, and
+`s` selects the current section. Both frontends route these shared actions and
+draw section names on the arrangement timeline. Automated coverage verifies
+add, rename, delete, previous/next seek, selection, Lua access, time edits, and
+save/reopen persistence.
