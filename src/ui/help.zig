@@ -376,6 +376,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key(".",            "repeat the last clip move / resize or visual range delete/paste");
     t.key("( / )",        "set loop start / end at cursor bar");
     t.key("b",            "toggle A/B loop on/off");
+    t.key(":punch",       "[on|off]  record only between enabled A/B bounds");
     t.key("g",            "play from cursor bar");
     t.key("T",            "toggle song / pattern mode (manual override; view switches while the");
     t.key("",             "  transport is stopped set it for you: arrangement = song, tracks (or a");

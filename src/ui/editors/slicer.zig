@@ -475,7 +475,7 @@ pub fn recordNote(app: *App, pitch: u7, vel: u8) void {
     if (app.slicer_track >= app.session.racks.items.len) return;
     if (app.session.racks.items[app.slicer_track].instrument != .slicer) return;
     const snap = app.session.engine.uiSnapshot();
-    if (!snap.playing) return;
+    if (!snap.playing or !app.recordingPositionAllowed(snap.position_frames)) return;
     const sl = app.slicerInst();
     if (sl.slice_count == 0) return;
     const slice: u8 = @intCast(pitch % sl.slice_count);

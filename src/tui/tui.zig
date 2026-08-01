@@ -136,6 +136,7 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
         try tw.writeAll(icons.iconOr(icons.tempo ++ " ", ""));
         try tw.writeAll("click\x1b[0m");
     }
+    if (self.punch_enabled) try tw.writeAll(" \x1b[31mPUNCH\x1b[0m");
     try tw.print(" {d:0>3}.{d}  {d:0>2}:{d:0>4.1}", .{
         pos.bar + 1,
         pos.beat + 1,

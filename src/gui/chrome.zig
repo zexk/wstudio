@@ -168,6 +168,9 @@ pub fn drawStatus(app: anytype) void {
             const rec_label = std.fmt.bufPrint(&rec_buf, "REC {c}", .{'a' + reg}) catch "REC";
             x = drawStatusSegment(draw, x, pos[1], size[1], theme.danger, theme.bg0, rec_label);
         }
+        if (app.core.punch_enabled) {
+            x = drawStatusSegment(draw, x, pos[1], size[1], theme.danger, theme.bg0, "PUNCH");
+        }
         // vim's 'showcmd': pending operator/count or visual-selection
         // width - same state-not-message treatment as the REC chip.
         var showcmd_buf: [24]u8 = undefined;

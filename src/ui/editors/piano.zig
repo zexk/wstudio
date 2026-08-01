@@ -566,7 +566,7 @@ fn stampChord(app: *App, seventh: bool) void {
 pub fn recordNote(app: *App, pitch: u7, velocity: f32) void {
     const pp = currentPatternPlayer(app) orelse return;
     const snap = app.session.engine.uiSnapshot();
-    if (!snap.playing) return;
+    if (!snap.playing or !app.recordingPositionAllowed(snap.position_frames)) return;
     const sr: f64 = @floatFromInt(app.session.project.sample_rate);
     const bpm: f64 = app.session.project.tempo_bpm;
     const raw_beats: f64 = @as(f64, @floatFromInt(snap.position_frames)) / (sr * 60.0 / bpm);

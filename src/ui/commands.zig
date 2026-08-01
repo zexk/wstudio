@@ -151,6 +151,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "import-midi", .desc = "<file>  replace the pattern with a Standard MIDI File's notes",     .run = wrap(cmdImportMidi) },
     .{ .name = "export-midi", .desc = "<file>  write the pattern as a Standard MIDI File",                 .run = wrap(cmdExportMidi) },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
+    .{ .name = "punch",       .desc = "[on|off]  record only inside the enabled A/B bounds", .run = wrap(cmdPunch) },
     .{ .name = "scale",       .desc = "[<root> [<type>]|off]  piano-roll scale highlight + chord-stamp key", .run = wrap(cmdScale) },
     .{ .name = "snap-scale",  .desc = "[<root> [<type>]]  pull every off-scale note onto the nearest tone of the active :scale", .run = wrap(cmdSnapScale) },
     .{ .name = "ghost",       .desc = "[on|off]  dim every other melodic track's notes into the piano-roll background", .run = wrap(cmdGhost) },
@@ -1197,6 +1198,11 @@ fn cmdMetronome(app: *App, args: []const u8) void {
     const on = onOffArg(trimmed, app.session.metronome_enabled);
     app.session.setMetronome(on);
     app.setStatus("metronome {s}", .{if (on) "on" else "off"});
+}
+
+fn cmdPunch(app: *App, args: []const u8) void {
+    const on = onOffArg(std.mem.trim(u8, args, " "), app.punch_enabled);
+    _ = app.setPunch(on);
 }
 
 /// Shared `[on|off]` argument form: the literal words set the flag, anything

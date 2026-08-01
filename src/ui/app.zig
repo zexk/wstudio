@@ -412,6 +412,13 @@ pub const App = struct {
     /// Bars clicked through before a record count-in starts playback, from
     /// `count_in_bars` - see `toggle_play`'s insert-mode recording arm.
     count_in_bars: u8 = 1,
+    /// Record only inside the arrangement A/B bounds. Recording aid, not
+    /// project content, like count-in and metronome state.
+    punch_enabled: bool = false,
+    /// Loop start captured when the current record pass began. Non-null also
+    /// marks a punch pass while loop wrapping is temporarily disabled.
+    recording_punch_start_bar: ?u32 = null,
+    recording_punch_end_bar: ?u32 = null,
     /// Audio-input capture for record-armed Sampler tracks (see
     /// `Session.isAudioArmed`). Opened only for the duration of a record
     /// pass by `startPendingRecording`, closed by `finishRecording` -
@@ -2817,6 +2824,25 @@ pub const App = struct {
         }
     }
 
+    pub fn setPunch(self: *App, enabled: bool) bool {
+        const p = &self.session.project;
+        if (enabled and (!p.loop_enabled or p.loop_end_bar <= p.loop_start_bar)) {
+            self.setStatus("punch: set and enable A/B bounds first", .{});
+            return false;
+        }
+        self.punch_enabled = enabled;
+        self.setStatus("punch {s}", .{if (enabled) "on" else "off"});
+        return true;
+    }
+
+    pub fn recordingPositionAllowed(self: *const App, position_frames: u64) bool {
+        if (!self.punch_enabled and self.recording_punch_start_bar == null) return true;
+        const fpb = self.session.project.framesPerBar();
+        const start = @as(u64, self.recording_punch_start_bar orelse self.session.project.loop_start_bar) *| fpb;
+        const end = @as(u64, self.recording_punch_end_bar orelse self.session.project.loop_end_bar) *| fpb;
+        return position_frames >= start and position_frames < end;
+    }
+
     /// Called by `tick` the instant a record pass's count-in finishes and
     /// the transport actually starts (playing false->true) with pending
     /// audio targets queued. Opens the input device for real; a missing
@@ -2841,7 +2867,9 @@ pub const App = struct {
     /// called every tick while a pass is active, and once more at the very
     /// end of `finishRecording` to pick up the tail.
     fn drainRecording(self: *App) void {
+        const allowed = self.recordingPositionAllowed(self.session.engine.uiSnapshot().position_frames);
         while (self.audio_input.pop()) |block| {
+            if (!allowed) continue;
             self.recording_accum.appendSlice(self.allocator, block.samples[0..block.frames]) catch break;
         }
     }
@@ -2887,7 +2915,8 @@ pub const App = struct {
             const notes = [_]pattern_mod.Note{.{ .pitch = s.root_note, .start_beat = 0.0, .duration_beat = length_beats, .velocity = 1.0 }};
             self.session.racks.items[track_idx].pattern_player.?.setNotes(&notes, length_beats);
 
-            self.session.stampClipAtTick(track_idx, self.arr_cursor_bar *| self.arr_grid.ticks()) catch {
+            const start_bar = self.recording_punch_start_bar orelse self.arr_cursor_bar;
+            self.session.stampClipAtTick(track_idx, start_bar *| self.arr_grid.ticks()) catch {
                 if (backup) |*b| b.deinit(self.allocator);
                 continue;
             };
@@ -3701,9 +3730,12 @@ pub const App = struct {
                     // can't pick up this canceled attempt's stale targets.
                     _ = self.session.engine.send(.stop);
                     self.recording_pending_len = 0;
+                    if (self.recording_punch_start_bar != null) self.session.syncLoop();
+                    self.recording_punch_start_bar = null;
+                    self.recording_punch_end_bar = null;
                     self.setStatus("count-in cancelled", .{});
                 } else if (!snap.playing and (self.hasArmedAudioTarget() or
-                    (self.modal.mode == .insert and (self.view == .piano_roll or self.view == .drum_grid))))
+                    (self.modal.mode == .insert and (self.view == .piano_roll or self.view == .drum_grid or self.view == .slicer_grid))))
                 {
                     // Starting playback to record (insert mode, piano roll or
                     // drum grid, currently stopped) clicks a `count_in_bars`
@@ -3717,11 +3749,22 @@ pub const App = struct {
                     // resolved now, before the count-in, so its clicks never
                     // land in the captured audio (see `tick`).
                     self.resolveArmedAudioTargets();
+                    self.recording_punch_start_bar = if (self.punch_enabled) self.session.project.loop_start_bar else null;
+                    self.recording_punch_end_bar = if (self.punch_enabled) self.session.project.loop_end_bar else null;
+                    if (self.punch_enabled) {
+                        const fpb = self.session.project.framesPerBar();
+                        _ = self.session.engine.send(.{ .set_loop = .{
+                            .enabled = false,
+                            .start_frames = @as(u64, self.session.project.loop_start_bar) *| fpb,
+                            .end_frames = @as(u64, self.session.project.loop_end_bar) *| fpb,
+                        } });
+                    }
                     _ = self.session.engine.send(.{ .record = self.count_in_bars });
                     if (self.count_in_bars > 0) self.setStatus("count-in...", .{});
                 } else {
                     const cmd: engine_mod.Command = if (snap.playing) .stop else .play;
                     _ = self.session.engine.send(cmd);
+                    if (snap.playing and self.recording_punch_start_bar != null) self.session.syncLoop();
                 }
             },
             .toggle_mute => {
@@ -4347,8 +4390,14 @@ pub const App = struct {
         // `resolveArmedAudioTargets`/`toggle_play`). Symmetric on the other
         // edge: the pass ends the instant playback stops.
         if (playing and !was_playing) self.startPendingRecording();
-        if (self.recording_active_len > 0) self.drainRecording();
+        const position_frames = self.session.engine.uiSnapshot().position_frames;
+        const punch_end = @as(u64, self.recording_punch_end_bar orelse self.session.project.loop_end_bar) *| self.session.project.framesPerBar();
+        if (self.recording_active_len > 0 and self.recording_punch_start_bar != null and position_frames >= punch_end)
+            self.finishRecording()
+        else if (self.recording_active_len > 0) self.drainRecording();
         if (!playing and was_playing) self.finishRecording();
+        if (!playing and was_playing) self.recording_punch_start_bar = null;
+        if (!playing and was_playing) self.recording_punch_end_bar = null;
     }
 
     /// External-plugin main-thread callbacks and dirty-state notifications share the
@@ -4899,6 +4948,9 @@ pub const App = struct {
         self.recording_pending_len = 0;
         self.recording_active_len = 0;
         self.recording_accum.clearRetainingCapacity();
+        self.punch_enabled = false;
+        self.recording_punch_start_bar = null;
+        self.recording_punch_end_bar = null;
         self.history.clear(self.allocator);
         self.pending_param_nudge = null;
         if (self.pending_fx_nudge) |*p| p.deinit(self.allocator);

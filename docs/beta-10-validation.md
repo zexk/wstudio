@@ -30,3 +30,11 @@ stay under `.zig-cache/` or isolated screenshot homes.
 
 These skips do not cover create, edit, undo/redo, save/reopen, transport, or
 export. Those paths passed in both Linux frontends above.
+
+## Punch recording
+
+Automated frontend coverage verifies `:punch` rejects missing bounds and gates
+MIDI and audio recording to the enabled A/B frame range. Punch passes disable
+loop wrapping while recording, keep playback running after punch-out, and stamp
+captured audio at the punch-in bar. Hardware capture remains covered by the
+explicit skip above.

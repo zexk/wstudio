@@ -14,6 +14,7 @@ history lives in [FORMAT.md](FORMAT.md).
 - Internal rack stereo width with mono-compatible mid/side width and output trim.
 - Internal rack auto-pan/tremolo with free or tempo-synced rate.
 - Internal rack transient shaper with attack, sustain, and output trim.
+- Punch-in/out recording inside existing arrangement A/B bounds via `:punch`.
 
 ## v1.0.0-beta.9
 

@@ -3787,6 +3787,46 @@ test ":metronome toggles, and on/off set it explicitly" {
     try std.testing.expect(app.session.metronome_enabled);
 }
 
+test ":punch requires A/B bounds and gates recording to their frame range" {
+    var app = try testApp();
+    defer app.deinit();
+
+    for (":punch on") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expect(!app.punch_enabled);
+
+    app.session.project.loop_start_bar = 1;
+    app.session.project.loop_end_bar = 3;
+    app.session.project.loop_enabled = true;
+    for (":punch on") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expect(app.punch_enabled);
+
+    const fpb = app.session.project.framesPerBar();
+    try std.testing.expect(!app.recordingPositionAllowed(fpb - 1));
+    try std.testing.expect(app.recordingPositionAllowed(fpb));
+    try std.testing.expect(app.recordingPositionAllowed(3 * fpb - 1));
+    try std.testing.expect(!app.recordingPositionAllowed(3 * fpb));
+
+    _ = app.session.engine.send(.play);
+    _ = app.session.engine.send(.{ .seek_frames = fpb - 128 });
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block);
+    const initial_notes = app.session.racks.items[0].pattern_player.?.note_count;
+    piano_ed.recordNote(&app, 60, 1);
+    try std.testing.expectEqual(initial_notes, app.session.racks.items[0].pattern_player.?.note_count);
+
+    _ = app.session.engine.send(.{ .seek_frames = fpb });
+    app.session.engine.process(&block);
+    piano_ed.recordNote(&app, 61, 1);
+    try std.testing.expectEqual(initial_notes + 1, app.session.racks.items[0].pattern_player.?.note_count);
+
+    _ = app.session.engine.send(.{ .seek_frames = 3 * fpb });
+    app.session.engine.process(&block);
+    piano_ed.recordNote(&app, 62, 1);
+    try std.testing.expectEqual(initial_notes + 1, app.session.racks.items[0].pattern_player.?.note_count);
+}
+
 test ":sig sets beats per bar and reshapes bar math" {
     var app = try testApp();
     defer app.deinit();

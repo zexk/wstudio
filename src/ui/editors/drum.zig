@@ -346,7 +346,7 @@ pub fn recordNote(app: *App, pitch: u7, vel: u8) void {
     if (app.drum_track >= app.session.racks.items.len) return;
     if (app.session.racks.items[app.drum_track].instrument != .drum_machine) return;
     const snap = app.session.engine.uiSnapshot();
-    if (!snap.playing) return;
+    if (!snap.playing or !app.recordingPositionAllowed(snap.position_frames)) return;
     const dm = app.drumMachine();
     const pad: u8 = @intCast(pitch % DrumMachine.max_pads);
     const step = dm.currentStep();
