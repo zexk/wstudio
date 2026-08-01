@@ -244,6 +244,13 @@ const ParamChanges = struct {
     const vtable: abi.ParameterChangesVTable = .{ .query_interface = query, .add_ref = ref, .release = ref, .get_parameter_count = count, .get_parameter_data = get, .add_parameter_data = add };
 };
 
+fn releaseController(controller: anytype, initialized: bool) void {
+    if (controller) |value| {
+        if (initialized) _ = value.vtable.terminate(value);
+        _ = value.vtable.release(value);
+    }
+}
+
 pub const Vst3Plugin = struct {
     allocator: std.mem.Allocator,
     module: module_mod.Module,
@@ -315,19 +322,16 @@ pub const Vst3Plugin = struct {
         errdefer _ = processor.vtable.release(processor);
 
         var controller: ?*abi.EditController = null;
+        var controller_initialized = false;
+        errdefer releaseController(controller, controller_initialized);
         var controller_id: abi.Tuid = undefined;
         if (component.vtable.get_controller_class_id(component, &controller_id) == 0) {
             var controller_raw: ?*anyopaque = null;
             if (module.factory.vtable.create_instance(module.factory, &controller_id, &abi.edit_controller_iid, &controller_raw) == 0) {
                 controller = @ptrCast(@alignCast(controller_raw orelse return error.ControllerCreateFailed));
                 if (controller.?.vtable.initialize(controller.?, @ptrCast(&host_context.application)) != 0) return error.ControllerInitializeFailed;
+                controller_initialized = true;
                 if (controller.?.vtable.set_component_handler(controller.?, &host_context.handler) != 0) return error.ComponentHandlerRejected;
-            }
-        }
-        errdefer {
-            if (controller) |value| {
-                _ = value.vtable.terminate(value);
-                _ = value.vtable.release(value);
             }
         }
         var midi_mapping: ?*abi.MidiMapping = null;
@@ -729,4 +733,37 @@ test "VST3 memory stream reads writes and seeks" {
     var output: [5]u8 = undefined;
     try std.testing.expectEqual(@as(abi.Result, 0), stream.interface.vtable.read(&stream.interface, &output, output.len, &count));
     try std.testing.expectEqualStrings(input, &output);
+}
+
+test "controller cleanup terminates only initialized instances and always releases" {
+    const Mock = struct {
+        const Self = @This();
+        const VTable = struct {
+            terminate: *const fn (*Self) i32,
+            release: *const fn (*Self) u32,
+        };
+        vtable: *const VTable = &vtable_value,
+        terminated: usize = 0,
+        released: usize = 0,
+
+        fn terminate(self: *Self) i32 {
+            self.terminated += 1;
+            return 0;
+        }
+        fn release(self: *Self) u32 {
+            self.released += 1;
+            return 0;
+        }
+        const vtable_value: VTable = .{ .terminate = terminate, .release = release };
+    };
+
+    var before_init: Mock = .{};
+    releaseController(@as(?*Mock, &before_init), false);
+    try std.testing.expectEqual(@as(usize, 0), before_init.terminated);
+    try std.testing.expectEqual(@as(usize, 1), before_init.released);
+
+    var after_init: Mock = .{};
+    releaseController(@as(?*Mock, &after_init), true);
+    try std.testing.expectEqual(@as(usize, 1), after_init.terminated);
+    try std.testing.expectEqual(@as(usize, 1), after_init.released);
 }
