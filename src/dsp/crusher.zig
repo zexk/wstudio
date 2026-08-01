@@ -35,14 +35,16 @@ pub const Crusher = struct {
         const step: u32 = @intFromFloat(@round(downsample));
         var i: usize = 0;
         while (i + 1 < buf.len) : (i += 2) {
+            const left = dsp.sanitizeParam(buf[i], -16, 16, 0);
+            const right = dsp.sanitizeParam(buf[i + 1], -16, 16, 0);
             if (self.counter == 0) {
-                self.hold[0] = @round(buf[i] * q) / q;
-                self.hold[1] = @round(buf[i + 1] * q) / q;
+                self.hold[0] = @round(left * q) / q;
+                self.hold[1] = @round(right * q) / q;
             }
             self.counter = (self.counter + 1) % step;
-            buf[i]     = buf[i] * (1.0 - mix) + self.hold[0] * mix;
+            buf[i]     = left * (1.0 - mix) + self.hold[0] * mix;
             // zig fmt: on
-            buf[i + 1] = buf[i + 1] * (1.0 - mix) + self.hold[1] * mix;
+            buf[i + 1] = right * (1.0 - mix) + self.hold[1] * mix;
         }
     }
 };
@@ -67,6 +69,14 @@ test "downsample holds each frame for the factor's duration" {
     try std.testing.expectApproxEqAbs(buf[0], buf[6], 1e-4);
     try std.testing.expectApproxEqAbs(@as(Sample, 0.4), buf[8], 1e-3);
     try std.testing.expectApproxEqAbs(buf[8], buf[14], 1e-4);
+}
+
+test "non-finite input cannot poison sample-and-hold state" {
+    var crush = Crusher{ .downsample = 4.0 };
+    var buf = [_]Sample{ std.math.nan(f32), std.math.inf(f32), 0.5, -0.5, 0.25, -0.25 };
+    crush.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
+    for (crush.hold) |sample| try std.testing.expect(std.math.isFinite(sample));
 }
 
 test "mix 0 passes the input untouched" {
