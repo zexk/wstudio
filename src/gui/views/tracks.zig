@@ -97,6 +97,7 @@ const MixerDrag = struct {
     speed: f32,
     /// What a right-click or double-click snaps back to.
     default: f32,
+    centered_fill: bool = false,
     cfmt: [:0]const u8,
 };
 
@@ -128,19 +129,37 @@ fn mixerDrag(args: MixerDrag) MixerDragResult {
         .cfmt = args.cfmt,
         .flags = .{ .always_clamp = true, .no_input = true },
     });
-    const reset = zgui.isItemHovered(.{}) and
+    const hovered = zgui.isItemHovered(.{});
+    const wheel = hovered and gui_style.wheel_delta != 0;
+    if (wheel) {
+        gui_style.wheel_consumed = true;
+        const scale: f32 = if (zgui.isKeyDown(.mod_shift)) 10 else if (zgui.isKeyDown(.mod_alt)) 0.01 else 1;
+        value = std.math.clamp(value + gui_style.wheel_delta * args.speed * scale, args.min, args.max);
+        changed = true;
+    }
+    const reset = hovered and
         (zgui.isMouseClicked(.right) or zgui.isMouseDoubleClicked(.left));
     if (reset) {
         value = args.default;
         changed = true;
     }
+    const t = std.math.clamp((value - args.min) / (args.max - args.min), 0, 1);
+    const anchor: f32 = if (args.centered_fill) std.math.clamp((args.default - args.min) / (args.max - args.min), 0, 1) else 0;
+    const item_min = zgui.getItemRectMin();
+    const item_max = zgui.getItemRectMax();
+    zgui.getWindowDrawList().addRectFilled(.{
+        .pmin = .{ item_min[0] + args.w * @min(anchor, t), item_max[1] - 3 },
+        .pmax = .{ item_min[0] + args.w * @max(anchor, t), item_max[1] },
+        .col = color(theme.focus),
+        .rounding = gui_style.item_rounding,
+    });
     return .{
         .value = value,
         .changed = changed,
         // A right-click reset never activates the drag itself, so it has to
         // open the undo entry it also closes, or the reset isn't undoable.
-        .activated = reset or zgui.isItemActivated(),
-        .finished = reset or zgui.isItemDeactivatedAfterEdit(),
+        .activated = wheel or reset or zgui.isItemActivated(),
+        .finished = wheel or reset or zgui.isItemDeactivatedAfterEdit(),
     };
 }
 
@@ -304,13 +323,14 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
         .max = 100,
         .speed = 0.5,
         .default = 0,
+        .centered_fill = true,
         .cfmt = panFmt(&pan_buf, pan_before),
     });
     if (pan.activated) app.beginTrackMixerEdit(track_index, .pan, pan_before);
     if (pan.changed) app.core.apiSetTrackPan(track_index, pan.value / 100);
     if (pan.finished) app.finishTrackMixerEdit();
 
-    widgets.solidMeterBar(draw_list, .{ block_x0 + block_inset, center_y + 10 }, app.track_meter_hold_db[track_index], block_w - 2 * block_inset, 4, 2, block_fg);
+    widgets.solidMeterBar(draw_list, .{ block_x0 + block_inset, center_y + 14 }, app.track_meter_hold_db[track_index], block_w - 2 * block_inset, 4, 2, block_fg);
 
     // Always three fixed slots (unlike the old read-only badges, which only
     // occupied space when already on) so each has a stable, clickable hit
