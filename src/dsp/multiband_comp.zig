@@ -291,12 +291,21 @@ test "loud full-spectrum signal is attenuated toward each band's threshold" {
         b.threshold_db = -12.0;
         b.ratio = 4.0;
     }
-    // A few hundred blocks of a 0dBFS square wave (broadband via the sharp
-    // edges) so all three bands see plenty of signal and the envelopes settle.
+    // One sustained tone per crossover band (100Hz low, 1kHz mid, 6kHz high)
+    // at -8dBFS each, so all three bands sit well above the -12dB threshold
+    // and every band's envelope settles into real gain reduction. A square
+    // wave can't do this: its energy is all at the fundamental and odd
+    // harmonics, so a 6kHz square only ever drove the high band and the low
+    // and mid bands sat silent at 0dB gain.
+    const tau = 2.0 * std.math.pi;
     var buf: [512]Sample = undefined;
     for (0..200) |blk| {
         for (0..256) |i| {
-            const s: f32 = if ((blk * 256 + i) % 8 < 4) 1.0 else -1.0;
+            const n: f32 = @floatFromInt(blk * 256 + i);
+            const s: f32 = 0.4 *
+                (std.math.sin(tau * 100.0 * n / 48_000.0) +
+                    std.math.sin(tau * 1_000.0 * n / 48_000.0) +
+                    std.math.sin(tau * 6_000.0 * n / 48_000.0));
             buf[i * 2] = s;
             buf[i * 2 + 1] = s;
         }
