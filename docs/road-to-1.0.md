@@ -1,7 +1,7 @@
 # Road to 1.0
 
-Four more beta releases remain after beta.5. Each release gets one main
-theme. Scope narrows toward 1.0 instead of growing until the final tag.
+Beta.10 is the final release candidate. Scope narrows toward 1.0 instead of
+growing until the final tag.
 
 ## 1.0.0-beta.5: close known gaps
 
@@ -49,9 +49,19 @@ release or documentation defects. Verify clean installs, bundled demo, project
 round trips, device setup, plugins, and release artifacts on Linux, Windows,
 and macOS.
 
+Beta.9 validation exposed a real VST3 activation blocker and left native
+hardware journeys incomplete, so it is not promoted directly to 1.0.
+
+## 1.0.0-beta.10: final release candidate
+
+Follow the bounded [beta.10 goals](beta-10-goals.md). Close beta.9 gaps, prove
+coherence across frontends and live/offline paths, grow the internal rack from
+14 to 20 effects, admit at most two small journey-proven DAW gaps, and finish
+release polish and native validation.
+
 ## 1.0.0
 
-Release beta.9 code as 1.0 once no release-blocking regression remains. Do not
+Release beta.10 code as 1.0 once no release-blocking regression remains. Do not
 attach a final feature batch to the stable tag.
 
 VST3 is the last planned large feature. Embedded plugin GUIs, surround buses,
