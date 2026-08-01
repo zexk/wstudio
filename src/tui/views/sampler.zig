@@ -123,6 +123,7 @@ pub fn drawSamplerEditor(
     }
 
     var buf: [40]u8 = undefined;
+    const duration = @max(ws.dsp.pad.playDurationSeconds(pad, app.session.project.sample_rate), 0.001);
 
     // zig fmt: off
     // ── SAMPLE ───────────────────────────────────
@@ -148,13 +149,13 @@ pub fn drawSamplerEditor(
     // ── AMP ENV ──────────────────────────────────
     try synthSection(w, sampler_ed.pad_sections[1].title, grn);
     written += 1;
-    try barRow(w, c == 3, false, grn, "attack", pad.attack_s, 1.0,
+    try barRow(w, c == 3, false, grn, "attack", pad.attack_s, duration,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{pad.attack_s}));
-    try barRow(w, c == 4, false, grn, "decay", pad.decay_s, 1.0,
+    try barRow(w, c == 4, false, grn, "decay", pad.decay_s, duration,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{pad.decay_s}));
     try barRow(w, c == 5, false, grn, "sustain", pad.sustain, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.3}", .{pad.sustain}));
-    try barRow(w, c == 6, false, grn, "release", pad.release_s, 1.0,
+    try barRow(w, c == 6, false, grn, "release", pad.release_s, duration,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{pad.release_s}));
     written += 4;
 
@@ -184,9 +185,9 @@ pub fn drawSamplerEditor(
     // ── FADE: edit fades multiplied on top of the amp envelope ───────────────
     try synthSection(w, sampler_ed.pad_sections[3].title, acc);
     written += 1;
-    try barRow(w, c == 10, false, acc, "fade in", pad.fade_in_s, 1.0,
+    try barRow(w, c == 10, false, acc, "fade in", pad.fade_in_s, duration,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{pad.fade_in_s}));
-    try barRow(w, c == 11, false, acc, "fade out", pad.fade_out_s, 1.0,
+    try barRow(w, c == 11, false, acc, "fade out", pad.fade_out_s, duration,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{pad.fade_out_s}));
     written += 2;
 

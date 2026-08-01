@@ -110,6 +110,37 @@ pub const gate_id: u16 = 14;
 pub const pitch_id: u16 = 2;
 pub const stretch_id: u16 = 12;
 
+pub fn playDurationSeconds(pad: *const Pad, sample_rate: u32) f32 {
+    if (sample_rate == 0 or pad.samples.len == 0) return 0;
+    const region = @max(0, pad.end_norm - pad.start_norm);
+    const source_seconds = @as(f32, @floatFromInt(pad.samples.len)) * region / @as(f32, @floatFromInt(sample_rate));
+    const rate = std.math.pow(f32, 2, pad.pitch_semitones / 12);
+    return @max(0, source_seconds * pad.stretch_ratio / rate);
+}
+
+pub fn clampTimeParamsToDuration(pad: *Pad, sample_rate: u32) void {
+    if (sample_rate == 0 or pad.samples.len == 0) return;
+    const duration = playDurationSeconds(pad, sample_rate);
+    pad.attack_s = std.math.clamp(pad.attack_s, 0, duration);
+    pad.decay_s = std.math.clamp(pad.decay_s, 0, duration);
+    pad.release_s = std.math.clamp(pad.release_s, 0, duration);
+    pad.fade_in_s = std.math.clamp(pad.fade_in_s, 0, duration);
+    pad.fade_out_s = std.math.clamp(pad.fade_out_s, 0, duration);
+}
+
+pub fn affectsTimeRange(id: u16) bool {
+    return id == 0 or id == 1 or id == pitch_id or id == 3 or id == 4 or id == 6 or id == 10 or id == 11 or id == stretch_id;
+}
+
+test "fade range follows trimmed pitched playback duration" {
+    var samples = [_]f32{0} ** 4_800;
+    var pad: Pad = .{ .samples = &samples, .end_norm = 0.5, .pitch_semitones = 12, .stretch_ratio = 2, .fade_in_s = 1, .fade_out_s = 1 };
+    try std.testing.expectApproxEqAbs(@as(f32, 0.05), playDurationSeconds(&pad, 48_000), 1e-6);
+    clampTimeParamsToDuration(&pad, 48_000);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.05), pad.fade_in_s, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.05), pad.fade_out_s, 1e-6);
+}
+
 /// Nudge shared pad param `id` (0-14) by `steps` (h/l = ±1, H/L = ±10). Shared
 /// by Sampler and Slicer, whose per-slice params were previously hand-copied
 /// switches over the same fields/ranges.

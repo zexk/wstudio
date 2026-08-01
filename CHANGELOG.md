@@ -95,6 +95,8 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Fixed
 
+- Sampler fade handles now use conventional fade lines, taper waveform
+  previews, and scale time-control ranges to trimmed playback duration.
 - Applying a synth preset bound its FX modulation to nothing, so a preset
   whose macro sweeps a reverb or delay parameter (warm-pad, pluck, and
   others) applied with that routing dead.

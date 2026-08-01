@@ -113,6 +113,7 @@ pub const Sampler = struct {
     pub fn adjustParam(self: *Sampler, id: u16, steps: i32) void {
         if (id < pad_dsp.param_count) {
             pad_dsp.adjustParam(&self.pad, id, steps);
+            if (pad_dsp.affectsTimeRange(id)) pad_dsp.clampTimeParamsToDuration(&self.pad, self.sample_rate);
         } else if (id == root_note_id) {
             const r = @as(i32, self.root_note) + steps;
             self.root_note = @intCast(std.math.clamp(r, 0, 127));
@@ -128,6 +129,7 @@ pub const Sampler = struct {
     pub fn setParamAbsolute(self: *Sampler, id: u16, value: f32) void {
         if (id < pad_dsp.param_count) {
             pad_dsp.setParamAbsolute(&self.pad, id, value);
+            if (pad_dsp.affectsTimeRange(id)) pad_dsp.clampTimeParamsToDuration(&self.pad, self.sample_rate);
         } else if (id == root_note_id) {
             if (!(value > 0.0)) { // also catches NaN
                 self.root_note = 0;
@@ -195,6 +197,7 @@ pub const Sampler = struct {
         self.allocator.free(self.pad.samples);
         self.pad.samples = samples;
         self.pad.name = pad_dsp.fixedName(name);
+        pad_dsp.clampTimeParamsToDuration(&self.pad, self.sample_rate);
         self.resetAll();
     }
 
@@ -221,6 +224,7 @@ pub const Sampler = struct {
         defer self.pad_lock.unlock();
         self.allocator.free(self.pad.samples);
         self.pad = .{ .samples = samples, .gain = 1.0, .name = pad_dsp.fixedName(name) };
+        pad_dsp.clampTimeParamsToDuration(&self.pad, self.sample_rate);
         self.resetAll();
     }
 

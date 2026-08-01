@@ -387,7 +387,10 @@ pub const Slicer = struct {
             self.slice_count = 0;
             for (&self.slices) |*p| p.* = .{ .samples = samples };
         } else {
-            for (&self.slices) |*p| p.samples = samples;
+            for (&self.slices) |*p| {
+                p.samples = samples;
+                pad_mod.clampTimeParamsToDuration(p, self.sample_rate);
+            }
         }
         self.clearVoices();
     }
@@ -598,6 +601,7 @@ pub const Slicer = struct {
         const param: u8 = @intCast(id & 0x0F);
         if (slice_idx >= max_slices) return;
         pad_mod.adjustParam(&self.slices[slice_idx], param, steps);
+        if (pad_mod.affectsTimeRange(param)) pad_mod.clampTimeParamsToDuration(&self.slices[slice_idx], self.sample_rate);
     }
 
     pub fn paramId(slice: u8, param: u8) u16 {
@@ -612,6 +616,7 @@ pub const Slicer = struct {
         const param: u8 = @intCast(id & 0x0F);
         if (slice_idx >= max_slices) return;
         pad_mod.setParamAbsolute(&self.slices[slice_idx], param, value);
+        if (pad_mod.affectsTimeRange(param)) pad_mod.clampTimeParamsToDuration(&self.slices[slice_idx], self.sample_rate);
     }
 
     /// Current value of slice-encoded param `id`, in `setParamAbsolute`'s

@@ -58,6 +58,14 @@ const Target = union(enum) {
         };
     }
 
+    fn durationSeconds(self: Target) f32 {
+        const pad: *const ws.dsp.Pad = switch (self) {
+            .standalone => |t| &t.sampler.pad,
+            .pad => |t| t.pad,
+        };
+        return ws.dsp.pad.playDurationSeconds(pad, self.sampleRate());
+    }
+
     fn engineId(self: Target, id: u8) u16 {
         return switch (self) {
             .standalone => id,
@@ -125,9 +133,9 @@ fn drawAmpEnvelope(app: anytype, target: Target) void {
     var decay = target.value(4) orelse return;
     var sustain = target.value(5) orelse return;
     var release = target.value(6) orelse return;
-    const a_range = paramRange(3);
-    const d_range = paramRange(4);
-    const r_range = paramRange(6);
+    const a_range = paramRange(target, 3);
+    const d_range = paramRange(target, 4);
+    const r_range = paramRange(target, 6);
 
     const cursor = app.core.sampler_param;
     const focused_stage: ?u2 = if (cursor == 3) 0 else if (cursor == 4 or cursor == 5) 1 else if (cursor == 6) 2 else null;
@@ -299,7 +307,9 @@ fn drawHeader(app: anytype, sampler: *const ws.dsp.Sampler) void {
 // from what setParamAbsolute actually clamps to. The shared pad ids are the
 // same params the standalone sampler routes to dsp/pad.zig, so one table
 // covers both targets; root note is the only continuous id outside it.
-fn paramRange(id: u8) [2]f32 {
+fn paramRange(target: Target, id: u8) [2]f32 {
+    if (id == 3 or id == 4 or id == 6 or id == 10 or id == 11)
+        return .{ 0, @max(target.durationSeconds(), 0.001) };
     if (ws.dsp.Sampler.findAutomatableParam(id)) |param| return param.range;
     if (id == ws.dsp.Sampler.root_note_id) return .{ 0, 127 };
     return .{ 0, 1 };
@@ -307,7 +317,7 @@ fn paramRange(id: u8) [2]f32 {
 
 fn drawParam(app: anytype, target: Target, id: u8, label_text: []const u8, format: [:0]const u8) void {
     var value = target.value(id) orelse return;
-    const range = paramRange(id);
+    const range = paramRange(target, id);
     var label_buf: [64]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "{s}##sampler-target-{d}", .{ label_text, id }) catch return;
     const focused = app.core.sampler_param == id;
@@ -367,6 +377,11 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
     // source columns they trim (ui/waveform.zig).
     const scale = waveform.timeScale(target.value(2) orelse 0, target.value(12) orelse 1);
     const played_end = waveform.playedEndNorm(start, end, scale);
+    const sample_rate = target.sampleRate();
+    const total_f: f32 = @floatFromInt(samples.len);
+    const sr_f: f32 = @floatFromInt(@max(sample_rate, 1));
+    const fade_in_norm = std.math.clamp((target.value(10) orelse 0) * sr_f / total_f, 0, played_end - start);
+    const fade_out_norm = std.math.clamp((target.value(11) orelse 0) * sr_f / total_f, 0, played_end - start);
 
     var overview: [512]f32 = undefined;
     var bands: [512]waveform.Band = undefined;
@@ -379,8 +394,9 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
     const played_end_x = origin[0] + played_end * width;
     for (overview[0..count], 0..) |peak, i| {
         const x = origin[0] + width * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(count));
-        const h = @max(1, peak * height / 2 * 0.94);
         const in_region = x >= start_x - 0.5 and x <= played_end_x + 0.5;
+        const norm = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(count));
+        const h = @max(1, peak * fadeGain(norm, start, played_end, fade_in_norm, fade_out_norm) * height / 2 * 0.94);
         const line_color = if (in_region) bandColor(bands[i]) else [4]f32{ theme.fg3[0], theme.fg3[1], theme.fg3[2], 0.55 };
         draw_list.addLine(.{ .p1 = .{ x, mid_y - h }, .p2 = .{ x, mid_y + h }, .col = style.color(line_color), .thickness = 1 });
     }
@@ -389,33 +405,17 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
     if (start > 0) draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ start_x, origin[1] + height }, .col = style.color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.6 }) });
     if (played_end < 1) draw_list.addRectFilled(.{ .pmin = .{ played_end_x, origin[1] }, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.6 }) });
 
-    // Fade wedges: shade the region between each region edge and the
-    // gain-ramp's full-level point, tapering to a point on the center line -
-    // the same silent-corner/full-tip shape DAWs draw for a clip fade.
-    // fade_in_s/fade_out_s are seconds so they're converted to a fraction
-    // of the whole clip via `sample_rate`, same units renderVoice uses.
-    const region_frac = @max(0.0, end - start);
-    const sample_rate = target.sampleRate();
-    const total_f: f32 = @floatFromInt(samples.len);
-    var fade_in_x = start_x;
-    var fade_out_x = end_x;
-    if (sample_rate > 0 and total_f > 0) {
-        const fade_in_s = target.value(10) orelse 0;
-        const fade_out_s = target.value(11) orelse 0;
-        const sr_f: f32 = @floatFromInt(sample_rate);
-        const fade_in_frac = std.math.clamp(fade_in_s * sr_f / total_f, 0, region_frac);
-        const fade_out_frac = std.math.clamp(fade_out_s * sr_f / total_f, 0, region_frac);
-        fade_in_x = origin[0] + (start + fade_in_frac) * width;
-        fade_out_x = origin[0] + (end - fade_out_frac) * width;
-        drawFadeWedge(draw_list, start_x, fade_in_x, origin[1], mid_y, height, theme.focus, app.waveform_drag == .fade_in);
-        drawFadeWedge(draw_list, end_x, fade_out_x, origin[1], mid_y, height, theme.focus, app.waveform_drag == .fade_out);
-    }
+    const fade_in_x = origin[0] + (start + fade_in_norm) * width;
+    const fade_out_x = origin[0] + (played_end - fade_out_norm) * width;
+    drawFadeLine(draw_list, start_x, fade_in_x, origin[1], mid_y, theme.focus, app.waveform_drag == .fade_in, false);
+    drawFadeLine(draw_list, played_end_x, fade_out_x, origin[1], mid_y, theme.focus, app.waveform_drag == .fade_out, true);
 
     drawRegionHandle(draw_list, start_x, origin[1], height, theme.focus, app.waveform_drag == .start);
     drawRegionHandle(draw_list, end_x, origin[1], height, theme.rhythm, app.waveform_drag == .end);
 
-    const near_fade_in = hovered and sample_rate > 0 and @abs(mouse[0] - fade_in_x) <= 8 and @abs(mouse[1] - mid_y) <= 10;
-    const near_fade_out = hovered and sample_rate > 0 and @abs(mouse[0] - fade_out_x) <= 8 and @abs(mouse[1] - mid_y) <= 10;
+    const fade_y = origin[1] + 8;
+    const near_fade_in = hovered and sample_rate > 0 and @abs(mouse[0] - fade_in_x) <= 8 and @abs(mouse[1] - fade_y) <= 10;
+    const near_fade_out = hovered and sample_rate > 0 and @abs(mouse[0] - fade_out_x) <= 8 and @abs(mouse[1] - fade_y) <= 10;
     const near_trim = hovered and (@abs(mouse[0] - start_x) <= 8 or @abs(mouse[0] - end_x) <= 8);
     const near_handle = near_trim or near_fade_in or near_fade_out;
     if (hovered and zgui.isMouseClicked(.left) and near_handle) {
@@ -438,9 +438,8 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
                     app.core.sampler_param = id;
                 },
                 .fade_in, .fade_out => if (sample_rate > 0 and total_f > 0) {
-                    const sr_f: f32 = @floatFromInt(sample_rate);
-                    const pos = std.math.clamp(norm, start, end);
-                    const frac = if (handle == .fade_in) pos - start else end - pos;
+                    const pos = std.math.clamp(norm, start, played_end);
+                    const frac = if (handle == .fade_in) pos - start else played_end - pos;
                     const id: u8 = if (handle == .fade_in) 10 else 11;
                     const seconds = @max(0.0, frac) * total_f / sr_f;
                     setPadParam(app, target, id, seconds);
@@ -464,16 +463,25 @@ fn drawRegionHandle(draw_list: zgui.DrawList, x: f32, top: f32, height: f32, acc
     draw_list.addTriangleFilled(.{ .p1 = .{ x - 5, top }, .p2 = .{ x + 5, top }, .p3 = .{ x, top + 8 }, .col = style.color(line_color) });
 }
 
-/// Shade the attenuated wedge between a region edge (`corner_x`, full
-/// height) and the fade's full-level point (`tip_x`, on the center line),
-/// then mark the tip with a draggable dot. `corner_x == tip_x` (fade
-/// duration 0) degenerates to a thin sliver, which reads fine.
-fn drawFadeWedge(draw_list: zgui.DrawList, corner_x: f32, tip_x: f32, top: f32, mid_y: f32, height: f32, accent: [4]f32, active: bool) void {
-    const bottom = top + height;
-    const fill = [4]f32{ accent[0], accent[1], accent[2], if (active) 0.30 else 0.18 };
-    draw_list.addTriangleFilled(.{ .p1 = .{ corner_x, top }, .p2 = .{ tip_x, mid_y }, .p3 = .{ corner_x, bottom }, .col = style.color(fill) });
+fn fadeGain(position: f32, start: f32, end: f32, fade_in: f32, fade_out: f32) f32 {
+    const fade_in_gain = if (fade_in > 0) std.math.clamp((position - start) / fade_in, 0, 1) else 1;
+    const fade_out_gain = if (fade_out > 0) std.math.clamp((end - position) / fade_out, 0, 1) else 1;
+    return @min(fade_in_gain, fade_out_gain);
+}
+
+test "waveform fade gain tapers displayed peaks" {
+    try std.testing.expectEqual(@as(f32, 0), fadeGain(0, 0, 1, 0.2, 0.25));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), fadeGain(0.1, 0, 1, 0.2, 0.25), 1e-6);
+    try std.testing.expectEqual(@as(f32, 1), fadeGain(0.5, 0, 1, 0.2, 0.25));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), fadeGain(0.875, 0, 1, 0.2, 0.25), 1e-6);
+    try std.testing.expectEqual(@as(f32, 0), fadeGain(1, 0, 1, 0.2, 0.25));
+}
+
+fn drawFadeLine(draw_list: zgui.DrawList, silent_x: f32, full_x: f32, top: f32, mid_y: f32, accent: [4]f32, active: bool, fade_out: bool) void {
+    const full_y = top + 8;
     const line_color = if (active) accent else [4]f32{ accent[0], accent[1], accent[2], 0.85 };
-    draw_list.addLine(.{ .p1 = .{ corner_x, top }, .p2 = .{ tip_x, mid_y }, .col = style.color(line_color), .thickness = if (active) 2 else 1.5 });
-    draw_list.addLine(.{ .p1 = .{ corner_x, bottom }, .p2 = .{ tip_x, mid_y }, .col = style.color(line_color), .thickness = if (active) 2 else 1.5 });
-    draw_list.addCircleFilled(.{ .p = .{ tip_x, mid_y }, .r = if (active) 5 else 4, .col = style.color(line_color) });
+    const p1: [2]f32 = if (fade_out) .{ full_x, full_y } else .{ silent_x, mid_y };
+    const p2: [2]f32 = if (fade_out) .{ silent_x, mid_y } else .{ full_x, full_y };
+    draw_list.addLine(.{ .p1 = p1, .p2 = p2, .col = style.color(line_color), .thickness = if (active) 2 else 1.5 });
+    draw_list.addCircleFilled(.{ .p = .{ full_x, full_y }, .r = if (active) 5 else 4, .col = style.color(line_color) });
 }
