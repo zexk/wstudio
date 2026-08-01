@@ -29,6 +29,8 @@ code keeps a one-line pointer.
   gate results, package checks, and exact environment skips.
 - [beta-10-goals.md](beta-10-goals.md): final release-candidate coherence,
   20-effect rack, bounded DAW-completeness candidates, polish, and exit gate.
+- [beta-10-validation.md](beta-10-validation.md): recorded frontend journey,
+  automated checks, fixes, and explicit hardware or OS skips.
 - [compatibility-inventory.md](compatibility-inventory.md): beta.8 freeze,
   migration, removal, and internal dispositions with authoritative registries.
 - [road-to-1.0.md](road-to-1.0.md): release themes from beta.5 through the
