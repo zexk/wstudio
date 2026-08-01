@@ -2785,7 +2785,7 @@ fn parkAudio(app: *App) bool {
     while (!engine.bounce_parked.load(.acquire)) {
         const elapsed = std.Io.Timestamp.now(app.io, .awake).nanoseconds - start;
         if (elapsed > 100 * std.time.ns_per_ms) return false;
-        std.atomic.spinLoopHint();
+        app.io.sleep(.fromMilliseconds(1), .awake) catch return false;
     }
     return true;
 }

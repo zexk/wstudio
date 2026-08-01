@@ -770,6 +770,17 @@ pub const Engine = struct {
         return self.dropped_commands.swap(0, .acq_rel);
     }
 
+    /// Realtime backend entry point. Offline export parks here so frontend
+    /// audio callbacks cannot race the control thread driving `process`.
+    pub fn renderRealtime(self: *Engine, out: []Sample) void {
+        if (self.bounce_active.load(.acquire)) {
+            @memset(out, 0);
+            self.bounce_parked.store(true, .release);
+            return;
+        }
+        self.process(out);
+    }
+
     pub fn process(self: *Engine, out: []Sample) void {
         const frames: u32 = @intCast(out.len / channels);
         std.debug.assert(frames <= types.max_block_frames);
@@ -1321,6 +1332,18 @@ fn testCompressor(threshold_db: f32) Compressor {
 
 test "engine rejects a zero sample rate" {
     try std.testing.expectError(error.InvalidSampleRate, Engine.init(std.testing.allocator, 0));
+}
+
+test "realtime render parks and clears output during offline bounce" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.bounce_active.store(true, .release);
+    var output = [_]Sample{1} ** 8;
+
+    engine.renderRealtime(&output);
+
+    try std.testing.expect(engine.bounce_parked.load(.acquire));
+    try std.testing.expectEqualSlices(Sample, &([_]Sample{0} ** 8), &output);
 }
 
 test "renderTracks pushes filter-cutoff automation into the synth before it processes the block" {

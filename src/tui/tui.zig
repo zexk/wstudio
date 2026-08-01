@@ -270,14 +270,7 @@ fn drawCenteredLine(w: *std.Io.Writer, text: []const u8, cols: u16, sgr: []const
 
 fn renderTrampoline(ctx: *anyopaque, out: []types.Sample) void {
     const engine: *Engine = @ptrCast(@alignCast(ctx));
-    // During an offline bounce the UI thread owns the engine: park here so the
-    // two threads never call process() concurrently. See App.cmdBounce.
-    if (engine.bounce_active.load(.acquire)) {
-        @memset(out, 0.0);
-        engine.bounce_parked.store(true, .release);
-        return;
-    }
-    engine.process(out);
+    engine.renderRealtime(out);
 }
 
 /// Set for the lifetime of `run`'s raw-mode session so `main.zig`'s panic

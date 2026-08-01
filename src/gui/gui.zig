@@ -353,7 +353,7 @@ fn configureFonts(size: f32) void {
 
 fn renderAudio(ctx: *anyopaque, out: []ws.types.Sample) void {
     const engine: *ws.Engine = @ptrCast(@alignCast(ctx));
-    engine.process(out);
+    engine.renderRealtime(out);
 }
 
 test {
