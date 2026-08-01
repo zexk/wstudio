@@ -51,7 +51,7 @@ pub const AudioInput = struct {
     /// platform/config with no capture backend at all.
     pub fn start(self: *AudioInput, sample_rate: u32, device_name: []const u8) Error!void {
         std.debug.assert(self.active == .none);
-        if (sample_rate == 0) return error.InvalidSampleRate;
+        try capture_types.validateSampleRate(sample_rate);
         if (has_alsa) {
             try self.alsa.start(sample_rate, device_name);
             self.active = .alsa;

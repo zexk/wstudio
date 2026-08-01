@@ -196,7 +196,7 @@ pub const CoreAudioCapture = struct {
     queue: capture_types.Queue = .{},
     buffer: [types.max_block_frames]types.Sample = undefined,
 
-    pub const Error = error{ DeviceOpenFailed, DeviceConfigFailed };
+    pub const Error = error{ InvalidSampleRate, DeviceOpenFailed, DeviceConfigFailed };
 
     /// The system's default input device, or null when the Mac has none.
     /// A HAL unit is handed out and starts happily either way, so without
@@ -216,6 +216,7 @@ pub const CoreAudioCapture = struct {
     }
 
     pub fn start(self: *CoreAudioCapture, sample_rate: u32, device_name: []const u8) Error!void {
+        try capture_types.validateSampleRate(sample_rate);
         while (self.queue.pop() != null) {}
         const device = if (device_name.len > 0)
             std.fmt.parseInt(u32, device_name, 10) catch return error.DeviceOpenFailed

@@ -117,9 +117,10 @@ pub const AlsaCapture = struct {
     running: std.atomic.Value(bool) = .init(false),
     queue: capture_types.Queue = .{},
 
-    pub const Error = error{ DeviceOpenFailed, DeviceConfigFailed, ThreadSpawnFailed };
+    pub const Error = error{ InvalidSampleRate, DeviceOpenFailed, DeviceConfigFailed, ThreadSpawnFailed };
 
     pub fn start(self: *AlsaCapture, sample_rate: u32, device_name: []const u8) Error!void {
+        try capture_types.validateSampleRate(sample_rate);
         while (self.queue.pop() != null) {}
         var device_buf: [std.fs.max_path_bytes + 1]u8 = undefined;
         const device = std.fmt.bufPrintZ(&device_buf, "{s}", .{if (device_name.len > 0) device_name else "default"}) catch

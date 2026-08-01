@@ -223,9 +223,10 @@ pub const WasapiCapture = struct {
     running: std.atomic.Value(bool) = .init(false),
     queue: capture_types.Queue = .{},
 
-    pub const Error = error{ ComInitFailed, DeviceOpenFailed, DeviceConfigFailed, ThreadSpawnFailed };
+    pub const Error = error{ InvalidSampleRate, ComInitFailed, DeviceOpenFailed, DeviceConfigFailed, ThreadSpawnFailed };
 
     pub fn start(self: *WasapiCapture, sample_rate: u32, device_name: []const u8) Error!void {
+        try capture_types.validateSampleRate(sample_rate);
         while (self.queue.pop() != null) {}
         if (!ok(c.CoInitializeEx(null, c.COINIT_MULTITHREADED))) return error.ComInitFailed;
         errdefer c.CoUninitialize();

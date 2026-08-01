@@ -13,6 +13,10 @@ const Spsc = @import("../core/ring_buffer.zig").Spsc;
 /// independent of whatever block size the output backend negotiated.
 pub const chunk_frames: u32 = types.default_block_frames;
 
+pub fn validateSampleRate(sample_rate: u32) error{InvalidSampleRate}!void {
+    if (sample_rate == 0) return error.InvalidSampleRate;
+}
+
 pub const CaptureBlock = struct {
     samples: [chunk_frames]types.Sample = undefined,
     frames: u32 = 0,
