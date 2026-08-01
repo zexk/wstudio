@@ -694,6 +694,7 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             _ = app.history.retarget(app.allocator, remap);
             app.cursor = s.track;
             app.invalidateTrackRow();
+            app.emitEvent(.{ .TrackAdd = .{ .track = s.track + 1 } });
             return .{ .track_delete = s.track };
         },
         .track_delete => |idx| {
@@ -711,6 +712,7 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             app.cursor = @min(app.cursor, last);
             app.invalidateTrackRow();
             app.exitStaleEditors();
+            app.emitEvent(.{ .TrackDel = .{ .track = idx + 1 } });
             return .{ .track_insert = state };
         },
         .track_kind_swap => |state| {

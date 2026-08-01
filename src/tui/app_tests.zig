@@ -3349,6 +3349,26 @@ test "track delete undo entries stay correctly ordered across two deletes and tw
     try std.testing.expectEqual(InstrumentKind.drum_machine, std.meta.activeTag(app.session.racks.items[2].instrument));
 }
 
+test "track delete undo and redo emit committed Lua track events" {
+    var app = try testApp();
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.tui);
+    defer rt.deinit();
+    rt.app = &app;
+    app.lua_runtime = &rt;
+    try rt.loadString(
+        "events = {}; " ++
+            "wstudio.api.create_autocmd('TrackAdd', { callback = function(ev) events[#events + 1] = 'add:' .. ev.track .. ':' .. wstudio.api.track_get(ev.track).kind end }); " ++
+            "wstudio.api.create_autocmd('TrackDel', { callback = function(ev) events[#events + 1] = 'del:' .. ev.track end })",
+    );
+
+    app.doTrackDel(1);
+    app.handleKey(.{ .char = 'u' }, 0);
+    app.handleKey(.{ .char = 'U' }, 0);
+
+    try rt.loadString("assert(#events == 3); assert(events[1] == 'del:2'); assert(events[2] == 'add:2:sampler', events[2]); assert(events[3] == 'del:2')");
+}
+
 test "track delete shifts slicer_track like every other editor-target index" {
     var app = try testApp();
     defer app.deinit();
