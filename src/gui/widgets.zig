@@ -535,7 +535,8 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
         const sentinel_cfmt = std.mem.eql(u8, args.cfmt, format.pan_cfmt) or
             std.mem.eql(u8, args.cfmt, format.filter_cfmt);
         const edit_cfmt: [:0]const u8 = if (sentinel_cfmt) "%.2f" else args.cfmt;
-        if (zgui.inputFloat("##value", .{ .v = &edit, .cfmt = edit_cfmt, .flags = .{ .enter_returns_true = true } })) {
+        _ = zgui.inputFloat("##value", .{ .v = &edit, .cfmt = edit_cfmt });
+        if (zgui.isItemDeactivatedAfterEdit()) {
             const next = std.math.clamp(edit, args.min, args.max);
             if (next != args.v.*) {
                 args.v.* = next;
