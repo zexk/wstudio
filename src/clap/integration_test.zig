@@ -56,6 +56,13 @@ pub fn main(init: std.process.Init) !void {
     mono.device().process(&mono_samples);
     try std.testing.expectEqualSlices(f32, &.{ 4, 4, 6, 6 }, &mono_samples);
 
+    var fx: ws.Fx = .{};
+    defer fx.deinit(init.gpa);
+    try std.testing.expectError(
+        error.ClapPluginIsNotEffect,
+        fx.insertClap(init.gpa, 0, plugin_path, "studio.wstudio.test.instrument", 48_000),
+    );
+
     const project_path = ".zig-cache/clap-integration.wsj";
     {
         var session = try ws.Session.initDefault(init.gpa);

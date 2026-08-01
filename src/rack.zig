@@ -407,6 +407,7 @@ pub const Fx = struct {
         if (self.units.items.len >= max_units) return error.ChainFull;
         const plugin = try ClapPlugin.load(allocator, path, plugin_id, sr);
         errdefer plugin.deinit();
+        if (plugin.audio_inputs_count != 1) return error.ClapPluginIsNotEffect;
         const unit = try allocator.create(FxUnit);
         errdefer allocator.destroy(unit);
         unit.* = .{ .payload = .{ .clap = plugin }, .instance_id = self.allocInstanceId() };

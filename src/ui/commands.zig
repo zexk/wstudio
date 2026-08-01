@@ -242,14 +242,12 @@ fn cmdClapFx(app: *App, args: []const u8) void {
         parsed.id,
         app.session.project.sample_rate,
     ) catch |err| {
-        app.setStatus("CLAP effect: {s}", .{@errorName(err)});
+        if (err == error.ClapPluginIsNotEffect)
+            app.setStatus("CLAP plugin has no main audio input", .{})
+        else
+            app.setStatus("CLAP effect: {s}", .{@errorName(err)});
         return;
     };
-    if (unit.payload.clap.audio_inputs_count != 1) {
-        rack.fx.remove(app.session.allocator, rack.fx.units.items.len - 1);
-        app.setStatus("CLAP plugin has no stereo audio input", .{});
-        return;
-    }
     unit.payload.clap.attachTransport(&app.session.engine.transport);
     app.session.syncTrackChain(@intCast(track), rack);
     app.dirty = true;
