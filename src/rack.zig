@@ -23,6 +23,7 @@ const FreqShifter = @import("dsp/freq_shift.zig").FreqShifter;
 const Filter = @import("dsp/filter.zig").Filter;
 const Limiter = @import("dsp/limiter.zig").Limiter;
 const Utility = @import("dsp/utility.zig").Utility;
+const StereoWidth = @import("dsp/stereo_width.zig").StereoWidth;
 pub const ClapPlugin = @import("clap/plugin.zig").ClapPlugin;
 pub const Vst3Plugin = @import("vst3/plugin.zig").Vst3Plugin;
 const PatternPlayer = @import("dsp/pattern.zig").PatternPlayer;
@@ -99,6 +100,7 @@ pub const FxPayload = union(enum) {
     eq: ParametricEq,
     filter: Filter,
     utility: Utility,
+    stereo_width: StereoWidth,
     sat: Saturator,
     crush: Crusher,
     chorus: Chorus,
@@ -344,6 +346,7 @@ pub const Fx = struct {
             .eq      => .{ .eq = ParametricEq.init(sr) },
             .filter  => .{ .filter = Filter.init(sr) },
             .utility => .{ .utility = .{} },
+            .stereo_width => .{ .stereo_width = .{} },
             .limiter => .{ .limiter = Limiter.init(sr) },
             .sat     => .{ .sat = .{} },
             .crush   => .{ .crush = .{} },
@@ -752,7 +755,7 @@ test "Fx.dupe deep-copies params and heap buffers independently (used by undo's 
 test "every FX payload stays finite when constructed with zero sample rate" {
     const allocator = std.testing.allocator;
     const kinds = [_]FxKind{
-        .gate,   .comp,   .mb_comp, .ott,  .limiter,    .eq,    .filter, .utility, .sat, .crush,
+        .gate,   .comp,   .mb_comp, .ott,  .limiter,    .eq,    .filter, .utility, .stereo_width, .sat, .crush,
         .chorus, .phaser, .flanger, .tape, .freq_shift, .delay, .reverb,
     };
     for (kinds) |kind| {

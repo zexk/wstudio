@@ -228,7 +228,7 @@ fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
         .freq_shift => std.math.clamp(t + (amount - 0.5) * 0.35, 0, 1),
         .delay => std.math.clamp(@exp(-t * (1.5 + shape * 4.0)) * (0.55 + 0.4 * @sin(t * std.math.pi * (6.0 + amount * 10.0))), 0, 1),
         .reverb => std.math.clamp(@exp(-t * (0.8 + (1.0 - amount) * 4.0)) * (0.7 + 0.2 * @sin(t * std.math.pi * 26.0)), 0, 1),
-        .eq, .filter, .utility => t,
+        .eq, .filter, .utility, .stereo_width => t,
         .clap, .vst3 => t,
     };
 }

@@ -527,6 +527,7 @@
 --                                                --   "mb_comp", "ott",
 --                                                --   "limiter",
 --                                                --   "eq", "filter", "utility",
+--                                                --   "stereo_width",
 --                                                --   "sat", "crush",
 --                                                --   "chorus", "phaser",
 --                                                --   "flanger", "tape",
