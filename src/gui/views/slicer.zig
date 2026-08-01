@@ -34,10 +34,9 @@ pub fn draw(app: anytype) void {
         return;
     }
     widgets.sectionTitle("SOURCE WAVEFORM", theme.audio);
-    if (slicer.sample_lock.tryLock()) {
-        defer slicer.sample_lock.unlock();
-        drawSourceWaveform(app, slicer);
-    }
+    while (!slicer.sample_lock.tryLock()) std.atomic.spinLoopHint();
+    drawSourceWaveform(app, slicer);
+    slicer.sample_lock.unlock();
     zgui.spacing();
     const below_top = zgui.getCursorPosY();
     drawSliceState(app, slicer);

@@ -176,12 +176,10 @@ fn drawStandalone(app: anytype) void {
     zgui.spacing();
     const target: Target = .{ .standalone = .{ .sampler = sampler, .track = track } };
     widgets.sectionTitle("SAMPLE WAVEFORM", theme.audio);
-    var has_sample = false;
-    if (sampler.pad_lock.tryLock()) {
-        defer sampler.pad_lock.unlock();
-        has_sample = sampler.pad.samples.len > 0;
-        if (has_sample) drawWaveformRegion(app, target, sampler.pad.samples);
-    }
+    while (!sampler.pad_lock.tryLock()) std.atomic.spinLoopHint();
+    const has_sample = sampler.pad.samples.len > 0;
+    if (has_sample) drawWaveformRegion(app, target, sampler.pad.samples);
+    sampler.pad_lock.unlock();
     if (!has_sample) {
         zgui.spacing();
         if (widgets.emptyState(.{
