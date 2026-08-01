@@ -47,6 +47,16 @@ rendering, persistence, undo/redo, TUI controls, and GUI waveform handles expose
 the result without a new clip type or format version. Synthetic capture coverage
 verifies both fades and their undo/redo restoration.
 
+## Timeline tempo and signature changes
+
+Postponed until after 1.0. Current tempo and `/4` signature are project-global:
+transport frame/beat conversion, loop and recording bounds, live and offline
+song scheduling, plugin transport, metronome, arrangement grids, Lua, and
+persistence all consume one value. Adding changes at timeline positions would
+require a shared tempo map plus migration and boundary tests across every one of
+those consumers. That is a new timing subsystem, not bounded release-candidate
+polish, and would risk beta.8 compatibility and live/offline coherence.
+
 ## Arrangement markers
 
 Existing named sections satisfy the marker candidate without a new model or
