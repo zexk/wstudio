@@ -5,6 +5,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 pub const Result = i32;
+pub const not_implemented: Result = if (builtin.os.tag == .windows) @bitCast(@as(u32, 0x80004001)) else 3;
 pub const Tuid = [16]u8;
 pub const abi_callconv: std.builtin.CallingConvention = if (builtin.os.tag == .windows) .winapi else .c;
 

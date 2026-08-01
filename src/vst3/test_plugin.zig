@@ -209,7 +209,7 @@ fn setup(_: *anyopaque, _: *abi.ProcessSetup) callconv(abi.abi_callconv) abi.Res
     return 0;
 }
 fn setProcessing(_: *anyopaque, _: u8) callconv(abi.abi_callconv) abi.Result {
-    return 0;
+    return abi.not_implemented;
 }
 fn process(raw: *anyopaque, data: *abi.ProcessData) callconv(abi.abi_callconv) abi.Result {
     const owner = processorOwner(raw);

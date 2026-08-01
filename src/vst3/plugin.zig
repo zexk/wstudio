@@ -408,7 +408,8 @@ pub const Vst3Plugin = struct {
         if (processor.vtable.setup_processing(processor, &setup) != 0) return error.ProcessingSetupFailed;
         if (component.vtable.set_active(component, 1) != 0) return error.ComponentActivationFailed;
         errdefer _ = component.vtable.set_active(component, 0);
-        if (processor.vtable.set_processing(processor, 1) != 0) return error.ProcessingStartFailed;
+        const start_result = processor.vtable.set_processing(processor, 1);
+        if (start_result != 0 and start_result != abi.not_implemented) return error.ProcessingStartFailed;
         errdefer _ = processor.vtable.set_processing(processor, 0);
 
         const self = try allocator.create(Vst3Plugin);
@@ -704,9 +705,10 @@ pub const Vst3Plugin = struct {
         if (self.restart_ready.swap(false, .acquire)) {
             _ = self.component.vtable.set_active(self.component, 0);
             var setup: abi.ProcessSetup = .{ .process_mode = 0, .symbolic_sample_size = 0, .max_samples_per_block = types.max_block_frames, .sample_rate = @floatFromInt(self.sample_rate) };
-            if (!(self.processor.vtable.setup_processing(self.processor, &setup) == 0 and
-                self.component.vtable.set_active(self.component, 1) == 0 and
-                self.processor.vtable.set_processing(self.processor, 1) == 0))
+            const setup_ok = self.processor.vtable.setup_processing(self.processor, &setup) == 0;
+            const active_ok = setup_ok and self.component.vtable.set_active(self.component, 1) == 0;
+            const start_result = if (active_ok) self.processor.vtable.set_processing(self.processor, 1) else -1;
+            if (!active_ok or (start_result != 0 and start_result != abi.not_implemented))
                 std.log.err("VST3 restart failed: {s}", .{self.classId()});
             self.restart_in_progress.store(false, .release);
         }
