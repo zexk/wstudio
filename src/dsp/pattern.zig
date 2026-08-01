@@ -105,7 +105,7 @@ pub const PatternPlayer = struct {
 
     // ── Audio-thread-only state ──────────────────────────────────────────────
     /// Which MIDI pitches are currently sounding (audio thread only).
-    sounding:        [128]bool = [_]bool{false} ** 128,
+    sounding:        [128]u16 = [_]u16{0} ** 128,
     /// Pitches removed by the UI thread before their scheduled note-off.
     pending_note_off: [2]std.atomic.Value(u64) = .{ .init(0), .init(0) },
     // zig fmt: on
@@ -922,7 +922,7 @@ pub const PatternPlayer = struct {
     pub fn scanRange(
         notes: []const Note,
         loop_beats: f64,
-        sounding: *[128]bool,
+        sounding: *[128]u16,
         target: dsp.Device,
         lo: f64,
         hi: f64,
@@ -932,25 +932,24 @@ pub const PatternPlayer = struct {
         for (notes) |n| {
             const start = @mod(swungBeat(n.start_beat, swing_pct), loop_beats);
             const off = @mod(start + n.duration_beat, loop_beats);
-            if (sounding[n.pitch] and off >= lo and off < hi) {
+            if (sounding[n.pitch] > 0 and off >= lo and off < hi) {
                 target.sendEvent(.{ .note_off = .{ .note = n.pitch } });
-                sounding[n.pitch] = false;
+                sounding[n.pitch] -= 1;
             }
         }
         for (notes) |n| {
             const start = @mod(swungBeat(n.start_beat, swing_pct), loop_beats);
             if (start >= lo and start < hi) {
                 target.sendEvent(.{ .note_on = .{ .note = n.pitch, .velocity = n.velocity } });
-                sounding[n.pitch] = true;
+                sounding[n.pitch] +|= 1;
             }
         }
     }
 
     fn releaseSounding(self: *PatternPlayer) void {
         for (&self.sounding, 0..) |*sounding, pitch| {
-            if (!sounding.*) continue;
-            self.target.sendEvent(.{ .note_off = .{ .note = @intCast(pitch) } });
-            sounding.* = false;
+            while (sounding.* > 0) : (sounding.* -= 1)
+                self.target.sendEvent(.{ .note_off = .{ .note = @intCast(pitch) } });
         }
     }
 
@@ -973,10 +972,8 @@ pub const PatternPlayer = struct {
             while (bits != 0) {
                 const bit: u6 = @intCast(@ctz(bits));
                 const pitch: u7 = @intCast(word * 64 + bit);
-                if (self.sounding[pitch]) {
+                while (self.sounding[pitch] > 0) : (self.sounding[pitch] -= 1)
                     self.target.sendEvent(.{ .note_off = .{ .note = pitch } });
-                    self.sounding[pitch] = false;
-                }
                 bits &= bits - 1;
             }
         }
@@ -1026,7 +1023,7 @@ pub const PatternPlayer = struct {
     pub fn handleEvent(self: *PatternPlayer, ev: dsp.Event) void {
         switch (ev) {
             // zig fmt: off
-            .all_off => @memset(&self.sounding, false),
+            .all_off => @memset(&self.sounding, 0),
             else     => {},
             // zig fmt: on
         }
@@ -1075,21 +1072,21 @@ test "swing delays a note on an off-beat 16th, mirroring DrumMachine's math" {
 
     // Straight (50%): fires right at 0.25, silent afterward.
     PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, synth.device(), 0.25, 0.375, 50.0);
-    try std.testing.expect(pp.sounding[60]);
-    pp.sounding[60] = false;
+    try std.testing.expect(pp.sounding[60] > 0);
+    pp.sounding[60] = 0;
 
     // 75% swing: silent through the straight boundary (0.25) up to just
     // before the swung one (0.375), then fires exactly there.
     PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, synth.device(), 0.25, 0.375, 75.0);
-    try std.testing.expect(!pp.sounding[60]);
+    try std.testing.expectEqual(@as(u16, 0), pp.sounding[60]);
     PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, synth.device(), 0.375, 0.5, 75.0);
-    try std.testing.expect(pp.sounding[60]);
+    try std.testing.expect(pp.sounding[60] > 0);
 
     // Even steps (step 0, start_beat 0.0) stay exactly on the grid regardless
     // of swing - only odd (off-beat) steps shift.
     pp.notes[0] = .{ .pitch = 62, .start_beat = 0.0, .duration_beat = 0.25 };
     PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, synth.device(), 0.0, 0.1, 75.0);
-    try std.testing.expect(pp.sounding[62]);
+    try std.testing.expect(pp.sounding[62] > 0);
 }
 
 test "setSwing clamps to [swing_min, swing_max]" {
@@ -1122,11 +1119,30 @@ test "scanRange fires note_on then note_off across loop boundary" {
 
     // Note should fire at beat 0.5
     PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, synth.device(), 0.0, 1.0, 50.0);
-    try std.testing.expect(pp.sounding[60]);
+    try std.testing.expect(pp.sounding[60] > 0);
 
     // Note off fires at beat 1.0 (start of next scan)
     PatternPlayer.scanRange(pp.notes[0..1], loop, &pp.sounding, synth.device(), 1.0, 2.0, 50.0);
-    try std.testing.expect(!pp.sounding[60]);
+    try std.testing.expectEqual(@as(u16, 0), pp.sounding[60]);
+}
+
+test "scanRange tracks overlapping same-pitch notes independently" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.notes[0] = .{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 };
+    pp.notes[1] = .{ .pitch = 60, .start_beat = 0.5, .duration_beat = 1.0 };
+    pp.note_count = 2;
+
+    PatternPlayer.scanRange(pp.notes[0..2], 4.0, &pp.sounding, synth.device(), 0.0, 0.25, 50.0);
+    try std.testing.expectEqual(@as(u16, 1), pp.sounding[60]);
+    PatternPlayer.scanRange(pp.notes[0..2], 4.0, &pp.sounding, synth.device(), 0.5, 0.75, 50.0);
+    try std.testing.expectEqual(@as(u16, 2), pp.sounding[60]);
+    PatternPlayer.scanRange(pp.notes[0..2], 4.0, &pp.sounding, synth.device(), 1.0, 1.25, 50.0);
+    try std.testing.expectEqual(@as(u16, 1), pp.sounding[60]);
+    PatternPlayer.scanRange(pp.notes[0..2], 4.0, &pp.sounding, synth.device(), 1.5, 1.75, 50.0);
+    try std.testing.expectEqual(@as(u16, 0), pp.sounding[60]);
 }
 
 test "copyNotes/setNotes round-trip a pattern between players" {
@@ -1657,12 +1673,12 @@ test "clearing the active pattern releases sounding notes" {
     transport.play();
     var buf = [_]types.Sample{0.0} ** 512;
     pp.processBlock(&buf);
-    try std.testing.expect(pp.sounding[60]);
+    try std.testing.expect(pp.sounding[60] > 0);
 
     pp.clearNotes();
     transport.advance(256);
     pp.processBlock(&buf);
-    try std.testing.expect(!pp.sounding[60]);
+    try std.testing.expectEqual(@as(u16, 0), pp.sounding[60]);
 }
 
 test "replacing a nonempty pattern releases old sounding notes" {
@@ -1675,12 +1691,12 @@ test "replacing a nonempty pattern releases old sounding notes" {
     transport.play();
     var buf = [_]types.Sample{0.0} ** 512;
     pp.processBlock(&buf);
-    try std.testing.expect(pp.sounding[60]);
+    try std.testing.expect(pp.sounding[60] > 0);
 
     pp.setNotes(&.{.{ .pitch = 64, .start_beat = 2.0, .duration_beat = 1.0 }}, 4.0);
     transport.advance(256);
     pp.processBlock(&buf);
-    try std.testing.expect(!pp.sounding[60]);
+    try std.testing.expectEqual(@as(u16, 0), pp.sounding[60]);
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
 }
 
@@ -1695,12 +1711,12 @@ test "deleting a sounding note releases it when other notes remain" {
     transport.play();
     var buf = [_]types.Sample{0.0} ** 512;
     pp.processBlock(&buf);
-    try std.testing.expect(pp.sounding[60]);
+    try std.testing.expect(pp.sounding[60] > 0);
 
     pp.removeNote(60, 0.0);
     transport.advance(256);
     pp.processBlock(&buf);
-    try std.testing.expect(!pp.sounding[60]);
+    try std.testing.expectEqual(@as(u16, 0), pp.sounding[60]);
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
 }
 
@@ -1714,12 +1730,12 @@ test "clearing notes releases a sounding note" {
     transport.play();
     var buf = [_]types.Sample{0.0} ** 512;
     pp.processBlock(&buf);
-    try std.testing.expect(pp.sounding[60]);
+    try std.testing.expect(pp.sounding[60] > 0);
 
     pp.clearNotes();
     transport.advance(256);
     pp.processBlock(&buf);
-    try std.testing.expect(!pp.sounding[60]);
+    try std.testing.expectEqual(@as(u16, 0), pp.sounding[60]);
     try std.testing.expectEqual(@as(u16, 0), pp.note_count);
 }
 
@@ -1733,12 +1749,12 @@ test "time-sliding a sounding note chokes it instead of stranding its note_off" 
     transport.play();
     var buf = [_]types.Sample{0.0} ** 512;
     pp.processBlock(&buf);
-    try std.testing.expect(pp.sounding[60]);
+    try std.testing.expect(pp.sounding[60] > 0);
 
     try std.testing.expectEqual(@as(?u16, 1), pp.shiftNotesInRange(.{ .lo_beat = 0.0, .hi_beat = 0.25 }, 0, 0.5));
     transport.advance(256);
     pp.processBlock(&buf);
-    try std.testing.expect(!pp.sounding[60]);
+    try std.testing.expectEqual(@as(u16, 0), pp.sounding[60]);
 }
 
 test "doubleLength copies the pattern after itself and doubles the loop" {

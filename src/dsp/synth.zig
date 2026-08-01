@@ -1037,6 +1037,7 @@ pub const PolySynth = struct {
     /// global (post-mix), so their one matrix evaluation per block reads
     /// the per-voice sources (envs, velocity, keytrack) from this voice.
     newest_voice: u8 = 0,
+    next_voice_id: u64 = 0,
 
     voices: [max_voices]Voice = [_]Voice{.{}} ** max_voices,
 
@@ -1302,6 +1303,7 @@ pub const PolySynth = struct {
         /// Per-sample ramps for A, B, C, sub, noise, then final output.
         mix_gain: [5]f32 = @splat(0.0),
         out_gain: f32 = 0.0,
+        id: u64 = 0,
     };
 
     /// Point the tempo-synced LFO/arp divisions at the project transport.
@@ -1714,14 +1716,15 @@ pub const PolySynth = struct {
         }
         switch (self.voice_mode) {
             .poly => {
+                var oldest: ?*Voice = null;
                 for (&self.voices) |*v| {
-                    if (v.active and v.note == note and v.stage != .release) {
-                        // zig fmt: off
-                        v.stage  = .release;
-                        // zig fmt: on
-                        v.stage2 = .release;
-                        v.stage3 = .release;
-                    }
+                    if (!v.active or v.note != note or v.stage == .release) continue;
+                    if (oldest == null or v.id < oldest.?.id) oldest = v;
+                }
+                if (oldest) |v| {
+                    v.stage = .release;
+                    v.stage2 = .release;
+                    v.stage3 = .release;
                 }
             },
             .mono => {
@@ -1759,6 +1762,7 @@ pub const PolySynth = struct {
     /// of note-ons that reset the amplitude envelope, so a legato slide
     /// leaves a running growl alone while every real new note re-arms it.
     fn triggerVoice(self: *PolySynth, note: u7, velocity: f32, was_active: bool, prev_log: f32) Voice {
+        self.next_voice_id +%= 1;
         self.retriggerLfos();
         self.mod_alternate = !self.mod_alternate;
         const target_log = std.math.log2(noteToFreq(note));
@@ -1777,6 +1781,7 @@ pub const PolySynth = struct {
             .noise_rand_state = (@as(u32, note) *% 0x9E3779B9) | 1,
             .random           = nextNoise(&self.mod_rand_state),
             .alternate        = if (self.mod_alternate) 1.0 else -1.0,
+            .id               = self.next_voice_id,
         };
     }
 
@@ -4986,6 +4991,22 @@ test "mono mode: note-off retrieves last held note" {
     try std.testing.expectEqual(@as(u7, 60), synth.voices[0].note);
     try std.testing.expect(synth.voices[0].active);
     try std.testing.expect(synth.voices[0].stage != .release);
+}
+
+test "poly mode note-off releases only oldest same-pitch voice" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.noteOn(60, 1.0);
+    const first = synth.newest_voice;
+    synth.noteOn(60, 1.0);
+    const second = synth.newest_voice;
+
+    synth.noteOff(60);
+    try std.testing.expectEqual(.release, synth.voices[first].stage);
+    try std.testing.expect(synth.voices[second].stage != .release);
+
+    synth.noteOff(60);
+    try std.testing.expectEqual(.release, synth.voices[second].stage);
 }
 
 test "legato mode: no envelope retrigger on second note" {
