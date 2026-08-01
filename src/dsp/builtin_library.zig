@@ -9,12 +9,26 @@ pub const Id = enum {
     grand,
     upright,
     harpsichord,
+    pipe_organ,
+    concert_harp,
+    glockenspiel,
+    marimba,
+    vibraphone,
+    xylophone,
+    kalimba,
 
     pub fn label(self: Id) []const u8 {
         return switch (self) {
             .grand => "Grand Piano",
             .upright => "Upright Piano",
             .harpsichord => "Italian Harpsichord",
+            .pipe_organ => "Pipe Organ",
+            .concert_harp => "Concert Harp",
+            .glockenspiel => "Glockenspiel",
+            .marimba => "Marimba",
+            .vibraphone => "Vibraphone",
+            .xylophone => "Xylophone",
+            .kalimba => "Kenyan Kalimba",
         };
     }
 
@@ -23,6 +37,13 @@ pub const Id = enum {
             .grand => "Grand Piano, K.sfz",
             .upright => "Upright Piano, Y.sfz",
             .harpsichord => "Harpsichord, Italian.sfz",
+            .pipe_organ => "Pipe Organ - Quiet.sfz",
+            .concert_harp => "Concert Harp.sfz",
+            .glockenspiel => "Glockenspiel.sfz",
+            .marimba => "Marimba.sfz",
+            .vibraphone => "Vibraphone - Soft Mallets.sfz",
+            .xylophone => "Xylophone - Medium Mallets.sfz",
+            .kalimba => "Kalimba, Kenya.sfz",
         };
     }
 };

@@ -37,8 +37,10 @@ drum sampling and sequencing, slicing, SoundFont 2 multisample playback, and
 plugin hosting. Missing value is mostly licensed content and useful defaults,
 not more engines.
 
-Current shipment covers grand piano, upright piano, and Italian harpsichord
-from CC0 VCSL Keys through one shared SFZ/FLAC sample-bank path.
+Current shipment covers grand and upright piano, Italian harpsichord, pipe
+organ, concert harp, glockenspiel, marimba, vibraphone, xylophone, and kalimba
+from CC0 VCSL through one shared SFZ sample-bank path. Existing factory kits
+and synth presets cover starter drums, electric piano, and electric bass.
 
 ## Ranked backlog
 
