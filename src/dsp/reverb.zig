@@ -40,14 +40,36 @@ pub const Reverb = struct {
 
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !Reverb {
         var self: Reverb = .{ .channels = undefined };
+        var comb_count: usize = 0;
+        var allpass_count: usize = 0;
+        errdefer {
+            var seen: usize = 0;
+            comb_cleanup: for (&self.channels) |*ch| {
+                for (ch.combs) |comb| {
+                    if (seen == comb_count) break :comb_cleanup;
+                    allocator.free(comb.buf);
+                    seen += 1;
+                }
+            }
+            seen = 0;
+            allpass_cleanup: for (&self.channels) |*ch| {
+                for (ch.allpasses) |ap| {
+                    if (seen == allpass_count) break :allpass_cleanup;
+                    allocator.free(ap.buf);
+                    seen += 1;
+                }
+            }
+        }
         const scale = @as(f64, @floatFromInt(@max(sample_rate, 1))) / 44_100.0;
         for (&self.channels, 0..) |*ch, ch_i| {
             const spread = ch_i * stereo_spread;
             for (&ch.combs, comb_tunings) |*comb, tuning| {
                 comb.* = .{ .buf = try allocLine(allocator, tuning + spread, scale) };
+                comb_count += 1;
             }
             for (&ch.allpasses, allpass_tunings) |*ap, tuning| {
                 ap.* = .{ .buf = try allocLine(allocator, tuning + spread, scale) };
+                allpass_count += 1;
             }
         }
         return self;
@@ -113,6 +135,15 @@ pub const Reverb = struct {
         }
     }
 };
+
+fn testInitAllocationFailures(allocator: std.mem.Allocator) !void {
+    var reverb = try Reverb.init(allocator, 48_000);
+    defer reverb.deinit(allocator);
+}
+
+test "init cleans up every partial allocation" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, testInitAllocationFailures, .{});
+}
 
 test "impulse produces a decaying tail, not an explosion" {
     var reverb = try Reverb.init(std.testing.allocator, 48_000);
