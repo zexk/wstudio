@@ -2997,13 +2997,6 @@ pub const App = struct {
                 self.slicer_track = @intCast(cursor);
                 self.view = .slicer_grid;
                 self.autoSongMode(false);
-                // An empty slicer can only chop audio it doesn't have yet -
-                // skip the empty state and go straight to the one useful
-                // action. `openBrowser` captures `.slicer_grid` as the
-                // return view, so escape/load both land back here.
-                if (!self.session.racks.items[cursor].instrument.slicer.hasAudio()) {
-                    self.openBrowser(.load_slice);
-                }
             },
             .clap, .vst3 => {
                 self.piano_track = @intCast(cursor);

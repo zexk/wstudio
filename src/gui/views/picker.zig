@@ -12,21 +12,30 @@ const widgets = @import("../widgets.zig");
 const color = style.color;
 const theme = &style.palette;
 
-/// Paint a Telescope-style modal into the existing workspace window: a
-/// draw-list backdrop and panel frame, then a real (borderless, transparent)
-/// ImGui child sized to the panel's inner area. The child is what makes
+/// Paint a Telescope-style modal in its own top-level ImGui window so its
+/// backdrop, panel, and entries always render above the workspace. A real
+/// borderless child sized to the panel's inner area makes
 /// `drawInstrument`/`drawFx`/`drawPreset`'s entries actual children of the
 /// panel - clipped and scrollable to it - instead of raw draw-list content
 /// that happily overruns the panel's edges. Pair with `endOverlay`.
 pub fn beginOverlay() void {
     const window_pos = zgui.getWindowPos();
     const window_size = zgui.getWindowSize();
+    zgui.setNextWindowPos(.{ .x = window_pos[0], .y = window_pos[1], .cond = .always });
+    zgui.setNextWindowSize(.{ .w = window_size[0], .h = window_size[1], .cond = .always });
+    zgui.pushStyleColor4f(.{ .idx = .window_bg, .c = .{ 0, 0, 0, 0.68 } });
+    _ = zgui.begin("Picker Overlay", .{ .flags = .{
+        .no_title_bar = true,
+        .no_move = true,
+        .no_resize = true,
+        .no_collapse = true,
+        .no_docking = true,
+        .no_saved_settings = true,
+        .no_scrollbar = true,
+        .no_scroll_with_mouse = true,
+    } });
+    zgui.popStyleColor(.{});
     const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{
-        .pmin = window_pos,
-        .pmax = .{ window_pos[0] + window_size[0], window_pos[1] + window_size[1] },
-        .col = color(.{ 0, 0, 0, 0.68 }),
-    });
 
     const panel_w = @min(window_size[0] - 80, 920);
     const panel_h = @min(window_size[1] - 64, 620);
@@ -58,6 +67,7 @@ pub fn endOverlay() void {
     widgets.scrollFocusIntoView();
     zgui.endChild();
     zgui.popStyleColor(.{});
+    zgui.end();
 }
 
 /// Row width inside the overlay panel. `pub` so the file browser - a picker

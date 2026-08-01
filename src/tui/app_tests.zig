@@ -6299,7 +6299,7 @@ test ":load routes synth and slicer editor views to their audio types" {
     try std.testing.expectEqual(app_mod.BrowserPurpose.load_slice, app.browser_purpose);
 }
 
-test "entering an empty slicer track from tracks view jumps straight to the file browser" {
+test "entering an empty slicer track opens its editor before its file browser" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -6311,6 +6311,8 @@ test "entering an empty slicer track from tracks view jumps straight to the file
     app.view = .tracks;
     app.handleKey(.enter, 0);
 
+    try std.testing.expectEqual(AppView.slicer_grid, app.view);
+    app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.file_browser, app.view);
     try std.testing.expectEqual(app_mod.BrowserPurpose.load_slice, app.browser_purpose);
     try std.testing.expectEqual(AppView.slicer_grid, app.prev_view);
