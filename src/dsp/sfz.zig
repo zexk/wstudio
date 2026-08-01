@@ -119,9 +119,9 @@ fn apply(s: *Settings, key: []const u8, value: []const u8) ParseError!void {
         s.key_lo = v;
         s.key_hi = v;
         s.root_key = v;
-    } else if (std.mem.eql(u8, key, "lokey")) s.key_lo = try midi(value) else if (std.mem.eql(u8, key, "hikey")) s.key_hi = try midi(value) else if (std.mem.eql(u8, key, "lovel") or std.mem.eql(u8, key, "xfin_lovel")) s.vel_lo = try uint(u8, value) else if (std.mem.eql(u8, key, "hivel") or std.mem.eql(u8, key, "xfout_hivel")) s.vel_hi = try uint(u8, value) else if (std.mem.eql(u8, key, "pitch_keycenter")) s.root_key = try midi(value) else if (std.mem.eql(u8, key, "pitch_keytrack")) s.scale_tuning_cents = try float(value) else if (std.mem.eql(u8, key, "tune")) s.tune_cents = try float(value) else if (std.mem.eql(u8, key, "volume") or std.mem.eql(u8, key, "global_volume")) s.volume_db += try float(value) else if (std.mem.eql(u8, key, "offset")) s.offset = try uint(u32, value) else if (std.mem.eql(u8, key, "ampeg_attack")) s.attack_s = try nonnegative(value) else if (std.mem.eql(u8, key, "ampeg_decay")) s.decay_s = try nonnegative(value) else if (std.mem.eql(u8, key, "ampeg_sustain")) s.sustain = std.math.clamp((try float(value)) / 100, 0, 1) else if (std.mem.eql(u8, key, "ampeg_release")) s.release_s = try nonnegative(value) else if (std.mem.eql(u8, key, "seq_position")) s.seq_position = try uint(u16, value) else if (std.mem.eql(u8, key, "seq_length") or std.mem.eql(u8, key, "amp_veltrack") or std.mem.eql(u8, key, "rt_decay") or std.mem.eql(u8, key, "xfin_hivel") or std.mem.eql(u8, key, "xfout_lovel")) {
+    } else if (std.mem.eql(u8, key, "lokey")) s.key_lo = try midi(value) else if (std.mem.eql(u8, key, "hikey")) s.key_hi = try midi(value) else if (std.mem.eql(u8, key, "lovel") or std.mem.eql(u8, key, "xfin_lovel")) s.vel_lo = try midi(value) else if (std.mem.eql(u8, key, "hivel") or std.mem.eql(u8, key, "xfout_hivel")) s.vel_hi = try midi(value) else if (std.mem.eql(u8, key, "pitch_keycenter")) s.root_key = try midi(value) else if (std.mem.eql(u8, key, "pitch_keytrack")) s.scale_tuning_cents = try float(value) else if (std.mem.eql(u8, key, "tune")) s.tune_cents = try float(value) else if (std.mem.eql(u8, key, "volume") or std.mem.eql(u8, key, "global_volume")) s.volume_db += try float(value) else if (std.mem.eql(u8, key, "offset")) s.offset = try uint(u32, value) else if (std.mem.eql(u8, key, "ampeg_attack")) s.attack_s = try nonnegative(value) else if (std.mem.eql(u8, key, "ampeg_decay")) s.decay_s = try nonnegative(value) else if (std.mem.eql(u8, key, "ampeg_sustain")) s.sustain = std.math.clamp((try float(value)) / 100, 0, 1) else if (std.mem.eql(u8, key, "ampeg_release")) s.release_s = try nonnegative(value) else if (std.mem.eql(u8, key, "seq_position")) s.seq_position = try uint(u16, value) else if (std.mem.eql(u8, key, "seq_length") or std.mem.eql(u8, key, "amp_veltrack") or std.mem.eql(u8, key, "rt_decay") or std.mem.eql(u8, key, "xfin_hivel") or std.mem.eql(u8, key, "xfout_lovel")) {
         _ = try float(value);
-    } else if (std.mem.eql(u8, key, "locc64") or std.mem.eql(u8, key, "on_locc64")) s.cc64_lo = try uint(u8, value) else if (std.mem.eql(u8, key, "hicc64") or std.mem.eql(u8, key, "on_hicc64")) s.cc64_hi = try uint(u8, value) else return error.UnsupportedOpcode;
+    } else if (std.mem.eql(u8, key, "locc64") or std.mem.eql(u8, key, "on_locc64")) s.cc64_lo = try midi(value) else if (std.mem.eql(u8, key, "hicc64") or std.mem.eql(u8, key, "on_hicc64")) s.cc64_hi = try midi(value) else return error.UnsupportedOpcode;
 }
 
 fn appendRegion(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, sample_rate: u32, s: Settings, samples: *std.ArrayListUnmanaged(f32), regions: *std.ArrayListUnmanaged(Region)) !void {
@@ -186,7 +186,8 @@ fn nonnegative(value: []const u8) ParseError!f32 {
     return if (v >= 0) v else error.InvalidValue;
 }
 fn midi(value: []const u8) ParseError!u8 {
-    return uint(u8, value);
+    const v = try uint(u8, value);
+    return if (v <= 127) v else error.InvalidValue;
 }
 
 test "SFZ global and group inheritance resolve into shared sample bank" {
@@ -206,6 +207,13 @@ test "SFZ global and group inheritance resolve into shared sample bank" {
     try std.testing.expectEqual(@as(u8, 80), r.vel_hi);
     try std.testing.expectApproxEqAbs(@as(f32, 0.4), r.release_s, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.501187), r.attenuation_gain, 1e-5);
+}
+
+test "SFZ rejects MIDI-domain values above 127" {
+    inline for ([_][]const u8{ "key", "lokey", "hikey", "pitch_keycenter", "lovel", "hivel", "xfin_lovel", "xfout_hivel", "locc64", "hicc64", "on_locc64", "on_hicc64" }) |opcode| {
+        var settings: Settings = .{};
+        try std.testing.expectError(error.InvalidValue, apply(&settings, opcode, "128"));
+    }
 }
 
 fn parseForAllocationTest(allocator: std.mem.Allocator, dir: std.Io.Dir) !void {
