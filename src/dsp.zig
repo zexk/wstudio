@@ -15,6 +15,7 @@ pub const multiband_comp = @import("dsp/multiband_comp.zig");
 pub const MultibandComp = multiband_comp.MultibandComp;
 pub const Ott = @import("dsp/ott.zig").Ott;
 pub const Limiter = @import("dsp/limiter.zig").Limiter;
+pub const Filter = @import("dsp/filter.zig").Filter;
 pub const Gate = @import("dsp/gate.zig").Gate;
 pub const Saturator = @import("dsp/saturator.zig").Saturator;
 pub const Crusher = @import("dsp/crusher.zig").Crusher;

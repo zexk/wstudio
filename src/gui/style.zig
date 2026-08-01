@@ -159,7 +159,7 @@ pub fn legibleOn(bg: [4]f32) [4]f32 {
 pub fn fxKindAccent(kind: ws.FxKind) [4]f32 {
     return switch (kind) {
         .gate, .comp, .mb_comp, .ott => palette.danger,
-        .eq => palette.rhythm,
+        .eq, .filter => palette.rhythm,
         .sat, .crush, .tape => palette.modulation,
         .chorus, .flanger, .phaser, .freq_shift => palette.focus,
         .delay, .reverb => palette.audio,

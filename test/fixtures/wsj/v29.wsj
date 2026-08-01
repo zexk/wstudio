@@ -1,0 +1,24 @@
+{
+  "version": 29,
+  "tracks": [
+    { "name": "filtered" }
+  ],
+  "racks": [
+    {
+      "label": "synth",
+      "kind": "empty",
+      "fx_chain": [
+        {
+          "kind": "filter",
+          "filter": {
+            "mode": 1,
+            "cutoff_hz": 420,
+            "resonance": 0.9,
+            "drive_db": 6,
+            "mix": 0.75
+          }
+        }
+      ]
+    }
+  ]
+}

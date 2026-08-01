@@ -58,7 +58,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// added and what older files load as) and the bump-vs-additive policy
 /// live in FORMAT.md; per-field migration specifics stay as doc comments
 /// on the snapshot fields they concern.
-pub const file_version: u32 = 28;
+pub const file_version: u32 = 29;
 
 /// The step-grid ceiling both machines had while their step data was a `u64`
 /// bitmask plus a parallel velocity array - one word's bit width. Only the
@@ -654,6 +654,14 @@ pub const FreqShiftSnap = struct {
     mix: f32 = 1.0,
 };
 
+pub const FilterSnap = struct {
+    mode: f32 = 0,
+    cutoff_hz: f32 = 1000,
+    resonance: f32 = 0.7,
+    drive_db: f32 = 0,
+    mix: f32 = 1,
+};
+
 /// Legacy (v9 and older) fixed nine-slot rack: one optional per slot, order
 /// implied. Read-only on load; v10 files carry `fx_chain` instead.
 pub const FxSnap = struct {
@@ -670,7 +678,7 @@ pub const FxSnap = struct {
 
 /// Mirrors rack.zig's FxKind - persist keeps its own copy so snapshots stay
 /// pure data, same pattern as `InstrumentKind` below.
-pub const FxKind = enum { gate, comp, mb_comp, ott, eq, sat, crush, chorus, phaser, flanger, tape, freq_shift, delay, reverb, clap, vst3 };
+pub const FxKind = enum { gate, comp, mb_comp, ott, eq, filter, sat, crush, chorus, phaser, flanger, tape, freq_shift, delay, reverb, clap, vst3 };
 
 pub const ClapSnap = struct {
     path: []const u8 = "",
@@ -704,6 +712,7 @@ pub const FxUnitSnap = struct {
     delay: ?DelaySnap = null,
     reverb: ?ReverbSnap = null,
     eq: ?EqSnap = null,
+    filter: ?FilterSnap = null,
     gate: ?GateSnap = null,
     sat: ?SatSnap = null,
     crush: ?CrushSnap = null,
@@ -1324,6 +1333,7 @@ pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]Fx
                 };
                 break :blk .{ .kind = .eq, .eq = .{ .bands = bands } };
             },
+            .filter => |f| .{ .kind = .filter, .filter = snapFromDevice(FilterSnap, f) },
             .gate => |g| .{ .kind = .gate, .gate = snapFromDevice(GateSnap, g) },
             .sat => |s| .{ .kind = .sat, .sat = snapFromDevice(SatSnap, s) },
             .crush => |c| .{ .kind = .crush, .crush = snapFromDevice(CrushSnap, c) },
@@ -2589,7 +2599,7 @@ pub fn applyFxChain(
             else => |saved_kind| blk: {
                 const kind: rack_mod.FxKind = switch (saved_kind) {
                     .gate => .gate, .comp => .comp, .mb_comp => .mb_comp, .ott => .ott,
-                    .eq => .eq, .sat => .sat, .crush => .crush, .chorus => .chorus,
+                    .eq => .eq, .filter => .filter, .sat => .sat, .crush => .crush, .chorus => .chorus,
                     .phaser => .phaser, .flanger => .flanger, .tape => .tape,
                     .freq_shift => .freq_shift, .delay => .delay, .reverb => .reverb,
                     .clap, .vst3 => unreachable,
@@ -2661,6 +2671,7 @@ pub fn applyFxChain(
                 // Legacy EQ-only bypass maps onto the slot's generic one.
                 if (es.bypass) unit.bypassed = true;
             },
+            .filter => |*f| if (us.filter) |fs| applySnapToDevice(f, fs),
             .gate => |*g| if (us.gate) |gs| applySnapToDevice(g, gs),
             .sat => |*s| if (us.sat) |ss| applySnapToDevice(s, ss),
             .crush => |*c| if (us.crush) |cs| applySnapToDevice(c, cs),
@@ -2802,7 +2813,7 @@ fn migrateSynthFx(allocator: std.mem.Allocator, s: *PolySynth, fx: *Fx, sr: u32)
                 v.damp = s.fx_reverb_damp;
                 v.mix = s.fx_reverb_mix;
             },
-            .clap, .vst3 => unreachable,
+            .filter, .clap, .vst3 => unreachable,
         }
     }
     clearMigratedSynthFx(s);

@@ -35,7 +35,7 @@ pub const spectrum_band_count: usize = 80;
 /// The insertable kinds in picker display order (signal-flow-ish: dynamics,
 /// tone, character, modulation, time).
 pub const picker_kinds = [_]FxKind{
-    .gate, .comp, .mb_comp, .ott, .eq, .sat, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .delay, .reverb,
+    .gate, .comp, .mb_comp, .ott, .eq, .filter, .sat, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .delay, .reverb,
 };
 
 /// The `/` filter narrowing the FX insert picker right now - same
@@ -99,6 +99,7 @@ pub const effect_specs = [_]EffectSpec{
     .{ .label = "MB COMP",    .editor_title = "MULTIBAND COMP", .strip_label = "MBCP", .badge_label = "mbc",  .category = "DYNAMICS",   .description = "Shape dynamics across three bands",          .display_label = "TRANSFER" },
     .{ .label = "OTT",        .editor_title = "OTT",            .strip_label = "OTT",  .badge_label = "ott",  .category = "DYNAMICS",   .description = "Fast upward and downward compression",       .display_label = "TRANSFER" },
     .{ .label = "EQ",         .editor_title = "EQ + SPECTRUM",  .strip_label = "EQ",   .badge_label = "eq",   .category = "TONE",       .description = "Eight-band parametric tone shaping",         .display_label = "RESPONSE" },
+    .{ .label = "FILTER",     .editor_title = "FILTER",         .strip_label = "FILT", .badge_label = "flt",  .category = "TONE",       .description = "Multimode resonant tone shaping",            .display_label = "RESPONSE" },
     .{ .label = "SAT",        .editor_title = "SATURATOR",      .strip_label = "SAT",  .badge_label = "sat",  .category = "CHARACTER",  .description = "Add harmonic drive and warmth",              .display_label = "SHAPER" },
     .{ .label = "CRUSH",      .editor_title = "CRUSHER",        .strip_label = "CRSH", .badge_label = "crs",  .category = "CHARACTER",  .description = "Reduce bit depth and sample rate",           .display_label = "SHAPER" },
     .{ .label = "CHORUS",     .editor_title = "CHORUS",         .strip_label = "CHOR", .badge_label = "cho",  .category = "MODULATION", .description = "Widen with modulated voices",                .display_label = "MODULATION" },
@@ -170,6 +171,7 @@ pub fn paramCount(k: FxKind) usize {
         .mb_comp => mb_comp_param_count,
         .comp => comp_specs.len + 2, // + sidechain track + sidechain pad
         .gate => gate_specs.len,
+        .filter => filter_specs.len,
         .sat => sat_specs.len,
         .crush => crush_specs.len,
         .chorus => chorus_specs.len,
@@ -323,7 +325,7 @@ fn mbBandParamName(bf: MbBandField) []const u8 {
     return mb_band_param_names[bf.band][bf.field];
 }
 
-/// One row of the per-kind param table driving the 11 "plain" FX kinds
+/// One row of the per-kind param table driving the "plain" FX kinds
 /// below - everything that reduces to reading/writing one f32 field (or,
 /// for a couple of clamped/derived params, calling an existing method)
 /// against a static range. EQ, multiband comp, and comp's sidechain rows
@@ -393,6 +395,14 @@ const gate_specs = [_]ParamSpec{
     .{ .name = "thresh", .field = "threshold_db", .min = -80.0, .max = 0.0, .step_fine = 1.0, .step_coarse = 6.0 },
     .{ .name = "attack", .field = "attack_ms", .min = 0.1, .max = 50.0, .step_fine = 0.5, .step_coarse = 5.0 },
     .{ .name = "release", .field = "release_ms", .min = 5.0, .max = 1000.0, .step_fine = 10.0, .step_coarse = 100.0 },
+};
+
+const filter_specs = [_]ParamSpec{
+    .{ .name = "mode", .field = "mode", .min = 0.0, .max = 2.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+    .{ .name = "cutoff", .field = "cutoff_hz", .min = 20.0, .max = 20000.0, .step_fine = 10.0, .step_coarse = 100.0 },
+    .{ .name = "resonance", .field = "resonance", .min = 0.1, .max = 1.4, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "drive", .field = "drive_db", .min = 0.0, .max = 24.0, .step_fine = 1.0, .step_coarse = 6.0 },
+    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
 };
 
 const sat_specs = [_]ParamSpec{
@@ -497,6 +507,7 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
             else => tableName(&comp_specs, idx),
         },
         .gate => tableName(&gate_specs, idx),
+        .filter => tableName(&filter_specs, idx),
         .sat => tableName(&sat_specs, idx),
         .crush => tableName(&crush_specs, idx),
         .chorus => tableName(&chorus_specs, idx),
@@ -589,6 +600,7 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
             else => tableGet(c, &comp_specs, idx),
         },
         .gate => |*g| tableGet(g, &gate_specs, idx),
+        .filter => |*f| tableGet(f, &filter_specs, idx),
         .sat => |*s| tableGet(s, &sat_specs, idx),
         .crush => |*c| tableGet(c, &crush_specs, idx),
         .chorus => |*c| tableGet(c, &chorus_specs, idx),
@@ -648,6 +660,7 @@ pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
             else => tableRange(&comp_specs, idx),
         },
         .gate => tableRange(&gate_specs, idx),
+        .filter => tableRange(&filter_specs, idx),
         .sat => tableRange(&sat_specs, idx),
         .crush => tableRange(&crush_specs, idx),
         .chorus => tableRange(&chorus_specs, idx),
@@ -756,6 +769,7 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
             else => tableSet(c, &comp_specs, idx, value),
         },
         .gate => |*g| tableSet(g, &gate_specs, idx, value),
+        .filter => |*f| tableSet(f, &filter_specs, idx, value),
         .sat => |*s| tableSet(s, &sat_specs, idx, value),
         .crush => |*c| tableSet(c, &crush_specs, idx, value),
         .chorus => |*c| tableSet(c, &chorus_specs, idx, value),
@@ -809,6 +823,7 @@ fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
             else => tableStep(&comp_specs, idx, coarse),
         },
         .gate => tableStep(&gate_specs, idx, coarse),
+        .filter => tableStep(&filter_specs, idx, coarse),
         .sat => tableStep(&sat_specs, idx, coarse),
         .crush => tableStep(&crush_specs, idx, coarse),
         .chorus => tableStep(&chorus_specs, idx, coarse),
@@ -1469,6 +1484,17 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
         .gate => switch (idx) {
             0 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
             else => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
+        },
+        .filter => switch (idx) {
+            0 => switch (@as(u2, @intFromFloat(v))) {
+                0 => "low-pass",
+                1 => "high-pass",
+                else => "band-pass",
+            },
+            1 => std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?",
+            2 => std.fmt.bufPrint(buf, "{d:.2}", .{v}) catch "?",
+            3 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
         },
         .sat => switch (idx) {
             0, 1 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",

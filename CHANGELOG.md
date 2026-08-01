@@ -3,6 +3,13 @@
 Notable user-visible changes per release. The `.wsj` format's own version
 history lives in [FORMAT.md](FORMAT.md).
 
+## v1.0.0-beta.10
+
+### Added
+
+- Internal rack multimode filter with low-pass, high-pass, and band-pass modes,
+  cutoff, resonance, drive, and dry/wet mix.
+
 ## v1.0.0-beta.9
 
 ### Added
