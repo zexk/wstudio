@@ -43,7 +43,7 @@ pub const AudioInput = struct {
     /// `WasapiCapture.Error`) plus `Unsupported` for a platform with
     /// neither compiled in - simpler than conditional error-set arithmetic
     /// for two sets that only differ by `ComInitFailed`.
-    pub const Error = error{ Unsupported, ComInitFailed, DeviceOpenFailed, DeviceConfigFailed, ThreadSpawnFailed };
+    pub const Error = error{ Unsupported, InvalidSampleRate, ComInitFailed, DeviceOpenFailed, DeviceConfigFailed, ThreadSpawnFailed };
 
     /// Opens the OS default input device at `sample_rate` (matching the
     /// project's own rate, so recorded audio never needs a resample
@@ -51,6 +51,7 @@ pub const AudioInput = struct {
     /// platform/config with no capture backend at all.
     pub fn start(self: *AudioInput, sample_rate: u32, device_name: []const u8) Error!void {
         std.debug.assert(self.active == .none);
+        if (sample_rate == 0) return error.InvalidSampleRate;
         if (has_alsa) {
             try self.alsa.start(sample_rate, device_name);
             self.active = .alsa;
@@ -90,6 +91,11 @@ pub const AudioInput = struct {
         };
     }
 };
+
+test "audio input rejects zero sample rate before opening a backend" {
+    var input: AudioInput = .{};
+    try std.testing.expectError(error.InvalidSampleRate, input.start(0, ""));
+}
 
 test "audio input reports unsupported when neither backend compiles in" {
     if (has_alsa or has_wasapi or has_coreaudio) return error.SkipZigTest;
