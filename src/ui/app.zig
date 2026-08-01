@@ -1758,8 +1758,8 @@ pub const App = struct {
             },
             .slicer => |*sl| return .{
                 .kind = "slicer",
-                .length_beats = @as(f64, @floatFromInt(sl.step_count)) / 4.0,
-                .steps_per_beat = 4,
+                .length_beats = @as(f64, @floatFromInt(sl.step_count)) / @as(f64, @floatFromInt(sl.steps_per_beat)),
+                .steps_per_beat = sl.steps_per_beat,
                 .step_count = sl.step_count,
             },
             else => {},

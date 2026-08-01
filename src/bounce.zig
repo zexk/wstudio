@@ -38,7 +38,7 @@ pub fn contentBeats(session: *const Session) f64 {
         if (rack.pattern_player) |pp| max_beats = @max(max_beats, pp.length_beats);
         switch (rack.instrument) {
             .drum_machine => |*dm| max_beats = @max(max_beats, @as(f64, @floatFromInt(dm.step_count)) / @as(f64, @floatFromInt(dm.steps_per_beat))),
-            .slicer => |*sl| max_beats = @max(max_beats, @as(f64, @floatFromInt(sl.step_count)) / 4.0),
+            .slicer => |*sl| max_beats = @max(max_beats, @as(f64, @floatFromInt(sl.step_count)) / @as(f64, @floatFromInt(sl.steps_per_beat))),
             else => {},
         }
     }
@@ -185,7 +185,8 @@ test "contentBeats includes drum resolution and slicer length" {
 
     try session.setInstrument(0, .slicer);
     session.racks.items[0].instrument.slicer.setStepCount(20);
-    try std.testing.expectEqual(@as(f64, 5.0), contentBeats(&session));
+    session.racks.items[0].instrument.slicer.steps_per_beat = 8;
+    try std.testing.expectEqual(@as(f64, 2.5), contentBeats(&session));
 }
 
 test "range saturates overflowing render length" {

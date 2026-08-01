@@ -692,6 +692,9 @@ test "slicer grid: parameter locks, per-slice loop, and grid zoom" {
     _ = slicer_ed.handleKey(&app, .{ .char = 'z' });
     try std.testing.expectEqual(@as(u8, 8), sl.steps_per_beat);
     try std.testing.expectEqual(steps_before * 2, sl.step_count);
+    const info = app.apiPatternInfo(0);
+    try std.testing.expectEqual(@as(?u8, 8), info.steps_per_beat);
+    try std.testing.expectEqual(@as(f64, 4.0), info.length_beats);
     try std.testing.expect(sl.stepActive(0, 8));
     try std.testing.expectEqual(@as(u16, 10), sl.sliceSteps(0, sl.step_count));
     _ = slicer_ed.handleKey(&app, .{ .char = 'Z' });

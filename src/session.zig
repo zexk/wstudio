@@ -880,7 +880,7 @@ pub const Session = struct {
         const len_beats: f64 = switch (rack.instrument) {
             .empty => return 0,
             .drum_machine => |*dm| @as(f64, @floatFromInt(dm.step_count)) / @as(f64, @floatFromInt(dm.steps_per_beat)),
-            .slicer => |*sl| @as(f64, @floatFromInt(sl.step_count)) / 4.0,
+            .slicer => |*sl| @as(f64, @floatFromInt(sl.step_count)) / @as(f64, @floatFromInt(sl.steps_per_beat)),
             else => if (rack.pattern_player) |*pp| pp.length_beats else return 0,
         };
         const beats_per_bar: f64 = @floatFromInt(self.project.beats_per_bar);
@@ -1812,6 +1812,8 @@ test "song mode preserves fine-grid slicer clip timing" {
     const sl = &s.racks.items[0].instrument.slicer;
     sl.slice_count = 1;
     sl.toggleStep(0, 0);
+    try std.testing.expect(sl.setStepsPerBeatPreservingTime(8));
+    try std.testing.expectEqual(@as(u32, 128), s.stampLengthTicks(0));
 
     // One arrangement tick is a 1/128 note. The old slicer flattening divided
     // by eight, moving this clip back to tick zero.
