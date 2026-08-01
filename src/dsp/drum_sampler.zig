@@ -580,12 +580,16 @@ pub const DrumMachine = struct {
     /// activate a bank variant and to paste a yanked pattern. Silently
     /// leaves the live pattern unchanged on allocation failure.
     pub fn applyVariant(self: *DrumMachine, slot: Variant) void {
-        const fresh = dupeMidi(self.allocator, &slot.midi) catch return;
+        const want: u16 = std.math.clamp(slot.step_count, 1, max_steps);
+        const fresh = (if (slot.midi[0].len == 0)
+            allocMidi(self.allocator, want)
+        else
+            dupeMidi(self.allocator, &slot.midi)) catch return;
         while (!self.pad_lock.tryLock()) std.atomic.spinLoopHint();
         freeMidi(self.allocator, &self.midi);
         self.midi = fresh;
-        self.step_count = slot.step_count;
-        self.steps_per_beat = slot.steps_per_beat;
+        self.step_count = @intCast(fresh[0].len);
+        self.steps_per_beat = std.math.clamp(slot.steps_per_beat, 1, 32);
         self.pad_lock.unlock();
     }
 
@@ -2145,6 +2149,17 @@ test "toggleStep flips step activity" {
     try std.testing.expect(dm.stepActive(0, 3));
     dm.toggleStep(0, 3);
     try std.testing.expect(!dm.stepActive(0, 3));
+}
+
+test "applying an empty variant materializes blank rows" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    dm.applyVariant(.{ .step_count = 16, .steps_per_beat = 4 });
+    try std.testing.expectEqual(@as(u16, 16), dm.step_count);
+    try std.testing.expectEqual(@as(usize, 16), dm.midi[0].len);
+    try std.testing.expect(!dm.stepActive(0, 15));
 }
 
 test "variants: add copies, edits stay isolated, select round-trips" {
