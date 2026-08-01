@@ -260,14 +260,17 @@ pub const Sampler = struct {
         self.next_age +%= 1;
     }
 
-    /// Release every voice still holding `note`. Only a gated pad
+    /// Release the oldest voice still holding `note`. Only a gated pad
     /// (`Pad.gate`) actually acts on it - a latched one-shot renders the flag
     /// inert and plays out regardless, which is the default and matches how
     /// this sampler has always behaved.
     pub fn releaseNote(self: *Sampler, note: u7) void {
+        var oldest: ?*NoteVoice = null;
         for (&self.voices) |*nv| {
-            if (nv.active and nv.note == note) pad_dsp.release(&nv.v);
+            if (!nv.active or nv.note != note or nv.v.release_frames >= 0.0) continue;
+            if (oldest == null or nv.age < oldest.?.age) oldest = nv;
         }
+        if (oldest) |nv| pad_dsp.release(&nv.v);
     }
 
     pub fn processBlock(self: *Sampler, buf: []Sample) void {
@@ -508,6 +511,20 @@ test "mono mode chokes a still-ringing voice on retrigger" {
     for (s.voices) |nv| { if (nv.active) active_count += 1; }
     // zig fmt: on
     try std.testing.expectEqual(@as(usize, 1), active_count);
+}
+
+test "note-off releases only oldest same-pitch voice" {
+    var s = try Sampler.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    s.pad.gate = true;
+    s.trigger(60, 1.0, 0);
+    s.trigger(60, 1.0, 0);
+
+    s.releaseNote(60);
+    try std.testing.expectEqual(@as(f64, 0.0), s.voices[0].v.release_frames);
+    try std.testing.expect(s.voices[1].v.release_frames < 0.0);
+    s.releaseNote(60);
+    try std.testing.expectEqual(@as(f64, 0.0), s.voices[1].v.release_frames);
 }
 
 test "detectRootNote sets root_note from a melodic clip" {

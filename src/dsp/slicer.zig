@@ -1362,9 +1362,12 @@ pub const Slicer = struct {
             // Only a gated slice (`Pad.gate`) acts on the release; the
             // default latched slice plays out regardless.
             .note_off => |e| if (self.slice_count > 0) {
+                var oldest: ?*SliceVoice = null;
                 for (&self.voices[e.note % self.slice_count]) |*sv| {
-                    if (sv.active) pad_mod.release(&sv.v);
+                    if (!sv.active or sv.v.release_frames >= 0.0) continue;
+                    if (oldest == null or sv.age < oldest.?.age) oldest = sv;
                 }
+                if (oldest) |sv| pad_mod.release(&sv.v);
             },
             .set_param => |e| self.adjustParam(e.id, e.steps),
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
@@ -1877,6 +1880,22 @@ test "ungrouped retrigger still overlaps (choke stays opt-in)" {
     var active: usize = 0;
     for (s.voices[0]) |sv| active += @intFromBool(sv.active);
     try std.testing.expectEqual(@as(usize, 2), active);
+}
+
+test "note-off releases only oldest overlapping slice voice" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    s.sliceInto(2);
+    s.slices[0].gate = true;
+    s.triggerSlice(0, 1.0, 0);
+    s.triggerSlice(0, 1.0, 0);
+
+    s.device().sendEvent(.{ .note_off = .{ .note = 0 } });
+    try std.testing.expectEqual(@as(f64, 0.0), s.voices[0][0].v.release_frames);
+    try std.testing.expect(s.voices[0][1].v.release_frames < 0.0);
+    s.device().sendEvent(.{ .note_off = .{ .note = 0 } });
+    try std.testing.expectEqual(@as(f64, 0.0), s.voices[0][1].v.release_frames);
 }
 
 test "song mode fires the clip covering the playhead, silent past the end" {
