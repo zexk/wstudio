@@ -76,6 +76,16 @@ pub fn quarantine(io: std.Io, path: []const u8) void {
     }
 }
 
+/// Quarantine whichever location `load` would have read for `filename`.
+pub fn quarantineLoaded(io: std.Io, comptime filename: []const u8) void {
+    var path_buf: [path_buf_len]u8 = undefined;
+    if (configPath(&path_buf, filename)) |path| {
+        if (std.Io.Dir.cwd().statFile(io, path, .{})) |_| return quarantine(io, path) else |_| {}
+    }
+    var legacy_buf: [path_buf_len]u8 = undefined;
+    if (legacyConfigPath(&legacy_buf, filename)) |path| quarantine(io, path);
+}
+
 /// Read and parse `Snapshot` from `configPath`, falling back to
 /// `legacyConfigPath`. Null (not an error) when no config dir resolves, no
 /// file exists at either path, or neither parses (a parse failure also

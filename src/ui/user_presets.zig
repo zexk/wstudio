@@ -41,7 +41,10 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io, sample_rate: u32) std.Arra
         return importLegacy(allocator, io, sample_rate);
     defer parsed.deinit();
 
-    if (!std.mem.eql(u8, parsed.value.format, "wstudio-instrument-preset") or parsed.value.version > 1) return .empty;
+    if (!std.mem.eql(u8, parsed.value.format, "wstudio-instrument-preset") or parsed.value.version > 1) {
+        json_store.quarantineLoaded(io, filename);
+        return .empty;
+    }
 
     var list: std.ArrayListUnmanaged(UserPreset) = .empty;
     for (parsed.value.presets) |p| {
@@ -263,6 +266,27 @@ test "a malformed presets file is quarantined, not silently discarded" {
     defer fx.deinit(testing.allocator);
     try upsert(testing.allocator, testing.io, &loaded, "rescued", patch, &fx, ws.types.default_sample_rate);
     try testing.expectEqual(@as(usize, 1), loaded.items.len);
+}
+
+test "a newer preset version is quarantined before a save can replace it" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try json_store.testRedirectHome(&tmp);
+
+    var path_buf: [json_store.path_buf_len]u8 = undefined;
+    const path = json_store.configPath(&path_buf, filename).?;
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, std.fs.path.dirname(path).?);
+    const file = try std.Io.Dir.cwd().createFile(std.testing.io, path, .{});
+    defer file.close(std.testing.io);
+    var buf: [128]u8 = undefined;
+    var writer = file.writer(std.testing.io, &buf);
+    try writer.interface.writeAll("{\"format\":\"wstudio-instrument-preset\",\"version\":2}");
+    try writer.interface.flush();
+
+    var loaded = load(std.testing.allocator, std.testing.io, ws.types.default_sample_rate);
+    defer deinit(std.testing.allocator, &loaded);
+    try std.testing.expectEqual(@as(usize, 0), loaded.items.len);
+    try json_store.testExpectQuarantined(std.testing.io, path);
 }
 
 test "a preset whose save fails stays owned by the list" {
