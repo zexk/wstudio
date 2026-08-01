@@ -250,7 +250,7 @@ const OptionSpec = struct {
 /// plus its `Config` field.
 const option_specs = [_]OptionSpec{
     .{ .name = "preferred_frontend" },
-    .{ .name = "default_tempo", .min = 20, .max = 999 },
+    .{ .name = "default_tempo", .min = 20, .max = 400 },
     .{ .name = "default_sample_rate", .min = 8000, .max = 192000 },
     .{ .name = "default_beats_per_bar", .min = 1, .max = 16 },
     .{ .name = "default_octave", .min = 0, .max = 8 },
@@ -2862,6 +2862,7 @@ test "Lua API rejects invalid option values" {
     var rt = try Runtime.init(.tui);
     defer rt.deinit();
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_tempo = 2"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.default_tempo = 401"));
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.gui_font_size = 4"));
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.no_such_option = 1"));
 }

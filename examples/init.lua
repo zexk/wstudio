@@ -36,7 +36,7 @@
 -- it is corrected before ConfigDone fires.
 -- wstudio.o.preferred_frontend = "tui"
 
--- Tempo of new (blank) projects, in BPM. Range 20-999.
+-- Tempo of new (blank) projects, in BPM. Range 20-400.
 -- wstudio.o.default_tempo = 120
 
 -- Sample rate of new projects, in Hz. Range 8000-192000.
