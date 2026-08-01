@@ -36,7 +36,7 @@ pub fn dbToGain(db: f32) f32 {
 
 /// Linear amplitude to decibels. Clamps at -120 dB to avoid -inf.
 pub fn gainToDb(gain: f32) f32 {
-    if (gain <= 0.000001) return -120.0;
+    if (!std.math.isFinite(gain) or gain <= 0.000001) return -120.0;
     return 20.0 * std.math.log10(gain);
 }
 
@@ -59,4 +59,7 @@ test "dB conversion" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), dbToGain(-6.0206), 1e-4);
     try std.testing.expectApproxEqAbs(@as(f32, -6.0206), gainToDb(0.5), 1e-3);
     try std.testing.expectEqual(@as(f32, -120.0), gainToDb(0.0));
+    try std.testing.expectEqual(@as(f32, -120.0), gainToDb(std.math.nan(f32)));
+    try std.testing.expectEqual(@as(f32, -120.0), gainToDb(std.math.inf(f32)));
+    try std.testing.expectEqual(@as(f32, -120.0), gainToDb(-std.math.inf(f32)));
 }
