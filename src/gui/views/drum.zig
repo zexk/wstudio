@@ -1,5 +1,6 @@
 //! Drum machine grid: title strip plus the shared step-grid renderer.
 
+const std = @import("std");
 const ws = @import("wstudio");
 const icons = @import("../../ui/icons.zig");
 const gui_style = @import("../style.zig");
@@ -45,4 +46,10 @@ fn drawTitle(app: anytype, drum: *const ws.dsp.DrumMachine) void {
     zgui.textColored(theme.rhythm, "Pattern {c}", .{'A' + drum.variant});
     zgui.sameLine(.{});
     zgui.textDisabled("Variation {d}/{d}", .{ drum.variant + 1, drum.variant_count });
+    zgui.sameLine(.{ .spacing = 8 });
+    zgui.beginDisabled(.{ .disabled = drum.variant_count <= 1 });
+    if (zgui.smallButton("<##drum-variant-prev")) app.core.handleKey(.{ .char = '[' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+    zgui.sameLine(.{ .spacing = 4 });
+    if (zgui.smallButton(">##drum-variant-next")) app.core.handleKey(.{ .char = ']' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+    zgui.endDisabled();
 }

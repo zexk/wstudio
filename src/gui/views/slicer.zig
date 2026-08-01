@@ -7,6 +7,7 @@ const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
 const sampler_view = @import("sampler.zig");
 const step_grid = @import("step_grid.zig");
+const commands = @import("../../ui/commands.zig");
 
 const theme = &style.palette;
 
@@ -86,6 +87,10 @@ fn drawHeader(app: anytype, slicer: *const ws.dsp.Slicer) void {
     if (slicer.variant_count > 1) {
         zgui.sameLine(.{});
         zgui.textDisabled("{d}/{d}", .{ slicer.variant + 1, slicer.variant_count });
+        zgui.sameLine(.{ .spacing = 8 });
+        if (zgui.smallButton("<##slicer-variant-prev")) app.core.handleKey(.{ .char = '(' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+        zgui.sameLine(.{ .spacing = 4 });
+        if (zgui.smallButton(">##slicer-variant-next")) app.core.handleKey(.{ .char = ')' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     }
 }
 
@@ -171,7 +176,11 @@ fn drawSourceWaveform(app: anytype, slicer: *const ws.dsp.Slicer) void {
 
 fn drawSliceState(app: anytype, slicer: *const ws.dsp.Slicer) void {
     if (slicer.slice_count == 0) {
-        zgui.textDisabled("No slices. Load audio and create slices from the command palette.", .{});
+        zgui.textDisabled("No slices yet.", .{});
+        zgui.sameLine(.{ .spacing = 12 });
+        if (zgui.button("8 EQUAL SLICES", .{})) commands.run(&app.core, "slice 8");
+        zgui.sameLine(.{ .spacing = 6 });
+        if (zgui.button("DETECT TRANSIENTS", .{})) commands.run(&app.core, "chop");
         return;
     }
     const index = @min(app.core.slicer_cursor[0], slicer.slice_count - 1);

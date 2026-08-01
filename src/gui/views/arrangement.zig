@@ -274,6 +274,7 @@ test "clip selection rejects deleted or displaced clips" {
 
 fn drawArrangementInspector(app: anytype) void {
     const selection = app.arrangement_clip orelse return;
+    var action: ?u8 = null;
     if (zgui.beginChild("arrangement-inspector", .{ .w = 0, .h = 108, .child_flags = .{ .border = true } })) {
         const clip = app.core.session.arrangement.lanes.items[selection.track].clips.items[selection.clip];
         zgui.textColored(theme.focus, "SELECTED CLIP", .{});
@@ -289,7 +290,36 @@ fn drawArrangementInspector(app: anytype) void {
             .drum => "DRUM PATTERN",
         }});
         zgui.spacing();
-        zgui.textDisabled("x delete   h/l move   H/L resize   a automation", .{});
+        if (zgui.button("< MOVE##clip-move-left", .{})) action = 'h';
+        zgui.sameLine(.{ .spacing = 6 });
+        if (zgui.button("MOVE >##clip-move-right", .{})) action = 'l';
+        zgui.sameLine(.{ .spacing = 12 });
+        if (zgui.button("- LENGTH##clip-shorter", .{})) action = 'H';
+        zgui.sameLine(.{ .spacing = 6 });
+        if (zgui.button("+ LENGTH##clip-longer", .{})) action = 'L';
+        zgui.sameLine(.{ .spacing = 12 });
+        if (zgui.button("AUTOMATION##clip-automation", .{})) action = 'a';
+        zgui.sameLine(.{ .spacing = 12 });
+        zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = theme.danger });
+        if (zgui.button("DELETE##clip-delete", .{})) action = 'x';
+        zgui.popStyleColor(.{});
     }
     zgui.endChild();
+    if (action) |key| applyInspectorAction(app, selection, key);
+}
+
+fn applyInspectorAction(app: anytype, selection: ClipSelection, key: u8) void {
+    app.core.handleKey(.{ .char = key }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+    if (key == 'x') {
+        app.arrangement_clip = null;
+        return;
+    }
+    if (app.core.view != .arrangement or selection.track >= app.core.session.arrangement.lanes.items.len) return;
+    const cursor_tick = app.core.arr_cursor_bar *| app.core.arr_grid.ticks();
+    for (app.core.session.arrangement.lanes.items[selection.track].clips.items, 0..) |clip, index| {
+        if (!clip.covers(cursor_tick)) continue;
+        app.arrangement_clip = .{ .track = selection.track, .clip = index, .start_tick = clip.start_tick };
+        return;
+    }
+    app.arrangement_clip = null;
 }

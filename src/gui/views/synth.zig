@@ -547,7 +547,9 @@ fn drawFx(app: anytype, synth: *ws.dsp.PolySynth) void {
     zgui.textColored(theme.audio, "OUT", .{});
     if (order.len == 0) {
         zgui.spacing();
-        zgui.textDisabled("No internal effects are enabled. Press a to insert one.", .{});
+        zgui.textDisabled("No internal effects are enabled.", .{});
+        zgui.sameLine(.{ .spacing = 12 });
+        if (zgui.button("ADD EFFECT", .{})) synth_ed.openFxPicker(&app.core);
         return;
     }
     zgui.spacing();
