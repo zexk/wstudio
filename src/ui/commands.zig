@@ -1194,29 +1194,30 @@ pub fn cmdHelp(app: *App, _: []const u8) void {
 }
 
 fn cmdMetronome(app: *App, args: []const u8) void {
-    const trimmed = std.mem.trim(u8, args, " ");
-    const on = onOffArg(trimmed, app.session.metronome_enabled);
+    const on = onOffArg(app, "metronome", args, app.session.metronome_enabled) orelse return;
     app.session.setMetronome(on);
     app.setStatus("metronome {s}", .{if (on) "on" else "off"});
 }
 
 fn cmdPunch(app: *App, args: []const u8) void {
-    const on = onOffArg(std.mem.trim(u8, args, " "), app.punch_enabled);
+    const on = onOffArg(app, "punch", args, app.punch_enabled) orelse return;
     _ = app.setPunch(on);
 }
 
-/// Shared `[on|off]` argument form: the literal words set the flag, anything
-/// else (typically no argument at all) toggles `current`.
-fn onOffArg(trimmed: []const u8, current: bool) bool {
+/// Shared `[on|off]` argument form: no argument toggles `current`.
+fn onOffArg(app: *App, command: []const u8, args: []const u8, current: bool) ?bool {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) return !current;
     if (std.mem.eql(u8, trimmed, "on")) return true;
     if (std.mem.eql(u8, trimmed, "off")) return false;
-    return !current;
+    app.setStatus("{s}: expected on or off (omit value to toggle)", .{command});
+    return null;
 }
 
 /// `:ghost [on|off]` - toggles dimmed "ghost notes" from every other melodic
 /// track into the piano roll's background (see `App.piano_ghost`).
 fn cmdGhost(app: *App, args: []const u8) void {
-    const on = onOffArg(std.mem.trim(u8, args, " "), app.piano_ghost);
+    const on = onOffArg(app, "ghost", args, app.piano_ghost) orelse return;
     app.piano_ghost = on;
     app.setStatus("ghost notes {s}", .{if (on) "on" else "off"});
 }
@@ -1224,7 +1225,7 @@ fn cmdGhost(app: *App, args: []const u8) void {
 /// `:audition [on|off]` - toggles previewing the pitch under the piano-roll
 /// cursor on every j/k move (see `App.piano_audition`).
 fn cmdAudition(app: *App, args: []const u8) void {
-    const on = onOffArg(std.mem.trim(u8, args, " "), app.piano_audition);
+    const on = onOffArg(app, "audition", args, app.piano_audition) orelse return;
     app.piano_audition = on;
     app.setStatus("cursor audition {s}", .{if (on) "on" else "off"});
 }

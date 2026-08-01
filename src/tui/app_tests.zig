@@ -3811,6 +3811,27 @@ test ":metronome toggles, and on/off set it explicitly" {
     try std.testing.expect(app.session.metronome_enabled);
 }
 
+test "on/off commands reject invalid values without changing state" {
+    var app = try testApp();
+    defer app.deinit();
+
+    commands.run(&app, "metronome maybe");
+    try std.testing.expect(!app.session.metronome_enabled);
+    try std.testing.expectEqualStrings("metronome: expected on or off (omit value to toggle)", app.status_buf[0..app.status_len]);
+
+    commands.run(&app, "punch maybe");
+    try std.testing.expect(!app.punch_enabled);
+    try std.testing.expectEqualStrings("punch: expected on or off (omit value to toggle)", app.status_buf[0..app.status_len]);
+
+    commands.run(&app, "ghost maybe");
+    try std.testing.expect(!app.piano_ghost);
+    try std.testing.expectEqualStrings("ghost: expected on or off (omit value to toggle)", app.status_buf[0..app.status_len]);
+
+    commands.run(&app, "audition maybe");
+    try std.testing.expect(!app.piano_audition);
+    try std.testing.expectEqualStrings("audition: expected on or off (omit value to toggle)", app.status_buf[0..app.status_len]);
+}
+
 test ":punch requires A/B bounds and gates recording to their frame range" {
     var app = try testApp();
     defer app.deinit();

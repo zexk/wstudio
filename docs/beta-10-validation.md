@@ -67,6 +67,15 @@ track labels, FX slots, parameter labels, and bottom status hints remained
 visible without overlap or clipping. No defect appeared in this pass. Captures
 remain under `.zig-cache/beta10-polish/`.
 
+## Command and key audit
+
+2026-08-01 command help, completion scopes, and view key handlers passed their
+shared registry and frontend integration checks. Audit found one contract gap:
+the four `[on|off]` commands silently toggled when given an invalid value.
+`:metronome`, `:punch`, `:ghost`, and `:audition` now leave state unchanged and
+name both the failed command and accepted values. Automated coverage locks that
+behavior; `zig build test` passes.
+
 ## Arrangement markers
 
 Existing named sections satisfy the marker candidate without a new model or
