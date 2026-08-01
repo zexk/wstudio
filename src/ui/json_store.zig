@@ -118,7 +118,13 @@ fn readAt(
     path: []const u8,
     limit_bytes: usize,
 ) ?std.json.Parsed(Snapshot) {
-    const data = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(limit_bytes)) catch return null;
+    const data = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(limit_bytes)) catch |err| switch (err) {
+        error.StreamTooLong => {
+            quarantine(io, path);
+            return null;
+        },
+        else => return null,
+    };
     defer allocator.free(data);
     // alloc_always: parseFromSlice defaults to borrowing unescaped strings
     // straight from `data`, which this function frees before the caller
@@ -265,6 +271,29 @@ test "the store follows XDG_CONFIG_HOME and still reads the legacy path" {
     _ = try testWriteCorrupt(io, &path_buf, "xdg_probe.json");
     try std.testing.expect(load(S, std.testing.allocator, io, "xdg_probe.json", 4096) == null);
     try testExpectQuarantined(io, path);
+}
+
+test "an oversized store is quarantined before a save can replace it" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try testRedirectHome(&tmp);
+
+    const filename = "oversized.json";
+    var path_buf: [path_buf_len]u8 = undefined;
+    const path = configPath(&path_buf, filename).?;
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, std.fs.path.dirname(path).?);
+    {
+        const file = try std.Io.Dir.cwd().createFile(std.testing.io, path, .{});
+        defer file.close(std.testing.io);
+        var buf: [32]u8 = undefined;
+        var writer = file.writer(std.testing.io, &buf);
+        try writer.interface.writeAll("{\"n\":123456789}");
+        try writer.interface.flush();
+    }
+
+    const Snapshot = struct { n: u32 = 0 };
+    try std.testing.expect(load(Snapshot, std.testing.allocator, std.testing.io, filename, 8) == null);
+    try testExpectQuarantined(std.testing.io, path);
 }
 
 test "quarantine preserves an earlier corrupt file" {

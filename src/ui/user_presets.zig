@@ -276,12 +276,14 @@ test "a newer preset version is quarantined before a save can replace it" {
     var path_buf: [json_store.path_buf_len]u8 = undefined;
     const path = json_store.configPath(&path_buf, filename).?;
     try std.Io.Dir.cwd().createDirPath(std.testing.io, std.fs.path.dirname(path).?);
-    const file = try std.Io.Dir.cwd().createFile(std.testing.io, path, .{});
-    defer file.close(std.testing.io);
-    var buf: [128]u8 = undefined;
-    var writer = file.writer(std.testing.io, &buf);
-    try writer.interface.writeAll("{\"format\":\"wstudio-instrument-preset\",\"version\":2}");
-    try writer.interface.flush();
+    {
+        const file = try std.Io.Dir.cwd().createFile(std.testing.io, path, .{});
+        defer file.close(std.testing.io);
+        var buf: [128]u8 = undefined;
+        var writer = file.writer(std.testing.io, &buf);
+        try writer.interface.writeAll("{\"format\":\"wstudio-instrument-preset\",\"version\":2}");
+        try writer.interface.flush();
+    }
 
     var loaded = load(std.testing.allocator, std.testing.io, ws.types.default_sample_rate);
     defer deinit(std.testing.allocator, &loaded);
