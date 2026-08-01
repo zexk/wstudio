@@ -665,6 +665,9 @@ pub const App = struct {
     /// Null is the wide case precisely so the old behaviour is the default
     /// any code path that never sets them keeps getting.
     piano_visual_pitch_anchor: ?u7 = null,
+    /// Enter toggles selected-note editing while piano visual mode stays
+    /// active. Motions then transform notes instead of growing selection.
+    piano_visual_edit: bool = false,
     drum_visual_pad_anchor: ?u8 = null,
     slicer_visual_slice_anchor: ?u8 = null,
     arr_visual_lane_anchor: ?usize = null,

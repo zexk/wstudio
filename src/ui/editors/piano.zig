@@ -69,6 +69,7 @@ pub fn switchTo(app: *App, track: u16) void {
     app.piano_clip_link = null;
     app.piano_grab = false;
     app.piano_stamp = false;
+    app.piano_visual_edit = false;
     app.view = .piano_roll;
 }
 
@@ -939,8 +940,10 @@ fn finishOperator(app: *App, pp: *pattern_mod.PatternPlayer, op: u8) void {
 /// Visual mode's reduced key set - see docs/editing-grammar.md for the
 /// swallow-everything-else and digits-fall-through rules every editor shares.
 fn handleVisual(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, max_step: u16) bool {
+    if (app.piano_visual_edit) return handleVisualEdit(app, key, pp, max_step);
     switch (key) {
         .escape => { exitVisual(app); app.setStatus("selection cancelled", .{}); return true; },
+        .enter => { app.piano_visual_edit = true; app.setStatus("editing selection: hjkl move, [] resize, <> velocity, enter/esc stops", .{}); return true; },
         .char => |c| switch (c) {
             'h' => { moveStep(app, max_step, -app.takeCount()); return true; },
             'l' => { moveStep(app, max_step, app.takeCount()); return true; },
@@ -994,6 +997,29 @@ fn handleVisual(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, m
 }
 // zig fmt: on
 
+fn handleVisualEdit(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, max_step: u16) bool {
+    switch (key) {
+        .escape, .enter => {
+            app.piano_visual_edit = false;
+            app.setStatus("visual selection", .{});
+        },
+        .char => |c| switch (c) {
+            'h' => slideSelection(app, pp, max_step, -app.takeCount()),
+            'l' => slideSelection(app, pp, max_step, app.takeCount()),
+            'j' => transposeSelection(app, pp, -app.takeCount()),
+            'k' => transposeSelection(app, pp, app.takeCount()),
+            '[' => shapeSelection(app, pp, -1.0 / stepsPerBeatF(app) * @as(f64, @floatFromInt(app.takeCount())), 0),
+            ']' => shapeSelection(app, pp, 1.0 / stepsPerBeatF(app) * @as(f64, @floatFromInt(app.takeCount())), 0),
+            '<' => shapeSelection(app, pp, 0, -0.1 * @as(f32, @floatFromInt(app.takeCount()))),
+            '>' => shapeSelection(app, pp, 0, 0.1 * @as(f32, @floatFromInt(app.takeCount()))),
+            '0'...'9' => return false,
+            else => {},
+        },
+        else => {},
+    }
+    return true;
+}
+
 /// `v`/`V`: arm a visual selection on the step axis, with the pitch axis
 /// either anchored to the cursor pitch (`v`, blockwise) or left open (`V`,
 /// linewise - every pitch, visual mode's original behaviour).
@@ -1012,6 +1038,7 @@ fn exitVisual(app: *App) void {
     _ = app.modal.setMode(.normal);
     app.piano_visual_anchor = null;
     app.piano_visual_pitch_anchor = null;
+    app.piano_visual_edit = false;
 }
 
 /// The selection as the pattern layer sees it: the step range widened to
@@ -1027,6 +1054,19 @@ fn selection(app: *App) pattern_mod.Sel {
         .pitch_lo = @intCast(rows.lo),
         .pitch_hi = @intCast(rows.hi),
     };
+}
+
+fn shapeSelection(app: *App, pp: *pattern_mod.PatternPlayer, duration_delta: f64, velocity_delta: f32) void {
+    var entry = history.captureMelodic(app, app.piano_track);
+    const changed = pp.shapeNotesInRange(selection(app), duration_delta, 1.0 / stepsPerBeatF(app), velocity_delta);
+    if (changed == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("no notes selected", .{});
+        return;
+    }
+    history.push(app, entry);
+    app.setStatus("edited {d} selected notes", .{changed});
+    syncLinkedClip(app);
 }
 
 /// Visual `+`/`-`: transpose the selected notes by `dpitch` semitones,

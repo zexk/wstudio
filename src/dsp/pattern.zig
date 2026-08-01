@@ -314,6 +314,24 @@ pub const PatternPlayer = struct {
         return moved;
     }
 
+    /// Add `delta` to duration and velocity of every selected note. Zero
+    /// delta leaves that property unchanged. Returns count touched.
+    pub fn shapeNotesInRange(self: *PatternPlayer, sel: Sel, duration_delta: f64, min_duration: f64, velocity_delta: f32) u16 {
+        while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.notes_lock.unlock();
+        var changed: u16 = 0;
+        for (self.notes[0..self.note_count]) |*n| {
+            if (!sel.contains(n.*)) continue;
+            if (duration_delta != 0) {
+                self.queueNoteOff(n.pitch);
+                n.duration_beat = std.math.clamp(n.duration_beat + duration_delta, min_duration, self.length_beats);
+            }
+            if (velocity_delta != 0) n.velocity = std.math.clamp(n.velocity + velocity_delta, 0.05, 1.0);
+            changed += 1;
+        }
+        return changed;
+    }
+
     /// Time-mirror (retrograde) every note `sel` covers: a note occupying
     /// [s, s+d) maps to [lo+hi-s-d, lo+hi-s), so it ends where it used to
     /// begin and the figure plays backwards. A note whose tail overhangs the

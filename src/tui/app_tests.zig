@@ -5208,6 +5208,35 @@ test "piano roll visual +/- transpose and </> slide the selection" {
     app.handleKey(.escape, 0);
 }
 
+test "piano roll visual enter edits every selected note" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25, .velocity = 0.5 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 0.25, .duration_beat = 0.25, .velocity = 0.5 });
+
+    app.handleKey(.{ .char = 'V' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expect(app.piano_visual_edit);
+    app.handleKey(.{ .char = 'k' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.handleKey(.{ .char = ']' }, 0);
+    app.handleKey(.{ .char = '>' }, 0);
+
+    const a = pp.noteAt(61, 0.25).?;
+    const b = pp.noteAt(65, 0.5).?;
+    try std.testing.expectApproxEqAbs(@as(f64, 0.5), a.duration_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.5), b.duration_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.6), a.velocity, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.6), b.velocity, 1e-6);
+    app.handleKey(.escape, 0);
+    try std.testing.expect(!app.piano_visual_edit);
+    try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
+}
+
 test "piano roll visual transpose refuses to clamp at the MIDI range edge" {
     var app = try testApp();
     defer app.deinit();

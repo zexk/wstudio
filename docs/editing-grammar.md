@@ -35,6 +35,10 @@ where that editor deviates.
   `y`/`d` act on the selection, escape cancels. While visual mode is
   active every unrelated key is swallowed so a stray press cannot
   switch views or curves mid-selection.
+
+  In the piano roll, `enter` starts selected-note editing. `h`/`l` move
+  every selected note in time, `j`/`k` transpose, `[`/`]` resize, and
+  `<`/`>` change velocity. `enter` or escape returns to selection.
 - **Command** (`:`) / **search** (`/`): handled outside the editors.
 
 ## Counts

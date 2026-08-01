@@ -348,6 +348,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("dd / yy",      "clear the cursor pitch's row / yank the whole pattern");
     t.key("p",            "paste the latest yank (whole pattern or range, works across tracks)");
     t.key("v / V",        "visual: a (pitch, step) block, j/k grow it / visual line: every pitch - y/d/p");
+    t.key("(visual) enter", "edit selected notes: hjkl move, [] resize, <> velocity; enter/esc stops");
     t.key("(visual) + / -", "transpose the selected notes a semitone (stays selected - 12+ is an octave)");
     t.key("(visual) < / >", "slide the selected notes a step earlier / later (selection follows)");
     t.key("(visual) r",   "reverse the selected notes in time (retrograde; r again flips it back)");
