@@ -251,6 +251,10 @@ fn releaseController(controller: anytype, initialized: bool) void {
     }
 }
 
+fn vstSamplePosition(frames: u64) i64 {
+    return std.math.cast(i64, frames) orelse std.math.maxInt(i64);
+}
+
 pub const Vst3Plugin = struct {
     allocator: std.mem.Allocator,
     module: module_mod.Module,
@@ -679,9 +683,9 @@ pub const Vst3Plugin = struct {
         return .{
             .state = state,
             .sample_rate = @floatFromInt(transport.sample_rate),
-            .project_time_samples = @intCast(transport.position_frames),
+            .project_time_samples = vstSamplePosition(transport.position_frames),
             .system_time = 0,
-            .continuous_time_samples = @intCast(transport.position_frames),
+            .continuous_time_samples = vstSamplePosition(transport.position_frames),
             .project_time_music = beats,
             .bar_position_music = @floor(beats / beats_per_bar) * beats_per_bar,
             .cycle_start_music = @as(f64, @floatFromInt(transport.loop_start_frames)) / transport.framesPerBeat(),
@@ -766,4 +770,9 @@ test "controller cleanup terminates only initialized instances and always releas
     releaseController(@as(?*Mock, &after_init), true);
     try std.testing.expectEqual(@as(usize, 1), after_init.terminated);
     try std.testing.expectEqual(@as(usize, 1), after_init.released);
+}
+
+test "VST3 sample position clamps beyond signed ABI range" {
+    try std.testing.expectEqual(@as(i64, 48_000), vstSamplePosition(48_000));
+    try std.testing.expectEqual(std.math.maxInt(i64), vstSamplePosition(std.math.maxInt(u64)));
 }
