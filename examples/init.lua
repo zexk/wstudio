@@ -525,6 +525,7 @@
 --   wstudio.api.fx_add(target, kind, { pos? })   -> slot; kind is one of
 --                                                --   "gate", "comp",
 --                                                --   "mb_comp", "ott",
+--                                                --   "limiter",
 --                                                --   "eq", "filter", "sat", "crush",
 --                                                --   "chorus", "phaser",
 --                                                --   "flanger", "tape",

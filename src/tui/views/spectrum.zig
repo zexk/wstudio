@@ -86,7 +86,7 @@ fn sectionColor(k: ws.FxKind) []const u8 {
         .gate => bcyn,
         .comp => yel,
         .mb_comp => yel,
-        .ott => yel,
+        .ott, .limiter => yel,
         .eq, .filter => grn,
         .sat => red,
         .crush => mag,

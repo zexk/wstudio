@@ -158,7 +158,7 @@ pub fn legibleOn(bg: [4]f32) [4]f32 {
 /// so a unit keeps its color from browse to edit.
 pub fn fxKindAccent(kind: ws.FxKind) [4]f32 {
     return switch (kind) {
-        .gate, .comp, .mb_comp, .ott => palette.danger,
+        .gate, .comp, .mb_comp, .ott, .limiter => palette.danger,
         .eq, .filter => palette.rhythm,
         .sat, .crush, .tape => palette.modulation,
         .chorus, .flanger, .phaser, .freq_shift => palette.focus,

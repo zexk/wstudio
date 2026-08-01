@@ -19,7 +19,7 @@ a sidecar directory, not embedded in the JSON. See
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 29) is the newest format version
+`persist.zig`'s `file_version` (currently 30) is the newest format version
 this build can write and read. Loading enforces one rule:
 
 - **A file whose `version` is newer than `file_version` is hard-rejected**
@@ -82,6 +82,7 @@ they showed up in the same week as one.
 | v27 | VST3 instruments and effects persist bundle path, class ID, separate component and controller state streams, and instrument piano-roll data. Instrument automation IDs widen to 32 bits for VST3 parameter IDs. The bump makes older builds reject projects using new VST3 enum variants. |
 | v28 | The slicer's step storage takes the same move the drum machine's did in v23: from a fixed 64-step-max per-slice `u64` bitmask + dense velocity array to a heap-owned, u16-indexed per-slice note list, with `steps_per_beat` for grid zoom. `SlicerSnap` gains the sparse `notes` field (and `steps_per_beat`) that new saves write instead of `pattern`/`vel`, which stay read-only so older files migrate through the same `legacyPatternVelToMidi` path; its slicer variants reuse `VariantSnap.notes`. A pre-v28 build reading a v28 file would find those legacy fields empty and load a silent slicer, which is what the bump prevents. Also fixes arrangement drum clips, which since v23 had been saving with an empty `ClipSnap.drum_notes` (nothing ever wrote it) and reloading silent. |
 | v29 | The multimode filter FX unit (`FxUnitSnap.filter`: mode, cutoff, resonance, drive, and mix). The bump makes older builds reject projects using the new saved enum name. |
+| v30 | The limiter FX unit (`FxUnitSnap.limiter`: ceiling and release). The bump makes older builds reject projects using the new saved enum name. |
 
 Since v11, every field added has been the additive/no-bump kind described
 above (v12/v13/v14 above are the exceptions - genuine semantic changes, not

@@ -1,0 +1,21 @@
+{
+  "version": 30,
+  "tracks": [
+    { "name": "limited" }
+  ],
+  "racks": [
+    {
+      "label": "synth",
+      "kind": "empty",
+      "fx_chain": [
+        {
+          "kind": "limiter",
+          "limiter": {
+            "ceiling": 0.8,
+            "release_ms": 150
+          }
+        }
+      ]
+    }
+  ]
+}

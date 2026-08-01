@@ -53,6 +53,8 @@ pub const Limiter = struct {
             buf[i + 1] *= self.gain;
         }
     }
+
+    pub const device = dsp.deviceOf(@This());
 };
 
 // ---------------------------------------------------------------------------

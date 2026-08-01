@@ -35,7 +35,7 @@ pub const spectrum_band_count: usize = 80;
 /// The insertable kinds in picker display order (signal-flow-ish: dynamics,
 /// tone, character, modulation, time).
 pub const picker_kinds = [_]FxKind{
-    .gate, .comp, .mb_comp, .ott, .eq, .filter, .sat, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .delay, .reverb,
+    .gate, .comp, .mb_comp, .ott, .limiter, .eq, .filter, .sat, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .delay, .reverb,
 };
 
 /// The `/` filter narrowing the FX insert picker right now - same
@@ -98,6 +98,7 @@ pub const effect_specs = [_]EffectSpec{
     .{ .label = "COMP",       .editor_title = "COMPRESSOR",     .strip_label = "COMP", .badge_label = "cmp",  .category = "DYNAMICS",   .description = "Control dynamics and sidechain",            .display_label = "TRANSFER" },
     .{ .label = "MB COMP",    .editor_title = "MULTIBAND COMP", .strip_label = "MBCP", .badge_label = "mbc",  .category = "DYNAMICS",   .description = "Shape dynamics across three bands",          .display_label = "TRANSFER" },
     .{ .label = "OTT",        .editor_title = "OTT",            .strip_label = "OTT",  .badge_label = "ott",  .category = "DYNAMICS",   .description = "Fast upward and downward compression",       .display_label = "TRANSFER" },
+    .{ .label = "LIMITER",    .editor_title = "LIMITER",        .strip_label = "LIM",  .badge_label = "lim",  .category = "DYNAMICS",   .description = "Catch peaks at a fixed ceiling",              .display_label = "TRANSFER" },
     .{ .label = "EQ",         .editor_title = "EQ + SPECTRUM",  .strip_label = "EQ",   .badge_label = "eq",   .category = "TONE",       .description = "Eight-band parametric tone shaping",         .display_label = "RESPONSE" },
     .{ .label = "FILTER",     .editor_title = "FILTER",         .strip_label = "FILT", .badge_label = "flt",  .category = "TONE",       .description = "Multimode resonant tone shaping",            .display_label = "RESPONSE" },
     .{ .label = "SAT",        .editor_title = "SATURATOR",      .strip_label = "SAT",  .badge_label = "sat",  .category = "CHARACTER",  .description = "Add harmonic drive and warmth",              .display_label = "SHAPER" },
@@ -182,6 +183,7 @@ pub fn paramCount(k: FxKind) usize {
         .reverb => reverb_specs.len,
         .delay => delay_specs.len,
         .ott => ott_specs.len,
+        .limiter => limiter_specs.len,
         .clap => 0,
         .vst3 => 0,
     };
@@ -469,6 +471,11 @@ const ott_specs = [_]ParamSpec{
     .{ .name = "out", .field = "gain_out_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
 };
 
+const limiter_specs = [_]ParamSpec{
+    .{ .name = "ceiling", .field = "ceiling", .min = 0.25, .max = 1.0, .step_fine = 0.005, .step_coarse = 0.05 },
+    .{ .name = "release", .field = "release_ms", .min = 1.0, .max = 1000.0, .step_fine = 10.0, .step_coarse = 100.0 },
+};
+
 /// `comp`'s first 5 params only - idx 5/6 are the sidechain track/pad
 /// spinners, which need `app` and cross-field state the table shape can't
 /// express, so they stay hand-written in every switch below.
@@ -518,6 +525,7 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
         .reverb => tableName(&reverb_specs, idx),
         .delay => tableName(&delay_specs, idx),
         .ott => tableName(&ott_specs, idx),
+        .limiter => tableName(&limiter_specs, idx),
         .clap => "param",
         .vst3 => "param",
     };
@@ -611,6 +619,7 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
         .reverb => |*r| tableGet(r, &reverb_specs, idx),
         .delay => |*d| tableGet(d, &delay_specs, idx),
         .ott => |*o| tableGet(o, &ott_specs, idx),
+        .limiter => |*l| tableGet(l, &limiter_specs, idx),
         .clap => |plugin| blk: {
             const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk 0;
             const range = clapRange(info.min_value, info.max_value) orelse break :blk 0;
@@ -671,6 +680,7 @@ pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
         .reverb => tableRange(&reverb_specs, idx),
         .delay => tableRange(&delay_specs, idx),
         .ott => tableRange(&ott_specs, idx),
+        .limiter => tableRange(&limiter_specs, idx),
         .clap => |plugin| blk: {
             const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk .{ 0, 1 };
             break :blk clapRange(info.min_value, info.max_value) orelse .{ 0, 1 };
@@ -780,6 +790,7 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
         .reverb => |*r| tableSet(r, &reverb_specs, idx, value),
         .delay => |*d| tableSet(d, &delay_specs, idx, value),
         .ott => |*o| tableSet(o, &ott_specs, idx, value),
+        .limiter => |*l| tableSet(l, &limiter_specs, idx, value),
         .clap => |plugin| if (plugin.parameterInfo(@intCast(idx))) |info| {
             const range = clapRange(info.min_value, info.max_value) orelse return;
             plugin.setParameter(info.id, info.cookie, clapValue(value, info.default_value, range));
@@ -834,6 +845,7 @@ fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
         .reverb => tableStep(&reverb_specs, idx, coarse),
         .delay => tableStep(&delay_specs, idx, coarse),
         .ott => tableStep(&ott_specs, idx, coarse),
+        .limiter => tableStep(&limiter_specs, idx, coarse),
         .clap => |plugin| blk: {
             const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk 0;
             const range = clapRange(info.min_value, info.max_value) orelse break :blk 0;
@@ -1475,6 +1487,10 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
             ott_depth => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
             ott_time => std.fmt.bufPrint(buf, "{d:.2}x", .{v}) catch "?",
             else => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?", // in/out gain
+        },
+        .limiter => switch (idx) {
+            0 => std.fmt.bufPrint(buf, "{d:.2}dB", .{20.0 * std.math.log10(v)}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
         },
         .delay => switch (idx) {
             0 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v * 1000.0}) catch "?",
