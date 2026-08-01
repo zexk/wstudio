@@ -243,6 +243,19 @@ test "instrument picker / narrows instruments and enter inserts match" {
     try std.testing.expectEqual(ws.InstrumentKind.slicer, std.meta.activeTag(app.session.racks.items[0].instrument));
 }
 
+test "instrument picker click during live search submits then inserts clicked match" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    app.handleKey(.enter, 0);
+    for ("/s") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
+
+    app.clickInstrumentPickerItem(1, 0);
+    try std.testing.expectEqual(AppView.sampler_editor, app.view);
+    try std.testing.expectEqual(ws.InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[0].instrument));
+}
+
 test "renderBounce sequences notes offline and restores transport" {
     var app = try testApp();
     defer app.deinit();

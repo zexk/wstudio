@@ -77,8 +77,7 @@ pub fn overlayWidth() f32 {
 }
 
 pub fn selectInstrument(app: anytype, ordinal: usize, now_ns: i96) void {
-    app.core.picker_cursor = @intCast(ordinal);
-    app.core.handleKey(.enter, now_ns);
+    app.core.clickInstrumentPickerItem(ordinal, now_ns);
 }
 
 pub fn dismiss(app: anytype, now_ns: i96) void {
