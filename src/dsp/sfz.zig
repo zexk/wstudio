@@ -5,6 +5,7 @@
 
 const std = @import("std");
 const pad_dsp = @import("pad.zig");
+const flac = @import("../core/flac.zig");
 const sample_bank = @import("soundfont.zig");
 
 const Region = sample_bank.Region;
@@ -124,10 +125,14 @@ fn appendRegion(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, sampl
     if (s.trigger_release or s.seq_position > 1 or s.cc64_lo > 0) return;
     const path = s.sample orelse return error.MissingSample;
     if (std.fs.path.isAbsolute(path) or std.mem.indexOf(u8, path, "..") != null) return error.InvalidPath;
-    if (!std.ascii.endsWithIgnoreCase(path, ".wav")) return error.UnsupportedSampleFormat;
     const bytes = try dir.readFileAlloc(io, path, allocator, .limited(256 * 1024 * 1024));
     defer allocator.free(bytes);
-    const decoded = try pad_dsp.decodeWav(allocator, bytes, sample_rate);
+    const decoded = if (std.ascii.endsWithIgnoreCase(path, ".wav"))
+        try pad_dsp.decodeWav(allocator, bytes, sample_rate)
+    else if (std.ascii.endsWithIgnoreCase(path, ".flac"))
+        try flac.decode(allocator, bytes, sample_rate)
+    else
+        return error.UnsupportedSampleFormat;
     defer allocator.free(decoded);
     const offset: usize = @min(s.offset, decoded.len);
     const start = samples.items.len;

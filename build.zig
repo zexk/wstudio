@@ -21,6 +21,7 @@ pub fn build(b: *std.Build) void {
     });
     const lua_dep = b.dependency("lua", .{});
     const lua = buildLua(b, lua_dep, target, optimize);
+    const dr_libs_dep = b.dependency("dr_libs", .{});
 
     // The engine as a reusable library module. Frontends import this and
     // never reach into engine internals.
@@ -29,6 +30,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    wstudio_mod.addIncludePath(dr_libs_dep.path(""));
+    wstudio_mod.addCSourceFile(.{ .file = b.path("src/vendor/dr_flac.c"), .flags = &.{"-std=c99"} });
     if (target.result.os.tag == .linux) {
         wstudio_mod.link_libc = true;
         wstudio_mod.linkSystemLibrary("asound", .{});
