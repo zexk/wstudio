@@ -3343,14 +3343,13 @@ pub const PolySynth = struct {
     /// `<`/`>` keypress via `adjustParam`'s ids 126-131 - undo/redo instead
     /// goes through `setFxIndex` (see that fn's doc comment for why).
     fn reorderFx(self: *PolySynth, kind: FxUnitKind, steps: i32) void {
-        const dir: i32 = if (steps >= 0) 1 else -1;
-        var n = @abs(steps);
-        while (n > 0) : (n -= 1) {
-            const idx = std.mem.indexOfScalar(FxUnitKind, &self.fx_order, kind) orelse return;
-            const other: i32 = @as(i32, @intCast(idx)) + dir;
-            if (other < 0 or other >= self.fx_order.len) return;
-            std.mem.swap(FxUnitKind, &self.fx_order[idx], &self.fx_order[@intCast(other)]);
-        }
+        const idx = std.mem.indexOfScalar(FxUnitKind, &self.fx_order, kind) orelse return;
+        const target = std.math.clamp(
+            @as(i64, @intCast(idx)) + @as(i64, steps),
+            0,
+            @as(i64, self.fx_order.len - 1),
+        );
+        self.setFxIndex(kind, @intCast(target));
     }
 
     /// `kind`'s current slot index in `fx_order`, 0-based - the "value" ids
@@ -3428,9 +3427,9 @@ pub const PolySynth = struct {
             },
             .int_cont => {
                 const p = &@field(self.*, spec.field);
-                const lo: i32 = @intFromFloat(spec.min);
-                const hi: i32 = @intFromFloat(spec.max);
-                p.* = @intCast(std.math.clamp(@as(i32, p.*) + steps, lo, hi));
+                const lo: i64 = @intFromFloat(spec.min);
+                const hi: i64 = @intFromFloat(spec.max);
+                p.* = @intCast(std.math.clamp(@as(i64, p.*) + @as(i64, steps), lo, hi));
             },
         }
     }
@@ -3732,7 +3731,7 @@ pub const PolySynth = struct {
                 1 => {
                     const n: i32 = mod_dest_ids.len;
                     const cur: i32 = @intCast(modDestIndex(row.dest) orelse 0);
-                    row.dest = mod_dest_ids[@intCast(@mod(cur + steps, n))];
+                    row.dest = mod_dest_ids[@intCast(@mod(@as(i64, cur) + @as(i64, steps), n))];
                 },
                 2 => row.depth = std.math.clamp(row.depth + @as(f32, @floatFromInt(steps)) * 0.01, -1.0, 1.0),
                 else => unreachable,
@@ -3760,8 +3759,8 @@ pub const PolySynth = struct {
             lfo_custom_id_base...lfo_custom_id_base + 3 * lfo_custom_ids_per_slot - 1 => {
                 switch (decodeLfoCustomId(id)) {
                     .count => |c| {
-                        const cur: i32 = self.lfo_custom_count[c.slot];
-                        self.setLfoCustomCount(c.slot, @intCast(std.math.clamp(cur + steps, 0, @as(i32, max_lfo_shape_points))));
+                        const cur: i64 = self.lfo_custom_count[c.slot];
+                        self.setLfoCustomCount(c.slot, @intCast(std.math.clamp(cur + @as(i64, steps), 0, @as(i64, max_lfo_shape_points))));
                     },
                     .point => |p| {
                         const step_amt: f32 = @as(f32, @floatFromInt(steps)) * 0.01;
@@ -5124,6 +5123,29 @@ test "adjustParam nudges a custom LFO point's phase/value and count" {
     try std.testing.expectEqual(max_lfo_shape_points, synth.lfo_custom_count[0]);
     synth.adjustParam(count_id, -100);
     try std.testing.expectEqual(@as(u8, 0), synth.lfo_custom_count[0]);
+}
+
+test "adjustParam clamps extreme step counts without integer overflow" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    const count_id = lfo_custom_id_base + max_lfo_shape_points * 2;
+    const dest_id = PolySynth.matrixParamId(0, 1);
+
+    synth.adjustParam(3, std.math.maxInt(i32));
+    try std.testing.expectEqual(@as(u8, 16), synth.unison);
+    synth.adjustParam(3, std.math.minInt(i32));
+    try std.testing.expectEqual(@as(u8, 1), synth.unison);
+    synth.adjustParam(count_id, std.math.maxInt(i32));
+    try std.testing.expectEqual(max_lfo_shape_points, synth.lfo_custom_count[0]);
+    synth.adjustParam(count_id, std.math.minInt(i32));
+    try std.testing.expectEqual(@as(u8, 0), synth.lfo_custom_count[0]);
+
+    synth.adjustParam(dest_id, std.math.maxInt(i32));
+    try std.testing.expect(PolySynth.modDestIndex(synth.mod_matrix[0].dest) != null);
+    synth.adjustParam(126, std.math.maxInt(i32));
+    try std.testing.expectEqual(synth.fx_order.len - 1, synth.fxOrderIndex(.dist));
+    synth.adjustParam(126, std.math.minInt(i32));
+    try std.testing.expectEqual(@as(usize, 0), synth.fxOrderIndex(.dist));
 }
 
 test "custom LFO phase edits cannot reorder points" {
