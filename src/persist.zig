@@ -19,6 +19,7 @@ const std = @import("std");
 const Session = @import("session.zig").Session;
 const wav = @import("core/wav.zig");
 const types = @import("core/types.zig");
+const theory = @import("theory.zig");
 const Project = @import("project.zig").Project;
 const track_color_count = @import("project.zig").track_color_count;
 const ws_arrangement = @import("arrangement.zig");
@@ -958,6 +959,9 @@ pub const SectionSnap = struct {
 pub const Snapshot = struct {
     version: u32 = file_version,
     tempo_bpm: f64 = 120.0,
+    /// Additive: song key for scale tools and sample tuning. Older files
+    /// load with no key; older builds safely ignore this field.
+    scale: ?theory.Scale = null,
     /// v4: time signature numerator (the unit is always /4). Older files
     /// omit it and load as 4/4 - the prior behaviour.
     beats_per_bar: u8 = 4,
@@ -1045,6 +1049,7 @@ pub fn save(
 
     const snap: Snapshot = .{
         .tempo_bpm = session.project.tempo_bpm,
+        .scale = session.project.scale,
         .beats_per_bar = session.project.beats_per_bar,
         .loop_enabled = session.project.loop_enabled,
         .loop_start_bar = session.project.loop_start_bar,
@@ -1868,6 +1873,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
     errdefer project.deinit();
     project.sample_rate = snap.sample_rate;
     project.tempo_bpm = finiteClamp(f64, snap.tempo_bpm, 20.0, 400.0, 120.0);
+    project.scale = snap.scale;
     project.beats_per_bar = beats_per_bar;
     project.loop_start_bar = snap.loop_start_bar;
     project.loop_end_bar = snap.loop_end_bar;
@@ -2967,6 +2973,7 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
 
     const snap_in: Snapshot = .{
         .tempo_bpm = 140.0,
+        .scale = .{ .root = 9, .kind = .minor },
         .sample_rate = 48_000,
         .tracks = &.{
             .{ .name = "lead", .gain_db = -2.5 },
@@ -3006,6 +3013,8 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
     const snap_out = &parsed.value;
 
     try testing.expectApproxEqAbs(@as(f64, 140.0), snap_out.tempo_bpm, 0.001);
+    try testing.expectEqual(@as(u4, 9), snap_out.scale.?.root);
+    try testing.expectEqual(theory.ScaleType.minor, snap_out.scale.?.kind);
     try testing.expectEqual(@as(usize, 2), snap_out.tracks.len);
     try testing.expectEqualStrings("lead", snap_out.tracks[0].name);
     try testing.expectApproxEqAbs(@as(f32, -2.5), snap_out.tracks[0].gain_db, 1e-4);

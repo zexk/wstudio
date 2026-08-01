@@ -488,6 +488,15 @@ pub const Slicer = struct {
         }
     }
 
+    /// Set every live slice's pitch together, matching `stretchAll`.
+    pub fn pitchAll(self: *Slicer, semitones: f32) void {
+        while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.sample_lock.unlock();
+        for (0..self.slice_count) |i| {
+            pad_mod.setParamAbsolute(&self.slices[i], pad_mod.pitch_id, semitones);
+        }
+    }
+
     /// Chop into contiguous regions whose starts are `positions` (ascending
     /// fractions of the clip, first entry treated as 0); each region ends
     /// where the next begins, the last at 1.0.

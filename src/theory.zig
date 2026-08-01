@@ -1,5 +1,5 @@
 //! Scale + diatonic chord theory shared by the piano roll's scale
-//! highlighting (`App.piano_scale`, set via `:scale`) and its chord-stamp
+//! highlighting (project scale, set via `:scale`) and its chord-stamp
 //! keys (`c` / `C`). Pure theory - no TUI or DSP dependency.
 
 const std = @import("std");

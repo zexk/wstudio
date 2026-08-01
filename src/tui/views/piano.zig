@@ -101,7 +101,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         try w.writeAll("scratch: not in the song until stamped (arrangement: enter)");
         try w.writeAll(rst);
     }
-    if (app.piano_scale) |s| {
+    if (app.session.project.scale) |s| {
         try w.writeAll("  " ++ mag);
         try w.print("scale {s} {s}", .{ theory.pitchClassName(s.root), s.kind.label() });
         try w.writeAll(rst);
@@ -213,7 +213,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         }
         const pitch: u7 = @intCast(pitch_i);
         const is_cur_row = (pitch == app.piano_cursor_pitch);
-        const tone = piano_ed.scaleTone(app.piano_scale, pitch);
+        const tone = piano_ed.scaleTone(app.session.project.scale, pitch);
         const row_dim = tone == .out_scale or tone == .unscaled_black;
 
         var lbuf: [5]u8 = undefined;

@@ -781,11 +781,6 @@ pub const App = struct {
     /// A visual-mode range yank of breakpoints from the current curve,
     /// rebased so the selection's first step becomes beat 0.
     automation_range_clip: ?AutomationRangeClip = null,
-    /// Active `:scale` for the piano roll's scale highlighting and `c`/`C`
-    /// chord stamp; null = no scale (dims nothing, chord stamp defaults to a
-    /// plain major shape). A monitoring/writing aid, not song content - not
-    /// persisted, mirroring `Session.metronome_enabled`.
-    piano_scale: ?ws.theory.Scale = null,
     /// `:ghost [on|off]` - dims every OTHER melodic track's notes into the
     /// piano roll's empty cells (e.g. tracing a bassline from a chord
     /// track). Same monitoring-aid status as `piano_scale`: not persisted.

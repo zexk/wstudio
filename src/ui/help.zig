@@ -224,8 +224,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key(":chop-random", "[n]  roll the dice: n uneven slices, boundaries picked at random (default 8)");
     t.key(":slice",       "<n>  equal-divide the loaded clip into n slices (1-64)");
     t.key(":spread",      "[semitones]  ramp pitch across the slices, one step each (default 1)");
-    t.key(":bpm-sync",    "[clip-bpm]  stretch the clip to the project tempo (detects the clip's own BPM if omitted)");
-    t.key("B",            "detect the loaded clip's BPM and stretch it to the project tempo");
+    t.key(":bpm-sync",    "[clip-bpm]  match clip to project tempo and :scale root");
+    t.key("B",            "detect clip BPM/root; match project tempo/key set by :scale");
     t.key("s / m",        "split cursor slice in half / merge it into the next (patterns follow)");
     t.key("h / l",        "move cursor left / right (one step)");
     t.key("H / L",        "move cursor left / right (one beat, coarse)");
@@ -281,8 +281,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("p",            "piano roll for this track (a standalone Sampler only - a pad/slice has none)");
     t.key("esc / e",      "back to the grid that opened this editor (tracks view for a sampler)");
     t.key(":load",        "[file.wav]  load a sample into the cursor pad or sampler track (omit the file to browse); sampler tracks auto-detect the clip's root note");
-    t.key(":bpm-sync",    "[clip-bpm]  stretch the clip to the project tempo (detects the clip's own BPM if omitted)");
-    t.key("B",            "detect the loaded clip's BPM and stretch it to the project tempo (sampler/slice only)");
+    t.key(":bpm-sync",    "[clip-bpm]  match clip to project tempo and :scale root");
+    t.key("B",            "detect clip BPM/root; match project tempo/key set by :scale (sampler/slice only)");
 
     t.taggedSection(.soundfont_editor, "SOUNDFONT EDITOR");
     t.key("j / k",        "select parameter (gain / pan / transpose / preset)");

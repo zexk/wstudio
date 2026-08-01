@@ -153,23 +153,30 @@ test "a pen keeps the default length until the pointer leaves its cell" {
 }
 
 fn drawToolbar(app: anytype) void {
-    var scale_on = app.core.piano_scale != null;
+    var scale_on = app.core.session.project.scale != null;
     if (widgets.toggle("SCALE", &scale_on)) {
-        app.core.piano_scale = if (scale_on) .{} else null;
+        app.core.session.project.scale = if (scale_on) .{} else null;
+        app.core.dirty = true;
     }
-    if (app.core.piano_scale) |scale| {
+    if (app.core.session.project.scale) |scale| {
         zgui.sameLine(.{ .spacing = 8 });
         var root: i32 = scale.root;
         zgui.setNextItemWidth(72);
         if (zgui.combo("##piano-scale-root", .{
             .current_item = &root,
             .items_separated_by_zeros = "C\x00C#\x00D\x00D#\x00E\x00F\x00F#\x00G\x00G#\x00A\x00A#\x00B\x00",
-        })) app.core.piano_scale.?.root = @intCast(root);
+        })) {
+            app.core.session.project.scale.?.root = @intCast(root);
+            app.core.dirty = true;
+        }
 
         zgui.sameLine(.{ .spacing = 8 });
         var kind = scale.kind;
         zgui.setNextItemWidth(112);
-        if (zgui.comboFromEnum("##piano-scale-kind", &kind)) app.core.piano_scale.?.kind = kind;
+        if (zgui.comboFromEnum("##piano-scale-kind", &kind)) {
+            app.core.session.project.scale.?.kind = kind;
+            app.core.dirty = true;
+        }
     }
 
     zgui.sameLine(.{ .spacing = 14 });
@@ -220,7 +227,7 @@ pub fn draw(app: anytype) void {
         zgui.sameLine(.{});
         zgui.textColored(theme.danger, "scratch: not in song until stamped from arrangement", .{});
     }
-    if (app.core.piano_scale) |scale| {
+    if (app.core.session.project.scale) |scale| {
         zgui.sameLine(.{});
         zgui.textColored(theme.modulation, "scale {s} {s}", .{ ws.theory.pitchClassName(scale.root), scale.kind.label() });
     }
@@ -277,7 +284,7 @@ pub fn draw(app: anytype) void {
         const pitch = rowPitch(top_pitch, row) orelse break;
         const y = grid_y + @as(f32, @floatFromInt(row)) * row_h;
         const black = isBlackKey(pitch);
-        const tone = piano_ed.scaleTone(app.core.piano_scale, pitch);
+        const tone = piano_ed.scaleTone(app.core.session.project.scale, pitch);
         const row_color = switch (tone) {
             .root => theme.bg3,
             .out_scale => theme.line_soft,

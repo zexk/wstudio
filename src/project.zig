@@ -5,6 +5,7 @@
 
 const std = @import("std");
 const types = @import("core/types.zig");
+const theory = @import("theory.zig");
 
 pub const TrackKind = enum { audio, midi };
 
@@ -44,6 +45,8 @@ pub const Project = struct {
     name: []const u8 = "untitled",
     sample_rate: u32 = types.default_sample_rate,
     tempo_bpm: f64 = 120.0,
+    /// Song key used by piano-roll scale tools and sample tuning.
+    scale: ?theory.Scale = null,
     /// Beats per bar (the time signature's numerator; the unit stays /4).
     /// Control-side source of truth - the transport mirrors it, exactly
     /// like `tempo_bpm`.

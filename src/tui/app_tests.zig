@@ -577,6 +577,7 @@ test "slicer grid: slice, step toggle, play triggers the right slice" {
 
     commands.run(&app, "slice 8");
     try std.testing.expectEqual(@as(u8, 8), app.slicerInst().slice_count);
+    for (app.slicerInst().slices[0..8]) |slice| try std.testing.expect(slice.gate);
 
     app.slicer_cursor = .{ 3, 0 };
     _ = slicer_ed.handleKey(&app, .enter);
@@ -5966,7 +5967,7 @@ test ":snap-scale pulls off-scale notes onto the nearest tone, and sets the scal
 
     // Args set the scale first, exactly as :scale parses them.
     commands.run(&app, "snap-scale d minor");
-    try std.testing.expectEqual(@as(?u4, 2), if (app.piano_scale) |s| s.root else null);
+    try std.testing.expectEqual(@as(?u4, 2), if (app.session.project.scale) |s| s.root else null);
     try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch); // C# -> C
     try std.testing.expectEqual(@as(u7, 62), pp.notes[1].pitch); // untouched
     try std.testing.expectEqual(@as(u7, 67), pp.notes[2].pitch); // G# -> G

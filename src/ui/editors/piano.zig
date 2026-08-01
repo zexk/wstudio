@@ -529,7 +529,7 @@ fn stampChord(app: *App, seventh: bool) void {
     const pp = currentPatternPlayer(app) orelse return;
     const inversion: u3 = @intCast(@min(app.modal.count, 7));
     _ = app.takeCount();
-    const scale = app.piano_scale orelse
+    const scale = app.session.project.scale orelse
         theory.Scale{ .root = @intCast(app.piano_cursor_pitch % 12), .kind = .major };
     const chord = scale.chordAt(app.piano_cursor_pitch, seventh).inverted(inversion);
     const start_beat = stepToBeat(app, app.piano_cursor_step);

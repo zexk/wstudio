@@ -92,7 +92,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "slice",       .desc = "<n>  equal-divide the slicer's loaded clip into n slices (1-64)", .run = wrap(cmdSlice), .scope = .slicer },
     .{ .name = "chop",        .desc = "[1-9]  chop the slicer's clip at detected transients (sensitivity, default 5)", .run = wrap(cmdChop), .scope = .slicer },
     .{ .name = "chop-random", .desc = "[n]  roll the dice: chop the slicer's clip into n uneven slices (default 8)", .run = wrap(cmdChopRandom), .scope = .slicer },
-    .{ .name = "bpm-sync",    .desc = "[clip-bpm]  stretch the slicer/sampler clip to the project tempo (detects if omitted)", .run = wrap(cmdBpmSync) },
+    .{ .name = "bpm-sync",    .desc = "[clip-bpm]  match slicer/sampler to project tempo and :scale root", .run = wrap(cmdBpmSync) },
     .{ .name = "spread",      .desc = "[semitones]  ramp pitch across the slices/pads, one step each (default 1)", .run = wrap(cmdSpread) },
     .{ .name = "pad-len",     .desc = "<n|off>  loop the cursor drum pad over its own n steps (polymeter)", .run = wrap(cmdPadLen), .scope = .drum },
     .{ .name = "edit",        .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
@@ -990,9 +990,9 @@ fn cmdSnapScale(app: *App, args: []const u8) void {
         cmdScale(app, trimmed);
         // A bad root/type already reported itself; don't then snap to a
         // stale scale the user didn't ask for.
-        if (app.piano_scale == null) return;
+        if (app.session.project.scale == null) return;
     }
-    const scale = app.piano_scale orelse {
+    const scale = app.session.project.scale orelse {
         app.setStatus("snap-scale: no scale set - :scale <root> <type> first", .{});
         return;
     };
@@ -1230,19 +1230,20 @@ fn cmdAudition(app: *App, args: []const u8) void {
 }
 
 /// `:scale [<root> [<type>]|off]` - sets or clears the piano roll's active
-/// scale (see `App.piano_scale`). With no args, reports the current setting.
+/// project scale. With no args, reports the current setting.
 /// `<type>` alone (root omitted) keeps the existing root, defaulting to C.
 fn cmdScale(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
-        if (app.piano_scale) |s|
+        if (app.session.project.scale) |s|
             app.setStatus("scale: {s} {s}", .{ theory.pitchClassName(s.root), s.kind.label() })
         else
             app.setStatus("scale: off", .{});
         return;
     }
     if (std.ascii.eqlIgnoreCase(trimmed, "off")) {
-        app.piano_scale = null;
+        app.session.project.scale = null;
+        app.dirty = true;
         app.setStatus("scale: off", .{});
         return;
     }
@@ -1250,7 +1251,7 @@ fn cmdScale(app: *App, args: []const u8) void {
     const first = it.next().?;
     const rest = std.mem.trim(u8, it.rest(), " ");
     // A bare type name (e.g. `:scale dorian`) keeps the existing root.
-    var root: u4 = if (app.piano_scale) |s| s.root else 0;
+    var root: u4 = if (app.session.project.scale) |s| s.root else 0;
     var type_str: []const u8 = first;
     if (theory.ScaleType.parse(first) == null) {
         root = theory.parsePitchClass(first) orelse {
@@ -1264,11 +1265,12 @@ fn cmdScale(app: *App, args: []const u8) void {
             app.setStatus("scale: unknown type '{s}' (try major/minor/dorian/…)", .{type_str});
             return;
         }
-    else if (app.piano_scale) |s|
+    else if (app.session.project.scale) |s|
         s.kind
     else
         .major;
-    app.piano_scale = .{ .root = root, .kind = kind };
+    app.session.project.scale = .{ .root = root, .kind = kind };
+    app.dirty = true;
     app.setStatus("scale: {s} {s}", .{ theory.pitchClassName(root), kind.label() });
 }
 
@@ -2523,16 +2525,26 @@ fn cmdBpmSync(app: *App, args: []const u8) void {
         const sl = &app.session.racks.items[track].instrument.slicer;
         const clip_bpm = forced orelse blk: {
             const r = ws.dsp.tempo.detect(sl.samples, sl.sample_rate) orelse {
-                app.setStatus("bpm-sync: no clear pulse - pass the clip's BPM (:bpm-sync 174)", .{});
+                if (tuneToProjectRoot(app, sl.samples, sl.sample_rate)) |semitones| {
+                    history.recordSlicer(app, track);
+                    sl.pitchAll(semitones);
+                    app.dirty = true;
+                    app.setStatus("sync: tune {d:.2} st; no clear pulse (pass BPM with :bpm-sync 174)", .{semitones});
+                } else app.setStatus("bpm-sync: no clear pulse or pitch - pass BPM and set :scale", .{});
                 return;
             };
             break :blk r.bpm;
         };
         const ratio = ws.dsp.tempo.stretchToTempo(clip_bpm, project_bpm);
+        const tune = tuneToProjectRoot(app, sl.samples, sl.sample_rate);
         history.recordSlicer(app, track);
         sl.stretchAll(ratio);
+        if (tune) |semitones| sl.pitchAll(semitones);
         app.dirty = true;
-        app.setStatus("bpm-sync: {d:.1} -> {d:.1} BPM (stretch {d:.2}x)", .{ clip_bpm, project_bpm, ratio });
+        if (tune) |semitones|
+            app.setStatus("sync: {d:.1} -> {d:.1} BPM, tune {d:.2} st", .{ clip_bpm, project_bpm, semitones })
+        else
+            app.setStatus("sync: {d:.1} -> {d:.1} BPM (no project key or clear pitch)", .{ clip_bpm, project_bpm });
         return;
     }
 
@@ -2543,24 +2555,61 @@ fn cmdBpmSync(app: *App, args: []const u8) void {
         const smp = &app.session.racks.items[track].instrument.sampler;
         const clip_bpm = forced orelse blk: {
             const r = ws.dsp.tempo.detect(smp.pad.samples, smp.sample_rate) orelse {
-                app.setStatus("bpm-sync: no clear pulse - pass the clip's BPM (:bpm-sync 174)", .{});
+                if (tuneToProjectRoot(app, smp.pad.samples, smp.sample_rate)) |semitones| {
+                    history.recordParamSet(app, @intCast(track), ws.dsp.pad.pitch_id);
+                    _ = app.session.engine.send(.{ .set_track_param_abs = .{
+                        .track = @intCast(track),
+                        .id = ws.dsp.pad.pitch_id,
+                        .value = semitones,
+                    } });
+                    app.dirty = true;
+                    app.setStatus("sync: tune {d:.2} st; no clear pulse (pass BPM with :bpm-sync 174)", .{semitones});
+                } else app.setStatus("bpm-sync: no clear pulse or pitch - pass BPM and set :scale", .{});
                 return;
             };
             break :blk r.bpm;
         };
         const ratio = ws.dsp.tempo.stretchToTempo(clip_bpm, project_bpm);
+        const tune = tuneToProjectRoot(app, smp.pad.samples, smp.sample_rate);
         history.recordParamSet(app, @intCast(track), ws.dsp.pad.stretch_id);
+        if (tune != null) history.recordParamSet(app, @intCast(track), ws.dsp.pad.pitch_id);
         _ = app.session.engine.send(.{ .set_track_param_abs = .{
             .track = @intCast(track),
             .id = ws.dsp.pad.stretch_id,
             .value = ratio,
         } });
+        if (tune) |semitones| _ = app.session.engine.send(.{ .set_track_param_abs = .{
+            .track = @intCast(track),
+            .id = ws.dsp.pad.pitch_id,
+            .value = semitones,
+        } });
         app.dirty = true;
-        app.setStatus("bpm-sync: {d:.1} -> {d:.1} BPM (stretch {d:.2}x)", .{ clip_bpm, project_bpm, ratio });
+        if (tune) |semitones|
+            app.setStatus("sync: {d:.1} -> {d:.1} BPM, tune {d:.2} st", .{ clip_bpm, project_bpm, semitones })
+        else
+            app.setStatus("sync: {d:.1} -> {d:.1} BPM (no project key or clear pitch)", .{ clip_bpm, project_bpm });
         return;
     }
 
     app.setStatus("bpm-sync: select a slicer or sampler track first", .{});
+}
+
+fn tuneToProjectRoot(app: *const App, samples: []const f32, sample_rate: u32) ?f32 {
+    const scale = app.session.project.scale orelse return null;
+    const detected = ws.dsp.pitch.detect(samples, sample_rate) orelse return null;
+    return tuneToRoot(scale.root, detected);
+}
+
+fn tuneToRoot(root: u4, detected: ws.dsp.pitch.Result) f32 {
+    var delta = @as(i32, root) - @as(i32, detected.note % 12);
+    if (delta > 6) delta -= 12;
+    if (delta < -6) delta += 12;
+    return @as(f32, @floatFromInt(delta)) - detected.cents / 100.0;
+}
+
+test "tuneToRoot takes shortest pitch-class shift and corrects cents" {
+    try std.testing.expectApproxEqAbs(@as(f32, 2.0), tuneToRoot(0, .{ .note = 70, .cents = 0 }), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -2.25), tuneToRoot(10, .{ .note = 60, .cents = 25 }), 1e-6);
 }
 
 /// `:chop-random [n]` - Serato's "Set Random": chop into n slices at random
