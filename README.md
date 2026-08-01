@@ -37,7 +37,8 @@ and build the same way; see [CONTRIBUTING.md](CONTRIBUTING.md) for the
 full development setup. Once running: `enter` on a blank track opens the
 instrument picker, `space` plays/stops, and `:help` lists every command.
 Choosing `Acoustic / SoundFont` starts with bundled grand piano. Use
-`:library upright` or `:library harpsichord` for other bundled timbres.
+`:library upright` or `:library harpsichord` for other bundled timbres, or
+press `f` to choose them from the preset picker.
 
 ## External plugins
 

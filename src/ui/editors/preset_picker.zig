@@ -30,7 +30,7 @@ pub const Kind = enum {
         return switch (self) {
             .synth => "SYNTH PRESETS",
             .drum => "DRUM KITS",
-            .soundfont => "SOUNDFONT PRESETS",
+            .soundfont => "ACOUSTIC / SOUNDFONT",
         };
     }
 };
@@ -56,7 +56,7 @@ pub const Entry = struct {
     /// `buildDisplayRows` (unlike the bank *headers*, which are read by the
     /// caller after that call returns - see `App.soundfont_picker_bank_headers`).
     program: ?u16 = null,
-    source: union(enum) { user: usize, factory: usize, kit: usize, soundfont: usize },
+    source: union(enum) { user: usize, factory: usize, kit: usize, soundfont: usize, library: ws.dsp.builtin_library.Id },
 };
 
 pub const DisplayRow = union(enum) {
@@ -207,6 +207,28 @@ pub fn buildDisplayRows(app: *App, buf: *[max_display_rows]DisplayRow) []Display
         },
         .soundfont => {
             const sf = targetSoundfont(app) orelse return buf[0..0];
+            if (sf.builtin != null) {
+                var wrote_header = false;
+                for (std.enums.values(ws.dsp.builtin_library.Id)) |id| {
+                    const e: Entry = .{
+                        // zig fmt: off
+                        .name = id.label(), .category = "VCSL acoustic", .tags = &.{ "Versilian Studios", "acoustic" },
+                        .author = "Versilian Studios", .source = .{ .library = id },
+                        // zig fmt: on
+                    };
+                    if (!entryMatches(e, filter)) continue;
+                    if (!wrote_header) {
+                        if (n >= buf.len) return buf[0..n];
+                        buf[n] = .{ .header = "bundled VCSL" };
+                        n += 1;
+                        wrote_header = true;
+                    }
+                    if (n >= buf.len) return buf[0..n];
+                    buf[n] = .{ .entry = e };
+                    n += 1;
+                }
+                return buf[0..n];
+            }
             const font = sf.font orelse return buf[0..0];
 
             // Distinct banks in first-appearance order, same 16-bucket cap
@@ -416,11 +438,22 @@ fn auditionSelected(app: *App) void {
         app.setStatus("audition: {s}", .{chosen.name});
         return;
     }
+    if (chosen.source == .library) {
+        const sf = targetSoundfont(app) orelse return;
+        sf.loadBuiltin(app.io, chosen.source.library) catch |e| {
+            app.setStatus("library: {s}", .{@errorName(e)});
+            return;
+        };
+        app.dirty = true;
+        app.playNote(app.preset_picker_track, app.piano_cursor_pitch, app.now_ns);
+        app.setStatus("audition: {s}", .{chosen.name});
+        return;
+    }
     if (app.preset_picker_kind != .synth) return;
     switch (chosen.source) {
         .user => |i| if (!applyUserPreset(app, &app.user_synth_presets.items[i])) return,
         .factory => |i| if (!applySynthPreset(app, ws.dsp.synth_presets.presets[i].patch)) return,
-        .kit, .soundfont => return,
+        .kit, .soundfont, .library => return,
     }
     app.preset_audition_active = true;
     app.playNote(app.preset_picker_track, 48, app.now_ns);
@@ -596,6 +629,14 @@ pub fn applySelected(app: *App) void {
             } else {
                 app.setStatus("soundfont preset: {s}", .{chosen.name});
             }
+        },
+        .library => |id| {
+            const sf = targetSoundfont(app) orelse return;
+            sf.loadBuiltin(app.io, id) catch |e| {
+                app.setStatus("library: {s}", .{@errorName(e)});
+                return;
+            };
+            app.setStatus("library: {s}", .{id.label()});
         },
     }
     app.dirty = true;

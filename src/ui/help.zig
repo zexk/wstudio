@@ -296,7 +296,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("s",            "FX chain for this track");
     t.key("p",            "piano roll for this track");
     t.key("f",            "preset picker - every preset in the loaded font, grouped by bank, / filters by name/bank/program");
-    t.key("a (in picker)", "audition the highlighted preset immediately (no C3-and-revert like the synth picker - soundfont preset switches always commit)");
+    t.key("a (in picker)", "audition the highlighted acoustic/SoundFont preset immediately; sample-bank switches commit");
     t.key("esc / e",      "back to the tracks view");
     t.key(":load-soundfont", "[file.sf2]  load a SoundFont into the cursor track (omit the file to browse)");
     t.key(":library", "<grand|upright|harpsichord>  load a bundled VCSL acoustic instrument");
