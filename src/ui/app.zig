@@ -514,6 +514,8 @@ pub const App = struct {
     /// `preset_filter_buf`; cleared on every open. See `spectrum.activeFilter`.
     fx_picker_filter_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
     fx_picker_filter_len: usize = 0,
+    instrument_picker_filter_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
+    instrument_picker_filter_len: usize = 0,
     /// Highlighted row in the synth-internal FX insert picker (`.fx`
     /// subview's `a`) - always returns to `.synth_editor`, so no return-view
     /// field needed like `fx_picker_return`'s.
@@ -2145,7 +2147,9 @@ pub const App = struct {
             .piano_roll => if (self.modal.mode == .command or self.modal.mode == .search or self.modal.mode == .insert or !piano_ed.handleKey(self, key)) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else { self.modal.count = 0; },
-            .instrument_picker => self.handlePickerKey(key),
+            .instrument_picker => if (self.modal.mode == .search or (key == .char and key.char == '/')) {
+                self.applyAction(self.modal.handle(key), now_ns);
+            } else self.handlePickerKey(key),
             // `/` (and the search mode it enters) is routed to the modal
             // prompt so the picker's filter narrows live while typing -
             // submit/cancel land in applyAction's `.search_submit` case.
@@ -2628,13 +2632,15 @@ pub const App = struct {
     /// Instrument picker: click a row to select + insert it (same as
     /// enter/space); scroll moves the highlight.
     fn pickerMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
-        const count = instrument_picker_items.len + self.external_plugins.count(.instrument);
+        var buf: [instrument_picker_items.len]InstrumentPickerItem = undefined;
+        const internal_count = self.filteredInstrumentPickerItems(&buf).len;
+        const count = internal_count + self.filteredInstrumentPluginCount();
         switch (ev.kind) {
             .press => {
-                const item: ?usize = if (row >= 3 and row < 3 + instrument_picker_items.len)
+                const item: ?usize = if (row >= 3 and row < 3 + internal_count)
                     row - 3
-                else if (row >= 4 + instrument_picker_items.len)
-                    instrument_picker_items.len + row - (4 + instrument_picker_items.len)
+                else if (row >= 4 + internal_count)
+                    internal_count + row - (4 + internal_count)
                 else
                     null;
                 if (item == null or item.? >= count) return;
@@ -2985,6 +2991,7 @@ pub const App = struct {
     pub fn openInstrumentPicker(self: *App, cursor: usize, replace: bool) void {
         self.picker_replace = replace;
         self.picker_cursor = 0;
+        self.instrument_picker_filter_len = 0;
         if (cursor < self.session.racks.items.len) {
             const kind = std.meta.activeTag(self.session.racks.items[cursor].instrument);
             for (instrument_picker_items, 0..) |item, i| {
@@ -3039,7 +3046,9 @@ pub const App = struct {
     /// highlighted kind on the cursor track and jump to its editor, esc
     /// cancels back to tracks.
     fn handlePickerKey(self: *App, key: modal_mod.Key) void {
-        const count = instrument_picker_items.len + self.external_plugins.count(.instrument);
+        var buf: [instrument_picker_items.len]InstrumentPickerItem = undefined;
+        const count = self.filteredInstrumentPickerItems(&buf).len + self.filteredInstrumentPluginCount();
+        if (count > 0 and self.picker_cursor >= count) self.picker_cursor = @intCast(count - 1);
         switch (key) {
             .escape => self.view = .tracks,
             .enter => self.pickerInsert(),
@@ -3058,8 +3067,10 @@ pub const App = struct {
     // zig fmt: on
 
     fn pickerInsert(self: *App) void {
-        if (self.picker_cursor >= instrument_picker_items.len) {
-            const plugin = self.external_plugins.at(.instrument, self.picker_cursor - instrument_picker_items.len) orelse return;
+        var buf: [instrument_picker_items.len]InstrumentPickerItem = undefined;
+        const items = self.filteredInstrumentPickerItems(&buf);
+        if (self.picker_cursor >= items.len) {
+            const plugin = self.filteredInstrumentPluginAt(self.picker_cursor - items.len) orelse return;
             var backup = history.captureTrackKindSwap(self, self.cursor);
             switch (plugin.format) {
                 .clap => self.session.setClapInstrument(self.cursor, plugin.path, plugin.id) catch |err| {
@@ -3087,7 +3098,7 @@ pub const App = struct {
             self.openTrack(self.cursor);
             return;
         }
-        const item = instrument_picker_items[self.picker_cursor];
+        const item = items[self.picker_cursor];
         const kind = item.kind;
         if (self.picker_replace) {
             if (std.meta.activeTag(self.session.racks.items[self.cursor].instrument) == kind) {
@@ -3850,6 +3861,10 @@ pub const App = struct {
                         self.preset_filter_len = copyTruncated(&self.preset_filter_buf, text);
                         self.preset_picker_cursor = 0;
                     },
+                    .instrument_picker => {
+                        self.instrument_picker_filter_len = copyTruncated(&self.instrument_picker_filter_buf, text);
+                        self.picker_cursor = 0;
+                    },
                     .fx_picker => {
                         self.fx_picker_filter_len = copyTruncated(&self.fx_picker_filter_buf, text);
                         self.fx_picker_cursor = 0;
@@ -3886,6 +3901,44 @@ pub const App = struct {
         if (self.modal.mode == .search and self.view == view)
             return self.modal.cmd_buf[0..self.modal.cmd_len];
         return buf[0..len];
+    }
+
+    pub fn activeInstrumentFilter(self: *App) []const u8 {
+        return self.pickerFilterText(.instrument_picker, &self.instrument_picker_filter_buf, self.instrument_picker_filter_len);
+    }
+
+    pub fn filteredInstrumentPickerItems(self: *App, buf: *[instrument_picker_items.len]InstrumentPickerItem) []InstrumentPickerItem {
+        const filter = self.activeInstrumentFilter();
+        var n: usize = 0;
+        for (instrument_picker_items) |item| {
+            if (filter.len > 0 and !fuzzy.matches(filter, item.label) and !fuzzy.matches(filter, item.description)) continue;
+            buf[n] = item;
+            n += 1;
+        }
+        return buf[0..n];
+    }
+
+    pub fn filteredInstrumentPluginCount(self: *App) usize {
+        var count: usize = 0;
+        for (self.external_plugins.plugins.items) |plugin| {
+            if (plugin.role == .instrument and self.instrumentPluginMatches(&plugin)) count += 1;
+        }
+        return count;
+    }
+
+    pub fn filteredInstrumentPluginAt(self: *App, ordinal: usize) ?*const ws.plugin_catalog.Plugin {
+        var index: usize = 0;
+        for (self.external_plugins.plugins.items) |*plugin| {
+            if (plugin.role != .instrument or !self.instrumentPluginMatches(plugin)) continue;
+            if (index == ordinal) return plugin;
+            index += 1;
+        }
+        return null;
+    }
+
+    fn instrumentPluginMatches(self: *App, plugin: *const ws.plugin_catalog.Plugin) bool {
+        const filter = self.activeInstrumentFilter();
+        return filter.len == 0 or fuzzy.matches(filter, plugin.name) or fuzzy.matches(filter, plugin.vendor);
     }
 
     fn setSearchPattern(self: *App, text: []const u8) void {

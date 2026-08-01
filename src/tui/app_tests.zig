@@ -223,6 +223,26 @@ test "picker inserts the highlighted instrument and opens its editor" {
     try std.testing.expectEqual(AppView.sampler_editor, app.view);
 }
 
+test "instrument picker / narrows instruments and enter inserts match" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    app.handleKey(.enter, 0);
+    for ("/slice") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqualStrings("slice", app.activeInstrumentFilter());
+
+    var buf: [app_mod.instrument_picker_items.len]app_mod.InstrumentPickerItem = undefined;
+    const items = app.filteredInstrumentPickerItems(&buf);
+    try std.testing.expectEqual(@as(usize, 1), items.len);
+    try std.testing.expectEqual(ws.InstrumentKind.slicer, items[0].kind);
+
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.slicer_grid, app.view);
+    try std.testing.expectEqual(ws.InstrumentKind.slicer, std.meta.activeTag(app.session.racks.items[0].instrument));
+}
+
 test "renderBounce sequences notes offline and restores transport" {
     var app = try testApp();
     defer app.deinit();

@@ -40,7 +40,9 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
 
     try w.writeAll(bold ++ " INTERNAL" ++ rst);
     try endLine(w);
-    for (app_mod.instrument_picker_items, 0..) |item, i| {
+    var item_buf: [app_mod.instrument_picker_items.len]app_mod.InstrumentPickerItem = undefined;
+    const items = app.filteredInstrumentPickerItems(&item_buf);
+    for (items, 0..) |item, i| {
         const is_sel = (i == app.picker_cursor);
         const icon = switch (item.kind) {
             .poly_synth => icons.synth,
@@ -62,10 +64,10 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
     }
     try w.writeAll(bold ++ " EXTERNAL" ++ rst ++ dim ++ "  CLAP / VST3");
     try endLine(w);
-    const external_count = app.external_plugins.count(.instrument);
+    const external_count = app.filteredInstrumentPluginCount();
     for (0..external_count) |external_i| {
-        const plugin = app.external_plugins.at(.instrument, external_i).?;
-        const i = app_mod.instrument_picker_items.len + external_i;
+        const plugin = app.filteredInstrumentPluginAt(external_i).?;
+        const i = items.len + external_i;
         const is_sel = (i == app.picker_cursor);
         if (is_sel) try w.writeAll(sel);
         try w.writeAll(if (is_sel) "  > " else "    ");
@@ -80,7 +82,7 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
         try endLine(w);
     }
 
-    const used = 4 + app_mod.instrument_picker_items.len + @max(external_count, 1);
+    const used = 4 + items.len + @max(external_count, 1);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 

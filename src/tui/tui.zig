@@ -230,7 +230,7 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
         .help            => try render.drawHelpStatus(self, &status_w, &status_right_w),
         .track_spectrum, .master_spectrum, .group_spectrum =>
             try render.drawFxStatus(self, &status_w, &status_right_w, spectrum_ed.currentTarget(self)),
-        .instrument_picker => try render.drawPickerStatus(self, &status_w, &status_right_w, "INSTRUMENT", "insert", false),
+        .instrument_picker => try render.drawPickerStatus(self, &status_w, &status_right_w, "INSTRUMENT", "insert", true),
         .fx_picker       => try render.drawPickerStatus(self, &status_w, &status_right_w, "EFFECT", "insert", true),
         .synth_fx_picker => try render.drawPickerStatus(self, &status_w, &status_right_w, "SYNTH FX", "insert", true),
         .arrangement     => try render.drawArrangementStatus(self, &status_w, &status_right_w),

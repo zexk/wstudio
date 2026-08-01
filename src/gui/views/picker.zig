@@ -101,7 +101,10 @@ pub fn drawInstrument(app: anytype) void {
     // jump sideways instead.
     const width = overlayWidth();
     zgui.textColored(theme.fg2, "INTERNAL", .{});
-    for (app_mod.instrument_picker_items, 0..) |entry, i| {
+    var item_buf: [app_mod.instrument_picker_items.len]app_mod.InstrumentPickerItem = undefined;
+    const items = app.core.filteredInstrumentPickerItems(&item_buf);
+    const filter = app.core.activeInstrumentFilter();
+    for (items, 0..) |entry, i| {
         var id_buf: [48]u8 = undefined;
         const id = std.fmt.bufPrintZ(&id_buf, "instrument-card-{d}", .{i}) catch continue;
         const accent = switch (entry.kind) {
@@ -111,7 +114,7 @@ pub fn drawInstrument(app: anytype) void {
             .slicer => theme.modulation,
             else => theme.focus,
         };
-        if (drawCard(id, entry.label, entry.description, accent, app.core.picker_cursor == i, width, "")) {
+        if (drawCard(id, entry.label, entry.description, accent, app.core.picker_cursor == i, width, filter)) {
             selectInstrument(app, i, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
         }
     }
@@ -119,16 +122,16 @@ pub fn drawInstrument(app: anytype) void {
     zgui.textColored(theme.fg2, "EXTERNAL", .{});
     zgui.sameLine(.{});
     zgui.textDisabled("CLAP / VST3", .{});
-    const external_count = app.core.external_plugins.count(.instrument);
+    const external_count = app.core.filteredInstrumentPluginCount();
     for (0..external_count) |external_i| {
-        const plugin = app.core.external_plugins.at(.instrument, external_i).?;
+        const plugin = app.core.filteredInstrumentPluginAt(external_i).?;
         var id_buf: [48]u8 = undefined;
         const id = std.fmt.bufPrintZ(&id_buf, "instrument-plugin-card-{d}", .{external_i}) catch continue;
         var desc_buf: [128]u8 = undefined;
         const format = ws.plugin_catalog.formatLabel(plugin.format);
         const desc = std.fmt.bufPrint(&desc_buf, "{s}  |  {s}", .{ format, plugin.vendor }) catch format;
-        const ordinal = app_mod.instrument_picker_items.len + external_i;
-        if (drawCard(id, plugin.name, desc, theme.focus, app.core.picker_cursor == ordinal, width, "")) {
+        const ordinal = items.len + external_i;
+        if (drawCard(id, plugin.name, desc, theme.focus, app.core.picker_cursor == ordinal, width, filter)) {
             selectInstrument(app, ordinal, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
         }
     }
