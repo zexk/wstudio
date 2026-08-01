@@ -3204,6 +3204,13 @@ pub const App = struct {
         }
     }
 
+    pub fn clickFxPickerItem(self: *App, ordinal: usize, now_ns: i96) void {
+        if (self.modal.mode == .search) self.handleKey(.enter, now_ns);
+        self.fx_picker_cursor = @intCast(ordinal);
+        var buf: [spectrum_ed.picker_kinds.len]ws.FxKind = undefined;
+        self.activateFxPickerItem(spectrum_ed.filteredPickerKinds(self, &buf));
+    }
+
     /// FX picker: click a row to select + insert it (same as enter/space);
     /// scroll moves the highlight.
     fn fxPickerMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {

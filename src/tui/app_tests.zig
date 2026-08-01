@@ -7181,6 +7181,21 @@ test "FX picker inserts after the focused slot and focuses the new unit" {
     try std.testing.expectEqual(@as(usize, 0), app.fx_focus);
 }
 
+test "FX picker click during live search inserts and leaves search mode" {
+    var app = try testApp();
+    defer app.deinit();
+    spectrum_ed.switchToTrack(&app, 0);
+
+    try std.testing.expect(spectrum_ed.handleKey(&app, .{ .char = 'a' }));
+    for ("/reverb") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
+
+    app.clickFxPickerItem(0, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(app_mod.AppView.track_spectrum, app.view);
+    try std.testing.expectEqual(ws.FxKind.reverb, app.session.racks.items[0].fx.units.items[0].kind());
+}
+
 test "FX chain: </> reorder and b bypass reach the engine chain" {
     var app = try testApp();
     defer app.deinit();

@@ -172,8 +172,7 @@ pub fn drawFx(app: anytype) void {
                 app.core.synth_fx_picker_cursor = @intCast(i);
                 synth_ed.insertFromSynthFxPicker(&app.core, synth_kinds[i]);
             } else {
-                app.core.fx_picker_cursor = @intCast(i);
-                spectrum_ed.insertFromPicker(&app.core, kind);
+                app.core.clickFxPickerItem(i, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             }
         }
     }
@@ -192,8 +191,7 @@ pub fn drawFx(app: anytype) void {
             const desc = std.fmt.bufPrint(&desc_buf, "{s}  |  {s}", .{ format, plugin.vendor }) catch format;
             const ordinal = count + external_i;
             if (drawCard(id, plugin.name, desc, theme.focus, app.core.fx_picker_cursor == ordinal, width, filter)) {
-                app.core.fx_picker_cursor = @intCast(ordinal);
-                spectrum_ed.insertExternalFromPicker(&app.core, plugin);
+                app.core.clickFxPickerItem(ordinal, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             }
         }
         if (external_count == 0) zgui.textDisabled("No external effects found", .{});
