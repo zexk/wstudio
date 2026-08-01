@@ -1171,6 +1171,11 @@ fn snappedCurveBeat(raw: f64, fallback: f64, lo: f64, hi: f64, snap: f64) f64 {
     return std.math.clamp(beat, lo, hi);
 }
 
+fn curveGridStep(beat_hi: f64, snap: f64, width: f32) f64 {
+    const max_lines = @max(1, @as(u32, @intFromFloat(@floor(@max(width, 1) / 4))));
+    return snap * @max(1, @ceil(beat_hi / snap / @as(f64, @floatFromInt(max_lines))));
+}
+
 pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
     const theme = &gui_style.palette;
     const width = args.width orelse zgui.getContentRegionAvail()[0];
@@ -1181,8 +1186,9 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
 
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg1), .rounding = gui_style.panel_rounding });
     if (args.snap_beats > 0 and args.beat_hi > 0) {
+        const grid_step = curveGridStep(args.beat_hi, args.snap_beats, width);
         var b: f64 = 0;
-        while (b <= args.beat_hi) : (b += args.snap_beats) {
+        while (b <= args.beat_hi) : (b += grid_step) {
             const x = origin[0] + @as(f32, @floatCast(b / args.beat_hi)) * width;
             draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + height }, .col = gui_style.color(theme.line), .thickness = 1 });
         }
@@ -1269,6 +1275,11 @@ test "curve beat snapping preserves ordering and bounds" {
     try std.testing.expectEqual(@as(f64, 0.5), snappedCurveBeat(0.9, 0.5, 0.65, 0.25, 0.25));
     try std.testing.expectEqual(@as(f64, 1.2), snappedCurveBeat(1.2, 0.0, 0.0, 1.2, 0.7));
     try std.testing.expectEqual(@as(f64, 0.3), snappedCurveBeat(0.26, 0.0, 0.3, 0.8, 0.25));
+}
+
+test "curve grid bounds work while preserving snap intervals" {
+    try std.testing.expectEqual(@as(f64, 0.25), curveGridStep(16, 0.25, 800));
+    try std.testing.expectEqual(@as(f64, 4000), curveGridStep(1_000_000, 0.25, 1000));
 }
 
 test "knob mappings preserve values while expanding useful low ranges" {
