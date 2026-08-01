@@ -76,6 +76,18 @@ the four `[on|off]` commands silently toggled when given an invalid value.
 name both the failed command and accepted values. Automated coverage locks that
 behavior; `zig build test` passes.
 
+## Mix safety and effect defaults
+
+2026-08-01 automated checks cover all 20 internal effect defaults with normal
+audio: output stays audible, finite, and bounded. Shared chain coverage proves
+bypassed effects leave samples bit-identical. Existing focused checks cover
+track/master meters, limiter ceiling and recovery, delay echoes, and decaying
+reverb tails. Audit corrected rack delay's fresh-instance time from its 2.0 s
+allocation ceiling to the established 0.25 s musical default. Fresh rack OTT
+depth now starts at 10%; its previous 100% default peaked at 13.39 from a 0.5
+input during detector startup. Demo mix review was skipped because the demo
+project will be replaced.
+
 ## Arrangement markers
 
 Existing named sections satisfy the marker candidate without a new model or

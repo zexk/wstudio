@@ -353,7 +353,11 @@ pub const Fx = struct {
             .gate    => .{ .gate = Gate.init(sr) },
             .comp    => .{ .comp = Compressor.init(sr) },
             .mb_comp => .{ .mb_comp = MultibandComp.init(sr) },
-            .ott     => .{ .ott = Ott.init(sr) },
+            .ott     => blk: {
+                var ott = Ott.init(sr);
+                ott.setDepth(0.1);
+                break :blk .{ .ott = ott };
+            },
             .eq      => .{ .eq = ParametricEq.init(sr) },
             .filter  => .{ .filter = Filter.init(sr) },
             .utility => .{ .utility = .{} },
@@ -368,7 +372,11 @@ pub const Fx = struct {
             .flanger => .{ .flanger = Flanger.init(sr) },
             .tape    => .{ .tape = Tape.init(sr) },
             .freq_shift => .{ .freq_shift = FreqShifter.init(sr) },
-            .delay   => .{ .delay = try StereoDelay.init(allocator, sr, 2.0) },
+            .delay   => blk: {
+                var delay = try StereoDelay.init(allocator, sr, 2.0);
+                delay.setTime(0.25);
+                break :blk .{ .delay = delay };
+            },
             .reverb  => .{ .reverb = try Reverb.init(allocator, sr) },
             .clap    => return error.ClapPluginRequiresPath,
             .vst3    => return error.Vst3PluginRequiresPath,
@@ -765,19 +773,57 @@ test "Fx.dupe deep-copies params and heap buffers independently (used by undo's 
     try std.testing.expectEqual(@as(f32, -12.0), dup.units.items[0].payload.comp.threshold_db);
 }
 
+const internal_fx_kinds = [_]FxKind{
+    .gate,   .comp,   .mb_comp, .ott,  .limiter,    .transient_shaper, .eq,     .filter, .utility, .stereo_width, .auto_pan, .sat, .crush,
+    .chorus, .phaser, .flanger, .tape, .freq_shift, .delay,            .reverb,
+};
+
 test "every FX payload stays finite when constructed with zero sample rate" {
     const allocator = std.testing.allocator;
-    const kinds = [_]FxKind{
-        .gate,   .comp,   .mb_comp, .ott,  .limiter,    .transient_shaper, .eq,     .filter, .utility, .stereo_width, .auto_pan, .sat, .crush,
-        .chorus, .phaser, .flanger, .tape, .freq_shift, .delay,            .reverb,
-    };
-    for (kinds) |kind| {
+    for (internal_fx_kinds) |kind| {
         var payload = try Fx.initPayload(allocator, kind, 0);
         defer payload.deinit(allocator);
         var buf = [_]f32{ 0.25, -0.25, 0.5, -0.5 };
         payload.device().process(&buf);
         for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
     }
+}
+
+test "all 20 internal FX defaults keep normal audio audible, finite, and bounded" {
+    const allocator = std.testing.allocator;
+    for (internal_fx_kinds) |kind| {
+        var payload = try Fx.initPayload(allocator, kind, 48_000);
+        defer payload.deinit(allocator);
+        switch (payload) {
+            .delay => |delay| try std.testing.expectApproxEqAbs(@as(f32, 0.25), delay.timeSeconds(), 1e-6),
+            .ott => |ott| try std.testing.expectApproxEqAbs(@as(f32, 0.1), ott.depth(), 1e-6),
+            else => {},
+        }
+        var buf: [2048]f32 = undefined;
+        for (&buf, 0..) |*sample, i| sample.* = 0.5 * @sin(@as(f32, @floatFromInt(i / 2)) * 0.1);
+        payload.device().process(&buf);
+        var peak: f32 = 0.0;
+        for (buf) |sample| {
+            try std.testing.expect(std.math.isFinite(sample));
+            peak = @max(peak, @abs(sample));
+        }
+        try std.testing.expect(peak > 0.001);
+        try std.testing.expect(peak <= 2.0);
+    }
+}
+
+test "bypassed internal FX leave audio bit-identical" {
+    const allocator = std.testing.allocator;
+    var fx: Fx = .{};
+    defer fx.deinit(allocator);
+    for (internal_fx_kinds) |kind| (try fx.insert(allocator, fx.units.items.len, kind, 48_000)).bypassed = true;
+
+    var chain_buf: [Fx.max_units]dsp.Device = undefined;
+    try std.testing.expectEqual(@as(usize, 0), fx.chain(&chain_buf).len);
+    var audio = [_]f32{ 0.25, -0.5, 0.75, -1.0 };
+    const expected = audio;
+    for (fx.chain(&chain_buf)) |device| device.process(&audio);
+    try std.testing.expectEqualSlices(f32, &expected, &audio);
 }
 
 test "drum_machine Instrument variant: device ptr stable inside heap Rack" {
