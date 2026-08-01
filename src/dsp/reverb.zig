@@ -43,21 +43,13 @@ pub const Reverb = struct {
         var comb_count: usize = 0;
         var allpass_count: usize = 0;
         errdefer {
-            var seen: usize = 0;
-            comb_cleanup: for (&self.channels) |*ch| {
-                for (ch.combs) |comb| {
-                    if (seen == comb_count) break :comb_cleanup;
-                    allocator.free(comb.buf);
-                    seen += 1;
-                }
+            for (0..comb_count) |i| {
+                const ch = i / comb_tunings.len;
+                allocator.free(self.channels[ch].combs[i % comb_tunings.len].buf);
             }
-            seen = 0;
-            allpass_cleanup: for (&self.channels) |*ch| {
-                for (ch.allpasses) |ap| {
-                    if (seen == allpass_count) break :allpass_cleanup;
-                    allocator.free(ap.buf);
-                    seen += 1;
-                }
+            for (0..allpass_count) |i| {
+                const ch = i / allpass_tunings.len;
+                allocator.free(self.channels[ch].allpasses[i % allpass_tunings.len].buf);
             }
         }
         const scale = @as(f64, @floatFromInt(@max(sample_rate, 1))) / 44_100.0;
