@@ -7,6 +7,9 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Added
 
+- CC0 VCSL grand piano, upright piano, and Italian harpsichord through a shared
+  SFZ/FLAC sample-bank loader. Acoustic tracks start on grand piano and switch
+  bundled timbre with `:library`.
 - Internal rack multimode filter with low-pass, high-pass, and band-pass modes,
   cutoff, resonance, drive, and dry/wet mix.
 - Internal rack limiter with ceiling and release controls.

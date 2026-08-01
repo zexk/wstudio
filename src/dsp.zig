@@ -44,6 +44,7 @@ pub const soundfont = @import("dsp/soundfont.zig");
 pub const SoundFont = soundfont.SoundFont;
 pub const sfz = @import("dsp/sfz.zig");
 pub const flac = @import("core/flac.zig");
+pub const builtin_library = @import("dsp/builtin_library.zig");
 pub const soundfont_player = @import("dsp/soundfont_player.zig");
 pub const SoundfontPlayer = soundfont_player.SoundfontPlayer;
 
@@ -70,6 +71,7 @@ test {
     _ = synth_presets;
     _ = sfz;
     _ = flac;
+    _ = builtin_library;
     _ = StereoDelay;
     _ = Reverb;
     _ = Compressor;

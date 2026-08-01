@@ -133,7 +133,7 @@ pub const instrument_picker_items = [_]InstrumentPickerItem{
     .{ .kind = .sampler, .label = "Sampler", .description = "Chromatic sample playback and envelopes" },
     .{ .kind = .drum_machine, .label = "Drum Machine", .description = "Pads, velocity, and step sequencing" },
     .{ .kind = .slicer, .label = "Slicer", .description = "Sample slicing and chop sequencing" },
-    .{ .kind = .soundfont, .label = "SoundFont", .description = "SF2 banks, programs, and presets" },
+    .{ .kind = .soundfont, .label = "Acoustic / SoundFont", .description = "Bundled piano, harpsichord, and SF2 banks" },
 };
 
 /// What a file picked in the netrw-style file browser (`file_browser` view)
@@ -3104,6 +3104,7 @@ pub const App = struct {
             };
             history.push(self, backup);
             self.dirty = true;
+            if (kind == .soundfont) self.loadDefaultAcoustic();
             if (preserved) {
                 self.setStatus("track {d}: now {s} (notes kept)", .{ self.cursor + 1, item.label });
             } else {
@@ -3118,6 +3119,7 @@ pub const App = struct {
             self.view = .tracks;
             return;
         };
+        if (kind == .soundfont) self.loadDefaultAcoustic();
         self.dirty = true;
         const hint: []const u8 = switch (kind) {
             .empty => "?: help",
@@ -3126,11 +3128,21 @@ pub const App = struct {
             .drum_machine => "enter: step  i: play  space: record  ?: help",
             .slicer => "enter: step  i: play  :load  ?: help",
             .clap, .vst3 => "enter: piano roll  i: play  ?: help",
-            .soundfont => "h/l: adjust  :load-soundfont  i: play  ?: help",
+            .soundfont => "h/l: adjust  :library  i: play  ?: help",
         };
         self.setStatus("{s} inserted  {s}", .{ item.label, hint });
         self.view = .tracks;
         self.openTrack(self.cursor);
+    }
+
+    fn loadDefaultAcoustic(self: *App) void {
+        const sf = switch (self.session.racks.items[self.cursor].instrument) {
+            .soundfont => |*instrument| instrument,
+            else => return,
+        };
+        sf.loadBuiltin(self.io, .grand) catch |err| {
+            self.setStatus("grand piano: {s}", .{@errorName(err)});
+        };
     }
 
     // zig fmt: off

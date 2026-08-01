@@ -134,6 +134,10 @@ since it isn't PCM audio). All are written through the
 same `.tmp` + rename dance as the project file itself, so a crash never
 leaves a truncated sample behind.
 
+SoundFont snapshots may instead name a bundled `library` id. Bundled SFZ/FLAC
+banks are part of the wstudio installation, so they need no project sidecar.
+Older snapshots omit this additive field and retain existing SF2 behavior.
+
 The pad's `sample_file` field stores a path *relative to the `.wsj`*, never
 absolute, so a project directory can be moved or copied as a unit and still
 load correctly.

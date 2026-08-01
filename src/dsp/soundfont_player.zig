@@ -32,6 +32,7 @@ const soundfont_mod = @import("soundfont.zig");
 const SoundFont = soundfont_mod.SoundFont;
 const Region = soundfont_mod.Region;
 const pad_dsp = @import("pad.zig");
+const builtin_library = @import("builtin_library.zig");
 
 const Sample = types.Sample;
 
@@ -54,6 +55,7 @@ pub const SoundfontPlayer = struct {
     /// comment), not something the original bytes can be re-derived from.
     /// Empty when nothing is loaded.
     source_bytes: []u8 = &.{},
+    builtin: ?builtin_library.Id = null,
 
     /// Index into `font.?.presets` (clamped to range on load and on every
     /// nudge). Meaningless while `font == null`.
@@ -144,6 +146,21 @@ pub const SoundfontPlayer = struct {
         self.allocator.free(self.source_bytes);
         self.font = parsed;
         self.source_bytes = owned_bytes;
+        self.builtin = null;
+        self.preset_index = 0;
+        for (&self.voices) |*v| v.active = false;
+        self.font_lock.unlock();
+    }
+
+    pub fn loadBuiltin(self: *SoundfontPlayer, io: std.Io, id: builtin_library.Id) !void {
+        var parsed = try builtin_library.load(self.allocator, io, id, self.sample_rate);
+        errdefer parsed.deinit();
+        while (!self.font_lock.tryLock()) std.atomic.spinLoopHint();
+        if (self.font) |*old| old.deinit();
+        self.allocator.free(self.source_bytes);
+        self.font = parsed;
+        self.source_bytes = &.{};
+        self.builtin = id;
         self.preset_index = 0;
         for (&self.voices) |*v| v.active = false;
         self.font_lock.unlock();

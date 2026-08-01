@@ -6,6 +6,7 @@
 const std = @import("std");
 const pad_dsp = @import("pad.zig");
 const flac = @import("../core/flac.zig");
+const wav = @import("../core/wav.zig");
 const sample_bank = @import("soundfont.zig");
 
 const Region = sample_bank.Region;
@@ -127,16 +128,20 @@ fn appendRegion(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, sampl
     if (std.fs.path.isAbsolute(path) or std.mem.indexOf(u8, path, "..") != null) return error.InvalidPath;
     const bytes = try dir.readFileAlloc(io, path, allocator, .limited(256 * 1024 * 1024));
     defer allocator.free(bytes);
-    const decoded = if (std.ascii.endsWithIgnoreCase(path, ".wav"))
-        try pad_dsp.decodeWav(allocator, bytes, sample_rate)
-    else if (std.ascii.endsWithIgnoreCase(path, ".flac"))
-        try flac.decode(allocator, bytes, sample_rate)
-    else
-        return error.UnsupportedSampleFormat;
+    const Raw = struct { samples: []f32, sample_rate: u32 };
+    const raw: Raw = if (std.ascii.endsWithIgnoreCase(path, ".wav")) blk: {
+        const decoded = try wav.parseAlloc(allocator, bytes);
+        break :blk .{ .samples = decoded.samples, .sample_rate = decoded.sample_rate };
+    } else if (std.ascii.endsWithIgnoreCase(path, ".flac")) blk: {
+        const decoded = try flac.parseAlloc(allocator, bytes);
+        break :blk .{ .samples = decoded.samples, .sample_rate = decoded.sample_rate };
+    } else return error.UnsupportedSampleFormat;
+    defer allocator.free(raw.samples);
+    const offset: usize = @min(s.offset, raw.samples.len);
+    const decoded = try pad_dsp.resampleLinear(allocator, raw.samples[offset..], raw.sample_rate, sample_rate);
     defer allocator.free(decoded);
-    const offset: usize = @min(s.offset, decoded.len);
     const start = samples.items.len;
-    try samples.appendSlice(allocator, decoded[offset..]);
+    try samples.appendSlice(allocator, decoded);
     if (samples.items.len > std.math.maxInt(u32)) return error.OutputTooLarge;
     try regions.append(allocator, .{
         .start = @intCast(start),

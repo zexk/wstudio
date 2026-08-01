@@ -87,6 +87,11 @@ pub fn build(b: *std.Build) void {
         exe.root_module.addCMacro("_FORTIFY_SOURCE", "0");
     }
     b.installArtifact(exe);
+    b.installDirectory(.{
+        .source_dir = b.path("src/assets/library"),
+        .install_dir = .prefix,
+        .install_subdir = "share/wstudio/library",
+    });
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());

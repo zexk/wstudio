@@ -89,6 +89,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "clap-param",  .desc = "<1-based-index> [value]  inspect or set a CLAP instrument parameter", .run = wrap(cmdClapParam) },
     .{ .name = "clap-gui",    .desc = "toggle the current CLAP instrument or focused effect's native GUI", .run = wrap(cmdClapGui) },
     .{ .name = "sf-preset",   .desc = "<bank> <program>  jump to a SoundFont preset by its MIDI bank/program number", .run = wrap(cmdSfPreset), .scope = .{ .soundfont = true } },
+    .{ .name = "library",     .desc = "<grand|upright|harpsichord>  load a bundled VCSL acoustic instrument", .run = wrap(cmdLibrary), .scope = .{ .soundfont = true } },
     .{ .name = "slice",       .desc = "<n>  equal-divide the slicer's loaded clip into n slices (1-64)", .run = wrap(cmdSlice), .scope = .{ .slicer = true } },
     .{ .name = "chop",        .desc = "[1-9]  chop the slicer's clip at detected transients (sensitivity, default 5)", .run = wrap(cmdChop), .scope = .{ .slicer = true } },
     .{ .name = "chop-random", .desc = "[n]  roll the dice: chop the slicer's clip into n uneven slices (default 8)", .run = wrap(cmdChopRandom), .scope = .{ .slicer = true } },
@@ -2293,6 +2294,24 @@ pub fn loadSoundfontFromPath(app: *App, path: []const u8) void {
     } else {
         app.setStatus("soundfont loaded: {s}  preset: {s}", .{ std.fs.path.basename(path), sf.presetName() });
     }
+}
+
+fn cmdLibrary(app: *App, args: []const u8) void {
+    const sf = cursorSoundfont(app) orelse {
+        app.setStatus("library: select a soundfont track first", .{});
+        return;
+    };
+    const name = std.mem.trim(u8, args, " ");
+    const id = std.meta.stringToEnum(ws.dsp.builtin_library.Id, name) orelse {
+        app.setStatus("usage: library <grand|upright|harpsichord>", .{});
+        return;
+    };
+    sf.loadBuiltin(app.io, id) catch |err| {
+        app.setStatus("library: {s}", .{@errorName(err)});
+        return;
+    };
+    app.dirty = true;
+    app.setStatus("library loaded: {s}", .{id.label()});
 }
 
 /// `:sf-preset <bank> <program>` - jump straight to a preset by its MIDI

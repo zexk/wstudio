@@ -37,6 +37,9 @@ drum sampling and sequencing, slicing, SoundFont 2 multisample playback, and
 plugin hosting. Missing value is mostly licensed content and useful defaults,
 not more engines.
 
+Current shipment covers grand piano, upright piano, and Italian harpsichord
+from CC0 VCSL Keys through one shared SFZ/FLAC sample-bank path.
+
 ## Ranked backlog
 
 Rank uses three tests: how often sound starts a song, how many genres it serves,
@@ -113,4 +116,3 @@ when real projects expose a gap.
 - [REAPER included instruments](https://www.cockos.com/reaper/about.php)
 - [Reason NN-XT multisample library](https://www.reasonstudios.com/devices/nn-xt)
 - [Digital Performer instrument plug-ins](https://cdn-data.motu.com/manuals/software/dp/v111/Digital%20Performer%20Plug-ins%20Guide.pdf)
-

@@ -10,8 +10,9 @@ A keyboard-centric digital audio workstation written in
 wstudio borrows vim's modal model instead of a mouse-first workflow:
 **normal** mode navigates the project and drives the transport, **insert**
 turns the keyboard into a piano, **visual** selects and yanks ranges, and
-**command** mode runs `:` commands. It ships with synths, samplers, a drum
-machine, a sample-chopping slicer, and a full effects rack (gate, compressor,
+**command** mode runs `:` commands. It ships with grand and upright pianos, a
+harpsichord, synths, samplers, a drum machine, a sample-chopping slicer, and a
+full effects rack (gate, compressor,
 multiband compressor, OTT, limiter, transient shaper, EQ, multimode filter, utility, stereo width, auto-pan/tremolo, saturation, bitcrush, chorus, phaser, flanger,
 tape, frequency shifter, delay, reverb) built in, so there's no plugin
 hunting before the first note.
@@ -35,6 +36,8 @@ Without Nix, install Zig 0.16 and ALSA development libraries (Linux only)
 and build the same way; see [CONTRIBUTING.md](CONTRIBUTING.md) for the
 full development setup. Once running: `enter` on a blank track opens the
 instrument picker, `space` plays/stops, and `:help` lists every command.
+Choosing `Acoustic / SoundFont` starts with bundled grand piano. Use
+`:library upright` or `:library harpsichord` for other bundled timbres.
 
 ## External plugins
 

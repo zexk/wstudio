@@ -835,6 +835,8 @@ pub const SlicerSnap = struct {
 /// sample_file" convention `SamplerSnap.pad` already follows.
 pub const SoundfontSnap = struct {
     sf2_file: []const u8 = "",
+    /// Bundled acoustic bank id. Empty means external SF2 or no bank.
+    library: []const u8 = "",
     preset_index: u16 = 0,
     gain: f32 = 1.0,
     pan: f32 = 0.0,
@@ -1262,6 +1264,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
                 .gain = sf.gain,
                 .pan = sf.pan,
                 .transpose_semitones = sf.transpose_semitones,
+                .library = if (sf.builtin) |id| @tagName(id) else "",
             };
             if (rack.pattern_player) |*pp| {
                 sfs.length_beats = pp.length_beats;
@@ -1806,6 +1809,11 @@ fn restoreSamples(
             },
             .soundfont => |*sf| {
                 const sfs = rs.soundfont orelse continue;
+                if (std.meta.stringToEnum(@import("dsp/builtin_library.zig").Id, sfs.library)) |id| {
+                    sf.loadBuiltin(io, id) catch continue;
+                    sf.selectPresetIndex(sfs.preset_index);
+                    continue;
+                }
                 if (sfs.sf2_file.len == 0) continue; // nothing loaded
                 const data = readWsjRel(allocator, io, path, sfs.sf2_file) orelse continue;
                 defer allocator.free(data);
@@ -4763,6 +4771,26 @@ test "save/load round-trip persists a loaded soundfont, its sidecar .sf2, and th
     try testing.expectApproxEqAbs(@as(f32, 0.6), ls.gain, 1e-6);
     try testing.expectApproxEqAbs(@as(f32, 0.4), ls.pan, 1e-6);
     try testing.expectApproxEqAbs(@as(f32, -5.0), ls.transpose_semitones, 1e-6);
+}
+
+test "save/load round-trip persists bundled acoustic id without a sidecar" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try session.setInstrument(0, .soundfont);
+    try session.racks.items[0].instrument.soundfont.loadBuiltin(testing.io, .harpsichord);
+    try save(testing.allocator, &session, testing.io, wsj_path);
+
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    const sf = &loaded.racks.items[0].instrument.soundfont;
+    try testing.expectEqual(@import("dsp/builtin_library.zig").Id.harpsichord, sf.builtin.?);
+    try testing.expectEqualStrings("Italian Harpsichord", sf.presetName());
 }
 
 test "buildSession: A/B loop region lands in project and transport" {
