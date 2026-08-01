@@ -54,7 +54,7 @@ pub fn range(session: *const Session, tail_seconds: f32) Range {
             @max(1.0, time_grid.tickToBeat(session.arrangement.lengthTicks()))
         else
             @max(1.0, contentBeats(session));
-        break :blk @intFromFloat(transport.framesPerBeat() * max_beats);
+        break :blk transport.framesAtBeats(max_beats);
     };
     return .{
         .start_frame = start_frame,
@@ -193,6 +193,10 @@ test "range saturates overflowing render length" {
     var session = try Session.initDefaultWithSampleRate(std.testing.allocator, 48_000);
     defer session.deinit();
     try std.testing.expectEqual(std.math.maxInt(u64), range(&session, std.math.inf(f32)).total_frames);
+
+    try session.setInstrument(0, .poly_synth);
+    session.racks.items[0].pattern_player.?.length_beats = std.math.floatMax(f64);
+    try std.testing.expectEqual(std.math.maxInt(u64), range(&session, 0).total_frames);
 }
 
 test "stemName sanitizes paths and handles empty names" {

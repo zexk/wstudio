@@ -1030,7 +1030,7 @@ pub const App = struct {
         if (self.session.song_mode) return position_frames;
         const len_beats = self.contentBeats();
         if (len_beats <= 0) return position_frames;
-        const loop_frames: u64 = @intFromFloat(len_beats * self.session.engine.transport.framesPerBeat());
+        const loop_frames = self.session.engine.transport.framesAtBeats(len_beats);
         return if (loop_frames > 0) position_frames % loop_frames else position_frames;
     }
 
@@ -3688,7 +3688,7 @@ pub const App = struct {
         switch (action) {
             .none, .octave_up, .octave_down => {},
             .goto_end => {
-                const end_frames: u64 = @intFromFloat(self.session.engine.transport.framesPerBeat() * self.contentBeats());
+                const end_frames = self.session.engine.transport.framesAtBeats(self.contentBeats());
                 _ = self.session.engine.send(.{ .seek_frames = end_frames });
             },
             .volume_delta => |delta| {

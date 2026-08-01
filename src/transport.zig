@@ -39,6 +39,13 @@ pub const Transport = struct {
         return @max(1.0, self.framesPerBeat() / @as(f64, @floatFromInt(@max(steps_per_beat, 1))));
     }
 
+    pub fn framesAtBeats(self: *const Transport, beats: f64) u64 {
+        const frames = @max(beats, 0.0) * self.framesPerBeat();
+        if (!std.math.isFinite(frames) or frames >= @as(f64, @floatFromInt(std.math.maxInt(u64))))
+            return std.math.maxInt(u64);
+        return @intFromFloat(frames);
+    }
+
     pub fn positionBeats(self: *const Transport) f64 {
         return @as(f64, @floatFromInt(self.position_frames)) / self.framesPerBeat();
     }
@@ -127,6 +134,12 @@ test "musical time at 120 bpm" {
     const pos = t.positionBarBeat();
     try std.testing.expectEqual(@as(u64, 1), pos.bar);
     try std.testing.expectEqual(@as(u64, 2), pos.beat);
+}
+
+test "beat conversion saturates extreme lengths" {
+    const t: Transport = .{ .sample_rate = 48_000 };
+    try std.testing.expectEqual(@as(u64, 24_000), t.framesAtBeats(1));
+    try std.testing.expectEqual(std.math.maxInt(u64), t.framesAtBeats(std.math.floatMax(f64)));
 }
 
 test "invalid timing fields retain finite position calculations" {
