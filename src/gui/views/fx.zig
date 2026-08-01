@@ -198,15 +198,25 @@ fn drawEffectDisplay(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUni
         draw_list.addPolyline(&spectrum_points, .{ .col = color(.{ theme.audio[0], theme.audio[1], theme.audio[2], 0.42 }), .thickness = 1.5 });
     }
 
-    var points: [65][2]f32 = undefined;
-    const amount = normalizedParam(app, unit, 0);
-    const shape = normalizedParam(app, unit, 1);
-    for (&points, 0..) |*point, i| {
-        const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(points.len - 1));
-        const y = effectDisplayValue(unit.kind(), t, amount, shape);
-        point.* = .{ origin[0] + t * size[0], origin[1] + (1.0 - y) * height };
+    if (unit.kind() != .utility and unit.kind() != .stereo_width and unit.kind() != .auto_pan) {
+        var points: [65][2]f32 = undefined;
+        const amount = normalizedParam(app, unit, 0);
+        const shape = normalizedParam(app, unit, 1);
+        for (&points, 0..) |*point, i| {
+            const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(points.len - 1));
+            const y = if (unit.kind() == .filter) filterDisplayValue(&unit.payload.filter, t) else effectDisplayValue(unit.kind(), t, amount, shape);
+            point.* = .{ origin[0] + t * size[0], origin[1] + (1.0 - y) * height };
+        }
+        draw_list.addPolyline(&points, .{ .col = color(accent), .thickness = 2.5 });
     }
-    draw_list.addPolyline(&points, .{ .col = color(accent), .thickness = 2.5 });
+    switch (unit.payload) {
+        .limiter => |*lim| drawResponseMeter(draw_list, origin, size[0], height, 1.0 - lim.gain, "GAIN REDUCTION", accent),
+        .transient_shaper => |*shaper| drawBipolarMeter(draw_list, origin, size[0], height, shaper.applied_gain_db / 12.0, "APPLIED GAIN", accent),
+        .stereo_width => |*width| drawBipolarMeter(draw_list, origin, size[0], height, width.correlation, "CORRELATION", accent),
+        .auto_pan => |*pan| drawAutoPanMeter(draw_list, origin, size[0], height, pan, accent),
+        .utility => draw_list.addText(.{ origin[0] + size[0] * 0.5 - 78, origin[1] + height * 0.5 - 8 }, color(accent), "CHANNEL ROUTING", .{}),
+        else => {},
+    }
     draw_list.addText(.{ origin[0] + 10, origin[1] + 8 }, color(theme.fg2), "{s}", .{spectrum_ed.effectSpec(unit.kind()).display_label});
     draw_list.addText(.{ origin[0] + 10, origin[1] + height - 24 }, color(theme.fg3), "IN", .{});
     draw_list.addText(.{ origin[0] + size[0] - 34, origin[1] + 8 }, color(theme.fg3), "OUT", .{});
@@ -231,6 +241,49 @@ fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
         .eq, .filter, .utility, .stereo_width => t,
         .clap, .vst3 => t,
     };
+}
+
+fn filterDisplayValue(filter: anytype, t: f32) f32 {
+    const freq = 20.0 * std.math.pow(f32, 1000.0, t);
+    const x = freq / std.math.clamp(filter.cutoff_hz, 20, 20_000);
+    const q = std.math.clamp(filter.resonance, 0.1, 1.4);
+    const magnitude = switch (@as(u2, @intFromFloat(@round(std.math.clamp(filter.mode, 0, 2))))) {
+        0 => 1.0 / @sqrt(1.0 + x * x * x * x),
+        1 => x * x / @sqrt(1.0 + x * x * x * x),
+        else => (x / q) / @sqrt((1.0 - x * x) * (1.0 - x * x) + (x / q) * (x / q)),
+    };
+    const db = 20.0 * std.math.log10(@max(magnitude, 1e-6));
+    return std.math.clamp((db + 48.0) / 54.0, 0, 1);
+}
+
+fn drawResponseMeter(draw_list: zgui.DrawList, origin: [2]f32, width: f32, height: f32, value: f32, label: []const u8, accent: [4]f32) void {
+    const lo = origin[0] + 24;
+    const hi = origin[0] + width - 24;
+    const y = origin[1] + height * 0.72;
+    draw_list.addRectFilled(.{ .pmin = .{ lo, y }, .pmax = .{ hi, y + 12 }, .col = color(theme.bg3), .rounding = 6 });
+    draw_list.addRectFilled(.{ .pmin = .{ lo, y }, .pmax = .{ lo + (hi - lo) * std.math.clamp(value, 0, 1), y + 12 }, .col = color(accent), .rounding = 6 });
+    draw_list.addText(.{ lo, y - 24 }, color(theme.fg2), "{s}", .{label});
+}
+
+fn drawBipolarMeter(draw_list: zgui.DrawList, origin: [2]f32, width: f32, height: f32, value: f32, label: []const u8, accent: [4]f32) void {
+    const lo = origin[0] + 24;
+    const hi = origin[0] + width - 24;
+    const mid = (lo + hi) * 0.5;
+    const y = origin[1] + height * 0.72;
+    const end = mid + (hi - lo) * 0.5 * std.math.clamp(value, -1, 1);
+    draw_list.addRectFilled(.{ .pmin = .{ lo, y }, .pmax = .{ hi, y + 12 }, .col = color(theme.bg3), .rounding = 6 });
+    draw_list.addRectFilled(.{ .pmin = .{ @min(mid, end), y }, .pmax = .{ @max(mid, end), y + 12 }, .col = color(accent), .rounding = 6 });
+    draw_list.addText(.{ lo, y - 24 }, color(theme.fg2), "{s}", .{label});
+}
+
+fn drawAutoPanMeter(draw_list: zgui.DrawList, origin: [2]f32, width: f32, height: f32, pan: anytype, accent: [4]f32) void {
+    const depth = std.math.clamp(pan.depth, 0, 1);
+    const is_pan = pan.phase >= 0.5;
+    const left = 1.0 - depth * (pan.lfo.sine(0) + 1.0) * 0.5;
+    const right = 1.0 - depth * (pan.lfo.sine(if (is_pan) 0.5 else 0) + 1.0) * 0.5;
+    drawResponseMeter(draw_list, origin, width, height * 0.82, left, "LEFT", accent);
+    const shifted = [2]f32{ origin[0], origin[1] + 34 };
+    drawResponseMeter(draw_list, shifted, width, height * 0.82, right, "RIGHT", accent);
 }
 
 /// Shortest and tallest a param card is allowed to be, and the gap drawn
@@ -611,6 +664,9 @@ fn bandResponseDb(band: anytype, sample_rate: f32, freq: f32) f32 {
 }
 
 fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize, knob_diameter: f32) void {
+    const disabled = autoPanParamDisabled(&unit.payload, index);
+    zgui.beginDisabled(.{ .disabled = disabled });
+    defer zgui.endDisabled();
     if (spectrum_ed.paramToggleNames(unit.kind(), index)) |names| {
         drawParamToggle(app, target, unit, index, names);
         return;
@@ -652,6 +708,13 @@ fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index
         syncChain(app, target);
     }
     if (result.activated) app.core.fx_param = index;
+}
+
+fn autoPanParamDisabled(payload: *const ws.FxPayload, index: usize) bool {
+    return switch (payload.*) {
+        .auto_pan => |pan| (index == 0 and pan.sync >= 0.5) or (index == 2 and pan.sync < 0.5),
+        else => false,
+    };
 }
 
 fn perceptualParam(name: []const u8, range: [2]f32) bool {
@@ -833,4 +896,23 @@ test "EQ pixel mapping round-trips a frequency and a gain" {
     // Out of range clamps to an edge rather than drawing off the curve.
     try testing.expectApproxEqAbs(origin[0], eqFreqX(origin[0], size[0], 1), 0.01);
     try testing.expectApproxEqAbs(origin[1] + size[1], eqDbY(origin[1], size[1], -40), 0.01);
+}
+
+test "filter display follows selected response mode" {
+    var payload = ws.FxPayload{ .filter = .{ .sample_rate = 48_000, .cutoff_hz = 1000 } };
+    payload.filter.mode = 0;
+    try std.testing.expect(filterDisplayValue(&payload.filter, 0.1) > filterDisplayValue(&payload.filter, 0.9));
+    payload.filter.mode = 1;
+    try std.testing.expect(filterDisplayValue(&payload.filter, 0.1) < filterDisplayValue(&payload.filter, 0.9));
+    payload.filter.mode = 2;
+    try std.testing.expect(filterDisplayValue(&payload.filter, 0.5) > filterDisplayValue(&payload.filter, 0.1));
+}
+
+test "auto-pan timing disables only inactive source" {
+    var payload = ws.FxPayload{ .auto_pan = .{ .sample_rate = 48_000 } };
+    try std.testing.expect(autoPanParamDisabled(&payload, 0));
+    try std.testing.expect(!autoPanParamDisabled(&payload, 2));
+    payload.auto_pan.sync = 0;
+    try std.testing.expect(!autoPanParamDisabled(&payload, 0));
+    try std.testing.expect(autoPanParamDisabled(&payload, 2));
 }

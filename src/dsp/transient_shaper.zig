@@ -11,6 +11,7 @@ pub const TransientShaper = struct {
     output_db: f32 = 0,
     fast_env: f32 = 0,
     slow_env: f32 = 0,
+    applied_gain_db: f32 = 0,
 
     pub fn init(sample_rate: u32) TransientShaper {
         return .{ .sample_rate = @floatFromInt(@max(sample_rate, 1)) };
@@ -35,7 +36,8 @@ pub const TransientShaper = struct {
             self.fast_env = fast_coef * self.fast_env + (1 - fast_coef) * level;
             self.slow_env = slow_coef * self.slow_env + (1 - slow_coef) * level;
             const transient = std.math.clamp((self.fast_env - self.slow_env) / (self.slow_env + 0.01), 0, 1);
-            const gain = types.dbToGain(output + 12 * (attack * transient + sustain * (1 - transient)));
+            self.applied_gain_db = output + 12 * (attack * transient + sustain * (1 - transient));
+            const gain = types.dbToGain(self.applied_gain_db);
             buf[i] = left * gain;
             buf[i + 1] = right * gain;
         }
@@ -44,6 +46,7 @@ pub const TransientShaper = struct {
     pub fn reset(self: *TransientShaper) void {
         self.fast_env = 0;
         self.slow_env = 0;
+        self.applied_gain_db = 0;
     }
 };
 
@@ -71,4 +74,5 @@ test "transient shaper stays finite under hostile input" {
     var buf = [_]types.Sample{ std.math.nan(f32), std.math.inf(f32), -std.math.inf(f32), 1 };
     effect.processBlock(&buf);
     for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
+    try std.testing.expect(std.math.isFinite(effect.applied_gain_db));
 }

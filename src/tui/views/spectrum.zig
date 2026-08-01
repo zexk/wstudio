@@ -9,6 +9,7 @@
 
 const std = @import("std");
 const ws = @import("wstudio");
+const types = ws.types;
 const eq_mod = ws.dsp.eq;
 const spectrum_ed = @import("../../ui/editors/spectrum.zig");
 const engine_mod = ws.engine;
@@ -457,18 +458,49 @@ pub fn drawFxView(
         const visible_count = spectrum_ed.visibleParamCount(app, k, &unit.payload);
         for (0..visible_count) |i| {
             const is_sel = (i == app.fx_param);
+            const disabled = switch (unit.payload) {
+                .auto_pan => |pan| (i == 0 and pan.sync >= 0.5) or (i == 2 and pan.sync < 0.5),
+                else => false,
+            };
             const v = spectrum_ed.getParam(&unit.payload, i);
             var nbuf: [64]u8 = undefined;
             if (spectrum_ed.paramToggleNames(k, i)) |names| {
-                try enumRow(w, is_sel, false, sectionColor(k), spectrum_ed.formatParamName(&nbuf, &unit.payload, i), &names, if (v < 0.5) 0 else 1);
+                try enumRow(w, is_sel, disabled, sectionColor(k), spectrum_ed.formatParamName(&nbuf, &unit.payload, i), &names, if (v < 0.5) 0 else 1);
                 continue;
             }
             const range = spectrum_ed.paramRange(app, &unit.payload, i);
             const norm = std.math.clamp((v - range[0]) / (range[1] - range[0]), 0.0, 1.0);
             var vbuf: [16]u8 = undefined;
-            try barRow(w, is_sel, false, sectionColor(k), spectrum_ed.formatParamName(&nbuf, &unit.payload, i), norm, 1.0, spectrum_ed.formatValue(app, &vbuf, &unit.payload, i));
+            try barRow(w, is_sel, disabled, sectionColor(k), spectrum_ed.formatParamName(&nbuf, &unit.payload, i), norm, 1.0, spectrum_ed.formatValue(app, &vbuf, &unit.payload, i));
         }
         body_lines = visible_count;
+        switch (unit.payload) {
+            .limiter => |*lim| {
+                const reduction = -types.gainToDb(lim.gain);
+                try w.print(dim ++ "   gain reduction  {d:.1}dB" ++ rst, .{@max(0, reduction)});
+                try endLine(w);
+                body_lines += 1;
+            },
+            .transient_shaper => |*shaper| {
+                try w.print(dim ++ "   applied gain    {s}{d:.1}dB" ++ rst, .{ if (shaper.applied_gain_db >= 0) "+" else "", shaper.applied_gain_db });
+                try endLine(w);
+                body_lines += 1;
+            },
+            .stereo_width => |*width| {
+                try w.print(dim ++ "   correlation     {d:.2}" ++ rst, .{width.correlation});
+                try endLine(w);
+                body_lines += 1;
+            },
+            .auto_pan => |*pan| {
+                const depth = std.math.clamp(pan.depth, 0, 1);
+                const left = 1.0 - depth * (pan.lfo.sine(0) + 1.0) * 0.5;
+                const right = 1.0 - depth * (pan.lfo.sine(if (pan.phase >= 0.5) 0.5 else 0) + 1.0) * 0.5;
+                try w.print(dim ++ "   live gain       L {d:.0}%  R {d:.0}%" ++ rst, .{ left * 100, right * 100 });
+                try endLine(w);
+                body_lines += 1;
+            },
+            else => {},
+        }
         if (unit.bypassed) {
             try w.writeAll(red ++ "   BYPASSED" ++ rst ++ dim ++ "  (b to re-enable)" ++ rst);
             try endLine(w);
