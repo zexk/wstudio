@@ -2889,7 +2889,7 @@ pub const App = struct {
             s.setSamples(copy, "recorded");
             s.pad.user_sample = true;
 
-            const notes = [_]pattern_mod.Note{.{ .pitch = s.root_note, .start_beat = 0.0, .duration_beat = length_beats }};
+            const notes = [_]pattern_mod.Note{.{ .pitch = s.root_note, .start_beat = 0.0, .duration_beat = length_beats, .velocity = 1.0 }};
             self.session.racks.items[track_idx].pattern_player.?.setNotes(&notes, length_beats);
 
             self.session.stampClipAtTick(track_idx, self.arr_cursor_bar *| self.arr_grid.ticks()) catch {

@@ -2365,7 +2365,7 @@ pub fn loadClipFromPath(app: *App, path: []const u8) void {
     const sr: f64 = @floatFromInt(app.session.project.sample_rate);
     const beats = @as(f64, @floatFromInt(s.pad.samples.len)) * bpm / (sr * 60.0);
     const length_beats = @max(beats, 1.0);
-    const notes = [_]pattern_mod.Note{.{ .pitch = s.root_note, .start_beat = 0.0, .duration_beat = length_beats }};
+    const notes = [_]pattern_mod.Note{.{ .pitch = s.root_note, .start_beat = 0.0, .duration_beat = length_beats, .velocity = 1.0 }};
     app.session.racks.items[track].pattern_player.?.setNotes(&notes, length_beats);
 
     app.session.stampClipAtTick(track, app.arr_cursor_bar *| app.arr_grid.ticks()) catch {

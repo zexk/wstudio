@@ -456,6 +456,7 @@ test "finishRecording stamps a Sampler clip from a synthetic capture, mirroring 
     const pp = &app.session.racks.items[1].pattern_player.?;
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
     try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch); // default root_note
+    try std.testing.expectEqual(@as(f32, 1.0), pp.notes[0].velocity);
     try std.testing.expectApproxEqAbs(@as(f64, 5.0), pp.length_beats, 1e-9);
 
     const lane = app.session.arrangement.lane(1).?;
@@ -6447,6 +6448,7 @@ test ":load in arrangement refuses without a sampler track, then targets a whole
     const pp = &app.session.racks.items[0].pattern_player.?;
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
     try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch); // default root_note
+    try std.testing.expectEqual(@as(f32, 1.0), pp.notes[0].velocity);
     try std.testing.expectApproxEqAbs(@as(f64, 5.0), pp.length_beats, 1e-9);
 
     const lane = app.session.arrangement.lane(0).?;
