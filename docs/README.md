@@ -40,6 +40,8 @@ code keeps a one-line pointer.
   icon fallback) plus the design decisions behind them.
 - [gui-color-identity.md](gui-color-identity.md): the GUI's Patina palette,
   semantic color roles, and the category patterns it intentionally avoids.
+- [bundled-sound-batteries.md](bundled-sound-batteries.md): competitor survey
+  and ranked post-1.0 backlog for bundled instruments and musical content.
 
 Related documents that predate this directory and stay where they are:
 `README.md` (pitch, layout, usage), `FORMAT.md` (the `.wsj` save format,
