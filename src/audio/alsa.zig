@@ -59,7 +59,6 @@ pub const AlsaBackend = struct {
         self.running.store(true, .release);
         self.thread = std.Thread.spawn(.{}, run, .{self}) catch {
             self.running.store(false, .release);
-            _ = c.snd_pcm_close(pcm);
             self.pcm = null;
             return error.ThreadSpawnFailed;
         };
@@ -149,7 +148,6 @@ pub const AlsaCapture = struct {
         self.running.store(true, .release);
         self.thread = std.Thread.spawn(.{}, run, .{self}) catch {
             self.running.store(false, .release);
-            _ = c.snd_pcm_close(pcm);
             self.pcm = null;
             return error.ThreadSpawnFailed;
         };
