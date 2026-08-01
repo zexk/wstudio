@@ -311,16 +311,19 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         17 => try w.print("{d:.3} s", .{synth.decay_s}),
         18 => try w.print("{d:.3}", .{synth.sustain}),
         19 => try w.print("{d:.3} s", .{synth.release_s}),
+        246 => try w.print("{d:.2}", .{synth.env_curve}),
         20 => try w.writeAll(filterTypeName(synth.filter_type)),
         21 => if (synth.filter_cutoff >= 1_000.0)
             try w.print("{d:.2} kHz", .{synth.filter_cutoff / 1_000.0})
         else
             try w.print("{d:.0} Hz", .{synth.filter_cutoff}),
         22 => try w.print("{d:.3}", .{synth.filter_res}),
+        249 => try w.print("{d:.1}x", .{synth.filter_drive}),
         24 => try w.print("{d:.3} s", .{synth.fenv_attack_s}),
         25 => try w.print("{d:.3} s", .{synth.fenv_decay_s}),
         26 => try w.print("{d:.3}", .{synth.fenv_sustain}),
         27 => try w.print("{d:.3} s", .{synth.fenv_release_s}),
+        247 => try w.print("{d:.2}", .{synth.fenv_curve}),
         28 => try w.writeAll(lfoShapeName(synth.lfo_shape)),
         29 => try writeRate(w, synth.lfo_sync, synth.lfo_rate_hz, "{d:.2} Hz"),
         256 => try w.writeAll(synth.lfo_sync.label()),
@@ -364,6 +367,7 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         else
             try w.print("{d:.0} Hz", .{synth.filter2_cutoff}),
         48 => try w.print("{d:.3}", .{synth.filter2_res}),
+        250 => try w.print("{d:.1}x", .{synth.filter2_drive}),
         49 => try w.writeAll(switch (synth.filter_routing) {
             .series => "series",
             .parallel => "parallel",
@@ -440,6 +444,7 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         123 => try w.print("{d:.3} s",     .{synth.env3_decay_s}),
         124 => try w.print("{d:.3}",       .{synth.env3_sustain}),
         125 => try w.print("{d:.3} s",     .{synth.env3_release_s}),
+        248 => try w.print("{d:.2}",       .{synth.env3_curve}),
         132 => try w.writeAll(if (synth.fx_gate_on) "on" else "off"),
         133 => try w.print("{d:.0} dB",    .{synth.fx_gate_threshold_db}),
         134 => try w.print("{d:.1} ms",    .{synth.fx_gate_attack_ms}),
@@ -507,6 +512,18 @@ pub fn paramValueText(synth: *const ws.dsp.PolySynth, id: u16, buf: []u8) []cons
     var w = std.Io.Writer.fixed(buf);
     writeParamValue(synth, id, &w) catch {};
     return w.buffered();
+}
+
+test "param value text covers envelope curves and filter drives" {
+    var synth = try ws.dsp.PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var buf: [40]u8 = undefined;
+
+    try std.testing.expectEqualStrings("0.00", paramValueText(&synth, 246, &buf));
+    try std.testing.expectEqualStrings("0.00", paramValueText(&synth, 247, &buf));
+    try std.testing.expectEqualStrings("0.00", paramValueText(&synth, 248, &buf));
+    try std.testing.expectEqualStrings("1.0x", paramValueText(&synth, 249, &buf));
+    try std.testing.expectEqualStrings("1.0x", paramValueText(&synth, 250, &buf));
 }
 
 pub fn searchCandidates(app: *App, buf: []SearchCandidate) []const SearchCandidate {

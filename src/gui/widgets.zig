@@ -393,6 +393,8 @@ pub const Knob = struct {
     min: f32,
     max: f32,
     cfmt: [:0]const u8 = "%.3f",
+    /// Preformatted readout for params whose display is richer than printf.
+    display: ?[]const u8 = null,
     accent: [4]f32,
     focused: bool = false,
     logarithmic: bool = false,
@@ -562,7 +564,7 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
     if (args.tooltip and (hovered or active)) {
         var value_buf: [32]u8 = undefined;
         _ = zgui.beginTooltip();
-        zgui.textUnformatted(knobFormatValue(&value_buf, args.cfmt, args.v.*));
+        zgui.textUnformatted(args.display orelse knobFormatValue(&value_buf, args.cfmt, args.v.*));
         zgui.endTooltip();
     }
 
@@ -578,7 +580,7 @@ pub fn paramKnob(label_text: []const u8, id: [:0]const u8, args: Knob) KnobResul
     zgui.beginGroup();
     zgui.textColored(if (args.focused) args.accent else theme.fg1, "{s}", .{label_text});
     var value_buf: [32]u8 = undefined;
-    zgui.textDisabled("{s}", .{knobFormatValue(&value_buf, args.cfmt, args.v.*)});
+    zgui.textDisabled("{s}", .{args.display orelse knobFormatValue(&value_buf, args.cfmt, args.v.*)});
     zgui.endGroup();
     return result;
 }

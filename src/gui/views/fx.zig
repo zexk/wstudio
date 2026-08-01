@@ -622,6 +622,8 @@ fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index
     var value = spectrum_ed.getParam(&unit.payload, index);
     const range = spectrum_ed.paramRange(&app.core, &unit.payload, index);
     const format: [:0]const u8 = if (range[1] >= 100) "%.0f" else "%.2f";
+    var value_buf: [32]u8 = undefined;
+    const display = spectrum_ed.formatValue(&app.core, &value_buf, &unit.payload, index);
     var name_buf: [64]u8 = undefined;
     const name = spectrum_ed.formatParamName(&name_buf, &unit.payload, index);
     var label_buf: [80]u8 = undefined;
@@ -630,7 +632,7 @@ fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index
     const control_width = knob_diameter + 120;
     const spare = zgui.getContentRegionAvail()[0] - control_width;
     if (spare > 0) zgui.setCursorPosX(zgui.getCursorPosX() + spare * 0.5);
-    const result = widgets.paramKnob(name, label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .accent = kindAccent(unit.kind()), .focused = focused, .diameter = knob_diameter });
+    const result = widgets.paramKnob(name, label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .display = display, .accent = kindAccent(unit.kind()), .focused = focused, .diameter = knob_diameter });
     if (result.changed) {
         history.noteFxNudge(&app.core, target, app.core.fx_focus, index);
         spectrum_ed.setParam(&app.core, &unit.payload, index, value);
