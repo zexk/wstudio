@@ -2670,6 +2670,13 @@ pub const App = struct {
             else => {},
         }
     }
+
+    pub fn clickBrowserItem(self: *App, index: usize, now_ns: i96) void {
+        if (self.modal.mode == .search) self.handleKey(.enter, now_ns);
+        if (index >= self.browser_entries.items.len) return;
+        self.browser_cursor = index;
+        self.browserActivate();
+    }
     // zig fmt: on
 
     /// Help view: scroll wheel scrolls content (same as j/k). No click behavior.

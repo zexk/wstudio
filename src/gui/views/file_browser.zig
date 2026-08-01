@@ -60,8 +60,7 @@ pub fn draw(app: anytype) void {
     for (app.core.browser_entries.items, 0..) |entry, i| {
         const in_visual = anchor != null and i >= sel_lo and i <= sel_hi and !entry.is_dir;
         if (drawEntry(entry.name, entry.is_dir, app.core.browser_cursor == i, in_visual, i, pattern)) {
-            app.core.browser_cursor = i;
-            app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+            app.core.clickBrowserItem(i, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             // handleKey may have just freed/replaced browser_entries
             // (descending into a directory, or closing the browser on a
             // file pick) - the slice this loop is iterating is stale now.

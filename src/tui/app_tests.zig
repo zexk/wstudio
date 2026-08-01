@@ -6292,6 +6292,24 @@ test "file browser: / fuzzy-searches filenames; n/N repeat and wrap around" {
     try std.testing.expectEqual(@as(usize, 1), app.browser_cursor); // reverse: kick.wav
 }
 
+test "file browser click during live search opens clicked row" {
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(std.testing.io, "kit");
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "snare.wav", .data = "x" });
+
+    var app = try appRootedAt(&tmp);
+    defer app.deinit();
+    app.openBrowser(.load_sample);
+    for ("/snr") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
+
+    app.clickBrowserItem(0, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(AppView.file_browser, app.view);
+    try std.testing.expect(std.mem.endsWith(u8, app.browser_dir, "kit"));
+}
+
 test "file browser: enter descends into a directory, h/backspace returns" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
