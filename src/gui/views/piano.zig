@@ -331,7 +331,9 @@ pub fn draw(app: anytype) void {
             draw_list.addRect(.{ .pmin = .{ x1 + 1, y1 + 1 }, .pmax = .{ x2 - 1, y2 - 1 }, .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.55 }), .thickness = 1 });
         }
     }
-    for (0..steps + 1) |step| {
+    const step_stride = gridStride(steps, steps_per_beat, grid_w);
+    for (0..steps / step_stride + 1) |line| {
+        const step = line * step_stride;
         const x = grid_x + @as(f32, @floatFromInt(step)) * beat_w / @as(f32, @floatFromInt(steps_per_beat));
         const on_beat = step % steps_per_beat == 0;
         const on_bar = step % (steps_per_beat * app.core.session.project.beats_per_bar) == 0;
@@ -548,7 +550,10 @@ fn drawVelocityLane(app: anytype, pp: *ws.dsp.PatternPlayer, width: f32, gutter_
     draw_list.addText(.{ origin[0] + 8, origin[1] + 30 }, color(theme.fg3), "</> or drag", .{});
 
     const steps_per_beat = app.core.pianoStepsPerBeat();
-    for (0..@as(usize, @intFromFloat(@ceil(beats))) + 1) |beat| {
+    const beat_count: usize = @intFromFloat(@ceil(beats));
+    const beat_stride = gridStride(beat_count, 1, grid_w);
+    for (0..beat_count / beat_stride + 1) |line| {
+        const beat = line * beat_stride;
         const x = grid_x + @as(f32, @floatFromInt(beat)) * beat_w;
         draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + height }, .col = color(theme.line), .thickness = 1 });
     }
@@ -582,6 +587,18 @@ fn drawVelocityLane(app: anytype, pp: *ws.dsp.PatternPlayer, width: f32, gutter_
             });
         }
     }
+}
+
+fn gridStride(units: usize, units_per_beat: usize, width: f32) usize {
+    const max_lines: usize = @intFromFloat(@max(1, @floor(@max(width, 1) / 4)));
+    const raw = std.math.divCeil(usize, units, max_lines) catch unreachable;
+    return if (raw <= 1) 1 else (std.math.divCeil(usize, raw, units_per_beat) catch unreachable) * units_per_beat;
+}
+
+test "piano grids bound work for long patterns" {
+    try std.testing.expectEqual(@as(usize, 1), gridStride(64, 4, 800));
+    try std.testing.expectEqual(@as(usize, 264), gridStride(65_535, 4, 1000));
+    try std.testing.expectEqual(@as(usize, 263), gridStride(65_535, 1, 1000));
 }
 
 /// Drag a velocity bar to its new height, one note per frame under the
