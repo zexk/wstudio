@@ -167,6 +167,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'E' => doublePattern(app),
                 'O' => sequenceSourceOrder(app),
                 'B' => commands.run(app, "bpm-sync"),
+                'q' => commands.run(app, "chop"),
+                'Q' => commands.run(app, "chop-random"),
+                'A' => {
+                    history.recordSlicer(app, app.slicer_track);
+                    const gate = sl.toggleGateAll();
+                    app.dirty = true;
+                    app.setStatus("all slices: {s}", .{if (gate) "GATE" else "one-shot"});
+                },
                 // Chop refinement: split the cursor slice in half / merge it
                 // into the one after it - the interactive loop that turns a
                 // rough :chop into the chops you actually wanted.

@@ -497,6 +497,22 @@ pub const Slicer = struct {
         }
     }
 
+    /// Toggle all live slices as one performance mode. Mixed state resolves
+    /// to all gated; only an already-all-gated clip switches to one-shot.
+    pub fn toggleGateAll(self: *Slicer) bool {
+        while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.sample_lock.unlock();
+        var gate = false;
+        for (self.slices[0..self.slice_count]) |slice| {
+            if (!slice.gate) {
+                gate = true;
+                break;
+            }
+        }
+        for (self.slices[0..self.slice_count]) |*slice| slice.gate = gate;
+        return gate;
+    }
+
     /// Chop into contiguous regions whose starts are `positions` (ascending
     /// fractions of the clip, first entry treated as 0); each region ends
     /// where the next begins, the last at 1.0.
@@ -1661,6 +1677,19 @@ test "chopRandom lays down n contiguous, uneven, non-empty slices" {
     // Degenerate counts still leave a usable chop.
     try std.testing.expectEqual(@as(u8, 1), s.chopRandom(1, prng.random()));
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), s.slices[0].end_norm, 1e-6);
+}
+
+test "toggleGateAll resolves mixed slices to gate then toggles one-shot" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    s.sliceInto(3);
+    s.slices[1].gate = false;
+
+    try std.testing.expect(s.toggleGateAll());
+    for (s.slices[0..3]) |slice| try std.testing.expect(slice.gate);
+    try std.testing.expect(!s.toggleGateAll());
+    for (s.slices[0..3]) |slice| try std.testing.expect(!slice.gate);
 }
 
 test "spreadPitch ramps a semitone step across the live slices only" {

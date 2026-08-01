@@ -623,6 +623,23 @@ test "slicer grid: navigation and per-slice param nudges stay within bounds" {
     try std.testing.expect(app.slicerInst().slices[3].reverse);
 }
 
+test "slicer grid: q/Q chop shortcuts and A switches playback mode" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+    try installSlicerTestClip(&app);
+
+    _ = slicer_ed.handleKey(&app, .{ .char = 'Q' });
+    try std.testing.expectEqual(@as(u8, 8), app.slicerInst().slice_count);
+    _ = slicer_ed.handleKey(&app, .{ .char = 'A' });
+    for (app.slicerInst().slices[0..8]) |slice| try std.testing.expect(!slice.gate);
+    _ = slicer_ed.handleKey(&app, .{ .char = 'q' });
+    try std.testing.expectEqual(@as(u8, 1), app.slicerInst().slice_count);
+    try std.testing.expect(app.slicerInst().slices[0].gate);
+}
+
 test "slicer grid: velocity cycle + fine nudge on an active step only" {
     var app = try testApp();
     defer app.deinit();
