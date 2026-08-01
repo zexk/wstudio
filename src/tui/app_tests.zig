@@ -7628,6 +7628,23 @@ test "f in the synth editor opens the preset picker; / narrows and enter applies
     try std.testing.expect(app.dirty);
 }
 
+test "preset picker click during live search submits then applies match" {
+    var app = try testApp();
+    defer app.deinit();
+    app.synth_track = 0;
+    app.view = .synth_editor;
+
+    app.handleKey(.{ .char = 'f' }, 0);
+    for ("/acid-bass") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
+
+    app.clickPresetPickerItem(0, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+    const expected = ws.dsp.synth_presets.find("acid-bass").?;
+    try std.testing.expectEqual(expected.voice_mode, app.session.racks.items[0].instrument.poly_synth.voice_mode);
+}
+
 test "preset-picker filter reaches genre tags and user-saved presets" {
     var app = try testApp();
     defer app.deinit();

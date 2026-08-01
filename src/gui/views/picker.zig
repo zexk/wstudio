@@ -291,8 +291,7 @@ pub fn drawPreset(app: anytype) void {
             else
                 entry.author;
             if (drawCard(id, entry.name, desc, kind_accent, selected, overlayWidth(), filter)) {
-                app.core.preset_picker_cursor = ordinal;
-                app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+                app.core.clickPresetPickerItem(ordinal, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             }
             ordinal += 1;
         },

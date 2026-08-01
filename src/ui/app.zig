@@ -3152,6 +3152,12 @@ pub const App = struct {
         self.handleKey(.enter, now_ns);
     }
 
+    pub fn clickPresetPickerItem(self: *App, ordinal: usize, now_ns: i96) void {
+        if (self.modal.mode == .search) self.handleKey(.enter, now_ns);
+        self.preset_picker_cursor = ordinal;
+        self.handleKey(.enter, now_ns);
+    }
+
     fn loadDefaultAcoustic(self: *App) void {
         const sf = switch (self.session.racks.items[self.cursor].instrument) {
             .soundfont => |*instrument| instrument,
