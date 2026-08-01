@@ -7196,6 +7196,25 @@ test "FX picker click during live search inserts and leaves search mode" {
     try std.testing.expectEqual(ws.FxKind.reverb, app.session.racks.items[0].fx.units.items[0].kind());
 }
 
+test "synth FX picker click during live search inserts and leaves search mode" {
+    var app = try testApp();
+    defer app.deinit();
+    app.synth_track = 0;
+    app.synth_subview = .fx;
+    app.view = .synth_editor;
+
+    synth_ed_mod.openFxPicker(&app);
+    for ("/chorus") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
+
+    app.clickSynthFxPickerItem(0, 0);
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(app_mod.AppView.synth_editor, app.view);
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block);
+    try std.testing.expect(app.session.racks.items[0].instrument.poly_synth.fx_chorus_on);
+}
+
 test "FX chain: </> reorder and b bypass reach the engine chain" {
     var app = try testApp();
     defer app.deinit();

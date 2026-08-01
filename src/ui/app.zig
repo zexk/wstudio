@@ -3261,6 +3261,14 @@ pub const App = struct {
         }
     }
 
+    pub fn clickSynthFxPickerItem(self: *App, ordinal: usize, now_ns: i96) void {
+        if (self.modal.mode == .search) self.handleKey(.enter, now_ns);
+        self.synth_fx_picker_cursor = @intCast(ordinal);
+        var buf: [14]ws.dsp.synth.FxUnitKind = undefined;
+        const kinds = synth_ed.filteredSynthFxPickerKinds(self, &buf);
+        if (ordinal < kinds.len) synth_ed.insertFromSynthFxPicker(self, kinds[ordinal]);
+    }
+
     /// Synth-internal FX picker: click a row to select + insert it (same as
     /// enter/space); scroll moves the highlight. Mirrors `fxPickerMouse`.
     fn synthFxPickerMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {

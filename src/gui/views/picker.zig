@@ -169,8 +169,7 @@ pub fn drawFx(app: anytype) void {
         const desc = std.fmt.bufPrint(&desc_buf, "{s}  |  {s}", .{ spectrum_ed.pickerCategory(kind), spectrum_ed.pickerDescription(kind) }) catch spectrum_ed.pickerDescription(kind);
         if (drawCard(id, spectrum_ed.unitLabel(kind), desc, fxAccent(kind), selected, width, filter)) {
             if (app.core.view == .synth_fx_picker) {
-                app.core.synth_fx_picker_cursor = @intCast(i);
-                synth_ed.insertFromSynthFxPicker(&app.core, synth_kinds[i]);
+                app.core.clickSynthFxPickerItem(i, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             } else {
                 app.core.clickFxPickerItem(i, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             }
