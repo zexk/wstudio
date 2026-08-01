@@ -454,7 +454,7 @@ pub const DrumMachine = struct {
         };
         // Every pad starts null - the "init" kit's blank slate (see
         // dsp/drum_kit.zig's `variants`). A fresh machine loads no audio at
-        // all; `:drum-kit default` (or any other flavour) fills the 8 kit
+        // all; `:drum-kit default` (or any other flavour) fills the 16 kit
         // pads on demand, generating them procedurally.
         for (&self.pads) |*p| p.* = null; // lazily materialized - see the field's doc comment
 
@@ -1228,8 +1228,8 @@ pub const DrumMachine = struct {
         pad.setSamples(samples, name);
     }
 
-    /// Regenerate the kit variant's pads (always the first 8 - kits are an
-    /// 8-pad concept regardless of `max_pads`; see `dsp/drum_kit.zig`'s
+    /// Regenerate the kit variant's pads (always the first 16 - kits are a
+    /// 16-pad concept regardless of `max_pads`; see `dsp/drum_kit.zig`'s
     /// `variants` table) from procedural generators. Runs them directly into
     /// fresh pad buffers - nothing is read from disk or the binary's
     /// embedded assets, so extra kit flavours cost no shipped bytes. Marks
@@ -1253,6 +1253,8 @@ pub const DrumMachine = struct {
             const samples = try gen(self.allocator, self.sample_rate);
             self.setPadSamples(@intCast(i), samples, slot.name);
             self.pads[i].?.pad.gain = slot.gain;
+            // Separate reused second-bank voices without duplicating generators.
+            if (i >= 8) self.pads[i].?.pad.pitch_semitones = ([_]f32{ -3, 2, -2, -5, 4, -4, 5, 0 })[i - 8];
         }
     }
 
@@ -1602,7 +1604,7 @@ pub const DrumMachine = struct {
 // -----------------------------------------------------------------------
 // Tests
 
-/// A machine with the "default" kit flavour on pads 0-7. A fresh `init` is
+/// A machine with the "default" kit flavour on pads 0-15. A fresh `init` is
 /// the blank "init" kit (no audio anywhere), so any test that renders or
 /// tweaks a pad loads a kit first, exactly as the user would.
 fn testMachine(transport: *const Transport) !DrumMachine {
@@ -1612,7 +1614,7 @@ fn testMachine(transport: *const Transport) !DrumMachine {
     return dm;
 }
 
-test "a fresh machine is blank; a kit flavour fills pads 0-7, init empties them" {
+test "a fresh machine is blank; a kit flavour fills pads 0-15, init empties them" {
     var transport: Transport = .{ .sample_rate = 48_000 };
     var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
     defer dm.deinit();
@@ -1621,13 +1623,13 @@ test "a fresh machine is blank; a kit flavour fills pads 0-7, init empties them"
     for (0..DrumMachine.max_pads) |p| try std.testing.expect(dm.pads[p] == null);
 
     try dm.loadKitVariant(drum_kit.byName("default").?);
-    // All 8 kit pads should generate and have samples + their default gain.
-    for (0..8) |p| {
+    // All 16 kit pads should generate and have samples + their default gain.
+    for (0..16) |p| {
         try std.testing.expect(dm.pads[p].?.pad.samples.len > 0);
         try std.testing.expect(dm.pads[p].?.pad.gain > 0.0);
     }
-    // Pads beyond the kit's 8 are lazily unmaterialized.
-    for (8..DrumMachine.max_pads) |p| {
+    // Pads beyond the kit's 16 are lazily unmaterialized.
+    for (16..DrumMachine.max_pads) |p| {
         try std.testing.expect(dm.pads[p] == null);
     }
     // Kick should have a non-zero peak.
@@ -1636,12 +1638,14 @@ test "a fresh machine is blank; a kit flavour fills pads 0-7, init empties them"
     try std.testing.expect(peak > 0.01);
     // Hihat ships quieter than the kick by default.
     try std.testing.expect(dm.pads[2].?.pad.gain < dm.pads[0].?.pad.gain);
+    try std.testing.expectEqual(@as(f32, -3), dm.pads[8].?.pad.pitch_semitones);
+    try std.testing.expectEqual(@as(f32, 0), dm.pads[15].?.pad.pitch_semitones);
 
     // Back to init: the kit pads stay materialized (the audio thread may be
     // inside one) but go silent, and their choke pairing is dropped.
     dm.choke_group[2] = 1;
     try dm.loadKitVariant(drum_kit.byName("init").?);
-    for (0..8) |p| {
+    for (0..16) |p| {
         try std.testing.expectEqual(@as(usize, 0), dm.pads[p].?.pad.samples.len);
         try std.testing.expectEqual(@as(u8, 0), dm.choke_group[p]);
     }

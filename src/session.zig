@@ -1833,14 +1833,14 @@ test "split drum track creates sampler MIDI tracks and arrangement clips" {
     defer s.deinit();
     try s.setInstrument(0, .drum_machine);
     const dm = &s.racks.items[0].instrument.drum_machine;
-    try dm.loadKitVariant(drum_kit.byName("default").?); // 8 pads to split
+    try dm.loadKitVariant(drum_kit.byName("default").?); // 16 pads to split
     dm.toggleStep(0, 1);
     dm.setStepVel(0, 1, 95);
     try s.stampClip(0, 1);
 
     const count = try s.splitDrumTrack(0);
-    try std.testing.expectEqual(@as(u8, 8), count);
-    try std.testing.expectEqual(@as(usize, 8), s.racks.items.len);
+    try std.testing.expectEqual(@as(u8, 16), count);
+    try std.testing.expectEqual(@as(usize, 16), s.racks.items.len);
     try std.testing.expect(s.racks.items[0].instrument == .sampler);
     const pp = &s.racks.items[0].pattern_player.?;
     const hit = pp.noteAt(pp.notes[0].pitch, 0.25).?;
