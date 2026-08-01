@@ -1944,7 +1944,8 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         switch (rs.kind) {
             .empty => {},
             .poly_synth => {
-                rack.instrument = .{ .poly_synth = try PolySynth.init(allocator, sr) };
+                const synth = try PolySynth.init(allocator, sr);
+                rack.instrument = .{ .poly_synth = synth };
                 // PatternPlayer holds a pointer into the heap-allocated Rack -
                 // must be set AFTER the instrument lands in the rack. Same
                 // for the synth's own transport (tempo-synced LFOs/arp).
@@ -1961,7 +1962,8 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                 }
             },
             .sampler => {
-                rack.instrument = .{ .sampler = try Sampler.init(allocator, sr) };
+                const sampler = try Sampler.init(allocator, sr);
+                rack.instrument = .{ .sampler = sampler };
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
                 if (rs.sampler) |smp| {
                     const s = &rack.instrument.sampler;
@@ -1974,7 +1976,8 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                 }
             },
             .drum_machine => {
-                rack.instrument = .{ .drum_machine = try DrumMachine.init(allocator, sr, &engine.transport) };
+                const drum_machine = try DrumMachine.init(allocator, sr, &engine.transport);
+                rack.instrument = .{ .drum_machine = drum_machine };
                 if (rs.drum) |ds| {
                     const dmp = &rack.instrument.drum_machine;
                     // Regenerate the kit first: its pads are the audio the
@@ -1986,37 +1989,36 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         if (drum_kit.byName(ds.kit)) |variant| dmp.loadKitVariant(variant) catch {};
                     }
                     if (ds.variants.len > 0) {
-                        // v3: restore the bank. init() already gave the
-                        // machine one default variant (slot 0's own
-                        // allocation) - free it before rebuilding each slot
-                        // to the file's own step count.
                         for (dmp.variants[0..dmp.variant_count]) |*slot| DrumMachine.freeMidi(allocator, &slot.midi);
                         const count: u8 = @intCast(@min(ds.variants.len, DrumMachine.max_variants));
+                        dmp.variant_count = 0;
                         for (ds.variants[0..count], dmp.variants[0..count]) |vs, *slot| {
                             const sc = std.math.clamp(vs.step_count, 1, DrumMachine.max_steps);
                             slot.step_count = sc;
                             slot.steps_per_beat = std.math.clamp(vs.steps_per_beat, 1, 32);
                             slot.midi = try DrumMachine.allocMidi(allocator, sc);
+                            dmp.variant_count += 1;
                             if (snap.version >= 23) {
                                 applyNoteSnap(&slot.midi, sc, vs.notes);
                             } else {
                                 legacyPatternVelToMidi(&slot.midi, sc, vs.pattern, vs.vel, vs.vel_lo, vs.vel_hi);
                             }
                         }
-                        dmp.variant_count = count;
                         dmp.variant = @min(ds.variant, count - 1);
                         // The live pattern mirrors the active variant; the
                         // bank is the source of truth.
                         const active = &dmp.variants[dmp.variant];
+                        const midi = try DrumMachine.dupeMidi(allocator, &active.midi);
                         DrumMachine.freeMidi(allocator, &dmp.midi);
-                        dmp.midi = try DrumMachine.dupeMidi(allocator, &active.midi);
+                        dmp.midi = midi;
                         dmp.step_count = active.step_count;
                         dmp.steps_per_beat = active.steps_per_beat;
                     } else {
                         // v2: one variant from the legacy fields.
                         const sc = std.math.clamp(ds.step_count, 1, DrumMachine.max_steps);
+                        const midi = try DrumMachine.allocMidi(allocator, sc);
                         DrumMachine.freeMidi(allocator, &dmp.midi);
-                        dmp.midi = try DrumMachine.allocMidi(allocator, sc);
+                        dmp.midi = midi;
                         if (snap.version >= 23) {
                             applyNoteSnap(&dmp.midi, sc, ds.notes);
                         } else {
@@ -2076,7 +2078,8 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                 }
             },
             .slicer => {
-                rack.instrument = .{ .slicer = try Slicer.init(allocator, sr, &engine.transport) };
+                const slicer = try Slicer.init(allocator, sr, &engine.transport);
+                rack.instrument = .{ .slicer = slicer };
                 if (rs.slicer) |sls| {
                     const sl = &rack.instrument.slicer;
                     const count: u8 = @intCast(@min(sls.slices.len, Slicer.max_slices));
@@ -2086,35 +2089,35 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         applyPadSnap(p, ps);
                     }
                     if (sls.variants.len > 0) {
-                        // Variant bank present: same load shape as the drum's
-                        // above, including freeing init()'s own default slot
-                        // before rebuilding each one to the file's step count.
                         for (sl.variants[0..sl.variant_count]) |*slot| Slicer.freeMidi(allocator, &slot.midi);
                         const vcount: u8 = @intCast(@min(sls.variants.len, Slicer.max_variants));
+                        sl.variant_count = 0;
                         for (sls.variants[0..vcount], sl.variants[0..vcount]) |vs, *slot| {
                             const sc = std.math.clamp(vs.step_count, 1, Slicer.max_steps);
                             slot.step_count = sc;
                             slot.steps_per_beat = std.math.clamp(vs.steps_per_beat, 1, 32);
                             slot.midi = try Slicer.allocMidi(allocator, sc);
+                            sl.variant_count += 1;
                             if (snap.version >= 28) {
                                 applyNoteSnap(&slot.midi, sc, vs.notes);
                             } else {
                                 legacyPatternVelToMidi(&slot.midi, sc, vs.pattern, vs.vel, vs.vel_lo, vs.vel_hi);
                             }
                         }
-                        sl.variant_count = vcount;
                         sl.variant = @min(sls.variant, vcount - 1);
                         const active = &sl.variants[sl.variant];
+                        const midi = try Slicer.dupeMidi(allocator, &active.midi);
                         Slicer.freeMidi(allocator, &sl.midi);
-                        sl.midi = try Slicer.dupeMidi(allocator, &active.midi);
+                        sl.midi = midi;
                         sl.step_count = active.step_count;
                         sl.steps_per_beat = active.steps_per_beat;
                     } else {
                         // Pre-variant file: one variant from the legacy flat
                         // fields.
                         const sc = std.math.clamp(sls.step_count, 1, Slicer.max_steps);
+                        const midi = try Slicer.allocMidi(allocator, sc);
                         Slicer.freeMidi(allocator, &sl.midi);
-                        sl.midi = try Slicer.allocMidi(allocator, sc);
+                        sl.midi = midi;
                         if (snap.version >= 28) {
                             applyNoteSnap(&sl.midi, sc, sls.notes);
                         } else {
@@ -3965,6 +3968,20 @@ test "buildSession: drum variant bank round-trips; v2 files get one variant" {
     const odm = &old.racks.items[0].instrument.drum_machine;
     try testing.expectEqual(@as(u8, 1), odm.variant_count);
     try testing.expect(odm.stepActive(0, 5));
+}
+
+fn buildVariantBanksForAllocationTest(allocator: std.mem.Allocator) !void {
+    const variants = [_]VariantSnap{ .{}, .{ .step_count = 32 }, .{ .step_count = 64 } };
+    const snap: Snapshot = .{
+        .tracks = &.{.{ .name = "drums" }},
+        .racks = &.{.{ .label = "drums", .kind = .drum_machine, .drum = .{ .variants = &variants } }},
+    };
+    var session = try buildSession(allocator, &snap);
+    session.deinit();
+}
+
+test "buildSession cleans partial variant banks after allocation failure" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, buildVariantBanksForAllocationTest, .{});
 }
 
 test "buildSession: time signature lands in project and transport" {
