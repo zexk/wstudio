@@ -398,6 +398,9 @@ pub const Knob = struct {
     accent: [4]f32,
     focused: bool = false,
     logarithmic: bool = false,
+    /// Power curve for ranges containing zero, where a true logarithm is
+    /// undefined. Values above 1 reserve more travel for the low end.
+    skew: f32 = 1,
     diameter: f32 = 30,
     /// Hover readout. Off for `knobCell`, whose own label line already
     /// swaps to the value on hover - two readouts for one dial is one too
@@ -421,16 +424,18 @@ pub const KnobResult = struct {
 const knob_angle_min: f32 = std.math.pi * 0.75;
 const knob_angle_max: f32 = std.math.pi * 2.25;
 
-fn knobValueToT(min: f32, max: f32, value: f32, logarithmic: bool) f32 {
+fn knobValueToT(min: f32, max: f32, value: f32, logarithmic: bool, skew: f32) f32 {
     if (logarithmic and min > 0 and max > 0) {
         return std.math.clamp(@log(value / min) / @log(max / min), 0, 1);
     }
-    return std.math.clamp((value - min) / (max - min), 0, 1);
+    const linear = std.math.clamp((value - min) / (max - min), 0, 1);
+    return if (skew > 0 and skew != 1) std.math.pow(f32, linear, 1.0 / skew) else linear;
 }
 
-fn knobTToValue(min: f32, max: f32, t: f32, logarithmic: bool) f32 {
+fn knobTToValue(min: f32, max: f32, t: f32, logarithmic: bool, skew: f32) f32 {
     if (logarithmic and min > 0 and max > 0) return min * std.math.pow(f32, max / min, t);
-    return min + (max - min) * t;
+    const shaped = if (skew > 0 and skew != 1) std.math.pow(f32, t, skew) else t;
+    return min + (max - min) * shaped;
 }
 
 /// Splits a printf-style `"%.Nf<suffix>"` format (as used by the slider
@@ -498,9 +503,9 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
     if (active) {
         const delta = zgui.getMouseDragDelta(.left, .{});
         if (delta[1] != 0) {
-            const t0 = knobValueToT(args.min, args.max, args.v.*, args.logarithmic);
+            const t0 = knobValueToT(args.min, args.max, args.v.*, args.logarithmic, args.skew);
             const t1 = std.math.clamp(t0 - delta[1] / gui_style.knob_drag_pixels, 0, 1);
-            const next = knobTToValue(args.min, args.max, t1, args.logarithmic);
+            const next = knobTToValue(args.min, args.max, t1, args.logarithmic, args.skew);
             if (next != args.v.*) {
                 args.v.* = next;
                 changed = true;
@@ -511,9 +516,9 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
     if (hovered and gui_style.wheel_delta != 0) {
         gui_style.wheel_consumed = true;
         const step: f32 = if (zgui.isKeyDown(.mod_ctrl)) 0.05 else 0.005;
-        const t0 = knobValueToT(args.min, args.max, args.v.*, args.logarithmic);
+        const t0 = knobValueToT(args.min, args.max, args.v.*, args.logarithmic, args.skew);
         const t1 = std.math.clamp(t0 + gui_style.wheel_delta * step, 0, 1);
-        const next = knobTToValue(args.min, args.max, t1, args.logarithmic);
+        const next = knobTToValue(args.min, args.max, t1, args.logarithmic, args.skew);
         if (next != args.v.*) {
             args.v.* = next;
             changed = true;
@@ -541,7 +546,7 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
         zgui.endPopup();
     }
 
-    const t = knobValueToT(args.min, args.max, args.v.*, args.logarithmic);
+    const t = knobValueToT(args.min, args.max, args.v.*, args.logarithmic, args.skew);
     const angle = knob_angle_min + (knob_angle_max - knob_angle_min) * t;
 
     draw_list.pathArcTo(.{ .p = center, .r = radius, .amin = knob_angle_min, .amax = knob_angle_max });
@@ -880,8 +885,8 @@ pub fn xyPad(label: [:0]const u8, args: XYPad) KnobResult {
         const mouse = zgui.getMousePos();
         const tx = std.math.clamp((mouse[0] - origin[0]) / pad_w, 0, 1);
         const ty = std.math.clamp((mouse[1] - origin[1]) / args.size, 0, 1);
-        const new_x = knobTToValue(args.x_range[0], args.x_range[1], tx, args.x_logarithmic);
-        const new_y = knobTToValue(args.y_range[0], args.y_range[1], 1.0 - ty, false);
+        const new_x = knobTToValue(args.x_range[0], args.x_range[1], tx, args.x_logarithmic, 1);
+        const new_y = knobTToValue(args.y_range[0], args.y_range[1], 1.0 - ty, false, 1);
         if (new_x != args.x.* or new_y != args.y.*) changed = true;
         args.x.* = new_x;
         args.y.* = new_y;
@@ -892,8 +897,8 @@ pub fn xyPad(label: [:0]const u8, args: XYPad) KnobResult {
     draw_list.addLine(.{ .p1 = .{ origin[0], origin[1] + args.size * 0.5 }, .p2 = .{ origin[0] + pad_w, origin[1] + args.size * 0.5 }, .col = gui_style.color(theme.line), .thickness = 1 });
     draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + pad_w, origin[1] + args.size }, .col = gui_style.color(if (args.focused) args.accent else theme.bg4), .rounding = gui_style.item_rounding, .thickness = if (args.focused) 2 else 1 });
 
-    const tx = knobValueToT(args.x_range[0], args.x_range[1], args.x.*, args.x_logarithmic);
-    const ty = 1.0 - knobValueToT(args.y_range[0], args.y_range[1], args.y.*, false);
+    const tx = knobValueToT(args.x_range[0], args.x_range[1], args.x.*, args.x_logarithmic, 1);
+    const ty = 1.0 - knobValueToT(args.y_range[0], args.y_range[1], args.y.*, false, 1);
     const dot = [2]f32{ origin[0] + tx * pad_w, origin[1] + ty * args.size };
     const crosshair = [4]f32{ args.accent[0], args.accent[1], args.accent[2], 0.35 };
     draw_list.addLine(.{ .p1 = .{ origin[0], dot[1] }, .p2 = .{ origin[0] + pad_w, dot[1] }, .col = gui_style.color(crosshair), .thickness = 1 });
@@ -1263,4 +1268,16 @@ test "curve beat snapping preserves ordering and bounds" {
     try std.testing.expectEqual(@as(f64, 0.5), snappedCurveBeat(0.9, 0.5, 0.65, 0.25, 0.25));
     try std.testing.expectEqual(@as(f64, 1.2), snappedCurveBeat(1.2, 0.0, 0.0, 1.2, 0.7));
     try std.testing.expectEqual(@as(f64, 0.3), snappedCurveBeat(0.26, 0.0, 0.3, 0.8, 0.25));
+}
+
+test "knob mappings preserve values while expanding useful low ranges" {
+    const testing = std.testing;
+    const log_mid = knobTToValue(0.001, 10, 0.5, true, 1);
+    try testing.expectApproxEqAbs(@as(f32, 0.1), log_mid, 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, 0.5), knobValueToT(0.001, 10, log_mid, true, 1), 1e-6);
+
+    const skew_mid = knobTToValue(0, 10, 0.5, false, 3);
+    try testing.expectApproxEqAbs(@as(f32, 1.25), skew_mid, 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, 0.5), knobValueToT(0, 10, skew_mid, false, 3), 1e-6);
+    try testing.expectEqual(@as(f32, 0), knobTToValue(0, 10, 0, false, 3));
 }

@@ -632,7 +632,17 @@ fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index
     const control_width = knob_diameter + 120;
     const spare = zgui.getContentRegionAvail()[0] - control_width;
     if (spare > 0) zgui.setCursorPosX(zgui.getCursorPosX() + spare * 0.5);
-    const result = widgets.paramKnob(name, label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .display = display, .accent = kindAccent(unit.kind()), .focused = focused, .diameter = knob_diameter });
+    const result = widgets.paramKnob(name, label, .{
+        .v = &value,
+        .min = range[0],
+        .max = range[1],
+        .cfmt = format,
+        .display = display,
+        .accent = kindAccent(unit.kind()),
+        .focused = focused,
+        .diameter = knob_diameter,
+        .logarithmic = perceptualParam(name, range),
+    });
     if (result.changed) {
         history.noteFxNudge(&app.core, target, app.core.fx_focus, index);
         spectrum_ed.setParam(&app.core, &unit.payload, index, value);
@@ -642,6 +652,14 @@ fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index
         syncChain(app, target);
     }
     if (result.activated) app.core.fx_param = index;
+}
+
+fn perceptualParam(name: []const u8, range: [2]f32) bool {
+    if (!(range[0] > 0 and range[1] > range[0])) return false;
+    inline for (.{ "attack", "release", "time", "rate", "cutoff", "freq", " q" }) |part| {
+        if (std.mem.indexOf(u8, name, part) != null) return true;
+    }
+    return std.mem.eql(u8, name, "q");
 }
 
 /// Two-option list param (`paramToggleNames`, e.g. multiband comp's

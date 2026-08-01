@@ -321,7 +321,17 @@ fn drawParam(app: anytype, target: Target, id: u8, label_text: []const u8, forma
     var label_buf: [64]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "{s}##sampler-target-{d}", .{ label_text, id }) catch return;
     const focused = app.core.sampler_param == id;
-    const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .accent = theme.focus, .focused = focused });
+    const is_time = id == 3 or id == 4 or id == 6 or id == 10 or id == 11;
+    const result = widgets.paramKnob(label_text, label, .{
+        .v = &value,
+        .min = range[0],
+        .max = range[1],
+        .cfmt = format,
+        .accent = theme.focus,
+        .focused = focused,
+        .logarithmic = is_time and range[0] > 0,
+        .skew = if (is_time and range[0] == 0) 3 else 1,
+    });
     if (result.changed) setPadParam(app, target, id, value);
     if (result.activated) app.core.sampler_param = id;
 }

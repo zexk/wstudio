@@ -153,6 +153,16 @@ pub fn adjustParam(pad: *Pad, id: u16, steps: i32) void {
         if (steps != 0) pad.gate = !pad.gate;
         return;
     }
+    if (id == 6) {
+        pad.release_s = std.math.clamp(pad.release_s * std.math.pow(f32, 2.0, @as(f32, @floatFromInt(steps)) / 12.0), 0.001, 5.0);
+        return;
+    }
+    if (id == 3 or id == 4 or id == 10 or id == 11) {
+        const value = paramValue(pad, id).?;
+        const t = std.math.cbrt(std.math.clamp(value / 5.0, 0, 1));
+        setParamAbsolute(pad, id, 5.0 * std.math.pow(f32, std.math.clamp(t + @as(f32, @floatFromInt(steps)) * 0.01, 0, 1), 3));
+        return;
+    }
     const value = paramValue(pad, id) orelse return;
     setParamAbsolute(pad, id, value + @as(f32, @floatFromInt(steps)) * paramStep(id));
 }
@@ -820,8 +830,9 @@ test "adjustParam uses the same bounds as absolute parameter assignment" {
     };
 
     for (0..param_count) |raw_id| {
-        // The two toggles have no step size to match; asserted below.
-        if (raw_id == reverse_id or raw_id == gate_id) continue;
+        // Toggles and perceptually-scaled time controls do not use additive
+        // `paramStep`; each gets focused assertions below.
+        if (raw_id == reverse_id or raw_id == gate_id or raw_id == 3 or raw_id == 4 or raw_id == 6 or raw_id == 10 or raw_id == 11) continue;
         const id: u8 = @intCast(raw_id);
         var nudged = initial;
         var assigned = initial;
@@ -842,6 +853,16 @@ test "adjustParam uses the same bounds as absolute parameter assignment" {
     try std.testing.expect(toggled.gate);
     adjustParam(&toggled, gate_id, 1);
     try std.testing.expect(!toggled.gate);
+}
+
+test "time nudges expand short envelope and fade values" {
+    var pad: Pad = .{ .samples = &.{} };
+    pad.attack_s = 0.005;
+    pad.release_s = 0.005;
+    adjustParam(&pad, 3, 1);
+    adjustParam(&pad, 6, 12);
+    try std.testing.expect(pad.attack_s > 0.006 and pad.attack_s < 0.007);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.01), pad.release_s, 1e-6);
 }
 
 test "the tone filter bypasses at centre and cuts on either side" {

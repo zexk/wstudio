@@ -1289,7 +1289,7 @@ pub const PolySynth = struct {
         f2_l: FilterState = .{},
         f2_r: FilterState = .{},
         // Glide: current log2(freq) sliding toward log2(noteToFreq(note)).
-        glide_log_freq: f32 = 0.0,
+        glide_log: f32 = 0.0,
         /// log2(freq) change per sample. 0 when glide is off or complete.
         glide_rate: f32 = 0.0,
         // Sub oscillator
@@ -1770,7 +1770,7 @@ pub const PolySynth = struct {
             .stage            = .attack,
             .stage2           = .attack,
             .stage3           = .attack,
-            .glide_log_freq   = start_log,
+            .glide_log   = start_log,
             .glide_rate       = if (was_active and self.glide_s > 0.0)
                 (target_log - start_log) / @max(self.glide_s * self.sample_rate, 1.0)
             else 0.0,
@@ -1783,7 +1783,7 @@ pub const PolySynth = struct {
     fn noteOnPoly(self: *PolySynth, note: u7, velocity: f32) void {
         self.newest_voice = self.allocVoice();
         const v = &self.voices[self.newest_voice];
-        v.* = self.triggerVoice(note, velocity, v.active, v.glide_log_freq);
+        v.* = self.triggerVoice(note, velocity, v.active, v.glide_log);
     }
 
     /// Activate or update the single mono/legato voice.
@@ -1794,15 +1794,15 @@ pub const PolySynth = struct {
         const was_active = v.active;
         const target_log = std.math.log2(noteToFreq(note));
         if (retrigger or !was_active) {
-            v.* = self.triggerVoice(note, velocity, was_active, v.glide_log_freq);
+            v.* = self.triggerVoice(note, velocity, was_active, v.glide_log);
         } else {
             // Legato: update pitch only, envelope continues.
             v.note = note;
             if (self.glide_s > 0.0) {
-                v.glide_rate = (target_log - v.glide_log_freq) /
+                v.glide_rate = (target_log - v.glide_log) /
                     @max(self.glide_s * self.sample_rate, 1.0);
             } else {
-                v.glide_log_freq = target_log;
+                v.glide_log = target_log;
                 // zig fmt: off
                 v.glide_rate     = 0.0;
                 // zig fmt: on
@@ -2092,13 +2092,13 @@ pub const PolySynth = struct {
             // Glide: advance current log-freq toward target at block rate.
             const target_log = std.math.log2(noteToFreq(v.note));
             if (eff(&mods, 33, self.glide_s) > 0.0 and v.glide_rate != 0.0) {
-                v.glide_log_freq += v.glide_rate * @as(f32, @floatFromInt(frames));
+                v.glide_log += v.glide_rate * @as(f32, @floatFromInt(frames));
                 // zig fmt: off
-                const overshot = (v.glide_rate > 0.0 and v.glide_log_freq >= target_log) or
-                                 (v.glide_rate < 0.0 and v.glide_log_freq <= target_log);
-                if (overshot) { v.glide_log_freq = target_log; v.glide_rate = 0.0; }
+                const overshot = (v.glide_rate > 0.0 and v.glide_log >= target_log) or
+                                 (v.glide_rate < 0.0 and v.glide_log <= target_log);
+                if (overshot) { v.glide_log = target_log; v.glide_rate = 0.0; }
             } else {
-                v.glide_log_freq = target_log;
+                v.glide_log = target_log;
                 v.glide_rate     = 0.0;
             }
 
@@ -2121,7 +2121,7 @@ pub const PolySynth = struct {
 
             // Pitch: the virtual dest is in octaves. Glide is log-freq space.
             const base_freq = std.math.pow(f32, 2.0,
-                v.glide_log_freq + eff(&mods, 2, self.detune_cents) / 1200.0 + mods.amt(dest_pitch) +
+                v.glide_log + eff(&mods, 2, self.detune_cents) / 1200.0 + mods.amt(dest_pitch) +
                 self.pitch_bend_semitones / 12.0);
 
             // Amp: virtual dest is a gain factor about unity (tremolo when
@@ -3383,14 +3383,14 @@ pub const PolySynth = struct {
     /// Editor-param kind, deciding how `adjustParam`/`setParamAbsolute`/
     /// `paramValue` read and write a `param_specs` entry's field - see
     /// `specAdjust`/`specSetAbs`/`specValue`. The great majority of the
-    /// ~190 flat param ids reduce to one of these five shapes; what
+    /// ~190 flat param ids reduce to one of these six shapes; what
     /// doesn't - the mod matrix rows (59-82, banded/cross-field), the FX
     /// reorder handles (`fx_reorder_ids` below), and `fx_mb_style`'s id 149
     /// on the `adjustParam` side only (h/l picks classic/ott by direction,
     /// not a wrap - its `setParamAbsolute`/`paramValue` behavior IS a plain
     /// `.cycle` though, so it still gets a `param_specs` row) - keep their
     /// own switch arms around the table dispatch.
-    const ParamKind = enum { cont, log_freq, toggle, cycle, int_cont };
+    const ParamKind = enum { cont, log, skew_zero, toggle, cycle, int_cont };
 
     const ParamSpec = struct {
         id: u16,
@@ -3409,9 +3409,14 @@ pub const PolySynth = struct {
                 const p = &@field(self.*, spec.field);
                 p.* = std.math.clamp(p.* + s * spec.step, spec.min, spec.max);
             },
-            .log_freq => {
+            .log => {
                 const p = &@field(self.*, spec.field);
                 p.* = std.math.clamp(p.* * std.math.pow(f32, 2.0, s / 12.0), spec.min, spec.max);
+            },
+            .skew_zero => {
+                const p = &@field(self.*, spec.field);
+                const t = std.math.cbrt(std.math.clamp(p.* / spec.max, 0, 1));
+                p.* = spec.max * std.math.pow(f32, std.math.clamp(t + s * spec.step, 0, 1), 3);
             },
             .toggle => {
                 const p = &@field(self.*, spec.field);
@@ -3432,7 +3437,7 @@ pub const PolySynth = struct {
 
     fn specSetAbs(self: *PolySynth, comptime spec: ParamSpec, value: f32) void {
         switch (spec.kind) {
-            .cont, .log_freq => @field(self.*, spec.field) = std.math.clamp(value, spec.min, spec.max),
+            .cont, .log, .skew_zero => @field(self.*, spec.field) = std.math.clamp(value, spec.min, spec.max),
             .toggle => @field(self.*, spec.field) = value >= 0.5,
             .cycle => @field(self.*, spec.field) = enumFromValue(spec.enum_type, value),
             .int_cont => {
@@ -3445,7 +3450,7 @@ pub const PolySynth = struct {
 
     fn specValue(self: *const PolySynth, comptime spec: ParamSpec) f32 {
         return switch (spec.kind) {
-            .cont, .log_freq => @field(self.*, spec.field),
+            .cont, .log, .skew_zero => @field(self.*, spec.field),
             .toggle => if (@field(self.*, spec.field)) 1.0 else 0.0,
             .cycle => enumToValue(@field(self.*, spec.field)),
             .int_cont => @floatFromInt(@field(self.*, spec.field)),
@@ -3467,7 +3472,7 @@ pub const PolySynth = struct {
             if (@hasField(Snap, spec.field)) {
                 const val = @field(snap.*, spec.field);
                 switch (spec.kind) {
-                    .cont, .log_freq => if (std.math.isFinite(val)) {
+                    .cont, .log, .skew_zero => if (std.math.isFinite(val)) {
                         @field(self.*, spec.field) = std.math.clamp(val, spec.min, spec.max);
                     },
                     .toggle, .cycle => @field(self.*, spec.field) = val,
@@ -3484,7 +3489,7 @@ pub const PolySynth = struct {
     /// One row per flat param id `specAdjust`/`specSetAbs`/`specValue`
     /// drive generically - `adjustParam`/`setParamAbsolute`/`paramValue`
     /// used to repeat this id->field->range mapping three times over as
-    /// parallel hand-written switches. `.log_freq` nudges by a semitone
+    /// parallel hand-written switches. `.log` nudges by a semitone
     /// ratio per step instead of `.cont`'s linear `+step`, matching the
     /// old cutoff/xover/EQ-freq switch arms. IDs 188-193 (tape) existed in
     /// `automatable_params`/`mod_dest_ids` since the tape FX unit shipped
@@ -3508,30 +3513,30 @@ pub const PolySynth = struct {
         .{ .id = 13, .field = "osc_b_unison_detune", .min = 0.0, .max = 100.0, .step = 1.0 },
         .{ .id = 14, .field = "mod_mode", .kind = .cycle, .enum_type = ModMode },
         .{ .id = 15, .field = "mod_amount", .min = 0.0, .max = 8.0, .step = 0.05 },
-        .{ .id = 16, .field = "attack_s", .min = 0.001, .max = 5.0, .step = 0.001 },
-        .{ .id = 17, .field = "decay_s", .min = 0.001, .max = 5.0, .step = 0.005 },
+        .{ .id = 16, .field = "attack_s", .kind = .log, .min = 0.001, .max = 5.0 },
+        .{ .id = 17, .field = "decay_s", .kind = .log, .min = 0.001, .max = 5.0 },
         .{ .id = 18, .field = "sustain", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 19, .field = "release_s", .min = 0.001, .max = 10.0, .step = 0.005 },
+        .{ .id = 19, .field = "release_s", .kind = .log, .min = 0.001, .max = 10.0 },
         .{ .id = 246, .field = "env_curve", .min = -1.0, .max = 1.0, .step = 0.01 },
         .{ .id = 20, .field = "filter_type", .kind = .cycle, .enum_type = FilterType },
-        .{ .id = 21, .field = "filter_cutoff", .kind = .log_freq, .min = 20.0, .max = 20_000.0 },
+        .{ .id = 21, .field = "filter_cutoff", .kind = .log, .min = 20.0, .max = 20_000.0 },
         .{ .id = 22, .field = "filter_res", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 249, .field = "filter_drive", .min = 1.0, .max = 16.0, .step = 0.1 },
         // 23 (fenv amount) retired - absorbed into the mod matrix.
-        .{ .id = 24, .field = "fenv_attack_s", .min = 0.001, .max = 5.0, .step = 0.001 },
-        .{ .id = 25, .field = "fenv_decay_s", .min = 0.001, .max = 5.0, .step = 0.005 },
+        .{ .id = 24, .field = "fenv_attack_s", .kind = .log, .min = 0.001, .max = 5.0 },
+        .{ .id = 25, .field = "fenv_decay_s", .kind = .log, .min = 0.001, .max = 5.0 },
         .{ .id = 26, .field = "fenv_sustain", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 27, .field = "fenv_release_s", .min = 0.001, .max = 10.0, .step = 0.005 },
+        .{ .id = 27, .field = "fenv_release_s", .kind = .log, .min = 0.001, .max = 10.0 },
         .{ .id = 247, .field = "fenv_curve", .min = -1.0, .max = 1.0, .step = 0.01 },
         .{ .id = 28, .field = "lfo_shape", .kind = .cycle, .enum_type = LfoShape },
-        .{ .id = 29, .field = "lfo_rate_hz", .min = 0.01, .max = 20.0, .step = 0.1 },
+        .{ .id = 29, .field = "lfo_rate_hz", .kind = .log, .min = 0.01, .max = 20.0 },
         .{ .id = 256, .field = "lfo_sync", .kind = .cycle, .enum_type = LfoSync },
         .{ .id = 259, .field = "lfo_retrig", .kind = .cycle, .enum_type = LfoRetrig },
         .{ .id = 262, .field = "lfo_phase_offset", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 265, .field = "lfo_slew_ms", .min = 0.0, .max = 500.0, .step = 5.0 },
+        .{ .id = 265, .field = "lfo_slew_ms", .kind = .skew_zero, .min = 0.0, .max = 500.0, .step = 0.01 },
         // 30/31 (LFO depth+target) retired into the mod matrix.
         .{ .id = 32, .field = "voice_mode", .kind = .cycle, .enum_type = VoiceMode },
-        .{ .id = 33, .field = "glide_s", .min = 0.0, .max = 10.0, .step = 0.01 },
+        .{ .id = 33, .field = "glide_s", .kind = .skew_zero, .min = 0.0, .max = 10.0, .step = 0.01 },
         .{ .id = 34, .field = "sub_level", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 35, .field = "sub_shape", .kind = .cycle, .enum_type = SubShape },
         .{ .id = 36, .field = "noise_level", .min = 0.0, .max = 1.0, .step = 0.01 },
@@ -3545,7 +3550,7 @@ pub const PolySynth = struct {
         .{ .id = 44, .field = "osc_b_warp_amount", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 45, .field = "filter2_on", .kind = .toggle },
         .{ .id = 46, .field = "filter2_type", .kind = .cycle, .enum_type = FilterType },
-        .{ .id = 47, .field = "filter2_cutoff", .kind = .log_freq, .min = 20.0, .max = 20_000.0 },
+        .{ .id = 47, .field = "filter2_cutoff", .kind = .log, .min = 20.0, .max = 20_000.0 },
         .{ .id = 48, .field = "filter2_res", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 250, .field = "filter2_drive", .min = 1.0, .max = 16.0, .step = 0.1 },
         .{ .id = 49, .field = "filter_routing", .kind = .cycle, .enum_type = FilterRouting },
@@ -3567,33 +3572,33 @@ pub const PolySynth = struct {
         .{ .id = 88, .field = "fx_crush_rate", .min = 1.0, .max = 64.0, .step = 1.0 },
         .{ .id = 89, .field = "fx_crush_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 90, .field = "fx_flanger_on", .kind = .toggle },
-        .{ .id = 91, .field = "fx_flanger_rate_hz", .min = 0.02, .max = 8.0, .step = 0.05 },
+        .{ .id = 91, .field = "fx_flanger_rate_hz", .kind = .log, .min = 0.02, .max = 8.0 },
         .{ .id = 92, .field = "fx_flanger_depth", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 93, .field = "fx_flanger_feedback", .min = 0.0, .max = 0.95, .step = 0.01 },
         .{ .id = 94, .field = "fx_flanger_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 95, .field = "lfo2_shape", .kind = .cycle, .enum_type = LfoShape },
-        .{ .id = 96, .field = "lfo2_rate_hz", .min = 0.01, .max = 20.0, .step = 0.1 },
+        .{ .id = 96, .field = "lfo2_rate_hz", .kind = .log, .min = 0.01, .max = 20.0 },
         .{ .id = 257, .field = "lfo2_sync", .kind = .cycle, .enum_type = LfoSync },
         .{ .id = 260, .field = "lfo2_retrig", .kind = .cycle, .enum_type = LfoRetrig },
         .{ .id = 263, .field = "lfo2_phase_offset", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 266, .field = "lfo2_slew_ms", .min = 0.0, .max = 500.0, .step = 5.0 },
+        .{ .id = 266, .field = "lfo2_slew_ms", .kind = .skew_zero, .min = 0.0, .max = 500.0, .step = 0.01 },
         .{ .id = 97, .field = "lfo3_shape", .kind = .cycle, .enum_type = LfoShape },
-        .{ .id = 98, .field = "lfo3_rate_hz", .min = 0.01, .max = 20.0, .step = 0.1 },
+        .{ .id = 98, .field = "lfo3_rate_hz", .kind = .log, .min = 0.01, .max = 20.0 },
         .{ .id = 258, .field = "lfo3_sync", .kind = .cycle, .enum_type = LfoSync },
         .{ .id = 261, .field = "lfo3_retrig", .kind = .cycle, .enum_type = LfoRetrig },
         .{ .id = 264, .field = "lfo3_phase_offset", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 267, .field = "lfo3_slew_ms", .min = 0.0, .max = 500.0, .step = 5.0 },
+        .{ .id = 267, .field = "lfo3_slew_ms", .kind = .skew_zero, .min = 0.0, .max = 500.0, .step = 0.01 },
         .{ .id = 99, .field = "macro1", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 100, .field = "macro2", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 101, .field = "macro3", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 102, .field = "macro4", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 103, .field = "fx_phaser_on", .kind = .toggle },
-        .{ .id = 104, .field = "fx_phaser_rate_hz", .min = 0.02, .max = 8.0, .step = 0.05 },
+        .{ .id = 104, .field = "fx_phaser_rate_hz", .kind = .log, .min = 0.02, .max = 8.0 },
         .{ .id = 105, .field = "fx_phaser_depth", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 106, .field = "fx_phaser_feedback", .min = 0.0, .max = 0.95, .step = 0.01 },
         .{ .id = 107, .field = "fx_phaser_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 108, .field = "fx_delay_on", .kind = .toggle },
-        .{ .id = 109, .field = "fx_delay_time_s", .min = 0.001, .max = Delay.max_time_s, .step = 0.01 },
+        .{ .id = 109, .field = "fx_delay_time_s", .kind = .log, .min = 0.001, .max = Delay.max_time_s },
         .{ .id = 110, .field = "fx_delay_feedback", .min = 0.0, .max = 0.95, .step = 0.01 },
         .{ .id = 111, .field = "fx_delay_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 112, .field = "fx_reverb_on", .kind = .toggle },
@@ -3603,32 +3608,32 @@ pub const PolySynth = struct {
         .{ .id = 116, .field = "arp_on", .kind = .toggle },
         .{ .id = 117, .field = "arp_mode", .kind = .cycle, .enum_type = ArpMode },
         .{ .id = 118, .field = "arp_octaves", .kind = .int_cont, .min = 1, .max = max_arp_octaves },
-        .{ .id = 119, .field = "arp_rate_hz", .min = 0.1, .max = 20.0, .step = 0.1 },
+        .{ .id = 119, .field = "arp_rate_hz", .kind = .log, .min = 0.1, .max = 20.0 },
         .{ .id = 268, .field = "arp_sync", .kind = .cycle, .enum_type = LfoSync },
         .{ .id = 120, .field = "arp_gate", .min = 0.02, .max = 1.0, .step = 0.01 },
         .{ .id = 121, .field = "arp_hold", .kind = .toggle },
-        .{ .id = 122, .field = "env3_attack_s", .min = 0.001, .max = 5.0, .step = 0.001 },
-        .{ .id = 123, .field = "env3_decay_s", .min = 0.001, .max = 5.0, .step = 0.005 },
+        .{ .id = 122, .field = "env3_attack_s", .kind = .log, .min = 0.001, .max = 5.0 },
+        .{ .id = 123, .field = "env3_decay_s", .kind = .log, .min = 0.001, .max = 5.0 },
         .{ .id = 124, .field = "env3_sustain", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 125, .field = "env3_release_s", .min = 0.001, .max = 10.0, .step = 0.005 },
+        .{ .id = 125, .field = "env3_release_s", .kind = .log, .min = 0.001, .max = 10.0 },
         .{ .id = 248, .field = "env3_curve", .min = -1.0, .max = 1.0, .step = 0.01 },
         // FX reorder handles (126-131, 136, 143, 160, 166, 175, 180, 184,
         // 194) are in `fx_reorder_ids` below, not here.
         .{ .id = 132, .field = "fx_gate_on", .kind = .toggle },
         .{ .id = 133, .field = "fx_gate_threshold_db", .min = -80.0, .max = 0.0, .step = 1.0 },
-        .{ .id = 134, .field = "fx_gate_attack_ms", .min = 0.1, .max = 50.0, .step = 0.1 },
-        .{ .id = 135, .field = "fx_gate_release_ms", .min = 5.0, .max = 1000.0, .step = 10.0 },
+        .{ .id = 134, .field = "fx_gate_attack_ms", .kind = .log, .min = 0.1, .max = 50.0 },
+        .{ .id = 135, .field = "fx_gate_release_ms", .kind = .log, .min = 5.0, .max = 1000.0 },
         .{ .id = 137, .field = "fx_comp_on", .kind = .toggle },
         .{ .id = 138, .field = "fx_comp_threshold_db", .min = -60.0, .max = 0.0, .step = 1.0 },
         .{ .id = 139, .field = "fx_comp_ratio", .min = 1.0, .max = 20.0, .step = 0.1 },
-        .{ .id = 140, .field = "fx_comp_attack_ms", .min = 0.1, .max = 500.0, .step = 0.5 },
-        .{ .id = 141, .field = "fx_comp_release_ms", .min = 1.0, .max = 2000.0, .step = 5.0 },
+        .{ .id = 140, .field = "fx_comp_attack_ms", .kind = .log, .min = 0.1, .max = 500.0 },
+        .{ .id = 141, .field = "fx_comp_release_ms", .kind = .log, .min = 1.0, .max = 2000.0 },
         .{ .id = 142, .field = "fx_comp_makeup_db", .min = -24.0, .max = 24.0, .step = 0.5 },
         .{ .id = 144, .field = "fx_mb_on", .kind = .toggle },
-        .{ .id = 145, .field = "fx_mb_xover_lo", .kind = .log_freq, .min = 20.0, .max = 20_000.0 },
-        .{ .id = 146, .field = "fx_mb_xover_hi", .kind = .log_freq, .min = 20.0, .max = 20_000.0 },
-        .{ .id = 147, .field = "fx_mb_attack_ms", .min = 0.1, .max = 500.0, .step = 0.5 },
-        .{ .id = 148, .field = "fx_mb_release_ms", .min = 1.0, .max = 2000.0, .step = 5.0 },
+        .{ .id = 145, .field = "fx_mb_xover_lo", .kind = .log, .min = 20.0, .max = 20_000.0 },
+        .{ .id = 146, .field = "fx_mb_xover_hi", .kind = .log, .min = 20.0, .max = 20_000.0 },
+        .{ .id = 147, .field = "fx_mb_attack_ms", .kind = .log, .min = 0.1, .max = 500.0 },
+        .{ .id = 148, .field = "fx_mb_release_ms", .kind = .log, .min = 1.0, .max = 2000.0 },
         .{ .id = 149, .field = "fx_mb_style", .kind = .cycle, .enum_type = MbStyle },
         .{ .id = 150, .field = "fx_mb_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 151, .field = "fx_mb_low_threshold_db", .min = -60.0, .max = 0.0, .step = 1.0 },
@@ -3646,15 +3651,15 @@ pub const PolySynth = struct {
         .{ .id = 164, .field = "fx_ott_gain_in_db", .min = -24.0, .max = 24.0, .step = 0.5 },
         .{ .id = 165, .field = "fx_ott_gain_out_db", .min = -24.0, .max = 24.0, .step = 0.5 },
         .{ .id = 167, .field = "fx_eq_on", .kind = .toggle },
-        .{ .id = 168, .field = "fx_eq_low_freq", .kind = .log_freq, .min = 20.0, .max = 20_000.0 },
+        .{ .id = 168, .field = "fx_eq_low_freq", .kind = .log, .min = 20.0, .max = 20_000.0 },
         .{ .id = 169, .field = "fx_eq_low_gain_db", .min = -18.0, .max = 18.0, .step = 0.5 },
-        .{ .id = 170, .field = "fx_eq_mid_freq", .kind = .log_freq, .min = 20.0, .max = 20_000.0 },
+        .{ .id = 170, .field = "fx_eq_mid_freq", .kind = .log, .min = 20.0, .max = 20_000.0 },
         .{ .id = 171, .field = "fx_eq_mid_gain_db", .min = -18.0, .max = 18.0, .step = 0.5 },
-        .{ .id = 172, .field = "fx_eq_mid_q", .min = 0.1, .max = 10.0, .step = 0.05 },
-        .{ .id = 173, .field = "fx_eq_high_freq", .kind = .log_freq, .min = 20.0, .max = 20_000.0 },
+        .{ .id = 172, .field = "fx_eq_mid_q", .kind = .log, .min = 0.1, .max = 10.0 },
+        .{ .id = 173, .field = "fx_eq_high_freq", .kind = .log, .min = 20.0, .max = 20_000.0 },
         .{ .id = 174, .field = "fx_eq_high_gain_db", .min = -18.0, .max = 18.0, .step = 0.5 },
         .{ .id = 176, .field = "fx_chorus_on", .kind = .toggle },
-        .{ .id = 177, .field = "fx_chorus_rate_hz", .min = 0.05, .max = 5.0, .step = 0.05 },
+        .{ .id = 177, .field = "fx_chorus_rate_hz", .kind = .log, .min = 0.05, .max = 5.0 },
         .{ .id = 178, .field = "fx_chorus_depth_ms", .min = 0.0, .max = Chorus.max_depth_ms, .step = 0.1 },
         .{ .id = 179, .field = "fx_chorus_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 181, .field = "fx_freq_shift_on", .kind = .toggle },
@@ -3666,9 +3671,9 @@ pub const PolySynth = struct {
         .{ .id = 187, .field = "osc_c_wt_pos", .min = 0.0, .max = 1.0, .step = 0.01 },
         // FX TAPE (188-193), reorder handle 194 in `fx_reorder_ids`.
         .{ .id = 188, .field = "fx_tape_on", .kind = .toggle },
-        .{ .id = 189, .field = "fx_tape_wow_rate_hz", .min = 0.05, .max = 3.0, .step = 0.05 },
+        .{ .id = 189, .field = "fx_tape_wow_rate_hz", .kind = .log, .min = 0.05, .max = 3.0 },
         .{ .id = 190, .field = "fx_tape_wow_depth", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 191, .field = "fx_tape_flutter_rate_hz", .min = 3.0, .max = 15.0, .step = 0.1 },
+        .{ .id = 191, .field = "fx_tape_flutter_rate_hz", .kind = .log, .min = 3.0, .max = 15.0 },
         .{ .id = 192, .field = "fx_tape_flutter_depth", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 193, .field = "fx_tape_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
     };
@@ -4932,15 +4937,15 @@ test "glide: pitch slides over time (log-linear)" {
     synth.noteOn(60, 1.0); // C4
     // Trigger glide to A4 - voice was active so glide applies.
     synth.noteOn(69, 1.0); // A4
-    // glide_log_freq should still be at C4 (not yet advanced)
+    // glide_log should still be at C4 (not yet advanced)
     const c4_log = std.math.log2(PolySynth.noteToFreq(60));
-    try std.testing.expectApproxEqAbs(c4_log, synth.voices[0].glide_log_freq, 1e-4);
+    try std.testing.expectApproxEqAbs(c4_log, synth.voices[0].glide_log, 1e-4);
     // After processing, frequency should have moved toward A4 but not arrived.
     var buf: [512]Sample = undefined;
     @memset(&buf, 0.0); synth.processBlock(&buf);
     const a4_log = std.math.log2(PolySynth.noteToFreq(69));
-    try std.testing.expect(synth.voices[0].glide_log_freq > c4_log);
-    try std.testing.expect(synth.voices[0].glide_log_freq < a4_log);
+    try std.testing.expect(synth.voices[0].glide_log > c4_log);
+    try std.testing.expect(synth.voices[0].glide_log < a4_log);
 }
 
 test "glide: snaps immediately when glide_s=0" {
@@ -4954,7 +4959,7 @@ test "glide: snaps immediately when glide_s=0" {
     var buf: [512]Sample = undefined;
     @memset(&buf, 0.0); synth.processBlock(&buf);
     // zig fmt: on
-    try std.testing.expectApproxEqAbs(a4_log, synth.voices[0].glide_log_freq, 1e-4);
+    try std.testing.expectApproxEqAbs(a4_log, synth.voices[0].glide_log, 1e-4);
 }
 
 test "mono mode: only one voice active" {
@@ -5143,6 +5148,21 @@ test "applyCC: cutoff logarithmic scaling" {
     try std.testing.expectApproxEqAbs(@as(f32, 20.0), synth.filter_cutoff, 1.0);
     synth.applyCC(@intFromEnum(midi.CC.filter_cutoff), 127);
     try std.testing.expect(synth.filter_cutoff > 17_000.0);
+}
+
+test "time parameters nudge by ratio and glide keeps explicit zero" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+
+    synth.attack_s = 0.005;
+    synth.adjustParam(16, 12);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.01), synth.attack_s, 1e-6);
+
+    synth.glide_s = 0;
+    synth.adjustParam(33, 1);
+    try std.testing.expect(synth.glide_s > 0 and synth.glide_s < 0.001);
+    synth.adjustParam(33, -1);
+    try std.testing.expectEqual(@as(f32, 0), synth.glide_s);
 }
 
 test "applyCC: reset all controllers restores transient performance controls only" {

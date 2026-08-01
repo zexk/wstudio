@@ -616,6 +616,8 @@ fn drawParam(app: anytype, synth: *ws.dsp.PolySynth, id: u16, label_text: []cons
             .accent = accent,
             .focused = focused,
             .diameter = 28,
+            .logarithmic = logarithmicParam(id),
+            .skew = if (zeroSkewParam(id)) 3 else 1,
         });
         if (result.changed) sendParam(app, id, edited);
         if (result.activated) app.core.synth_cursor = id;
@@ -642,6 +644,21 @@ fn drawParam(app: anytype, synth: *ws.dsp.PolySynth, id: u16, label_text: []cons
         1 => nudgeParam(app, id, 'l'),
         else => {},
     }
+}
+
+/// Parameters spanning orders of magnitude need equal knob travel per ratio,
+/// not per raw unit. Stored values and automation stay in their plain units.
+fn logarithmicParam(id: u16) bool {
+    return switch (id) {
+        16, 17, 19, 21, 24, 25, 27, 29, 47, 91, 96, 98, 104, 109, 119, 122, 123, 125, 134, 135, 140, 141, 145, 146, 147, 148, 168, 170, 172, 173, 177, 189, 191 => true,
+        else => false,
+    };
+}
+
+/// Zero is a meaningful off/instant value, so true logarithmic mapping cannot
+/// represent it. Cubic travel keeps that endpoint and expands useful low time.
+fn zeroSkewParam(id: u16) bool {
+    return id == 33 or id == 265 or id == 266 or id == 267;
 }
 
 /// A boolean param rendered as a single on/off button - `nudgeParam`'s

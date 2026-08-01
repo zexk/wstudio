@@ -922,6 +922,18 @@ fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
     };
 }
 
+fn perceptualNudge(p: *const FxPayload, idx: usize) bool {
+    switch (p.*) {
+        .clap, .vst3 => return false,
+        else => {},
+    }
+    const name = paramName(p, idx);
+    inline for (.{ "attack", "release", "time", "rate", "cutoff", "freq" }) |part| {
+        if (std.mem.indexOf(u8, name, part) != null) return true;
+    }
+    return std.mem.eql(u8, name, "q");
+}
+
 /// Which chain is in view: a track's rack, the master bus, or a group
 /// submix bus (see `Session.Group`). One shared FX-chain editor/view for
 /// all three - group chains build/edit exactly like a track's or the
@@ -1181,7 +1193,11 @@ fn nudge(app: *App, target: EqTarget, key: u8) void {
     const coarse = (key == 'H' or key == 'L');
     const cnt: f32 = @floatFromInt(app.takeCount());
     const cur = getParam(&u.payload, app.fx_param);
-    setParam(app, &u.payload, app.fx_param, cur + dir * cnt * paramStep(&u.payload, app.fx_param, coarse));
+    const next = if (perceptualNudge(&u.payload, app.fx_param) and cur > 0)
+        cur * std.math.pow(f32, 2.0, dir * cnt * (if (coarse) @as(f32, 12) else 1) / 12.0)
+    else
+        cur + dir * cnt * paramStep(&u.payload, app.fx_param, coarse);
+    setParam(app, &u.payload, app.fx_param, next);
     clearStaleSidechainPad(app, &u.payload);
     app.dirty = true;
     syncChain(app, target);

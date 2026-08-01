@@ -17,6 +17,11 @@ history lives in [FORMAT.md](FORMAT.md).
 - Punch-in/out recording inside existing arrangement A/B bounds via `:punch`.
 - Recorded audio clips start with editable 5 ms boundary fades to prevent clicks.
 
+### Changed
+
+- Time, rate, frequency, Q, and portamento controls use perceptual editor
+  scaling, preserving fine control over short and low values.
+
 ## v1.0.0-beta.9
 
 ### Added
