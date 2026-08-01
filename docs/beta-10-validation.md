@@ -39,6 +39,14 @@ loop wrapping while recording, keep playback running after punch-out, and stamp
 captured audio at the punch-in bar. Hardware capture remains covered by the
 explicit skip above.
 
+## Recorded-audio boundary fades
+
+Recorded Sampler clips receive editable 5 ms fade-in and fade-out values through
+the existing sampler model, clamped to short clip duration. Existing sampler
+rendering, persistence, undo/redo, TUI controls, and GUI waveform handles expose
+the result without a new clip type or format version. Synthetic capture coverage
+verifies both fades and their undo/redo restoration.
+
 ## Arrangement markers
 
 Existing named sections satisfy the marker candidate without a new model or

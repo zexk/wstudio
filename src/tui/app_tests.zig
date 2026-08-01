@@ -452,6 +452,10 @@ test "finishRecording stamps a Sampler clip from a synthetic capture, mirroring 
     try std.testing.expectEqual(@as(usize, 0), app.recording_active_len);
     try std.testing.expect(app.session.racks.items[1].instrument.sampler.pad.user_sample);
     try std.testing.expectEqual(@as(usize, 5), app.session.racks.items[1].instrument.sampler.pad.samples.len);
+    const recorded_pad = &app.session.racks.items[1].instrument.sampler.pad;
+    const captured_duration = ws.dsp.pad.playDurationSeconds(recorded_pad, app.session.project.sample_rate);
+    try std.testing.expectApproxEqAbs(captured_duration, recorded_pad.fade_in_s, 1e-9);
+    try std.testing.expectApproxEqAbs(captured_duration, recorded_pad.fade_out_s, 1e-9);
 
     const pp = &app.session.racks.items[1].pattern_player.?;
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
@@ -475,6 +479,8 @@ test "finishRecording stamps a Sampler clip from a synthetic capture, mirroring 
     history.doRedo(&app);
     try std.testing.expect(app.session.racks.items[1].instrument.sampler.pad.user_sample);
     try std.testing.expectEqual(@as(usize, 5), app.session.racks.items[1].instrument.sampler.pad.samples.len);
+    try std.testing.expectApproxEqAbs(captured_duration, app.session.racks.items[1].instrument.sampler.pad.fade_in_s, 1e-9);
+    try std.testing.expectApproxEqAbs(captured_duration, app.session.racks.items[1].instrument.sampler.pad.fade_out_s, 1e-9);
     try std.testing.expectEqual(@as(u16, 1), app.session.racks.items[1].pattern_player.?.note_count);
     try std.testing.expectEqual(@as(usize, 1), app.session.arrangement.lane(1).?.clips.items.len);
 }
