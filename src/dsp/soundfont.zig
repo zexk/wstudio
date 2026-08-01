@@ -210,7 +210,9 @@ pub const Preset = struct {
     }
 };
 
-pub const SoundFont = struct {
+/// Format-neutral resolved sample bank. SF2 and SFZ loaders both flatten
+/// their source format into this playback model.
+pub const SampleBank = struct {
     allocator: std.mem.Allocator,
     /// Every sample's PCM, concatenated, resampled to the engine's sample
     /// rate at load time (see `parse`'s `target_sample_rate` - matches
@@ -219,7 +221,7 @@ pub const SoundFont = struct {
     sample_data: []f32,
     presets: []Preset,
 
-    pub fn deinit(self: *SoundFont) void {
+    pub fn deinit(self: *SampleBank) void {
         for (self.presets) |p| self.allocator.free(p.regions);
         self.allocator.free(self.presets);
         self.allocator.free(self.sample_data);
@@ -228,7 +230,7 @@ pub const SoundFont = struct {
     /// Deep copy - fresh allocations throughout, so the two fonts can be torn
     /// down independently (same contract every other dsp `dupe` in this
     /// codebase gives).
-    pub fn dupe(self: *const SoundFont, allocator: std.mem.Allocator) !SoundFont {
+    pub fn dupe(self: *const SampleBank, allocator: std.mem.Allocator) !SampleBank {
         const data = try allocator.dupe(f32, self.sample_data);
         errdefer allocator.free(data);
         const presets = try allocator.alloc(Preset, self.presets.len);
@@ -245,17 +247,20 @@ pub const SoundFont = struct {
     }
 
     /// First preset matching (bank, program), or null.
-    pub fn findPreset(self: *const SoundFont, bank: u16, program: u16) ?usize {
+    pub fn findPreset(self: *const SampleBank, bank: u16, program: u16) ?usize {
         for (self.presets, 0..) |p, i| {
             if (p.bank == bank and p.program == program) return i;
         }
         return null;
     }
 
-    pub fn parse(allocator: std.mem.Allocator, bytes: []const u8, target_sample_rate: u32) ParseError!SoundFont {
+    pub fn parse(allocator: std.mem.Allocator, bytes: []const u8, target_sample_rate: u32) ParseError!SampleBank {
         return parseImpl(allocator, bytes, target_sample_rate);
     }
 };
+
+/// Compatibility name for callers which specifically load SF2 files.
+pub const SoundFont = SampleBank;
 
 fn trimZ(name: *const [20]u8) []const u8 {
     var end: usize = 0;
