@@ -7746,9 +7746,10 @@ test "wstudio.api transport and track surface" {
     try std.testing.expectEqualStrings("bass", app.session.project.tracks.items[0].name);
 
     // track_add returns the new 1-based index with the instrument applied;
-    // track_del removes it again.
+    // TrackAdd observers see that same committed state; track_del removes it.
+    try rt.loadString("added_kind = nil; wstudio.api.create_autocmd('TrackAdd', { callback = function(ev) added_kind = wstudio.api.track_get(ev.track).kind end })");
     try rt.loadString("i = wstudio.api.track_add({ kind = 'drum', name = 'beats' })");
-    try rt.loadString("t = wstudio.api.track_get(i); assert(t.kind == 'drum' and t.name == 'beats')");
+    try rt.loadString("t = wstudio.api.track_get(i); assert(t.kind == 'drum' and t.name == 'beats'); assert(added_kind == 'drum', added_kind)");
     try rt.loadString("n = wstudio.api.track_count(); wstudio.api.track_del(i); assert(wstudio.api.track_count() == n - 1)");
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.track_add({ kind = 'nope' })"));
 }

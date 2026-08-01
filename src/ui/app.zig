@@ -1695,18 +1695,13 @@ pub const App = struct {
         return true;
     }
 
-    /// Null when the track limit is hit. Reuses doTrackAdd for insert
-    /// position, undo remapping, and the TrackAdd event; the instrument is
-    /// set right after (so a TrackAdd callback still sees kind "empty").
+    /// Null when the track limit is hit. TrackAdd fires after the requested
+    /// instrument exists, so every observer sees the committed state.
     pub fn apiTrackAdd(self: *App, kind: ws.InstrumentKind, name: ?[]const u8) ?usize {
         const before = self.session.project.tracks.items.len;
-        self.doTrackAdd(name);
+        self.doTrackAddKind(name, kind);
         if (self.session.project.tracks.items.len == before) return null;
-        const idx = self.cursor;
-        if (kind != .empty) self.session.setInstrument(idx, kind) catch {
-            self.setStatus("out of memory setting instrument", .{});
-        };
-        return idx;
+        return self.cursor;
     }
 
     /// False when the delete was refused (the last remaining track).
@@ -4567,6 +4562,10 @@ pub const App = struct {
     // zig fmt: on
 
     pub fn doTrackAdd(self: *App, name_arg: ?[]const u8) void {
+        self.doTrackAddKind(name_arg, .empty);
+    }
+
+    fn doTrackAddKind(self: *App, name_arg: ?[]const u8, kind: ws.InstrumentKind) void {
         const pos = self.trackAddInsertIndex();
         const name: []const u8 = name_arg orelse "untitled track";
 
@@ -4589,13 +4588,22 @@ pub const App = struct {
         self.cursor = idx;
         self.invalidateTrackRow();
         self.dirty = true;
-        // Read the group back off the track: `assignTrackGroup` drops a
-        // stale index (a hand-edited file's, the one rebuildTrackRows
-        // already renders as ungrouped) rather than trusting `pos`.
-        if (self.session.project.tracks.items[idx].group) |g| {
-            self.setStatus("added \"{s}\" (track {d}) to \"{s}\"", .{ name, idx + 1, self.session.groups[g].?.name });
-        } else {
-            self.setStatus("added \"{s}\" (track {d})", .{ name, idx + 1 });
+        const instrument_ok = if (kind == .empty) true else blk: {
+            self.session.setInstrument(idx, kind) catch {
+                self.setStatus("out of memory setting instrument", .{});
+                break :blk false;
+            };
+            break :blk true;
+        };
+        if (instrument_ok) {
+            // Read the group back off the track: `assignTrackGroup` drops a
+            // stale index (a hand-edited file's, the one rebuildTrackRows
+            // already renders as ungrouped) rather than trusting `pos`.
+            if (self.session.project.tracks.items[idx].group) |g| {
+                self.setStatus("added \"{s}\" (track {d}) to \"{s}\"", .{ name, idx + 1, self.session.groups[g].?.name });
+            } else {
+                self.setStatus("added \"{s}\" (track {d})", .{ name, idx + 1 });
+            }
         }
         self.emitEvent(.{ .TrackAdd = .{ .track = idx + 1 } });
     }
