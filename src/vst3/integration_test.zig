@@ -62,6 +62,22 @@ pub fn main(init: std.process.Init) !void {
     effect.processBlock(&effect_audio);
     try std.testing.expectApproxEqAbs(@as(f32, 0.2), effect_audio[0], 0.0001);
 
+    const project_path = ".zig-cache/vst3-integration.wsj";
+    {
+        var session = try ws.Session.initDefault(init.gpa);
+        defer session.deinit();
+        try session.setVst3Instrument(0, bundle_path, "575354494e535452554d454e54000001", "wstudio VST3 Test Instrument");
+        const saved_plugin = session.racks.items[0].instrument.vst3;
+        saved_plugin.setParameter(100, 0.75);
+        try ws.persist.save(init.gpa, &session, init.io, project_path);
+    }
+    defer std.Io.Dir.cwd().deleteFile(init.io, project_path) catch {};
+    var loaded = try ws.persist.load(init.gpa, init.io, project_path);
+    defer loaded.deinit();
+    const loaded_plugin = loaded.racks.items[0].instrument.vst3;
+    try std.testing.expectEqualStrings("575354494e535452554d454e54000001", loaded_plugin.classId());
+    try std.testing.expectEqual(@as(f64, 0.75), loaded_plugin.parameterValue(100).?);
+
     var mono = try ws.vst3.Vst3Plugin.loadModule(init.gpa, module_path, bundle_path, "5753544d4f4e4f465800000000000001", 48_000, false);
     defer mono.deinit();
     var mono_audio = [_]ws.types.Sample{ 0.2, 0.6 };

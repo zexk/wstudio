@@ -275,19 +275,18 @@ pub fn build(b: *std.Build) void {
         }),
     });
     const run_vst3_integration_test = b.addRunArtifact(vst3_integration_test);
-    if (target.result.os.tag == .macos) {
-        // Unlike Windows/Linux, macOS module loading resolves bundleEntry/
-        // bundleExit through a CFBundleRef, which needs a real bundle
-        // directory on disk rather than the bare .dylib the other platforms
-        // load directly - so the test plugin gets copied into one.
-        const wf = b.addWriteFiles();
-        const module = wf.addCopyFile(vst3_test_plugin.getEmittedBin(), "wstudio-test.vst3/Contents/MacOS/wstudio-test");
-        run_vst3_integration_test.addFileArg(module);
-        run_vst3_integration_test.addDirectoryArg(wf.getDirectory().path(b, "wstudio-test.vst3"));
-    } else {
-        run_vst3_integration_test.addArtifactArg(vst3_test_plugin);
-        run_vst3_integration_test.addArg("wstudio-test.vst3");
-    }
+    // Persistence reopens the saved bundle path, so fixture needs the same
+    // on-disk layout as a distributed VST3 bundle on every platform.
+    const module_relative = switch (target.result.os.tag) {
+        .linux => b.fmt("Contents/{s}-linux/wstudio-test.so", .{@tagName(target.result.cpu.arch)}),
+        .windows => b.fmt("Contents/{s}-win/wstudio-test.vst3", .{@tagName(target.result.cpu.arch)}),
+        .macos => "Contents/MacOS/wstudio-test",
+        else => unreachable,
+    };
+    const wf = b.addWriteFiles();
+    const module = wf.addCopyFile(vst3_test_plugin.getEmittedBin(), b.pathJoin(&.{ "wstudio-test.vst3", module_relative }));
+    run_vst3_integration_test.addFileArg(module);
+    run_vst3_integration_test.addDirectoryArg(wf.getDirectory().path(b, "wstudio-test.vst3"));
     test_step.dependOn(&run_vst3_integration_test.step);
 
     const check_step = b.step("check", "Build wstudio and run all tests");
