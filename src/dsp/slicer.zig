@@ -411,6 +411,7 @@ pub const Slicer = struct {
                 .samples = self.samples,
                 .start_norm = @as(f32, @floatFromInt(i)) * step_norm,
                 .end_norm = @as(f32, @floatFromInt(i + 1)) * step_norm,
+                .gate = true,
             };
         }
         self.slice_count = count;
@@ -505,6 +506,7 @@ pub const Slicer = struct {
                 .samples = self.samples,
                 .start_norm = start,
                 .end_norm = if (i + 1 < count) next else 1.0,
+                .gate = true,
             };
             start = next;
         }
@@ -1458,6 +1460,7 @@ test "sliceInto equal-divides the clip and clamps out-of-range counts" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.25), s.slices[0].end_norm, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.75), s.slices[3].start_norm, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), s.slices[3].end_norm, 1e-6);
+    for (s.slices[0..4]) |slice| try std.testing.expect(slice.gate);
 
     s.sliceInto(0); // clamps up to 1
     try std.testing.expectEqual(@as(u8, 1), s.slice_count);
@@ -1481,6 +1484,7 @@ test "chopAt normalizes non-finite and descending boundaries" {
         previous = slice.end_norm;
     }
     try std.testing.expectEqual(@as(f32, 1.0), previous);
+    for (s.slices[0..s.slice_count]) |slice| try std.testing.expect(slice.gate);
 }
 
 test "every slice aliases the same underlying buffer (no duplication)" {

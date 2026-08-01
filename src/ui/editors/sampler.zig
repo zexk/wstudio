@@ -117,6 +117,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             },
             'u' => { history.doUndo(app); return true; },
             'U' => { history.doRedo(app); return true; },
+            'B' => {
+                if (is_drum) return false;
+                history.flushParamNudge(app);
+                commands.run(app, "bpm-sync");
+                return true;
+            },
             // s/p reach this track's FX chain and piano roll without a detour
             // through the tracks view - the same two keys the synth editor
             // binds, so every instrument editor sideways-navigates alike.
