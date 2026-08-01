@@ -256,6 +256,19 @@ test "instrument picker click during live search submits then inserts clicked ma
     try std.testing.expectEqual(ws.InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[0].instrument));
 }
 
+test "instrument picker mouse click during live search exits search mode" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    app.handleKey(.enter, 0);
+    for ("/s") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleMouse(.{ .x = 4, .y = app_mod.content_top + 4, .button = .left, .kind = .press }, 80, 24, 0);
+
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(AppView.sampler_editor, app.view);
+    try std.testing.expectEqual(ws.InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[0].instrument));
+}
+
 test "renderBounce sequences notes offline and restores transport" {
     var app = try testApp();
     defer app.deinit();
@@ -2139,7 +2152,7 @@ test "automation editor: tab only cycles gain/pan until the picker adds a synth 
     try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = 21 }, app.automation_focus);
 }
 
-test "automation param click during live search selects lane and leaves search mode" {
+test "automation param mouse click during live search selects lane and leaves search mode" {
     var app = try testApp();
     defer app.deinit();
     try app.session.stampClip(0, 0);
@@ -2155,7 +2168,17 @@ test "automation param click during live search selects lane and leaves search m
             break;
         }
     }
-    app.clickAutomationParamPickerItem(cutoff_idx, 0);
+    var rows_buf: [automation_ed.max_param_display_rows]automation_ed.ParamDisplayRow = undefined;
+    const rows = automation_ed.buildParamDisplayRows(automation_ed.instrumentAutomatableParams(&app), automation_ed.activeParamFilter(&app), &rows_buf);
+    var display_row: usize = 0;
+    for (rows, 0..) |row, i| switch (row) {
+        .param => |param_idx| if (param_idx == cutoff_idx) {
+            display_row = i;
+            break;
+        },
+        .header => {},
+    };
+    app.handleMouse(.{ .x = 4, .y = @intCast(app_mod.content_top + 2 + display_row), .button = .left, .kind = .press }, 80, 24, 0);
 
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(AppView.automation, app.view);
@@ -7222,7 +7245,7 @@ test "FX picker inserts after the focused slot and focuses the new unit" {
     try std.testing.expectEqual(@as(usize, 0), app.fx_focus);
 }
 
-test "FX picker click during live search inserts and leaves search mode" {
+test "FX picker mouse click during live search inserts and leaves search mode" {
     var app = try testApp();
     defer app.deinit();
     spectrum_ed.switchToTrack(&app, 0);
@@ -7231,13 +7254,13 @@ test "FX picker click during live search inserts and leaves search mode" {
     for ("/reverb") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
 
-    app.clickFxPickerItem(0, 0);
+    app.handleMouse(.{ .x = 4, .y = app_mod.content_top + 3, .button = .left, .kind = .press }, 80, 24, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(app_mod.AppView.track_spectrum, app.view);
     try std.testing.expectEqual(ws.FxKind.reverb, app.session.racks.items[0].fx.units.items[0].kind());
 }
 
-test "synth FX picker click during live search inserts and leaves search mode" {
+test "synth FX picker mouse click during live search inserts and leaves search mode" {
     var app = try testApp();
     defer app.deinit();
     app.synth_track = 0;
@@ -7248,7 +7271,7 @@ test "synth FX picker click during live search inserts and leaves search mode" {
     for ("/chorus") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
 
-    app.clickSynthFxPickerItem(0, 0);
+    app.handleMouse(.{ .x = 4, .y = app_mod.content_top + 2, .button = .left, .kind = .press }, 80, 24, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(app_mod.AppView.synth_editor, app.view);
     var block: [64]types.Sample = undefined;
@@ -7703,7 +7726,7 @@ test "f in the synth editor opens the preset picker; / narrows and enter applies
     try std.testing.expect(app.dirty);
 }
 
-test "preset picker click during live search submits then applies match" {
+test "preset picker mouse click during live search submits then applies match" {
     var app = try testApp();
     defer app.deinit();
     app.synth_track = 0;
@@ -7713,7 +7736,17 @@ test "preset picker click during live search submits then applies match" {
     for ("/acid-bass") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
 
-    app.clickPresetPickerItem(0, 0);
+    var rows_buf: [preset_ed.max_display_rows]preset_ed.DisplayRow = undefined;
+    const rows = preset_ed.buildDisplayRows(&app, &rows_buf);
+    var display_row: usize = 0;
+    for (rows, 0..) |row, i| switch (row) {
+        .entry => {
+            display_row = i;
+            break;
+        },
+        .header => {},
+    };
+    app.handleMouse(.{ .x = 4, .y = @intCast(app_mod.content_top + 2 + display_row), .button = .left, .kind = .press }, 80, 24, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(AppView.tracks, app.view);
     const expected = ws.dsp.synth_presets.find("acid-bass").?;

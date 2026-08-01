@@ -476,8 +476,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
             for (rows_list, 0..) |r, ri| switch (r) {
                 .entry => {
                     if (ri == idx) {
-                        app.preset_picker_cursor = n;
-                        applySelected(app);
+                        app.clickPresetPickerItem(n, app.now_ns);
                         return;
                     }
                     n += 1;

@@ -2644,8 +2644,7 @@ pub const App = struct {
                 else
                     null;
                 if (item == null or item.? >= count) return;
-                self.picker_cursor = @intCast(item.?);
-                self.pickerInsert();
+                self.clickInstrumentPickerItem(item.?, self.now_ns);
             },
             .scroll_up => { if (self.picker_cursor > 0) self.picker_cursor -= 1; },
             .scroll_down => { if (self.picker_cursor + 1 < count) self.picker_cursor += 1; },
@@ -3232,8 +3231,7 @@ pub const App = struct {
                 else
                     null;
                 if (item == null or item.? >= kinds.len + external_count) return;
-                self.fx_picker_cursor = @intCast(item.?);
-                self.activateFxPickerItem(kinds);
+                self.clickFxPickerItem(item.?, self.now_ns);
             },
             .scroll_up => { if (self.fx_picker_cursor > 0) self.fx_picker_cursor -= 1; },
             .scroll_down => { if (self.fx_picker_cursor + 1 < kinds.len + external_count) self.fx_picker_cursor += 1; },
@@ -3283,8 +3281,7 @@ pub const App = struct {
         switch (ev.kind) {
             .press => {
                 if (row < 2 or row - 2 >= kinds.len) return;
-                self.synth_fx_picker_cursor = @intCast(row - 2);
-                synth_ed.insertFromSynthFxPicker(self, kinds[self.synth_fx_picker_cursor]);
+                self.clickSynthFxPickerItem(row - 2, self.now_ns);
             },
             .scroll_up => { if (self.synth_fx_picker_cursor > 0) self.synth_fx_picker_cursor -= 1; },
             .scroll_down => { if (self.synth_fx_picker_cursor + 1 < kinds.len) self.synth_fx_picker_cursor += 1; },
@@ -3342,10 +3339,7 @@ pub const App = struct {
                 if (display_row >= rows_list.len) return;
                 switch (rows_list[display_row]) {
                     .header => {},
-                    .param => |i| {
-                        self.automation_param_cursor = @intCast(i);
-                        self.automationParamPick();
-                    },
+                    .param => |i| self.clickAutomationParamPickerItem(i, self.now_ns),
                 }
             },
             .scroll_up => automation_ed.moveParamCursor(self, -1),
