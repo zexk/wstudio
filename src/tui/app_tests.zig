@@ -2139,6 +2139,29 @@ test "automation editor: tab only cycles gain/pan until the picker adds a synth 
     try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = 21 }, app.automation_focus);
 }
 
+test "automation param click during live search selects lane and leaves search mode" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.stampClip(0, 0);
+    automation_ed.switchTo(&app, 0, 0);
+    _ = automation_ed.handleKey(&app, .{ .char = 'p' });
+
+    for ("/cutoff") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
+    var cutoff_idx: usize = 0;
+    for (ws.dsp.synth.PolySynth.automatable_params, 0..) |p, i| {
+        if (p.id == 21) {
+            cutoff_idx = i;
+            break;
+        }
+    }
+    app.clickAutomationParamPickerItem(cutoff_idx, 0);
+
+    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
+    try std.testing.expectEqual(AppView.automation, app.view);
+    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = 21 }, app.automation_focus);
+}
+
 test "visual mode escape cancels the selection without editing" {
     var app = try testApp();
     defer app.deinit();

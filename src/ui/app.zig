@@ -3314,6 +3314,12 @@ pub const App = struct {
         automation_ed.selectParam(self, params[self.automation_param_cursor].id);
     }
 
+    pub fn clickAutomationParamPickerItem(self: *App, index: usize, now_ns: i96) void {
+        if (self.modal.mode == .search) self.handleKey(.enter, now_ns);
+        self.automation_param_cursor = @intCast(index);
+        self.automationParamPick();
+    }
+
     // zig fmt: off
     /// Param picker: click a param row to select + apply it (same as enter/
     /// space); header rows aren't clickable. Scroll moves the highlight.

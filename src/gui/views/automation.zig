@@ -303,8 +303,7 @@ pub fn drawParamPicker(app: anytype) void {
             const range_width = zgui.calcTextSize(range, .{})[0];
             draw_list.addText(.{ origin[0] + width - range_width - 12, origin[1] + 8 }, color(theme.fg2), "{s}", .{range});
             if (clicked) {
-                app.core.automation_param_cursor = @intCast(i);
-                automation_ed.selectParam(&app.core, p.id);
+                app.core.clickAutomationParamPickerItem(i, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             }
         },
     };
