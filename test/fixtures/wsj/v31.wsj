@@ -1,0 +1,24 @@
+{
+  "version": 31,
+  "tracks": [
+    { "name": "utility" }
+  ],
+  "racks": [
+    {
+      "label": "synth",
+      "kind": "empty",
+      "fx_chain": [
+        {
+          "kind": "utility",
+          "utility": {
+            "gain_db": 3,
+            "invert": 1,
+            "mono": 1,
+            "channel": 2,
+            "swap": 1
+          }
+        }
+      ]
+    }
+  ]
+}

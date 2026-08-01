@@ -10,6 +10,7 @@ history lives in [FORMAT.md](FORMAT.md).
 - Internal rack multimode filter with low-pass, high-pass, and band-pass modes,
   cutoff, resonance, drive, and dry/wet mix.
 - Internal rack limiter with ceiling and release controls.
+- Internal rack utility for gain, polarity, mono, channel selection, and swap.
 
 ## v1.0.0-beta.9
 

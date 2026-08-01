@@ -8,7 +8,7 @@
 //!   - Drum step-count + per-pad bitmask patterns + per-pad sampler params
 //!   - Per-track gain / pan / mute / solo + project tempo
 //!   - FX: gate, compressor, multiband compressor (incl. OTT style), limiter,
-//!     EQ, filter, saturator, crusher, chorus, phaser, flanger, tape,
+//!     EQ, filter, utility, saturator, crusher, chorus, phaser, flanger, tape,
 //!     frequency shifter, delay, reverb
 //!   - Rack labels
 //!   - User-loaded sample audio (drum pads + sampler clips), exported as mono
@@ -58,7 +58,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// added and what older files load as) and the bump-vs-additive policy
 /// live in FORMAT.md; per-field migration specifics stay as doc comments
 /// on the snapshot fields they concern.
-pub const file_version: u32 = 30;
+pub const file_version: u32 = 31;
 
 /// The step-grid ceiling both machines had while their step data was a `u64`
 /// bitmask plus a parallel velocity array - one word's bit width. Only the
@@ -667,6 +667,14 @@ pub const LimiterSnap = struct {
     release_ms: f32 = 80,
 };
 
+pub const UtilitySnap = struct {
+    gain_db: f32 = 0,
+    invert: f32 = 0,
+    mono: f32 = 0,
+    channel: f32 = 0,
+    swap: f32 = 0,
+};
+
 /// Legacy (v9 and older) fixed nine-slot rack: one optional per slot, order
 /// implied. Read-only on load; v10 files carry `fx_chain` instead.
 pub const FxSnap = struct {
@@ -683,7 +691,7 @@ pub const FxSnap = struct {
 
 /// Mirrors rack.zig's FxKind - persist keeps its own copy so snapshots stay
 /// pure data, same pattern as `InstrumentKind` below.
-pub const FxKind = enum { gate, comp, mb_comp, ott, limiter, eq, filter, sat, crush, chorus, phaser, flanger, tape, freq_shift, delay, reverb, clap, vst3 };
+pub const FxKind = enum { gate, comp, mb_comp, ott, limiter, eq, filter, utility, sat, crush, chorus, phaser, flanger, tape, freq_shift, delay, reverb, clap, vst3 };
 
 pub const ClapSnap = struct {
     path: []const u8 = "",
@@ -719,6 +727,7 @@ pub const FxUnitSnap = struct {
     eq: ?EqSnap = null,
     filter: ?FilterSnap = null,
     limiter: ?LimiterSnap = null,
+    utility: ?UtilitySnap = null,
     gate: ?GateSnap = null,
     sat: ?SatSnap = null,
     crush: ?CrushSnap = null,
@@ -1341,6 +1350,7 @@ pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]Fx
             },
             .filter => |f| .{ .kind = .filter, .filter = snapFromDevice(FilterSnap, f) },
             .limiter => |l| .{ .kind = .limiter, .limiter = snapFromDevice(LimiterSnap, l) },
+            .utility => |utility| .{ .kind = .utility, .utility = snapFromDevice(UtilitySnap, utility) },
             .gate => |g| .{ .kind = .gate, .gate = snapFromDevice(GateSnap, g) },
             .sat => |s| .{ .kind = .sat, .sat = snapFromDevice(SatSnap, s) },
             .crush => |c| .{ .kind = .crush, .crush = snapFromDevice(CrushSnap, c) },
@@ -2606,7 +2616,7 @@ pub fn applyFxChain(
             else => |saved_kind| blk: {
                 const kind: rack_mod.FxKind = switch (saved_kind) {
                     .gate => .gate, .comp => .comp, .mb_comp => .mb_comp, .ott => .ott, .limiter => .limiter,
-                    .eq => .eq, .filter => .filter, .sat => .sat, .crush => .crush, .chorus => .chorus,
+                    .eq => .eq, .filter => .filter, .utility => .utility, .sat => .sat, .crush => .crush, .chorus => .chorus,
                     .phaser => .phaser, .flanger => .flanger, .tape => .tape,
                     .freq_shift => .freq_shift, .delay => .delay, .reverb => .reverb,
                     .clap, .vst3 => unreachable,
@@ -2680,6 +2690,7 @@ pub fn applyFxChain(
             },
             .filter => |*f| if (us.filter) |fs| applySnapToDevice(f, fs),
             .limiter => |*l| if (us.limiter) |ls| applySnapToDevice(l, ls),
+            .utility => |*u| if (us.utility) |usnap| applySnapToDevice(u, usnap),
             .gate => |*g| if (us.gate) |gs| applySnapToDevice(g, gs),
             .sat => |*s| if (us.sat) |ss| applySnapToDevice(s, ss),
             .crush => |*c| if (us.crush) |cs| applySnapToDevice(c, cs),
@@ -2821,7 +2832,7 @@ fn migrateSynthFx(allocator: std.mem.Allocator, s: *PolySynth, fx: *Fx, sr: u32)
                 v.damp = s.fx_reverb_damp;
                 v.mix = s.fx_reverb_mix;
             },
-            .filter, .limiter, .clap, .vst3 => unreachable,
+            .filter, .limiter, .utility, .clap, .vst3 => unreachable,
         }
     }
     clearMigratedSynthFx(s);
@@ -4786,6 +4797,18 @@ test "golden-file corpus: v30 limiter loads its params" {
     const limiter = &session.racks.items[0].fx.units.items[0].payload.limiter;
     try testing.expectApproxEqAbs(@as(f32, 0.8), limiter.ceiling, 1e-6);
     try testing.expectApproxEqAbs(@as(f32, 150), limiter.release_ms, 1e-6);
+}
+
+test "golden-file corpus: v31 utility loads its params" {
+    const testing = std.testing;
+    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v31.wsj");
+    defer session.deinit();
+    const utility = &session.racks.items[0].fx.units.items[0].payload.utility;
+    try testing.expectApproxEqAbs(@as(f32, 3), utility.gain_db, 1e-6);
+    try testing.expectEqual(@as(f32, 1), utility.invert);
+    try testing.expectEqual(@as(f32, 1), utility.mono);
+    try testing.expectEqual(@as(f32, 2), utility.channel);
+    try testing.expectEqual(@as(f32, 1), utility.swap);
 }
 
 test "golden-file corpus: v26's shelf EQ kinds load" {
