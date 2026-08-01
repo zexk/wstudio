@@ -716,9 +716,10 @@ pub const Vst3Plugin = struct {
             const setup_ok = self.processor.vtable.setup_processing(self.processor, &setup) == 0;
             const active_ok = setup_ok and self.component.vtable.set_active(self.component, 1) == 0;
             const start_result = if (active_ok) self.processor.vtable.set_processing(self.processor, 1) else -1;
-            if (!active_ok or (start_result != 0 and start_result != abi.not_implemented))
+            const restarted = active_ok and (start_result == 0 or start_result == abi.not_implemented);
+            if (!restarted)
                 std.log.err("VST3 restart failed: {s}", .{self.classId()});
-            self.restart_in_progress.store(false, .release);
+            if (restarted) self.restart_in_progress.store(false, .release);
         }
         _ = self.host_context.restart_flags.swap(0, .acquire);
         return self.host_context.state_dirty.swap(false, .acquire);

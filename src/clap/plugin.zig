@@ -317,6 +317,7 @@ pub const ClapPlugin = struct {
     sample_rate: u32,
     transport: ?*const Transport = null,
     steady_time: i64 = 0,
+    activated: bool = true,
     started: bool = false,
     restart_in_progress: std.atomic.Value(bool) = .init(false),
     restart_ready: std.atomic.Value(bool) = .init(false),
@@ -459,7 +460,7 @@ pub const ClapPlugin = struct {
     pub fn deinit(self: *ClapPlugin) void {
         self.destroyGui();
         if (self.started) self.plugin.stop_processing(self.plugin);
-        self.plugin.deactivate(self.plugin);
+        if (self.activated) self.plugin.deactivate(self.plugin);
         self.plugin.destroy(self.plugin);
         self.entry.deinit();
         self.library.close();
@@ -796,10 +797,12 @@ pub const ClapPlugin = struct {
     pub fn serviceMainThread(self: *ClapPlugin) bool {
         if (self.restart_ready.swap(false, .acquire)) {
             self.plugin.deactivate(self.plugin);
+            self.activated = false;
             const audio_layout: ?AudioPortLayout = validateAudioPorts(self.plugin) catch null;
             if (audio_layout) |layout| {
                 const note_support = detectNoteSupport(self.plugin);
                 if (self.plugin.activate(self.plugin, @floatFromInt(self.sample_rate), 1, types.max_block_frames)) {
+                    self.activated = true;
                     self.audio_inputs_count = layout.input_count;
                     self.input_channels = layout.input_channels;
                     self.output_channels = layout.output_channels;
@@ -807,7 +810,7 @@ pub const ClapPlugin = struct {
                     self.supports_midi = note_support.supports_midi;
                 } else std.log.err("CLAP restart activation failed: {s}", .{self.name()});
             } else std.log.err("CLAP restart found unsupported audio ports: {s}", .{self.name()});
-            self.restart_in_progress.store(false, .release);
+            if (self.activated) self.restart_in_progress.store(false, .release);
         }
         if (self.host_context.callback_requested.swap(false, .acquire))
             self.plugin.on_main_thread(self.plugin);
