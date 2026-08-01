@@ -6292,7 +6292,7 @@ test "file browser: / fuzzy-searches filenames; n/N repeat and wrap around" {
     try std.testing.expectEqual(@as(usize, 1), app.browser_cursor); // reverse: kick.wav
 }
 
-test "file browser click during live search opens clicked row" {
+test "file browser mouse click during live search opens clicked row" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
     try tmp.dir.createDirPath(std.testing.io, "kit");
@@ -6304,7 +6304,7 @@ test "file browser click during live search opens clicked row" {
     for ("/snr") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
 
-    app.clickBrowserItem(0, 0);
+    app.handleMouse(.{ .x = 4, .y = app_mod.content_top + 2, .button = .left, .kind = .press }, 80, 24, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(AppView.file_browser, app.view);
     try std.testing.expect(std.mem.endsWith(u8, app.browser_dir, "kit"));

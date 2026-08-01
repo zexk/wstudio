@@ -2662,8 +2662,7 @@ pub const App = struct {
                 if (row < 2) return;
                 const idx = self.browser_scroll + (row - 2);
                 if (idx >= self.browser_entries.items.len) return;
-                self.browser_cursor = idx;
-                self.browserActivate();
+                self.clickBrowserItem(idx, self.now_ns);
             },
             .scroll_up => { if (self.browser_cursor > 0) self.browser_cursor -= 1; },
             .scroll_down => { if (self.browser_cursor + 1 < self.browser_entries.items.len) self.browser_cursor += 1; },
