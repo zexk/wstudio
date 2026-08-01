@@ -167,9 +167,12 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
     zgui.dummy(.{ .w = width, .h = height });
 
     const beats_per_bar: u8 = app.core.session.project.beats_per_bar;
-    const label_stride = @max(1, @as(u32, @intFromFloat(@ceil(58.0 / (plot_size[0] / length_beats)))));
+    const grid_strides = beatGridStrides(length_beats, plot_size[0]);
+    const line_stride = grid_strides[0];
+    const label_stride = grid_strides[1];
     const last_beat: u32 = @intFromFloat(@floor(length_beats));
-    for (0..last_beat + 1) |beat_index| {
+    for (0..last_beat / line_stride + 1) |line_index| {
+        const beat_index: u32 = @intCast(line_index * line_stride);
         const beat: f32 = @floatFromInt(beat_index);
         const x = plot_origin[0] + beat / length_beats * plot_size[0];
         const bar_line = beat_index % beats_per_bar == 0;
@@ -232,6 +235,13 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
         draw_list.addText(.{ badge[0] + 7, badge[1] + 2 }, color(theme.fg1), "INSERT  {d:.2}  {d:.2}", .{ cursor_beat, cursor_value });
     }
     draw_list.addRect(.{ .pmin = plot_origin, .pmax = plot_end, .col = color(theme.bg5), .rounding = style.panel_rounding, .thickness = 1 });
+}
+
+fn beatGridStrides(length_beats: f32, width: f32) [2]u32 {
+    const line_stride = @max(1, @as(u32, @intFromFloat(@ceil(length_beats * 4 / width))));
+    const min_label_stride = @max(1, @as(u32, @intFromFloat(@ceil(length_beats * 58 / width))));
+    const label_stride = (std.math.divCeil(u32, min_label_stride, line_stride) catch unreachable) * line_stride;
+    return .{ line_stride, label_stride };
 }
 
 fn curvePoint(origin: [2]f32, size: [2]f32, beat: f32, value: f32, length_beats: f32, value_range: [2]f32) [2]f32 {
@@ -347,6 +357,11 @@ test "curvePoint maps the lane's corners and clamps past them" {
     const past = curvePoint(origin, size, 99, 999, 16, range);
     try testing.expectApproxEqAbs(origin[0] + size[0], past[0], 0.01);
     try testing.expectApproxEqAbs(origin[1], past[1], 0.01);
+}
+
+test "beat grid bounds work for long clips" {
+    try std.testing.expectEqual([2]u32{ 1, 2 }, beatGridStrides(16, 800));
+    try std.testing.expectEqual([2]u32{ 4000, 60_000 }, beatGridStrides(1_000_000, 1000));
 }
 
 test "compactParamRange labels the unit the param's name implies" {
