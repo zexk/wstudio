@@ -69,10 +69,10 @@ pub fn setPoint(allocator: std.mem.Allocator, points: *[]AutomationPoint, beat: 
 
 /// Remove the point at `beat` (within epsilon). Returns true if one was
 /// removed.
-pub fn removePoint(allocator: std.mem.Allocator, points: *[]AutomationPoint, beat: f64) bool {
+pub fn removePoint(allocator: std.mem.Allocator, points: *[]AutomationPoint, beat: f64) !bool {
     for (points.*, 0..) |p, i| {
         if (@abs(p.beat - beat) < 1e-9) {
-            const shrunk = allocator.alloc(AutomationPoint, points.len - 1) catch return false;
+            const shrunk = try allocator.alloc(AutomationPoint, points.len - 1);
             @memcpy(shrunk[0..i], points.*[0..i]);
             @memcpy(shrunk[i..], points.*[i + 1 ..]);
             allocator.free(points.*);
@@ -183,11 +183,25 @@ test "removePoint drops the matching point" {
     var points: []AutomationPoint = &.{};
     try setPoint(testing.allocator, &points, 0.0, 0.0);
     try setPoint(testing.allocator, &points, 1.0, 1.0);
-    try testing.expect(removePoint(testing.allocator, &points, 0.0));
+    try testing.expect(try removePoint(testing.allocator, &points, 0.0));
     defer testing.allocator.free(points);
     try testing.expectEqual(@as(usize, 1), points.len);
     try testing.expectApproxEqAbs(@as(f64, 1.0), points[0].beat, 1e-9);
-    try testing.expect(!removePoint(testing.allocator, &points, 5.0));
+    try testing.expect(!try removePoint(testing.allocator, &points, 5.0));
+}
+
+test "removePoint preserves the curve when shrinking runs out of memory" {
+    var points = try testing.allocator.dupe(AutomationPoint, &.{
+        .{ .beat = 0.0, .value = 0.0 },
+        .{ .beat = 1.0, .value = 1.0 },
+    });
+    defer testing.allocator.free(points);
+    var empty: [0]u8 = .{};
+    var failing = std.heap.FixedBufferAllocator.init(&empty);
+
+    try testing.expectError(error.OutOfMemory, removePoint(failing.allocator(), &points, 0.0));
+    try testing.expectEqual(@as(usize, 2), points.len);
+    try testing.expectApproxEqAbs(@as(f64, 0.0), points[0].beat, 1e-9);
 }
 
 test "AutomationCurve.set/valueAt round-trip" {

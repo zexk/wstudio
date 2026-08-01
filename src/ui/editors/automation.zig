@@ -359,7 +359,10 @@ fn deleteSelection(app: *App, clip: *ws.Clip) void {
     var i: usize = 0;
     while (i < points.len) {
         if (points.*[i].beat >= lo_beat and points.*[i].beat < hi_beat) {
-            _ = automation_mod.removePoint(app.allocator, points, points.*[i].beat);
+            _ = automation_mod.removePoint(app.allocator, points, points.*[i].beat) catch {
+                app.setStatus("delete failed (out of memory)", .{});
+                return;
+            };
             removed += 1;
         } else i += 1;
     }
@@ -540,7 +543,10 @@ fn deletePoint(app: *App, clip: *ws.Clip) void {
         return;
     }
     history.recordLane(app, app.automation_track);
-    _ = automation_mod.removePoint(app.allocator, points, beat);
+    _ = automation_mod.removePoint(app.allocator, points, beat) catch {
+        app.setStatus("automation edit failed (out of memory)", .{});
+        return;
+    };
     if (app.session.song_mode) app.session.rebuildSongData();
     app.setStatus("point removed", .{});
 }

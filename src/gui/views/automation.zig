@@ -148,7 +148,10 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
     }
     if (curve_result.removed) |beat| {
         recordAutomationGesture(app);
-        if (ws.dsp.automation.removePoint(app.core.allocator, points, beat)) {
+        if (ws.dsp.automation.removePoint(app.core.allocator, points, beat) catch {
+            app.core.setStatus("automation edit failed (out of memory)", .{});
+            return;
+        }) {
             app.core.dirty = true;
         }
     }
