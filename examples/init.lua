@@ -526,6 +526,7 @@
 --                                                --   "gate", "comp",
 --                                                --   "mb_comp", "ott",
 --                                                --   "limiter",
+--                                                --   "transient_shaper",
 --                                                --   "eq", "filter", "utility",
 --                                                --   "stereo_width",
 --                                                --   "auto_pan",

@@ -222,7 +222,7 @@ fn normalizedParam(app: anytype, unit: *ws.FxUnit, index: usize) f32 {
 fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
     return switch (kind) {
         .gate => if (t < amount * 0.8) 0.08 else t,
-        .comp, .mb_comp, .ott, .limiter => if (t < amount) t else amount + (t - amount) * (0.2 + shape * 0.45),
+        .comp, .mb_comp, .ott, .limiter, .transient_shaper => if (t < amount) t else amount + (t - amount) * (0.2 + shape * 0.45),
         .sat, .tape, .crush => 0.5 + std.math.atan((t - 0.5) * (2.0 + amount * 10.0)) / std.math.pi,
         .chorus, .flanger, .phaser, .auto_pan => std.math.clamp(t + @sin(t * std.math.pi * (4.0 + shape * 8.0)) * (0.05 + amount * 0.12), 0, 1),
         .freq_shift => std.math.clamp(t + (amount - 0.5) * 0.35, 0, 1),

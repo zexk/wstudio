@@ -19,6 +19,7 @@ pub const Filter = @import("dsp/filter.zig").Filter;
 pub const Utility = @import("dsp/utility.zig").Utility;
 pub const StereoWidth = @import("dsp/stereo_width.zig").StereoWidth;
 pub const AutoPan = @import("dsp/auto_pan.zig").AutoPan;
+pub const TransientShaper = @import("dsp/transient_shaper.zig").TransientShaper;
 pub const Gate = @import("dsp/gate.zig").Gate;
 pub const Saturator = @import("dsp/saturator.zig").Saturator;
 pub const Crusher = @import("dsp/crusher.zig").Crusher;
@@ -74,6 +75,8 @@ test {
     _ = Utility;
     _ = StereoWidth;
     _ = AutoPan;
+    _ = TransientShaper;
+    _ = TransientShaper;
     _ = Gate;
     _ = Saturator;
     _ = Crusher;

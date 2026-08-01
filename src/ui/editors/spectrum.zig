@@ -35,7 +35,7 @@ pub const spectrum_band_count: usize = 80;
 /// The insertable kinds in picker display order (signal-flow-ish: dynamics,
 /// tone, character, modulation, time).
 pub const picker_kinds = [_]FxKind{
-    .gate, .comp, .mb_comp, .ott, .limiter, .eq, .filter, .utility, .stereo_width, .auto_pan, .sat, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .delay, .reverb,
+    .gate, .comp, .mb_comp, .ott, .limiter, .transient_shaper, .eq, .filter, .utility, .stereo_width, .auto_pan, .sat, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .delay, .reverb,
 };
 
 /// The `/` filter narrowing the FX insert picker right now - same
@@ -99,6 +99,7 @@ pub const effect_specs = [_]EffectSpec{
     .{ .label = "MB COMP",    .editor_title = "MULTIBAND COMP", .strip_label = "MBCP", .badge_label = "mbc",  .category = "DYNAMICS",   .description = "Shape dynamics across three bands",          .display_label = "TRANSFER" },
     .{ .label = "OTT",        .editor_title = "OTT",            .strip_label = "OTT",  .badge_label = "ott",  .category = "DYNAMICS",   .description = "Fast upward and downward compression",       .display_label = "TRANSFER" },
     .{ .label = "LIMITER",    .editor_title = "LIMITER",        .strip_label = "LIM",  .badge_label = "lim",  .category = "DYNAMICS",   .description = "Catch peaks at a fixed ceiling",              .display_label = "TRANSFER" },
+    .{ .label = "TRANSIENT",  .editor_title = "TRANSIENT SHAPER", .strip_label = "TRNS", .badge_label = "trn", .category = "DYNAMICS", .description = "Shape attack and sustain",                    .display_label = "ENVELOPE" },
     .{ .label = "EQ",         .editor_title = "EQ + SPECTRUM",  .strip_label = "EQ",   .badge_label = "eq",   .category = "TONE",       .description = "Eight-band parametric tone shaping",         .display_label = "RESPONSE" },
     .{ .label = "FILTER",     .editor_title = "FILTER",         .strip_label = "FILT", .badge_label = "flt",  .category = "TONE",       .description = "Multimode resonant tone shaping",            .display_label = "RESPONSE" },
     .{ .label = "UTILITY",    .editor_title = "UTILITY",        .strip_label = "UTIL", .badge_label = "utl",  .category = "UTILITY",    .description = "Gain and stereo channel tools",              .display_label = "CHANNELS" },
@@ -190,6 +191,7 @@ pub fn paramCount(k: FxKind) usize {
         .delay => delay_specs.len,
         .ott => ott_specs.len,
         .limiter => limiter_specs.len,
+        .transient_shaper => transient_shaper_specs.len,
         .clap => 0,
         .vst3 => 0,
     };
@@ -434,6 +436,12 @@ const auto_pan_specs = [_]ParamSpec{
     .{ .name = "phase", .field = "phase", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
 };
 
+const transient_shaper_specs = [_]ParamSpec{
+    .{ .name = "attack", .field = "attack", .min = -1.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "sustain", .field = "sustain", .min = -1.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "output", .field = "output_db", .min = -24.0, .max = 12.0, .step_fine = 0.5, .step_coarse = 3.0 },
+};
+
 const sat_specs = [_]ParamSpec{
     .{ .name = "drive", .field = "drive_db", .min = 0.0, .max = 36.0, .step_fine = 1.0, .step_coarse = 6.0 },
     .{ .name = "output", .field = "out_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
@@ -545,6 +553,7 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
         .utility => tableName(&utility_specs, idx),
         .stereo_width => tableName(&stereo_width_specs, idx),
         .auto_pan => tableName(&auto_pan_specs, idx),
+        .transient_shaper => tableName(&transient_shaper_specs, idx),
         .sat => tableName(&sat_specs, idx),
         .crush => tableName(&crush_specs, idx),
         .chorus => tableName(&chorus_specs, idx),
@@ -642,6 +651,7 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
         .utility => |*u| tableGet(u, &utility_specs, idx),
         .stereo_width => |*w| tableGet(w, &stereo_width_specs, idx),
         .auto_pan => |*a| tableGet(a, &auto_pan_specs, idx),
+        .transient_shaper => |*t| tableGet(t, &transient_shaper_specs, idx),
         .sat => |*s| tableGet(s, &sat_specs, idx),
         .crush => |*c| tableGet(c, &crush_specs, idx),
         .chorus => |*c| tableGet(c, &chorus_specs, idx),
@@ -706,6 +716,7 @@ pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
         .utility => tableRange(&utility_specs, idx),
         .stereo_width => tableRange(&stereo_width_specs, idx),
         .auto_pan => tableRange(&auto_pan_specs, idx),
+        .transient_shaper => tableRange(&transient_shaper_specs, idx),
         .sat => tableRange(&sat_specs, idx),
         .crush => tableRange(&crush_specs, idx),
         .chorus => tableRange(&chorus_specs, idx),
@@ -830,6 +841,7 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
         .utility => |*u| tableSet(u, &utility_specs, idx, value),
         .stereo_width => |*w| tableSet(w, &stereo_width_specs, idx, value),
         .auto_pan => |*a| tableSet(a, &auto_pan_specs, idx, value),
+        .transient_shaper => |*t| tableSet(t, &transient_shaper_specs, idx, value),
         .sat => |*s| tableSet(s, &sat_specs, idx, value),
         .crush => |*c| tableSet(c, &crush_specs, idx, value),
         .chorus => |*c| tableSet(c, &chorus_specs, idx, value),
@@ -888,6 +900,7 @@ fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
         .utility => tableStep(&utility_specs, idx, coarse),
         .stereo_width => tableStep(&stereo_width_specs, idx, coarse),
         .auto_pan => tableStep(&auto_pan_specs, idx, coarse),
+        .transient_shaper => tableStep(&transient_shaper_specs, idx, coarse),
         .sat => tableStep(&sat_specs, idx, coarse),
         .crush => tableStep(&crush_specs, idx, coarse),
         .chorus => tableStep(&chorus_specs, idx, coarse),
@@ -1587,6 +1600,10 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
             3 => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100}) catch "?",
             else => if (v < 0.5) "tremolo" else "pan",
         },
+        .transient_shaper => if (idx < 2)
+            std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100}) catch "?"
+        else
+            std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
         .sat => switch (idx) {
             0, 1 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
             else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
