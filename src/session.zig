@@ -995,6 +995,7 @@ pub const Session = struct {
     /// remove, reorder, bypass) or change its `sidechain_source`, not just
     /// after a fresh instrument swap.
     pub fn syncTrackChain(self: *Session, idx: u16, rack: *rack_mod.Rack) void {
+        rack.fx.attachTransport(&self.engine.transport);
         var buf: [rack_mod.Rack.chain_cap]dsp.Device = undefined;
         self.engine.setTrackChain(idx, rack.chain(&buf));
         var sc_buf: [rack_mod.Rack.chain_cap]?Compressor.SidechainSource = undefined;
@@ -1007,6 +1008,7 @@ pub const Session = struct {
     /// `master_fx`. Call after inserting, removing, reordering, or bypassing
     /// a master FX unit, or changing a compressor's `sidechain_source`.
     pub fn syncMasterChain(self: *Session) void {
+        self.master_fx.attachTransport(&self.engine.transport);
         var buf: [rack_mod.Fx.max_units]dsp.Device = undefined;
         self.engine.setMasterChain(self.master_fx.chain(&buf));
         var sc_buf: [rack_mod.Fx.max_units]?Compressor.SidechainSource = undefined;
@@ -1025,6 +1027,7 @@ pub const Session = struct {
         var buf: [rack_mod.Fx.max_units]dsp.Device = undefined;
         var sc_buf: [rack_mod.Fx.max_units]?Compressor.SidechainSource = undefined;
         if (self.groups[idx]) |*g| {
+            g.fx.attachTransport(&self.engine.transport);
             self.engine.setGroupChain(idx, true, g.fx.chain(&buf));
             self.engine.setGroupSidechainSources(idx, g.fx.sidechainSources(&sc_buf));
             _ = self.engine.send(.{ .set_group_gain = .{ .group = idx, .gain = types.dbToGain(g.gain_db) } });

@@ -19,7 +19,7 @@ a sidecar directory, not embedded in the JSON. See
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 32) is the newest format version
+`persist.zig`'s `file_version` (currently 33) is the newest format version
 this build can write and read. Loading enforces one rule:
 
 - **A file whose `version` is newer than `file_version` is hard-rejected**
@@ -85,6 +85,7 @@ they showed up in the same week as one.
 | v30 | The limiter FX unit (`FxUnitSnap.limiter`: ceiling and release). The bump makes older builds reject projects using the new saved enum name. |
 | v31 | The utility FX unit (`FxUnitSnap.utility`: gain, polarity, mono, channel selection, and swap). The bump makes older builds reject projects using the new saved enum name. |
 | v32 | The stereo-width FX unit (`FxUnitSnap.stereo_width`: width and output trim). The bump makes older builds reject projects using the new saved enum name. |
+| v33 | The auto-pan/tremolo FX unit (`FxUnitSnap.auto_pan`: rate, sync, beats, depth, and phase). The bump makes older builds reject projects using the new saved enum name. |
 
 Since v11, every field added has been the additive/no-bump kind described
 above (v12/v13/v14 above are the exceptions - genuine semantic changes, not

@@ -12,6 +12,7 @@ history lives in [FORMAT.md](FORMAT.md).
 - Internal rack limiter with ceiling and release controls.
 - Internal rack utility for gain, polarity, mono, channel selection, and swap.
 - Internal rack stereo width with mono-compatible mid/side width and output trim.
+- Internal rack auto-pan/tremolo with free or tempo-synced rate.
 
 ## v1.0.0-beta.9
 

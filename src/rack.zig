@@ -24,6 +24,7 @@ const Filter = @import("dsp/filter.zig").Filter;
 const Limiter = @import("dsp/limiter.zig").Limiter;
 const Utility = @import("dsp/utility.zig").Utility;
 const StereoWidth = @import("dsp/stereo_width.zig").StereoWidth;
+const AutoPan = @import("dsp/auto_pan.zig").AutoPan;
 pub const ClapPlugin = @import("clap/plugin.zig").ClapPlugin;
 pub const Vst3Plugin = @import("vst3/plugin.zig").Vst3Plugin;
 const PatternPlayer = @import("dsp/pattern.zig").PatternPlayer;
@@ -101,6 +102,7 @@ pub const FxPayload = union(enum) {
     filter: Filter,
     utility: Utility,
     stereo_width: StereoWidth,
+    auto_pan: AutoPan,
     sat: Saturator,
     crush: Crusher,
     chorus: Chorus,
@@ -334,6 +336,13 @@ pub const Fx = struct {
         return null;
     }
 
+    pub fn attachTransport(self: *Fx, transport: *const Transport) void {
+        for (self.units.items) |unit| switch (unit.payload) {
+            .auto_pan => |*effect| effect.attachTransport(transport),
+            else => {},
+        };
+    }
+
     /// A fresh payload of `kind` with its defaults. Only chorus/delay/reverb
     /// allocate (their mod/delay lines).
     pub fn initPayload(allocator: std.mem.Allocator, kind: FxKind, sr: u32) !FxPayload {
@@ -347,6 +356,7 @@ pub const Fx = struct {
             .filter  => .{ .filter = Filter.init(sr) },
             .utility => .{ .utility = .{} },
             .stereo_width => .{ .stereo_width = .{} },
+            .auto_pan => .{ .auto_pan = AutoPan.init(sr) },
             .limiter => .{ .limiter = Limiter.init(sr) },
             .sat     => .{ .sat = .{} },
             .crush   => .{ .crush = .{} },
@@ -755,7 +765,7 @@ test "Fx.dupe deep-copies params and heap buffers independently (used by undo's 
 test "every FX payload stays finite when constructed with zero sample rate" {
     const allocator = std.testing.allocator;
     const kinds = [_]FxKind{
-        .gate,   .comp,   .mb_comp, .ott,  .limiter,    .eq,    .filter, .utility, .stereo_width, .sat, .crush,
+        .gate,   .comp,   .mb_comp, .ott,  .limiter,    .eq,    .filter, .utility, .stereo_width, .auto_pan, .sat, .crush,
         .chorus, .phaser, .flanger, .tape, .freq_shift, .delay, .reverb,
     };
     for (kinds) |kind| {

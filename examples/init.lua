@@ -528,6 +528,7 @@
 --                                                --   "limiter",
 --                                                --   "eq", "filter", "utility",
 --                                                --   "stereo_width",
+--                                                --   "auto_pan",
 --                                                --   "sat", "crush",
 --                                                --   "chorus", "phaser",
 --                                                --   "flanger", "tape",
