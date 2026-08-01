@@ -483,8 +483,9 @@ pub const DrumMachine = struct {
             if (dst.*) |*d| d.deinit();
             dst.* = if (self.pads[i]) |*src| try src.dupe() else null;
         }
+        const midi = try dupeMidi(self.allocator, &self.midi);
         freeMidi(out.allocator, &out.midi);
-        out.midi = try dupeMidi(self.allocator, &self.midi);
+        out.midi = midi;
         out.step_count = self.step_count;
         out.steps_per_beat = self.steps_per_beat;
         out.swing.store(self.swing.load(.monotonic), .monotonic);

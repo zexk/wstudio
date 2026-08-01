@@ -553,12 +553,22 @@ pub const Rack = struct {
         switch (self.instrument) {
             .empty => {},
             .poly_synth => |*s| {
-                rack.instrument = .{ .poly_synth = try s.dupe() };
+                const synth = try s.dupe();
+                rack.instrument = .{ .poly_synth = synth };
                 rack.instrument.poly_synth.attachTransport(transport);
             },
-            .sampler => |*s| rack.instrument = .{ .sampler = try s.dupe() },
-            .drum_machine => |*dm| rack.instrument = .{ .drum_machine = try dm.dupe() },
-            .slicer => |*sl| rack.instrument = .{ .slicer = try sl.dupe() },
+            .sampler => |*s| {
+                const sampler = try s.dupe();
+                rack.instrument = .{ .sampler = sampler };
+            },
+            .drum_machine => |*dm| {
+                const drum_machine = try dm.dupe();
+                rack.instrument = .{ .drum_machine = drum_machine };
+            },
+            .slicer => |*sl| {
+                const slicer = try sl.dupe();
+                rack.instrument = .{ .slicer = slicer };
+            },
             .clap => |plugin| {
                 const copy = try ClapPlugin.load(allocator, plugin.pluginPath(), plugin.id(), sr);
                 var copy_owned = true;
@@ -584,7 +594,10 @@ pub const Rack = struct {
                 rack.instrument = .{ .vst3 = copy };
                 copy_owned = false;
             },
-            .soundfont => |*sf| rack.instrument = .{ .soundfont = try sf.dupe() },
+            .soundfont => |*sf| {
+                const soundfont = try sf.dupe();
+                rack.instrument = .{ .soundfont = soundfont };
+            },
         }
         // Set AFTER the instrument lands in the heap rack - the player holds
         // a pointer into it (same rule as Session.setInstrument).
@@ -850,4 +863,19 @@ test "drum_machine Instrument variant: device ptr stable inside heap Rack" {
         @as(*anyopaque, @ptrCast(&rack.instrument.drum_machine)), ch[0].ptr,
         // zig fmt: on
     );
+}
+
+fn dupeDrumRackForAllocationTest(allocator: std.mem.Allocator) !void {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    const drum_machine = try DrumMachine.init(allocator, 48_000, &transport);
+    var rack: Rack = .{ .instrument = .{ .drum_machine = drum_machine }, .label = "drums" };
+    defer rack.deinit(allocator);
+
+    const copy = try rack.dupe(allocator, 48_000, &transport);
+    copy.deinit(allocator);
+    allocator.destroy(copy);
+}
+
+test "rack duplication cleans partial instruments after allocation failure" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, dupeDrumRackForAllocationTest, .{});
 }

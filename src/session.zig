@@ -265,24 +265,28 @@ pub const Session = struct {
         switch (kind) {
             .empty => {},
             .poly_synth => {
-                rack.instrument = .{ .poly_synth = try PolySynth.init(self.allocator, sr) };
+                const synth = try PolySynth.init(self.allocator, sr);
+                rack.instrument = .{ .poly_synth = synth };
                 // Attached after the synth lands in the heap rack, same
                 // rule the pattern player below follows.
                 rack.instrument.poly_synth.attachTransport(&self.engine.transport);
                 rack.label = "synth";
             },
             .sampler => {
-                rack.instrument = .{ .sampler = try Sampler.init(self.allocator, sr) };
+                const sampler = try Sampler.init(self.allocator, sr);
+                rack.instrument = .{ .sampler = sampler };
                 rack.label = "sampler";
             },
             .drum_machine => {
-                rack.instrument = .{ .drum_machine = try DrumMachine.init(self.allocator, sr, &self.engine.transport) };
+                const drum_machine = try DrumMachine.init(self.allocator, sr, &self.engine.transport);
+                rack.instrument = .{ .drum_machine = drum_machine };
                 rack.instrument.drum_machine.setStepCount(self.defaults.drum_steps);
                 rack.instrument.drum_machine.swing.store(self.defaults.swing, .monotonic);
                 rack.label = "drums";
             },
             .slicer => {
-                rack.instrument = .{ .slicer = try Slicer.init(self.allocator, sr, &self.engine.transport) };
+                const slicer = try Slicer.init(self.allocator, sr, &self.engine.transport);
+                rack.instrument = .{ .slicer = slicer };
                 rack.instrument.slicer.setStepCount(self.defaults.slicer_steps);
                 rack.instrument.slicer.setSwing(self.defaults.swing);
                 rack.label = "slicer";

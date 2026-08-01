@@ -304,16 +304,18 @@ pub const Slicer = struct {
         var copy = try Slicer.init(self.allocator, self.sample_rate, self.transport);
         errdefer copy.deinit();
 
+        const samples = try self.allocator.dupe(f32, self.samples);
         self.allocator.free(copy.samples);
-        copy.samples = try self.allocator.dupe(f32, self.samples);
+        copy.samples = samples;
         copy.slices = self.slices;
         copy.slice_count = self.slice_count;
         for (&copy.slices) |*p| p.samples = copy.samples;
         copy.name = self.name;
         copy.user_sample = self.user_sample;
 
+        const midi = try dupeMidi(self.allocator, &self.midi);
         freeMidi(copy.allocator, &copy.midi);
-        copy.midi = try dupeMidi(self.allocator, &self.midi);
+        copy.midi = midi;
         copy.step_count = self.step_count;
         copy.steps_per_beat = self.steps_per_beat;
         copy.swing.store(self.swing.load(.monotonic), .monotonic);
