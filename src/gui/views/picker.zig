@@ -266,7 +266,10 @@ pub fn drawPreset(app: anytype) void {
         zgui.textColored(theme.audio, "filter: {s}", .{filter});
     }
     zgui.separator();
-    zgui.textDisabled("/ filter   j/k move   enter choose   esc close   [ ] category   a audition", .{});
+    if (app.core.preset_picker_kind == .drum)
+        zgui.textDisabled("/ filter   j/k move   enter choose   esc close   [ ] category", .{})
+    else
+        zgui.textDisabled("/ filter   j/k move   enter choose   esc close   [ ] category   a audition", .{});
     zgui.spacing();
     var ordinal: usize = 0;
     for (rows, 0..) |row, row_index| switch (row) {

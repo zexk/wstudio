@@ -42,7 +42,7 @@ pub fn draw(app: anytype) void {
     }
     zgui.textDisabled("{s}", .{app.core.browser_dir});
     zgui.separator();
-    zgui.textDisabled("/ search   j/k move   enter open   a audition   v select   h up   b mark   esc close", .{});
+    zgui.textDisabled("{s}", .{browserHints(app.core.browser_purpose)});
     zgui.spacing();
 
     if (app.core.browser_entries.items.len == 0) {
@@ -67,6 +67,12 @@ pub fn draw(app: anytype) void {
             break;
         }
     }
+}
+
+fn browserHints(purpose: anytype) []const u8 {
+    if (purpose.canMultiSelect()) return "/ search   j/k move   enter open   a audition   v select   h up   b mark   esc close";
+    if (purpose.canAudition()) return "/ search   j/k move   enter open   a audition   h up   b mark   esc close";
+    return "/ search   j/k move   enter open   h up   b mark   esc close";
 }
 
 fn drawRecentProjects(app: anytype) void {

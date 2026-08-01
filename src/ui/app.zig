@@ -172,6 +172,17 @@ pub const BrowserPurpose = union(enum) {
             .load_soundfont => "load soundfont",
         };
     }
+
+    pub fn canAudition(self: BrowserPurpose) bool {
+        return switch (self) {
+            .load_sample, .load_pad, .load_clip, .load_slice, .load_wavetable => true,
+            .open_project, .load_soundfont => false,
+        };
+    }
+
+    pub fn canMultiSelect(self: BrowserPurpose) bool {
+        return self == .load_pad;
+    }
 };
 
 /// One directory entry as listed by the file browser. `name` is owned
@@ -181,6 +192,18 @@ pub const BrowserEntry = struct {
     name: []u8,
     is_dir: bool,
 };
+
+test "browser capabilities match selected file type" {
+    const sample: BrowserPurpose = .load_sample;
+    const project: BrowserPurpose = .open_project;
+    const soundfont: BrowserPurpose = .load_soundfont;
+    try std.testing.expect(sample.canAudition());
+    try std.testing.expect(!project.canAudition());
+    try std.testing.expect(!soundfont.canAudition());
+    try std.testing.expect((BrowserPurpose{ .load_pad = 0 }).canMultiSelect());
+    const clip: BrowserPurpose = .load_clip;
+    try std.testing.expect(!clip.canMultiSelect());
+}
 
 /// One yanked piano-roll pattern: a private copy of the notes + loop length.
 pub const PianoClip = struct {
@@ -3679,6 +3702,10 @@ pub const App = struct {
     /// play). Retriggering while one is still ringing is fine - the preview
     /// Sampler steals its own voice.
     fn auditionBrowserEntry(self: *App) void {
+        if (!self.browser_purpose.canAudition()) {
+            self.setStatus("audition unavailable for {s}", .{self.browser_purpose.ext()});
+            return;
+        }
         if (self.browser_cursor >= self.browser_entries.items.len) return;
         const entry = self.browser_entries.items[self.browser_cursor];
         if (entry.is_dir) return;

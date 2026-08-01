@@ -15,6 +15,15 @@ const modal_mod = ws.input;
 const automation_mod = ws.dsp.automation;
 const AutomationPoint = automation_mod.AutomationPoint;
 const App = @import("../app.zig").App;
+
+pub fn playheadBeat(clip: *const ws.Clip, position_frames: u64, sample_rate: u32, bpm: f64, playing: bool) ?f64 {
+    if (!playing or sample_rate == 0 or bpm <= 0) return null;
+    const global = @as(f64, @floatFromInt(position_frames)) / @as(f64, @floatFromInt(sample_rate)) * bpm / 60.0;
+    const start = ws.time_grid.tickToBeat(clip.start_tick);
+    const local = global - start;
+    const length = ws.time_grid.tickToBeat(clip.length_ticks);
+    return if (local >= 0 and local < length) local else null;
+}
 const history = @import("../history.zig");
 const fuzzy = @import("../fuzzy.zig");
 const step_grid = @import("step_grid.zig");
@@ -698,4 +707,16 @@ pub fn lastParamCursor(app: *App) u8 {
         .header => {},
     };
     return @intCast(last);
+}
+
+test "playhead beat is clip-relative and only visible inside clip" {
+    const clip = ws.Clip{
+        .start_tick = ws.time_grid.ticks_per_beat * 4,
+        .length_ticks = ws.time_grid.ticks_per_beat * 2,
+        .content = .{ .melodic = .{ .notes = &.{}, .length_beats = 2 } },
+    };
+    try std.testing.expect(playheadBeat(&clip, 48_000 * 3 / 2, 48_000, 120, true) == null);
+    try std.testing.expectApproxEqAbs(@as(f64, 1), playheadBeat(&clip, 48_000 * 5 / 2, 48_000, 120, true).?, 1e-6);
+    try std.testing.expect(playheadBeat(&clip, 48_000 * 3, 48_000, 120, true) == null);
+    try std.testing.expect(playheadBeat(&clip, 48_000 * 5 / 2, 48_000, 120, false) == null);
 }

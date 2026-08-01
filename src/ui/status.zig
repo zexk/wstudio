@@ -547,7 +547,10 @@ pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
     } else if (app.browser_bookmark_mode) {
         try w.writeAll(dim ++ "  " ++ rst ++ "enter: jump  d: remove  esc: back");
     } else {
-        try w.writeAll(dim ++ "  " ++ rst ++ "enter: open  /: search  B: locations  esc: cancel");
+        try w.writeAll(dim ++ "  " ++ rst ++ "enter: open  /: search");
+        if (app.browser_purpose.canAudition()) try w.writeAll("  a: audition");
+        if (app.browser_purpose.canMultiSelect()) try w.writeAll("  v: select");
+        try w.writeAll("  B: locations  esc: cancel");
     }
 }
 

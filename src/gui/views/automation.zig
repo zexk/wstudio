@@ -31,11 +31,13 @@ pub fn draw(app: anytype) void {
         drawEmptyState();
         return;
     };
+    const snap = app.core.session.engine.uiSnapshot();
+    const playhead = automation_ed.playheadBeat(live_clip, snap.position_frames, app.core.session.project.sample_rate, app.core.session.project.tempo_bpm, snap.playing);
 
     drawTargetStrip(app, live_clip);
     zgui.spacing();
     widgets.sectionTitle("ENVELOPE", theme.modulation);
-    drawCurve(app, points, @max(0.25, length_beats), value_range);
+    drawCurve(app, points, @max(0.25, length_beats), value_range, playhead);
     const below_top = zgui.getCursorPosY();
     drawEditor(points.*);
     pane_fit.settle(below_top, 0);
@@ -109,7 +111,7 @@ fn focusedPointIndex(app: anytype, points: []const ws.dsp.automation.AutomationP
     return null;
 }
 
-fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_beats: f32, value_range: [2]f32) void {
+fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_beats: f32, value_range: [2]f32, playhead: ?f64) void {
     const width = zgui.getContentRegionAvail()[0];
     const height: f32 = pane_fit.height(180, 560);
     const origin = zgui.getCursorScreenPos();
@@ -208,6 +210,11 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
         const x1 = plot_origin[0] + @as(f32, @floatFromInt(lo)) * 0.25 / length_beats * plot_size[0];
         const x2 = plot_origin[0] + @as(f32, @floatFromInt(hi)) * 0.25 / length_beats * plot_size[0];
         draw_list.addRectFilled(.{ .pmin = .{ x1, plot_origin[1] }, .pmax = .{ @min(x2, plot_end[0]), plot_end[1] }, .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.12 }) });
+    }
+
+    if (playhead) |beat| {
+        const x = plot_origin[0] + @as(f32, @floatCast(beat)) / length_beats * plot_size[0];
+        draw_list.addLine(.{ .p1 = .{ x, plot_origin[1] }, .p2 = .{ x, plot_end[1] }, .col = color(theme.danger), .thickness = 2 });
     }
 
     // The curve line/nodes themselves are drawn by widgets.curveEditor

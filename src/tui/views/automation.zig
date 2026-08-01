@@ -16,6 +16,7 @@ const acc = style.acc;
 const sel = style.sel;
 const blu = style.blu;
 const yel = style.yel;
+const red = style.red;
 const endLine = style.endLine;
 
 // Lower-eighths block glyphs, shortest to tallest - same idea as
@@ -56,7 +57,6 @@ pub fn drawAutomation(
     cols: usize,
     snap: engine_mod.UiSnapshot,
 ) !void {
-    _ = snap;
     const clip = automation_ed.currentClip(app) orelse {
         try w.writeAll(bold ++ " AUTOMATION" ++ rst ++ dim ++ "  clip gone - esc" ++ rst);
         try endLine(w);
@@ -103,6 +103,8 @@ pub fn drawAutomation(
 
     const points = automation_ed.curvePointsConst(clip, target);
     const range = curveRange(app, target);
+    const playhead = automation_ed.playheadBeat(clip, snap.position_frames, app.session.project.sample_rate, app.session.project.tempo_bpm, snap.playing);
+    const play_step: ?u32 = if (playhead) |beat| @intFromFloat(@floor(beat * 4.0)) else null;
 
     // Visual-mode selection: a step range on the current curve only.
     const visual_active = app.modal.mode == .visual;
@@ -164,7 +166,14 @@ pub fn drawAutomation(
     try w.writeAll("   ");
     col = 0;
     while (col < visible and scroll + col <= total_steps) : (col += 1) {
-        try w.writeAll(if (scroll + col == app.automation_cursor_step) acc ++ "^" ++ rst else " ");
+        const step = scroll + col;
+        if (step == app.automation_cursor_step) {
+            try w.writeAll(if (play_step != null and step == play_step.?) red ++ "^" ++ rst else acc ++ "^" ++ rst);
+        } else if (play_step != null and step == play_step.?) {
+            try w.writeAll(red ++ "│" ++ rst);
+        } else {
+            try w.writeByte(' ');
+        }
     }
     try endLine(w);
 
