@@ -57,6 +57,16 @@ require a shared tempo map plus migration and boundary tests across every one of
 those consumers. That is a new timing subsystem, not bounded release-candidate
 polish, and would risk beta.8 compatibility and live/offline coherence.
 
+## Frontend polish pass
+
+2026-08-01 isolated screenshots covered blank and `demo.wsj` track views,
+arrangement, and populated FX chains in both frontends. TUI coverage used
+160x48 and narrow 100x30 terminals; GUI coverage used its clean Xvfb profile.
+Selection, empty-track state, transport and meter chrome, clip boundaries,
+track labels, FX slots, parameter labels, and bottom status hints remained
+visible without overlap or clipping. No defect appeared in this pass. Captures
+remain under `.zig-cache/beta10-polish/`.
+
 ## Arrangement markers
 
 Existing named sections satisfy the marker candidate without a new model or
