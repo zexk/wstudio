@@ -195,6 +195,8 @@ pub const MultibandComp = struct {
         .{ .threshold_db = -18.0, .ratio = 4.0 },
         .{ .threshold_db = -16.0, .ratio = 3.0 },
     },
+    /// Most recent wet gain change for each band, before dry/wet mix.
+    gain_db: [num_bands]f32 = .{ 0.0, 0.0, 0.0 },
     /// Per-channel crossover networks (L, R) - the split must not smear
     /// stereo state the way a single shared filter would.
     crossover: [2]Crossover = .{ .{}, .{} },
@@ -259,6 +261,7 @@ pub const MultibandComp = struct {
             inline for (0..num_bands) |b| {
                 const level = @max(@abs(bands_l[b]), @abs(bands_r[b]));
                 const gain = self.bands[b].gainFor(level, attack, release, self.style);
+                self.gain_db[b] = types.gainToDb(gain);
                 wet_l += bands_l[b] * gain;
                 wet_r += bands_r[b] * gain;
             }
@@ -278,6 +281,7 @@ pub const MultibandComp = struct {
     pub fn reset(self: *MultibandComp) void {
         for (&self.crossover) |*cx| cx.reset();
         for (&self.bands) |*b| b.reset();
+        self.gain_db = .{ 0.0, 0.0, 0.0 };
     }
 };
 
@@ -299,6 +303,7 @@ test "loud full-spectrum signal is attenuated toward each band's threshold" {
         mb.processBlock(&buf);
     }
     try std.testing.expect(@abs(buf[510]) < 0.6);
+    for (mb.gain_db) |gain_db| try std.testing.expect(gain_db < 0.0);
 }
 
 test "quiet signal passes through nearly untouched in classic style" {

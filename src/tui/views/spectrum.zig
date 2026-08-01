@@ -475,6 +475,24 @@ pub fn drawFxView(
         }
         body_lines = visible_count;
         switch (unit.payload) {
+            .gate => |*gate| {
+                try w.print(dim ++ "   live gate        {d:.0}% open" ++ rst, .{gate.gain * 100});
+                try endLine(w);
+                body_lines += 1;
+            },
+            .comp => |*comp| {
+                try w.print(dim ++ "   gain reduction  {d:.1}dB" ++ rst, .{@max(0, -comp.gain_reduction_db)});
+                try endLine(w);
+                body_lines += 1;
+            },
+            .mb_comp => |*comp| {
+                try drawBandGains(w, comp.gain_db);
+                body_lines += 1;
+            },
+            .ott => |*ott| {
+                try drawBandGains(w, ott.mb.gain_db);
+                body_lines += 1;
+            },
             .limiter => |*lim| {
                 const reduction = -types.gainToDb(lim.gain);
                 try w.print(dim ++ "   gain reduction  {d:.1}dB" ++ rst, .{@max(0, reduction)});
@@ -499,6 +517,11 @@ pub fn drawFxView(
                 try endLine(w);
                 body_lines += 1;
             },
+            .tape => |*tape| {
+                try w.print(dim ++ "   wow position     {s}{d:.0}%" ++ rst, .{ if (tape.lfo_wow.sine(0) >= 0) "+" else "", tape.lfo_wow.sine(0) * tape.wow_depth * 100 });
+                try endLine(w);
+                body_lines += 1;
+            },
             else => {},
         }
         if (unit.bypassed) {
@@ -514,4 +537,13 @@ pub fn drawFxView(
     const prelude: usize = if (compact) 3 else 6;
     const used = prelude + body_lines;
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
+}
+
+fn drawBandGains(w: anytype, gains: [3]f32) !void {
+    try w.print(dim ++ "   band gain        L {s}{d:.1}  M {s}{d:.1}  H {s}{d:.1}dB" ++ rst, .{
+        if (gains[0] >= 0) "+" else "", gains[0],
+        if (gains[1] >= 0) "+" else "", gains[1],
+        if (gains[2] >= 0) "+" else "", gains[2],
+    });
+    try endLine(w);
 }

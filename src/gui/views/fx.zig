@@ -198,7 +198,7 @@ fn drawEffectDisplay(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUni
         draw_list.addPolyline(&spectrum_points, .{ .col = color(.{ theme.audio[0], theme.audio[1], theme.audio[2], 0.42 }), .thickness = 1.5 });
     }
 
-    if (unit.kind() != .utility and unit.kind() != .stereo_width and unit.kind() != .auto_pan) {
+    if (showsEffectCurve(unit.kind())) {
         var points: [65][2]f32 = undefined;
         const amount = normalizedParam(app, unit, 0);
         const shape = normalizedParam(app, unit, 1);
@@ -210,16 +210,28 @@ fn drawEffectDisplay(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUni
         draw_list.addPolyline(&points, .{ .col = color(accent), .thickness = 2.5 });
     }
     switch (unit.payload) {
+        .gate => |*gate| drawResponseMeter(draw_list, origin, size[0], height, gate.gain, "OPEN", accent),
+        .comp => |*comp| drawResponseMeter(draw_list, origin, size[0], height, -comp.gain_reduction_db / 24.0, "GAIN REDUCTION", accent),
+        .mb_comp => |*comp| drawBandGainMeters(draw_list, origin, size[0], height, comp.gain_db, accent),
+        .ott => |*ott| drawBandGainMeters(draw_list, origin, size[0], height, ott.mb.gain_db, accent),
         .limiter => |*lim| drawResponseMeter(draw_list, origin, size[0], height, 1.0 - lim.gain, "GAIN REDUCTION", accent),
         .transient_shaper => |*shaper| drawBipolarMeter(draw_list, origin, size[0], height, shaper.applied_gain_db / 12.0, "APPLIED GAIN", accent),
         .stereo_width => |*width| drawBipolarMeter(draw_list, origin, size[0], height, width.correlation, "CORRELATION", accent),
         .auto_pan => |*pan| drawAutoPanMeter(draw_list, origin, size[0], height, pan, accent),
+        .tape => |*tape| drawBipolarMeter(draw_list, origin, size[0], height, tape.lfo_wow.sine(0) * tape.wow_depth, "WOW POSITION", accent),
         .utility => draw_list.addText(.{ origin[0] + size[0] * 0.5 - 78, origin[1] + height * 0.5 - 8 }, color(accent), "CHANNEL ROUTING", .{}),
         else => {},
     }
     draw_list.addText(.{ origin[0] + 10, origin[1] + 8 }, color(theme.fg2), "{s}", .{spectrum_ed.effectSpec(unit.kind()).display_label});
     draw_list.addText(.{ origin[0] + 10, origin[1] + height - 24 }, color(theme.fg3), "IN", .{});
     draw_list.addText(.{ origin[0] + size[0] - 34, origin[1] + 8 }, color(theme.fg3), "OUT", .{});
+}
+
+fn showsEffectCurve(kind: ws.FxKind) bool {
+    return switch (kind) {
+        .utility, .stereo_width, .auto_pan, .mb_comp, .ott, .limiter, .transient_shaper, .tape => false,
+        else => true,
+    };
 }
 
 fn normalizedParam(app: anytype, unit: *ws.FxUnit, index: usize) f32 {
@@ -233,12 +245,13 @@ fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
     return switch (kind) {
         .gate => if (t < amount * 0.8) 0.08 else t,
         .comp, .mb_comp, .ott, .limiter, .transient_shaper => if (t < amount) t else amount + (t - amount) * (0.2 + shape * 0.45),
-        .sat, .tape, .crush => 0.5 + std.math.atan((t - 0.5) * (2.0 + amount * 10.0)) / std.math.pi,
+        .sat => 0.5 + 0.5 * std.math.tanh((t * 2.0 - 1.0) * std.math.pow(f32, 10.0, amount * 1.8)) / std.math.tanh(std.math.pow(f32, 10.0, amount * 1.8)),
+        .crush => @round(t * std.math.pow(f32, 2.0, amount * 15.0)) / std.math.pow(f32, 2.0, amount * 15.0),
         .chorus, .flanger, .phaser, .auto_pan => std.math.clamp(t + @sin(t * std.math.pi * (4.0 + shape * 8.0)) * (0.05 + amount * 0.12), 0, 1),
         .freq_shift => std.math.clamp(t + (amount - 0.5) * 0.35, 0, 1),
         .delay => std.math.clamp(@exp(-t * (1.5 + shape * 4.0)) * (0.55 + 0.4 * @sin(t * std.math.pi * (6.0 + amount * 10.0))), 0, 1),
         .reverb => std.math.clamp(@exp(-t * (0.8 + (1.0 - amount) * 4.0)) * (0.7 + 0.2 * @sin(t * std.math.pi * 26.0)), 0, 1),
-        .eq, .filter, .utility, .stereo_width => t,
+        .eq, .filter, .utility, .stereo_width, .tape => t,
         .clap, .vst3 => t,
     };
 }
@@ -274,6 +287,14 @@ fn drawBipolarMeter(draw_list: zgui.DrawList, origin: [2]f32, width: f32, height
     draw_list.addRectFilled(.{ .pmin = .{ lo, y }, .pmax = .{ hi, y + 12 }, .col = color(theme.bg3), .rounding = 6 });
     draw_list.addRectFilled(.{ .pmin = .{ @min(mid, end), y }, .pmax = .{ @max(mid, end), y + 12 }, .col = color(accent), .rounding = 6 });
     draw_list.addText(.{ lo, y - 24 }, color(theme.fg2), "{s}", .{label});
+}
+
+fn drawBandGainMeters(draw_list: zgui.DrawList, origin: [2]f32, width: f32, height: f32, gains: [3]f32, accent: [4]f32) void {
+    const labels = [3][]const u8{ "LOW", "MID", "HIGH" };
+    for (gains, labels, 0..) |gain, label, i| {
+        const shifted = [2]f32{ origin[0], origin[1] + @as(f32, @floatFromInt(i)) * 30.0 };
+        drawBipolarMeter(draw_list, shifted, width, height * 0.72, gain / 24.0, label, accent);
+    }
 }
 
 fn drawAutoPanMeter(draw_list: zgui.DrawList, origin: [2]f32, width: f32, height: f32, pan: anytype, accent: [4]f32) void {
@@ -915,4 +936,11 @@ test "auto-pan timing disables only inactive source" {
     payload.auto_pan.sync = 0;
     try std.testing.expect(!autoPanParamDisabled(&payload, 0));
     try std.testing.expect(autoPanParamDisabled(&payload, 2));
+}
+
+test "effect display uses truthful curve types" {
+    try std.testing.expect(!showsEffectCurve(.mb_comp));
+    try std.testing.expect(!showsEffectCurve(.tape));
+    try std.testing.expect(showsEffectCurve(.sat));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), effectDisplayValue(.crush, 0.3, 2.0 / 15.0, 0), 1e-6);
 }

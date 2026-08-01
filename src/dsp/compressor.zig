@@ -32,6 +32,8 @@ pub const Compressor = struct {
     makeup_db: f32 = 0.0,
     /// Envelope follower state (linear peak).
     env: f32 = 0.0,
+    /// Most recent gain change before makeup, for UI metering.
+    gain_reduction_db: f32 = 0.0,
     /// Which track (and optionally which drum pad) this compressor's
     /// envelope follower should detect from instead of its own input -
     /// `null` (default) is ordinary self-detecting compression. Persisted
@@ -100,6 +102,7 @@ pub const Compressor = struct {
                 @max(@abs(buf[i * 2]), @abs(buf[i * 2 + 1]));
             const over_db = envelopeOverDb(&self.env, level, attack, release, threshold_db);
             const reduction_db = downwardReductionDb(over_db, ratio);
+            self.gain_reduction_db = reduction_db;
             const gain = types.dbToGain(reduction_db) * makeup;
 
             buf[i * 2] *= gain;
@@ -121,6 +124,7 @@ pub const Compressor = struct {
     /// session rate.
     pub fn reset(self: *Compressor) void {
         self.env = 0.0;
+        self.gain_reduction_db = 0.0;
         self.detector = null;
     }
 };
@@ -135,6 +139,7 @@ test "attenuates loud signals, passes quiet ones" {
     // (-12 + 12/4), i.e. well below full scale once the envelope settles
     var loud = [_]Sample{1.0} ** 9600;
     comp.processBlock(&loud);
+    try std.testing.expect(comp.gain_reduction_db < 0.0);
     try std.testing.expect(@abs(loud[loud.len - 2]) < 0.5);
 
     // quiet: -40 dB - should pass through nearly untouched
