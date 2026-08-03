@@ -2153,6 +2153,36 @@ test "automation editor: tab only cycles gain/pan until the picker adds a synth 
     try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = 21 }, app.automation_focus);
 }
 
+test "the automation param picker hides the synth's dead FX params" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.stampClip(0, 0);
+    automation_ed.switchTo(&app, 0, 0);
+    _ = automation_ed.handleKey(&app, .{ .char = 'p' });
+
+    // The table still carries them - they are legal mod-matrix destinations,
+    // addressing the rack chain's units - but a lane on one would write a
+    // synth field nothing plays, so the picker must not list them.
+    var fx_in_table: usize = 0;
+    for (ws.dsp.synth.PolySynth.automatable_params) |p| {
+        if (p.modDestOnly()) fx_in_table += 1;
+    }
+    try std.testing.expect(fx_in_table > 0);
+
+    var rows_buf: [automation_ed.max_param_display_rows]automation_ed.ParamDisplayRow = undefined;
+    const params = automation_ed.instrumentAutomatableParams(&app);
+    const rows = automation_ed.buildParamDisplayRows(params, "", &rows_buf);
+    var listed: usize = 0;
+    for (rows) |row| switch (row) {
+        .param => |i| {
+            try std.testing.expect(!params[i].modDestOnly());
+            listed += 1;
+        },
+        .header => |name| try std.testing.expect(!std.mem.startsWith(u8, name, "FX ")),
+    };
+    try std.testing.expect(listed > 0);
+}
+
 test "automation param mouse click during live search selects lane and leaves search mode" {
     var app = try testApp();
     defer app.deinit();

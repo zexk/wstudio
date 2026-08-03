@@ -88,6 +88,19 @@ pub const AutomatableParam = struct {
     /// per-step multiplier for this id, so automation nudges feel consistent
     /// with the live editor's own h/l.
     step: f32,
+
+    /// True for a param that is a legal mod-matrix destination but NOT a
+    /// legal automation lane. PolySynth's `fx_*` ids are the only ones: the
+    /// synth stopped processing its own effects when the rack chain took
+    /// over, so the matrix reaches the *rack* unit that owns the param
+    /// (through `fx_instance_id`) while writing the synth field an
+    /// automation lane would write reaches nothing. Keyed off the section
+    /// rather than a per-row flag so a new FX param can't be added to the
+    /// table and silently show up as a dead lane - every one of them
+    /// declares an "FX <unit>" section.
+    pub fn modDestOnly(self: AutomatableParam) bool {
+        return std.mem.startsWith(u8, self.section, "FX ");
+    }
 };
 
 pub const Device = struct {

@@ -638,10 +638,13 @@ fn paramMatches(p: ws.dsp.device.AutomatableParam, filter: []const u8) bool {
 /// `currentClip` doc comment for why view renderers take `app: anytype`).
 /// `filter` narrows to params (and their section) matching the fuzzy `/`
 /// pattern; a section with no matching params drops its header too.
+/// Mod-destination-only params never list: see `AutomatableParam.modDestOnly`
+/// for why an automation lane on one would write a field nothing plays.
 pub fn buildParamDisplayRows(params: []const ws.dsp.device.AutomatableParam, filter: []const u8, buf: *[max_param_display_rows]ParamDisplayRow) []ParamDisplayRow {
     var n: usize = 0;
     var last_section: []const u8 = "";
     for (params, 0..) |p, i| {
+        if (p.modDestOnly()) continue;
         if (!paramMatches(p, filter)) continue;
         if (!std.mem.eql(u8, p.section, last_section)) {
             if (n >= buf.len) return buf[0..n];
