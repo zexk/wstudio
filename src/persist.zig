@@ -897,6 +897,10 @@ pub const GroupSnap = struct {
     /// Additive: tracks-view fold state (see `Session.Group.folded`). Older
     /// files omit it and every group loads unfolded - the prior behaviour.
     folded: bool = false,
+    /// Additive: bus mute (see `Session.Group.muted`). Older files omit it
+    /// and every group loads unmuted - the prior (mute-had-no-bus-flag)
+    /// behaviour.
+    muted: bool = false,
 };
 
 pub const ClipKind = enum { melodic, drum };
@@ -1031,7 +1035,7 @@ pub fn save(
     const groups = try aa.alloc(GroupSnap, engine_mod.max_groups);
     for (groups, 0..) |*gs, i| {
         if (session.groups[i]) |*g| {
-            gs.* = .{ .active = true, .name = g.name, .fx_chain = try chainToSnap(aa, &g.fx, session.project.sample_rate), .gain_db = g.gain_db, .folded = g.folded };
+            gs.* = .{ .active = true, .name = g.name, .fx_chain = try chainToSnap(aa, &g.fx, session.project.sample_rate), .gain_db = g.gain_db, .folded = g.folded, .muted = g.muted };
         } else {
             gs.* = .{};
         }
@@ -2263,6 +2267,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
             .name = try allocator.dupe(u8, gs.name),
             .gain_db = finiteClamp(f32, gs.gain_db, -60.0, 12.0, 0.0),
             .folded = gs.folded,
+            .muted = gs.muted,
         };
         try applyFxChain(allocator, &self.groups[idx].?.fx, gs.fx_chain, sr, &self.engine.transport);
         self.syncGroupChain(idx);

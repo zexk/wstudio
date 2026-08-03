@@ -448,18 +448,19 @@ fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) 
     }
     widgets.solidMeterBar(draw_list, .{ block_x0 + block_inset, stack.meter }, group_hold, block_w - 2 * block_inset, meter_bar_h, meter_gap, block_fg);
 
-    // Same badge slots a track row gets, in the same two positions, acting
-    // on every member at once (App.doGroupToggle - the group row's own m/S).
-    // A group has no arm state, so the third slot stays empty rather than
-    // shifting these two left out of line with the track rows above.
+    // Same badge slots a track row gets, in the same two positions. Solo
+    // acts on every member track at once (App.doGroupSolo - no bus-level
+    // solo concept in the engine); mute is the bus's own real flag
+    // (App.doGroupMute / group.muted). A group has no arm state, so the
+    // third slot stays empty rather than shifting these two left out of
+    // line with the track rows above.
     var badge_id_buf: [40]u8 = undefined;
-    const soloed = app.core.groupFlagState(group_index, true).all;
+    const soloed = app.core.groupFlagState(group_index).all;
     if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-solo-{d}", .{group_index}) catch "gsolo", badgeX(block_x0, 0), badge_y, "S", soloed, theme.rhythm)) {
-        app.core.doGroupToggle(group_index, true);
+        app.core.doGroupSolo(group_index);
     }
-    const muted = app.core.groupFlagState(group_index, false).all;
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-mute-{d}", .{group_index}) catch "gmute", badgeX(block_x0, 1), badge_y, "M", muted, theme.danger)) {
-        app.core.doGroupToggle(group_index, false);
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-mute-{d}", .{group_index}) catch "gmute", badgeX(block_x0, 1), badge_y, "M", group.muted, theme.danger)) {
+        app.core.doGroupMute(group_index);
     }
     drawTrackRowCursorOutline(chrome, height);
     // Matches drawMixerRow: the badges left the auto-layout cursor parked at

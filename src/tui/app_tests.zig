@@ -7639,7 +7639,7 @@ test "tracks view: group row rides its bus fader, opens its chain, dd deletes th
     try std.testing.expectEqual(@as(usize, 3), app.track_rows_len); // plain track list again
 }
 
-test "tracks view: m/S on a group row mute/solo every member, and toggle back off" {
+test "tracks view: m on a group row flips the bus mute flag; S solos every member" {
     var app = try testApp();
     defer app.deinit();
     const g = try app.session.addGroup("bus");
@@ -7650,22 +7650,18 @@ test "tracks view: m/S on a group row mute/solo every member, and toggle back of
     app.setTrackRow(0); // the group row
     try std.testing.expectEqual(@as(?u8, g), app.cursorGroup());
 
+    // m is a real bus-level flag now, not a mute-every-member loop - member
+    // tracks' own `muted` fields are untouched.
     app.handleKey(.{ .char = 'm' }, 0);
-    try std.testing.expect(app.session.project.tracks.items[0].muted);
-    try std.testing.expect(app.session.project.tracks.items[1].muted);
-    try std.testing.expect(!app.session.project.tracks.items[2].muted); // ungrouped, untouched
-
-    // A second press clears it - the group is fully muted, so the toggle flips.
-    app.handleKey(.{ .char = 'm' }, 0);
+    try std.testing.expect(app.session.groups[g].?.muted);
     try std.testing.expect(!app.session.project.tracks.items[0].muted);
     try std.testing.expect(!app.session.project.tracks.items[1].muted);
 
-    // A partly-muted group mutes the rest rather than unmuting what's set.
-    app.apiSetTrackMuted(0, true);
     app.handleKey(.{ .char = 'm' }, 0);
-    try std.testing.expect(app.session.project.tracks.items[0].muted);
-    try std.testing.expect(app.session.project.tracks.items[1].muted);
+    try std.testing.expect(!app.session.groups[g].?.muted);
 
+    // S has no bus-level concept in the engine, so it still solos every
+    // member track directly.
     app.handleKey(.{ .char = 'S' }, 0);
     try std.testing.expect(app.session.project.tracks.items[0].soloed);
     try std.testing.expect(app.session.project.tracks.items[1].soloed);

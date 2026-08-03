@@ -113,6 +113,8 @@ pub const Session = struct {
         /// Bus fader, dB - applied post-chain by the engine (see
         /// `GroupState.gain`). Same clamp range as track gain.
         gain_db: f32 = 0.0,
+        /// Bus mute - see `engine_mod.GroupState.muted`.
+        muted: bool = false,
         /// Tracks-view fold state: when true the group's member rows are
         /// hidden behind the group's own row. Pure UI state - the engine
         /// never sees it - but persisted so a folded mixer stays folded
@@ -1086,10 +1088,12 @@ pub const Session = struct {
             self.engine.setGroupChain(idx, true, g.fx.chain(&buf));
             self.engine.setGroupSidechainSources(idx, g.fx.sidechainSources(&sc_buf));
             _ = self.engine.send(.{ .set_group_gain = .{ .group = idx, .gain = types.dbToGain(g.gain_db) } });
+            _ = self.engine.send(.{ .set_group_mute = .{ .group = idx, .muted = g.muted } });
         } else {
             self.engine.setGroupChain(idx, false, &.{});
             self.engine.setGroupSidechainSources(idx, &.{});
             _ = self.engine.send(.{ .set_group_gain = .{ .group = idx, .gain = 1.0 } });
+            _ = self.engine.send(.{ .set_group_mute = .{ .group = idx, .muted = false } });
         }
     }
 
@@ -1100,6 +1104,16 @@ pub const Session = struct {
         if (self.groups[idx]) |*g| {
             g.gain_db = std.math.clamp(db, -60.0, 12.0);
             _ = self.engine.send(.{ .set_group_gain = .{ .group = idx, .gain = types.dbToGain(g.gain_db) } });
+        }
+    }
+
+    /// Set group `idx`'s own mute flag and push it to the audio thread.
+    /// No-op on an unused slot.
+    pub fn setGroupMuted(self: *Session, idx: u8, muted: bool) void {
+        if (idx >= engine_mod.max_groups) return;
+        if (self.groups[idx]) |*g| {
+            g.muted = muted;
+            _ = self.engine.send(.{ .set_group_mute = .{ .group = idx, .muted = muted } });
         }
     }
 

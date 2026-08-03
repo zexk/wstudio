@@ -130,7 +130,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("enter",        "open the selected instrument editor - on a group row / MASTER: open its FX chain");
     t.key("p",            "piano roll for melodic tracks (synth, sampler, SoundFont, CLAP, or VST3)");
     t.key("s",            "FX chain for selected track - same on a group row / MASTER");
-    t.key("m",            "mute / unmute selected track - on a group row: every member track at once");
+    t.key("m",            "mute / unmute selected track - on a group row: the bus's own mute flag");
     t.key("S",            "solo / unsolo selected track - on a group row: every member track at once");
     t.key("r",            "arm / disarm track for recording - space records live audio input on an armed Sampler track");
     t.key("M",            "jump to the master row and open its FX chain");

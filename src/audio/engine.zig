@@ -65,6 +65,8 @@ pub const Command = union(enum) {
     set_track_group: struct { track: u16, group: ?u8 },
     /// Group submix bus fader (linear, post-FX-chain - see `GroupState.gain`).
     set_group_gain: struct { group: u8, gain: f32 },
+    /// Group submix bus mute - see `GroupState.muted`.
+    set_group_mute: struct { group: u8, muted: bool },
     /// `group` is only read when `source == .group` (reuses `track` as the
     /// generic focus index otherwise, unchanged) - same one-analyzer-at-a-
     /// time model track/master already share, see `Engine.track_spectrum`.
@@ -214,6 +216,13 @@ const GroupState = struct {
     /// the level of the finished bus, not what feeds its compressor) -
     /// linear, same convention as `TrackState.gain`/`master_gain`.
     gain: f32 = 1.0,
+    /// Bus mute - skips rendering the submix into the mix entirely. A real
+    /// flag on the bus itself, not derived from every member track's own
+    /// `muted` (which used to be how `m` on a group row worked: it flipped
+    /// each member's flag, so a track added to an already-muted group played
+    /// straight through, and unmuting couldn't tell which members were
+    /// individually muted beforehand).
+    muted: bool = false,
     /// Same fixed width as `master_chain` (Fx.max_units, hardcoded here the
     /// same way master_chain's own field already does rather than importing
     /// rack.zig just for the constant).
@@ -957,6 +966,9 @@ pub const Engine = struct {
             .set_group_gain => |c| if (c.group < max_groups) {
                 self.groups[c.group].gain = c.gain;
             },
+            .set_group_mute => |c| if (c.group < max_groups) {
+                self.groups[c.group].muted = c.muted;
+            },
             .set_loop => |c| {
                 self.transport.loop_enabled = c.enabled;
                 self.transport.loop_start_frames = c.start_frames;
@@ -1302,7 +1314,7 @@ pub const Engine = struct {
         // result sums into `out` - the same shape `process()` applies
         // master_chain to the whole mix, one level up.
         for (&self.groups, 0..) |*g, gi| {
-            if (!g.active) continue;
+            if (!g.active or g.muted) continue;
             const gscratch = self.group_scratch[gi][0 .. frames * channels];
             self.processChainWithSidechain(g.chain.slice(), &g.sidechain_sources, gscratch, frames);
             for (out, gscratch) |*o, s| o.* += s * g.gain;
@@ -1703,6 +1715,36 @@ test "grouped tracks submix through their group's FX chain; ungrouped tracks are
 
     try std.testing.expect(ungrouped_loud > 0.05); // reaches `out` at all - routing works
     try std.testing.expect(grouped_loud < ungrouped_loud * 0.5); // crushed by the group's compressor
+}
+
+test "set_group_mute silences the bus without touching member tracks' own mute flags" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.trackAt(0).* = .{ .active = true };
+    engine.setTrackChain(0, &.{synth.device()});
+    _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
+    engine.setGroupChain(0, true, &.{});
+    _ = engine.send(.{ .set_track_group = .{ .track = 0, .group = 0 } });
+
+    var block: [512]Sample = undefined;
+    for (0..4) |_| engine.process(&block);
+    var loud: f32 = 0.0;
+    for (block) |s| loud = @max(loud, @abs(s));
+    try std.testing.expect(loud > 0.05); // reaches `out` unmuted
+
+    _ = engine.send(.{ .set_group_mute = .{ .group = 0, .muted = true } });
+    for (0..4) |_| engine.process(&block);
+    for (block) |s| try std.testing.expectEqual(@as(Sample, 0.0), s); // bus fully silent
+
+    try std.testing.expect(!engine.trackAt(0).muted); // member's own flag untouched
+
+    _ = engine.send(.{ .set_group_mute = .{ .group = 0, .muted = false } });
+    for (0..4) |_| engine.process(&block);
+    loud = 0.0;
+    for (block) |s| loud = @max(loud, @abs(s));
+    try std.testing.expect(loud > 0.05); // unmuting restores it
 }
 
 test "renderTracks routes a compressor's sidechain detector from a different (source) track" {
