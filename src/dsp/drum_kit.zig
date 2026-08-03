@@ -219,6 +219,16 @@ fn hihatOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f3
     return metalHat(allocator, sr, .{ .dur_s = 0.42, .decay = 8.5 });
 }
 
+/// Crash: the open hat's own tone, generated straight to its full
+/// ~1s-plus "wash" length rather than played back through the WSOLA
+/// time-stretcher - a real-time granular stretch has nothing to lock onto
+/// in this much broadband noise, so it splices audibly (see `alt_crash`).
+/// Slower decay (halved-ish) over a longer buffer reproduces the same
+/// perceptual decay curve the stretched version was going for, artifact-free.
+fn crashDefault(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.92, .decay = 3.9 });
+}
+
 /// Tunable knobs behind `clap()` - see `clapGen`. Defaults reproduce the
 /// original shipped clap exactly.
 pub const ClapParams = struct {
@@ -366,6 +376,9 @@ fn hihatAnalogClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Er
 fn hihatAnalogOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return metalHat(allocator, sr, .{ .dur_s = 0.35, .decay = 10.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 });
 }
+fn crashAnalog(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.77, .decay = 4.5, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 });
+}
 fn clapAnalog(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return clapGen(allocator, sr, .{
         .lp_hz = 2500.0, .hp_hz = 1000.0, .burst_decay = 180.0, .tail_decay = 10.0, .tail_mix = 0.7, .dur_s = 0.4,
@@ -405,6 +418,9 @@ fn hihatAcousticClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.
 }
 fn hihatAcousticOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return metalHat(allocator, sr, .{ .dur_s = 0.3, .decay = 11.0, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4 });
+}
+fn crashAcoustic(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.66, .decay = 5.0, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4 });
 }
 fn clapAcoustic(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return clapGen(allocator, sr, .{
@@ -446,6 +462,9 @@ fn hihatIndustrialClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocato
 fn hihatIndustrialOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return metalHat(allocator, sr, .{ .dur_s = 0.6, .decay = 5.0, .body_hz = 5500.0, .air_hz = 8500.0, .air_mix = 0.5 });
 }
+fn crashIndustrial(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 1.32, .decay = 2.3, .body_hz = 5500.0, .air_hz = 8500.0, .air_mix = 0.5 });
+}
 fn clapIndustrial(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return clapGen(allocator, sr, .{
         .lp_hz = 2800.0, .hp_hz = 900.0, .burst_decay = 150.0, .tail_decay = 8.0, .tail_mix = 0.8, .dur_s = 0.45,
@@ -485,6 +504,9 @@ fn hihatBoombapClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.E
 }
 fn hihatBoombapOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return metalHat(allocator, sr, .{ .dur_s = 0.28, .decay = 12.0, .body_hz = 5800.0, .air_hz = 8000.0, .air_mix = 0.15 });
+}
+fn crashBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.62, .decay = 5.5, .body_hz = 5800.0, .air_hz = 8000.0, .air_mix = 0.15 });
 }
 fn clapBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return clapGen(allocator, sr, .{
@@ -529,6 +551,9 @@ fn hihatGfunkClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Err
 fn hihatGfunkOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return metalHat(allocator, sr, .{ .dur_s = 0.3, .decay = 11.0, .body_hz = 6200.0, .air_hz = 8500.0, .air_mix = 0.2 });
 }
+fn crashGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.66, .decay = 5.0, .body_hz = 6200.0, .air_hz = 8500.0, .air_mix = 0.2 });
+}
 fn clapGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return clapGen(allocator, sr, .{
         .lp_hz = 2800.0, .hp_hz = 1100.0, .burst_decay = 210.0, .tail_decay = 15.0, .tail_mix = 0.45, .dur_s = 0.3,
@@ -571,6 +596,9 @@ fn hihatCitypopClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.E
 }
 fn hihatCitypopOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return metalHat(allocator, sr, .{ .dur_s = 0.32, .decay = 10.0, .body_hz = 6800.0, .air_hz = 9500.0, .air_mix = 0.35 });
+}
+fn crashCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.70, .decay = 4.5, .body_hz = 6800.0, .air_hz = 9500.0, .air_mix = 0.35 });
 }
 fn clapCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return clapGen(allocator, sr, .{
@@ -615,6 +643,9 @@ fn hihatTechnopopClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator
 fn hihatTechnopopOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return metalHat(allocator, sr, .{ .dur_s = 0.25, .decay = 14.0, .body_hz = 7500.0, .air_hz = 10_500.0, .air_mix = 0.25 });
 }
+fn crashTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.55, .decay = 6.4, .body_hz = 7500.0, .air_hz = 10_500.0, .air_mix = 0.25 });
+}
 fn clapTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return clapGen(allocator, sr, .{
         .lp_hz = 3400.0, .hp_hz = 1400.0, .burst_decay = 280.0, .tail_decay = 24.0, .tail_mix = 0.3, .dur_s = 0.2,
@@ -657,6 +688,9 @@ fn hihatKawaiiClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Er
 }
 fn hihatKawaiiOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return metalHat(allocator, sr, .{ .dur_s = 0.24, .decay = 13.0, .body_hz = 8000.0, .air_hz = 11_000.0, .air_mix = 0.45 });
+}
+fn crashKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.53, .decay = 5.9, .body_hz = 8000.0, .air_hz = 11_000.0, .air_mix = 0.45 });
 }
 fn clapKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return clapGen(allocator, sr, .{
@@ -701,6 +735,9 @@ fn hihatVaporwaveClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator
 fn hihatVaporwaveOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return metalHat(allocator, sr, .{ .dur_s = 0.5, .decay = 6.0, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 });
 }
+fn crashVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 1.1, .decay = 2.7, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 });
+}
 fn clapVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return clapGen(allocator, sr, .{
         .lp_hz = 2200.0, .hp_hz = 800.0, .burst_decay = 160.0, .tail_decay = 9.0, .tail_mix = 0.75, .dur_s = 0.5,
@@ -743,6 +780,9 @@ fn hihatEurobeatClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.
 }
 fn hihatEurobeatOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return metalHat(allocator, sr, .{ .dur_s = 0.4, .decay = 7.5, .body_hz = 7200.0, .air_hz = 10_000.0, .air_mix = 0.35 });
+}
+fn crashEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.88, .decay = 3.4, .body_hz = 7200.0, .air_hz = 10_000.0, .air_mix = 0.35 });
 }
 fn clapEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return clapGen(allocator, sr, .{
@@ -787,6 +827,9 @@ fn hihatHardcoreClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.
 }
 fn hihatHardcoreOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return metalHat(allocator, sr, .{ .dur_s = 0.2, .decay = 16.0, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4 });
+}
+fn crashHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return metalHat(allocator, sr, .{ .dur_s = 0.44, .decay = 7.3, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4 });
 }
 fn clapHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return clapGen(allocator, sr, .{
@@ -849,9 +892,11 @@ pub const Tune = struct {
 const alt_kick: Tune = .{ .pitch = 3.0, .end = 0.6, .filter = 0.12 };
 const alt_snare: Tune = .{ .pitch = -2.5, .end = 0.5, .filter = -0.16 };
 const alt_hat: Tune = .{ .pitch = 5.0, .end = 0.55, .filter = 0.25 };
-/// Crash = the open hat dropped a fourth and stretched well past its own
-/// decay: a long, heavy wash instead of a hat that rings a little.
-const alt_crash: Tune = .{ .pitch = -5.0, .stretch = 2.2, .filter = -0.08 };
+/// Crash = the open hat's tone dropped a fourth, generated straight to its
+/// own longer, slower-decaying "wash" length (see `crashDefault` and its
+/// per-flavour siblings) rather than time-stretched at runtime - WSOLA has
+/// nothing to lock onto in this much broadband noise and splices audibly.
+const alt_crash: Tune = .{ .pitch = -5.0, .filter = -0.08 };
 const alt_stick: Tune = .{ .pitch = 7.0, .end = 0.35, .filter = 0.3 };
 const alt_perc_hi: Tune = .{ .pitch = 9.0, .end = 0.45, .filter = 0.18 };
 const alt_perc_lo: Tune = .{ .pitch = -4.0, .end = 0.4, .filter = -0.25 };
@@ -894,7 +939,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "hihat", .gen = hihatClosed, .gain = 0.50 },
         .{ .name = "hat-2", .gen = hihatClosed, .gain = 0.45, .tune = alt_hat },
         .{ .name = "open", .gen = hihatOpen, .gain = 0.50 },
-        .{ .name = "crash", .gen = hihatOpen, .gain = 0.45, .tune = alt_crash },
+        .{ .name = "crash", .gen = crashDefault, .gain = 0.45, .tune = alt_crash },
         .{ .name = "clap", .gen = clap, .gain = 0.70 },
         .{ .name = "rim", .gen = rim, .gain = 0.65 },
         .{ .name = "stick", .gen = rim, .gain = 0.55, .tune = alt_stick },
@@ -912,7 +957,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "hihat", .gen = hihatAnalogClosed, .gain = 0.45 },
         .{ .name = "hat-2", .gen = hihatAnalogClosed, .gain = 0.40, .tune = alt_hat },
         .{ .name = "open", .gen = hihatAnalogOpen, .gain = 0.45 },
-        .{ .name = "crash", .gen = hihatAnalogOpen, .gain = 0.42, .tune = alt_crash },
+        .{ .name = "crash", .gen = crashAnalog, .gain = 0.42, .tune = alt_crash },
         .{ .name = "clap", .gen = clapAnalog, .gain = 0.65 },
         .{ .name = "rim", .gen = rimAnalog, .gain = 0.60 },
         .{ .name = "stick", .gen = rimAnalog, .gain = 0.52, .tune = alt_stick },
@@ -930,7 +975,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "hihat", .gen = hihatAcousticClosed, .gain = 0.55 },
         .{ .name = "hat-2", .gen = hihatAcousticClosed, .gain = 0.50, .tune = alt_hat },
         .{ .name = "open", .gen = hihatAcousticOpen, .gain = 0.55 },
-        .{ .name = "crash", .gen = hihatAcousticOpen, .gain = 0.52, .tune = alt_crash },
+        .{ .name = "crash", .gen = crashAcoustic, .gain = 0.52, .tune = alt_crash },
         .{ .name = "clap", .gen = clapAcoustic, .gain = 0.65 },
         .{ .name = "rim", .gen = rimAcoustic, .gain = 0.70 },
         .{ .name = "stick", .gen = rimAcoustic, .gain = 0.62, .tune = alt_stick },
@@ -948,7 +993,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "hihat", .gen = hihatIndustrialClosed, .gain = 0.50 },
         .{ .name = "hat-2", .gen = hihatIndustrialClosed, .gain = 0.45, .tune = alt_hat },
         .{ .name = "open", .gen = hihatIndustrialOpen, .gain = 0.50 },
-        .{ .name = "crash", .gen = hihatIndustrialOpen, .gain = 0.48, .tune = alt_crash },
+        .{ .name = "crash", .gen = crashIndustrial, .gain = 0.48, .tune = alt_crash },
         .{ .name = "clap", .gen = clapIndustrial, .gain = 0.70 },
         .{ .name = "rim", .gen = rimIndustrial, .gain = 0.65 },
         .{ .name = "stick", .gen = rimIndustrial, .gain = 0.58, .tune = alt_stick },
@@ -966,7 +1011,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "hihat", .gen = hihatBoombapClosed, .gain = 0.45 },
         .{ .name = "hat-2", .gen = hihatBoombapClosed, .gain = 0.40, .tune = alt_hat },
         .{ .name = "open", .gen = hihatBoombapOpen, .gain = 0.45 },
-        .{ .name = "crash", .gen = hihatBoombapOpen, .gain = 0.42, .tune = alt_crash },
+        .{ .name = "crash", .gen = crashBoombap, .gain = 0.42, .tune = alt_crash },
         .{ .name = "clap", .gen = clapBoombap, .gain = 0.65 },
         .{ .name = "rim", .gen = rimBoombap, .gain = 0.60 },
         .{ .name = "stick", .gen = rimBoombap, .gain = 0.52, .tune = alt_stick },
@@ -984,7 +1029,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "hihat", .gen = hihatGfunkClosed, .gain = 0.45 },
         .{ .name = "hat-2", .gen = hihatGfunkClosed, .gain = 0.40, .tune = alt_hat },
         .{ .name = "open", .gen = hihatGfunkOpen, .gain = 0.45 },
-        .{ .name = "crash", .gen = hihatGfunkOpen, .gain = 0.42, .tune = alt_crash },
+        .{ .name = "crash", .gen = crashGfunk, .gain = 0.42, .tune = alt_crash },
         .{ .name = "clap", .gen = clapGfunk, .gain = 0.75 },
         .{ .name = "rim", .gen = rimGfunk, .gain = 0.60 },
         .{ .name = "stick", .gen = rimGfunk, .gain = 0.52, .tune = alt_stick },
@@ -1002,7 +1047,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "hihat", .gen = hihatCitypopClosed, .gain = 0.50 },
         .{ .name = "hat-2", .gen = hihatCitypopClosed, .gain = 0.45, .tune = alt_hat },
         .{ .name = "open", .gen = hihatCitypopOpen, .gain = 0.50 },
-        .{ .name = "crash", .gen = hihatCitypopOpen, .gain = 0.47, .tune = alt_crash },
+        .{ .name = "crash", .gen = crashCitypop, .gain = 0.47, .tune = alt_crash },
         .{ .name = "clap", .gen = clapCitypop, .gain = 0.60 },
         .{ .name = "rim", .gen = rimCitypop, .gain = 0.70 },
         .{ .name = "stick", .gen = rimCitypop, .gain = 0.62, .tune = alt_stick },
@@ -1020,7 +1065,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "hihat", .gen = hihatTechnopopClosed, .gain = 0.50 },
         .{ .name = "hat-2", .gen = hihatTechnopopClosed, .gain = 0.45, .tune = alt_hat },
         .{ .name = "open", .gen = hihatTechnopopOpen, .gain = 0.50 },
-        .{ .name = "crash", .gen = hihatTechnopopOpen, .gain = 0.47, .tune = alt_crash },
+        .{ .name = "crash", .gen = crashTechnopop, .gain = 0.47, .tune = alt_crash },
         .{ .name = "clap", .gen = clapTechnopop, .gain = 0.65 },
         .{ .name = "rim", .gen = rimTechnopop, .gain = 0.65 },
         .{ .name = "stick", .gen = rimTechnopop, .gain = 0.57, .tune = alt_stick },
@@ -1038,7 +1083,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "hihat", .gen = hihatKawaiiClosed, .gain = 0.50 },
         .{ .name = "hat-2", .gen = hihatKawaiiClosed, .gain = 0.45, .tune = alt_hat },
         .{ .name = "open", .gen = hihatKawaiiOpen, .gain = 0.50 },
-        .{ .name = "crash", .gen = hihatKawaiiOpen, .gain = 0.47, .tune = alt_crash },
+        .{ .name = "crash", .gen = crashKawaii, .gain = 0.47, .tune = alt_crash },
         .{ .name = "clap", .gen = clapKawaii, .gain = 0.70 },
         .{ .name = "rim", .gen = rimKawaii, .gain = 0.65 },
         .{ .name = "stick", .gen = rimKawaii, .gain = 0.57, .tune = alt_stick },
@@ -1056,7 +1101,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "hihat", .gen = hihatVaporwaveClosed, .gain = 0.40 },
         .{ .name = "hat-2", .gen = hihatVaporwaveClosed, .gain = 0.35, .tune = alt_hat },
         .{ .name = "open", .gen = hihatVaporwaveOpen, .gain = 0.40 },
-        .{ .name = "crash", .gen = hihatVaporwaveOpen, .gain = 0.37, .tune = alt_crash },
+        .{ .name = "crash", .gen = crashVaporwave, .gain = 0.37, .tune = alt_crash },
         .{ .name = "clap", .gen = clapVaporwave, .gain = 0.60 },
         .{ .name = "rim", .gen = rimVaporwave, .gain = 0.55 },
         .{ .name = "stick", .gen = rimVaporwave, .gain = 0.47, .tune = alt_stick },
@@ -1074,7 +1119,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "hihat", .gen = hihatEurobeatClosed, .gain = 0.50 },
         .{ .name = "hat-2", .gen = hihatEurobeatClosed, .gain = 0.45, .tune = alt_hat },
         .{ .name = "open", .gen = hihatEurobeatOpen, .gain = 0.55 },
-        .{ .name = "crash", .gen = hihatEurobeatOpen, .gain = 0.50, .tune = alt_crash },
+        .{ .name = "crash", .gen = crashEurobeat, .gain = 0.50, .tune = alt_crash },
         .{ .name = "clap", .gen = clapEurobeat, .gain = 0.70 },
         .{ .name = "rim", .gen = rimEurobeat, .gain = 0.65 },
         .{ .name = "stick", .gen = rimEurobeat, .gain = 0.57, .tune = alt_stick },
@@ -1092,7 +1137,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "hihat", .gen = hihatHardcoreClosed, .gain = 0.45 },
         .{ .name = "hat-2", .gen = hihatHardcoreClosed, .gain = 0.40, .tune = alt_hat },
         .{ .name = "open", .gen = hihatHardcoreOpen, .gain = 0.45 },
-        .{ .name = "crash", .gen = hihatHardcoreOpen, .gain = 0.42, .tune = alt_crash },
+        .{ .name = "crash", .gen = crashHardcore, .gain = 0.42, .tune = alt_crash },
         .{ .name = "clap", .gen = clapHardcore, .gain = 0.70 },
         .{ .name = "rim", .gen = rimHardcore, .gain = 0.60 },
         .{ .name = "stick", .gen = rimHardcore, .gain = 0.52, .tune = alt_stick },
