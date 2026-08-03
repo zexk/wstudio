@@ -406,6 +406,10 @@ pub const Engine = struct {
         lufs_momentary_bits: std.atomic.Value(u32) = .init(@bitCast(LoudnessMeter.floor_lufs)),
         lufs_short_term_bits: std.atomic.Value(u32) = .init(@bitCast(LoudnessMeter.floor_lufs)),
         lufs_integrated_bits: std.atomic.Value(u32) = .init(@bitCast(LoudnessMeter.floor_lufs)),
+        /// Blocks `process` has finished, ever. Read by the control thread to
+        /// tell when a device dropped from a chain can no longer be in use -
+        /// see `Engine.blocksDone` and `Session.retireFxChain`.
+        blocks_done: std.atomic.Value(u64) = .init(0),
     };
 
     /// By-value init, for tests that keep an Engine on their own frame -
@@ -847,6 +851,15 @@ pub const Engine = struct {
         self.shared.lufs_momentary_bits.store(@bitCast(self.master_loudness.momentary()), .monotonic);
         self.shared.lufs_short_term_bits.store(@bitCast(self.master_loudness.shortTerm()), .monotonic);
         self.shared.lufs_integrated_bits.store(@bitCast(self.master_loudness.integrated()), .monotonic);
+        _ = self.shared.blocks_done.fetchAdd(1, .release);
+    }
+
+    /// How many blocks `process` has completed. A device that was still in a
+    /// chain when this read `n` can only be touched by blocks `<= n`, so once
+    /// it reads `> n` no in-flight block can reach that device any more -
+    /// which is what makes deferred FX-unit frees safe (`Session.retireFxChain`).
+    pub fn blocksDone(self: *const Engine) u64 {
+        return self.shared.blocks_done.load(.acquire);
     }
 
     pub fn uiSnapshot(self: *const Engine) UiSnapshot {

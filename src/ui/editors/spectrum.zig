@@ -1154,7 +1154,7 @@ pub fn removeFocused(app: *App, target: EqTarget) void {
     const unit = fx.units.orderedRemove(app.fx_focus);
     syncChain(app, target);
     const label = unitLabel(unit.kind());
-    app.session.retired_fx.appendAssumeCapacity(unit);
+    app.session.retired_fx.appendAssumeCapacity(.{ .unit = unit, .block = app.session.engine.blocksDone() });
     if (app.fx_focus > 0 and app.fx_focus >= fx.units.items.len) app.fx_focus -= 1;
     app.fx_param = 0;
     app.dirty = true;

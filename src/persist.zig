@@ -2926,12 +2926,16 @@ fn fxKindOwnsParam(kind: synth_mod.FxUnitKind, id: u16) bool {
     };
 }
 
+/// Install `patch` (and the FX chain its legacy carriers migrate into) on
+/// `rack`'s synth, returning the chain it displaced. The caller owns that
+/// chain and must re-sync the rack's chain to the engine BEFORE disposing of
+/// it - `Session.retireFxChain` is the disposal to use on a live rack.
 pub fn applySynthPatch(
     allocator: std.mem.Allocator,
     rack: *Rack,
     patch: PolySynth.Patch,
     sr: u32,
-) !void {
+) !Fx {
     if (rack.instrument != .poly_synth) return error.NotSynth;
     const synth = &rack.instrument.poly_synth;
     var probe = synth.*;
@@ -2951,8 +2955,9 @@ pub fn applySynthPatch(
     // or every migrated modulation lands on nothing.
     for (&synth.mod_matrix, probe.mod_matrix) |*row, migrated| row.fx_instance_id = migrated.fx_instance_id;
     clearMigratedSynthFx(synth);
-    rack.fx.deinit(allocator);
+    const displaced = rack.fx;
     rack.fx = replacement;
+    return displaced;
 }
 
 /// v9-and-older fallback: expand the fixed struct-of-optionals rack into
@@ -5237,14 +5242,20 @@ test "a synth preset replaces the whole FX chain and rebinds its mod rows" {
     first.fx_reverb_on = true;
     first.fx_dist_on = true;
     first.mod_matrix[0] = .{ .source = .mac1, .dest = 85, .depth = 0.5 };
-    try applySynthPatch(testing.allocator, &rack, first, 48_000);
+    {
+        var old = try applySynthPatch(testing.allocator, &rack, first, 48_000);
+        old.deinit(testing.allocator);
+    }
     try testing.expectEqual(@as(usize, 3), rack.fx.units.items.len);
     const sat = rack.fx.find(.sat).?;
     try testing.expectEqual(sat.instance_id, rack.instrument.poly_synth.mod_matrix[0].fx_instance_id);
 
     var second: PolySynth.Patch = .{};
     second.fx_delay_on = true;
-    try applySynthPatch(testing.allocator, &rack, second, 48_000);
+    {
+        var old = try applySynthPatch(testing.allocator, &rack, second, 48_000);
+        old.deinit(testing.allocator);
+    }
     try testing.expectEqual(@as(usize, 1), rack.fx.units.items.len);
     try testing.expectEqual(rack_mod.FxKind.delay, rack.fx.units.items[0].kind());
 
@@ -5254,7 +5265,10 @@ test "a synth preset replaces the whole FX chain and rebinds its mod rows" {
     const warm = for (@import("dsp/synth_presets.zig").presets) |p| {
         if (std.mem.eql(u8, p.name, "warm-pad")) break p;
     } else return error.PresetMissing;
-    try applySynthPatch(testing.allocator, &rack, warm.patch, 48_000);
+    {
+        var old = try applySynthPatch(testing.allocator, &rack, warm.patch, 48_000);
+        old.deinit(testing.allocator);
+    }
     const reverb = rack.fx.find(.reverb).?;
     for (rack.instrument.poly_synth.mod_matrix) |row| {
         if (row.dest != 115) continue; // reverb mix

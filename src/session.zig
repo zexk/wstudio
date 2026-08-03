@@ -65,8 +65,10 @@ pub const Session = struct {
     /// same rationale as `retired_racks`: `ChainBank.set`'s atomic buffer
     /// flip only guarantees the audio thread reads a whole chain
     /// consistently, not that it has finished calling `process` on a unit
-    /// dropped from the chain it read just before the flip. Freed at deinit.
-    retired_fx: std.ArrayListUnmanaged(*rack_mod.FxUnit),
+    /// dropped from the chain it read just before the flip. Reclaimed once
+    /// the audio thread has provably passed them (`reclaimRetiredFx`), and
+    /// whatever is left over is freed at deinit.
+    retired_fx: std.ArrayListUnmanaged(RetiredFx),
     /// Song-mode clip timeline, one lane per track (parallel to `racks`).
     arrangement: Arrangement,
     /// Record-arm state, one per track (parallel to `racks`/`project.tracks`).
@@ -996,6 +998,48 @@ pub const Session = struct {
         _ = self.engine.send(.reset_loudness);
     }
 
+    /// One FX unit awaiting a deferred free, stamped with the engine block
+    /// count at the moment it left the (already re-synced) chain.
+    pub const RetiredFx = struct { unit: *rack_mod.FxUnit, block: u64 };
+
+    /// Free every retired unit the audio thread has provably finished with:
+    /// a unit stamped `block` can only be reached by blocks up to and
+    /// including `block`, so once `blocksDone()` is past it, nothing can be
+    /// mid-`process` on it. Without this the list only grew, and swapping a
+    /// whole chain per keystroke (preset audition) leaks every chain it
+    /// walks past.
+    pub fn reclaimRetiredFx(self: *Session) void {
+        const done = self.engine.blocksDone();
+        var i: usize = 0;
+        while (i < self.retired_fx.items.len) {
+            const r = self.retired_fx.items[i];
+            if (done > r.block) {
+                r.unit.payload.deinit(self.allocator);
+                self.allocator.destroy(r.unit);
+                _ = self.retired_fx.swapRemove(i);
+            } else i += 1;
+        }
+    }
+
+    /// Take ownership of a whole chain's units for deferred free. Call with
+    /// the DISPLACED chain, after its replacement has already been pushed to
+    /// the audio thread - freeing here instead is a crash-capable
+    /// use-after-free (see `retired_fx`). `fx` is consumed.
+    pub fn retireFxChain(self: *Session, fx: rack_mod.Fx) void {
+        self.reclaimRetiredFx();
+        var owned = fx;
+        const block = self.engine.blocksDone();
+        for (owned.units.items) |u| {
+            self.retired_fx.append(self.allocator, .{ .unit = u, .block = block }) catch {
+                // Nothing left to try: the unit is already unpublished, so a
+                // synchronous free is less bad than leaking it outright.
+                u.payload.deinit(self.allocator);
+                self.allocator.destroy(u);
+            };
+        }
+        owned.units.deinit(self.allocator);
+    }
+
     /// Push `rack`'s chain (instrument/pattern-player + active FX units) to
     /// the audio thread, AND the sidechain-detector routing for any
     /// compressor in that chain (see `Rack.sidechainSources`) - the two
@@ -1146,13 +1190,16 @@ pub const Session = struct {
     /// inactive. No-op on an already-unused slot.
     pub fn deleteGroup(self: *Session, idx: u8) void {
         if (idx >= engine_mod.max_groups) return;
-        var g = self.groups[idx] orelse return;
+        const g = self.groups[idx] orelse return;
         for (self.project.tracks.items, 0..) |*t, ti| {
             if (t.group == idx) self.assignTrackGroup(ti, null);
         }
-        g.deinit(self.allocator);
+        // Unpublish the chain before the units it points at go away - see
+        // `retireFxChain`.
+        self.allocator.free(g.name);
         self.groups[idx] = null;
         self.syncGroupChain(idx);
+        self.retireFxChain(g.fx);
     }
 
     /// Assign (or clear, with `null`) which group track `track_idx` submixes
@@ -1366,7 +1413,7 @@ pub const Session = struct {
         for (self.racks.items) |r| { r.deinit(self.allocator); self.allocator.destroy(r); }
         self.racks.deinit(self.allocator);
         for (self.retired_racks.items) |r| { r.deinit(self.allocator); self.allocator.destroy(r); }
-        for (self.retired_fx.items) |u| { u.payload.deinit(self.allocator); self.allocator.destroy(u); }
+        for (self.retired_fx.items) |r| { r.unit.payload.deinit(self.allocator); self.allocator.destroy(r.unit); }
         // zig fmt: on
         self.retired_racks.deinit(self.allocator);
         self.retired_fx.deinit(self.allocator);

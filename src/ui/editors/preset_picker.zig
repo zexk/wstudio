@@ -342,10 +342,11 @@ pub fn close(app: *App) void {
             s.applyPatch(app.preset_audition_original);
             if (app.preset_audition_original_fx) |fx| {
                 const rack = app.session.racks.items[app.preset_picker_track];
-                rack.fx.deinit(app.allocator);
+                const displaced = rack.fx;
                 rack.fx = fx;
                 app.preset_audition_original_fx = null;
                 app.session.syncTrackChain(app.preset_picker_track, rack);
+                app.session.retireFxChain(displaced);
             }
         }
         app.preset_audition_active = false;
@@ -503,22 +504,24 @@ fn targetSynth(app: *App) ?*ws.dsp.PolySynth {
 fn applySynthPreset(app: *App, patch: ws.dsp.PolySynth.Patch) bool {
     if (app.preset_picker_track >= app.session.racks.items.len) return false;
     const rack = app.session.racks.items[app.preset_picker_track];
-    ws.persist.applySynthPatch(app.allocator, rack, patch, app.session.project.sample_rate) catch |e| {
+    const displaced = ws.persist.applySynthPatch(app.allocator, rack, patch, app.session.project.sample_rate) catch |e| {
         app.setStatus("synth preset: {s}", .{@errorName(e)});
         return false;
     };
     app.session.syncTrackChain(app.preset_picker_track, rack);
+    app.session.retireFxChain(displaced);
     return true;
 }
 
 fn applyUserPreset(app: *App, preset: *const user_presets.UserPreset) bool {
     if (app.preset_picker_track >= app.session.racks.items.len) return false;
     const rack = app.session.racks.items[app.preset_picker_track];
-    user_presets.apply(app.allocator, rack, preset, app.session.project.sample_rate) catch |e| {
+    const displaced = user_presets.apply(app.allocator, rack, preset, app.session.project.sample_rate) catch |e| {
         app.setStatus("synth preset: {s}", .{@errorName(e)});
         return false;
     };
     app.session.syncTrackChain(app.preset_picker_track, rack);
+    app.session.retireFxChain(displaced);
     return true;
 }
 

@@ -8773,3 +8773,31 @@ test "every mod-matrix source has a name the synth editor can draw" {
         try tui_mod.draw(&app, &w, .{ .cols = 210, .rows = 60 });
     }
 }
+
+test "applying a synth preset defers the displaced FX chain's free until the audio thread passes it" {
+    var app = try testApp();
+    defer app.deinit();
+    const rack = app.session.racks.items[0];
+    _ = try rack.fx.insert(std.testing.allocator, 0, .reverb, app.session.project.sample_rate);
+    app.session.syncTrackChain(0, rack);
+
+    app.synth_track = 0;
+    app.view = .synth_editor;
+    app.handleKey(.{ .char = 'f' }, 0);
+    app.handleKey(.{ .char = 'j' }, 0);
+    app.handleKey(.{ .char = 'a' }, 0);
+
+    // The chain the engine read last block can still point at the displaced
+    // reverb, so it has to be queued rather than freed under the audio
+    // thread's feet - auditioning down the preset list crashed on exactly
+    // that, in Reverb.processBlock.
+    try std.testing.expect(app.session.retired_fx.items.len > 0);
+
+    // Two completed blocks put every in-flight block strictly past it, so
+    // the queue drains instead of growing once per preset walked past.
+    var out = [_]f32{0} ** 128;
+    app.session.engine.process(&out);
+    app.session.engine.process(&out);
+    app.session.reclaimRetiredFx();
+    try std.testing.expectEqual(@as(usize, 0), app.session.retired_fx.items.len);
+}

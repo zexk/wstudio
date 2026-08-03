@@ -162,14 +162,17 @@ pub fn find(list: []const UserPreset, name: []const u8) ?*const UserPreset {
 }
 
 /// Replace synth and full FX chain only after duplicating every owned FX
-/// resource succeeds. Failure leaves live rack untouched.
-pub fn apply(allocator: std.mem.Allocator, rack: *ws.Rack, preset: *const UserPreset, sample_rate: u32) !void {
+/// resource succeeds. Failure leaves live rack untouched. Returns the
+/// displaced chain on the same terms as `persist.applySynthPatch`: re-sync
+/// the rack's chain to the engine before disposing of it.
+pub fn apply(allocator: std.mem.Allocator, rack: *ws.Rack, preset: *const UserPreset, sample_rate: u32) !ws.Fx {
     if (rack.instrument != .poly_synth) return error.NotSynth;
     var replacement = try preset.fx.dupe(allocator, sample_rate);
     errdefer replacement.deinit(allocator);
     try rack.instrument.poly_synth.applyPatchWithWavetables(preset.patch);
-    rack.fx.deinit(allocator);
+    const displaced = rack.fx;
     rack.fx = replacement;
+    return displaced;
 }
 
 pub fn deinit(allocator: std.mem.Allocator, list: *std.ArrayListUnmanaged(UserPreset)) void {

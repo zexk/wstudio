@@ -2020,7 +2020,7 @@ fn cmdSynthPreset(app: *App, args: []const u8) void {
         return;
     };
     const rack = app.session.racks.items[app.cursor];
-    if (user) |preset|
+    const displaced = if (user) |preset|
         user_presets.apply(app.allocator, rack, preset, app.session.project.sample_rate) catch |e| {
             app.setStatus("synth-preset: {s}", .{@errorName(e)});
             return;
@@ -2031,6 +2031,7 @@ fn cmdSynthPreset(app: *App, args: []const u8) void {
             return;
         };
     app.session.syncTrackChain(@intCast(app.cursor), rack);
+    app.session.retireFxChain(displaced);
     app.dirty = true;
     app.setStatus("synth preset: {s}", .{trimmed});
 }
