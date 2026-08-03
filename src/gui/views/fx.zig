@@ -151,7 +151,9 @@ fn drawEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void
     if (unit.kind() == .eq) {
         drawEqEditor(app, target, unit);
     } else {
-        ensureEqAnalyzer(app, target);
+        // Only the filter's display puts a spectrum behind its curve, so it is
+        // the only non-EQ unit worth running the analyzer for.
+        if (unit.kind() == .filter) ensureEqAnalyzer(app, target);
         const param_count = spectrum_ed.visibleParamCount(&app.core, unit.kind(), &unit.payload);
         const grid = paramGrid(param_count);
         // Plus the `spacing()` below, which costs an item spacing twice over
@@ -164,72 +166,149 @@ fn drawEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void
     }
 }
 
+/// Inset the pane keeps clear on every side, so nothing it draws touches the
+/// rounded corners.
+const display_pad: f32 = 12;
+
 fn drawEffectDisplay(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, grid_floor: f32) void {
     const size = zgui.getContentRegionAvail();
+    // The pane is one box with at most two stacked regions: a plot on top and
+    // a strip of live meters under it. They are laid out from the same height
+    // so neither can be drawn over the other, and each carries only the chrome
+    // its own axes justify - grid and axis labels belong to the plot, and a
+    // meter has no axes at all.
+    var text_buf: [3][20]u8 = undefined;
+    var row_buf: [3]MeterRow = undefined;
+    const rows = meterRows(unit, &row_buf, &text_buf);
+    const has_plot = showsEffectCurve(unit.kind());
+    const title_h = zgui.getTextLineHeight() + 2 * display_pad;
+    const meter_h: f32 = if (rows.len == 0) 0 else display_pad + @as(f32, @floatFromInt(rows.len)) * meter_row_h;
+
     // The cards below are a unit: whatever they need at their shortest is
     // theirs, and the display keeps the rest instead of taking a fixed share
     // and pushing the last row off the window (see the sampler's pane in
     // widgets.PaneFit for the same rule where the panels are content-sized).
-    const height: f32 = std.math.clamp(size[1] - grid_floor, 100, 260);
+    // Only a plot has any use for the leftover: meters and a lone caption are
+    // content-sized, and stretching the box around them just floats them in
+    // the middle of an empty rectangle.
+    const room: f32 = std.math.clamp(size[1] - grid_floor, 100, 260);
+    const body_h: f32 = if (rows.len > 0) meter_h else zgui.getTextLineHeight() + display_pad;
+    const height: f32 = if (has_plot) room else @min(room, title_h + body_h);
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton("fx-effect-display", .{ .w = size[0], .h = height });
     const draw_list = zgui.getWindowDrawList();
     const accent = kindAccent(unit.kind());
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + size[0], origin[1] + height }, .col = color(theme.bg0), .rounding = style.panel_rounding });
+
+    draw_list.addText(.{ origin[0] + display_pad, origin[1] + display_pad }, color(theme.fg2), "{s}", .{spectrum_ed.effectSpec(unit.kind()).display_label});
+    // The vertical axis is named on the title row rather than inside the plot:
+    // a corner label lands on the curve itself for half the shapes drawn here
+    // (a compressor's knee ends top-right, a reverb tail starts there).
+    if (has_plot) {
+        const y_label = plotAxes(unit.kind()).y;
+        const y_w = zgui.calcTextSize(y_label, .{})[0];
+        draw_list.addText(.{ origin[0] + size[0] - display_pad - y_w, origin[1] + display_pad }, color(theme.fg3), "{s}", .{y_label});
+        const plot = Rect{
+            .x = origin[0] + display_pad,
+            .y = origin[1] + title_h,
+            .w = size[0] - 2 * display_pad,
+            .h = height - title_h - meter_h - display_pad,
+        };
+        if (plot.h > 0 and plot.w > 0) drawEffectPlot(app, target, draw_list, plot, unit, accent);
+    }
+    if (rows.len > 0) {
+        // Meters get the whole pane under the title when there is no plot, so
+        // a lone readout sits in the middle of the box instead of hugging the
+        // bottom edge of a region that was reserved for a curve that is not
+        // there.
+        const box = Rect{
+            .x = origin[0] + display_pad,
+            .y = if (has_plot) origin[1] + height - meter_h else origin[1] + title_h,
+            .w = size[0] - 2 * display_pad,
+            .h = if (has_plot) meter_h else height - title_h,
+        };
+        drawMeterStack(draw_list, box, rows, accent);
+    }
+    if (!has_plot and rows.len == 0) {
+        const label = spectrum_ed.effectSpec(unit.kind()).description;
+        const text_w = zgui.calcTextSize(label, .{})[0];
+        draw_list.addText(.{ origin[0] + (size[0] - text_w) * 0.5, origin[1] + title_h + (height - title_h - zgui.getTextLineHeight()) * 0.5 }, color(theme.fg3), "{s}", .{label});
+    }
+}
+
+const Rect = struct { x: f32, y: f32, w: f32, h: f32 };
+
+fn drawEffectPlot(app: anytype, target: spectrum_ed.EqTarget, draw_list: zgui.DrawList, region: Rect, unit: *ws.FxUnit, accent: [4]f32) void {
+    const axes = plotAxes(unit.kind());
+    // The horizontal axis gets a strip of its own under the curve, for the
+    // same reason the vertical one is named on the title row.
+    const label_h = zgui.getTextLineHeight() + 4;
+    const plot = Rect{ .x = region.x, .y = region.y, .w = region.w, .h = region.h - label_h };
+    if (plot.h <= 0) return;
+    draw_list.addText(.{ plot.x, plot.y + plot.h + 4 }, color(theme.fg3), "{s}", .{axes.x_lo});
+    if (axes.x_hi.len > 0) {
+        const hi_w = zgui.calcTextSize(axes.x_hi, .{})[0];
+        draw_list.addText(.{ plot.x + plot.w - hi_w, plot.y + plot.h + 4 }, color(theme.fg3), "{s}", .{axes.x_hi});
+    }
+
     for (1..4) |i| {
-        const x = origin[0] + size[0] * @as(f32, @floatFromInt(i)) / 4;
-        const y = origin[1] + height * @as(f32, @floatFromInt(i)) / 4;
-        draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + height }, .col = color(theme.line), .thickness = 1 });
-        draw_list.addLine(.{ .p1 = .{ origin[0], y }, .p2 = .{ origin[0] + size[0], y }, .col = color(theme.line), .thickness = 1 });
+        const t = @as(f32, @floatFromInt(i)) / 4;
+        draw_list.addLine(.{ .p1 = .{ plot.x + plot.w * t, plot.y }, .p2 = .{ plot.x + plot.w * t, plot.y + plot.h }, .col = color(theme.line), .thickness = 1 });
+        draw_list.addLine(.{ .p1 = .{ plot.x, plot.y + plot.h * t }, .p2 = .{ plot.x + plot.w, plot.y + plot.h * t }, .col = color(theme.line), .thickness = 1 });
     }
 
-    const spectrum = switch (target) {
-        .track => app.core.session.engine.trackSpectrumSnapshot(app.core.eq_track),
-        .master => app.core.session.engine.masterSpectrumSnapshot(),
-        .group => app.core.session.engine.groupSpectrumSnapshot(app.core.eq_group),
+    // Only the filter reads frequency across, so only the filter can put a
+    // spectrum behind its curve. Over a transfer plot the trace shares an axis
+    // with nothing and reads as a second, wrong curve.
+    if (unit.kind() == .filter) {
+        const spectrum = switch (target) {
+            .track => app.core.session.engine.trackSpectrumSnapshot(app.core.eq_track),
+            .master => app.core.session.engine.masterSpectrumSnapshot(),
+            .group => app.core.session.engine.groupSpectrumSnapshot(app.core.eq_group),
+        };
+        if (spectrum) |snap| {
+            var spectrum_points: [snap.bins.len][2]f32 = undefined;
+            for (snap.bins, 0..) |db, i| {
+                const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(snap.bins.len - 1));
+                const level = std.math.clamp((db + 90) / 90, 0, 1);
+                spectrum_points[i] = .{ plot.x + t * plot.w, plot.y + (1 - level) * plot.h };
+            }
+            draw_list.addPolyline(&spectrum_points, .{ .col = color(.{ theme.audio[0], theme.audio[1], theme.audio[2], 0.42 }), .thickness = 1.5 });
+        }
+    }
+
+    var points: [65][2]f32 = undefined;
+    const amount = normalizedParam(app, unit, 0);
+    const shape = normalizedParam(app, unit, 1);
+    for (&points, 0..) |*point, i| {
+        const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(points.len - 1));
+        const y = if (unit.kind() == .filter) filterDisplayValue(&unit.payload.filter, t) else effectDisplayValue(unit.kind(), t, amount, shape);
+        point.* = .{ plot.x + t * plot.w, plot.y + (1.0 - y) * plot.h };
+    }
+    draw_list.pathLineTo(.{ plot.x, plot.y + plot.h });
+    for (points) |point| draw_list.pathLineTo(point);
+    draw_list.pathLineTo(.{ plot.x + plot.w, plot.y + plot.h });
+    draw_list.pathFillConcave(color(.{ accent[0], accent[1], accent[2], 0.12 }));
+    draw_list.addPolyline(&points, .{ .col = color(accent), .thickness = 2.5 });
+}
+
+const PlotAxes = struct { x_lo: []const u8, x_hi: []const u8 = "", y: []const u8 };
+
+/// What the plot's two axes actually mean. Every curve used to be labelled
+/// IN/OUT, which is only true of the level-domain ones - a delay's tail runs
+/// across time, and a filter across frequency.
+fn plotAxes(kind: ws.FxKind) PlotAxes {
+    return switch (kind) {
+        .filter => .{ .x_lo = "20 Hz", .x_hi = "20 kHz", .y = "LEVEL" },
+        .delay, .reverb => .{ .x_lo = "TIME", .y = "LEVEL" },
+        .chorus, .phaser, .flanger => .{ .x_lo = "TIME", .y = "OFFSET" },
+        else => .{ .x_lo = "IN", .y = "OUT" },
     };
-    if (spectrum) |snap| {
-        var spectrum_points: [snap.bins.len][2]f32 = undefined;
-        for (snap.bins, 0..) |db, i| {
-            const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(snap.bins.len - 1));
-            const level = std.math.clamp((db + 90) / 90, 0, 1);
-            spectrum_points[i] = .{ origin[0] + t * size[0], origin[1] + (1 - level) * height };
-        }
-        draw_list.addPolyline(&spectrum_points, .{ .col = color(.{ theme.audio[0], theme.audio[1], theme.audio[2], 0.42 }), .thickness = 1.5 });
-    }
-
-    if (showsEffectCurve(unit.kind())) {
-        var points: [65][2]f32 = undefined;
-        const amount = normalizedParam(app, unit, 0);
-        const shape = normalizedParam(app, unit, 1);
-        for (&points, 0..) |*point, i| {
-            const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(points.len - 1));
-            const y = if (unit.kind() == .filter) filterDisplayValue(&unit.payload.filter, t) else effectDisplayValue(unit.kind(), t, amount, shape);
-            point.* = .{ origin[0] + t * size[0], origin[1] + (1.0 - y) * height };
-        }
-        draw_list.addPolyline(&points, .{ .col = color(accent), .thickness = 2.5 });
-    }
-    switch (unit.payload) {
-        .gate => |*gate| drawResponseMeter(draw_list, origin, size[0], height, gate.gain, "OPEN", accent),
-        .comp => |*comp| drawResponseMeter(draw_list, origin, size[0], height, -comp.gain_reduction_db / 24.0, "GAIN REDUCTION", accent),
-        .mb_comp => |*comp| drawBandGainMeters(draw_list, origin, size[0], height, comp.gain_db, accent),
-        .ott => |*ott| drawBandGainMeters(draw_list, origin, size[0], height, ott.mb.gain_db, accent),
-        .limiter => |*lim| drawResponseMeter(draw_list, origin, size[0], height, 1.0 - lim.gain, "GAIN REDUCTION", accent),
-        .transient_shaper => |*shaper| drawBipolarMeter(draw_list, origin, size[0], height, shaper.applied_gain_db / 12.0, "APPLIED GAIN", accent),
-        .stereo_width => |*width| drawBipolarMeter(draw_list, origin, size[0], height, width.correlation, "CORRELATION", accent),
-        .auto_pan => |*pan| drawAutoPanMeter(draw_list, origin, size[0], height, pan, accent),
-        .tape => |*tape| drawBipolarMeter(draw_list, origin, size[0], height, tape.lfo_wow.sine(0) * tape.wow_depth, "WOW POSITION", accent),
-        .utility => draw_list.addText(.{ origin[0] + size[0] * 0.5 - 78, origin[1] + height * 0.5 - 8 }, color(accent), "CHANNEL ROUTING", .{}),
-        else => {},
-    }
-    draw_list.addText(.{ origin[0] + 10, origin[1] + 8 }, color(theme.fg2), "{s}", .{spectrum_ed.effectSpec(unit.kind()).display_label});
-    draw_list.addText(.{ origin[0] + 10, origin[1] + height - 24 }, color(theme.fg3), "IN", .{});
-    draw_list.addText(.{ origin[0] + size[0] - 34, origin[1] + 8 }, color(theme.fg3), "OUT", .{});
 }
 
 fn showsEffectCurve(kind: ws.FxKind) bool {
     return switch (kind) {
-        .utility, .stereo_width, .auto_pan, .mb_comp, .ott, .limiter, .transient_shaper, .tape => false,
+        .utility, .stereo_width, .auto_pan, .mb_comp, .ott, .transient_shaper, .tape, .clap, .vst3 => false,
         else => true,
     };
 }
@@ -269,42 +348,110 @@ fn filterDisplayValue(filter: anytype, t: f32) f32 {
     return std.math.clamp((db + 48.0) / 54.0, 0, 1);
 }
 
-fn drawResponseMeter(draw_list: zgui.DrawList, origin: [2]f32, width: f32, height: f32, value: f32, label: []const u8, accent: [4]f32) void {
-    const lo = origin[0] + 24;
-    const hi = origin[0] + width - 24;
-    const y = origin[1] + height * 0.72;
-    draw_list.addRectFilled(.{ .pmin = .{ lo, y }, .pmax = .{ hi, y + 12 }, .col = color(theme.bg3), .rounding = 6 });
-    draw_list.addRectFilled(.{ .pmin = .{ lo, y }, .pmax = .{ lo + (hi - lo) * std.math.clamp(value, 0, 1), y + 12 }, .col = color(accent), .rounding = 6 });
-    draw_list.addText(.{ lo, y - 24 }, color(theme.fg2), "{s}", .{label});
-}
+/// One live readout. Every dynamics unit's display is some number of these,
+/// built by `meterRows` and drawn by `drawMeterStack` - three helpers laying
+/// their own rows out from a fraction of the pane height is what let a band
+/// label land on top of the bar above it.
+const MeterRow = struct {
+    label: []const u8,
+    /// 0..1 filled from the left, or -1..1 filled out from the centre when
+    /// `bipolar`.
+    value: f32,
+    bipolar: bool = false,
+    text: []const u8 = "",
+};
 
-fn drawBipolarMeter(draw_list: zgui.DrawList, origin: [2]f32, width: f32, height: f32, value: f32, label: []const u8, accent: [4]f32) void {
-    const lo = origin[0] + 24;
-    const hi = origin[0] + width - 24;
-    const mid = (lo + hi) * 0.5;
-    const y = origin[1] + height * 0.72;
-    const end = mid + (hi - lo) * 0.5 * std.math.clamp(value, -1, 1);
-    draw_list.addRectFilled(.{ .pmin = .{ lo, y }, .pmax = .{ hi, y + 12 }, .col = color(theme.bg3), .rounding = 6 });
-    draw_list.addRectFilled(.{ .pmin = .{ @min(mid, end), y }, .pmax = .{ @max(mid, end), y + 12 }, .col = color(accent), .rounding = 6 });
-    draw_list.addText(.{ lo, y - 24 }, color(theme.fg2), "{s}", .{label});
-}
+const meter_row_h: f32 = 24;
+const meter_bar_h: f32 = 12;
+/// Room for the widest row label ("HIGH", "GAIN RED.") and the widest readout
+/// ("-12.0 dB"), so every bar in a stack starts and ends on the same x.
+const meter_label_w: f32 = 76;
+const meter_value_w: f32 = 62;
 
-fn drawBandGainMeters(draw_list: zgui.DrawList, origin: [2]f32, width: f32, height: f32, gains: [3]f32, accent: [4]f32) void {
-    const labels = [3][]const u8{ "LOW", "MID", "HIGH" };
-    for (gains, labels, 0..) |gain, label, i| {
-        const shifted = [2]f32{ origin[0], origin[1] + @as(f32, @floatFromInt(i)) * 30.0 };
-        drawBipolarMeter(draw_list, shifted, width, height * 0.72, gain / 24.0, label, accent);
+fn drawMeterStack(draw_list: zgui.DrawList, box: Rect, rows: []const MeterRow, accent: [4]f32) void {
+    const lo = box.x + meter_label_w;
+    const hi = box.x + box.w - meter_value_w;
+    if (hi <= lo) return;
+    const stack_h = @as(f32, @floatFromInt(rows.len)) * meter_row_h - (meter_row_h - meter_bar_h);
+    const text_offset = (meter_bar_h - zgui.getTextLineHeight()) * 0.5;
+    var y = box.y + @max(0, (box.h - stack_h) * 0.5);
+    for (rows) |row| {
+        draw_list.addText(.{ box.x, y + text_offset }, color(theme.fg2), "{s}", .{row.label});
+        draw_list.addRectFilled(.{ .pmin = .{ lo, y }, .pmax = .{ hi, y + meter_bar_h }, .col = color(theme.bg2), .rounding = meter_bar_h * 0.5 });
+        const start = if (row.bipolar) (lo + hi) * 0.5 else lo;
+        const end = if (row.bipolar)
+            start + (hi - lo) * 0.5 * std.math.clamp(row.value, -1, 1)
+        else
+            lo + (hi - lo) * std.math.clamp(row.value, 0, 1);
+        draw_list.addRectFilled(.{ .pmin = .{ @min(start, end), y }, .pmax = .{ @max(start, end), y + meter_bar_h }, .col = color(accent), .rounding = meter_bar_h * 0.5 });
+        if (row.bipolar) draw_list.addLine(.{ .p1 = .{ start, y - 2 }, .p2 = .{ start, y + meter_bar_h + 2 }, .col = color(theme.line_soft), .thickness = 1 });
+        draw_list.addText(.{ hi + 10, y + text_offset }, color(theme.fg3), "{s}", .{row.text});
+        y += meter_row_h;
     }
 }
 
-fn drawAutoPanMeter(draw_list: zgui.DrawList, origin: [2]f32, width: f32, height: f32, pan: anytype, accent: [4]f32) void {
-    const depth = std.math.clamp(pan.depth, 0, 1);
-    const is_pan = pan.phase >= 0.5;
-    const left = 1.0 - depth * (pan.lfo.sine(0) + 1.0) * 0.5;
-    const right = 1.0 - depth * (pan.lfo.sine(if (is_pan) 0.5 else 0) + 1.0) * 0.5;
-    drawResponseMeter(draw_list, origin, width, height * 0.82, left, "LEFT", accent);
-    const shifted = [2]f32{ origin[0], origin[1] + 34 };
-    drawResponseMeter(draw_list, shifted, width, height * 0.82, right, "RIGHT", accent);
+fn meterRows(unit: *ws.FxUnit, rows: *[3]MeterRow, text: *[3][20]u8) []const MeterRow {
+    switch (unit.payload) {
+        .gate => |*gate| {
+            rows[0] = .{ .label = "OPEN", .value = gate.gain, .text = fmtPercent(&text[0], gate.gain) };
+            return rows[0..1];
+        },
+        .comp => |*comp| {
+            rows[0] = .{ .label = "GAIN RED.", .value = -comp.gain_reduction_db / 24.0, .text = fmtDb(&text[0], comp.gain_reduction_db) };
+            return rows[0..1];
+        },
+        .limiter => |*lim| {
+            rows[0] = .{ .label = "GAIN RED.", .value = 1.0 - lim.gain, .text = fmtDb(&text[0], 20.0 * std.math.log10(@max(lim.gain, 1e-4))) };
+            return rows[0..1];
+        },
+        .mb_comp => |*comp| return bandGainRows(rows, text, comp.gain_db),
+        .ott => |*ott| return bandGainRows(rows, text, ott.mb.gain_db),
+        .transient_shaper => |*shaper| {
+            rows[0] = .{ .label = "GAIN", .value = shaper.applied_gain_db / 12.0, .bipolar = true, .text = fmtDb(&text[0], shaper.applied_gain_db) };
+            return rows[0..1];
+        },
+        .stereo_width => |*width| {
+            rows[0] = .{ .label = "CORR", .value = width.correlation, .bipolar = true, .text = fmtSigned(&text[0], width.correlation) };
+            return rows[0..1];
+        },
+        .auto_pan => |*pan| {
+            const depth = std.math.clamp(pan.depth, 0, 1);
+            const is_pan = pan.phase >= 0.5;
+            const left = 1.0 - depth * (pan.lfo.sine(0) + 1.0) * 0.5;
+            const right = 1.0 - depth * (pan.lfo.sine(if (is_pan) 0.5 else 0) + 1.0) * 0.5;
+            rows[0] = .{ .label = "LEFT", .value = left, .text = fmtPercent(&text[0], left) };
+            rows[1] = .{ .label = "RIGHT", .value = right, .text = fmtPercent(&text[1], right) };
+            return rows[0..2];
+        },
+        .tape => |*tape| {
+            const wow = tape.lfo_wow.sine(0) * tape.wow_depth;
+            rows[0] = .{ .label = "WOW", .value = wow, .bipolar = true, .text = fmtSigned(&text[0], wow) };
+            return rows[0..1];
+        },
+        else => return rows[0..0],
+    }
+}
+
+fn bandGainRows(rows: *[3]MeterRow, text: *[3][20]u8, gains: [3]f32) []const MeterRow {
+    const labels = [3][]const u8{ "LOW", "MID", "HIGH" };
+    for (gains, labels, 0..) |gain, label, i| {
+        rows[i] = .{ .label = label, .value = gain / 24.0, .bipolar = true, .text = fmtDb(&text[i], gain) };
+    }
+    return rows[0..3];
+}
+
+/// Zig's formatter has no forced-sign flag, and a bipolar readout that only
+/// ever shows a sign when it is negative reads as an absolute value.
+fn fmtDb(buf: []u8, db: f32) []const u8 {
+    return std.fmt.bufPrint(buf, "{s}{d:.1} dB", .{ if (db > 0) "+" else "", db }) catch "";
+}
+
+fn fmtSigned(buf: []u8, value: f32) []const u8 {
+    return std.fmt.bufPrint(buf, "{s}{d:.2}", .{ if (value > 0) "+" else "", value }) catch "";
+}
+
+fn fmtPercent(buf: []u8, value: f32) []const u8 {
+    return std.fmt.bufPrint(buf, "{d:.0}%", .{std.math.clamp(value, 0, 1) * 100}) catch "";
 }
 
 /// Shortest and tallest a param card is allowed to be, and the gap drawn
