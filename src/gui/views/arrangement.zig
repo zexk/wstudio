@@ -156,37 +156,68 @@ pub fn draw(app: anytype) void {
                         max_pitch = @max(max_pitch, note.pitch);
                     }
                     const pitch_span: f32 = @floatFromInt(@max(12, max_pitch -| min_pitch));
-                    for (melodic.notes) |note| {
-                        const note_x = pmin[0] + @as(f32, @floatCast(note.start_beat / melodic.length_beats)) * (pmax[0] - pmin[0]);
-                        const preview_height = @max(8, pmax[1] - pmin[1] - 29);
-                        const note_y = pmin[1] + 26 + @as(f32, @floatFromInt(max_pitch - note.pitch)) / pitch_span * preview_height;
-                        const note_w = @max(2, @as(f32, @floatCast(note.duration_beat / melodic.length_beats)) * (pmax[0] - pmin[0]));
-                        draw_list.addLine(.{ .p1 = .{ note_x, note_y }, .p2 = .{ @min(note_x + note_w, pmax[0] - 2), note_y }, .col = color(.{ theme.fg0[0], theme.fg0[1], theme.fg0[2], 0.72 }), .thickness = 2 });
+                    const preview_height = @max(8, pmax[1] - pmin[1] - 29);
+                    // beat_w is px-per-beat everywhere else in this view, so laying
+                    // notes out on it (instead of normalizing to the box width) keeps
+                    // the preview at the timeline's real scale. That's what lets it
+                    // repeat the pattern to fill a stretched clip or cut it off at a
+                    // chopped one, matching rebuildSongData's actual loop/truncate.
+                    if (melodic.length_beats > 0) {
+                        const pattern_px = @as(f32, @floatCast(melodic.length_beats)) * beat_w;
+                        var repeat_x = pmin[0];
+                        var reps: u32 = 0;
+                        while (repeat_x < pmax[0] and reps < 256) : (repeat_x += pattern_px) {
+                            if (reps > 0) {
+                                draw_list.addLine(.{ .p1 = .{ repeat_x, pmin[1] + 22 }, .p2 = .{ repeat_x, pmax[1] }, .col = color(.{ theme.fg0[0], theme.fg0[1], theme.fg0[2], 0.3 }), .thickness = 1 });
+                            }
+                            for (melodic.notes) |note| {
+                                const note_x = repeat_x + @as(f32, @floatCast(note.start_beat)) * beat_w;
+                                if (note_x >= pmax[0]) continue;
+                                const note_y = pmin[1] + 26 + @as(f32, @floatFromInt(max_pitch - note.pitch)) / pitch_span * preview_height;
+                                const note_w = @max(2, @as(f32, @floatCast(note.duration_beat)) * beat_w);
+                                draw_list.addLine(.{ .p1 = .{ note_x, note_y }, .p2 = .{ @min(note_x + note_w, pmax[0] - 2), note_y }, .col = color(.{ theme.fg0[0], theme.fg0[1], theme.fg0[2], 0.72 }), .thickness = 2 });
+                            }
+                            reps += 1;
+                        }
                     }
                 },
                 .drum => |drum| {
-                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(theme.bg0), "PATTERN {c}", .{'A' + drum.variant});
-                    if (drum.step_count > 0) {
-                        for (0..drum.step_count) |step| {
-                            if (step % 4 != 0) continue;
-                            const grid_x = pmin[0] + (@as(f32, @floatFromInt(step)) + 0.5) / @as(f32, @floatFromInt(drum.step_count)) * (pmax[0] - pmin[0]);
-                            draw_list.addLine(.{
-                                .p1 = .{ grid_x, pmin[1] + 27 },
-                                .p2 = .{ grid_x, pmax[1] - 5 },
-                                .col = color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.24 }),
-                                .thickness = 1,
-                            });
+                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(theme.bg0), "PATTERN {c}  {d}st", .{ 'A' + drum.variant, drum.step_count });
+                    // step_px is fixed by beat_w/steps_per_beat, not the clip's box
+                    // width, so a chopped (shortened) clip truncates the pattern
+                    // instead of squeezing every step into the smaller box, and a
+                    // stretched clip repeats it - same rule fireSongStep applies
+                    // with `local % len`.
+                    if (drum.step_count > 0 and drum.steps_per_beat > 0) {
+                        const step_px = beat_w / @as(f32, @floatFromInt(drum.steps_per_beat));
+                        const pattern_px = step_px * @as(f32, @floatFromInt(drum.step_count));
+                        var repeat_x = pmin[0];
+                        var reps: u32 = 0;
+                        while (repeat_x < pmax[0] and reps < 256) : (repeat_x += pattern_px) {
+                            if (reps > 0) {
+                                draw_list.addLine(.{ .p1 = .{ repeat_x, pmin[1] + 22 }, .p2 = .{ repeat_x, pmax[1] }, .col = color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.45 }), .thickness = 1 });
+                            }
+                            for (0..drum.step_count) |step| {
+                                const grid_x = repeat_x + (@as(f32, @floatFromInt(step)) + 0.5) * step_px;
+                                if (grid_x >= pmax[0]) break;
+                                if (step % 4 == 0) {
+                                    draw_list.addLine(.{
+                                        .p1 = .{ grid_x, pmin[1] + 27 },
+                                        .p2 = .{ grid_x, pmax[1] - 5 },
+                                        .col = color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.24 }),
+                                        .thickness = 1,
+                                    });
+                                }
+                                var hits: u8 = 0;
+                                for (drum.midi) |row| {
+                                    if (step < row.len and row[step] != null) hits +|= 1;
+                                }
+                                if (hits == 0) continue;
+                                const hit_h = @min(15, @as(f32, @floatFromInt(hits)) * 2);
+                                draw_list.addLine(.{ .p1 = .{ grid_x, pmax[1] - 6 }, .p2 = .{ grid_x, pmax[1] - 6 - hit_h }, .col = color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.72 }), .thickness = 2 });
+                            }
+                            reps += 1;
                         }
-                    }
-                    for (0..drum.step_count) |step| {
-                        var hits: u8 = 0;
-                        for (drum.midi) |row| {
-                            if (step < row.len and row[step] != null) hits +|= 1;
-                        }
-                        if (hits == 0) continue;
-                        const hit_x = pmin[0] + (@as(f32, @floatFromInt(step)) + 0.5) / @as(f32, @floatFromInt(drum.step_count)) * (pmax[0] - pmin[0]);
-                        const hit_h = @min(15, @as(f32, @floatFromInt(hits)) * 2);
-                        draw_list.addLine(.{ .p1 = .{ hit_x, pmax[1] - 6 }, .p2 = .{ hit_x, pmax[1] - 6 - hit_h }, .col = color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.72 }), .thickness = 2 });
                     }
                 },
             }
