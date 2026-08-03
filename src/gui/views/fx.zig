@@ -432,10 +432,15 @@ fn meterRows(unit: *ws.FxUnit, rows: *[3]MeterRow, text: *[3][20]u8) []const Met
     }
 }
 
+/// Full-scale deflection for a band meter: the upward stage's own 24dB range
+/// plus makeup, which OTT's fixed tuning spends 9dB of. A 24dB scale pinned
+/// all three bars the moment the unit idled.
+const band_gain_scale: f32 = 36.0;
+
 fn bandGainRows(rows: *[3]MeterRow, text: *[3][20]u8, gains: [3]f32) []const MeterRow {
     const labels = [3][]const u8{ "LOW", "MID", "HIGH" };
     for (gains, labels, 0..) |gain, label, i| {
-        rows[i] = .{ .label = label, .value = gain / 24.0, .bipolar = true, .text = fmtDb(&text[i], gain) };
+        rows[i] = .{ .label = label, .value = gain / band_gain_scale, .bipolar = true, .text = fmtDb(&text[i], gain) };
     }
     return rows[0..3];
 }

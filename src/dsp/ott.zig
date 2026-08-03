@@ -101,8 +101,11 @@ test "defaults squash a quiet signal upward" {
         ott.processBlock(&quiet);
     }
     // -40dBFS in, well above it out: the upward stage plus makeup is the
-    // whole point of the fixed tuning.
-    try std.testing.expect(@abs(quiet[510]) > 0.03);
+    // whole point of the fixed tuning. The bar was 0.03 while the upward
+    // stage was unbounded, which only cleared because the two bands this
+    // 12kHz square leaves near-silent were lifting their own crossover
+    // leakage by ~70dB (see max_upward_db in multiband_comp.zig).
+    try std.testing.expect(@abs(quiet[510]) > 0.02);
 }
 
 test "depth 0 passes the signal through untouched" {
