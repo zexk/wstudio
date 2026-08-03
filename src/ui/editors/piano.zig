@@ -41,7 +41,7 @@ fn currentPatternPlayer(app: *App) ?*pattern_mod.PatternPlayer {
 pub fn switchTo(app: *App, track: u16) void {
     if (track >= app.session.racks.items.len) return;
     switch (app.session.racks.items[track].instrument) {
-        .poly_synth, .sampler, .soundfont => {},
+        .poly_synth, .sampler, .soundfont, .acoustic => {},
         else => {
             app.setStatus("piano roll: melodic tracks only", .{});
             return;
@@ -282,7 +282,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                         app.sampler_param = 0;
                         app.view = .sampler_editor;
                     },
-                    .soundfont => {
+                    .soundfont, .acoustic => {
                         app.soundfont_track = app.piano_track;
                         app.soundfont_param = 0;
                         app.view = .soundfont_editor;
