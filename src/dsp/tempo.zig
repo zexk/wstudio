@@ -1,16 +1,14 @@
 //! Tempo estimation for a loaded clip - the analysis half of Serato-style
 //! "BPM sync", where a loop is stretched to the project tempo instead of
-//! being nudged into place by ear. Autocorrelates an onset-strength envelope
-//! (10 ms RMS hops, differenced so a steady tone contributes nothing) and
-//! reads the strongest periodicity in the musically plausible lag range. A
-//! broadband envelope is enough here where `slicer.detectOnsets` needs
-//! spectral flux: autocorrelation only wants the pulse to be periodic, not
-//! every hit of it to be found.
+//! being nudged into place by ear. Autocorrelates `onset.envelope`'s
+//! spectral flux and reads the strongest periodicity in the musically
+//! plausible lag range.
 //!
 //! Control thread only: it walks the whole clip and is called from commands,
 //! never from a render block.
 
 const std = @import("std");
+const onset = @import("onset.zig");
 
 pub const Result = struct {
     bpm: f32,
@@ -21,9 +19,12 @@ pub const Result = struct {
 };
 
 /// Below this the peak isn't distinguishable from the surrounding lags -
-/// sustained pads, single hits, noise. Tuned so a clip with an audible pulse
-/// clears it and unpitched/arrhythmic material doesn't.
-const min_confidence: f32 = 1.25;
+/// sustained pads, single hits, noise. A real pulse clears this by a wide
+/// margin on a flux envelope (a click track scores ~220, a busy break ~570)
+/// while a held tone, whose flux is only the STFT's own frame-to-frame
+/// leakage jitter, scores ~2. Sitting an order of magnitude above that
+/// leaves both sides room.
+const min_confidence: f32 = 10.0;
 
 /// Tempo range searched before folding. Wide, because the fold below pulls
 /// half/double-time results back into the range people actually name.
@@ -41,8 +42,8 @@ const fold_max: f32 = 140.0;
 /// periods to average over and the answer is a coin flip, so it declines
 /// rather than guessing.
 pub fn detect(samples: []const f32, sample_rate: u32) ?Result {
-    const hop: usize = @max(sample_rate / 100, 32);
-    const hops = samples.len / hop;
+    const hop = onset.hopFor(sample_rate);
+    const hops = onset.frameCount(samples.len, sample_rate);
     const hop_s: f32 = @as(f32, @floatFromInt(hop)) / @as(f32, @floatFromInt(@max(sample_rate, 1)));
 
     const lag_max: usize = @intFromFloat(@round(60.0 / bpm_min / hop_s));
@@ -52,41 +53,18 @@ pub fn detect(samples: []const f32, sample_rate: u32) ?Result {
     // overlap to correlate over.
     if (hops < lag_max * 2) return null;
 
-    var flux = std.heap.stackFallback(4096 * @sizeOf(f32), std.heap.page_allocator);
-    const alloc = flux.get();
-    const env = alloc.alloc(f32, hops) catch return null;
+    var fallback = std.heap.stackFallback(4096 * @sizeOf(f32), std.heap.page_allocator);
+    const alloc = fallback.get();
+    // Spectral flux, not an energy envelope: a mastered break never drops
+    // back to silence between hits, so its RMS barely moves and the pulse
+    // hides. What the snare changes is the *spectrum*, every time.
+    const env = onset.envelope(alloc, samples, sample_rate) catch return null;
     defer alloc.free(env);
 
-    // Onset strength: half-wave-rectified RMS difference. A held note has a
-    // flat envelope and contributes nothing; every attack shows as a spike.
-    var prev: f32 = 0;
     var mean: f32 = 0;
-    var peak_rms: f32 = 0;
-    var quiet_rms: f32 = std.math.floatMax(f32);
-    var peak_flux: f32 = 0;
-    for (env, 0..) |*e, h| {
-        var acc: f32 = 0;
-        for (samples[h * hop ..][0..hop]) |x| acc += x * x;
-        const rms = @sqrt(acc / @as(f32, @floatFromInt(hop)));
-        e.* = @max(0.0, rms - prev);
-        prev = rms;
-        mean += e.*;
-        peak_rms = @max(peak_rms, rms);
-        quiet_rms = @min(quiet_rms, rms);
-        if (h > 0) peak_flux = @max(peak_flux, e.*);
-    }
+    for (env) |e| mean += e;
     mean /= @floatFromInt(hops);
     if (mean <= 1e-9) return null;
-    // A sustained tone still ripples a little, because a 10 ms hop rarely
-    // holds a whole number of periods - and the confidence ratio below is
-    // scale-invariant, so that ripple autocorrelates into a confident piece
-    // of nonsense. Two cheap gates, each catching a different way to have no
-    // beat: at least one attack worth a real fraction of the clip's own peak
-    // level, and an envelope that actually goes quiet between hits. A clip
-    // that never drops below half its peak has no rhythm to track by energy,
-    // whatever the correlation says - `:bpm-sync <n>` is the answer there.
-    if (peak_flux < peak_rms * 0.05) return null;
-    if (quiet_rms > peak_rms * 0.5) return null;
     // Mean-removed, so a lag's score measures periodicity rather than the
     // clip's overall loudness (which correlates with everything).
     for (env) |*e| e.* -= mean;
@@ -124,9 +102,18 @@ pub fn detect(samples: []const f32, sample_rate: u32) ?Result {
 /// running at `clip_bpm` line up with `project_bpm`. A clip faster than the
 /// project has to play *longer*, so the ratio is clip over project. Clamped
 /// to the pad's own stretch range; the caller reports the clamp.
+///
+/// Folded to the nearest octave of itself first. `detect` reports a tempo
+/// folded into its own home range, so a 174 BPM break against a 174 BPM
+/// project arrives here as 87 over 174 and would otherwise be stretched to
+/// half speed - when the two are an octave apart they are the same pulse,
+/// and the smallest stretch that lines them up is the one wanted.
 pub fn stretchToTempo(clip_bpm: f32, project_bpm: f32) f32 {
     if (!(clip_bpm > 0.0) or !(project_bpm > 0.0)) return 1.0;
-    return std.math.clamp(clip_bpm / project_bpm, 0.25, 4.0);
+    var ratio = clip_bpm / project_bpm;
+    while (ratio > std.math.sqrt2) ratio /= 2.0;
+    while (ratio < 1.0 / std.math.sqrt2) ratio *= 2.0;
+    return std.math.clamp(ratio, 0.25, 4.0);
 }
 
 test "detect finds the pulse of a steady click track and folds it home" {
@@ -166,10 +153,74 @@ test "detect declines on material with no pulse" {
     try std.testing.expectEqual(@as(?Result, null), detect(samples[0 .. sr / 2], sr));
 }
 
-test "stretchToTempo slows a fast loop down and clamps the extremes" {
-    try std.testing.expectApproxEqAbs(@as(f32, 2.0), stretchToTempo(174.0, 87.0), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.5), stretchToTempo(60.0, 120.0), 1e-6);
+test "stretchToTempo takes the smallest stretch that lines the pulses up" {
+    // Octave-apart tempos are the same pulse: leave the clip alone.
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), stretchToTempo(174.0, 87.0), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), stretchToTempo(60.0, 120.0), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), stretchToTempo(120.0, 120.0), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 4.0), stretchToTempo(400.0, 20.0), 1e-6);
+    // A real mismatch still stretches, the short way round.
+    try std.testing.expectApproxEqAbs(@as(f32, 100.0 / 120.0), stretchToTempo(100.0, 120.0), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 160.0 / 240.0 * 2.0), stretchToTempo(160.0, 240.0), 1e-6);
+    // Folding keeps even an absurd pairing inside the pad's stretch range.
+    try std.testing.expectApproxEqAbs(@as(f32, 1.25), stretchToTempo(400.0, 20.0), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), stretchToTempo(0.0, 120.0), 1e-6);
+}
+
+/// A mastered-sounding break: kick, snare and hats over a continuous bass
+/// note and noise bed, so the clip's RMS never falls back toward silence -
+/// the shape a broadband energy envelope cannot find a pulse in.
+fn compressedBreak(allocator: std.mem.Allocator, sample_rate: u32, bpm: f32) ![]f32 {
+    const len = sample_rate * 8;
+    const out = try allocator.alloc(f32, len);
+    const sr_f: f32 = @floatFromInt(sample_rate);
+    var rng = std.Random.DefaultPrng.init(11);
+    for (out, 0..) |*x, i| {
+        const t = @as(f32, @floatFromInt(i)) / sr_f;
+        x.* = 0.5 * @sin(2.0 * std.math.pi * 55.0 * t) + (rng.random().float(f32) * 2.0 - 1.0) * 0.08;
+    }
+
+    const beat: usize = @intFromFloat(sr_f * 60.0 / bpm);
+    const eighth = beat / 2;
+    var n: usize = 0;
+    while (n * eighth < len) : (n += 1) {
+        const at = n * eighth;
+        // Hat on every eighth, kick on beats 1 and 3, snare on 2 and 4.
+        const hit_len: usize = @min(sample_rate / 20, len - at);
+        for (0..hit_len) |j| {
+            const d = @as(f32, @floatFromInt(j)) / @as(f32, @floatFromInt(hit_len));
+            const env = @exp(-d * 12.0);
+            const tt = @as(f32, @floatFromInt(j)) / sr_f;
+            var v = (rng.random().float(f32) * 2.0 - 1.0) * 0.12 * env; // hat
+            if (n % 4 == 0) v += 0.7 * @sin(2.0 * std.math.pi * 60.0 * tt) * env;
+            if (n % 4 == 2) v += (rng.random().float(f32) * 2.0 - 1.0) * 0.6 * env;
+            out[at + j] += v;
+        }
+    }
+    // Brickwall it, the way a mastered loop is: the level stops moving.
+    for (out) |*x| x.* = std.math.clamp(x.* * 2.0, -0.95, 0.95);
+    return out;
+}
+
+test "detect finds the pulse of a break whose level never drops" {
+    const sr: u32 = 48_000;
+    const buf = try compressedBreak(std.testing.allocator, sr, 130.0);
+    defer std.testing.allocator.free(buf);
+
+    // The clip really is as flat as claimed: its quietest 10 ms window sits
+    // well above half its loudest, which is what used to disqualify it.
+    var peak: f32 = 0;
+    var quiet: f32 = std.math.floatMax(f32);
+    const hop: usize = sr / 100;
+    var h: usize = 0;
+    while ((h + 1) * hop <= buf.len) : (h += 1) {
+        var acc: f32 = 0;
+        for (buf[h * hop ..][0..hop]) |x| acc += x * x;
+        const rms = @sqrt(acc / @as(f32, @floatFromInt(hop)));
+        peak = @max(peak, rms);
+        quiet = @min(quiet, rms);
+    }
+    try std.testing.expect(quiet > peak * 0.5);
+
+    const r = detect(buf, sr) orelse return error.NoTempoDetected;
+    try std.testing.expectApproxEqAbs(@as(f32, 130.0), r.bpm, 3.0);
 }
