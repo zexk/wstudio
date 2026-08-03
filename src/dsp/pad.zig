@@ -67,7 +67,30 @@ pub const Pad = struct {
     /// step-sequenced drum pads and slices fire without one, so the flag is
     /// inert there, same as in Serato's own pad tools.
     gate: bool = false,
+    /// Retrigger playback: a one-shot that cuts its own still-ringing voices
+    /// when it fires again, so a replayed pad never overlaps itself. Unlike
+    /// `gate` this needs no note-off, which is what makes it useful to a step
+    /// sequencer. `gate` wins when both are set - see `playMode`.
+    retrig: bool = false,
 };
+
+/// The three mutually exclusive things the `gate`/`retrig` pair encodes.
+/// Read/write it through `playMode`/`setPlayMode` rather than the raw flags.
+pub const PlayMode = enum { one_shot, gate, retrigger };
+
+pub fn playMode(pad: *const Pad) PlayMode {
+    if (pad.gate) return .gate;
+    return if (pad.retrig) .retrigger else .one_shot;
+}
+
+pub fn setPlayMode(pad: *Pad, mode: PlayMode) void {
+    pad.gate = mode == .gate;
+    pad.retrig = mode == .retrigger;
+}
+
+/// Row labels for the play-mode param, in `PlayMode` order. UI-side tables
+/// index this with `@intFromEnum(playMode(pad))`.
+pub const play_mode_names = [_][]const u8{ "one-shot", "gate", "retrigger" };
 
 pub fn fixedName(name: []const u8) [8]u8 {
     var out = [_]u8{' '} ** 8;
@@ -99,9 +122,10 @@ pub fn emptyPad() *const Pad {
 /// which 0-14 still fits; Sampler's own ids past this table are never packed.
 pub const param_count: u16 = 15;
 
-/// Ids of the two on/off params in this table, so callers that need to treat
-/// toggles differently (undo capture, the automation param picker, the UI's
-/// enum rows) name them rather than hardcoding bare numbers.
+/// Ids of the two enum params in this table, so callers that need to treat
+/// them differently (undo capture, the automation param picker, the UI's
+/// enum rows) name them rather than hardcoding bare numbers. `reverse_id` is
+/// a plain on/off; `gate_id` is the three-way `PlayMode` cycle.
 pub const reverse_id: u16 = 9;
 pub const gate_id: u16 = 14;
 /// Playback transpose and duration multiplier, named for the same reason:
@@ -150,7 +174,10 @@ pub fn adjustParam(pad: *Pad, id: u16, steps: i32) void {
         return;
     }
     if (id == gate_id) {
-        if (steps != 0) pad.gate = !pad.gate;
+        if (steps == 0) return;
+        const n: i32 = play_mode_names.len;
+        const cur: i32 = @intFromEnum(playMode(pad));
+        setPlayMode(pad, @enumFromInt(@mod(cur + steps, n)));
         return;
     }
     if (id == 6) {
@@ -203,7 +230,7 @@ pub fn setParamAbsolute(pad: *Pad, id: u16, value: f32) void {
         11 => pad.fade_out_s = std.math.clamp(value, 0.0, 5.0),
         12 => pad.stretch_ratio = std.math.clamp(value, 0.25, 4.0),
         13 => pad.filter     = std.math.clamp(value, -1.0, 1.0),
-        14 => pad.gate       = value >= 0.5,
+        14 => setPlayMode(pad, @enumFromInt(@as(u8, @intFromFloat(std.math.clamp(@round(value), 0.0, @as(f32, play_mode_names.len - 1)))))),
         // zig fmt: on
         else => {},
     }
@@ -240,7 +267,7 @@ pub fn paramValue(pad: *const Pad, id: u16) ?f32 {
         11 => pad.fade_out_s,
         12 => pad.stretch_ratio,
         13 => pad.filter,
-        14 => if (pad.gate) 1.0 else 0.0,
+        14 => @floatFromInt(@intFromEnum(playMode(pad))),
         // zig fmt: on
         else => null,
     };
@@ -861,12 +888,22 @@ test "adjustParam uses the same bounds as absolute parameter assignment" {
     adjustParam(&toggled, reverse_id, 0);
     try testing.expect(toggled.reverse);
 
+    // Play mode is a three-way cycle, not a toggle, and it wraps both ways.
     adjustParam(&toggled, gate_id, 1);
-    try std.testing.expect(toggled.gate);
+    try testing.expectEqual(PlayMode.gate, playMode(&toggled));
     adjustParam(&toggled, gate_id, 0);
-    try std.testing.expect(toggled.gate);
+    try testing.expectEqual(PlayMode.gate, playMode(&toggled));
     adjustParam(&toggled, gate_id, 1);
-    try std.testing.expect(!toggled.gate);
+    try testing.expectEqual(PlayMode.retrigger, playMode(&toggled));
+    adjustParam(&toggled, gate_id, 1);
+    try testing.expectEqual(PlayMode.one_shot, playMode(&toggled));
+    adjustParam(&toggled, gate_id, -1);
+    try testing.expectEqual(PlayMode.retrigger, playMode(&toggled));
+    // An absolute write round-trips through paramValue for every mode.
+    for (0..play_mode_names.len) |i| {
+        setParamAbsolute(&toggled, gate_id, @floatFromInt(i));
+        try testing.expectEqual(@as(f32, @floatFromInt(i)), paramValue(&toggled, gate_id).?);
+    }
 }
 
 test "time nudges expand short envelope and fade values" {

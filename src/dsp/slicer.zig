@@ -413,7 +413,7 @@ pub const Slicer = struct {
                 .samples = self.samples,
                 .start_norm = @as(f32, @floatFromInt(i)) * step_norm,
                 .end_norm = @as(f32, @floatFromInt(i + 1)) * step_norm,
-                .gate = true,
+                .retrig = true,
             };
         }
         self.slice_count = count;
@@ -499,20 +499,17 @@ pub const Slicer = struct {
         }
     }
 
-    /// Toggle all live slices as one performance mode. Mixed state resolves
-    /// to all gated; only an already-all-gated clip switches to one-shot.
-    pub fn toggleGateAll(self: *Slicer) bool {
+    /// Cycle all live slices to the next play mode as one. Mixed state
+    /// resolves to whatever comes after slice 0's mode, so the clip always
+    /// lands uniform in one keypress.
+    pub fn cycleModeAll(self: *Slicer) pad_mod.PlayMode {
         while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.sample_lock.unlock();
-        var gate = false;
-        for (self.slices[0..self.slice_count]) |slice| {
-            if (!slice.gate) {
-                gate = true;
-                break;
-            }
-        }
-        for (self.slices[0..self.slice_count]) |*slice| slice.gate = gate;
-        return gate;
+        if (self.slice_count == 0) return .one_shot;
+        const n = pad_mod.play_mode_names.len;
+        const next: pad_mod.PlayMode = @enumFromInt((@intFromEnum(pad_mod.playMode(&self.slices[0])) + 1) % n);
+        for (self.slices[0..self.slice_count]) |*slice| pad_mod.setPlayMode(slice, next);
+        return next;
     }
 
     /// Chop into contiguous regions whose starts are `positions` (ascending
@@ -533,7 +530,7 @@ pub const Slicer = struct {
                 .samples = self.samples,
                 .start_norm = start,
                 .end_norm = if (i + 1 < count) next else 1.0,
-                .gate = true,
+                .retrig = true,
             };
             start = next;
         }
@@ -1129,11 +1126,11 @@ pub const Slicer = struct {
     }
 
     /// Trigger `slice` (0-based), stealing the oldest voice in its own small
-    /// pool if all are busy - no forced choke-on-retrigger (unlike
-    /// DrumMachine's pads): a slice replayed while still ringing is allowed
-    /// to overlap, matching the "manipulate chops live" workflow (stutters,
-    /// rolls) rather than the drum-kit convention of always cutting the
-    /// previous hit. Choke groups opt out of that - see `chokeTrigger`.
+    /// pool if all are busy. A `.one_shot` slice replayed while still ringing
+    /// is allowed to overlap, matching the "manipulate chops live" workflow
+    /// (stutters, rolls); a `.retrigger` slice - the chop default - cuts its
+    /// own ring first, the drum-kit convention. Choke groups extend that cut
+    /// across slices - see `chokeTrigger`.
     pub fn triggerSlice(self: *Slicer, slice: u8, vel: f32, block_start: u32) void {
         self.triggerSliceTuned(slice, vel, block_start, 0, -1.0);
     }
@@ -1143,6 +1140,9 @@ pub const Slicer = struct {
     pub fn triggerSliceTuned(self: *Slicer, slice: u8, vel: f32, block_start: u32, tune: i8, hold: f64) void {
         if (slice >= self.slice_count) return;
         var pool = &self.voices[slice];
+        // zig fmt: off
+        if (pad_mod.playMode(&self.slices[slice]) == .retrigger) for (pool) |*sv| { sv.* = .{}; };
+        // zig fmt: on
         var slot: usize = 0;
         var oldest_age: u64 = std.math.maxInt(u64);
         for (pool, 0..) |*sv, i| {
@@ -1498,7 +1498,7 @@ test "sliceInto equal-divides the clip and clamps out-of-range counts" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.25), s.slices[0].end_norm, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.75), s.slices[3].start_norm, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), s.slices[3].end_norm, 1e-6);
-    for (s.slices[0..4]) |slice| try std.testing.expect(slice.gate);
+    for (s.slices[0..4]) |slice| try std.testing.expectEqual(pad_mod.PlayMode.retrigger, pad_mod.playMode(&slice));
 
     s.sliceInto(0); // clamps up to 1
     try std.testing.expectEqual(@as(u8, 1), s.slice_count);
@@ -1522,7 +1522,7 @@ test "chopAt normalizes non-finite and descending boundaries" {
         previous = slice.end_norm;
     }
     try std.testing.expectEqual(@as(f32, 1.0), previous);
-    for (s.slices[0..s.slice_count]) |slice| try std.testing.expect(slice.gate);
+    for (s.slices[0..s.slice_count]) |slice| try std.testing.expectEqual(pad_mod.PlayMode.retrigger, pad_mod.playMode(&slice));
 }
 
 test "every slice aliases the same underlying buffer (no duplication)" {
@@ -1692,17 +1692,44 @@ test "chopRandom lays down n contiguous, uneven, non-empty slices" {
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), s.slices[0].end_norm, 1e-6);
 }
 
-test "toggleGateAll resolves mixed slices to gate then toggles one-shot" {
+test "cycleModeAll resolves mixed slices and walks all three play modes" {
     var transport = Transport{ .sample_rate = 48_000 };
     var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
     defer s.deinit();
     s.sliceInto(3);
-    s.slices[1].gate = false;
+    // A fresh chop is retrigger; knock one slice out of step to prove mixed
+    // state still lands uniform.
+    for (s.slices[0..3]) |slice| try std.testing.expectEqual(pad_mod.PlayMode.retrigger, pad_mod.playMode(&slice));
+    pad_mod.setPlayMode(&s.slices[1], .gate);
 
-    try std.testing.expect(s.toggleGateAll());
-    for (s.slices[0..3]) |slice| try std.testing.expect(slice.gate);
-    try std.testing.expect(!s.toggleGateAll());
-    for (s.slices[0..3]) |slice| try std.testing.expect(!slice.gate);
+    for ([_]pad_mod.PlayMode{ .one_shot, .gate, .retrigger }) |want| {
+        try std.testing.expectEqual(want, s.cycleModeAll());
+        for (s.slices[0..3]) |slice| try std.testing.expectEqual(want, pad_mod.playMode(&slice));
+    }
+}
+
+test "a retrigger slice cuts its own ring, a one-shot overlaps" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    s.sliceInto(2);
+
+    s.triggerSlice(0, 1.0, 0);
+    s.triggerSlice(0, 1.0, 0);
+    var live: usize = 0;
+    for (s.voices[0]) |sv| {
+        if (sv.active) live += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 1), live);
+
+    pad_mod.setPlayMode(&s.slices[1], .one_shot);
+    s.triggerSlice(1, 1.0, 0);
+    s.triggerSlice(1, 1.0, 0);
+    live = 0;
+    for (s.voices[1]) |sv| {
+        if (sv.active) live += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 2), live);
 }
 
 test "spreadPitch ramps a semitone step across the live slices only" {
@@ -1885,6 +1912,7 @@ test "ungrouped retrigger still overlaps (choke stays opt-in)" {
     var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
     defer s.deinit();
     s.sliceInto(2);
+    pad_mod.setPlayMode(&s.slices[0], .one_shot);
     s.chokeTrigger(0, 1.0, 0);
     s.chokeTrigger(0, 1.0, 0);
     var active: usize = 0;
@@ -1897,7 +1925,7 @@ test "note-off releases only oldest overlapping slice voice" {
     var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
     defer s.deinit();
     s.sliceInto(2);
-    s.slices[0].gate = true;
+    pad_mod.setPlayMode(&s.slices[0], .gate);
     s.triggerSlice(0, 1.0, 0);
     s.triggerSlice(0, 1.0, 0);
 

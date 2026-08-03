@@ -171,9 +171,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'Q' => commands.run(app, "chop-random"),
                 'A' => {
                     history.recordSlicer(app, app.slicer_track);
-                    const gate = sl.toggleGateAll();
+                    const mode = sl.cycleModeAll();
                     app.dirty = true;
-                    app.setStatus("all slices: {s}", .{if (gate) "GATE" else "one-shot"});
+                    app.setStatus("all slices: {s}", .{ws.dsp.pad.play_mode_names[@intFromEnum(mode)]});
                 },
                 // Chop refinement: split the cursor slice in half / merge it
                 // into the one after it - the interactive loop that turns a

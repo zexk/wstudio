@@ -141,8 +141,7 @@ pub fn drawSamplerEditor(
     try barRow(w, c == 12, false, acc, "stretch", pad.stretch_ratio, 4.0,
         try std.fmt.bufPrint(&buf, "{d:.2}x", .{pad.stretch_ratio}));
     {
-        const gate_names = [_][]const u8{ "one-shot", "gate" };
-        try enumRow(w, c == 14, false, acc, "play", &gate_names, if (pad.gate) 1 else 0);
+        try enumRow(w, c == 14, false, acc, "play", &ws.dsp.pad.play_mode_names, @intFromEnum(ws.dsp.pad.playMode(pad)));
     }
     written += 5;
 

@@ -422,7 +422,7 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
             var fbuf: [12]u8 = undefined;
             try w.writeAll(format.filterLabel(&fbuf, pad.filter));
         },
-        14 => try w.writeAll(if (pad.gate) "gate" else "one-shot"),
+        14 => try w.writeAll(ws.dsp.pad.play_mode_names[@intFromEnum(ws.dsp.pad.playMode(pad))]),
         Sampler.root_note_id => {
             const root: u7 = if (app.editingSampler()) |s| s.root_note else 60;
             var nbuf: [5]u8 = undefined;

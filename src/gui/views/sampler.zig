@@ -106,9 +106,9 @@ fn drawSharedSections(app: anytype, target: Target) void {
             for (section.rows) |row| {
                 const toggle_accent = if (target == .pad) theme.modulation else theme.focus;
                 if (row.id == ws.dsp.pad.reverse_id)
-                    drawToggle(app, target, row.id, "REVERSE", "FORWARD", toggle_accent)
+                    drawEnum(app, target, row.id, &.{ "FORWARD", "REVERSE" }, toggle_accent)
                 else if (row.id == ws.dsp.pad.gate_id)
-                    drawToggle(app, target, row.id, "GATE", "ONE-SHOT", toggle_accent)
+                    drawEnum(app, target, row.id, &.{ "ONE-SHOT", "GATE", "RETRIGGER" }, toggle_accent)
                 else
                     drawParam(app, target, row.id, row.label, row.gui_format);
             }
@@ -206,7 +206,7 @@ fn drawStandalone(app: anytype) void {
     drawSharedSections(app, target);
     widgets.sectionTitle(sampler_ed.key_section.title, theme.rhythm);
     drawParam(app, target, sampler_ed.key_section.rows[0].id, sampler_ed.key_section.rows[0].label, sampler_ed.key_section.rows[0].gui_format);
-    drawToggle(app, target, sampler_ed.key_section.rows[1].id, "MONO", "POLY", theme.focus);
+    drawEnum(app, target, sampler_ed.key_section.rows[1].id, &.{ "POLY", "MONO" }, theme.focus);
     pane_fit.settle(below_top, 0);
 }
 
@@ -336,15 +336,20 @@ fn drawParam(app: anytype, target: Target, id: u8, label_text: []const u8, forma
     if (result.activated) app.core.sampler_param = id;
 }
 
-fn drawToggle(app: anytype, target: Target, id: u8, on_label: [:0]const u8, off_label: [:0]const u8, active_color: [4]f32) void {
+/// One button per enum pad param, cycling forward through `labels` on click.
+/// `labels[0]` is the neutral/off state (drawn unaccented); everything past
+/// it lights up, which covers both the reverse toggle and the three-way play
+/// mode without a second widget.
+fn drawEnum(app: anytype, target: Target, id: u8, labels: []const [:0]const u8, active_color: [4]f32) void {
     const value = target.value(id) orelse return;
-    const active = value >= 0.5;
+    const idx: usize = @min(@as(usize, @intFromFloat(@max(@round(value), 0))), labels.len - 1);
+    const active = idx != 0;
     const focused = app.core.sampler_param == id;
     zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) active_color else if (focused) theme.bg4 else theme.bg2 });
     zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) theme.bg0 else if (focused) theme.focus else theme.fg2 });
-    if (zgui.button(if (active) on_label else off_label, .{ .w = 106, .h = 32 })) {
+    if (zgui.button(labels[idx], .{ .w = 106, .h = 32 })) {
         app.core.sampler_param = id;
-        setPadParam(app, target, id, if (active) 0 else 1);
+        setPadParam(app, target, id, @floatFromInt((idx + 1) % labels.len));
     }
     zgui.popStyleColor(.{ .count = 2 });
 }

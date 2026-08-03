@@ -227,7 +227,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key(":bpm-sync",    "[clip-bpm]  match clip to project tempo and :scale root");
     t.key("B",            "detect clip BPM/root; match project tempo/key set by :scale");
     t.key("q / Q",        "transient chop / random 8-slice chop");
-    t.key("A",            "toggle every slice between GATE and one-shot");
+    t.key("A",            "cycle every slice: retrigger / one-shot / GATE");
     t.key("s / m",        "split cursor slice in half / merge it into the next (patterns follow)");
     t.key("h / l",        "move cursor left / right (one step)");
     t.key("H / L",        "move cursor left / right (one beat, coarse)");

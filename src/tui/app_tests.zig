@@ -630,7 +630,9 @@ test "slicer grid: slice, step toggle, play triggers the right slice" {
 
     commands.run(&app, "slice 8");
     try std.testing.expectEqual(@as(u8, 8), app.slicerInst().slice_count);
-    for (app.slicerInst().slices[0..8]) |slice| try std.testing.expect(slice.gate);
+    for (app.slicerInst().slices[0..8]) |slice| {
+        try std.testing.expectEqual(ws.dsp.pad.PlayMode.retrigger, ws.dsp.pad.playMode(&slice));
+    }
 
     app.slicer_cursor = .{ 3, 0 };
     _ = slicer_ed.handleKey(&app, .enter);
@@ -686,11 +688,14 @@ test "slicer grid: q/Q chop shortcuts and A switches playback mode" {
 
     _ = slicer_ed.handleKey(&app, .{ .char = 'Q' });
     try std.testing.expectEqual(@as(u8, 8), app.slicerInst().slice_count);
+    // A fresh chop is retrigger; A walks the cycle on to one-shot.
     _ = slicer_ed.handleKey(&app, .{ .char = 'A' });
-    for (app.slicerInst().slices[0..8]) |slice| try std.testing.expect(!slice.gate);
+    for (app.slicerInst().slices[0..8]) |slice| {
+        try std.testing.expectEqual(ws.dsp.pad.PlayMode.one_shot, ws.dsp.pad.playMode(&slice));
+    }
     _ = slicer_ed.handleKey(&app, .{ .char = 'q' });
     try std.testing.expectEqual(@as(u8, 1), app.slicerInst().slice_count);
-    try std.testing.expect(app.slicerInst().slices[0].gate);
+    try std.testing.expectEqual(ws.dsp.pad.PlayMode.retrigger, ws.dsp.pad.playMode(&app.slicerInst().slices[0]));
 }
 
 test "slicer grid: velocity cycle + fine nudge on an active step only" {

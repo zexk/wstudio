@@ -246,9 +246,10 @@ pub const Sampler = struct {
     /// length here; anything holding a key passes -1 and waits for the
     /// note-off instead.
     pub fn triggerHeld(self: *Sampler, note: u7, vel: f32, block_start: u32, hold: f64) void {
-        // Mono mode: a new note always cuts every still-ringing voice first,
-        // so long one-shots (e.g. a bass note) never overlap themselves.
-        if (self.mono) self.resetAll();
+        // Mono mode (and the pad's own `.retrigger` play mode): a new note
+        // always cuts every still-ringing voice first, so long one-shots
+        // (e.g. a bass note) never overlap themselves.
+        if (self.mono or self.pad.retrig) self.resetAll();
 
         // Reuse a free voice, else steal the oldest active one.
         var slot: usize = 0;
