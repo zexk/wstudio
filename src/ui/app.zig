@@ -2297,7 +2297,7 @@ pub const App = struct {
                             'v', 'V' => {
                                 self.tracks_visual_anchor = self.track_row;
                                 self.modal.mode = .visual;
-                                self.setStatus("visual: j/k extend, g groups the selection, esc cancels", .{});
+                                self.setStatus("visual: j/k extend, g group, m mute, S solo, dd del, -+ gain, <> pan, [] color, esc cancel", .{});
                                 return;
                             },
                             'Y', 'J', 'K', 'p', 'I', 'r', 'f', '<', '>', '[', ']' => {
@@ -2339,7 +2339,7 @@ pub const App = struct {
                             'v', 'V' => {
                                 self.tracks_visual_anchor = self.track_row;
                                 self.modal.mode = .visual;
-                                self.setStatus("visual: j/k extend, g groups the selection, esc cancels", .{});
+                                self.setStatus("visual: j/k extend, g group, m mute, S solo, dd del, -+ gain, <> pan, [] color, esc cancel", .{});
                                 return;
                             },
                             'c' => { self.toggleMetronome(); return; },
@@ -2723,15 +2723,31 @@ pub const App = struct {
     /// Tracks view visual mode's reduced key set: `j`/`k` extend the
     /// selection over display rows (master excluded - the cursor can't
     /// reach it from here since the range never includes it), `g` groups
-    /// the selection, `esc` cancels. Everything else is swallowed, matching
-    /// the other editors' visual modes.
+    /// the selection, the bulk mixer/delete keys mirror their single-track
+    /// counterparts (`m`/`S`/`-`+`/`</>`/`[]`/`dd`), `esc` cancels.
+    /// Everything else is swallowed, matching the other editors' visual modes.
     fn handleTracksVisual(self: *App, key: modal_mod.Key) void {
+        if (self.tracks_del_pending) {
+            self.tracks_del_pending = false;
+            if (key == .char and key.char == 'd') self.deleteVisualSelection()
+            else self.setStatus("cancelled", .{});
+            return;
+        }
         switch (key) {
             .escape => { self.exitTracksVisual(); self.setStatus("selection cancelled", .{}); },
             .char => |c| switch (c) {
                 'j' => if (self.track_row + 1 < self.track_rows_len) self.setTrackRow(self.track_row + 1),
                 'k' => if (self.track_row > 0) self.setTrackRow(self.track_row - 1),
                 'g' => self.groupSelectedTracks(),
+                'm' => self.doVisualMuteToggle(),
+                'S' => self.doVisualSoloToggle(),
+                'd' => { self.tracks_del_pending = true; },
+                '-' => self.doVisualGainStep(-1.0),
+                '+', '=' => self.doVisualGainStep(1.0),
+                '<' => self.doVisualPanStep(-0.05),
+                '>' => self.doVisualPanStep(0.05),
+                '[' => self.doVisualColorCycle(-1),
+                ']' => self.doVisualColorCycle(1),
                 else => {},
             },
             else => {},
@@ -2744,31 +2760,37 @@ pub const App = struct {
         self.tracks_visual_anchor = null;
     }
 
+    /// Track indices covered by display rows `[lo, hi]`: track rows join
+    /// directly and a *folded* group row brings its hidden members along; an
+    /// unfolded group's own row contributes nothing since its members are
+    /// rows of their own. Shared by the group-selection and bulk mixer/
+    /// delete ops below. Caller owns the returned list.
+    fn resolveVisualTrackIndices(self: *App, lo: usize, hi: usize) std.ArrayListUnmanaged(u16) {
+        var out: std.ArrayListUnmanaged(u16) = .empty;
+        const rows = self.track_rows_buf[lo..@min(hi + 1, self.track_rows_len)];
+        for (rows) |r| switch (r) {
+            .track => |t| out.append(self.allocator, t) catch {},
+            .group => |g| if (self.session.groups[g].?.folded) {
+                for (self.session.project.tracks.items, 0..) |t, j| {
+                    const tg = t.group orelse continue;
+                    if (tg == g) out.append(self.allocator, @intCast(j)) catch {};
+                }
+            },
+        };
+        return out;
+    }
+
     /// `g` in tracks-view visual mode: create a new untitled group from the
-    /// selected rows. The selection takes what's on screen: track rows join
-    /// directly and a *folded*
-    /// group row brings its hidden members along; an unfolded group's own
-    /// row contributes nothing - its members are rows of their own.
+    /// selected rows.
     fn groupSelectedTracks(self: *App) void {
         const anchor = self.tracks_visual_anchor orelse self.track_row;
         const lo = @min(anchor, self.track_row);
         const hi = @max(anchor, self.track_row);
         self.exitTracksVisual();
 
-        // zig fmt: off
-        const rows = self.track_rows_buf[lo..@min(hi + 1, self.track_rows_len)];
-        var count: usize = 0;
-        for (rows) |r| switch (r) {
-            .track => count += 1,
-            .group => |g| if (self.session.groups[g].?.folded) {
-                for (self.session.project.tracks.items) |t| {
-                    const tg = t.group orelse continue;
-                    if (tg == g) count += 1;
-                }
-            },
-        };
-        if (count == 0) { self.setStatus("no tracks selected", .{}); return; }
-        // zig fmt: on
+        var sel = self.resolveVisualTrackIndices(lo, hi);
+        defer sel.deinit(self.allocator);
+        if (sel.items.len == 0) { self.setStatus("no tracks selected", .{}); return; }
 
         const idx = self.session.addGroup("untitled group") catch |err| {
             self.setStatus("group: {s}", .{switch (err) {
@@ -2777,18 +2799,111 @@ pub const App = struct {
             }});
             return;
         };
-        for (rows) |r| switch (r) {
-            .track => |t| self.session.assignTrackGroup(t, idx),
-            .group => |g| if (self.session.groups[g].?.folded) {
-                for (self.session.project.tracks.items, 0..) |t, j| {
-                    const tg = t.group orelse continue;
-                    if (tg == g) self.session.assignTrackGroup(j, idx);
-                }
-            },
-        };
+        for (sel.items) |t| self.session.assignTrackGroup(t, idx);
         self.dirty = true;
         self.rebuildTrackRows();
         self.setTrackRow(self.rowOfGroup(idx) orelse 0);
+    }
+
+    /// `m`/`S` in tracks-view visual mode: mute/solo every selected track at
+    /// once. Same all-or-nothing toggle `doGroupToggle` uses - if any
+    /// selected track isn't muted/soloed yet, this turns it on for all of
+    /// them; if they're already all on, it turns them all off.
+    fn doVisualToggle(self: *App, solo: bool) void {
+        const anchor = self.tracks_visual_anchor orelse self.track_row;
+        const lo = @min(anchor, self.track_row);
+        const hi = @max(anchor, self.track_row);
+        self.exitTracksVisual();
+        var sel = self.resolveVisualTrackIndices(lo, hi);
+        defer sel.deinit(self.allocator);
+        if (sel.items.len == 0) { self.setStatus("no tracks selected", .{}); return; }
+
+        var all = true;
+        for (sel.items) |t| {
+            const trk = self.session.project.tracks.items[t];
+            if (!(if (solo) trk.soloed else trk.muted)) all = false;
+        }
+        const want = !all;
+        for (sel.items) |t| if (solo) self.apiSetTrackSoloed(t, want) else self.apiSetTrackMuted(t, want);
+        const verb = if (solo) (if (want) "soloed" else "unsoloed") else (if (want) "muted" else "unmuted");
+        self.setStatus("{s} {d} tracks", .{ verb, sel.items.len });
+    }
+    fn doVisualMuteToggle(self: *App) void { self.doVisualToggle(false); }
+    fn doVisualSoloToggle(self: *App) void { self.doVisualToggle(true); }
+
+    /// `-`/`+` and `<`/`>` in tracks-view visual mode: step every selected
+    /// track's own gain/pan by the same delta (not set to one shared value -
+    /// each track keeps riding its own fader, same as pressing the
+    /// single-track key on each of them in turn).
+    fn doVisualGainStep(self: *App, delta_db: f32) void {
+        const anchor = self.tracks_visual_anchor orelse self.track_row;
+        const lo = @min(anchor, self.track_row);
+        const hi = @max(anchor, self.track_row);
+        self.exitTracksVisual();
+        var sel = self.resolveVisualTrackIndices(lo, hi);
+        defer sel.deinit(self.allocator);
+        if (sel.items.len == 0) { self.setStatus("no tracks selected", .{}); return; }
+        for (sel.items) |t| {
+            const before = self.session.project.tracks.items[t].gain_db;
+            self.apiSetTrackGainDb(t, before + delta_db);
+            history.recordTrackMixer(self, t, .gain, before);
+        }
+        self.setStatus("gain {s}{d:.1}dB on {d} tracks", .{ if (delta_db >= 0) "+" else "", delta_db, sel.items.len });
+    }
+
+    fn doVisualPanStep(self: *App, delta: f32) void {
+        const anchor = self.tracks_visual_anchor orelse self.track_row;
+        const lo = @min(anchor, self.track_row);
+        const hi = @max(anchor, self.track_row);
+        self.exitTracksVisual();
+        var sel = self.resolveVisualTrackIndices(lo, hi);
+        defer sel.deinit(self.allocator);
+        if (sel.items.len == 0) { self.setStatus("no tracks selected", .{}); return; }
+        for (sel.items) |t| {
+            const before = self.session.project.tracks.items[t].pan;
+            self.apiSetTrackPan(t, before + delta);
+            history.recordTrackMixer(self, t, .pan, before);
+        }
+        self.setStatus("pan {s}{d:.0}% on {d} tracks", .{ if (delta >= 0) "R" else "L", @abs(delta) * 100.0, sel.items.len });
+    }
+
+    /// `[`/`]` in tracks-view visual mode: cycle every selected track's own
+    /// color by one step, same relative-not-absolute shape as the gain/pan
+    /// steps above.
+    fn doVisualColorCycle(self: *App, dir: i32) void {
+        const anchor = self.tracks_visual_anchor orelse self.track_row;
+        const lo = @min(anchor, self.track_row);
+        const hi = @max(anchor, self.track_row);
+        self.exitTracksVisual();
+        var sel = self.resolveVisualTrackIndices(lo, hi);
+        defer sel.deinit(self.allocator);
+        if (sel.items.len == 0) { self.setStatus("no tracks selected", .{}); return; }
+        const n: i32 = @intCast(ansi.track_palette.len + 1); // +1 for "none"
+        for (sel.items) |t| {
+            const track = &self.session.project.tracks.items[t];
+            const cur: i32 = @mod(@as(i32, track.color), n);
+            track.color = @intCast(@mod(cur + dir, n));
+        }
+        self.dirty = true;
+        self.setStatus("cycled color on {d} tracks", .{sel.items.len});
+    }
+
+    /// `dd` in tracks-view visual mode: delete every selected track. Reuses
+    /// `doTrackDel` per track (undo, index remap, stale-editor exit all
+    /// still apply) - deleting highest index first keeps every remaining
+    /// selected index valid, since a delete only shifts indices above it.
+    fn deleteVisualSelection(self: *App) void {
+        const anchor = self.tracks_visual_anchor orelse self.track_row;
+        const lo = @min(anchor, self.track_row);
+        const hi = @max(anchor, self.track_row);
+        self.exitTracksVisual();
+        var sel = self.resolveVisualTrackIndices(lo, hi);
+        defer sel.deinit(self.allocator);
+        if (sel.items.len == 0) { self.setStatus("no tracks selected", .{}); return; }
+        std.mem.sort(u16, sel.items, {}, std.sort.desc(u16));
+        const count = sel.items.len;
+        for (sel.items) |t| self.doTrackDel(t);
+        self.setStatus("deleted {d} tracks", .{count});
     }
 
     /// Same prefill pattern as `startRenamePrompt`, targeting a group row.
