@@ -168,7 +168,7 @@ pub fn drawAutomation(
     while (col < visible and scroll + col <= total_steps) : (col += 1) {
         const step = scroll + col;
         if (step == app.automation_cursor_step) {
-            try w.writeAll(if (play_step != null and step == play_step.?) red ++ "^" ++ rst else acc ++ "^" ++ rst);
+            try w.writeAll(if (play_step != null and step == play_step.?) red ++ "\u{25B2}" ++ rst else acc ++ "\u{25B2}" ++ rst);
         } else if (play_step != null and step == play_step.?) {
             try w.writeAll(red ++ "│" ++ rst);
         } else {

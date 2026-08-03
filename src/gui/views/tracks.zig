@@ -4,6 +4,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const format = @import("../../ui/format.zig");
 const spectrum_ed = @import("../../ui/editors/spectrum.zig");
+const icons = @import("../../ui/icons.zig");
 const gui_style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
 const zgui = @import("zgui");
@@ -375,7 +376,7 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "mute-{d}", .{track_index}) catch "mute", badgeX(block_x0, 1), badge_y, "M", track.muted, theme.danger)) {
         app.core.apiSetTrackMuted(track_index, !track.muted);
     }
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "arm-{d}", .{track_index}) catch "arm", badgeX(block_x0, 2), badge_y, "R", app.core.session.isArmed(track_index), theme.danger)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "arm-{d}", .{track_index}) catch "arm", badgeX(block_x0, 2), badge_y, icons.record, app.core.session.isArmed(track_index), theme.danger)) {
         app.core.apiSetTrackArmed(track_index, !app.core.session.isArmed(track_index));
     }
     drawTrackRowCursorOutline(chrome, height);
@@ -400,7 +401,7 @@ fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) 
     const selected = chrome.selected;
     const accent = theme.modulation;
 
-    drawSideStrip(draw_list, origin, height, accent, "{s}", .{if (group.folded) ">" else "v"});
+    drawSideStrip(draw_list, origin, height, accent, "{s}", .{if (group.folded) "\u{25B8}" else "\u{25BE}"});
 
     var member_count: usize = 0;
     for (app.core.session.project.tracks.items) |track| if (track.group == group_index) {

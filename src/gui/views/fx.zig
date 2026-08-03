@@ -133,7 +133,7 @@ fn drawEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void
     const accent = kindAccent(unit.kind());
     zgui.textColored(accent, "{s}", .{spectrum_ed.editorTitle(unit.kind())});
     zgui.sameLine(.{});
-    zgui.textDisabled("unit {d}  {s}", .{ app.core.fx_focus + 1, if (unit.bypassed) "BYPASSED" else "ACTIVE" });
+    zgui.textDisabled("unit {d}  {s} {s}", .{ app.core.fx_focus + 1, if (unit.bypassed) "\u{25CB}" else "\u{25CF}", if (unit.bypassed) "BYPASSED" else "ACTIVE" });
     zgui.sameLine(.{ .spacing = 18 });
     if (zgui.button(if (unit.bypassed) "enable" else "bypass", .{})) spectrum_ed.toggleBypass(&app.core, target);
     zgui.sameLine(.{ .spacing = 5 });
