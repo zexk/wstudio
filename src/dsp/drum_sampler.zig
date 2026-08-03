@@ -1257,9 +1257,16 @@ pub const DrumMachine = struct {
             };
             const samples = try gen(self.allocator, self.sample_rate);
             self.setPadSamples(@intCast(i), samples, slot.name);
-            self.pads[i].?.pad.gain = slot.gain;
-            // Separate reused second-bank voices without duplicating generators.
-            if (i >= 8) self.pads[i].?.pad.pitch_semitones = ([_]f32{ -3, 2, -2, -5, 4, -4, 5, 0 })[i - 8];
+            const p = &self.pads[i].?.pad;
+            p.gain = slot.gain;
+            // Slots that share a generator with their neighbour (kick-2, crash,
+            // stick, ...) are told apart here rather than by duplicating the
+            // generator; a slot with no tuning of its own resets these to the
+            // untouched defaults the previous kit may have moved.
+            p.pitch_semitones = slot.tune.pitch;
+            p.end_norm = slot.tune.end;
+            p.stretch_ratio = slot.tune.stretch;
+            p.filter = slot.tune.filter;
         }
     }
 
@@ -1642,9 +1649,11 @@ test "a fresh machine is blank; a kit flavour fills pads 0-15, init empties them
     for (dm.pads[0].?.pad.samples) |s| peak = @max(peak, @abs(s));
     try std.testing.expect(peak > 0.01);
     // Hihat ships quieter than the kick by default.
-    try std.testing.expect(dm.pads[2].?.pad.gain < dm.pads[0].?.pad.gain);
-    try std.testing.expectEqual(@as(f32, -3), dm.pads[8].?.pad.pitch_semitones);
-    try std.testing.expectEqual(@as(f32, 0), dm.pads[15].?.pad.pitch_semitones);
+    try std.testing.expect(dm.pads[4].?.pad.gain < dm.pads[0].?.pad.gain);
+    // The second kick is the same generator retuned, not the same drum again.
+    try std.testing.expectEqual(@as(f32, 3), dm.pads[1].?.pad.pitch_semitones);
+    try std.testing.expect(dm.pads[1].?.pad.end_norm < 1.0);
+    try std.testing.expectEqual(@as(f32, 0), dm.pads[0].?.pad.pitch_semitones);
 
     // Back to init: the kit pads stay materialized (the audio thread may be
     // inside one) but go silent, and their choke pairing is dropped.

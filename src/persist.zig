@@ -60,7 +60,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// added and what older files load as) and the bump-vs-additive policy
 /// live in FORMAT.md; per-field migration specifics stay as doc comments
 /// on the snapshot fields they concern.
-pub const file_version: u32 = 35;
+pub const file_version: u32 = 36;
 
 /// The step-grid ceiling both machines had while their step data was a `u64`
 /// bitmask plus a parallel velocity array - one word's bit width. Only the
@@ -1986,7 +1986,13 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                     // this project's params over them. An unknown name -
                     // a kit that no longer exists - just leaves them empty.
                     if (ds.kit.len > 0) {
-                        if (drum_kit.byName(ds.kit)) |variant| dmp.loadKitVariant(variant) catch {};
+                        if (drum_kit.byName(ds.kit)) |variant| {
+                            // v36 regrouped the 16 pads by soundtype. Older
+                            // files sequenced the old indices, so they get the
+                            // kit rebuilt in the old order.
+                            const laid_out = if (snap.version >= 36) variant.* else drum_kit.legacyLayout(variant);
+                            dmp.loadKitVariant(&laid_out) catch {};
+                        }
                     }
                     if (ds.variants.len > 0) {
                         for (dmp.variants[0..dmp.variant_count]) |*slot| DrumMachine.freeMidi(allocator, &slot.midi);
@@ -4664,7 +4670,7 @@ test "save/load round-trip persists a pad rename with no sample change" {
 
     // A plain :rename - no new sample, still the generated kick sample.
     dm.pads[0].?.rename("808");
-    try testing.expectEqualStrings("snare", dm.padName(1)); // untouched pad unaffected
+    try testing.expectEqualStrings("kick-2", dm.padName(1)); // untouched pad unaffected
 
     try save(testing.allocator, &session, testing.io, wsj_path);
 
@@ -4672,7 +4678,7 @@ test "save/load round-trip persists a pad rename with no sample change" {
     defer loaded.deinit();
     const ldm = &loaded.racks.items[0].instrument.drum_machine;
     try testing.expectEqualStrings("808", ldm.padName(0));
-    try testing.expectEqualStrings("snare", ldm.padName(1));
+    try testing.expectEqualStrings("kick-2", ldm.padName(1));
     // Still the shipped-kit sample - renaming alone doesn't flag user_sample.
     try testing.expect(!ldm.pads[0].?.pad.user_sample);
 }
@@ -4958,6 +4964,24 @@ test "golden-file corpus: v35's acoustic rack loads as acoustic, with its bundle
     try testing.expectApproxEqAbs(@as(f32, 0.8), sf.gain, 1e-6);
     try testing.expectApproxEqAbs(@as(f32, -0.25), sf.pan, 1e-6);
     try testing.expectApproxEqAbs(@as(f32, -12.0), sf.transpose_semitones, 1e-6);
+}
+
+test "golden-file corpus: v36 lays its kit out by soundtype, older files keep the old order" {
+    const testing = std.testing;
+    const padName = @import("dsp/pad.zig").trimmedName;
+    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v36.wsj");
+    defer session.deinit();
+    const dm = &session.racks.items[0].instrument.drum_machine;
+    try testing.expectEqualStrings("kick-2", padName(&dm.pads[1].?.pad.name));
+
+    // The same kit name in a pre-v36 file: pad 1 is where its snare pattern
+    // lives, so a snare has to be what loads there.
+    var old = try load(testing.allocator, testing.io, "test/fixtures/wsj/v23.wsj");
+    defer old.deinit();
+    const old_dm = &old.racks.items[0].instrument.drum_machine;
+    const legacy = drum_kit.legacyLayout(drum_kit.byName("default").?);
+    try old_dm.loadKitVariant(&legacy);
+    try testing.expectEqualStrings("snare", padName(&old_dm.pads[1].?.pad.name));
 }
 
 test "golden-file corpus: v23's sparse note list loads directly, no legacy migration" {

@@ -827,17 +827,51 @@ fn stabEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![
 fn screechHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 { return tomGen(allocator, sr, .{ .freq_start = 1600.0, .freq_end = 120.0, .dur_s = 0.35, .body_decay = 4.0, .attack_decay = 120.0, .drive = 6.0, .attack_mix = 0.15, .seed = 0x7c4 }); }
 // zig fmt: on
 
-/// One pad slot in a runtime kit variant: display name, generator, and
-/// default mixer gain - the same shape as `PadDef` minus the WAV filename
-/// (these are never written to disk). A null `gen` is an empty slot: the
-/// "init" kit's blank slate, loaded as a silent pad rather than generated
+/// Sampler-side shaping applied to a slot on load, on top of its generator's
+/// audio - transpose, region trim, duration and tone tilt, all plain `Pad`
+/// params (see dsp/pad.zig). Every field's default is "untouched".
+pub const Tune = struct {
+    /// Playback transpose in semitones (`Pad.pitch_semitones`).
+    pitch: f32 = 0.0,
+    /// Region end as a fraction of the clip (`Pad.end_norm`) - the knob that
+    /// turns a full-length hit into a tight one.
+    end: f32 = 1.0,
+    /// Duration multiplier (`Pad.stretch_ratio`), independent of `pitch`.
+    stretch: f32 = 1.0,
+    /// Bipolar tone tilt (`Pad.filter`): negative darkens, positive thins.
+    filter: f32 = 0.0,
+};
+
+/// Second-voice tunings. The `-2`/crash/stick/perc pads share their
+/// neighbour's generator, so without these they were the same hit at a
+/// different mixer level. Each one moves pitch, length and tone far enough
+/// that the pair reads as two drums, not one drum twice.
+const alt_kick: Tune = .{ .pitch = 3.0, .end = 0.6, .filter = 0.12 };
+const alt_snare: Tune = .{ .pitch = -2.5, .end = 0.5, .filter = -0.16 };
+const alt_hat: Tune = .{ .pitch = 5.0, .end = 0.55, .filter = 0.25 };
+/// Crash = the open hat dropped a fourth and stretched well past its own
+/// decay: a long, heavy wash instead of a hat that rings a little.
+const alt_crash: Tune = .{ .pitch = -5.0, .stretch = 2.2, .filter = -0.08 };
+const alt_stick: Tune = .{ .pitch = 7.0, .end = 0.35, .filter = 0.3 };
+const alt_perc_hi: Tune = .{ .pitch = 9.0, .end = 0.45, .filter = 0.18 };
+const alt_perc_lo: Tune = .{ .pitch = -4.0, .end = 0.4, .filter = -0.25 };
+
+/// One pad slot in a runtime kit variant: display name, generator, default
+/// mixer gain and pad tuning - the same shape as `PadDef` minus the WAV
+/// filename (these are never written to disk). A null `gen` is an empty slot:
+/// the "init" kit's blank slate, loaded as a silent pad rather than generated
 /// audio.
 pub const VariantSlot = struct {
     name: []const u8 = "",
     gen: ?*const fn (std.mem.Allocator, u32) std.mem.Allocator.Error![]f32 = null,
     gain: f32 = 1.0,
+    tune: Tune = .{},
 };
 
+/// Every kit lays its 16 pads out the same way, soundtype by soundtype, so a
+/// pad and its second voice sit next to each other: kick, kick-2, snare,
+/// snare-2, hihat, hat-2, open, crash | clap, rim, stick, tom-1, tom-2,
+/// perc-hi, perc-lo, and the kit's signature sound last.
 pub const KitVariant = struct {
     name: []const u8,
     /// Sound character, not genre - mirrors `synth_presets.Preset.category`.
@@ -854,221 +888,236 @@ pub const variants = [_]KitVariant{
     .{ .name = "init", .category = "utility", .tags = &.{"wstudio"}, .pads = [_]VariantSlot{.{}} ** 16 },
     .{ .name = "default", .category = "digital", .tags = &.{ "wstudio", "house" }, .pads = .{
         .{ .name = "kick", .gen = kick, .gain = 1.00 },
+        .{ .name = "kick-2", .gen = kick, .gain = 0.90, .tune = alt_kick },
         .{ .name = "snare", .gen = snare, .gain = 0.85 },
+        .{ .name = "snare-2", .gen = snare, .gain = 0.75, .tune = alt_snare },
         .{ .name = "hihat", .gen = hihatClosed, .gain = 0.50 },
+        .{ .name = "hat-2", .gen = hihatClosed, .gain = 0.45, .tune = alt_hat },
         .{ .name = "open", .gen = hihatOpen, .gain = 0.50 },
+        .{ .name = "crash", .gen = hihatOpen, .gain = 0.45, .tune = alt_crash },
         .{ .name = "clap", .gen = clap, .gain = 0.70 },
+        .{ .name = "rim", .gen = rim, .gain = 0.65 },
+        .{ .name = "stick", .gen = rim, .gain = 0.55, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tom1, .gain = 0.80 },
         .{ .name = "tom-2", .gen = tom2, .gain = 0.80 },
-        .{ .name = "rim", .gen = rim, .gain = 0.65 },
-        .{ .name = "kick-2", .gen = kick, .gain = 0.90 },
-        .{ .name = "snare-2", .gen = snare, .gain = 0.75 },
-        .{ .name = "hat-2", .gen = hihatClosed, .gain = 0.45 },
-        .{ .name = "crash", .gen = hihatOpen, .gain = 0.45 },
-        .{ .name = "perc-hi", .gen = tom1, .gain = 0.70 },
-        .{ .name = "perc-lo", .gen = tom2, .gain = 0.70 },
-        .{ .name = "stick", .gen = rim, .gain = 0.55 },
+        .{ .name = "perc-hi", .gen = tom1, .gain = 0.70, .tune = alt_perc_hi },
+        .{ .name = "perc-lo", .gen = tom2, .gain = 0.70, .tune = alt_perc_lo },
         .{ .name = "cowbell", .gen = cowbellDefault, .gain = 0.60 },
     } },
     .{ .name = "analog", .category = "analog", .tags = &.{ "wstudio", "techno" }, .pads = .{
         .{ .name = "kick", .gen = kickAnalog, .gain = 1.00 },
+        .{ .name = "kick-2", .gen = kickAnalog, .gain = 0.90, .tune = alt_kick },
         .{ .name = "snare", .gen = snareAnalog, .gain = 0.80 },
+        .{ .name = "snare-2", .gen = snareAnalog, .gain = 0.72, .tune = alt_snare },
         .{ .name = "hihat", .gen = hihatAnalogClosed, .gain = 0.45 },
+        .{ .name = "hat-2", .gen = hihatAnalogClosed, .gain = 0.40, .tune = alt_hat },
         .{ .name = "open", .gen = hihatAnalogOpen, .gain = 0.45 },
+        .{ .name = "crash", .gen = hihatAnalogOpen, .gain = 0.42, .tune = alt_crash },
         .{ .name = "clap", .gen = clapAnalog, .gain = 0.65 },
+        .{ .name = "rim", .gen = rimAnalog, .gain = 0.60 },
+        .{ .name = "stick", .gen = rimAnalog, .gain = 0.52, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomAnalog1, .gain = 0.85 },
         .{ .name = "tom-2", .gen = tomAnalog2, .gain = 0.85 },
-        .{ .name = "rim", .gen = rimAnalog, .gain = 0.60 },
-        .{ .name = "kick-2", .gen = kickAnalog, .gain = 0.90 },
-        .{ .name = "snare-2", .gen = snareAnalog, .gain = 0.72 },
-        .{ .name = "hat-2", .gen = hihatAnalogClosed, .gain = 0.40 },
-        .{ .name = "crash", .gen = hihatAnalogOpen, .gain = 0.42 },
-        .{ .name = "perc-hi", .gen = tomAnalog1, .gain = 0.75 },
-        .{ .name = "perc-lo", .gen = tomAnalog2, .gain = 0.75 },
-        .{ .name = "stick", .gen = rimAnalog, .gain = 0.52 },
+        .{ .name = "perc-hi", .gen = tomAnalog1, .gain = 0.75, .tune = alt_perc_hi },
+        .{ .name = "perc-lo", .gen = tomAnalog2, .gain = 0.75, .tune = alt_perc_lo },
         .{ .name = "cowbell", .gen = cowbellAnalog, .gain = 0.62 },
     } },
     .{ .name = "acoustic", .category = "acoustic", .tags = &.{ "wstudio", "rock" }, .pads = .{
         .{ .name = "kick", .gen = kickAcoustic, .gain = 1.00 },
+        .{ .name = "kick-2", .gen = kickAcoustic, .gain = 0.90, .tune = alt_kick },
         .{ .name = "snare", .gen = snareAcoustic, .gain = 0.90 },
+        .{ .name = "snare-2", .gen = snareAcoustic, .gain = 0.82, .tune = alt_snare },
         .{ .name = "hihat", .gen = hihatAcousticClosed, .gain = 0.55 },
+        .{ .name = "hat-2", .gen = hihatAcousticClosed, .gain = 0.50, .tune = alt_hat },
         .{ .name = "open", .gen = hihatAcousticOpen, .gain = 0.55 },
+        .{ .name = "crash", .gen = hihatAcousticOpen, .gain = 0.52, .tune = alt_crash },
         .{ .name = "clap", .gen = clapAcoustic, .gain = 0.65 },
+        .{ .name = "rim", .gen = rimAcoustic, .gain = 0.70 },
+        .{ .name = "stick", .gen = rimAcoustic, .gain = 0.62, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomAcoustic1, .gain = 0.80 },
         .{ .name = "tom-2", .gen = tomAcoustic2, .gain = 0.80 },
-        .{ .name = "rim", .gen = rimAcoustic, .gain = 0.70 },
-        .{ .name = "kick-2", .gen = kickAcoustic, .gain = 0.90 },
-        .{ .name = "snare-2", .gen = snareAcoustic, .gain = 0.82 },
-        .{ .name = "hat-2", .gen = hihatAcousticClosed, .gain = 0.50 },
-        .{ .name = "crash", .gen = hihatAcousticOpen, .gain = 0.52 },
-        .{ .name = "perc-hi", .gen = tomAcoustic1, .gain = 0.72 },
-        .{ .name = "perc-lo", .gen = tomAcoustic2, .gain = 0.72 },
-        .{ .name = "stick", .gen = rimAcoustic, .gain = 0.62 },
+        .{ .name = "perc-hi", .gen = tomAcoustic1, .gain = 0.72, .tune = alt_perc_hi },
+        .{ .name = "perc-lo", .gen = tomAcoustic2, .gain = 0.72, .tune = alt_perc_lo },
         .{ .name = "ride", .gen = rideAcoustic, .gain = 0.48 },
     } },
     .{ .name = "industrial", .category = "industrial", .tags = &.{ "wstudio", "techno" }, .pads = .{
         .{ .name = "kick", .gen = kickIndustrial, .gain = 1.00 },
+        .{ .name = "kick-2", .gen = kickIndustrial, .gain = 0.92, .tune = alt_kick },
         .{ .name = "snare", .gen = snareIndustrial, .gain = 0.85 },
+        .{ .name = "snare-2", .gen = snareIndustrial, .gain = 0.78, .tune = alt_snare },
         .{ .name = "hihat", .gen = hihatIndustrialClosed, .gain = 0.50 },
+        .{ .name = "hat-2", .gen = hihatIndustrialClosed, .gain = 0.45, .tune = alt_hat },
         .{ .name = "open", .gen = hihatIndustrialOpen, .gain = 0.50 },
+        .{ .name = "crash", .gen = hihatIndustrialOpen, .gain = 0.48, .tune = alt_crash },
         .{ .name = "clap", .gen = clapIndustrial, .gain = 0.70 },
+        .{ .name = "rim", .gen = rimIndustrial, .gain = 0.65 },
+        .{ .name = "stick", .gen = rimIndustrial, .gain = 0.58, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomIndustrial1, .gain = 0.85 },
         .{ .name = "tom-2", .gen = tomIndustrial2, .gain = 0.85 },
-        .{ .name = "rim", .gen = rimIndustrial, .gain = 0.65 },
-        .{ .name = "kick-2", .gen = kickIndustrial, .gain = 0.92 },
-        .{ .name = "snare-2", .gen = snareIndustrial, .gain = 0.78 },
-        .{ .name = "hat-2", .gen = hihatIndustrialClosed, .gain = 0.45 },
-        .{ .name = "crash", .gen = hihatIndustrialOpen, .gain = 0.48 },
-        .{ .name = "perc-hi", .gen = tomIndustrial1, .gain = 0.78 },
-        .{ .name = "perc-lo", .gen = tomIndustrial2, .gain = 0.78 },
-        .{ .name = "stick", .gen = rimIndustrial, .gain = 0.58 },
+        .{ .name = "perc-hi", .gen = tomIndustrial1, .gain = 0.78, .tune = alt_perc_hi },
+        .{ .name = "perc-lo", .gen = tomIndustrial2, .gain = 0.78, .tune = alt_perc_lo },
         .{ .name = "anvil", .gen = anvilIndustrial, .gain = 0.68 },
     } },
     .{ .name = "boombap", .category = "vinyl", .tags = &.{ "wstudio", "hip-hop", "boom-bap" }, .pads = .{
         .{ .name = "kick", .gen = kickBoombap, .gain = 1.00 },
+        .{ .name = "kick-2", .gen = kickBoombap, .gain = 0.90, .tune = alt_kick },
         .{ .name = "snare", .gen = snareBoombap, .gain = 0.85 },
+        .{ .name = "snare-2", .gen = snareBoombap, .gain = 0.78, .tune = alt_snare },
         .{ .name = "hihat", .gen = hihatBoombapClosed, .gain = 0.45 },
+        .{ .name = "hat-2", .gen = hihatBoombapClosed, .gain = 0.40, .tune = alt_hat },
         .{ .name = "open", .gen = hihatBoombapOpen, .gain = 0.45 },
+        .{ .name = "crash", .gen = hihatBoombapOpen, .gain = 0.42, .tune = alt_crash },
         .{ .name = "clap", .gen = clapBoombap, .gain = 0.65 },
+        .{ .name = "rim", .gen = rimBoombap, .gain = 0.60 },
+        .{ .name = "stick", .gen = rimBoombap, .gain = 0.52, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomBoombap1, .gain = 0.80 },
         .{ .name = "tom-2", .gen = tomBoombap2, .gain = 0.80 },
-        .{ .name = "rim", .gen = rimBoombap, .gain = 0.60 },
-        .{ .name = "kick-2", .gen = kickBoombap, .gain = 0.90 },
-        .{ .name = "snare-2", .gen = snareBoombap, .gain = 0.78 },
-        .{ .name = "hat-2", .gen = hihatBoombapClosed, .gain = 0.40 },
-        .{ .name = "crash", .gen = hihatBoombapOpen, .gain = 0.42 },
-        .{ .name = "perc-hi", .gen = tomBoombap1, .gain = 0.72 },
-        .{ .name = "perc-lo", .gen = tomBoombap2, .gain = 0.72 },
-        .{ .name = "stick", .gen = rimBoombap, .gain = 0.52 },
+        .{ .name = "perc-hi", .gen = tomBoombap1, .gain = 0.72, .tune = alt_perc_hi },
+        .{ .name = "perc-lo", .gen = tomBoombap2, .gain = 0.72, .tune = alt_perc_lo },
         .{ .name = "vinyl", .gen = vinylBoombap, .gain = 0.48 },
     } },
     .{ .name = "gfunk", .category = "analog", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .pads = .{
         .{ .name = "kick", .gen = kickGfunk, .gain = 1.00 },
+        .{ .name = "kick-2", .gen = kickGfunk, .gain = 0.90, .tune = alt_kick },
         .{ .name = "snare", .gen = snareGfunk, .gain = 0.88 },
+        .{ .name = "snare-2", .gen = snareGfunk, .gain = 0.80, .tune = alt_snare },
         .{ .name = "hihat", .gen = hihatGfunkClosed, .gain = 0.45 },
+        .{ .name = "hat-2", .gen = hihatGfunkClosed, .gain = 0.40, .tune = alt_hat },
         .{ .name = "open", .gen = hihatGfunkOpen, .gain = 0.45 },
+        .{ .name = "crash", .gen = hihatGfunkOpen, .gain = 0.42, .tune = alt_crash },
         .{ .name = "clap", .gen = clapGfunk, .gain = 0.75 },
+        .{ .name = "rim", .gen = rimGfunk, .gain = 0.60 },
+        .{ .name = "stick", .gen = rimGfunk, .gain = 0.52, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomGfunk1, .gain = 0.80 },
         .{ .name = "tom-2", .gen = tomGfunk2, .gain = 0.80 },
-        .{ .name = "rim", .gen = rimGfunk, .gain = 0.60 },
-        .{ .name = "kick-2", .gen = kickGfunk, .gain = 0.90 },
-        .{ .name = "snare-2", .gen = snareGfunk, .gain = 0.80 },
-        .{ .name = "hat-2", .gen = hihatGfunkClosed, .gain = 0.40 },
-        .{ .name = "crash", .gen = hihatGfunkOpen, .gain = 0.42 },
-        .{ .name = "perc-hi", .gen = tomGfunk1, .gain = 0.72 },
-        .{ .name = "perc-lo", .gen = tomGfunk2, .gain = 0.72 },
-        .{ .name = "stick", .gen = rimGfunk, .gain = 0.52 },
+        .{ .name = "perc-hi", .gen = tomGfunk1, .gain = 0.72, .tune = alt_perc_hi },
+        .{ .name = "perc-lo", .gen = tomGfunk2, .gain = 0.72, .tune = alt_perc_lo },
         .{ .name = "zap", .gen = zapGfunk, .gain = 0.68 },
     } },
     .{ .name = "citypop", .category = "digital", .tags = &.{ "wstudio", "city-pop", "funk" }, .pads = .{
         .{ .name = "kick", .gen = kickCitypop, .gain = 1.00 },
+        .{ .name = "kick-2", .gen = kickCitypop, .gain = 0.90, .tune = alt_kick },
         .{ .name = "snare", .gen = snareCitypop, .gain = 0.90 },
+        .{ .name = "snare-2", .gen = snareCitypop, .gain = 0.82, .tune = alt_snare },
         .{ .name = "hihat", .gen = hihatCitypopClosed, .gain = 0.50 },
+        .{ .name = "hat-2", .gen = hihatCitypopClosed, .gain = 0.45, .tune = alt_hat },
         .{ .name = "open", .gen = hihatCitypopOpen, .gain = 0.50 },
+        .{ .name = "crash", .gen = hihatCitypopOpen, .gain = 0.47, .tune = alt_crash },
         .{ .name = "clap", .gen = clapCitypop, .gain = 0.60 },
+        .{ .name = "rim", .gen = rimCitypop, .gain = 0.70 },
+        .{ .name = "stick", .gen = rimCitypop, .gain = 0.62, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomCitypop1, .gain = 0.85 },
         .{ .name = "tom-2", .gen = tomCitypop2, .gain = 0.85 },
-        .{ .name = "rim", .gen = rimCitypop, .gain = 0.70 },
-        .{ .name = "kick-2", .gen = kickCitypop, .gain = 0.90 },
-        .{ .name = "snare-2", .gen = snareCitypop, .gain = 0.82 },
-        .{ .name = "hat-2", .gen = hihatCitypopClosed, .gain = 0.45 },
-        .{ .name = "crash", .gen = hihatCitypopOpen, .gain = 0.47 },
-        .{ .name = "perc-hi", .gen = tomCitypop1, .gain = 0.76 },
-        .{ .name = "perc-lo", .gen = tomCitypop2, .gain = 0.76 },
-        .{ .name = "stick", .gen = rimCitypop, .gain = 0.62 },
+        .{ .name = "perc-hi", .gen = tomCitypop1, .gain = 0.76, .tune = alt_perc_hi },
+        .{ .name = "perc-lo", .gen = tomCitypop2, .gain = 0.76, .tune = alt_perc_lo },
         .{ .name = "gated", .gen = gatedCitypop, .gain = 0.72 },
     } },
     .{ .name = "technopop", .category = "digital", .tags = &.{ "wstudio", "technopop", "synth-pop" }, .pads = .{
         .{ .name = "kick", .gen = kickTechnopop, .gain = 1.00 },
+        .{ .name = "kick-2", .gen = kickTechnopop, .gain = 0.90, .tune = alt_kick },
         .{ .name = "snare", .gen = snareTechnopop, .gain = 0.85 },
+        .{ .name = "snare-2", .gen = snareTechnopop, .gain = 0.78, .tune = alt_snare },
         .{ .name = "hihat", .gen = hihatTechnopopClosed, .gain = 0.50 },
+        .{ .name = "hat-2", .gen = hihatTechnopopClosed, .gain = 0.45, .tune = alt_hat },
         .{ .name = "open", .gen = hihatTechnopopOpen, .gain = 0.50 },
+        .{ .name = "crash", .gen = hihatTechnopopOpen, .gain = 0.47, .tune = alt_crash },
         .{ .name = "clap", .gen = clapTechnopop, .gain = 0.65 },
+        .{ .name = "rim", .gen = rimTechnopop, .gain = 0.65 },
+        .{ .name = "stick", .gen = rimTechnopop, .gain = 0.57, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomTechnopop1, .gain = 0.80 },
         .{ .name = "tom-2", .gen = tomTechnopop2, .gain = 0.80 },
-        .{ .name = "rim", .gen = rimTechnopop, .gain = 0.65 },
-        .{ .name = "kick-2", .gen = kickTechnopop, .gain = 0.90 },
-        .{ .name = "snare-2", .gen = snareTechnopop, .gain = 0.78 },
-        .{ .name = "hat-2", .gen = hihatTechnopopClosed, .gain = 0.45 },
-        .{ .name = "crash", .gen = hihatTechnopopOpen, .gain = 0.47 },
-        .{ .name = "perc-hi", .gen = tomTechnopop1, .gain = 0.72 },
-        .{ .name = "perc-lo", .gen = tomTechnopop2, .gain = 0.72 },
-        .{ .name = "stick", .gen = rimTechnopop, .gain = 0.57 },
+        .{ .name = "perc-hi", .gen = tomTechnopop1, .gain = 0.72, .tune = alt_perc_hi },
+        .{ .name = "perc-lo", .gen = tomTechnopop2, .gain = 0.72, .tune = alt_perc_lo },
         .{ .name = "blip", .gen = blipTechnopop, .gain = 0.65 },
     } },
     .{ .name = "kawaii", .category = "digital", .tags = &.{ "wstudio", "kawaii", "pop" }, .pads = .{
         .{ .name = "kick", .gen = kickKawaii, .gain = 1.00 },
+        .{ .name = "kick-2", .gen = kickKawaii, .gain = 0.90, .tune = alt_kick },
         .{ .name = "snare", .gen = snareKawaii, .gain = 0.85 },
+        .{ .name = "snare-2", .gen = snareKawaii, .gain = 0.78, .tune = alt_snare },
         .{ .name = "hihat", .gen = hihatKawaiiClosed, .gain = 0.50 },
+        .{ .name = "hat-2", .gen = hihatKawaiiClosed, .gain = 0.45, .tune = alt_hat },
         .{ .name = "open", .gen = hihatKawaiiOpen, .gain = 0.50 },
+        .{ .name = "crash", .gen = hihatKawaiiOpen, .gain = 0.47, .tune = alt_crash },
         .{ .name = "clap", .gen = clapKawaii, .gain = 0.70 },
+        .{ .name = "rim", .gen = rimKawaii, .gain = 0.65 },
+        .{ .name = "stick", .gen = rimKawaii, .gain = 0.57, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomKawaii1, .gain = 0.80 },
         .{ .name = "tom-2", .gen = tomKawaii2, .gain = 0.80 },
-        .{ .name = "rim", .gen = rimKawaii, .gain = 0.65 },
-        .{ .name = "kick-2", .gen = kickKawaii, .gain = 0.90 },
-        .{ .name = "snare-2", .gen = snareKawaii, .gain = 0.78 },
-        .{ .name = "hat-2", .gen = hihatKawaiiClosed, .gain = 0.45 },
-        .{ .name = "crash", .gen = hihatKawaiiOpen, .gain = 0.47 },
-        .{ .name = "perc-hi", .gen = tomKawaii1, .gain = 0.72 },
-        .{ .name = "perc-lo", .gen = tomKawaii2, .gain = 0.72 },
-        .{ .name = "stick", .gen = rimKawaii, .gain = 0.57 },
+        .{ .name = "perc-hi", .gen = tomKawaii1, .gain = 0.72, .tune = alt_perc_hi },
+        .{ .name = "perc-lo", .gen = tomKawaii2, .gain = 0.72, .tune = alt_perc_lo },
         .{ .name = "pop", .gen = popKawaii, .gain = 0.62 },
     } },
     .{ .name = "vaporwave", .category = "tape", .tags = &.{ "wstudio", "vaporwave", "chill" }, .pads = .{
         .{ .name = "kick", .gen = kickVaporwave, .gain = 1.00 },
+        .{ .name = "kick-2", .gen = kickVaporwave, .gain = 0.88, .tune = alt_kick },
         .{ .name = "snare", .gen = snareVaporwave, .gain = 0.80 },
+        .{ .name = "snare-2", .gen = snareVaporwave, .gain = 0.72, .tune = alt_snare },
         .{ .name = "hihat", .gen = hihatVaporwaveClosed, .gain = 0.40 },
+        .{ .name = "hat-2", .gen = hihatVaporwaveClosed, .gain = 0.35, .tune = alt_hat },
         .{ .name = "open", .gen = hihatVaporwaveOpen, .gain = 0.40 },
+        .{ .name = "crash", .gen = hihatVaporwaveOpen, .gain = 0.37, .tune = alt_crash },
         .{ .name = "clap", .gen = clapVaporwave, .gain = 0.60 },
+        .{ .name = "rim", .gen = rimVaporwave, .gain = 0.55 },
+        .{ .name = "stick", .gen = rimVaporwave, .gain = 0.47, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomVaporwave1, .gain = 0.75 },
         .{ .name = "tom-2", .gen = tomVaporwave2, .gain = 0.75 },
-        .{ .name = "rim", .gen = rimVaporwave, .gain = 0.55 },
-        .{ .name = "kick-2", .gen = kickVaporwave, .gain = 0.88 },
-        .{ .name = "snare-2", .gen = snareVaporwave, .gain = 0.72 },
-        .{ .name = "hat-2", .gen = hihatVaporwaveClosed, .gain = 0.35 },
-        .{ .name = "crash", .gen = hihatVaporwaveOpen, .gain = 0.37 },
-        .{ .name = "perc-hi", .gen = tomVaporwave1, .gain = 0.68 },
-        .{ .name = "perc-lo", .gen = tomVaporwave2, .gain = 0.68 },
-        .{ .name = "stick", .gen = rimVaporwave, .gain = 0.47 },
+        .{ .name = "perc-hi", .gen = tomVaporwave1, .gain = 0.68, .tune = alt_perc_hi },
+        .{ .name = "perc-lo", .gen = tomVaporwave2, .gain = 0.68, .tune = alt_perc_lo },
         .{ .name = "wash", .gen = washVaporwave, .gain = 0.38 },
     } },
     .{ .name = "eurobeat", .category = "digital", .tags = &.{ "wstudio", "eurobeat", "dance" }, .pads = .{
         .{ .name = "kick", .gen = kickEurobeat, .gain = 1.00 },
+        .{ .name = "kick-2", .gen = kickEurobeat, .gain = 0.90, .tune = alt_kick },
         .{ .name = "snare", .gen = snareEurobeat, .gain = 0.88 },
+        .{ .name = "snare-2", .gen = snareEurobeat, .gain = 0.80, .tune = alt_snare },
         .{ .name = "hihat", .gen = hihatEurobeatClosed, .gain = 0.50 },
+        .{ .name = "hat-2", .gen = hihatEurobeatClosed, .gain = 0.45, .tune = alt_hat },
         .{ .name = "open", .gen = hihatEurobeatOpen, .gain = 0.55 },
+        .{ .name = "crash", .gen = hihatEurobeatOpen, .gain = 0.50, .tune = alt_crash },
         .{ .name = "clap", .gen = clapEurobeat, .gain = 0.70 },
+        .{ .name = "rim", .gen = rimEurobeat, .gain = 0.65 },
+        .{ .name = "stick", .gen = rimEurobeat, .gain = 0.57, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomEurobeat1, .gain = 0.80 },
         .{ .name = "tom-2", .gen = tomEurobeat2, .gain = 0.80 },
-        .{ .name = "rim", .gen = rimEurobeat, .gain = 0.65 },
-        .{ .name = "kick-2", .gen = kickEurobeat, .gain = 0.90 },
-        .{ .name = "snare-2", .gen = snareEurobeat, .gain = 0.80 },
-        .{ .name = "hat-2", .gen = hihatEurobeatClosed, .gain = 0.45 },
-        .{ .name = "crash", .gen = hihatEurobeatOpen, .gain = 0.50 },
-        .{ .name = "perc-hi", .gen = tomEurobeat1, .gain = 0.72 },
-        .{ .name = "perc-lo", .gen = tomEurobeat2, .gain = 0.72 },
-        .{ .name = "stick", .gen = rimEurobeat, .gain = 0.57 },
+        .{ .name = "perc-hi", .gen = tomEurobeat1, .gain = 0.72, .tune = alt_perc_hi },
+        .{ .name = "perc-lo", .gen = tomEurobeat2, .gain = 0.72, .tune = alt_perc_lo },
         .{ .name = "stab", .gen = stabEurobeat, .gain = 0.66 },
     } },
     .{ .name = "hardcore", .category = "distorted", .tags = &.{ "wstudio", "j-core", "hardcore" }, .pads = .{
         .{ .name = "kick", .gen = kickHardcore, .gain = 1.00 },
+        .{ .name = "kick-2", .gen = kickHardcore, .gain = 0.92, .tune = alt_kick },
         .{ .name = "snare", .gen = snareHardcore, .gain = 0.85 },
+        .{ .name = "snare-2", .gen = snareHardcore, .gain = 0.78, .tune = alt_snare },
         .{ .name = "hihat", .gen = hihatHardcoreClosed, .gain = 0.45 },
+        .{ .name = "hat-2", .gen = hihatHardcoreClosed, .gain = 0.40, .tune = alt_hat },
         .{ .name = "open", .gen = hihatHardcoreOpen, .gain = 0.45 },
+        .{ .name = "crash", .gen = hihatHardcoreOpen, .gain = 0.42, .tune = alt_crash },
         .{ .name = "clap", .gen = clapHardcore, .gain = 0.70 },
+        .{ .name = "rim", .gen = rimHardcore, .gain = 0.60 },
+        .{ .name = "stick", .gen = rimHardcore, .gain = 0.52, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomHardcore1, .gain = 0.80 },
         .{ .name = "tom-2", .gen = tomHardcore2, .gain = 0.80 },
-        .{ .name = "rim", .gen = rimHardcore, .gain = 0.60 },
-        .{ .name = "kick-2", .gen = kickHardcore, .gain = 0.92 },
-        .{ .name = "snare-2", .gen = snareHardcore, .gain = 0.78 },
-        .{ .name = "hat-2", .gen = hihatHardcoreClosed, .gain = 0.40 },
-        .{ .name = "crash", .gen = hihatHardcoreOpen, .gain = 0.42 },
-        .{ .name = "perc-hi", .gen = tomHardcore1, .gain = 0.72 },
-        .{ .name = "perc-lo", .gen = tomHardcore2, .gain = 0.72 },
-        .{ .name = "stick", .gen = rimHardcore, .gain = 0.52 },
+        .{ .name = "perc-hi", .gen = tomHardcore1, .gain = 0.72, .tune = alt_perc_hi },
+        .{ .name = "perc-lo", .gen = tomHardcore2, .gain = 0.72, .tune = alt_perc_lo },
         .{ .name = "screech", .gen = screechHardcore, .gain = 0.68 },
     } },
 };
+
+/// Where each pad of the pre-v36 layout (kick, snare, hihat, open, clap,
+/// tom-1, tom-2, rim, then the second voices) lives in today's soundtype
+/// grouping. See `legacyLayout`.
+const legacy_order = [16]u8{ 0, 2, 4, 6, 8, 11, 12, 9, 1, 3, 5, 7, 13, 14, 10, 15 };
+
+/// The same kit with its pads back in the pre-v36 order. A project older than
+/// v36 sequenced pad *indices*, and its kit audio is regenerated on load
+/// rather than stored (see persist.zig) - rebuilding it in the old order is
+/// what keeps its snare pattern on the snare.
+pub fn legacyLayout(v: *const KitVariant) KitVariant {
+    var out = v.*;
+    for (legacy_order, 0..) |src, i| out.pads[i] = v.pads[src];
+    return out;
+}
 
 /// Look a factory kit up by name, or null if there is no such flavour.
 pub fn byName(name: []const u8) ?*const KitVariant {
@@ -1080,6 +1129,20 @@ pub fn byName(name: []const u8) ?*const KitVariant {
 
 // ---------------------------------------------------------------------------
 // Tests
+
+test "pads sharing a generator are tuned into different drums" {
+    for (variants) |variant| {
+        for (variant.pads, 0..) |a, i| {
+            const gen_a = a.gen orelse continue;
+            for (variant.pads[i + 1 ..]) |b| {
+                if (b.gen != gen_a) continue;
+                // Same audio on both pads: only the tuning tells them apart,
+                // and a gain difference alone is the same drum twice.
+                try std.testing.expect(!std.meta.eql(a.tune, b.tune));
+            }
+        }
+    }
+}
 
 test "every kit variant's pads produce audible, finite output" {
     for (variants) |variant| {

@@ -1,0 +1,20 @@
+{
+  "version": 36,
+  "tracks": [
+    { "name": "drums" }
+  ],
+  "racks": [
+    {
+      "label": "drums",
+      "kind": "drum_machine",
+      "drum": {
+        "step_count": 16,
+        "kit": "default",
+        "notes": [
+          { "pad": 0, "step": 0, "velocity": 127 },
+          { "pad": 2, "step": 4, "velocity": 95 }
+        ]
+      }
+    }
+  ]
+}
