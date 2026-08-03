@@ -1494,10 +1494,10 @@ fn cmdGroupAdd(app: *App, args: []const u8) void {
     }
     const name = "untitled group";
     const idx = app.session.addGroup(name) catch |err| {
-        app.setStatus("group-add: {s}", .{switch (err) {
-            error.GroupLimitReached => "bank full (8 groups)",
-            error.OutOfMemory => "out of memory",
-        }});
+        switch (err) {
+            error.GroupLimitReached => app.setStatus("group-add: bank full ({d} groups)", .{ws.engine.max_groups}),
+            error.OutOfMemory => app.setStatus("group-add: out of memory", .{}),
+        }
         return;
     };
     app.dirty = true;

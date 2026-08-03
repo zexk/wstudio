@@ -24,10 +24,10 @@ pub const max_tracks = 8192;
 pub const max_chain_devices = 26;
 pub const channels = 2;
 /// Track-grouping submix buses (see `TrackState.group`, `renderTracks`'s
-/// two-stage grouped-track routing). Same small-fixed-bank scale as
-/// max_variants/max_choke_groups elsewhere - a real UI-relevant count, not
-/// max_tracks' generous headroom.
-pub const max_groups: u8 = 8;
+/// two-stage grouped-track routing). A real UI-relevant count, not
+/// max_tracks' generous headroom - but still comfortably bigger than a
+/// typical session's drum/vox/synth/fx-return buses need.
+pub const max_groups: u8 = 16;
 
 pub const SpectrumSource = enum { none, track, master, group };
 

@@ -3350,7 +3350,7 @@ test "API metadata is derived from live registries" {
         \\assert(contains(info.functions, "get_api_info") and contains(info.functions, "transport_set"))
         \\assert(contains(info.events, "TrackMove") and contains(info.highlight_groups, "focus"))
         \\assert(contains(info.views, "piano_roll") and contains(info.modes, "command"))
-        \\assert(info.limits.tracks == 8192 and info.limits.groups == 8 and info.limits.keymap_lhs_keys == 4)
+        \\assert(info.limits.tracks == 8192 and info.limits.groups == 16 and info.limits.keymap_lhs_keys == 4)
         \\local found = false
         \\for _, o in ipairs(info.options) do if o.name == "gui_font_size" then found = o.scope == "gui" and o.type == "number" and o.min == 8 and o.max == 40 end end
         \\assert(found)

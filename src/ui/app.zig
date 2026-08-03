@@ -2791,10 +2791,10 @@ pub const App = struct {
         if (sel.items.len == 0) { self.setStatus("no tracks selected", .{}); return; }
 
         const idx = self.session.addGroup("untitled group") catch |err| {
-            self.setStatus("group: {s}", .{switch (err) {
-                error.GroupLimitReached => "bank full (8 groups)",
-                error.OutOfMemory => "out of memory",
-            }});
+            switch (err) {
+                error.GroupLimitReached => self.setStatus("group: bank full ({d} groups)", .{engine_mod.max_groups}),
+                error.OutOfMemory => self.setStatus("group: out of memory", .{}),
+            }
             return;
         };
         for (sel.items) |t| self.session.assignTrackGroup(t, idx);
