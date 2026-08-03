@@ -322,6 +322,15 @@ fn meterFill(draw_list: zgui.DrawList, x: f32, y: f32, w: f32, h: f32, norm: f32
 /// toward the right edge for positive (in-phase) ones - shared by the
 /// transport's master PHASE readout, the same way `meterBar` is shared for
 /// LEVEL. `value` is -1..1, see `dsp/meter.zig`'s `StereoCorrelation`.
+/// Same red/yellow/green thresholds a hardware phase scope uses: fully
+/// in-phase and mildly-so both read as safe, only the cancellation-risk
+/// half reads as danger. Shared between the bar's fill and the numeric
+/// readout beside it so the two never disagree about what "bad" means.
+pub fn correlationColor(value: f32) [4]f32 {
+    const theme = &gui_style.palette;
+    return if (value >= 0.0) theme.audio else if (value >= -0.5) theme.rhythm else theme.danger;
+}
+
 pub fn correlationBar(draw_list: zgui.DrawList, origin: [2]f32, value: f32, w: f32, h: f32) void {
     const theme = &gui_style.palette;
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + w, origin[1] + h }, .col = gui_style.color(theme.bg2), .rounding = gui_style.item_rounding });
@@ -329,10 +338,9 @@ pub fn correlationBar(draw_list: zgui.DrawList, origin: [2]f32, value: f32, w: f
     draw_list.addLine(.{ .p1 = .{ mid, origin[1] }, .p2 = .{ mid, origin[1] + h }, .col = gui_style.color(theme.fg3), .thickness = 1 });
 
     const v = std.math.clamp(value, -1.0, 1.0);
-    const fill_col = if (v >= 0.0) theme.audio else if (v >= -0.5) theme.rhythm else theme.danger;
     const fill_x = mid + (w * 0.5) * @min(v, 0.0);
     const fill_w = (w * 0.5) * @abs(v);
-    draw_list.addRectFilled(.{ .pmin = .{ fill_x, origin[1] }, .pmax = .{ fill_x + fill_w, origin[1] + h }, .col = gui_style.color(fill_col), .rounding = gui_style.item_rounding });
+    draw_list.addRectFilled(.{ .pmin = .{ fill_x, origin[1] }, .pmax = .{ fill_x + fill_w, origin[1] + h }, .col = gui_style.color(correlationColor(v)), .rounding = gui_style.item_rounding });
 }
 
 pub const EmptyState = struct {

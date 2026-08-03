@@ -98,6 +98,9 @@ fn drawPhaseMeter(correlation: f32) void {
     const origin = zgui.getCursorScreenPos();
     widgets.correlationBar(zgui.getWindowDrawList(), origin, correlation, phase_bar_w, 8);
     zgui.dummy(.{ .w = phase_bar_w, .h = 8 });
+    var corr_buf: [8]u8 = undefined;
+    const corr_text = std.fmt.bufPrint(&corr_buf, "{s}{d:.2}", .{ if (correlation >= 0.0) "+" else "", correlation }) catch "?";
+    zgui.textColored(widgets.correlationColor(correlation), "{s}", .{corr_text});
     zgui.endGroup();
 }
 
@@ -108,10 +111,16 @@ fn drawPhaseMeter(correlation: f32) void {
 fn drawLoudnessReadout(snap: anytype) void {
     zgui.sameLine(.{ .spacing = 24 });
     zgui.beginGroup();
-    zgui.textColored(theme.fg3, "LUFS  S / I", .{});
+    zgui.textColored(theme.fg3, "LUFS", .{});
     var short_buf: [16]u8 = undefined;
     var int_buf: [16]u8 = undefined;
-    zgui.textColored(theme.fg0, "{s} / {s}", .{ lufsText(snap.lufs_short_term, &short_buf), lufsText(snap.lufs_integrated, &int_buf) });
+    zgui.textColored(theme.fg3, "S", .{});
+    zgui.sameLine(.{ .spacing = 4 });
+    zgui.textColored(theme.fg0, "{s}", .{lufsText(snap.lufs_short_term, &short_buf)});
+    zgui.sameLine(.{ .spacing = 10 });
+    zgui.textColored(theme.fg3, "I", .{});
+    zgui.sameLine(.{ .spacing = 4 });
+    zgui.textColored(theme.fg0, "{s}", .{lufsText(snap.lufs_integrated, &int_buf)});
     zgui.endGroup();
 }
 
@@ -139,12 +148,13 @@ fn readoutWidth(label: []const u8, value: []const u8) f32 {
 /// dominates its "LEVEL" label.
 const level_group_w: f32 = 110;
 /// `drawPhaseMeter`'s bar width, and its on-screen group width (the bar
-/// dominates the "PHASE" label, same as `level_group_w` above).
+/// dominates the "PHASE" label and the numeric readout under it, same as
+/// `level_group_w` above).
 const phase_bar_w: f32 = 70;
 const phase_group_w: f32 = phase_bar_w;
-/// `drawLoudnessReadout`'s on-screen width: the "LUFS  S / I" label is
-/// wider than the numbers under it.
-const loudness_group_w: f32 = 100;
+/// `drawLoudnessReadout`'s on-screen width: two side-by-side "S"/"I"
+/// sub-columns, each wide enough for a signed one-decimal LUFS value.
+const loudness_group_w: f32 = 130;
 
 pub fn drawStatus(app: anytype) void {
     const display = zgui.io.getDisplaySize();
