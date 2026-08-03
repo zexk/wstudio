@@ -39,6 +39,7 @@ pub const App = struct {
     instrument_edit_active: bool = false,
     synth_edit_active: bool = false,
     track_mixer_edit: ?TrackMixerEdit = null,
+    group_gain_edit: ?struct { group: u8, before: f32 } = null,
     meter_hold_db: [2]f32 = .{ -100, -100 },
     track_meter_hold_db: [ws.engine.max_tracks][2]f32 = [_][2]f32{.{ -100, -100 }} ** ws.engine.max_tracks,
     meter_last_ns: i128 = 0,
@@ -124,6 +125,19 @@ pub const App = struct {
             .pan => .pan,
         }, edit.before);
         self.track_mixer_edit = null;
+    }
+
+    /// Group-row fader equivalent of `beginTrackMixerEdit` - one undo entry
+    /// per drag, opened on activation and closed on release, matching what
+    /// `-`/`+` on a group row records.
+    pub fn beginGroupGainEdit(self: *App, group: u8, before: f32) void {
+        self.group_gain_edit = .{ .group = group, .before = before };
+    }
+
+    pub fn finishGroupGainEdit(self: *App) void {
+        const edit = self.group_gain_edit orelse return;
+        history.recordGroupGain(&self.core, edit.group, edit.before);
+        self.group_gain_edit = null;
     }
 
     pub fn handleShortcuts(self: *App) void {

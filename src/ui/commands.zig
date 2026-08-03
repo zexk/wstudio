@@ -3167,8 +3167,7 @@ fn cmdVol(app: *App, args: []const u8) void {
         app.setStatus("volume: expected a dB value, e.g. :volume -6", .{});
         return;
     };
-    app.master_gain_db = std.math.clamp(db, -40.0, 6.0);
-    _ = app.session.engine.send(.{ .set_master_gain = types.dbToGain(app.master_gain_db) });
+    app.apiSetMasterGainDb(db);
     const sign: []const u8 = if (app.master_gain_db >= 0) "+" else "";
     app.setStatus("master vol: {s}{d:.1}dB", .{ sign, app.master_gain_db });
 }

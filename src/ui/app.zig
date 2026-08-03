@@ -3776,14 +3776,7 @@ pub const App = struct {
                 const end_frames = self.session.engine.transport.framesAtBeats(self.contentBeats());
                 _ = self.session.engine.send(.{ .seek_frames = end_frames });
             },
-            .volume_delta => |delta| {
-                self.master_gain_db = std.math.clamp(
-                    self.master_gain_db + @as(f32, @floatFromInt(delta)),
-                    -40.0,
-                    6.0,
-                );
-                _ = self.session.engine.send(.{ .set_master_gain = types.dbToGain(self.master_gain_db) });
-            },
+            .volume_delta => |delta| self.apiSetMasterGainDb(self.master_gain_db + @as(f32, @floatFromInt(delta))),
             .mode_changed => |m| {
                 self.status_len = 0;
                 // Fresh entry into the prompt starts recall from the newest.
@@ -5029,11 +5022,19 @@ pub const App = struct {
         self.setStatus("track {d} gain: {s}{d:.1}dB", .{ track + 1, sign, t.gain_db });
     }
 
+    /// The one place master gain is clamped and pushed to the engine - `[`/`]`,
+    /// `-`/`+` on the master row, `:vol` and the GUI's master fader all route
+    /// here so none of them can drift out of the -40..+6 dB range the others
+    /// enforce. Deliberately not undoable: neither is the keyboard path.
+    pub fn apiSetMasterGainDb(self: *App, db: f32) void {
+        self.master_gain_db = std.math.clamp(db, -40.0, 6.0);
+        _ = self.session.engine.send(.{ .set_master_gain = types.dbToGain(self.master_gain_db) });
+    }
+
     /// `-`/`+` on the master row - same gesture as a track's gain step, but
     /// against `master_gain_db` (same range/behaviour as `:vol`/`[`/`]`).
     fn doMasterGainStep(self: *App, delta_db: f32) void {
-        self.master_gain_db = std.math.clamp(self.master_gain_db + delta_db, -40.0, 6.0);
-        _ = self.session.engine.send(.{ .set_master_gain = types.dbToGain(self.master_gain_db) });
+        self.apiSetMasterGainDb(self.master_gain_db + delta_db);
         const sign: []const u8 = if (self.master_gain_db >= 0) "+" else "";
         self.setStatus("master gain: {s}{d:.1}dB", .{ sign, self.master_gain_db });
     }

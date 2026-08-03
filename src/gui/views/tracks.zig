@@ -412,9 +412,40 @@ fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) 
 
     const block_x0 = drawInfoBlockBg(draw_list, origin, width, height, accent);
     const block_fg = legibleOn(accent);
-    const controls_y = origin[1] + (height - 2 - badge_h) / 2;
     drawFxChips(draw_list, &group.fx, text_x + 150, origin[1] + 12, block_x0 - 12);
-    draw_list.addText(.{ block_x0 + block_inset, controls_y + 1 }, color(block_fg), "{d:.1} dB", .{group.gain_db});
+    const center_y = origin[1] + (height - 2) / 2;
+    const controls_h = @max(badge_h, zgui.getFrameHeight());
+    const stack = stackTops(center_y, height, controls_h, 2 * meter_bar_h + meter_gap);
+    const controls_y = stack.controls;
+    const badge_y = controls_y + (controls_h - badge_h) / 2;
+
+    const gain_before = group.gain_db;
+    const gain = mixerDrag(.{
+        .id = std.fmt.bufPrintZ(&id_buf, "##group-gain-{d}", .{group_index}) catch "##ggain",
+        .x = block_x0 + block_inset,
+        .y = controls_y,
+        .w = gain_w,
+        .value = gain_before,
+        .min = -60,
+        .max = 12,
+        .speed = 0.2,
+        .default = 0,
+        .cfmt = "%.1f dB",
+    });
+    if (gain.activated) app.beginGroupGainEdit(group_index, gain_before);
+    if (gain.changed) app.core.session.setGroupGain(group_index, gain.value);
+    if (gain.finished) app.finishGroupGainEdit();
+
+    // The engine meters tracks, not groups, so the bus level is the loudest
+    // member plus this fader - close enough to read the bus at a glance.
+    // ponytail: ignores group FX gain; needs a real per-group peak in
+    // engine.Snapshot to be exact.
+    var group_hold: [2]f32 = .{ -100, -100 };
+    for (app.core.session.project.tracks.items, 0..) |track, i| {
+        if (track.group != group_index) continue;
+        for (0..2) |ch| group_hold[ch] = @max(group_hold[ch], app.track_meter_hold_db[i][ch] + group.gain_db);
+    }
+    widgets.solidMeterBar(draw_list, .{ block_x0 + block_inset, stack.meter }, group_hold, block_w - 2 * block_inset, meter_bar_h, meter_gap, block_fg);
 
     // Same badge slots a track row gets, in the same two positions, acting
     // on every member at once (App.doGroupToggle - the group row's own m/S).
@@ -422,11 +453,11 @@ fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) 
     // shifting these two left out of line with the track rows above.
     var badge_id_buf: [40]u8 = undefined;
     const soloed = app.core.groupFlagState(group_index, true).all;
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-solo-{d}", .{group_index}) catch "gsolo", badgeX(block_x0, 0), controls_y, "S", soloed, theme.rhythm)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-solo-{d}", .{group_index}) catch "gsolo", badgeX(block_x0, 0), badge_y, "S", soloed, theme.rhythm)) {
         app.core.doGroupToggle(group_index, true);
     }
     const muted = app.core.groupFlagState(group_index, false).all;
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-mute-{d}", .{group_index}) catch "gmute", badgeX(block_x0, 1), controls_y, "M", muted, theme.danger)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-mute-{d}", .{group_index}) catch "gmute", badgeX(block_x0, 1), badge_y, "M", muted, theme.danger)) {
         app.core.doGroupToggle(group_index, false);
     }
     drawTrackRowCursorOutline(chrome, height);
@@ -456,8 +487,22 @@ fn drawMasterRow(app: anytype, height: f32) void {
     const center_y = origin[1] + (height - 2) / 2;
     // Master's bars are one px fatter than a track's; same centered stack.
     const master_meter_h: f32 = 2 * 5 + 3;
-    const stack = stackTops(center_y, height, zgui.getTextLineHeight(), master_meter_h);
-    draw_list.addText(.{ block_x0 + block_inset, stack.controls }, color(block_fg), "{d:.1} dB", .{app.core.master_gain_db});
+    const stack = stackTops(center_y, height, @max(badge_h, zgui.getFrameHeight()), master_meter_h);
+    // Same fader gesture as a track/group row (drag, wheel, right-click to
+    // 0 dB). Range matches `:vol`/`[`/`]`, and like them it isn't undoable.
+    const master_gain = mixerDrag(.{
+        .id = "##master-gain",
+        .x = block_x0 + block_inset,
+        .y = stack.controls,
+        .w = gain_w,
+        .value = app.core.master_gain_db,
+        .min = -40,
+        .max = 6,
+        .speed = 0.2,
+        .default = 0,
+        .cfmt = "%.1f dB",
+    });
+    if (master_gain.changed) app.core.apiSetMasterGainDb(master_gain.value);
     // meter_hold_db is refreshed once per frame by chrome.zig's transport
     // draw (always runs first, see app.zig's App.draw) - reusing it here
     // keeps this meter in sync with the transport's LEVEL readout instead
