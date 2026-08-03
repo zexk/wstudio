@@ -251,7 +251,7 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
 
     const below_top = zgui.getCursorPosY();
     drawSharedSections(app, target);
-    pane_fit.settle(below_top, 1 + @intFromEnum(kind));
+    pane_fit.settle(below_top, 1 + @as(u64, @intFromEnum(kind)));
 }
 
 fn drawPadEmptyState(app: anytype, title: []const u8, explanation: []const u8) void {
