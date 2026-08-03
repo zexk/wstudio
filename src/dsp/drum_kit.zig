@@ -315,6 +315,52 @@ fn tom2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return tomGen(allocator, sr, .{ .freq_start = 160.0, .freq_end = 80.0, .dur_s = 0.5, .seed = 0x702 });
 }
 
+/// Tunable knobs behind the perc-hi/perc-lo voices - see `percGen`. Unlike
+/// `TomParams`, pitch is fixed rather than swept: a tom is defined by its
+/// downward glide, a hand-perc hit (conga/timbale) is defined by NOT having
+/// one, so this is what actually makes perc-hi/perc-lo read as a different
+/// instrument instead of a retuned tom.
+pub const PercParams = struct {
+    tone1_hz: f32,
+    tone2_hz: f32,
+    body_decay: f32 = 30.0,
+    slap_decay: f32 = 220.0,
+    slap_mix: f32 = 0.4,
+    drive: f32 = 1.6,
+    dur_s: f32 = 0.16,
+    seed: u64,
+};
+
+/// Fixed-pitch two-tone struck body (see `twoToneBody`, shared with
+/// snareGen/rimGen) plus a short highpassed noise slap, saturated. No pitch
+/// sweep - that's the tom's signature move, not this one's.
+fn percGen(allocator: std.mem.Allocator, sr: u32, p: PercParams) std.mem.Allocator.Error![]f32 {
+    const srf: f32 = @floatFromInt(sr);
+    const buf = try allocator.alloc(f32, frames(sr, p.dur_s));
+    var prng = std.Random.DefaultPrng.init(p.seed);
+    const rand = prng.random();
+    var p1: f32 = 0;
+    var p2: f32 = 0;
+    var hp: OnePole = .{};
+    const hp_a = cutoffAlpha(2200.0, srf);
+    for (buf, 0..) |*s, i| {
+        const t = @as(f32, @floatFromInt(i)) / srf;
+        const body = twoToneBody(&p1, &p2, p.tone1_hz, p.tone2_hz, srf, t, p.body_decay);
+        const slap = hp.hp(rand.float(f32) * 2.0 - 1.0, hp_a) * expEnv(t, p.slap_decay) * p.slap_mix;
+        s.* = saturate((body + slap) * p.drive, 1.0);
+    }
+    normalize(buf, 0.93);
+    return buf;
+}
+
+fn percHi(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 520.0, .tone2_hz = 730.0, .seed = 0x703 });
+}
+
+fn percLo(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 310.0, .tone2_hz = 430.0, .seed = 0x704 });
+}
+
 /// Tunable knobs behind `rim()` - see `rimGen`. Defaults reproduce the
 /// original shipped rim exactly.
 pub const RimParams = struct {
@@ -361,13 +407,13 @@ fn rim(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
 // zig fmt: off
 fn kickAnalog(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return kickGen(allocator, sr, .{
-        .freq_end = 45.0, .freq_start_add = 90.0, .pitch_decay = 30.0, .body_decay = 7.0,
+        .freq_end = 45.0, .freq_start_add = 90.0, .pitch_decay = 30.0, .body_decay = 8.0,
         .click_decay = 380.0, .click_freq = 1500.0, .click_mix = 0.25, .drive = 3.2, .dur_s = 0.55,
     });
 }
 fn snareAnalog(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return snareGen(allocator, sr, .{
-        .tone1_hz = 150.0, .tone2_hz = 210.0, .tone_decay = 18.0, .noise_decay = 22.0, .drive = 1.1, .dur_s = 0.3,
+        .tone1_hz = 150.0, .tone2_hz = 210.0, .tone_decay = 18.0, .noise_decay = 36.0, .drive = 1.1, .dur_s = 0.3,
     });
 }
 fn hihatAnalogClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
@@ -396,6 +442,12 @@ fn tomAnalog2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f
         .attack_decay = 100.0, .drive = 1.8, .attack_mix = 0.08, .seed = 0x712,
     });
 }
+fn percHiAnalog(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 430.0, .tone2_hz = 610.0, .drive = 1.9, .seed = 0x713 });
+}
+fn percLoAnalog(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 260.0, .tone2_hz = 360.0, .drive = 1.9, .seed = 0x714 });
+}
 fn rimAnalog(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return rimGen(allocator, sr, .{
         .tone1_hz = 1600.0, .tone2_hz = 1050.0, .tone_decay = 170.0, .click_decay = 350.0, .drive = 1.5, .dur_s = 0.07,
@@ -414,7 +466,7 @@ fn snareAcoustic(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error!
     });
 }
 fn hihatAcousticClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.05, .decay = 110.0, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4 });
+    return metalHat(allocator, sr, .{ .dur_s = 0.06, .decay = 75.0, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4 });
 }
 fn hihatAcousticOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return metalHat(allocator, sr, .{ .dur_s = 0.3, .decay = 11.0, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4 });
@@ -438,6 +490,12 @@ fn tomAcoustic2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![
         .freq_start = 190.0, .freq_end = 100.0, .dur_s = 0.35, .body_decay = 8.0,
         .attack_decay = 140.0, .drive = 1.5, .attack_mix = 0.2, .seed = 0x722,
     });
+}
+fn percHiAcoustic(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 560.0, .tone2_hz = 780.0, .slap_mix = 0.5, .seed = 0x723 });
+}
+fn percLoAcoustic(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 340.0, .tone2_hz = 470.0, .slap_mix = 0.5, .seed = 0x724 });
 }
 fn rimAcoustic(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return rimGen(allocator, sr, .{
@@ -482,6 +540,12 @@ fn tomIndustrial2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error
         .attack_decay = 90.0, .drive = 2.4, .attack_mix = 0.25, .seed = 0x732,
     });
 }
+fn percHiIndustrial(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 480.0, .tone2_hz = 670.0, .drive = 3.0, .slap_mix = 0.55, .seed = 0x733 });
+}
+fn percLoIndustrial(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 290.0, .tone2_hz = 400.0, .drive = 3.0, .slap_mix = 0.55, .seed = 0x734 });
+}
 fn rimIndustrial(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return rimGen(allocator, sr, .{
         .tone1_hz = 1500.0, .tone2_hz = 980.0, .tone_decay = 110.0, .click_decay = 220.0, .drive = 3.0, .dur_s = 0.09,
@@ -490,23 +554,23 @@ fn rimIndustrial(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error!
 
 fn kickBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return kickGen(allocator, sr, .{
-        .freq_end = 52.0, .freq_start_add = 70.0, .pitch_decay = 45.0, .body_decay = 10.0,
+        .freq_end = 52.0, .freq_start_add = 70.0, .pitch_decay = 45.0, .body_decay = 16.0,
         .click_decay = 500.0, .click_freq = 1200.0, .click_mix = 0.15, .drive = 3.0, .dur_s = 0.4,
     });
 }
 fn snareBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return snareGen(allocator, sr, .{
-        .tone1_hz = 165.0, .tone2_hz = 245.0, .tone_decay = 20.0, .noise_decay = 13.0, .drive = 2.0, .dur_s = 0.24,
+        .tone1_hz = 165.0, .tone2_hz = 245.0, .tone_decay = 26.0, .noise_decay = 32.0, .drive = 2.0, .dur_s = 0.24,
     });
 }
 fn hihatBoombapClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.045, .decay = 140.0, .body_hz = 5800.0, .air_hz = 8000.0, .air_mix = 0.15 });
+    return metalHat(allocator, sr, .{ .dur_s = 0.045, .decay = 140.0, .body_hz = 6600.0, .air_hz = 8800.0, .air_mix = 0.15 });
 }
 fn hihatBoombapOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.28, .decay = 12.0, .body_hz = 5800.0, .air_hz = 8000.0, .air_mix = 0.15 });
+    return metalHat(allocator, sr, .{ .dur_s = 0.28, .decay = 12.0, .body_hz = 6600.0, .air_hz = 8800.0, .air_mix = 0.15 });
 }
 fn crashBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.62, .decay = 5.5, .body_hz = 5800.0, .air_hz = 8000.0, .air_mix = 0.15 });
+    return metalHat(allocator, sr, .{ .dur_s = 0.62, .decay = 5.5, .body_hz = 6600.0, .air_hz = 8800.0, .air_mix = 0.15 });
 }
 fn clapBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return clapGen(allocator, sr, .{
@@ -525,6 +589,12 @@ fn tomBoombap2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]
         .attack_decay = 110.0, .drive = 2.0, .attack_mix = 0.15, .seed = 0x742,
     });
 }
+fn percHiBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 460.0, .tone2_hz = 640.0, .drive = 1.4, .dur_s = 0.14, .seed = 0x743 });
+}
+fn percLoBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 280.0, .tone2_hz = 390.0, .drive = 1.4, .dur_s = 0.14, .seed = 0x744 });
+}
 fn rimBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return rimGen(allocator, sr, .{
         .tone1_hz = 1550.0, .tone2_hz = 1000.0, .tone_decay = 140.0, .click_decay = 280.0, .drive = 2.2, .dur_s = 0.07,
@@ -535,28 +605,28 @@ fn rimBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f
 // snap-forward clap. The low end sustains; everything above it stays short.
 fn kickGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return kickGen(allocator, sr, .{
-        .freq_end = 46.0, .freq_start_add = 75.0, .pitch_decay = 35.0, .body_decay = 4.5,
+        .freq_end = 46.0, .freq_start_add = 75.0, .pitch_decay = 35.0, .body_decay = 6.0,
         .click_decay = 420.0, .click_freq = 1400.0, .click_mix = 0.2, .drive = 3.4, .dur_s = 0.7,
     });
 }
 fn snareGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return snareGen(allocator, sr, .{
-        .tone1_hz = 175.0, .tone2_hz = 250.0, .tone_decay = 22.0, .noise_decay = 15.0,
+        .tone1_hz = 175.0, .tone2_hz = 250.0, .tone_decay = 22.0, .noise_decay = 28.0,
         .drive = 1.9, .dur_s = 0.25, .lp_hz = 7000.0, .hp_hz = 1000.0,
     });
 }
 fn hihatGfunkClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.05, .decay = 120.0, .body_hz = 6200.0, .air_hz = 8500.0, .air_mix = 0.2 });
+    return metalHat(allocator, sr, .{ .dur_s = 0.05, .decay = 120.0, .body_hz = 7600.0, .air_hz = 10_800.0, .air_mix = 0.2 });
 }
 fn hihatGfunkOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.3, .decay = 11.0, .body_hz = 6200.0, .air_hz = 8500.0, .air_mix = 0.2 });
+    return metalHat(allocator, sr, .{ .dur_s = 0.3, .decay = 11.0, .body_hz = 7600.0, .air_hz = 10_800.0, .air_mix = 0.2 });
 }
 fn crashGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.66, .decay = 5.0, .body_hz = 6200.0, .air_hz = 8500.0, .air_mix = 0.2 });
+    return metalHat(allocator, sr, .{ .dur_s = 0.66, .decay = 5.0, .body_hz = 7600.0, .air_hz = 10_800.0, .air_mix = 0.2 });
 }
 fn clapGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return clapGen(allocator, sr, .{
-        .lp_hz = 2800.0, .hp_hz = 1100.0, .burst_decay = 210.0, .tail_decay = 15.0, .tail_mix = 0.45, .dur_s = 0.3,
+        .lp_hz = 2800.0, .hp_hz = 1100.0, .burst_decay = 210.0, .tail_decay = 22.0, .tail_mix = 0.45, .dur_s = 0.3,
     });
 }
 fn tomGfunk1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
@@ -570,6 +640,12 @@ fn tomGfunk2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f3
         .freq_start = 120.0, .freq_end = 60.0, .dur_s = 0.65, .body_decay = 4.0,
         .attack_decay = 110.0, .drive = 2.0, .attack_mix = 0.1, .seed = 0x752,
     });
+}
+fn percHiGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 400.0, .tone2_hz = 560.0, .body_decay = 22.0, .dur_s = 0.2, .seed = 0x753 });
+}
+fn percLoGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 240.0, .tone2_hz = 330.0, .body_decay = 22.0, .dur_s = 0.2, .seed = 0x754 });
 }
 fn rimGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return rimGen(allocator, sr, .{
@@ -617,6 +693,12 @@ fn tomCitypop2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]
         .attack_decay = 130.0, .drive = 1.6, .attack_mix = 0.15, .seed = 0x762,
     });
 }
+fn percHiCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 540.0, .tone2_hz = 750.0, .body_decay = 40.0, .slap_mix = 0.3, .seed = 0x763 });
+}
+fn percLoCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 330.0, .tone2_hz = 450.0, .body_decay = 40.0, .slap_mix = 0.3, .seed = 0x764 });
+}
 fn rimCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return rimGen(allocator, sr, .{
         .tone1_hz = 1850.0, .tone2_hz = 1200.0, .tone_decay = 140.0, .click_decay = 300.0, .drive = 1.9, .dur_s = 0.06,
@@ -662,6 +744,12 @@ fn tomTechnopop2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error!
         .freq_start = 220.0, .freq_end = 110.0, .dur_s = 0.3, .body_decay = 9.0,
         .attack_decay = 150.0, .drive = 1.4, .attack_mix = 0.08, .seed = 0x772,
     });
+}
+fn percHiTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 640.0, .tone2_hz = 900.0, .body_decay = 55.0, .dur_s = 0.1, .seed = 0x773 });
+}
+fn percLoTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 400.0, .tone2_hz = 550.0, .body_decay = 55.0, .dur_s = 0.1, .seed = 0x774 });
 }
 fn rimTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return rimGen(allocator, sr, .{
@@ -709,6 +797,12 @@ fn tomKawaii2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f
         .attack_decay = 140.0, .drive = 1.6, .attack_mix = 0.12, .seed = 0x782,
     });
 }
+fn percHiKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 700.0, .tone2_hz = 980.0, .body_decay = 45.0, .drive = 1.3, .dur_s = 0.13, .seed = 0x783 });
+}
+fn percLoKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 480.0, .tone2_hz = 660.0, .body_decay = 45.0, .drive = 1.3, .dur_s = 0.13, .seed = 0x784 });
+}
 fn rimKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return rimGen(allocator, sr, .{
         .tone1_hz = 2100.0, .tone2_hz = 1400.0, .tone_decay = 170.0, .click_decay = 340.0, .drive = 1.9, .dur_s = 0.05,
@@ -754,6 +848,12 @@ fn tomVaporwave2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error!
         .freq_start = 140.0, .freq_end = 70.0, .dur_s = 0.6, .body_decay = 4.0,
         .attack_decay = 90.0, .drive = 1.4, .attack_mix = 0.06, .seed = 0x792,
     });
+}
+fn percHiVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 420.0, .tone2_hz = 580.0, .drive = 1.1, .slap_mix = 0.15, .dur_s = 0.22, .seed = 0x793 });
+}
+fn percLoVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 260.0, .tone2_hz = 360.0, .drive = 1.1, .slap_mix = 0.15, .dur_s = 0.22, .seed = 0x794 });
 }
 fn rimVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return rimGen(allocator, sr, .{
@@ -801,6 +901,12 @@ fn tomEurobeat2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![
         .attack_decay = 120.0, .drive = 1.9, .attack_mix = 0.14, .seed = 0x7a2,
     });
 }
+fn percHiEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 520.0, .tone2_hz = 730.0, .drive = 2.2, .body_decay = 40.0, .seed = 0x7a3 });
+}
+fn percLoEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 320.0, .tone2_hz = 440.0, .drive = 2.2, .body_decay = 40.0, .seed = 0x7a4 });
+}
 fn rimEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return rimGen(allocator, sr, .{
         .tone1_hz = 1700.0, .tone2_hz = 1150.0, .tone_decay = 150.0, .click_decay = 300.0, .drive = 2.0, .dur_s = 0.06,
@@ -812,7 +918,7 @@ fn rimEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]
 // up at 170+ BPM.
 fn kickHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return kickGen(allocator, sr, .{
-        .freq_end = 58.0, .freq_start_add = 220.0, .pitch_decay = 95.0, .body_decay = 9.0,
+        .freq_end = 58.0, .freq_start_add = 220.0, .pitch_decay = 95.0, .body_decay = 14.0,
         .click_decay = 180.0, .click_freq = 2400.0, .click_mix = 0.85, .drive = 7.5, .dur_s = 0.22,
     });
 }
@@ -826,7 +932,7 @@ fn hihatHardcoreClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.
     return metalHat(allocator, sr, .{ .dur_s = 0.032, .decay = 170.0, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4 });
 }
 fn hihatHardcoreOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.2, .decay = 16.0, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4 });
+    return metalHat(allocator, sr, .{ .dur_s = 0.13, .decay = 32.0, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4 });
 }
 fn crashHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return metalHat(allocator, sr, .{ .dur_s = 0.44, .decay = 7.3, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4 });
@@ -847,6 +953,12 @@ fn tomHardcore2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![
         .freq_start = 200.0, .freq_end = 100.0, .dur_s = 0.28, .body_decay = 9.0,
         .attack_decay = 150.0, .drive = 3.2, .attack_mix = 0.2, .seed = 0x7b2,
     });
+}
+fn percHiHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 620.0, .tone2_hz = 860.0, .drive = 3.4, .body_decay = 45.0, .dur_s = 0.11, .seed = 0x7b3 });
+}
+fn percLoHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return percGen(allocator, sr, .{ .tone1_hz = 380.0, .tone2_hz = 520.0, .drive = 3.4, .body_decay = 45.0, .dur_s = 0.11, .seed = 0x7b4 });
 }
 fn rimHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return rimGen(allocator, sr, .{
@@ -885,10 +997,11 @@ pub const Tune = struct {
     filter: f32 = 0.0,
 };
 
-/// Second-voice tunings. The `-2`/crash/stick/perc pads share their
-/// neighbour's generator, so without these they were the same hit at a
-/// different mixer level. Each one moves pitch, length and tone far enough
-/// that the pair reads as two drums, not one drum twice.
+/// Second-voice tunings. The `-2`/crash/stick pads share their neighbour's
+/// generator, so without these they were the same hit at a different mixer
+/// level. Each one moves pitch, length and tone far enough that the pair
+/// reads as two drums, not one drum twice. (perc-hi/perc-lo don't need one:
+/// `percGen` gives them their own fixed-pitch generator, see `PercParams`.)
 const alt_kick: Tune = .{ .pitch = 3.0, .end = 0.6, .filter = 0.12 };
 const alt_snare: Tune = .{ .pitch = -2.5, .end = 0.5, .filter = -0.16 };
 const alt_hat: Tune = .{ .pitch = 5.0, .end = 0.55, .filter = 0.25 };
@@ -898,8 +1011,6 @@ const alt_hat: Tune = .{ .pitch = 5.0, .end = 0.55, .filter = 0.25 };
 /// nothing to lock onto in this much broadband noise and splices audibly.
 const alt_crash: Tune = .{ .pitch = -5.0, .filter = -0.08 };
 const alt_stick: Tune = .{ .pitch = 7.0, .end = 0.35, .filter = 0.3 };
-const alt_perc_hi: Tune = .{ .pitch = 9.0, .end = 0.45, .filter = 0.18 };
-const alt_perc_lo: Tune = .{ .pitch = -4.0, .end = 0.4, .filter = -0.25 };
 
 /// One pad slot in a runtime kit variant: display name, generator, default
 /// mixer gain and pad tuning - the same shape as `PadDef` minus the WAV
@@ -945,8 +1056,8 @@ pub const variants = [_]KitVariant{
         .{ .name = "stick", .gen = rim, .gain = 0.55, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tom1, .gain = 0.80 },
         .{ .name = "tom-2", .gen = tom2, .gain = 0.80 },
-        .{ .name = "perc-hi", .gen = tom1, .gain = 0.70, .tune = alt_perc_hi },
-        .{ .name = "perc-lo", .gen = tom2, .gain = 0.70, .tune = alt_perc_lo },
+        .{ .name = "perc-hi", .gen = percHi, .gain = 0.70 },
+        .{ .name = "perc-lo", .gen = percLo, .gain = 0.70 },
         .{ .name = "cowbell", .gen = cowbellDefault, .gain = 0.60 },
     } },
     .{ .name = "analog", .category = "analog", .tags = &.{ "wstudio", "techno" }, .pads = .{
@@ -963,8 +1074,8 @@ pub const variants = [_]KitVariant{
         .{ .name = "stick", .gen = rimAnalog, .gain = 0.52, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomAnalog1, .gain = 0.85 },
         .{ .name = "tom-2", .gen = tomAnalog2, .gain = 0.85 },
-        .{ .name = "perc-hi", .gen = tomAnalog1, .gain = 0.75, .tune = alt_perc_hi },
-        .{ .name = "perc-lo", .gen = tomAnalog2, .gain = 0.75, .tune = alt_perc_lo },
+        .{ .name = "perc-hi", .gen = percHiAnalog, .gain = 0.75 },
+        .{ .name = "perc-lo", .gen = percLoAnalog, .gain = 0.75 },
         .{ .name = "cowbell", .gen = cowbellAnalog, .gain = 0.62 },
     } },
     .{ .name = "acoustic", .category = "acoustic", .tags = &.{ "wstudio", "rock" }, .pads = .{
@@ -981,8 +1092,8 @@ pub const variants = [_]KitVariant{
         .{ .name = "stick", .gen = rimAcoustic, .gain = 0.62, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomAcoustic1, .gain = 0.80 },
         .{ .name = "tom-2", .gen = tomAcoustic2, .gain = 0.80 },
-        .{ .name = "perc-hi", .gen = tomAcoustic1, .gain = 0.72, .tune = alt_perc_hi },
-        .{ .name = "perc-lo", .gen = tomAcoustic2, .gain = 0.72, .tune = alt_perc_lo },
+        .{ .name = "perc-hi", .gen = percHiAcoustic, .gain = 0.72 },
+        .{ .name = "perc-lo", .gen = percLoAcoustic, .gain = 0.72 },
         .{ .name = "ride", .gen = rideAcoustic, .gain = 0.48 },
     } },
     .{ .name = "industrial", .category = "industrial", .tags = &.{ "wstudio", "techno" }, .pads = .{
@@ -999,8 +1110,8 @@ pub const variants = [_]KitVariant{
         .{ .name = "stick", .gen = rimIndustrial, .gain = 0.58, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomIndustrial1, .gain = 0.85 },
         .{ .name = "tom-2", .gen = tomIndustrial2, .gain = 0.85 },
-        .{ .name = "perc-hi", .gen = tomIndustrial1, .gain = 0.78, .tune = alt_perc_hi },
-        .{ .name = "perc-lo", .gen = tomIndustrial2, .gain = 0.78, .tune = alt_perc_lo },
+        .{ .name = "perc-hi", .gen = percHiIndustrial, .gain = 0.78 },
+        .{ .name = "perc-lo", .gen = percLoIndustrial, .gain = 0.78 },
         .{ .name = "anvil", .gen = anvilIndustrial, .gain = 0.68 },
     } },
     .{ .name = "boombap", .category = "vinyl", .tags = &.{ "wstudio", "hip-hop", "boom-bap" }, .pads = .{
@@ -1017,8 +1128,8 @@ pub const variants = [_]KitVariant{
         .{ .name = "stick", .gen = rimBoombap, .gain = 0.52, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomBoombap1, .gain = 0.80 },
         .{ .name = "tom-2", .gen = tomBoombap2, .gain = 0.80 },
-        .{ .name = "perc-hi", .gen = tomBoombap1, .gain = 0.72, .tune = alt_perc_hi },
-        .{ .name = "perc-lo", .gen = tomBoombap2, .gain = 0.72, .tune = alt_perc_lo },
+        .{ .name = "perc-hi", .gen = percHiBoombap, .gain = 0.72 },
+        .{ .name = "perc-lo", .gen = percLoBoombap, .gain = 0.72 },
         .{ .name = "vinyl", .gen = vinylBoombap, .gain = 0.48 },
     } },
     .{ .name = "gfunk", .category = "analog", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .pads = .{
@@ -1035,8 +1146,8 @@ pub const variants = [_]KitVariant{
         .{ .name = "stick", .gen = rimGfunk, .gain = 0.52, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomGfunk1, .gain = 0.80 },
         .{ .name = "tom-2", .gen = tomGfunk2, .gain = 0.80 },
-        .{ .name = "perc-hi", .gen = tomGfunk1, .gain = 0.72, .tune = alt_perc_hi },
-        .{ .name = "perc-lo", .gen = tomGfunk2, .gain = 0.72, .tune = alt_perc_lo },
+        .{ .name = "perc-hi", .gen = percHiGfunk, .gain = 0.72 },
+        .{ .name = "perc-lo", .gen = percLoGfunk, .gain = 0.72 },
         .{ .name = "zap", .gen = zapGfunk, .gain = 0.68 },
     } },
     .{ .name = "citypop", .category = "digital", .tags = &.{ "wstudio", "city-pop", "funk" }, .pads = .{
@@ -1053,8 +1164,8 @@ pub const variants = [_]KitVariant{
         .{ .name = "stick", .gen = rimCitypop, .gain = 0.62, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomCitypop1, .gain = 0.85 },
         .{ .name = "tom-2", .gen = tomCitypop2, .gain = 0.85 },
-        .{ .name = "perc-hi", .gen = tomCitypop1, .gain = 0.76, .tune = alt_perc_hi },
-        .{ .name = "perc-lo", .gen = tomCitypop2, .gain = 0.76, .tune = alt_perc_lo },
+        .{ .name = "perc-hi", .gen = percHiCitypop, .gain = 0.76 },
+        .{ .name = "perc-lo", .gen = percLoCitypop, .gain = 0.76 },
         .{ .name = "gated", .gen = gatedCitypop, .gain = 0.72 },
     } },
     .{ .name = "technopop", .category = "digital", .tags = &.{ "wstudio", "technopop", "synth-pop" }, .pads = .{
@@ -1071,8 +1182,8 @@ pub const variants = [_]KitVariant{
         .{ .name = "stick", .gen = rimTechnopop, .gain = 0.57, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomTechnopop1, .gain = 0.80 },
         .{ .name = "tom-2", .gen = tomTechnopop2, .gain = 0.80 },
-        .{ .name = "perc-hi", .gen = tomTechnopop1, .gain = 0.72, .tune = alt_perc_hi },
-        .{ .name = "perc-lo", .gen = tomTechnopop2, .gain = 0.72, .tune = alt_perc_lo },
+        .{ .name = "perc-hi", .gen = percHiTechnopop, .gain = 0.72 },
+        .{ .name = "perc-lo", .gen = percLoTechnopop, .gain = 0.72 },
         .{ .name = "blip", .gen = blipTechnopop, .gain = 0.65 },
     } },
     .{ .name = "kawaii", .category = "digital", .tags = &.{ "wstudio", "kawaii", "pop" }, .pads = .{
@@ -1089,8 +1200,8 @@ pub const variants = [_]KitVariant{
         .{ .name = "stick", .gen = rimKawaii, .gain = 0.57, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomKawaii1, .gain = 0.80 },
         .{ .name = "tom-2", .gen = tomKawaii2, .gain = 0.80 },
-        .{ .name = "perc-hi", .gen = tomKawaii1, .gain = 0.72, .tune = alt_perc_hi },
-        .{ .name = "perc-lo", .gen = tomKawaii2, .gain = 0.72, .tune = alt_perc_lo },
+        .{ .name = "perc-hi", .gen = percHiKawaii, .gain = 0.72 },
+        .{ .name = "perc-lo", .gen = percLoKawaii, .gain = 0.72 },
         .{ .name = "pop", .gen = popKawaii, .gain = 0.62 },
     } },
     .{ .name = "vaporwave", .category = "tape", .tags = &.{ "wstudio", "vaporwave", "chill" }, .pads = .{
@@ -1107,8 +1218,8 @@ pub const variants = [_]KitVariant{
         .{ .name = "stick", .gen = rimVaporwave, .gain = 0.47, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomVaporwave1, .gain = 0.75 },
         .{ .name = "tom-2", .gen = tomVaporwave2, .gain = 0.75 },
-        .{ .name = "perc-hi", .gen = tomVaporwave1, .gain = 0.68, .tune = alt_perc_hi },
-        .{ .name = "perc-lo", .gen = tomVaporwave2, .gain = 0.68, .tune = alt_perc_lo },
+        .{ .name = "perc-hi", .gen = percHiVaporwave, .gain = 0.68 },
+        .{ .name = "perc-lo", .gen = percLoVaporwave, .gain = 0.68 },
         .{ .name = "wash", .gen = washVaporwave, .gain = 0.38 },
     } },
     .{ .name = "eurobeat", .category = "digital", .tags = &.{ "wstudio", "eurobeat", "dance" }, .pads = .{
@@ -1125,8 +1236,8 @@ pub const variants = [_]KitVariant{
         .{ .name = "stick", .gen = rimEurobeat, .gain = 0.57, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomEurobeat1, .gain = 0.80 },
         .{ .name = "tom-2", .gen = tomEurobeat2, .gain = 0.80 },
-        .{ .name = "perc-hi", .gen = tomEurobeat1, .gain = 0.72, .tune = alt_perc_hi },
-        .{ .name = "perc-lo", .gen = tomEurobeat2, .gain = 0.72, .tune = alt_perc_lo },
+        .{ .name = "perc-hi", .gen = percHiEurobeat, .gain = 0.72 },
+        .{ .name = "perc-lo", .gen = percLoEurobeat, .gain = 0.72 },
         .{ .name = "stab", .gen = stabEurobeat, .gain = 0.66 },
     } },
     .{ .name = "hardcore", .category = "distorted", .tags = &.{ "wstudio", "j-core", "hardcore" }, .pads = .{
@@ -1143,8 +1254,8 @@ pub const variants = [_]KitVariant{
         .{ .name = "stick", .gen = rimHardcore, .gain = 0.52, .tune = alt_stick },
         .{ .name = "tom-1", .gen = tomHardcore1, .gain = 0.80 },
         .{ .name = "tom-2", .gen = tomHardcore2, .gain = 0.80 },
-        .{ .name = "perc-hi", .gen = tomHardcore1, .gain = 0.72, .tune = alt_perc_hi },
-        .{ .name = "perc-lo", .gen = tomHardcore2, .gain = 0.72, .tune = alt_perc_lo },
+        .{ .name = "perc-hi", .gen = percHiHardcore, .gain = 0.72 },
+        .{ .name = "perc-lo", .gen = percLoHardcore, .gain = 0.72 },
         .{ .name = "screech", .gen = screechHardcore, .gain = 0.68 },
     } },
 };
