@@ -105,7 +105,7 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
         .sampler => icons.sampler,
         .drum_machine => icons.drum,
         .slicer => icons.slicer,
-        .clap, .vst3 => icons.synth,
+        .clap, .vst3 => icons.plugin,
         .soundfont, .acoustic => icons.soundfont,
     } else switch (inst_tag) {
         .empty => " ",
@@ -144,7 +144,7 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
     // so the state stays visible regardless of instrument kind.
     if (ti < app.session.armed.items.len and app.session.armed.items[ti]) {
         if (!faded) try lw.writeAll(red);
-        try lw.writeByte('R');
+        if (icons.font_installed) try lw.writeAll(icons.record) else try lw.writeByte('R');
         if (!faded) try lw.writeAll(rst);
         if (is_sel) try lw.writeAll(sel);
     } else {

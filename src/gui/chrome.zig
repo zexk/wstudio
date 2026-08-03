@@ -94,7 +94,7 @@ fn drawLevelMeters(app: anytype, snap: ws.engine.UiSnapshot) void {
 fn drawPhaseMeter(correlation: f32) void {
     zgui.sameLine(.{ .spacing = 24 });
     zgui.beginGroup();
-    zgui.textColored(theme.fg3, "PHASE", .{});
+    zgui.textColored(theme.fg3, icons.phase ++ "  PHASE", .{});
     const origin = zgui.getCursorScreenPos();
     widgets.correlationBar(zgui.getWindowDrawList(), origin, correlation, phase_bar_w, 8);
     zgui.dummy(.{ .w = phase_bar_w, .h = 8 });
@@ -111,7 +111,7 @@ fn drawPhaseMeter(correlation: f32) void {
 fn drawLoudnessReadout(snap: anytype) void {
     zgui.sameLine(.{ .spacing = 24 });
     zgui.beginGroup();
-    zgui.textColored(theme.fg3, "LUFS", .{});
+    zgui.textColored(theme.fg3, icons.loudness ++ "  LUFS", .{});
     var short_buf: [16]u8 = undefined;
     var int_buf: [16]u8 = undefined;
     zgui.textColored(theme.fg3, "S", .{});

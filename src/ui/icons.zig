@@ -1,9 +1,9 @@
-//! Icon glyphs for the TUI, drawn from an 18-glyph subset of "Symbols Nerd
+//! Icon glyphs for the TUI, drawn from a 22-glyph subset of "Symbols Nerd
 //! Font Mono" (MIT license; see assets/fonts/LICENSE and the Nerd Fonts
 //! project at https://github.com/ryanoasis/nerd-fonts). Codepoints were
 //! looked up in the project's authoritative glyphnames.json rather than
 //! guessed, then the font was subsetted with fonttools' pyftsubset down to
-//! just these eighteen glyphs (~4 KB vs. ~2.5 MB for the full symbols font).
+//! just these glyphs (~4.7 KB vs. ~2.5 MB for the full symbols font).
 //!
 //! These are Private Use Area codepoints: a terminal only renders them as
 //! icons if its font actually has glyphs there, otherwise they show as
@@ -46,6 +46,16 @@ pub const slicer = "\u{f0190}";
 /// md-music_box_multiple - stacked instrument cards each showing a note,
 /// reading as "a bank of programs" for a SoundFont's many instrument zones.
 pub const soundfont = "\u{f0333}";
+/// md-record - solid dot, the record-arm indicator (`r` toggles it).
+pub const record = "\u{f044a}";
+/// md-sine_wave - master-bus phase-correlation readout.
+pub const phase = "\u{f095b}";
+/// md-volume_high - master-bus LUFS loudness readout; pairs with `mute`
+/// (md-volume_mute) as its "loud" counterpart.
+pub const loudness = "\u{f057e}";
+/// md-power_plug - CLAP/VST3 hosted plugins, distinct from `synth`'s piano
+/// glyph so a hosted plugin reads differently from wstudio's own synth.
+pub const plugin = "\u{f06a5}";
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -83,9 +93,9 @@ pub fn iconOr(icon: []const u8, ascii: []const u8) []const u8 {
 
 test "every icon decodes to exactly one codepoint" {
     const all = [_][]const u8{
-        play,    stop,      mute,        solo,  save, warn,   synth, drum,
-        sampler, eq,        arrangement, tempo, help, master, loop,  logo,
-        slicer,  soundfont,
+        play,   stop,        mute,   solo,     save,     warn,   synth, drum,
+        sampler, eq,         arrangement, tempo, help,   master, loop,  logo,
+        slicer, soundfont,   record, phase,    loudness, plugin,
     };
     for (all) |icon| {
         var it = std.unicode.Utf8Iterator{ .bytes = icon, .i = 0 };
