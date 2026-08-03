@@ -88,7 +88,6 @@ const preset_picker = @import("views/preset_picker.zig");
 pub const drawTracks = tracks.drawTracks;
 pub const drawInstrumentPicker = picker.drawInstrumentPicker;
 pub const drawFxPicker = picker.drawFxPicker;
-pub const drawSynthFxPicker = picker.drawSynthFxPicker;
 pub const drawDrumGrid = drum.drawDrumGrid;
 pub const drawSlicerGrid = slicer.drawSlicerGrid;
 pub const drawHelp = help.drawHelp;

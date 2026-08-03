@@ -53,121 +53,18 @@ fn drawSynthTitle(w: *std.Io.Writer, subview: synth_ed.Subview, name: []const u8
 /// Render the synth editor into `w`, applying vertical scroll so it fits
 /// within `max_rows`. Always shows the title line, then slices the current
 /// subview's body to keep the cursor in view. `app.synth_subview` picks one
-/// of three panes (see synth_ed.Subview): "main"/"mod" each pack their
-/// cards into 1-3 columns by terminal width (see `drawSynthGrid`/
-/// synth_layout.zig); "fx" is still a single full-width list
-/// regardless of width.
+/// of two panes (see synth_ed.Subview): "main"/"mod" each pack their cards
+/// into 1-3 columns by terminal width (see `drawSynthGrid`/
+/// synth_layout.zig).
 pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
     // Available rows for the view body (excludes the caller's header +
     // transport + status - 4 rows total, no separate hr() rule rows anymore).
     const max_rows = rows -| 4;
-    const subview = app.synth_subview;
-
-    if (subview == .main) {
-        try drawSynthGrid(app, w, max_rows, cols, .main);
-        return;
+    switch (app.synth_subview) {
+        .main => try drawSynthGrid(app, w, max_rows, cols, .main),
+        .mod => try drawSynthGrid(app, w, max_rows, cols, .mod),
     }
-    if (subview == .mod) {
-        try drawSynthGrid(app, w, max_rows, cols, .mod);
-        return;
-    }
-
-    // .fx - single full-width list of on (inserted) units only; off units
-    // are reachable only through the `a` insert picker, not shown here.
-    style.form_bar_w = @min(style.form_bar_w_default + (cols -| 100) / 2, 40);
-    style.form_section_w = style.form_section_w_default + (style.form_bar_w - style.form_bar_w_default);
-
-    var kbuf: [14]ws.dsp.synth.FxUnitKind = undefined;
-    const fx_order = synth_ed.fxOnOrder(app, &kbuf);
-
-    // Clamp scroll so the cursor row is visible and the window never runs
-    // past the layout's last row (the layouts' heights differ per subview,
-    // so a stale offset from a different one must not survive a resize or a
-    // Tab subview switch).
-    const cursor_row = synth_ed.fxRow(app.synth_cursor, fx_order);
-    const body_rows: usize = switch (subview) {
-        .fx => synth_ed.fxBodyRows(fx_order),
-        .main, .mod => unreachable,
-    };
-    var scroll = @min(app.synth_scroll, (body_rows + 1) -| max_rows);
-    if (cursor_row < scroll) scroll = cursor_row;
-    if (cursor_row >= scroll + max_rows) scroll = cursor_row -| max_rows + 1;
-    // Written back so mouse hit-testing (editors/synth.zig paramAtRow) maps
-    // clicks through the same offset this frame actually rendered with.
-    app.synth_scroll = scroll;
-
-    if (app.synth_track >= app.session.racks.items.len) {
-        for (0..max_rows) |_| try endLine(w);
-        return;
-    }
-    const rack = app.session.racks.items[app.synth_track];
-    switch (rack.instrument) {
-        .poly_synth => {},
-        else => {
-            for (0..max_rows) |_| try endLine(w);
-            return;
-        },
-    }
-    const synth = &rack.instrument.poly_synth;
-    const c = app.synth_cursor;
-
-    // zig fmt: off
-    const name = if (app.synth_track < app.session.project.tracks.items.len)
-        app.session.project.tracks.items[app.synth_track].name
-    else "?";
-    // zig fmt: on
-
-    // Title (row 0) is always emitted outside the scroll window.
-    try drawSynthTitle(w, subview, name, false);
-    var written: usize = 1;
-
-    // The FX strip is a fixed row above the scrolled section list (like the
-    // title above it), not part of `tw`/`scroll` - mirrors the track/master
-    // chain's own strip, which likewise sits outside its focused unit's
-    // scrollable body. editors/synth.zig's `fxRow`/`handleMouse` account
-    // for this same +1 row offset.
-    if (subview == .fx and written < max_rows) {
-        try drawFxStrip(app, w, c, cols);
-        written += 1;
-    }
-    var tmp: [16 * 1024]u8 = undefined;
-    var tw = std.Io.Writer.fixed(&tmp);
-    switch (subview) {
-        .fx => if (fx_order.len == 0) {
-            try tw.writeAll(dim ++ "  no fx: press a to insert" ++ rst);
-            try endLine(&tw);
-        } else for (fx_order) |kind| {
-            switch (kind) {
-                .gate => try secFxGate(&tw, synth, c),
-                .comp => try secFxComp(&tw, synth, c),
-                .mb_comp => try secFxMb(&tw, synth, c),
-                .ott => try secFxOtt(&tw, synth, c),
-                .eq => try secFxEq(&tw, synth, c),
-                .chorus => try secFxChorus(&tw, synth, c),
-                .freq_shift => try secFxFreqShift(&tw, synth, c),
-                .dist => try secFxDist(&tw, synth, c),
-                .crush => try secFxCrush(&tw, synth, c),
-                .flanger => try secFxFlanger(&tw, synth, c),
-                .tape => try secFxTape(&tw, synth, c),
-                .phaser => try secFxPhaser(&tw, synth, c),
-                .delay => try secFxDelay(&tw, synth, c),
-                .reverb => try secFxReverb(&tw, synth, c),
-            }
-        },
-        .main, .mod => unreachable,
-    }
-
-    var line_it = std.mem.splitSequence(u8, tw.buffered(), "\r\n");
-    var row: usize = 1;
-    while (line_it.next()) |line| : (row += 1) {
-        if (written >= max_rows) break;
-        if (row < scroll + 1) continue;
-        try w.writeAll(line);
-        try endLine(w);
-        written += 1;
-    }
-    while (written < max_rows) : (written += 1) try endLine(w);
 }
 
 /// `main_sections`' render functions, in the exact same order as the table
@@ -198,12 +95,10 @@ fn drawSynthGrid(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize, 
     const sections = comptime switch (subview) {
         .main => &synth_layout.main_sections,
         .mod => &synth_layout.mod_sections,
-        .fx => unreachable,
     };
     const render_fns = comptime switch (subview) {
         .main => &main_render_fns,
         .mod => &mod_render_fns,
-        .fx => unreachable,
     };
     const n = synth_layout.numCols(cols);
     const col_w = synth_layout.colWidth(cols, n);
@@ -323,34 +218,6 @@ const mod_render_fns = [_]RenderFn{
 comptime {
     if (mod_render_fns.len != synth_layout.mod_sections.len)
         @compileError("views/synth.zig: mod_render_fns must mirror synth_layout.mod_sections 1:1");
-}
-
-/// The `.fx` subview's chain strip: `IN▶` + each on unit's short label in
-/// `fx_order` sequence + a `+` insert affordance + `▶OUT`, all read from
-/// `synth_ed.stripLayout` - the single source of truth this and
-/// `editors/synth.zig`'s click handler (`stripSlotAt`) both use, so a click
-/// can never land somewhere this didn't draw. The focused unit's label is
-/// bold/white; others green. Mirrors the track/master chain's own strip
-/// closely enough to feel like the same control, minus the multi-row box
-/// border - this one stays a single fixed row above the scrolled section
-/// list (see drawSynthEditor's call site).
-fn drawFxStrip(app: anytype, w: *std.Io.Writer, c: u16, cols: usize) !void {
-    var buf: [14]synth_ed.StripSlot = undefined;
-    const slots = synth_ed.stripLayout(app, cols, &buf);
-    const focused = synth_ed.fxKindOfId(c);
-    try w.writeAll(dim ++ synth_ed.strip_prefix ++ rst);
-    for (slots, 0..) |slot, i| {
-        if (i > 0) try w.writeAll(dim ++ "\u{25B6}" ++ rst);
-        if (slot.kind == null) {
-            try w.writeAll(dim ++ rst);
-        } else {
-            try w.writeAll(if (slot.kind == focused) bwht ++ bold else grn);
-        }
-        try w.writeAll(slot.label);
-        try w.writeAll(rst);
-    }
-    try w.writeAll(dim ++ synth_ed.strip_suffix ++ rst);
-    try endLine(w);
 }
 
 // The section renderers below emit one header row + one row per param each.
@@ -847,231 +714,6 @@ fn freqBarVal(hz: f32) f32 {
     return std.math.log2(hz / 20.0) / std.math.log2(20_000.0 / 20.0);
 }
 
-/// Section title bar + the "on/off" row every FX-strip section leads with,
-/// at its own first param id - shared by secFxGate..secFxReverb below. The
-/// rest of each section (its bar/enum rows) stays hand-written: their
-/// ranges and units genuinely differ per param (dB/ms/Hz/ratio/...) and
-/// there's no shared metadata table for that - see synth_layout.zig's own
-/// doc comment on why FX deliberately stays out of the comptime-static
-/// section-table system MAIN/MOD use.
-fn secFxHeader(w: *std.Io.Writer, title: []const u8, on: bool, c: u16, first_id: u16) !void {
-    try synthSection(w, title, red);
-    try enumRow(w, c == first_id, false, red, "on/off", &on_off_names, if (on) 0 else 1);
-}
-
-/// Internal FX sections: post-mix, user-reorderable inside the synth
-/// itself, distinct from the track FX chain - these params are matrix and
-/// automation targets (see PolySynth's FX field block).
-fn secFxGate(w: *std.Io.Writer, synth: anytype, c: u16) !void {
-    var buf: [40]u8 = undefined;
-    const on = synth.fx_gate_on;
-    try secFxHeader(w, "FX GATE", on, c, 132);
-    try barRow(w, c == 133, !on, red, "threshold", synth.fx_gate_threshold_db + 80.0, 80.0,
-        try std.fmt.bufPrint(&buf, "{d:.0} dB", .{synth.fx_gate_threshold_db}));
-    try barRow(w, c == 134, !on, red, "attack", synth.fx_gate_attack_ms, 50.0,
-        try std.fmt.bufPrint(&buf, "{d:.1} ms", .{synth.fx_gate_attack_ms}));
-    try barRow(w, c == 135, !on, red, "release", synth.fx_gate_release_ms, 1000.0,
-        try std.fmt.bufPrint(&buf, "{d:.0} ms", .{synth.fx_gate_release_ms}));
-}
-
-fn secFxComp(w: *std.Io.Writer, synth: anytype, c: u16) !void {
-    var buf: [40]u8 = undefined;
-    const on = synth.fx_comp_on;
-    try secFxHeader(w, "FX COMP", on, c, 137);
-    try barRow(w, c == 138, !on, red, "threshold", synth.fx_comp_threshold_db + 60.0, 60.0,
-        try std.fmt.bufPrint(&buf, "{d:.0} dB", .{synth.fx_comp_threshold_db}));
-    try barRow(w, c == 139, !on, red, "ratio", synth.fx_comp_ratio, 20.0,
-        try std.fmt.bufPrint(&buf, "{d:.1}:1", .{synth.fx_comp_ratio}));
-    try barRow(w, c == 140, !on, red, "attack", synth.fx_comp_attack_ms, 500.0,
-        try std.fmt.bufPrint(&buf, "{d:.1} ms", .{synth.fx_comp_attack_ms}));
-    try barRow(w, c == 141, !on, red, "release", synth.fx_comp_release_ms, 2000.0,
-        try std.fmt.bufPrint(&buf, "{d:.0} ms", .{synth.fx_comp_release_ms}));
-    try barRow(w, c == 142, !on, red, "makeup", synth.fx_comp_makeup_db + 24.0, 48.0,
-        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_comp_makeup_db}));
-}
-
-const mb_style_names = [_][]const u8{ "classic", "OTT" };
-
-fn secFxMb(w: *std.Io.Writer, synth: anytype, c: u16) !void {
-    var buf: [40]u8 = undefined;
-    const on = synth.fx_mb_on;
-    try secFxHeader(w, "FX MB", on, c, 144);
-    try barRow(w, c == 145, !on, red, "xover lo", synth.fx_mb_xover_lo, 20_000.0,
-        try std.fmt.bufPrint(&buf, "{d:.0} Hz", .{synth.fx_mb_xover_lo}));
-    try barRow(w, c == 146, !on, red, "xover hi", synth.fx_mb_xover_hi, 20_000.0,
-        try std.fmt.bufPrint(&buf, "{d:.0} Hz", .{synth.fx_mb_xover_hi}));
-    try barRow(w, c == 147, !on, red, "attack", synth.fx_mb_attack_ms, 500.0,
-        try std.fmt.bufPrint(&buf, "{d:.1} ms", .{synth.fx_mb_attack_ms}));
-    try barRow(w, c == 148, !on, red, "release", synth.fx_mb_release_ms, 2000.0,
-        try std.fmt.bufPrint(&buf, "{d:.0} ms", .{synth.fx_mb_release_ms}));
-    try enumRow(w, c == 149, !on, red, "style", &mb_style_names, @intFromEnum(synth.fx_mb_style));
-    try barRow(w, c == 150, !on, red, "mix", synth.fx_mb_mix, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_mb_mix}));
-    try barRow(w, c == 151, !on, red, "lo thresh", synth.fx_mb_low_threshold_db + 60.0, 60.0,
-        try std.fmt.bufPrint(&buf, "{d:.0} dB", .{synth.fx_mb_low_threshold_db}));
-    try barRow(w, c == 152, !on, red, "lo ratio", synth.fx_mb_low_ratio, 20.0,
-        try std.fmt.bufPrint(&buf, "{d:.1}:1", .{synth.fx_mb_low_ratio}));
-    try barRow(w, c == 153, !on, red, "lo makeup", synth.fx_mb_low_makeup_db + 24.0, 48.0,
-        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_mb_low_makeup_db}));
-    try barRow(w, c == 154, !on, red, "mid thresh", synth.fx_mb_mid_threshold_db + 60.0, 60.0,
-        try std.fmt.bufPrint(&buf, "{d:.0} dB", .{synth.fx_mb_mid_threshold_db}));
-    try barRow(w, c == 155, !on, red, "mid ratio", synth.fx_mb_mid_ratio, 20.0,
-        try std.fmt.bufPrint(&buf, "{d:.1}:1", .{synth.fx_mb_mid_ratio}));
-    try barRow(w, c == 156, !on, red, "mid makeup", synth.fx_mb_mid_makeup_db + 24.0, 48.0,
-        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_mb_mid_makeup_db}));
-    try barRow(w, c == 157, !on, red, "hi thresh", synth.fx_mb_high_threshold_db + 60.0, 60.0,
-        try std.fmt.bufPrint(&buf, "{d:.0} dB", .{synth.fx_mb_high_threshold_db}));
-    try barRow(w, c == 158, !on, red, "hi ratio", synth.fx_mb_high_ratio, 20.0,
-        try std.fmt.bufPrint(&buf, "{d:.1}:1", .{synth.fx_mb_high_ratio}));
-    try barRow(w, c == 159, !on, red, "hi makeup", synth.fx_mb_high_makeup_db + 24.0, 48.0,
-        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_mb_high_makeup_db}));
-}
-
-fn secFxOtt(w: *std.Io.Writer, synth: anytype, c: u16) !void {
-    var buf: [40]u8 = undefined;
-    const on = synth.fx_ott_on;
-    try secFxHeader(w, "FX OTT", on, c, 161);
-    try barRow(w, c == 162, !on, red, "depth", synth.fx_ott_depth, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_ott_depth}));
-    try barRow(w, c == 163, !on, red, "time", synth.fx_ott_time, 4.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}x", .{synth.fx_ott_time}));
-    try barRow(w, c == 164, !on, red, "gain in", synth.fx_ott_gain_in_db + 24.0, 48.0,
-        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_ott_gain_in_db}));
-    try barRow(w, c == 165, !on, red, "gain out", synth.fx_ott_gain_out_db + 24.0, 48.0,
-        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_ott_gain_out_db}));
-}
-
-fn secFxEq(w: *std.Io.Writer, synth: anytype, c: u16) !void {
-    var buf: [40]u8 = undefined;
-    const on = synth.fx_eq_on;
-    try secFxHeader(w, "FX EQ", on, c, 167);
-    try barRow(w, c == 168, !on, red, "lo freq", freqBarVal(synth.fx_eq_low_freq), 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.0} Hz", .{synth.fx_eq_low_freq}));
-    try barRow(w, c == 169, !on, red, "lo gain", synth.fx_eq_low_gain_db + 18.0, 36.0,
-        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_eq_low_gain_db}));
-    try barRow(w, c == 170, !on, red, "mid freq", freqBarVal(synth.fx_eq_mid_freq), 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.0} Hz", .{synth.fx_eq_mid_freq}));
-    try barRow(w, c == 171, !on, red, "mid gain", synth.fx_eq_mid_gain_db + 18.0, 36.0,
-        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_eq_mid_gain_db}));
-    try barRow(w, c == 172, !on, red, "mid Q", synth.fx_eq_mid_q, 10.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_eq_mid_q}));
-    try barRow(w, c == 173, !on, red, "hi freq", freqBarVal(synth.fx_eq_high_freq), 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.0} Hz", .{synth.fx_eq_high_freq}));
-    try barRow(w, c == 174, !on, red, "hi gain", synth.fx_eq_high_gain_db + 18.0, 36.0,
-        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_eq_high_gain_db}));
-}
-
-fn secFxChorus(w: *std.Io.Writer, synth: anytype, c: u16) !void {
-    var buf: [40]u8 = undefined;
-    const on = synth.fx_chorus_on;
-    try secFxHeader(w, "FX CHOR", on, c, 176);
-    try barRow(w, c == 177, !on, red, "rate", synth.fx_chorus_rate_hz, 5.0,
-        try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.fx_chorus_rate_hz}));
-    try barRow(w, c == 178, !on, red, "depth", synth.fx_chorus_depth_ms, 10.0,
-        try std.fmt.bufPrint(&buf, "{d:.1} ms", .{synth.fx_chorus_depth_ms}));
-    try barRow(w, c == 179, !on, red, "mix", synth.fx_chorus_mix, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_chorus_mix}));
-}
-
-fn secFxFreqShift(w: *std.Io.Writer, synth: anytype, c: u16) !void {
-    var buf: [40]u8 = undefined;
-    const on = synth.fx_freq_shift_on;
-    try secFxHeader(w, "FX FRQS", on, c, 181);
-    try barRow(w, c == 182, !on, red, "shift", synth.fx_freq_shift_hz + 2000.0, 4000.0,
-        try std.fmt.bufPrint(&buf, "{d:.0} Hz", .{synth.fx_freq_shift_hz}));
-    try barRow(w, c == 183, !on, red, "mix", synth.fx_freq_shift_mix, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_freq_shift_mix}));
-}
-
-fn secFxDist(w: *std.Io.Writer, synth: anytype, c: u16) !void {
-    var buf: [40]u8 = undefined;
-    const on = synth.fx_dist_on;
-    try secFxHeader(w, "FX DIST", on, c, 83);
-    try barRow(w, c == 84, !on, red, "drive", synth.fx_dist_drive_db, 36.0,
-        try std.fmt.bufPrint(&buf, "{d:.1} dB", .{synth.fx_dist_drive_db}));
-    try barRow(w, c == 85, !on, red, "mix", synth.fx_dist_mix, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_dist_mix}));
-}
-
-fn secFxCrush(w: *std.Io.Writer, synth: anytype, c: u16) !void {
-    var buf: [40]u8 = undefined;
-    const on = synth.fx_crush_on;
-    try secFxHeader(w, "FX CRUSH", on, c, 86);
-    try barRow(w, c == 87, !on, red, "bits", synth.fx_crush_bits, 16.0,
-        try std.fmt.bufPrint(&buf, "{d:.0}", .{synth.fx_crush_bits}));
-    try barRow(w, c == 88, !on, red, "rate", synth.fx_crush_rate, 64.0,
-        try std.fmt.bufPrint(&buf, "1/{d:.0}", .{synth.fx_crush_rate}));
-    try barRow(w, c == 89, !on, red, "mix", synth.fx_crush_mix, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_crush_mix}));
-}
-
-fn secFxFlanger(w: *std.Io.Writer, synth: anytype, c: u16) !void {
-    var buf: [40]u8 = undefined;
-    const on = synth.fx_flanger_on;
-    try secFxHeader(w, "FX FLNG", on, c, 90);
-    try barRow(w, c == 91, !on, red, "rate", synth.fx_flanger_rate_hz, 8.0,
-        try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.fx_flanger_rate_hz}));
-    try barRow(w, c == 92, !on, red, "depth", synth.fx_flanger_depth, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_flanger_depth}));
-    try barRow(w, c == 93, !on, red, "feedback", synth.fx_flanger_feedback, 0.95,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_flanger_feedback}));
-    try barRow(w, c == 94, !on, red, "mix", synth.fx_flanger_mix, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_flanger_mix}));
-}
-
-fn secFxTape(w: *std.Io.Writer, synth: anytype, c: u16) !void {
-    var buf: [40]u8 = undefined;
-    const on = synth.fx_tape_on;
-    try secFxHeader(w, "FX TAPE", on, c, 188);
-    try barRow(w, c == 189, !on, red, "wow rate", synth.fx_tape_wow_rate_hz, 3.0,
-        try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.fx_tape_wow_rate_hz}));
-    try barRow(w, c == 190, !on, red, "wow depth", synth.fx_tape_wow_depth, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_tape_wow_depth}));
-    try barRow(w, c == 191, !on, red, "flt rate", synth.fx_tape_flutter_rate_hz, 15.0,
-        try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.fx_tape_flutter_rate_hz}));
-    try barRow(w, c == 192, !on, red, "flt depth", synth.fx_tape_flutter_depth, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_tape_flutter_depth}));
-    try barRow(w, c == 193, !on, red, "mix", synth.fx_tape_mix, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_tape_mix}));
-}
-
-fn secFxPhaser(w: *std.Io.Writer, synth: anytype, c: u16) !void {
-    var buf: [40]u8 = undefined;
-    const on = synth.fx_phaser_on;
-    try secFxHeader(w, "FX PHSR", on, c, 103);
-    try barRow(w, c == 104, !on, red, "rate", synth.fx_phaser_rate_hz, 8.0,
-        try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{synth.fx_phaser_rate_hz}));
-    try barRow(w, c == 105, !on, red, "depth", synth.fx_phaser_depth, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_phaser_depth}));
-    try barRow(w, c == 106, !on, red, "feedback", synth.fx_phaser_feedback, 0.95,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_phaser_feedback}));
-    try barRow(w, c == 107, !on, red, "mix", synth.fx_phaser_mix, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_phaser_mix}));
-}
-
-fn secFxDelay(w: *std.Io.Writer, synth: anytype, c: u16) !void {
-    var buf: [40]u8 = undefined;
-    const on = synth.fx_delay_on;
-    try secFxHeader(w, "FX DELAY", on, c, 108);
-    try barRow(w, c == 109, !on, red, "time", synth.fx_delay_time_s, ws.dsp.synth.Delay.max_time_s,
-        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fx_delay_time_s}));
-    try barRow(w, c == 110, !on, red, "feedback", synth.fx_delay_feedback, 0.95,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_delay_feedback}));
-    try barRow(w, c == 111, !on, red, "mix", synth.fx_delay_mix, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_delay_mix}));
-}
-
-fn secFxReverb(w: *std.Io.Writer, synth: anytype, c: u16) !void {
-    var buf: [40]u8 = undefined;
-    const on = synth.fx_reverb_on;
-    try secFxHeader(w, "FX VERB", on, c, 112);
-    try barRow(w, c == 113, !on, red, "room", synth.fx_reverb_room, 0.98,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_reverb_room}));
-    try barRow(w, c == 114, !on, red, "damp", synth.fx_reverb_damp, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_reverb_damp}));
-    try barRow(w, c == 115, !on, red, "mix", synth.fx_reverb_mix, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fx_reverb_mix}));
-}
 
 
 // zig fmt: on

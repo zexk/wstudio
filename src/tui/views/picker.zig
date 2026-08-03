@@ -4,7 +4,6 @@ const std = @import("std");
 const ws = @import("wstudio");
 const style = @import("../style.zig");
 const icons = @import("../../ui/icons.zig");
-const synth_ed = @import("../../ui/editors/synth.zig");
 const spectrum_ed = @import("../../ui/editors/spectrum.zig");
 const app_mod = @import("../../ui/app.zig");
 
@@ -157,53 +156,3 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
-// zig fmt: on
-
-/// The synth-internal FX chain's insert picker - same shape as
-/// `drawFxPicker`, just over `synth_ed.synthFxPickerKinds` (the currently-
-/// off units) instead of the track chain's fixed `fx_picker_menu`, and
-/// without the description column (the user already has each unit's full
-/// param section on screen once inserted).
-pub fn drawSynthFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
-    const name = if (app.synth_track < app.session.project.tracks.items.len)
-        app.session.project.tracks.items[app.synth_track].name
-    else
-        "?";
-
-    var buf: [14]ws.dsp.synth.FxUnitKind = undefined;
-    const kinds = synth_ed.filteredSynthFxPickerKinds(app, &buf);
-    const filter = synth_ed.activeFxFilter(app);
-
-    try w.writeAll(bold ++ " INSERT FX UNIT" ++ rst);
-    try w.writeAll(acc);
-    try w.print("  \"{s}\"", .{name});
-    try w.writeAll(rst ++ dim);
-    try w.print("  {d} match{s}", .{ kinds.len, if (kinds.len == 1) "" else "es" });
-    if (filter.len > 0) {
-        try w.writeAll(rst ++ yel);
-        try w.print("  /{s}", .{filter});
-    }
-    try w.writeAll(rst);
-    try endLine(w);
-    try w.writeAll(dim ++ " > /" ++ rst);
-    if (filter.len > 0) try w.writeAll(filter) else try w.writeAll(dim ++ "type to filter" ++ rst);
-    try endLine(w);
-
-    for (kinds, 0..) |kind, i| {
-        const is_sel = (i == app.synth_fx_picker_cursor);
-        if (is_sel) try w.writeAll(sel);
-        try w.writeAll(if (is_sel) "  > " else "    ");
-        try w.print("{s}", .{spectrum_ed.unitLabel(synth_ed.asFxKind(kind))});
-        try w.writeAll(rst);
-        try endLine(w);
-    }
-    if (kinds.len == 0) {
-        try w.writeAll(dim);
-        try w.print("    no match for /{s}", .{filter});
-        try w.writeAll(rst);
-        try endLine(w);
-    }
-
-    const used = 3 + @max(kinds.len, 1);
-    for (used..@max(used, rows -| 4)) |_| try endLine(w);
-}

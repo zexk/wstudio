@@ -305,7 +305,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key(":sf-preset",   "<bank> <program>  jump straight to a preset by its MIDI bank/program number");
 
     t.taggedSection(.synth_editor, "SYNTH EDITOR");
-    t.key("tab",          "cycle subview: main params / mod matrix / FX section");
+    t.key("tab",          "cycle subview: main params / mod matrix");
     t.key("z",            "focus the current MAIN/MOD section; z again restores the full grid");
     t.key("j / k",        "select parameter");
     t.key("g / G",        "jump to first / last parameter (within the current subview)");
@@ -317,10 +317,10 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("s",            "FX chain for this track");
     t.key("f",            "preset picker - factory + saved patches, / filters by name/tag/author, d deletes a save");
     t.key("a (in picker)", "audition the highlighted synth preset with C3; esc restores the original sound");
-    t.key("/",            "fuzzy-search param names across all three subviews, n / N repeat forward / backward");
+    t.key("/",            "fuzzy-search param names across both subviews, n / N repeat forward / backward");
     t.key(":synth-preset-save", "<name>  save the current params as a reusable preset");
     t.push(dim ++ "  ARP and ENV 3 sections sit after MACRO in the main subview (j/k reaches them).", .{});
-    t.push(dim ++ "  the FX subview reuses the FX-chain a/x/</> keys documented under FX CHAIN below.", .{});
+    t.push(dim ++ "  effects live on the track's own FX chain (s), not inside the synth.", .{});
     t.push(dim ++ "  MATRIX rows route a mod source (lfo 1-3/envs/velocity/keytrack/wheel/macros)", .{});
     t.push(dim ++ "  to any automatable param plus PITCH and AMP; depth is bipolar, same-dest", .{});
     t.push(dim ++ "  rows sum. MACRO knobs only act through matrix rows (mc1-mc4).", .{});

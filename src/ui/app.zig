@@ -72,7 +72,7 @@ const reload_path_buf_len: usize = 1024;
 /// A pause longer than this between taps starts a fresh tap-tempo run.
 /// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
 const default_autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
-pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, synth_fx_picker, arrangement, file_browser, automation, automation_param_picker, slicer_grid, preset_picker, soundfont_editor };
+pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, arrangement, file_browser, automation, automation_param_picker, slicer_grid, preset_picker, soundfont_editor };
 
 /// Macro machinery bounds (see `App.macroIntercept`): the two-key pending
 /// states, per-register key capacity, and the nested-`@` replay cap.
@@ -540,14 +540,6 @@ pub const App = struct {
     fx_picker_filter_len: usize = 0,
     instrument_picker_filter_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
     instrument_picker_filter_len: usize = 0,
-    /// Highlighted row in the synth-internal FX insert picker (`.fx`
-    /// subview's `a`) - always returns to `.synth_editor`, so no return-view
-    /// field needed like `fx_picker_return`'s.
-    synth_fx_picker_cursor: u8 = 0,
-    /// Same filter convention as `fx_picker_filter_buf`, for the
-    /// synth-internal FX picker. See `synth_ed.activeFxFilter`.
-    synth_fx_picker_filter_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
-    synth_fx_picker_filter_len: usize = 0,
     eq_track: u16 = 0,
     /// Which group's FX chain is in view when `view == .group_spectrum` -
     /// parallel to `eq_track`.
@@ -564,10 +556,10 @@ pub const App = struct {
     soundfont_track: u16 = 0,
     /// Selected param row in the soundfont editor (GAIN/PAN/TRANSPOSE/PRESET).
     soundfont_param: u8 = 0,
-    /// Which of the synth editor's three subviews (osc/env/filter params,
-    /// the internal FX section, the mod matrix) is showing - cycled by Tab.
-    /// `synth_cursor` stays one flat param-id space across all three; only
-    /// which ids are reachable/rendered changes with the subview.
+    /// Which of the synth editor's two subviews (osc/env/filter params, the
+    /// mod matrix) is showing - cycled by Tab. `synth_cursor` stays one flat
+    /// param-id space across both; only which ids are reachable/rendered
+    /// changes with the subview.
     synth_subview: synth_ed.Subview = .main,
     /// `z` in MAIN/MOD isolates the section containing `synth_cursor`.
     /// Editor-local display state, deliberately not persisted with a project.
@@ -2190,9 +2182,6 @@ pub const App = struct {
             .fx_picker => if (self.modal.mode == .search or (key == .char and key.char == '/')) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else self.handleFxPickerKey(key),
-            .synth_fx_picker => if (self.modal.mode == .search or (key == .char and key.char == '/')) {
-                self.applyAction(self.modal.handle(key), now_ns);
-            } else self.handleSynthFxPickerKey(key),
             .file_browser => if (self.modal.mode == .search) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else self.handleBrowserKey(key),
@@ -2397,7 +2386,6 @@ pub const App = struct {
             .arrangement => arrangement_ed.handleMouse(self, ev, row, cols),
             .instrument_picker => self.pickerMouse(ev, row),
             .fx_picker => self.fxPickerMouse(ev, row),
-            .synth_fx_picker => self.synthFxPickerMouse(ev, row),
             .file_browser => self.browserMouse(ev, row),
             .help => self.helpMouse(ev),
             .automation => automation_ed.handleMouse(self, ev, row),
@@ -3276,56 +3264,6 @@ pub const App = struct {
         }
     }
 
-    /// Synth-internal FX picker: j/k move, g/G jump to ends, `/` filters
-    /// (see synth_ed.activeFxFilter), enter/space insert the highlighted
-    /// unit, esc cancels back to the `.fx` subview. Opened by `a` there (see
-    /// editors/synth.zig's openFxPicker). The list is the currently-off
-    /// units narrowed by the filter, so it's recomputed (and re-bounded) on
-    /// every call.
-    fn handleSynthFxPickerKey(self: *App, key: modal_mod.Key) void {
-        var buf: [14]ws.dsp.synth.FxUnitKind = undefined;
-        const kinds = synth_ed.filteredSynthFxPickerKinds(self, &buf);
-        if (kinds.len > 0 and self.synth_fx_picker_cursor >= kinds.len) self.synth_fx_picker_cursor = @intCast(kinds.len - 1);
-        switch (key) {
-            .escape => synth_ed.cancelSynthFxPicker(self),
-            .enter => if (self.synth_fx_picker_cursor < kinds.len) synth_ed.insertFromSynthFxPicker(self, kinds[self.synth_fx_picker_cursor]),
-            .char => |c| switch (c) {
-                'k' => { if (self.synth_fx_picker_cursor > 0) self.synth_fx_picker_cursor -= 1; },
-                'j' => { if (self.synth_fx_picker_cursor + 1 < kinds.len) self.synth_fx_picker_cursor += 1; },
-                'g' => self.synth_fx_picker_cursor = 0,
-                'G' => self.synth_fx_picker_cursor = @intCast(kinds.len -| 1),
-                ' ' => if (self.synth_fx_picker_cursor < kinds.len) synth_ed.insertFromSynthFxPicker(self, kinds[self.synth_fx_picker_cursor]),
-                'q' => synth_ed.cancelSynthFxPicker(self),
-                else => {},
-            },
-            else => {},
-        }
-    }
-
-    pub fn clickSynthFxPickerItem(self: *App, ordinal: usize, now_ns: i96) void {
-        if (self.modal.mode == .search) self.handleKey(.enter, now_ns);
-        self.synth_fx_picker_cursor = @intCast(ordinal);
-        var buf: [14]ws.dsp.synth.FxUnitKind = undefined;
-        const kinds = synth_ed.filteredSynthFxPickerKinds(self, &buf);
-        if (ordinal < kinds.len) synth_ed.insertFromSynthFxPicker(self, kinds[ordinal]);
-    }
-
-    /// Synth-internal FX picker: click a row to select + insert it (same as
-    /// enter/space); scroll moves the highlight. Mirrors `fxPickerMouse`.
-    fn synthFxPickerMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
-        var buf: [14]ws.dsp.synth.FxUnitKind = undefined;
-        const kinds = synth_ed.filteredSynthFxPickerKinds(self, &buf);
-        switch (ev.kind) {
-            .press => {
-                if (row < 2 or row - 2 >= kinds.len) return;
-                self.clickSynthFxPickerItem(row - 2, self.now_ns);
-            },
-            .scroll_up => { if (self.synth_fx_picker_cursor > 0) self.synth_fx_picker_cursor -= 1; },
-            .scroll_down => { if (self.synth_fx_picker_cursor + 1 < kinds.len) self.synth_fx_picker_cursor += 1; },
-            else => {},
-        }
-    }
-
     /// Synth-param automation picker: j/k move (skipping rows the active
     /// `/` filter hides), g/G jump to ends, enter/space start automating the
     /// highlighted param on the current clip, esc cancels back to the
@@ -3936,10 +3874,6 @@ pub const App = struct {
                         self.fx_picker_filter_len = copyTruncated(&self.fx_picker_filter_buf, text);
                         self.fx_picker_cursor = 0;
                     },
-                    .synth_fx_picker => {
-                        self.synth_fx_picker_filter_len = copyTruncated(&self.synth_fx_picker_filter_buf, text);
-                        self.synth_fx_picker_cursor = 0;
-                    },
                     .automation_param_picker => {
                         self.automation_param_filter_len = copyTruncated(&self.automation_param_filter_buf, text);
                         self.automation_param_cursor = automation_ed.firstParamCursor(self);
@@ -4114,7 +4048,7 @@ pub const App = struct {
         const pattern = self.searchPattern();
         if (pattern.len == 0) { self.setStatus("no previous search pattern", .{}); return; }
         var cbuf: [synth_ed.max_search_candidates]synth_ed.SearchCandidate = undefined;
-        const candidates = synth_ed.searchCandidates(self, &cbuf);
+        const candidates = synth_ed.searchCandidates(&cbuf);
         const n: i64 = @intCast(candidates.len);
         if (n == 0) { self.setStatus("no params to search", .{}); return; }
         var start: i64 = 0;
@@ -4849,7 +4783,7 @@ pub const App = struct {
 
         // zig fmt: off
         switch (self.view) {
-            .synth_editor, .synth_fx_picker => if (!kindIs(racks, self.synth_track, .poly_synth)) { self.view = .tracks; },
+            .synth_editor => if (!kindIs(racks, self.synth_track, .poly_synth)) { self.view = .tracks; },
             .drum_grid => if (!kindIs(racks, self.drum_track, .drum_machine)) { self.view = .tracks; },
             .slicer_grid => if (!kindIs(racks, self.slicer_track, .slicer)) { self.view = .tracks; },
             .sampler_editor => {

@@ -6,7 +6,6 @@
 
 const std = @import("std");
 const ws = @import("wstudio");
-const spectrum_ed = @import("../../ui/editors/spectrum.zig");
 const synth_ed = @import("../../ui/editors/synth.zig");
 const synth_layout = @import("../../ui/synth_layout.zig");
 const gui_style = @import("../style.zig");
@@ -31,7 +30,6 @@ pub fn draw(app: anytype) void {
     switch (app.core.synth_subview) {
         .main => drawSections(app, synth, &synth_layout.main_sections, synth_layout.mainPlacements, "synth-main"),
         .mod => drawSections(app, synth, &synth_layout.mod_sections, synth_layout.modPlacements, "synth-mod"),
-        .fx => drawFx(app, synth),
     }
 }
 
@@ -64,7 +62,7 @@ fn drawTabs(app: anytype) void {
 fn setSubview(app: anytype, subview: synth_ed.Subview) void {
     app.core.synth_subview = subview;
     var candidates_buf: [synth_ed.max_search_candidates]synth_ed.SearchCandidate = undefined;
-    for (synth_ed.searchCandidates(&app.core, &candidates_buf)) |candidate| {
+    for (synth_ed.searchCandidates(&candidates_buf)) |candidate| {
         if (candidate.subview == subview) {
             app.core.synth_cursor = candidate.id;
             break;
@@ -517,80 +515,6 @@ fn drawSlotStepper(app: anytype, id: u16, display: []const u8, width: f32, accen
         1 => nudgeParam(app, id, 'l'),
         else => {},
     }
-}
-
-/// Drops an FX param label's unit prefix ("mb.xover.lo" -> "xover.lo"):
-/// the card's own header already names the unit, and the prefix is what
-/// pushed "gate.threshold" past the width of a knob cell. TUI rows keep the
-/// full label - they're read as a flat list, with no header in view once the
-/// section scrolls off.
-fn stripUnitPrefix(label: []const u8) []const u8 {
-    const dot = std.mem.indexOfScalar(u8, label, '.') orelse return label;
-    return label[dot + 1 ..];
-}
-
-fn drawFx(app: anytype, synth: *ws.dsp.PolySynth) void {
-    var order_buf: [14]ws.dsp.synth.FxUnitKind = undefined;
-    const order = synth_ed.fxOnOrder(&app.core, &order_buf);
-    zgui.textDisabled("SIGNAL FLOW", .{});
-    zgui.sameLine(.{ .spacing = 12 });
-    zgui.textColored(theme.audio, "IN", .{});
-    for (order) |kind| {
-        zgui.sameLine(.{ .spacing = 7 });
-        zgui.textDisabled(">", .{});
-        zgui.sameLine(.{ .spacing = 7 });
-        zgui.textColored(theme.fg1, "{s}", .{spectrum_ed.stripLabel(synth_ed.asFxKind(kind))});
-    }
-    zgui.sameLine(.{ .spacing = 7 });
-    zgui.textDisabled(">", .{});
-    zgui.sameLine(.{ .spacing = 7 });
-    zgui.textColored(theme.audio, "OUT", .{});
-    if (order.len == 0) {
-        zgui.spacing();
-        zgui.textDisabled("No internal effects are enabled.", .{});
-        zgui.sameLine(.{ .spacing = 12 });
-        if (zgui.button("ADD EFFECT", .{})) synth_ed.openFxPicker(&app.core);
-        return;
-    }
-    zgui.spacing();
-    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.bg2 });
-    if (zgui.beginChild("synth-fx-params", .{
-        .w = 0,
-        .h = 0,
-        .child_flags = .{ .border = true, .auto_resize_y = true },
-        .window_flags = .{ .no_scrollbar = true, .no_scroll_with_mouse = true },
-    })) {
-        var candidates_buf: [synth_ed.max_search_candidates]synth_ed.SearchCandidate = undefined;
-        var previous_kind: ?ws.dsp.synth.FxUnitKind = null;
-        var flow = Flow.init();
-        for (synth_ed.searchCandidates(&app.core, &candidates_buf)) |candidate| {
-            if (candidate.subview != .fx) continue;
-            const kind = synth_ed.fxKindOfId(candidate.id) orelse continue;
-            if (previous_kind == null or previous_kind.? != kind) {
-                if (previous_kind != null) zgui.spacing();
-                previous_kind = kind;
-                flow.brk();
-                const label = spectrum_ed.unitLabel(synth_ed.asFxKind(kind));
-                // A unit's first id is its on/off - hoist it into the header
-                // strip the same way a MAIN card's gate goes there.
-                if (ws.dsp.PolySynth.isToggleParam(candidate.id)) {
-                    var gate_buf: [32]u8 = undefined;
-                    const gate_id = std.fmt.bufPrintZ(&gate_buf, "synth-fx-gate-{d}", .{candidate.id}) catch "synth-fx-gate";
-                    const on = (synth.paramValue(candidate.id) orelse 0) >= 0.5;
-                    if (widgets.sectionTitleGate(label, theme.audio, .{
-                        .id = gate_id,
-                        .on = on,
-                        .focused = app.core.synth_cursor == candidate.id,
-                    })) nudgeParam(app, candidate.id, 'h');
-                    continue;
-                }
-                widgets.sectionTitle(label, theme.audio);
-            }
-            drawParam(app, synth, candidate.id, stripUnitPrefix(synth_ed.fxParamLabel(candidate.id)), theme.audio, &flow);
-        }
-    }
-    zgui.endChild();
-    zgui.popStyleColor(.{});
 }
 
 /// Draws whichever control `id` deserves: a knob cell for a continuous

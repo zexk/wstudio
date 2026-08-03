@@ -233,7 +233,6 @@ fn tuiStatusText(app: anytype, left_out: []u8, right_out: []u8) StatusText {
         .track_spectrum, .master_spectrum, .group_spectrum => status.drawFxStatus(core, &left_writer, &right_writer, spectrum_ed.currentTarget(core)),
         .instrument_picker => status.drawPickerStatus(core, &left_writer, &right_writer, "INSTRUMENT", "insert", false),
         .fx_picker => status.drawPickerStatus(core, &left_writer, &right_writer, "EFFECT", "insert", true),
-        .synth_fx_picker => status.drawPickerStatus(core, &left_writer, &right_writer, "SYNTH FX", "insert", true),
         .arrangement => status.drawArrangementStatus(core, &left_writer, &right_writer),
         .file_browser => status.drawFileBrowserStatus(core, &left_writer, &right_writer),
         .automation => status.drawAutomationStatus(core, &left_writer, &right_writer),

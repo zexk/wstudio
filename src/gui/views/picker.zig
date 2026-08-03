@@ -3,7 +3,6 @@ const ws = @import("wstudio");
 const zgui = @import("zgui");
 const spectrum_ed = @import("../../ui/editors/spectrum.zig");
 const preset_ed = @import("../../ui/editors/preset_picker.zig");
-const synth_ed = @import("../../ui/editors/synth.zig");
 const fuzzy = @import("../../ui/fuzzy.zig");
 const style = @import("../style.zig");
 const app_mod = @import("../../ui/app.zig");
@@ -142,59 +141,48 @@ pub fn drawFx(app: anytype) void {
     zgui.sameLine(.{});
     zgui.textDisabled("Inserted after the focused unit", .{});
     zgui.separator();
-    var synth_buf: [14]ws.dsp.synth.FxUnitKind = undefined;
-    const synth_kinds = if (app.core.view == .synth_fx_picker) synth_ed.filteredSynthFxPickerKinds(&app.core, &synth_buf) else &.{};
     var kinds_buf: [spectrum_ed.picker_kinds.len]ws.FxKind = undefined;
-    const kinds = if (app.core.view == .fx_picker) spectrum_ed.filteredPickerKinds(&app.core, &kinds_buf) else &.{};
-    const filter = if (app.core.view == .synth_fx_picker) synth_ed.activeFxFilter(&app.core) else spectrum_ed.activeFilter(&app.core);
+    const kinds = spectrum_ed.filteredPickerKinds(&app.core, &kinds_buf);
+    const filter = spectrum_ed.activeFilter(&app.core);
     const available = overlayWidth();
-    const count = if (app.core.view == .synth_fx_picker) synth_kinds.len else kinds.len;
-    const total_count = count + if (app.core.view == .fx_picker) spectrum_ed.externalPickerCount(&app.core) else 0;
+    const count = kinds.len;
+    const total_count = count + spectrum_ed.externalPickerCount(&app.core);
     if (total_count > 0) {
-        if (app.core.view == .synth_fx_picker)
-            app.core.synth_fx_picker_cursor = @intCast(@min(app.core.synth_fx_picker_cursor, total_count - 1))
-        else
-            app.core.fx_picker_cursor = @intCast(@min(app.core.fx_picker_cursor, total_count - 1));
+        app.core.fx_picker_cursor = @intCast(@min(app.core.fx_picker_cursor, total_count - 1));
     }
     // Single column, matching the TUI list's flat j/k stepping - see
     // drawInstrument's comment above.
     const width = available;
-    if (app.core.view == .fx_picker) zgui.textColored(theme.fg2, "INTERNAL", .{});
+    zgui.textColored(theme.fg2, "INTERNAL", .{});
     for (0..count) |i| {
-        const kind = if (app.core.view == .synth_fx_picker) synth_ed.asFxKind(synth_kinds[i]) else kinds[i];
+        const kind = kinds[i];
         var id_buf: [48]u8 = undefined;
         const id = std.fmt.bufPrintZ(&id_buf, "fx-picker-card-{d}", .{i}) catch continue;
-        const selected = if (app.core.view == .synth_fx_picker) app.core.synth_fx_picker_cursor == i else app.core.fx_picker_cursor == i;
+        const selected = app.core.fx_picker_cursor == i;
         var desc_buf: [96]u8 = undefined;
         const desc = std.fmt.bufPrint(&desc_buf, "{s}  |  {s}", .{ spectrum_ed.pickerCategory(kind), spectrum_ed.pickerDescription(kind) }) catch spectrum_ed.pickerDescription(kind);
         if (drawCard(id, spectrum_ed.unitLabel(kind), desc, fxAccent(kind), selected, width, filter)) {
-            if (app.core.view == .synth_fx_picker) {
-                app.core.clickSynthFxPickerItem(i, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-            } else {
-                app.core.clickFxPickerItem(i, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-            }
+            app.core.clickFxPickerItem(i, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
         }
     }
-    if (app.core.view == .fx_picker) {
-        zgui.spacing();
-        zgui.textColored(theme.fg2, "EXTERNAL", .{});
-        zgui.sameLine(.{});
-        zgui.textDisabled("CLAP / VST3", .{});
-        const external_count = total_count - count;
-        for (0..external_count) |external_i| {
-            const plugin = spectrum_ed.externalPickerAt(&app.core, external_i).?;
-            var id_buf: [48]u8 = undefined;
-            const id = std.fmt.bufPrintZ(&id_buf, "fx-plugin-card-{d}", .{external_i}) catch continue;
-            var desc_buf: [128]u8 = undefined;
-            const format = ws.plugin_catalog.formatLabel(plugin.format);
-            const desc = std.fmt.bufPrint(&desc_buf, "{s}  |  {s}", .{ format, plugin.vendor }) catch format;
-            const ordinal = count + external_i;
-            if (drawCard(id, plugin.name, desc, theme.focus, app.core.fx_picker_cursor == ordinal, width, filter)) {
-                app.core.clickFxPickerItem(ordinal, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-            }
+    zgui.spacing();
+    zgui.textColored(theme.fg2, "EXTERNAL", .{});
+    zgui.sameLine(.{});
+    zgui.textDisabled("CLAP / VST3", .{});
+    const external_count = total_count - count;
+    for (0..external_count) |external_i| {
+        const plugin = spectrum_ed.externalPickerAt(&app.core, external_i).?;
+        var id_buf: [48]u8 = undefined;
+        const id = std.fmt.bufPrintZ(&id_buf, "fx-plugin-card-{d}", .{external_i}) catch continue;
+        var desc_buf: [128]u8 = undefined;
+        const format = ws.plugin_catalog.formatLabel(plugin.format);
+        const desc = std.fmt.bufPrint(&desc_buf, "{s}  |  {s}", .{ format, plugin.vendor }) catch format;
+        const ordinal = count + external_i;
+        if (drawCard(id, plugin.name, desc, theme.focus, app.core.fx_picker_cursor == ordinal, width, filter)) {
+            app.core.clickFxPickerItem(ordinal, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
         }
-        if (external_count == 0) zgui.textDisabled("No external effects found", .{});
     }
+    if (external_count == 0) zgui.textDisabled("No external effects found", .{});
 }
 
 const fxAccent = style.fxKindAccent;

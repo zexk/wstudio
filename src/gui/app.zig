@@ -211,7 +211,7 @@ fn drawView(app: *App, view: tui_app.AppView) void {
         .soundfont_editor => soundfont_view.draw(app),
         .track_spectrum, .master_spectrum, .group_spectrum => fx_view.draw(app),
         .automation => automation_view.draw(app),
-        .instrument_picker, .fx_picker, .synth_fx_picker, .preset_picker, .automation_param_picker, .file_browser => {},
+        .instrument_picker, .fx_picker, .preset_picker, .automation_param_picker, .file_browser => {},
         .help => help_view.draw(app),
     }
 }
@@ -219,7 +219,7 @@ fn drawView(app: *App, view: tui_app.AppView) void {
 fn drawPicker(app: *App) void {
     switch (app.core.view) {
         .instrument_picker => picker_view.drawInstrument(app),
-        .fx_picker, .synth_fx_picker => picker_view.drawFx(app),
+        .fx_picker => picker_view.drawFx(app),
         .preset_picker => picker_view.drawPreset(app),
         .automation_param_picker => automation_view.drawParamPicker(app),
         .file_browser => file_browser_view.draw(app),
@@ -233,7 +233,7 @@ fn isPickerView(view: tui_app.AppView) bool {
         // over whatever view opened it, dismissed with esc, chosen with
         // enter. It gets the same Telescope overlay rather than a workspace
         // of its own.
-        .instrument_picker, .fx_picker, .synth_fx_picker, .preset_picker, .automation_param_picker, .file_browser => true,
+        .instrument_picker, .fx_picker, .preset_picker, .automation_param_picker, .file_browser => true,
         else => false,
     };
 }
@@ -242,7 +242,6 @@ fn pickerBaseView(app: *const App) tui_app.AppView {
     return switch (app.core.view) {
         .instrument_picker => .tracks,
         .fx_picker => app.core.fx_picker_return,
-        .synth_fx_picker => .synth_editor,
         .preset_picker => app.core.preset_picker_return,
         .automation_param_picker => .automation,
         // `openBrowser` parks the view it was opened from in `prev_view` and

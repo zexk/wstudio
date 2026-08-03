@@ -3076,7 +3076,6 @@ test "picker footers preserve mode, view identity, and live feedback" {
     const cases = [_]struct { view: AppView, label: []const u8 }{
         .{ .view = .instrument_picker, .label = "INSTRUMENT" },
         .{ .view = .fx_picker, .label = "EFFECT" },
-        .{ .view = .synth_fx_picker, .label = "SYNTH FX" },
         .{ .view = .preset_picker, .label = "PRESETS" },
     };
     for (cases) |case| {
@@ -4135,7 +4134,7 @@ test "synth editor search walks every candidate without overrunning its buffer" 
     // max_search_candidates was hand-counted and went stale when the mod
     // matrix grew 8 rows to 32, so `/` wrote past the caller's buffer.
     var cbuf: [synth_ed_mod.max_search_candidates]synth_ed_mod.SearchCandidate = undefined;
-    const candidates = synth_ed_mod.searchCandidates(&app, &cbuf);
+    const candidates = synth_ed_mod.searchCandidates(&cbuf);
     try std.testing.expect(candidates.len > 200);
 
     app.handleKey(.enter, 0);
@@ -7259,25 +7258,6 @@ test "FX picker mouse click during live search inserts and leaves search mode" {
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(app_mod.AppView.track_spectrum, app.view);
     try std.testing.expectEqual(ws.FxKind.reverb, app.session.racks.items[0].fx.units.items[0].kind());
-}
-
-test "synth FX picker mouse click during live search inserts and leaves search mode" {
-    var app = try testApp();
-    defer app.deinit();
-    app.synth_track = 0;
-    app.synth_subview = .fx;
-    app.view = .synth_editor;
-
-    synth_ed_mod.openFxPicker(&app);
-    for ("/chorus") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
-
-    app.handleMouse(.{ .x = 4, .y = app_mod.content_top + 2, .button = .left, .kind = .press }, 80, 24, 0);
-    try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
-    try std.testing.expectEqual(app_mod.AppView.synth_editor, app.view);
-    var block: [64]types.Sample = undefined;
-    app.session.engine.process(&block);
-    try std.testing.expect(app.session.racks.items[0].instrument.poly_synth.fx_chorus_on);
 }
 
 test "FX chain: </> reorder and b bypass reach the engine chain" {

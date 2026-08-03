@@ -11,10 +11,10 @@
 //! see dsp/synth.zig's param_specs), so this file is free to regroup them
 //! however reads best; only the *labels and grouping* are UI concerns.
 //!
-//! FX intentionally has no table here: its section set depends on runtime
-//! state (fx_order + each unit's on/off flag), so it keeps its existing
-//! dynamic machinery in editors/synth.zig (fxFirstId/fxIdCount/fxOn) rather
-//! than forcing a runtime-shaped subview through a comptime-static one.
+//! FX has no table here because the synth has no effects of its own: the
+//! rack's FX chain owns them (see rack.zig / editors/spectrum.zig). The
+//! `fx_*` param ids that remain live on in the patch only as mod-matrix
+//! destinations, which address rack units by instance id.
 
 const std = @import("std");
 const ws = @import("wstudio");
