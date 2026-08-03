@@ -237,6 +237,15 @@ pub const Sampler = struct {
     /// the `note_on` device event; also called directly by DrumMachine, whose
     /// pads are plain embedded Samplers.
     pub fn trigger(self: *Sampler, note: u7, vel: f32, block_start: u32) void {
+        self.triggerHeld(note, vel, block_start, -1.0);
+    }
+
+    /// `trigger` with a gated hold: how long a gated pad (`Pad.gate`) plays
+    /// before releasing itself, in output frames - see `pad.Voice.hold_frames`.
+    /// A step sequencer has no note-off to send, so it passes its step's own
+    /// length here; anything holding a key passes -1 and waits for the
+    /// note-off instead.
+    pub fn triggerHeld(self: *Sampler, note: u7, vel: f32, block_start: u32, hold: f64) void {
         // Mono mode: a new note always cuts every still-ringing voice first,
         // so long one-shots (e.g. a bass note) never overlap themselves.
         if (self.mono) self.resetAll();
@@ -255,7 +264,7 @@ pub const Sampler = struct {
             .note = note,
             .semis = @as(f32, @floatFromInt(@as(i16, note) - @as(i16, self.root_note))),
             .age = self.next_age,
-            .v = .{ .active = true, .played = 0, .block_start = block_start, .vel = vel },
+            .v = .{ .active = true, .played = 0, .block_start = block_start, .vel = vel, .hold_frames = hold },
         };
         self.next_age +%= 1;
     }

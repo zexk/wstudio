@@ -1515,12 +1515,16 @@ pub const DrumMachine = struct {
             step_frames / @as(f64, @floatFromInt(hits))
         else
             0.0;
+        // A gated pad stops where its step does (a roll's hits stop where the
+        // next one starts); a latched one-shot - the kit default - ignores
+        // this and plays its region out. See `pad.Voice.hold_frames`.
         self.rolls[p] = .{
             .remaining = hits,
             .next_pos = step_pos + offset,
             .interval = interval,
             .vel = velGain(note.velocity),
             .tune = note.tune,
+            .hold = if (interval > 0.0) interval else step_frames * @as(f64, @floatFromInt(@max(note.duration_steps, 1))),
         };
     }
 
@@ -1540,7 +1544,7 @@ pub const DrumMachine = struct {
                         @as(u64, @intFromFloat(roll.next_pos - pos_f)),
                         @as(u64, frames - 1),
                     ));
-                    self.chokeTrigger(@intCast(p), roll.vel, off, roll.tune);
+                    self.chokeTrigger(@intCast(p), roll.vel, off, roll.tune, roll.hold);
                 }
                 roll.remaining -= 1;
                 // A single hit has no interval to advance by; bail rather
@@ -1558,7 +1562,9 @@ pub const DrumMachine = struct {
     /// `tune` shifts this one hit by that many semitones, riding on top of
     /// the pad's own transpose - the Sampler already pitches a voice by
     /// `note - root_note`, so a tuned hit is just a different trigger note.
-    fn chokeTrigger(self: *DrumMachine, p: u8, vel: f32, block_start: u32, tune: i8) void {
+    /// `hold` is how long a gated pad plays before releasing itself, or -1 to
+    /// wait for a note-off - see `Sampler.triggerHeld`.
+    fn chokeTrigger(self: *DrumMachine, p: u8, vel: f32, block_start: u32, tune: i8, hold: f64) void {
         const pad = if (self.pads[p]) |*s| s else return;
         const group = self.choke_group[p];
         if (group != 0) {
@@ -1570,12 +1576,17 @@ pub const DrumMachine = struct {
         }
         pad.resetAll();
         const note: u7 = @intCast(std.math.clamp(@as(i16, pad.root_note) + tune, 0, 127));
-        pad.trigger(note, vel, block_start);
+        pad.triggerHeld(note, vel, block_start, hold);
     }
 
     fn triggerPad(self: *DrumMachine, pad_idx: u8, vel: f32) void {
         if (pad_idx >= max_pads) return;
-        self.chokeTrigger(pad_idx, vel, 0, 0);
+        self.chokeTrigger(pad_idx, vel, 0, 0, -1.0);
+    }
+
+    fn releasePad(self: *DrumMachine, pad_idx: u8) void {
+        if (pad_idx >= max_pads) return;
+        if (self.pads[pad_idx]) |*s| s.releaseNote(s.root_note);
     }
 
     pub fn resetAll(self: *DrumMachine) void {
@@ -1595,10 +1606,14 @@ pub const DrumMachine = struct {
         switch (ev) {
             // zig fmt: off
             .note_on  => |e| self.triggerPad(e.note % max_pads, e.velocity),
+            // Only a gated pad acts on this; a latched one-shot - the kit
+            // default - plays out regardless. `triggerPad` fires the pad at
+            // its own root note, so that is the voice to release.
+            .note_off => |e| self.releasePad(e.note % max_pads),
             .set_param => |e| self.adjustParam(e.id, e.steps),
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
             .capture_pad => |e| self.addPadCapture(e.pad, e.buf),
-            .note_off, .cc, .pitch_bend, .automation_param, .clap_param, .vst3_param, .set_sidechain_buf => {},
+            .cc, .pitch_bend, .automation_param, .clap_param, .vst3_param, .set_sidechain_buf => {},
             .all_off  => self.resetAll(),
             // zig fmt: on
         }
@@ -2496,6 +2511,29 @@ test "a hit just behind the playhead is clamped, one a whole block back is dropp
     dm.scheduleNote(0, dm.midi[0][0].?, 0.0, 6000.0);
     dm.drainRolls(100_000, 256);
     try std.testing.expectEqual(@as(?DrumMachine.Roll, null), dm.rolls[0]);
+}
+
+test "a gated pad stops at its step; a live hit waits for the note-off" {
+    var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+    const samples = try std.testing.allocator.alloc(f32, 1024);
+    @memset(samples, 0.5);
+    dm.setPadSamples(0, samples, "kick");
+    dm.pads[0].?.pad.gate = true;
+    dm.toggleStep(0, 0);
+
+    // 120 bpm at 4 steps per beat: 6000 frames a step.
+    dm.scheduleNote(0, dm.midi[0][0].?, 0.0, 6000.0);
+    dm.drainRolls(0, 256);
+    try std.testing.expectApproxEqAbs(@as(f64, 6000.0), dm.pads[0].?.voices[0].v.hold_frames, 1e-6);
+
+    // Played by hand instead: nothing to end at, so it waits for the key.
+    dm.device().sendEvent(.{ .note_on = .{ .note = 0, .velocity = 1.0 } });
+    try std.testing.expect(dm.pads[0].?.voices[0].v.hold_frames < 0.0);
+    try std.testing.expect(dm.pads[0].?.voices[0].v.release_frames < 0.0);
+    dm.device().sendEvent(.{ .note_off = .{ .note = 0 } });
+    try std.testing.expectEqual(@as(f64, 0.0), dm.pads[0].?.voices[0].v.release_frames);
 }
 
 test "trig conditions gate a step by pass count and the fill switch" {
