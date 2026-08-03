@@ -108,7 +108,7 @@ pub fn drawInstrument(app: anytype) void {
         const id = std.fmt.bufPrintZ(&id_buf, "instrument-card-{d}", .{i}) catch continue;
         const accent = switch (entry.kind) {
             .poly_synth => theme.focus,
-            .sampler, .soundfont => theme.audio,
+            .sampler, .soundfont, .acoustic => theme.audio,
             .drum_machine => theme.rhythm,
             .slicer => theme.modulation,
             else => theme.focus,
@@ -255,7 +255,7 @@ pub fn drawPreset(app: anytype) void {
     const kind_accent = switch (app.core.preset_picker_kind) {
         .synth => theme.focus,
         .drum => theme.rhythm,
-        .soundfont => theme.audio,
+        .soundfont, .acoustic => theme.audio,
     };
     zgui.textColored(kind_accent, "{s}", .{app.core.preset_picker_kind.label()});
     zgui.sameLine(.{});

@@ -15,6 +15,7 @@ const history = @import("../ui/history.zig");
 const AppView = app_mod.AppView;
 const note_ms = app_mod.note_ms;
 const commands = @import("../ui/commands.zig");
+const cmd_mod = @import("../ui/cmd.zig");
 const drum_ed = @import("../ui/editors/drum.zig");
 const step_grid = @import("../ui/editors/step_grid.zig");
 const slicer_ed = @import("../ui/editors/slicer.zig");
@@ -7851,11 +7852,10 @@ test "f in the drum grid opens the kit picker and enter regenerates the pads" {
     try std.testing.expect(std.mem.indexOf(u8, status, "analog") != null);
 }
 
-test "f on bundled acoustic track lists library" {
+test "f on an acoustic track lists the bundled library" {
     var app = try testApp();
     defer app.deinit();
-    try app.session.setInstrument(0, .soundfont);
-    app.session.racks.items[0].instrument.soundfont.builtin = .harpsichord;
+    try app.session.setInstrument(0, .acoustic);
     app.cursor = 0;
     app.view = .tracks;
 
@@ -7864,6 +7864,56 @@ test "f on bundled acoustic track lists library" {
     var rows_buf: [preset_ed.max_display_rows]preset_ed.DisplayRow = undefined;
     const rows = preset_ed.buildDisplayRows(&app, &rows_buf);
     try std.testing.expectEqual(std.enums.values(ws.dsp.builtin_library.Id).len, preset_ed.entryCountOf(rows));
+    try std.testing.expectEqual(preset_ed.Kind.acoustic, app.preset_picker_kind);
+}
+
+test "soundfont is a separate instrument: its picker lists the loaded font, not the bundled banks" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .soundfont);
+    const sf2 = try ws.dsp.soundfont.buildTestSf2(std.testing.allocator, false, app.session.project.sample_rate);
+    defer std.testing.allocator.free(sf2);
+    try app.session.racks.items[0].instrument.soundfont.loadSf2(sf2);
+    app.cursor = 0;
+    app.view = .tracks;
+
+    app.handleKey(.{ .char = 'f' }, 0);
+    try std.testing.expectEqual(AppView.preset_picker, app.view);
+    try std.testing.expectEqual(preset_ed.Kind.soundfont, app.preset_picker_kind);
+    var rows_buf: [preset_ed.max_display_rows]preset_ed.DisplayRow = undefined;
+    const rows = preset_ed.buildDisplayRows(&app, &rows_buf);
+    try std.testing.expectEqual(@as(usize, 1), preset_ed.entryCountOf(rows));
+}
+
+test ":library is offered on acoustic tracks and hidden on soundfont ones" {
+    var app = try testApp();
+    defer app.deinit();
+    app.cursor = 0;
+
+    try app.session.setInstrument(0, .acoustic);
+    try std.testing.expectEqual(cmd_mod.Scope.acoustic, commands.activeScope(&app));
+
+    try app.session.setInstrument(0, .soundfont);
+    try std.testing.expectEqual(cmd_mod.Scope.soundfont, commands.activeScope(&app));
+}
+
+test "neither soundfont kind can be fed the other's content by a fully-typed command" {
+    var app = try testApp();
+    defer app.deinit();
+    app.cursor = 0;
+
+    // :library refuses a .sf2 track (dispatch ignores scope, so the command
+    // has to check for itself).
+    try app.session.setInstrument(0, .soundfont);
+    commands.run(&app, "library harpsichord");
+    try std.testing.expectEqual(@as(?ws.dsp.builtin_library.Id, null), app.session.racks.items[0].instrument.soundfont.builtin);
+
+    // ...and :load-soundfont refuses an acoustic one, leaving its bank alone.
+    try app.session.setInstrument(0, .acoustic);
+    app.session.racks.items[0].instrument.acoustic.builtin = .marimba;
+    commands.run(&app, "load-soundfont /nonexistent.sf2");
+    try std.testing.expectEqual(ws.dsp.builtin_library.Id.marimba, app.session.racks.items[0].instrument.acoustic.builtin.?);
+    try std.testing.expectEqual(AppView.tracks, app.view);
 }
 
 test "esc leaves the preset picker without applying anything" {

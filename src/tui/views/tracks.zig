@@ -106,7 +106,7 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
         .drum_machine => icons.drum,
         .slicer => icons.slicer,
         .clap, .vst3 => icons.synth,
-        .soundfont => icons.soundfont,
+        .soundfont, .acoustic => icons.soundfont,
     } else switch (inst_tag) {
         .empty => " ",
         .poly_synth => "S",
@@ -115,6 +115,7 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
         .slicer => "C",
         .clap, .vst3 => "S",
         .soundfont => "F",
+        .acoustic => "A",
     };
     try lw.writeAll(kind_icon);
     try lw.writeByte(' ');

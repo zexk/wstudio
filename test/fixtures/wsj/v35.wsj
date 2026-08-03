@@ -1,0 +1,20 @@
+{
+  "version": 35,
+  "tracks": [
+    { "name": "piano" }
+  ],
+  "racks": [
+    {
+      "label": "acoustic",
+      "kind": "acoustic",
+      "soundfont": {
+        "library": "harpsichord",
+        "preset_index": 0,
+        "gain": 0.8,
+        "pan": -0.25,
+        "transpose_semitones": -12,
+        "length_beats": 4
+      }
+    }
+  ]
+}

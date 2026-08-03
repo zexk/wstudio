@@ -286,20 +286,22 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key(":bpm-sync",    "[clip-bpm]  match clip to project tempo and :scale root");
     t.key("B",            "detect clip BPM/root; match project tempo/key set by :scale (sampler/slice only)");
 
-    t.taggedSection(.soundfont_editor, "SOUNDFONT EDITOR");
+    // One editor, two instruments: Acoustic plays the bundled VCSL sample
+    // banks, SoundFont plays presets out of a .sf2 the user loads.
+    t.taggedSection(.soundfont_editor, "ACOUSTIC / SOUNDFONT EDITOR");
     t.key("j / k",        "select parameter (gain / pan / transpose / preset)");
     t.key("g / G",        "jump to first / last parameter");
     t.key("h / l",        "adjust value (fine); on PRESET, step to the prev/next preset in the font");
     t.key("H / L",        "adjust value (coarse ×10)");
     t.key("a",            "audition at the piano roll's last cursor pitch (or C4)");
-    t.key("enter",        "with no font loaded yet, open the .sf2 browser (nothing to edit until then)");
+    t.key("enter",        "SoundFont with no font loaded yet: open the .sf2 browser (nothing to edit until then)");
     t.key("s",            "FX chain for this track");
     t.key("p",            "piano roll for this track");
-    t.key("f",            "preset picker - every preset in the loaded font, grouped by bank, / filters by name/bank/program");
-    t.key("a (in picker)", "audition the highlighted acoustic/SoundFont preset immediately; sample-bank switches commit");
+    t.key("f",            "preset picker - Acoustic lists the bundled banks, SoundFont every preset in the loaded font grouped by bank; / filters by name/bank/program");
+    t.key("a (in picker)", "audition the highlighted bank/preset immediately; the switch commits either way");
     t.key("esc / e",      "back to the tracks view");
-    t.key(":load-soundfont", "[file.sf2]  load a SoundFont into the cursor track (omit the file to browse)");
-    t.key(":library", "<grand|upright|harpsichord>  load a bundled VCSL acoustic instrument");
+    t.key(":load-soundfont", "[file.sf2]  load a SoundFont into the cursor track (omit the file to browse; SoundFont tracks only)");
+    t.key(":library", "<grand|upright|harpsichord>  load a bundled VCSL bank (Acoustic tracks only)");
     t.key(":sf-preset",   "<bank> <program>  jump straight to a preset by its MIDI bank/program number");
 
     t.taggedSection(.synth_editor, "SYNTH EDITOR");

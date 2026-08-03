@@ -54,6 +54,12 @@ pub const Instrument = union(enum) {
     /// SoundFont (.sf2) multi-timbral player - a preset picked from a
     /// loaded font, played chromatically like `poly_synth`/`sampler`.
     soundfont: SoundfontPlayer,
+    /// Bundled acoustic sample banks (dsp/builtin_library.zig's VCSL SFZ
+    /// catalog). Same player as `soundfont` - only the content source and
+    /// therefore the browsing UI differ: `acoustic` picks a bundled patch,
+    /// `soundfont` loads a user .sf2. Everything downstream (melodic
+    /// pattern, params, persistence shape) treats the two identically.
+    acoustic: SoundfontPlayer,
 
     /// Returns a dsp.Device fat-pointer whose `.ptr` is stable as long as
     /// the parent Rack (heap-allocated) is alive, or null for `empty`.
@@ -79,7 +85,7 @@ pub const Instrument = union(enum) {
         return switch (self.*) {
             .poly_synth => &PolySynth.automatable_params,
             .sampler => &Sampler.automatable_params,
-            .soundfont => &SoundfontPlayer.automatable_params,
+            .soundfont, .acoustic => &SoundfontPlayer.automatable_params,
             .vst3 => |plugin| plugin.automationParams(),
             .drum_machine, .slicer, .clap, .empty => &.{},
         };
@@ -594,9 +600,9 @@ pub const Rack = struct {
                 rack.instrument = .{ .vst3 = copy };
                 copy_owned = false;
             },
-            .soundfont => |*sf| {
-                const soundfont = try sf.dupe();
-                rack.instrument = .{ .soundfont = soundfont };
+            inline .soundfont, .acoustic => |*sf, tag| {
+                const copy = try sf.dupe();
+                rack.instrument = @unionInit(Instrument, @tagName(tag), copy);
             },
         }
         // Set AFTER the instrument lands in the heap rack - the player holds

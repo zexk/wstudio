@@ -133,7 +133,8 @@ pub const instrument_picker_items = [_]InstrumentPickerItem{
     .{ .kind = .sampler, .label = "Sampler", .description = "Chromatic sample playback and envelopes" },
     .{ .kind = .drum_machine, .label = "Drum Machine", .description = "Pads, velocity, and step sequencing" },
     .{ .kind = .slicer, .label = "Slicer", .description = "Sample slicing and chop sequencing" },
-    .{ .kind = .soundfont, .label = "Acoustic / SoundFont", .description = "Bundled piano, harpsichord, and SF2 banks" },
+    .{ .kind = .acoustic, .label = "Acoustic", .description = "Bundled piano, harpsichord, mallet, and harp banks" },
+    .{ .kind = .soundfont, .label = "SoundFont", .description = "Presets from a .sf2 bank you load" },
 };
 
 /// What a file picked in the netrw-style file browser (`file_browser` view)
@@ -1032,14 +1033,23 @@ pub const App = struct {
         };
     }
 
-    /// The SoundfontPlayer currently open in the soundfont_editor view.
+    /// The SoundfontPlayer currently open in the soundfont_editor view -
+    /// both soundfont kinds share the player and the editor.
     pub fn editingSoundfont(self: *App) ?*ws.dsp.SoundfontPlayer {
         if (self.soundfont_track >= self.session.racks.items.len) return null;
         return switch (self.session.racks.items[self.soundfont_track].instrument) {
-            .soundfont => |*sf| sf, else => null,
+            .soundfont, .acoustic => |*sf| sf, else => null,
         };
     }
     // zig fmt: on
+
+    /// Which of the two soundfont kinds the editor is open on, for the
+    /// title/badge text the TUI, GUI, and status bar all draw. "SOUNDFONT"
+    /// when the track is gone, matching the editor's own fallback title.
+    pub fn editingSoundfontLabel(self: *App) []const u8 {
+        if (self.soundfont_track >= self.session.racks.items.len) return "SOUNDFONT";
+        return if (self.session.racks.items[self.soundfont_track].instrument == .acoustic) "ACOUSTIC" else "SOUNDFONT";
+    }
 
     /// Total content length in beats: the longest piano-roll loop and the
     /// longest drum-machine pattern across all tracks.
@@ -3062,7 +3072,7 @@ pub const App = struct {
                 self.piano_track = @intCast(cursor);
                 self.view = .piano_roll;
             },
-            .soundfont => {
+            .soundfont, .acoustic => {
                 self.soundfont_track = @intCast(cursor);
                 self.soundfont_param = 0;
                 self.view = .soundfont_editor;
@@ -3143,7 +3153,7 @@ pub const App = struct {
             };
             history.push(self, backup);
             self.dirty = true;
-            if (kind == .soundfont) self.loadDefaultAcoustic();
+            if (kind == .acoustic) self.loadDefaultAcoustic(self.cursor);
             if (preserved) {
                 self.setStatus("track {d}: now {s} (notes kept)", .{ self.cursor + 1, item.label });
             } else {
@@ -3158,7 +3168,7 @@ pub const App = struct {
             self.view = .tracks;
             return;
         };
-        if (kind == .soundfont) self.loadDefaultAcoustic();
+        if (kind == .acoustic) self.loadDefaultAcoustic(self.cursor);
         self.dirty = true;
         const hint: []const u8 = switch (kind) {
             .empty => "?: help",
@@ -3167,7 +3177,8 @@ pub const App = struct {
             .drum_machine => "enter: step  i: play  space: record  ?: help",
             .slicer => "enter: step  i: play  :load  ?: help",
             .clap, .vst3 => "enter: piano roll  i: play  ?: help",
-            .soundfont => "h/l: adjust  :library  i: play  ?: help",
+            .soundfont => "h/l: adjust  :load  i: play  ?: help",
+            .acoustic => "h/l: adjust  f: banks  i: play  ?: help",
         };
         self.setStatus("{s} inserted  {s}", .{ item.label, hint });
         self.view = .tracks;
@@ -3186,9 +3197,12 @@ pub const App = struct {
         self.handleKey(.enter, now_ns);
     }
 
-    fn loadDefaultAcoustic(self: *App) void {
-        const sf = switch (self.session.racks.items[self.cursor].instrument) {
-            .soundfont => |*instrument| instrument,
+    /// A fresh acoustic track starts on the grand piano - the instrument is
+    /// its bundled bank, so landing on an empty one would be a dead track.
+    pub fn loadDefaultAcoustic(self: *App, track: usize) void {
+        if (track >= self.session.racks.items.len) return;
+        const sf = switch (self.session.racks.items[track].instrument) {
+            .acoustic => |*instrument| instrument,
             else => return,
         };
         sf.loadBuiltin(self.io, .grand) catch |err| {
@@ -3893,7 +3907,7 @@ pub const App = struct {
                         } });
                         if (self.view == .slicer_grid) slicer_ed.recordNote(self, n.pitch, Slicer.vel_full);
                     },
-                    .poly_synth, .sampler, .clap, .vst3, .soundfont => {
+                    .poly_synth, .sampler, .clap, .vst3, .soundfont, .acoustic => {
                         self.playNote(track_idx, n.pitch, now_ns);
                         if (self.view == .piano_roll) piano_ed.recordNote(self, n.pitch, self.default_velocity);
                     },
@@ -4768,6 +4782,7 @@ pub const App = struct {
                 self.setStatus("out of memory setting instrument", .{});
                 break :blk false;
             };
+            if (kind == .acoustic) self.loadDefaultAcoustic(idx);
             break :blk true;
         };
         if (instrument_ok) {
@@ -4853,11 +4868,12 @@ pub const App = struct {
                 if (!ok) self.view = .tracks;
             },
             .piano_roll => if (self.piano_track >= racks.len or
-                switch (racks[self.piano_track].instrument) { .poly_synth, .sampler, .soundfont => false, else => true })
+                switch (racks[self.piano_track].instrument) { .poly_synth, .sampler, .soundfont, .acoustic => false, else => true })
             {
                 self.view = .tracks;
             },
-            .soundfont_editor => if (!kindIs(racks, self.soundfont_track, .soundfont)) { self.view = .tracks; },
+            .soundfont_editor => if (!kindIs(racks, self.soundfont_track, .soundfont) and
+                !kindIs(racks, self.soundfont_track, .acoustic)) { self.view = .tracks; },
             .track_spectrum => if (self.eq_track >= racks.len) {
                 _ = self.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
                 self.view = self.prev_view;
@@ -4886,6 +4902,7 @@ pub const App = struct {
                     .synth => kindIs(racks, self.preset_picker_track, .poly_synth),
                     .drum => kindIs(racks, self.preset_picker_track, .drum_machine),
                     .soundfont => kindIs(racks, self.preset_picker_track, .soundfont),
+                    .acoustic => kindIs(racks, self.preset_picker_track, .acoustic),
                 };
                 if (!ok) self.view = .tracks;
             },
@@ -5172,6 +5189,7 @@ pub fn apiKindName(kind: ws.InstrumentKind) []const u8 {
         .clap => "clap",
         .vst3 => "vst3",
         .soundfont => "soundfont",
+        .acoustic => "acoustic",
     };
 }
 
@@ -5184,6 +5202,7 @@ pub fn apiKindFromName(name: []const u8) ?ws.InstrumentKind {
     if (std.mem.eql(u8, name, "drum")) return .drum_machine;
     if (std.mem.eql(u8, name, "slicer")) return .slicer;
     if (std.mem.eql(u8, name, "soundfont")) return .soundfont;
+    if (std.mem.eql(u8, name, "acoustic")) return .acoustic;
     return null;
 }
 

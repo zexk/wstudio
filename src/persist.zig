@@ -60,7 +60,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// added and what older files load as) and the bump-vs-additive policy
 /// live in FORMAT.md; per-field migration specifics stay as doc comments
 /// on the snapshot fields they concern.
-pub const file_version: u32 = 34;
+pub const file_version: u32 = 35;
 
 /// The step-grid ceiling both machines had while their step data was a `u64`
 /// bitmask plus a parallel velocity array - one word's bit width. Only the
@@ -764,7 +764,7 @@ pub const FxUnitSnap = struct {
     vst3: ?Vst3Snap = null,
 };
 
-pub const InstrumentKind = enum { empty, poly_synth, sampler, drum_machine, slicer, clap, vst3, soundfont };
+pub const InstrumentKind = enum { empty, poly_synth, sampler, drum_machine, slicer, clap, vst3, soundfont, acoustic };
 
 /// A single-clip sampler: the pad's params, its root note, and the piano-roll
 /// pattern. User-loaded clip audio rides along via `pad.sample_file` (v5);
@@ -1257,8 +1257,8 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
             }
             rs.vst3 = vs;
         },
-        .soundfont => |*sf| {
-            rs.kind = .soundfont;
+        inline .soundfont, .acoustic => |*sf, tag| {
+            rs.kind = if (tag == .acoustic) .acoustic else .soundfont;
             var sfs: SoundfontSnap = .{
                 .preset_index = sf.preset_index,
                 .gain = sf.gain,
@@ -1807,7 +1807,7 @@ fn restoreSamples(
                     }
                 }
             },
-            .soundfont => |*sf| {
+            .soundfont, .acoustic => |*sf| {
                 const sfs = rs.soundfont orelse continue;
                 if (std.meta.stringToEnum(@import("dsp/builtin_library.zig").Id, sfs.library)) |id| {
                     sf.loadBuiltin(io, id) catch continue;
@@ -2172,11 +2172,11 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                 loadNotes(&rack.pattern_player.?, vs.notes);
                 rack.pattern_player.?.setSwing(vs.swing);
             },
-            .soundfont => {
-                rack.instrument = .{ .soundfont = SoundfontPlayer.init(allocator, sr) };
+            inline .soundfont, .acoustic => |tag| {
+                rack.instrument = @unionInit(rack_mod.Instrument, @tagName(tag), SoundfontPlayer.init(allocator, sr));
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
                 if (rs.soundfont) |sfs| {
-                    const sf = &rack.instrument.soundfont;
+                    const sf = &@field(rack.instrument, @tagName(tag));
                     sf.gain = finiteClamp(f32, sfs.gain, 0.0, 2.0, 1.0);
                     sf.pan = finiteClamp(f32, sfs.pan, -1.0, 1.0, 0.0);
                     sf.transpose_semitones = finiteClamp(f32, sfs.transpose_semitones, -24.0, 24.0, 0.0);
@@ -4799,13 +4799,15 @@ test "save/load round-trip persists bundled acoustic id without a sidecar" {
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
-    try session.setInstrument(0, .soundfont);
-    try session.racks.items[0].instrument.soundfont.loadBuiltin(testing.io, .harpsichord);
+    try session.setInstrument(0, .acoustic);
+    try session.racks.items[0].instrument.acoustic.loadBuiltin(testing.io, .harpsichord);
     try save(testing.allocator, &session, testing.io, wsj_path);
 
     var loaded = try load(testing.allocator, testing.io, wsj_path);
     defer loaded.deinit();
-    const sf = &loaded.racks.items[0].instrument.soundfont;
+    // The kind survives too, not just the bank - acoustic and soundfont are
+    // separate instruments that happen to share a snapshot shape.
+    const sf = &loaded.racks.items[0].instrument.acoustic;
     try testing.expectEqual(@import("dsp/builtin_library.zig").Id.harpsichord, sf.builtin.?);
     try testing.expectEqualStrings("Italian Harpsichord", sf.presetName());
 }
@@ -4945,6 +4947,17 @@ test "golden-file corpus: v25's soundfont rack loads with no font (no sidecar to
     try testing.expectApproxEqAbs(@as(f32, -0.25), sf.pan, 1e-6);
     try testing.expectApproxEqAbs(@as(f32, 3.0), sf.transpose_semitones, 1e-6);
     try testing.expect(session.racks.items[0].pattern_player != null);
+}
+
+test "golden-file corpus: v35's acoustic rack loads as acoustic, with its bundled bank" {
+    const testing = std.testing;
+    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v35.wsj");
+    defer session.deinit();
+    const sf = &session.racks.items[0].instrument.acoustic;
+    try testing.expectEqual(@import("dsp/builtin_library.zig").Id.harpsichord, sf.builtin.?);
+    try testing.expectApproxEqAbs(@as(f32, 0.8), sf.gain, 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, -0.25), sf.pan, 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, -12.0), sf.transpose_semitones, 1e-6);
 }
 
 test "golden-file corpus: v23's sparse note list loads directly, no legacy migration" {

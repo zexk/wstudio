@@ -11,8 +11,9 @@ const theme = &style.palette;
 pub fn draw(app: anytype) void {
     const track = app.core.soundfont_track;
     if (track >= app.core.session.racks.items.len) return;
+    const is_acoustic = app.core.session.racks.items[track].instrument == .acoustic;
     const sf = switch (app.core.session.racks.items[track].instrument) {
-        .soundfont => |*s| s,
+        .soundfont, .acoustic => |*s| s,
         else => {
             zgui.textDisabled("Select a SoundFont track.", .{});
             return;
@@ -23,8 +24,21 @@ pub fn draw(app: anytype) void {
     zgui.spacing();
 
     if (sf.presetCount() == 0) {
-        widgets.sectionTitle("FONT", theme.audio);
+        // Acoustic only reaches this state when the bundled asset directory
+        // couldn't be read, so it points at the bank picker, not a browser.
+        widgets.sectionTitle(if (is_acoustic) "BANK" else "FONT", theme.audio);
         zgui.spacing();
+        if (is_acoustic) {
+            _ = widgets.emptyState(.{
+                .id = "acoustic-empty-state",
+                .title = "NO BANK LOADED",
+                .explanation = "The bundled instrument library could not be read from disk.",
+                .shortcut = "f",
+                .action = "",
+                .accent = theme.audio,
+            });
+            return;
+        }
         if (widgets.emptyState(.{
             .id = "soundfont-empty-state",
             .title = "LOAD A SOUNDFONT",
@@ -56,7 +70,7 @@ pub fn draw(app: anytype) void {
 }
 
 fn drawHeader(app: anytype, track: u16, sf: *const ws.dsp.SoundfontPlayer) void {
-    zgui.textDisabled(icons.soundfont ++ "  SOUNDFONT", .{});
+    zgui.textDisabled(icons.soundfont ++ "  {s}", .{app.core.editingSoundfontLabel()});
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[track].name});
     if (sf.presetCount() > 0) {

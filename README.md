@@ -36,9 +36,10 @@ Without Nix, install Zig 0.16 and ALSA development libraries (Linux only)
 and build the same way; see [CONTRIBUTING.md](CONTRIBUTING.md) for the
 full development setup. Once running: `enter` on a blank track opens the
 instrument picker, `space` plays/stops, and `:help` lists every command.
-Choosing `Acoustic / SoundFont` starts with bundled grand piano. Use
-`:library <name>` or press `f` to browse bundled pianos, organ, harp, mallets,
-and kalimba.
+Choosing `Acoustic` starts on the bundled grand piano. Use `:library <name>`
+or press `f` to browse bundled pianos, organ, harp, mallets, and kalimba.
+`SoundFont` is the separate instrument for your own `.sf2` banks: `:load`
+picks the file, `f` browses its presets.
 
 ## External plugins
 

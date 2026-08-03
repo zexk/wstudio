@@ -25,12 +25,14 @@ pub const Kind = enum {
     synth,
     drum,
     soundfont,
+    acoustic,
 
     pub fn label(self: Kind) []const u8 {
         return switch (self) {
             .synth => "SYNTH PRESETS",
             .drum => "DRUM KITS",
-            .soundfont => "ACOUSTIC / SOUNDFONT",
+            .soundfont => "SOUNDFONT PRESETS",
+            .acoustic => "ACOUSTIC BANKS",
         };
     }
 };
@@ -205,30 +207,29 @@ pub fn buildDisplayRows(app: *App, buf: *[max_display_rows]DisplayRow) []Display
                 n += 1;
             }
         },
+        .acoustic => {
+            var wrote_header = false;
+            for (std.enums.values(ws.dsp.builtin_library.Id)) |id| {
+                const e: Entry = .{
+                    // zig fmt: off
+                    .name = id.label(), .category = "VCSL acoustic", .tags = &.{ "Versilian Studios", "acoustic" },
+                    .author = "Versilian Studios", .source = .{ .library = id },
+                    // zig fmt: on
+                };
+                if (!entryMatches(e, filter)) continue;
+                if (!wrote_header) {
+                    if (n >= buf.len) return buf[0..n];
+                    buf[n] = .{ .header = "bundled VCSL" };
+                    n += 1;
+                    wrote_header = true;
+                }
+                if (n >= buf.len) return buf[0..n];
+                buf[n] = .{ .entry = e };
+                n += 1;
+            }
+        },
         .soundfont => {
             const sf = targetSoundfont(app) orelse return buf[0..0];
-            if (sf.builtin != null) {
-                var wrote_header = false;
-                for (std.enums.values(ws.dsp.builtin_library.Id)) |id| {
-                    const e: Entry = .{
-                        // zig fmt: off
-                        .name = id.label(), .category = "VCSL acoustic", .tags = &.{ "Versilian Studios", "acoustic" },
-                        .author = "Versilian Studios", .source = .{ .library = id },
-                        // zig fmt: on
-                    };
-                    if (!entryMatches(e, filter)) continue;
-                    if (!wrote_header) {
-                        if (n >= buf.len) return buf[0..n];
-                        buf[n] = .{ .header = "bundled VCSL" };
-                        n += 1;
-                        wrote_header = true;
-                    }
-                    if (n >= buf.len) return buf[0..n];
-                    buf[n] = .{ .entry = e };
-                    n += 1;
-                }
-                return buf[0..n];
-            }
             const font = sf.font orelse return buf[0..0];
 
             // Distinct banks in first-appearance order, same 16-bucket cap
@@ -323,6 +324,7 @@ pub fn openForTrack(app: *App, track: u16) void {
         .poly_synth => .synth,
         .drum_machine => .drum,
         .soundfont => .soundfont,
+        .acoustic => .acoustic,
         // Sampler and slicer presets would be their loaded audio, and a
         // CLAP plugin keeps its own preset system behind its own state
         // blob; neither has a table to browse here.
@@ -531,7 +533,7 @@ fn targetDrum(app: *App) ?*ws.dsp.DrumMachine {
 fn targetSoundfont(app: *App) ?*ws.dsp.SoundfontPlayer {
     if (app.preset_picker_track >= app.session.racks.items.len) return null;
     return switch (app.session.racks.items[app.preset_picker_track].instrument) {
-        .soundfont => |*s| s,
+        .soundfont, .acoustic => |*s| s,
         else => null,
     };
 }
@@ -577,7 +579,7 @@ fn deleteSelected(app: *App) void {
         // Soundfont entries are never `.user` (no save/favorite concept for
         // presets inside a loaded font), so the refusal above already
         // returned before this switch is reached.
-        .soundfont => unreachable,
+        .soundfont, .acoustic => unreachable,
     }
     app.preset_picker_cursor = @min(app.preset_picker_cursor, entryCount(app) -| 1);
     app.setStatus("deleted preset: {s}", .{name_buf[0..shown_len]});
@@ -606,7 +608,7 @@ pub fn applySelected(app: *App) void {
             },
             // Soundfont entries are never `.user` (see deleteSelected's own
             // note) - this arm can't run.
-            .soundfont => unreachable,
+            .soundfont, .acoustic => unreachable,
         },
         .factory => |i| {
             if (!applySynthPreset(app, ws.dsp.synth_presets.presets[i].patch)) return;

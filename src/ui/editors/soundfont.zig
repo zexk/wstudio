@@ -1,7 +1,9 @@
 //! SoundFont-editor input for both targets - j/k picks a param row (GAIN/
 //! PAN/TRANSPOSE/PRESET), h/l/H/L nudges it (routed to the audio thread,
 //! same as every other instrument editor), `f` opens the searchable preset
-//! picker (editors/preset_picker.zig's `.soundfont` Kind). The render half
+//! picker (editors/preset_picker.zig's `.soundfont`/`.acoustic` Kind - one
+//! editor serves both instruments, they differ only in what `f` lists and
+//! where the audio comes from). The render half
 //! lives in views/soundfont.zig. Loading a .sf2 and jumping straight to a
 //! preset by bank/program are `:load`/`:sf-preset` (commands.zig), not keys
 //! here - same convention the synth editor's wavetable import already
@@ -106,11 +108,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'f' => {
                 history.flushParamNudge(app);
                 const sf = app.editingSoundfont() orelse return true;
-                if (sf.presetCount() == 0) {
+                // An acoustic track always has banks to browse; a .sf2 one
+                // has nothing to list until a font is loaded.
+                if (sf.presetCount() == 0 and app.session.racks.items[app.soundfont_track].instrument == .soundfont) {
                     app.setStatus("no soundfont loaded - :load first", .{});
                     return true;
                 }
-                preset_picker.open(app, .soundfont, app.soundfont_track);
+                preset_picker.openForTrack(app, app.soundfont_track);
                 return true;
             },
             else => return false,

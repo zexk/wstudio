@@ -89,7 +89,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "clap-param",  .desc = "<1-based-index> [value]  inspect or set a CLAP instrument parameter", .run = wrap(cmdClapParam) },
     .{ .name = "clap-gui",    .desc = "toggle the current CLAP instrument or focused effect's native GUI", .run = wrap(cmdClapGui) },
     .{ .name = "sf-preset",   .desc = "<bank> <program>  jump to a SoundFont preset by its MIDI bank/program number", .run = wrap(cmdSfPreset), .scope = .{ .soundfont = true } },
-    .{ .name = "library",     .desc = "<grand|upright|harpsichord>  load a bundled VCSL acoustic instrument", .run = wrap(cmdLibrary), .scope = .{ .soundfont = true } },
+    .{ .name = "library",     .desc = "<grand|upright|harpsichord>  load a bundled VCSL acoustic instrument", .run = wrap(cmdLibrary), .scope = .{ .acoustic = true } },
     .{ .name = "slice",       .desc = "<n>  equal-divide the slicer's loaded clip into n slices (1-64)", .run = wrap(cmdSlice), .scope = .{ .slicer = true } },
     .{ .name = "chop",        .desc = "[1-9]  chop the slicer's clip at detected transients (sensitivity, default 5)", .run = wrap(cmdChop), .scope = .{ .slicer = true } },
     .{ .name = "chop-random", .desc = "[n]  roll the dice: chop the slicer's clip into n uneven slices (default 8)", .run = wrap(cmdChopRandom), .scope = .{ .slicer = true } },
@@ -110,7 +110,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "track-del",   .desc = "[n]  delete track n (default: cursor)", .run = wrap(cmdTrackDel) },
     .{ .name = "d",           .desc = "[n]  delete track n (alias for :track-del)", .run = wrap(cmdTrackDel) },
     .{ .name = "rename",      .desc = "[<n>] <name>  rename what the open editor is editing - a drum pad, a slicer/sampler clip, a group (cursor on a group row), else a track; n picks a different pad or track", .run = wrap(cmdRename) },
-    .{ .name = "track-instrument", .desc = "[<n>] <synth|sampler|drum|slicer|soundfont>  change track n's instrument, keeping its notes where the old and new kinds are compatible (no n: cursor track)", .run = wrap(cmdTrackInstrument) },
+    .{ .name = "track-instrument", .desc = "[<n>] <synth|sampler|drum|slicer|soundfont|acoustic>  change track n's instrument, keeping its notes where the old and new kinds are compatible (no n: cursor track)", .run = wrap(cmdTrackInstrument) },
     .{ .name = "group-add",   .desc = "create an untitled track-grouping submix bus", .run = wrap(cmdGroupAdd) },
     .{ .name = "group-gain",  .desc = "<n> [<dB>]  group bus fader, post-FX (-60..12; no dB: report)", .run = wrap(cmdGroupGain) },
     .{ .name = "group-del",   .desc = "<n>  delete group n (members fall back to the master mix)", .run = wrap(cmdGroupDel) },
@@ -128,33 +128,33 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "bounce",       .desc = "[file] [16|24]  render session to WAV (default: bounce.wav, 16-bit)", .run = wrap(cmdBounce) },
     .{ .name = "export",       .desc = "[file] [16|24]  render session to WAV (alias for :bounce)",          .run = wrap(cmdBounce) },
     .{ .name = "bounce-stems", .desc = "[dir] [16|24]  render each non-empty track soloed to <dir>/<N>-<track>.wav (default: stems/)", .run = wrap(cmdBounceStems) },
-    .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern, or every pad in a drum machine", .run = wrap(cmdClear), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "%d",          .desc = "erase all notes/hits in the pattern (alias for :clear)",  .run = wrap(cmdClear), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "humanize",    .desc = "[amount]  jitter the pattern's note timing/velocity 0-100% (default 15)", .run = wrap(cmdHumanize), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "quantize",    .desc = "[strength]  snap the pattern's notes to the current grid 0-100% (default 100, hard snap)", .run = wrap(cmdQuantize), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "swing",       .desc = "[percent]  piano-roll pattern swing 50-75% (default 50, straight) - matches the drum machine's", .run = wrap(cmdSwing), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "reverse",     .desc = "retrograde: mirror the pattern in time (visual-mode r reverses just the selection)", .run = wrap(cmdReverse), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "invert",      .desc = "[pitch]  mirror the pattern around a pitch axis (default: its first note) - :reverse's vertical twin", .run = wrap(cmdInvert), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "double",      .desc = "copy the pattern after itself and double the loop length - vary the back half from there", .run = wrap(cmdDouble), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "fit",         .desc = "shrink or grow the loop to the bar the last note ends in", .run = wrap(cmdFit), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "dedupe",      .desc = "drop notes stacked on an identical pitch and start, keeping the longest of each pile", .run = wrap(cmdDedupe), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "normalize",   .desc = "lift every velocity until the loudest note peaks, keeping the dynamics between them (drum view: the whole kit)", .run = wrap(cmdNormalize), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "vel-ramp",    .desc = "<from> <to>  velocity ramp 0-100% across the pattern's notes (drum view: the cursor pad's hits)", .run = wrap(cmdVelRamp), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "legato",      .desc = "extend every note to the next onset - gapless phrasing, no more staccato gaps", .run = wrap(cmdLegato), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "glue",        .desc = "weld touching or overlapping same-pitch notes into one long note", .run = wrap(cmdGlue), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "chop-notes",  .desc = "split every note into pieces one grid step long (the inverse of :glue)", .run = wrap(cmdChopNotes), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "transpose",   .desc = "<semitones>  shift every note in the pattern (visual-mode j/k/J/K transposes just the selection)", .run = wrap(cmdTranspose), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "strum",       .desc = "<ms>  stagger each chord's notes by ms per rank - positive low-to-high, negative high-to-low", .run = wrap(cmdStrum), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "flam",        .desc = "<ms> [repeats]  echo every note ms apart at fading velocity (negative ms = grace notes before)", .run = wrap(cmdFlam), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "arpeggiate",  .desc = "[down]  spread every chord into an arpeggio, one grid step per note", .run = wrap(cmdArpeggiate), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "limit",       .desc = "<lo> <hi>  fold every note into a MIDI pitch range by octaves (e.g. :limit 48 72)", .run = wrap(cmdLimit), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "discard-lengths", .desc = "reset every note to the roll's default length - throw away hand-drawn lengths", .run = wrap(cmdDiscardLengths), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "import-midi", .desc = "<file>  replace the pattern with a Standard MIDI File's notes",     .run = wrap(cmdImportMidi), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
-    .{ .name = "export-midi", .desc = "<file>  write the pattern as a Standard MIDI File",                 .run = wrap(cmdExportMidi), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
+    .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern, or every pad in a drum machine", .run = wrap(cmdClear), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "%d",          .desc = "erase all notes/hits in the pattern (alias for :clear)",  .run = wrap(cmdClear), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "humanize",    .desc = "[amount]  jitter the pattern's note timing/velocity 0-100% (default 15)", .run = wrap(cmdHumanize), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "quantize",    .desc = "[strength]  snap the pattern's notes to the current grid 0-100% (default 100, hard snap)", .run = wrap(cmdQuantize), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "swing",       .desc = "[percent]  piano-roll pattern swing 50-75% (default 50, straight) - matches the drum machine's", .run = wrap(cmdSwing), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "reverse",     .desc = "retrograde: mirror the pattern in time (visual-mode r reverses just the selection)", .run = wrap(cmdReverse), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "invert",      .desc = "[pitch]  mirror the pattern around a pitch axis (default: its first note) - :reverse's vertical twin", .run = wrap(cmdInvert), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "double",      .desc = "copy the pattern after itself and double the loop length - vary the back half from there", .run = wrap(cmdDouble), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "fit",         .desc = "shrink or grow the loop to the bar the last note ends in", .run = wrap(cmdFit), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "dedupe",      .desc = "drop notes stacked on an identical pitch and start, keeping the longest of each pile", .run = wrap(cmdDedupe), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "normalize",   .desc = "lift every velocity until the loudest note peaks, keeping the dynamics between them (drum view: the whole kit)", .run = wrap(cmdNormalize), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "vel-ramp",    .desc = "<from> <to>  velocity ramp 0-100% across the pattern's notes (drum view: the cursor pad's hits)", .run = wrap(cmdVelRamp), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "legato",      .desc = "extend every note to the next onset - gapless phrasing, no more staccato gaps", .run = wrap(cmdLegato), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "glue",        .desc = "weld touching or overlapping same-pitch notes into one long note", .run = wrap(cmdGlue), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "chop-notes",  .desc = "split every note into pieces one grid step long (the inverse of :glue)", .run = wrap(cmdChopNotes), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "transpose",   .desc = "<semitones>  shift every note in the pattern (visual-mode j/k/J/K transposes just the selection)", .run = wrap(cmdTranspose), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "strum",       .desc = "<ms>  stagger each chord's notes by ms per rank - positive low-to-high, negative high-to-low", .run = wrap(cmdStrum), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "flam",        .desc = "<ms> [repeats]  echo every note ms apart at fading velocity (negative ms = grace notes before)", .run = wrap(cmdFlam), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "arpeggiate",  .desc = "[down]  spread every chord into an arpeggio, one grid step per note", .run = wrap(cmdArpeggiate), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "limit",       .desc = "<lo> <hi>  fold every note into a MIDI pitch range by octaves (e.g. :limit 48 72)", .run = wrap(cmdLimit), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "discard-lengths", .desc = "reset every note to the roll's default length - throw away hand-drawn lengths", .run = wrap(cmdDiscardLengths), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "import-midi", .desc = "<file>  replace the pattern with a Standard MIDI File's notes",     .run = wrap(cmdImportMidi), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "export-midi", .desc = "<file>  write the pattern as a Standard MIDI File",                 .run = wrap(cmdExportMidi), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
     .{ .name = "punch",       .desc = "[on|off]  record only inside the enabled A/B bounds", .run = wrap(cmdPunch) },
     .{ .name = "scale",       .desc = "[<root> [<type>]|off]  piano-roll scale highlight + chord-stamp key", .run = wrap(cmdScale) },
-    .{ .name = "snap-scale",  .desc = "[<root> [<type>]]  pull every off-scale note onto the nearest tone of the active :scale", .run = wrap(cmdSnapScale), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true } },
+    .{ .name = "snap-scale",  .desc = "[<root> [<type>]]  pull every off-scale note onto the nearest tone of the active :scale", .run = wrap(cmdSnapScale), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "ghost",       .desc = "[on|off]  dim every other melodic track's notes into the piano-roll background", .run = wrap(cmdGhost) },
     .{ .name = "audition",    .desc = "[on|off]  preview the pitch under the piano-roll cursor on every j/k move", .run = wrap(cmdAudition) },
     .{ .name = "synth-preset", .desc = "[name]  apply a factory or saved synth patch to the cursor track (no args: list names)", .run = wrap(cmdSynthPreset), .scope = .{ .synth = true } },
@@ -1182,7 +1182,7 @@ pub fn cmdHelp(app: *App, _: []const u8) void {
         .track_spectrum, .master_spectrum, .group_spectrum, .fx_picker => .spectrum,
         // zig fmt: off
         .file_browser => .file_browser,
-        .preset_picker => switch (app.preset_picker_kind) { .synth => .synth_editor, .drum => .drum_grid, .soundfont => .soundfont_editor },
+        .preset_picker => switch (app.preset_picker_kind) { .synth => .synth_editor, .drum => .drum_grid, .soundfont, .acoustic => .soundfont_editor },
         // zig fmt: on
         .help, .instrument_picker => null,
     };
@@ -1429,7 +1429,7 @@ fn cmdRenameTrack(app: *App, args: []const u8) void {
 fn cmdTrackInstrument(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
-        app.setStatus("usage: track-instrument [<n>] <synth|sampler|drum|slicer|soundfont>", .{});
+        app.setStatus("usage: track-instrument [<n>] <synth|sampler|drum|slicer|soundfont|acoustic>", .{});
         return;
     }
     var it = std.mem.splitScalar(u8, trimmed, ' ');
@@ -1457,7 +1457,7 @@ fn cmdTrackInstrument(app: *App, args: []const u8) void {
         break :blk .{ n - 1, rest };
     };
     const kind = app_mod.apiKindFromName(kind_str) orelse {
-        app.setStatus("track-instrument: unknown kind '{s}' (synth/sampler/drum/slicer/soundfont)", .{kind_str});
+        app.setStatus("track-instrument: unknown kind '{s}' (synth/sampler/drum/slicer/soundfont/acoustic)", .{kind_str});
         return;
     };
     if (std.meta.activeTag(app.session.racks.items[idx].instrument) == kind) {
@@ -1472,6 +1472,7 @@ fn cmdTrackInstrument(app: *App, args: []const u8) void {
     };
     history.push(app, backup);
     app.dirty = true;
+    if (kind == .acoustic) app.loadDefaultAcoustic(idx);
     // The swapped track may be the one an instrument editor is open on -
     // `:track-instrument 2 synth` runs just as well from the slicer grid as
     // from the tracks view. Leaving the view up would send the next keypress
@@ -1924,15 +1925,26 @@ fn cursorSlicer(app: *App) ?*Slicer {
 /// is open - the one being edited. Null when neither is a soundfont track.
 /// Mirrors `cursorDrumMachine`'s two-fallback shape.
 fn cursorSoundfont(app: *App) ?*ws.dsp.SoundfontPlayer {
+    const t = cursorSoundfontTrack(app) orelse return null;
+    return switch (app.session.racks.items[t].instrument) {
+        .soundfont, .acoustic => |*sf| sf,
+        else => null,
+    };
+}
+
+/// The track `cursorSoundfont` resolves to. Both soundfont kinds share one
+/// player and one editor, so the lookup is shared too; only `activeScope`
+/// below cares which of the two it landed on.
+fn cursorSoundfontTrack(app: *App) ?usize {
     if (app.cursor < app.session.racks.items.len) {
         switch (app.session.racks.items[app.cursor].instrument) {
-            .soundfont => |*sf| return sf,
+            .soundfont, .acoustic => return app.cursor,
             else => {},
         }
     }
     if (app.view == .soundfont_editor and app.soundfont_track < app.session.racks.items.len) {
         switch (app.session.racks.items[app.soundfont_track].instrument) {
-            .soundfont => |*sf| return sf,
+            .soundfont, .acoustic => return app.soundfont_track,
             else => {},
         }
     }
@@ -1957,7 +1969,9 @@ pub fn activeScope(app: *App) cmd_mod.Scope {
     if (cursorSampler(app) != null) return .sampler;
     if (cursorSynth(app) != null) return .synth;
     if (cursorSlicer(app) != null) return .slicer;
-    if (cursorSoundfont(app) != null) return .soundfont;
+    if (cursorSoundfontTrack(app)) |t| {
+        return if (app.session.racks.items[t].instrument == .acoustic) .acoustic else .soundfont;
+    }
     return .any;
 }
 
@@ -2123,7 +2137,13 @@ pub fn cmdLoad(app: *App, args: []const u8) void {
         .arrangement => return cmdLoadClip(app, args),
         .synth_editor => return cmdLoadWavetable(app, args),
         .slicer_grid => return cmdLoadSlice(app, args),
-        .soundfont_editor => return cmdLoadSoundfont(app, args),
+        // The editor is shared by both soundfont kinds; only the .sf2 one
+        // has a file to load, so let the scope switch below sort them out.
+        .soundfont_editor => if (app.soundfont_track < app.session.racks.items.len and
+            app.session.racks.items[app.soundfont_track].instrument == .soundfont)
+        {
+            return cmdLoadSoundfont(app, args);
+        },
         else => {},
     }
     switch (activeScope(app)) {
@@ -2131,6 +2151,9 @@ pub fn cmdLoad(app: *App, args: []const u8) void {
         .synth => cmdLoadWavetable(app, args),
         .slicer => cmdLoadSlice(app, args),
         .soundfont => cmdLoadSoundfont(app, args),
+        // Acoustic tracks play bundled banks only - there's no file to load,
+        // so point at the two ways to pick one instead.
+        .acoustic => app.setStatus("load: acoustic tracks pick a bundled bank - f: browse, or :library <name>", .{}),
         .any => app.setStatus("load: select an instrument track first", .{}),
     }
 }
@@ -2258,8 +2281,19 @@ pub fn loadWavetableFromPath(app: *App, slot: ws.dsp.PolySynth.OscSlot, path: []
     app.setStatus("wavetable loaded into osc {s}: {s}", .{ @tagName(slot), std.fs.path.basename(path) });
 }
 
+/// The `.soundfont` player specifically - `.acoustic` shares the type but
+/// plays bundled banks, so a .sf2 must never be loaded into one (see
+/// cmdLibrary's mirror-image guard).
+fn cursorSf2(app: *App) ?*ws.dsp.SoundfontPlayer {
+    const track = cursorSoundfontTrack(app) orelse return null;
+    return switch (app.session.racks.items[track].instrument) {
+        .soundfont => |*sf| sf,
+        else => null,
+    };
+}
+
 fn cmdLoadSoundfont(app: *App, args: []const u8) void {
-    if (cursorSoundfont(app) == null) {
+    if (cursorSf2(app) == null) {
         app.setStatus("load: select a soundfont track first", .{});
         return;
     }
@@ -2276,7 +2310,7 @@ fn cmdLoadSoundfont(app: *App, args: []const u8) void {
 /// purpose (the browser hands over an already-resolved path - no `~` to
 /// expand).
 pub fn loadSoundfontFromPath(app: *App, path: []const u8) void {
-    const sf = cursorSoundfont(app) orelse {
+    const sf = cursorSf2(app) orelse {
         app.setStatus("load: select a soundfont track first", .{});
         return;
     };
@@ -2295,9 +2329,19 @@ pub fn loadSoundfontFromPath(app: *App, path: []const u8) void {
 }
 
 fn cmdLibrary(app: *App, args: []const u8) void {
-    const sf = cursorSoundfont(app) orelse {
-        app.setStatus("library: select a soundfont track first", .{});
+    // Acoustic only: a fully-typed out-of-scope command still dispatches
+    // (see cmd.Scope), and letting it push a bundled bank into a .sf2 track
+    // would leave a SoundFont instrument playing content it can't browse.
+    const track = cursorSoundfontTrack(app) orelse {
+        app.setStatus("library: select an acoustic track first", .{});
         return;
+    };
+    const sf = switch (app.session.racks.items[track].instrument) {
+        .acoustic => |*player| player,
+        else => {
+            app.setStatus("library: select an acoustic track first", .{});
+            return;
+        },
     };
     const name = std.mem.trim(u8, args, " ");
     const id = std.meta.stringToEnum(ws.dsp.builtin_library.Id, name) orelse {

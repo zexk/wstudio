@@ -72,7 +72,7 @@ pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
             const track = app.session.project.tracks.items[ti];
             switch (std.meta.activeTag(app.session.racks.items[ti].instrument)) {
                 .empty => try w.writeAll("enter: instrument  a: add track  ?: help"),
-                .poly_synth, .sampler, .clap, .vst3, .soundfont => try w.print("enter: edit  p: piano  s: fx  m: {s}", .{if (track.muted) "unmute" else "mute"}),
+                .poly_synth, .sampler, .clap, .vst3, .soundfont, .acoustic => try w.print("enter: edit  p: piano  s: fx  m: {s}", .{if (track.muted) "unmute" else "mute"}),
                 .drum_machine, .slicer => try w.print("enter: grid  s: fx  m: {s}  R: rename", .{if (track.muted) "unmute" else "mute"}),
             }
         } else {
@@ -443,7 +443,7 @@ const soundfont_param_labels = [_][]const u8{ "gain", "pan", "transpose", "prese
 
 pub fn drawSoundfontStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     try writeModeBadge(w, app.modal.mode);
-    try writeViewBadge(right, "SOUNDFONT", app.modal.mode);
+    try writeViewBadge(right, app.editingSoundfontLabel(), app.modal.mode);
     const sf = app.editingSoundfont();
     const cur = @min(@as(usize, app.soundfont_param), soundfont_param_labels.len - 1);
 
@@ -619,7 +619,7 @@ pub fn drawPresetPickerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wr
     try w.writeAll(dim ++ "  " ++ rst ++ "j/k: move");
     switch (app.preset_picker_kind) {
         .synth => try w.writeAll("  a: audition C3"),
-        .soundfont => try w.writeAll("  a: audition"),
+        .soundfont, .acoustic => try w.writeAll("  a: audition"),
         .drum => {},
     }
     try w.writeAll("  enter: apply  /: filter  d: delete  esc: close");

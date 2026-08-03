@@ -19,7 +19,7 @@ a sidecar directory, not embedded in the JSON. See
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 34) is the newest format version
+`persist.zig`'s `file_version` (currently 35) is the newest format version
 this build can write and read. Loading enforces one rule:
 
 - **A file whose `version` is newer than `file_version` is hard-rejected**
@@ -87,6 +87,7 @@ they showed up in the same week as one.
 | v32 | The stereo-width FX unit (`FxUnitSnap.stereo_width`: width and output trim). The bump makes older builds reject projects using the new saved enum name. |
 | v33 | The auto-pan/tremolo FX unit (`FxUnitSnap.auto_pan`: rate, sync, beats, depth, and phase). The bump makes older builds reject projects using the new saved enum name. |
 | v34 | The transient-shaper FX unit (`FxUnitSnap.transient_shaper`: attack, sustain, and output trim). The bump makes older builds reject projects using the new saved enum name. |
+| v35 | The `acoustic` instrument kind, split out of `soundfont` (bundled VCSL sample banks vs a user-loaded .sf2). Both still save into `RackSnap.soundfont`, so a v34-or-older file whose soundfont track carried a `library` id loads unchanged - as a `soundfont` track holding that bank. The bump makes older builds reject projects using the new saved enum name. |
 
 Since v11, every field added has been the additive/no-bump kind described
 above (v12/v13/v14 above are the exceptions - genuine semantic changes, not

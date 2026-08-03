@@ -603,7 +603,7 @@ Design decisions:
   queued; load failures are reported through the normal status path and the
   current session remains intact.
 - **`kind` strings** match the `cmd.Scope` names already user-visible in
-  `:help`: `"synth"`, `"drum"`, `"sampler"`, `"slicer"`, `"soundfont"`.
+  `:help`: `"synth"`, `"drum"`, `"sampler"`, `"slicer"`, `"soundfont"`, `"acoustic"`.
 - **These functions need a live session.** During init.lua they raise;
   startup scripting belongs in a `ConfigDone` autocmd (or queued
   `wstudio.cmd` lines), after which the full surface is available.
@@ -613,7 +613,7 @@ Design decisions:
   one write is one undo entry, so a generated phrase undoes as the single
   gesture it was. `steps_set` validates every entry before applying any, so a
   bad entry at the end of the list cannot leave a half-rewritten grid behind.
-  `notes_*` works on melodic tracks (synth, sampler, soundfont, CLAP, VST3) and
+  `notes_*` works on melodic tracks (synth, sampler, soundfont, acoustic, CLAP, VST3) and
   `steps_*` on drum tracks; each raises on the other kind, naming which
   function to use instead. `pattern_get(i).kind` reports which one applies.
   Slicer tracks have a step grid of their own shape and are not scriptable

@@ -297,9 +297,16 @@ pub const Session = struct {
                 rack.instrument = .{ .soundfont = SoundfontPlayer.init(self.allocator, sr) };
                 rack.label = "soundfont";
             },
+            // The bundled patch itself is loaded by the caller (App's
+            // loadDefaultAcoustic), not here - a Session has no `std.Io` to
+            // read the asset directory with.
+            .acoustic => {
+                rack.instrument = .{ .acoustic = SoundfontPlayer.init(self.allocator, sr) };
+                rack.label = "acoustic";
+            },
         }
         switch (kind) {
-            .poly_synth, .sampler, .clap, .vst3, .soundfont => {
+            .poly_synth, .sampler, .clap, .vst3, .soundfont, .acoustic => {
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &self.engine.transport);
                 rack.pattern_player.?.length_beats = self.defaults.pattern_length_beats;
                 rack.pattern_player.?.setSwing(self.defaults.swing);
@@ -362,7 +369,7 @@ pub const Session = struct {
     /// even though this command can't build a fresh one from a bare kind.
     fn isMelodicKind(kind: InstrumentKind) bool {
         return switch (kind) {
-            .poly_synth, .sampler, .clap, .vst3, .soundfont => true,
+            .poly_synth, .sampler, .clap, .vst3, .soundfont, .acoustic => true,
             .empty, .drum_machine, .slicer => false,
         };
     }
@@ -1224,7 +1231,7 @@ pub const Session = struct {
                     }
                     sl.setSongClips(clips[0..n], total_ticks, 32);
                 },
-                .poly_synth, .sampler, .clap, .vst3, .soundfont => {
+                .poly_synth, .sampler, .clap, .vst3, .soundfont, .acoustic => {
                     const pp = if (rack.pattern_player) |*p| p else continue;
                     var notes: [pattern_mod.max_notes]Note = undefined;
                     var n: usize = 0;

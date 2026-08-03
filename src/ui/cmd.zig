@@ -14,16 +14,17 @@ const fuzzy = @import("fuzzy.zig");
 /// (see `visible`/`writeSuggestionBox`); `dispatch` never checks this, so a
 /// fully-typed command out of scope still runs and gets that command's own
 /// (usually more specific) error, e.g. "select a drum-machine track first".
-pub const Scope = enum { any, drum, sampler, synth, slicer, soundfont };
+pub const Scope = enum { any, drum, sampler, synth, slicer, soundfont, acoustic };
 
 /// Empty means every instrument. Otherwise each bit names one supported
 /// instrument, so commands shared by several kinds need one definition.
-pub const ScopeSet = packed struct(u5) {
+pub const ScopeSet = packed struct(u6) {
     drum: bool = false,
     sampler: bool = false,
     synth: bool = false,
     slicer: bool = false,
     soundfont: bool = false,
+    acoustic: bool = false,
 
     pub fn one(scope: Scope) ScopeSet {
         var set: ScopeSet = .{};
@@ -34,12 +35,13 @@ pub const ScopeSet = packed struct(u5) {
             .synth => set.synth = true,
             .slicer => set.slicer = true,
             .soundfont => set.soundfont = true,
+            .acoustic => set.acoustic = true,
         }
         return set;
     }
 
     fn empty(self: ScopeSet) bool {
-        return @as(u5, @bitCast(self)) == 0;
+        return @as(u6, @bitCast(self)) == 0;
     }
 };
 
@@ -48,8 +50,9 @@ pub const scopes = struct {
     pub const synth: ScopeSet = .{ .synth = true };
     pub const slicer: ScopeSet = .{ .slicer = true };
     pub const soundfont: ScopeSet = .{ .soundfont = true };
-    pub const melodic: ScopeSet = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true };
-    pub const pattern: ScopeSet = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true };
+    pub const acoustic: ScopeSet = .{ .acoustic = true };
+    pub const melodic: ScopeSet = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true };
+    pub const pattern: ScopeSet = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true };
     pub const sampler_slicer: ScopeSet = .{ .sampler = true, .slicer = true };
     pub const drum_slicer: ScopeSet = .{ .drum = true, .slicer = true };
 };
@@ -73,6 +76,7 @@ pub fn visible(c: Def, active: Scope) bool {
         .synth => c.scope.synth,
         .slicer => c.scope.slicer,
         .soundfont => c.scope.soundfont,
+        .acoustic => c.scope.acoustic,
     };
 }
 

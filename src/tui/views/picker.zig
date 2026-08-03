@@ -49,7 +49,7 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
             .sampler => icons.sampler,
             .drum_machine => icons.drum,
             .slicer => icons.slicer,
-            .soundfont => icons.soundfont,
+            .soundfont, .acoustic => icons.soundfont,
             else => "",
         };
         if (is_sel) try w.writeAll(sel);

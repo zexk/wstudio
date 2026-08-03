@@ -417,7 +417,7 @@ fn liveParamValue(app: *App, track: u16, id: u16) ?f32 {
     return switch (app.session.racks.items[track].instrument) {
         .poly_synth => |*s| s.paramValue(id),
         .sampler => |*s| s.paramValue(id),
-        .soundfont => |*sf| sf.paramValue(id),
+        .soundfont, .acoustic => |*sf| sf.paramValue(id),
         .drum_machine => |*dm| dm.paramValue(id),
         .slicer => |*sl| sl.paramValue(id),
         .clap => null,

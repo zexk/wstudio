@@ -484,7 +484,7 @@
 --                                                --   or retargeting an editor
 --
 -- Pattern content. notes_* works on melodic tracks (synth, sampler,
--- soundfont, CLAP), steps_* on drum tracks; each raises on the other kind.
+-- soundfont, acoustic, CLAP), steps_* on drum tracks; each raises on the other kind.
 -- Both replace the pattern wholesale, so build the list in Lua and write it
 -- once - that is also one undo entry.
 --   wstudio.api.pattern_get(i)                   -> { kind, length_beats,

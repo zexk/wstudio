@@ -43,19 +43,29 @@ pub fn drawSoundfontEditor(
     // ── Title ────────────────────────────────────
     try w.writeAll(bcyn ++ bold ++ " \u{2593} " ++ rst);
     try w.writeAll(icons.iconOr(icons.soundfont ++ " ", ""));
-    try w.writeAll(bcyn ++ bold ++ "SOUNDFONT " ++ rst ++ acc);
+    try w.writeAll(bcyn ++ bold);
+    try w.print("{s} ", .{app.editingSoundfontLabel()});
+    try w.writeAll(rst ++ acc);
     try w.print("\"{s}\"", .{track_name});
     try w.writeAll(rst);
     try endLine(w);
     written += 1;
 
     if (sf == null or sf.?.presetCount() == 0) {
-        try synthSection(w, "FONT", acc);
+        // Acoustic only lands here if the bundled asset directory couldn't
+        // be read - point at the bank picker, not at a file browser.
+        const is_acoustic = std.mem.eql(u8, app.editingSoundfontLabel(), "ACOUSTIC");
+        try synthSection(w, if (is_acoustic) "BANK" else "FONT", acc);
         written += 1;
-        try w.writeAll(dim ++ "  No SoundFont loaded." ++ rst);
+        try w.writeAll(dim ++ "  " ++ rst);
+        try w.writeAll(if (is_acoustic) dim ++ "No bank loaded." ++ rst else dim ++ "No SoundFont loaded." ++ rst);
         try endLine(w);
         written += 1;
-        try w.writeAll(acc ++ "  enter" ++ rst ++ dim ++ " / " ++ rst ++ acc ++ ":load" ++ rst ++ dim ++ "  open the .sf2 browser" ++ rst);
+        if (is_acoustic) {
+            try w.writeAll(acc ++ "  f" ++ rst ++ dim ++ "  browse the bundled banks" ++ rst);
+        } else {
+            try w.writeAll(acc ++ "  enter" ++ rst ++ dim ++ " / " ++ rst ++ acc ++ ":load" ++ rst ++ dim ++ "  open the .sf2 browser" ++ rst);
+        }
         try endLine(w);
         written += 1;
         while (written < body) : (written += 1) try endLine(w);
