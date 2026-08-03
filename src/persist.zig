@@ -3455,6 +3455,7 @@ test "save/load round-trip persists a slicer's variant bank and choke groups" {
         sl.setStepVel(3, 7, 60);
         sl.choke_group[0] = 1;
         sl.choke_group[1] = 1;
+        sl.choke_group[2] = 0; // proves the array round-trips per-slice, not just uniformly
         sl.setSliceLen(2, 7); // a row that wraps early has to survive the file
     }
 

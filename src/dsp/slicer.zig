@@ -416,6 +416,8 @@ pub const Slicer = struct {
                 .end_norm = @as(f32, @floatFromInt(i + 1)) * step_norm,
                 .retrig = true,
             };
+            // Same mono-chop default as `chopAt` - see its comment.
+            self.choke_group[i] = 1;
         }
         self.slice_count = count;
         self.clearVoices();
@@ -533,6 +535,13 @@ pub const Slicer = struct {
                 .end_norm = if (i + 1 < count) next else 1.0,
                 .retrig = true,
             };
+            // Fresh chops share one choke group: slices of the same break
+            // should never overlap each other (the MPC "mono chop" feel -
+            // see `chokeTriggerTuned`), or the break turns to mud the moment
+            // two slices land close together. Ungroup individual slices
+            // afterward via `cycleChokeGroup` if independent polyphony is
+            // wanted instead.
+            self.choke_group[i] = 1;
             start = next;
         }
         self.slice_count = count;
@@ -1942,7 +1951,9 @@ test "chokeTrigger cuts grouped voices, leaves ungrouped ringing" {
     s.sliceInto(4);
     s.choke_group[0] = 1;
     s.choke_group[1] = 1;
-    // Slice 2 ungrouped, slice 3 in a different group.
+    // Slice 2 ungrouped, slice 3 in a different group (sliceInto's mono-chop
+    // default puts every slice in group 1 - override for this test's mix).
+    s.choke_group[2] = 0;
     s.choke_group[3] = 2;
 
     s.chokeTrigger(1, 1.0, 0);
@@ -1970,6 +1981,7 @@ test "ungrouped retrigger still overlaps (choke stays opt-in)" {
     defer s.deinit();
     s.sliceInto(2);
     pad_mod.setPlayMode(&s.slices[0], .one_shot);
+    s.choke_group[0] = 0; // sliceInto's mono-chop default doesn't apply here
     s.chokeTrigger(0, 1.0, 0);
     s.chokeTrigger(0, 1.0, 0);
     var active: usize = 0;

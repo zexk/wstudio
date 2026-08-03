@@ -953,10 +953,11 @@ test "slicer grid: C cycles the cursor slice's choke group" {
     app.slicer_track = 0;
     app.view = .slicer_grid;
     app.slicerInst().sliceInto(2);
+    // sliceInto's mono-chop default already puts every slice in group 1.
     app.slicer_cursor = .{ 1, 0 };
     _ = slicer_ed.handleKey(&app, .{ .char = 'C' });
-    try std.testing.expectEqual(@as(u8, 1), app.slicerInst().choke_group[1]);
-    try std.testing.expectEqual(@as(u8, 0), app.slicerInst().choke_group[0]);
+    try std.testing.expectEqual(@as(u8, 2), app.slicerInst().choke_group[1]);
+    try std.testing.expectEqual(@as(u8, 1), app.slicerInst().choke_group[0]);
 }
 
 test "arrangement: slicer lane stamps a clip and song mode plays it" {
