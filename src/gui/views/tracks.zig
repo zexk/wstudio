@@ -50,6 +50,31 @@ fn badgeX(block_x0: f32, slot: f32) f32 {
     return block_x0 + block_w - block_inset - badge_w - slot * badge_pitch;
 }
 
+/// Vertical layout of an info block's two stacked lines (controls on top,
+/// meter below). The stack is centered on the row, and the gap between the
+/// lines opens up to `stack_breath` when the row is tall enough - so the
+/// controls ride high and the meter low instead of both hugging the middle.
+const stack_breath: f32 = 20;
+const meter_bar_h: f32 = 4;
+const meter_gap: f32 = 2;
+
+fn stackTops(center_y: f32, height: f32, controls_h: f32, meter_h: f32) struct { controls: f32, meter: f32 } {
+    const stack_h = @min(height - 12, controls_h + meter_h + stack_breath);
+    const top = center_y - stack_h / 2;
+    return .{ .controls = top, .meter = top + stack_h - meter_h };
+}
+
+test "info-block stack is centered with its lines pushed apart" {
+    const s = stackTops(100, 112, 22, 10);
+    try std.testing.expectEqual(@as(f32, 74), s.controls);
+    // Equal breathing room above the controls and below the meter.
+    try std.testing.expectEqual(100 - s.controls, s.meter + 10 - 100);
+    // A short row falls back to whatever gap still fits, still centered.
+    const tight = stackTops(100, 52, 22, 10);
+    try std.testing.expectEqual(@as(f32, 80), tight.controls);
+    try std.testing.expectEqual(@as(f32, 110), tight.meter);
+}
+
 /// The mixer row's top line inside the info block: gain, pan, then the
 /// badge cluster, each group separated by `group_gap` and the outer two
 /// flush against `block_inset` on their own side. Sized so the three add up
@@ -292,7 +317,12 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     const block_fg = legibleOn(accent);
     drawFxChips(draw_list, &rack.fx, text_x + 150, origin[1] + 12, block_x0 - 12);
     const center_y = origin[1] + (height - 2) / 2;
-    const controls_y = center_y - 17;
+    const controls_h = @max(badge_h, zgui.getFrameHeight());
+    const stack = stackTops(center_y, height, controls_h, 2 * meter_bar_h + meter_gap);
+    const controls_y = stack.controls;
+    // Badges are shorter than a drag frame - center them on it so the whole
+    // top line reads as one row rather than two heights sharing a baseline.
+    const badge_y = controls_y + (controls_h - badge_h) / 2;
 
     const gain_before = track.gain_db;
     const gain = mixerDrag(.{
@@ -330,7 +360,7 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     if (pan.changed) app.core.apiSetTrackPan(track_index, pan.value / 100);
     if (pan.finished) app.finishTrackMixerEdit();
 
-    widgets.solidMeterBar(draw_list, .{ block_x0 + block_inset, center_y + 14 }, app.track_meter_hold_db[track_index], block_w - 2 * block_inset, 4, 2, block_fg);
+    widgets.solidMeterBar(draw_list, .{ block_x0 + block_inset, stack.meter }, app.track_meter_hold_db[track_index], block_w - 2 * block_inset, meter_bar_h, meter_gap, block_fg);
 
     // Always three fixed slots (unlike the old read-only badges, which only
     // occupied space when already on) so each has a stable, clickable hit
@@ -339,13 +369,13 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     // stays in step with `:track-set`/wstudio.api.track_set and undoes the
     // same way a keyboard toggle does.
     var badge_id_buf: [40]u8 = undefined;
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "solo-{d}", .{track_index}) catch "solo", badgeX(block_x0, 0), controls_y, "S", track.soloed, theme.rhythm)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "solo-{d}", .{track_index}) catch "solo", badgeX(block_x0, 0), badge_y, "S", track.soloed, theme.rhythm)) {
         app.core.apiSetTrackSoloed(track_index, !track.soloed);
     }
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "mute-{d}", .{track_index}) catch "mute", badgeX(block_x0, 1), controls_y, "M", track.muted, theme.danger)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "mute-{d}", .{track_index}) catch "mute", badgeX(block_x0, 1), badge_y, "M", track.muted, theme.danger)) {
         app.core.apiSetTrackMuted(track_index, !track.muted);
     }
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "arm-{d}", .{track_index}) catch "arm", badgeX(block_x0, 2), controls_y, "R", app.core.session.isArmed(track_index), theme.danger)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "arm-{d}", .{track_index}) catch "arm", badgeX(block_x0, 2), badge_y, "R", app.core.session.isArmed(track_index), theme.danger)) {
         app.core.apiSetTrackArmed(track_index, !app.core.session.isArmed(track_index));
     }
     drawTrackRowCursorOutline(chrome, height);
@@ -424,12 +454,15 @@ fn drawMasterRow(app: anytype, height: f32) void {
     const block_fg = legibleOn(accent);
     drawFxChips(draw_list, &app.core.session.master_fx, text_x + 150, origin[1] + 12, block_x0 - 12);
     const center_y = origin[1] + (height - 2) / 2;
-    draw_list.addText(.{ block_x0 + block_inset, center_y - 16 }, color(block_fg), "{d:.1} dB", .{app.core.master_gain_db});
+    // Master's bars are one px fatter than a track's; same centered stack.
+    const master_meter_h: f32 = 2 * 5 + 3;
+    const stack = stackTops(center_y, height, zgui.getTextLineHeight(), master_meter_h);
+    draw_list.addText(.{ block_x0 + block_inset, stack.controls }, color(block_fg), "{d:.1} dB", .{app.core.master_gain_db});
     // meter_hold_db is refreshed once per frame by chrome.zig's transport
     // draw (always runs first, see app.zig's App.draw) - reusing it here
     // keeps this meter in sync with the transport's LEVEL readout instead
     // of re-deriving its own peak-hold state from the raw peak.
-    widgets.solidMeterBar(draw_list, .{ block_x0 + block_inset, center_y + 6 }, app.meter_hold_db, block_w - 2 * block_inset, 5, 3, block_fg);
+    widgets.solidMeterBar(draw_list, .{ block_x0 + block_inset, stack.meter }, app.meter_hold_db, block_w - 2 * block_inset, 5, 3, block_fg);
     drawTrackRowCursorOutline(chrome, height);
 }
 
