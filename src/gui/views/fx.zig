@@ -277,7 +277,11 @@ fn drawEffectPlot(app: anytype, target: spectrum_ed.EqTarget, draw_list: zgui.Dr
         }
     }
 
-    var points: [65][2]f32 = undefined;
+    // Sampled far denser than the curve's own detail: at 65 points the
+    // reverb's 26-half-cycle tail aliased into an irregular sawtooth and the
+    // crusher's 2^(bits-1) staircase collapsed onto the diagonal, so a
+    // default 8-bit crush was drawn as a bypass line.
+    var points: [257][2]f32 = undefined;
     const amount = normalizedParam(app, unit, 0);
     const shape = normalizedParam(app, unit, 1);
     for (&points, 0..) |*point, i| {
@@ -302,6 +306,9 @@ fn plotAxes(kind: ws.FxKind) PlotAxes {
         .filter => .{ .x_lo = "20 Hz", .x_hi = "20 kHz", .y = "LEVEL" },
         .delay, .reverb => .{ .x_lo = "TIME", .y = "LEVEL" },
         .chorus, .phaser, .flanger => .{ .x_lo = "TIME", .y = "OFFSET" },
+        // A shifter maps frequency to frequency; IN/OUT reads as a level
+        // transfer, which is the one thing it does not do.
+        .freq_shift => .{ .x_lo = "IN FREQ", .y = "OUT FREQ" },
         else => .{ .x_lo = "IN", .y = "OUT" },
     };
 }
@@ -326,7 +333,11 @@ fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
         .comp, .mb_comp, .ott, .limiter, .transient_shaper => if (t < amount) t else amount + (t - amount) * (0.2 + shape * 0.45),
         .sat => 0.5 + 0.5 * std.math.tanh((t * 2.0 - 1.0) * std.math.pow(f32, 10.0, amount * 1.8)) / std.math.tanh(std.math.pow(f32, 10.0, amount * 1.8)),
         .crush => @round(t * std.math.pow(f32, 2.0, amount * 15.0)) / std.math.pow(f32, 2.0, amount * 15.0),
-        .chorus, .flanger, .phaser, .auto_pan => std.math.clamp(t + @sin(t * std.math.pi * (4.0 + shape * 8.0)) * (0.05 + amount * 0.12), 0, 1),
+        // An LFO offset swings about a centre - it does not climb. The old
+        // `t + sin(...)` baseline drew the same rising ramp a transfer curve
+        // wants under a TIME/OFFSET pair of axes, and took its cycle count
+        // from the depth knob and its amplitude from the rate knob.
+        .chorus, .flanger, .phaser, .auto_pan => 0.5 + @sin(t * std.math.pi * 2.0 * (1.0 + amount * 5.0)) * (0.08 + shape * 0.38),
         .freq_shift => std.math.clamp(t + (amount - 0.5) * 0.35, 0, 1),
         .delay => std.math.clamp(@exp(-t * (1.5 + shape * 4.0)) * (0.55 + 0.4 * @sin(t * std.math.pi * (6.0 + amount * 10.0))), 0, 1),
         .reverb => std.math.clamp(@exp(-t * (0.8 + (1.0 - amount) * 4.0)) * (0.7 + 0.2 * @sin(t * std.math.pi * 26.0)), 0, 1),
@@ -401,13 +412,17 @@ fn meterRows(unit: *ws.FxUnit, rows: *[3]MeterRow, text: *[3][20]u8) []const Met
             return rows[0..1];
         },
         .limiter => |*lim| {
-            rows[0] = .{ .label = "GAIN RED.", .value = 1.0 - lim.gain, .text = fmtDb(&text[0], 20.0 * std.math.log10(@max(lim.gain, 1e-4))) };
+            // Same dB-over-24 deflection the compressor's row uses: a bar off
+            // the raw gain put -6dB of limiting at half scale next to -6dB of
+            // compression at a quarter, under the same label.
+            const reduction_db = 20.0 * std.math.log10(@max(lim.gain, 1e-4));
+            rows[0] = .{ .label = "GAIN RED.", .value = -reduction_db / 24.0, .text = fmtDb(&text[0], reduction_db) };
             return rows[0..1];
         },
         .mb_comp => |*comp| return bandGainRows(rows, text, comp.gain_db),
         .ott => |*ott| return bandGainRows(rows, text, ott.mb.gain_db),
         .transient_shaper => |*shaper| {
-            rows[0] = .{ .label = "GAIN", .value = shaper.applied_gain_db / 12.0, .bipolar = true, .text = fmtDb(&text[0], shaper.applied_gain_db) };
+            rows[0] = .{ .label = "GAIN", .value = shaper.applied_gain_db / gain_meter_scale, .bipolar = true, .text = fmtDb(&text[0], shaper.applied_gain_db) };
             return rows[0..1];
         },
         .stereo_width => |*width| {
@@ -432,15 +447,17 @@ fn meterRows(unit: *ws.FxUnit, rows: *[3]MeterRow, text: *[3][20]u8) []const Met
     }
 }
 
-/// Full-scale deflection for a band meter: the upward stage's own 24dB range
-/// plus makeup, which OTT's fixed tuning spends 9dB of. A 24dB scale pinned
-/// all three bars the moment the unit idled.
-const band_gain_scale: f32 = 36.0;
+/// Full-scale deflection every bipolar dB meter here reads against: the
+/// multiband upward stage's own 24dB range plus makeup, which OTT's fixed
+/// tuning spends 9dB of. A 24dB scale pinned all three band bars the moment
+/// the unit idled, and the transient shaper's own 12dB scale pinned on any
+/// output trim past -12dB (its applied gain spans -36..+24).
+const gain_meter_scale: f32 = 36.0;
 
 fn bandGainRows(rows: *[3]MeterRow, text: *[3][20]u8, gains: [3]f32) []const MeterRow {
     const labels = [3][]const u8{ "LOW", "MID", "HIGH" };
     for (gains, labels, 0..) |gain, label, i| {
-        rows[i] = .{ .label = label, .value = gain / band_gain_scale, .bipolar = true, .text = fmtDb(&text[i], gain) };
+        rows[i] = .{ .label = label, .value = gain / gain_meter_scale, .bipolar = true, .text = fmtDb(&text[i], gain) };
     }
     return rows[0..3];
 }
