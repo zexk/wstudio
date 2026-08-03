@@ -2198,8 +2198,15 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
 
         if (rs.fx_chain) |fc| try applyFxChain(allocator, &rack.fx, fc, sr, &engine.transport)
         else try applyLegacyFx(allocator, &rack.fx, rs.fx, sr, &engine.transport);
-        if (rack.instrument == .poly_synth)
+        // Clearing the migrated flags is what keeps this idempotent: they are
+        // saved verbatim by synthToSnap, so a chain that migrated on one load
+        // and got written back out would migrate a *second* copy of every unit
+        // on the next load, growing the chain by one per save/load cycle.
+        // `applySynthPatch` clears for the same reason.
+        if (rack.instrument == .poly_synth) {
             try migrateSynthFx(allocator, &rack.instrument.poly_synth, &rack.fx, sr);
+            clearMigratedSynthFx(&rack.instrument.poly_synth);
+        }
         try racks.append(allocator, rack);
     }
     // zig fmt: on
@@ -3231,6 +3238,34 @@ test "buildSession: v10 fx_chain keeps user order, duplicates, and bypass" {
     try testing.expectApproxEqAbs(@as(f32, -18.0), units[4].payload.comp.threshold_db, 1e-4);
     // The bypassed crusher is skipped by chain(): 4 of 5 reach the engine.
     try testing.expectEqual(@as(usize, 4), session.engine.master_chain.slice().len);
+}
+
+test "a migrated synth insert lands in the rack chain once, not once per load" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+
+    // Pre-chain file: the distortion lives on the synth patch, not in fx_chain.
+    const snap: Snapshot = .{
+        .sample_rate = 48_000,
+        .tracks = &.{.{ .name = "lead" }},
+        .racks = &.{.{ .label = "lead", .kind = .poly_synth, .synth = .{ .fx_dist_on = true } }},
+    };
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+    try testing.expectEqual(@as(usize, 1), session.racks.items[0].fx.units.items.len);
+    try testing.expect(!session.racks.items[0].instrument.poly_synth.fx_dist_on);
+
+    // The flag is cleared, so writing this session back out and loading it
+    // again migrates nothing on top of the chain that already holds the unit.
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    const units = loaded.racks.items[0].fx.units.items;
+    try testing.expectEqual(@as(usize, 1), units.len);
+    try testing.expectEqual(rack_mod.FxKind.sat, units[0].kind());
 }
 
 // zig fmt: off
