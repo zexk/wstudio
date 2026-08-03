@@ -170,6 +170,10 @@ pub const DrumMachine = struct {
         interval: f64,
         vel: f32,
         tune: i8,
+        /// How long each of this roll's hits holds before a gated pad releases
+        /// it, in frames, or -1 for "play out" - see `pad.Voice.hold_frames`.
+        /// Only the Slicer fills this in; drum pads are one-shots.
+        hold: f64 = -1.0,
     };
 
     pub const MidiNote = struct {

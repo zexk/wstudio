@@ -1108,12 +1108,14 @@ pub const Slicer = struct {
     /// group for the MPC "mono" chop feel, or pair just two for an
     /// open/closed-hat-style gate).
     pub fn chokeTrigger(self: *Slicer, slice: u8, vel: f32, block_start: u32) void {
-        self.chokeTriggerTuned(slice, vel, block_start, 0);
+        self.chokeTriggerTuned(slice, vel, block_start, 0, -1.0);
     }
 
     /// `chokeTrigger` plus a per-hit transpose (a step's parameter-locked
-    /// `tune`), carried on the voice - see `pad.Voice.tune`.
-    pub fn chokeTriggerTuned(self: *Slicer, slice: u8, vel: f32, block_start: u32, tune: i8) void {
+    /// `tune`), carried on the voice - see `pad.Voice.tune`. `hold` is how
+    /// long a gated slice plays before releasing itself (`pad.Voice
+    /// .hold_frames`); -1 waits for a note-off instead.
+    pub fn chokeTriggerTuned(self: *Slicer, slice: u8, vel: f32, block_start: u32, tune: i8, hold: f64) void {
         if (slice >= self.slice_count) return;
         const group = self.choke_group[slice];
         if (group != 0) {
@@ -1123,7 +1125,7 @@ pub const Slicer = struct {
                 // zig fmt: on
             }
         }
-        self.triggerSliceTuned(slice, vel, block_start, tune);
+        self.triggerSliceTuned(slice, vel, block_start, tune, hold);
     }
 
     /// Trigger `slice` (0-based), stealing the oldest voice in its own small
@@ -1133,11 +1135,12 @@ pub const Slicer = struct {
     /// rolls) rather than the drum-kit convention of always cutting the
     /// previous hit. Choke groups opt out of that - see `chokeTrigger`.
     pub fn triggerSlice(self: *Slicer, slice: u8, vel: f32, block_start: u32) void {
-        self.triggerSliceTuned(slice, vel, block_start, 0);
+        self.triggerSliceTuned(slice, vel, block_start, 0, -1.0);
     }
 
-    /// `triggerSlice` with a per-hit transpose - see `chokeTriggerTuned`.
-    pub fn triggerSliceTuned(self: *Slicer, slice: u8, vel: f32, block_start: u32, tune: i8) void {
+    /// `triggerSlice` with a per-hit transpose and gated hold - see
+    /// `chokeTriggerTuned`.
+    pub fn triggerSliceTuned(self: *Slicer, slice: u8, vel: f32, block_start: u32, tune: i8, hold: f64) void {
         if (slice >= self.slice_count) return;
         var pool = &self.voices[slice];
         var slot: usize = 0;
@@ -1151,7 +1154,7 @@ pub const Slicer = struct {
         pool[slot] = .{
             .active = true,
             .age = self.next_age,
-            .v = .{ .active = true, .played = 0, .block_start = block_start, .vel = vel, .tune = tune },
+            .v = .{ .active = true, .played = 0, .block_start = block_start, .vel = vel, .tune = tune, .hold_frames = hold },
         };
         self.next_age +%= 1;
     }
@@ -1304,12 +1307,17 @@ pub const Slicer = struct {
             step_frames / @as(f64, @floatFromInt(hits))
         else
             0.0;
+        // A gated slice stops where its step does (a roll's hits stop where
+        // the next one starts) instead of ringing over the steps after it -
+        // the whole point of chopping. A latched one-shot ignores this and
+        // plays its region out; see `pad.Voice.hold_frames`.
         self.rolls[s] = .{
             .remaining = hits,
             .next_pos = step_pos + offset,
             .interval = interval,
             .vel = velGain(note.velocity),
             .tune = note.tune,
+            .hold = if (interval > 0.0) interval else step_frames * @as(f64, @floatFromInt(@max(note.duration_steps, 1))),
         };
     }
 
@@ -1326,7 +1334,7 @@ pub const Slicer = struct {
                         @as(u64, @intFromFloat(roll.next_pos - pos_f)),
                         @as(u64, frames - 1),
                     ));
-                    self.chokeTriggerTuned(@intCast(s), roll.vel, off, roll.tune);
+                    self.chokeTriggerTuned(@intCast(s), roll.vel, off, roll.tune, roll.hold);
                 }
                 roll.remaining -= 1;
                 // A single hit has no interval to advance by; bail rather than
@@ -1898,6 +1906,31 @@ test "note-off releases only oldest overlapping slice voice" {
     try std.testing.expect(s.voices[0][1].v.release_frames < 0.0);
     s.device().sendEvent(.{ .note_off = .{ .note = 0 } });
     try std.testing.expectEqual(@as(f64, 0.0), s.voices[0][1].v.release_frames);
+}
+
+test "a sequenced hit carries its step's length as the gated hold" {
+    var transport = Transport{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
+    transport.play();
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    try installTestClip(&s);
+    s.sliceInto(4);
+    s.toggleStep(0, 0);
+
+    var buf: [64]Sample = undefined;
+    @memset(&buf, 0.0);
+    s.processBlock(&buf);
+    // 120 bpm at 4 steps per beat: 6000 frames a step, so a gated slice stops
+    // there rather than ringing into the steps after it.
+    try std.testing.expectApproxEqAbs(
+        transport.framesPerStep(s.steps_per_beat),
+        s.voices[0][0].v.hold_frames,
+        1e-6,
+    );
+
+    // A live hit has no step to end at and waits for its note-off instead.
+    s.chokeTrigger(1, 1.0, 0);
+    try std.testing.expect(s.voices[1][0].v.hold_frames < 0.0);
 }
 
 test "song mode fires the clip covering the playhead, silent past the end" {

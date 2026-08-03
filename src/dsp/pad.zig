@@ -275,12 +275,24 @@ pub const Voice = struct {
     /// still held. Only consulted for a gated pad (`Pad.gate`); a latched
     /// one-shot leaves it at -1 for its whole life. See `release`.
     release_frames: f64 = -1.0,
+    /// Output frames to hold before releasing on the voice's own, or -1 to
+    /// hold until an explicit note-off. A step sequencer has no note-off to
+    /// send, so a gated hit carries its own length here (the step's, see
+    /// `Slicer.scheduleNote`); live/MIDI play leaves it at -1 and waits for
+    /// the key. Only consulted for a gated pad, same as `release_frames`.
+    hold_frames: f64 = -1.0,
 };
 
 /// Mark `voice` released, starting the gated fade-out on the next rendered
 /// frame. Idempotent: a repeated note-off never restarts the fade.
 pub fn release(voice: *Voice) void {
     if (voice.release_frames < 0.0) voice.release_frames = 0.0;
+}
+
+/// Release a gated voice that has held for its own `hold_frames`.
+/// `out_played` is output frames rendered since the trigger.
+fn releaseAtHold(voice: *Voice, out_played: f64) void {
+    if (voice.hold_frames >= 0.0 and out_played >= voice.hold_frames) release(voice);
 }
 
 const FilterState = struct {
@@ -415,6 +427,7 @@ pub fn renderVoice(
         // zig fmt: off
         if (voice.played >= region_len) { voice.active = false; break; }
         // zig fmt: on
+        if (gated) releaseAtHold(voice, voice.played / rate);
         const gate_g = if (gated) gateLevel(voice.release_frames, sample_rate, pad.release_s) else 1.0;
         // zig fmt: off
         if (gate_g <= 0.0) { voice.active = false; break; }
@@ -524,6 +537,7 @@ fn renderVoiceStretched(
             voice.active = false;
             break;
         }
+        if (gated) releaseAtHold(voice, st.out_played);
         const gate_g = if (gated) gateLevel(voice.release_frames, sr, pad.release_s) else 1.0;
         if (gate_g <= 0.0) {
             voice.active = false;
@@ -914,4 +928,33 @@ test "a gated voice stops at its release time instead of the region end" {
         renderVoice(&latched, &pad, &buf, 2, 256, 48_000.0);
     }
     try std.testing.expect(latched.active);
+}
+
+test "hold_frames releases a gated voice on its own, and only a gated one" {
+    var samples = [_]f32{0.5} ** 48_000;
+    var pad: Pad = .{ .samples = &samples, .gate = true, .release_s = 0.01 };
+    // A 256-frame hold: still held after one block, released after two, and
+    // gone once the 10 ms (480-frame) fade past that has run out.
+    var voice: Voice = .{ .active = true, .hold_frames = 256 };
+    var buf = [_]Sample{0} ** 512;
+
+    renderVoice(&voice, &pad, &buf, 2, 256, 48_000.0);
+    try std.testing.expect(voice.release_frames < 0.0);
+    renderVoice(&voice, &pad, &buf, 2, 256, 48_000.0);
+    try std.testing.expect(voice.release_frames >= 0.0);
+    var blocks: usize = 0;
+    while (voice.active and blocks < 8) : (blocks += 1) {
+        renderVoice(&voice, &pad, &buf, 2, 256, 48_000.0);
+    }
+    try std.testing.expect(!voice.active);
+
+    // A latched one-shot carrying the same hold plays its region out.
+    pad.gate = false;
+    var latched: Voice = .{ .active = true, .hold_frames = 256 };
+    blocks = 0;
+    while (blocks < 8) : (blocks += 1) {
+        renderVoice(&latched, &pad, &buf, 2, 256, 48_000.0);
+    }
+    try std.testing.expect(latched.active);
+    try std.testing.expect(latched.release_frames < 0.0);
 }
