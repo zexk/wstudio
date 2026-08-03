@@ -52,7 +52,7 @@ const Pad = pad_mod.Pad;
 const Voice = pad_mod.Voice;
 const DrumMachine = @import("drum_sampler.zig").DrumMachine;
 const Note = @import("pattern.zig").Note;
-const fft_mod = @import("fft.zig");
+const onset = @import("onset.zig");
 
 const Sample = types.Sample;
 
@@ -1392,13 +1392,8 @@ pub const Slicer = struct {
 /// ascending slice-start positions (fractions of the clip, `out[0]` always
 /// 0.0) and returns how many were found (>= 1).
 ///
-/// A broadband RMS envelope only sees an onset that lifts the clip's *total*
-/// energy, so a hat over a sustained bass note, or a snare buried in an
-/// already-loud bar, never registers at all. This differences the
-/// log-magnitude spectrum instead (SuperFlux, Boeck & Widmer 2013), so a
-/// frame scores when it adds energy *anywhere* in the spectrum, with a
-/// three-bin maximum filter on the previous frame so vibrato and pitch
-/// slides drift within their own neighbourhood and read as no attack.
+/// The detection function is `onset.envelope`'s spectral flux; see there for
+/// why a broadband energy envelope is not enough.
 ///
 /// Peaks are picked the way Dixon 2006 does: a local maximum of the
 /// detection function that also clears a local mean by `delta`, where
@@ -1411,67 +1406,33 @@ pub fn detectOnsets(samples: []const f32, sample_rate: u32, sensitivity: u8, out
     out[0] = 0.0;
     var count: u8 = 1;
 
-    // 1024 at 200 fps: ~47 Hz per bin, and a 5 ms grid, which is finer than
-    // any chop boundary anyone can hear placed wrong.
-    const frame: usize = 1024;
-    const bins: usize = frame / 2;
-    const hop: usize = @max(sample_rate / 200, 64);
-    if (samples.len <= frame) return count;
-    const frames = (samples.len - frame) / hop + 1;
+    const hop = onset.hopFor(sample_rate);
+    const frames = onset.frameCount(samples.len, sample_rate);
     if (frames < 4) return count;
 
     var fallback = std.heap.stackFallback(4096 * @sizeOf(f32), std.heap.page_allocator);
     const alloc = fallback.get();
-    const odf = alloc.alloc(f32, frames) catch return count;
+    const odf = onset.envelope(alloc, samples, sample_rate) catch return count;
     defer alloc.free(odf);
-
-    var re: [frame]f32 = undefined;
-    var im: [frame]f32 = undefined;
-    var cur: [bins]f32 = undefined;
-    var prev = [_]f32{0} ** bins;
-
-    for (0..frames) |t| {
-        @memcpy(re[0..], samples[t * hop ..][0..frame]);
-        @memset(im[0..], 0);
-        fft_mod.hannWindow(re[0..]);
-        fft_mod.fft(frame, re[0..], im[0..]);
-        // Log magnitude, so a quiet hit in a quiet bar counts as much as a
-        // loud one in a loud bar - the flux is about change, not level.
-        for (0..bins) |b| cur[b] = @log(1.0 + fft_mod.magnitude(re[b], im[b]));
-
-        var flux: f32 = 0;
-        if (t > 0) {
-            for (0..bins) |b| {
-                const lo = if (b == 0) 0 else b - 1;
-                const hi = @min(b + 2, bins);
-                var m = prev[lo];
-                for (prev[lo..hi]) |p| m = @max(m, p);
-                flux += @max(0.0, cur[b] - m);
-            }
-        }
-        odf[t] = flux;
-        prev = cur;
-    }
 
     var mean: f32 = 0;
     for (odf) |v| mean += v;
     mean /= @floatFromInt(odf.len);
     if (!(mean > 0)) return count; // silence, or a clip with no change in it
 
-    const fps = @as(f32, @floatFromInt(sample_rate)) / @as(f32, @floatFromInt(hop));
     const win = struct {
         fn f(sec: f32, rate: f32) usize {
             return @max(1, @as(usize, @intFromFloat(@round(sec * rate))));
         }
     }.f;
-    const pre_max = win(0.03, fps);
+    const pre_max = win(0.03, onset.fps);
     const post_max = pre_max;
-    const pre_avg = win(0.10, fps);
-    const post_avg = win(0.07, fps);
+    const pre_avg = win(0.10, onset.fps);
+    const post_avg = win(0.07, onset.fps);
     // 30 ms refractory: two boundaries closer than that are one drum hit
     // seen twice, and a slice that short isn't playable anyway.
-    const min_gap = win(0.03, fps);
-    const max_backtrack = win(0.05, fps);
+    const min_gap = win(0.03, onset.fps);
+    const max_backtrack = win(0.05, onset.fps);
 
     const s = std.math.clamp(sensitivity, 1, 9);
     const delta = mean * (2.5 - 0.275 * @as(f32, @floatFromInt(s - 1)));
@@ -1510,7 +1471,7 @@ pub fn detectOnsets(samples: []const f32, sample_rate: u32, sensitivity: u8, out
         if (count >= Slicer.max_slices) break;
         // The window is Hann-weighted, so frame `b` reports on the audio
         // around its centre, not its start.
-        out[count] = @as(f32, @floatFromInt(b * hop + frame / 2)) / @as(f32, @floatFromInt(samples.len));
+        out[count] = @as(f32, @floatFromInt(b * hop + onset.frame / 2)) / @as(f32, @floatFromInt(samples.len));
         count += 1;
     }
     return count;
