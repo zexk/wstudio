@@ -2569,40 +2569,15 @@ pub const App = struct {
         }
     }
 
-    /// `S` on a group row: solo every member track at once. Solo has no
-    /// bus-level concept in the engine - it's a global "only soloed tracks
-    /// play" scan over every track (`renderTracks`'s `any_solo`) - so
-    /// soloing a group IS soloing its members. Toggles off when the whole
-    /// group is already soloed, so pressing `S` twice always returns to
-    /// unsoloed even if the members started out mixed.
+    /// `S` on a group row: flip the bus's own solo flag (`GroupState.soloed`
+    /// - a real flag now, not soloing every member track: see its doc
+    /// comment for why that used to drift, same reason `doGroupMute` got
+    /// the same treatment).
     pub fn doGroupSolo(self: *App, g: u8) void {
         const grp = &(self.session.groups[g] orelse return);
-        const state = self.groupFlagState(g);
-        if (state.members == 0) {
-            self.setStatus("\"{s}\" has no tracks", .{grp.name});
-            return;
-        }
-        const want = !state.all;
-        for (self.session.project.tracks.items, 0..) |t, i| {
-            if (t.group != g) continue;
-            self.apiSetTrackSoloed(i, want);
-        }
-        self.setStatus("\"{s}\" {s} ({d} tracks)", .{ grp.name, if (want) "soloed" else "unsoloed", state.members });
-    }
-
-    /// Member rollup for group `g`: how many tracks it holds and whether
-    /// every one is soloed. Drives `doGroupSolo` and the GUI group row's
-    /// solo badge - `all` is false for an empty group, so a memberless
-    /// group never reads as "on".
-    pub fn groupFlagState(self: *const App, g: u8) struct { members: u16, all: bool } {
-        var members: u16 = 0;
-        var all = true;
-        for (self.session.project.tracks.items) |t| {
-            if (t.group != g) continue;
-            members += 1;
-            if (!t.soloed) all = false;
-        }
-        return .{ .members = members, .all = members > 0 and all };
+        self.session.setGroupSoloed(g, !grp.soloed);
+        self.dirty = true;
+        self.setStatus("\"{s}\" {s}", .{ grp.name, if (grp.soloed) "soloed" else "unsoloed" });
     }
 
     /// `m` on a group row: flip the bus's own mute flag (`GroupState.muted`
@@ -2804,11 +2779,11 @@ pub const App = struct {
     }
 
     /// `m`/`S` in tracks-view visual mode: mute/solo every selected track at
-    /// once. Same all-or-nothing toggle `doGroupSolo` uses - if any selected
-    /// track isn't muted/soloed yet, this turns it on for all of them; if
-    /// they're already all on, it turns them all off. Always the member
-    /// tracks' own flags (never GroupState.muted - a visual selection is an
-    /// arbitrary row range, not necessarily a whole bus).
+    /// once, all-or-nothing - if any selected track isn't muted/soloed yet,
+    /// this turns it on for all of them; if they're already all on, it turns
+    /// them all off. Always the member tracks' own flags (never
+    /// GroupState.muted/soloed - a visual selection is an arbitrary row
+    /// range, not necessarily a whole bus).
     fn doVisualToggle(self: *App, solo: bool) void {
         const anchor = self.tracks_visual_anchor orelse self.track_row;
         const lo = @min(anchor, self.track_row);

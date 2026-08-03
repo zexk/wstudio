@@ -67,6 +67,8 @@ pub const Command = union(enum) {
     set_group_gain: struct { group: u8, gain: f32 },
     /// Group submix bus mute - see `GroupState.muted`.
     set_group_mute: struct { group: u8, muted: bool },
+    /// Group submix bus solo - see `GroupState.soloed`.
+    set_group_solo: struct { group: u8, soloed: bool },
     /// `group` is only read when `source == .group` (reuses `track` as the
     /// generic focus index otherwise, unchanged) - same one-analyzer-at-a-
     /// time model track/master already share, see `Engine.track_spectrum`.
@@ -223,6 +225,13 @@ const GroupState = struct {
     /// straight through, and unmuting couldn't tell which members were
     /// individually muted beforehand).
     muted: bool = false,
+    /// Bus solo - a real flag on the bus itself, not derived from every
+    /// member track's own `soloed` (which used to be how `S` on a group row
+    /// worked: it flipped each member's flag, same drift-prone shape
+    /// `muted`'s doc comment describes). Participates in the same global
+    /// "only soloed things play" scan `any_solo` runs over tracks - see
+    /// `renderTracks`/`renderOneTrack`.
+    soloed: bool = false,
     /// Same fixed width as `master_chain` (Fx.max_units, hardcoded here the
     /// same way master_chain's own field already does rather than importing
     /// rack.zig just for the constant).
@@ -969,6 +978,9 @@ pub const Engine = struct {
             .set_group_mute => |c| if (c.group < max_groups) {
                 self.groups[c.group].muted = c.muted;
             },
+            .set_group_solo => |c| if (c.group < max_groups) {
+                self.groups[c.group].soloed = c.soloed;
+            },
             .set_loop => |c| {
                 self.transport.loop_enabled = c.enabled;
                 self.transport.loop_start_frames = c.start_frames;
@@ -1178,7 +1190,12 @@ pub const Engine = struct {
             c.captured = true;
         }
 
-        if (track.muted or (any_solo and !track.soloed)) return;
+        // A track counts as soloed-in if it's soloed itself OR its own bus
+        // is soloed (GroupState.soloed) - see any_solo's own doc comment for
+        // why a bus solo has to fold into this same global scan rather than
+        // being its own separate gate.
+        const group_soloed = if (track.group) |gidx| gidx < max_groups and self.groups[gidx].active and self.groups[gidx].soloed else false;
+        if (track.muted or (any_solo and !track.soloed and !group_soloed)) return;
 
         const gain = auto.gain.valueAt(beat_pos) orelse track.gain;
         const pan = auto.pan.valueAt(beat_pos) orelse track.pan;
@@ -1218,7 +1235,9 @@ pub const Engine = struct {
     }
 
     fn renderTracks(self: *Engine, out: []Sample, frames: u32) void {
-        // When any track is soloed, only soloed tracks are audible.
+        // When any track OR any bus is soloed, only soloed tracks/buses are
+        // audible - a bus solo is folded into the same global flag rather
+        // than a separate gate (see `renderOneTrack`'s `group_soloed` check).
         var any_solo = false;
         for (self.tracks) |*slot| {
             const t = slot.load(.acquire);
@@ -1227,6 +1246,12 @@ pub const Engine = struct {
                 break;
             }
         }
+        if (!any_solo) for (self.groups) |g| {
+            if (g.active and g.soloed) {
+                any_solo = true;
+                break;
+            }
+        };
 
         // Block-start beat position, for gain/pan automation below. One
         // evaluation per block (not per sample) - plenty of resolution for a
@@ -1745,6 +1770,52 @@ test "set_group_mute silences the bus without touching member tracks' own mute f
     loud = 0.0;
     for (block) |s| loud = @max(loud, @abs(s));
     try std.testing.expect(loud > 0.05); // unmuting restores it
+}
+
+test "set_group_solo makes every member audible and silences everything else, without touching member tracks' own solo flags" {
+    var synth0 = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth0.deinit();
+    var synth1 = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth1.deinit();
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.trackAt(0).* = .{ .active = true }; // will join group 0
+    engine.trackAt(1).* = .{ .active = true }; // stays ungrouped
+    engine.setTrackChain(0, &.{synth0.device()});
+    engine.setTrackChain(1, &.{synth1.device()});
+    _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
+    _ = engine.send(.{ .note_on = .{ .track = 1, .note = 60, .velocity = 1.0 } });
+    engine.setGroupChain(0, true, &.{});
+    _ = engine.send(.{ .set_track_group = .{ .track = 0, .group = 0 } });
+
+    var block: [512]Sample = undefined;
+    for (0..4) |_| engine.process(&block); // let envelopes settle
+
+    // Solo the group, but mute track 0 directly so any residual output can
+    // only be track 1 leaking through - it shouldn't.
+    _ = engine.send(.{ .set_track_mute = .{ .track = 0, .muted = true } });
+    _ = engine.send(.{ .set_group_solo = .{ .group = 0, .soloed = true } });
+    for (0..4) |_| engine.process(&block);
+    for (block) |s| try std.testing.expectEqual(@as(Sample, 0.0), s); // track 1 silenced by the group solo
+
+    try std.testing.expect(!engine.trackAt(0).soloed); // member's own flag untouched
+
+    // Unmute track 0: now it's the only thing that should get through
+    // (group-soloed, not muted); track 1 stays silenced.
+    _ = engine.send(.{ .set_track_mute = .{ .track = 0, .muted = false } });
+    for (0..4) |_| engine.process(&block);
+    var loud: f32 = 0.0;
+    for (block) |s| loud = @max(loud, @abs(s));
+    try std.testing.expect(loud > 0.05);
+
+    // Clearing the group solo restores track 1 alongside it.
+    _ = engine.send(.{ .set_group_solo = .{ .group = 0, .soloed = false } });
+    for (0..4) |_| engine.process(&block);
+    _ = engine.send(.{ .set_track_mute = .{ .track = 0, .muted = true } }); // isolate track 1's own contribution
+    for (0..4) |_| engine.process(&block);
+    loud = 0.0;
+    for (block) |s| loud = @max(loud, @abs(s));
+    try std.testing.expect(loud > 0.05);
 }
 
 test "renderTracks routes a compressor's sidechain detector from a different (source) track" {

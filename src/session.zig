@@ -115,6 +115,8 @@ pub const Session = struct {
         gain_db: f32 = 0.0,
         /// Bus mute - see `engine_mod.GroupState.muted`.
         muted: bool = false,
+        /// Bus solo - see `engine_mod.GroupState.soloed`.
+        soloed: bool = false,
         /// Tracks-view fold state: when true the group's member rows are
         /// hidden behind the group's own row. Pure UI state - the engine
         /// never sees it - but persisted so a folded mixer stays folded
@@ -1089,11 +1091,13 @@ pub const Session = struct {
             self.engine.setGroupSidechainSources(idx, g.fx.sidechainSources(&sc_buf));
             _ = self.engine.send(.{ .set_group_gain = .{ .group = idx, .gain = types.dbToGain(g.gain_db) } });
             _ = self.engine.send(.{ .set_group_mute = .{ .group = idx, .muted = g.muted } });
+            _ = self.engine.send(.{ .set_group_solo = .{ .group = idx, .soloed = g.soloed } });
         } else {
             self.engine.setGroupChain(idx, false, &.{});
             self.engine.setGroupSidechainSources(idx, &.{});
             _ = self.engine.send(.{ .set_group_gain = .{ .group = idx, .gain = 1.0 } });
             _ = self.engine.send(.{ .set_group_mute = .{ .group = idx, .muted = false } });
+            _ = self.engine.send(.{ .set_group_solo = .{ .group = idx, .soloed = false } });
         }
     }
 
@@ -1114,6 +1118,16 @@ pub const Session = struct {
         if (self.groups[idx]) |*g| {
             g.muted = muted;
             _ = self.engine.send(.{ .set_group_mute = .{ .group = idx, .muted = muted } });
+        }
+    }
+
+    /// Set group `idx`'s own solo flag and push it to the audio thread.
+    /// No-op on an unused slot.
+    pub fn setGroupSoloed(self: *Session, idx: u8, soloed: bool) void {
+        if (idx >= engine_mod.max_groups) return;
+        if (self.groups[idx]) |*g| {
+            g.soloed = soloed;
+            _ = self.engine.send(.{ .set_group_solo = .{ .group = idx, .soloed = soloed } });
         }
     }
 

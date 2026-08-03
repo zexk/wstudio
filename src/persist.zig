@@ -901,6 +901,8 @@ pub const GroupSnap = struct {
     /// and every group loads unmuted - the prior (mute-had-no-bus-flag)
     /// behaviour.
     muted: bool = false,
+    /// Additive: bus solo (see `Session.Group.soloed`), same shape as `muted`.
+    soloed: bool = false,
 };
 
 pub const ClipKind = enum { melodic, drum };
@@ -1035,7 +1037,7 @@ pub fn save(
     const groups = try aa.alloc(GroupSnap, engine_mod.max_groups);
     for (groups, 0..) |*gs, i| {
         if (session.groups[i]) |*g| {
-            gs.* = .{ .active = true, .name = g.name, .fx_chain = try chainToSnap(aa, &g.fx, session.project.sample_rate), .gain_db = g.gain_db, .folded = g.folded, .muted = g.muted };
+            gs.* = .{ .active = true, .name = g.name, .fx_chain = try chainToSnap(aa, &g.fx, session.project.sample_rate), .gain_db = g.gain_db, .folded = g.folded, .muted = g.muted, .soloed = g.soloed };
         } else {
             gs.* = .{};
         }
@@ -2268,6 +2270,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
             .gain_db = finiteClamp(f32, gs.gain_db, -60.0, 12.0, 0.0),
             .folded = gs.folded,
             .muted = gs.muted,
+            .soloed = gs.soloed,
         };
         try applyFxChain(allocator, &self.groups[idx].?.fx, gs.fx_chain, sr, &self.engine.transport);
         self.syncGroupChain(idx);

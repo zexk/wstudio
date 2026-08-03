@@ -206,8 +206,14 @@ fn writeGroupRow(app: anytype, w: *std.Io.Writer, gi: u8, is_sel: bool, in_sel: 
     if (!is_sel) try lw.writeAll(acc);
     try lw.writeAll(" [group]");
     if (!is_sel) try lw.writeAll(rst);
-    // Bus mute indicator - same yellow M/icon shape a track row's own mute
-    // flag gets.
+    // Bus solo/mute indicators - same green/yellow S/M-or-icon shape a
+    // track row's own flags get.
+    if (grp.soloed) {
+        try lw.writeByte(' ');
+        if (!is_sel) try lw.writeAll(grn);
+        if (icons.font_installed) try lw.writeAll(icons.solo) else try lw.writeByte('S');
+        if (!is_sel) try lw.writeAll(rst);
+    }
     if (grp.muted) {
         try lw.writeByte(' ');
         if (!is_sel) try lw.writeAll(yel);

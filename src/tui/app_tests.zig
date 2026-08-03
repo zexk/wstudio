@@ -7639,7 +7639,7 @@ test "tracks view: group row rides its bus fader, opens its chain, dd deletes th
     try std.testing.expectEqual(@as(usize, 3), app.track_rows_len); // plain track list again
 }
 
-test "tracks view: m on a group row flips the bus mute flag; S solos every member" {
+test "tracks view: m/S on a group row flip the bus's own mute/solo flags" {
     var app = try testApp();
     defer app.deinit();
     const g = try app.session.addGroup("bus");
@@ -7650,8 +7650,8 @@ test "tracks view: m on a group row flips the bus mute flag; S solos every membe
     app.setTrackRow(0); // the group row
     try std.testing.expectEqual(@as(?u8, g), app.cursorGroup());
 
-    // m is a real bus-level flag now, not a mute-every-member loop - member
-    // tracks' own `muted` fields are untouched.
+    // Both are real bus-level flags now, not a loop over every member -
+    // member tracks' own muted/soloed fields are untouched.
     app.handleKey(.{ .char = 'm' }, 0);
     try std.testing.expect(app.session.groups[g].?.muted);
     try std.testing.expect(!app.session.project.tracks.items[0].muted);
@@ -7660,12 +7660,13 @@ test "tracks view: m on a group row flips the bus mute flag; S solos every membe
     app.handleKey(.{ .char = 'm' }, 0);
     try std.testing.expect(!app.session.groups[g].?.muted);
 
-    // S has no bus-level concept in the engine, so it still solos every
-    // member track directly.
     app.handleKey(.{ .char = 'S' }, 0);
-    try std.testing.expect(app.session.project.tracks.items[0].soloed);
-    try std.testing.expect(app.session.project.tracks.items[1].soloed);
-    try std.testing.expect(!app.session.project.tracks.items[2].soloed);
+    try std.testing.expect(app.session.groups[g].?.soloed);
+    try std.testing.expect(!app.session.project.tracks.items[0].soloed);
+    try std.testing.expect(!app.session.project.tracks.items[1].soloed);
+
+    app.handleKey(.{ .char = 'S' }, 0);
+    try std.testing.expect(!app.session.groups[g].?.soloed);
 }
 
 test "tracks view: visual g groups the selected rows and lands on the new group's row" {
