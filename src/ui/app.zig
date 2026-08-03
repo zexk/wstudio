@@ -2297,7 +2297,7 @@ pub const App = struct {
                             'v', 'V' => {
                                 self.tracks_visual_anchor = self.track_row;
                                 self.modal.mode = .visual;
-                                self.setStatus("visual: j/k extend, g group, m mute, S solo, dd del, -+ gain, <> pan, [] color, esc cancel", .{});
+                                self.setStatus("visual: j/k extend, g group, m mute, S solo, Y dup, dd del, -+ gain, <> pan, [] color, esc cancel", .{});
                                 return;
                             },
                             'Y', 'J', 'K', 'p', 'I', 'r', 'f', '<', '>', '[', ']' => {
@@ -2339,7 +2339,7 @@ pub const App = struct {
                             'v', 'V' => {
                                 self.tracks_visual_anchor = self.track_row;
                                 self.modal.mode = .visual;
-                                self.setStatus("visual: j/k extend, g group, m mute, S solo, dd del, -+ gain, <> pan, [] color, esc cancel", .{});
+                                self.setStatus("visual: j/k extend, g group, m mute, S solo, Y dup, dd del, -+ gain, <> pan, [] color, esc cancel", .{});
                                 return;
                             },
                             'c' => { self.toggleMetronome(); return; },
@@ -2739,6 +2739,7 @@ pub const App = struct {
                 'm' => self.doVisualMuteToggle(),
                 'S' => self.doVisualSoloToggle(),
                 'd' => { self.tracks_del_pending = true; },
+                'Y' => self.doVisualDup(),
                 '-' => self.doVisualGainStep(-1.0),
                 '+', '=' => self.doVisualGainStep(1.0),
                 '<' => self.doVisualPanStep(-0.05),
@@ -2885,6 +2886,22 @@ pub const App = struct {
         }
         self.dirty = true;
         self.setStatus("cycled color on {d} tracks", .{sel.items.len});
+    }
+
+    /// `Y` in tracks-view visual mode: duplicate every selected track.
+    /// Reuses `doTrackDup` per track - each duplicate appends at the end, so
+    /// unlike delete there's no index-shift ordering to worry about.
+    fn doVisualDup(self: *App) void {
+        const anchor = self.tracks_visual_anchor orelse self.track_row;
+        const lo = @min(anchor, self.track_row);
+        const hi = @max(anchor, self.track_row);
+        self.exitTracksVisual();
+        var sel = self.resolveVisualTrackIndices(lo, hi);
+        defer sel.deinit(self.allocator);
+        if (sel.items.len == 0) { self.setStatus("no tracks selected", .{}); return; }
+        const count = sel.items.len;
+        for (sel.items) |t| self.doTrackDup(t);
+        self.setStatus("duplicated {d} tracks", .{count});
     }
 
     /// `dd` in tracks-view visual mode: delete every selected track. Reuses

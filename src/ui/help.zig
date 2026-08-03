@@ -145,7 +145,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.group("ORGANIZE AND MIX");
     t.key("[ / ]",        "cycle selected track's color (16 colors + none)");
     t.key("R",            "rename selected track (opens :rename <n>) - group row: renames the group instead");
-    t.key("v",            "visual mode: select a row range - g groups it; m/S/dd/-+/<>/[] bulk-mute/solo/delete/gain/pan/color it");
+    t.key("v",            "visual mode: select a row range - g groups it; m/S/Y/dd/-+/<>/[] bulk-mute/solo/dup/delete/gain/pan/color it");
     t.key("z",            "fold / unfold the group under the cursor - its member rows hide behind the group's row");
     t.key(":group-fx <n>", "open group n's FX chain - same shared chain view as a track/master");
     t.key(":track-group",  "<track> <group|none>  assign or clear a track's group by number");
