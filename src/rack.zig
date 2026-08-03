@@ -283,7 +283,25 @@ pub const FxUnit = struct {
         return self.payload.device().latencyFrames();
     }
 
+    /// A unit is a transparent wrapper around its payload, so it must pass
+    /// events through the same way it passes `process`/`reset`/latency
+    /// through. Leaving `.event` off the vtable made `Device.sendEvent` a
+    /// silent no-op for every FX unit on every track, group, and master
+    /// chain - which killed sidechain compression outright, since
+    /// `Engine.processChainWithSidechain` hands a compressor its detector
+    /// buffer through exactly this path and the comp then fell back to
+    /// self-detection (audible as flat attenuation instead of pumping).
+    fn handleEvent(self: *FxUnit, ev: dsp.Event) void {
+        self.payload.device().sendEvent(ev);
+    }
+
     const vtable: dsp.Device.VTable = .{
+        .event = struct {
+            fn call(ptr: *anyopaque, ev: dsp.Event) void {
+                const self: *FxUnit = @ptrCast(@alignCast(ptr));
+                self.handleEvent(ev);
+            }
+        }.call,
         .process = struct {
             fn call(ptr: *anyopaque, buf: []types.Sample) void {
                 const self: *FxUnit = @ptrCast(@alignCast(ptr));
@@ -657,6 +675,21 @@ pub const Rack = struct {
         return buf[0..len];
     }
 };
+
+test "a unit's device forwards events to its payload instead of swallowing them" {
+    var fx = Fx{};
+    defer fx.deinit(std.testing.allocator);
+    const unit = try fx.insert(std.testing.allocator, 0, .comp, 48_000);
+
+    // The engine hands a compressor its sidechain detector through exactly
+    // this path (Engine.processChainWithSidechain -> Device.sendEvent). A
+    // unit device with no `.event` in its vtable drops it silently, and the
+    // comp self-detects - which is what killed every sidechain in the app.
+    const detector = [_]types.Sample{1.0} ** 8;
+    unit.device().sendEvent(.{ .set_sidechain_buf = .{ .buf = &detector } });
+    try std.testing.expect(unit.payload.comp.detector != null);
+    try std.testing.expectEqual(@as(usize, 8), unit.payload.comp.detector.?.len);
+}
 
 test "chain follows insertion order, not a fixed slot order" {
     var rack = Rack{
