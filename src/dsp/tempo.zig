@@ -1,9 +1,11 @@
 //! Tempo estimation for a loaded clip - the analysis half of Serato-style
 //! "BPM sync", where a loop is stretched to the project tempo instead of
 //! being nudged into place by ear. Autocorrelates an onset-strength envelope
-//! (the same 10 ms RMS hops `slicer.detectOnsets` chops on, differenced so a
-//! steady tone contributes nothing) and reads the strongest periodicity in
-//! the musically plausible lag range.
+//! (10 ms RMS hops, differenced so a steady tone contributes nothing) and
+//! reads the strongest periodicity in the musically plausible lag range. A
+//! broadband envelope is enough here where `slicer.detectOnsets` needs
+//! spectral flux: autocorrelation only wants the pulse to be periodic, not
+//! every hit of it to be found.
 //!
 //! Control thread only: it walks the whole clip and is called from commands,
 //! never from a render block.

@@ -52,6 +52,7 @@ const Pad = pad_mod.Pad;
 const Voice = pad_mod.Voice;
 const DrumMachine = @import("drum_sampler.zig").DrumMachine;
 const Note = @import("pattern.zig").Note;
+const fft_mod = @import("fft.zig");
 
 const Sample = types.Sample;
 
@@ -1387,69 +1388,130 @@ pub const Slicer = struct {
     }
 };
 
-/// Energy-envelope onset detection for `chopTransients`: fills `out` with
+/// Spectral-flux onset detection for `chopTransients`: fills `out` with
 /// ascending slice-start positions (fractions of the clip, `out[0]` always
-/// 0.0) and returns how many were found (>= 1). An onset is a 10 ms RMS hop
-/// that rises `ratio`x above the recent local average - `sensitivity` 1..9
-/// maps to ratio 3.7 (only the hardest hits) down to 1.3 (every flutter) -
-/// gated by a noise floor relative to the clip's own peak and a 40 ms
-/// refractory so one drum hit can't chop twice. The boundary lands one hop
-/// early so the attack transient stays inside its own slice.
+/// 0.0) and returns how many were found (>= 1).
+///
+/// A broadband RMS envelope only sees an onset that lifts the clip's *total*
+/// energy, so a hat over a sustained bass note, or a snare buried in an
+/// already-loud bar, never registers at all. This differences the
+/// log-magnitude spectrum instead (SuperFlux, Boeck & Widmer 2013), so a
+/// frame scores when it adds energy *anywhere* in the spectrum, with a
+/// three-bin maximum filter on the previous frame so vibrato and pitch
+/// slides drift within their own neighbourhood and read as no attack.
+///
+/// Peaks are picked the way Dixon 2006 does: a local maximum of the
+/// detection function that also clears a local mean by `delta`, where
+/// `sensitivity` 1..9 scales delta from 2.5x the clip's mean flux (only the
+/// hardest hits) down to 0.3x (every flutter). Each accepted peak is then
+/// backtracked to the valley the attack rose out of, so the transient itself
+/// lands inside its own slice instead of at the point the flux topped out,
+/// which is already past the attack.
 pub fn detectOnsets(samples: []const f32, sample_rate: u32, sensitivity: u8, out: *[Slicer.max_slices]f32) u8 {
     out[0] = 0.0;
     var count: u8 = 1;
-    if (samples.len == 0) return count;
 
-    const hop: usize = @max(sample_rate / 100, 32);
-    const hops = samples.len / hop;
-    if (hops < 4) return count;
+    // 1024 at 200 fps: ~47 Hz per bin, and a 5 ms grid, which is finer than
+    // any chop boundary anyone can hear placed wrong.
+    const frame: usize = 1024;
+    const bins: usize = frame / 2;
+    const hop: usize = @max(sample_rate / 200, 64);
+    if (samples.len <= frame) return count;
+    const frames = (samples.len - frame) / hop + 1;
+    if (frames < 4) return count;
 
-    const hopRms = struct {
-        fn f(s: []const f32, h: usize, size: usize) f32 {
-            var acc: f32 = 0;
-            for (s[h * size ..][0..size]) |x| acc += x * x;
-            return @sqrt(acc / @as(f32, @floatFromInt(size)));
-        }
-    }.f;
+    var fallback = std.heap.stackFallback(4096 * @sizeOf(f32), std.heap.page_allocator);
+    const alloc = fallback.get();
+    const odf = alloc.alloc(f32, frames) catch return count;
+    defer alloc.free(odf);
 
-    var peak_env: f32 = 1e-9;
-    for (0..hops) |h| peak_env = @max(peak_env, hopRms(samples, h, hop));
-    const noise_floor = peak_env * 0.04;
+    var re: [frame]f32 = undefined;
+    var im: [frame]f32 = undefined;
+    var cur: [bins]f32 = undefined;
+    var prev = [_]f32{0} ** bins;
 
-    const s = std.math.clamp(sensitivity, 1, 9);
-    const ratio = 3.7 - 0.3 * @as(f32, @floatFromInt(s - 1));
-    const min_gap_hops: usize = 4; // 40 ms refractory
+    for (0..frames) |t| {
+        @memcpy(re[0..], samples[t * hop ..][0..frame]);
+        @memset(im[0..], 0);
+        fft_mod.hannWindow(re[0..]);
+        fft_mod.fft(frame, re[0..], im[0..]);
+        // Log magnitude, so a quiet hit in a quiet bar counts as much as a
+        // loud one in a loud bar - the flux is about change, not level.
+        for (0..bins) |b| cur[b] = @log(1.0 + fft_mod.magnitude(re[b], im[b]));
 
-    // Moving local average over the last `ring.len` hops, seeded with the
-    // first hop so a hot open doesn't divide by a zero-energy history.
-    var ring = [_]f32{hopRms(samples, 0, hop)} ** 8;
-    var ring_i: usize = 0;
-    var prev_env = ring[0];
-    var last_onset_hop: usize = 0;
-
-    for (1..hops) |h| {
-        const env = hopRms(samples, h, hop);
-        var avg: f32 = 0;
-        for (ring) |r| avg += r;
-        avg /= @floatFromInt(ring.len);
-
-        const rising = env > prev_env;
-        const loud_enough = env > noise_floor;
-        const jumps = env > avg * ratio;
-        const spaced = h - last_onset_hop >= min_gap_hops;
-        if (rising and loud_enough and jumps and spaced) {
-            last_onset_hop = h;
-            const pos = @as(f32, @floatFromInt((h - 1) * hop)) / @as(f32, @floatFromInt(samples.len));
-            // The head is always slice 0; an onset this close to it is it.
-            if (pos > 0.02 and count < Slicer.max_slices) {
-                out[count] = pos;
-                count += 1;
+        var flux: f32 = 0;
+        if (t > 0) {
+            for (0..bins) |b| {
+                const lo = if (b == 0) 0 else b - 1;
+                const hi = @min(b + 2, bins);
+                var m = prev[lo];
+                for (prev[lo..hi]) |p| m = @max(m, p);
+                flux += @max(0.0, cur[b] - m);
             }
         }
+        odf[t] = flux;
+        prev = cur;
+    }
 
-        ring[ring_i] = env;
-        ring_i = (ring_i + 1) % ring.len;
-        prev_env = env;
+    var mean: f32 = 0;
+    for (odf) |v| mean += v;
+    mean /= @floatFromInt(odf.len);
+    if (!(mean > 0)) return count; // silence, or a clip with no change in it
+
+    const fps = @as(f32, @floatFromInt(sample_rate)) / @as(f32, @floatFromInt(hop));
+    const win = struct {
+        fn f(sec: f32, rate: f32) usize {
+            return @max(1, @as(usize, @intFromFloat(@round(sec * rate))));
+        }
+    }.f;
+    const pre_max = win(0.03, fps);
+    const post_max = pre_max;
+    const pre_avg = win(0.10, fps);
+    const post_avg = win(0.07, fps);
+    // 30 ms refractory: two boundaries closer than that are one drum hit
+    // seen twice, and a slice that short isn't playable anyway.
+    const min_gap = win(0.03, fps);
+    const max_backtrack = win(0.05, fps);
+
+    const s = std.math.clamp(sensitivity, 1, 9);
+    const delta = mean * (2.5 - 0.275 * @as(f32, @floatFromInt(s - 1)));
+
+    var last: usize = 0;
+    for (1..frames) |t| {
+        const v = odf[t];
+        if (v <= 0) continue;
+
+        const mlo = t -| pre_max;
+        const mhi = @min(t + post_max + 1, frames);
+        var is_max = true;
+        for (odf[mlo..mhi]) |x| {
+            if (x > v) {
+                is_max = false;
+                break;
+            }
+        }
+        if (!is_max) continue;
+
+        const alo = t -| pre_avg;
+        const ahi = @min(t + post_avg + 1, frames);
+        var avg: f32 = 0;
+        for (odf[alo..ahi]) |x| avg += x;
+        avg /= @floatFromInt(ahi - alo);
+        if (v < avg + delta) continue;
+
+        // Walk back down the rising edge. Strict `<` stops at the foot of
+        // the rise rather than sliding on through the flat silence before
+        // it, which would put the boundary an arbitrary 50 ms early.
+        var b = t;
+        while (b > 0 and t - b < max_backtrack and odf[b - 1] < odf[b]) b -= 1;
+        if (b < last + min_gap) continue; // `last` starts at 0: also the head rule
+        last = b;
+
+        if (count >= Slicer.max_slices) break;
+        // The window is Hann-weighted, so frame `b` reports on the audio
+        // around its centre, not its start.
+        out[count] = @as(f32, @floatFromInt(b * hop + frame / 2)) / @as(f32, @floatFromInt(samples.len));
+        count += 1;
     }
     return count;
 }
@@ -1649,6 +1711,40 @@ test "chopTransients finds the bursts and anchors slice 0 at the head" {
     // Contiguous: each slice ends where the next begins.
     try std.testing.expectApproxEqAbs(s.slices[1].start_norm, s.slices[0].end_norm, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), s.slices[3].end_norm, 1e-6);
+}
+
+/// Four quiet ticks riding a loud sustained bass note - the case a
+/// broadband energy envelope cannot see, because the ticks barely move the
+/// clip's total level.
+fn maskedTickClip(allocator: std.mem.Allocator, sample_rate: u32) ![]f32 {
+    const len = sample_rate;
+    const out = try allocator.alloc(f32, len);
+    const w = 2.0 * std.math.pi * 80.0 / @as(f32, @floatFromInt(sample_rate));
+    for (out, 0..) |*x, i| x.* = 0.7 * @sin(w * @as(f32, @floatFromInt(i)));
+    var rng = std.Random.DefaultPrng.init(7);
+    const tick_len = sample_rate / 100; // 10 ms
+    for (0..4) |b| {
+        const at = b * (len / 4);
+        for (0..tick_len) |i| {
+            const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(tick_len));
+            out[at + i] += (rng.random().float(f32) * 2.0 - 1.0) * 0.2 * (1.0 - t);
+        }
+    }
+    return out;
+}
+
+test "chopTransients hears a tick masked by a sustained note" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    std.testing.allocator.free(s.samples);
+    s.samples = try maskedTickClip(std.testing.allocator, 48_000);
+    for (&s.slices) |*p| p.samples = s.samples;
+
+    try std.testing.expectEqual(@as(u8, 4), s.chopTransients(5));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), s.slices[1].start_norm, 0.03);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.50), s.slices[2].start_norm, 0.03);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), s.slices[3].start_norm, 0.03);
 }
 
 test "chopTransients on silence falls back to one whole-clip slice" {
