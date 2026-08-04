@@ -448,6 +448,7 @@ test {
     _ = @import("views/drum.zig");
     _ = @import("views/file_browser.zig");
     _ = @import("views/fx.zig");
+    _ = @import("views/fx_eq.zig");
     _ = @import("views/help.zig");
     _ = @import("views/picker.zig");
     _ = @import("views/piano.zig");
