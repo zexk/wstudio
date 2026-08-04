@@ -1275,6 +1275,15 @@ pub fn legacyLayout(v: *const KitVariant) KitVariant {
     return out;
 }
 
+/// Where a pre-v36 file's pad index `old` lives today - the same
+/// permutation `legacyLayout` applies to kit audio, exposed so
+/// `persist.zig` can apply it to the file's own pad-indexed note/choke-
+/// group/pad-length/pad data too. Values >= 16 (impossible in a real
+/// pre-v36 file, which only ever had 16 pads) pass through unchanged.
+pub fn legacyPadIndex(old: u8) u8 {
+    return if (old < legacy_order.len) legacy_order[old] else old;
+}
+
 /// Look a factory kit up by name, or null if there is no such flavour.
 pub fn byName(name: []const u8) ?*const KitVariant {
     for (&variants) |*v| {

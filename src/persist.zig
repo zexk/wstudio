@@ -2041,11 +2041,16 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                     // a kit that no longer exists - just leaves them empty.
                     if (ds.kit.len > 0) {
                         if (drum_kit.byName(ds.kit)) |variant| {
-                            // v36 regrouped the 16 pads by soundtype. Older
-                            // files sequenced the old indices, so they get the
-                            // kit rebuilt in the old order.
-                            const laid_out = if (snap.version >= 36) variant.* else drum_kit.legacyLayout(variant);
-                            dmp.loadKitVariant(&laid_out) catch {};
+                            // Always loaded in today's soundtype-grouped
+                            // order - a pre-v36 file's own pad-indexed data
+                            // (notes/choke_group/pad_len/pads below) gets
+                            // remapped into that same order as it's applied,
+                            // rather than the kit alone being rebuilt back
+                            // into the file's old order. A one-time migration
+                            // instead of a permanent legacy-order session:
+                            // resaving no longer scrambles the layout (see
+                            // `drum_kit.legacyPadIndex`'s doc comment).
+                            dmp.loadKitVariant(variant) catch {};
                         }
                     }
                     if (ds.variants.len > 0) {
@@ -2059,9 +2064,9 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                             slot.midi = try DrumMachine.allocMidi(allocator, sc);
                             dmp.variant_count += 1;
                             if (snap.version >= 23) {
-                                applyNoteSnap(&slot.midi, sc, vs.notes);
+                                applyNoteSnap(&slot.midi, sc, vs.notes, snap.version < 36);
                             } else {
-                                legacyPatternVelToMidi(&slot.midi, sc, vs.pattern, vs.vel, vs.vel_lo, vs.vel_hi);
+                                legacyPatternVelToMidi(&slot.midi, sc, vs.pattern, vs.vel, vs.vel_lo, vs.vel_hi, true);
                             }
                         }
                         dmp.variant = @min(ds.variant, count - 1);
@@ -2080,9 +2085,9 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         DrumMachine.freeMidi(allocator, &dmp.midi);
                         dmp.midi = midi;
                         if (snap.version >= 23) {
-                            applyNoteSnap(&dmp.midi, sc, ds.notes);
+                            applyNoteSnap(&dmp.midi, sc, ds.notes, snap.version < 36);
                         } else {
-                            legacyPatternVelToMidi(&dmp.midi, sc, ds.pattern, &.{}, &.{}, &.{});
+                            legacyPatternVelToMidi(&dmp.midi, sc, ds.pattern, &.{}, &.{}, &.{}, true);
                         }
                         dmp.step_count = sc;
                         dmp.steps_per_beat = std.math.clamp(ds.steps_per_beat, 1, 32);
@@ -2098,14 +2103,16 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                     for (&dmp.choke_group) |*c| c.* = 0;
                     for (ds.choke_group, 0..) |g, pi| {
                         if (pi >= DrumMachine.max_pads) break;
-                        dmp.choke_group[pi] = @min(g, DrumMachine.max_choke_groups);
+                        const pad: usize = if (snap.version < 36 and pi < 16) drum_kit.legacyPadIndex(@intCast(pi)) else pi;
+                        dmp.choke_group[pad] = @min(g, DrumMachine.max_choke_groups);
                     }
                     // Same "the file is the source of truth even when silent"
                     // rule as the choke groups above.
                     for (&dmp.pad_len) |*l| l.* = 0;
                     for (ds.pad_len, 0..) |l, pi| {
                         if (pi >= DrumMachine.max_pads) break;
-                        dmp.setPadLen(@intCast(pi), l);
+                        const pad: usize = if (snap.version < 36 and pi < 16) drum_kit.legacyPadIndex(@intCast(pi)) else pi;
+                        dmp.setPadLen(@intCast(pad), l);
                     }
                     // Only materialize a pad the file actually marked `used`
                     // (see PadSnap's doc comment) - an omitted/legacy entry
@@ -2114,6 +2121,7 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                     // stays null, matching a pad nobody ever loaded.
                     for (ds.pads, 0..) |ps, pi| {
                         if (pi >= DrumMachine.max_pads) break;
+                        const pad: usize = if (snap.version < 36 and pi < 16) drum_kit.legacyPadIndex(@intCast(pi)) else pi;
                         // Pre-v11 files predate the "empty pad" concept
                         // entirely (every pad was always materialized, even
                         // an untouched one just carried the generated
@@ -2130,10 +2138,10 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         // is what the file deliberately didn't carry) and
                         // just apply the params over it. applyPadSnap never
                         // touches `.samples`.
-                        if (dmp.pads[pi] == null) {
-                            dmp.pads[pi] = Sampler.init(allocator, sr) catch continue;
+                        if (dmp.pads[pad] == null) {
+                            dmp.pads[pad] = Sampler.init(allocator, sr) catch continue;
                         }
-                        applyPadSnap(&dmp.pads[pi].?.pad, ps);
+                        applyPadSnap(&dmp.pads[pad].?.pad, ps);
                     }
                 }
             },
@@ -2159,9 +2167,9 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                             slot.midi = try Slicer.allocMidi(allocator, sc);
                             sl.variant_count += 1;
                             if (snap.version >= 28) {
-                                applyNoteSnap(&slot.midi, sc, vs.notes);
+                                applyNoteSnap(&slot.midi, sc, vs.notes, false);
                             } else {
-                                legacyPatternVelToMidi(&slot.midi, sc, vs.pattern, vs.vel, vs.vel_lo, vs.vel_hi);
+                                legacyPatternVelToMidi(&slot.midi, sc, vs.pattern, vs.vel, vs.vel_lo, vs.vel_hi, false);
                             }
                         }
                         sl.variant = @min(sls.variant, vcount - 1);
@@ -2179,9 +2187,9 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
                         Slicer.freeMidi(allocator, &sl.midi);
                         sl.midi = midi;
                         if (snap.version >= 28) {
-                            applyNoteSnap(&sl.midi, sc, sls.notes);
+                            applyNoteSnap(&sl.midi, sc, sls.notes, false);
                         } else {
-                            legacyPatternVelToMidi(&sl.midi, sc, sls.pattern, sls.vel, &.{}, &.{});
+                            legacyPatternVelToMidi(&sl.midi, sc, sls.pattern, sls.vel, &.{}, &.{}, false);
                         }
                         sl.step_count = sc;
                         sl.steps_per_beat = std.math.clamp(sls.steps_per_beat, 1, 32);
@@ -2395,11 +2403,16 @@ fn midiToNoteSnaps(aa: std.mem.Allocator, midi: *const [DrumMachine.max_pads][]?
 /// Apply a v23 sparse note list into a freshly `allocMidi`'d array (already
 /// sized to `step_count`) - out-of-range pad/step entries (a hand-edited or
 /// truncated file) are silently dropped rather than erroring the load.
-fn applyNoteSnap(midi: *[DrumMachine.max_pads][]?DrumMachine.MidiNote, step_count: u16, notes: []const DrumNoteSnap) void {
+/// `legacy_pad_order`: true for a pre-v36 drum-machine file, whose
+/// `n.pad` values were assigned under the old (pre-soundtype-regroup)
+/// layout - see `drum_kit.legacyPadIndex`. Never true for Slicer, whose
+/// "pads" are audio slices with no relationship to `drum_kit.zig`'s kits.
+fn applyNoteSnap(midi: *[DrumMachine.max_pads][]?DrumMachine.MidiNote, step_count: u16, notes: []const DrumNoteSnap, legacy_pad_order: bool) void {
     for (notes) |n| {
-        if (n.pad >= DrumMachine.max_pads or n.step >= step_count) continue;
-        midi[n.pad][n.step] = .{
-            .pitch = @intCast(n.pad),
+        const pad: u8 = if (legacy_pad_order) drum_kit.legacyPadIndex(n.pad) else n.pad;
+        if (pad >= DrumMachine.max_pads or n.step >= step_count) continue;
+        midi[pad][n.step] = .{
+            .pitch = @intCast(pad),
             .step = n.step,
             .duration_steps = @max(1, n.duration_steps),
             .velocity = @min(n.velocity, DrumMachine.vel_full),
@@ -2439,6 +2452,11 @@ fn legacyStepVel(vel: []const []const u8, vel_lo: []const u64, vel_hi: []const u
 /// the old per-pad `u64` bitmask + velocity - legacy files predate the
 /// step-count ceiling growing past 64, so every bit position is safely
 /// representable (bounded to `min(step_count, 64)` as defense-in-depth).
+/// `legacy_pad_order`: see `applyNoteSnap`'s doc comment - same meaning,
+/// same "never true for Slicer" rule. `vel`/`vel_lo`/`vel_hi` stay indexed
+/// by the file's original (old-scheme) `pad` for the `legacyStepVel`
+/// lookup below - they're parallel arrays to `pattern`, not yet remapped -
+/// only the destination `midi`/`gridNote` pad is translated.
 fn legacyPatternVelToMidi(
     midi: *[DrumMachine.max_pads][]?DrumMachine.MidiNote,
     step_count: u16,
@@ -2446,15 +2464,18 @@ fn legacyPatternVelToMidi(
     vel: []const []const u8,
     vel_lo: []const u64,
     vel_hi: []const u64,
+    legacy_pad_order: bool,
 ) void {
     const pn = @min(pattern.len, DrumMachine.max_pads);
     const limit = @min(step_count, 64);
     for (pattern[0..pn], 0..) |bits, pad| {
+        const dest: u8 = if (legacy_pad_order) drum_kit.legacyPadIndex(@intCast(pad)) else @intCast(pad);
+        if (dest >= DrumMachine.max_pads) continue;
         var step: u16 = 0;
         while (step < limit) : (step += 1) {
             if ((bits >> @intCast(step)) & 1 == 0) continue;
             const level = legacyStepVel(vel, vel_lo, vel_hi, pad, step);
-            midi[pad][step] = DrumMachine.gridNote(@intCast(pad), step, level);
+            midi[dest][step] = DrumMachine.gridNote(dest, step, level);
         }
     }
 }
@@ -2487,9 +2508,9 @@ fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap, beats_per_bar: u8, v
             };
             d.midi = try DrumMachine.allocMidi(allocator, d.step_count);
             if (version >= 23) {
-                applyNoteSnap(&d.midi, d.step_count, cs.drum_notes);
+                applyNoteSnap(&d.midi, d.step_count, cs.drum_notes, version < 36);
             } else {
-                legacyPatternVelToMidi(&d.midi, d.step_count, cs.drum_pattern, cs.drum_vel, cs.drum_vel_lo, cs.drum_vel_hi);
+                legacyPatternVelToMidi(&d.midi, d.step_count, cs.drum_pattern, cs.drum_vel, cs.drum_vel_lo, cs.drum_vel_hi, true);
             }
             break :blk2 ws_arrangement.Clip.initDrum(start_tick, length_ticks, d);
         },
@@ -4054,7 +4075,8 @@ test "buildSession: drum variant bank round-trips; v2 files get one variant" {
     try testing.expectEqual(@as(u8, 2), dm.variant_count);
     try testing.expectEqual(@as(u8, 1), dm.variant);
     try testing.expectEqual(@as(u16, 32), dm.step_count);
-    try testing.expect(dm.stepActive(1, 31)); // live = variant B
+    // Pre-v36 pad 1 remaps to today's pad 2 (drum_kit.legacyPadIndex).
+    try testing.expect(dm.stepActive(2, 31)); // live = variant B
     dm.selectVariant(0);
     try testing.expectEqual(@as(u16, 16), dm.step_count);
     try testing.expect(dm.stepActive(0, 0));
@@ -5096,9 +5118,45 @@ test "golden-file corpus: v23's sparse note list loads directly, no legacy migra
     const dm = &session.racks.items[0].instrument.drum_machine;
     try testing.expect(dm.stepActive(0, 0));
     try testing.expectEqual(@as(u8, 127), dm.stepVel(0, 0));
-    try testing.expect(dm.stepActive(1, 4));
-    try testing.expectEqual(@as(u8, 95), dm.stepVel(1, 4));
+    // Pre-v36 pad 1 remaps to today's pad 2 (drum_kit.legacyPadIndex).
+    try testing.expect(dm.stepActive(2, 4));
+    try testing.expectEqual(@as(u8, 95), dm.stepVel(2, 4));
     try testing.expect(!dm.stepActive(0, 4));
+}
+
+test "resaving a pre-v36 drum project doesn't scramble its pad layout on the next load" {
+    // Regression: loading a pre-v36 file correctly regenerated the kit
+    // audio in the old order, but nothing remapped the file's own
+    // pad-indexed notes/choke_group/pad_len/pads to match - so a plain
+    // resave (which always stamps today's file_version) wrote a "v36"
+    // file whose data was still pad-indexed the old way. The next load
+    // then skipped the old-order kit rebuild (version said v36 already)
+    // and applied that stale-indexed data straight onto the new-order
+    // kit: a snare pattern became a kick, a kick pattern a snare, etc.
+    // Every save now normalizes pre-v36 data into today's order once, at
+    // load, so this round trip must be idempotent.
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/resave.wsj", .{&tmp.sub_path});
+
+    var first = try load(testing.allocator, testing.io, "test/fixtures/wsj/v23.wsj");
+    defer first.deinit();
+    const first_dm = &first.racks.items[0].instrument.drum_machine;
+    // Pre-v36 pad 1 (this fixture's snare pattern) remaps to today's pad 2.
+    try testing.expect(first_dm.stepActive(0, 0));
+    try testing.expect(first_dm.stepActive(2, 4));
+    try testing.expectEqual(@as(u8, 95), first_dm.stepVel(2, 4));
+
+    try save(testing.allocator, &first, testing.io, wsj_path);
+    var second = try load(testing.allocator, testing.io, wsj_path);
+    defer second.deinit();
+    const second_dm = &second.racks.items[0].instrument.drum_machine;
+    try testing.expect(second_dm.stepActive(0, 0));
+    try testing.expect(second_dm.stepActive(2, 4));
+    try testing.expectEqual(@as(u8, 95), second_dm.stepVel(2, 4));
+    try testing.expect(!second_dm.stepActive(1, 4)); // didn't drift back to the old index either
 }
 
 test "golden-file corpus: v17's mod matrix loads its rows" {
@@ -5480,16 +5538,20 @@ test "golden-file corpus: v11's ninth pad (past the pre-v11 8-pad cap) loads use
     defer session.deinit();
     const dm = &session.racks.items[1].instrument.drum_machine;
     // Pad 8 (the fixture's only `used: true` entry) got materialized fresh
-    // with the file's params, past the pre-v11 8-pad cap.
-    try testing.expect(dm.pads[8] != null);
-    try testing.expectApproxEqAbs(@as(f32, 0.8), dm.pads[8].?.pad.gain, 1e-4);
-    try testing.expectApproxEqAbs(@as(f32, -3.0), dm.pads[8].?.pad.pitch_semitones, 1e-4);
-    try testing.expect(dm.stepActive(8, 2)); // pattern[8] = 4 = bit 2
-    // Pads 0-7 stay whatever init() gave them - now the blank "init" kit,
-    // so a v11 file's `used: false` leaves them unmaterialized. (Pre-v11
-    // files predate `used` and materialize all 8 regardless; see
-    // buildSession.)
-    for (0..8) |i| try testing.expect(dm.pads[i] == null);
+    // with the file's params, past the pre-v11 8-pad cap. Pre-v36 pad 8
+    // remaps to today's pad 1 (drum_kit.legacyPadIndex).
+    try testing.expect(dm.pads[1] != null);
+    try testing.expectApproxEqAbs(@as(f32, 0.8), dm.pads[1].?.pad.gain, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, -3.0), dm.pads[1].?.pad.pitch_semitones, 1e-4);
+    try testing.expect(dm.stepActive(1, 2)); // pattern[8] = 4 = bit 2
+    // Every other pad in the legacy 16-pad range stays whatever init() gave
+    // them - now the blank "init" kit, so a v11 file's `used: false` leaves
+    // them unmaterialized. (Pre-v11 files predate `used` and materialize
+    // all 8 regardless; see buildSession.)
+    for (0..8) |i| {
+        if (i == 1) continue;
+        try testing.expect(dm.pads[i] == null);
+    }
 }
 
 /// Render `blocks` blocks from `session` starting at frame 0 into `out`.
