@@ -533,12 +533,21 @@ pub const DelaySnap = struct {
     time_s: f32 = 0.375,
     feedback: f32 = 0.35,
     mix: f32 = 0.25,
+    /// Missing on any file saved before it landed; 0.0 reduces to the
+    /// original unfiltered tap exactly, so old files load with unchanged sound.
+    damp: f32 = 0.0,
 };
 
 pub const ReverbSnap = struct {
     mix: f32 = 0.3,
     room: f32 = 0.84,
     damp: f32 = 0.25,
+    /// Missing on any file saved before these three landed; the defaults
+    /// below reduce to the original 3-knob algorithm exactly, so old files
+    /// load with unchanged sound.
+    predelay_ms: f32 = 0.0,
+    width: f32 = 1.0,
+    low_cut_hz: f32 = 0.0,
 };
 
 /// Legacy per-band gain array shape (v13 and older): 10 fixed ISO-frequency
@@ -561,7 +570,11 @@ const legacy_iso_frequencies = [legacy_eq_band_count]f32{
 /// Mirrors `eq_mod.BandKind` as a plain string enum for JSON stability
 /// (numeric enum tags would silently shift meaning if the DSP-side enum's
 /// member order ever changes).
-pub const EqBandKindSnap = enum { peak, lowpass, highpass, lowshelf, highshelf };
+pub const EqBandKindSnap = enum { peak, lowpass, highpass, lowshelf, highshelf, notch, tiltshelf };
+
+/// Mirrors `eq_mod.StereoMode` as a plain string enum, same JSON-stability
+/// reasoning as `EqBandKindSnap`.
+pub const EqStereoModeSnap = enum { stereo, mid, side };
 
 pub const EqBandSnap = struct {
     freq: f32,
@@ -572,9 +585,16 @@ pub const EqBandSnap = struct {
     /// a band could be before lowpass/highpass existed.
     kind: EqBandKindSnap = .peak,
     /// Additive, paired with `kind`: cascade stages for `.lowpass`/
-    /// `.highpass` (12 dB/oct each), 1..eq_mod.max_slope. Unused (but
-    /// present) for peak and shelf bands.
+    /// `.highpass`/`.notch` (12 dB/oct each), 1..eq_mod.max_slope. Unused
+    /// (but present) for peak/shelf/tiltshelf bands.
     slope: u8 = 1,
+    /// Additive: solo/mid-side/dynamic-EQ fields, all missing on older
+    /// files and landing on their off/neutral defaults below.
+    solo: bool = false,
+    stereo_mode: EqStereoModeSnap = .stereo,
+    dyn_enabled: bool = false,
+    dyn_threshold_db: f32 = -24.0,
+    dyn_amount_db: f32 = 0.0,
 };
 
 pub const EqSnap = struct {
@@ -584,6 +604,9 @@ pub const EqSnap = struct {
     /// v14: 8 fully-parametric bands (freq/Q/gain all adjustable).
     bands: ?[eq_mod.num_eq_bands]EqBandSnap = null,
     bypass: bool = false,
+    /// Additive: whole-unit auto-gain toggle, missing on older files ->
+    /// off (matches ParametricEq's own default).
+    auto_gain: bool = false,
 };
 
 /// Migrate a pre-v14 EqSnap's `band_gains` (10 fixed ISO bands, gain-only)
@@ -1037,7 +1060,7 @@ pub fn save(
     const groups = try aa.alloc(GroupSnap, engine_mod.max_groups);
     for (groups, 0..) |*gs, i| {
         if (session.groups[i]) |*g| {
-            gs.* = .{ .active = true, .name = g.name, .fx_chain = try chainToSnap(aa, &g.fx, session.project.sample_rate), .gain_db = g.gain_db, .folded = g.folded, .muted = g.muted, .soloed = g.soloed };
+            gs.* = .{ .active = true, .name = g.name, .fx_chain = try chainToSnap(aa, &g.fx), .gain_db = g.gain_db, .folded = g.folded, .muted = g.muted, .soloed = g.soloed };
         } else {
             gs.* = .{};
         }
@@ -1045,7 +1068,7 @@ pub fn save(
 
     const racks = try aa.alloc(RackSnap, session.racks.items.len);
     for (session.racks.items, racks) |rack, *rs| {
-        rs.* = try rackToSnap(aa, rack, session.project.sample_rate);
+        rs.* = try rackToSnap(aa, rack);
     }
     try exportSamples(aa, session, io, path, racks);
 
@@ -1071,7 +1094,7 @@ pub fn save(
         .arrangement = lanes,
         .sections = sections,
         .song_mode = session.song_mode,
-        .master_fx_chain = try chainToSnap(aa, &session.master_fx, session.project.sample_rate),
+        .master_fx_chain = try chainToSnap(aa, &session.master_fx),
         .groups = groups,
     };
 
@@ -1090,7 +1113,7 @@ pub fn save(
     try std.Io.Dir.cwd().rename(tmp_path, std.Io.Dir.cwd(), path, io);
 }
 
-fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
+fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
     var rs: RackSnap = .{ .label = rack.label, .kind = undefined };
 
     // zig fmt: off
@@ -1284,7 +1307,7 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack, sample_rate: u32) !RackSnap {
         },
     }
 
-    rs.fx_chain = try chainToSnap(aa, &rack.fx, sample_rate);
+    rs.fx_chain = try chainToSnap(aa, &rack.fx);
 
     return rs;
 }
@@ -1349,7 +1372,7 @@ fn applySnapToDevice(device: anytype, snap: anytype) void {
 // zig fmt: off
 /// Shared by track racks and the master bus - both hold a user-built `Fx`
 /// chain. One FxUnitSnap per slot, in chain order.
-pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]FxUnitSnap {
+pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx) ![]FxUnitSnap {
     const out = try aa.alloc(FxUnitSnap, fx.units.items.len);
     for (fx.units.items, out) |u, *us| {
         us.* = switch (u.payload) {
@@ -1371,10 +1394,7 @@ pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]Fx
                 .depth = o.depth(), .time = o.time,
                 .gain_in_db = o.gain_in_db, .gain_out_db = o.gain_out_db,
             } },
-            .delay => |d| .{ .kind = .delay, .delay = .{
-                .time_s = @as(f32, @floatFromInt(d.delay_frames)) / @as(f32, @floatFromInt(sample_rate)),
-                .feedback = d.feedback, .mix = d.mix,
-            } },
+            .delay => |d| .{ .kind = .delay, .delay = snapFromDevice(DelaySnap, d) },
             .reverb => |r| .{ .kind = .reverb, .reverb = snapFromDevice(ReverbSnap, r) },
             .eq => |e| blk: {
                 var bands: [eq_mod.num_eq_bands]EqBandSnap = undefined;
@@ -1383,10 +1403,18 @@ pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx, sample_rate: u32) ![]Fx
                     .kind = switch (b.kind) {
                         .peak => .peak, .lowpass => .lowpass, .highpass => .highpass,
                         .lowshelf => .lowshelf, .highshelf => .highshelf,
+                        .notch => .notch, .tiltshelf => .tiltshelf,
                     },
                     .slope = b.slope,
+                    .solo = b.solo,
+                    .stereo_mode = switch (b.stereo_mode) {
+                        .stereo => .stereo, .mid => .mid, .side => .side,
+                    },
+                    .dyn_enabled = b.dyn_enabled,
+                    .dyn_threshold_db = b.dyn_threshold_db,
+                    .dyn_amount_db = b.dyn_amount_db,
                 };
-                break :blk .{ .kind = .eq, .eq = .{ .bands = bands } };
+                break :blk .{ .kind = .eq, .eq = .{ .bands = bands, .auto_gain = e.auto_gain } };
             },
             .filter => |f| .{ .kind = .filter, .filter = snapFromDevice(FilterSnap, f) },
             .limiter => |l| .{ .kind = .limiter, .limiter = snapFromDevice(LimiterSnap, l) },
@@ -2735,11 +2763,7 @@ pub fn applyFxChain(
                 o.gain_in_db = finiteClamp(f32, os.gain_in_db, -24.0, 24.0, o.gain_in_db);
                 o.gain_out_db = finiteClamp(f32, os.gain_out_db, -24.0, 24.0, o.gain_out_db);
             },
-            .delay => |*d| if (us.delay) |ds| {
-                d.setTime(ds.time_s);
-                if (std.math.isFinite(ds.feedback)) d.feedback = ds.feedback;
-                if (std.math.isFinite(ds.mix)) d.mix = ds.mix;
-            },
+            .delay => |*d| if (us.delay) |ds| applySnapToDevice(d, ds),
             .reverb => |*r| if (us.reverb) |rs| applySnapToDevice(r, rs),
             .eq => |*e| if (us.eq) |es| {
                 const bands = es.bands orelse
@@ -2751,8 +2775,17 @@ pub fn applyFxChain(
                     e.setType(i, switch (b.kind) {
                         .peak => .peak, .lowpass => .lowpass, .highpass => .highpass,
                         .lowshelf => .lowshelf, .highshelf => .highshelf,
+                        .notch => .notch, .tiltshelf => .tiltshelf,
                     }, b.slope);
+                    e.setSolo(i, b.solo);
+                    e.setStereoMode(i, switch (b.stereo_mode) {
+                        .stereo => .stereo, .mid => .mid, .side => .side,
+                    });
+                    e.setDynThreshold(i, b.dyn_threshold_db);
+                    e.setDynAmount(i, b.dyn_amount_db);
+                    e.setDynEnabled(i, b.dyn_enabled);
                 }
+                e.setAutoGain(es.auto_gain);
                 // Legacy EQ-only bypass maps onto the slot's generic one.
                 if (es.bypass) unit.bypassed = true;
             },
@@ -2894,7 +2927,7 @@ fn migrateSynthFx(allocator: std.mem.Allocator, s: *PolySynth, fx: *Fx, sr: u32)
                 v.mix = s.fx_freq_shift_mix;
             },
             .delay => |*v| {
-                v.setTime(s.fx_delay_time_s);
+                v.time_s = s.fx_delay_time_s;
                 v.feedback = s.fx_delay_feedback;
                 v.mix = s.fx_delay_mix;
             },
@@ -4428,7 +4461,7 @@ test "specialized FX snapshot loading ignores non-finite fields" {
     try testing.expect(std.math.isFinite(ott.gain_out_db));
 
     const delay = &fx.units.items[3].payload.delay;
-    try testing.expect(std.math.isFinite(delay.timeSeconds()));
+    try testing.expect(std.math.isFinite(delay.time_s));
     try testing.expect(std.math.isFinite(delay.feedback));
     try testing.expect(std.math.isFinite(delay.mix));
 }
@@ -5348,6 +5381,41 @@ test "save/load round-trip persists an EQ band's lowpass/highpass type and slope
     try testing.expectEqual(@as(u8, 2), eq.bands[1].slope);
     // Untouched bands keep the default peak type.
     try testing.expectEqual(eq_mod.BandKind.peak, eq.bands[2].kind);
+}
+
+test "save/load round-trip persists solo/stereo-mode/dynamic-EQ/auto-gain" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/eq_dyn.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    const unit = try session.racks.items[0].fx.insert(testing.allocator, 0, .eq, session.project.sample_rate);
+    var e = &unit.payload.eq;
+    e.setType(0, .tiltshelf, 1);
+    e.setType(1, .notch, 2);
+    e.setSolo(2, true);
+    e.setStereoMode(3, .mid);
+    e.setDynEnabled(4, true);
+    e.setDynThreshold(4, -18.0);
+    e.setDynAmount(4, 7.5);
+    e.setAutoGain(true);
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    e = &loaded.racks.items[0].fx.units.items[0].payload.eq;
+    try testing.expectEqual(eq_mod.BandKind.tiltshelf, e.bands[0].kind);
+    try testing.expectEqual(eq_mod.BandKind.notch, e.bands[1].kind);
+    try testing.expectEqual(@as(u8, 2), e.bands[1].slope);
+    try testing.expect(e.bands[2].solo);
+    try testing.expectEqual(eq_mod.StereoMode.mid, e.bands[3].stereo_mode);
+    try testing.expect(e.bands[4].dyn_enabled);
+    try testing.expectApproxEqAbs(@as(f32, -18.0), e.bands[4].dyn_threshold_db, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 7.5), e.bands[4].dyn_amount_db, 1e-4);
+    try testing.expect(e.auto_gain);
 }
 
 test "migrateEqBands: legacy 10-band gains land on sane 8-band defaults" {

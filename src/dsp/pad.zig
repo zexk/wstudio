@@ -187,7 +187,12 @@ pub fn adjustParam(pad: *Pad, id: u16, steps: i32) void {
     if (id == 3 or id == 4 or id == 10 or id == 11) {
         const value = paramValue(pad, id).?;
         const t = std.math.cbrt(std.math.clamp(value / 5.0, 0, 1));
-        setParamAbsolute(pad, id, 5.0 * std.math.pow(f32, std.math.clamp(t + @as(f32, @floatFromInt(steps)) * 0.01, 0, 1), 3));
+        // Cubing back compresses hard near t=0 - at the old 0.01 step, the
+        // first 4-5 presses off a zeroed attack/decay/fade landed under half
+        // a millisecond and read as "stuck" at the 3-decimal display. 0.05
+        // puts the first press at a visible ~0.6ms and clears a full sweep
+        // in ~20 presses instead of 100.
+        setParamAbsolute(pad, id, 5.0 * std.math.pow(f32, std.math.clamp(t + @as(f32, @floatFromInt(steps)) * 0.05, 0, 1), 3));
         return;
     }
     const value = paramValue(pad, id) orelse return;
@@ -912,7 +917,7 @@ test "time nudges expand short envelope and fade values" {
     pad.release_s = 0.005;
     adjustParam(&pad, 3, 1);
     adjustParam(&pad, 6, 12);
-    try std.testing.expect(pad.attack_s > 0.006 and pad.attack_s < 0.007);
+    try std.testing.expect(pad.attack_s > 0.016 and pad.attack_s < 0.018);
     try std.testing.expectApproxEqAbs(@as(f32, 0.01), pad.release_s, 1e-6);
 }
 

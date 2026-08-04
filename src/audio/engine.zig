@@ -72,7 +72,14 @@ pub const Command = union(enum) {
     /// `group` is only read when `source == .group` (reuses `track` as the
     /// generic focus index otherwise, unchanged) - same one-analyzer-at-a-
     /// time model track/master already share, see `Engine.track_spectrum`.
-    set_spectrum_active: struct { source: SpectrumSource, track: u16, group: u8 = 0 },
+    /// `target` identifies the specific EQ device instance the analyzer
+    /// should tap pre/post around (its `dsp.Device.ptr`, i.e. `*ParametricEq`
+    /// cast to `*anyopaque`) - null falls back to tapping the whole chain's
+    /// end, same as before this field existed. See `Engine.SpectrumTap`.
+    set_spectrum_active: struct { source: SpectrumSource, track: u16, group: u8 = 0, target: ?*anyopaque = null },
+    /// Whether the active spectrum analyzer taps before (true) or after
+    /// (false) the `target` device set above.
+    set_spectrum_pre: bool,
     /// A/B loop region (frames). See Transport.advance for the wrap.
     set_loop: struct { enabled: bool, start_frames: u64, end_frames: u64 },
     set_metronome: bool,
@@ -393,6 +400,10 @@ pub const Engine = struct {
     active_spectrum_source: SpectrumSource = .none,
     active_spectrum_track: u16 = 0,
     active_spectrum_group: u8 = 0,
+    /// The specific EQ device instance the active analyzer taps around, and
+    /// which side - see `set_spectrum_active`/`set_spectrum_pre`.
+    active_spectrum_target: ?*anyopaque = null,
+    spectrum_pre: bool = false,
     shared: Shared = .{},
     /// Offline-bounce handshake. When the UI thread sets `bounce_active`, the
     /// realtime backend parks (outputs silence, sets `bounce_parked`) so the UI
@@ -830,7 +841,11 @@ pub const Engine = struct {
             if (self.metronome_enabled) self.fireMetronome(out, frames);
         }
 
-        self.processChainWithSidechain(self.master_chain.slice(), &self.master_sidechain_sources, out, frames);
+        const master_tap: ?SpectrumTap = if (self.active_spectrum_source == .master and self.active_spectrum_target != null)
+            .{ .target = self.active_spectrum_target.?, .analyzer = &self.master_spectrum, .pre = self.spectrum_pre }
+        else
+            null;
+        self.processChainWithSidechain(self.master_chain.slice(), &self.master_sidechain_sources, out, frames, master_tap);
 
         self.preview.processBlock(out);
 
@@ -848,8 +863,10 @@ pub const Engine = struct {
             }
         }
 
-        self.master_spectrum.push(out);
-        self.master_spectrum.analyze();
+        if (master_tap == null) {
+            self.master_spectrum.push(out);
+            self.master_spectrum.analyze();
+        }
 
         self.master_correlation.push(out);
         self.master_loudness.push(out);
@@ -1026,9 +1043,11 @@ pub const Engine = struct {
                 self.active_spectrum_source = c.source;
                 self.active_spectrum_track = c.track;
                 self.active_spectrum_group = c.group;
+                self.active_spectrum_target = c.target;
                 self.track_spectrum.active.store(c.source == .track or c.source == .group, .release);
                 self.master_spectrum.active.store(c.source == .master, .release);
             },
+            .set_spectrum_pre => |pre| self.spectrum_pre = pre,
             .reset_loudness => self.master_loudness.resetIntegrated(),
         };
     }
@@ -1072,18 +1091,36 @@ pub const Engine = struct {
     /// detector signal (if any) before that slot processes - shared body of
     /// the master/track/group render paths, which differ only in which
     /// chain, sidechain-source slots, and scratch buffer they pass in.
+    /// Where the active spectrum analyzer should tap this block, matched by
+    /// device identity (`dsp.Device.ptr`) against whichever EQ instance is
+    /// actually open - see `set_spectrum_active`'s doc comment.
+    const SpectrumTap = struct {
+        target: *anyopaque,
+        analyzer: *SpectrumAnalyzer,
+        pre: bool,
+    };
+
     fn processChainWithSidechain(
         self: *Engine,
         chain: []const dsp.Device,
         sidechain_sources: []const ?Compressor.SidechainSource,
         buf: []Sample,
         frames: u32,
+        tap: ?SpectrumTap,
     ) void {
         for (chain, 0..) |dev, slot| {
             if (sidechain_sources[slot]) |src| {
                 if (self.sidechainCapture(src, frames)) |sc_buf| dev.sendEvent(.{ .set_sidechain_buf = .{ .buf = sc_buf } });
             }
+            if (tap) |t| if (dev.ptr == t.target and t.pre) {
+                t.analyzer.push(buf);
+                t.analyzer.analyze();
+            };
             dev.process(buf);
+            if (tap) |t| if (dev.ptr == t.target and !t.pre) {
+                t.analyzer.push(buf);
+                t.analyzer.analyze();
+            };
         }
     }
 
@@ -1170,7 +1207,11 @@ pub const Engine = struct {
             c.captured = true;
         }
 
-        self.processChainWithSidechain(chain, &self.track_sidechain[ti], scratch, frames);
+        const track_tap: ?SpectrumTap = if (self.active_spectrum_source == .track and ti == self.active_spectrum_track and self.active_spectrum_target != null)
+            .{ .target = self.active_spectrum_target.?, .analyzer = &self.track_spectrum, .pre = self.spectrum_pre }
+        else
+            null;
+        self.processChainWithSidechain(chain, &self.track_sidechain[ti], scratch, frames, track_tap);
 
         // If this track is itself a registered sidechain-detector source,
         // finalize its capture now - before `scratch` gets reused by the
@@ -1226,7 +1267,7 @@ pub const Engine = struct {
             self.track_peak[ti][1] = @max(self.track_peak[ti][1], @abs(right));
         }
 
-        if (self.active_spectrum_source == .track and
+        if (track_tap == null and self.active_spectrum_source == .track and
             ti == self.active_spectrum_track)
         {
             self.track_spectrum.push(scratch);
@@ -1341,10 +1382,14 @@ pub const Engine = struct {
         for (&self.groups, 0..) |*g, gi| {
             if (!g.active or g.muted) continue;
             const gscratch = self.group_scratch[gi][0 .. frames * channels];
-            self.processChainWithSidechain(g.chain.slice(), &g.sidechain_sources, gscratch, frames);
+            const group_tap: ?SpectrumTap = if (self.active_spectrum_source == .group and @as(u8, @intCast(gi)) == self.active_spectrum_group and self.active_spectrum_target != null)
+                .{ .target = self.active_spectrum_target.?, .analyzer = &self.track_spectrum, .pre = self.spectrum_pre }
+            else
+                null;
+            self.processChainWithSidechain(g.chain.slice(), &g.sidechain_sources, gscratch, frames, group_tap);
             for (out, gscratch) |*o, s| o.* += s * g.gain;
 
-            if (self.active_spectrum_source == .group and @as(u8, @intCast(gi)) == self.active_spectrum_group) {
+            if (group_tap == null and self.active_spectrum_source == .group and @as(u8, @intCast(gi)) == self.active_spectrum_group) {
                 self.track_spectrum.push(gscratch);
                 self.track_spectrum.analyze();
             }

@@ -323,7 +323,7 @@ fn renderDemo(allocator: std.mem.Allocator, io: std.Io) !void {
     var comp = ws.dsp.Compressor.init(sr);
     var delay = try ws.dsp.StereoDelay.init(allocator, sr, 2.0);
     defer delay.deinit(allocator);
-    delay.setTime(0.375); // dotted eighth at 120 bpm
+    delay.time_s = 0.375; // dotted eighth at 120 bpm
     var reverb = try ws.dsp.Reverb.init(allocator, sr);
     defer reverb.deinit(allocator);
 

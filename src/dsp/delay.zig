@@ -1,20 +1,34 @@
-//! Stereo feedback delay. Delay lines are allocated once at init for
-//! the maximum time; changing the time is a control-side operation.
+//! Stereo feedback delay: a fixed-size ring per channel read through
+//! `delay_line`'s cubic-Lagrange tap, so `time_s` is a plain per-block
+//! param (like feedback/mix) that can be swept live with no click and no
+//! buffer-clearing reset - unlike the old integer-only tap, which needed a
+//! control-side `setTime` that resized the active ring and zeroed it.
 
 const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
+const delay_line = @import("delay_line.zig");
 
 const Sample = types.Sample;
 
 pub const StereoDelay = struct {
     sample_rate: u32,
     lines: [2][]Sample,
-    index: [2]usize = .{ 0, 0 },
-    delay_frames: usize,
+    pos: usize = 0,
+    /// Read-only after `init`: the true capacity of `lines` in seconds, so
+    /// `time_s` never clamps to a value that would wrap past what was
+    /// actually allocated.
+    max_time_s: f32,
+    time_s: f32 = 0.375,
     feedback: f32 = 0.35,
     /// 0 = dry only, 1 = wet only.
     mix: f32 = 0.25,
+    /// One-pole lowpass in the feedback path, 0 = off (bright repeats that
+    /// match the old unfiltered tap exactly), 1 = heavily damped - each
+    /// repeat darkens like a tape/BBD echo unit instead of ringing bright
+    /// forever.
+    damp: f32 = 0.0,
+    damp_state: [2]f32 = .{ 0.0, 0.0 },
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -28,15 +42,18 @@ pub const StereoDelay = struct {
             std.math.maxInt(usize)
         else
             @intFromFloat(max_frames_f);
-        const left = try allocator.alloc(Sample, @max(max_frames, 1));
+        // Floor of 4, not 1: delay_line.readInterp's cubic tap reads two
+        // frames either side of the read position.
+        const capacity = @max(max_frames, 4);
+        const left = try allocator.alloc(Sample, capacity);
         errdefer allocator.free(left);
-        const right = try allocator.alloc(Sample, @max(max_frames, 1));
+        const right = try allocator.alloc(Sample, capacity);
         @memset(left, 0.0);
         @memset(right, 0.0);
         return .{
             .sample_rate = safe_rate,
             .lines = .{ left, right },
-            .delay_frames = left.len,
+            .max_time_s = @as(f32, @floatFromInt(capacity)) / @as(f32, @floatFromInt(safe_rate)),
         };
     }
 
@@ -45,25 +62,11 @@ pub const StereoDelay = struct {
         allocator.free(self.lines[1]);
     }
 
-    /// Control side; not RT-safe (clears the lines).
-    pub fn setTime(self: *StereoDelay, seconds: f32) void {
-        if (!std.math.isFinite(seconds)) return;
-        const frames_f = @max(seconds, 0.0) * @as(f32, @floatFromInt(self.sample_rate));
-        self.delay_frames = if (frames_f >= @as(f32, @floatFromInt(self.lines[0].len)))
-            self.lines[0].len
-        else
-            @max(@as(usize, @intFromFloat(frames_f)), 1);
-        self.reset();
-    }
-
-    pub fn timeSeconds(self: *const StereoDelay) f32 {
-        return @as(f32, @floatFromInt(self.delay_frames)) / @as(f32, @floatFromInt(self.sample_rate));
-    }
-
     pub fn reset(self: *StereoDelay) void {
         @memset(self.lines[0], 0.0);
         @memset(self.lines[1], 0.0);
-        self.index = .{ 0, 0 };
+        self.pos = 0;
+        self.damp_state = .{ 0.0, 0.0 };
     }
 
     pub const device = dsp.deviceOf(@This());
@@ -73,17 +76,21 @@ pub const StereoDelay = struct {
         // every repeat instead of decaying.
         const feedback = dsp.sanitizeParam(self.feedback, 0.0, 0.95, 0.35);
         const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 0.25);
+        const time_s = dsp.sanitizeParam(self.time_s, 0.0, self.max_time_s, 0.375);
+        const damp = dsp.sanitizeParam(self.damp, 0.0, 1.0, 0.0);
+        const delay_frames = time_s * @as(f32, @floatFromInt(self.sample_rate));
         const frames = buf.len / 2;
         for (0..frames) |i| {
             inline for (0..2) |ch| {
                 const dry = buf[i * 2 + ch];
                 const line = self.lines[ch];
-                const idx = self.index[ch];
-                const wet = line[idx];
-                line[idx] = dry + wet * feedback;
-                self.index[ch] = (idx + 1) % self.delay_frames;
-                buf[i * 2 + ch] = dry * (1.0 - mix) + wet * mix;
+                const raw_tap = delay_line.readInterp(line, self.pos, delay_frames);
+                self.damp_state[ch] = raw_tap * (1.0 - damp) + self.damp_state[ch] * damp;
+                const tap = self.damp_state[ch];
+                line[self.pos] = dry + tap * feedback;
+                buf[i * 2 + ch] = dry * (1.0 - mix) + tap * mix;
             }
+            self.pos = (self.pos + 1) % self.lines[0].len;
         }
     }
 };
@@ -91,7 +98,7 @@ pub const StereoDelay = struct {
 test "impulse echoes at the delay time with feedback decay" {
     var delay = try StereoDelay.init(std.testing.allocator, 1000, 1.0);
     defer delay.deinit(std.testing.allocator);
-    delay.setTime(0.1); // 100 frames
+    delay.time_s = 0.1; // 100 frames
     delay.mix = 0.5;
     delay.feedback = 0.5;
 
@@ -107,28 +114,79 @@ test "impulse echoes at the delay time with feedback decay" {
     try std.testing.expectEqual(@as(Sample, 0.0), buf[50 * 2]); // silence between
 }
 
-test "invalid feedback/mix cannot poison output" {
+test "fractional delay time interpolates instead of snapping to one integer tap" {
     var delay = try StereoDelay.init(std.testing.allocator, 1000, 1.0);
     defer delay.deinit(std.testing.allocator);
-    delay.setTime(0.1);
+    delay.time_s = 0.1005; // 100.5 frames: read position sits half way between
+    // frame 0 (the impulse) and frame 1 (silence) when it arrives at frame 101.
+    delay.mix = 1.0;
+    delay.feedback = 0.0;
+
+    var buf = [_]Sample{0.0} ** 400;
+    buf[0] = 1.0;
+    buf[1] = 1.0;
+    delay.processBlock(&buf);
+
+    // Old integer-only tap would truncate to exactly 100 frames and echo
+    // the impulse at full strength (1.0); the cubic Lagrange tap instead
+    // blends the impulse with its zero neighbor.
+    try std.testing.expectApproxEqAbs(@as(Sample, 0.5625), buf[101 * 2], 1e-4);
+}
+
+test "damp shrinks the second echo compared to an undamped run" {
+    const params = struct {
+        fn secondEcho(damp: f32) !f32 {
+            var delay = try StereoDelay.init(std.testing.allocator, 8000, 1.0);
+            defer delay.deinit(std.testing.allocator);
+            delay.time_s = 0.01; // 80 frames: two echoes fit in one block
+            delay.mix = 1.0;
+            delay.feedback = 0.6;
+            delay.damp = damp;
+
+            var buf = [_]Sample{0.0} ** 400;
+            buf[0] = 1.0;
+            buf[1] = 1.0;
+            delay.processBlock(&buf);
+            return @abs(buf[160 * 2]);
+        }
+    };
+    try std.testing.expect(try params.secondEcho(0.9) < try params.secondEcho(0.0));
+}
+
+test "changing time_s live does not clear the ring" {
+    var delay = try StereoDelay.init(std.testing.allocator, 1000, 1.0);
+    defer delay.deinit(std.testing.allocator);
+    delay.time_s = 0.1;
+    delay.mix = 1.0;
+    delay.feedback = 0.5;
+
+    var buf = [_]Sample{0.0} ** 4;
+    buf[0] = 1.0;
+    delay.processBlock(&buf); // writes line[0] = 1.0
+    delay.time_s = 0.2; // old setTime would have zeroed the ring here
+
+    try std.testing.expectApproxEqAbs(@as(Sample, 1.0), delay.lines[0][0], 1e-6);
+}
+
+test "invalid parameters cannot poison output" {
+    var delay = try StereoDelay.init(std.testing.allocator, 1000, 1.0);
+    defer delay.deinit(std.testing.allocator);
+    delay.time_s = std.math.nan(f32);
     delay.feedback = std.math.inf(f32);
     delay.mix = std.math.nan(f32);
+    delay.damp = -std.math.inf(f32);
     var buf = [_]Sample{0.5} ** 800;
     delay.processBlock(&buf);
     for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
 }
 
-test "invalid delay timing inputs stay safe" {
+test "degenerate init args still produce a usable, finite delay" {
     var delay = try StereoDelay.init(std.testing.allocator, 0, std.math.nan(f32));
     defer delay.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(u32, 1), delay.sample_rate);
-    try std.testing.expectEqual(@as(usize, 1), delay.delay_frames);
-    try std.testing.expectEqual(@as(f32, 1.0), delay.timeSeconds());
+    try std.testing.expect(delay.lines[0].len >= 4);
 
-    delay.setTime(std.math.nan(f32));
-    try std.testing.expectEqual(@as(usize, 1), delay.delay_frames);
-    delay.setTime(std.math.inf(f32));
-    try std.testing.expectEqual(@as(usize, 1), delay.delay_frames);
-    delay.setTime(-1.0);
-    try std.testing.expectEqual(@as(usize, 1), delay.delay_frames);
+    var buf = [_]Sample{0.5} ** 32;
+    delay.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
 }

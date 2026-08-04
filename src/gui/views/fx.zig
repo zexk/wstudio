@@ -149,11 +149,20 @@ fn drawEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void
     zgui.separator();
 
     if (unit.kind() == .eq) {
+        const eq = &unit.payload.eq;
+        if (zgui.button(if (eq.auto_gain) "auto gain: on" else "auto gain: off", .{})) spectrum_ed.toggleAutoGain(&app.core, target);
+        zgui.sameLine(.{ .spacing = 5 });
+        if (zgui.button(if (app.core.eq_spectrum_pre) "pre-EQ" else "post-EQ", .{})) spectrum_ed.toggleSpectrumPre(&app.core, target);
+        zgui.sameLine(.{ .spacing = 5 });
+        if (app.core.eq_spectrum_frozen) zgui.pushStyleColor4f(.{ .idx = .button, .c = theme.rhythm });
+        if (zgui.button("freeze", .{})) spectrum_ed.toggleSpectrumFreeze(&app.core, target);
+        if (app.core.eq_spectrum_frozen) zgui.popStyleColor(.{});
+        zgui.separator();
         drawEqEditor(app, target, unit);
     } else {
         // Only the filter's display puts a spectrum behind its curve, so it is
         // the only non-EQ unit worth running the analyzer for.
-        if (unit.kind() == .filter) ensureEqAnalyzer(app, target);
+        if (unit.kind() == .filter) ensureEqAnalyzer(app, target, unit);
         const param_count = spectrum_ed.visibleParamCount(&app.core, unit.kind(), &unit.payload);
         const grid = paramGrid(param_count);
         // Plus the `spacing()` below, which costs an item spacing twice over
@@ -545,7 +554,7 @@ const eq_db_min: f32 = -18.0;
 const eq_db_max: f32 = 18.0;
 
 fn drawEqEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void {
-    ensureEqAnalyzer(app, target);
+    ensureEqAnalyzer(app, target, unit);
     const selected_band = @min(app.core.fx_param / spectrum_ed.eq_fields_per_band, unit.payload.eq.bands.len - 1);
     drawEqGraph(app, target, unit, selected_band);
     zgui.spacing();
@@ -557,7 +566,7 @@ fn drawEqEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) vo
     eq_fit.settle(below_top, 0);
 }
 
-fn ensureEqAnalyzer(app: anytype, target: spectrum_ed.EqTarget) void {
+fn ensureEqAnalyzer(app: anytype, target: spectrum_ed.EqTarget, unit: ?*ws.FxUnit) void {
     const key: u32 = switch (target) {
         .track => 0x10000 | @as(u32, app.core.eq_track),
         .master => 0x20000,
@@ -572,6 +581,10 @@ fn ensureEqAnalyzer(app: anytype, target: spectrum_ed.EqTarget) void {
         },
         .track = if (target == .track) app.core.eq_track else 0,
         .group = if (target == .group) app.core.eq_group else 0,
+        // See `dsp.Device.ptr`'s doc comment on `FxUnit.device` - matching
+        // on the unit itself is what lets the engine tap pre/post around
+        // exactly this EQ instance.
+        .target = unit,
     } });
     app.eq_analyzer_key = key;
 }
@@ -641,6 +654,12 @@ fn drawEqGraph(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, sel
         const node = eqBandPoint(origin, .{ width, height }, band);
         const accent = eqBandColor(i);
         const selected = i == selected_band;
+        // Collision detection (two engaged bands within an octave, see
+        // `spectrum_ed.bandCollides`): a warning ring around both, same
+        // "quiet flag, not a block" spirit as the TUI's red freq label.
+        if (spectrum_ed.bandCollides(&unit.payload.eq, i)) {
+            draw_list.addCircle(.{ .p = node, .r = (if (selected) @as(f32, 12) else 10) + 4, .col = color(theme.danger), .thickness = 1.5 });
+        }
         draw_list.addCircleFilled(.{ .p = node, .r = if (selected) 10 else 8, .col = color(if (selected) accent else .{ accent[0], accent[1], accent[2], 0.72 }) });
         draw_list.addCircle(.{ .p = node, .r = if (selected) 12 else 10, .col = color(if (selected) theme.fg0 else accent), .thickness = if (selected) 2 else 1 });
         draw_list.addText(.{ node[0] - 4, node[1] - 8 }, color(theme.bg0), "{d}", .{i + 1});
@@ -751,6 +770,54 @@ fn drawEqBandControls(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUn
         drawEqSlider(app, target, unit, gain_idx, "Gain", "%.1f dB", false)
     else
         drawEqSlope(app, target, unit, gain_idx);
+    zgui.spacing();
+
+    const solo_idx = band_index * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_solo;
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (band.solo) theme.rhythm else theme.bg2 });
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (band.solo) theme.bg0 else theme.fg2 });
+    if (zgui.button(if (band.solo) "solo: on" else "solo", .{})) {
+        history.recordFx(&app.core, target);
+        spectrum_ed.setParam(&app.core, &unit.payload, solo_idx, if (band.solo) 0 else 1);
+        app.core.fx_param = solo_idx;
+        app.core.dirty = true;
+    }
+    zgui.popStyleColor(.{ .count = 2 });
+
+    const stereo_idx = band_index * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_stereo_mode;
+    inline for (.{ "stereo", "mid", "side" }, 0..) |name, i| {
+        zgui.sameLine(.{ .spacing = 5 });
+        const active = @intFromEnum(band.stereo_mode) == i;
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) accent else theme.bg2 });
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) theme.bg0 else theme.fg2 });
+        if (zgui.button(name, .{}) and !active) {
+            history.recordFx(&app.core, target);
+            spectrum_ed.setParam(&app.core, &unit.payload, stereo_idx, @floatFromInt(i));
+            app.core.fx_param = stereo_idx;
+            app.core.dirty = true;
+        }
+        zgui.popStyleColor(.{ .count = 2 });
+    }
+
+    if (ws.dsp.eq.usesGain(band.kind)) {
+        const dyn_idx = band_index * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_dyn_enabled;
+        zgui.sameLine(.{ .spacing = 16 });
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (band.dyn_enabled) theme.rhythm else theme.bg2 });
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (band.dyn_enabled) theme.bg0 else theme.fg2 });
+        if (zgui.button(if (band.dyn_enabled) "dynamic: on" else "dynamic", .{})) {
+            history.recordFx(&app.core, target);
+            spectrum_ed.setParam(&app.core, &unit.payload, dyn_idx, if (band.dyn_enabled) 0 else 1);
+            app.core.fx_param = dyn_idx;
+            app.core.dirty = true;
+        }
+        zgui.popStyleColor(.{ .count = 2 });
+        if (band.dyn_enabled) {
+            const thr_idx = band_index * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_dyn_threshold;
+            const amt_idx = band_index * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_dyn_amount;
+            drawEqSlider(app, target, unit, thr_idx, "Dyn Threshold", "%.1f dB", false);
+            zgui.sameLine(.{ .spacing = 28 });
+            drawEqSlider(app, target, unit, amt_idx, "Dyn Amount", "%.1f dB", false);
+        }
+    }
 }
 
 fn drawEqSlope(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize) void {
@@ -832,25 +899,16 @@ fn eqYDb(origin_y: f32, height: f32, y: f32) f32 {
     return eq_db_min + norm * (eq_db_max - eq_db_min);
 }
 
+/// Combined curve in dB, delegating each band's magnitude to
+/// `eq_mod.bandMagnitude` - the same helper `recomputeAutoGain` uses, so the
+/// on-screen curve and the auto-gain estimate can never disagree about what
+/// a band's response actually is (this used to be its own hand-rolled copy
+/// of the biquad-magnitude math, which had no idea `.tiltshelf` needs two
+/// different coefficient sets multiplied together).
 fn combinedResponseDb(eq: *const ws.dsp.eq.ParametricEq, freq: f32) f32 {
-    var total: f32 = 0;
-    for (eq.bands) |band| total += bandResponseDb(band, eq.sr, freq);
-    return total;
-}
-
-fn bandResponseDb(band: anytype, sample_rate: f32, freq: f32) f32 {
-    const omega = 2.0 * std.math.pi * freq / sample_rate;
-    const cos_1 = std.math.cos(omega);
-    const sin_1 = std.math.sin(omega);
-    const cos_2 = std.math.cos(omega * 2.0);
-    const sin_2 = std.math.sin(omega * 2.0);
-    const num_re = band.b0 + band.b1 * cos_1 + band.b2 * cos_2;
-    const num_im = -(band.b1 * sin_1 + band.b2 * sin_2);
-    const den_re = 1.0 + band.a1 * cos_1 + band.a2 * cos_2;
-    const den_im = -(band.a1 * sin_1 + band.a2 * sin_2);
-    const magnitude_sq = @max(1.0e-12, (num_re * num_re + num_im * num_im) / @max(1.0e-12, den_re * den_re + den_im * den_im));
-    const stages: f32 = @floatFromInt(if (ws.dsp.eq.usesSlope(band.kind)) band.slope else @as(u8, 1));
-    return 10.0 * std.math.log10(magnitude_sq) * stages;
+    var total_mag: f32 = 1.0;
+    for (&eq.bands) |*band| total_mag *= ws.dsp.eq.bandMagnitude(band, freq, eq.sr);
+    return 20.0 * std.math.log10(@max(1.0e-6, total_mag));
 }
 
 fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize, knob_diameter: f32) void {
@@ -984,7 +1042,7 @@ fn syncChain(app: anytype, target: spectrum_ed.EqTarget) void {
 }
 
 fn drawEmptyState(app: anytype, target: spectrum_ed.EqTarget) void {
-    ensureEqAnalyzer(app, target);
+    ensureEqAnalyzer(app, target, null);
     drawBusMonitor(app, target);
     zgui.spacing();
     const below_top = zgui.getCursorPosY();

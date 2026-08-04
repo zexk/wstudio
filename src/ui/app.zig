@@ -544,6 +544,14 @@ pub const App = struct {
     /// Which group's FX chain is in view when `view == .group_spectrum` -
     /// parallel to `eq_track`.
     eq_group: u8 = 0,
+    /// View-only spectrum-analyzer prefs (not undo-tracked, not persisted) -
+    /// see `editors/spectrum.zig`'s `toggleSpectrumPre`/`toggleSpectrumFreeze`.
+    eq_spectrum_pre: bool = false,
+    eq_spectrum_frozen: bool = false,
+    /// The snapshot captured the moment freeze turned on - held and redrawn
+    /// instead of pulling a fresh one while frozen. Cleared whenever freeze
+    /// turns back off, so the next freeze always grabs a new one.
+    eq_spectrum_frozen_snap: ?ws.dsp.spectrum.SpectrumSnapshot = null,
     /// Scroll offset (in lines) of the help view; clamped by tui.drawHelp.
     help_scroll: usize = 0,
     /// Line index of the last `/` search match in the help view (highlighted

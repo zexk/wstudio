@@ -38,7 +38,7 @@ const LegacySnapshot = struct { version: u32 = 1, presets: []const LegacyPreset 
 /// a later save can't clobber it.
 pub fn load(allocator: std.mem.Allocator, io: std.Io, sample_rate: u32) std.ArrayListUnmanaged(UserPreset) {
     var parsed = json_store.load(FileSnapshot, allocator, io, filename, 4 * 1024 * 1024) orelse
-        return importLegacy(allocator, io, sample_rate);
+        return importLegacy(allocator, io);
     defer parsed.deinit();
 
     if (!std.mem.eql(u8, parsed.value.format, "wstudio-instrument-preset") or parsed.value.version > 1) {
@@ -64,7 +64,7 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io, sample_rate: u32) std.Arra
     return list;
 }
 
-fn importLegacy(allocator: std.mem.Allocator, io: std.Io, sample_rate: u32) std.ArrayListUnmanaged(UserPreset) {
+fn importLegacy(allocator: std.mem.Allocator, io: std.Io) std.ArrayListUnmanaged(UserPreset) {
     var parsed = json_store.load(LegacySnapshot, allocator, io, legacy_filename, 4 * 1024 * 1024) orelse return .empty;
     defer parsed.deinit();
     var list: std.ArrayListUnmanaged(UserPreset) = .empty;
@@ -72,13 +72,13 @@ fn importLegacy(allocator: std.mem.Allocator, io: std.Io, sample_rate: u32) std.
         const name = allocator.dupe(u8, p.name) catch continue;
         list.append(allocator, .{ .name = name, .patch = p.patch }) catch allocator.free(name);
     }
-    if (list.items.len > 0) save(allocator, io, list.items, sample_rate) catch {};
+    if (list.items.len > 0) save(allocator, io, list.items) catch {};
     return list;
 }
 
 /// Write every preset in `list` to disk, creating `~/.config/wstudio/`
 /// first if needed.
-fn save(allocator: std.mem.Allocator, io: std.Io, list: []const UserPreset, sample_rate: u32) !void {
+fn save(allocator: std.mem.Allocator, io: std.Io, list: []const UserPreset) !void {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const aa = arena.allocator();
@@ -86,7 +86,7 @@ fn save(allocator: std.mem.Allocator, io: std.Io, list: []const UserPreset, samp
     for (list, stored) |p, *out| out.* = .{
         .name = p.name,
         .patch = p.patch,
-        .fx_chain = try ws.persist.chainToSnap(aa, &p.fx, sample_rate),
+        .fx_chain = try ws.persist.chainToSnap(aa, &p.fx),
     };
     try json_store.save(allocator, io, filename, FileSnapshot{ .presets = stored });
 }
@@ -112,7 +112,7 @@ pub fn upsert(
             p.patch = patch;
             p.fx = copy;
             copy_unowned = false;
-            try save(allocator, io, list.items, sample_rate);
+            try save(allocator, io, list.items);
             return;
         }
     }
@@ -128,7 +128,7 @@ pub fn upsert(
         return e;
     };
     copy_unowned = false;
-    try save(allocator, io, list.items, sample_rate);
+    try save(allocator, io, list.items);
 }
 
 /// Remove `name`'s preset (case-insensitive, mirroring `upsert`'s match)
@@ -139,7 +139,6 @@ pub fn remove(
     io: std.Io,
     list: *std.ArrayListUnmanaged(UserPreset),
     name: []const u8,
-    sample_rate: u32,
 ) !bool {
     for (list.items, 0..) |p, i| {
         if (!std.ascii.eqlIgnoreCase(p.name, name)) continue;
@@ -147,7 +146,7 @@ pub fn remove(
         allocator.free(removed.name);
         var owned = removed;
         owned.fx.deinit(allocator);
-        try save(allocator, io, list.items, sample_rate);
+        try save(allocator, io, list.items);
         return true;
     }
     return false;
@@ -237,10 +236,10 @@ test "remove deletes by name (any case) and persists the shrunk set" {
     try upsert(testing.allocator, testing.io, &list, "keeper", .{}, &fx, ws.types.default_sample_rate);
     try upsert(testing.allocator, testing.io, &list, "goner", .{}, &fx, ws.types.default_sample_rate);
 
-    try testing.expect(try remove(testing.allocator, testing.io, &list, "GONER", ws.types.default_sample_rate));
+    try testing.expect(try remove(testing.allocator, testing.io, &list, "GONER"));
     try testing.expectEqual(@as(usize, 1), list.items.len);
     // An unknown name is a clean false, not an error.
-    try testing.expect(!try remove(testing.allocator, testing.io, &list, "goner", ws.types.default_sample_rate));
+    try testing.expect(!try remove(testing.allocator, testing.io, &list, "goner"));
 
     var loaded = load(testing.allocator, testing.io, ws.types.default_sample_rate);
     defer deinit(testing.allocator, &loaded);

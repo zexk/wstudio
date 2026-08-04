@@ -158,9 +158,10 @@ pub const FxPayload = union(enum) {
             },
             .delay => |d| {
                 var nd = try StereoDelay.init(allocator, sr, 2.0);
-                nd.delay_frames = d.delay_frames;
+                nd.time_s = d.time_s;
                 nd.feedback = d.feedback;
                 nd.mix = d.mix;
+                nd.damp = d.damp;
                 return .{ .delay = nd };
             },
             .reverb => |r| {
@@ -398,7 +399,7 @@ pub const Fx = struct {
             .freq_shift => .{ .freq_shift = FreqShifter.init(sr) },
             .delay   => blk: {
                 var delay = try StereoDelay.init(allocator, sr, 2.0);
-                delay.setTime(0.25);
+                delay.time_s = 0.25;
                 break :blk .{ .delay = delay };
             },
             .reverb  => .{ .reverb = try Reverb.init(allocator, sr) },
@@ -848,7 +849,7 @@ test "all 20 internal FX defaults keep normal audio audible, finite, and bounded
         var payload = try Fx.initPayload(allocator, kind, 48_000);
         defer payload.deinit(allocator);
         switch (payload) {
-            .delay => |delay| try std.testing.expectApproxEqAbs(@as(f32, 0.25), delay.timeSeconds(), 1e-6),
+            .delay => |delay| try std.testing.expectApproxEqAbs(@as(f32, 0.25), delay.time_s, 1e-6),
             .ott => |ott| try std.testing.expectApproxEqAbs(@as(f32, 0.1), ott.depth(), 1e-6),
             else => {},
         }

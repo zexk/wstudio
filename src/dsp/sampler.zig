@@ -593,9 +593,9 @@ test "adjustParam edits clip params and root note" {
     try std.testing.expectEqual(@as(u7, 48), s.root_note);
     s.adjustParam(9, 1); // reverse toggle
     try std.testing.expect(s.pad.reverse);
-    s.adjustParam(10, 20); // cubic travel keeps short fades easy to reach
+    s.adjustParam(10, 4); // cubic travel keeps short fades easy to reach
     try std.testing.expectApproxEqAbs(@as(f32, 0.04), s.pad.fade_in_s, 1e-4);
-    s.adjustParam(11, 20);
+    s.adjustParam(11, 4);
     try std.testing.expectApproxEqAbs(@as(f32, 0.04), s.pad.fade_out_s, 1e-4);
 }
 

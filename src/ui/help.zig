@@ -33,9 +33,9 @@ pub const Section = enum {
 /// Collects pre-rendered help lines into a fixed buffer so the view can show
 /// an arbitrary scroll window instead of spilling off the bottom of the screen.
 pub const HelpText = struct {
-    buf: [49152]u8 = undefined,
+    buf: [53248]u8 = undefined,
     len: usize = 0,
-    ends: [512]usize = undefined,
+    ends: [576]usize = undefined,
     count: usize = 0,
     /// Set when a line didn't fit in `buf`/`ends` - from then on lines render
     /// blank, so the build test below asserts this never trips with the real
@@ -428,8 +428,17 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("",             "EQ gets its own scheme instead: h/l picks which of its 8 bands is in view (H/L");
     t.key("",             "  jump 4 at a time), enter opens that band's kind/freq/q/gain-or-slope submenu");
     t.key("",             "  (j/k picks the field there, h/l nudges it, esc backs out to band-select first)");
-    t.key("",             "  a band's 'kind' row: h/l cycles peak <-> lowpass <-> highpass; once it's a");
-    t.key("",             "  filter the last row becomes 'slope' (12/24/36/48dB/oct) instead of 'gain'");
+    t.key("",             "  a band's 'kind' row: h/l cycles peak/lowpass/highpass/lowshelf/highshelf/notch/");
+    t.key("",             "  tiltshelf (a symmetric Baxandall tilt around the corner freq); once it's a");
+    t.key("",             "  filter kind the last row becomes 'slope' (12/24/36/48dB/oct) instead of 'gain'");
+    t.key("",             "  further rows: 'solo' isolates just that band's frequency region to audition");
+    t.key("",             "  it; 'stereo' cycles stereo/mid/side (filter only the sum or difference signal);");
+    t.key("",             "  'dyn' turns the band into a dynamic EQ - above 'dyn thr' the gain moves toward");
+    t.key("",             "  gain+'dyn amt' (attack/release smoothed), like a compressor for one frequency");
+    t.key("g",            "EQ only: toggle auto-gain (estimates the curve's average level shift and");
+    t.key("",             "  compensates output so a big boost/cut doesn't also change the overall volume)");
+    t.key("p",            "EQ only: flip the spectrum analyzer between pre-EQ and post-EQ (default)");
+    t.key("f",            "EQ only: freeze the spectrum analyzer on its current snapshot for A/B comparison");
     t.key("",             "a compressor's 'sidechain' param: h/l cycles none/track N - its envelope then");
     t.key("",             "  detects from track N's signal instead of its own input (duck a bass off a kick)");
     t.key("",             "  'scpad' (next param): h/l cycles none/pad N - narrows detection to one drum pad");

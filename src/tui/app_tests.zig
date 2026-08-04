@@ -7381,12 +7381,18 @@ test "FX chain: EQ kind field cycles all types and switches gain or slope contro
     _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
     try std.testing.expectEqual(eq_mod.BandKind.highshelf, eq.bands[0].kind);
 
-    // Clamped, not wrapped, past high shelf.
     _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
-    try std.testing.expectEqual(eq_mod.BandKind.highshelf, eq.bands[0].kind);
+    try std.testing.expectEqual(eq_mod.BandKind.notch, eq.bands[0].kind);
+
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
+    try std.testing.expectEqual(eq_mod.BandKind.tiltshelf, eq.bands[0].kind);
+
+    // Clamped, not wrapped, past the last kind.
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'l' });
+    try std.testing.expectEqual(eq_mod.BandKind.tiltshelf, eq.bands[0].kind);
 
     // Filter kinds use the shared fourth field for discrete slope stages.
-    for (0..3) |_| _ = spectrum_ed.handleKey(&app, .{ .char = 'h' });
+    for (0..5) |_| _ = spectrum_ed.handleKey(&app, .{ .char = 'h' });
     try std.testing.expectEqual(eq_mod.BandKind.lowpass, eq.bands[0].kind);
 
     // The gain field's flat slot becomes "slope" once the band isn't peak:

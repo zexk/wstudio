@@ -296,10 +296,38 @@ pub const eq_field_kind = 0;
 pub const eq_field_freq = 1;
 pub const eq_field_q = 2;
 pub const eq_field_gain = 3;
-pub const eq_fields_per_band = 4;
+/// Isolate this band's region to audition it (exclusive - see
+/// `ParametricEq.setSolo`).
+pub const eq_field_solo = 4;
+/// Stereo/mid/side targeting for this band - see `eq_mod.StereoMode`.
+pub const eq_field_stereo_mode = 5;
+/// Dynamic EQ: whether `eq_field_dyn_threshold`/`eq_field_dyn_amount` are
+/// live for this band (only meaningful for the gain-based kinds).
+pub const eq_field_dyn_enabled = 6;
+pub const eq_field_dyn_threshold = 7;
+pub const eq_field_dyn_amount = 8;
+pub const eq_fields_per_band = 9;
 
 pub fn eqBandField(idx: usize) struct { band: usize, field: usize } {
     return .{ .band = idx / eq_fields_per_band, .field = idx % eq_fields_per_band };
+}
+
+/// True if band `i` is meaningfully engaged (a gain-type band pushed at
+/// least 1dB, or a filter-type band - a cut point always matters) and sits
+/// within an octave of another meaningfully-engaged band - a simple stand-in
+/// for Pro-Q's "collision detection": two bands fighting over the same
+/// region make the combined curve unpredictable even though each looks fine
+/// alone. Shared by the TUI overview row and the GUI curve so they flag the
+/// same pairs the same way.
+pub fn bandCollides(e: *const eq_mod.ParametricEq, i: usize) bool {
+    const a = &e.bands[i];
+    if (eq_mod.usesGain(a.kind) and @abs(a.gain_db) < 1.0) return false;
+    for (&e.bands, 0..) |*b, j| {
+        if (j == i) continue;
+        if (eq_mod.usesGain(b.kind) and @abs(b.gain_db) < 1.0) continue;
+        if (@abs(std.math.log2(a.freq / b.freq)) < 1.0) return true;
+    }
+    return false;
 }
 
 /// Full-word label for a band's response type - `eq_field_kind`'s value.
@@ -314,10 +342,22 @@ pub const eq_kind_specs = [_]EqKindSpec{
     .{ .label = "highpass", .short_label = "LC", .title = "LOW CUT FILTER", .action_label = "LOW CUT" },
     .{ .label = "lowshelf", .short_label = "LS", .title = "LOW SHELF FILTER", .action_label = "LOW SHELF" },
     .{ .label = "highshelf", .short_label = "HS", .title = "HIGH SHELF FILTER", .action_label = "HIGH SHELF" },
+    .{ .label = "notch", .short_label = "NTCH", .title = "NOTCH FILTER", .action_label = "NOTCH" },
+    .{ .label = "tiltshelf", .short_label = "TILT", .title = "TILT SHELF FILTER", .action_label = "TILT" },
 };
 
 comptime {
     if (eq_kind_specs.len != std.meta.fields(eq_mod.BandKind).len) @compileError("eq_kind_specs must cover every BandKind");
+}
+
+/// Full-word label for a band's stereo/mid/side target - parallel to
+/// `eqKindLabel`.
+pub fn eqStereoModeLabel(mode: eq_mod.StereoMode) []const u8 {
+    return switch (mode) {
+        .stereo => "stereo",
+        .mid => "mid",
+        .side => "side",
+    };
 }
 
 /// [band][field] name table (thresh/ratio/makeup x low/mid/high) - a static
@@ -381,9 +421,7 @@ fn tableGet(self: anytype, comptime table: []const ParamSpec, idx: usize) f32 {
 /// Clamps (and, for whole-number params, rounds) `value` to `spec`'s range
 /// before writing it - through the setter method if one's given, otherwise
 /// straight into the field. The clamp always runs even when a setter also
-/// clamps internally (e.g. `Ott.setDepth`): harmless double-clamp there,
-/// load-bearing for `StereoDelay.setTime`, whose `seconds` param underflows
-/// `usize` on a negative input.
+/// clamps internally (e.g. `Ott.setDepth`): harmless double-clamp there.
 fn tableSet(self: anytype, comptime table: []const ParamSpec, idx: usize, value: f32) void {
     inline for (table, 0..) |spec, i| {
         if (i == idx) {
@@ -488,15 +526,19 @@ const reverb_specs = [_]ParamSpec{
     .{ .name = "room", .field = "room", .min = 0.0, .max = 0.98, .step_fine = 0.02, .step_coarse = 0.1 },
     .{ .name = "damp", .field = "damp", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
     .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "predelay", .field = "predelay_ms", .min = 0.0, .max = 250.0, .step_fine = 5.0, .step_coarse = 25.0 },
+    .{ .name = "width", .field = "width", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "low cut", .field = "low_cut_hz", .min = 0.0, .max = 500.0, .step_fine = 10.0, .step_coarse = 50.0 },
 };
 
-/// `time`'s range matches the 2.0s line `StereoDelay.init` allocates at
-/// every call site; the clamp is also what keeps a stray negative seconds
-/// value from underflowing `setTime`'s `usize` frame count (see `tableSet`).
+/// `time`'s max matches the 2.0s line `StereoDelay.init` allocates at every
+/// call site; `time_s` is a plain sanitized field now (no more `setTime`
+/// control-side reset), so the knob can be dragged live with no click.
 const delay_specs = [_]ParamSpec{
-    .{ .name = "time", .getter = "timeSeconds", .setter = "setTime", .min = 0.01, .max = 2.0, .step_fine = 0.01, .step_coarse = 0.1 },
+    .{ .name = "time", .field = "time_s", .min = 0.0, .max = 2.0, .step_fine = 0.01, .step_coarse = 0.1 },
     .{ .name = "feedback", .field = "feedback", .min = 0.0, .max = 0.95, .step_fine = 0.05, .step_coarse = 0.2 },
     .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "damp", .field = "damp", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
 };
 
 const ott_specs = [_]ParamSpec{
@@ -531,6 +573,11 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
                 eq_field_kind => "kind",
                 eq_field_freq => "freq",
                 eq_field_q => "q",
+                eq_field_solo => "solo",
+                eq_field_stereo_mode => "stereo",
+                eq_field_dyn_enabled => "dyn on",
+                eq_field_dyn_threshold => "dyn thr",
+                eq_field_dyn_amount => "dyn amt",
                 else => if (eq_mod.usesGain(e.bands[bf.band].kind)) "gain" else "slope",
             };
         },
@@ -615,6 +662,11 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
                 eq_field_kind => @floatFromInt(@intFromEnum(band.kind)),
                 eq_field_freq => band.freq,
                 eq_field_q => band.q,
+                eq_field_solo => if (band.solo) 1.0 else 0.0,
+                eq_field_stereo_mode => @floatFromInt(@intFromEnum(band.stereo_mode)),
+                eq_field_dyn_enabled => if (band.dyn_enabled) 1.0 else 0.0,
+                eq_field_dyn_threshold => band.dyn_threshold_db,
+                eq_field_dyn_amount => band.dyn_amount_db,
                 else => if (eq_mod.usesGain(band.kind)) band.gain_db else @floatFromInt(band.slope),
             };
         },
@@ -689,6 +741,10 @@ pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
             eq_field_kind => .{ 0.0, @floatFromInt(eq_kind_specs.len - 1) },
             eq_field_freq => .{ 20.0, 20000.0 },
             eq_field_q => .{ 0.1, 10.0 },
+            eq_field_solo, eq_field_dyn_enabled => .{ 0.0, 1.0 },
+            eq_field_stereo_mode => .{ 0.0, @floatFromInt(std.meta.fields(eq_mod.StereoMode).len - 1) },
+            eq_field_dyn_threshold => .{ -60.0, 0.0 },
+            eq_field_dyn_amount => .{ -18.0, 18.0 },
             else => if (eq_mod.usesGain(e.bands[eqBandField(idx).band].kind))
                 [2]f32{ -18.0, 18.0 }
             else
@@ -747,6 +803,11 @@ pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
 /// since "which of up to 64 tracks" doesn't fit two brackets).
 pub fn paramToggleNames(k: FxKind, idx: usize) ?[2][]const u8 {
     return switch (k) {
+        .eq => switch (eqBandField(idx).field) {
+            eq_field_solo => .{ "off", "solo" },
+            eq_field_dyn_enabled => .{ "static", "dynamic" },
+            else => null,
+        },
         .mb_comp => if (idx == mb_style) .{ "classic", "OTT" } else null,
         .utility => switch (idx) {
             1 => .{ "normal", "invert" },
@@ -791,6 +852,14 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
                 },
                 eq_field_freq => e.setFreq(bf.band, value),
                 eq_field_q => e.setQ(bf.band, value),
+                eq_field_solo => e.setSolo(bf.band, value >= 0.5),
+                eq_field_stereo_mode => {
+                    const rounded = std.math.clamp(@round(value), 0.0, @as(f32, @floatFromInt(std.meta.fields(eq_mod.StereoMode).len - 1)));
+                    e.setStereoMode(bf.band, @enumFromInt(@as(u8, @intFromFloat(rounded))));
+                },
+                eq_field_dyn_enabled => e.setDynEnabled(bf.band, value >= 0.5),
+                eq_field_dyn_threshold => e.setDynThreshold(bf.band, value),
+                eq_field_dyn_amount => e.setDynAmount(bf.band, value),
                 else => if (eq_mod.usesGain(band.kind))
                     e.setGain(bf.band, value)
                 else
@@ -871,6 +940,9 @@ fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
             eq_field_kind => 1.0,
             eq_field_freq => if (coarse) @as(f32, 100.0) else 10.0,
             eq_field_q => if (coarse) @as(f32, 0.5) else 0.1,
+            eq_field_solo, eq_field_dyn_enabled, eq_field_stereo_mode => 1.0,
+            eq_field_dyn_threshold => if (coarse) @as(f32, 6.0) else 1.0,
+            eq_field_dyn_amount => if (coarse) @as(f32, 6.0) else 1.0,
             // gain steps normally; slope steps whole cascade stages, coarse
             // jumping the full 1..max_slope range in one press.
             else => if (eq_mod.usesGain(e.bands[eqBandField(idx).band].kind))
@@ -1004,15 +1076,20 @@ fn syncChain(app: *App, target: EqTarget) void {
 /// one has focus, park it otherwise (and on leaving the view) so the engine
 /// skips FFT work nobody is looking at.
 fn syncAnalyzer(app: *App, target: EqTarget) void {
-    const focused_eq = if (fxPtr(app, target)) |fx| blk: {
-        const u = focusedUnit(app, fx) orelse break :blk false;
-        break :blk u.kind() == .eq;
-    } else false;
-    if (focused_eq) {
+    const focused: ?*FxUnit = if (fxPtr(app, target)) |fx| blk: {
+        const u = focusedUnit(app, fx) orelse break :blk null;
+        break :blk if (u.kind() == .eq) u else null;
+    } else null;
+    if (focused) |u| {
         _ = app.session.engine.send(.{ .set_spectrum_active = .{
             .source = switch (target) { .track => .track, .master => .master, .group => .group },
             .track = if (target == .track) app.eq_track else 0,
             .group = if (target == .group) app.eq_group else 0,
+            // `dsp.Device.ptr` for any FX slot is the owning `*FxUnit`, not
+            // its payload sub-object - see `FxUnit.device`. Matching on `u`
+            // itself is what lets the engine tap pre/post around exactly
+            // this EQ instance in `Engine.processChainWithSidechain`.
+            .target = u,
         } });
     } else {
         _ = app.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
@@ -1185,6 +1262,36 @@ pub fn toggleBypass(app: *App, target: EqTarget) void {
     app.setStatus("{s} {s}", .{ unitLabel(u.kind()), if (u.bypassed) "bypassed" else "active" });
 }
 
+/// Unit-level auto-gain, same "outside the param grid, own keybind" shape
+/// as `toggleBypass` - see `ParametricEq.setAutoGain`.
+pub fn toggleAutoGain(app: *App, target: EqTarget) void {
+    const u = focusedEq(app, target) orelse return;
+    const e = &u.payload.eq;
+    history.recordFx(app, target);
+    e.setAutoGain(!e.auto_gain);
+    app.dirty = true;
+    app.setStatus("auto gain {s}", .{if (e.auto_gain) "on" else "off"});
+}
+
+/// Flips which side of the focused EQ the analyzer taps - see
+/// `Engine.set_spectrum_pre`. Not undo-tracked (a view preference, not
+/// session data, same as freeze below).
+pub fn toggleSpectrumPre(app: *App, target: EqTarget) void {
+    if (focusedEq(app, target) == null) return;
+    app.eq_spectrum_pre = !app.eq_spectrum_pre;
+    _ = app.session.engine.send(.{ .set_spectrum_pre = app.eq_spectrum_pre });
+    app.setStatus("spectrum: {s}", .{if (app.eq_spectrum_pre) "pre-EQ" else "post-EQ"});
+}
+
+/// Freeze is pure view state - the render side just stops asking the engine
+/// for a fresh snapshot and keeps drawing the last one it got (see
+/// `views/spectrum.zig`), so there's nothing to send the engine here.
+pub fn toggleSpectrumFreeze(app: *App, target: EqTarget) void {
+    if (focusedEq(app, target) == null) return;
+    app.eq_spectrum_frozen = !app.eq_spectrum_frozen;
+    app.setStatus("spectrum: {s}", .{if (app.eq_spectrum_frozen) "frozen" else "live"});
+}
+
 fn nudge(app: *App, target: EqTarget, key: u8) void {
     const fx = fxPtr(app, target) orelse return;
     const u = focusedUnit(app, fx) orelse return;
@@ -1326,6 +1433,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             '<' => { moveFocused(app, target, -1); return true; },
             '>' => { moveFocused(app, target, 1); return true; },
             'b' => { toggleBypass(app, target); return true; },
+            'g' => { toggleAutoGain(app, target); return true; },
+            'p' => { toggleSpectrumPre(app, target); return true; },
+            'f' => { toggleSpectrumFreeze(app, target); return true; },
             // -/+ ride the group's bus fader from inside its chain view
             // (1 dB per press, count-scaled) - a mixer move like track
             // gain, so deliberately not undo-tracked. Track/master chains
@@ -1402,10 +1512,11 @@ fn slotAt(x: usize, len: usize) ?usize {
 }
 
 /// EQ-body row count below the graph+Hz-label: 2 all-band overview rows
-/// (glyph + freq), a "BAND N" header divider, then 4 detail rows for the
-/// focused band alone (kind/freq/q/gain-or-slope) - an EQ unit in focus
-/// always exists, chains only hold inserted units.
-pub const eq_band_rows: usize = 7;
+/// (glyph + freq), a "BAND N" header divider, then `eq_fields_per_band`
+/// detail rows for the focused band alone (kind/freq/q/gain-or-slope/solo/
+/// stereo/dyn-on/dyn-threshold/dyn-amount) - an EQ unit in focus always
+/// exists, chains only hold inserted units.
+pub const eq_band_rows: usize = eq_overview_rows + eq_header_rows + eq_fields_per_band;
 const eq_overview_rows: usize = 2;
 const eq_header_rows: usize = 1;
 
@@ -1514,6 +1625,11 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
                 eq_field_kind => eqKindLabel(e.bands[bf.band].kind),
                 eq_field_freq => std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?",
                 eq_field_q => std.fmt.bufPrint(buf, "{d:.2}", .{v}) catch "?",
+                eq_field_solo => if (v >= 0.5) "solo" else "off",
+                eq_field_stereo_mode => eqStereoModeLabel(e.bands[bf.band].stereo_mode),
+                eq_field_dyn_enabled => if (v >= 0.5) "dynamic" else "static",
+                eq_field_dyn_threshold => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+                eq_field_dyn_amount => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
                 // Gain for a peak band; a filter band's "slope" instead,
                 // stored as a stage count (1..max_slope) - show it in
                 // dB/oct (12 per cascade stage) since that's the unit a
@@ -1578,7 +1694,11 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
             0 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v * 1000.0}) catch "?",
             else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
         },
-        .reverb => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        .reverb => switch (idx) {
+            3 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?", // predelay
+            5 => std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?", // low cut
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?", // room, damp, mix, width
+        },
         .gate => switch (idx) {
             0 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
             else => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",

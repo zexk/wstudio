@@ -220,6 +220,11 @@ pub fn drawFxView(
         // depending which stage it's in, so the hint has to match.
         if (focused != null and focused.?.kind() == .eq) {
             if (app.eq_band_select) try w.writeAll("h/l:band  enter:edit") else try w.writeAll("j/k:field  h/l:adjust  esc:back");
+            try w.writeAll("  g:gain  p:pre/post  f:freeze");
+            const e = &focused.?.payload.eq;
+            if (e.auto_gain) try w.writeAll("  " ++ grn ++ "auto" ++ dim);
+            try w.writeAll(if (app.eq_spectrum_pre) "  " ++ bcyn ++ "pre" ++ dim else "");
+            if (app.eq_spectrum_frozen) try w.writeAll("  " ++ yel ++ "frozen" ++ dim);
         } else {
             try w.writeAll("j/k:param  h/l:adjust");
         }
@@ -244,10 +249,22 @@ pub fn drawFxView(
         // The EQ unit's editor: live spectrum graph up top, the 8 band
         // columns underneath. The analyzer only runs while an EQ has focus
         // (editors/spectrum.zig parks it on focus change).
-        const spectrum_snap = switch (target) {
-            .track => app.session.engine.trackSpectrumSnapshot(app.eq_track),
-            .master => app.session.engine.masterSpectrumSnapshot(),
-            .group => app.session.engine.groupSpectrumSnapshot(app.eq_group),
+        // Freeze holds whatever snapshot was current the moment it turned
+        // on, redrawing that instead of pulling a fresh one each frame.
+        const spectrum_snap = if (app.eq_spectrum_frozen) blk: {
+            if (app.eq_spectrum_frozen_snap == null) app.eq_spectrum_frozen_snap = switch (target) {
+                .track => app.session.engine.trackSpectrumSnapshot(app.eq_track),
+                .master => app.session.engine.masterSpectrumSnapshot(),
+                .group => app.session.engine.groupSpectrumSnapshot(app.eq_group),
+            };
+            break :blk app.eq_spectrum_frozen_snap;
+        } else blk: {
+            app.eq_spectrum_frozen_snap = null;
+            break :blk switch (target) {
+                .track => app.session.engine.trackSpectrumSnapshot(app.eq_track),
+                .master => app.session.engine.masterSpectrumSnapshot(),
+                .group => app.session.engine.groupSpectrumSnapshot(app.eq_group),
+            };
         };
 
         const bands = spectrum_ed.eq_band_rows;
@@ -398,11 +415,15 @@ pub fn drawFxView(
         try w.writeAll(dim ++ "   ");
         for (0..eq_mod.num_eq_bands) |b| {
             const is_cur = b == cur_band;
+            const collides = spectrum_ed.bandCollides(e, b);
             var fbuf: [8]u8 = undefined;
             const lbl = spectrum_ed.compactHz(&fbuf, e.bands[b].freq);
-            if (is_cur) try w.writeAll(rst ++ acc ++ bold);
+            // Collision (two engaged bands within an octave) reads as a red
+            // freq label - a quiet warning under the glyph row rather than
+            // fighting the glyph's own gain/slope colour.
+            if (is_cur) try w.writeAll(rst ++ acc ++ bold) else if (collides) try w.writeAll(rst ++ red);
             try w.print("{s: ^5}", .{lbl});
-            if (is_cur) try w.writeAll(rst ++ dim);
+            if (is_cur) try w.writeAll(rst ++ dim) else if (collides) try w.writeAll(rst ++ dim);
         }
         try w.writeAll(rst);
         try endLine(w);
@@ -437,6 +458,34 @@ pub fn drawFxView(
             @intFromFloat(@round(spectrum_ed.getParam(&unit.payload, kind_idx))));
 
         inline for (.{ spectrum_ed.eq_field_freq, spectrum_ed.eq_field_q, spectrum_ed.eq_field_gain }) |field| {
+            const idx = cur_band * spectrum_ed.eq_fields_per_band + field;
+            const v = spectrum_ed.getParam(&unit.payload, idx);
+            const range = spectrum_ed.paramRange(app, &unit.payload, idx);
+            const norm = std.math.clamp((v - range[0]) / (range[1] - range[0]), 0.0, 1.0);
+            var vbuf: [16]u8 = undefined;
+            var nbuf: [64]u8 = undefined;
+            try barRow(w, in_submenu and cur_field == field, false, sectionColor(.eq),
+                spectrum_ed.formatParamName(&nbuf, &unit.payload, idx), norm, 1.0, spectrum_ed.formatValue(app, &vbuf, &unit.payload, idx));
+                // zig fmt: on
+        }
+
+        // Solo / mid-side / dynamic-EQ rows - same detail block, in the same
+        // field order the mouse hit-test (editors/spectrum.zig's
+        // handleMouse -> detail_row0) expects.
+        const solo_idx = cur_band * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_solo;
+        try enumRow(w, in_submenu and cur_field == spectrum_ed.eq_field_solo, false, sectionColor(.eq),
+            "solo", &.{ "off", "solo" }, @intFromFloat(@round(spectrum_ed.getParam(&unit.payload, solo_idx))));
+
+        const stereo_idx = cur_band * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_stereo_mode;
+        try enumRow(w, in_submenu and cur_field == spectrum_ed.eq_field_stereo_mode, false, sectionColor(.eq),
+            "stereo", &.{ "stereo", "mid", "side" }, @intFromFloat(@round(spectrum_ed.getParam(&unit.payload, stereo_idx))));
+
+        const dyn_on_idx = cur_band * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_dyn_enabled;
+        try enumRow(w, in_submenu and cur_field == spectrum_ed.eq_field_dyn_enabled, false, sectionColor(.eq),
+            "dyn", &.{ "static", "dynamic" }, @intFromFloat(@round(spectrum_ed.getParam(&unit.payload, dyn_on_idx))));
+
+        // zig fmt: off
+        inline for (.{ spectrum_ed.eq_field_dyn_threshold, spectrum_ed.eq_field_dyn_amount }) |field| {
             const idx = cur_band * spectrum_ed.eq_fields_per_band + field;
             const v = spectrum_ed.getParam(&unit.payload, idx);
             const range = spectrum_ed.paramRange(app, &unit.payload, idx);

@@ -573,7 +573,7 @@ fn deleteSelected(app: *App) void {
     const shown_len = @min(chosen.name.len, name_buf.len);
     @memcpy(name_buf[0..shown_len], chosen.name[0..shown_len]);
     switch (app.preset_picker_kind) {
-        .synth => _ = user_presets.remove(app.allocator, app.io, &app.user_synth_presets, chosen.name, app.session.project.sample_rate) catch |e| {
+        .synth => _ = user_presets.remove(app.allocator, app.io, &app.user_synth_presets, chosen.name) catch |e| {
             app.setStatus("delete: {s}", .{@errorName(e)});
             return;
         },
