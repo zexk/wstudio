@@ -932,11 +932,31 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
         .delay => |*d| tableSet(d, &delay_specs, idx, value),
         .ott => |*o| tableSet(o, &ott_specs, idx, value),
         .limiter => |*l| tableSet(l, &limiter_specs, idx, value),
+        // Routed through the engine command queue, not a direct
+        // `plugin.setParameter` call: that mutates the plugin's own
+        // fixed-size pending-event buffer with no synchronization, and
+        // `processBlock` reads/resets that same buffer from the audio
+        // thread every block - a UI-thread knob nudge or drag racing a
+        // live block is a real, silent-corruption hazard, not a
+        // theoretical one (see `ClapPlugin.setParameter`'s own doc
+        // comment). `_any` broadcasts rather than routing to one track's
+        // chain, since this editor is shared by track/group/master FX.
         .clap => |plugin| if (plugin.parameterInfo(@intCast(idx))) |info| {
             const range = clapRange(info.min_value, info.max_value) orelse return;
-            plugin.setParameter(info.id, info.cookie, clapValue(value, info.default_value, range));
+            _ = app.session.engine.send(.{ .set_clap_param_any = .{
+                .target = plugin,
+                .id = info.id,
+                .cookie = info.cookie,
+                .value = clapValue(value, info.default_value, range),
+            } });
         },
-        .vst3 => |plugin| if (plugin.parameterInfo(idx)) |info| plugin.setParameter(info.id, value),
+        .vst3 => |plugin| if (plugin.parameterInfo(idx)) |info| {
+            _ = app.session.engine.send(.{ .set_vst3_param_any = .{
+                .target = plugin,
+                .id = info.id,
+                .value = value,
+            } });
+        },
     }
 }
 // zig fmt: on

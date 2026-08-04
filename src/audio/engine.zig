@@ -60,6 +60,15 @@ pub const Command = union(enum) {
     /// just originating from the control-side command queue.
     set_track_param_abs: struct { track: u16, id: u16, value: f32 },
     set_clap_param: struct { track: u16, target: *anyopaque, id: u32, cookie: ?*anyopaque, value: f64 },
+    /// Same as `set_clap_param`, for a CLAP unit that could be sitting on
+    /// any chain (track, group, or master), not just hosted as a track's
+    /// instrument - the FX param-grid editor's knob/drag edits use this
+    /// one. Broadcasts (see `broadcastEvent`) rather than routing through
+    /// a specific track, since `target` alone already picks out the exact
+    /// plugin instance regardless of which chain it lives on.
+    set_clap_param_any: struct { target: *anyopaque, id: u32, cookie: ?*anyopaque, value: f64 },
+    /// VST3 counterpart to `set_clap_param_any`.
+    set_vst3_param_any: struct { target: *anyopaque, id: u32, value: f64 },
     /// Which group (if any) `track` submixes through before the master bus.
     /// `null` routes straight to master, same as before grouping existed.
     set_track_group: struct { track: u16, group: ?u8 },
@@ -989,6 +998,17 @@ pub const Engine = struct {
                 .cookie = c.cookie,
                 .value = c.value,
             } }),
+            .set_clap_param_any => |c| self.broadcastEvent(.{ .clap_param = .{
+                .target = c.target,
+                .id = c.id,
+                .cookie = c.cookie,
+                .value = c.value,
+            } }),
+            .set_vst3_param_any => |c| self.broadcastEvent(.{ .vst3_param = .{
+                .target = c.target,
+                .id = c.id,
+                .value = c.value,
+            } }),
             .set_track_group => |c| if (self.trackAtIfValid(c.track)) |track| {
                 track.group = c.group;
             },
@@ -1069,6 +1089,25 @@ pub const Engine = struct {
     fn sendTrackEvent(self: *Engine, track: u16, ev: dsp.Event) void {
         const state = self.trackAtIfValid(track) orelse return;
         for (state.chain.slice()) |dev| dev.sendEvent(ev);
+    }
+
+    /// Delivers `ev` to every device in every chain (master, every active
+    /// track, every active group) - for events matched by target-pointer
+    /// identity inside the device itself (`clap_param`/`vst3_param`) rather
+    /// than by which chain they live on, since a CLAP/VST3 unit can sit on
+    /// any of the three and the control thread has no cheap way to know
+    /// which without walking the same chains anyway.
+    fn broadcastEvent(self: *Engine, ev: dsp.Event) void {
+        for (self.master_chain.slice()) |dev| dev.sendEvent(ev);
+        for (self.tracks) |*slot| {
+            const t = slot.load(.acquire);
+            if (!t.active) continue;
+            for (t.chain.slice()) |dev| dev.sendEvent(ev);
+        }
+        for (&self.groups) |*g| {
+            if (!g.active) continue;
+            for (g.chain.slice()) |dev| dev.sendEvent(ev);
+        }
     }
 
     /// This block's captured signal for `track`, if it was registered and
