@@ -1,7 +1,17 @@
-//! Soft-clip saturator: a tanh waveshaper with input drive, output trim,
-//! and dry/wet mix. The shaper is peak-normalised (tanh(g·x)/tanh(g)) so
-//! cranking the drive adds density and harmonics without also adding
-//! level; the output trim is a plain make-up/duck control on top.
+//! Saturator: a waveshaper with input drive, output trim, dry/wet mix, and
+//! a choice of three curves. Every curve is peak-normalised (shape(g·x) /
+//! shape(g) per polarity) so cranking the drive adds density and harmonics
+//! without also adding level; the output trim is a plain make-up/duck
+//! control on top.
+//!
+//! Shapes:
+//!   0 = soft:  tanh, symmetric - warm, mostly odd harmonics.
+//!   1 = tube:  tanh with a softer gain on the negative half, so it clips
+//!       asymmetrically like a valve stage and adds even harmonics. The
+//!       asymmetry pushes a DC offset into the signal, so this shape alone
+//!       runs its output through a one-pole DC blocker.
+//!   2 = diode: cubic soft-knee clip (`x - x^3/3`, hard-limited past unity)
+//!       - a sharper knee than tanh for a more aggressive, fuzz-like edge.
 
 const std = @import("std");
 const types = @import("../core/types.zig");
@@ -9,18 +19,43 @@ const dsp = @import("device.zig");
 
 const Sample = types.Sample;
 
+/// Negative-half gain multiplier for the tube shape - the asymmetry that
+/// gives it even harmonics.
+const tube_asym: f32 = 0.6;
+/// One-pole DC-blocker pole; ~38 Hz cutoff at 48 kHz, low enough to leave
+/// bass alone.
+const dc_pole: f32 = 0.995;
+
+fn shapeVal(kind: u2, pre: f32, x: f32) f32 {
+    return switch (kind) {
+        1 => blk: {
+            const g = if (x >= 0) pre else pre * tube_asym;
+            break :blk std.math.tanh(g * x);
+        },
+        2 => blk: {
+            const y = pre * x;
+            break :blk if (@abs(y) < 1.0) y - (y * y * y) / 3.0 else std.math.copysign(@as(f32, 2.0 / 3.0), y);
+        },
+        else => std.math.tanh(pre * x),
+    };
+}
+
 pub const Saturator = struct {
     drive_db: f32 = 12.0,
     out_db: f32 = 0.0,
     /// 0 = dry only, 1 = wet only.
     mix: f32 = 1.0,
+    /// 0 = soft (tanh), 1 = tube (asymmetric), 2 = diode (cubic clip).
+    shape: f32 = 0.0,
+    /// Per-channel DC-blocker state, only driven when shape = tube.
+    dc_x1: [2]f32 = .{ 0.0, 0.0 },
+    dc_y1: [2]f32 = .{ 0.0, 0.0 },
 
     pub const device = dsp.deviceOf(@This());
 
-    /// Stateless (no filters/lines to clear) - exists only so `deviceOf`
-    /// has a `reset` to wire into the vtable.
     pub fn reset(self: *Saturator) void {
-        _ = self;
+        self.dc_x1 = .{ 0.0, 0.0 };
+        self.dc_y1 = .{ 0.0, 0.0 };
     }
 
     /// Shape an interleaved stereo buffer in place.
@@ -28,14 +63,27 @@ pub const Saturator = struct {
         const drive_db = dsp.sanitizeParam(self.drive_db, 0.0, 36.0, 12.0);
         const out_db = dsp.sanitizeParam(self.out_db, -24.0, 24.0, 0.0);
         const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 1.0);
+        const kind: u2 = @intFromFloat(std.math.clamp(@round(dsp.sanitizeParam(self.shape, 0.0, 2.0, 0.0)), 0, 2));
         // zig fmt: off
         const pre  = types.dbToGain(drive_db);
         // zig fmt: on
         const post = types.dbToGain(out_db);
-        const norm = 1.0 / std.math.tanh(pre); // full-scale in → full-scale out
-        for (buf) |*s| {
-            const wet = std.math.tanh(s.* * pre) * norm * post;
-            s.* = s.* * (1.0 - mix) + wet * mix;
+        // full-scale in → full-scale out, per polarity (they differ only for the tube shape)
+        const norm_pos = 1.0 / shapeVal(kind, pre, 1.0);
+        const norm_neg = if (kind == 1) 1.0 / @abs(shapeVal(kind, pre, -1.0)) else norm_pos;
+
+        for (buf, 0..) |*s, i| {
+            const ch = i % 2;
+            const dry = s.*;
+            const norm = if (dry >= 0) norm_pos else norm_neg;
+            var wet = shapeVal(kind, pre, dry) * norm * post;
+            if (kind == 1) {
+                const y0 = wet - self.dc_x1[ch] + dc_pole * self.dc_y1[ch];
+                self.dc_x1[ch] = wet;
+                self.dc_y1[ch] = y0;
+                wet = y0;
+            }
+            s.* = dry * (1.0 - mix) + wet * mix;
         }
     }
 };
@@ -72,8 +120,34 @@ test "invalid parameters cannot poison output" {
         .drive_db = std.math.inf(f32),
         .out_db = -std.math.inf(f32),
         .mix = std.math.nan(f32),
+        .shape = std.math.nan(f32),
     };
     var buf = [_]Sample{ 0.0, -0.7, 0.05, 0.9 };
     sat.processBlock(&buf);
     for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
+}
+
+test "diode shape also maps full-scale to full-scale" {
+    var sat = Saturator{ .drive_db = 30.0, .shape = 2.0 };
+    var buf = [_]Sample{ 1.0, -1.0 };
+    sat.processBlock(&buf);
+    try std.testing.expectApproxEqAbs(@as(Sample, 1.0), buf[0], 1e-4);
+    try std.testing.expectApproxEqAbs(@as(Sample, -1.0), buf[1], 1e-4);
+}
+
+test "tube shape adds even harmonics but the DC blocker keeps the mean near zero" {
+    var sat = Saturator{ .drive_db = 24.0, .shape = 1.0 };
+    var buf: [512]Sample = undefined; // 256 interleaved stereo frames, L = R
+    for (0..256) |frame| {
+        const s = @sin(2.0 * std.math.pi * 220.0 * @as(f32, @floatFromInt(frame)) / 48_000.0);
+        buf[frame * 2] = s;
+        buf[frame * 2 + 1] = s;
+    }
+    sat.processBlock(&buf);
+    var sum: f64 = 0.0;
+    for (buf) |s| {
+        try std.testing.expect(std.math.isFinite(s));
+        sum += s;
+    }
+    try std.testing.expect(@abs(sum / buf.len) < 0.05);
 }

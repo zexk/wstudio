@@ -8351,7 +8351,7 @@ test "wstudio.api builds and tunes FX chains" {
     try rt.loadString(
         \\f = wstudio.api.fx_list(1)
         \\assert(#f == 3 and f[1].kind == 'reverb' and f[2].kind == 'sat' and f[3].kind == 'delay')
-        \\assert(f[2].bypassed == false and f[2].param_count == 3 and f[2].instance_id ~= f[3].instance_id)
+        \\assert(f[2].bypassed == false and f[2].param_count == 4 and f[2].instance_id ~= f[3].instance_id)
     );
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.fx_add(1, 'nope')"));
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.fx_add(1, 'clap')"));
@@ -8360,7 +8360,7 @@ test "wstudio.api builds and tunes FX chains" {
     // Params come back named, with their ranges; set takes name or index.
     try rt.loadString(
         \\p = wstudio.api.fx_params(1, 2)
-        \\assert(#p == 3 and p[1].name == 'drive' and p[1].min == 0.0 and p[1].max == 36.0 and p[1].list == false)
+        \\assert(#p == 4 and p[1].name == 'drive' and p[1].min == 0.0 and p[1].max == 36.0 and p[1].list == false)
     );
     try rt.loadString("wstudio.api.fx_param_set(1, 2, 'drive', 12); assert(wstudio.api.fx_params(1, 2)[1].value == 12.0)");
     try rt.loadString("wstudio.api.fx_param_set(1, 2, 3, 0.25); assert(wstudio.api.fx_params(1, 2)[3].value == 0.25)");

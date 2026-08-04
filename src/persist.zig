@@ -641,6 +641,9 @@ pub const SatSnap = struct {
     drive_db: f32 = 12.0,
     out_db: f32 = 0.0,
     mix: f32 = 1.0,
+    /// Additive: shape select, missing on older files -> soft/tanh (matches
+    /// Saturator's own default).
+    shape: f32 = 0.0,
 };
 
 pub const CrushSnap = struct {

@@ -484,6 +484,7 @@ const sat_specs = [_]ParamSpec{
     .{ .name = "drive", .field = "drive_db", .min = 0.0, .max = 36.0, .step_fine = 1.0, .step_coarse = 6.0 },
     .{ .name = "output", .field = "out_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
     .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "shape", .field = "shape", .min = 0.0, .max = 2.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
 };
 
 const crush_specs = [_]ParamSpec{
