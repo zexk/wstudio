@@ -18,6 +18,7 @@ const dsp = ws.dsp.device;
 const eq_mod = ws.dsp.eq;
 const multiband_comp = ws.dsp.multiband_comp;
 const chorus_mod = ws.dsp.chorus;
+const limiter_mod = ws.dsp.limiter;
 const DrumMachine = ws.dsp.DrumMachine;
 const Fx = ws.Fx;
 const FxKind = ws.FxKind;
@@ -554,6 +555,7 @@ const ott_specs = [_]ParamSpec{
 const limiter_specs = [_]ParamSpec{
     .{ .name = "ceiling", .field = "ceiling", .min = 0.25, .max = 1.0, .step_fine = 0.005, .step_coarse = 0.05 },
     .{ .name = "release", .field = "release_ms", .min = 1.0, .max = 1000.0, .step_fine = 10.0, .step_coarse = 100.0 },
+    .{ .name = "lookahead", .field = "lookahead_ms", .min = 0.0, .max = limiter_mod.max_lookahead_ms, .step_fine = 1.0, .step_coarse = 5.0 },
 };
 
 /// `comp`'s first 6 params only - idx 6/7 are the sidechain track/pad

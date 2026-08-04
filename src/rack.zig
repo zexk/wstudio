@@ -140,6 +140,7 @@ pub const FxPayload = union(enum) {
             .chorus => |*c| c.deinit(allocator),
             .delay => |*d| d.deinit(allocator),
             .reverb => |*r| r.deinit(allocator),
+            .limiter => |*l| l.deinit(allocator),
             else => {},
         }
     }
@@ -170,6 +171,13 @@ pub const FxPayload = union(enum) {
                 nr.room = r.room;
                 nr.damp = r.damp;
                 return .{ .reverb = nr };
+            },
+            .limiter => |l| {
+                var nl = try Limiter.init(allocator, sr);
+                nl.ceiling = l.ceiling;
+                nl.release_ms = l.release_ms;
+                nl.lookahead_ms = l.lookahead_ms;
+                return .{ .limiter = nl };
             },
             .clap => |plugin| {
                 const copy = try ClapPlugin.load(allocator, plugin.pluginPath(), plugin.id(), sr);
@@ -389,7 +397,7 @@ pub const Fx = struct {
             .stereo_width => .{ .stereo_width = .{} },
             .auto_pan => .{ .auto_pan = AutoPan.init(sr) },
             .transient_shaper => .{ .transient_shaper = TransientShaper.init(sr) },
-            .limiter => .{ .limiter = Limiter.init(sr) },
+            .limiter => .{ .limiter = try Limiter.init(allocator, sr) },
             .sat     => .{ .sat = .{} },
             .crush   => .{ .crush = .{} },
             .chorus  => .{ .chorus = try Chorus.init(allocator, sr) },

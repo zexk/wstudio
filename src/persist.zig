@@ -705,6 +705,9 @@ pub const FilterSnap = struct {
 pub const LimiterSnap = struct {
     ceiling: f32 = 0.955,
     release_ms: f32 = 80,
+    /// Additive: missing on older files -> 0, the original zero-latency
+    /// reactive limiter exactly.
+    lookahead_ms: f32 = 0.0,
 };
 
 pub const UtilitySnap = struct {

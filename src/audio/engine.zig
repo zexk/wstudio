@@ -466,6 +466,8 @@ pub const Engine = struct {
         errdefer metronome.deinit();
         var preview = try Sampler.init(allocator, sample_rate);
         errdefer preview.deinit();
+        var limiter = try Limiter.init(allocator, sample_rate);
+        errdefer limiter.deinit(allocator);
         const automation = try allocator.alloc(AutomationPair, max_tracks);
         errdefer allocator.free(automation);
         for (automation) |*a| a.* = .{};
@@ -482,7 +484,7 @@ pub const Engine = struct {
         self.* = .{
             .allocator = allocator,
             .transport = .{ .sample_rate = sample_rate },
-            .limiter = Limiter.init(sample_rate),
+            .limiter = limiter,
             .metronome = metronome,
             .preview = preview,
             .tracks = tracks,
@@ -499,6 +501,7 @@ pub const Engine = struct {
     pub fn deinit(self: *Engine) void {
         self.metronome.deinit();
         self.preview.deinit();
+        self.limiter.deinit(self.allocator);
         self.master_spectrum.deinit(self.allocator);
         self.track_spectrum.deinit(self.allocator);
         for (self.automation) |*pair| pair.deinit(self.allocator);
