@@ -1310,9 +1310,18 @@ pub const PolySynth = struct {
                     const i = self.held_count - 1;
                     self.noteOnMono(self.held_notes[i], self.held_velocities[i], true);
                 } else {
-                    const v = &self.voices[0];
-                    // zig fmt: off
-                    if (v.active and v.note == note) { v.stage = .release; v.stage2 = .release; v.stage3 = .release; }
+                    // Not just voices[0]: mono/legato only ever *trigger*
+                    // into slot 0, but switching voice_mode away from .poly
+                    // mid-chord (a live param nudge, or auditioning a preset
+                    // that sets voice_mode - see PolySynth.applyPatch) can
+                    // leave poly-triggered voices sitting in other slots
+                    // with no held_notes entry to route their note-off
+                    // through. Checking only slot 0 stranded those voices
+                    // forever in .attack/.decay/.sustain - a stuck note.
+                    for (&self.voices) |*v| {
+                        // zig fmt: off
+                        if (v.active and v.note == note) { v.stage = .release; v.stage2 = .release; v.stage3 = .release; }
+                    }
                 }
             },
             .legato => {
@@ -1321,8 +1330,18 @@ pub const PolySynth = struct {
                     const i = self.held_count - 1;
                     self.noteOnMono(self.held_notes[i], self.held_velocities[i], false);
                 } else {
-                    const v = &self.voices[0];
-                    if (v.active) { v.stage = .release; v.stage2 = .release; v.stage3 = .release; }
+                    // Same stray-voice hazard as .mono above. Slot 0 keeps
+                    // its original unconditional release (legato's own
+                    // voice may be mid-glide away from the exact pitch
+                    // being released, so it was never note-matched); any
+                    // other active voice is a poly-triggered stray from
+                    // before a mid-chord mode switch, released only if it
+                    // actually matches this note so an unrelated still-held
+                    // poly note doesn't get cut short too.
+                    for (&self.voices, 0..) |*v, i| {
+                        // zig fmt: off
+                        if (v.active and (i == 0 or v.note == note)) { v.stage = .release; v.stage2 = .release; v.stage3 = .release; }
+                    }
                 }
             },
         }
@@ -4399,6 +4418,44 @@ test "mono mode: note-off retrieves last held note" {
     try std.testing.expect(synth.voices[0].stage != .release);
 }
 
+test "switching voice_mode to mono mid-chord doesn't strand the other held notes" {
+    // A live voice_mode nudge (or auditioning a mono/legato preset) while a
+    // poly chord is still held used to leave every note but the last one
+    // permanently stuck: noteOff's mono/legato fallback only ever checked
+    // voices[0], but noteOnPoly never populates held_notes, so those other
+    // voices had no route to their note-off at all.
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.noteOn(60, 1.0); // -> voices[0]
+    synth.noteOn(64, 1.0); // -> voices[1]
+    synth.noteOn(67, 1.0); // -> voices[2]
+    synth.voice_mode = .mono;
+
+    synth.noteOff(64); // not in voices[0] - the bug's exact trigger
+    try std.testing.expect(synth.voices[1].stage == .release);
+
+    synth.noteOff(67);
+    try std.testing.expect(synth.voices[2].stage == .release);
+
+    synth.noteOff(60);
+    try std.testing.expect(synth.voices[0].stage == .release);
+}
+
+test "switching voice_mode to legato mid-chord releases only the matching stray voice" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.noteOn(60, 1.0); // -> voices[0]
+    synth.noteOn(64, 1.0); // -> voices[1], still held throughout
+    synth.voice_mode = .legato;
+
+    synth.noteOff(60); // voices[0]'s own note - releases unconditionally
+    try std.testing.expect(synth.voices[0].stage == .release);
+    // The unrelated still-held poly note must not get cut short by the
+    // unconditional slot-0 release picking up neighbors too.
+    try std.testing.expect(synth.voices[1].active);
+    try std.testing.expect(synth.voices[1].stage != .release);
+}
+
 test "poly mode note-off releases only oldest same-pitch voice" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
@@ -4893,7 +4950,6 @@ test "adjustParam: fx_mb_style picks classic/ott by direction, not a wrap" {
     try std.testing.expectEqual(MbStyle.classic, s.fx_mb_style);
 }
 
-
 /// Directly seeds held/latch state and drives `arpFireStep` (bypassing the
 /// block-rate timer) so each mode's note sequence is checked exactly,
 /// without needing to reverse-engineer phase-increment arithmetic.
@@ -5089,4 +5145,3 @@ test "filter drive bypasses at unity and saturates above it" {
     try std.testing.expectEqual(@as(f32, 0.25), PolySynth.driveInput(1.0, 0.25));
     try std.testing.expect(@abs(PolySynth.driveInput(8.0, 2.0)) < 2.0);
 }
-
