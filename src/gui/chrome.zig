@@ -10,7 +10,7 @@ const ansi = @import("../ui/ansi.zig");
 const icons = @import("../ui/icons.zig");
 const spectrum_ed = @import("../ui/editors/spectrum.zig");
 const gui_style = @import("style.zig");
-const widgets = @import("widgets.zig");
+const meters = @import("meters.zig");
 const zgui = @import("zgui");
 
 const color = gui_style.color;
@@ -66,14 +66,14 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
 // A terminal meter is a handful of colored block cells; a GUI can afford a
 // true continuous fill with a per-pixel color gradient and a decaying peak
 // hold, so the master bus gets that treatment here instead of reusing the
-// TUI's block-cell renderer. Draw itself lives in widgets.zig, shared with
+// TUI's block-cell renderer. Draw itself lives in meters.zig, shared with
 // the tracks view's master-row meter.
 fn drawLevelMeters(app: anytype, snap: ws.engine.UiSnapshot) void {
     const now = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
     const dt: f32 = if (app.meter_last_ns == 0) 0 else @max(0.0, @as(f32, @floatFromInt(now - app.meter_last_ns)) / 1_000_000_000.0);
     app.meter_last_ns = now;
-    widgets.updateMeterHold(&app.meter_hold_db, snap.peak, dt);
-    for (&app.track_meter_hold_db, snap.track_peak) |*hold, peak| widgets.updateMeterHold(hold, peak, dt);
+    meters.updateMeterHold(&app.meter_hold_db, snap.peak, dt);
+    for (&app.track_meter_hold_db, snap.track_peak) |*hold, peak| meters.updateMeterHold(hold, peak, dt);
 
     zgui.sameLine(.{ .spacing = 24 });
     zgui.beginGroup();
@@ -82,7 +82,7 @@ fn drawLevelMeters(app: anytype, snap: ws.engine.UiSnapshot) void {
     const bar_w: f32 = 110;
     const bar_h: f32 = 8;
     const gap: f32 = 3;
-    widgets.meterBar(zgui.getWindowDrawList(), origin, app.meter_hold_db, bar_w, bar_h, gap);
+    meters.meterBar(zgui.getWindowDrawList(), origin, app.meter_hold_db, bar_w, bar_h, gap);
     zgui.dummy(.{ .w = bar_w, .h = bar_h * 2 + gap });
     zgui.endGroup();
 }
@@ -96,11 +96,11 @@ fn drawPhaseMeter(correlation: f32) void {
     zgui.beginGroup();
     zgui.textColored(theme.fg3, icons.phase ++ "  PHASE", .{});
     const origin = zgui.getCursorScreenPos();
-    widgets.correlationBar(zgui.getWindowDrawList(), origin, correlation, phase_bar_w, 8);
+    meters.correlationBar(zgui.getWindowDrawList(), origin, correlation, phase_bar_w, 8);
     zgui.dummy(.{ .w = phase_bar_w, .h = 8 });
     var corr_buf: [8]u8 = undefined;
     const corr_text = std.fmt.bufPrint(&corr_buf, "{s}{d:.2}", .{ if (correlation >= 0.0) "+" else "", correlation }) catch "?";
-    zgui.textColored(widgets.correlationColor(correlation), "{s}", .{corr_text});
+    zgui.textColored(meters.correlationColor(correlation), "{s}", .{corr_text});
     zgui.endGroup();
 }
 

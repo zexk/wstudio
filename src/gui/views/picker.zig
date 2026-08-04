@@ -6,7 +6,7 @@ const preset_ed = @import("../../ui/editors/preset_picker.zig");
 const fuzzy = @import("../../ui/fuzzy.zig");
 const style = @import("../style.zig");
 const app_mod = @import("../../ui/app.zig");
-const widgets = @import("../widgets.zig");
+const scroll = @import("../scroll.zig");
 
 const color = style.color;
 const theme = &style.palette;
@@ -63,7 +63,7 @@ pub fn beginOverlay() void {
 pub fn endOverlay() void {
     // Still inside the panel child - the one that scrolls the entry list -
     // so this is where the cursor row has to be brought on screen.
-    widgets.scrollFocusIntoView();
+    scroll.scrollFocusIntoView();
     zgui.endChild();
     zgui.popStyleColor(.{});
     zgui.end();
@@ -196,7 +196,7 @@ fn drawCard(id: [:0]const u8, label: []const u8, desc: []const u8, accent: [4]f3
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
     // Pager-style, not `setScrollHereY`: re-centring every frame would pin
     // the list to the cursor and leave the wheel with nothing to do.
-    widgets.noteFocusRow(selected, origin[1], height);
+    scroll.noteFocusRow(selected, origin[1], height);
     const hovered = zgui.isItemHovered(.{});
     const draw_list = zgui.getWindowDrawList();
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(if (hovered) theme.bg3 else theme.bg2), .rounding = style.item_rounding });

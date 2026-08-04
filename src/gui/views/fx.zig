@@ -5,6 +5,7 @@ const spectrum_ed = @import("../../ui/editors/spectrum.zig");
 const history = @import("../../ui/history.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
+const scroll = @import("../scroll.zig");
 
 const color = style.color;
 const rgb = style.rgb;
@@ -12,13 +13,13 @@ const theme = &style.palette;
 
 /// The EQ graph and the empty chain's monitor yield their height to the
 /// controls under them rather than pushing them off screen (see
-/// widgets.PaneFit). One fit each: they never share a frame, and a trim
+/// scroll.PaneFit). One fit each: they never share a frame, and a trim
 /// measured for the band controls has nothing to say about an empty state.
 /// The effect display sizes itself off `gridFloor` instead, because its param
 /// cards stretch - measuring content that grows into whatever the pane gives
 /// back would leave the two chasing each other.
-var eq_fit: widgets.PaneFit = .{};
-var monitor_fit: widgets.PaneFit = .{};
+var eq_fit: scroll.PaneFit = .{};
+var monitor_fit: scroll.PaneFit = .{};
 
 pub fn draw(app: anytype) void {
     const target = spectrum_ed.currentTarget(&app.core);
@@ -196,7 +197,7 @@ fn drawEffectDisplay(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUni
     // The cards below are a unit: whatever they need at their shortest is
     // theirs, and the display keeps the rest instead of taking a fixed share
     // and pushing the last row off the window (see the sampler's pane in
-    // widgets.PaneFit for the same rule where the panels are content-sized).
+    // scroll.PaneFit for the same rule where the panels are content-sized).
     // Only a plot has any use for the leftover: meters and a lone caption are
     // content-sized, and stretching the box around them just floats them in
     // the middle of an empty rectangle.

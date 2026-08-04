@@ -6,6 +6,7 @@ const sampler_ed = @import("../../ui/editors/sampler.zig");
 const waveform = @import("../../ui/waveform.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
+const scroll = @import("../scroll.zig");
 
 const theme = &style.palette;
 
@@ -15,10 +16,10 @@ const theme = &style.palette;
 pub const RegionHandle = enum { start, end, fade_in, fade_out };
 
 /// The waveform pane yields its height to the module panels under it (see
-/// widgets.PaneFit): they size to their own content, and a standalone sampler
+/// scroll.PaneFit): they size to their own content, and a standalone sampler
 /// shows one section more than a pad target does. Only one sampler target
 /// draws per frame, so one fit is enough - the target is its key.
-var pane_fit: widgets.PaneFit = .{};
+var pane_fit: scroll.PaneFit = .{};
 
 pub fn draw(app: anytype) void {
     switch (app.core.sampler_target) {

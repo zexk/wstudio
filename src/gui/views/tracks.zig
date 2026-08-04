@@ -6,7 +6,8 @@ const format = @import("../../ui/format.zig");
 const spectrum_ed = @import("../../ui/editors/spectrum.zig");
 const icons = @import("../../ui/icons.zig");
 const gui_style = @import("../style.zig");
-const widgets = @import("../widgets.zig");
+const scroll = @import("../scroll.zig");
+const meters = @import("../meters.zig");
 const zgui = @import("zgui");
 
 const color = gui_style.color;
@@ -235,7 +236,7 @@ fn drawRowChrome(app: anytype, id: [:0]const u8, display_row: usize, in_visual: 
     const selected = app.core.track_row == display_row;
     // `j`/`k` past the fold have to bring the viewport with them, or the
     // cursor walks into clipped content and the view looks stuck.
-    widgets.noteFocusRow(selected, origin[1], height);
+    scroll.noteFocusRow(selected, origin[1], height);
     const draw_list = zgui.getWindowDrawList();
     const row_bg = if (hovered and !selected) theme.bg4 else theme.bg3;
     draw_list.addRectFilled(.{
@@ -372,7 +373,7 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     if (pan.changed) app.core.apiSetTrackPan(track_index, pan.value / 100);
     if (pan.finished) app.finishTrackMixerEdit();
 
-    widgets.solidMeterBar(draw_list, .{ block_x0 + block_inset, stack.meter }, app.track_meter_hold_db[track_index], block_w - 2 * block_inset, meter_bar_h, meter_gap, block_fg);
+    meters.solidMeterBar(draw_list, .{ block_x0 + block_inset, stack.meter }, app.track_meter_hold_db[track_index], block_w - 2 * block_inset, meter_bar_h, meter_gap, block_fg);
 
     // Always three fixed slots (unlike the old read-only badges, which only
     // occupied space when already on) so each has a stable, clickable hit
@@ -457,7 +458,7 @@ fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) 
         if (track.group != group_index) continue;
         for (0..2) |ch| group_hold[ch] = @max(group_hold[ch], app.track_meter_hold_db[i][ch] + group.gain_db);
     }
-    widgets.solidMeterBar(draw_list, .{ block_x0 + block_inset, stack.meter }, group_hold, block_w - 2 * block_inset, meter_bar_h, meter_gap, block_fg);
+    meters.solidMeterBar(draw_list, .{ block_x0 + block_inset, stack.meter }, group_hold, block_w - 2 * block_inset, meter_bar_h, meter_gap, block_fg);
 
     // Same badge slots a track row gets, in the same two positions - both
     // the bus's own real flags now (App.doGroupSolo/doGroupMute,
@@ -518,7 +519,7 @@ fn drawMasterRow(app: anytype, height: f32) void {
     // draw (always runs first, see app.zig's App.draw) - reusing it here
     // keeps this meter in sync with the transport's LEVEL readout instead
     // of re-deriving its own peak-hold state from the raw peak.
-    widgets.solidMeterBar(draw_list, .{ block_x0 + block_inset, stack.meter }, app.meter_hold_db, block_w - 2 * block_inset, 5, 3, block_fg);
+    meters.solidMeterBar(draw_list, .{ block_x0 + block_inset, stack.meter }, app.meter_hold_db, block_w - 2 * block_inset, 5, 3, block_fg);
     drawTrackRowCursorOutline(chrome, height);
 }
 

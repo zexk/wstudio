@@ -3,162 +3,7 @@ const ws = @import("wstudio");
 const zgui = @import("zgui");
 const format = @import("../ui/format.zig");
 const gui_style = @import("style.zig");
-
-/// Keep the row at `top_y` (screen space, `getCursorScreenPos()[1]` read
-/// just before the row is submitted) inside the window or child being drawn,
-/// the way a terminal pager does: nudge the scroll only when the row would
-/// otherwise fall outside it.
-///
-/// ImGui has no "scroll into view if off-screen" of its own. `setScrollHereY`
-/// re-centres on the item every single frame, which pins the viewport to the
-/// cursor and leaves the wheel and the scrollbar with nothing to do - the
-/// right trade for a modal picker, the wrong one for a workspace view you
-/// also want to scroll by hand. Without either, a view just doesn't follow:
-/// `j` past the fold moves the cursor into content ImGui is happily clipping
-/// away, and the frontend looks frozen.
-/// Screen-space band the focused param occupied this frame, if the view drew
-/// one. Recorded by the widgets that take a `focused` flag and consumed once
-/// by `scrollFocusIntoView`.
-///
-/// Deferred rather than acted on in place because a param usually sits
-/// inside a non-scrolling card child, while the window that actually
-/// scrolls is the workspace one outside it - `setScrollY` from inside the
-/// child would move a scrollbar that doesn't exist.
-var focus_row: ?struct { top: f32, height: f32 } = null;
-
-pub fn noteFocusRow(focused: bool, top: f32, height: f32) void {
-    if (focused) focus_row = .{ .top = top, .height = height };
-}
-
-/// Drop whatever was recorded without acting on it - for the frame a picker
-/// overlay is up and the base view underneath it must not be scrolled.
-pub fn clearFocusRow() void {
-    focus_row = null;
-}
-
-/// Bring the focused param recorded this frame on screen. Call once per
-/// frame from the scrolling window, after the view has finished drawing.
-pub fn scrollFocusIntoView() void {
-    const row = focus_row orelse return;
-    focus_row = null;
-    keepRowVisible(row.top, row.height);
-}
-
-pub fn keepRowVisible(top_y: f32, height: f32) void {
-    const win_top = zgui.getWindowPos()[1];
-    const pad = zgui.getStyle().window_padding[1];
-    const current = zgui.getScrollY();
-    const target = rowScrollTarget(top_y, height, win_top, zgui.getWindowSize()[1], pad, current, zgui.getScrollMaxY());
-    if (target != current) zgui.setScrollY(target);
-}
-
-fn rowScrollTarget(top_y: f32, height: f32, win_top: f32, win_height: f32, pad: f32, current: f32, max: f32) f32 {
-    const delta: f32 = if (top_y < win_top + pad)
-        top_y - (win_top + pad)
-    else if (top_y + height > win_top + win_height - pad)
-        (top_y + height) - (win_top + win_height - pad)
-    else
-        return current;
-    return std.math.clamp(current + delta, 0, max);
-}
-
-test "cursor following scrolls only when focused row leaves viewport" {
-    try std.testing.expectEqual(@as(f32, 40), rowScrollTarget(130, 20, 100, 100, 10, 40, 200));
-    // Row bottom 205, viewport bottom minus padding 190: scroll the 15 that
-    // brings it flush, not a padding's worth more (this case asserted 65 and
-    // had never run - see the test block in gui/app.zig).
-    try std.testing.expectEqual(@as(f32, 55), rowScrollTarget(185, 20, 100, 100, 10, 40, 200));
-    try std.testing.expectEqual(@as(f32, 20), rowScrollTarget(70, 20, 100, 100, 10, 60, 200));
-    try std.testing.expectEqual(@as(f32, 0), rowScrollTarget(0, 20, 100, 100, 10, 5, 200));
-    try std.testing.expectEqual(@as(f32, 200), rowScrollTarget(400, 20, 100, 100, 10, 190, 200));
-}
-
-/// A display pane (waveform, spectrum, transfer curve) that gives its height
-/// back to whatever is drawn under it, so an editor's modules stay on one
-/// screen instead of the view growing an outer scrollbar: a module is a unit,
-/// and the thing that yields is the pane that has pixels to spare.
-///
-/// One instance per pane, kept across frames: the panels under it size to
-/// their own content, so how much room they need is only known once they have
-/// been drawn. Ask for `height` where the pane is drawn, call `settle` once
-/// the rest of the view has been submitted.
-///
-/// For content that grows back into whatever the pane yields (fx.zig's param
-/// cards stretch to fill their row) measuring is the wrong tool - the two just
-/// chase each other. Reserve that content's floor up front instead, the way
-/// `fx.zig`'s `gridFloor` does.
-pub const PaneFit = struct {
-    /// Height of everything below the pane, measured on the previous frame.
-    below: f32 = 0,
-    /// How much the view still overflowed its window after that (window/child
-    /// padding this layout can't see from here), taken straight off the pane's
-    /// height until it fits. Sticky: a corrected overflow reads as zero, so
-    /// re-deriving it each frame would flip the pane between two heights
-    /// forever.
-    trim: f32 = 0,
-    window_h: f32 = 0,
-    key: u64 = 0,
-
-    /// Farthest the trim will go, so a layout that can never fit shrinks the
-    /// pane to its floor instead of running away.
-    const max_trim: f32 = 240;
-
-    /// This frame's pane height: whatever the modules leave over, never past
-    /// what the pane is still readable at (`min`) or wants (`max`).
-    pub fn height(self: *const PaneFit, min: f32, max: f32) f32 {
-        return std.math.clamp(zgui.getContentRegionAvail()[1] - self.below - self.trim, min, max);
-    }
-
-    /// Close the layout: measure what was drawn below the pane (`below_top` is
-    /// `getCursorPosY()` read where the pane's siblings start) and settle the
-    /// trim. `key` says what is on screen - a different unit, target or band
-    /// count divides the room up differently, so its trim starts over rather
-    /// than being inherited.
-    ///
-    /// A new measurement also starts the trim over, including the very first
-    /// frame's (which was taken with nothing below the pane at all): a trim
-    /// carried over from that one leaves the pane at its floor with the room it
-    /// gave up going to nobody.
-    pub fn settle(self: *PaneFit, below_top: f32, key: u64) void {
-        const below = zgui.getCursorPosY() - below_top;
-        // How far past the window the view ran, taken from the content region
-        // rather than `getScrollMaxY`: ImGui's scroll max comes from last
-        // frame's content size, and an overflow arriving a frame after the
-        // measurement it belongs to trims the pane for a layout that has
-        // already been corrected.
-        const overflow = @max(0, -zgui.getContentRegionAvail()[1]);
-        const win_h = zgui.getWindowHeight();
-        self.trim = nextTrim(self.trim, overflow, below != self.below or win_h != self.window_h or key != self.key);
-        self.below = below;
-        self.window_h = win_h;
-        self.key = key;
-    }
-};
-
-/// The trim rule on its own: a restart measures again from nothing, anything
-/// else adds this frame's overflow (zero once it fits, which is what makes it
-/// settle).
-fn nextTrim(current: f32, overflow: f32, restart: bool) f32 {
-    if (restart) return 0;
-    return @min(current + overflow, PaneFit.max_trim);
-}
-
-test "a pane's trim settles on an overflow and starts over on a new measurement" {
-    // Overflow accumulates until the view fits, then holds - re-deriving it
-    // from a corrected (zero) overflow would flip the pane's height forever.
-    var trim = nextTrim(0, 11, false);
-    try std.testing.expectEqual(@as(f32, 11), trim);
-    trim = nextTrim(trim, 11, false);
-    try std.testing.expectEqual(@as(f32, 22), trim);
-    trim = nextTrim(trim, 0, false);
-    try std.testing.expectEqual(@as(f32, 22), trim);
-    // Capped, so a layout that can never fit shrinks the pane to its floor
-    // instead of running away.
-    try std.testing.expectEqual(PaneFit.max_trim, nextTrim(200, 90, false));
-    // A resized window, a different unit on screen, or simply a fresh
-    // measurement of what is below: different room to divide up, measure again.
-    try std.testing.expectEqual(@as(f32, 0), nextTrim(22, 11, true));
-}
+const scroll = @import("scroll.zig");
 
 /// A section header used inside a bordered/tinted card column: a small
 /// accent chip (matching the header overview panels' accent bars) plus the
@@ -193,7 +38,7 @@ pub fn sectionTitleGate(label: []const u8, accent: [4]f32, gate: ?SectionGate) b
 
     var clicked = false;
     if (gate) |g| {
-        noteFocusRow(g.focused, pos[1], zgui.getFontSize() + 8);
+        scroll.noteFocusRow(g.focused, pos[1], zgui.getFontSize() + 8);
         const text: [:0]const u8 = if (g.on) "ON" else "OFF";
         const pill_w = zgui.calcTextSize(text, .{})[0] + 16;
         zgui.sameLine(.{ .spacing = 0 });
@@ -247,100 +92,6 @@ pub fn toggle(label: [:0]const u8, v: *bool) bool {
     zgui.textColored(if (on) theme.fg0 else theme.fg1, "{s}", .{label});
     zgui.endGroup();
     return changed;
-}
-
-/// A stereo peak meter: continuous gradient fill (green/yellow/red) plus a
-/// decaying peak-hold, shared by the transport's master LEVEL readout and
-/// the tracks view's master-row meter so both read the same bus peak the
-/// same way instead of drifting into two different meter qualities.
-const meter_db_min: f32 = -50.0;
-const meter_yellow_db: f32 = -6.0;
-const meter_red_db: f32 = -1.0;
-
-/// Advances `hold_db` toward `peak` (converted to dB) and lets it decay at
-/// `gui_style.meter_decay_db_per_s`. Called once per frame - `meterBar` itself
-/// is a pure draw and can be called any number of times off the same
-/// already-updated `hold_db` (e.g. once in the transport strip, once again
-/// in the tracks view's master row) without re-triggering the decay.
-pub fn updateMeterHold(hold_db: *[2]f32, peak: [2]f32, dt: f32) void {
-    for (0..2) |ch| {
-        const db = ws.types.gainToDb(peak[ch]);
-        hold_db[ch] = @max(db, hold_db[ch] - gui_style.meter_decay_db_per_s * dt);
-    }
-}
-
-pub fn meterBar(draw_list: zgui.DrawList, origin: [2]f32, hold_db: [2]f32, bar_w: f32, bar_h: f32, gap: f32) void {
-    const theme = &gui_style.palette;
-    for (0..2) |ch| {
-        const y = origin[1] + @as(f32, @floatFromInt(ch)) * (bar_h + gap);
-        draw_list.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ origin[0] + bar_w, y + bar_h }, .col = gui_style.color(theme.bg2), .rounding = gui_style.item_rounding });
-        const norm = std.math.clamp((hold_db[ch] - meter_db_min) / -meter_db_min, 0, 1);
-        meterFill(draw_list, origin[0], y, bar_w, bar_h, norm);
-    }
-}
-
-/// Stereo peak meter for an already-colored surface. The surface's
-/// contrast color replaces the transport meter's semantic gradient so the
-/// bars remain legible on both light and dark accents.
-pub fn solidMeterBar(draw_list: zgui.DrawList, origin: [2]f32, hold_db: [2]f32, bar_w: f32, bar_h: f32, gap: f32, bar_color: [4]f32) void {
-    for (0..2) |ch| {
-        const y = origin[1] + @as(f32, @floatFromInt(ch)) * (bar_h + gap);
-        draw_list.addRectFilled(.{
-            .pmin = .{ origin[0], y },
-            .pmax = .{ origin[0] + bar_w, y + bar_h },
-            .col = gui_style.color(.{ bar_color[0], bar_color[1], bar_color[2], 0.25 }),
-            .rounding = gui_style.item_rounding,
-        });
-        const norm = std.math.clamp((hold_db[ch] - meter_db_min) / -meter_db_min, 0, 1);
-        draw_list.addRectFilled(.{
-            .pmin = .{ origin[0], y },
-            .pmax = .{ origin[0] + bar_w * norm, y + bar_h },
-            .col = gui_style.color(bar_color),
-            .rounding = gui_style.item_rounding,
-        });
-    }
-}
-
-fn meterFill(draw_list: zgui.DrawList, x: f32, y: f32, w: f32, h: f32, norm: f32) void {
-    if (norm <= 0) return;
-    const theme = &gui_style.palette;
-    const yellow_norm = (meter_yellow_db - meter_db_min) / -meter_db_min;
-    const red_norm = (meter_red_db - meter_db_min) / -meter_db_min;
-    const fill_w = w * norm;
-    const green_w = @min(fill_w, w * yellow_norm);
-    draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + green_w, y + h }, .col = gui_style.color(theme.audio), .rounding = gui_style.item_rounding });
-    if (fill_w > w * yellow_norm) {
-        draw_list.addRectFilled(.{ .pmin = .{ x + w * yellow_norm, y }, .pmax = .{ x + @min(fill_w, w * red_norm), y + h }, .col = gui_style.color(theme.rhythm) });
-    }
-    if (fill_w > w * red_norm) {
-        draw_list.addRectFilled(.{ .pmin = .{ x + w * red_norm, y }, .pmax = .{ x + fill_w, y + h }, .col = gui_style.color(theme.danger) });
-    }
-}
-
-/// Phase-correlation bar: a horizontal track with a zero-centered fill
-/// running toward the left edge for negative (out-of-phase) values and
-/// toward the right edge for positive (in-phase) ones - shared by the
-/// transport's master PHASE readout, the same way `meterBar` is shared for
-/// LEVEL. `value` is -1..1, see `dsp/meter.zig`'s `StereoCorrelation`.
-/// Same red/yellow/green thresholds a hardware phase scope uses: fully
-/// in-phase and mildly-so both read as safe, only the cancellation-risk
-/// half reads as danger. Shared between the bar's fill and the numeric
-/// readout beside it so the two never disagree about what "bad" means.
-pub fn correlationColor(value: f32) [4]f32 {
-    const theme = &gui_style.palette;
-    return if (value >= 0.0) theme.audio else if (value >= -0.5) theme.rhythm else theme.danger;
-}
-
-pub fn correlationBar(draw_list: zgui.DrawList, origin: [2]f32, value: f32, w: f32, h: f32) void {
-    const theme = &gui_style.palette;
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + w, origin[1] + h }, .col = gui_style.color(theme.bg2), .rounding = gui_style.item_rounding });
-    const mid = origin[0] + w * 0.5;
-    draw_list.addLine(.{ .p1 = .{ mid, origin[1] }, .p2 = .{ mid, origin[1] + h }, .col = gui_style.color(theme.fg3), .thickness = 1 });
-
-    const v = std.math.clamp(value, -1.0, 1.0);
-    const fill_x = mid + (w * 0.5) * @min(v, 0.0);
-    const fill_w = (w * 0.5) * @abs(v);
-    draw_list.addRectFilled(.{ .pmin = .{ fill_x, origin[1] }, .pmax = .{ fill_x + fill_w, origin[1] + h }, .col = gui_style.color(correlationColor(v)), .rounding = gui_style.item_rounding });
 }
 
 pub const EmptyState = struct {
@@ -502,7 +253,7 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
 
     _ = zgui.invisibleButton(label, .{ .w = args.diameter, .h = args.diameter });
     // Covers the dial plus the label/value line under it in `knobCell`.
-    noteFocusRow(args.focused, cursor[1], args.diameter + zgui.getFontSize() + 6);
+    scroll.noteFocusRow(args.focused, cursor[1], args.diameter + zgui.getFontSize() + 6);
     const active = zgui.isItemActive();
     const hovered = zgui.isItemHovered(.{});
     const activated = zgui.isItemActivated();
@@ -675,7 +426,7 @@ pub fn stepperCell(label_text: []const u8, id: [:0]const u8, display: []const u8
     zgui.beginGroup();
     const origin = zgui.getCursorScreenPos();
     _ = zgui.invisibleButton(id, .{ .w = cell_w, .h = box_h });
-    noteFocusRow(focused, origin[1], box_h + zgui.getFontSize() + 6);
+    scroll.noteFocusRow(focused, origin[1], box_h + zgui.getFontSize() + 6);
     const hovered = zgui.isItemHovered(.{});
     var delta: i8 = 0;
     if (zgui.isItemActivated()) {
@@ -765,7 +516,7 @@ pub fn listStepper(label_text: []const u8, id: [:0]const u8, args: ListStepper) 
     const theme = &gui_style.palette;
     var changed = false;
     const row_origin = zgui.getCursorScreenPos();
-    noteFocusRow(args.focused, row_origin[1], zgui.getFontSize() * 2 + 12);
+    scroll.noteFocusRow(args.focused, row_origin[1], zgui.getFontSize() * 2 + 12);
     zgui.beginGroup();
     zgui.textColored(if (args.focused) args.accent else theme.fg1, "{s}", .{label_text});
     changed = stepButton(id, args, -1) or changed;
@@ -809,7 +560,7 @@ pub fn waveformPicker(label: [:0]const u8, current: ws.dsp.synth.Waveform, accen
     var result: ?ws.dsp.synth.Waveform = null;
 
     zgui.beginGroup();
-    noteFocusRow(focused, zgui.getCursorScreenPos()[1], tile_h);
+    scroll.noteFocusRow(focused, zgui.getCursorScreenPos()[1], tile_h);
     for (waveforms, 0..) |wf, i| {
         if (i > 0) zgui.sameLine(.{ .spacing = gap });
         const origin = zgui.getCursorScreenPos();

@@ -5,15 +5,16 @@ const automation_ed = @import("../../ui/editors/automation.zig");
 const history = @import("../../ui/history.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
+const scroll = @import("../scroll.zig");
 
 const color = style.color;
 const trackColor = style.trackColor;
 const theme = &style.palette;
 
 /// The envelope pane yields to the point readout under it instead of pushing
-/// it off screen (see widgets.PaneFit). One layout for every curve, so the fit
+/// it off screen (see scroll.PaneFit). One layout for every curve, so the fit
 /// needs no key.
-var pane_fit: widgets.PaneFit = .{};
+var pane_fit: scroll.PaneFit = .{};
 
 pub fn draw(app: anytype) void {
     const clip = automation_ed.currentClip(&app.core);
@@ -300,7 +301,7 @@ pub fn drawParamPicker(app: anytype) void {
             const id = std.fmt.bufPrintZ(&id_buf, "automation-param-{d}", .{i}) catch continue;
             const origin = zgui.getCursorScreenPos();
             const clicked = zgui.invisibleButton(id, .{ .w = width, .h = 36 });
-            widgets.noteFocusRow(selected, origin[1], 36);
+            scroll.noteFocusRow(selected, origin[1], 36);
             const hovered = zgui.isItemHovered(.{});
             const draw_list = zgui.getWindowDrawList();
             draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 34 }, .col = color(if (selected) theme.bg4 else if (hovered) theme.bg3 else theme.bg2), .rounding = style.item_rounding });

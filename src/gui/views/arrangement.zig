@@ -7,7 +7,7 @@ const icons = @import("../../ui/icons.zig");
 const gui_style = @import("../style.zig");
 const zgui = @import("zgui");
 const shared_step_grid = @import("../../ui/editors/step_grid.zig");
-const widgets = @import("../widgets.zig");
+const scroll = @import("../scroll.zig");
 
 const color = gui_style.color;
 const theme = &gui_style.palette;
@@ -65,7 +65,7 @@ pub fn draw(app: anytype) void {
     for (0..track_count) |ti| {
         const y = origin[1] + ruler_h + @as(f32, @floatFromInt(ti)) * lane_h;
         const selected = ti == app.core.cursor;
-        widgets.noteFocusRow(selected, y, lane_h);
+        scroll.noteFocusRow(selected, y, lane_h);
         draw_list.addRectFilled(.{ .pmin = .{ origin[0], y }, .pmax = .{ timeline_x, y + lane_h }, .col = color(if (selected) theme.bg4 else theme.bg2) });
         draw_list.addRectFilled(.{ .pmin = .{ timeline_x, y }, .pmax = .{ origin[0] + canvas_w, y + lane_h }, .col = color(if (selected) theme.bg3 else if (ti % 2 == 0) theme.bg1 else theme.bg0) });
         draw_list.addText(.{ origin[0] + 10, y + 11 }, color(if (selected) theme.fg0 else theme.fg1), "{d:0>2}  {s}", .{ ti + 1, app.core.session.project.tracks.items[ti].name });

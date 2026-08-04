@@ -5,6 +5,7 @@ const icons = @import("../../ui/icons.zig");
 const waveform = @import("../../ui/waveform.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
+const scroll = @import("../scroll.zig");
 const sampler_view = @import("sampler.zig");
 const step_grid = @import("step_grid.zig");
 const commands = @import("../../ui/commands.zig");
@@ -15,7 +16,7 @@ const theme = &style.palette;
 /// always pages a whole bank of slices (see editors/step_grid.zig) and so has
 /// a floor the pane must respect rather than push off screen. Keyed on the
 /// slice count, not on how many banks fit - that one moves with the pane.
-var pane_fit: widgets.PaneFit = .{};
+var pane_fit: scroll.PaneFit = .{};
 
 pub fn draw(app: anytype) void {
     const track = app.core.slicer_track;

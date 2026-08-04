@@ -22,6 +22,7 @@ const slicer_view = @import("views/slicer.zig");
 const synth_view = @import("views/synth.zig");
 const tracks_view = @import("views/tracks.zig");
 const widgets = @import("widgets.zig");
+const scroll = @import("scroll.zig");
 const zgui = @import("zgui");
 
 pub const App = struct {
@@ -189,7 +190,7 @@ fn drawWorkspace(app: *App) void {
         // scrolls, so bring whatever row it marked as focused on screen. A
         // picker overlay does its own scrolling inside its own child, and
         // must not drag the base view underneath it around.
-        if (!overlay) widgets.scrollFocusIntoView() else widgets.clearFocusRow();
+        if (!overlay) scroll.scrollFocusIntoView() else scroll.clearFocusRow();
         if (overlay) {
             picker_view.beginOverlay();
             drawPicker(app);
@@ -440,6 +441,8 @@ test {
     _ = @import("chrome.zig");
     _ = @import("style.zig");
     _ = @import("widgets.zig");
+    _ = @import("scroll.zig");
+    _ = @import("meters.zig");
     _ = @import("views/arrangement.zig");
     _ = @import("views/automation.zig");
     _ = @import("views/drum.zig");

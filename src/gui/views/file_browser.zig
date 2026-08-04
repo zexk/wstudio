@@ -8,7 +8,7 @@ const std = @import("std");
 const zgui = @import("zgui");
 const picker = @import("picker.zig");
 const style = @import("../style.zig");
-const widgets = @import("../widgets.zig");
+const scroll = @import("../scroll.zig");
 
 const theme = &style.palette;
 const color = style.color;
@@ -114,7 +114,7 @@ fn drawEntry(name: []const u8, is_dir: bool, selected: bool, in_visual: bool, in
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
     // Pager-style, not `setScrollHereY`: re-centring every frame would pin
     // the list to the cursor and leave the wheel with nothing to do.
-    widgets.noteFocusRow(selected, origin[1], height);
+    scroll.noteFocusRow(selected, origin[1], height);
     const hovered = zgui.isItemHovered(.{});
     const draw_list = zgui.getWindowDrawList();
     if (selected or hovered or in_visual) draw_list.addRectFilled(.{
