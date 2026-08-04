@@ -15,6 +15,29 @@ pub const TrackKind = enum { audio, midi };
 /// its palette length matches this constant to keep the two in sync.
 pub const track_color_count: u8 = 16;
 
+/// Aux/send slots per track (see `Track.sends`). Same small-fixed-bank
+/// convention as the engine's `max_sidechain_sources`/`max_groups` - a
+/// reverb send, a delay send, maybe a parallel-comp bus is the realistic
+/// ceiling, not a growable list. Defined here (not `audio/engine.zig`, which
+/// already imports `Project` from this file) so `Track` can hold the type
+/// directly without a circular import.
+pub const max_sends_per_track: u8 = 4;
+
+/// Where a track's aux send lands - either straight to the master bus or
+/// into one of the group submix buses (see `Session.groups`), same
+/// destination set `Track.group` already routes a track's PRIMARY signal
+/// through. A send is a parallel, independently-leveled tap alongside that
+/// primary route, not a replacement for it.
+pub const SendTarget = union(enum) { master, group: u8 };
+
+/// One aux send: post-fader (applies after the track's own gain/pan, same
+/// signal the primary-destination mix already uses), linear `level` - same
+/// convention `gain_db`/`types.dbToGain` already establish for track gain.
+pub const SendSlot = struct {
+    target: SendTarget,
+    level: f32 = 0.0,
+};
+
 pub const Track = struct {
     name: []const u8,
     kind: TrackKind = .audio,
@@ -33,6 +56,8 @@ pub const Track = struct {
     /// track's signal routes through instead of straight to the master mix.
     /// `null` (the default) is the pre-grouping behaviour, unchanged.
     group: ?u8 = null,
+    /// Parallel aux sends - see `SendSlot`. `null` entries are unused slots.
+    sends: [max_sends_per_track]?SendSlot = @splat(null),
 };
 
 pub const Section = struct {

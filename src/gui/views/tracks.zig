@@ -317,6 +317,17 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     const block_x0 = drawInfoBlockBg(draw_list, origin, width, height, accent);
     const block_fg = legibleOn(accent);
     drawFxChips(draw_list, &rack.fx, text_x + 150, origin[1] + 12, block_x0 - 12);
+
+    // Aux-send count - same quiet "only shown when non-default" convention
+    // the TUI track row's own indicator uses (see tui/views/tracks.zig).
+    // Set with `:track-send` (shared command console, same as `:track-group`).
+    {
+        var send_count: usize = 0;
+        for (track.sends) |s| if (s != null) {
+            send_count += 1;
+        };
+        if (send_count > 0) draw_list.addText(.{ block_x0 - 26, origin[1] + 12 }, color(row_muted), "\u{2192}{d}", .{send_count});
+    }
     const center_y = origin[1] + (height - 2) / 2;
     const controls_h = @max(badge_h, zgui.getFrameHeight());
     const stack = stackTops(center_y, height, controls_h, 2 * meter_bar_h + meter_gap);

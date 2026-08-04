@@ -20,8 +20,9 @@ const Session = @import("session.zig").Session;
 const wav = @import("core/wav.zig");
 const types = @import("core/types.zig");
 const theory = @import("theory.zig");
-const Project = @import("project.zig").Project;
-const track_color_count = @import("project.zig").track_color_count;
+const project_mod = @import("project.zig");
+const Project = project_mod.Project;
+const track_color_count = project_mod.track_color_count;
 const ws_arrangement = @import("arrangement.zig");
 const time_grid = @import("time_grid.zig");
 const rack_mod = @import("rack.zig");
@@ -513,6 +514,11 @@ pub const CompSnap = struct {
     /// load with the original whole-track behaviour; meaningless (and
     /// ignored on load) whenever `sidechain_source` itself is null.
     sidechain_pad: ?u8 = null,
+    /// Additive (like `sidechain_source` itself): when true, `sidechain_source`
+    /// names a group submix bus index instead of a track index - see
+    /// `Compressor.SidechainSource.is_group`. Older files omit it and load
+    /// with the original track-indexed meaning.
+    sidechain_is_group: bool = false,
 };
 
 pub const MultibandCompSnap = struct {
@@ -931,6 +937,20 @@ pub const TrackSnap = struct {
     /// every track's routing before grouping existed. Indexes into
     /// `Snapshot.groups` by position (see that field's own doc comment).
     group: ?u8 = null,
+    /// Additive: parallel aux sends (see `project.SendSlot`). Older files
+    /// omit it and every track loads with none, matching every track's
+    /// routing before sends existed.
+    sends: []const SendSnap = &.{},
+};
+
+/// One track's aux-send slot. Mirrors `project.SendSlot`. Flat bool+index
+/// pair rather than a tagged union (same convention `CompSnap`'s
+/// `sidechain_source`/`sidechain_is_group` pair uses) - trivial JSON
+/// round-trip, no tag-string handling.
+pub const SendSnap = struct {
+    is_group: bool = false,
+    group: u8 = 0,
+    level_db: f32 = -60.0,
 };
 
 /// One track-grouping submix bus. Mirrors `Session.Group`. `Snapshot.groups`
@@ -1076,9 +1096,20 @@ pub fn save(
     // zig fmt: off
     const tracks = try aa.alloc(TrackSnap, session.project.tracks.items.len);
     for (session.project.tracks.items, tracks) |t, *ts| {
+        var sends_buf: [project_mod.max_sends_per_track]SendSnap = undefined;
+        var sends_len: usize = 0;
+        for (t.sends) |maybe_send| {
+            const snd = maybe_send orelse continue;
+            sends_buf[sends_len] = switch (snd.target) {
+                .master => .{ .is_group = false, .group = 0, .level_db = types.gainToDb(snd.level) },
+                .group => |g| .{ .is_group = true, .group = g, .level_db = types.gainToDb(snd.level) },
+            };
+            sends_len += 1;
+        }
         ts.* = .{
             .name = t.name, .gain_db = t.gain_db, .pan = t.pan, .muted = t.muted,
             .soloed = t.soloed, .color = t.color, .group = t.group,
+            .sends = try aa.dupe(SendSnap, sends_buf[0..sends_len]),
         };
     }
     // zig fmt: on
@@ -1417,6 +1448,7 @@ pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx) ![]FxUnitSnap {
                 .knee_db = c.knee_db,
                 .sidechain_source = if (c.sidechain_source) |sc| sc.track else null,
                 .sidechain_pad = if (c.sidechain_source) |sc| sc.pad else null,
+                .sidechain_is_group = if (c.sidechain_source) |sc| sc.is_group else false,
             } },
             .mb_comp => |m| .{ .kind = .mb_comp, .mb_comp = .{
                 .xover_lo_hz = m.xover_lo_hz, .xover_hi_hz = m.xover_hi_hz,
@@ -1974,12 +2006,23 @@ fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Session {
         // `group` is only bound-checked here (< max_groups); whether that
         // slot is actually an active group gets swept below, once
         // `snap.groups` itself has been loaded.
+        // Extras past `max_sends_per_track` are silently dropped, same
+        // "bank of N" convention the engine's own fixed sidechain/group
+        // banks already use.
+        var sends: [project_mod.max_sends_per_track]?project_mod.SendSlot = @splat(null);
+        for (t.sends[0..@min(t.sends.len, project_mod.max_sends_per_track)], 0..) |ss, i| {
+            sends[i] = .{
+                .target = if (ss.is_group) .{ .group = @min(ss.group, engine_mod.max_groups - 1) } else .master,
+                .level = types.dbToGain(finiteClamp(f32, ss.level_db, -60.0, 12.0, -60.0)),
+            };
+        }
         _ = try project.addTrack(.{
             .name = t.name,
             .gain_db = finiteClamp(f32, t.gain_db, -60.0, 12.0, 0.0),
             .pan = finiteClamp(f32, t.pan, -1.0, 1.0, 0.0),
             .muted = t.muted, .soloed = t.soloed, .color = @min(t.color, track_color_count),
             .group = if (t.group) |g| (if (g < engine_mod.max_groups) g else null) else null,
+            .sends = sends,
         });
     }
     // zig fmt: on
@@ -2805,8 +2848,12 @@ pub fn applyFxChain(
                 if (std.math.isFinite(cs.makeup_db)) c.makeup_db = cs.makeup_db;
                 if (std.math.isFinite(cs.knee_db)) c.knee_db = cs.knee_db;
                 c.sidechain_source = if (cs.sidechain_source) |src| .{
-                    .track = @min(src, engine_mod.max_tracks - 1),
-                    .pad = if (cs.sidechain_pad) |p| @min(p, DrumMachine.max_pads - 1) else null,
+                    .track = if (cs.sidechain_is_group)
+                        @min(src, engine_mod.max_groups - 1)
+                    else
+                        @min(src, engine_mod.max_tracks - 1),
+                    .pad = if (cs.sidechain_is_group) null else if (cs.sidechain_pad) |p| @min(p, DrumMachine.max_pads - 1) else null,
+                    .is_group = cs.sidechain_is_group,
                 } else null;
             },
             .mb_comp => |*m| if (us.mb_comp) |ms| {
@@ -3456,6 +3503,73 @@ test "save/load round-trip persists a compressor's sidechain_source" {
     const sc = loaded.racks.items[0].fx.units.items[0].payload.comp.sidechain_source.?;
     try testing.expectEqual(@as(u16, 7), sc.track);
     try testing.expectEqual(@as(?u8, 2), sc.pad);
+}
+
+test "save/load round-trip persists a compressor's group-sourced sidechain (sidechain_is_group)" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/sidechain_group.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    const g = try session.addGroup("drums");
+    const unit = try session.racks.items[0].fx.insert(testing.allocator, 0, .comp, session.project.sample_rate);
+    unit.payload.comp.sidechain_source = .{ .track = g, .pad = null, .is_group = true };
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    const sc = loaded.racks.items[0].fx.units.items[0].payload.comp.sidechain_source.?;
+    try testing.expectEqual(@as(u16, g), sc.track);
+    try testing.expect(sc.is_group);
+    try testing.expectEqual(@as(?u8, null), sc.pad);
+}
+
+test "save/load round-trip persists a track's aux sends (master + group)" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/sends.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    const g = try session.addGroup("verb");
+    session.setTrackSend(0, 0, .master, -6.0);
+    session.setTrackSend(0, 1, .{ .group = g }, -12.0);
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    const sends = loaded.project.tracks.items[0].sends;
+    const send0 = sends[0].?;
+    try testing.expectEqual(project_mod.SendTarget.master, send0.target);
+    try testing.expectApproxEqAbs(types.dbToGain(-6.0), send0.level, 1e-4);
+    const send1 = sends[1].?;
+    try testing.expectEqual(g, send1.target.group);
+    try testing.expectApproxEqAbs(types.dbToGain(-12.0), send1.level, 1e-4);
+}
+
+test "an old .wsj with no sidechain_is_group/sends fields loads with unchanged prior behavior" {
+    const testing = std.testing;
+    const snap: Snapshot = .{
+        .sample_rate = 48_000,
+        .tracks = &.{.{ .name = "bass" }},
+        .racks = &.{.{
+            .label = "bass", .kind = .empty,
+            .fx_chain = &.{
+                .{ .kind = .comp, .comp = .{ .sidechain_source = 3 } },
+            },
+        }},
+    };
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+    const sc = session.racks.items[0].fx.units.items[0].payload.comp.sidechain_source.?;
+    try testing.expectEqual(@as(u16, 3), sc.track);
+    try testing.expect(!sc.is_group);
+    for (session.project.tracks.items[0].sends) |s| try testing.expectEqual(@as(?project_mod.SendSlot, null), s);
 }
 
 test "save/load round-trip persists an FX-unit-targeted automation lane (instance_id)" {

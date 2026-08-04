@@ -215,6 +215,7 @@ pub const TrackFullState = struct {
     soloed: bool,
     color: u8,
     group: ?u8,
+    sends: [ws.max_sends_per_track]?ws.SendSlot,
     rack: *Rack, // owned deep copy
     clips: []Clip, // owned, including each melodic clip's notes
 

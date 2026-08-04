@@ -22,6 +22,17 @@ pub const Compressor = struct {
     pub const SidechainSource = struct {
         track: u16,
         pad: ?u8 = null,
+        /// When true, `track` holds a group submix bus index (0..
+        /// `engine.max_groups`) instead of a track index, and `pad` is
+        /// unused/meaningless - duck against a whole bus (e.g. the drum
+        /// group) instead of one track. Ordering constraint: a group source
+        /// only resolves for a consumer that renders AFTER it - any group
+        /// with a higher bank index, or the master chain (always last).
+        /// Tracks render before any group's own FX chain runs, so a
+        /// track-level compressor can't sidechain off a group in this
+        /// version; see `Engine.renderTracks`'s group-processing loop for
+        /// where the capture is finalized.
+        is_group: bool = false,
     };
 
     sample_rate: f32 = 48_000.0,

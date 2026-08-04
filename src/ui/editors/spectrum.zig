@@ -698,11 +698,19 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
             },
         },
         .comp => |*c| switch (idx) {
-            // Sidechain source, encoded as 0 = none, N = 1-based track index
-            // (matches the tracks view's own 1-based row numbering) - lets
-            // this slot share the same float-valued get/set/range/step shape
-            // every other param here uses instead of a separate enum path.
-            6 => if (c.sidechain_source) |s| @as(f32, @floatFromInt(s.track)) + 1.0 else 0.0,
+            // Sidechain source, encoded as 0 = none, positive N = 1-based
+            // track index (matches the tracks view's own 1-based row
+            // numbering), negative -N = 1-based group bus index (see
+            // `paramRange`/`setParam`/`formatValue`'s matching branches) -
+            // lets this slot share the same float-valued get/set/range/step
+            // shape every other param here uses instead of a separate enum
+            // path. Negative (not "past tracks.len") because `getParam`
+            // itself has no `app`/track-count to offset by - only
+            // `paramRange`/`setParam`/`formatValue` do.
+            6 => if (c.sidechain_source) |s| (if (s.is_group)
+                -(@as(f32, @floatFromInt(s.track)) + 1.0)
+            else
+                @as(f32, @floatFromInt(s.track)) + 1.0) else 0.0,
             // Sidechain pad, same 0=none/N=1-based encoding as idx 6 - only
             // meaningful once a track is picked there; see `setParam`.
             7 => if (c.sidechain_source) |s| (if (s.pad) |pd| @as(f32, @floatFromInt(pd)) + 1.0 else 0.0) else 0.0,
@@ -774,7 +782,9 @@ pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
             },
         },
         .comp => switch (idx) {
-            6 => .{ 0.0, @floatFromInt(app.session.project.tracks.items.len) },
+            // Negative half of the range is group buses (see `getParam`'s
+            // doc comment for the encoding), positive half is tracks.
+            6 => .{ -@as(f32, @floatFromInt(ws.engine.max_groups)), @floatFromInt(app.session.project.tracks.items.len) },
             7 => .{ 0.0, @floatFromInt(DrumMachine.max_pads) },
             else => tableRange(&comp_specs, idx),
         },
@@ -897,22 +907,31 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
         },
         .comp => |*c| switch (idx) {
             6 => {
-                const rounded = std.math.clamp(@round(value), 0.0, @as(f32, @floatFromInt(app.session.project.tracks.items.len)));
-                if (rounded < 0.5) {
+                const rounded = std.math.clamp(
+                    @round(value),
+                    -@as(f32, @floatFromInt(ws.engine.max_groups)),
+                    @as(f32, @floatFromInt(app.session.project.tracks.items.len)),
+                );
+                if (@abs(rounded) < 0.5) {
                     c.sidechain_source = null;
+                } else if (rounded < 0.0) {
+                    const group: u16 = @intFromFloat(-rounded - 1.0);
+                    c.sidechain_source = .{ .track = group, .pad = null, .is_group = true };
                 } else {
                     const track: u16 = @intFromFloat(rounded - 1.0);
-                    const pad = if (c.sidechain_source) |sc| sc.pad else null;
-                    c.sidechain_source = .{ .track = track, .pad = pad };
+                    const pad = if (c.sidechain_source) |sc| (if (sc.is_group) null else sc.pad) else null;
+                    c.sidechain_source = .{ .track = track, .pad = pad, .is_group = false };
                 }
             },
-            // Only meaningful once a track is picked at idx 6 - a no-op
-            // otherwise, since there's nothing to attach a pad to.
-            7 => if (c.sidechain_source) |sc| {
+            // Only meaningful once a TRACK is picked at idx 6 (a group
+            // source has no pad concept) - a no-op otherwise, same as
+            // before a source existed at all.
+            7 => if (c.sidechain_source) |sc| if (!sc.is_group) {
                 const rounded = std.math.clamp(@round(value), 0.0, @as(f32, @floatFromInt(DrumMachine.max_pads)));
                 c.sidechain_source = .{
                     .track = sc.track,
                     .pad = if (rounded < 0.5) null else @intFromFloat(rounded - 1.0),
+                    .is_group = false,
                 };
             },
             else => tableSet(c, &comp_specs, idx, value),
@@ -1429,8 +1448,8 @@ fn cycleParam(app: *App, target: EqTarget, dir: i2) void {
 pub fn clearStaleSidechainPad(app: *App, p: *FxPayload) void {
     switch (p.*) {
         .comp => |*c| if (c.sidechain_source) |sc| {
-            if (sc.pad != null and !trackIsDrumMachine(app, sc.track))
-                c.sidechain_source = .{ .track = sc.track, .pad = null };
+            if (sc.pad != null and !sc.is_group and !trackIsDrumMachine(app, sc.track))
+                c.sidechain_source = .{ .track = sc.track, .pad = null, .is_group = sc.is_group };
         },
         else => {},
     }
@@ -1714,10 +1733,18 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
             0, 4, 5 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
             1 => std.fmt.bufPrint(buf, "{d:.1}:1", .{v}) catch "?",
             2, 3 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
-            // Include the track name so changing this routing does not
-            // require memorizing which numbered row holds the kick. Keep
-            // the number too, since that is what h/l is cycling through.
-            6 => if (v < 0.5) "none" else blk: {
+            // Include the track/group name so changing this routing does
+            // not require memorizing which numbered row holds the kick.
+            // Keep the number too, since that is what h/l is cycling
+            // through. Negative v is a group bus (see `getParam`'s doc
+            // comment for the encoding).
+            6 => if (@abs(v) < 0.5) "none" else if (v < 0.0) blk: {
+                const group: usize = @intFromFloat(-v - 1.0);
+                if (group >= app.session.groups.len or app.session.groups[group] == null)
+                    break :blk std.fmt.bufPrint(buf, "bus {d:.0}", .{-v}) catch "?";
+                const name = app.session.groups[group].?.name;
+                break :blk std.fmt.bufPrint(buf, "bus {d:.0}:{s}", .{ -v, name[0..@min(name.len, 9)] }) catch "?";
+            } else blk: {
                 const track: usize = @intFromFloat(v - 1.0);
                 if (track >= app.session.project.tracks.items.len)
                     break :blk std.fmt.bufPrint(buf, "trk {d:.0}", .{v}) catch "?";
@@ -1726,9 +1753,12 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
             },
             // As with the track picker, keep the number visible while
             // adding the name users actually recognize from the drum grid.
+            // A group source has no pad concept (see `setParam`'s idx-7
+            // no-op branch).
             7 => if (v < 0.5) "-" else blk: {
                 const source = p.comp.sidechain_source orelse
                     break :blk std.fmt.bufPrint(buf, "pad {d:.0}", .{v}) catch "?";
+                if (source.is_group) break :blk "-";
                 if (source.track >= app.session.racks.items.len)
                     break :blk std.fmt.bufPrint(buf, "pad {d:.0}", .{v}) catch "?";
                 const rack = app.session.racks.items[source.track];

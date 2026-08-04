@@ -164,6 +164,20 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
             if (!is_sel and !faded) try lw.writeAll(rst);
         }
     }
+    // Aux-send count - only shown when the track has at least one, same
+    // "quiet unless non-default" convention gain/pan below use. Set with
+    // `:track-send`; this is just a count, not which target/level.
+    {
+        var send_count: usize = 0;
+        for (track.sends) |s| if (s != null) {
+            send_count += 1;
+        };
+        if (send_count > 0) {
+            if (!is_sel and !faded) try lw.writeAll(acc);
+            try lw.print(" \u{2192}{d}", .{send_count});
+            if (!is_sel and !faded) try lw.writeAll(rst);
+        }
+    }
     // Gain / pan - always shown; dim at defaults, accented when non-default.
     {
         const pan = track.pan;

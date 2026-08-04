@@ -299,6 +299,7 @@ pub fn captureTrackFull(app: *App, track_idx: usize) ?undo_mod.TrackFullState {
         .soloed = src.soloed,
         .color = src.color,
         .group = src.group,
+        .sends = src.sends,
         .rack = content.rack,
         .clips = content.clips,
     };
@@ -682,6 +683,7 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
                 // zig fmt: off
                 .gain_db = s.gain_db, .pan = s.pan, .muted = s.muted,
                 .soloed = s.soloed, .color = s.color, .group = s.group,
+                .sends = s.sends,
                 // zig fmt: on
             }, s.rack, s.clips) catch {
                 s.deinit(app.allocator);

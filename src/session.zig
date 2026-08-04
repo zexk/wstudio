@@ -734,6 +734,7 @@ pub const Session = struct {
         soloed: bool,
         color: u8,
         group: ?u8,
+        sends: [project_mod.max_sends_per_track]?project_mod.SendSlot = @splat(null),
     };
 
     /// Re-insert a previously-deleted track's full state at `at`, shifting
@@ -758,6 +759,7 @@ pub const Session = struct {
             .muted = meta.muted, .soloed = meta.soloed, .color = meta.color,
             // zig fmt: on
             .group = meta.group,
+            .sends = meta.sends,
         });
         errdefer self.project.removeTrack(idx);
 
@@ -771,6 +773,7 @@ pub const Session = struct {
 
         self.finishTrackInsert(idx, total, rack, types.dbToGain(meta.gain_db), meta.pan, meta.muted);
         self.pushSoloGroup(idx, meta.soloed, meta.group);
+        self.pushTrackSends(idx);
 
         if (self.song_mode) self.rebuildSongData();
     }
@@ -824,12 +827,13 @@ pub const Session = struct {
             // zig fmt: off
             .name = name, .kind = src.kind, .gain_db = src.gain_db,
             .pan = src.pan, .muted = src.muted, .soloed = src.soloed,
-            .color = src.color, .group = src.group,
+            .color = src.color, .group = src.group, .sends = src.sends,
             // zig fmt: on
         });
 
         self.finishTrackInsert(idx, idx, new_rack, types.dbToGain(src.gain_db), src.pan, src.muted);
         self.pushSoloGroup(idx, src.soloed, src.group);
+        self.pushTrackSends(idx);
 
         if (self.song_mode) self.rebuildSongData();
 
@@ -1061,6 +1065,36 @@ pub const Session = struct {
         self.engine.setTrackSidechainSources(idx, rack.sidechainSources(&sc_buf));
     }
 
+    /// Push track `idx`'s aux-send list (`Track.sends`) to the audio thread
+    /// wholesale - same idea as `syncTrackChain`'s sidechain push, just for
+    /// `Project.tracks` state instead of the rack's FX chain. Call after
+    /// `setTrackSend`/`clearTrackSend`, and once per track after project
+    /// load (`Engine.loadProject` already seeds the initial value directly,
+    /// so that path doesn't need this - only live edits do).
+    pub fn pushTrackSends(self: *Session, idx: u16) void {
+        if (idx >= self.project.tracks.items.len) return;
+        self.engine.setTrackSends(idx, self.project.tracks.items[idx].sends);
+    }
+
+    /// Set aux-send slot `slot` on track `idx` to target `target` at
+    /// `level_db`, and push the change. Clamped to the same -60..+12 dB
+    /// range track gain uses.
+    pub fn setTrackSend(self: *Session, idx: u16, slot: u8, target: project_mod.SendTarget, level_db: f32) void {
+        if (idx >= self.project.tracks.items.len or slot >= project_mod.max_sends_per_track) return;
+        self.project.tracks.items[idx].sends[slot] = .{
+            .target = target,
+            .level = types.dbToGain(std.math.clamp(level_db, -60.0, 12.0)),
+        };
+        self.pushTrackSends(idx);
+    }
+
+    /// Clear aux-send slot `slot` on track `idx` and push the change.
+    pub fn clearTrackSend(self: *Session, idx: u16, slot: u8) void {
+        if (idx >= self.project.tracks.items.len or slot >= project_mod.max_sends_per_track) return;
+        self.project.tracks.items[idx].sends[slot] = null;
+        self.pushTrackSends(idx);
+    }
+
     /// Push the master bus's active FX units (in chain order) to the audio
     /// thread, plus their sidechain-detector routing - same idea as
     /// `syncTrackChain`, but the master bus has no instrument slot, just
@@ -1166,9 +1200,13 @@ pub const Session = struct {
         const remapFx = struct {
             fn go(fx: *rack_mod.Fx, op_: TrackRemap) void {
                 for (fx.units.items) |u| switch (u.payload) {
-                    .comp => |*c| if (c.sidechain_source) |sc| {
+                    // A group-sourced compressor names a group bank index,
+                    // not a track index - stable across track reordering,
+                    // same reason `TrackState.group` itself never needed
+                    // this remap either. Leave it untouched.
+                    .comp => |*c| if (c.sidechain_source) |sc| if (!sc.is_group) {
                         c.sidechain_source = if (op_.apply(sc.track)) |nt|
-                            .{ .track = nt, .pad = sc.pad }
+                            .{ .track = nt, .pad = sc.pad, .is_group = false }
                         else
                             null;
                     },
@@ -2051,6 +2089,36 @@ test "deleteTrack remaps other compressors' sidechain_source track indices" {
     try s.deleteTrack(0);
     try std.testing.expectEqual(@as(?Compressor.SidechainSource, null), s.racks.items[0].fx.units.items[0].payload.comp.sidechain_source);
     try std.testing.expectEqual(@as(?Compressor.SidechainSource, null), s.engine.track_sidechain[0][0]);
+}
+
+test "deleteTrack/insertTrack/swapTracks leave a group-sourced compressor's sidechain_source untouched" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    _ = try s.addTrack("kick"); // idx 1
+    _ = try s.addTrack("bass"); // idx 2: carries the compressor
+    const g = try s.addGroup("drums");
+
+    const rack = s.racks.items[2];
+    const comp = try rack.fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
+    comp.payload.comp.sidechain_source = .{ .track = g, .pad = null, .is_group = true };
+    s.syncTrackChain(2, rack);
+
+    // A group index is stable across track reindexing - unlike the
+    // track-indexed case above, none of these should touch it.
+    try s.deleteTrack(0);
+    var sc = s.racks.items[1].fx.units.items[0].payload.comp.sidechain_source.?;
+    try std.testing.expectEqual(g, sc.track);
+    try std.testing.expect(sc.is_group);
+
+    _ = try s.insertTrack(0, "pad"); // insert at 0 shifts every later index up by one
+    sc = s.racks.items[2].fx.units.items[0].payload.comp.sidechain_source.?;
+    try std.testing.expectEqual(g, sc.track);
+    try std.testing.expect(sc.is_group);
+
+    s.swapTracks(1, 2); // bass (holding the comp) is at index 2 here; swap moves it to 1
+    sc = s.racks.items[1].fx.units.items[0].payload.comp.sidechain_source.?;
+    try std.testing.expectEqual(g, sc.track);
+    try std.testing.expect(sc.is_group);
 }
 
 test "swapTracks follows a compressor's sidechain_source through the swap" {

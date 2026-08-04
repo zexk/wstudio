@@ -116,6 +116,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "group-del",   .desc = "<n>  delete group n (members fall back to the master mix)", .run = wrap(cmdGroupDel) },
     .{ .name = "group-fx",    .desc = "<n>  open group n's FX chain", .run = wrap(cmdGroupFx) },
     .{ .name = "track-group", .desc = "<track> <group|none>  assign (or clear) which group a track submixes through", .run = wrap(cmdTrackGroup) },
+    .{ .name = "track-send",  .desc = "<track> <slot> none|master|<group> [<dB>]  set (or clear) a track's parallel aux send", .run = wrap(cmdTrackSend) },
     .{ .name = "write",       .desc = "[file]  save project (default: project.wsj)", .run = wrap(cmdSave) },
     .{ .name = "save",        .desc = "[file]  save project (alias for :write)",     .run = wrap(cmdSave) },
     .{ .name = "w",           .desc = "[file]  save project (alias for :write)",     .run = wrap(cmdSave) },
@@ -1627,6 +1628,64 @@ fn cmdTrackGroup(app: *App, args: []const u8) void {
     app.session.assignTrackGroup(track_idx, idx);
     app.dirty = true;
     app.setStatus("track {d} → group {d}", .{ track_1, idx + 1 });
+}
+
+/// `:track-send <track> <slot> none` clears a slot; `:track-send <track>
+/// <slot> master|<group> <dB>` sets it - a parallel, independently-leveled
+/// tap alongside the track's one primary route (`:track-group`/ungrouped).
+/// Slot is 1-based, same convention as track/group numbers throughout.
+fn cmdTrackSend(app: *App, args: []const u8) void {
+    var it = std.mem.splitScalar(u8, std.mem.trim(u8, args, " "), ' ');
+    const track_str = it.next() orelse "";
+    const slot_str = it.next() orelse "";
+    const target_str = it.next() orelse "";
+    if (track_str.len == 0 or slot_str.len == 0 or target_str.len == 0) {
+        app.setStatus("usage: track-send <track> <slot 1-{d}> none|master|<group> [<dB>]", .{ws.max_sends_per_track});
+        return;
+    }
+    const track_1 = std.fmt.parseInt(usize, track_str, 10) catch {
+        app.setStatus("track-send: bad track number '{s}'", .{track_str});
+        return;
+    };
+    if (track_1 == 0 or track_1 > app.session.project.tracks.items.len) {
+        app.setStatus("track-send: track must be 1–{d}", .{app.session.project.tracks.items.len});
+        return;
+    }
+    const track_idx: u16 = @intCast(track_1 - 1);
+
+    const slot_1 = std.fmt.parseInt(u8, slot_str, 10) catch {
+        app.setStatus("track-send: bad slot number '{s}'", .{slot_str});
+        return;
+    };
+    if (slot_1 == 0 or slot_1 > ws.max_sends_per_track) {
+        app.setStatus("track-send: slot must be 1–{d}", .{ws.max_sends_per_track});
+        return;
+    }
+    const slot = slot_1 - 1;
+
+    if (std.ascii.eqlIgnoreCase(target_str, "none")) {
+        app.session.clearTrackSend(track_idx, slot);
+        app.dirty = true;
+        app.setStatus("track {d} send {d}: cleared", .{ track_1, slot_1 });
+        return;
+    }
+
+    const level_str = std.mem.trim(u8, it.rest(), " ");
+    const level_db = if (level_str.len == 0) -6.0 else std.fmt.parseFloat(f32, level_str) catch {
+        app.setStatus("track-send: bad level '{s}'", .{level_str});
+        return;
+    };
+
+    if (std.ascii.eqlIgnoreCase(target_str, "master")) {
+        app.session.setTrackSend(track_idx, slot, .master, level_db);
+        app.dirty = true;
+        app.setStatus("track {d} send {d} → master @ {d:.1}dB", .{ track_1, slot_1, level_db });
+        return;
+    }
+    const idx = existingGroupArg(app, "track-send", target_str) orelse return;
+    app.session.setTrackSend(track_idx, slot, .{ .group = idx }, level_db);
+    app.dirty = true;
+    app.setStatus("track {d} send {d} → group {d} @ {d:.1}dB", .{ track_1, slot_1, idx + 1, level_db });
 }
 
 /// `cmdRename` only reaches this while the drum grid is actually open, so
