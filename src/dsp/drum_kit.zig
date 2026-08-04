@@ -108,10 +108,6 @@ fn kickGen(allocator: std.mem.Allocator, sr: u32, p: KickParams) std.mem.Allocat
     return buf;
 }
 
-fn kick(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return kickGen(allocator, sr, .{});
-}
-
 /// Tunable knobs behind `snare()` - see `snareGen`. Defaults reproduce the
 /// original shipped snare exactly.
 pub const SnareParams = struct {
@@ -167,10 +163,6 @@ fn snareGen(allocator: std.mem.Allocator, sr: u32, p: SnareParams) std.mem.Alloc
     return buf;
 }
 
-fn snare(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return snareGen(allocator, sr, .{});
-}
-
 /// Tunable knobs behind the hihats - see `metalHat`.
 pub const HatParams = struct {
     dur_s: f32 = 0.09,
@@ -209,24 +201,6 @@ fn metalHat(allocator: std.mem.Allocator, sr: u32, p: HatParams) std.mem.Allocat
     }
     normalize(buf, 0.85);
     return buf;
-}
-
-fn hihatClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.09, .decay = 65.0 });
-}
-
-fn hihatOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.42, .decay = 8.5 });
-}
-
-/// Crash: the open hat's own tone, generated straight to its full
-/// ~1s-plus "wash" length rather than played back through the WSOLA
-/// time-stretcher - a real-time granular stretch has nothing to lock onto
-/// in this much broadband noise, so it splices audibly (see `alt_crash`).
-/// Slower decay (halved-ish) over a longer buffer reproduces the same
-/// perceptual decay curve the stretched version was going for, artifact-free.
-fn crashDefault(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.92, .decay = 3.9 });
 }
 
 /// Tunable knobs behind `clap()` - see `clapGen`. Defaults reproduce the
@@ -269,10 +243,6 @@ fn clapGen(allocator: std.mem.Allocator, sr: u32, p: ClapParams) std.mem.Allocat
     return buf;
 }
 
-fn clap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return clapGen(allocator, sr, .{});
-}
-
 /// Tunable knobs behind the toms - see `tomGen`.
 pub const TomParams = struct {
     freq_start: f32,
@@ -305,14 +275,6 @@ fn tomGen(allocator: std.mem.Allocator, sr: u32, p: TomParams) std.mem.Allocator
     }
     normalize(buf, 0.95);
     return buf;
-}
-
-fn tom1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{ .freq_start = 220.0, .freq_end = 110.0, .dur_s = 0.42, .seed = 0x701 });
-}
-
-fn tom2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{ .freq_start = 160.0, .freq_end = 80.0, .dur_s = 0.5, .seed = 0x702 });
 }
 
 /// Tunable knobs behind the perc-hi/perc-lo voices - see `percGen`. Unlike
@@ -353,14 +315,6 @@ fn percGen(allocator: std.mem.Allocator, sr: u32, p: PercParams) std.mem.Allocat
     return buf;
 }
 
-fn percHi(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 520.0, .tone2_hz = 730.0, .seed = 0x703 });
-}
-
-fn percLo(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 310.0, .tone2_hz = 430.0, .seed = 0x704 });
-}
-
 /// Tunable knobs behind `rim()` - see `rimGen`. Defaults reproduce the
 /// original shipped rim exactly.
 pub const RimParams = struct {
@@ -391,10 +345,6 @@ fn rimGen(allocator: std.mem.Allocator, sr: u32, p: RimParams) std.mem.Allocator
     return buf;
 }
 
-fn rim(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return rimGen(allocator, sr, .{});
-}
-
 // ---------------------------------------------------------------------------
 // Kit variants - alternate flavours of the same 16 drums, selectable at
 // runtime via `:drum-kit <name>` (see tui/commands.zig). Unlike `kit` above,
@@ -402,584 +352,6 @@ fn rim(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
 // generators directly into the DrumMachine's pads, so extra kits cost zero
 // shipped bytes - just the parameter tables below.
 
-// Each variant wrapper's generator params stay grouped on a couple of lines
-// (pitch family / decay family / character) so a whole drum reads at a glance.
-// zig fmt: off
-fn kickAnalog(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return kickGen(allocator, sr, .{
-        .freq_end = 45.0, .freq_start_add = 90.0, .pitch_decay = 30.0, .body_decay = 8.0,
-        .click_decay = 380.0, .click_freq = 1500.0, .click_mix = 0.25, .drive = 3.2, .dur_s = 0.55,
-    });
-}
-fn snareAnalog(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return snareGen(allocator, sr, .{
-        .tone1_hz = 150.0, .tone2_hz = 210.0, .tone_decay = 18.0, .noise_decay = 36.0, .drive = 1.1, .dur_s = 0.3,
-    });
-}
-fn hihatAnalogClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.06, .decay = 90.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 });
-}
-fn hihatAnalogOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.35, .decay = 10.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 });
-}
-fn crashAnalog(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.77, .decay = 4.5, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 });
-}
-fn clapAnalog(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return clapGen(allocator, sr, .{
-        .lp_hz = 2500.0, .hp_hz = 1000.0, .burst_decay = 180.0, .tail_decay = 10.0, .tail_mix = 0.7, .dur_s = 0.4,
-    });
-}
-fn tomAnalog1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 180.0, .freq_end = 90.0, .dur_s = 0.6, .body_decay = 4.0,
-        .attack_decay = 100.0, .drive = 1.8, .attack_mix = 0.08, .seed = 0x711,
-    });
-}
-fn tomAnalog2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 130.0, .freq_end = 60.0, .dur_s = 0.7, .body_decay = 3.5,
-        .attack_decay = 100.0, .drive = 1.8, .attack_mix = 0.08, .seed = 0x712,
-    });
-}
-fn percHiAnalog(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 430.0, .tone2_hz = 610.0, .drive = 1.9, .seed = 0x713 });
-}
-fn percLoAnalog(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 260.0, .tone2_hz = 360.0, .drive = 1.9, .seed = 0x714 });
-}
-fn rimAnalog(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return rimGen(allocator, sr, .{
-        .tone1_hz = 1600.0, .tone2_hz = 1050.0, .tone_decay = 170.0, .click_decay = 350.0, .drive = 1.5, .dur_s = 0.07,
-    });
-}
-
-fn kickAcoustic(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return kickGen(allocator, sr, .{
-        .freq_end = 62.0, .freq_start_add = 150.0, .pitch_decay = 70.0, .body_decay = 20.0,
-        .click_decay = 300.0, .click_freq = 2000.0, .click_mix = 0.8, .drive = 2.2, .dur_s = 0.22,
-    });
-}
-fn snareAcoustic(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return snareGen(allocator, sr, .{
-        .tone1_hz = 200.0, .tone2_hz = 300.0, .tone_decay = 30.0, .noise_decay = 14.0, .drive = 1.8, .dur_s = 0.22,
-    });
-}
-fn hihatAcousticClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.06, .decay = 75.0, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4 });
-}
-fn hihatAcousticOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.3, .decay = 11.0, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4 });
-}
-fn crashAcoustic(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.66, .decay = 5.0, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4 });
-}
-fn clapAcoustic(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return clapGen(allocator, sr, .{
-        .lp_hz = 3500.0, .hp_hz = 1300.0, .burst_decay = 260.0, .tail_decay = 22.0, .tail_mix = 0.35, .dur_s = 0.25,
-    });
-}
-fn tomAcoustic1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 260.0, .freq_end = 140.0, .dur_s = 0.3, .body_decay = 9.0,
-        .attack_decay = 140.0, .drive = 1.5, .attack_mix = 0.2, .seed = 0x721,
-    });
-}
-fn tomAcoustic2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 190.0, .freq_end = 100.0, .dur_s = 0.35, .body_decay = 8.0,
-        .attack_decay = 140.0, .drive = 1.5, .attack_mix = 0.2, .seed = 0x722,
-    });
-}
-fn percHiAcoustic(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 560.0, .tone2_hz = 780.0, .slap_mix = 0.5, .seed = 0x723 });
-}
-fn percLoAcoustic(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 340.0, .tone2_hz = 470.0, .slap_mix = 0.5, .seed = 0x724 });
-}
-fn rimAcoustic(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return rimGen(allocator, sr, .{
-        .tone1_hz = 1900.0, .tone2_hz = 1250.0, .tone_decay = 130.0, .click_decay = 280.0, .drive = 2.1, .dur_s = 0.06,
-    });
-}
-
-fn kickIndustrial(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return kickGen(allocator, sr, .{
-        .freq_end = 50.0, .freq_start_add = 110.0, .pitch_decay = 40.0, .body_decay = 9.0,
-        .click_decay = 250.0, .click_freq = 900.0, .click_mix = 0.9, .drive = 4.5, .dur_s = 0.5,
-    });
-}
-fn snareIndustrial(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return snareGen(allocator, sr, .{
-        .tone1_hz = 140.0, .tone2_hz = 260.0, .tone_decay = 15.0, .noise_decay = 26.0, .drive = 2.4, .dur_s = 0.32,
-    });
-}
-fn hihatIndustrialClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.12, .decay = 45.0, .body_hz = 5500.0, .air_hz = 8500.0, .air_mix = 0.5 });
-}
-fn hihatIndustrialOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.6, .decay = 5.0, .body_hz = 5500.0, .air_hz = 8500.0, .air_mix = 0.5 });
-}
-fn crashIndustrial(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 1.32, .decay = 2.3, .body_hz = 5500.0, .air_hz = 8500.0, .air_mix = 0.5 });
-}
-fn clapIndustrial(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return clapGen(allocator, sr, .{
-        .lp_hz = 2800.0, .hp_hz = 900.0, .burst_decay = 150.0, .tail_decay = 8.0, .tail_mix = 0.8, .dur_s = 0.45,
-    });
-}
-fn tomIndustrial1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 210.0, .freq_end = 95.0, .dur_s = 0.55, .body_decay = 5.0,
-        .attack_decay = 90.0, .drive = 2.4, .attack_mix = 0.25, .seed = 0x731,
-    });
-}
-fn tomIndustrial2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 150.0, .freq_end = 65.0, .dur_s = 0.65, .body_decay = 4.5,
-        .attack_decay = 90.0, .drive = 2.4, .attack_mix = 0.25, .seed = 0x732,
-    });
-}
-fn percHiIndustrial(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 480.0, .tone2_hz = 670.0, .drive = 3.0, .slap_mix = 0.55, .seed = 0x733 });
-}
-fn percLoIndustrial(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 290.0, .tone2_hz = 400.0, .drive = 3.0, .slap_mix = 0.55, .seed = 0x734 });
-}
-fn rimIndustrial(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return rimGen(allocator, sr, .{
-        .tone1_hz = 1500.0, .tone2_hz = 980.0, .tone_decay = 110.0, .click_decay = 220.0, .drive = 3.0, .dur_s = 0.09,
-    });
-}
-
-fn kickBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return kickGen(allocator, sr, .{
-        .freq_end = 52.0, .freq_start_add = 70.0, .pitch_decay = 45.0, .body_decay = 16.0,
-        .click_decay = 500.0, .click_freq = 1200.0, .click_mix = 0.15, .drive = 3.0, .dur_s = 0.4,
-    });
-}
-fn snareBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return snareGen(allocator, sr, .{
-        .tone1_hz = 165.0, .tone2_hz = 245.0, .tone_decay = 26.0, .noise_decay = 32.0, .drive = 2.0, .dur_s = 0.24,
-    });
-}
-fn hihatBoombapClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.045, .decay = 140.0, .body_hz = 6600.0, .air_hz = 8800.0, .air_mix = 0.15 });
-}
-fn hihatBoombapOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.28, .decay = 12.0, .body_hz = 6600.0, .air_hz = 8800.0, .air_mix = 0.15 });
-}
-fn crashBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.62, .decay = 5.5, .body_hz = 6600.0, .air_hz = 8800.0, .air_mix = 0.15 });
-}
-fn clapBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return clapGen(allocator, sr, .{
-        .lp_hz = 2600.0, .hp_hz = 1000.0, .burst_decay = 200.0, .tail_decay = 14.0, .tail_mix = 0.4, .dur_s = 0.28,
-    });
-}
-fn tomBoombap1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 200.0, .freq_end = 100.0, .dur_s = 0.35, .body_decay = 7.0,
-        .attack_decay = 110.0, .drive = 2.0, .attack_mix = 0.15, .seed = 0x741,
-    });
-}
-fn tomBoombap2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 140.0, .freq_end = 70.0, .dur_s = 0.42, .body_decay = 6.0,
-        .attack_decay = 110.0, .drive = 2.0, .attack_mix = 0.15, .seed = 0x742,
-    });
-}
-fn percHiBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 460.0, .tone2_hz = 640.0, .drive = 1.4, .dur_s = 0.14, .seed = 0x743 });
-}
-fn percLoBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 280.0, .tone2_hz = 390.0, .drive = 1.4, .dur_s = 0.14, .seed = 0x744 });
-}
-fn rimBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return rimGen(allocator, sr, .{
-        .tone1_hz = 1550.0, .tone2_hz = 1000.0, .tone_decay = 140.0, .click_decay = 280.0, .drive = 2.2, .dur_s = 0.07,
-    });
-}
-
-// G-funk: long analog boom kick, dry cracking snare, tight crisp hats, a
-// snap-forward clap. The low end sustains; everything above it stays short.
-fn kickGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return kickGen(allocator, sr, .{
-        .freq_end = 46.0, .freq_start_add = 75.0, .pitch_decay = 35.0, .body_decay = 6.0,
-        .click_decay = 420.0, .click_freq = 1400.0, .click_mix = 0.2, .drive = 3.4, .dur_s = 0.7,
-    });
-}
-fn snareGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return snareGen(allocator, sr, .{
-        .tone1_hz = 175.0, .tone2_hz = 250.0, .tone_decay = 22.0, .noise_decay = 28.0,
-        .drive = 1.9, .dur_s = 0.25, .lp_hz = 7000.0, .hp_hz = 1000.0,
-    });
-}
-fn hihatGfunkClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.05, .decay = 120.0, .body_hz = 7600.0, .air_hz = 10_800.0, .air_mix = 0.2 });
-}
-fn hihatGfunkOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.3, .decay = 11.0, .body_hz = 7600.0, .air_hz = 10_800.0, .air_mix = 0.2 });
-}
-fn crashGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.66, .decay = 5.0, .body_hz = 7600.0, .air_hz = 10_800.0, .air_mix = 0.2 });
-}
-fn clapGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return clapGen(allocator, sr, .{
-        .lp_hz = 2800.0, .hp_hz = 1100.0, .burst_decay = 210.0, .tail_decay = 22.0, .tail_mix = 0.45, .dur_s = 0.3,
-    });
-}
-fn tomGfunk1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 170.0, .freq_end = 85.0, .dur_s = 0.55, .body_decay = 4.5,
-        .attack_decay = 110.0, .drive = 2.0, .attack_mix = 0.1, .seed = 0x751,
-    });
-}
-fn tomGfunk2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 120.0, .freq_end = 60.0, .dur_s = 0.65, .body_decay = 4.0,
-        .attack_decay = 110.0, .drive = 2.0, .attack_mix = 0.1, .seed = 0x752,
-    });
-}
-fn percHiGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 400.0, .tone2_hz = 560.0, .body_decay = 22.0, .dur_s = 0.2, .seed = 0x753 });
-}
-fn percLoGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 240.0, .tone2_hz = 330.0, .body_decay = 22.0, .dur_s = 0.2, .seed = 0x754 });
-}
-fn rimGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return rimGen(allocator, sr, .{
-        .tone1_hz = 1650.0, .tone2_hz = 1080.0, .tone_decay = 150.0, .click_decay = 300.0, .drive = 2.0, .dur_s = 0.07,
-    });
-}
-
-// City-pop: dry late-70s/80s studio character - punchy definite kick, a fat
-// snare cut short as if gated, clean hats, tight room clap, disco-ish toms.
-fn kickCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return kickGen(allocator, sr, .{
-        .freq_end = 60.0, .freq_start_add = 140.0, .pitch_decay = 65.0, .body_decay = 16.0,
-        .click_decay = 320.0, .click_freq = 1800.0, .click_mix = 0.7, .drive = 2.0, .dur_s = 0.25,
-    });
-}
-fn snareCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return snareGen(allocator, sr, .{
-        .tone1_hz = 195.0, .tone2_hz = 285.0, .tone_decay = 26.0, .noise_decay = 12.0,
-        .drive = 1.6, .dur_s = 0.2, .lp_hz = 7500.0, .hp_hz = 950.0,
-    });
-}
-fn hihatCitypopClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.055, .decay = 100.0, .body_hz = 6800.0, .air_hz = 9500.0, .air_mix = 0.35 });
-}
-fn hihatCitypopOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.32, .decay = 10.0, .body_hz = 6800.0, .air_hz = 9500.0, .air_mix = 0.35 });
-}
-fn crashCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.70, .decay = 4.5, .body_hz = 6800.0, .air_hz = 9500.0, .air_mix = 0.35 });
-}
-fn clapCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return clapGen(allocator, sr, .{
-        .lp_hz = 3200.0, .hp_hz = 1200.0, .burst_decay = 240.0, .tail_decay = 20.0, .tail_mix = 0.3, .dur_s = 0.24,
-    });
-}
-fn tomCitypop1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 240.0, .freq_end = 130.0, .dur_s = 0.32, .body_decay = 8.0,
-        .attack_decay = 130.0, .drive = 1.6, .attack_mix = 0.15, .seed = 0x761,
-    });
-}
-fn tomCitypop2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 175.0, .freq_end = 95.0, .dur_s = 0.38, .body_decay = 7.0,
-        .attack_decay = 130.0, .drive = 1.6, .attack_mix = 0.15, .seed = 0x762,
-    });
-}
-fn percHiCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 540.0, .tone2_hz = 750.0, .body_decay = 40.0, .slap_mix = 0.3, .seed = 0x763 });
-}
-fn percLoCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 330.0, .tone2_hz = 450.0, .body_decay = 40.0, .slap_mix = 0.3, .seed = 0x764 });
-}
-fn rimCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return rimGen(allocator, sr, .{
-        .tone1_hz = 1850.0, .tone2_hz = 1200.0, .tone_decay = 140.0, .click_decay = 300.0, .drive = 1.9, .dur_s = 0.06,
-    });
-}
-
-// Technopop: precise early-machine minimalism - short clicky kick, thin
-// noise-forward snare, needle-fine hats, synthetic disco-tom sweeps.
-fn kickTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return kickGen(allocator, sr, .{
-        .freq_end = 55.0, .freq_start_add = 120.0, .pitch_decay = 80.0, .body_decay = 18.0,
-        .click_decay = 300.0, .click_freq = 2400.0, .click_mix = 0.9, .drive = 1.8, .dur_s = 0.18,
-    });
-}
-fn snareTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return snareGen(allocator, sr, .{
-        .tone1_hz = 180.0, .tone2_hz = 320.0, .tone_decay = 35.0, .noise_decay = 20.0,
-        .drive = 1.3, .dur_s = 0.18, .lp_hz = 9000.0, .hp_hz = 1100.0,
-    });
-}
-fn hihatTechnopopClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.04, .decay = 150.0, .body_hz = 7500.0, .air_hz = 10_500.0, .air_mix = 0.25 });
-}
-fn hihatTechnopopOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.25, .decay = 14.0, .body_hz = 7500.0, .air_hz = 10_500.0, .air_mix = 0.25 });
-}
-fn crashTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.55, .decay = 6.4, .body_hz = 7500.0, .air_hz = 10_500.0, .air_mix = 0.25 });
-}
-fn clapTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return clapGen(allocator, sr, .{
-        .lp_hz = 3400.0, .hp_hz = 1400.0, .burst_decay = 280.0, .tail_decay = 24.0, .tail_mix = 0.3, .dur_s = 0.2,
-    });
-}
-fn tomTechnopop1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 300.0, .freq_end = 150.0, .dur_s = 0.25, .body_decay = 10.0,
-        .attack_decay = 150.0, .drive = 1.4, .attack_mix = 0.08, .seed = 0x771,
-    });
-}
-fn tomTechnopop2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 220.0, .freq_end = 110.0, .dur_s = 0.3, .body_decay = 9.0,
-        .attack_decay = 150.0, .drive = 1.4, .attack_mix = 0.08, .seed = 0x772,
-    });
-}
-fn percHiTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 640.0, .tone2_hz = 900.0, .body_decay = 55.0, .dur_s = 0.1, .seed = 0x773 });
-}
-fn percLoTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 400.0, .tone2_hz = 550.0, .body_decay = 55.0, .dur_s = 0.1, .seed = 0x774 });
-}
-fn rimTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return rimGen(allocator, sr, .{
-        .tone1_hz = 2000.0, .tone2_hz = 1300.0, .tone_decay = 160.0, .click_decay = 320.0, .drive = 1.7, .dur_s = 0.05,
-    });
-}
-
-// Kawaii: everything tuned up and cut tight - bouncy mid-weight kick, bright
-// snappy snare, sparkly airy hats, cute high toms.
-fn kickKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return kickGen(allocator, sr, .{
-        .freq_end = 68.0, .freq_start_add = 160.0, .pitch_decay = 75.0, .body_decay = 17.0,
-        .click_decay = 340.0, .click_freq = 2100.0, .click_mix = 0.55, .drive = 2.3, .dur_s = 0.22,
-    });
-}
-fn snareKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return snareGen(allocator, sr, .{
-        .tone1_hz = 220.0, .tone2_hz = 330.0, .tone_decay = 30.0, .noise_decay = 16.0,
-        .drive = 1.7, .dur_s = 0.2, .lp_hz = 10_000.0, .hp_hz = 1200.0,
-    });
-}
-fn hihatKawaiiClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.04, .decay = 140.0, .body_hz = 8000.0, .air_hz = 11_000.0, .air_mix = 0.45 });
-}
-fn hihatKawaiiOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.24, .decay = 13.0, .body_hz = 8000.0, .air_hz = 11_000.0, .air_mix = 0.45 });
-}
-fn crashKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.53, .decay = 5.9, .body_hz = 8000.0, .air_hz = 11_000.0, .air_mix = 0.45 });
-}
-fn clapKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return clapGen(allocator, sr, .{
-        .lp_hz = 3800.0, .hp_hz = 1400.0, .burst_decay = 260.0, .tail_decay = 18.0, .tail_mix = 0.45, .dur_s = 0.26,
-    });
-}
-fn tomKawaii1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 340.0, .freq_end = 190.0, .dur_s = 0.22, .body_decay = 11.0,
-        .attack_decay = 140.0, .drive = 1.6, .attack_mix = 0.12, .seed = 0x781,
-    });
-}
-fn tomKawaii2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 260.0, .freq_end = 140.0, .dur_s = 0.26, .body_decay = 10.0,
-        .attack_decay = 140.0, .drive = 1.6, .attack_mix = 0.12, .seed = 0x782,
-    });
-}
-fn percHiKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 700.0, .tone2_hz = 980.0, .body_decay = 45.0, .drive = 1.3, .dur_s = 0.13, .seed = 0x783 });
-}
-fn percLoKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 480.0, .tone2_hz = 660.0, .body_decay = 45.0, .drive = 1.3, .dur_s = 0.13, .seed = 0x784 });
-}
-fn rimKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return rimGen(allocator, sr, .{
-        .tone1_hz = 2100.0, .tone2_hz = 1400.0, .tone_decay = 170.0, .click_decay = 340.0, .drive = 1.9, .dur_s = 0.05,
-    });
-}
-
-// Vaporwave: everything behind a closed door - round clickless kick, muffled
-// lazy snare, dull hats with a long wash, roomy clap that's mostly tail.
-fn kickVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return kickGen(allocator, sr, .{
-        .freq_end = 50.0, .freq_start_add = 60.0, .pitch_decay = 28.0, .body_decay = 8.0,
-        .click_decay = 500.0, .click_freq = 900.0, .click_mix = 0.08, .drive = 2.0, .dur_s = 0.5,
-    });
-}
-fn snareVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return snareGen(allocator, sr, .{
-        .tone1_hz = 155.0, .tone2_hz = 225.0, .tone_decay = 16.0, .noise_decay = 10.0,
-        .drive = 1.2, .dur_s = 0.35, .lp_hz = 4500.0, .hp_hz = 600.0,
-    });
-}
-fn hihatVaporwaveClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.07, .decay = 80.0, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 });
-}
-fn hihatVaporwaveOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.5, .decay = 6.0, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 });
-}
-fn crashVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 1.1, .decay = 2.7, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 });
-}
-fn clapVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return clapGen(allocator, sr, .{
-        .lp_hz = 2200.0, .hp_hz = 800.0, .burst_decay = 160.0, .tail_decay = 9.0, .tail_mix = 0.75, .dur_s = 0.5,
-    });
-}
-fn tomVaporwave1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 190.0, .freq_end = 95.0, .dur_s = 0.5, .body_decay = 4.5,
-        .attack_decay = 90.0, .drive = 1.4, .attack_mix = 0.06, .seed = 0x791,
-    });
-}
-fn tomVaporwave2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 140.0, .freq_end = 70.0, .dur_s = 0.6, .body_decay = 4.0,
-        .attack_decay = 90.0, .drive = 1.4, .attack_mix = 0.06, .seed = 0x792,
-    });
-}
-fn percHiVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 420.0, .tone2_hz = 580.0, .drive = 1.1, .slap_mix = 0.15, .dur_s = 0.22, .seed = 0x793 });
-}
-fn percLoVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 260.0, .tone2_hz = 360.0, .drive = 1.1, .slap_mix = 0.15, .dur_s = 0.22, .seed = 0x794 });
-}
-fn rimVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return rimGen(allocator, sr, .{
-        .tone1_hz = 1400.0, .tone2_hz = 900.0, .tone_decay = 100.0, .click_decay = 200.0, .drive = 1.4, .dur_s = 0.08,
-    });
-}
-
-// Eurobeat: full-throttle dance floor - hard four-on-the-floor kick, big
-// driven snare, loud sustained open hat for the offbeats, energetic clap.
-fn kickEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return kickGen(allocator, sr, .{
-        .freq_end = 52.0, .freq_start_add = 145.0, .pitch_decay = 58.0, .body_decay = 12.0,
-        .click_decay = 300.0, .click_freq = 1900.0, .click_mix = 0.65, .drive = 3.0, .dur_s = 0.3,
-    });
-}
-fn snareEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return snareGen(allocator, sr, .{
-        .tone1_hz = 190.0, .tone2_hz = 280.0, .tone_decay = 25.0, .noise_decay = 18.0,
-        .drive = 2.0, .dur_s = 0.26, .lp_hz = 9500.0, .hp_hz = 1000.0,
-    });
-}
-fn hihatEurobeatClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.05, .decay = 110.0, .body_hz = 7200.0, .air_hz = 10_000.0, .air_mix = 0.35 });
-}
-fn hihatEurobeatOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.4, .decay = 7.5, .body_hz = 7200.0, .air_hz = 10_000.0, .air_mix = 0.35 });
-}
-fn crashEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.88, .decay = 3.4, .body_hz = 7200.0, .air_hz = 10_000.0, .air_mix = 0.35 });
-}
-fn clapEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return clapGen(allocator, sr, .{
-        .lp_hz = 3000.0, .hp_hz = 1100.0, .burst_decay = 220.0, .tail_decay = 13.0, .tail_mix = 0.55, .dur_s = 0.34,
-    });
-}
-fn tomEurobeat1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 230.0, .freq_end = 115.0, .dur_s = 0.35, .body_decay = 7.0,
-        .attack_decay = 120.0, .drive = 1.9, .attack_mix = 0.14, .seed = 0x7a1,
-    });
-}
-fn tomEurobeat2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 165.0, .freq_end = 85.0, .dur_s = 0.42, .body_decay = 6.0,
-        .attack_decay = 120.0, .drive = 1.9, .attack_mix = 0.14, .seed = 0x7a2,
-    });
-}
-fn percHiEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 520.0, .tone2_hz = 730.0, .drive = 2.2, .body_decay = 40.0, .seed = 0x7a3 });
-}
-fn percLoEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 320.0, .tone2_hz = 440.0, .drive = 2.2, .body_decay = 40.0, .seed = 0x7a4 });
-}
-fn rimEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return rimGen(allocator, sr, .{
-        .tone1_hz = 1700.0, .tone2_hz = 1150.0, .tone_decay = 150.0, .click_decay = 300.0, .drive = 2.0, .dur_s = 0.06,
-    });
-}
-
-// Hardcore/j-core: gabber-style hard-clipped kick with a fast pitch drop and
-// a bright screaming click, everything else short and needle-sharp to keep
-// up at 170+ BPM.
-fn kickHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return kickGen(allocator, sr, .{
-        .freq_end = 58.0, .freq_start_add = 220.0, .pitch_decay = 95.0, .body_decay = 14.0,
-        .click_decay = 180.0, .click_freq = 2400.0, .click_mix = 0.85, .drive = 7.5, .dur_s = 0.22,
-    });
-}
-fn snareHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return snareGen(allocator, sr, .{
-        .tone1_hz = 215.0, .tone2_hz = 320.0, .tone_decay = 22.0, .noise_decay = 22.0,
-        .drive = 3.4, .dur_s = 0.2, .lp_hz = 10_000.0, .hp_hz = 1300.0,
-    });
-}
-fn hihatHardcoreClosed(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.032, .decay = 170.0, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4 });
-}
-fn hihatHardcoreOpen(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.13, .decay = 32.0, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4 });
-}
-fn crashHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return metalHat(allocator, sr, .{ .dur_s = 0.44, .decay = 7.3, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4 });
-}
-fn clapHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return clapGen(allocator, sr, .{
-        .lp_hz = 3600.0, .hp_hz = 1500.0, .burst_decay = 280.0, .tail_decay = 20.0, .tail_mix = 0.3, .dur_s = 0.2,
-    });
-}
-fn tomHardcore1(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 280.0, .freq_end = 150.0, .dur_s = 0.24, .body_decay = 10.0,
-        .attack_decay = 150.0, .drive = 3.2, .attack_mix = 0.2, .seed = 0x7b1,
-    });
-}
-fn tomHardcore2(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return tomGen(allocator, sr, .{
-        .freq_start = 200.0, .freq_end = 100.0, .dur_s = 0.28, .body_decay = 9.0,
-        .attack_decay = 150.0, .drive = 3.2, .attack_mix = 0.2, .seed = 0x7b2,
-    });
-}
-fn percHiHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 620.0, .tone2_hz = 860.0, .drive = 3.4, .body_decay = 45.0, .dur_s = 0.11, .seed = 0x7b3 });
-}
-fn percLoHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return percGen(allocator, sr, .{ .tone1_hz = 380.0, .tone2_hz = 520.0, .drive = 3.4, .body_decay = 45.0, .dur_s = 0.11, .seed = 0x7b4 });
-}
-fn rimHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
-    return rimGen(allocator, sr, .{
-        .tone1_hz = 2000.0, .tone2_hz = 1350.0, .tone_decay = 170.0, .click_decay = 280.0, .drive = 3.5, .dur_s = 0.045,
-    });
-}
-
-// Each kit's second bank ends with one signature hit. The other seven slots
-// reuse that kit's own generators, keeping their established character.
-fn cowbellDefault(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 { return rimGen(allocator, sr, .{ .tone1_hz = 540.0, .tone2_hz = 800.0, .tone_decay = 18.0, .click_decay = 90.0, .drive = 1.5, .dur_s = 0.3 }); }
-fn cowbellAnalog(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 { return rimGen(allocator, sr, .{ .tone1_hz = 560.0, .tone2_hz = 845.0, .tone_decay = 15.0, .click_decay = 100.0, .drive = 2.2, .dur_s = 0.35 }); }
-fn rideAcoustic(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 { return metalHat(allocator, sr, .{ .dur_s = 1.2, .decay = 3.2, .body_hz = 4200.0, .air_hz = 7800.0, .air_mix = 0.25 }); }
-fn anvilIndustrial(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 { return rimGen(allocator, sr, .{ .tone1_hz = 760.0, .tone2_hz = 1210.0, .tone_decay = 24.0, .click_decay = 70.0, .drive = 4.5, .dur_s = 0.45 }); }
-fn vinylBoombap(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 { return clapGen(allocator, sr, .{ .lp_hz = 1800.0, .hp_hz = 250.0, .burst_decay = 70.0, .tail_decay = 5.0, .tail_mix = 0.8, .dur_s = 0.5 }); }
-fn zapGfunk(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 { return tomGen(allocator, sr, .{ .freq_start = 720.0, .freq_end = 95.0, .dur_s = 0.5, .body_decay = 5.0, .attack_decay = 160.0, .drive = 2.8, .attack_mix = 0.05, .seed = 0x7c1 }); }
-fn gatedCitypop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 { return snareGen(allocator, sr, .{ .tone1_hz = 170.0, .tone2_hz = 255.0, .tone_decay = 18.0, .noise_decay = 7.0, .drive = 2.0, .dur_s = 0.5, .lp_hz = 6500.0, .hp_hz = 700.0 }); }
-fn blipTechnopop(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 { return tomGen(allocator, sr, .{ .freq_start = 880.0, .freq_end = 440.0, .dur_s = 0.12, .body_decay = 24.0, .attack_decay = 220.0, .drive = 1.2, .attack_mix = 0.02, .seed = 0x7c2 }); }
-fn popKawaii(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 { return tomGen(allocator, sr, .{ .freq_start = 980.0, .freq_end = 620.0, .dur_s = 0.16, .body_decay = 18.0, .attack_decay = 240.0, .drive = 1.8, .attack_mix = 0.08, .seed = 0x7c3 }); }
-fn washVaporwave(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 { return metalHat(allocator, sr, .{ .dur_s = 1.5, .decay = 2.5, .body_hz = 2600.0, .air_hz = 4800.0, .air_mix = 0.5 }); }
-fn stabEurobeat(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 { return rimGen(allocator, sr, .{ .tone1_hz = 880.0, .tone2_hz = 1320.0, .tone_decay = 12.0, .click_decay = 100.0, .drive = 2.8, .dur_s = 0.4 }); }
-fn screechHardcore(allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 { return tomGen(allocator, sr, .{ .freq_start = 1600.0, .freq_end = 120.0, .dur_s = 0.35, .body_decay = 4.0, .attack_decay = 120.0, .drive = 6.0, .attack_mix = 0.15, .seed = 0x7c4 }); }
 // zig fmt: on
 
 /// Sampler-side shaping applied to a slot on load, on top of its generator's
@@ -1017,9 +389,44 @@ const alt_stick: Tune = .{ .pitch = 7.0, .end = 0.35, .filter = 0.3 };
 /// filename (these are never written to disk). A null `gen` is an empty slot:
 /// the "init" kit's blank slate, loaded as a silent pad rather than generated
 /// audio.
+/// Which shared generator a `VariantSlot` dispatches to - replaces a bare
+/// function pointer so a slot's params can be a plain data literal instead
+/// of a one-line wrapper function per flavor (there were ~130 of those:
+/// `kickAnalog`, `snareAnalog`, ... one per generator per kit).
+pub const GenKind = enum { kick, snare, hat, clap, tom, perc, rim };
+
+pub const Params = union(GenKind) {
+    kick: KickParams,
+    snare: SnareParams,
+    hat: HatParams,
+    clap: ClapParams,
+    tom: TomParams,
+    perc: PercParams,
+    rim: RimParams,
+};
+
+/// Dispatch a slot's `(kind, params)` to the generator it names. The
+/// per-kind `Params` payload is exactly what each wrapper used to close
+/// over, now a data literal in `variants` instead of a function body.
+pub fn genSlot(kind: GenKind, params: Params, allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    return switch (kind) {
+        .kick => kickGen(allocator, sr, params.kick),
+        .snare => snareGen(allocator, sr, params.snare),
+        .hat => metalHat(allocator, sr, params.hat),
+        .clap => clapGen(allocator, sr, params.clap),
+        .tom => tomGen(allocator, sr, params.tom),
+        .perc => percGen(allocator, sr, params.perc),
+        .rim => rimGen(allocator, sr, params.rim),
+    };
+}
+
 pub const VariantSlot = struct {
     name: []const u8 = "",
-    gen: ?*const fn (std.mem.Allocator, u32) std.mem.Allocator.Error![]f32 = null,
+    /// Null is an empty slot (the "init" kit's blank slate, loaded as a
+    /// silent pad rather than generated audio) - `params` is meaningless
+    /// without a `kind` to interpret it.
+    kind: ?GenKind = null,
+    params: Params = undefined,
     gain: f32 = 1.0,
     tune: Tune = .{},
 };
@@ -1043,220 +450,1051 @@ pub const variants = [_]KitVariant{
     // own "init" preset (see dsp/synth_presets.zig).
     .{ .name = "init", .category = "utility", .tags = &.{"wstudio"}, .pads = [_]VariantSlot{.{}} ** 16 },
     .{ .name = "default", .category = "digital", .tags = &.{ "wstudio", "house" }, .pads = .{
-        .{ .name = "kick", .gen = kick, .gain = 1.00 },
-        .{ .name = "kick-2", .gen = kick, .gain = 0.90, .tune = alt_kick },
-        .{ .name = "snare", .gen = snare, .gain = 0.85 },
-        .{ .name = "snare-2", .gen = snare, .gain = 0.75, .tune = alt_snare },
-        .{ .name = "hihat", .gen = hihatClosed, .gain = 0.50 },
-        .{ .name = "hat-2", .gen = hihatClosed, .gain = 0.45, .tune = alt_hat },
-        .{ .name = "open", .gen = hihatOpen, .gain = 0.50 },
-        .{ .name = "crash", .gen = crashDefault, .gain = 0.45, .tune = alt_crash },
-        .{ .name = "clap", .gen = clap, .gain = 0.70 },
-        .{ .name = "rim", .gen = rim, .gain = 0.65 },
-        .{ .name = "stick", .gen = rim, .gain = 0.55, .tune = alt_stick },
-        .{ .name = "tom-1", .gen = tom1, .gain = 0.80 },
-        .{ .name = "tom-2", .gen = tom2, .gain = 0.80 },
-        .{ .name = "perc-hi", .gen = percHi, .gain = 0.70 },
-        .{ .name = "perc-lo", .gen = percLo, .gain = 0.70 },
-        .{ .name = "cowbell", .gen = cowbellDefault, .gain = 0.60 },
+        .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{} }, .gain = 1.00 },
+        .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{} }, .gain = 0.90, .tune = alt_kick },
+        .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{} }, .gain = 0.85 },
+        .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{} }, .gain = 0.75, .tune = alt_snare },
+        .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.09, .decay = 65.0 } }, .gain = 0.50 },
+        .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.09, .decay = 65.0 } }, .gain = 0.45, .tune = alt_hat },
+        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.42, .decay = 8.5 } }, .gain = 0.50 },
+        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.92, .decay = 3.9 } }, .gain = 0.45, .tune = alt_crash },
+        .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{} }, .gain = 0.70 },
+        .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{} }, .gain = 0.65 },
+        .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{} }, .gain = 0.55, .tune = alt_stick },
+        .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{ .freq_start = 220.0, .freq_end = 110.0, .dur_s = 0.42, .seed = 0x701 } }, .gain = 0.80 },
+        .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{ .freq_start = 160.0, .freq_end = 80.0, .dur_s = 0.5, .seed = 0x702 } }, .gain = 0.80 },
+        .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 520.0, .tone2_hz = 730.0, .seed = 0x703 } }, .gain = 0.70 },
+        .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 310.0, .tone2_hz = 430.0, .seed = 0x704 } }, .gain = 0.70 },
+        .{ .name = "cowbell", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 540.0, .tone2_hz = 800.0, .tone_decay = 18.0, .click_decay = 90.0, .drive = 1.5, .dur_s = 0.3 } }, .gain = 0.60 },
     } },
     .{ .name = "analog", .category = "analog", .tags = &.{ "wstudio", "techno" }, .pads = .{
-        .{ .name = "kick", .gen = kickAnalog, .gain = 1.00 },
-        .{ .name = "kick-2", .gen = kickAnalog, .gain = 0.90, .tune = alt_kick },
-        .{ .name = "snare", .gen = snareAnalog, .gain = 0.80 },
-        .{ .name = "snare-2", .gen = snareAnalog, .gain = 0.72, .tune = alt_snare },
-        .{ .name = "hihat", .gen = hihatAnalogClosed, .gain = 0.45 },
-        .{ .name = "hat-2", .gen = hihatAnalogClosed, .gain = 0.40, .tune = alt_hat },
-        .{ .name = "open", .gen = hihatAnalogOpen, .gain = 0.45 },
-        .{ .name = "crash", .gen = crashAnalog, .gain = 0.42, .tune = alt_crash },
-        .{ .name = "clap", .gen = clapAnalog, .gain = 0.65 },
-        .{ .name = "rim", .gen = rimAnalog, .gain = 0.60 },
-        .{ .name = "stick", .gen = rimAnalog, .gain = 0.52, .tune = alt_stick },
-        .{ .name = "tom-1", .gen = tomAnalog1, .gain = 0.85 },
-        .{ .name = "tom-2", .gen = tomAnalog2, .gain = 0.85 },
-        .{ .name = "perc-hi", .gen = percHiAnalog, .gain = 0.75 },
-        .{ .name = "perc-lo", .gen = percLoAnalog, .gain = 0.75 },
-        .{ .name = "cowbell", .gen = cowbellAnalog, .gain = 0.62 },
+        .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 45.0,
+            .freq_start_add = 90.0,
+            .pitch_decay = 30.0,
+            .body_decay = 8.0,
+            .click_decay = 380.0,
+            .click_freq = 1500.0,
+            .click_mix = 0.25,
+            .drive = 3.2,
+            .dur_s = 0.55,
+        } }, .gain = 1.00 },
+        .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 45.0,
+            .freq_start_add = 90.0,
+            .pitch_decay = 30.0,
+            .body_decay = 8.0,
+            .click_decay = 380.0,
+            .click_freq = 1500.0,
+            .click_mix = 0.25,
+            .drive = 3.2,
+            .dur_s = 0.55,
+        } }, .gain = 0.90, .tune = alt_kick },
+        .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 150.0,
+            .tone2_hz = 210.0,
+            .tone_decay = 18.0,
+            .noise_decay = 36.0,
+            .drive = 1.1,
+            .dur_s = 0.3,
+        } }, .gain = 0.80 },
+        .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 150.0,
+            .tone2_hz = 210.0,
+            .tone_decay = 18.0,
+            .noise_decay = 36.0,
+            .drive = 1.1,
+            .dur_s = 0.3,
+        } }, .gain = 0.72, .tune = alt_snare },
+        .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.06, .decay = 90.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.45 },
+        .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.06, .decay = 90.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.40, .tune = alt_hat },
+        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.35, .decay = 10.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.45 },
+        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.77, .decay = 4.5, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.42, .tune = alt_crash },
+        .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
+            .lp_hz = 2500.0,
+            .hp_hz = 1000.0,
+            .burst_decay = 180.0,
+            .tail_decay = 10.0,
+            .tail_mix = 0.7,
+            .dur_s = 0.4,
+        } }, .gain = 0.65 },
+        .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 1600.0,
+            .tone2_hz = 1050.0,
+            .tone_decay = 170.0,
+            .click_decay = 350.0,
+            .drive = 1.5,
+            .dur_s = 0.07,
+        } }, .gain = 0.60 },
+        .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 1600.0,
+            .tone2_hz = 1050.0,
+            .tone_decay = 170.0,
+            .click_decay = 350.0,
+            .drive = 1.5,
+            .dur_s = 0.07,
+        } }, .gain = 0.52, .tune = alt_stick },
+        .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 180.0,
+            .freq_end = 90.0,
+            .dur_s = 0.6,
+            .body_decay = 4.0,
+            .attack_decay = 100.0,
+            .drive = 1.8,
+            .attack_mix = 0.08,
+            .seed = 0x711,
+        } }, .gain = 0.85 },
+        .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 130.0,
+            .freq_end = 60.0,
+            .dur_s = 0.7,
+            .body_decay = 3.5,
+            .attack_decay = 100.0,
+            .drive = 1.8,
+            .attack_mix = 0.08,
+            .seed = 0x712,
+        } }, .gain = 0.85 },
+        .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 430.0, .tone2_hz = 610.0, .drive = 1.9, .seed = 0x713 } }, .gain = 0.75 },
+        .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 260.0, .tone2_hz = 360.0, .drive = 1.9, .seed = 0x714 } }, .gain = 0.75 },
+        .{ .name = "cowbell", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 560.0, .tone2_hz = 845.0, .tone_decay = 15.0, .click_decay = 100.0, .drive = 2.2, .dur_s = 0.35 } }, .gain = 0.62 },
     } },
     .{ .name = "acoustic", .category = "acoustic", .tags = &.{ "wstudio", "rock" }, .pads = .{
-        .{ .name = "kick", .gen = kickAcoustic, .gain = 1.00 },
-        .{ .name = "kick-2", .gen = kickAcoustic, .gain = 0.90, .tune = alt_kick },
-        .{ .name = "snare", .gen = snareAcoustic, .gain = 0.90 },
-        .{ .name = "snare-2", .gen = snareAcoustic, .gain = 0.82, .tune = alt_snare },
-        .{ .name = "hihat", .gen = hihatAcousticClosed, .gain = 0.55 },
-        .{ .name = "hat-2", .gen = hihatAcousticClosed, .gain = 0.50, .tune = alt_hat },
-        .{ .name = "open", .gen = hihatAcousticOpen, .gain = 0.55 },
-        .{ .name = "crash", .gen = crashAcoustic, .gain = 0.52, .tune = alt_crash },
-        .{ .name = "clap", .gen = clapAcoustic, .gain = 0.65 },
-        .{ .name = "rim", .gen = rimAcoustic, .gain = 0.70 },
-        .{ .name = "stick", .gen = rimAcoustic, .gain = 0.62, .tune = alt_stick },
-        .{ .name = "tom-1", .gen = tomAcoustic1, .gain = 0.80 },
-        .{ .name = "tom-2", .gen = tomAcoustic2, .gain = 0.80 },
-        .{ .name = "perc-hi", .gen = percHiAcoustic, .gain = 0.72 },
-        .{ .name = "perc-lo", .gen = percLoAcoustic, .gain = 0.72 },
-        .{ .name = "ride", .gen = rideAcoustic, .gain = 0.48 },
+        .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 62.0,
+            .freq_start_add = 150.0,
+            .pitch_decay = 70.0,
+            .body_decay = 20.0,
+            .click_decay = 300.0,
+            .click_freq = 2000.0,
+            .click_mix = 0.8,
+            .drive = 2.2,
+            .dur_s = 0.22,
+        } }, .gain = 1.00 },
+        .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 62.0,
+            .freq_start_add = 150.0,
+            .pitch_decay = 70.0,
+            .body_decay = 20.0,
+            .click_decay = 300.0,
+            .click_freq = 2000.0,
+            .click_mix = 0.8,
+            .drive = 2.2,
+            .dur_s = 0.22,
+        } }, .gain = 0.90, .tune = alt_kick },
+        .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 200.0,
+            .tone2_hz = 300.0,
+            .tone_decay = 30.0,
+            .noise_decay = 14.0,
+            .drive = 1.8,
+            .dur_s = 0.22,
+        } }, .gain = 0.90 },
+        .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 200.0,
+            .tone2_hz = 300.0,
+            .tone_decay = 30.0,
+            .noise_decay = 14.0,
+            .drive = 1.8,
+            .dur_s = 0.22,
+        } }, .gain = 0.82, .tune = alt_snare },
+        .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.06, .decay = 75.0, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4 } }, .gain = 0.55 },
+        .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.06, .decay = 75.0, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4 } }, .gain = 0.50, .tune = alt_hat },
+        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.3, .decay = 11.0, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4 } }, .gain = 0.55 },
+        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.66, .decay = 5.0, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4 } }, .gain = 0.52, .tune = alt_crash },
+        .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
+            .lp_hz = 3500.0,
+            .hp_hz = 1300.0,
+            .burst_decay = 260.0,
+            .tail_decay = 22.0,
+            .tail_mix = 0.35,
+            .dur_s = 0.25,
+        } }, .gain = 0.65 },
+        .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 1900.0,
+            .tone2_hz = 1250.0,
+            .tone_decay = 130.0,
+            .click_decay = 280.0,
+            .drive = 2.1,
+            .dur_s = 0.06,
+        } }, .gain = 0.70 },
+        .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 1900.0,
+            .tone2_hz = 1250.0,
+            .tone_decay = 130.0,
+            .click_decay = 280.0,
+            .drive = 2.1,
+            .dur_s = 0.06,
+        } }, .gain = 0.62, .tune = alt_stick },
+        .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 260.0,
+            .freq_end = 140.0,
+            .dur_s = 0.3,
+            .body_decay = 9.0,
+            .attack_decay = 140.0,
+            .drive = 1.5,
+            .attack_mix = 0.2,
+            .seed = 0x721,
+        } }, .gain = 0.80 },
+        .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 190.0,
+            .freq_end = 100.0,
+            .dur_s = 0.35,
+            .body_decay = 8.0,
+            .attack_decay = 140.0,
+            .drive = 1.5,
+            .attack_mix = 0.2,
+            .seed = 0x722,
+        } }, .gain = 0.80 },
+        .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 560.0, .tone2_hz = 780.0, .slap_mix = 0.5, .seed = 0x723 } }, .gain = 0.72 },
+        .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 340.0, .tone2_hz = 470.0, .slap_mix = 0.5, .seed = 0x724 } }, .gain = 0.72 },
+        .{ .name = "ride", .kind = .hat, .params = .{ .hat = .{ .dur_s = 1.2, .decay = 3.2, .body_hz = 4200.0, .air_hz = 7800.0, .air_mix = 0.25 } }, .gain = 0.48 },
     } },
     .{ .name = "industrial", .category = "industrial", .tags = &.{ "wstudio", "techno" }, .pads = .{
-        .{ .name = "kick", .gen = kickIndustrial, .gain = 1.00 },
-        .{ .name = "kick-2", .gen = kickIndustrial, .gain = 0.92, .tune = alt_kick },
-        .{ .name = "snare", .gen = snareIndustrial, .gain = 0.85 },
-        .{ .name = "snare-2", .gen = snareIndustrial, .gain = 0.78, .tune = alt_snare },
-        .{ .name = "hihat", .gen = hihatIndustrialClosed, .gain = 0.50 },
-        .{ .name = "hat-2", .gen = hihatIndustrialClosed, .gain = 0.45, .tune = alt_hat },
-        .{ .name = "open", .gen = hihatIndustrialOpen, .gain = 0.50 },
-        .{ .name = "crash", .gen = crashIndustrial, .gain = 0.48, .tune = alt_crash },
-        .{ .name = "clap", .gen = clapIndustrial, .gain = 0.70 },
-        .{ .name = "rim", .gen = rimIndustrial, .gain = 0.65 },
-        .{ .name = "stick", .gen = rimIndustrial, .gain = 0.58, .tune = alt_stick },
-        .{ .name = "tom-1", .gen = tomIndustrial1, .gain = 0.85 },
-        .{ .name = "tom-2", .gen = tomIndustrial2, .gain = 0.85 },
-        .{ .name = "perc-hi", .gen = percHiIndustrial, .gain = 0.78 },
-        .{ .name = "perc-lo", .gen = percLoIndustrial, .gain = 0.78 },
-        .{ .name = "anvil", .gen = anvilIndustrial, .gain = 0.68 },
+        .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 50.0,
+            .freq_start_add = 110.0,
+            .pitch_decay = 40.0,
+            .body_decay = 9.0,
+            .click_decay = 250.0,
+            .click_freq = 900.0,
+            .click_mix = 0.9,
+            .drive = 4.5,
+            .dur_s = 0.5,
+        } }, .gain = 1.00 },
+        .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 50.0,
+            .freq_start_add = 110.0,
+            .pitch_decay = 40.0,
+            .body_decay = 9.0,
+            .click_decay = 250.0,
+            .click_freq = 900.0,
+            .click_mix = 0.9,
+            .drive = 4.5,
+            .dur_s = 0.5,
+        } }, .gain = 0.92, .tune = alt_kick },
+        .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 140.0,
+            .tone2_hz = 260.0,
+            .tone_decay = 15.0,
+            .noise_decay = 26.0,
+            .drive = 2.4,
+            .dur_s = 0.32,
+        } }, .gain = 0.85 },
+        .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 140.0,
+            .tone2_hz = 260.0,
+            .tone_decay = 15.0,
+            .noise_decay = 26.0,
+            .drive = 2.4,
+            .dur_s = 0.32,
+        } }, .gain = 0.78, .tune = alt_snare },
+        .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.12, .decay = 45.0, .body_hz = 5500.0, .air_hz = 8500.0, .air_mix = 0.5 } }, .gain = 0.50 },
+        .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.12, .decay = 45.0, .body_hz = 5500.0, .air_hz = 8500.0, .air_mix = 0.5 } }, .gain = 0.45, .tune = alt_hat },
+        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.6, .decay = 5.0, .body_hz = 5500.0, .air_hz = 8500.0, .air_mix = 0.5 } }, .gain = 0.50 },
+        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 1.32, .decay = 2.3, .body_hz = 5500.0, .air_hz = 8500.0, .air_mix = 0.5 } }, .gain = 0.48, .tune = alt_crash },
+        .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
+            .lp_hz = 2800.0,
+            .hp_hz = 900.0,
+            .burst_decay = 150.0,
+            .tail_decay = 8.0,
+            .tail_mix = 0.8,
+            .dur_s = 0.45,
+        } }, .gain = 0.70 },
+        .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 1500.0,
+            .tone2_hz = 980.0,
+            .tone_decay = 110.0,
+            .click_decay = 220.0,
+            .drive = 3.0,
+            .dur_s = 0.09,
+        } }, .gain = 0.65 },
+        .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 1500.0,
+            .tone2_hz = 980.0,
+            .tone_decay = 110.0,
+            .click_decay = 220.0,
+            .drive = 3.0,
+            .dur_s = 0.09,
+        } }, .gain = 0.58, .tune = alt_stick },
+        .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 210.0,
+            .freq_end = 95.0,
+            .dur_s = 0.55,
+            .body_decay = 5.0,
+            .attack_decay = 90.0,
+            .drive = 2.4,
+            .attack_mix = 0.25,
+            .seed = 0x731,
+        } }, .gain = 0.85 },
+        .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 150.0,
+            .freq_end = 65.0,
+            .dur_s = 0.65,
+            .body_decay = 4.5,
+            .attack_decay = 90.0,
+            .drive = 2.4,
+            .attack_mix = 0.25,
+            .seed = 0x732,
+        } }, .gain = 0.85 },
+        .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 480.0, .tone2_hz = 670.0, .drive = 3.0, .slap_mix = 0.55, .seed = 0x733 } }, .gain = 0.78 },
+        .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 290.0, .tone2_hz = 400.0, .drive = 3.0, .slap_mix = 0.55, .seed = 0x734 } }, .gain = 0.78 },
+        .{ .name = "anvil", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 760.0, .tone2_hz = 1210.0, .tone_decay = 24.0, .click_decay = 70.0, .drive = 4.5, .dur_s = 0.45 } }, .gain = 0.68 },
     } },
     .{ .name = "boombap", .category = "vinyl", .tags = &.{ "wstudio", "hip-hop", "boom-bap" }, .pads = .{
-        .{ .name = "kick", .gen = kickBoombap, .gain = 1.00 },
-        .{ .name = "kick-2", .gen = kickBoombap, .gain = 0.90, .tune = alt_kick },
-        .{ .name = "snare", .gen = snareBoombap, .gain = 0.85 },
-        .{ .name = "snare-2", .gen = snareBoombap, .gain = 0.78, .tune = alt_snare },
-        .{ .name = "hihat", .gen = hihatBoombapClosed, .gain = 0.45 },
-        .{ .name = "hat-2", .gen = hihatBoombapClosed, .gain = 0.40, .tune = alt_hat },
-        .{ .name = "open", .gen = hihatBoombapOpen, .gain = 0.45 },
-        .{ .name = "crash", .gen = crashBoombap, .gain = 0.42, .tune = alt_crash },
-        .{ .name = "clap", .gen = clapBoombap, .gain = 0.65 },
-        .{ .name = "rim", .gen = rimBoombap, .gain = 0.60 },
-        .{ .name = "stick", .gen = rimBoombap, .gain = 0.52, .tune = alt_stick },
-        .{ .name = "tom-1", .gen = tomBoombap1, .gain = 0.80 },
-        .{ .name = "tom-2", .gen = tomBoombap2, .gain = 0.80 },
-        .{ .name = "perc-hi", .gen = percHiBoombap, .gain = 0.72 },
-        .{ .name = "perc-lo", .gen = percLoBoombap, .gain = 0.72 },
-        .{ .name = "vinyl", .gen = vinylBoombap, .gain = 0.48 },
+        .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 52.0,
+            .freq_start_add = 70.0,
+            .pitch_decay = 45.0,
+            .body_decay = 16.0,
+            .click_decay = 500.0,
+            .click_freq = 1200.0,
+            .click_mix = 0.15,
+            .drive = 3.0,
+            .dur_s = 0.4,
+        } }, .gain = 1.00 },
+        .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 52.0,
+            .freq_start_add = 70.0,
+            .pitch_decay = 45.0,
+            .body_decay = 16.0,
+            .click_decay = 500.0,
+            .click_freq = 1200.0,
+            .click_mix = 0.15,
+            .drive = 3.0,
+            .dur_s = 0.4,
+        } }, .gain = 0.90, .tune = alt_kick },
+        .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 165.0,
+            .tone2_hz = 245.0,
+            .tone_decay = 26.0,
+            .noise_decay = 32.0,
+            .drive = 2.0,
+            .dur_s = 0.24,
+        } }, .gain = 0.85 },
+        .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 165.0,
+            .tone2_hz = 245.0,
+            .tone_decay = 26.0,
+            .noise_decay = 32.0,
+            .drive = 2.0,
+            .dur_s = 0.24,
+        } }, .gain = 0.78, .tune = alt_snare },
+        .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.045, .decay = 140.0, .body_hz = 6600.0, .air_hz = 8800.0, .air_mix = 0.15 } }, .gain = 0.45 },
+        .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.045, .decay = 140.0, .body_hz = 6600.0, .air_hz = 8800.0, .air_mix = 0.15 } }, .gain = 0.40, .tune = alt_hat },
+        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.28, .decay = 12.0, .body_hz = 6600.0, .air_hz = 8800.0, .air_mix = 0.15 } }, .gain = 0.45 },
+        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.62, .decay = 5.5, .body_hz = 6600.0, .air_hz = 8800.0, .air_mix = 0.15 } }, .gain = 0.42, .tune = alt_crash },
+        .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
+            .lp_hz = 2600.0,
+            .hp_hz = 1000.0,
+            .burst_decay = 200.0,
+            .tail_decay = 14.0,
+            .tail_mix = 0.4,
+            .dur_s = 0.28,
+        } }, .gain = 0.65 },
+        .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 1550.0,
+            .tone2_hz = 1000.0,
+            .tone_decay = 140.0,
+            .click_decay = 280.0,
+            .drive = 2.2,
+            .dur_s = 0.07,
+        } }, .gain = 0.60 },
+        .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 1550.0,
+            .tone2_hz = 1000.0,
+            .tone_decay = 140.0,
+            .click_decay = 280.0,
+            .drive = 2.2,
+            .dur_s = 0.07,
+        } }, .gain = 0.52, .tune = alt_stick },
+        .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 200.0,
+            .freq_end = 100.0,
+            .dur_s = 0.35,
+            .body_decay = 7.0,
+            .attack_decay = 110.0,
+            .drive = 2.0,
+            .attack_mix = 0.15,
+            .seed = 0x741,
+        } }, .gain = 0.80 },
+        .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 140.0,
+            .freq_end = 70.0,
+            .dur_s = 0.42,
+            .body_decay = 6.0,
+            .attack_decay = 110.0,
+            .drive = 2.0,
+            .attack_mix = 0.15,
+            .seed = 0x742,
+        } }, .gain = 0.80 },
+        .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 460.0, .tone2_hz = 640.0, .drive = 1.4, .dur_s = 0.14, .seed = 0x743 } }, .gain = 0.72 },
+        .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 280.0, .tone2_hz = 390.0, .drive = 1.4, .dur_s = 0.14, .seed = 0x744 } }, .gain = 0.72 },
+        .{ .name = "vinyl", .kind = .clap, .params = .{ .clap = .{ .lp_hz = 1800.0, .hp_hz = 250.0, .burst_decay = 70.0, .tail_decay = 5.0, .tail_mix = 0.8, .dur_s = 0.5 } }, .gain = 0.48 },
     } },
     .{ .name = "gfunk", .category = "analog", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .pads = .{
-        .{ .name = "kick", .gen = kickGfunk, .gain = 1.00 },
-        .{ .name = "kick-2", .gen = kickGfunk, .gain = 0.90, .tune = alt_kick },
-        .{ .name = "snare", .gen = snareGfunk, .gain = 0.88 },
-        .{ .name = "snare-2", .gen = snareGfunk, .gain = 0.80, .tune = alt_snare },
-        .{ .name = "hihat", .gen = hihatGfunkClosed, .gain = 0.45 },
-        .{ .name = "hat-2", .gen = hihatGfunkClosed, .gain = 0.40, .tune = alt_hat },
-        .{ .name = "open", .gen = hihatGfunkOpen, .gain = 0.45 },
-        .{ .name = "crash", .gen = crashGfunk, .gain = 0.42, .tune = alt_crash },
-        .{ .name = "clap", .gen = clapGfunk, .gain = 0.75 },
-        .{ .name = "rim", .gen = rimGfunk, .gain = 0.60 },
-        .{ .name = "stick", .gen = rimGfunk, .gain = 0.52, .tune = alt_stick },
-        .{ .name = "tom-1", .gen = tomGfunk1, .gain = 0.80 },
-        .{ .name = "tom-2", .gen = tomGfunk2, .gain = 0.80 },
-        .{ .name = "perc-hi", .gen = percHiGfunk, .gain = 0.72 },
-        .{ .name = "perc-lo", .gen = percLoGfunk, .gain = 0.72 },
-        .{ .name = "zap", .gen = zapGfunk, .gain = 0.68 },
+        .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 46.0,
+            .freq_start_add = 75.0,
+            .pitch_decay = 35.0,
+            .body_decay = 6.0,
+            .click_decay = 420.0,
+            .click_freq = 1400.0,
+            .click_mix = 0.2,
+            .drive = 3.4,
+            .dur_s = 0.7,
+        } }, .gain = 1.00 },
+        .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 46.0,
+            .freq_start_add = 75.0,
+            .pitch_decay = 35.0,
+            .body_decay = 6.0,
+            .click_decay = 420.0,
+            .click_freq = 1400.0,
+            .click_mix = 0.2,
+            .drive = 3.4,
+            .dur_s = 0.7,
+        } }, .gain = 0.90, .tune = alt_kick },
+        .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 175.0,
+            .tone2_hz = 250.0,
+            .tone_decay = 22.0,
+            .noise_decay = 28.0,
+            .drive = 1.9,
+            .dur_s = 0.25,
+            .lp_hz = 7000.0,
+            .hp_hz = 1000.0,
+        } }, .gain = 0.88 },
+        .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 175.0,
+            .tone2_hz = 250.0,
+            .tone_decay = 22.0,
+            .noise_decay = 28.0,
+            .drive = 1.9,
+            .dur_s = 0.25,
+            .lp_hz = 7000.0,
+            .hp_hz = 1000.0,
+        } }, .gain = 0.80, .tune = alt_snare },
+        .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.05, .decay = 120.0, .body_hz = 7600.0, .air_hz = 10_800.0, .air_mix = 0.2 } }, .gain = 0.45 },
+        .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.05, .decay = 120.0, .body_hz = 7600.0, .air_hz = 10_800.0, .air_mix = 0.2 } }, .gain = 0.40, .tune = alt_hat },
+        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.3, .decay = 11.0, .body_hz = 7600.0, .air_hz = 10_800.0, .air_mix = 0.2 } }, .gain = 0.45 },
+        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.66, .decay = 5.0, .body_hz = 7600.0, .air_hz = 10_800.0, .air_mix = 0.2 } }, .gain = 0.42, .tune = alt_crash },
+        .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
+            .lp_hz = 2800.0,
+            .hp_hz = 1100.0,
+            .burst_decay = 210.0,
+            .tail_decay = 22.0,
+            .tail_mix = 0.45,
+            .dur_s = 0.3,
+        } }, .gain = 0.75 },
+        .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 1650.0,
+            .tone2_hz = 1080.0,
+            .tone_decay = 150.0,
+            .click_decay = 300.0,
+            .drive = 2.0,
+            .dur_s = 0.07,
+        } }, .gain = 0.60 },
+        .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 1650.0,
+            .tone2_hz = 1080.0,
+            .tone_decay = 150.0,
+            .click_decay = 300.0,
+            .drive = 2.0,
+            .dur_s = 0.07,
+        } }, .gain = 0.52, .tune = alt_stick },
+        .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 170.0,
+            .freq_end = 85.0,
+            .dur_s = 0.55,
+            .body_decay = 4.5,
+            .attack_decay = 110.0,
+            .drive = 2.0,
+            .attack_mix = 0.1,
+            .seed = 0x751,
+        } }, .gain = 0.80 },
+        .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 120.0,
+            .freq_end = 60.0,
+            .dur_s = 0.65,
+            .body_decay = 4.0,
+            .attack_decay = 110.0,
+            .drive = 2.0,
+            .attack_mix = 0.1,
+            .seed = 0x752,
+        } }, .gain = 0.80 },
+        .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 400.0, .tone2_hz = 560.0, .body_decay = 22.0, .dur_s = 0.2, .seed = 0x753 } }, .gain = 0.72 },
+        .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 240.0, .tone2_hz = 330.0, .body_decay = 22.0, .dur_s = 0.2, .seed = 0x754 } }, .gain = 0.72 },
+        .{ .name = "zap", .kind = .tom, .params = .{ .tom = .{ .freq_start = 720.0, .freq_end = 95.0, .dur_s = 0.5, .body_decay = 5.0, .attack_decay = 160.0, .drive = 2.8, .attack_mix = 0.05, .seed = 0x7c1 } }, .gain = 0.68 },
     } },
     .{ .name = "citypop", .category = "digital", .tags = &.{ "wstudio", "city-pop", "funk" }, .pads = .{
-        .{ .name = "kick", .gen = kickCitypop, .gain = 1.00 },
-        .{ .name = "kick-2", .gen = kickCitypop, .gain = 0.90, .tune = alt_kick },
-        .{ .name = "snare", .gen = snareCitypop, .gain = 0.90 },
-        .{ .name = "snare-2", .gen = snareCitypop, .gain = 0.82, .tune = alt_snare },
-        .{ .name = "hihat", .gen = hihatCitypopClosed, .gain = 0.50 },
-        .{ .name = "hat-2", .gen = hihatCitypopClosed, .gain = 0.45, .tune = alt_hat },
-        .{ .name = "open", .gen = hihatCitypopOpen, .gain = 0.50 },
-        .{ .name = "crash", .gen = crashCitypop, .gain = 0.47, .tune = alt_crash },
-        .{ .name = "clap", .gen = clapCitypop, .gain = 0.60 },
-        .{ .name = "rim", .gen = rimCitypop, .gain = 0.70 },
-        .{ .name = "stick", .gen = rimCitypop, .gain = 0.62, .tune = alt_stick },
-        .{ .name = "tom-1", .gen = tomCitypop1, .gain = 0.85 },
-        .{ .name = "tom-2", .gen = tomCitypop2, .gain = 0.85 },
-        .{ .name = "perc-hi", .gen = percHiCitypop, .gain = 0.76 },
-        .{ .name = "perc-lo", .gen = percLoCitypop, .gain = 0.76 },
-        .{ .name = "gated", .gen = gatedCitypop, .gain = 0.72 },
+        .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 60.0,
+            .freq_start_add = 140.0,
+            .pitch_decay = 65.0,
+            .body_decay = 16.0,
+            .click_decay = 320.0,
+            .click_freq = 1800.0,
+            .click_mix = 0.7,
+            .drive = 2.0,
+            .dur_s = 0.25,
+        } }, .gain = 1.00 },
+        .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 60.0,
+            .freq_start_add = 140.0,
+            .pitch_decay = 65.0,
+            .body_decay = 16.0,
+            .click_decay = 320.0,
+            .click_freq = 1800.0,
+            .click_mix = 0.7,
+            .drive = 2.0,
+            .dur_s = 0.25,
+        } }, .gain = 0.90, .tune = alt_kick },
+        .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 195.0,
+            .tone2_hz = 285.0,
+            .tone_decay = 26.0,
+            .noise_decay = 12.0,
+            .drive = 1.6,
+            .dur_s = 0.2,
+            .lp_hz = 7500.0,
+            .hp_hz = 950.0,
+        } }, .gain = 0.90 },
+        .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 195.0,
+            .tone2_hz = 285.0,
+            .tone_decay = 26.0,
+            .noise_decay = 12.0,
+            .drive = 1.6,
+            .dur_s = 0.2,
+            .lp_hz = 7500.0,
+            .hp_hz = 950.0,
+        } }, .gain = 0.82, .tune = alt_snare },
+        .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.055, .decay = 100.0, .body_hz = 6800.0, .air_hz = 9500.0, .air_mix = 0.35 } }, .gain = 0.50 },
+        .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.055, .decay = 100.0, .body_hz = 6800.0, .air_hz = 9500.0, .air_mix = 0.35 } }, .gain = 0.45, .tune = alt_hat },
+        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.32, .decay = 10.0, .body_hz = 6800.0, .air_hz = 9500.0, .air_mix = 0.35 } }, .gain = 0.50 },
+        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.70, .decay = 4.5, .body_hz = 6800.0, .air_hz = 9500.0, .air_mix = 0.35 } }, .gain = 0.47, .tune = alt_crash },
+        .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
+            .lp_hz = 3200.0,
+            .hp_hz = 1200.0,
+            .burst_decay = 240.0,
+            .tail_decay = 20.0,
+            .tail_mix = 0.3,
+            .dur_s = 0.24,
+        } }, .gain = 0.60 },
+        .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 1850.0,
+            .tone2_hz = 1200.0,
+            .tone_decay = 140.0,
+            .click_decay = 300.0,
+            .drive = 1.9,
+            .dur_s = 0.06,
+        } }, .gain = 0.70 },
+        .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 1850.0,
+            .tone2_hz = 1200.0,
+            .tone_decay = 140.0,
+            .click_decay = 300.0,
+            .drive = 1.9,
+            .dur_s = 0.06,
+        } }, .gain = 0.62, .tune = alt_stick },
+        .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 240.0,
+            .freq_end = 130.0,
+            .dur_s = 0.32,
+            .body_decay = 8.0,
+            .attack_decay = 130.0,
+            .drive = 1.6,
+            .attack_mix = 0.15,
+            .seed = 0x761,
+        } }, .gain = 0.85 },
+        .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 175.0,
+            .freq_end = 95.0,
+            .dur_s = 0.38,
+            .body_decay = 7.0,
+            .attack_decay = 130.0,
+            .drive = 1.6,
+            .attack_mix = 0.15,
+            .seed = 0x762,
+        } }, .gain = 0.85 },
+        .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 540.0, .tone2_hz = 750.0, .body_decay = 40.0, .slap_mix = 0.3, .seed = 0x763 } }, .gain = 0.76 },
+        .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 330.0, .tone2_hz = 450.0, .body_decay = 40.0, .slap_mix = 0.3, .seed = 0x764 } }, .gain = 0.76 },
+        .{ .name = "gated", .kind = .snare, .params = .{ .snare = .{ .tone1_hz = 170.0, .tone2_hz = 255.0, .tone_decay = 18.0, .noise_decay = 7.0, .drive = 2.0, .dur_s = 0.5, .lp_hz = 6500.0, .hp_hz = 700.0 } }, .gain = 0.72 },
     } },
     .{ .name = "technopop", .category = "digital", .tags = &.{ "wstudio", "technopop", "synth-pop" }, .pads = .{
-        .{ .name = "kick", .gen = kickTechnopop, .gain = 1.00 },
-        .{ .name = "kick-2", .gen = kickTechnopop, .gain = 0.90, .tune = alt_kick },
-        .{ .name = "snare", .gen = snareTechnopop, .gain = 0.85 },
-        .{ .name = "snare-2", .gen = snareTechnopop, .gain = 0.78, .tune = alt_snare },
-        .{ .name = "hihat", .gen = hihatTechnopopClosed, .gain = 0.50 },
-        .{ .name = "hat-2", .gen = hihatTechnopopClosed, .gain = 0.45, .tune = alt_hat },
-        .{ .name = "open", .gen = hihatTechnopopOpen, .gain = 0.50 },
-        .{ .name = "crash", .gen = crashTechnopop, .gain = 0.47, .tune = alt_crash },
-        .{ .name = "clap", .gen = clapTechnopop, .gain = 0.65 },
-        .{ .name = "rim", .gen = rimTechnopop, .gain = 0.65 },
-        .{ .name = "stick", .gen = rimTechnopop, .gain = 0.57, .tune = alt_stick },
-        .{ .name = "tom-1", .gen = tomTechnopop1, .gain = 0.80 },
-        .{ .name = "tom-2", .gen = tomTechnopop2, .gain = 0.80 },
-        .{ .name = "perc-hi", .gen = percHiTechnopop, .gain = 0.72 },
-        .{ .name = "perc-lo", .gen = percLoTechnopop, .gain = 0.72 },
-        .{ .name = "blip", .gen = blipTechnopop, .gain = 0.65 },
+        .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 55.0,
+            .freq_start_add = 120.0,
+            .pitch_decay = 80.0,
+            .body_decay = 18.0,
+            .click_decay = 300.0,
+            .click_freq = 2400.0,
+            .click_mix = 0.9,
+            .drive = 1.8,
+            .dur_s = 0.18,
+        } }, .gain = 1.00 },
+        .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 55.0,
+            .freq_start_add = 120.0,
+            .pitch_decay = 80.0,
+            .body_decay = 18.0,
+            .click_decay = 300.0,
+            .click_freq = 2400.0,
+            .click_mix = 0.9,
+            .drive = 1.8,
+            .dur_s = 0.18,
+        } }, .gain = 0.90, .tune = alt_kick },
+        .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 180.0,
+            .tone2_hz = 320.0,
+            .tone_decay = 35.0,
+            .noise_decay = 20.0,
+            .drive = 1.3,
+            .dur_s = 0.18,
+            .lp_hz = 9000.0,
+            .hp_hz = 1100.0,
+        } }, .gain = 0.85 },
+        .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 180.0,
+            .tone2_hz = 320.0,
+            .tone_decay = 35.0,
+            .noise_decay = 20.0,
+            .drive = 1.3,
+            .dur_s = 0.18,
+            .lp_hz = 9000.0,
+            .hp_hz = 1100.0,
+        } }, .gain = 0.78, .tune = alt_snare },
+        .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.04, .decay = 150.0, .body_hz = 7500.0, .air_hz = 10_500.0, .air_mix = 0.25 } }, .gain = 0.50 },
+        .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.04, .decay = 150.0, .body_hz = 7500.0, .air_hz = 10_500.0, .air_mix = 0.25 } }, .gain = 0.45, .tune = alt_hat },
+        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.25, .decay = 14.0, .body_hz = 7500.0, .air_hz = 10_500.0, .air_mix = 0.25 } }, .gain = 0.50 },
+        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.55, .decay = 6.4, .body_hz = 7500.0, .air_hz = 10_500.0, .air_mix = 0.25 } }, .gain = 0.47, .tune = alt_crash },
+        .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
+            .lp_hz = 3400.0,
+            .hp_hz = 1400.0,
+            .burst_decay = 280.0,
+            .tail_decay = 24.0,
+            .tail_mix = 0.3,
+            .dur_s = 0.2,
+        } }, .gain = 0.65 },
+        .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 2000.0,
+            .tone2_hz = 1300.0,
+            .tone_decay = 160.0,
+            .click_decay = 320.0,
+            .drive = 1.7,
+            .dur_s = 0.05,
+        } }, .gain = 0.65 },
+        .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 2000.0,
+            .tone2_hz = 1300.0,
+            .tone_decay = 160.0,
+            .click_decay = 320.0,
+            .drive = 1.7,
+            .dur_s = 0.05,
+        } }, .gain = 0.57, .tune = alt_stick },
+        .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 300.0,
+            .freq_end = 150.0,
+            .dur_s = 0.25,
+            .body_decay = 10.0,
+            .attack_decay = 150.0,
+            .drive = 1.4,
+            .attack_mix = 0.08,
+            .seed = 0x771,
+        } }, .gain = 0.80 },
+        .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 220.0,
+            .freq_end = 110.0,
+            .dur_s = 0.3,
+            .body_decay = 9.0,
+            .attack_decay = 150.0,
+            .drive = 1.4,
+            .attack_mix = 0.08,
+            .seed = 0x772,
+        } }, .gain = 0.80 },
+        .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 640.0, .tone2_hz = 900.0, .body_decay = 55.0, .dur_s = 0.1, .seed = 0x773 } }, .gain = 0.72 },
+        .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 400.0, .tone2_hz = 550.0, .body_decay = 55.0, .dur_s = 0.1, .seed = 0x774 } }, .gain = 0.72 },
+        .{ .name = "blip", .kind = .tom, .params = .{ .tom = .{ .freq_start = 880.0, .freq_end = 440.0, .dur_s = 0.12, .body_decay = 24.0, .attack_decay = 220.0, .drive = 1.2, .attack_mix = 0.02, .seed = 0x7c2 } }, .gain = 0.65 },
     } },
     .{ .name = "kawaii", .category = "digital", .tags = &.{ "wstudio", "kawaii", "pop" }, .pads = .{
-        .{ .name = "kick", .gen = kickKawaii, .gain = 1.00 },
-        .{ .name = "kick-2", .gen = kickKawaii, .gain = 0.90, .tune = alt_kick },
-        .{ .name = "snare", .gen = snareKawaii, .gain = 0.85 },
-        .{ .name = "snare-2", .gen = snareKawaii, .gain = 0.78, .tune = alt_snare },
-        .{ .name = "hihat", .gen = hihatKawaiiClosed, .gain = 0.50 },
-        .{ .name = "hat-2", .gen = hihatKawaiiClosed, .gain = 0.45, .tune = alt_hat },
-        .{ .name = "open", .gen = hihatKawaiiOpen, .gain = 0.50 },
-        .{ .name = "crash", .gen = crashKawaii, .gain = 0.47, .tune = alt_crash },
-        .{ .name = "clap", .gen = clapKawaii, .gain = 0.70 },
-        .{ .name = "rim", .gen = rimKawaii, .gain = 0.65 },
-        .{ .name = "stick", .gen = rimKawaii, .gain = 0.57, .tune = alt_stick },
-        .{ .name = "tom-1", .gen = tomKawaii1, .gain = 0.80 },
-        .{ .name = "tom-2", .gen = tomKawaii2, .gain = 0.80 },
-        .{ .name = "perc-hi", .gen = percHiKawaii, .gain = 0.72 },
-        .{ .name = "perc-lo", .gen = percLoKawaii, .gain = 0.72 },
-        .{ .name = "pop", .gen = popKawaii, .gain = 0.62 },
+        .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 68.0,
+            .freq_start_add = 160.0,
+            .pitch_decay = 75.0,
+            .body_decay = 17.0,
+            .click_decay = 340.0,
+            .click_freq = 2100.0,
+            .click_mix = 0.55,
+            .drive = 2.3,
+            .dur_s = 0.22,
+        } }, .gain = 1.00 },
+        .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 68.0,
+            .freq_start_add = 160.0,
+            .pitch_decay = 75.0,
+            .body_decay = 17.0,
+            .click_decay = 340.0,
+            .click_freq = 2100.0,
+            .click_mix = 0.55,
+            .drive = 2.3,
+            .dur_s = 0.22,
+        } }, .gain = 0.90, .tune = alt_kick },
+        .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 220.0,
+            .tone2_hz = 330.0,
+            .tone_decay = 30.0,
+            .noise_decay = 16.0,
+            .drive = 1.7,
+            .dur_s = 0.2,
+            .lp_hz = 10_000.0,
+            .hp_hz = 1200.0,
+        } }, .gain = 0.85 },
+        .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 220.0,
+            .tone2_hz = 330.0,
+            .tone_decay = 30.0,
+            .noise_decay = 16.0,
+            .drive = 1.7,
+            .dur_s = 0.2,
+            .lp_hz = 10_000.0,
+            .hp_hz = 1200.0,
+        } }, .gain = 0.78, .tune = alt_snare },
+        .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.04, .decay = 140.0, .body_hz = 8000.0, .air_hz = 11_000.0, .air_mix = 0.45 } }, .gain = 0.50 },
+        .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.04, .decay = 140.0, .body_hz = 8000.0, .air_hz = 11_000.0, .air_mix = 0.45 } }, .gain = 0.45, .tune = alt_hat },
+        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.24, .decay = 13.0, .body_hz = 8000.0, .air_hz = 11_000.0, .air_mix = 0.45 } }, .gain = 0.50 },
+        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.53, .decay = 5.9, .body_hz = 8000.0, .air_hz = 11_000.0, .air_mix = 0.45 } }, .gain = 0.47, .tune = alt_crash },
+        .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
+            .lp_hz = 3800.0,
+            .hp_hz = 1400.0,
+            .burst_decay = 260.0,
+            .tail_decay = 18.0,
+            .tail_mix = 0.45,
+            .dur_s = 0.26,
+        } }, .gain = 0.70 },
+        .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 2100.0,
+            .tone2_hz = 1400.0,
+            .tone_decay = 170.0,
+            .click_decay = 340.0,
+            .drive = 1.9,
+            .dur_s = 0.05,
+        } }, .gain = 0.65 },
+        .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 2100.0,
+            .tone2_hz = 1400.0,
+            .tone_decay = 170.0,
+            .click_decay = 340.0,
+            .drive = 1.9,
+            .dur_s = 0.05,
+        } }, .gain = 0.57, .tune = alt_stick },
+        .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 340.0,
+            .freq_end = 190.0,
+            .dur_s = 0.22,
+            .body_decay = 11.0,
+            .attack_decay = 140.0,
+            .drive = 1.6,
+            .attack_mix = 0.12,
+            .seed = 0x781,
+        } }, .gain = 0.80 },
+        .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 260.0,
+            .freq_end = 140.0,
+            .dur_s = 0.26,
+            .body_decay = 10.0,
+            .attack_decay = 140.0,
+            .drive = 1.6,
+            .attack_mix = 0.12,
+            .seed = 0x782,
+        } }, .gain = 0.80 },
+        .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 700.0, .tone2_hz = 980.0, .body_decay = 45.0, .drive = 1.3, .dur_s = 0.13, .seed = 0x783 } }, .gain = 0.72 },
+        .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 480.0, .tone2_hz = 660.0, .body_decay = 45.0, .drive = 1.3, .dur_s = 0.13, .seed = 0x784 } }, .gain = 0.72 },
+        .{ .name = "pop", .kind = .tom, .params = .{ .tom = .{ .freq_start = 980.0, .freq_end = 620.0, .dur_s = 0.16, .body_decay = 18.0, .attack_decay = 240.0, .drive = 1.8, .attack_mix = 0.08, .seed = 0x7c3 } }, .gain = 0.62 },
     } },
     .{ .name = "vaporwave", .category = "tape", .tags = &.{ "wstudio", "vaporwave", "chill" }, .pads = .{
-        .{ .name = "kick", .gen = kickVaporwave, .gain = 1.00 },
-        .{ .name = "kick-2", .gen = kickVaporwave, .gain = 0.88, .tune = alt_kick },
-        .{ .name = "snare", .gen = snareVaporwave, .gain = 0.80 },
-        .{ .name = "snare-2", .gen = snareVaporwave, .gain = 0.72, .tune = alt_snare },
-        .{ .name = "hihat", .gen = hihatVaporwaveClosed, .gain = 0.40 },
-        .{ .name = "hat-2", .gen = hihatVaporwaveClosed, .gain = 0.35, .tune = alt_hat },
-        .{ .name = "open", .gen = hihatVaporwaveOpen, .gain = 0.40 },
-        .{ .name = "crash", .gen = crashVaporwave, .gain = 0.37, .tune = alt_crash },
-        .{ .name = "clap", .gen = clapVaporwave, .gain = 0.60 },
-        .{ .name = "rim", .gen = rimVaporwave, .gain = 0.55 },
-        .{ .name = "stick", .gen = rimVaporwave, .gain = 0.47, .tune = alt_stick },
-        .{ .name = "tom-1", .gen = tomVaporwave1, .gain = 0.75 },
-        .{ .name = "tom-2", .gen = tomVaporwave2, .gain = 0.75 },
-        .{ .name = "perc-hi", .gen = percHiVaporwave, .gain = 0.68 },
-        .{ .name = "perc-lo", .gen = percLoVaporwave, .gain = 0.68 },
-        .{ .name = "wash", .gen = washVaporwave, .gain = 0.38 },
+        .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 50.0,
+            .freq_start_add = 60.0,
+            .pitch_decay = 28.0,
+            .body_decay = 8.0,
+            .click_decay = 500.0,
+            .click_freq = 900.0,
+            .click_mix = 0.08,
+            .drive = 2.0,
+            .dur_s = 0.5,
+        } }, .gain = 1.00 },
+        .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 50.0,
+            .freq_start_add = 60.0,
+            .pitch_decay = 28.0,
+            .body_decay = 8.0,
+            .click_decay = 500.0,
+            .click_freq = 900.0,
+            .click_mix = 0.08,
+            .drive = 2.0,
+            .dur_s = 0.5,
+        } }, .gain = 0.88, .tune = alt_kick },
+        .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 155.0,
+            .tone2_hz = 225.0,
+            .tone_decay = 16.0,
+            .noise_decay = 10.0,
+            .drive = 1.2,
+            .dur_s = 0.35,
+            .lp_hz = 4500.0,
+            .hp_hz = 600.0,
+        } }, .gain = 0.80 },
+        .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 155.0,
+            .tone2_hz = 225.0,
+            .tone_decay = 16.0,
+            .noise_decay = 10.0,
+            .drive = 1.2,
+            .dur_s = 0.35,
+            .lp_hz = 4500.0,
+            .hp_hz = 600.0,
+        } }, .gain = 0.72, .tune = alt_snare },
+        .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.07, .decay = 80.0, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 } }, .gain = 0.40 },
+        .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.07, .decay = 80.0, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 } }, .gain = 0.35, .tune = alt_hat },
+        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.5, .decay = 6.0, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 } }, .gain = 0.40 },
+        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 1.1, .decay = 2.7, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 } }, .gain = 0.37, .tune = alt_crash },
+        .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
+            .lp_hz = 2200.0,
+            .hp_hz = 800.0,
+            .burst_decay = 160.0,
+            .tail_decay = 9.0,
+            .tail_mix = 0.75,
+            .dur_s = 0.5,
+        } }, .gain = 0.60 },
+        .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 1400.0,
+            .tone2_hz = 900.0,
+            .tone_decay = 100.0,
+            .click_decay = 200.0,
+            .drive = 1.4,
+            .dur_s = 0.08,
+        } }, .gain = 0.55 },
+        .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 1400.0,
+            .tone2_hz = 900.0,
+            .tone_decay = 100.0,
+            .click_decay = 200.0,
+            .drive = 1.4,
+            .dur_s = 0.08,
+        } }, .gain = 0.47, .tune = alt_stick },
+        .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 190.0,
+            .freq_end = 95.0,
+            .dur_s = 0.5,
+            .body_decay = 4.5,
+            .attack_decay = 90.0,
+            .drive = 1.4,
+            .attack_mix = 0.06,
+            .seed = 0x791,
+        } }, .gain = 0.75 },
+        .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 140.0,
+            .freq_end = 70.0,
+            .dur_s = 0.6,
+            .body_decay = 4.0,
+            .attack_decay = 90.0,
+            .drive = 1.4,
+            .attack_mix = 0.06,
+            .seed = 0x792,
+        } }, .gain = 0.75 },
+        .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 420.0, .tone2_hz = 580.0, .drive = 1.1, .slap_mix = 0.15, .dur_s = 0.22, .seed = 0x793 } }, .gain = 0.68 },
+        .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 260.0, .tone2_hz = 360.0, .drive = 1.1, .slap_mix = 0.15, .dur_s = 0.22, .seed = 0x794 } }, .gain = 0.68 },
+        .{ .name = "wash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 1.5, .decay = 2.5, .body_hz = 2600.0, .air_hz = 4800.0, .air_mix = 0.5 } }, .gain = 0.38 },
     } },
     .{ .name = "eurobeat", .category = "digital", .tags = &.{ "wstudio", "eurobeat", "dance" }, .pads = .{
-        .{ .name = "kick", .gen = kickEurobeat, .gain = 1.00 },
-        .{ .name = "kick-2", .gen = kickEurobeat, .gain = 0.90, .tune = alt_kick },
-        .{ .name = "snare", .gen = snareEurobeat, .gain = 0.88 },
-        .{ .name = "snare-2", .gen = snareEurobeat, .gain = 0.80, .tune = alt_snare },
-        .{ .name = "hihat", .gen = hihatEurobeatClosed, .gain = 0.50 },
-        .{ .name = "hat-2", .gen = hihatEurobeatClosed, .gain = 0.45, .tune = alt_hat },
-        .{ .name = "open", .gen = hihatEurobeatOpen, .gain = 0.55 },
-        .{ .name = "crash", .gen = crashEurobeat, .gain = 0.50, .tune = alt_crash },
-        .{ .name = "clap", .gen = clapEurobeat, .gain = 0.70 },
-        .{ .name = "rim", .gen = rimEurobeat, .gain = 0.65 },
-        .{ .name = "stick", .gen = rimEurobeat, .gain = 0.57, .tune = alt_stick },
-        .{ .name = "tom-1", .gen = tomEurobeat1, .gain = 0.80 },
-        .{ .name = "tom-2", .gen = tomEurobeat2, .gain = 0.80 },
-        .{ .name = "perc-hi", .gen = percHiEurobeat, .gain = 0.72 },
-        .{ .name = "perc-lo", .gen = percLoEurobeat, .gain = 0.72 },
-        .{ .name = "stab", .gen = stabEurobeat, .gain = 0.66 },
+        .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 52.0,
+            .freq_start_add = 145.0,
+            .pitch_decay = 58.0,
+            .body_decay = 12.0,
+            .click_decay = 300.0,
+            .click_freq = 1900.0,
+            .click_mix = 0.65,
+            .drive = 3.0,
+            .dur_s = 0.3,
+        } }, .gain = 1.00 },
+        .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 52.0,
+            .freq_start_add = 145.0,
+            .pitch_decay = 58.0,
+            .body_decay = 12.0,
+            .click_decay = 300.0,
+            .click_freq = 1900.0,
+            .click_mix = 0.65,
+            .drive = 3.0,
+            .dur_s = 0.3,
+        } }, .gain = 0.90, .tune = alt_kick },
+        .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 190.0,
+            .tone2_hz = 280.0,
+            .tone_decay = 25.0,
+            .noise_decay = 18.0,
+            .drive = 2.0,
+            .dur_s = 0.26,
+            .lp_hz = 9500.0,
+            .hp_hz = 1000.0,
+        } }, .gain = 0.88 },
+        .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 190.0,
+            .tone2_hz = 280.0,
+            .tone_decay = 25.0,
+            .noise_decay = 18.0,
+            .drive = 2.0,
+            .dur_s = 0.26,
+            .lp_hz = 9500.0,
+            .hp_hz = 1000.0,
+        } }, .gain = 0.80, .tune = alt_snare },
+        .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.05, .decay = 110.0, .body_hz = 7200.0, .air_hz = 10_000.0, .air_mix = 0.35 } }, .gain = 0.50 },
+        .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.05, .decay = 110.0, .body_hz = 7200.0, .air_hz = 10_000.0, .air_mix = 0.35 } }, .gain = 0.45, .tune = alt_hat },
+        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.4, .decay = 7.5, .body_hz = 7200.0, .air_hz = 10_000.0, .air_mix = 0.35 } }, .gain = 0.55 },
+        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.88, .decay = 3.4, .body_hz = 7200.0, .air_hz = 10_000.0, .air_mix = 0.35 } }, .gain = 0.50, .tune = alt_crash },
+        .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
+            .lp_hz = 3000.0,
+            .hp_hz = 1100.0,
+            .burst_decay = 220.0,
+            .tail_decay = 13.0,
+            .tail_mix = 0.55,
+            .dur_s = 0.34,
+        } }, .gain = 0.70 },
+        .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 1700.0,
+            .tone2_hz = 1150.0,
+            .tone_decay = 150.0,
+            .click_decay = 300.0,
+            .drive = 2.0,
+            .dur_s = 0.06,
+        } }, .gain = 0.65 },
+        .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 1700.0,
+            .tone2_hz = 1150.0,
+            .tone_decay = 150.0,
+            .click_decay = 300.0,
+            .drive = 2.0,
+            .dur_s = 0.06,
+        } }, .gain = 0.57, .tune = alt_stick },
+        .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 230.0,
+            .freq_end = 115.0,
+            .dur_s = 0.35,
+            .body_decay = 7.0,
+            .attack_decay = 120.0,
+            .drive = 1.9,
+            .attack_mix = 0.14,
+            .seed = 0x7a1,
+        } }, .gain = 0.80 },
+        .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 165.0,
+            .freq_end = 85.0,
+            .dur_s = 0.42,
+            .body_decay = 6.0,
+            .attack_decay = 120.0,
+            .drive = 1.9,
+            .attack_mix = 0.14,
+            .seed = 0x7a2,
+        } }, .gain = 0.80 },
+        .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 520.0, .tone2_hz = 730.0, .drive = 2.2, .body_decay = 40.0, .seed = 0x7a3 } }, .gain = 0.72 },
+        .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 320.0, .tone2_hz = 440.0, .drive = 2.2, .body_decay = 40.0, .seed = 0x7a4 } }, .gain = 0.72 },
+        .{ .name = "stab", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 880.0, .tone2_hz = 1320.0, .tone_decay = 12.0, .click_decay = 100.0, .drive = 2.8, .dur_s = 0.4 } }, .gain = 0.66 },
     } },
     .{ .name = "hardcore", .category = "distorted", .tags = &.{ "wstudio", "j-core", "hardcore" }, .pads = .{
-        .{ .name = "kick", .gen = kickHardcore, .gain = 1.00 },
-        .{ .name = "kick-2", .gen = kickHardcore, .gain = 0.92, .tune = alt_kick },
-        .{ .name = "snare", .gen = snareHardcore, .gain = 0.85 },
-        .{ .name = "snare-2", .gen = snareHardcore, .gain = 0.78, .tune = alt_snare },
-        .{ .name = "hihat", .gen = hihatHardcoreClosed, .gain = 0.45 },
-        .{ .name = "hat-2", .gen = hihatHardcoreClosed, .gain = 0.40, .tune = alt_hat },
-        .{ .name = "open", .gen = hihatHardcoreOpen, .gain = 0.45 },
-        .{ .name = "crash", .gen = crashHardcore, .gain = 0.42, .tune = alt_crash },
-        .{ .name = "clap", .gen = clapHardcore, .gain = 0.70 },
-        .{ .name = "rim", .gen = rimHardcore, .gain = 0.60 },
-        .{ .name = "stick", .gen = rimHardcore, .gain = 0.52, .tune = alt_stick },
-        .{ .name = "tom-1", .gen = tomHardcore1, .gain = 0.80 },
-        .{ .name = "tom-2", .gen = tomHardcore2, .gain = 0.80 },
-        .{ .name = "perc-hi", .gen = percHiHardcore, .gain = 0.72 },
-        .{ .name = "perc-lo", .gen = percLoHardcore, .gain = 0.72 },
-        .{ .name = "screech", .gen = screechHardcore, .gain = 0.68 },
+        .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 58.0,
+            .freq_start_add = 220.0,
+            .pitch_decay = 95.0,
+            .body_decay = 14.0,
+            .click_decay = 180.0,
+            .click_freq = 2400.0,
+            .click_mix = 0.85,
+            .drive = 7.5,
+            .dur_s = 0.22,
+        } }, .gain = 1.00 },
+        .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
+            .freq_end = 58.0,
+            .freq_start_add = 220.0,
+            .pitch_decay = 95.0,
+            .body_decay = 14.0,
+            .click_decay = 180.0,
+            .click_freq = 2400.0,
+            .click_mix = 0.85,
+            .drive = 7.5,
+            .dur_s = 0.22,
+        } }, .gain = 0.92, .tune = alt_kick },
+        .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 215.0,
+            .tone2_hz = 320.0,
+            .tone_decay = 22.0,
+            .noise_decay = 22.0,
+            .drive = 3.4,
+            .dur_s = 0.2,
+            .lp_hz = 10_000.0,
+            .hp_hz = 1300.0,
+        } }, .gain = 0.85 },
+        .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
+            .tone1_hz = 215.0,
+            .tone2_hz = 320.0,
+            .tone_decay = 22.0,
+            .noise_decay = 22.0,
+            .drive = 3.4,
+            .dur_s = 0.2,
+            .lp_hz = 10_000.0,
+            .hp_hz = 1300.0,
+        } }, .gain = 0.78, .tune = alt_snare },
+        .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.032, .decay = 170.0, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4 } }, .gain = 0.45 },
+        .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.032, .decay = 170.0, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4 } }, .gain = 0.40, .tune = alt_hat },
+        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.13, .decay = 32.0, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4 } }, .gain = 0.45 },
+        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.44, .decay = 7.3, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4 } }, .gain = 0.42, .tune = alt_crash },
+        .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
+            .lp_hz = 3600.0,
+            .hp_hz = 1500.0,
+            .burst_decay = 280.0,
+            .tail_decay = 20.0,
+            .tail_mix = 0.3,
+            .dur_s = 0.2,
+        } }, .gain = 0.70 },
+        .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 2000.0,
+            .tone2_hz = 1350.0,
+            .tone_decay = 170.0,
+            .click_decay = 280.0,
+            .drive = 3.5,
+            .dur_s = 0.045,
+        } }, .gain = 0.60 },
+        .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
+            .tone1_hz = 2000.0,
+            .tone2_hz = 1350.0,
+            .tone_decay = 170.0,
+            .click_decay = 280.0,
+            .drive = 3.5,
+            .dur_s = 0.045,
+        } }, .gain = 0.52, .tune = alt_stick },
+        .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 280.0,
+            .freq_end = 150.0,
+            .dur_s = 0.24,
+            .body_decay = 10.0,
+            .attack_decay = 150.0,
+            .drive = 3.2,
+            .attack_mix = 0.2,
+            .seed = 0x7b1,
+        } }, .gain = 0.80 },
+        .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
+            .freq_start = 200.0,
+            .freq_end = 100.0,
+            .dur_s = 0.28,
+            .body_decay = 9.0,
+            .attack_decay = 150.0,
+            .drive = 3.2,
+            .attack_mix = 0.2,
+            .seed = 0x7b2,
+        } }, .gain = 0.80 },
+        .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 620.0, .tone2_hz = 860.0, .drive = 3.4, .body_decay = 45.0, .dur_s = 0.11, .seed = 0x7b3 } }, .gain = 0.72 },
+        .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 380.0, .tone2_hz = 520.0, .drive = 3.4, .body_decay = 45.0, .dur_s = 0.11, .seed = 0x7b4 } }, .gain = 0.72 },
+        .{ .name = "screech", .kind = .tom, .params = .{ .tom = .{ .freq_start = 1600.0, .freq_end = 120.0, .dur_s = 0.35, .body_decay = 4.0, .attack_decay = 120.0, .drive = 6.0, .attack_mix = 0.15, .seed = 0x7c4 } }, .gain = 0.68 },
     } },
 };
 
@@ -1298,9 +1536,9 @@ pub fn byName(name: []const u8) ?*const KitVariant {
 test "pads sharing a generator are tuned into different drums" {
     for (variants) |variant| {
         for (variant.pads, 0..) |a, i| {
-            const gen_a = a.gen orelse continue;
+            const kind_a = a.kind orelse continue;
             for (variant.pads[i + 1 ..]) |b| {
-                if (b.gen != gen_a) continue;
+                if (b.kind != kind_a or !std.meta.eql(a.params, b.params)) continue;
                 // Same audio on both pads: only the tuning tells them apart,
                 // and a gain difference alone is the same drum twice.
                 try std.testing.expect(!std.meta.eql(a.tune, b.tune));
@@ -1312,8 +1550,8 @@ test "pads sharing a generator are tuned into different drums" {
 test "every kit variant's pads produce audible, finite output" {
     for (variants) |variant| {
         for (variant.pads) |slot| {
-            const gen = slot.gen orelse continue; // empty slot (the "init" kit)
-            const buf = try gen(std.testing.allocator, 48_000);
+            const kind = slot.kind orelse continue; // empty slot (the "init" kit)
+            const buf = try genSlot(kind, slot.params, std.testing.allocator, 48_000);
             defer std.testing.allocator.free(buf);
             try std.testing.expect(buf.len > 0);
             var peak: f32 = 0;

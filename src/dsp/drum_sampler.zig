@@ -1249,7 +1249,7 @@ pub const DrumMachine = struct {
     pub fn loadKitVariant(self: *DrumMachine, variant: *const drum_kit.KitVariant) !void {
         self.kit = variant.name;
         for (variant.pads, 0..) |slot, i| {
-            const gen = slot.gen orelse {
+            const kind = slot.kind orelse {
                 // Empty slot (the "init" kit): blank the pad rather than
                 // unmaterialize it - a live machine's audio thread may be
                 // inside this pad right now, and swapping in an empty buffer
@@ -1262,7 +1262,7 @@ pub const DrumMachine = struct {
                 self.choke_group[i] = 0;
                 continue;
             };
-            const samples = try gen(self.allocator, self.sample_rate);
+            const samples = try drum_kit.genSlot(kind, slot.params, self.allocator, self.sample_rate);
             self.setPadSamples(@intCast(i), samples, slot.name);
             const p = &self.pads[i].?.pad;
             p.gain = slot.gain;
