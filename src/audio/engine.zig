@@ -122,7 +122,7 @@ pub const Command = union(enum) {
 /// don't go through this enum - see `setTrackSynthParam`/`SynthAutomationSlot`
 /// below, since there are ~30 of them and most tracks only automate a few at
 /// once (a fixed per-param field the way `gain`/`pan` work would preallocate
-/// far more than any project uses - see `AutomationPair`'s own doc comment).
+/// far more than any project uses - see `TrackAutomation`'s own doc comment).
 pub const AutomationTarget = enum { gain, pan };
 
 /// Every parameter id representable by the persisted automation model gets a
@@ -224,7 +224,7 @@ pub const SendSlot = @import("../project.zig").SendSlot;
 /// samples. Sized to `max_block_frames` so it never needs a per-block
 /// allocation; only the first `frames*channels` samples are valid for a
 /// given block. Small fixed bank (~256KB total), safe to embed directly in
-/// `Engine` - see `AutomationPair`'s doc comment for the class of field
+/// `Engine` - see `TrackAutomation`'s doc comment for the class of field
 /// that ISN'T safe to embed this way.
 const SidechainCapture = struct {
     source: ?Compressor.SidechainSource = null,
@@ -271,7 +271,7 @@ const GroupState = struct {
 
 /// Per-track, per-chain-slot sidechain-detector routing (see `Compressor.
 /// sidechain_source`), parallel to `TrackState.chain`. Deliberately NOT a
-/// field on `TrackState` for the exact reason `AutomationPair`'s doc comment
+/// field on `TrackState` for the exact reason `TrackAutomation`'s doc comment
 /// gives: `TrackState` is embedded inline in `[max_tracks]TrackState`
 /// (max_tracks = 8192), so even this small `max_chain_devices`-slot array
 /// would add ~400KB to Engine's own inline layout. Kept as its own
@@ -294,19 +294,19 @@ const TrackSendSlots = [max_sends_per_track]?SendSlot;
 /// in a `[max_tracks]TrackState` array (max_tracks = 8192), so every byte
 /// added there is multiplied 8192x. Curves are kept in this separately
 /// allocated slice, and each curve allocates point storage only when used.
-const AutomationPair = struct {
+const TrackAutomation = struct {
     gain: AutomationCurve = .{},
     pan: AutomationCurve = .{},
     /// Parameter-id automation. Empty curves allocate no point storage.
     synth_slots: [max_synth_slots]SynthAutomationSlot = [_]SynthAutomationSlot{.{}} ** max_synth_slots,
 
-    fn deinit(self: *AutomationPair, allocator: std.mem.Allocator) void {
+    fn deinit(self: *TrackAutomation, allocator: std.mem.Allocator) void {
         self.gain.deinit(allocator);
         self.pan.deinit(allocator);
         for (&self.synth_slots) |*slot| slot.curve.deinit(allocator);
     }
 
-    fn clear(self: *AutomationPair, allocator: std.mem.Allocator) void {
+    fn clear(self: *TrackAutomation, allocator: std.mem.Allocator) void {
         self.gain.set(allocator, &.{}) catch unreachable;
         self.pan.set(allocator, &.{}) catch unreachable;
         for (&self.synth_slots) |*slot| {
@@ -315,7 +315,7 @@ const AutomationPair = struct {
         }
     }
 
-    fn swapContent(self: *AutomationPair, other: *AutomationPair) void {
+    fn swapContent(self: *TrackAutomation, other: *TrackAutomation) void {
         self.gain.swapPoints(&other.gain);
         self.pan.swapPoints(&other.pan);
         for (&self.synth_slots, &other.synth_slots) |*a, *b| {
@@ -418,7 +418,7 @@ pub const Engine = struct {
     scratch: [types.max_block_frames * channels]Sample = undefined,
     /// Group submix buses (see `TrackState.group`/`renderTracks`). Fixed
     /// bank of `max_groups` (8), not multiplied by `max_tracks` - negligible
-    /// size (~256KB total), safe to embed directly unlike `AutomationPair`.
+    /// size (~256KB total), safe to embed directly unlike `TrackAutomation`.
     groups: [max_groups]GroupState = [_]GroupState{.{}} ** max_groups,
     group_scratch: [max_groups][types.max_block_frames * channels]Sample = undefined,
     peak: [channels]f32 = .{ 0.0, 0.0 },
@@ -444,10 +444,10 @@ pub const Engine = struct {
     /// thread can drive process() into a file without racing the audio thread.
     bounce_active: std.atomic.Value(bool) = .init(false),
     bounce_parked: std.atomic.Value(bool) = .init(false),
-    /// One gain/pan automation pair per track slot - see `AutomationPair`'s
+    /// One gain/pan automation pair per track slot - see `TrackAutomation`'s
     /// doc comment for why this is a separate heap allocation rather than a
     /// field on `TrackState`. Indexed the same as `tracks`.
-    automation: []AutomationPair,
+    automation: []TrackAutomation,
     /// Per-track chain-slot sidechain-detector routing - see
     /// `TrackSidechainSlots`'s doc comment for why this is a separate heap
     /// allocation. Indexed the same as `tracks`.
@@ -505,7 +505,7 @@ pub const Engine = struct {
         errdefer preview.deinit();
         var limiter = try Limiter.init(allocator, sample_rate);
         errdefer limiter.deinit(allocator);
-        const automation = try allocator.alloc(AutomationPair, max_tracks);
+        const automation = try allocator.alloc(TrackAutomation, max_tracks);
         errdefer allocator.free(automation);
         for (automation) |*a| a.* = .{};
         const track_sidechain = try allocator.alloc(TrackSidechainSlots, max_tracks);

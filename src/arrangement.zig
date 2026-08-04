@@ -49,7 +49,7 @@ pub const Clip = struct {
     /// generalized to a growable list so any of PolySynth's ~30 continuous
     /// params can be automated per clip, not just cutoff (see dsp/synth.zig's
     /// `automatable_params`). Clips aren't multiplied across `max_tracks` the
-    /// way the engine's live `AutomationPair` is, so a growable list here
+    /// way the engine's live `TrackAutomation` is, so a growable list here
     /// costs nothing extra unlike a fixed-size bank would in the engine.
     pub const Automation = struct {
         gain: []AutomationPoint = &.{},
