@@ -78,7 +78,14 @@ pub const StereoDelay = struct {
         const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 0.25);
         const time_s = dsp.sanitizeParam(self.time_s, 0.0, self.max_time_s, 0.375);
         const damp = dsp.sanitizeParam(self.damp, 0.0, 1.0, 0.0);
-        const delay_frames = time_s * @as(f32, @floatFromInt(self.sample_rate));
+        // Floor of 1 frame: the read happens before this frame's write, so a
+        // tap of exactly 0 would land on `line[pos]` before it's overwritten
+        // - the sample from a full ring-length ago, not "just written". That
+        // turns the bottom of the time knob into a multi-second ghost echo
+        // instead of a near-instant one; the old integer-index version had
+        // the same floor for the same reason (its ring length *was*
+        // `delay_frames`, so it could never wrap onto itself mid-read).
+        const delay_frames = @max(time_s * @as(f32, @floatFromInt(self.sample_rate)), 1.0);
         const frames = buf.len / 2;
         for (0..frames) |i| {
             inline for (0..2) |ch| {
@@ -166,6 +173,27 @@ test "changing time_s live does not clear the ring" {
     delay.time_s = 0.2; // old setTime would have zeroed the ring here
 
     try std.testing.expectApproxEqAbs(@as(Sample, 1.0), delay.lines[0][0], 1e-6);
+}
+
+test "time_s at the bottom of its range echoes near-instantly, not a full ring-length later" {
+    var delay = try StereoDelay.init(std.testing.allocator, 1000, 1.0);
+    defer delay.deinit(std.testing.allocator);
+    delay.time_s = 0.0;
+    delay.feedback = 0.0;
+    delay.mix = 1.0;
+
+    var buf = [_]Sample{0.0} ** (1002 * 2);
+    buf[0] = 1.0;
+    delay.processBlock(&buf);
+
+    // The old read-before-write ring read `line[pos]` before this frame's
+    // write ever landed there - at delay_frames = 0 that slot only holds
+    // fresh data once every `lines[0].len` (1000) frames, so the impulse
+    // reappeared a full ring-length later instead of immediately.
+    try std.testing.expectApproxEqAbs(@as(Sample, 0.0), buf[1000 * 2], 1e-4);
+    var early_energy: f32 = 0.0;
+    for (buf[0 .. 10 * 2]) |s| early_energy += @abs(s);
+    try std.testing.expect(early_energy > 0.5);
 }
 
 test "invalid parameters cannot poison output" {
