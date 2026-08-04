@@ -12,8 +12,30 @@ pub const BundledWavetable = wavetable.Bundled;
 const Transport = @import("../transport.zig").Transport;
 const FxModBus = @import("fx_mod.zig").Bus;
 const lfo_dsp = @import("lfo.zig");
+const synth_math = @import("synth_math.zig");
 
 const Sample = types.Sample;
+
+// Pure math split out to synth_math.zig (no `self`, zero coupling to
+// PolySynth's own fields) - aliased back under their original names so
+// the many bare `diodeClip(...)`/`nextNoise(...)`/etc. call sites inside
+// PolySynth's own methods keep resolving unchanged (Zig looks up an
+// unqualified identifier through the enclosing file scope when it isn't
+// a sibling declaration of the struct the caller is nested in).
+const diodeClip = synth_math.diodeClip;
+const svfBandpass = synth_math.svfBandpass;
+const nextNoise = synth_math.nextNoise;
+const lfoSample = synth_math.lfoSample;
+const cycleEnum = synth_math.cycleEnum;
+const warpedInc = synth_math.warpedInc;
+const polyBlep = synth_math.polyBlep;
+const oscWave = synth_math.oscWave;
+const envShape = synth_math.envShape;
+const advanceEnv = synth_math.advanceEnv;
+const unisonSpreadCents = synth_math.unisonSpreadCents;
+const computeUnisonPan = synth_math.computeUnisonPan;
+const warpPhase = synth_math.warpPhase;
+const advanceChaos = synth_math.advanceChaos;
 
 /// Enum/toggle params cross `paramValue`/`setParamAbsolute` as the
 /// variant's 0-based declaration ordinal, rounded and clamped on the way
@@ -777,7 +799,7 @@ pub const PolySynth = struct {
         return true;
     }
 
-    const Stage = enum { attack, decay, sustain, release };
+    pub const Stage = enum { attack, decay, sustain, release };
 
     /// Comb delay line length per channel per slot. Sets the comb model's
     /// lowest reachable fundamental (sample_rate / comb_len) and dominates
@@ -2057,13 +2079,7 @@ pub const PolySynth = struct {
 
     /// Lorenz attractor state (x, y, z) for one .chaos LFO slot. Defaults
     /// off the origin - see PolySynth.lfo_chaos's doc comment.
-    const ChaosState = struct { x: f32 = 0.1, y: f32 = 1.0, z: f32 = 1.0 };
-
-    // Classic Lorenz parameters (butterfly attractor). x/y roughly range
-    // ±20 for these constants, hence the /20 normalization in lfoVal.
-    const lorenz_sigma: f32 = 10.0;
-    const lorenz_rho: f32 = 28.0;
-    const lorenz_beta: f32 = 8.0 / 3.0;
+    pub const ChaosState = struct { x: f32 = 0.1, y: f32 = 1.0, z: f32 = 1.0 };
 
     /// `phase` shifted by an `lfo*_phase_offset` and wrapped back into
     /// [0, 1). A non-finite offset (hand-edited file, stray automation)
@@ -2229,47 +2245,6 @@ pub const PolySynth = struct {
         }
     }
 
-    /// Euler-integrates the Lorenz system by `dt_total`, split into
-    /// substeps bounded to `max_step` (Euler-stable for this system) and
-    /// capped at `max_substeps` so a large block/rate combination can't
-    /// spend unbounded time on the audio thread - it just under-integrates
-    /// instead, which is inaudible for a modulation source.
-    fn advanceChaos(state: *ChaosState, dt_total: f32) void {
-        const max_step: f32 = 0.005;
-        const max_substeps: u32 = 32;
-        var remaining = @min(dt_total, max_step * @as(f32, @floatFromInt(max_substeps)));
-        while (remaining > 0.0) {
-            const step = @min(remaining, max_step);
-            const dx = lorenz_sigma * (state.y - state.x);
-            const dy = state.x * (lorenz_rho - state.z) - state.y;
-            const dz = state.x * state.y - lorenz_beta * state.z;
-            state.x += dx * step;
-            state.y += dy * step;
-            state.z += dz * step;
-            remaining -= step;
-        }
-    }
-
-    /// Cents offset of unison voice `ui` of `n` (n > 1), per `mode`.
-    /// spread: symmetric, total width across the outermost voices = `detune`.
-    /// step: each voice offset by a full `detune`-cent step from its neighbor.
-    /// harmonic/ratio: voice ui aims at the (ui+1)-th entry of the integer /
-    /// half-integer harmonic series, scaled by `detune`/100 so the knob morphs
-    /// from plain unison (0) to the exact series (100). Voice 0 always stays
-    /// on the fundamental.
-    fn unisonSpreadCents(mode: UnisonMode, ui: usize, n: usize, detune: f32) f32 {
-        const ui_f: f32 = @floatFromInt(ui);
-        return switch (mode) {
-            .spread => blk: {
-                const t = ui_f / @as(f32, @floatFromInt(n - 1));
-                break :blk (t * 2.0 - 1.0) * detune * 0.5;
-            },
-            .step => (ui_f - @as(f32, @floatFromInt(n - 1)) * 0.5) * detune,
-            .harmonic => 1200.0 * std.math.log2(1.0 + ui_f) * (detune / 100.0),
-            .ratio => 1200.0 * std.math.log2(1.0 + 0.5 * ui_f) * (detune / 100.0),
-        };
-    }
-
     /// `filter_type`/`res` are passed explicitly (not read off `self`) so the
     /// same coefficient math serves both filter slots.
     fn computeFilterCoeffs(self: *const PolySynth, cutoff: f32, filter_type: FilterType, res: f32) FilterCoeffs {
@@ -2375,107 +2350,6 @@ pub const PolySynth = struct {
         return 1.0 / q;
     }
 
-    /// Constant-power, √2-compensated pan gains for `n` unison voices spread
-    /// across `spread` (see `unison_spread`) - shared setup for oscillators
-    /// A/B/C's per-voice pan arrays, which differ only in unison count and
-    /// which oscillator's arrays they write into. spread=0 (or n<=1) gives
-    /// the same per-channel amplitude as the original mono path.
-    fn computeUnisonPan(n: usize, spread: f32, pan_l: *[max_unison]f32, pan_r: *[max_unison]f32) void {
-        const pan_scale = std.math.sqrt2;
-        for (0..n) |ui| {
-            const raw: f32 = if (n > 1 and spread > 0.0)
-                ((@as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n - 1))) * 2.0 - 1.0) * spread
-            else
-                0.0;
-            const angle = (raw + 1.0) * std.math.pi * 0.25;
-            pan_l[ui] = pan_scale * @cos(angle);
-            pan_r[ui] = pan_scale * @sin(angle);
-        }
-    }
-
-    /// Advances one ADSR generator by one sample - shared body of the amp,
-    /// filter, and env3 envelopes (`Voice.stage`/`env`, `stage2`/`env2`,
-    /// `stage3`/`env3`), which differ only in which stage/level pair and
-    /// per-stage increments they're driven by. Returns true once `level`
-    /// has decayed to zero during release; the amp-envelope caller uses
-    /// that to kill the whole voice, while filter/env3 just let `level`
-    /// stay parked at zero (this function's own floor already handles it).
-    fn advanceEnv(stage: *Stage, level: *f32, sustain_v: f32, sh: EnvShape) bool {
-        switch (stage.*) {
-            .attack => {
-                if (sh.curve < 0.0)
-                    level.* += (1.0 + sh.ov - level.*) * sh.ka
-                else if (sh.curve > 0.0)
-                    level.* += (level.* + sh.ov) * sh.ka
-                else
-                    level.* += sh.attack;
-                if (level.* >= 1.0) {
-                    level.* = 1.0;
-                    stage.* = .decay;
-                }
-            },
-            .decay => {
-                if (sh.curve < 0.0)
-                    level.* += (sustain_v - (1.0 - sustain_v) * sh.ov - level.*) * sh.kd
-                else if (sh.curve > 0.0)
-                    level.* -= (1.0 - level.* + (1.0 - sustain_v) * sh.ov) * sh.kd
-                else
-                    level.* -= sh.decay;
-                if (level.* <= sustain_v) {
-                    level.* = sustain_v;
-                    stage.* = .sustain;
-                }
-            },
-            .sustain => {},
-            .release => {
-                if (sh.curve < 0.0)
-                    level.* -= (level.* + sh.ov) * sh.kr
-                else if (sh.curve > 0.0)
-                    level.* -= (1.0 - level.* + sh.ov) * sh.kr
-                else
-                    level.* -= sh.release;
-                if (level.* <= 0.0) {
-                    level.* = 0.0;
-                    return true;
-                }
-            },
-        }
-        return false;
-    }
-
-    /// Per-sample driving terms for one ADSR's three segments.
-    const EnvShape = struct {
-        attack: f32,
-        decay: f32,
-        release: f32,
-        curve: f32 = 0.0,
-        ka: f32 = 0.0,
-        kd: f32 = 0.0,
-        kr: f32 = 0.0,
-        ov: f32 = 0.0,
-    };
-
-    fn envShape(attack_inc: f32, decay_inc: f32, release_inc: f32, sustain_v: f32, curve: f32) EnvShape {
-        var out: EnvShape = .{ .attack = attack_inc, .decay = decay_inc, .release = release_inc };
-        const c = std.math.clamp(curve, -1.0, 1.0);
-        if (!(c < 0.0 or c > 0.0)) return out;
-        const r = std.math.pow(f32, 0.01, @abs(c));
-        const span = 1.0 - sustain_v;
-        const decay_step = if (span > 1e-6) decay_inc / span else decay_inc;
-        out.curve = c;
-        out.ov = r / (1.0 - r);
-        if (c < 0.0) {
-            out.ka = 1.0 - std.math.pow(f32, r, attack_inc);
-            out.kd = 1.0 - std.math.pow(f32, r, decay_step);
-            out.kr = 1.0 - std.math.pow(f32, r, release_inc);
-        } else {
-            out.ka = std.math.pow(f32, r, -attack_inc) - 1.0;
-            out.kd = std.math.pow(f32, r, -decay_step) - 1.0;
-            out.kr = std.math.pow(f32, r, -release_inc) - 1.0;
-        }
-        return out;
-    }
-
     /// Pre-filter saturation. Drive 1 preserves legacy output exactly.
     fn driveInput(drive: f32, x: f32) f32 {
         if (!(drive > 1.0)) return x;
@@ -2544,62 +2418,6 @@ pub const PolySynth = struct {
         }
     }
 
-    /// Asymmetric soft clip approximating a diode pair's forward-conduction
-    /// curve: compresses positive swings harder than negative ones. Used by
-    /// .diode instead of .ladder's symmetric tanh.
-    fn diodeClip(x: f32) f32 {
-        return if (x >= 0.0) x / (1.0 + 0.5 * x) else std.math.tanh(x);
-    }
-
-    /// One sample through a Chamberlin state-variable bandpass tuned to
-    /// `f` (SVF frequency coefficient, from svfCoeff) with damping `damp`
-    /// (1/Q). `s_lp`/`s_bp` are the resonator's own persistent 2-state
-    /// history.
-    fn svfBandpass(f: f32, damp: f32, s_lp: *f32, s_bp: *f32, x: f32) f32 {
-        s_lp.* += f * s_bp.*;
-        const hp = x - s_lp.* - damp * s_bp.*;
-        s_bp.* += f * hp;
-        return s_bp.*;
-    }
-
-    /// Xorshift32 white noise, returns [-1, 1).
-    fn nextNoise(state: *u32) f32 {
-        state.* ^= state.* << 13;
-        state.* ^= state.* >> 17;
-        state.* ^= state.* << 5;
-        const i: i32 = @bitCast(state.*);
-        return @as(f32, @floatFromInt(i)) * (1.0 / 2147483648.0);
-    }
-
-    fn lfoSample(shape: LfoShape, phase: f32) f32 {
-        return switch (shape) {
-            // zig fmt: off
-            .sine     => lfo_dsp.Lfo.sample(.{ .phase = phase }, .sine),
-            .triangle => lfo_dsp.Lfo.sample(.{ .phase = phase }, .triangle),
-            .saw      => lfo_dsp.Lfo.sample(.{ .phase = phase }, .saw),
-            .square   => lfo_dsp.Lfo.sample(.{ .phase = phase }, .square),
-            // Held/integrated state lives on PolySynth.lfo_sh/lfo_chaos,
-            // user-drawn points on PolySynth.lfo_custom; callers go through
-            // lfoVal, which never reaches here for .sh/.chaos/.custom.
-            .sh       => 0.0,
-            .chaos    => 0.0,
-            .custom   => 0.0,
-            // zig fmt: on
-        };
-    }
-
-    /// Wraps `cur` one variant forward (steps > 0) or backward - every
-    /// `.cycle` `ParamSpec` kind below (and the mod matrix's source
-    /// stepping) shares this instead of a bespoke forward/backward switch
-    /// pair per enum: all of those pairs already reduced to a declaration-
-    /// order wrap once written out, this just does that generically.
-    fn cycleEnum(comptime E: type, cur: E, steps: i32) E {
-        const n: i32 = @typeInfo(E).@"enum".fields.len;
-        const dir: i32 = if (steps > 0) 1 else -1;
-        const ord: i32 = @intFromEnum(cur);
-        return @enumFromInt(@as(u8, @intCast(@mod(ord + dir, n))));
-    }
-
     /// Warps `phase` then looks up a wavetable frame or classic waveform
     /// shape - shared body of `oscSampleA`/`oscSampleB`, which differ only
     /// in which of self's oscillator-A/B fields they read. `pw`/
@@ -2611,101 +2429,12 @@ pub const PolySynth = struct {
         return oscWave(waveform, p, pw, warpedInc(warp_mode, phase, inc, warp_amount, p));
     }
 
-    /// The per-sample step *in warped phase*, which is what `polyBlep` has to
-    /// size its window against - warping stretches part of the cycle and
-    /// compresses the rest, so the raw oscillator increment is the wrong
-    /// scale everywhere but `.none`. Taken as the actual one-sample
-    /// difference rather than by hand-differentiating each mode, since
-    /// `.bend`/`.mirror` are piecewise and `.sync` wraps.
-    ///
-    /// `.mirror` runs the phase *backwards* past its pivot, and a `.sync`
-    /// wrap at a high multiplier can outrun the window; both land outside a
-    /// sane step and fall back to the unwarped increment (undercorrecting
-    /// there rather than injecting a residual at the wrong width).
-    fn warpedInc(mode: WarpMode, phase: f32, inc: f32, amount: f32, warped: f32) f32 {
-        if (mode == .none) return inc;
-        var d = warpPhase(mode, phase + inc, amount) - warped;
-        d -= @floor(d);
-        return if (d > 0.0 and d < 0.25) d else inc;
-    }
-
     fn oscSampleA(self: *const PolySynth, phase: f32, inc: f32, pw: f32, warp_amount: f32, wt_pos: f32) Sample {
         return oscSample(self.waveform, self.wt, self.warp_mode, phase, inc, pw, warp_amount, wt_pos);
     }
 
     fn oscSampleB(self: *const PolySynth, phase: f32, inc: f32, pw: f32, warp_amount: f32, wt_pos: f32) Sample {
         return oscSample(self.osc_b_waveform, self.osc_b_wt, self.osc_b_warp_mode, phase, inc, pw, warp_amount, wt_pos);
-    }
-
-    /// Remap a read phase before waveform lookup. Keep normalization here as
-    /// a last audio-thread boundary: extreme pitch/FM can advance by more
-    /// than one cycle, while malformed runtime state must not produce NaNs.
-    fn warpPhase(mode: WarpMode, phase: f32, amount: f32) f32 {
-        const p = if (std.math.isFinite(phase)) phase - @floor(phase) else 0.0;
-        const a = if (std.math.isFinite(amount)) std.math.clamp(amount, 0.0, 1.0) else 0.0;
-        return switch (mode) {
-            .none => p,
-            // Pivot the ramp: one side of the cycle covers more phase than
-            // the other, same trick classic phase-distortion synths use.
-            .bend => blk: {
-                const pivot = 0.5 + a * 0.49;
-                break :blk if (p < pivot)
-                    p / pivot * 0.5
-                else
-                    0.5 + (p - pivot) / (1.0 - pivot) * 0.5;
-            },
-            // Fold the tail of the cycle back on itself instead of letting
-            // it run forward past the pivot.
-            .mirror => blk: {
-                if (a == 0.0) break :blk p;
-                const pivot = 1.0 - a * 0.5;
-                break :blk if (p < pivot)
-                    p
-                else
-                    pivot - (p - pivot) / (1.0 - pivot) * pivot;
-            },
-            // Multiply-and-wrap: each sub-cycle restarts at 0 in lockstep
-            // with the fundamental, giving a hard-sync-like buzz with no
-            // second phase accumulator needed.
-            .sync => blk: {
-                const warped = p * (1.0 + a * 7.0);
-                break :blk warped - @floor(warped);
-            },
-        };
-    }
-
-    /// Two-sample polynomial correction around a unit step discontinuity.
-    fn polyBlep(t: f32, dt: f32) f32 {
-        if (!(dt > 0.0) or dt >= 0.5) return 0.0;
-        if (t < dt) {
-            const x = t / dt;
-            return x + x - x * x - 1.0;
-        }
-        if (t > 1.0 - dt) {
-            const x = (t - 1.0) / dt;
-            return x * x + x + x + 1.0;
-        }
-        return 0.0;
-    }
-
-    /// `dt` sizes polyBLEP correction for saw and square discontinuities.
-    fn oscWave(wf: Waveform, phase: f32, pw: f32, dt: f32) Sample {
-        return switch (wf) {
-            // zig fmt: off
-            .sine     => @sin(2.0 * std.math.pi * phase),
-            .saw      => 2.0 * phase - 1.0 - polyBlep(phase, dt),
-            .triangle => 1.0 - 4.0 * @abs(phase - 0.5),
-            // Rising edge at phase 0, falling edge at the duty point.
-            .square   => blk: {
-                const naive: f32 = if (phase < pw) 1.0 else -1.0;
-                const off = phase - pw;
-                break :blk naive + polyBlep(phase, dt) - polyBlep(off - @floor(off), dt);
-            },
-            // Callers branch to `wavetable.lookup` before reaching here -
-            // this arm only exists to keep the switch exhaustive.
-            .wavetable => 0.0,
-            // zig fmt: on
-        };
     }
 
     pub fn resetAll(self: *PolySynth) void {
@@ -3822,16 +3551,16 @@ test "unison mode: step and spread produce different detune patterns" {
 test "unison mode: harmonic and ratio curves hit exact series at detune=100" {
     const eps = 0.01;
     // Voice 0 stays on the fundamental in both modes, at any detune.
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), PolySynth.unisonSpreadCents(.harmonic, 0, 4, 100.0), eps);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), PolySynth.unisonSpreadCents(.ratio, 0, 4, 100.0), eps);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), synth_math.unisonSpreadCents(.harmonic, 0, 4, 100.0), eps);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), synth_math.unisonSpreadCents(.ratio, 0, 4, 100.0), eps);
     // harmonic: voice 1 = 2nd harmonic (octave), voice 3 = 4th (two octaves).
-    try std.testing.expectApproxEqAbs(@as(f32, 1200.0), PolySynth.unisonSpreadCents(.harmonic, 1, 4, 100.0), eps);
-    try std.testing.expectApproxEqAbs(@as(f32, 2400.0), PolySynth.unisonSpreadCents(.harmonic, 3, 4, 100.0), eps);
+    try std.testing.expectApproxEqAbs(@as(f32, 1200.0), synth_math.unisonSpreadCents(.harmonic, 1, 4, 100.0), eps);
+    try std.testing.expectApproxEqAbs(@as(f32, 2400.0), synth_math.unisonSpreadCents(.harmonic, 3, 4, 100.0), eps);
     // ratio: voice 1 = 1.5x (just fifth, ~702 ct), voice 2 = 2x (octave).
-    try std.testing.expectApproxEqAbs(@as(f32, 701.955), PolySynth.unisonSpreadCents(.ratio, 1, 4, 100.0), eps);
-    try std.testing.expectApproxEqAbs(@as(f32, 1200.0), PolySynth.unisonSpreadCents(.ratio, 2, 4, 100.0), eps);
+    try std.testing.expectApproxEqAbs(@as(f32, 701.955), synth_math.unisonSpreadCents(.ratio, 1, 4, 100.0), eps);
+    try std.testing.expectApproxEqAbs(@as(f32, 1200.0), synth_math.unisonSpreadCents(.ratio, 2, 4, 100.0), eps);
     // detune scales the blend linearly: half detune = half the cents.
-    try std.testing.expectApproxEqAbs(@as(f32, 600.0), PolySynth.unisonSpreadCents(.harmonic, 1, 4, 50.0), eps);
+    try std.testing.expectApproxEqAbs(@as(f32, 600.0), synth_math.unisonSpreadCents(.harmonic, 1, 4, 50.0), eps);
 }
 
 test "LFO: phase advances by rate×frames/sr each block" {
@@ -3981,11 +3710,11 @@ test "warpPhase is identity at zero and always returns a normalized finite phase
     for (modes) |mode| {
         for (phases) |phase| {
             const normalized = phase - @floor(phase);
-            try std.testing.expectApproxEqAbs(normalized, PolySynth.warpPhase(mode, phase, 0.0), 1e-6);
+            try std.testing.expectApproxEqAbs(normalized, synth_math.warpPhase(mode, phase, 0.0), 1e-6);
         }
         for (phases) |phase| {
             for ([_]f32{ -1.0, 0.0, 0.5, 1.0, 2.0 }) |amount| {
-                const warped = PolySynth.warpPhase(mode, phase, amount);
+                const warped = synth_math.warpPhase(mode, phase, amount);
                 try std.testing.expect(std.math.isFinite(warped));
                 try std.testing.expect(warped >= 0.0 and warped < 1.0);
             }
@@ -3997,8 +3726,8 @@ test "warpPhase contains non-finite runtime inputs" {
     const bad = [_]f32{ std.math.nan(f32), std.math.inf(f32), -std.math.inf(f32) };
     for ([_]WarpMode{ .none, .bend, .mirror, .sync }) |mode| {
         for (bad) |value| {
-            const bad_phase = PolySynth.warpPhase(mode, value, 0.75);
-            const bad_amount = PolySynth.warpPhase(mode, 0.75, value);
+            const bad_phase = synth_math.warpPhase(mode, value, 0.75);
+            const bad_amount = synth_math.warpPhase(mode, 0.75, value);
             try std.testing.expect(std.math.isFinite(bad_phase));
             try std.testing.expect(std.math.isFinite(bad_amount));
             try std.testing.expect(bad_phase >= 0.0 and bad_phase < 1.0);
@@ -5128,8 +4857,8 @@ test "envelope curve spans logarithmic, linear, and exponential shapes" {
     var levels: [3]f32 = @splat(0.0);
     for (curves, 0..) |curve, i| {
         var stage: PolySynth.Stage = .attack;
-        const shape = PolySynth.envShape(0.01, 0.005, 0.01, 0.5, curve);
-        for (0..25) |_| _ = PolySynth.advanceEnv(&stage, &levels[i], 0.5, shape);
+        const shape = synth_math.envShape(0.01, 0.005, 0.01, 0.5, curve);
+        for (0..25) |_| _ = synth_math.advanceEnv(&stage, &levels[i], 0.5, shape);
     }
     try std.testing.expect(levels[0] > levels[1]);
     try std.testing.expect(levels[1] > levels[2]);
@@ -5137,8 +4866,8 @@ test "envelope curve spans logarithmic, linear, and exponential shapes" {
 }
 
 test "polyBLEP reduces saw discontinuity" {
-    const naive_jump = @abs(PolySynth.oscWave(.saw, 0.0, 0.5, 0.0) - PolySynth.oscWave(.saw, 0.99, 0.5, 0.0));
-    const blep_jump = @abs(PolySynth.oscWave(.saw, 0.0, 0.5, 0.02) - PolySynth.oscWave(.saw, 0.99, 0.5, 0.02));
+    const naive_jump = @abs(synth_math.oscWave(.saw, 0.0, 0.5, 0.0) - synth_math.oscWave(.saw, 0.99, 0.5, 0.0));
+    const blep_jump = @abs(synth_math.oscWave(.saw, 0.0, 0.5, 0.02) - synth_math.oscWave(.saw, 0.99, 0.5, 0.02));
     try std.testing.expect(blep_jump < naive_jump);
 }
 
