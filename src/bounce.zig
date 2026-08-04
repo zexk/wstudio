@@ -8,7 +8,21 @@ const time_grid = @import("time_grid.zig");
 const wav = @import("core/wav.zig");
 const Session = @import("session.zig").Session;
 
-pub const Range = struct { start_frame: u64, total_frames: u64, has_loop_region: bool };
+pub const Range = struct {
+    start_frame: u64,
+    total_frames: u64,
+    has_loop_region: bool,
+    /// Frames of actual musical content, before the trailing `tail_seconds`
+    /// padding `range()` adds for FX decay - see `writeWav`'s use of this to
+    /// stop the transport once content ends. Equal to `total_frames` when
+    /// there's no tail (`content_frames` was left out entirely until this
+    /// field existed, so every frame of the render kept driving the pattern
+    /// player - a tail longer than the gap to the loop's own next repeat,
+    /// the ordinary case at fast tempos with the ~2s default tail, played a
+    /// fresh cycle of real notes instead of a decay, audibly the loop's own
+    /// first bar again tacked onto the end).
+    content_frames: u64,
+};
 
 /// Prefix one-based track index, then reduce name to filesystem-safe chars.
 /// Index keeps cloned or identically named tracks from overwriting each other.
@@ -60,6 +74,7 @@ pub fn range(session: *const Session, tail_seconds: f32) Range {
         .start_frame = start_frame,
         .total_frames = content_frames +| types.secondsToFrames(tail_seconds, session.project.sample_rate),
         .has_loop_region = has_loop_region,
+        .content_frames = content_frames,
     };
 }
 
@@ -117,12 +132,24 @@ pub fn writeWav(session: *Session, writer: *std.Io.Writer, bounce_range: Range, 
     var wav_writer = try wav.StreamWriter.init(writer, session.project.sample_rate, engine_mod.channels, sample_count, bit_depth);
     var block: [types.default_block_frames * engine_mod.channels]types.Sample = undefined;
     var frames_left = bounce_range.total_frames;
+    var frames_rendered: u64 = 0;
     while (frames_left > 0) {
+        // Once content ends, stop the transport instead of letting it keep
+        // rolling through the tail: `PatternPlayer.processBlock` fires new
+        // notes purely off transport position with no idea "tail" means
+        // decay-only, so a tail_seconds long enough to reach the loop's own
+        // next repeat (routine at fast tempos with the ~2s default) played
+        // a fresh bar of real notes, not silence - stopping sends every
+        // sounding note its note-off (release stage, not an abrupt cut) and
+        // freezes position so nothing new fires, while FX/envelope tails
+        // still ring out normally since processing continues either way.
+        if (frames_rendered >= bounce_range.content_frames) engine.transport.stop();
         const frames: usize = @intCast(@min(frames_left, types.default_block_frames));
         const samples = block[0 .. frames * engine_mod.channels];
         engine.process(samples);
         try wav_writer.writeSamples(samples);
         frames_left -= frames;
+        frames_rendered += frames;
     }
     try wav_writer.finish();
 }
@@ -174,6 +201,46 @@ test "range uses longest pattern and preserves loop selection" {
     try std.testing.expectEqual(@as(u64, 24_000), selected.total_frames);
 }
 
+test "writeWav's decay tail stays silent instead of firing the loop's next repeat" {
+    // Regression for a real user-reported bug: a 4-bar loop export was
+    // audibly 5 bars, the 5th a repeat of the first. `PatternPlayer` fires
+    // notes purely off transport position with no notion of "tail" meaning
+    // decay-only - a tail_seconds long enough to reach the pattern's own
+    // next repeat (here: exactly at content_frames, since the pattern's
+    // loop length IS the content length) played a fresh note instead of
+    // silence.
+    var session = try Session.initDefaultWithSampleRate(std.testing.allocator, 48_000);
+    defer session.deinit();
+    try session.setInstrument(0, .poly_synth);
+    // Default length_beats (4) at the default 120bpm tempo: a short note
+    // near the top of the loop, its 0.25s default release long finished
+    // well before the loop's own next repeat 1.5s later.
+    session.racks.items[0].pattern_player.?.addNote(
+        .{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 },
+    );
+
+    const bounce_range = range(&session, 3.0); // tail well past one more loop repeat
+    try std.testing.expectEqual(@as(u64, 96_000), bounce_range.content_frames); // 4 beats @ 120bpm, 48kHz
+
+    const bytes = try std.testing.allocator.alloc(u8, bounce_range.total_frames * 4 + 256);
+    defer std.testing.allocator.free(bytes);
+    var writer = std.Io.Writer.fixed(bytes);
+    try writeWav(&session, &writer, bounce_range, .pcm16);
+
+    const parsed = try wav.parseAlloc(std.testing.allocator, writer.buffered());
+    defer std.testing.allocator.free(parsed.samples);
+
+    var onset_peak: f32 = 0.0;
+    for (parsed.samples[0..12_000]) |s| onset_peak = @max(onset_peak, @abs(s));
+    try std.testing.expect(onset_peak > 0.01); // the note actually sounded
+
+    // Right where the loop's next repeat would have fired (frame
+    // content_frames) - must be silent, not a fresh attack.
+    var repeat_peak: f32 = 0.0;
+    for (parsed.samples[bounce_range.content_frames..][0..2_000]) |s| repeat_peak = @max(repeat_peak, @abs(s));
+    try std.testing.expectEqual(@as(f32, 0.0), repeat_peak);
+}
+
 test "contentBeats includes drum resolution and slicer length" {
     var session = try Session.initDefaultWithSampleRate(std.testing.allocator, 48_000);
     defer session.deinit();
@@ -220,7 +287,7 @@ test "failed export preserves destination and removes temporary file" {
 
     var session = try Session.initDefaultWithSampleRate(std.testing.allocator, 48_000);
     defer session.deinit();
-    const too_large: Range = .{ .start_frame = 0, .total_frames = std.math.maxInt(u32), .has_loop_region = false };
+    const too_large: Range = .{ .start_frame = 0, .total_frames = std.math.maxInt(u32), .has_loop_region = false, .content_frames = std.math.maxInt(u32) };
     try std.testing.expectError(error.FileTooLarge, writeFile(std.testing.allocator, std.testing.io, path, &session, too_large, .pcm16));
 
     const data = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, path, std.testing.allocator, .limited(16));
