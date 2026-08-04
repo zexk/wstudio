@@ -635,6 +635,9 @@ pub const GateSnap = struct {
     threshold_db: f32 = -50.0,
     attack_ms: f32 = 1.0,
     release_ms: f32 = 100.0,
+    /// Additive: missing on older files -> 0, matching the original
+    /// immediate-release behaviour.
+    hold_ms: f32 = 0.0,
 };
 
 pub const SatSnap = struct {

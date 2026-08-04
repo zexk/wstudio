@@ -1,7 +1,11 @@
 //! Noise gate: mutes the signal while it stays under the threshold.
 //! Stereo-linked peak detector with a short fixed decay drives a smoothed
 //! open/close gain; attack sets how fast the gate opens on a transient,
-//! release how fast it falls shut after the input drops away.
+//! release how fast it falls shut after the input drops away. `hold_ms`
+//! keeps the gate pinned open for a fixed time after the level drops back
+//! under threshold, before release starts - without it, a signal hovering
+//! right at the threshold (decaying drum tail, noisy sustain) chatters the
+//! gate open/shut instead of falling smoothly.
 
 const std = @import("std");
 const types = @import("../core/types.zig");
@@ -14,11 +18,17 @@ pub const Gate = struct {
     threshold_db: f32 = -50.0,
     attack_ms: f32 = 1.0,
     release_ms: f32 = 100.0,
+    /// How long the gate stays pinned open after the level falls back under
+    /// threshold, before release begins. 0 = old behaviour (release starts
+    /// immediately).
+    hold_ms: f32 = 0.0,
     /// Detector state: stereo peak with a fixed ~50ms decay.
     env: f32 = 0.0,
     /// Current gain: 0 shut ... 1 open. Starts shut so a track that begins
     /// under the threshold doesn't leak its first buffer.
     gain: f32 = 0.0,
+    /// Frames left in the current hold window, counted down one per frame.
+    hold_left: f32 = 0.0,
 
     pub fn init(sample_rate: u32) Gate {
         return .{ .sample_rate = @floatFromInt(@max(sample_rate, 1)) };
@@ -34,16 +44,25 @@ pub const Gate = struct {
         const threshold_db = dsp.sanitizeParam(self.threshold_db, -80.0, 0.0, -50.0);
         const attack_ms = dsp.sanitizeParam(self.attack_ms, 0.1, 50.0, 1.0);
         const release_ms = dsp.sanitizeParam(self.release_ms, 5.0, 1000.0, 100.0);
+        const hold_ms = dsp.sanitizeParam(self.hold_ms, 0.0, 500.0, 0.0);
+        if (!std.math.isFinite(self.hold_left) or self.hold_left < 0.0) self.hold_left = 0.0;
         // zig fmt: off
-        const thresh    = types.dbToGain(threshold_db);
-        const det_decay = @exp(-1.0 / (0.050 * self.sample_rate));
-        const attack    = dsp.smoothingCoefMs(attack_ms, self.sample_rate);
-        const release   = dsp.smoothingCoefMs(release_ms, self.sample_rate);
+        const thresh      = types.dbToGain(threshold_db);
+        const det_decay   = @exp(-1.0 / (0.050 * self.sample_rate));
+        const attack      = dsp.smoothingCoefMs(attack_ms, self.sample_rate);
+        const release     = dsp.smoothingCoefMs(release_ms, self.sample_rate);
+        const hold_frames = hold_ms * 0.001 * self.sample_rate;
         var i: usize = 0;
         while (i + 1 < buf.len) : (i += 2) {
             const peak = @max(@abs(buf[i]), @abs(buf[i + 1]));
             self.env = @max(peak, self.env * det_decay);
-            const target: f32 = if (self.env >= thresh) 1.0 else 0.0;
+            const above = self.env >= thresh;
+            if (above) {
+                self.hold_left = hold_frames;
+            } else if (self.hold_left > 0.0) {
+                self.hold_left -= 1.0;
+            }
+            const target: f32 = if (above or self.hold_left > 0.0) 1.0 else 0.0;
             const coef = if (target > self.gain) attack else release;
             self.gain = target + coef * (self.gain - target);
             buf[i]     *= self.gain;
@@ -59,6 +78,7 @@ pub const Gate = struct {
     pub fn reset(self: *Gate) void {
         self.env = 0.0;
         self.gain = 0.0;
+        self.hold_left = 0.0;
     }
 };
 
@@ -82,6 +102,32 @@ test "sub-threshold input stays shut" {
     for (&buf, 0..) |*s, i| s.* = 0.01 * @sin(@as(f32, @floatFromInt(i)) * 0.1);
     gate.processBlock(&buf);
     for (buf) |s| try std.testing.expectEqual(@as(Sample, 0.0), s);
+}
+
+test "hold keeps the gate open before release begins" {
+    var gate = Gate.init(48_000);
+    gate.release_ms = 1.0; // fast, so release-phase decay is easy to see
+    gate.hold_ms = 50.0; // 2400 frames
+    var loud: [4096]Sample = undefined;
+    @memset(&loud, 0.5);
+    gate.processBlock(&loud);
+    try std.testing.expect(gate.gain > 0.99);
+
+    // Force the detector envelope down immediately so hold's effect, not
+    // the detector's own ~50ms decay, is what's under test.
+    gate.env = 0.0;
+
+    // 1000 frames of silence: well within the 2400-frame hold window.
+    var silence: [2000]Sample = undefined;
+    @memset(&silence, 0.0);
+    gate.processBlock(&silence);
+    try std.testing.expect(gate.gain > 0.99);
+
+    // Push well past the hold window - the fast release should now have
+    // pulled gain down close to zero.
+    var i: usize = 0;
+    while (i < 5) : (i += 1) gate.processBlock(&silence);
+    try std.testing.expect(gate.gain < 0.01);
 }
 
 test "invalid parameters cannot trap or poison output" {

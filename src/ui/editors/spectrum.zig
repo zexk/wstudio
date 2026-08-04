@@ -442,6 +442,7 @@ fn tableSet(self: anytype, comptime table: []const ParamSpec, idx: usize, value:
 const gate_specs = [_]ParamSpec{
     .{ .name = "thresh", .field = "threshold_db", .min = -80.0, .max = 0.0, .step_fine = 1.0, .step_coarse = 6.0 },
     .{ .name = "attack", .field = "attack_ms", .min = 0.1, .max = 50.0, .step_fine = 0.5, .step_coarse = 5.0 },
+    .{ .name = "hold", .field = "hold_ms", .min = 0.0, .max = 500.0, .step_fine = 5.0, .step_coarse = 50.0 },
     .{ .name = "release", .field = "release_ms", .min = 5.0, .max = 1000.0, .step_fine = 10.0, .step_coarse = 100.0 },
 };
 
