@@ -622,11 +622,18 @@ pub const Slicer = struct {
         @memset(self.midi[slice], null);
     }
 
-    /// Kill every voice after audio or slice regions change.
+    /// Kill every voice and drop any pending roll after audio or slice
+    /// regions change. Rolls are keyed by slice *index*, not the region
+    /// they were scheduled against - `chopAt`/`splitSlice`/`mergeSliceRight`/
+    /// `sliceInto` (and a fresh sample load) all reassign what audio lives
+    /// at an index, so a still-draining roll left standing would fire its
+    /// remaining hits against whatever the index now points to instead of
+    /// the chop the user was actually hearing when they triggered it.
     fn clearVoices(self: *Slicer) void {
         // zig fmt: off
         for (&self.voices) |*row| for (row) |*v| { v.* = .{}; };
         // zig fmt: on
+        self.rolls = [_]?Roll{null} ** max_slices;
     }
 
     // -----------------------------------------------------------------------
@@ -1360,10 +1367,10 @@ pub const Slicer = struct {
     }
 
     pub fn resetAll(self: *Slicer) void {
+        // Drops any roll tail along with the voices it would have fed -
+        // see `clearVoices`'s doc comment. A stop or a panic must not leave
+        // hits scheduled past it.
         self.clearVoices();
-        // Drop any roll tail with the voices it would have fed - a stop or a
-        // panic must not leave hits scheduled past it.
-        self.rolls = [_]?Roll{null} ** max_slices;
     }
 
     /// `deviceOf`'s expected name; forwards to `resetAll`.
@@ -1579,6 +1586,25 @@ test "re-slicing clears voices tied to the old regions" {
     for (s.voices) |pool| {
         for (pool) |voice| try std.testing.expect(!voice.active);
     }
+}
+
+test "re-slicing mid-roll drops the pending hits instead of firing them on the new layout" {
+    // Regression: a still-draining roll (Elektron retrig) is keyed by slice
+    // *index*, but chopAt/splitSlice/mergeSliceRight/sliceInto all reassign
+    // what audio lives at an index without touching `rolls`. A roll
+    // scheduled before a re-chop used to keep firing its remaining hits
+    // against whatever region the index now pointed to - an unintended
+    // chop playing right after the user just re-chopped the sample.
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    s.sliceInto(4);
+
+    s.scheduleNote(0, .{ .pitch = 0, .step = 0, .retrig = 4 }, 0.0, 4000.0);
+    try std.testing.expect(s.rolls[0] != null);
+
+    try std.testing.expect(s.splitSlice(0));
+    try std.testing.expect(s.rolls[0] == null);
 }
 
 test "triggerSlice renders only within its own region" {
