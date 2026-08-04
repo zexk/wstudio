@@ -341,6 +341,16 @@ pub const Engine = struct {
     allocator: std.mem.Allocator,
     transport: Transport,
     commands: Spsc(Command, 256) = .{},
+    /// `Spsc` is single-producer only, but the control/UI thread isn't the
+    /// only one calling `send` - a live MIDI input device dispatches from
+    /// its own reader thread (see `MidiIn.dispatch`/`sendMidi` below). A
+    /// second producer racing `commands.push`'s non-atomic load-write-store
+    /// against the first could silently drop one side's command (both
+    /// compute the same next `tail`, so the queue only advances by one) or,
+    /// on genuine overlap, tear a `Command` union write the consumer then
+    /// reads half-updated. Same queue shape, kept separate so each side
+    /// still only ever has the one producer `Spsc` requires.
+    midi_commands: Spsc(Command, 256) = .{},
     /// Commands are realtime messages and cannot block their producer. Count
     /// queue saturation so the UI can report it instead of failing silently.
     dropped_commands: std.atomic.Value(u32) = .init(0),
@@ -807,6 +817,15 @@ pub const Engine = struct {
         return false;
     }
 
+    /// Same contract as `send`, for the one other command producer (live
+    /// MIDI input, off the control/UI thread) - see `midi_commands`'s doc
+    /// comment for why it needs its own queue instead of sharing `send`'s.
+    pub fn sendMidi(self: *Engine, cmd: Command) bool {
+        if (self.midi_commands.push(cmd)) return true;
+        _ = self.dropped_commands.fetchAdd(1, .monotonic);
+        return false;
+    }
+
     pub fn setTrackParam(self: *Engine, track: u16, id: u16, value: f32) bool {
         return self.send(.{ .set_track_param_abs = .{ .track = track, .id = id, .value = value } });
     }
@@ -953,8 +972,16 @@ pub const Engine = struct {
         return self.master_spectrum.snapshot();
     }
 
+    /// Drains both command queues - `commands` (control/UI thread) and
+    /// `midi_commands` (live MIDI input's own thread, see its doc comment)
+    /// - through the same `applyCommand` body.
     fn drainCommands(self: *Engine) void {
-        while (self.commands.pop()) |cmd| switch (cmd) {
+        while (self.commands.pop()) |cmd| self.applyCommand(cmd);
+        while (self.midi_commands.pop()) |cmd| self.applyCommand(cmd);
+    }
+
+    fn applyCommand(self: *Engine, cmd: Command) void {
+        switch (cmd) {
             .play => self.transport.play(),
             .stop => {
                 self.transport.stop();
@@ -1072,7 +1099,7 @@ pub const Engine = struct {
             },
             .set_spectrum_pre => |pre| self.spectrum_pre = pre,
             .reset_loudness => self.master_loudness.resetIntegrated(),
-        };
+        }
     }
 
     /// `pub` so tests elsewhere in the crate can reach a track's state
@@ -1561,6 +1588,48 @@ test "notes sound even while transport is stopped (live preview)" {
     try std.testing.expect(snap.track_peak[0][1] > 0.01);
     try std.testing.expectEqual(@as(f32, 0.0), snap.track_peak[1][0]);
     try std.testing.expectEqual(@as(u64, 0), engine.transport.position_frames);
+}
+
+test "sendMidi lands commands through its own queue, same as send" {
+    // Live MIDI input dispatches through sendMidi (its own Spsc queue - see
+    // Engine.midi_commands's doc comment for why it can't share `commands`
+    // with the control/UI thread's `send`), not `send` - drainCommands
+    // must still pick it up and apply it the same way.
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.trackAt(0).* = .{ .active = true };
+    engine.setTrackChain(0, &.{synth.device()});
+
+    var block: [512]Sample = undefined;
+    engine.process(&block);
+    try std.testing.expectEqual(@as(f32, 0.0), engine.peak[0]);
+
+    try std.testing.expect(engine.sendMidi(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } }));
+    engine.process(&block);
+    try std.testing.expect(engine.peak[0] > 0.01);
+}
+
+test "send and sendMidi commands queued in the same block both land" {
+    var synth0 = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth0.deinit();
+    var synth1 = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth1.deinit();
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.trackAt(0).* = .{ .active = true };
+    engine.trackAt(1).* = .{ .active = true };
+    engine.setTrackChain(0, &.{synth0.device()});
+    engine.setTrackChain(1, &.{synth1.device()});
+
+    _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
+    _ = engine.sendMidi(.{ .note_on = .{ .track = 1, .note = 64, .velocity = 1.0 } });
+
+    var block: [512]Sample = undefined;
+    engine.process(&block);
+    try std.testing.expect(engine.track_peak[0][0] > 0.01);
+    try std.testing.expect(engine.track_peak[1][0] > 0.01);
 }
 
 test "browser audition plays off-mixer, with no track and the transport stopped" {

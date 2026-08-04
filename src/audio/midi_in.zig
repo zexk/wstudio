@@ -126,9 +126,9 @@ pub const MidiIn = struct {
             const note: u7 = @intCast(ev.data.note.note & 0x7F);
             const vel: u7  = @intCast(ev.data.note.velocity & 0x7F);
             if (vel == 0) {
-                _ = eng.send(.{ .note_off = .{ .track = track, .note = note } });
+                _ = eng.sendMidi(.{ .note_off = .{ .track = track, .note = note } });
             } else {
-                _ = eng.send(.{ .note_on = .{
+                _ = eng.sendMidi(.{ .note_on = .{
                     .track    = track,
                     .note     = note,
                     .velocity = midi_velocity.apply(self.velocity_curve.load(.monotonic), vel),
@@ -137,7 +137,7 @@ pub const MidiIn = struct {
             }
         } else if (etype == c.SND_SEQ_EVENT_NOTEOFF) {
             const note: u7 = @intCast(ev.data.note.note & 0x7F);
-            _ = eng.send(.{ .note_off = .{ .track = track, .note = note } });
+            _ = eng.sendMidi(.{ .note_off = .{ .track = track, .note = note } });
         } else if (etype == c.SND_SEQ_EVENT_CONTROLLER) {
             const cc: u7  = @intCast(ev.data.control.param & 0x7F);
             // zig fmt: on
@@ -145,13 +145,13 @@ pub const MidiIn = struct {
             // Only mark dirty if the command actually landed - a full
             // queue drops the event, and a false dirty flag would make
             // the project look unsaved over a change that never happened.
-            if (eng.send(.{ .cc = .{ .track = track, .cc = cc, .value = val } }))
+            if (eng.sendMidi(.{ .cc = .{ .track = track, .cc = cc, .value = val } }))
                 self.dirty.store(true, .release);
         } else if (etype == c.SND_SEQ_EVENT_PITCHBEND) {
             // ALSA delivers pitch bend centred at 0: −8192..+8191.
             const raw = @as(i32, ev.data.control.value);
             const bend: i16 = @intCast(std.math.clamp(raw, -8192, 8191));
-            _ = eng.send(.{ .pitch_bend = .{ .track = track, .bend = bend } });
+            _ = eng.sendMidi(.{ .pitch_bend = .{ .track = track, .bend = bend } });
         }
     }
 };

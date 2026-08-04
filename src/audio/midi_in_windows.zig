@@ -80,19 +80,19 @@ pub const MidiIn = struct {
         const track = self.active_track.load(.monotonic);
         switch (msg) {
             .note_on => |note| {
-                _ = self.engine.send(.{ .note_on = .{
+                _ = self.engine.sendMidi(.{ .note_on = .{
                     .track = track,
                     .note = note.note,
                     .velocity = midi_velocity.apply(self.velocity_curve.load(.monotonic), note.velocity),
                 } });
                 _ = self.note_queue.push(.{ .pitch = note.note, .vel = note.velocity });
             },
-            .note_off => |note| _ = self.engine.send(.{ .note_off = .{ .track = track, .note = note.note } }),
+            .note_off => |note| _ = self.engine.sendMidi(.{ .note_off = .{ .track = track, .note = note.note } }),
             .control_change => |cc| {
-                if (self.engine.send(.{ .cc = .{ .track = track, .cc = cc.cc, .value = cc.value } }))
+                if (self.engine.sendMidi(.{ .cc = .{ .track = track, .cc = cc.cc, .value = cc.value } }))
                     self.dirty.store(true, .release);
             },
-            .pitch_bend => |bend| _ = self.engine.send(.{ .pitch_bend = .{ .track = track, .bend = bend.bend } }),
+            .pitch_bend => |bend| _ = self.engine.sendMidi(.{ .pitch_bend = .{ .track = track, .bend = bend.bend } }),
             else => {},
         }
     }
