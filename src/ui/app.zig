@@ -39,6 +39,7 @@ const fuzzy = @import("fuzzy.zig");
 const waveform = @import("waveform.zig");
 const ansi = @import("ansi.zig");
 const help = @import("help.zig");
+const app_browser = @import("app_browser.zig");
 
 const Engine = engine_mod.Engine;
 const Sampler = ws.dsp.Sampler;
@@ -68,7 +69,7 @@ pub const note_ms = 220;
 /// tui/app_tests.zig now pins the constant against a real rendered frame.
 pub const content_top: u16 = 1;
 /// Big enough for any real filesystem path; mirrors commands.path_buf_len.
-const reload_path_buf_len: usize = 1024;
+pub const reload_path_buf_len: usize = 1024;
 /// A pause longer than this between taps starts a fresh tap-tempo run.
 /// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
 const default_autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
@@ -2771,7 +2772,10 @@ pub const App = struct {
 
         var sel = self.resolveVisualTrackIndices(lo, hi);
         defer sel.deinit(self.allocator);
-        if (sel.items.len == 0) { self.setStatus("no tracks selected", .{}); return; }
+        if (sel.items.len == 0) {
+            self.setStatus("no tracks selected", .{});
+            return;
+        }
 
         const idx = self.session.addGroup("untitled group") catch |err| {
             switch (err) {
@@ -2799,7 +2803,10 @@ pub const App = struct {
         self.exitTracksVisual();
         var sel = self.resolveVisualTrackIndices(lo, hi);
         defer sel.deinit(self.allocator);
-        if (sel.items.len == 0) { self.setStatus("no tracks selected", .{}); return; }
+        if (sel.items.len == 0) {
+            self.setStatus("no tracks selected", .{});
+            return;
+        }
 
         var all = true;
         for (sel.items) |t| {
@@ -2811,8 +2818,12 @@ pub const App = struct {
         const verb = if (solo) (if (want) "soloed" else "unsoloed") else (if (want) "muted" else "unmuted");
         self.setStatus("{s} {d} tracks", .{ verb, sel.items.len });
     }
-    fn doVisualMuteToggle(self: *App) void { self.doVisualToggle(false); }
-    fn doVisualSoloToggle(self: *App) void { self.doVisualToggle(true); }
+    fn doVisualMuteToggle(self: *App) void {
+        self.doVisualToggle(false);
+    }
+    fn doVisualSoloToggle(self: *App) void {
+        self.doVisualToggle(true);
+    }
 
     /// `-`/`+` and `<`/`>` in tracks-view visual mode: step every selected
     /// track's own gain/pan by the same delta (not set to one shared value -
@@ -2825,7 +2836,10 @@ pub const App = struct {
         self.exitTracksVisual();
         var sel = self.resolveVisualTrackIndices(lo, hi);
         defer sel.deinit(self.allocator);
-        if (sel.items.len == 0) { self.setStatus("no tracks selected", .{}); return; }
+        if (sel.items.len == 0) {
+            self.setStatus("no tracks selected", .{});
+            return;
+        }
         for (sel.items) |t| {
             const before = self.session.project.tracks.items[t].gain_db;
             self.apiSetTrackGainDb(t, before + delta_db);
@@ -2841,7 +2855,10 @@ pub const App = struct {
         self.exitTracksVisual();
         var sel = self.resolveVisualTrackIndices(lo, hi);
         defer sel.deinit(self.allocator);
-        if (sel.items.len == 0) { self.setStatus("no tracks selected", .{}); return; }
+        if (sel.items.len == 0) {
+            self.setStatus("no tracks selected", .{});
+            return;
+        }
         for (sel.items) |t| {
             const before = self.session.project.tracks.items[t].pan;
             self.apiSetTrackPan(t, before + delta);
@@ -2860,7 +2877,10 @@ pub const App = struct {
         self.exitTracksVisual();
         var sel = self.resolveVisualTrackIndices(lo, hi);
         defer sel.deinit(self.allocator);
-        if (sel.items.len == 0) { self.setStatus("no tracks selected", .{}); return; }
+        if (sel.items.len == 0) {
+            self.setStatus("no tracks selected", .{});
+            return;
+        }
         const n: i32 = @intCast(ansi.track_palette.len + 1); // +1 for "none"
         for (sel.items) |t| {
             const track = &self.session.project.tracks.items[t];
@@ -2881,7 +2901,10 @@ pub const App = struct {
         self.exitTracksVisual();
         var sel = self.resolveVisualTrackIndices(lo, hi);
         defer sel.deinit(self.allocator);
-        if (sel.items.len == 0) { self.setStatus("no tracks selected", .{}); return; }
+        if (sel.items.len == 0) {
+            self.setStatus("no tracks selected", .{});
+            return;
+        }
         const count = sel.items.len;
         for (sel.items) |t| self.doTrackDup(t);
         self.setStatus("duplicated {d} tracks", .{count});
@@ -2898,7 +2921,10 @@ pub const App = struct {
         self.exitTracksVisual();
         var sel = self.resolveVisualTrackIndices(lo, hi);
         defer sel.deinit(self.allocator);
-        if (sel.items.len == 0) { self.setStatus("no tracks selected", .{}); return; }
+        if (sel.items.len == 0) {
+            self.setStatus("no tracks selected", .{});
+            return;
+        }
         std.mem.sort(u16, sel.items, {}, std.sort.desc(u16));
         const count = sel.items.len;
         for (sel.items) |t| self.doTrackDel(t);
@@ -3453,351 +3479,26 @@ pub const App = struct {
         self.last_load_dir.len = @intCast(dir.len);
     }
 
-    /// Enter the browser for `purpose`, starting where the last sample came
-    /// from (`last_load_dir`), else the current project's directory, else
-    /// `default_browse_dir` (cwd if unset). Opening a project ignores
-    /// `last_load_dir` - a .wsj lives with the project, not with the samples.
-    /// Leaves the view untouched if that starting directory can't be listed.
-    pub fn openBrowser(self: *App, purpose: BrowserPurpose) void {
-        self.browser_purpose = purpose;
-        var expand_buf: [reload_path_buf_len]u8 = undefined;
-        const remembers = switch (purpose) {
-            .open_project => false,
-            else => true,
-        };
-        const start: []const u8 = if (remembers and self.last_load_dir.len > 0)
-            self.last_load_dir.slice()
-        else if (self.projectPath()) |p|
-            (std.fs.path.dirname(p) orelse ".")
-        else if (self.default_browse_dir.len > 0)
-            commands.expandHome(&expand_buf, self.default_browse_dir.slice())
-        else
-            ".";
-        self.setBrowserDir(start) catch |e| {
-            self.setStatus("browse: cannot open '{s}': {s}", .{ start, @errorName(e) });
-            return;
-        };
-        self.prev_view = self.view;
-        self.view = .file_browser;
-    }
-
-    /// Free the current entry list's owned names (keeps the list's capacity).
-    fn freeBrowserEntries(self: *App) void {
-        for (self.browser_entries.items) |e| self.allocator.free(e.name);
-        self.browser_entries.clearRetainingCapacity();
-    }
-
-    /// Resolve `path` to a canonical absolute directory and (re)list it into
-    /// `browser_entries`. Builds the new listing before touching any existing
-    /// state, so a bad path (deleted dir, permission error, …) leaves the
-    /// browser exactly where it was.
-    fn setBrowserDir(self: *App, path: []const u8) !void {
-        const canon = try std.Io.Dir.cwd().realPathFileAlloc(self.io, path, self.allocator);
-        errdefer self.allocator.free(canon);
-
-        var dir = try std.Io.Dir.cwd().openDir(self.io, canon, .{ .iterate = true });
-        defer dir.close(self.io);
-
-        var new_entries: std.ArrayListUnmanaged(BrowserEntry) = .empty;
-        errdefer {
-            for (new_entries.items) |e| self.allocator.free(e.name);
-            new_entries.deinit(self.allocator);
-        }
-        var it = dir.iterate();
-        while (try it.next(self.io)) |entry| {
-            if (entry.name.len == 0 or (!self.file_browser_show_hidden and entry.name[0] == '.')) continue;
-            const is_dir = entry.kind == .directory;
-            if (!is_dir and !std.ascii.endsWithIgnoreCase(entry.name, self.browser_purpose.ext())) continue;
-            const name = try self.allocator.dupe(u8, entry.name);
-            errdefer self.allocator.free(name);
-            try new_entries.append(self.allocator, .{ .name = name, .is_dir = is_dir });
-        }
-        std.mem.sort(BrowserEntry, new_entries.items, {}, browserEntryLess);
-
-        self.freeBrowserEntries();
-        self.browser_entries.deinit(self.allocator);
-        if (self.browser_dir.len > 0) self.allocator.free(self.browser_dir);
-        self.browser_dir = canon;
-        self.browser_entries = new_entries;
-        self.browser_cursor = 0;
-        self.browser_scroll = 0;
-        self.clearBrowserVisual();
-    }
-
-    /// Directories first, then alphabetical (case-insensitive) within each
-    /// group - matches `ls`/netrw ordering.
-    fn browserEntryLess(_: void, a: BrowserEntry, b: BrowserEntry) bool {
-        if (a.is_dir != b.is_dir) return a.is_dir;
-        return std.ascii.lessThanIgnoreCase(a.name, b.name);
-    }
-
-    // zig fmt: off
-    /// j/k move, enter/l/space descend into a dir or pick a file, h/backspace
-    /// go to the parent dir, g/G jump to the list ends, `~` jumps home,
-    /// `v` starts a multi-file selection (pad loads only), esc/q cancel back
-    /// to the view that opened the browser.
-    fn handleBrowserKey(self: *App, key: modal_mod.Key) void {
-        if (self.browser_recent_mode) {
-            self.handleRecentProjectKey(key);
-            return;
-        }
-        if (self.browser_bookmark_mode) {
-            self.handleBookmarkListKey(key);
-            return;
-        }
-        switch (key) {
-            // Like every other visual view: the first esc drops the
-            // selection, the second leaves.
-            .escape => if (self.browser_visual_anchor != null) self.clearBrowserVisual() else self.closeBrowser(),
-            .enter => self.browserActivate(),
-            .backspace => self.browserGoUp(),
-            .char => |c| switch (c) {
-                'j' => { if (self.browser_cursor + 1 < self.browser_entries.items.len) self.browser_cursor += 1; },
-                'k' => { if (self.browser_cursor > 0) self.browser_cursor -= 1; },
-                'g' => self.browser_cursor = 0,
-                'G' => self.browser_cursor = self.browser_entries.items.len -| 1,
-                'l', ' ' => self.browserActivate(),
-                'h' => self.browserGoUp(),
-                '~' => {
-                    const home_z = std.c.getenv("HOME") orelse std.c.getenv("USERPROFILE") orelse return;
-                    const home = std.mem.sliceTo(home_z, 0);
-                    self.setBrowserDir(home) catch |e| self.setStatus("browse: {s}", .{@errorName(e)});
-                },
-                '/' => {
-                    self.modal.mode = .search;
-                    self.modal.cmd_len = 0;
-                    self.modal.cmd_cursor = 0;
-                },
-                'n' => self.searchBrowser(1),
-                'N' => self.searchBrowser(-1),
-                'v' => {
-                    if (self.browser_purpose != .load_pad) {
-                        self.setStatus("visual: only when loading drum pads", .{});
-                        return;
-                    }
-                    if (self.browser_entries.items.len == 0) return;
-                    self.browser_visual_anchor = self.browser_cursor;
-                    self.modal.mode = .visual;
-                    self.setStatus("visual: j/k extend, enter loads into pads", .{});
-                },
-                'a' => self.auditionBrowserEntry(),
-                'b' => self.toggleBookmark(),
-                'B' => {
-                    if (self.bookmarks.items.len == 0) {
-                        self.setStatus("no bookmarks yet - b marks the entry under the cursor", .{});
-                        return;
-                    }
-                    self.browser_bookmark_mode = true;
-                    self.bookmark_cursor = @min(self.bookmark_cursor, self.bookmarks.items.len - 1);
-                },
-                'q' => self.closeBrowser(),
-                else => {},
-            },
-            else => {},
-        }
-    }
-
-    pub fn openRecentProjects(self: *App) void {
-        if (self.recent_projects.items.len == 0) {
-            self.setStatus("no recent projects", .{});
-            return;
-        }
-        self.prev_view = self.view;
-        self.browser_purpose = .open_project;
-        self.browser_recent_mode = true;
-        self.recent_project_cursor = 0;
-        self.view = .file_browser;
-    }
-
-    fn handleRecentProjectKey(self: *App, key: modal_mod.Key) void {
-        switch (key) {
-            .escape => self.closeBrowser(),
-            .enter => self.openRecentProject(),
-            .char => |c| switch (c) {
-                'j' => if (self.recent_project_cursor + 1 < self.recent_projects.items.len) { self.recent_project_cursor += 1; },
-                'k' => if (self.recent_project_cursor > 0) { self.recent_project_cursor -= 1; },
-                'g' => self.recent_project_cursor = 0,
-                'G' => self.recent_project_cursor = self.recent_projects.items.len -| 1,
-                'l', ' ' => self.openRecentProject(),
-                'q' => self.closeBrowser(),
-                else => {},
-            },
-            else => {},
-        }
-    }
-
-    fn openRecentProject(self: *App) void {
-        if (self.recent_project_cursor >= self.recent_projects.items.len) return;
-        if (self.dirty) {
-            self.setStatus("unsaved changes - :write to save, :edit! to discard", .{});
-            return;
-        }
-        self.requestReload(self.recent_projects.items[self.recent_project_cursor]);
-        self.closeBrowser();
-    }
-    // zig fmt: on
-
-    /// `b`: toggle the entry under the browser cursor in/out of `bookmarks`,
-    /// keyed by absolute path so the same file/dir reached two different ways
-    /// still dedupes.
-    fn toggleBookmark(self: *App) void {
-        if (self.browser_cursor >= self.browser_entries.items.len) return;
-        const entry = self.browser_entries.items[self.browser_cursor];
-        const joined = std.fs.path.join(self.allocator, &.{ self.browser_dir, entry.name }) catch return;
-        defer self.allocator.free(joined);
-
-        for (self.bookmarks.items, 0..) |b, i| {
-            if (std.mem.eql(u8, b.path, joined)) {
-                self.allocator.free(b.path);
-                _ = self.bookmarks.orderedRemove(i);
-                self.setStatus("unbookmarked: {s}", .{entry.name});
-                bookmark_store.save(self.allocator, self.io, self.bookmarks.items) catch {};
-                return;
-            }
-        }
-        const owned = self.allocator.dupe(u8, joined) catch return;
-        self.bookmarks.append(self.allocator, .{ .path = owned, .is_dir = entry.is_dir }) catch {
-            self.allocator.free(owned);
-            return;
-        };
-        self.setStatus("bookmarked: {s}", .{entry.name});
-        bookmark_store.save(self.allocator, self.io, self.bookmarks.items) catch {};
-    }
-
-    // zig fmt: off
-    /// Key handling while `browser_bookmark_mode` is showing the bookmark
-    /// list instead of the current directory.
-    fn handleBookmarkListKey(self: *App, key: modal_mod.Key) void {
-        switch (key) {
-            .escape => self.browser_bookmark_mode = false,
-            .enter => self.jumpToBookmark(),
-            .char => |c| switch (c) {
-                'j' => { if (self.bookmark_cursor + 1 < self.bookmarks.items.len) self.bookmark_cursor += 1; },
-                'k' => { if (self.bookmark_cursor > 0) self.bookmark_cursor -= 1; },
-                'g' => self.bookmark_cursor = 0,
-                'G' => self.bookmark_cursor = self.bookmarks.items.len -| 1,
-                'l', ' ' => self.jumpToBookmark(),
-                'd' => {
-                    if (self.bookmark_cursor >= self.bookmarks.items.len) return;
-                    self.allocator.free(self.bookmarks.items[self.bookmark_cursor].path);
-                    _ = self.bookmarks.orderedRemove(self.bookmark_cursor);
-                    if (self.bookmarks.items.len == 0) self.browser_bookmark_mode = false
-                    else self.bookmark_cursor = @min(self.bookmark_cursor, self.bookmarks.items.len - 1);
-                    bookmark_store.save(self.allocator, self.io, self.bookmarks.items) catch {};
-                },
-                'q' => self.browser_bookmark_mode = false,
-                else => {},
-            },
-            else => {},
-        }
-    }
-
-    /// enter/l/space on a bookmark: directories are opened directly; a
-    /// bookmarked file opens its parent directory with the cursor on it if
-    /// the current browser purpose's extension filter still shows it (see
-    /// setBrowserDir), otherwise the parent directory listing is still a
-    /// reasonable landing spot.
-    fn jumpToBookmark(self: *App) void {
-        if (self.bookmark_cursor >= self.bookmarks.items.len) return;
-        const bm = self.bookmarks.items[self.bookmark_cursor];
-        const dir = if (bm.is_dir) bm.path else (std.fs.path.dirname(bm.path) orelse bm.path);
-        self.setBrowserDir(dir) catch |e| {
-            self.setStatus("browse: {s}", .{@errorName(e)});
-            return;
-        };
-        if (!bm.is_dir) {
-            const base = std.fs.path.basename(bm.path);
-            for (self.browser_entries.items, 0..) |e, i| {
-                if (std.mem.eql(u8, e.name, base)) { self.browser_cursor = i; break; }
-            }
-        }
-        self.browser_bookmark_mode = false;
-    }
-    // zig fmt: on
-
-    /// Parent of `browser_dir` (root's parent is itself - nothing to go up to).
-    fn browserGoUp(self: *App) void {
-        const parent = std.fs.path.dirname(self.browser_dir) orelse return;
-        self.setBrowserDir(parent) catch |e| self.setStatus("browse: {s}", .{@errorName(e)});
-    }
-
-    /// Enter/l/space on the highlighted entry: descend into a directory, or
-    /// resolve a file against the browser's purpose and close.
-    fn browserActivate(self: *App) void {
-        if (self.browser_cursor >= self.browser_entries.items.len) return;
-        // A live multi-file selection wins over the single-entry paths
-        // below, including descending into a directory the range happens to
-        // end on - directories inside the span are skipped, not entered.
-        if (self.browser_visual_anchor) |anchor| {
-            const lo = @min(anchor, self.browser_cursor);
-            const hi = @min(@max(anchor, self.browser_cursor), self.browser_entries.items.len - 1);
-            commands.loadPadsFromEntries(self, self.browser_entries.items[lo .. hi + 1]);
-            self.closeBrowser();
-            return;
-        }
-        const entry = self.browser_entries.items[self.browser_cursor];
-        const joined = std.fs.path.join(self.allocator, &.{ self.browser_dir, entry.name }) catch return;
-        defer self.allocator.free(joined);
-
-        if (entry.is_dir) {
-            self.setBrowserDir(joined) catch |e| self.setStatus("browse: {s}", .{@errorName(e)});
-            return;
-        }
-        switch (self.browser_purpose) {
-            // Only reachable via a non-forced `:e` (openBrowser's sole
-            // .open_project caller, commands.editOrRevert) - the dirty
-            // refusal that skips there for a given path belongs here
-            // instead, since browsing itself was allowed through regardless.
-            .open_project => if (self.dirty) {
-                self.setStatus("unsaved changes - :write to save, :edit! to discard", .{});
-            } else {
-                self.requestReload(joined);
-            },
-            .load_sample => commands.loadSampleFromPath(self, joined),
-            .load_pad => |pad| commands.loadPadFromPath(self, pad, joined),
-            .load_clip => commands.loadClipFromPath(self, joined),
-            .load_slice => commands.loadSliceFromPath(self, joined),
-            .load_wavetable => |slot| commands.loadWavetableFromPath(self, slot, joined),
-            .load_soundfont => commands.loadSoundfontFromPath(self, joined),
-        }
-        self.closeBrowser();
-    }
-
-    /// `a`: audition the file under the cursor - the same audition key the
-    /// pad, slice, preset, and soundfont views use (directories have nothing to
-    /// play). Retriggering while one is still ringing is fine - the preview
-    /// Sampler steals its own voice.
-    fn auditionBrowserEntry(self: *App) void {
-        if (!self.browser_purpose.canAudition()) {
-            self.setStatus("audition unavailable for {s}", .{self.browser_purpose.ext()});
-            return;
-        }
-        if (self.browser_cursor >= self.browser_entries.items.len) return;
-        const entry = self.browser_entries.items[self.browser_cursor];
-        if (entry.is_dir) return;
-        const joined = std.fs.path.join(self.allocator, &.{ self.browser_dir, entry.name }) catch return;
-        defer self.allocator.free(joined);
-        commands.auditionPath(self, joined);
-    }
-
-    fn closeBrowser(self: *App) void {
-        _ = self.session.engine.send(.preview_stop);
-        self.freeBrowserEntries();
-        self.browser_bookmark_mode = false;
-        self.browser_recent_mode = false;
-        self.clearBrowserVisual();
-        self.view = self.prev_view;
-    }
-
-    /// Drop the multi-file selection and the `.visual` mode it put the modal
-    /// in. Called on esc, on close, and whenever the listing is replaced -
-    /// the anchor is an index into `browser_entries`, so a new directory
-    /// makes it meaningless.
-    fn clearBrowserVisual(self: *App) void {
-        if (self.browser_visual_anchor == null) return;
-        self.browser_visual_anchor = null;
-        self.modal.mode = .normal;
-    }
+    // File browser + recent-projects + bookmarks: bodies live in
+    // app_browser.zig, re-exported here under their own names so every
+    // self.openBrowser(...)-style call site above and every external
+    // app.openBrowser(...) caller keep resolving unchanged.
+    pub const openBrowser = app_browser.openBrowser;
+    pub const freeBrowserEntries = app_browser.freeBrowserEntries;
+    pub const setBrowserDir = app_browser.setBrowserDir;
+    pub const browserEntryLess = app_browser.browserEntryLess;
+    pub const handleBrowserKey = app_browser.handleBrowserKey;
+    pub const openRecentProjects = app_browser.openRecentProjects;
+    pub const handleRecentProjectKey = app_browser.handleRecentProjectKey;
+    pub const openRecentProject = app_browser.openRecentProject;
+    pub const toggleBookmark = app_browser.toggleBookmark;
+    pub const handleBookmarkListKey = app_browser.handleBookmarkListKey;
+    pub const jumpToBookmark = app_browser.jumpToBookmark;
+    pub const browserGoUp = app_browser.browserGoUp;
+    pub const browserActivate = app_browser.browserActivate;
+    pub const auditionBrowserEntry = app_browser.auditionBrowserEntry;
+    pub const closeBrowser = app_browser.closeBrowser;
+    pub const clearBrowserVisual = app_browser.clearBrowserVisual;
 
     // zig fmt: off
     /// Track that mute/solo/note-preview act on outside the tracks view -
