@@ -486,6 +486,9 @@ pub const CompSnap = struct {
     attack_ms: f32 = 10.0,
     release_ms: f32 = 80.0,
     makeup_db: f32 = 0.0,
+    /// Additive: soft-knee width, dB. Missing on older files -> 0, the
+    /// original hard-knee behaviour.
+    knee_db: f32 = 0.0,
     /// Additive field (see FORMAT.md's versioning policy): older files omit
     /// it and load with ordinary self-detecting compression, matching every
     /// compressor's behaviour before sidechain support existed.
@@ -503,6 +506,9 @@ pub const MultibandCompSnap = struct {
     xover_hi_hz: f32 = 2000.0,
     attack_ms: f32 = 10.0,
     release_ms: f32 = 80.0,
+    /// Additive: soft-knee width, dB, shared across all three bands.
+    /// Missing on older files -> 0, the original hard-knee behaviour.
+    knee_db: f32 = 0.0,
     /// Mirrors `dsp.multiband_comp.Style` as a bool (only two states) -
     /// older files can't have this field (the kind didn't exist), so
     /// there's no back-compat encoding to preserve, just the plainest shape.
@@ -1385,12 +1391,14 @@ pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx) ![]FxUnitSnap {
             .comp => |c| .{ .kind = .comp, .comp = .{
                 .threshold_db = c.threshold_db, .ratio = c.ratio,
                 .attack_ms = c.attack_ms, .release_ms = c.release_ms, .makeup_db = c.makeup_db,
+                .knee_db = c.knee_db,
                 .sidechain_source = if (c.sidechain_source) |sc| sc.track else null,
                 .sidechain_pad = if (c.sidechain_source) |sc| sc.pad else null,
             } },
             .mb_comp => |m| .{ .kind = .mb_comp, .mb_comp = .{
                 .xover_lo_hz = m.xover_lo_hz, .xover_hi_hz = m.xover_hi_hz,
                 .attack_ms = m.attack_ms, .release_ms = m.release_ms,
+                .knee_db = m.knee_db,
                 .ott = m.style == .ott, .mix = m.mix,
                 .low_threshold_db = m.bands[0].threshold_db, .low_ratio = m.bands[0].ratio, .low_makeup_db = m.bands[0].makeup_db,
                 .mid_threshold_db = m.bands[1].threshold_db, .mid_ratio = m.bands[1].ratio, .mid_makeup_db = m.bands[1].makeup_db,
@@ -2741,6 +2749,7 @@ pub fn applyFxChain(
                 if (std.math.isFinite(cs.attack_ms)) c.attack_ms = cs.attack_ms;
                 if (std.math.isFinite(cs.release_ms)) c.release_ms = cs.release_ms;
                 if (std.math.isFinite(cs.makeup_db)) c.makeup_db = cs.makeup_db;
+                if (std.math.isFinite(cs.knee_db)) c.knee_db = cs.knee_db;
                 c.sidechain_source = if (cs.sidechain_source) |src| .{
                     .track = @min(src, engine_mod.max_tracks - 1),
                     .pad = if (cs.sidechain_pad) |p| @min(p, DrumMachine.max_pads - 1) else null,
@@ -2750,6 +2759,7 @@ pub fn applyFxChain(
                 m.setXovers(ms.xover_lo_hz, ms.xover_hi_hz);
                 if (std.math.isFinite(ms.attack_ms)) m.attack_ms = ms.attack_ms;
                 if (std.math.isFinite(ms.release_ms)) m.release_ms = ms.release_ms;
+                if (std.math.isFinite(ms.knee_db)) m.knee_db = ms.knee_db;
                 m.style = if (ms.ott) .ott else .classic;
                 if (std.math.isFinite(ms.mix)) m.mix = ms.mix;
                 const saved_bands = [_][3]f32{

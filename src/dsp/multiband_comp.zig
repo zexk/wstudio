@@ -164,7 +164,7 @@ const BandComp = struct {
     makeup_db: f32 = 0.0,
     env: f32 = 0.0,
 
-    fn gainFor(self: *BandComp, level: f32, attack: f32, release: f32, style: Style) f32 {
+    fn gainFor(self: *BandComp, level: f32, attack: f32, release: f32, knee_db: f32, style: Style) f32 {
         // A ratio near/under 0 sends downwardReductionDb's `1/ratio` toward
         // +-inf, same instability as the plain `Compressor`.
         const threshold_db = dsp.sanitizeParam(self.threshold_db, -60.0, 0.0, -18.0);
@@ -173,7 +173,7 @@ const BandComp = struct {
         const over_db = Compressor.envelopeOverDb(&self.env, level, attack, release, threshold_db);
         // Downward: pull the excess above threshold down by `ratio` - same
         // envelope/ratio math as the plain `Compressor`.
-        var reduction_db = Compressor.downwardReductionDb(over_db, ratio);
+        var reduction_db = Compressor.downwardReductionDb(over_db, ratio, knee_db);
         if (over_db <= 0.0 and style == .ott) {
             // Upward (OTT only): push signal below threshold up toward it
             // by the same `ratio` - mirrors the downward formula around the
@@ -194,6 +194,9 @@ pub const MultibandComp = struct {
     xover_hi_hz: f32 = 2000.0,
     attack_ms: f32 = 10.0,
     release_ms: f32 = 80.0,
+    /// Soft-knee width, dB, shared across all three bands - see
+    /// `Compressor.downwardReductionDb`. 0 = hard knee.
+    knee_db: f32 = 0.0,
     style: Style = .classic,
     /// Dry/wet blend, 0 (bypassed sound) .. 1 (fully processed) - lets the
     /// user dial back the OTT extreme without leaving the mode.
@@ -254,6 +257,7 @@ pub const MultibandComp = struct {
         // as the plain `Compressor`.
         const attack_ms = dsp.sanitizeParam(self.attack_ms, 0.1, 500.0, 10.0);
         const release_ms = dsp.sanitizeParam(self.release_ms, 1.0, 2000.0, 80.0);
+        const knee_db = dsp.sanitizeParam(self.knee_db, 0.0, 24.0, 0.0);
         const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 1.0);
         const attack = dsp.smoothingCoefMs(attack_ms, self.sample_rate);
         const release = dsp.smoothingCoefMs(release_ms, self.sample_rate);
@@ -268,7 +272,7 @@ pub const MultibandComp = struct {
             var wet_r: f32 = 0.0;
             inline for (0..num_bands) |b| {
                 const level = @max(@abs(bands_l[b]), @abs(bands_r[b]));
-                const gain = self.bands[b].gainFor(level, attack, release, self.style);
+                const gain = self.bands[b].gainFor(level, attack, release, knee_db, self.style);
                 self.gain_db[b] = types.gainToDb(gain);
                 wet_l += bands_l[b] * gain;
                 wet_r += bands_r[b] * gain;
@@ -400,10 +404,41 @@ test "mix blends between dry and fully-processed" {
     try std.testing.expectApproxEqAbs(@as(Sample, 0.5), buf[510], 1e-4);
 }
 
+test "knee_db reaches every band, softening reduction right at threshold" {
+    var hard = MultibandComp.init(48_000);
+    var soft = MultibandComp.init(48_000);
+    soft.knee_db = 12.0;
+    for ([_]*MultibandComp{ &hard, &soft }) |mb| {
+        for (&mb.bands) |*b| {
+            b.threshold_db = -12.0;
+            b.ratio = 4.0;
+        }
+    }
+    // A tone sitting exactly at threshold: hard knee applies zero downward
+    // reduction there (over_db <= 0), the soft knee has already bent the
+    // curve, so its band gains must read strictly lower.
+    var buf_hard: [512]Sample = undefined;
+    var buf_soft: [512]Sample = undefined;
+    for (0..80) |_| {
+        for (0..256) |i| {
+            const n: f32 = @floatFromInt(i);
+            const s: f32 = types.dbToGain(-12.0) * @sin(2.0 * std.math.pi * 1000.0 * n / 48_000.0);
+            buf_hard[i * 2] = s;
+            buf_hard[i * 2 + 1] = s;
+            buf_soft[i * 2] = s;
+            buf_soft[i * 2 + 1] = s;
+        }
+        hard.processBlock(&buf_hard);
+        soft.processBlock(&buf_soft);
+    }
+    try std.testing.expect(soft.gain_db[mid] < hard.gain_db[mid] - 0.1);
+}
+
 test "invalid parameters cannot trap or poison output" {
     var mb = MultibandComp.init(48_000);
     mb.attack_ms = -1.0;
     mb.release_ms = std.math.inf(f32);
+    mb.knee_db = -std.math.inf(f32);
     mb.mix = std.math.nan(f32);
     for (&mb.bands) |*b| {
         b.threshold_db = std.math.nan(f32);

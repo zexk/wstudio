@@ -30,6 +30,9 @@ pub const Compressor = struct {
     attack_ms: f32 = 10.0,
     release_ms: f32 = 80.0,
     makeup_db: f32 = 0.0,
+    /// Width of the soft-knee transition around threshold, dB. 0 = hard
+    /// knee (the ratio applies the instant `over_db` crosses 0).
+    knee_db: f32 = 0.0,
     /// Envelope follower state (linear peak).
     env: f32 = 0.0,
     /// Most recent gain change before makeup, for UI metering.
@@ -70,9 +73,19 @@ pub const Compressor = struct {
 
     /// Ordinary downward gain reduction in dB for `over_db` above threshold
     /// (0 when at or under it) - the ratio formula shared by `processBlock`
-    /// and `BandComp.gainFor`'s downward stage.
-    pub fn downwardReductionDb(over_db: f32, ratio: f32) f32 {
-        return if (over_db > 0.0) over_db * (1.0 / ratio - 1.0) else 0.0;
+    /// and `BandComp.gainFor`'s downward stage. `knee_db` widens the
+    /// transition around the threshold into a quadratic curve instead of an
+    /// instant bend (0 = the original hard knee, exactly the old formula);
+    /// the standard soft-knee gain computer (Reiss & McPherson, "Audio
+    /// Effects" ch. 4).
+    pub fn downwardReductionDb(over_db: f32, ratio: f32, knee_db: f32) f32 {
+        const slope = 1.0 / ratio - 1.0;
+        if (knee_db <= 0.0) return if (over_db > 0.0) over_db * slope else 0.0;
+        const half = knee_db * 0.5;
+        if (over_db <= -half) return 0.0;
+        if (over_db >= half) return over_db * slope;
+        const x = over_db + half;
+        return slope * (x * x) / (2.0 * knee_db);
     }
 
     pub fn processBlock(self: *Compressor, buf: []Sample) void {
@@ -85,6 +98,7 @@ pub const Compressor = struct {
         const ratio = dsp.sanitizeParam(self.ratio, 1.0, 20.0, 4.0);
         const threshold_db = dsp.sanitizeParam(self.threshold_db, -60.0, 0.0, -18.0);
         const makeup_db = dsp.sanitizeParam(self.makeup_db, -24.0, 24.0, 0.0);
+        const knee_db = dsp.sanitizeParam(self.knee_db, 0.0, 24.0, 0.0);
         const attack = dsp.smoothingCoefMs(attack_ms, self.sample_rate);
         const release = dsp.smoothingCoefMs(release_ms, self.sample_rate);
         const makeup = types.dbToGain(makeup_db);
@@ -101,7 +115,7 @@ pub const Compressor = struct {
             else
                 @max(@abs(buf[i * 2]), @abs(buf[i * 2 + 1]));
             const over_db = envelopeOverDb(&self.env, level, attack, release, threshold_db);
-            const reduction_db = downwardReductionDb(over_db, ratio);
+            const reduction_db = downwardReductionDb(over_db, ratio, knee_db);
             self.gain_reduction_db = reduction_db;
             const gain = types.dbToGain(reduction_db) * makeup;
 
@@ -181,10 +195,27 @@ test "invalid parameters cannot trap or poison output" {
     comp.attack_ms = -5.0;
     comp.release_ms = std.math.inf(f32);
     comp.makeup_db = std.math.inf(f32);
+    comp.knee_db = std.math.nan(f32);
     var buf: [256]Sample = undefined;
     for (&buf, 0..) |*s, i| s.* = if (i % 4 < 2) 0.3 else -0.7;
     comp.processBlock(&buf);
     for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
+}
+
+test "soft knee eases reduction in before threshold, hard knee doesn't" {
+    // Exactly at threshold: hard knee (knee=0) applies zero reduction since
+    // downwardReductionDb only kicks in once over_db > 0; a wide soft knee
+    // already has the curve halfway bent by that point.
+    try std.testing.expectEqual(@as(f32, 0.0), Compressor.downwardReductionDb(0.0, 4.0, 0.0));
+    try std.testing.expect(Compressor.downwardReductionDb(0.0, 4.0, 12.0) < 0.0);
+    // Far outside the knee on either side, the two must agree with the
+    // plain ratio formula (soft knee only perturbs the transition itself).
+    try std.testing.expectApproxEqAbs(
+        Compressor.downwardReductionDb(20.0, 4.0, 0.0),
+        Compressor.downwardReductionDb(20.0, 4.0, 12.0),
+        1e-4,
+    );
+    try std.testing.expectEqual(@as(f32, 0.0), Compressor.downwardReductionDb(-20.0, 4.0, 12.0));
 }
 
 test "detector length mismatch falls back to self-detection instead of an out-of-bounds read" {

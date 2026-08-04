@@ -7488,32 +7488,32 @@ test "compressor's scpad row only shows once the sidechain track is a drum machi
     const payload = &fx.units.items[0].payload;
 
     // No sidechain source picked yet: scpad stays hidden.
-    try std.testing.expectEqual(@as(usize, 6), spectrum_ed.visibleParamCount(&app, .comp, payload));
+    try std.testing.expectEqual(@as(usize, 7), spectrum_ed.visibleParamCount(&app, .comp, payload));
 
     // Sidechain pointed at track 1 (a sampler, not a drum machine): still hidden.
     payload.comp.sidechain_source = .{ .track = 1, .pad = null };
-    try std.testing.expectEqual(@as(usize, 6), spectrum_ed.visibleParamCount(&app, .comp, payload));
+    try std.testing.expectEqual(@as(usize, 7), spectrum_ed.visibleParamCount(&app, .comp, payload));
 
     // Sidechain pointed at track 2 (the drum machine): scpad appears.
     payload.comp.sidechain_source = .{ .track = 2, .pad = null };
-    try std.testing.expectEqual(@as(usize, 7), spectrum_ed.visibleParamCount(&app, .comp, payload));
+    try std.testing.expectEqual(@as(usize, 8), spectrum_ed.visibleParamCount(&app, .comp, payload));
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try tui_mod.draw(&app, &w, .{ .cols = 100, .rows = 30 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "scpad") != null);
 
-    // Pick a pad, then nudge the sidechain track (idx 5) off the drum
+    // Pick a pad, then nudge the sidechain track (idx 6) off the drum
     // machine and onto the sampler - the now-stale pad selection must
     // clear itself (see clearStaleSidechainPad's doc comment for why a
     // lingering pad silently zeroes the detector instead of falling back
     // to whole-track sidechain).
     payload.comp.sidechain_source = .{ .track = 2, .pad = 3 };
-    app.fx_param = 5;
+    app.fx_param = 6;
     _ = spectrum_ed.handleKey(&app, .{ .char = 'h' }); // track 2 -> track 1
     try std.testing.expectEqual(@as(u16, 1), payload.comp.sidechain_source.?.track);
     try std.testing.expectEqual(@as(?u8, null), payload.comp.sidechain_source.?.pad);
-    try std.testing.expectEqual(@as(usize, 6), spectrum_ed.visibleParamCount(&app, .comp, payload));
+    try std.testing.expectEqual(@as(usize, 7), spectrum_ed.visibleParamCount(&app, .comp, payload));
 
     w = std.Io.Writer.fixed(&buf);
     try tui_mod.draw(&app, &w, .{ .cols = 100, .rows = 30 });

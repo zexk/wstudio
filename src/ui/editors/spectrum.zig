@@ -258,17 +258,18 @@ test "parameter grid follows sequential navigation order" {
     try std.testing.expectEqual(@as(?usize, null), grid.index(2, 1));
 }
 
-/// Flat param list for a multiband compressor: 6 shared controls (crossover
-/// x2, attack, release, style, mix) followed by 3 fields (thresh/ratio/
-/// makeup) per band, low->mid->high - same "one sequential list" shape the
-/// EQ's flattened band/field list already uses.
+/// Flat param list for a multiband compressor: 7 shared controls (crossover
+/// x2, attack, release, knee, style, mix) followed by 3 fields (thresh/
+/// ratio/makeup) per band, low->mid->high - same "one sequential list"
+/// shape the EQ's flattened band/field list already uses.
 pub const mb_xover_lo = 0;
 pub const mb_xover_hi = 1;
 pub const mb_attack = 2;
 pub const mb_release = 3;
-pub const mb_style = 4;
-pub const mb_mix = 5;
-pub const mb_shared_count = 6;
+pub const mb_knee = 4;
+pub const mb_style = 5;
+pub const mb_mix = 6;
+pub const mb_shared_count = 7;
 pub const mb_fields_per_band = 3; // thresh, ratio, makeup
 const mb_comp_param_count = mb_shared_count + multiband_comp.num_bands * mb_fields_per_band;
 
@@ -555,7 +556,7 @@ const limiter_specs = [_]ParamSpec{
     .{ .name = "release", .field = "release_ms", .min = 1.0, .max = 1000.0, .step_fine = 10.0, .step_coarse = 100.0 },
 };
 
-/// `comp`'s first 5 params only - idx 5/6 are the sidechain track/pad
+/// `comp`'s first 6 params only - idx 6/7 are the sidechain track/pad
 /// spinners, which need `app` and cross-field state the table shape can't
 /// express, so they stay hand-written in every switch below.
 const comp_specs = [_]ParamSpec{
@@ -564,6 +565,7 @@ const comp_specs = [_]ParamSpec{
     .{ .name = "attack", .field = "attack_ms", .min = 0.1, .max = 500.0, .step_fine = 5.0, .step_coarse = 50.0 },
     .{ .name = "release", .field = "release_ms", .min = 1.0, .max = 2000.0, .step_fine = 20.0, .step_coarse = 200.0 },
     .{ .name = "makeup", .field = "makeup_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
+    .{ .name = "knee", .field = "knee_db", .min = 0.0, .max = 24.0, .step_fine = 1.0, .step_coarse = 3.0 },
 };
 
 /// Param name at `idx` in `p` - bounds match `paramCount`.
@@ -588,13 +590,14 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
             mb_xover_hi => "xover-hi",
             mb_attack => "attack",
             mb_release => "release",
+            mb_knee => "knee",
             mb_style => "style",
             mb_mix => "mix",
             else => mbBandParamName(mbBandField(idx)),
         },
         .comp => switch (idx) {
-            5 => "sidechain",
-            6 => "scpad",
+            6 => "sidechain",
+            7 => "scpad",
             else => tableName(&comp_specs, idx),
         },
         .gate => tableName(&gate_specs, idx),
@@ -677,6 +680,7 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
             mb_xover_hi => m.xover_hi_hz,
             mb_attack => m.attack_ms,
             mb_release => m.release_ms,
+            mb_knee => m.knee_db,
             mb_style => if (m.style == .ott) 1.0 else 0.0,
             mb_mix => m.mix,
             else => blk: {
@@ -694,10 +698,10 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
             // (matches the tracks view's own 1-based row numbering) - lets
             // this slot share the same float-valued get/set/range/step shape
             // every other param here uses instead of a separate enum path.
-            5 => if (c.sidechain_source) |s| @as(f32, @floatFromInt(s.track)) + 1.0 else 0.0,
-            // Sidechain pad, same 0=none/N=1-based encoding as idx 5 - only
+            6 => if (c.sidechain_source) |s| @as(f32, @floatFromInt(s.track)) + 1.0 else 0.0,
+            // Sidechain pad, same 0=none/N=1-based encoding as idx 6 - only
             // meaningful once a track is picked there; see `setParam`.
-            6 => if (c.sidechain_source) |s| (if (s.pad) |pd| @as(f32, @floatFromInt(pd)) + 1.0 else 0.0) else 0.0,
+            7 => if (c.sidechain_source) |s| (if (s.pad) |pd| @as(f32, @floatFromInt(pd)) + 1.0 else 0.0) else 0.0,
             else => tableGet(c, &comp_specs, idx),
         },
         .gate => |*g| tableGet(g, &gate_specs, idx),
@@ -756,6 +760,7 @@ pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
             mb_xover_lo, mb_xover_hi => .{ 20.0, 20000.0 },
             mb_attack => .{ 0.1, 500.0 },
             mb_release => .{ 1.0, 2000.0 },
+            mb_knee => .{ 0.0, 24.0 },
             mb_style => .{ 0.0, 1.0 },
             mb_mix => .{ 0.0, 1.0 },
             else => switch (mbBandField(idx).field) {
@@ -765,8 +770,8 @@ pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
             },
         },
         .comp => switch (idx) {
-            5 => .{ 0.0, @floatFromInt(app.session.project.tracks.items.len) },
-            6 => .{ 0.0, @floatFromInt(DrumMachine.max_pads) },
+            6 => .{ 0.0, @floatFromInt(app.session.project.tracks.items.len) },
+            7 => .{ 0.0, @floatFromInt(DrumMachine.max_pads) },
             else => tableRange(&comp_specs, idx),
         },
         .gate => tableRange(&gate_specs, idx),
@@ -835,7 +840,7 @@ pub fn paramToggleNames(k: FxKind, idx: usize) ?[2][]const u8 {
 /// instead, same reasoning as `paramToggleNames` above for 2-state params.
 pub fn isListParam(k: FxKind, idx: usize) bool {
     return switch (k) {
-        .comp => idx == 5 or idx == 6,
+        .comp => idx == 6 or idx == 7,
         else => false,
     };
 }
@@ -873,6 +878,7 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
             mb_xover_hi => m.setXoverHi(value),
             mb_attack => m.attack_ms = std.math.clamp(value, 0.1, 500.0),
             mb_release => m.release_ms = std.math.clamp(value, 1.0, 2000.0),
+            mb_knee => m.knee_db = std.math.clamp(value, 0.0, 24.0),
             mb_style => m.style = if (value >= 0.5) .ott else .classic,
             mb_mix => m.mix = std.math.clamp(value, 0.0, 1.0),
             else => {
@@ -886,7 +892,7 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
             },
         },
         .comp => |*c| switch (idx) {
-            5 => {
+            6 => {
                 const rounded = std.math.clamp(@round(value), 0.0, @as(f32, @floatFromInt(app.session.project.tracks.items.len)));
                 if (rounded < 0.5) {
                     c.sidechain_source = null;
@@ -896,9 +902,9 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
                     c.sidechain_source = .{ .track = track, .pad = pad };
                 }
             },
-            // Only meaningful once a track is picked at idx 5 - a no-op
+            // Only meaningful once a track is picked at idx 6 - a no-op
             // otherwise, since there's nothing to attach a pad to.
-            6 => if (c.sidechain_source) |sc| {
+            7 => if (c.sidechain_source) |sc| {
                 const rounded = std.math.clamp(@round(value), 0.0, @as(f32, @floatFromInt(DrumMachine.max_pads)));
                 c.sidechain_source = .{
                     .track = sc.track,
@@ -956,6 +962,7 @@ fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
             mb_xover_lo, mb_xover_hi => if (coarse) @as(f32, 100.0) else 10.0,
             mb_attack => if (coarse) @as(f32, 50.0) else 5.0,
             mb_release => if (coarse) @as(f32, 200.0) else 20.0,
+            mb_knee => if (coarse) @as(f32, 3.0) else 1.0,
             mb_style => 1.0, // toggle, whole steps only
             mb_mix => if (coarse) @as(f32, 0.2) else 0.05,
             else => switch (mbBandField(idx).field) {
@@ -965,8 +972,8 @@ fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
             },
         },
         .comp => switch (idx) {
-            5 => if (coarse) @as(f32, 5.0) else 1.0, // step whole track indices
-            6 => 1.0,
+            6 => if (coarse) @as(f32, 5.0) else 1.0, // step whole track indices
+            7 => 1.0,
             else => tableStep(&comp_specs, idx, coarse),
         },
         .gate => tableStep(&gate_specs, idx, coarse),
@@ -1643,13 +1650,13 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
             };
         },
         .comp => switch (idx) {
-            0, 4 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            0, 4, 5 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
             1 => std.fmt.bufPrint(buf, "{d:.1}:1", .{v}) catch "?",
             2, 3 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
             // Include the track name so changing this routing does not
             // require memorizing which numbered row holds the kick. Keep
             // the number too, since that is what h/l is cycling through.
-            5 => if (v < 0.5) "none" else blk: {
+            6 => if (v < 0.5) "none" else blk: {
                 const track: usize = @intFromFloat(v - 1.0);
                 if (track >= app.session.project.tracks.items.len)
                     break :blk std.fmt.bufPrint(buf, "trk {d:.0}", .{v}) catch "?";
@@ -1658,7 +1665,7 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
             },
             // As with the track picker, keep the number visible while
             // adding the name users actually recognize from the drum grid.
-            6 => if (v < 0.5) "-" else blk: {
+            7 => if (v < 0.5) "-" else blk: {
                 const source = p.comp.sidechain_source orelse
                     break :blk std.fmt.bufPrint(buf, "pad {d:.0}", .{v}) catch "?";
                 if (source.track >= app.session.racks.items.len)
@@ -1675,6 +1682,7 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
         .mb_comp => switch (idx) {
             mb_xover_lo, mb_xover_hi => std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?",
             mb_attack, mb_release => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
+            mb_knee => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
             mb_style => if (v < 0.5) "classic" else "OTT",
             mb_mix => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
             else => switch (mbBandField(idx).field) {
