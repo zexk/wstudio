@@ -7,6 +7,8 @@
 const std = @import("std");
 const types = @import("../core/types.zig");
 const wav = @import("../core/wav.zig");
+const lfo_dsp = @import("lfo.zig");
+const Lfo = lfo_dsp.Lfo;
 
 const Sample = types.Sample;
 
@@ -72,7 +74,31 @@ pub const Pad = struct {
     /// `gate` this needs no note-off, which is what makes it useful to a step
     /// sequencer. `gate` wins when both are set - see `playMode`.
     retrig: bool = false,
+
+    /// Free-running per-pad LFO (see `dsp/lfo.zig`). Ticked once per block
+    /// by the owning engine's `processBlock` (mutable access - `renderVoice`
+    /// only ever borrows `*const Pad`), then read here by `renderVoice` to
+    /// offset whichever field `mod_dest` names. Phase alone, not persisted
+    /// as meaningful state - a reload resumes at phase 0, same as any FX
+    /// unit's own `Lfo` on project load.
+    mod_lfo: Lfo = .{},
+    /// LFO rate in Hz (0.02..20).
+    mod_rate_hz: f32 = 2.0,
+    /// LFO depth (0..1), scales the bipolar sample before it's added to
+    /// `mod_dest`'s field.
+    mod_depth: f32 = 0.0,
+    mod_shape: lfo_dsp.Shape = .sine,
+    /// Which field the LFO offsets. `.off` (the default) means every
+    /// existing pad is unaffected - `renderVoice`/the owning engine's tick
+    /// site skip the LFO entirely in that case.
+    mod_dest: ModDest = .off,
 };
+
+/// Destinations a pad's LFO can offset. Deliberately a single choice, not a
+/// matrix - see `dsp/synth.zig`'s `ModRow` for the richer per-voice version
+/// this doesn't try to be.
+pub const ModDest = enum { off, pitch, gain, pan, filter };
+pub const mod_dest_names = [_][]const u8{ "off", "pitch", "gain", "pan", "filter" };
 
 /// The three mutually exclusive things the `gate`/`retrig` pair encodes.
 /// Read/write it through `playMode`/`setPlayMode` rather than the raw flags.
@@ -115,12 +141,14 @@ pub fn emptyPad() *const Pad {
 /// Number of shared, continuous per-pad params `adjustParam`/`setParamAbsolute`/
 /// `paramValue` cover - start/end/pitch/attack/decay/sustain/release/gain/pan,
 /// the reverse toggle at id 9, the fade in/out pair at 10/11, stretch at 12,
-/// filter at 13 and the gate toggle at 14. Callers with extra ids of their own
-/// (Sampler's root_note/mono, ...) dispatch those separately and fall through
-/// to these for 0-14. The *packed* half of the space must stay within one
-/// nibble - DrumMachine/Slicer pack the param id into `paramId`'s low 4 bits,
-/// which 0-14 still fits; Sampler's own ids past this table are never packed.
-pub const param_count: u16 = 15;
+/// filter at 13, the gate toggle at 14, and the per-pad LFO's rate/depth/
+/// shape/dest at 15-18. Callers with extra ids of their own (Sampler's
+/// root_note/mono, ...) dispatch those separately and fall through to these
+/// for 0-18. The *packed* half of the space must stay within `paramId`'s
+/// param field - DrumMachine/Slicer pack the param id into its low 5 bits
+/// (32 slots), which 0-18 fits with room to spare; Sampler's own ids past
+/// this table are never packed.
+pub const param_count: u16 = 19;
 
 /// Ids of the two enum params in this table, so callers that need to treat
 /// them differently (undo capture, the automation param picker, the UI's
@@ -133,6 +161,10 @@ pub const gate_id: u16 = 14;
 /// project tempo shouldn't hardcode the indices.
 pub const pitch_id: u16 = 2;
 pub const stretch_id: u16 = 12;
+pub const mod_rate_id: u16 = 15;
+pub const mod_depth_id: u16 = 16;
+pub const mod_shape_id: u16 = 17;
+pub const mod_dest_id: u16 = 18;
 
 pub fn playDurationSeconds(pad: *const Pad, sample_rate: u32) f32 {
     if (sample_rate == 0 or pad.samples.len == 0) return 0;
@@ -180,6 +212,20 @@ pub fn adjustParam(pad: *Pad, id: u16, steps: i32) void {
         setPlayMode(pad, @enumFromInt(@mod(cur + steps, n)));
         return;
     }
+    if (id == mod_shape_id) {
+        if (steps == 0) return;
+        const n: i32 = @typeInfo(lfo_dsp.Shape).@"enum".fields.len;
+        const cur: i32 = @intFromEnum(pad.mod_shape);
+        pad.mod_shape = @enumFromInt(@mod(cur + steps, n));
+        return;
+    }
+    if (id == mod_dest_id) {
+        if (steps == 0) return;
+        const n: i32 = @typeInfo(ModDest).@"enum".fields.len;
+        const cur: i32 = @intFromEnum(pad.mod_dest);
+        pad.mod_dest = @enumFromInt(@mod(cur + steps, n));
+        return;
+    }
     if (id == 6) {
         pad.release_s = std.math.clamp(pad.release_s * std.math.pow(f32, 2.0, @as(f32, @floatFromInt(steps)) / 12.0), 0.001, 5.0);
         return;
@@ -211,6 +257,8 @@ fn paramStep(id: u16) f32 {
         8 => 0.05,
         12 => 0.05,
         13 => 0.02,
+        15 => 0.1,
+        16 => 0.02,
         else => 0.0,
     };
 }
@@ -236,6 +284,10 @@ pub fn setParamAbsolute(pad: *Pad, id: u16, value: f32) void {
         12 => pad.stretch_ratio = std.math.clamp(value, 0.25, 4.0),
         13 => pad.filter     = std.math.clamp(value, -1.0, 1.0),
         14 => setPlayMode(pad, @enumFromInt(@as(u8, @intFromFloat(std.math.clamp(@round(value), 0.0, @as(f32, play_mode_names.len - 1)))))),
+        15 => pad.mod_rate_hz = std.math.clamp(value, 0.02, 20.0),
+        16 => pad.mod_depth  = std.math.clamp(value, 0.0, 1.0),
+        17 => pad.mod_shape  = @enumFromInt(@as(u8, @intFromFloat(std.math.clamp(@round(value), 0.0, @as(f32, @typeInfo(lfo_dsp.Shape).@"enum".fields.len - 1))))),
+        18 => pad.mod_dest   = @enumFromInt(@as(u8, @intFromFloat(std.math.clamp(@round(value), 0.0, @as(f32, @typeInfo(ModDest).@"enum".fields.len - 1))))),
         // zig fmt: on
         else => {},
     }
@@ -273,6 +325,10 @@ pub fn paramValue(pad: *const Pad, id: u16) ?f32 {
         12 => pad.stretch_ratio,
         13 => pad.filter,
         14 => @floatFromInt(@intFromEnum(playMode(pad))),
+        15 => pad.mod_rate_hz,
+        16 => pad.mod_depth,
+        17 => @floatFromInt(@intFromEnum(pad.mod_shape)),
+        18 => @floatFromInt(@intFromEnum(pad.mod_dest)),
         // zig fmt: on
         else => null,
     };
@@ -426,13 +482,25 @@ pub fn renderVoice(
     if (region_len <= 1.0) { voice.active = false; return; }
     // zig fmt: on
 
-    const semis: f64 = @as(f64, pad.pitch_semitones) + @as(f64, @floatFromInt(voice.tune));
+    // The per-pad LFO offsets exactly one of pitch/gain/pan/filter - `.off`
+    // (every pad's default) keeps `mod_val` at 0, so every line below is
+    // byte-identical to before this modulation existed. `mod_lfo.phase` was
+    // already advanced for this block by the owning engine's `processBlock`
+    // (mutable access `renderVoice` doesn't have); this only reads it.
+    const mod_val: f32 = if (pad.mod_dest == .off) 0.0 else pad.mod_lfo.sample(pad.mod_shape) * pad.mod_depth;
+
+    const semis: f64 = @as(f64, pad.pitch_semitones) + @as(f64, @floatFromInt(voice.tune)) +
+        (if (pad.mod_dest == .pitch) @as(f64, mod_val) * 12.0 else 0.0);
     const rate: f64 = std.math.pow(f64, 2.0, semis / 12.0);
 
     // Linear pan: center keeps unity in both channels (matches the prior
-    // mono-to-both behaviour at pan = 0).
-    const gl: f32 = pad.gain * voice.vel * @min(1.0, 1.0 - pad.pan);
-    const gr: f32 = pad.gain * voice.vel * @min(1.0, 1.0 + pad.pan);
+    // mono-to-both behaviour at pan = 0). Gain modulation is multiplicative
+    // (tremolo dips toward silence rather than going negative); pan
+    // modulation is additive, same units as the pad's own `pan`.
+    const mod_gain_mult: f32 = if (pad.mod_dest == .gain) std.math.clamp(1.0 + mod_val, 0.0, 2.0) else 1.0;
+    const mod_pan: f32 = if (pad.mod_dest == .pan) std.math.clamp(pad.pan + mod_val, -1.0, 1.0) else pad.pan;
+    const gl: f32 = pad.gain * mod_gain_mult * voice.vel * @min(1.0, 1.0 - mod_pan);
+    const gr: f32 = pad.gain * mod_gain_mult * voice.vel * @min(1.0, 1.0 + mod_pan);
 
     // WSOLA time-stretch: only when requested and the region holds at least
     // two grains' worth of material - otherwise fall through to the plain
@@ -450,7 +518,10 @@ pub fn renderVoice(
     }
     voice.stretch.active = false;
 
-    const fc = filterCoef(pad.filter, sample_rate);
+    // Stretched playback (above) never reaches this filter application - a
+    // pre-existing gap this modulation inherits rather than fixes.
+    const mod_filter: f32 = if (pad.mod_dest == .filter) std.math.clamp(pad.filter + mod_val, -1.0, 1.0) else pad.filter;
+    const fc = filterCoef(mod_filter, sample_rate);
     const gated = pad.gate;
 
     const start = voice.block_start;
@@ -858,6 +929,63 @@ test "WSOLA alignment stays inside the trimmed sample region" {
     try std.testing.expectEqual(@as(f64, 79.0), searchBestAlign(&samples, 30.0, 100.0, 2.0, 10.0, 1.0, 20.0, 80.0));
 }
 
+test "the per-pad LFO offsets exactly the field mod_dest names; .off changes nothing" {
+    const testing = std.testing;
+    var samples = [_]f32{1.0} ** 200; // DC at unity
+
+    const neutral = Pad{ .samples = &samples, .attack_s = 0.0, .release_s = 0.001 };
+    var neutral_voice = Voice{ .active = true };
+    var neutral_buf = [_]Sample{0.0} ** 400;
+    renderVoice(&neutral_voice, &neutral, &neutral_buf, 2, 200, 1000.0);
+
+    // Garbage-filled mod fields, but .off: must render identically to the
+    // untouched pad above - the destination switch, not the fields
+    // themselves, is what gates modulation.
+    const off = Pad{
+        .samples = &samples,
+        .attack_s = 0.0,
+        .release_s = 0.001,
+        .mod_lfo = .{ .phase = 0.25 },
+        .mod_depth = 1.0,
+        .mod_dest = .off,
+    };
+    var off_voice = Voice{ .active = true };
+    var off_buf = [_]Sample{0.0} ** 400;
+    renderVoice(&off_voice, &off, &off_buf, 2, 200, 1000.0);
+    try testing.expectEqualSlices(Sample, &neutral_buf, &off_buf);
+
+    // Gain dest: phase 0.25 -> sine 1.0 -> mod_gain_mult clamps to 2.0, so
+    // the block renders at exactly double the neutral gain.
+    const gained = Pad{
+        .samples = &samples,
+        .attack_s = 0.0,
+        .release_s = 0.001,
+        .mod_lfo = .{ .phase = 0.25 },
+        .mod_depth = 1.0,
+        .mod_dest = .gain,
+    };
+    var gained_voice = Voice{ .active = true };
+    var gained_buf = [_]Sample{0.0} ** 400;
+    renderVoice(&gained_voice, &gained, &gained_buf, 2, 200, 1000.0);
+    try testing.expectApproxEqAbs(neutral_buf[100 * 2] * 2.0, gained_buf[100 * 2], 0.02);
+
+    // Filter dest: phase 0.25 -> offset +1.0, pushing the bipolar filter to
+    // its high-pass extreme - a steady DC input decays toward zero instead
+    // of holding at unity like the unfiltered neutral render.
+    const filtered = Pad{
+        .samples = &samples,
+        .attack_s = 0.0,
+        .release_s = 0.001,
+        .mod_lfo = .{ .phase = 0.25 },
+        .mod_depth = 1.0,
+        .mod_dest = .filter,
+    };
+    var filtered_voice = Voice{ .active = true };
+    var filtered_buf = [_]Sample{0.0} ** 400;
+    renderVoice(&filtered_voice, &filtered, &filtered_buf, 2, 200, 1000.0);
+    try testing.expect(@abs(filtered_buf[190 * 2]) < 0.5);
+}
+
 test "adjustParam uses the same bounds as absolute parameter assignment" {
     const testing = std.testing;
     const initial = Pad{
@@ -878,7 +1006,7 @@ test "adjustParam uses the same bounds as absolute parameter assignment" {
     for (0..param_count) |raw_id| {
         // Toggles and perceptually-scaled time controls do not use additive
         // `paramStep`; each gets focused assertions below.
-        if (raw_id == reverse_id or raw_id == gate_id or raw_id == 3 or raw_id == 4 or raw_id == 6 or raw_id == 10 or raw_id == 11) continue;
+        if (raw_id == reverse_id or raw_id == gate_id or raw_id == 3 or raw_id == 4 or raw_id == 6 or raw_id == 10 or raw_id == 11 or raw_id == mod_shape_id or raw_id == mod_dest_id) continue;
         const id: u8 = @intCast(raw_id);
         var nudged = initial;
         var assigned = initial;

@@ -312,12 +312,15 @@ pub const DrumMachine = struct {
     /// stashed here by `handleEvent`, consumed and cleared by the very next
     /// `processBlock` call.
     const PadCapture = struct { pad: u8, buf: []Sample };
-    /// Id-space stride per pad. `set_param` ids are `pad << 4 | param`, so the
-    /// stride is a power of two and pad/param decode with shift + mask.
-    /// u16: at max_pads=64, `63 << 4 | param` is 1008+, past what a u8 id
-    /// could hold (this used to cap addressable pads at 15) - see
-    /// dsp/device.zig's Event.set_param doc comment.
-    pub const param_stride: u16 = 16;
+    /// Id-space stride per pad. `set_param` ids are `pad << 5 | param`, so the
+    /// stride is a power of two and pad/param decode with shift + mask. Was
+    /// 16 (4-bit param field) until the per-pad LFO's 4 new ids pushed
+    /// `pad_dsp.param_count` past 16; widened to 32 (5 bits) rather than
+    /// adding a second id mechanism. u16: at max_pads=64, `63 << 5 | param`
+    /// is 2016+, still well past what a u8 id could hold (this used to cap
+    /// addressable pads at 15) - see dsp/device.zig's Event.set_param doc
+    /// comment.
+    pub const param_stride: u16 = 32;
 
     allocator: std.mem.Allocator,
     sample_rate: u32,
@@ -1165,20 +1168,20 @@ pub const DrumMachine = struct {
 
     /// Encode a (pad, param) pair into the `set_param` id space.
     pub fn paramId(pad: u8, param: u8) u16 {
-        return (@as(u16, pad) << 4) | (param & 0x0F);
+        return (@as(u16, pad) << 5) | (param & 0x1F);
     }
 
     /// Nudge a per-pad sampler param by `steps` (h/l = ±1, H/L = ±10). Runs on
     /// the audio thread via the `set_param` event so it never races the block
     /// reader, mirroring PolySynth.adjustParam. The pad index is the high bits
-    /// of `id`; the param index is the low nibble (see `paramId`). Delegates
+    /// of `id`; the param index is the low 5 bits (see `paramId`). Delegates
     /// straight to the pad's own Sampler.adjustParam - pads only ever receive
     /// param indices below `pad_param_count` (the drum grid never exposes
     /// Sampler's root-note/mono ids past it). A no-op on an unloaded (null)
     /// pad - nothing to nudge.
     pub fn adjustParam(self: *DrumMachine, id: u16, steps: i32) void {
-        const pad_idx: u8 = @intCast(id >> 4);
-        const param: u8 = @intCast(id & 0x0F);
+        const pad_idx: u8 = @intCast(id >> 5);
+        const param: u8 = @intCast(id & 0x1F);
         if (pad_idx >= max_pads) return;
         if (self.pads[pad_idx]) |*s| s.adjustParam(param, steps);
     }
@@ -1188,8 +1191,8 @@ pub const DrumMachine = struct {
     /// Sampler.setParamAbsolute. Runs on the audio thread via the
     /// `set_param_abs` event.
     pub fn setParamAbsolute(self: *DrumMachine, id: u16, value: f32) void {
-        const pad_idx: u8 = @intCast(id >> 4);
-        const param: u8 = @intCast(id & 0x0F);
+        const pad_idx: u8 = @intCast(id >> 5);
+        const param: u8 = @intCast(id & 0x1F);
         if (pad_idx >= max_pads) return;
         if (self.pads[pad_idx]) |*s| s.setParamAbsolute(param, value);
     }
@@ -1198,8 +1201,8 @@ pub const DrumMachine = struct {
     /// half of undo's capture/restore pair - null for an unloaded pad,
     /// matching `adjustParam`'s no-op there.
     pub fn paramValue(self: *const DrumMachine, id: u16) ?f32 {
-        const pad_idx: u8 = @intCast(id >> 4);
-        const param: u8 = @intCast(id & 0x0F);
+        const pad_idx: u8 = @intCast(id >> 5);
+        const param: u8 = @intCast(id & 0x1F);
         if (pad_idx >= max_pads) return null;
         if (self.pads[pad_idx]) |*s| return s.paramValue(param);
         return null;
@@ -2614,6 +2617,22 @@ test "adjustParam decodes pad/param and clamps" {
     const before = dm.pads[1].?.pad.reverse;
     dm.adjustParam(DrumMachine.paramId(1, 9), 1);
     try std.testing.expectEqual(!before, dm.pads[1].?.pad.reverse);
+}
+
+test "paramId's widened 5-bit param field round-trips a pad up to the new mod ids" {
+    // pad 63, param 18 (mod_dest) - the widened boundary this stride exists
+    // for; a 4-bit field couldn't have addressed either coordinate.
+    const id = DrumMachine.paramId(63, 18);
+    try std.testing.expectEqual(@as(u16, 63), id >> 5);
+    try std.testing.expectEqual(@as(u16, 18), id & 0x1F);
+
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try testMachine(&transport);
+    defer dm.deinit();
+
+    dm.setParamAbsolute(DrumMachine.paramId(0, pad_mod.mod_dest_id), 2.0); // 2 = .gain
+    try std.testing.expectEqual(pad_mod.ModDest.gain, dm.pads[0].?.pad.mod_dest);
+    try std.testing.expectApproxEqAbs(@as(f32, 2.0), dm.paramValue(DrumMachine.paramId(0, pad_mod.mod_dest_id)).?, 1e-6);
 }
 
 test "region trim shortens the voice" {

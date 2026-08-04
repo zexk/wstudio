@@ -112,7 +112,7 @@ pub fn drawSamplerEditor(
     }
 
     // ── Waveform panel ───────────────────────────
-    // The section headers + param rows need ~17 (pad/slice) / ~21 (sampler)
+    // The section headers + param rows need ~22 (pad/slice) / ~26 (sampler)
     // lines; give the waveform whatever vertical space remains, capped for
     // readability.
     const param_lines = sampler_ed.paramLineCount(pad_target);
@@ -189,6 +189,17 @@ pub fn drawSamplerEditor(
     try barRow(w, c == 11, false, acc, "fade out", pad.fade_out_s, duration,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{pad.fade_out_s}));
     written += 2;
+
+    // ── MOD: per-pad LFO offsetting one of pitch/gain/pan/filter ─────────────
+    try synthSection(w, sampler_ed.pad_sections[4].title, bcyn);
+    written += 1;
+    try barRow(w, c == 15, false, bcyn, "rate", pad.mod_rate_hz, 20.0,
+        try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{pad.mod_rate_hz}));
+    try barRow(w, c == 16, false, bcyn, "depth", pad.mod_depth, 1.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{pad.mod_depth}));
+    try enumRow(w, c == 17, false, bcyn, "shape", &ws.dsp.lfo.shape_names, @intFromEnum(pad.mod_shape));
+    try enumRow(w, c == 18, false, bcyn, "dest", &ws.dsp.pad.mod_dest_names, @intFromEnum(pad.mod_dest));
+    written += 4;
 
     // ── KEY (standalone sampler only): the root note ─────────────────────────
     if (!pad_target) {

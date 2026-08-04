@@ -11,6 +11,7 @@ const Wavetable = wavetable.Wavetable;
 pub const BundledWavetable = wavetable.Bundled;
 const Transport = @import("../transport.zig").Transport;
 const FxModBus = @import("fx_mod.zig").Bus;
+const lfo_dsp = @import("lfo.zig");
 
 const Sample = types.Sample;
 
@@ -2573,10 +2574,10 @@ pub const PolySynth = struct {
     fn lfoSample(shape: LfoShape, phase: f32) f32 {
         return switch (shape) {
             // zig fmt: off
-            .sine     => @sin(2.0 * std.math.pi * phase),
-            .triangle => 1.0 - 4.0 * @abs(phase - 0.5),
-            .saw      => 2.0 * phase - 1.0,
-            .square   => if (phase < 0.5) 1.0 else -1.0,
+            .sine     => lfo_dsp.Lfo.sample(.{ .phase = phase }, .sine),
+            .triangle => lfo_dsp.Lfo.sample(.{ .phase = phase }, .triangle),
+            .saw      => lfo_dsp.Lfo.sample(.{ .phase = phase }, .saw),
+            .square   => lfo_dsp.Lfo.sample(.{ .phase = phase }, .square),
             // Held/integrated state lives on PolySynth.lfo_sh/lfo_chaos,
             // user-drawn points on PolySynth.lfo_custom; callers go through
             // lfoVal, which never reaches here for .sh/.chaos/.custom.

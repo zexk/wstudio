@@ -83,9 +83,11 @@ pub const Slicer = struct {
     /// without Sampler's full 16 (a slicer track can have up to 64 of these
     /// pools live at once, unlike Sampler's single pad).
     pub const max_voices_per_slice: u8 = 4;
-    /// `set_param`/`set_param_abs` ids are `slice << 4 | param` - same shape
-    /// DrumMachine.paramId uses for its own per-pad params.
-    pub const param_stride: u16 = 16;
+    /// `set_param`/`set_param_abs` ids are `slice << 5 | param` - same shape
+    /// DrumMachine.paramId uses for its own per-pad params (widened from a
+    /// 4-bit to a 5-bit param field alongside it - see that constant's doc
+    /// comment).
+    pub const param_stride: u16 = 32;
 
     pub const vel_full: u8 = 127;
     /// Named preset bands `cycleStepVel` steps through - same ladder as
@@ -637,26 +639,26 @@ pub const Slicer = struct {
     }
 
     // -----------------------------------------------------------------------
-    // Param editing - `id` is `slice << 4 | param` (see `param_stride`).
+    // Param editing - `id` is `slice << 5 | param` (see `param_stride`).
 
     pub fn adjustParam(self: *Slicer, id: u16, steps: i32) void {
-        const slice_idx = id >> 4;
-        const param: u8 = @intCast(id & 0x0F);
+        const slice_idx = id >> 5;
+        const param: u8 = @intCast(id & 0x1F);
         if (slice_idx >= max_slices) return;
         pad_mod.adjustParam(&self.slices[slice_idx], param, steps);
         if (pad_mod.affectsTimeRange(param)) pad_mod.clampTimeParamsToDuration(&self.slices[slice_idx], self.sample_rate);
     }
 
     pub fn paramId(slice: u8, param: u8) u16 {
-        return (@as(u16, slice) << 4) | (param & 0x0F);
+        return (@as(u16, slice) << 5) | (param & 0x1F);
     }
 
     /// Set slice-encoded param `id` to an absolute value (same clamps as
     /// `adjustParam`'s per-step nudges) - undo's restore half, mirroring
     /// `DrumMachine.setParamAbsolute`.
     pub fn setParamAbsolute(self: *Slicer, id: u16, value: f32) void {
-        const slice_idx = id >> 4;
-        const param: u8 = @intCast(id & 0x0F);
+        const slice_idx = id >> 5;
+        const param: u8 = @intCast(id & 0x1F);
         if (slice_idx >= max_slices) return;
         pad_mod.setParamAbsolute(&self.slices[slice_idx], param, value);
         if (pad_mod.affectsTimeRange(param)) pad_mod.clampTimeParamsToDuration(&self.slices[slice_idx], self.sample_rate);
@@ -666,8 +668,8 @@ pub const Slicer = struct {
     /// encoding (reverse as 0/1) - undo's capture half. Null past the live
     /// slice count, so undo skips rather than editing an inert slot.
     pub fn paramValue(self: *const Slicer, id: u16) ?f32 {
-        const slice_idx = id >> 4;
-        const param: u8 = @intCast(id & 0x0F);
+        const slice_idx = id >> 5;
+        const param: u8 = @intCast(id & 0x1F);
         if (slice_idx >= self.slice_count) return null;
         return pad_mod.paramValue(&self.slices[slice_idx], param);
     }
@@ -1244,6 +1246,10 @@ pub const Slicer = struct {
         }
 
         for (self.slices[0..self.slice_count], self.voices[0..self.slice_count]) |*pad, *pool| {
+            // One shared LFO phase per block, same reasoning as
+            // Sampler.processBlock: tick once here rather than per-voice, so
+            // simultaneous voices on this slice (rolls) stay in phase.
+            if (pad.mod_dest != .off) pad.mod_lfo.tick(pad.mod_rate_hz / @as(f32, @floatCast(sr)));
             for (pool) |*sv| {
                 if (!sv.active) continue;
                 // Keep a mid-block trigger's `block_start` offset for its

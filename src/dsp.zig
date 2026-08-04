@@ -33,6 +33,7 @@ pub const FreqShifter = @import("dsp/freq_shift.zig").FreqShifter;
 pub const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 pub const Pad = @import("dsp/pad.zig").Pad;
 pub const pad = @import("dsp/pad.zig");
+pub const lfo = @import("dsp/lfo.zig");
 pub const Sampler = @import("dsp/sampler.zig").Sampler;
 pub const pitch = @import("dsp/pitch.zig");
 pub const tempo = @import("dsp/tempo.zig");

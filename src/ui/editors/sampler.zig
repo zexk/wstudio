@@ -28,7 +28,7 @@ pub const ParamRow = struct {
     gui_format: [:0]const u8,
 };
 
-pub const SectionKind = enum { sample, envelope, output, fade, key };
+pub const SectionKind = enum { sample, envelope, output, fade, mod, key };
 pub const Section = struct { kind: SectionKind, title: [:0]const u8, rows: []const ParamRow };
 
 // zig fmt: off
@@ -55,6 +55,12 @@ pub const pad_sections = [_]Section{
     .{ .kind = .fade, .title = "FADE", .rows = &.{
         .{ .id = 10, .label = "Fade in",  .gui_format = "%.3f s" },
         .{ .id = 11, .label = "Fade out", .gui_format = "%.3f s" },
+    } },
+    .{ .kind = .mod, .title = "MOD", .rows = &.{
+        .{ .id = 15, .label = "Rate",  .gui_format = "%.2f Hz" },
+        .{ .id = 16, .label = "Depth", .gui_format = "%.2f" },
+        .{ .id = 17, .label = "Shape", .gui_format = "%.0f" },
+        .{ .id = 18, .label = "Dest",  .gui_format = "%.0f" },
     } },
 };
 pub const key_section: Section = .{ .kind = .key, .title = "KEY", .rows = &.{
@@ -287,12 +293,12 @@ test "param row order follows the drawn rows, not the raw id space" {
     // A drum pad / slice: stretch (id 12) draws inside SAMPLE, so j from
     // pitch has to land on it rather than skipping to the AMP ENV section.
     const pad = paramOrder(true, DrumMachine.pad_param_count, &buf);
-    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 14, 3, 4, 5, 6, 7, 8, 9, 13, 10, 11 }, pad);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 14, 3, 4, 5, 6, 7, 8, 9, 13, 10, 11, 15, 16, 17, 18 }, pad);
 
     var buf2: [24]u8 = undefined;
     // A standalone Sampler adds the KEY section at the bottom.
     const sampler = paramOrder(false, Sampler.param_count, &buf2);
-    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 14, 3, 4, 5, 6, 7, 8, 9, 13, 10, 11, 15, 16 }, sampler);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 14, 3, 4, 5, 6, 7, 8, 9, 13, 10, 11, 15, 16, 17, 18, Sampler.root_note_id, Sampler.mono_id }, sampler);
 }
 
 /// Audition the sampler editor's current target.

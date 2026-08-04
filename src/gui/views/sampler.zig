@@ -109,6 +109,10 @@ fn drawSharedSections(app: anytype, target: Target) void {
                     drawEnum(app, target, row.id, &.{ "FORWARD", "REVERSE" }, toggle_accent)
                 else if (row.id == ws.dsp.pad.gate_id)
                     drawEnum(app, target, row.id, &.{ "ONE-SHOT", "GATE", "RETRIGGER" }, toggle_accent)
+                else if (row.id == ws.dsp.pad.mod_shape_id)
+                    drawEnum(app, target, row.id, &.{ "SINE", "TRIANGLE", "SAW", "SQUARE" }, toggle_accent)
+                else if (row.id == ws.dsp.pad.mod_dest_id)
+                    drawEnum(app, target, row.id, &.{ "OFF", "PITCH", "GAIN", "PAN", "FILTER" }, toggle_accent)
                 else
                     drawParam(app, target, row.id, row.label, row.gui_format);
             }

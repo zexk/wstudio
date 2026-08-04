@@ -39,6 +39,7 @@ const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 const drum_kit = @import("dsp/drum_kit.zig");
 const pad_mod = @import("dsp/pad.zig");
 const Pad = pad_mod.Pad;
+const lfo_mod = @import("dsp/lfo.zig");
 const Sampler = @import("dsp/sampler.zig").Sampler;
 const Slicer = @import("dsp/slicer.zig").Slicer;
 const SoundfontPlayer = @import("dsp/soundfont_player.zig").SoundfontPlayer;
@@ -388,6 +389,14 @@ pub const PadSnap = struct {
     /// omitted `used` as `true` for exactly those legacy positions - see
     /// `buildSession`.
     used: bool = false,
+    /// Per-pad LFO (see `dsp.Pad.mod_lfo`). Additive optional-with-default
+    /// fields, no version bump needed - an older file omits them and loads
+    /// with `mod_dest = .off`, silently unmodulated, exactly how it behaved
+    /// when it was saved.
+    mod_rate_hz: f32 = 2.0,
+    mod_depth: f32 = 0.0,
+    mod_shape: lfo_mod.Shape = .sine,
+    mod_dest: pad_mod.ModDest = .off,
 };
 
 /// v23: one drum-machine note - position, duration, velocity - replacing
@@ -1157,6 +1166,8 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
                     .fade_in_s = s.pad.fade_in_s, .fade_out_s = s.pad.fade_out_s,
                     .stretch_ratio = s.pad.stretch_ratio,
                     .filter = s.pad.filter, .gate = s.pad.gate, .retrig = s.pad.retrig,
+                    .mod_rate_hz = s.pad.mod_rate_hz, .mod_depth = s.pad.mod_depth,
+                    .mod_shape = s.pad.mod_shape, .mod_dest = s.pad.mod_dest,
                     // Always saved - see the drum pad loop's comment above.
                     .name = try aa.dupe(u8, s.clipName()),
                 },
@@ -1215,6 +1226,8 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
                         .fade_in_s = p.fade_in_s, .fade_out_s = p.fade_out_s,
                         .stretch_ratio = p.stretch_ratio,
                         .filter = p.filter, .gate = p.gate, .retrig = p.retrig,
+                        .mod_rate_hz = p.mod_rate_hz, .mod_depth = p.mod_depth,
+                        .mod_shape = p.mod_shape, .mod_dest = p.mod_dest,
                         // Always saved (like a track name), independent of
                         // whether the pad has user-loaded audio - a `:rename`
                         // on a shipped-kit pad has no sample_file to carry the
@@ -1251,6 +1264,8 @@ fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
                     .fade_in_s = p.fade_in_s, .fade_out_s = p.fade_out_s,
                     .stretch_ratio = p.stretch_ratio,
                     .filter = p.filter, .gate = p.gate, .retrig = p.retrig,
+                    .mod_rate_hz = p.mod_rate_hz, .mod_depth = p.mod_depth,
+                    .mod_shape = p.mod_shape, .mod_dest = p.mod_dest,
                 };
             }
             sls.slices = slices;
@@ -2611,6 +2626,10 @@ fn applyPadSnap(p: *Pad, ps: PadSnap) void {
     p.filter          = finiteClamp(f32, ps.filter, -1.0, 1.0, 0.0);
     p.gate            = ps.gate;
     p.retrig          = ps.retrig;
+    p.mod_rate_hz     = finiteClamp(f32, ps.mod_rate_hz, 0.02, 20.0, 2.0);
+    p.mod_depth       = finiteClamp(f32, ps.mod_depth, 0.0, 1.0, 0.0);
+    p.mod_shape       = ps.mod_shape;
+    p.mod_dest        = ps.mod_dest;
 }
 // zig fmt: on
 
@@ -3514,6 +3533,68 @@ test "save/load round-trip persists a slicer's slices, pattern, and swing" {
     try testing.expectEqual(@as(u8, 90), sl.stepVel(2, 5));
     try testing.expectEqual(@as(u8, 24), sl.step_count);
     try testing.expectApproxEqAbs(@as(f32, 65.0), sl.swing.load(.monotonic), 1e-4);
+}
+
+test "save/load round-trip persists a pad's LFO mod params across sampler, drum, and slicer" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/mod.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try session.setInstrument(0, .sampler);
+    _ = try session.addTrack("drum");
+    try session.setInstrument(1, .drum_machine);
+    _ = try session.addTrack("slice");
+    try session.setInstrument(2, .slicer);
+
+    {
+        const s = &session.racks.items[0].instrument.sampler;
+        s.pad.mod_rate_hz = 5.5;
+        s.pad.mod_depth = 0.7;
+        s.pad.mod_shape = .square;
+        s.pad.mod_dest = .filter;
+    }
+    {
+        const dm = &session.racks.items[1].instrument.drum_machine;
+        try dm.loadKitVariant(drum_kit.byName("default").?);
+        dm.pads[0].?.pad.mod_rate_hz = 3.25;
+        dm.pads[0].?.pad.mod_depth = 0.4;
+        dm.pads[0].?.pad.mod_shape = .triangle;
+        dm.pads[0].?.pad.mod_dest = .pan;
+    }
+    {
+        const sl = &session.racks.items[2].instrument.slicer;
+        sl.sliceInto(2);
+        sl.slices[1].mod_rate_hz = 8.0;
+        sl.slices[1].mod_depth = 1.0;
+        sl.slices[1].mod_shape = .saw;
+        sl.slices[1].mod_dest = .pitch;
+    }
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+
+    const s = &loaded.racks.items[0].instrument.sampler;
+    try testing.expectApproxEqAbs(@as(f32, 5.5), s.pad.mod_rate_hz, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 0.7), s.pad.mod_depth, 1e-4);
+    try testing.expectEqual(lfo_mod.Shape.square, s.pad.mod_shape);
+    try testing.expectEqual(pad_mod.ModDest.filter, s.pad.mod_dest);
+
+    const dm = &loaded.racks.items[1].instrument.drum_machine;
+    try testing.expectApproxEqAbs(@as(f32, 3.25), dm.pads[0].?.pad.mod_rate_hz, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 0.4), dm.pads[0].?.pad.mod_depth, 1e-4);
+    try testing.expectEqual(lfo_mod.Shape.triangle, dm.pads[0].?.pad.mod_shape);
+    try testing.expectEqual(pad_mod.ModDest.pan, dm.pads[0].?.pad.mod_dest);
+
+    const sl = &loaded.racks.items[2].instrument.slicer;
+    try testing.expectApproxEqAbs(@as(f32, 8.0), sl.slices[1].mod_rate_hz, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), sl.slices[1].mod_depth, 1e-4);
+    try testing.expectEqual(lfo_mod.Shape.saw, sl.slices[1].mod_shape);
+    try testing.expectEqual(pad_mod.ModDest.pitch, sl.slices[1].mod_dest);
 }
 
 test "save/load round-trip persists a slicer's variant bank and choke groups" {

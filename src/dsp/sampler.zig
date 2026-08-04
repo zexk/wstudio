@@ -25,7 +25,7 @@ const Sample = types.Sample;
 pub const Sampler = struct {
     pub const max_voices: u8 = 16;
     /// Number of editable params (see `adjustParam`).
-    pub const param_count: u16 = 17;
+    pub const param_count: u16 = pad_dsp.param_count + 2;
     /// Sampler-only param ids, appended past `pad.zig`'s shared table.
     pub const root_note_id: u16 = pad_dsp.param_count;
     pub const mono_id: u16 = pad_dsp.param_count + 1;
@@ -290,6 +290,12 @@ pub const Sampler = struct {
 
         while (!self.pad_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.pad_lock.unlock();
+
+        // One shared LFO phase per block, read by every simultaneously
+        // active voice below (each copies it into its own `eff` snapshot) -
+        // ticking once here, not per-voice, is what keeps polyphonic notes
+        // on this pad in phase with each other.
+        if (self.pad.mod_dest != .off) self.pad.mod_lfo.tick(self.pad.mod_rate_hz / @as(f32, @floatCast(sr)));
 
         for (&self.voices) |*nv| {
             if (!nv.active) continue;
