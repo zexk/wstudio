@@ -108,11 +108,7 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
     const testing = std.testing;
     const aa = testing.allocator;
 
-    const drum_pattern: [DrumMachine.max_pads]u64 = blk: {
-        var p = [_]u64{0} ** DrumMachine.max_pads;
-        p[0] = 1 << 5;
-        break :blk p;
-    };
+    const drum_notes = [_]DrumNoteSnap{.{ .pad = 0, .step = 5 }};
 
     const snap_in: Snapshot = .{
         .tempo_bpm = 140.0,
@@ -143,7 +139,7 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
             .{
                 .label = "drums",
                 .kind = .drum_machine,
-                .drum = .{ .step_count = 16, .pattern = &drum_pattern },
+                .drum = .{ .variants = &.{.{ .step_count = 16, .notes = &drum_notes }} },
             },
         },
     };
@@ -176,24 +172,19 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
     try testing.expectEqualStrings("supersaw", snap_out.racks[0].label);
 
     const dr = snap_out.racks[1].drum.?;
-    try testing.expectEqual(@as(u16, 16), dr.step_count);
-    try testing.expectEqual(@as(u64, 1 << 5), dr.pattern[0]);
-    try testing.expectEqual(@as(u64, 0), dr.pattern[1]);
+    try testing.expectEqual(@as(u16, 16), dr.variants[0].step_count);
+    try testing.expectEqual(@as(usize, 1), dr.variants[0].notes.len);
+    try testing.expectEqual(@as(u8, 0), dr.variants[0].notes[0].pad);
+    try testing.expectEqual(@as(u16, 5), dr.variants[0].notes[0].step);
 }
 
 test "buildSession: constructs valid Session from snapshot" {
     const testing = std.testing;
 
-    const drum_pattern: [DrumMachine.max_pads]u64 = blk: {
-        var p = [_]u64{0} ** DrumMachine.max_pads;
-        p[0] = 1 << 5;
-        break :blk p;
-    };
     var pads_snap = [_]PadSnap{.{}} ** DrumMachine.max_pads;
     pads_snap[0] = .{ .used = true, .pitch_semitones = 7.0, .reverse = true, .end_norm = 0.5 };
 
     const snap: Snapshot = .{
-        .version = 22,
         .tempo_bpm = 140.0,
         .sample_rate = 48_000,
         .tracks = &.{
@@ -213,14 +204,12 @@ test "buildSession: constructs valid Session from snapshot" {
                     },
                     .length_beats = 8.0,
                 },
-                .fx = .{ .comp = .{ .threshold_db = -24.0, .ratio = 6.0, .attack_ms = 5.0, .release_ms = 60.0, .makeup_db = 3.0 } },
             },
             .{
                 .label = "drums",
                 .kind = .drum_machine,
                 .drum = .{
-                    .step_count = 16,
-                    .pattern = &drum_pattern,
+                    .variants = &.{.{ .step_count = 16, .notes = &.{.{ .pad = 0, .step = 5 }} }},
                     .pads = &pads_snap,
                 },
             },
@@ -246,11 +235,6 @@ test "buildSession: constructs valid Session from snapshot" {
     try testing.expectEqual(@as(u16, 1), pp.note_count);
     try testing.expectEqual(@as(u7, 69), pp.notes[0].pitch);
     try testing.expectApproxEqAbs(@as(f64, 8.0), pp.length_beats, 1e-9);
-
-    // Legacy v9 `fx` field: loads as a one-unit chain.
-    const comp = &session.racks.items[0].fx.find(.comp).?.payload.comp;
-    try testing.expectApproxEqAbs(@as(f32, -24.0), comp.threshold_db, 1e-4);
-    try testing.expectApproxEqAbs(@as(f32, 6.0), comp.ratio, 1e-4);
 
     const dm = &session.racks.items[1].instrument.drum_machine;
     try testing.expect(dm.stepActive(0, 5));
@@ -292,33 +276,6 @@ test "buildSession: a loaded session's armed array is as long as its racks" {
     try session.deleteTrack(0);
     try testing.expectEqual(session.racks.items.len, session.armed.items.len);
     try testing.expect(session.isArmed(1));
-}
-
-test "buildSession: legacy master FX loads in the old fixed order" {
-    const testing = std.testing;
-
-    const snap: Snapshot = .{
-        .sample_rate = 48_000,
-        .tracks = &.{.{ .name = "lead" }},
-        .racks = &.{.{ .label = "lead", .kind = .empty }},
-        .master_fx = .{
-            .comp = .{ .threshold_db = -12.0, .ratio = 3.0, .attack_ms = 5.0, .release_ms = 60.0, .makeup_db = 1.5 },
-            .eq = .{ .band_gains = [_]f32{2.0} ** legacy_eq_band_count, .bypass = false },
-        },
-    };
-
-    var session = try buildSession(testing.allocator, &snap);
-    defer session.deinit();
-
-    // The v9 rack hard-wired comp before eq - the rebuilt chain keeps that.
-    try testing.expectEqual(@as(usize, 2), session.master_fx.units.items.len);
-    const comp = &session.master_fx.units.items[0].payload.comp;
-    try testing.expectApproxEqAbs(@as(f32, -12.0), comp.threshold_db, 1e-4);
-    try testing.expectApproxEqAbs(@as(f32, 3.0), comp.ratio, 1e-4);
-    const eq = &session.master_fx.units.items[1].payload.eq;
-    try testing.expectApproxEqAbs(@as(f32, 2.0), eq.bands[0].gain_db, 1e-4);
-    // Both units should have reached the engine's master chain.
-    try testing.expectEqual(@as(usize, 2), session.engine.master_chain.slice().len);
 }
 
 test "buildSession: v10 fx_chain keeps user order, duplicates, and bypass" {
@@ -980,18 +937,18 @@ test "buildSession: arrangement clips and song_mode round-trip" {
         .tracks = &.{ .{ .name = "keys" }, .{ .name = "drums" } },
         .racks = &.{
             .{ .label = "synth", .kind = .poly_synth, .synth = .{} },
-            .{ .label = "drums", .kind = .drum_machine, .drum = .{ .step_count = 16, .notes = &drum_notes } },
+            .{ .label = "drums", .kind = .drum_machine, .drum = .{ .variants = &.{.{ .step_count = 16, .notes = &drum_notes }} } },
         },
         .song_mode = true,
         .sections = &.{.{ .tick = 128, .name = "verse" }},
         .arrangement = &.{
             .{ .clips = &.{
-                .{ .start_bar = 2, .length_bars = 1, .kind = .melodic, .length_beats = 4.0, .notes = &.{
+                .{ .start_tick = 256, .length_ticks = 128, .kind = .melodic, .length_beats = 4.0, .notes = &.{
                     .{ .pitch = 64, .start_beat = 1.0, .duration_beat = 0.5, .velocity = 0.8 },
                 } },
             } },
             .{ .clips = &.{
-                .{ .start_bar = 0, .length_bars = 1, .kind = .drum, .step_count = 16, .drum_notes = &drum_notes },
+                .{ .start_tick = 0, .length_ticks = 128, .kind = .drum, .step_count = 16, .drum_notes = &drum_notes },
             } },
         },
     };
@@ -1041,7 +998,7 @@ test "clipToSnap/clipFromSnap round-trip gain/pan automation" {
     try testing.expectApproxEqAbs(@as(f32, -6.0), snap.gain_automation[0].value, 1e-6);
     try testing.expectEqual(@as(usize, 1), snap.pan_automation.len);
 
-    var restored = try clipFromSnap(testing.allocator, snap, 4, file_version);
+    var restored = try clipFromSnap(testing.allocator, snap);
     defer restored.deinit(testing.allocator);
     try testing.expectEqual(@as(usize, 2), restored.automation.gain.len);
     try testing.expectApproxEqAbs(@as(f64, 0.0), restored.automation.gain[0].beat, 1e-9);
@@ -1071,7 +1028,7 @@ test "clipFromSnap clamps automation points to the clip span" {
         .length_ticks = 32,
         .gain_automation = &.{.{ .beat = 99.0, .value = 0.0 }},
         .synth_param_automation = &.{.{ .param_id = 21, .points = &.{.{ .beat = 99.0, .value = 1000.0 }} }},
-    }, 4, file_version);
+    });
     defer clip.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(@as(f64, 1.0), clip.automation.gain[0].beat);
@@ -1084,7 +1041,7 @@ test "clipFromSnap replaces duplicate synth automation lanes without leaking" {
             .{ .param_id = 21, .points = &.{.{ .beat = 0.0, .value = 1000.0 }} },
             .{ .param_id = 21, .points = &.{.{ .beat = 0.0, .value = 2000.0 }} },
         },
-    }, 4, file_version);
+    });
     defer clip.deinit(std.testing.allocator);
 
     try std.testing.expectEqual(@as(usize, 1), clip.automation.synth_params.items.len);
@@ -1158,57 +1115,24 @@ test "load sanitizes non-finite project, automation, pad, and note fields" {
 test "clip load clamps invalid loop, step, and velocity values" {
     const testing = std.testing;
     var melodic = try clipFromSnap(testing.allocator, .{
-        .start_bar = 0,
-        .length_bars = 1,
         .length_beats = std.math.nan(f64),
-    }, 4, file_version);
+    });
     defer melodic.deinit(testing.allocator);
     try testing.expectEqual(@as(f64, 1.0), melodic.content.melodic.length_beats);
 
-    // A legacy (pre-v23) drum clip: one hit on pad 0's step 0, whose stored
-    // velocity is past the 0-127 scale and has to clamp on migration.
+    // One hit on pad 0's step 0, whose stored velocity is past the 0-127
+    // scale and has to clamp on load.
     var drum = try clipFromSnap(testing.allocator, .{
-        .start_bar = 0,
-        .length_bars = 1,
         .kind = .drum,
         .step_count = 0,
-        .drum_pattern = &.{1},
-        .drum_vel = &.{&.{255}},
-    }, 4, 22);
+        .drum_notes = &.{.{ .pad = 0, .step = 0, .velocity = 127 }},
+    });
     defer drum.deinit(testing.allocator);
     try testing.expectEqual(@as(u16, 1), drum.content.drum.step_count);
     try testing.expectEqual(DrumMachine.vel_full, drum.content.drum.midi[0][0].?.velocity);
 }
 
 // zig fmt: off
-test "buildSession: clip automation round-trips (legacy filter_cutoff_automation remaps to param_id 21)" {
-    const testing = std.testing;
-    const snap: Snapshot = .{
-        .tracks = &.{.{ .name = "keys" }},
-        .racks = &.{.{ .label = "synth", .kind = .poly_synth, .synth = .{} }},
-        .arrangement = &.{
-            .{ .clips = &.{
-                .{
-                    .start_bar = 0, .length_bars = 1, .kind = .melodic, .length_beats = 4.0,
-                    .gain_automation = &.{.{ .beat = 0.0, .value = -6.0 }},
-                    .pan_automation = &.{.{ .beat = 0.0, .value = 0.5 }},
-                    .filter_cutoff_automation = &.{.{ .beat = 0.0, .value = 2_500.0 }},
-                },
-            } },
-        },
-    };
-    var session = try buildSession(testing.allocator, &snap);
-    defer session.deinit();
-    const clip = session.arrangement.lane(0).?.clips.items[0];
-    try testing.expectEqual(@as(usize, 1), clip.automation.gain.len);
-    try testing.expectApproxEqAbs(@as(f32, -6.0), clip.automation.gain[0].value, 1e-6);
-    try testing.expectEqual(@as(usize, 1), clip.automation.pan.len);
-    try testing.expectApproxEqAbs(@as(f32, 0.5), clip.automation.pan[0].value, 1e-6);
-    const cutoff = clip.automation.findSynthParam(0, 21).?;
-    try testing.expectEqual(@as(usize, 1), cutoff.len);
-    try testing.expectApproxEqAbs(@as(f32, 2_500.0), cutoff[0].value, 1e-6);
-}
-
 test "buildSession: filter cutoff automation clamps an out-of-range hand-edited value" {
     const testing = std.testing;
     const snap: Snapshot = .{
@@ -1217,8 +1141,8 @@ test "buildSession: filter cutoff automation clamps an out-of-range hand-edited 
         .arrangement = &.{
             .{ .clips = &.{
                 .{
-                    .start_bar = 0, .length_bars = 1, .kind = .melodic, .length_beats = 4.0,
-                    .filter_cutoff_automation = &.{.{ .beat = 0.0, .value = 99_999.0 }},
+                    .kind = .melodic, .length_beats = 4.0,
+                    .synth_param_automation = &.{.{ .param_id = 21, .points = &.{.{ .beat = 0.0, .value = 99_999.0 }} }},
                 },
             } },
         },
@@ -1234,22 +1158,16 @@ test "buildSession: drum variant bank round-trips; v2 files get one variant" {
     const testing = std.testing;
 
     // zig fmt: off
-    // v3: two variants, B active, with stray bits above each step count that
-    // the loader must mask off.
+    // Two variants, B active, with a note past each step count that the
+    // loader must drop.
     const variants = [_]VariantSnap{
-        .{ .step_count = 16, .pattern = blk: {
-            var p = [_]u64{0} ** DrumMachine.max_pads;
-            p[0] = 1 | (1 << 20); // bit 20 is past 16 steps - stray
-            break :blk &p;
+        .{ .step_count = 16, .notes = &.{
+            .{ .pad = 0, .step = 0 },
+            .{ .pad = 0, .step = 20 }, // step 20 is past 16 steps - stray
         } },
-        .{ .step_count = 32, .pattern = blk: {
-            var p = [_]u64{0} ** DrumMachine.max_pads;
-            p[1] = 1 << 31;
-            break :blk &p;
-        } },
+        .{ .step_count = 32, .notes = &.{ .{ .pad = 2, .step = 31 } } },
     };
     const snap: Snapshot = .{
-        .version = 22,
         .tracks = &.{.{ .name = "drums" }},
         .racks = &.{.{
             .label = "drums",
@@ -1273,25 +1191,11 @@ test "buildSession: drum variant bank round-trips; v2 files get one variant" {
     try testing.expect(dm.stepActive(0, 0));
     try testing.expect(!dm.stepActive(0, 20)); // stray bit was masked
 
-    // v2 file shape: no `variants` - a single variant from the legacy fields.
-    const legacy: Snapshot = .{
-        .version = 22,
+    // A bank-less drum snap is not a shape this build can write.
+    try testing.expectError(error.MalformedProject, buildSession(testing.allocator, &.{
         .tracks = &.{.{ .name = "drums" }},
-        .racks = &.{.{
-            .label = "drums",
-            .kind = .drum_machine,
-            .drum = .{ .step_count = 16, .pattern = blk: {
-                var p = [_]u64{0} ** DrumMachine.max_pads;
-                p[0] = 1 << 5;
-                break :blk &p;
-            } },
-        }},
-    };
-    var old = try buildSession(testing.allocator, &legacy);
-    defer old.deinit();
-    const odm = &old.racks.items[0].instrument.drum_machine;
-    try testing.expectEqual(@as(u8, 1), odm.variant_count);
-    try testing.expect(odm.stepActive(0, 5));
+        .racks = &.{.{ .label = "drums", .kind = .drum_machine, .drum = .{} }},
+    }));
 }
 
 fn buildVariantBanksForAllocationTest(allocator: std.mem.Allocator) !void {
@@ -1321,97 +1225,13 @@ test "buildSession: time signature lands in project and transport" {
     try testing.expectEqual(@as(u8, 3), session.engine.transport.time_signature.beats_per_bar);
 }
 
-test "buildSession: pre-v12 vel_lo/vel_hi bitplanes migrate onto the new 0-127 scale" {
-    const testing = std.testing;
-
-    const variants = [_]VariantSnap{.{
-        .step_count = 16,
-        .pattern = blk: {
-            var p = [_]u64{0} ** DrumMachine.max_pads;
-            p[0] = 0b11;
-            break :blk &p;
-        },
-        // Step 1 at legacy level 3 (25%); a stray plane bit above the step count.
-        .vel_lo = blk: {
-            var p = [_]u64{0} ** DrumMachine.max_pads;
-            p[0] = (1 << 1) | (1 << 20);
-            break :blk &p;
-        },
-        .vel_hi = blk: {
-            var p = [_]u64{0} ** DrumMachine.max_pads;
-            p[0] = 1 << 1;
-            break :blk &p;
-        },
-    }};
-    const snap: Snapshot = .{
-        .version = 22,
-        .tracks = &.{.{ .name = "drums" }},
-        .racks = &.{.{
-            .label = "drums",
-            .kind = .drum_machine,
-            .drum = .{ .variants = &variants, .swing = 62.0 },
-        }},
-    };
-
-    var session = try buildSession(testing.allocator, &snap);
-    defer session.deinit();
-
-    const dm = &session.racks.items[0].instrument.drum_machine;
-    try testing.expectEqual(@as(u8, 127), dm.stepVel(0, 0));
-    try testing.expectEqual(@as(u8, 31), dm.stepVel(0, 1));
-    try testing.expectEqual(@as(u8, 127), dm.stepVel(0, 20)); // stray bit masked
-    try testing.expectApproxEqAbs(@as(f32, 62.0), dm.swing.load(.monotonic), 1e-6);
-
-    // And back out through save-shaped snapshots.
-    const v = dm.variantData(0);
-    try testing.expectEqual(@as(u8, 31), v.midi[0][1].?.velocity);
-}
-
-test "buildSession: v12 vel field round-trips a granular 0-127 value" {
-    const testing = std.testing;
-
-    var vel_row = [_]u8{DrumMachine.vel_full} ** 64;
-    vel_row[1] = 64;
-    const vel_rows = [_][]const u8{&vel_row};
-    const variants = [_]VariantSnap{.{
-        .step_count = 16,
-        .pattern = blk: {
-            var p = [_]u64{0} ** DrumMachine.max_pads;
-            p[0] = 0b11;
-            break :blk &p;
-        },
-        .vel = &vel_rows,
-    }};
-    const snap: Snapshot = .{
-        .version = 22,
-        .tracks = &.{.{ .name = "drums" }},
-        .racks = &.{.{
-            .label = "drums",
-            .kind = .drum_machine,
-            .drum = .{ .variants = &variants },
-        }},
-    };
-
-    var session = try buildSession(testing.allocator, &snap);
-    defer session.deinit();
-
-    const dm = &session.racks.items[0].instrument.drum_machine;
-    try testing.expectEqual(@as(u8, 127), dm.stepVel(0, 0));
-    try testing.expectEqual(@as(u8, 64), dm.stepVel(0, 1));
-}
-
 test "buildSession: a 64-step pattern round-trips bit 63 without truncation" {
     const testing = std.testing;
     const variants = [_]VariantSnap{.{
         .step_count = 64,
-        .pattern = blk: {
-            var p = [_]u64{0} ** DrumMachine.max_pads;
-            p[0] = @as(u64, 1) << 63;
-            break :blk &p;
-        },
+        .notes = &.{.{ .pad = 0, .step = 63 }},
     }};
     const snap: Snapshot = .{
-        .version = 22,
         .tracks = &.{.{ .name = "drums" }},
         .racks = &.{.{
             .label = "drums",
@@ -1498,7 +1318,7 @@ test "choke groups round-trip through DrumSnap; older files load ungrouped" {
         .racks = &.{.{
             .label = "drums",
             .kind = .drum_machine,
-            .drum = .{ .choke_group = &groups },
+            .drum = .{ .variants = &.{.{}}, .choke_group = &groups },
         }},
     };
     var session = try buildSession(testing.allocator, &snap);
@@ -1508,17 +1328,17 @@ test "choke groups round-trip through DrumSnap; older files load ungrouped" {
     try testing.expectEqual(@as(u8, 1), dm.choke_group[3]);
     try testing.expectEqual(@as(u8, 0), dm.choke_group[0]);
 
-    // A pre-v8 snapshot (default DrumSnap, no choke_group field set) must
-    // leave every pad ungrouped even though DrumMachine.init seeds a default
-    // hihat/open pairing - the load path is the source of truth.
-    const legacy: Snapshot = .{
+    // A snapshot with no choke_group field set must leave every pad
+    // ungrouped even though DrumMachine.init seeds a default hihat/open
+    // pairing - the load path is the source of truth.
+    const bare: Snapshot = .{
         .tracks = &.{.{ .name = "drums" }},
-        .racks = &.{.{ .label = "drums", .kind = .drum_machine, .drum = .{} }},
+        .racks = &.{.{ .label = "drums", .kind = .drum_machine, .drum = .{ .variants = &.{.{}} } }},
     };
-    var legacy_session = try buildSession(testing.allocator, &legacy);
-    defer legacy_session.deinit();
-    const legacy_dm = &legacy_session.racks.items[0].instrument.drum_machine;
-    for (legacy_dm.choke_group) |g| try testing.expectEqual(@as(u8, 0), g);
+    var bare_session = try buildSession(testing.allocator, &bare);
+    defer bare_session.deinit();
+    const bare_dm = &bare_session.racks.items[0].instrument.drum_machine;
+    for (bare_dm.choke_group) |g| try testing.expectEqual(@as(u8, 0), g);
 }
 
 test "clip snapshots carry the drum variant label" {
@@ -1536,7 +1356,7 @@ test "clip snapshots carry the drum variant label" {
     const cs = try clipToSnap(arena.allocator(), session.arrangement.lane(0).?.clips.items[0]);
     try testing.expectEqual(@as(u8, 1), cs.variant);
 
-    var clip = try clipFromSnap(testing.allocator, cs, 4, file_version);
+    var clip = try clipFromSnap(testing.allocator, cs);
     defer clip.deinit(testing.allocator);
     try testing.expectEqual(@as(u8, 1), clip.content.drum.variant);
 }
@@ -1590,19 +1410,19 @@ test "buildSession: rejects malformed and future files" {
     try testing.expectError(error.MalformedProject, buildSession(testing.allocator, &.{
         .tracks = &.{.{ .name = "a" }},
         .racks = &.{.{ .label = "e", .kind = .empty }},
-        .arrangement = &.{.{ .clips = &.{.{ .start_bar = 1, .length_bars = 0 }} }},
+        .arrangement = &.{.{ .clips = &.{.{ .start_tick = 1, .length_ticks = 0 }} }},
     }));
     try testing.expectError(error.MalformedProject, buildSession(testing.allocator, &.{
         .tracks = &.{.{ .name = "a" }},
         .racks = &.{.{ .label = "e", .kind = .empty }},
-        .arrangement = &.{.{ .clips = &.{.{ .start_bar = std.math.maxInt(u32), .length_bars = 1 }} }},
+        .arrangement = &.{.{ .clips = &.{.{ .start_tick = std.math.maxInt(u32), .length_ticks = 1 }} }},
     }));
     try testing.expectError(error.MalformedProject, buildSession(testing.allocator, &.{
         .tracks = &.{.{ .name = "a" }},
         .racks = &.{.{ .label = "e", .kind = .empty }},
         .arrangement = &.{.{ .clips = &.{.{
-            .start_bar = std.math.maxInt(u32) / 16,
-            .length_bars = 2,
+            .start_tick = std.math.maxInt(u32) - 1,
+            .length_ticks = 2,
         }} }},
     }));
 }
@@ -1707,6 +1527,7 @@ test "buildSession: clamps out-of-range pad and note values" {
             .label = "drums",
             .kind = .drum_machine,
             .drum = .{
+                .variants = &.{.{}},
                 .pads = blk: {
                     var ps = [_]PadSnap{.{}} ** DrumMachine.max_pads;
                     // end < start and both far out of range.
@@ -2166,204 +1987,6 @@ test "buildSession: A/B loop region lands in project and transport" {
     try testing.expect(!bad.engine.transport.loop_enabled);
 }
 
-test "golden-file corpus: every historical .wsj fixture still loads" {
-    const testing = std.testing;
-    const dir_path = "test/fixtures/wsj";
-
-    var dir = try std.Io.Dir.cwd().openDir(testing.io, dir_path, .{ .iterate = true });
-    defer dir.close(testing.io);
-
-    var count: usize = 0;
-    var it = dir.iterate();
-    while (try it.next(testing.io)) |entry| {
-        if (entry.kind != .file) continue;
-        if (!std.ascii.endsWithIgnoreCase(entry.name, ".wsj")) continue;
-        count += 1;
-
-        var path_buf: [128]u8 = undefined;
-        const path = try std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ dir_path, entry.name });
-
-        var session = load(testing.allocator, testing.io, path) catch |err| {
-            std.debug.print("fixture {s} failed to load: {}\n", .{ entry.name, err });
-            return err;
-        };
-        defer session.deinit();
-
-        // Every fixture's Snapshot has parallel tracks/racks/arrangement -
-        // buildSession already enforces this, but check it here too so a
-        // regression shows up against the fixture name, not just an error.
-        try testing.expectEqual(session.project.tracks.items.len, session.racks.items.len);
-    }
-
-    // Guards against a misconfigured path silently turning this into a no-op.
-    try testing.expectEqual(@as(usize, file_version), count);
-}
-
-test "golden-file corpus: v30 limiter loads its params" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v30.wsj");
-    defer session.deinit();
-    const limiter = &session.racks.items[0].fx.units.items[0].payload.limiter;
-    try testing.expectApproxEqAbs(@as(f32, 0.8), limiter.ceiling, 1e-6);
-    try testing.expectApproxEqAbs(@as(f32, 150), limiter.release_ms, 1e-6);
-}
-
-test "golden-file corpus: v31 utility loads its params" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v31.wsj");
-    defer session.deinit();
-    const utility = &session.racks.items[0].fx.units.items[0].payload.utility;
-    try testing.expectApproxEqAbs(@as(f32, 3), utility.gain_db, 1e-6);
-    try testing.expectEqual(@as(f32, 1), utility.invert);
-    try testing.expectEqual(@as(f32, 1), utility.mono);
-    try testing.expectEqual(@as(f32, 2), utility.channel);
-    try testing.expectEqual(@as(f32, 1), utility.swap);
-}
-
-test "golden-file corpus: v32 stereo width loads its params" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v32.wsj");
-    defer session.deinit();
-    const width = &session.racks.items[0].fx.units.items[0].payload.stereo_width;
-    try testing.expectApproxEqAbs(@as(f32, 1.5), width.width, 1e-6);
-    try testing.expectApproxEqAbs(@as(f32, -3), width.output_db, 1e-6);
-}
-
-test "golden-file corpus: v33 auto-pan loads its params" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v33.wsj");
-    defer session.deinit();
-    const pan = &session.racks.items[0].fx.units.items[0].payload.auto_pan;
-    try testing.expectApproxEqAbs(@as(f32, 2), pan.rate_hz, 1e-6);
-    try testing.expectEqual(@as(f32, 1), pan.sync);
-    try testing.expectApproxEqAbs(@as(f32, 0.5), pan.beats, 1e-6);
-    try testing.expectApproxEqAbs(@as(f32, 0.75), pan.depth, 1e-6);
-    try testing.expectEqual(@as(f32, 1), pan.phase);
-    try testing.expect(pan.transport != null);
-}
-
-test "golden-file corpus: v34 transient shaper loads its params" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v34.wsj");
-    defer session.deinit();
-    const transient = &session.racks.items[0].fx.units.items[0].payload.transient_shaper;
-    try testing.expectApproxEqAbs(@as(f32, 0.75), transient.attack, 1e-6);
-    try testing.expectApproxEqAbs(@as(f32, -0.25), transient.sustain, 1e-6);
-    try testing.expectApproxEqAbs(@as(f32, -3), transient.output_db, 1e-6);
-}
-
-test "golden-file corpus: v26's shelf EQ kinds load" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v26.wsj");
-    defer session.deinit();
-    const eq = &session.racks.items[0].fx.units.items[0].payload.eq;
-    try testing.expectEqual(eq_mod.BandKind.lowshelf, eq.bands[0].kind);
-    try testing.expectEqual(eq_mod.BandKind.highshelf, eq.bands[1].kind);
-}
-
-test "golden-file corpus: v25's soundfont rack loads with no font (no sidecar to resolve) but keeps its OUT params" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v25.wsj");
-    defer session.deinit();
-    const sf = &session.racks.items[0].instrument.soundfont;
-    try testing.expectEqual(@as(usize, 0), sf.presetCount());
-    try testing.expectApproxEqAbs(@as(f32, 0.8), sf.gain, 1e-6);
-    try testing.expectApproxEqAbs(@as(f32, -0.25), sf.pan, 1e-6);
-    try testing.expectApproxEqAbs(@as(f32, 3.0), sf.transpose_semitones, 1e-6);
-    try testing.expect(session.racks.items[0].pattern_player != null);
-}
-
-test "golden-file corpus: v35's acoustic rack loads as acoustic, with its bundled bank" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v35.wsj");
-    defer session.deinit();
-    const sf = &session.racks.items[0].instrument.acoustic;
-    try testing.expectEqual(@import("dsp/builtin_library.zig").Id.harpsichord, sf.builtin.?);
-    try testing.expectApproxEqAbs(@as(f32, 0.8), sf.gain, 1e-6);
-    try testing.expectApproxEqAbs(@as(f32, -0.25), sf.pan, 1e-6);
-    try testing.expectApproxEqAbs(@as(f32, -12.0), sf.transpose_semitones, 1e-6);
-}
-
-test "golden-file corpus: v36 lays its kit out by soundtype, older files keep the old order" {
-    const testing = std.testing;
-    const padName = @import("dsp/pad.zig").trimmedName;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v36.wsj");
-    defer session.deinit();
-    const dm = &session.racks.items[0].instrument.drum_machine;
-    try testing.expectEqualStrings("kick-2", padName(&dm.pads[1].?.pad.name));
-
-    // The same kit name in a pre-v36 file: pad 1 is where its snare pattern
-    // lives, so a snare has to be what loads there.
-    var old = try load(testing.allocator, testing.io, "test/fixtures/wsj/v23.wsj");
-    defer old.deinit();
-    const old_dm = &old.racks.items[0].instrument.drum_machine;
-    const legacy = drum_kit.legacyLayout(drum_kit.byName("default").?);
-    try old_dm.loadKitVariant(&legacy);
-    try testing.expectEqualStrings("snare", padName(&old_dm.pads[1].?.pad.name));
-}
-
-test "golden-file corpus: v23's sparse note list loads directly, no legacy migration" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v23.wsj");
-    defer session.deinit();
-    const dm = &session.racks.items[0].instrument.drum_machine;
-    try testing.expect(dm.stepActive(0, 0));
-    try testing.expectEqual(@as(u8, 127), dm.stepVel(0, 0));
-    // Pre-v36 pad 1 remaps to today's pad 2 (drum_kit.legacyPadIndex).
-    try testing.expect(dm.stepActive(2, 4));
-    try testing.expectEqual(@as(u8, 95), dm.stepVel(2, 4));
-    try testing.expect(!dm.stepActive(0, 4));
-}
-
-test "resaving a pre-v36 drum project doesn't scramble its pad layout on the next load" {
-    // Regression: loading a pre-v36 file correctly regenerated the kit
-    // audio in the old order, but nothing remapped the file's own
-    // pad-indexed notes/choke_group/pad_len/pads to match - so a plain
-    // resave (which always stamps today's file_version) wrote a "v36"
-    // file whose data was still pad-indexed the old way. The next load
-    // then skipped the old-order kit rebuild (version said v36 already)
-    // and applied that stale-indexed data straight onto the new-order
-    // kit: a snare pattern became a kick, a kick pattern a snare, etc.
-    // Every save now normalizes pre-v36 data into today's order once, at
-    // load, so this round trip must be idempotent.
-    const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/resave.wsj", .{&tmp.sub_path});
-
-    var first = try load(testing.allocator, testing.io, "test/fixtures/wsj/v23.wsj");
-    defer first.deinit();
-    const first_dm = &first.racks.items[0].instrument.drum_machine;
-    // Pre-v36 pad 1 (this fixture's snare pattern) remaps to today's pad 2.
-    try testing.expect(first_dm.stepActive(0, 0));
-    try testing.expect(first_dm.stepActive(2, 4));
-    try testing.expectEqual(@as(u8, 95), first_dm.stepVel(2, 4));
-
-    try save(testing.allocator, &first, testing.io, wsj_path);
-    var second = try load(testing.allocator, testing.io, wsj_path);
-    defer second.deinit();
-    const second_dm = &second.racks.items[0].instrument.drum_machine;
-    try testing.expect(second_dm.stepActive(0, 0));
-    try testing.expect(second_dm.stepActive(2, 4));
-    try testing.expectEqual(@as(u8, 95), second_dm.stepVel(2, 4));
-    try testing.expect(!second_dm.stepActive(1, 4)); // didn't drift back to the old index either
-}
-
-test "golden-file corpus: v17's mod matrix loads its rows" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v17.wsj");
-    defer session.deinit();
-
-    const s = &session.racks.items[0].instrument.poly_synth;
-    try testing.expectEqual(synth_mod.ModSource.lfo, s.mod_matrix[0].source);
-    try testing.expectEqual(@as(u8, 21), s.mod_matrix[0].dest);
-    try testing.expectApproxEqAbs(@as(f32, 0.8), s.mod_matrix[0].depth, 1e-6);
-    try testing.expectEqual(synth_mod.ModSource.velocity, s.mod_matrix[1].source);
-    try testing.expectEqual(PolySynth.dest_amp, s.mod_matrix[1].dest);
-    try testing.expectEqual(synth_mod.ModSource.none, s.mod_matrix[2].source);
-}
-
 test "applyToSynth: pre-v17 legacy mod fields migrate onto matrix rows" {
     var s = try PolySynth.init(std.testing.allocator, 48_000);
     defer s.deinit();
@@ -2456,89 +2079,6 @@ test "save/load round-trip persists a custom LFO shape's points" {
     // the null/no-points fallback - see the golden-file test below).
     try testing.expectEqual(@as(u8, 2), ls.lfo_custom_count[1]);
     try testing.expectApproxEqAbs(@as(f32, 0.0), ls.lfo_custom[1][0].value, 1e-6);
-}
-
-test "golden-file corpus: pre-lfo-custom files load with no custom points on any LFO slot" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v17.wsj");
-    defer session.deinit();
-    const s = &session.racks.items[0].instrument.poly_synth;
-    try testing.expectEqual(@as(u8, 0), s.lfo_custom_count[0]);
-    try testing.expectEqual(@as(u8, 0), s.lfo_custom_count[1]);
-    try testing.expectEqual(@as(u8, 0), s.lfo_custom_count[2]);
-}
-
-test "golden-file corpus: v14's parametric EQ bands load freq/Q/gain" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v14.wsj");
-    defer session.deinit();
-    const eq = &session.racks.items[0].fx.find(.eq).?.payload.eq;
-    try testing.expectApproxEqAbs(@as(f32, 80.0), eq.bands[0].freq, 1e-3);
-    try testing.expectApproxEqAbs(@as(f32, 1.2), eq.bands[0].q, 1e-3);
-    try testing.expectApproxEqAbs(@as(f32, 3.0), eq.bands[0].gain_db, 1e-3);
-    try testing.expectApproxEqAbs(@as(f32, 1200.0), eq.bands[3].freq, 1e-3);
-    try testing.expectApproxEqAbs(@as(f32, 2.0), eq.bands[3].q, 1e-3);
-    try testing.expectApproxEqAbs(@as(f32, 4.5), eq.bands[3].gain_db, 1e-3);
-}
-
-test "golden-file corpus: v15's multiband unit and v16's OTT unit load their params" {
-    const testing = std.testing;
-
-    var v15 = try load(testing.allocator, testing.io, "test/fixtures/wsj/v15.wsj");
-    defer v15.deinit();
-    const m = &v15.racks.items[0].fx.find(.mb_comp).?.payload.mb_comp;
-    try testing.expectApproxEqAbs(@as(f32, 150.0), m.xover_lo_hz, 1e-3);
-    try testing.expectEqual(multiband_comp_mod.Style.ott, m.style);
-    try testing.expectApproxEqAbs(@as(f32, -25.0), m.bands[0].threshold_db, 1e-3);
-
-    var v16 = try load(testing.allocator, testing.io, "test/fixtures/wsj/v16.wsj");
-    defer v16.deinit();
-    const o = &v16.racks.items[0].fx.find(.ott).?.payload.ott;
-    try testing.expectApproxEqAbs(@as(f32, 0.7), o.depth(), 1e-3);
-    try testing.expectApproxEqAbs(@as(f32, 1.5), o.time, 1e-3);
-    try testing.expectApproxEqAbs(@as(f32, 2.0), o.gain_in_db, 1e-3);
-    try testing.expectApproxEqAbs(@as(f32, -3.0), o.gain_out_db, 1e-3);
-}
-
-test "golden-file corpus: v18's freq_shift unit loads its params" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v18.wsj");
-    defer session.deinit();
-    const f = &session.racks.items[0].fx.find(.freq_shift).?.payload.freq_shift;
-    try testing.expectApproxEqAbs(@as(f32, 137.0), f.shift_hz, 1e-3);
-    try testing.expectApproxEqAbs(@as(f32, 0.8), f.mix, 1e-3);
-}
-
-test "golden-file corpus: v19's flanger unit loads its params" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v19.wsj");
-    defer session.deinit();
-    const fl = &session.racks.items[0].fx.find(.flanger).?.payload.flanger;
-    try testing.expectApproxEqAbs(@as(f32, 0.6), fl.rate_hz, 1e-3);
-    try testing.expectApproxEqAbs(@as(f32, 0.85), fl.depth, 1e-3);
-    try testing.expectApproxEqAbs(@as(f32, 0.4), fl.feedback, 1e-3);
-    try testing.expectApproxEqAbs(@as(f32, 0.7), fl.mix, 1e-3);
-}
-
-test "golden-file corpus: v20's wavetable oscillator loads its waveform/wt_pos" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v20.wsj");
-    defer session.deinit();
-    const s = &session.racks.items[0].instrument.poly_synth;
-    try testing.expectEqual(synth_mod.Waveform.wavetable, s.waveform);
-    try testing.expectApproxEqAbs(@as(f32, 0.35), s.wt_pos, 1e-3);
-}
-
-test "golden-file corpus: v21's tape unit loads its params" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v21.wsj");
-    defer session.deinit();
-    const t = &session.racks.items[0].fx.find(.tape).?.payload.tape;
-    try testing.expectApproxEqAbs(@as(f32, 0.5), t.wow_rate_hz, 1e-3);
-    try testing.expectApproxEqAbs(@as(f32, 0.6), t.wow_depth, 1e-3);
-    try testing.expectApproxEqAbs(@as(f32, 7.0), t.flutter_rate_hz, 1e-3);
-    try testing.expectApproxEqAbs(@as(f32, 0.3), t.flutter_depth, 1e-3);
-    try testing.expectApproxEqAbs(@as(f32, 0.9), t.mix, 1e-3);
 }
 
 test "save/load migrates synth tape FX into rack chain" {
@@ -2684,65 +2224,6 @@ test "save/load round-trip persists solo/stereo-mode/dynamic-EQ/auto-gain" {
     try testing.expectApproxEqAbs(@as(f32, -18.0), e.bands[4].dyn_threshold_db, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 7.5), e.bands[4].dyn_amount_db, 1e-4);
     try testing.expect(e.auto_gain);
-}
-
-test "migrateEqBands: legacy 10-band gains land on sane 8-band defaults" {
-    const testing = std.testing;
-    var gains = [_]f32{0.0} ** legacy_eq_band_count;
-    gains[1] = 5.0; // 62.5Hz - nearest legacy band to the new 60Hz default
-    gains[9] = -4.0; // 16000Hz - matches the new top band's default exactly
-    const bands = migrateEqBands(gains);
-    try testing.expectEqual(@as(usize, eq_mod.num_eq_bands), bands.len);
-    try testing.expectApproxEqAbs(@as(f32, 5.0), bands[0].gain_db, 1e-4);
-    try testing.expectApproxEqAbs(@as(f32, 60.0), bands[0].freq, 1e-4);
-    try testing.expectApproxEqAbs(@as(f32, 0.7), bands[0].q, 1e-4);
-    try testing.expectApproxEqAbs(@as(f32, -4.0), bands[7].gain_db, 1e-4);
-    try testing.expectApproxEqAbs(@as(f32, 16000.0), bands[7].freq, 1e-4);
-}
-
-test "golden-file corpus: v13's synth_param_automation loads multiple lanes" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v13.wsj");
-    defer session.deinit();
-    const clip = session.arrangement.lanes.items[0].clips.items[0];
-    const cutoff = clip.automation.findSynthParam(0, 21).?;
-    try testing.expectEqual(@as(usize, 2), cutoff.len);
-    try testing.expectApproxEqAbs(@as(f32, 2000.0), cutoff[0].value, 1e-3);
-    const lfo_rate = clip.automation.findSynthParam(0, 29).?;
-    try testing.expectEqual(@as(usize, 1), lfo_rate.len);
-    try testing.expectApproxEqAbs(@as(f32, 4.0), lfo_rate[0].value, 1e-3);
-}
-
-test "golden-file corpus: v12's vel field loads a granular per-step value" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v12.wsj");
-    defer session.deinit();
-    const dm = &session.racks.items[0].instrument.drum_machine;
-    try testing.expect(dm.stepActive(0, 0));
-    try testing.expectEqual(@as(u8, 127), dm.stepVel(0, 0));
-    try testing.expectEqual(@as(u8, 64), dm.stepVel(0, 1));
-}
-
-test "golden-file corpus: v11's ninth pad (past the pre-v11 8-pad cap) loads used" {
-    const testing = std.testing;
-    var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v11.wsj");
-    defer session.deinit();
-    const dm = &session.racks.items[1].instrument.drum_machine;
-    // Pad 8 (the fixture's only `used: true` entry) got materialized fresh
-    // with the file's params, past the pre-v11 8-pad cap. Pre-v36 pad 8
-    // remaps to today's pad 1 (drum_kit.legacyPadIndex).
-    try testing.expect(dm.pads[1] != null);
-    try testing.expectApproxEqAbs(@as(f32, 0.8), dm.pads[1].?.pad.gain, 1e-4);
-    try testing.expectApproxEqAbs(@as(f32, -3.0), dm.pads[1].?.pad.pitch_semitones, 1e-4);
-    try testing.expect(dm.stepActive(1, 2)); // pattern[8] = 4 = bit 2
-    // Every other pad in the legacy 16-pad range stays whatever init() gave
-    // them - now the blank "init" kit, so a v11 file's `used: false` leaves
-    // them unmaterialized. (Pre-v11 files predate `used` and materialize
-    // all 8 regardless; see buildSession.)
-    for (0..8) |i| {
-        if (i == 1) continue;
-        try testing.expect(dm.pads[i] == null);
-    }
 }
 
 /// Render `blocks` blocks from `session` starting at frame 0 into `out`.

@@ -60,12 +60,10 @@ const MultibandCompSnap = persist_types.MultibandCompSnap;
 const OttSnap = persist_types.OttSnap;
 const DelaySnap = persist_types.DelaySnap;
 const ReverbSnap = persist_types.ReverbSnap;
-const legacy_eq_band_count = persist_types.legacy_eq_band_count;
 const EqBandKindSnap = persist_types.EqBandKindSnap;
 const EqStereoModeSnap = persist_types.EqStereoModeSnap;
 const EqBandSnap = persist_types.EqBandSnap;
 const EqSnap = persist_types.EqSnap;
-const migrateEqBands = persist_types.migrateEqBands;
 const GateSnap = persist_types.GateSnap;
 const SatSnap = persist_types.SatSnap;
 const CrushSnap = persist_types.CrushSnap;
@@ -80,7 +78,6 @@ const UtilitySnap = persist_types.UtilitySnap;
 const StereoWidthSnap = persist_types.StereoWidthSnap;
 const AutoPanSnap = persist_types.AutoPanSnap;
 const TransientShaperSnap = persist_types.TransientShaperSnap;
-const FxSnap = persist_types.FxSnap;
 const FxKind = persist_types.FxKind;
 const ClapSnap = persist_types.ClapSnap;
 const Vst3Snap = persist_types.Vst3Snap;
@@ -260,7 +257,7 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
     // Reject files this build cannot represent; clamp what can be clamped.
     // Racks, tracks, and lanes are parallel arrays everywhere downstream
     // (engine slots, editor indices), so a mismatch is a malformed file.
-    if (snap.version > file_version) return error.UnsupportedVersion;
+    if (snap.version != file_version) return error.UnsupportedVersion;
     if (snap.tracks.len != snap.racks.len) return error.MalformedProject;
     if (snap.tracks.len > engine_mod.max_tracks) return error.MalformedProject;
     // Every other path holds "a session always has at least one track"
@@ -271,17 +268,10 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
     if (snap.tracks.len == 0) return error.MalformedProject;
     if (snap.sample_rate < 8_000 or snap.sample_rate > 384_000) return error.InvalidSampleRate;
     const beats_per_bar = std.math.clamp(snap.beats_per_bar, 1, 16);
-    const steps_per_bar = @as(u32, beats_per_bar) * 4;
-    const max_song_bars = std.math.maxInt(u32) / steps_per_bar;
     for (snap.arrangement) |lane| {
         for (lane.clips) |clip| {
-            if (clip.length_ticks) |length| {
-                const start = clip.start_tick orelse 0;
-                if (length == 0 or start > std.math.maxInt(u32) - length) return error.MalformedProject;
-            } else if (clip.length_bars == 0 or
-                clip.start_bar > max_song_bars or
-                clip.length_bars > max_song_bars - clip.start_bar)
-                return error.MalformedProject;
+            if (clip.length_ticks == 0) return error.MalformedProject;
+            if (clip.start_tick > std.math.maxInt(u32) - clip.length_ticks) return error.MalformedProject;
         }
     }
 
@@ -406,57 +396,33 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                     // a kit that no longer exists - just leaves them empty.
                     if (ds.kit.len > 0) {
                         if (drum_kit.byName(ds.kit)) |variant| {
-                            // Always loaded in today's soundtype-grouped
-                            // order - a pre-v36 file's own pad-indexed data
-                            // (notes/choke_group/pad_len/pads below) gets
-                            // remapped into that same order as it's applied,
-                            // rather than the kit alone being rebuilt back
-                            // into the file's old order. A one-time migration
-                            // instead of a permanent legacy-order session:
-                            // resaving no longer scrambles the layout (see
-                            // `drum_kit.legacyPadIndex`'s doc comment).
                             dmp.loadKitVariant(variant) catch {};
                         }
                     }
-                    if (ds.variants.len > 0) {
-                        for (dmp.variants[0..dmp.variant_count]) |*slot| DrumMachine.freeMidi(allocator, &slot.midi);
-                        const count: u8 = @intCast(@min(ds.variants.len, DrumMachine.max_variants));
-                        dmp.variant_count = 0;
-                        for (ds.variants[0..count], dmp.variants[0..count]) |vs, *slot| {
-                            const sc = std.math.clamp(vs.step_count, 1, DrumMachine.max_steps);
-                            slot.step_count = sc;
-                            slot.steps_per_beat = std.math.clamp(vs.steps_per_beat, 1, 32);
-                            slot.midi = try DrumMachine.allocMidi(allocator, sc);
-                            dmp.variant_count += 1;
-                            if (snap.version >= 23) {
-                                applyNoteSnap(&slot.midi, sc, vs.notes, snap.version < 36);
-                            } else {
-                                legacyPatternVelToMidi(&slot.midi, sc, vs.pattern, vs.vel, vs.vel_lo, vs.vel_hi, true);
-                            }
-                        }
-                        dmp.variant = @min(ds.variant, count - 1);
-                        // The live pattern mirrors the active variant; the
-                        // bank is the source of truth.
-                        const active = &dmp.variants[dmp.variant];
-                        const midi = try DrumMachine.dupeMidi(allocator, &active.midi);
-                        DrumMachine.freeMidi(allocator, &dmp.midi);
-                        dmp.midi = midi;
-                        dmp.step_count = active.step_count;
-                        dmp.steps_per_beat = active.steps_per_beat;
-                    } else {
-                        // v2: one variant from the legacy fields.
-                        const sc = std.math.clamp(ds.step_count, 1, DrumMachine.max_steps);
-                        const midi = try DrumMachine.allocMidi(allocator, sc);
-                        DrumMachine.freeMidi(allocator, &dmp.midi);
-                        dmp.midi = midi;
-                        if (snap.version >= 23) {
-                            applyNoteSnap(&dmp.midi, sc, ds.notes, snap.version < 36);
-                        } else {
-                            legacyPatternVelToMidi(&dmp.midi, sc, ds.pattern, &.{}, &.{}, &.{}, true);
-                        }
-                        dmp.step_count = sc;
-                        dmp.steps_per_beat = std.math.clamp(ds.steps_per_beat, 1, 32);
+                    // Every save writes the whole bank and `variant_count`
+                    // never drops below one, so an empty bank is a malformed
+                    // file rather than a shape this build can produce.
+                    if (ds.variants.len == 0) return error.MalformedProject;
+                    for (dmp.variants[0..dmp.variant_count]) |*slot| DrumMachine.freeMidi(allocator, &slot.midi);
+                    const count: u8 = @intCast(@min(ds.variants.len, DrumMachine.max_variants));
+                    dmp.variant_count = 0;
+                    for (ds.variants[0..count], dmp.variants[0..count]) |vs, *slot| {
+                        const sc = std.math.clamp(vs.step_count, 1, DrumMachine.max_steps);
+                        slot.step_count = sc;
+                        slot.steps_per_beat = std.math.clamp(vs.steps_per_beat, 1, 32);
+                        slot.midi = try DrumMachine.allocMidi(allocator, sc);
+                        dmp.variant_count += 1;
+                        applyNoteSnap(&slot.midi, sc, vs.notes);
                     }
+                    dmp.variant = @min(ds.variant, count - 1);
+                    // The live pattern mirrors the active variant; the
+                    // bank is the source of truth.
+                    const active = &dmp.variants[dmp.variant];
+                    const midi = try DrumMachine.dupeMidi(allocator, &active.midi);
+                    DrumMachine.freeMidi(allocator, &dmp.midi);
+                    dmp.midi = midi;
+                    dmp.step_count = active.step_count;
+                    dmp.steps_per_beat = active.steps_per_beat;
                     dmp.swing.store(
                         std.math.clamp(ds.swing, DrumMachine.swing_min, DrumMachine.swing_max),
                         .monotonic,
@@ -466,38 +432,24 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                     // here, which must still clear init()'s default hihat
                     // choke pairing, not leave it standing.
                     for (&dmp.choke_group) |*c| c.* = 0;
-                    for (ds.choke_group, 0..) |g, pi| {
-                        if (pi >= DrumMachine.max_pads) break;
-                        const pad: usize = if (snap.version < 36 and pi < 16) drum_kit.legacyPadIndex(@intCast(pi)) else pi;
+                    for (ds.choke_group, 0..) |g, pad| {
+                        if (pad >= DrumMachine.max_pads) break;
                         dmp.choke_group[pad] = @min(g, DrumMachine.max_choke_groups);
                     }
                     // Same "the file is the source of truth even when silent"
                     // rule as the choke groups above.
                     for (&dmp.pad_len) |*l| l.* = 0;
-                    for (ds.pad_len, 0..) |l, pi| {
-                        if (pi >= DrumMachine.max_pads) break;
-                        const pad: usize = if (snap.version < 36 and pi < 16) drum_kit.legacyPadIndex(@intCast(pi)) else pi;
+                    for (ds.pad_len, 0..) |l, pad| {
+                        if (pad >= DrumMachine.max_pads) break;
                         dmp.setPadLen(@intCast(pad), l);
                     }
                     // Only materialize a pad the file actually marked `used`
-                    // (see PadSnap's doc comment) - an omitted/legacy entry
-                    // (older files implicitly meant every one of their 8 was
-                    // used, see the loop below) or an explicit `used = false`
-                    // stays null, matching a pad nobody ever loaded.
-                    for (ds.pads, 0..) |ps, pi| {
-                        if (pi >= DrumMachine.max_pads) break;
-                        const pad: usize = if (snap.version < 36 and pi < 16) drum_kit.legacyPadIndex(@intCast(pi)) else pi;
-                        // Pre-v11 files predate the "empty pad" concept
-                        // entirely (every pad was always materialized, even
-                        // an untouched one just carried the generated
-                        // default clip) - `used` didn't exist yet, so its
-                        // absence there means "was materialized", not the
-                        // v11-and-later default of `false`. Version-gated,
-                        // not inferred from array length (a v11+ file can
-                        // legitimately have exactly 8 real entries with some
-                        // genuinely unused).
-                        const was_used = ps.used or snap.version < 11;
-                        if (!was_used) continue;
+                    // (see PadSnap's doc comment) - an omitted entry or an
+                    // explicit `used = false` stays null, matching a pad
+                    // nobody ever loaded.
+                    for (ds.pads, 0..) |ps, pad| {
+                        if (pad >= DrumMachine.max_pads) break;
+                        if (!ps.used) continue;
                         // The kit load above may have already materialized
                         // this pad - keep that sampler (its generated audio
                         // is what the file deliberately didn't carry) and
@@ -521,44 +473,27 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                         p.samples = sl.samples; // applyPadSnap never touches .samples
                         applyPadSnap(p, ps);
                     }
-                    if (sls.variants.len > 0) {
-                        for (sl.variants[0..sl.variant_count]) |*slot| Slicer.freeMidi(allocator, &slot.midi);
-                        const vcount: u8 = @intCast(@min(sls.variants.len, Slicer.max_variants));
-                        sl.variant_count = 0;
-                        for (sls.variants[0..vcount], sl.variants[0..vcount]) |vs, *slot| {
-                            const sc = std.math.clamp(vs.step_count, 1, Slicer.max_steps);
-                            slot.step_count = sc;
-                            slot.steps_per_beat = std.math.clamp(vs.steps_per_beat, 1, 32);
-                            slot.midi = try Slicer.allocMidi(allocator, sc);
-                            sl.variant_count += 1;
-                            if (snap.version >= 28) {
-                                applyNoteSnap(&slot.midi, sc, vs.notes, false);
-                            } else {
-                                legacyPatternVelToMidi(&slot.midi, sc, vs.pattern, vs.vel, vs.vel_lo, vs.vel_hi, false);
-                            }
-                        }
-                        sl.variant = @min(sls.variant, vcount - 1);
-                        const active = &sl.variants[sl.variant];
-                        const midi = try Slicer.dupeMidi(allocator, &active.midi);
-                        Slicer.freeMidi(allocator, &sl.midi);
-                        sl.midi = midi;
-                        sl.step_count = active.step_count;
-                        sl.steps_per_beat = active.steps_per_beat;
-                    } else {
-                        // Pre-variant file: one variant from the legacy flat
-                        // fields.
-                        const sc = std.math.clamp(sls.step_count, 1, Slicer.max_steps);
-                        const midi = try Slicer.allocMidi(allocator, sc);
-                        Slicer.freeMidi(allocator, &sl.midi);
-                        sl.midi = midi;
-                        if (snap.version >= 28) {
-                            applyNoteSnap(&sl.midi, sc, sls.notes, false);
-                        } else {
-                            legacyPatternVelToMidi(&sl.midi, sc, sls.pattern, sls.vel, &.{}, &.{}, false);
-                        }
-                        sl.step_count = sc;
-                        sl.steps_per_beat = std.math.clamp(sls.steps_per_beat, 1, 32);
+                    // Same "the bank is never empty in a file this build
+                    // wrote" rule as the drum machine above.
+                    if (sls.variants.len == 0) return error.MalformedProject;
+                    for (sl.variants[0..sl.variant_count]) |*slot| Slicer.freeMidi(allocator, &slot.midi);
+                    const vcount: u8 = @intCast(@min(sls.variants.len, Slicer.max_variants));
+                    sl.variant_count = 0;
+                    for (sls.variants[0..vcount], sl.variants[0..vcount]) |vs, *slot| {
+                        const sc = std.math.clamp(vs.step_count, 1, Slicer.max_steps);
+                        slot.step_count = sc;
+                        slot.steps_per_beat = std.math.clamp(vs.steps_per_beat, 1, 32);
+                        slot.midi = try Slicer.allocMidi(allocator, sc);
+                        sl.variant_count += 1;
+                        applyNoteSnap(&slot.midi, sc, vs.notes);
                     }
+                    sl.variant = @min(sls.variant, vcount - 1);
+                    const active = &sl.variants[sl.variant];
+                    const midi = try Slicer.dupeMidi(allocator, &active.midi);
+                    Slicer.freeMidi(allocator, &sl.midi);
+                    sl.midi = midi;
+                    sl.step_count = active.step_count;
+                    sl.steps_per_beat = active.steps_per_beat;
                     for (&sl.choke_group) |*c| c.* = 0;
                     for (sls.choke_group, 0..) |g, i| {
                         if (i >= Slicer.max_slices) break;
@@ -623,8 +558,7 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
             },
         }
 
-        if (rs.fx_chain) |fc| try applyFxChain(allocator, &rack.fx, fc, sr, &engine.transport)
-        else try applyLegacyFx(allocator, &rack.fx, rs.fx, sr, &engine.transport);
+        try applyFxChain(allocator, &rack.fx, rs.fx_chain, sr, &engine.transport);
         // Clearing the migrated flags is what keeps this idempotent: they are
         // saved verbatim by synthToSnap, so a chain that migrated on one load
         // and got written back out would migrate a *second* copy of every unit
@@ -668,8 +602,7 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
         self.syncTrackChain(@intCast(i), rack);
     }
 
-    if (snap.master_fx_chain) |fc| try applyFxChain(allocator, &self.master_fx, fc, sr, &self.engine.transport)
-    else try applyLegacyFx(allocator, &self.master_fx, snap.master_fx, sr, &self.engine.transport);
+    try applyFxChain(allocator, &self.master_fx, snap.master_fx_chain, sr, &self.engine.transport);
     self.syncMasterChain();
     // zig fmt: on
 
@@ -703,7 +636,7 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
     // device song buffers from the clips just placed).
     for (snap.arrangement, 0..) |ls, li| {
         const lane = self.arrangement.lane(li) orelse break;
-        for (ls.clips) |cs| try lane.place(allocator, try clipFromSnap(allocator, cs, snap.beats_per_bar, snap.version));
+        for (ls.clips) |cs| try lane.place(allocator, try clipFromSnap(allocator, cs));
     }
     self.setSongMode(snap.song_mode);
 
@@ -735,16 +668,12 @@ pub fn loadVst3State(allocator: std.mem.Allocator, plugin: *rack_mod.Vst3Plugin,
     try plugin.loadState(component, controller);
 }
 
-/// Apply a v23 sparse note list into a freshly `allocMidi`'d array (already
+/// Apply a sparse note list into a freshly `allocMidi`'d array (already
 /// sized to `step_count`) - out-of-range pad/step entries (a hand-edited or
 /// truncated file) are silently dropped rather than erroring the load.
-/// `legacy_pad_order`: true for a pre-v36 drum-machine file, whose
-/// `n.pad` values were assigned under the old (pre-soundtype-regroup)
-/// layout - see `drum_kit.legacyPadIndex`. Never true for Slicer, whose
-/// "pads" are audio slices with no relationship to `drum_kit.zig`'s kits.
-pub fn applyNoteSnap(midi: *[DrumMachine.max_pads][]?DrumMachine.MidiNote, step_count: u16, notes: []const DrumNoteSnap, legacy_pad_order: bool) void {
+pub fn applyNoteSnap(midi: *[DrumMachine.max_pads][]?DrumMachine.MidiNote, step_count: u16, notes: []const DrumNoteSnap) void {
     for (notes) |n| {
-        const pad: u8 = if (legacy_pad_order) drum_kit.legacyPadIndex(n.pad) else n.pad;
+        const pad = n.pad;
         if (pad >= DrumMachine.max_pads or n.step >= step_count) continue;
         midi[pad][n.step] = .{
             .pitch = @intCast(pad),
@@ -765,63 +694,12 @@ pub fn applyNoteSnap(midi: *[DrumMachine.max_pads][]?DrumMachine.MidiNote, step_
     }
 }
 
-/// One step's velocity from a pre-v23 file's legacy fields, mirroring
-/// `applyVelSnap`'s "v12 `vel` wins, else remap `vel_lo`/`vel_hi`, else full"
-/// resolution but per-cell instead of building a whole dense array - the
-/// drum machine's own migrated shape is the sparse `midi`, so there's no
-/// dense destination to write through here.
-pub fn legacyStepVel(vel: []const []const u8, vel_lo: []const u64, vel_hi: []const u64, pad: usize, step: u16) u8 {
-    if (vel.len > 0) {
-        if (pad < vel.len and step < vel[pad].len) return @min(vel[pad][step], DrumMachine.vel_full);
-        return DrumMachine.vel_full;
-    }
-    if (pad < vel_lo.len and pad < vel_hi.len and step < 64) {
-        const l: u2 = @intCast((vel_lo[pad] >> @intCast(step)) & 1);
-        const h: u2 = @intCast((vel_hi[pad] >> @intCast(step)) & 1);
-        return DrumMachine.legacyVelToNew((h << 1) | l);
-    }
-    return DrumMachine.vel_full;
-}
-
-/// Pre-v23 migration: reconstruct a freshly `allocMidi`'d `midi` array from
-/// the old per-pad `u64` bitmask + velocity - legacy files predate the
-/// step-count ceiling growing past 64, so every bit position is safely
-/// representable (bounded to `min(step_count, 64)` as defense-in-depth).
-/// `legacy_pad_order`: see `applyNoteSnap`'s doc comment - same meaning,
-/// same "never true for Slicer" rule. `vel`/`vel_lo`/`vel_hi` stay indexed
-/// by the file's original (old-scheme) `pad` for the `legacyStepVel`
-/// lookup below - they're parallel arrays to `pattern`, not yet remapped -
-/// only the destination `midi`/`gridNote` pad is translated.
-pub fn legacyPatternVelToMidi(
-    midi: *[DrumMachine.max_pads][]?DrumMachine.MidiNote,
-    step_count: u16,
-    pattern: []const u64,
-    vel: []const []const u8,
-    vel_lo: []const u64,
-    vel_hi: []const u64,
-    legacy_pad_order: bool,
-) void {
-    const pn = @min(pattern.len, DrumMachine.max_pads);
-    const limit = @min(step_count, 64);
-    for (pattern[0..pn], 0..) |bits, pad| {
-        const dest: u8 = if (legacy_pad_order) drum_kit.legacyPadIndex(@intCast(pad)) else @intCast(pad);
-        if (dest >= DrumMachine.max_pads) continue;
-        var step: u16 = 0;
-        while (step < limit) : (step += 1) {
-            if ((bits >> @intCast(step)) & 1 == 0) continue;
-            const level = legacyStepVel(vel, vel_lo, vel_hi, pad, step);
-            midi[dest][step] = DrumMachine.gridNote(dest, step, level);
-        }
-    }
-}
-
 // zig fmt: off
 /// Rebuild an arrangement clip from its snapshot. Melodic clips copy notes
 /// through a stack buffer into a fresh owned allocation; drum clips are inline.
-pub fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap, beats_per_bar: u8, version: u32) !ws_arrangement.Clip {
-    const ticks_per_bar = @as(u32, beats_per_bar) * time_grid.ticks_per_beat;
-    const start_tick = cs.start_tick orelse cs.start_bar *| ticks_per_bar;
-    const length_ticks = cs.length_ticks orelse cs.length_bars *| ticks_per_bar;
+pub fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip {
+    const start_tick = cs.start_tick;
+    const length_ticks = cs.length_ticks;
     var out: ws_arrangement.Clip = switch (cs.kind) {
         .melodic => blk: {
             var tmp: [pattern_mod.max_notes]pattern_mod.Note = undefined;
@@ -842,18 +720,14 @@ pub fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap, beats_per_bar: u
                 .variant = @min(cs.variant, DrumMachine.max_variants - 1),
             };
             d.midi = try DrumMachine.allocMidi(allocator, d.step_count);
-            if (version >= 23) {
-                applyNoteSnap(&d.midi, d.step_count, cs.drum_notes, version < 36);
-            } else {
-                legacyPatternVelToMidi(&d.midi, d.step_count, cs.drum_pattern, cs.drum_vel, cs.drum_vel_lo, cs.drum_vel_hi, true);
-            }
+            applyNoteSnap(&d.midi, d.step_count, cs.drum_notes);
             break :blk2 ws_arrangement.Clip.initDrum(start_tick, length_ticks, d);
         },
     };
     errdefer out.deinit(allocator);
     out.automation.gain = try automationFromSnap(allocator, cs.gain_automation, -60.0, 12.0);
     out.automation.pan = try automationFromSnap(allocator, cs.pan_automation, -1.0, 1.0);
-    try applySynthParamAutomationSnap(allocator, &out.automation, cs.synth_param_automation, cs.filter_cutoff_automation);
+    try applySynthParamAutomationSnap(allocator, &out.automation, cs.synth_param_automation);
     const clip_beats = time_grid.tickToBeat(out.length_ticks);
     for (out.automation.gain) |*point| point.beat = @min(point.beat, clip_beats);
     for (out.automation.pan) |*point| point.beat = @min(point.beat, clip_beats);
@@ -873,28 +747,20 @@ pub fn applySynthParamAutomationSnap(
     allocator: std.mem.Allocator,
     automation: *ws_arrangement.Clip.Automation,
     synth_param_automation: []const SynthParamAutomationSnap,
-    legacy_filter_cutoff: []const AutomationPointSnap,
 ) !void {
-    if (synth_param_automation.len > 0) {
-        for (synth_param_automation) |sp| {
-            // An FX-unit lane (instance_id != 0) indexes a per-unit-kind
-            // table this load path can't resolve (the target FxUnit's kind
-            // isn't known here, and may not even exist any more) - load
-            // wide-open and let `dsp.fx_params.setParamAbsolute`'s own
-            // clamp do the real bounding at automation-delivery time,
-            // same as an out-of-u16-range instrument id already falls back to.
-            const range = if (sp.instance_id == 0 and sp.param_id <= std.math.maxInt(u16)) blk: {
-                if (synth_mod.PolySynth.findAutomatableParam(@intCast(sp.param_id))) |info| break :blk info.range;
-                break :blk [2]f32{ -std.math.floatMax(f32), std.math.floatMax(f32) };
-            } else [2]f32{ -std.math.floatMax(f32), std.math.floatMax(f32) };
-            const points = try automationFromSnap(allocator, sp.points, range[0], range[1]);
-            try replaceSynthParamPoints(allocator, automation, sp.instance_id, sp.param_id, points);
-        }
-        return;
-    }
-    if (legacy_filter_cutoff.len > 0) {
-        const points = try automationFromSnap(allocator, legacy_filter_cutoff, 20.0, 20_000.0);
-        try replaceSynthParamPoints(allocator, automation, 0, 21, points);
+    for (synth_param_automation) |sp| {
+        // An FX-unit lane (instance_id != 0) indexes a per-unit-kind
+        // table this load path can't resolve (the target FxUnit's kind
+        // isn't known here, and may not even exist any more) - load
+        // wide-open and let `dsp.fx_params.setParamAbsolute`'s own
+        // clamp do the real bounding at automation-delivery time,
+        // same as an out-of-u16-range instrument id already falls back to.
+        const range = if (sp.instance_id == 0 and sp.param_id <= std.math.maxInt(u16)) blk: {
+            if (synth_mod.PolySynth.findAutomatableParam(@intCast(sp.param_id))) |info| break :blk info.range;
+            break :blk [2]f32{ -std.math.floatMax(f32), std.math.floatMax(f32) };
+        } else [2]f32{ -std.math.floatMax(f32), std.math.floatMax(f32) };
+        const points = try automationFromSnap(allocator, sp.points, range[0], range[1]);
+        try replaceSynthParamPoints(allocator, automation, sp.instance_id, sp.param_id, points);
     }
 }
 
@@ -1155,9 +1021,7 @@ pub fn applyFxChain(
             .delay => |*d| if (us.delay) |ds| applySnapToDevice(d, ds),
             .reverb => |*r| if (us.reverb) |rs| applySnapToDevice(r, rs),
             .eq => |*e| if (us.eq) |es| {
-                const bands = es.bands orelse
-                    migrateEqBands(es.band_gains orelse [_]f32{0.0} ** legacy_eq_band_count);
-                for (bands, 0..) |b, i| {
+                for (es.bands, 0..) |b, i| {
                     e.setFreq(i, b.freq);
                     e.setQ(i, b.q);
                     e.setGain(i, b.gain_db);
@@ -1175,7 +1039,7 @@ pub fn applyFxChain(
                     e.setDynEnabled(i, b.dyn_enabled);
                 }
                 e.setAutoGain(es.auto_gain);
-                // Legacy EQ-only bypass maps onto the slot's generic one.
+                // The EQ-only bypass maps onto the slot's generic one.
                 if (es.bypass) unit.bypassed = true;
             },
             .filter => |*f| if (us.filter) |fs| applySnapToDevice(f, fs),
@@ -1401,20 +1265,3 @@ pub fn applySynthPatch(
     return displaced;
 }
 
-/// v9-and-older fallback: expand the fixed struct-of-optionals rack into
-/// unit snaps in the order the old `Fx.chain()` hard-wired, then load them
-/// through the same path as v10 chains.
-pub fn applyLegacyFx(allocator: std.mem.Allocator, fx_out: *Fx, fx: FxSnap, sr: u32, transport: ?*const Transport) !void {
-    var snaps: [Fx.max_units]FxUnitSnap = undefined;
-    var n: usize = 0;
-    if (fx.gate)   |gs| { snaps[n] = .{ .kind = .gate, .gate = gs };       n += 1; }
-    if (fx.comp)   |cs| { snaps[n] = .{ .kind = .comp, .comp = cs };       n += 1; }
-    if (fx.eq)     |es| { snaps[n] = .{ .kind = .eq, .eq = es };           n += 1; }
-    if (fx.sat)    |ss| { snaps[n] = .{ .kind = .sat, .sat = ss };         n += 1; }
-    if (fx.crush)  |cs| { snaps[n] = .{ .kind = .crush, .crush = cs };     n += 1; }
-    if (fx.chorus) |cs| { snaps[n] = .{ .kind = .chorus, .chorus = cs };   n += 1; }
-    if (fx.phaser) |ps| { snaps[n] = .{ .kind = .phaser, .phaser = ps };   n += 1; }
-    if (fx.delay)  |ds| { snaps[n] = .{ .kind = .delay, .delay = ds };     n += 1; }
-    if (fx.reverb) |rs| { snaps[n] = .{ .kind = .reverb, .reverb = rs };   n += 1; }
-    try applyFxChain(allocator, fx_out, snaps[0..n], sr, transport);
-}

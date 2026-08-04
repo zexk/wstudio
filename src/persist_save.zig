@@ -58,12 +58,10 @@ const MultibandCompSnap = persist_types.MultibandCompSnap;
 const OttSnap = persist_types.OttSnap;
 const DelaySnap = persist_types.DelaySnap;
 const ReverbSnap = persist_types.ReverbSnap;
-const legacy_eq_band_count = persist_types.legacy_eq_band_count;
 const EqBandKindSnap = persist_types.EqBandKindSnap;
 const EqStereoModeSnap = persist_types.EqStereoModeSnap;
 const EqBandSnap = persist_types.EqBandSnap;
 const EqSnap = persist_types.EqSnap;
-const migrateEqBands = persist_types.migrateEqBands;
 const GateSnap = persist_types.GateSnap;
 const SatSnap = persist_types.SatSnap;
 const CrushSnap = persist_types.CrushSnap;
@@ -78,7 +76,6 @@ const UtilitySnap = persist_types.UtilitySnap;
 const StereoWidthSnap = persist_types.StereoWidthSnap;
 const AutoPanSnap = persist_types.AutoPanSnap;
 const TransientShaperSnap = persist_types.TransientShaperSnap;
-const FxSnap = persist_types.FxSnap;
 const FxKind = persist_types.FxKind;
 const ClapSnap = persist_types.ClapSnap;
 const Vst3Snap = persist_types.Vst3Snap;
@@ -268,8 +265,6 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
         .drum_machine => |*dm| {
             rs.kind = .drum_machine;
             var ds: DrumSnap = .{
-                .step_count = dm.step_count,
-                .steps_per_beat = dm.steps_per_beat,
                 .variant = dm.variant,
                 .swing = dm.swing.load(.monotonic),
                 .kit = dm.kit,
@@ -285,8 +280,6 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
             @memcpy(pad_len, &dm.pad_len);
             ds.pad_len = pad_len;
             // zig fmt: on
-
-            ds.notes = try midiToNoteSnaps(aa, &dm.midi);
 
             const variants = try aa.alloc(VariantSnap, dm.variant_count);
             for (variants, 0..) |*vs, vi| {
@@ -329,8 +322,6 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
         .slicer => |*sl| {
             rs.kind = .slicer;
             var sls: SlicerSnap = .{
-                .step_count = sl.step_count,
-                .steps_per_beat = sl.steps_per_beat,
                 .swing = sl.swing.load(.monotonic),
                 // Always saved - see the drum pad loop's identical comment
                 // above (exportSamples overwrites this for user-sample clips).
@@ -355,12 +346,9 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
             sls.slices = slices;
             // zig fmt: on
 
-            sls.notes = try midiToNoteSnaps(aa, &sl.midi);
-
             // The whole variant bank; the active slot reads through
             // variantData (its bank copy is stale) - mirrors the drum
-            // export above. The legacy flat fields above stay the active
-            // variant's data for older readers.
+            // export above.
             const variants = try aa.alloc(VariantSnap, sl.variant_count);
             for (variants, 0..) |*vs, vi| {
                 const v = sl.variantData(@intCast(vi));

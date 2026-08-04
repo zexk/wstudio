@@ -50,12 +50,6 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// on the snapshot fields they concern.
 pub const file_version: u32 = 36;
 
-/// The step-grid ceiling both machines had while their step data was a `u64`
-/// bitmask plus a parallel velocity array - one word's bit width. Only the
-/// legacy read paths (`legacyPatternVelToMidi`, `legacyStepVel`) still care:
-/// nothing writes that shape any more.
-const legacy_max_steps: u16 = 64;
-
 pub const AutomationPointSnap = struct {
     beat: f64,
     value: f32,
@@ -419,59 +413,30 @@ pub const DrumNoteSnap = struct {
 
 pub const VariantSnap = struct {
     step_count: u16 = 16,
-    /// Native pattern resolution. Absent in older files means 1/16 notes.
+    /// Native pattern resolution.
     steps_per_beat: u8 = 4,
-    /// v4, read-only since v12: the old 2-bit velocity bitplanes. Kept only
-    /// so `applyVelSnap` can migrate a pre-v12 file.s data; new files never
-    /// write these (see `vel`, below). Still written/read by Slicer, whose
-    /// own step data stays this fixed-size bitmask+velocity shape.
-    pattern: []const u64 = &.{},
-    vel_lo: []const u64 = &.{},
-    vel_hi: []const u64 = &.{},
-    /// v12: per-pad, per-step velocity (0-127; 127 = full), superseding
-    /// `vel_lo`/`vel_hi`. Nested slices, not `[max_pads][max_steps]u8` -
-    /// same exact-length-match reasoning as every other pad-indexed field
-    /// here (see this struct.s own history above). Slicer.only since v23
-    /// (see `notes`, below) - new drum-machine saves never write this.
-    vel: []const []const u8 = &.{},
-    /// v23: sparse per-pad note list, replacing `pattern`/`vel` for the
-    /// drum machine.s own step data (Slicer keeps writing the fields
-    /// above instead - see `arrangement.Clip.Drum`.s doc comment for why
-    /// the two diverged). Read-only convention as usual: a pre-v23 file
-    /// has an empty `notes` and migrates from `pattern`/`vel`/`vel_lo`/
-    /// `vel_hi` instead (see `legacyPatternVelToMidi`).
+    /// Sparse per-pad note list - this variant's whole step grid. Slice, not
+    /// `[max_pads][max_steps]`, so a hand-edited or truncated file loads by
+    /// dropping the out-of-range entries instead of failing to parse.
     notes: []const DrumNoteSnap = &.{},
 };
 
 pub const DrumSnap = struct {
-    /// Legacy live-pattern fields: always the active variant.s data, so v2
-    /// readers (and hand edits) see a coherent single pattern.
-    step_count: u16 = 16,
-    steps_per_beat: u8 = 4,
-    /// Slice, not a fixed array - see VariantSnap.s doc comment; same
-    /// backward-compat reasoning applies to every pad-indexed field below.
-    /// Read-only since v23 - see `notes`, below.
-    pattern: []const u64 = &.{},
-    /// v23: sparse per-pad note list mirroring the active variant, same
-    /// role `pattern` played for v2 readers - see `VariantSnap.notes`.
-    notes: []const DrumNoteSnap = &.{},
     /// Mutable slice (not `[]const`) - `exportSamples` fills in
     /// `sample_file` for user-loaded pads *after* this struct is built, an
     /// in-place mutation a const slice wouldn't allow.
     pads: []PadSnap = &.{},
-    /// v3: the whole variant bank. Empty in v2 files - the machine then gets a
-    /// single variant from the legacy fields above.
+    /// The whole variant bank, always at least one entry - the active slot's
+    /// own step data lives here, not in any mirrored top-level field.
     variants: []const VariantSnap = &.{},
-    /// v3: index of the active variant within `variants`.
+    /// Index of the active variant within `variants`.
     variant: u8 = 0,
-    /// v4: swing percent (50 = straight … 75 = hardest shuffle).
+    /// Swing percent (50 = straight … 75 = hardest shuffle).
     swing: f32 = 50.0,
-    /// v8: per-pad choke group (0 = none - see DrumMachine.chokeTrigger).
+    /// Per-pad choke group (0 = none - see DrumMachine.chokeTrigger).
     choke_group: []const u8 = &.{},
     /// Per-pad loop length in steps, 0 = follows the pattern (see
-    /// `DrumMachine.pad_len`). Additive optional-with-default field, no
-    /// version bump needed - an omitted/legacy entry means every pad follows
-    /// the pattern, which is how the file played when it was saved.
+    /// `DrumMachine.pad_len`).
     pad_len: []const u16 = &.{},
     /// Name of the factory kit flavour last applied (`dsp/drum_kit.zig`'s
     /// `variants`), regenerated on load - the generated audio itself is
@@ -562,23 +527,6 @@ pub const ReverbSnap = struct {
     low_cut_hz: f32 = 0.0,
 };
 
-/// Legacy per-band gain array shape (v13 and older): 10 fixed ISO-frequency
-/// bands, gain-only. Length is hardcoded - NOT tied to `eq_mod.num_eq_bands`
-/// (8 as of v14) - since std.json requires an exact length match to parse a
-/// fixed array (same constraint the v11 pad-cap migration hit); an old
-/// 10-element file array must keep landing on a 10-element field forever.
-pub const legacy_eq_band_count = 10;
-
-// zig fmt: off
-/// Legacy fixed ISO center frequencies (v13 and older) - kept only so
-/// `migrateEqBands` can nearest-match an old file's `band_gains` onto
-/// v14's parametric bands.
-const legacy_iso_frequencies = [legacy_eq_band_count]f32{
-    31.25, 62.5,  125.0,  250.0,  500.0,
-    1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
-};
-// zig fmt: on
-
 /// Mirrors `eq_mod.BandKind` as a plain string enum for JSON stability
 /// (numeric enum tags would silently shift meaning if the DSP-side enum's
 /// member order ever changes).
@@ -609,39 +557,22 @@ pub const EqBandSnap = struct {
     dyn_amount_db: f32 = 0.0,
 };
 
-pub const EqSnap = struct {
-    /// v13 and older, read-only since v14 - see `file_version`'s v14 doc
-    /// comment. New saves never write this.
-    band_gains: ?[legacy_eq_band_count]f32 = null,
-    /// v14: 8 fully-parametric bands (freq/Q/gain all adjustable).
-    bands: ?[eq_mod.num_eq_bands]EqBandSnap = null,
-    bypass: bool = false,
-    /// Additive: whole-unit auto-gain toggle, missing on older files ->
-    /// off (matches ParametricEq's own default).
-    auto_gain: bool = false,
+/// Every band at its `ParametricEq.init` frequency, flat - what a file that
+/// omits `bands` entirely (a hand edit) loads as.
+const default_eq_bands: [eq_mod.num_eq_bands]EqBandSnap = blk: {
+    var out: [eq_mod.num_eq_bands]EqBandSnap = undefined;
+    for (&out, &eq_mod.default_frequencies) |*band, freq| band.* = .{ .freq = freq };
+    break :blk out;
 };
 
-/// Migrate a pre-v14 EqSnap's `band_gains` (10 fixed ISO bands, gain-only)
-/// onto v14's 8 parametric bands: each new band's default frequency
-/// inherits the nearest legacy ISO band's gain (nearest in log-frequency,
-/// matching how the ear perceives spacing); Q defaults to the old fixed
-/// 0.7. See `file_version`'s v14 doc comment.
-pub fn migrateEqBands(band_gains: [legacy_eq_band_count]f32) [eq_mod.num_eq_bands]EqBandSnap {
-    var out: [eq_mod.num_eq_bands]EqBandSnap = undefined;
-    for (&out, &eq_mod.default_frequencies) |*band, freq| {
-        var best_idx: usize = 0;
-        var best_dist: f32 = std.math.inf(f32);
-        for (legacy_iso_frequencies, 0..) |lf, i| {
-            const dist = @abs(@log(freq) - @log(lf));
-            if (dist < best_dist) {
-                best_dist = dist;
-                best_idx = i;
-            }
-        }
-        band.* = .{ .freq = freq, .q = 0.7, .gain_db = band_gains[best_idx] };
-    }
-    return out;
-}
+pub const EqSnap = struct {
+    /// Fully-parametric bands (freq/Q/gain all adjustable). std.json needs an
+    /// exact length match to parse a fixed array, so the file's array is
+    /// always exactly `eq_mod.num_eq_bands` long.
+    bands: [eq_mod.num_eq_bands]EqBandSnap = default_eq_bands,
+    bypass: bool = false,
+    auto_gain: bool = false,
+};
 
 pub const GateSnap = struct {
     threshold_db: f32 = -50.0,
@@ -745,18 +676,6 @@ pub const TransientShaperSnap = struct {
 
 /// Legacy (v9 and older) fixed nine-slot rack: one optional per slot, order
 /// implied. Read-only on load; v10 files carry `fx_chain` instead.
-pub const FxSnap = struct {
-    comp: ?CompSnap = null,
-    delay: ?DelaySnap = null,
-    reverb: ?ReverbSnap = null,
-    eq: ?EqSnap = null,
-    gate: ?GateSnap = null,
-    sat: ?SatSnap = null,
-    crush: ?CrushSnap = null,
-    chorus: ?ChorusSnap = null,
-    phaser: ?PhaserSnap = null,
-};
-
 /// Mirrors rack.zig's FxKind - persist keeps its own copy so snapshots stay
 /// pure data, same pattern as `InstrumentKind` below.
 pub const FxKind = enum { gate, comp, mb_comp, ott, limiter, transient_shaper, eq, filter, utility, stereo_width, auto_pan, sat, crush, chorus, phaser, flanger, tape, freq_shift, delay, reverb, clap, vst3 };
@@ -842,34 +761,18 @@ pub const SlicerSnap = struct {
     sample_file: []const u8 = "",
     name: []const u8 = "",
     slices: []PadSnap = &.{},
-    /// Legacy live-pattern fields: always the active variant's data (same
-    /// convention as `DrumSnap`'s), so pre-variant readers and hand edits
-    /// see a coherent single pattern.
-    step_count: u16 = 16,
-    /// v28: native pattern resolution (see `Slicer.steps_per_beat`). Absent
-    /// in older files means 1/16 notes, which is all they could hold.
-    steps_per_beat: u8 = 4,
-    /// v28: sparse per-slice note list mirroring the active variant, the same
-    /// role `pattern` played for older readers - see `VariantSnap.notes`.
-    notes: []const DrumNoteSnap = &.{},
-    /// Read-only since v28 (see `notes`): the old per-slice bitmask and its
-    /// parallel velocity array. Dense, parallel to `slices`.
-    pattern: []const u64 = &.{},
-    vel: []const []const u8 = &.{},
     swing: f32 = 50.0,
     /// The whole variant bank, reusing `VariantSnap` (a slicer variant is the
-    /// same 64-row grid a drum variant is, and since v28 the same note
-    /// payload too). Empty in older files - the slicer then gets a single
-    /// variant from the legacy fields above.
+    /// same 64-row grid a drum variant is, with the same note payload) and
+    /// always at least one entry - same rule as `DrumSnap.variants`.
     variants: []const VariantSnap = &.{},
-    /// Additive: index of the active variant within `variants`.
+    /// Index of the active variant within `variants`.
     variant: u8 = 0,
-    /// Additive: per-slice choke group (0 = none - see
-    /// `Slicer.chokeTrigger`). Dense, parallel to `slices`.
+    /// Per-slice choke group (0 = none - see `Slicer.chokeTrigger`). Dense,
+    /// parallel to `slices`.
     choke_group: []const u8 = &.{},
     /// Per-slice loop length in steps, 0 = follows the pattern (see
-    /// `Slicer.slice_len`, and `DrumSnap.pad_len`'s identical note on why
-    /// this needs no version bump).
+    /// `Slicer.slice_len`).
     slice_len: []const u16 = &.{},
 };
 
@@ -903,10 +806,8 @@ pub const RackSnap = struct {
     clap: ?ClapSnap = null,
     vst3: ?Vst3Snap = null,
     soundfont: ?SoundfontSnap = null,
-    /// Legacy fixed rack (v9 and older). Only read when `fx_chain` is null.
-    fx: FxSnap = .{},
-    /// v10: the user-built chain in signal-flow order.
-    fx_chain: ?[]const FxUnitSnap = null,
+    /// The user-built chain in signal-flow order.
+    fx_chain: []const FxUnitSnap = &.{},
 };
 
 pub const TrackSnap = struct {
@@ -968,51 +869,28 @@ pub const ClipKind = enum { melodic, drum };
 /// One placed clip. Melodic clips carry a private note copy + loop length; drum
 /// clips carry a step-count and per-pad bitmask. Mirrors `arrangement.Clip`.
 pub const ClipSnap = struct {
-    /// Legacy whole-bar placement, read for files through v21.
-    start_bar: u32 = 0,
-    length_bars: u32 = 1,
-    /// v22 exact placement at 32 ticks per quarter-note beat.
-    start_tick: ?u32 = null,
-    length_ticks: ?u32 = null,
+    /// Exact placement at 32 ticks per quarter-note beat.
+    start_tick: u32 = 0,
+    length_ticks: u32 = time_grid.ticks_per_beat * 4,
     kind: ClipKind = .melodic,
     // melodic
     notes: []const NoteSnap = &.{},
     length_beats: f64 = 4.0,
     // drum
-    // v11: widened from a [DrumMachine.max_pads]u64 fixed array to a slice -
-    // std.json requires exact-length matches for fixed arrays, and max_pads
-    // grew 8->64, so old files' 8-element arrays would otherwise fail to
-    // parse. Missing/short entries are zero-filled on load (see clipFromSnap).
-    drum_pattern: []const u64 = &.{},
-    /// v4: per-step velocity bitplanes. Zero (or absent) = full velocity.
-    /// v4, read-only since v12 - see `VariantSnap.vel_lo`'s doc comment.
-    drum_vel_lo: []const u64 = &.{},
-    drum_vel_hi: []const u64 = &.{},
-    /// v12: per-pad, per-step velocity - see `VariantSnap.vel`'s doc comment.
-    drum_vel: []const []const u8 = &.{},
-    /// v23: sparse per-pad note list - the drum-machine.s own step data
-    /// (`drum_pattern`/`drum_vel` above stay Slicer.s fixed-size shape;
-    /// see `arrangement.Clip.Drum`.s doc comment). Read-only convention:
-    /// a pre-v23 file has an empty `drum_notes` and migrates from
-    /// `drum_pattern`/`drum_vel`/`drum_vel_lo`/`drum_vel_hi` instead.
+    /// Sparse per-pad note list - the drum clip's whole step grid.
+    /// Missing/out-of-range entries are dropped on load (see clipFromSnap).
     drum_notes: []const DrumNoteSnap = &.{},
     step_count: u16 = 16,
-    /// Native drum-clip resolution. Older clips default to 1/16 notes.
+    /// Native drum-clip resolution.
     steps_per_beat: u8 = 4,
-    /// v3: variant letter label (index) the clip was stamped from.
+    /// Variant letter label (index) the clip was stamped from.
     variant: u8 = 0,
-    /// v7: gain (dB) / pan (-1..1) automation breakpoints, clip-relative
-    /// beats. Independent of `kind` - either clip type can carry them.
+    /// Gain (dB) / pan (-1..1) automation breakpoints, clip-relative beats.
+    /// Independent of `kind` - either clip type can carry them.
     gain_automation: []const AutomationPointSnap = &.{},
     pan_automation: []const AutomationPointSnap = &.{},
-    /// v13: sparse synth-instrument-param automation lanes - supersedes
-    /// `filter_cutoff_automation` below (kept, read-only, for the legacy
-    /// remap; see `file_version`'s v13 doc comment). New saves never write
-    /// the old field, matching v11/v12's own migration convention.
+    /// Sparse synth-instrument- and FX-unit-param automation lanes.
     synth_param_automation: []const SynthParamAutomationSnap = &.{},
-    /// v7, read-only since v13 - see `synth_param_automation`'s doc comment.
-    /// Hz, 20..20_000.
-    filter_cutoff_automation: []const AutomationPointSnap = &.{},
 };
 
 /// One track's lane of clips. Lanes are parallel to `racks`/`tracks`.
@@ -1028,34 +906,26 @@ pub const SectionSnap = struct {
 pub const Snapshot = struct {
     version: u32 = file_version,
     tempo_bpm: f64 = 120.0,
-    /// Additive: song key for scale tools and sample tuning. Older files
-    /// load with no key; older builds safely ignore this field.
+    /// Song key for scale tools and sample tuning; null means no key.
     scale: ?theory.Scale = null,
-    /// v4: time signature numerator (the unit is always /4). Older files
-    /// omit it and load as 4/4 - the prior behaviour.
+    /// Time signature numerator (the unit is always /4).
     beats_per_bar: u8 = 4,
-    /// v5: A/B loop region in bars (`loop_end_bar` exclusive). Older files
-    /// omit it and load with no loop - the prior behaviour.
+    /// A/B loop region in bars (`loop_end_bar` exclusive).
     loop_enabled: bool = false,
     loop_start_bar: u32 = 0,
     loop_end_bar: u32 = 0,
     sample_rate: u32 = 48_000,
     tracks: []const TrackSnap,
     racks: []const RackSnap,
-    /// Song timeline, one lane per track. Empty for v1 files.
+    /// Song timeline, one lane per track.
     arrangement: []const LaneSnap = &.{},
-    /// Named song sections. Additive: older files load with none.
+    /// Named song sections.
     sections: []const SectionSnap = &.{},
     /// Whether the loaded project plays the arrangement (true) or live loops.
     song_mode: bool = false,
-    /// v6: master bus FX, applied to the summed mix before gain/limiter.
-    /// Legacy fixed rack; only read when `master_fx_chain` is null.
-    master_fx: FxSnap = .{},
-    /// v10: the master bus's user-built chain in signal-flow order.
-    master_fx_chain: ?[]const FxUnitSnap = null,
-    /// Additive field: older files omit it (empty slice) and load with no
-    /// groups - every track's `TrackSnap.group` reference is then
-    /// necessarily null too, since a group it could point at never existed.
+    /// The master bus's user-built chain in signal-flow order, applied to the
+    /// summed mix before gain/limiter.
+    master_fx_chain: []const FxUnitSnap = &.{},
     /// See `GroupSnap`'s own doc comment for the dense fixed-position shape.
     groups: []const GroupSnap = &.{},
 };
