@@ -1531,6 +1531,22 @@ pub const eq_band_rows: usize = eq_overview_rows + eq_header_rows + eq_fields_pe
 const eq_overview_rows: usize = 2;
 const eq_header_rows: usize = 1;
 
+/// How many rows the EQ's live spectrum graph gets, given the view's total
+/// row budget - shared by the render side (`tui/views/spectrum.zig`'s
+/// `drawFxView`) and the click side (`handleMouse`, below) so they can
+/// never drift out of sync again: they used to carry independent copies of
+/// this formula, and a render-side retune (dropping a removed divider row
+/// from the flat offset) never reached the click-side copy, leaving every
+/// click on the EQ body 2 rows off from what was actually drawn on any
+/// terminal short enough to hit the `rows -| ...` clamp (ordinary sizes -
+/// the two only agreed once both saturated at `spectrum_rows`).
+pub fn eqVisualRows(rows: usize, compact: bool, bands: usize) usize {
+    // Header + strip + hint + section (6; 3 in compact mode) + graph + hz
+    // label + band rows must fit in rows-3 (the caller's header/transport/
+    // status - no separate hr() rule rows).
+    return @min(spectrum_rows, rows -| ((if (compact) @as(usize, 7) else 10) + bands));
+}
+
 // EQ overview row: a 3-char gutter, then a 5-char cell per band
 // (bracket/glyph/bracket on the glyph row; a 5-wide centered field on the
 // freq row) - see drawFxView's EQ branch.
@@ -1582,7 +1598,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
         // re-targets which band the detail rows below show) and the header
         // + detail rows for the focused band alone (kind/freq/q/gain-or-
         // slope, one per row like every other unit's body).
-        const visual_rows: usize = @min(spectrum_rows, view_rows -| ((if (compact) @as(usize, 9) else 12) + eq_band_rows));
+        const visual_rows: usize = eqVisualRows(view_rows, compact, eq_band_rows);
         const overview_row0 = visual_rows + 1;
         const detail_row0 = overview_row0 + eq_overview_rows + eq_header_rows;
         if (rel >= overview_row0 and rel < overview_row0 + eq_overview_rows) {

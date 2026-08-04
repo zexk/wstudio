@@ -7249,6 +7249,36 @@ test "mouse click on a chain-strip slot box focuses that slot" {
     try std.testing.expectEqual(app_mod.AppView.track_spectrum, app.fx_picker_return);
 }
 
+test "clicking the EQ band-detail rows lands on the field actually drawn there" {
+    // Regression: the click-side row math carried its own hand-copied
+    // flat-offset constants instead of sharing the render side's formula,
+    // and drifted 2 rows out of sync with it at ordinary terminal sizes -
+    // every click on the EQ body resolved to the wrong field (e.g.
+    // clicking "kind" edited "q" instead). rows=24 here is non-compact
+    // (compact triggers under 16) and short enough to hit the clamp where
+    // the old click-side formula (9/12) and the render-side one (7/10)
+    // actually disagreed.
+    var app = try testApp();
+    defer app.deinit();
+    const fx = &app.session.racks.items[0].fx;
+    const alloc = app.session.allocator;
+    const sr = app.session.project.sample_rate;
+    _ = try fx.insert(alloc, 0, .eq, sr);
+    spectrum_ed.switchToTrack(&app, 0);
+
+    const rows: usize = 24;
+    const compact = rows < 16;
+    const visual_rows = spectrum_ed.eqVisualRows(rows, compact, spectrum_ed.eq_band_rows);
+    const overview_row0 = visual_rows + 1;
+    // eq_band_rows = eq_overview_rows + eq_header_rows + eq_fields_per_band
+    // (all pub except the first two, which only matter as this difference).
+    const detail_row0 = overview_row0 + (spectrum_ed.eq_band_rows - spectrum_ed.eq_fields_per_band);
+    const kind_row = spectrum_ed.bodyRow0(compact) + detail_row0;
+
+    app.handleMouse(.{ .x = 5, .y = app_mod.content_top + @as(u16, @intCast(kind_row)), .button = .left, .kind = .press }, 80, @intCast(rows), 0);
+    try std.testing.expectEqual(spectrum_ed.eq_field_kind, spectrum_ed.eqBandField(app.fx_param).field);
+}
+
 test "FX picker inserts after the focused slot and focuses the new unit" {
     var app = try testApp();
     defer app.deinit();

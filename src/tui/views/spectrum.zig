@@ -268,13 +268,10 @@ pub fn drawFxView(
         };
 
         const bands = spectrum_ed.eq_band_rows;
-        // Header + strip + hint + section (6; 3 in compact mode) + graph
-        // + hz label + band rows must fit in rows-3 (the caller's header/
-        // transport/status - no separate hr() rule rows anymore). usize
-        // annotation matters: @min against the comptime spectrum_rows bound
-        // otherwise narrows the type to u5, and `visual_rows * 4`
-        // overflows it.
-        const visual_rows: usize = @min(spectrum_rows, rows -| ((if (compact) @as(usize, 7) else 10) + bands));
+        // Shared with `handleMouse`'s click-side copy - see
+        // `eqVisualRows`'s doc comment for why this must stay the single
+        // source of truth instead of two hand-tuned formulas.
+        const visual_rows: usize = spectrum_ed.eqVisualRows(rows, compact, bands);
         // Limit band count to available horizontal space (6-char dB gutter + bands).
         const draw_bands = @min(spectrum_band_count, cols -| 8);
 
@@ -473,16 +470,13 @@ pub fn drawFxView(
         // field order the mouse hit-test (editors/spectrum.zig's
         // handleMouse -> detail_row0) expects.
         const solo_idx = cur_band * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_solo;
-        try enumRow(w, in_submenu and cur_field == spectrum_ed.eq_field_solo, false, sectionColor(.eq),
-            "solo", &.{ "off", "solo" }, @intFromFloat(@round(spectrum_ed.getParam(&unit.payload, solo_idx))));
+        try enumRow(w, in_submenu and cur_field == spectrum_ed.eq_field_solo, false, sectionColor(.eq), "solo", &.{ "off", "solo" }, @intFromFloat(@round(spectrum_ed.getParam(&unit.payload, solo_idx))));
 
         const stereo_idx = cur_band * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_stereo_mode;
-        try enumRow(w, in_submenu and cur_field == spectrum_ed.eq_field_stereo_mode, false, sectionColor(.eq),
-            "stereo", &.{ "stereo", "mid", "side" }, @intFromFloat(@round(spectrum_ed.getParam(&unit.payload, stereo_idx))));
+        try enumRow(w, in_submenu and cur_field == spectrum_ed.eq_field_stereo_mode, false, sectionColor(.eq), "stereo", &.{ "stereo", "mid", "side" }, @intFromFloat(@round(spectrum_ed.getParam(&unit.payload, stereo_idx))));
 
         const dyn_on_idx = cur_band * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_dyn_enabled;
-        try enumRow(w, in_submenu and cur_field == spectrum_ed.eq_field_dyn_enabled, false, sectionColor(.eq),
-            "dyn", &.{ "static", "dynamic" }, @intFromFloat(@round(spectrum_ed.getParam(&unit.payload, dyn_on_idx))));
+        try enumRow(w, in_submenu and cur_field == spectrum_ed.eq_field_dyn_enabled, false, sectionColor(.eq), "dyn", &.{ "static", "dynamic" }, @intFromFloat(@round(spectrum_ed.getParam(&unit.payload, dyn_on_idx))));
 
         // zig fmt: off
         inline for (.{ spectrum_ed.eq_field_dyn_threshold, spectrum_ed.eq_field_dyn_amount }) |field| {
