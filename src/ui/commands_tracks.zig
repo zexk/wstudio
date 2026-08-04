@@ -1,0 +1,477 @@
+//! Track/group management `:` commands split out of commands.zig - add/
+//! delete/rename tracks and groups, instrument swaps, sends, and the pad
+//! rename command.
+
+const std = @import("std");
+const ws = @import("wstudio");
+const types = ws.types;
+const engine_mod = ws.engine;
+const dsp = ws.dsp.device;
+const DrumMachine = ws.dsp.DrumMachine;
+const Sampler = ws.dsp.Sampler;
+const Slicer = ws.dsp.Slicer;
+const cmd_mod = @import("cmd.zig");
+const config_mod = @import("../config.zig");
+const app_mod = @import("app.zig");
+const App = app_mod.App;
+const history = @import("history.zig");
+const piano_ed = @import("editors/piano.zig");
+const preset_ed = @import("editors/preset_picker.zig");
+const spectrum_ed = @import("editors/fx_editor.zig");
+const theory = ws.theory;
+const pattern_mod = ws.dsp.pattern;
+const user_presets = @import("user_presets.zig");
+const user_drum_kits = @import("user_drum_kits.zig");
+const help_view = @import("help.zig");
+const cu = @import("commands_util.zig");
+const commands = @import("commands.zig");
+const path_buf_len = commands.path_buf_len;
+const parseFiniteFloat = commands.parseFiniteFloat;
+
+const cursorDrumMachine = cu.cursorDrumMachine;
+const cursorSlicer = cu.cursorSlicer;
+const cursorTrackIdx = cu.cursorTrackIdx;
+
+pub fn cmdTrackAdd(app: *App, args: []const u8) void {
+    const name = std.mem.trim(u8, args, " ");
+    app.doTrackAdd(if (name.len > 0) name else null);
+}
+
+pub fn cmdSplitDrums(app: *App, args: []const u8) void {
+    if (std.mem.trim(u8, args, " ").len != 0) {
+        app.setStatus("split-drums: takes no arguments", .{});
+        return;
+    }
+    if (app.cursor >= app.session.racks.items.len) {
+        app.setStatus("split-drums: select a drum track", .{});
+        return;
+    }
+    const count = app.session.splitDrumTrack(app.cursor) catch |err| {
+        app.setStatus("split-drums: {s}", .{@errorName(err)});
+        return;
+    };
+    app.dirty = true;
+    app.setStatus("split into {d} sampler tracks", .{count});
+}
+
+pub fn cmdTrackDel(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    const idx: usize = if (trimmed.len == 0) blk: {
+        if (app.cursor >= app.session.project.tracks.items.len) {
+            app.setStatus("track-del: cursor is on the master row - give a track number", .{});
+            return;
+        }
+        break :blk app.cursor;
+    } else blk: {
+        const n = std.fmt.parseInt(usize, trimmed, 10) catch {
+            app.setStatus("track-del: expected a track number", .{});
+            return;
+        };
+        if (n == 0 or n > app.session.project.tracks.items.len) {
+            app.setStatus("track-del: track must be 1–{d}", .{app.session.project.tracks.items.len});
+            return;
+        }
+        break :blk n - 1;
+    };
+    app.doTrackDel(idx);
+}
+
+/// Adaptive like `:load`: renames whatever the open editor is editing - a
+/// pad in the drum grid, the loaded clip in a slicer or sampler editor, a
+/// group when the tracks-view cursor sits on a group row, otherwise the
+/// cursor track. `[<n>]` targets a different one of that same kind without
+/// moving the cursor there first.
+pub fn cmdRename(app: *App, args: []const u8) void {
+    switch (app.view) {
+        .drum_grid => return cmdRenamePad(app, args),
+        .slicer_grid => return cmdRenameSlicerClip(app, args),
+        // The sampler editor is opened on one of three things; it renames
+        // whichever it was pointed at, not the track hosting it.
+        .sampler_editor => switch (app.sampler_target) {
+            .drum => return cmdRenamePad(app, args),
+            .slice => return cmdRenameSlicerClip(app, args),
+            .sampler => return cmdRenameSamplerClip(app, args),
+        },
+        else => {},
+    }
+    if (app.cursorGroup()) |g| return cmdRenameGroup(app, g, args);
+    cmdRenameTrack(app, args);
+}
+
+/// `:rename` while a slicer grid (or a slice's params) is open. A slicer has
+/// one clip shared by every slice, so there is exactly one name to set - no
+/// `[<n>]` target, unlike the drum grid's per-pad names.
+pub fn cmdRenameSlicerClip(app: *App, args: []const u8) void {
+    const name = std.mem.trim(u8, args, " ");
+    if (name.len == 0) {
+        app.setStatus("usage: rename <name>", .{});
+        return;
+    }
+    const sl = cursorSlicer(app) orelse {
+        app.setStatus("rename: no slicer here", .{});
+        return;
+    };
+    sl.rename(name);
+    app.dirty = true;
+    app.setStatus("slicer clip renamed: {s}", .{sl.clipName()});
+}
+
+/// Same shape for a standalone sampler track's own clip.
+pub fn cmdRenameSamplerClip(app: *App, args: []const u8) void {
+    const name = std.mem.trim(u8, args, " ");
+    if (name.len == 0) {
+        app.setStatus("usage: rename <name>", .{});
+        return;
+    }
+    const sampler = app.editingSampler() orelse {
+        app.setStatus("rename: no sampler here", .{});
+        return;
+    };
+    sampler.rename(name);
+    app.dirty = true;
+    app.setStatus("sample renamed: {s}", .{sampler.clipName()});
+}
+
+/// The `:rename [<n>] <name>` argument shape, shared by the track, group and
+/// pad variants. A lone token that isn't a bare number is a forgotten
+/// `<name>` far more often than someone renaming a thing to a numeral, so it
+/// names whatever the cursor is on (`index` null) - the same "no index: act
+/// on the selection" convenience gain/pan/eq share. Sets status and returns
+/// null on a malformed argument.
+const RenameArgs = struct { index: ?[]const u8, name: []const u8 };
+
+fn parseRenameArgs(app: *App, args: []const u8) ?RenameArgs {
+    const trimmed = std.mem.trim(u8, args, " ");
+    var it = std.mem.splitScalar(u8, trimmed, ' ');
+    const first = it.next().?;
+    const rest = std.mem.trim(u8, it.rest(), " ");
+    const first_is_number = std.fmt.parseInt(usize, first, 10) catch null;
+    if (rest.len == 0 and first.len > 0 and first_is_number == null)
+        return .{ .index = null, .name = first };
+    if (rest.len == 0) {
+        app.setStatus("usage: rename [<n>] <name>", .{});
+        return null;
+    }
+    return .{ .index = first, .name = rest };
+}
+
+pub fn cmdRenameTrack(app: *App, args: []const u8) void {
+    const parsed = parseRenameArgs(app, args) orelse return;
+    const idx = if (parsed.index) |tok| blk: {
+        const n = std.fmt.parseInt(usize, tok, 10) catch {
+            app.setStatus("rename: expected a track number", .{});
+            return;
+        };
+        if (n == 0 or n > app.session.project.tracks.items.len) {
+            app.setStatus("rename: track must be 1–{d}", .{app.session.project.tracks.items.len});
+            return;
+        }
+        break :blk n - 1;
+    } else cursorTrackIdx(app) orelse {
+        app.setStatus("rename: cursor is on the master row - give a track number", .{});
+        return;
+    };
+    app.session.project.renameTrack(idx, parsed.name) catch {
+        app.setStatus("out of memory", .{});
+        return;
+    };
+    app.dirty = true;
+    app.setStatus("track {d} renamed to \"{s}\"", .{ idx + 1, parsed.name });
+}
+
+/// Swap the cursor track's instrument kind. Unlike the instrument picker
+/// (which only ever fires on a blank track), this runs on a live track and
+/// asks `Session.changeInstrumentKind` to carry the notes over when the old
+/// and new kinds are compatible - see that function's doc comment for
+/// exactly which pairings qualify.
+pub fn cmdTrackInstrument(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        app.setStatus("usage: track-instrument [<n>] <synth|sampler|drum|slicer|soundfont|acoustic>", .{});
+        return;
+    }
+    var it = std.mem.splitScalar(u8, trimmed, ' ');
+    const first = it.next().?;
+    const rest = std.mem.trim(u8, it.rest(), " ");
+
+    // No second token: a single arg is always the kind for the cursor
+    // track - unlike :rename, a kind name can never be confused with
+    // a bare track number, so there's no ambiguity to resolve.
+    const idx: usize, const kind_str: []const u8 = if (rest.len == 0) blk: {
+        const cursor_idx = cursorTrackIdx(app) orelse {
+            app.setStatus("track-instrument: cursor is on the master row - give a track number", .{});
+            return;
+        };
+        break :blk .{ cursor_idx, first };
+    } else blk: {
+        const n = std.fmt.parseInt(usize, first, 10) catch {
+            app.setStatus("track-instrument: expected a track number", .{});
+            return;
+        };
+        if (n == 0 or n > app.session.project.tracks.items.len) {
+            app.setStatus("track-instrument: track must be 1–{d}", .{app.session.project.tracks.items.len});
+            return;
+        }
+        break :blk .{ n - 1, rest };
+    };
+    const kind = app_mod.apiKindFromName(kind_str) orelse {
+        app.setStatus("track-instrument: unknown kind '{s}' (synth/sampler/drum/slicer/soundfont/acoustic)", .{kind_str});
+        return;
+    };
+    if (std.meta.activeTag(app.session.racks.items[idx].instrument) == kind) {
+        app.setStatus("track {d} is already {s}", .{ idx + 1, kind_str });
+        return;
+    }
+    var backup = history.captureTrackKindSwap(app, idx);
+    const preserved = app.session.changeInstrumentKind(idx, kind) catch |err| {
+        if (backup) |*b| b.deinit(app.allocator);
+        app.setStatus("track-instrument: {s}", .{@errorName(err)});
+        return;
+    };
+    history.push(app, backup);
+    app.dirty = true;
+    if (kind == .acoustic) app.loadDefaultAcoustic(idx);
+    // The swapped track may be the one an instrument editor is open on -
+    // `:track-instrument 2 synth` runs just as well from the slicer grid as
+    // from the tracks view. Leaving the view up would send the next keypress
+    // through `slicerInst()` (or `drumMachine()`) on a rack that now holds a
+    // different union field. The picker path avoids this by returning to
+    // `.tracks` outright; here the view is whatever the user was in.
+    app.exitStaleEditors();
+    if (preserved) {
+        app.setStatus("track {d}: now {s} (notes kept)", .{ idx + 1, kind_str });
+    } else {
+        app.setStatus("track {d}: now {s} (no compatible mapping - notes cleared)", .{ idx + 1, kind_str });
+    }
+}
+
+pub fn cmdGroupAdd(app: *App, args: []const u8) void {
+    if (std.mem.trim(u8, args, " ").len != 0) {
+        app.setStatus("usage: group-add", .{});
+        return;
+    }
+    const name = "untitled group";
+    const idx = app.session.addGroup(name) catch |err| {
+        switch (err) {
+            error.GroupLimitReached => app.setStatus("group-add: bank full ({d} groups)", .{ws.engine.max_groups}),
+            error.OutOfMemory => app.setStatus("group-add: out of memory", .{}),
+        }
+        return;
+    };
+    app.dirty = true;
+    app.setStatus("group {d} \"{s}\" created", .{ idx + 1, name });
+}
+
+/// Group index from a 1-based command argument, or null with a status
+/// message already set - shared by every `:group-*`/`:track-group` command
+/// that takes one.
+fn parseGroupArg(app: *App, name: []const u8, s: []const u8) ?u8 {
+    const n = std.fmt.parseInt(u8, s, 10) catch {
+        app.setStatus("{s}: expected a group number", .{name});
+        return null;
+    };
+    if (n == 0 or n > ws.engine.max_groups) {
+        app.setStatus("{s}: group must be 1–{d}", .{ name, ws.engine.max_groups });
+        return null;
+    }
+    return n - 1;
+}
+
+fn existingGroupArg(app: *App, name: []const u8, s: []const u8) ?u8 {
+    const idx = parseGroupArg(app, name, s) orelse return null;
+    if (app.session.groups[idx] == null) {
+        app.setStatus("{s}: group {d} doesn't exist", .{ name, idx + 1 });
+        return null;
+    }
+    return idx;
+}
+
+/// `cursor_group` is the group the tracks-view cursor already sits on
+/// (`cmdRename` only calls this once `app.cursorGroup()` confirms it).
+pub fn cmdRenameGroup(app: *App, cursor_group: u8, args: []const u8) void {
+    const parsed = parseRenameArgs(app, args) orelse return;
+    const idx = if (parsed.index) |tok|
+        parseGroupArg(app, "rename", tok) orelse return
+    else
+        cursor_group;
+    const name = parsed.name;
+
+    if (app.session.groups[idx] == null) {
+        app.setStatus("rename: group {d} doesn't exist", .{idx + 1});
+        return;
+    }
+    app.session.renameGroup(idx, name) catch {
+        app.setStatus("out of memory", .{});
+        return;
+    };
+    app.dirty = true;
+    app.setStatus("group {d} renamed to \"{s}\"", .{ idx + 1, name });
+}
+
+pub fn cmdGroupGain(app: *App, args: []const u8) void {
+    var it = std.mem.splitScalar(u8, std.mem.trim(u8, args, " "), ' ');
+    const idx_str = it.next() orelse "";
+    if (idx_str.len == 0) {
+        app.setStatus("usage: group-gain <n> [<dB>]", .{});
+        return;
+    }
+    const idx = existingGroupArg(app, "group-gain", idx_str) orelse return;
+    const db_str = std.mem.trim(u8, it.rest(), " ");
+    if (db_str.len == 0) {
+        app.setStatus("group {d} gain: {d:.1}dB", .{ idx + 1, app.session.groups[idx].?.gain_db });
+        return;
+    }
+    const db = parseFiniteFloat(f32, db_str) catch {
+        app.setStatus("group-gain: expected a dB value, e.g. :group-gain 1 -6", .{});
+        return;
+    };
+    const before = app.session.groups[idx].?.gain_db;
+    app.session.setGroupGain(idx, db);
+    history.recordGroupGain(app, idx, before);
+    app.setStatus("group {d} gain: {d:.1}dB", .{ idx + 1, app.session.groups[idx].?.gain_db });
+}
+
+pub fn cmdGroupDel(app: *App, args: []const u8) void {
+    const idx_str = std.mem.trim(u8, args, " ");
+    if (idx_str.len == 0) {
+        app.setStatus("usage: group-del <n>", .{});
+        return;
+    }
+    const idx = existingGroupArg(app, "group-del", idx_str) orelse return;
+    if (app.view == .group_spectrum and app.eq_group == idx) app.view = .tracks;
+    // Must run BEFORE deleteGroup frees the slot: the very next addGroup
+    // can reuse `idx`, and any undo entry still naming it would otherwise
+    // silently retarget onto the new group's chain.
+    _ = history.dropGroupPending(app, idx);
+    app.session.deleteGroup(idx);
+    app.dirty = true;
+    app.setStatus("group {d} deleted", .{idx + 1});
+}
+
+pub fn cmdGroupFx(app: *App, args: []const u8) void {
+    const idx_str = std.mem.trim(u8, args, " ");
+    if (idx_str.len == 0) {
+        app.setStatus("usage: group-fx <n>", .{});
+        return;
+    }
+    const idx = existingGroupArg(app, "group-fx", idx_str) orelse return;
+    spectrum_ed.switchToGroup(app, idx);
+}
+
+pub fn cmdTrackGroup(app: *App, args: []const u8) void {
+    var it = std.mem.splitScalar(u8, std.mem.trim(u8, args, " "), ' ');
+    const track_str = it.next() orelse "";
+    const group_str = std.mem.trim(u8, it.rest(), " ");
+    if (track_str.len == 0 or group_str.len == 0) {
+        app.setStatus("usage: track-group <track> <group|none>", .{});
+        return;
+    }
+    const track_1 = std.fmt.parseInt(usize, track_str, 10) catch {
+        app.setStatus("track-group: bad track number '{s}'", .{track_str});
+        return;
+    };
+    if (track_1 == 0 or track_1 > app.session.project.tracks.items.len) {
+        app.setStatus("track-group: track must be 1–{d}", .{app.session.project.tracks.items.len});
+        return;
+    }
+    const track_idx = track_1 - 1;
+    if (std.ascii.eqlIgnoreCase(group_str, "none")) {
+        app.session.assignTrackGroup(track_idx, null);
+        app.dirty = true;
+        app.setStatus("track {d}: ungrouped", .{track_1});
+        return;
+    }
+    const idx = existingGroupArg(app, "track-group", group_str) orelse return;
+    app.session.assignTrackGroup(track_idx, idx);
+    app.dirty = true;
+    app.setStatus("track {d} → group {d}", .{ track_1, idx + 1 });
+}
+
+/// `:track-send <track> <slot> none` clears a slot; `:track-send <track>
+/// <slot> master|<group> <dB>` sets it - a parallel, independently-leveled
+/// tap alongside the track's one primary route (`:track-group`/ungrouped).
+/// Slot is 1-based, same convention as track/group numbers throughout.
+pub fn cmdTrackSend(app: *App, args: []const u8) void {
+    var it = std.mem.splitScalar(u8, std.mem.trim(u8, args, " "), ' ');
+    const track_str = it.next() orelse "";
+    const slot_str = it.next() orelse "";
+    const target_str = it.next() orelse "";
+    if (track_str.len == 0 or slot_str.len == 0 or target_str.len == 0) {
+        app.setStatus("usage: track-send <track> <slot 1-{d}> none|master|<group> [<dB>]", .{ws.max_sends_per_track});
+        return;
+    }
+    const track_1 = std.fmt.parseInt(usize, track_str, 10) catch {
+        app.setStatus("track-send: bad track number '{s}'", .{track_str});
+        return;
+    };
+    if (track_1 == 0 or track_1 > app.session.project.tracks.items.len) {
+        app.setStatus("track-send: track must be 1–{d}", .{app.session.project.tracks.items.len});
+        return;
+    }
+    const track_idx: u16 = @intCast(track_1 - 1);
+
+    const slot_1 = std.fmt.parseInt(u8, slot_str, 10) catch {
+        app.setStatus("track-send: bad slot number '{s}'", .{slot_str});
+        return;
+    };
+    if (slot_1 == 0 or slot_1 > ws.max_sends_per_track) {
+        app.setStatus("track-send: slot must be 1–{d}", .{ws.max_sends_per_track});
+        return;
+    }
+    const slot = slot_1 - 1;
+
+    if (std.ascii.eqlIgnoreCase(target_str, "none")) {
+        app.session.clearTrackSend(track_idx, slot);
+        app.dirty = true;
+        app.setStatus("track {d} send {d}: cleared", .{ track_1, slot_1 });
+        return;
+    }
+
+    const level_str = std.mem.trim(u8, it.rest(), " ");
+    const level_db = if (level_str.len == 0) -6.0 else std.fmt.parseFloat(f32, level_str) catch {
+        app.setStatus("track-send: bad level '{s}'", .{level_str});
+        return;
+    };
+
+    if (std.ascii.eqlIgnoreCase(target_str, "master")) {
+        app.session.setTrackSend(track_idx, slot, .master, level_db);
+        app.dirty = true;
+        app.setStatus("track {d} send {d} → master @ {d:.1}dB", .{ track_1, slot_1, level_db });
+        return;
+    }
+    const idx = existingGroupArg(app, "track-send", target_str) orelse return;
+    app.session.setTrackSend(track_idx, slot, .{ .group = idx }, level_db);
+    app.dirty = true;
+    app.setStatus("track {d} send {d} → group {d} @ {d:.1}dB", .{ track_1, slot_1, idx + 1, level_db });
+}
+
+/// `cmdRename` only reaches this while the drum grid is actually open, so
+/// `app.drum_cursor[0]` (the grid's own pad cursor) is always the sensible
+/// default.
+pub fn cmdRenamePad(app: *App, args: []const u8) void {
+    const parsed = parseRenameArgs(app, args) orelse return;
+    const pad_idx: u8 = if (parsed.index) |tok| blk: {
+        const pad_num = std.fmt.parseInt(u8, tok, 10) catch {
+            app.setStatus("rename: bad pad index '{s}'", .{tok});
+            return;
+        };
+        if (pad_num < 1 or pad_num > DrumMachine.max_pads) {
+            app.setStatus("rename: pad index must be 1-{d}", .{DrumMachine.max_pads});
+            return;
+        }
+        break :blk pad_num - 1;
+    } else @intCast(app.drum_cursor[0]);
+    const name = parsed.name;
+
+    const dm = cursorDrumMachine(app) orelse {
+        app.setStatus("rename: select a drum-machine track first", .{});
+        return;
+    };
+    if (dm.pads[pad_idx] == null) {
+        app.setStatus("rename: pad {d} is empty - :load it first", .{pad_idx + 1});
+        return;
+    }
+    dm.pads[pad_idx].?.rename(name);
+    app.dirty = true;
+    app.setStatus("pad {d} renamed: {s}", .{ pad_idx + 1, dm.pads[pad_idx].?.clipName() });
+}
