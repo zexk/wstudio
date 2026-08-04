@@ -4,14 +4,13 @@ const std = @import("std");
 const clap_scan = @import("clap/scan.zig");
 const vst3_scan = @import("vst3/scan.zig");
 
-pub const Format = enum { clap, vst3, vst2 };
+pub const Format = enum { clap, vst3 };
 pub const Role = enum { instrument, effect };
 
 pub fn formatLabel(format: Format) []const u8 {
     return switch (format) {
         .clap => "CLAP",
         .vst3 => "VST3",
-        .vst2 => "VST2",
     };
 }
 

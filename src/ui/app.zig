@@ -2828,7 +2828,6 @@ pub const App = struct {
                     self.setStatus("{s}: {s}", .{ plugin.name, @errorName(err) });
                     return;
                 },
-                .vst2 => unreachable,
             }
             history.push(self, backup);
             self.dirty = true;

@@ -91,7 +91,6 @@ pub const drawFxPicker = picker.drawFxPicker;
 pub const drawDrumGrid = drum.drawDrumGrid;
 pub const drawSlicerGrid = slicer.drawSlicerGrid;
 pub const drawHelp = help.drawHelp;
-pub const helpSearch = help.search;
 pub const drawFxView = spectrum.drawFxView;
 pub const drawSynthEditor = synth.drawSynthEditor;
 pub const drawPianoRoll = piano.drawPianoRoll;

@@ -15,11 +15,6 @@ const dim = style.dim;
 const sel = style.sel;
 const endLine = style.endLine;
 
-// Re-exported so callers (app.zig, commands.zig, tui.zig) keep addressing
-// the help model through this view for now.
-pub const Section = help_model.Section;
-pub const scrollForSection = help_model.scrollForSection;
-pub const search = help_model.search;
 const HelpText = help_model.HelpText;
 const buildHelp = help_model.buildHelp;
 

@@ -161,8 +161,6 @@ pub const gate_id: u16 = 14;
 /// project tempo shouldn't hardcode the indices.
 pub const pitch_id: u16 = 2;
 pub const stretch_id: u16 = 12;
-pub const mod_rate_id: u16 = 15;
-pub const mod_depth_id: u16 = 16;
 pub const mod_shape_id: u16 = 17;
 pub const mod_dest_id: u16 = 18;
 
