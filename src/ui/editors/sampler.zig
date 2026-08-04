@@ -13,7 +13,7 @@ const SamplerMarker = app_mod.SamplerMarker;
 const history = @import("../history.zig");
 const commands = @import("../commands.zig");
 const format = @import("../format.zig");
-const spectrum = @import("spectrum.zig");
+const spectrum = @import("fx_editor.zig");
 const piano = @import("piano.zig");
 
 /// Waveform panel caps, shared with the TUI render half (views/sampler.zig):

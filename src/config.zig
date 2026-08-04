@@ -16,7 +16,7 @@ const ws_root = @import("wstudio");
 const cmd_mod = @import("ui/cmd.zig");
 const tui_app = @import("ui/app.zig");
 const undo_mod = @import("ui/undo.zig");
-const spectrum_ed = @import("ui/editors/spectrum.zig");
+const spectrum_ed = @import("ui/editors/fx_editor.zig");
 
 const c = @cImport({
     @cInclude("lua.h");

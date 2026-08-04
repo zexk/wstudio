@@ -23,7 +23,7 @@ const automation_ed = @import("../ui/editors/automation.zig");
 const style = @import("style.zig");
 const piano_ed = @import("../ui/editors/piano.zig");
 const sampler_ed = @import("../ui/editors/sampler.zig");
-const spectrum_ed = @import("../ui/editors/spectrum.zig");
+const spectrum_ed = @import("../ui/editors/fx_editor.zig");
 const soundfont_ed = @import("../ui/editors/soundfont.zig");
 const synth_ed_mod = @import("../ui/editors/synth.zig");
 const preset_ed = @import("../ui/editors/preset_picker.zig");
@@ -7230,7 +7230,7 @@ test "mouse click on a chain-strip slot box focuses that slot" {
     try std.testing.expectEqual(@as(usize, 0), app.fx_focus);
 
     // Strip middle row is view row 2; the second slot box (COMP) spans
-    // columns 11..18 (see editors/spectrum.zig's strip geometry).
+    // columns 11..18 (see editors/fx_editor.zig's strip geometry).
     const row = app_mod.content_top + 2;
     app.handleMouse(.{ .x = 12, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
     try std.testing.expectEqual(@as(usize, 1), app.fx_focus);

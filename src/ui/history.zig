@@ -8,7 +8,7 @@ const pattern_mod = ws.dsp.pattern;
 const undo_mod = @import("undo.zig");
 const App = @import("app.zig").App;
 const piano = @import("editors/piano.zig");
-const spectrum = @import("editors/spectrum.zig");
+const spectrum = @import("editors/fx_editor.zig");
 
 /// Record a pre-edit snapshot; null (capture failed / target invalid)
 /// simply records nothing - undo is best-effort, never blocks the edit.
@@ -623,7 +623,7 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             // Install the snapshot and push it to the audio thread BEFORE
             // freeing the displaced units: the engine's chain still holds
             // device pointers into them until the resync lands (same
-            // sync-then-free rule spectrum.zig's removeFocused documents).
+            // sync-then-free rule fx_editor.zig's removeFocused documents).
             const old = fx.*;
             fx.* = f.fx;
             app.fx_focus = if (fx.units.items.len == 0) 0 else @min(app.fx_focus, fx.units.items.len - 1);

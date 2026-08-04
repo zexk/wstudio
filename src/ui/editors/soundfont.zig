@@ -16,7 +16,7 @@ const App = app_mod.App;
 const history = @import("../history.zig");
 const commands = @import("../commands.zig");
 const preset_picker = @import("preset_picker.zig");
-const spectrum = @import("spectrum.zig");
+const spectrum = @import("fx_editor.zig");
 const piano = @import("piano.zig");
 
 /// GAIN, PAN, TRANSPOSE, PRESET - see dsp/soundfont_player.zig's `param_count`.

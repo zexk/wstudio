@@ -4,7 +4,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const style = @import("../style.zig");
 const icons = @import("../../ui/icons.zig");
-const spectrum_ed = @import("../../ui/editors/spectrum.zig");
+const spectrum_ed = @import("../../ui/editors/fx_editor.zig");
 const app_mod = @import("../../ui/app.zig");
 
 // Bare-name aliases for the shared palette/primitives.

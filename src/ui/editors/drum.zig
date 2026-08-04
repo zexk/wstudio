@@ -13,7 +13,7 @@ const app_mod = @import("../app.zig");
 const App = app_mod.App;
 const StepRangeClip = app_mod.StepRangeClip;
 const history = @import("../history.zig");
-const spectrum = @import("spectrum.zig");
+const spectrum = @import("fx_editor.zig");
 const preset_picker = @import("preset_picker.zig");
 const step_grid = @import("step_grid.zig");
 

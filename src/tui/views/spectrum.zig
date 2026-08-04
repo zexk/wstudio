@@ -5,13 +5,13 @@
 //! there's room), with the focused unit's editor filling the body below.
 //! Chains start empty; `a` opens the FX picker. The spectrum analyzer is
 //! part of an EQ unit's editor; it draws (and runs) only while one has
-//! focus. The input half lives in editors/spectrum.zig.
+//! focus. The input half lives in editors/fx_editor.zig.
 
 const std = @import("std");
 const ws = @import("wstudio");
 const types = ws.types;
 const eq_mod = ws.dsp.eq;
-const spectrum_ed = @import("../../ui/editors/spectrum.zig");
+const spectrum_ed = @import("../../ui/editors/fx_editor.zig");
 const engine_mod = ws.engine;
 const style = @import("../style.zig");
 const icons = @import("../../ui/icons.zig");
@@ -135,7 +135,7 @@ fn drawStripBorder(app: anytype, w: *std.Io.Writer, chain: *const ws.Fx, top: bo
 /// gets a heavy accent border; active units are green, bypassed ones red
 /// with a hollow dot. Geometry (3-col gutter, 7-wide boxes, 1-wide arrows;
 /// nine boxes + "▶OUT" = 78 cols, inside an 80-col terminal) is mirrored by
-/// the strip constants in editors/spectrum.zig for mouse hit-testing. In
+/// the strip constants in editors/fx_editor.zig for mouse hit-testing. In
 /// compact mode (short terminals) only the middle row is drawn; same
 /// columns, just without the box borders.
 fn drawChainStrip(app: anytype, w: *std.Io.Writer, chain: *const ws.Fx, compact: bool) !void {
@@ -215,7 +215,7 @@ pub fn drawFxView(
 
     if (!compact) {
         try w.writeAll(dim ++ "  tab/[/]:slot  a:insert  x:remove  </>:move  b:bypass  ");
-        // EQ gets its own two-stage scheme (see editors/spectrum.zig's
+        // EQ gets its own two-stage scheme (see editors/fx_editor.zig's
         // eq_band_select doc comment) - h/l means something different
         // depending which stage it's in, so the hint has to match.
         if (focused != null and focused.?.kind() == .eq) {
@@ -248,7 +248,7 @@ pub fn drawFxView(
         try synthSection(w, spectrum_ed.editorTitle(.eq), sectionColor(.eq));
         // The EQ unit's editor: live spectrum graph up top, the 8 band
         // columns underneath. The analyzer only runs while an EQ has focus
-        // (editors/spectrum.zig parks it on focus change).
+        // (editors/fx_editor.zig parks it on focus change).
         // Freeze holds whatever snapshot was current the moment it turned
         // on, redrawing that instead of pulling a fresh one each frame.
         const spectrum_snap = if (app.eq_spectrum_frozen) blk: {
@@ -467,7 +467,7 @@ pub fn drawFxView(
         }
 
         // Solo / mid-side / dynamic-EQ rows - same detail block, in the same
-        // field order the mouse hit-test (editors/spectrum.zig's
+        // field order the mouse hit-test (editors/fx_editor.zig's
         // handleMouse -> detail_row0) expects.
         const solo_idx = cur_band * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_solo;
         try enumRow(w, in_submenu and cur_field == spectrum_ed.eq_field_solo, false, sectionColor(.eq), "solo", &.{ "off", "solo" }, @intFromFloat(@round(spectrum_ed.getParam(&unit.payload, solo_idx))));

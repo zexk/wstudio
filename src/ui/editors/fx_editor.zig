@@ -28,7 +28,30 @@ const App = @import("../app.zig").App;
 const history = @import("../history.zig");
 const fuzzy = @import("../fuzzy.zig");
 const fx_p = ws.dsp.fx_params;
+const fx_meta = ws.dsp.fx_meta;
 const automation_ed = @import("automation.zig");
+
+// Frontend-facing FX-kind/EQ-band-kind metadata split out to
+// dsp/fx_meta.zig (no `*App` dependency there, unlike the rest of this
+// file) - aliased back under their original names so this file's own bare
+// call sites (`unitLabel(k)`, `eqKindLabel(...)`, etc.) keep resolving
+// unchanged, and so every other frontend file that already does
+// `spectrum_ed.unitLabel(...)` keeps compiling too (each of those imports
+// gets redirected to fx_meta.zig instead, see the rename's other edits).
+pub const EffectSpec = fx_meta.EffectSpec;
+pub const effect_specs = fx_meta.effect_specs;
+pub const effectSpec = fx_meta.effectSpec;
+pub const unitLabel = fx_meta.unitLabel;
+pub const editorTitle = fx_meta.editorTitle;
+pub const pickerCategory = fx_meta.pickerCategory;
+pub const pickerDescription = fx_meta.pickerDescription;
+pub const stripLabel = fx_meta.stripLabel;
+pub const badgeLabel3 = fx_meta.badgeLabel3;
+pub const bandCollides = fx_meta.bandCollides;
+pub const EqKindSpec = fx_meta.EqKindSpec;
+pub const eq_kind_specs = fx_meta.eq_kind_specs;
+pub const eqKindLabel = fx_meta.eqKindLabel;
+pub const eqStereoModeLabel = fx_meta.eqStereoModeLabel;
 
 /// Spectrum-analyzer pane geometry, shared with the TUI render half
 /// (views/spectrum.zig) so the mouse row math here and the draw path agree.
@@ -83,76 +106,6 @@ pub fn externalPickerAt(app: *App, ordinal: usize) ?*const ws.plugin_catalog.Plu
     return null;
 }
 
-pub const EffectSpec = struct {
-    label: []const u8,
-    editor_title: []const u8,
-    strip_label: []const u8,
-    badge_label: []const u8,
-    category: []const u8,
-    description: []const u8,
-    display_label: []const u8,
-};
-
-// Order follows FxPayload's tags, making every frontend-facing name for a
-// kind reviewable in one row.
-// zig fmt: off
-pub const effect_specs = [_]EffectSpec{
-    .{ .label = "GATE",       .editor_title = "GATE",           .strip_label = "GATE", .badge_label = "gate", .category = "DYNAMICS",   .description = "Tighten noise and transients",             .display_label = "TRANSFER" },
-    .{ .label = "COMP",       .editor_title = "COMPRESSOR",     .strip_label = "COMP", .badge_label = "cmp",  .category = "DYNAMICS",   .description = "Control dynamics and sidechain",            .display_label = "TRANSFER" },
-    .{ .label = "MB COMP",    .editor_title = "MULTIBAND COMP", .strip_label = "MBCP", .badge_label = "mbc",  .category = "DYNAMICS",   .description = "Shape dynamics across three bands",          .display_label = "BAND GAIN" },
-    .{ .label = "OTT",        .editor_title = "OTT",            .strip_label = "OTT",  .badge_label = "ott",  .category = "DYNAMICS",   .description = "Fast upward and downward compression",       .display_label = "BAND GAIN" },
-    .{ .label = "LIMITER",    .editor_title = "LIMITER",        .strip_label = "LIM",  .badge_label = "lim",  .category = "DYNAMICS",   .description = "Catch peaks at a fixed ceiling",              .display_label = "TRANSFER" },
-    .{ .label = "TRANSIENT",  .editor_title = "TRANSIENT SHAPER", .strip_label = "TRNS", .badge_label = "trn", .category = "DYNAMICS", .description = "Shape attack and sustain",                    .display_label = "APPLIED GAIN" },
-    .{ .label = "EQ",         .editor_title = "EQ + SPECTRUM",  .strip_label = "EQ",   .badge_label = "eq",   .category = "TONE",       .description = "Eight-band parametric tone shaping",         .display_label = "RESPONSE" },
-    .{ .label = "FILTER",     .editor_title = "FILTER",         .strip_label = "FILT", .badge_label = "flt",  .category = "TONE",       .description = "Multimode resonant tone shaping",            .display_label = "RESPONSE" },
-    .{ .label = "UTILITY",    .editor_title = "UTILITY",        .strip_label = "UTIL", .badge_label = "utl",  .category = "UTILITY",    .description = "Gain and stereo channel tools",              .display_label = "CHANNELS" },
-    .{ .label = "WIDTH",      .editor_title = "STEREO WIDTH",   .strip_label = "WDTH", .badge_label = "wid",  .category = "UTILITY",    .description = "Shape stereo width with mid and side",       .display_label = "STEREO" },
-    .{ .label = "AUTO PAN",   .editor_title = "AUTO PAN / TREMOLO", .strip_label = "APAN", .badge_label = "pan", .category = "MODULATION", .description = "Tempo-synced pan or tremolo",               .display_label = "MODULATION" },
-    .{ .label = "SAT",        .editor_title = "SATURATOR",      .strip_label = "SAT",  .badge_label = "sat",  .category = "CHARACTER",  .description = "Add harmonic drive and warmth",              .display_label = "SHAPER" },
-    .{ .label = "CRUSH",      .editor_title = "CRUSHER",        .strip_label = "CRSH", .badge_label = "crs",  .category = "CHARACTER",  .description = "Reduce bit depth and sample rate",           .display_label = "SHAPER" },
-    .{ .label = "CHORUS",     .editor_title = "CHORUS",         .strip_label = "CHOR", .badge_label = "cho",  .category = "MODULATION", .description = "Widen with modulated voices",                .display_label = "MODULATION" },
-    .{ .label = "PHASER",     .editor_title = "PHASER",         .strip_label = "PHAS", .badge_label = "pha",  .category = "MODULATION", .description = "Animated phase cancellation",               .display_label = "MODULATION" },
-    .{ .label = "FLANGER",    .editor_title = "FLANGER",        .strip_label = "FLNG", .badge_label = "fln",  .category = "MODULATION", .description = "Short swept comb modulation",               .display_label = "MODULATION" },
-    .{ .label = "TAPE",       .editor_title = "TAPE",           .strip_label = "TAPE", .badge_label = "tap",  .category = "CHARACTER",  .description = "Soft saturation and movement",              .display_label = "TAPE MOTION" },
-    .{ .label = "FREQ SHIFT", .editor_title = "FREQ SHIFT",     .strip_label = "FRQS", .badge_label = "frq",  .category = "MODULATION", .description = "Shift the full frequency spectrum",          .display_label = "FREQ MAP" },
-    .{ .label = "DELAY",      .editor_title = "DELAY",          .strip_label = "DLY",  .badge_label = "dly",  .category = "TIME",       .description = "Stereo echoes with feedback",                .display_label = "ECHO DECAY" },
-    .{ .label = "REVERB",     .editor_title = "REVERB",         .strip_label = "VERB", .badge_label = "rev",  .category = "TIME",       .description = "Place the sound in a room",                   .display_label = "ROOM DECAY" },
-    .{ .label = "CLAP",       .editor_title = "CLAP PLUGIN",    .strip_label = "CLAP", .badge_label = "clp",  .category = "PLUGIN",     .description = "External CLAP audio plugin",                 .display_label = "PLUGIN" },
-    .{ .label = "VST3",       .editor_title = "VST3 PLUGIN",    .strip_label = "VST3", .badge_label = "vst",  .category = "PLUGIN",     .description = "External VST3 audio plugin",                 .display_label = "PLUGIN" },
-};
-// zig fmt: on
-
-comptime {
-    if (effect_specs.len != std.meta.fields(FxKind).len) @compileError("effect_specs must cover every FxKind");
-}
-
-pub fn effectSpec(k: FxKind) EffectSpec {
-    return effect_specs[@intFromEnum(k)];
-}
-
-pub fn unitLabel(k: FxKind) []const u8 {
-    return effectSpec(k).label;
-}
-
-pub fn editorTitle(k: FxKind) []const u8 {
-    return effectSpec(k).editor_title;
-}
-
-pub fn pickerCategory(k: FxKind) []const u8 {
-    return effectSpec(k).category;
-}
-
-pub fn pickerDescription(k: FxKind) []const u8 {
-    return effectSpec(k).description;
-}
-
-/// <=4-char label for the chain strip's slot boxes; nine boxes have to
-/// share an 80-col row, so each gets a 7-wide box (see the strip geometry
-/// constants below).
-pub fn stripLabel(k: FxKind) []const u8 {
-    return effectSpec(k).strip_label;
-}
-
 /// Compact frequency label for an EQ band's freq row/readout: "823", "1.2k",
 /// "16k" - shared by the TUI FX view and GUI FX view.
 pub fn compactHz(buf: []u8, hz: f32) []const u8 {
@@ -164,13 +117,6 @@ pub fn compactHz(buf: []u8, hz: f32) []const u8 {
         return std.fmt.bufPrint(buf, "{d:.1}k", .{k}) catch "?";
     }
     return std.fmt.bufPrint(buf, "{d:.0}", .{hz}) catch "?";
-}
-
-/// 3-char label for the TUI tracks view's row badges, where width is shared
-/// with gain/pan and the keybind hint - tighter than `stripLabel`'s 4-char
-/// strip boxes, so it's its own hand-picked table, not a truncation of it.
-pub fn badgeLabel3(k: FxKind) []const u8 {
-    return effectSpec(k).badge_label;
 }
 
 pub fn paramCount(k: FxKind) usize {
@@ -314,54 +260,6 @@ pub const eq_fields_per_band = 9;
 
 pub fn eqBandField(idx: usize) struct { band: usize, field: usize } {
     return .{ .band = idx / eq_fields_per_band, .field = idx % eq_fields_per_band };
-}
-
-/// True if band `i` is meaningfully engaged (a gain-type band pushed at
-/// least 1dB, or a filter-type band - a cut point always matters) and sits
-/// within an octave of another meaningfully-engaged band - a simple stand-in
-/// for Pro-Q's "collision detection": two bands fighting over the same
-/// region make the combined curve unpredictable even though each looks fine
-/// alone. Shared by the TUI overview row and the GUI curve so they flag the
-/// same pairs the same way.
-pub fn bandCollides(e: *const eq_mod.ParametricEq, i: usize) bool {
-    const a = &e.bands[i];
-    if (eq_mod.usesGain(a.kind) and @abs(a.gain_db) < 1.0) return false;
-    for (&e.bands, 0..) |*b, j| {
-        if (j == i) continue;
-        if (eq_mod.usesGain(b.kind) and @abs(b.gain_db) < 1.0) continue;
-        if (@abs(std.math.log2(a.freq / b.freq)) < 1.0) return true;
-    }
-    return false;
-}
-
-/// Full-word label for a band's response type - `eq_field_kind`'s value.
-pub fn eqKindLabel(kind: eq_mod.BandKind) []const u8 {
-    return eq_kind_specs[@intFromEnum(kind)].label;
-}
-
-pub const EqKindSpec = struct { label: []const u8, short_label: []const u8, title: []const u8, action_label: [:0]const u8 };
-pub const eq_kind_specs = [_]EqKindSpec{
-    .{ .label = "peak", .short_label = "BELL", .title = "BELL FILTER", .action_label = "BELL" },
-    .{ .label = "lowpass", .short_label = "HC", .title = "HIGH CUT FILTER", .action_label = "HIGH CUT" },
-    .{ .label = "highpass", .short_label = "LC", .title = "LOW CUT FILTER", .action_label = "LOW CUT" },
-    .{ .label = "lowshelf", .short_label = "LS", .title = "LOW SHELF FILTER", .action_label = "LOW SHELF" },
-    .{ .label = "highshelf", .short_label = "HS", .title = "HIGH SHELF FILTER", .action_label = "HIGH SHELF" },
-    .{ .label = "notch", .short_label = "NTCH", .title = "NOTCH FILTER", .action_label = "NOTCH" },
-    .{ .label = "tiltshelf", .short_label = "TILT", .title = "TILT SHELF FILTER", .action_label = "TILT" },
-};
-
-comptime {
-    if (eq_kind_specs.len != std.meta.fields(eq_mod.BandKind).len) @compileError("eq_kind_specs must cover every BandKind");
-}
-
-/// Full-word label for a band's stereo/mid/side target - parallel to
-/// `eqKindLabel`.
-pub fn eqStereoModeLabel(mode: eq_mod.StereoMode) []const u8 {
-    return switch (mode) {
-        .stereo => "stereo",
-        .mid => "mid",
-        .side => "side",
-    };
 }
 
 /// [band][field] name table (thresh/ratio/makeup x low/mid/high) - a static

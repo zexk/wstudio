@@ -106,7 +106,7 @@ pub const Session = struct {
     /// summed signal passes through before the master mix - same idea as
     /// `master_fx`, just scoped to whichever tracks point at it (see
     /// `Track.group`, `Session.assignTrackGroup`). The FX-chain editor UI is
-    /// shared wholesale with tracks/master (tui/editors/spectrum.zig).
+    /// shared wholesale with tracks/master (ui/editors/fx_editor.zig).
     pub const Group = struct {
         name: []u8,
         fx: rack_mod.Fx = .{},

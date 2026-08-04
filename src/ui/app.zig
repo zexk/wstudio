@@ -26,7 +26,7 @@ const synth_ed = @import("editors/synth.zig");
 const sampler_ed = @import("editors/sampler.zig");
 const soundfont_ed = @import("editors/soundfont.zig");
 const piano_ed = @import("editors/piano.zig");
-const spectrum_ed = @import("editors/spectrum.zig");
+const spectrum_ed = @import("editors/fx_editor.zig");
 const arrangement_ed = @import("editors/arrangement.zig");
 const automation_ed = @import("editors/automation.zig");
 const preset_ed = @import("editors/preset_picker.zig");
@@ -521,7 +521,7 @@ pub const App = struct {
     /// (h/l moves band, enter opens its field submenu); false once inside a
     /// band's submenu (j/k picks kind/freq/q/gain-or-slope, h/l nudges the
     /// value, esc backs out to band-select). Reset to band-select whenever
-    /// chain focus changes - see editors/spectrum.zig's setFocus. Cycling
+    /// chain focus changes - see editors/fx_editor.zig's setFocus. Cycling
     /// every field of every band just to reach the next band was the actual
     /// complaint this splits the flat 32-entry list's navigation to fix.
     eq_band_select: bool = true,
@@ -545,7 +545,7 @@ pub const App = struct {
     /// parallel to `eq_track`.
     eq_group: u8 = 0,
     /// View-only spectrum-analyzer prefs (not undo-tracked, not persisted) -
-    /// see `editors/spectrum.zig`'s `toggleSpectrumPre`/`toggleSpectrumFreeze`.
+    /// see `editors/fx_editor.zig`'s `toggleSpectrumPre`/`toggleSpectrumFreeze`.
     eq_spectrum_pre: bool = false,
     eq_spectrum_frozen: bool = false,
     /// The snapshot captured the moment freeze turned on - held and redrawn
@@ -3316,7 +3316,7 @@ pub const App = struct {
     /// FX picker: j/k move, g/G jump to ends, `/` filters (see
     /// spectrum_ed.activeFilter), enter/space insert the highlighted effect
     /// after the focused chain slot, esc cancels back to the chain view.
-    /// Opened by `a` in the FX chain view (see editors/spectrum.zig's
+    /// Opened by `a` in the FX chain view (see editors/fx_editor.zig's
     /// openPicker). The filter can shrink the list out from under a stale
     /// cursor, so every access re-resolves `kinds` and clamps first.
     fn handleFxPickerKey(self: *App, key: modal_mod.Key) void {

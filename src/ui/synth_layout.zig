@@ -12,7 +12,7 @@
 //! however reads best; only the *labels and grouping* are UI concerns.
 //!
 //! FX has no table here because the synth has no effects of its own: the
-//! rack's FX chain owns them (see rack.zig / editors/spectrum.zig). The
+//! rack's FX chain owns them (see rack.zig / editors/fx_editor.zig). The
 //! `fx_*` param ids that remain live on in the patch only as mod-matrix
 //! destinations, which address rack units by instance id.
 

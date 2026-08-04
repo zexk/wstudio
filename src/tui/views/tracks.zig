@@ -6,7 +6,7 @@ const engine_mod = ws.engine;
 const style = @import("../style.zig");
 const icons = @import("../../ui/icons.zig");
 const format = @import("../../ui/format.zig");
-const spectrum_ed = @import("../../ui/editors/spectrum.zig");
+const spectrum_ed = @import("../../ui/editors/fx_editor.zig");
 
 // Bare-name aliases for the shared palette/primitives.
 const rst = style.rst;

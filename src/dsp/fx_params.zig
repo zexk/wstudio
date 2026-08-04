@@ -2,7 +2,7 @@
 //! the FX chain editor UI and engine-driven automation. Lives in dsp/ (not
 //! ui/) so the audio-thread automation delivery path (Engine.renderOneTrack)
 //! can reach it without depending on the UI module. Split out of
-//! ui/editors/spectrum.zig, which originally owned this table alone; that
+//! ui/editors/fx_editor.zig, which originally owned this table alone; that
 //! file now delegates here and keeps only the pieces that need `*App`
 //! (comp's sidechain track/pad rows, CLAP/VST3 host-state params).
 //!
@@ -52,7 +52,7 @@ fn mbBandParamName(bf: MbBandField) []const u8 {
 }
 
 /// EQ params are a flat `band*eq_fields_per_band + field` list (kind, freq,
-/// q, gain per band) - see ui/editors/spectrum.zig's original doc comment
+/// q, gain per band) - see ui/editors/fx_editor.zig's original doc comment
 /// for the full rationale (gain/slope sharing a slot, etc).
 pub const eq_field_kind = 0;
 pub const eq_field_freq = 1;
@@ -263,7 +263,7 @@ pub const limiter_specs = [_]ParamSpec{
 
 /// `comp`'s first 6 params only - idx 6/7 are the sidechain track/pad
 /// spinners, which need an `App` and cross-field state this table can't
-/// express, so they stay UI-only (see ui/editors/spectrum.zig) and
+/// express, so they stay UI-only (see ui/editors/fx_editor.zig) and
 /// `isAutomatable` excludes them.
 pub const comp_specs = [_]ParamSpec{
     .{ .name = "thresh", .field = "threshold_db", .min = -60.0, .max = 0.0, .step_fine = 1.0, .step_coarse = 6.0 },
@@ -375,7 +375,7 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
 /// Current value of param `idx` in `p` - bounds match `paramCount`. CLAP/VST3
 /// always read 0 here (not automatable through this path - see
 /// `isAutomatable`); their live values are read through the plugin host
-/// instead (ui/editors/spectrum.zig's `getParam`).
+/// instead (ui/editors/fx_editor.zig's `getParam`).
 pub fn getParam(p: *const FxPayload, idx: usize) f32 {
     return switch (p.*) {
         .eq => |*e| blk: {
@@ -494,7 +494,7 @@ pub fn paramRange(p: *const FxPayload, idx: usize) [2]f32 {
 
 /// Clamped absolute set of param `idx` in `p` - bounds match `paramRange`.
 /// Comp's sidechain rows (6/7) and CLAP/VST3 are no-ops here (never hit
-/// through `isAutomatable`-gated callers; see ui/editors/spectrum.zig for
+/// through `isAutomatable`-gated callers; see ui/editors/fx_editor.zig for
 /// the UI paths that do handle them).
 pub fn setParamAbsolute(p: *FxPayload, idx: usize, value: f32) void {
     switch (p.*) {
@@ -567,7 +567,7 @@ pub fn setParamAbsolute(p: *FxPayload, idx: usize, value: f32) void {
 
 /// Fine h/l nudge step for param `idx` on kind `k` - sized per param so a
 /// single press is a musically useful move, same table `ui/editors/
-/// spectrum.zig`'s own `paramStep` draws its fine values from (that
+/// fx_editor.zig`'s own `paramStep` draws its fine values from (that
 /// function also handles a coarse variant and comp/clap/vst3's app-dependent
 /// rows; this one only needs the plain fine step, for automation lane
 /// nudging).

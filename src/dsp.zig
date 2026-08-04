@@ -68,6 +68,7 @@ pub const StereoCorrelation = meter.StereoCorrelation;
 pub const LoudnessMeter = meter.LoudnessMeter;
 
 pub const fx_params = @import("dsp/fx_params.zig");
+pub const fx_meta = @import("dsp/fx_meta.zig");
 
 test {
     _ = device;
@@ -115,4 +116,5 @@ test {
     _ = ParametricEq;
     _ = meter;
     _ = fx_params;
+    _ = fx_meta;
 }
