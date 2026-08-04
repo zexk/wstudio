@@ -20,16 +20,24 @@ pub const Clip = struct {
     /// flattens every clip's points into one whole-song curve per track.
     automation: Automation = .{},
 
-    /// One instrument-param automation lane: `param_id` matches whichever
-    /// instrument the track holds' own `setParamAbsolute` id space -
-    /// PolySynth's or Sampler's (the automation editor's picker gates
-    /// offering these to poly_synth/sampler tracks only; a clip on any other
-    /// track kind simply never gets an entry, no separate guard needed
-    /// here). The field/type names here still say "synth" from when only
-    /// PolySynth had automatable params - this storage was always just a
-    /// param-id-keyed list, so extending it to Sampler needed no format
-    /// change or rename.
+    /// One instrument- or FX-unit-param automation lane. `instance_id` = 0
+    /// (the default, and the only value pre-item-2 files ever had) targets
+    /// the track's own instrument, whose `setParamAbsolute` id space
+    /// `param_id` indexes - PolySynth's or Sampler's (the automation
+    /// editor's picker gates offering these to poly_synth/sampler tracks
+    /// only; a clip on any other track kind simply never gets an entry, no
+    /// separate guard needed here). A nonzero `instance_id` targets a
+    /// specific `FxUnit` in the track's rack instead, and `param_id` is then
+    /// a local index into that unit's own `dsp.fx_params` table - the same
+    /// `{instance_id, param_id}` shape the PolySynth mod-matrix already uses
+    /// for `fx_mod_bus`/`fx_instance_id` (0 is never allocated as a real
+    /// instance id - see `Fx.allocInstanceId` - so it's a safe sentinel for
+    /// "the instrument, not an FX unit"). The field/type names here still
+    /// say "synth" from when only PolySynth had automatable params - this
+    /// storage was always just an id-keyed list, so extending it needed no
+    /// format change or rename.
     pub const SynthParamCurve = struct {
+        instance_id: u32 = 0,
         param_id: u32,
         points: []AutomationPoint = &.{},
     };
@@ -67,7 +75,7 @@ pub const Clip = struct {
             }
             for (self.synth_params.items) |sp| {
                 const points = try allocator.dupe(AutomationPoint, sp.points);
-                synth_params.append(allocator, .{ .param_id = sp.param_id, .points = points }) catch |err| {
+                synth_params.append(allocator, .{ .instance_id = sp.instance_id, .param_id = sp.param_id, .points = points }) catch |err| {
                     allocator.free(points);
                     return err;
                 };
@@ -76,9 +84,9 @@ pub const Clip = struct {
         }
 
         /// Read-only lookup - null if this param has no lane on this clip yet.
-        pub fn findSynthParam(self: *const Automation, param_id: u32) ?[]const AutomationPoint {
+        pub fn findSynthParam(self: *const Automation, instance_id: u32, param_id: u32) ?[]const AutomationPoint {
             for (self.synth_params.items) |sp| {
-                if (sp.param_id == param_id) return sp.points;
+                if (sp.instance_id == instance_id and sp.param_id == param_id) return sp.points;
             }
             return null;
         }
@@ -87,11 +95,11 @@ pub const Clip = struct {
         /// lane for it first if none exists yet (the param picker's "start
         /// automating this" action) - same "own the pointer, mutate through
         /// it" shape `gain`/`pan` fields already offer via `&self.gain`.
-        pub fn synthParamPoints(self: *Automation, allocator: std.mem.Allocator, param_id: u32) !*[]AutomationPoint {
+        pub fn synthParamPoints(self: *Automation, allocator: std.mem.Allocator, instance_id: u32, param_id: u32) !*[]AutomationPoint {
             for (self.synth_params.items) |*sp| {
-                if (sp.param_id == param_id) return &sp.points;
+                if (sp.instance_id == instance_id and sp.param_id == param_id) return &sp.points;
             }
-            try self.synth_params.append(allocator, .{ .param_id = param_id });
+            try self.synth_params.append(allocator, .{ .instance_id = instance_id, .param_id = param_id });
             return &self.synth_params.items[self.synth_params.items.len - 1].points;
         }
     };

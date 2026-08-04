@@ -74,9 +74,14 @@ pub const AutomationPointSnap = struct {
     value: f32,
 };
 
-/// One synth-instrument-param automation lane - see `ClipSnap.
-/// synth_param_automation`.
+/// One synth-instrument- or FX-unit-param automation lane - see `ClipSnap.
+/// synth_param_automation`. `instance_id`: 0 (the default, matching every
+/// pre-existing file's implicit meaning) targets the track's own
+/// instrument; nonzero targets a specific `FxUnit` by its stable
+/// `instance_id` - additive field, no version bump (old files simply never
+/// set it, same convention the mod matrix's `fx_instance_id` already uses).
 pub const SynthParamAutomationSnap = struct {
+    instance_id: u32 = 0,
     param_id: u32,
     points: []const AutomationPointSnap = &.{},
 };
@@ -1732,7 +1737,7 @@ fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
     if (clip.automation.synth_params.items.len > 0) {
         const sps = try aa.alloc(SynthParamAutomationSnap, clip.automation.synth_params.items.len);
         for (clip.automation.synth_params.items, sps) |sp, *o| {
-            o.* = .{ .param_id = sp.param_id, .points = try automationToSnap(aa, sp.points) };
+            o.* = .{ .instance_id = sp.instance_id, .param_id = sp.param_id, .points = try automationToSnap(aa, sp.points) };
         }
         c.synth_param_automation = sps;
     }
@@ -2557,23 +2562,29 @@ fn applySynthParamAutomationSnap(
 ) !void {
     if (synth_param_automation.len > 0) {
         for (synth_param_automation) |sp| {
-            const range = if (sp.param_id <= std.math.maxInt(u16)) blk: {
+            // An FX-unit lane (instance_id != 0) indexes a per-unit-kind
+            // table this load path can't resolve (the target FxUnit's kind
+            // isn't known here, and may not even exist any more) - load
+            // wide-open and let `dsp.fx_params.setParamAbsolute`'s own
+            // clamp do the real bounding at automation-delivery time,
+            // same as an out-of-u16-range instrument id already falls back to.
+            const range = if (sp.instance_id == 0 and sp.param_id <= std.math.maxInt(u16)) blk: {
                 if (synth_mod.PolySynth.findAutomatableParam(@intCast(sp.param_id))) |info| break :blk info.range;
                 break :blk [2]f32{ -std.math.floatMax(f32), std.math.floatMax(f32) };
             } else [2]f32{ -std.math.floatMax(f32), std.math.floatMax(f32) };
             const points = try automationFromSnap(allocator, sp.points, range[0], range[1]);
-            try replaceSynthParamPoints(allocator, automation, sp.param_id, points);
+            try replaceSynthParamPoints(allocator, automation, sp.instance_id, sp.param_id, points);
         }
         return;
     }
     if (legacy_filter_cutoff.len > 0) {
         const points = try automationFromSnap(allocator, legacy_filter_cutoff, 20.0, 20_000.0);
-        try replaceSynthParamPoints(allocator, automation, 21, points);
+        try replaceSynthParamPoints(allocator, automation, 0, 21, points);
     }
 }
 
-fn replaceSynthParamPoints(allocator: std.mem.Allocator, automation: *ws_arrangement.Clip.Automation, param_id: u32, points: []AutomationPoint) !void {
-    const dst = automation.synthParamPoints(allocator, param_id) catch |err| {
+fn replaceSynthParamPoints(allocator: std.mem.Allocator, automation: *ws_arrangement.Clip.Automation, instance_id: u32, param_id: u32, points: []AutomationPoint) !void {
+    const dst = automation.synthParamPoints(allocator, instance_id, param_id) catch |err| {
         allocator.free(points);
         return err;
     };
@@ -3447,6 +3458,38 @@ test "save/load round-trip persists a compressor's sidechain_source" {
     try testing.expectEqual(@as(?u8, 2), sc.pad);
 }
 
+test "save/load round-trip persists an FX-unit-targeted automation lane (instance_id)" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/fx_automation.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    const sat_unit = try session.racks.items[0].fx.insert(testing.allocator, 0, .sat, session.project.sample_rate);
+    try session.arrangement.lane(0).?.place(
+        session.allocator,
+        try ws_arrangement.Clip.initMelodic(session.allocator, 0, 32, &.{}, 1.0),
+    );
+    const clip = session.arrangement.lane(0).?.clipAt(0).?;
+    const points = try clip.automation.synthParamPoints(session.allocator, sat_unit.instance_id, 2); // sat mix
+    try automation_mod.setPoint(session.allocator, points, 0.0, 0.4);
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+
+    // A fresh session's FX chain reallocates instance ids from 1, same order
+    // as it was built, so the reloaded unit gets the same id back.
+    const loaded_unit = loaded.racks.items[0].fx.units.items[0];
+    try testing.expectEqual(sat_unit.instance_id, loaded_unit.instance_id);
+    const loaded_clip = loaded.arrangement.lane(0).?.clipAt(0).?;
+    const loaded_points = loaded_clip.automation.findSynthParam(loaded_unit.instance_id, 2).?;
+    try testing.expectEqual(@as(usize, 1), loaded_points.len);
+    try testing.expectApproxEqAbs(@as(f32, 0.4), loaded_points[0].value, 1e-6);
+}
+
 test "failed save removes temporary project file" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
@@ -4094,7 +4137,7 @@ test "buildSession: clip automation round-trips (legacy filter_cutoff_automation
     try testing.expectApproxEqAbs(@as(f32, -6.0), clip.automation.gain[0].value, 1e-6);
     try testing.expectEqual(@as(usize, 1), clip.automation.pan.len);
     try testing.expectApproxEqAbs(@as(f32, 0.5), clip.automation.pan[0].value, 1e-6);
-    const cutoff = clip.automation.findSynthParam(21).?;
+    const cutoff = clip.automation.findSynthParam(0, 21).?;
     try testing.expectEqual(@as(usize, 1), cutoff.len);
     try testing.expectApproxEqAbs(@as(f32, 2_500.0), cutoff[0].value, 1e-6);
 }
@@ -4116,7 +4159,7 @@ test "buildSession: filter cutoff automation clamps an out-of-range hand-edited 
     var session = try buildSession(testing.allocator, &snap);
     defer session.deinit();
     const clip = session.arrangement.lane(0).?.clips.items[0];
-    try testing.expectApproxEqAbs(@as(f32, 20_000.0), clip.automation.findSynthParam(21).?[0].value, 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, 20_000.0), clip.automation.findSynthParam(0, 21).?[0].value, 1e-6);
 }
 // zig fmt: on
 
@@ -5595,10 +5638,10 @@ test "golden-file corpus: v13's synth_param_automation loads multiple lanes" {
     var session = try load(testing.allocator, testing.io, "test/fixtures/wsj/v13.wsj");
     defer session.deinit();
     const clip = session.arrangement.lanes.items[0].clips.items[0];
-    const cutoff = clip.automation.findSynthParam(21).?;
+    const cutoff = clip.automation.findSynthParam(0, 21).?;
     try testing.expectEqual(@as(usize, 2), cutoff.len);
     try testing.expectApproxEqAbs(@as(f32, 2000.0), cutoff[0].value, 1e-3);
-    const lfo_rate = clip.automation.findSynthParam(29).?;
+    const lfo_rate = clip.automation.findSynthParam(0, 29).?;
     try testing.expectEqual(@as(usize, 1), lfo_rate.len);
     try testing.expectApproxEqAbs(@as(f32, 4.0), lfo_rate[0].value, 1e-3);
 }

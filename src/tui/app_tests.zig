@@ -2095,18 +2095,18 @@ test "automation editor: tab only cycles gain/pan until the picker adds a synth 
     app.automation_param_cursor = cutoff_idx;
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.automation, app.view);
-    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = 21 }, app.automation_focus);
+    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = .{ .param_id = 21 } }, app.automation_focus);
 
     // Now tab cycles gain -> pan -> cutoff -> gain, and j nudges the cutoff
     // curve, clamped 20..20_000 like the synth's own param.
     _ = automation_ed.handleKey(&app, .{ .char = 'j' });
     const synth_clip = automation_ed.currentClip(&app).?;
-    try std.testing.expectEqual(@as(usize, 1), synth_clip.automation.findSynthParam(21).?.len);
+    try std.testing.expectEqual(@as(usize, 1), synth_clip.automation.findSynthParam(0, 21).?.len);
     app.automation_focus = .gain;
     _ = automation_ed.handleKey(&app, .tab);
     try std.testing.expectEqual(automation_ed.AutomationFocus.pan, app.automation_focus);
     _ = automation_ed.handleKey(&app, .tab);
-    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = 21 }, app.automation_focus);
+    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = .{ .param_id = 21 } }, app.automation_focus);
     _ = automation_ed.handleKey(&app, .tab);
     try std.testing.expectEqual(automation_ed.AutomationFocus.gain, app.automation_focus);
 
@@ -2127,15 +2127,15 @@ test "automation editor: tab only cycles gain/pan until the picker adds a synth 
     app.automation_param_cursor = gain_idx;
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.automation, app.view);
-    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = 7 }, app.automation_focus);
+    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = .{ .param_id = 7 } }, app.automation_focus);
     _ = automation_ed.handleKey(&app, .{ .char = 'j' });
     const sampler_clip = automation_ed.currentClip(&app).?;
-    try std.testing.expectEqual(@as(usize, 1), sampler_clip.automation.findSynthParam(7).?.len);
+    try std.testing.expectEqual(@as(usize, 1), sampler_clip.automation.findSynthParam(0, 7).?.len);
     app.automation_focus = .gain;
     _ = automation_ed.handleKey(&app, .tab);
     try std.testing.expectEqual(automation_ed.AutomationFocus.pan, app.automation_focus);
     _ = automation_ed.handleKey(&app, .tab);
-    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = 7 }, app.automation_focus);
+    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = .{ .param_id = 7 } }, app.automation_focus);
     _ = automation_ed.handleKey(&app, .tab);
     try std.testing.expectEqual(automation_ed.AutomationFocus.gain, app.automation_focus);
 
@@ -2156,7 +2156,7 @@ test "automation editor: tab only cycles gain/pan until the picker adds a synth 
     automation_ed.switchTo(&app, 0, 0);
     _ = automation_ed.handleKey(&app, .tab);
     _ = automation_ed.handleKey(&app, .tab);
-    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = 21 }, app.automation_focus);
+    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = .{ .param_id = 21 } }, app.automation_focus);
 }
 
 test "the automation param picker hides the synth's dead FX params" {
@@ -2219,7 +2219,7 @@ test "automation param mouse click during live search selects lane and leaves se
 
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(AppView.automation, app.view);
-    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = 21 }, app.automation_focus);
+    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = .{ .param_id = 21 } }, app.automation_focus);
 }
 
 test "visual mode escape cancels the selection without editing" {
@@ -7381,6 +7381,44 @@ test "FX chain: param nudges coalesce into one undo step, u right after nudging 
 
     _ = spectrum_ed.handleKey(&app, .{ .char = 'U' });
     try std.testing.expectApproxEqAbs(nudged, spectrum_ed.getParam(&fx.units.items[0].payload, 0), 0.0001);
+}
+
+test "FX chain: A adds an automation lane for the focused unit's focused param" {
+    var app = try testApp(); // synth(0), sampler(1), drums(2)
+    defer app.deinit();
+    spectrum_ed.switchToTrack(&app, 0);
+    const comp_unit = try app.session.racks.items[0].fx.insert(app.session.allocator, 0, .comp, app.session.project.sample_rate);
+    app.session.syncTrackChain(0, app.session.racks.items[0]);
+    app.fx_param = 0; // threshold
+
+    // No clip selected in the automation editor yet - A refuses, no lane
+    // created, view stays put.
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'A' });
+    try std.testing.expectEqual(app_mod.AppView.track_spectrum, app.view);
+
+    try app.session.stampClip(0, 0);
+    automation_ed.switchTo(&app, 0, 0);
+    try std.testing.expectEqual(app_mod.AppView.automation, app.view);
+
+    // Back to the chain view - `addFocusedFxParamLane` reads `currentTarget`
+    // off `app.view`, and `automation_track`/`automation_clip` (set above)
+    // are what it needs to find the clip, independent of which view is up.
+    app.view = .track_spectrum;
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'A' });
+    try std.testing.expectEqual(app_mod.AppView.automation, app.view);
+    try std.testing.expectEqual(
+        automation_ed.AutomationFocus{ .synth_param = .{ .instance_id = comp_unit.instance_id, .param_id = 0 } },
+        app.automation_focus,
+    );
+    const clip = automation_ed.currentClip(&app).?;
+    try std.testing.expectEqual(@as(usize, 1), clip.automation.synth_params.items.len);
+    try std.testing.expectEqual(comp_unit.instance_id, clip.automation.synth_params.items[0].instance_id);
+
+    // Comp's sidechain row (idx 6) isn't automatable - A is a no-op there.
+    app.view = .track_spectrum;
+    app.fx_param = 6;
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'A' });
+    try std.testing.expectEqual(@as(usize, 1), clip.automation.synth_params.items.len);
 }
 
 test "FX chain: EQ kind field cycles all types and switches gain or slope control" {

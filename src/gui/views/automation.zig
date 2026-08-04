@@ -81,8 +81,9 @@ fn drawTargetStrip(app: anytype, clip: *ws.Clip) void {
         drawTargetButton(app, "PAN", .pan, 1);
         for (clip.automation.synth_params.items, 0..) |lane, i| {
             zgui.sameLine(.{ .spacing = 6 });
-            const label = if (automation_ed.findAutomatableParam(&app.core, lane.param_id)) |p| p.label else "PARAM";
-            drawTargetButton(app, label, .{ .synth_param = lane.param_id }, i + 2);
+            const target: automation_ed.SynthParamTarget = .{ .instance_id = lane.instance_id, .param_id = lane.param_id };
+            const label = automation_ed.targetLabel(&app.core, target);
+            drawTargetButton(app, label, .{ .synth_param = target }, i + 2);
         }
         zgui.sameLine(.{ .spacing = 8 });
         if (zgui.button("+ PARAM##automation-param", .{ .h = 32 })) {

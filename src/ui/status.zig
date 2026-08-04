@@ -583,7 +583,7 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
             // Cutoff keeps its own kHz breakdown for parity with the synth
             // editor's own readout; every other synth param gets a plain
             // generic format (no per-param unit table needed for ~29 params).
-            .synth_param => |id| if (id == 21) {
+            .synth_param => |id| if (id.instance_id == 0 and id.param_id == 21) {
                 if (v >= 1_000.0) try w.print("{d:.2}kHz", .{v / 1_000.0}) else try w.print("{d:.0}Hz", .{v});
             } else if (@abs(v) >= 10.0) {
                 try w.print("{d:.1}", .{v});

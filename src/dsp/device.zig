@@ -38,7 +38,15 @@ pub const Event = union(enum) {
     /// some ids are wired on a given device (see e.g.
     /// PolySynth.setParamAbsolute); unhandled ids are a no-op.
     set_param_abs: struct { id: u16, value: f32 },
-    automation_param: struct { id: u32, value: f32 },
+    /// `instance_id` 0 (the default) targets the track's own instrument,
+    /// which owns the whole flat id space `id` indexes - every instrument
+    /// device's `handleEvent` already only fires when it recognizes `id`, so
+    /// broadcasting to a whole chain (see `Engine.sendTrackEvent`) is safe.
+    /// A nonzero `instance_id` targets one specific `FxUnit` in the chain by
+    /// its stable id (see `rack.FxUnit.instance_id`); `id` is then a local
+    /// index into that unit's own `dsp.fx_params` table. 0 is never a real
+    /// instance id (see `Fx.allocInstanceId`), so it's a safe sentinel.
+    automation_param: struct { id: u32, value: f32, instance_id: u32 = 0 },
     /// CLAP parameters use stable opaque u32 IDs. `target` keeps a
     /// track-wide event broadcast from changing every CLAP in the chain.
     clap_param: struct { target: *anyopaque, id: u32, cookie: ?*anyopaque, value: f64 },

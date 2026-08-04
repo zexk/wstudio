@@ -1353,11 +1353,16 @@ pub const Session = struct {
     /// Flatten one track's clips' gain/pan/synth-param breakpoints (clip-
     /// relative beats) into absolute-song-beat curves and push them to the
     /// engine. Runs for every instrument kind - a drum/slicer/CLAP/empty
-    /// track's `synth_params` list is simply always empty (the automation
-    /// editor offers params exposed by poly synth, sampler, and SoundFont),
-    /// so this loop needs no extra guard. Clips are already stored start_bar-ascending
-    /// (`Lane.place`) and each clip's own points are beat-ascending
-    /// (`automation.setPoint`), so appending in clip order needs no extra sort.
+    /// track's `synth_params` list is simply always empty for
+    /// instrument-targeted (`instance_id == 0`) lanes (the automation editor
+    /// offers those params for poly synth, sampler, and SoundFont only), but
+    /// FX-unit-targeted lanes (`instance_id != 0`) can exist on any track
+    /// kind - slots are keyed by `(instance_id, param_id)`, not `param_id`
+    /// alone, so an instrument lane and an FX-unit lane never collide even
+    /// if their ids happen to match. Clips are already stored
+    /// start_bar-ascending (`Lane.place`) and each clip's own points are
+    /// beat-ascending (`automation.setPoint`), so appending in clip order
+    /// needs no extra sort.
     fn flattenClipAutomation(self: *Session, track: u16, lane: *arr_mod.Lane) void {
         var gain_pts: std.ArrayList(AutomationPoint) = .empty;
         defer gain_pts.deinit(self.allocator);
@@ -1367,6 +1372,7 @@ pub const Session = struct {
             @splat(.empty);
         defer for (&param_pts) |*points| points.deinit(self.allocator);
         var param_ids: [engine_mod.max_synth_slots]u32 = undefined;
+        var param_instances: [engine_mod.max_synth_slots]u32 = undefined;
         var param_count: usize = 0;
 
         for (lane.clips.items) |c| {
@@ -1390,10 +1396,11 @@ pub const Session = struct {
             }
             for (c.automation.synth_params.items) |sp| {
                 var s: usize = 0;
-                while (s < param_count and param_ids[s] != sp.param_id) : (s += 1) {}
+                while (s < param_count and (param_ids[s] != sp.param_id or param_instances[s] != sp.instance_id)) : (s += 1) {}
                 if (s == param_count) {
                     if (param_count == engine_mod.max_synth_slots) continue;
                     param_ids[param_count] = sp.param_id;
+                    param_instances[param_count] = sp.instance_id;
                     param_count += 1;
                 }
                 for (sp.points) |p| {
@@ -1413,7 +1420,7 @@ pub const Session = struct {
         // Clear every slot first - a param removed from every clip since the
         // last rebuild must not linger in a stale slot forever.
         self.engine.clearTrackSynthParams(track);
-        for (0..param_count) |slot| self.engine.setTrackSynthParam(track, @intCast(slot), param_ids[slot], param_pts[slot].items);
+        for (0..param_count) |slot| self.engine.setTrackSynthParam(track, @intCast(slot), param_instances[slot], param_ids[slot], param_pts[slot].items);
     }
 
     fn appendFlatAutomation(self: *Session, points: *std.ArrayList(AutomationPoint), point: AutomationPoint) void {
@@ -2183,7 +2190,7 @@ test "leaving song mode clears instrument parameter automation" {
     const lane = s.arrangement.lane(0).?;
     try lane.place(s.allocator, try Clip.initMelodic(s.allocator, 0, 32, &.{}, 1.0));
     const clip = lane.clipAt(0).?;
-    const points = try clip.automation.synthParamPoints(s.allocator, 21);
+    const points = try clip.automation.synthParamPoints(s.allocator, 0, 21);
     try automation_mod.setPoint(s.allocator, points, 0.0, 5000.0);
 
     s.setSongMode(true);
@@ -2202,8 +2209,8 @@ test "later clip automation owns a shared boundary" {
     const lane = s.arrangement.lane(0).?;
     try lane.place(s.allocator, try Clip.initMelodic(s.allocator, 0, 32, &.{}, 1.0));
     try lane.place(s.allocator, try Clip.initMelodic(s.allocator, 32, 32, &.{}, 1.0));
-    const first = try lane.clips.items[0].automation.synthParamPoints(s.allocator, 21);
-    const second = try lane.clips.items[1].automation.synthParamPoints(s.allocator, 21);
+    const first = try lane.clips.items[0].automation.synthParamPoints(s.allocator, 0, 21);
+    const second = try lane.clips.items[1].automation.synthParamPoints(s.allocator, 0, 21);
     try automation_mod.setPoint(s.allocator, first, 1.0, 5000.0);
     try automation_mod.setPoint(s.allocator, second, 0.0, 1000.0);
 
@@ -2212,6 +2219,28 @@ test "later clip automation owns a shared boundary" {
     var block: [512]@import("core/types.zig").Sample = undefined;
     s.engine.process(&block);
     try std.testing.expectEqual(@as(f32, 1000.0), s.racks.items[0].instrument.poly_synth.filter_cutoff);
+}
+
+test "clip automation reaches an FX unit's param on a non-poly_synth track" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .drum_machine);
+    const rack = s.racks.items[0];
+    const sat_unit = try rack.fx.insert(s.allocator, 0, .sat, s.project.sample_rate);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), sat_unit.payload.sat.mix, 1e-6);
+    s.syncTrackChain(0, rack);
+
+    const lane = s.arrangement.lane(0).?;
+    try lane.place(s.allocator, try Clip.initMelodic(s.allocator, 0, 32, &.{}, 1.0));
+    const clip = lane.clipAt(0).?;
+    // idx 2 = sat_specs' "mix" row (drive=0, output=1, mix=2 - see dsp/fx_params.zig).
+    const points = try clip.automation.synthParamPoints(s.allocator, sat_unit.instance_id, 2);
+    try automation_mod.setPoint(s.allocator, points, 0.0, 0.3);
+
+    s.setSongMode(true);
+    var block: [512]@import("core/types.zig").Sample = undefined;
+    s.engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.3), sat_unit.payload.sat.mix, 1e-6);
 }
 
 test "armed follows insert/remove/duplicate/swap, parallel to racks" {

@@ -35,15 +35,21 @@ pub const gutter: usize = 3;
 
 /// Which curve h/l + j/k currently edit. `gain`/`pan` are the two universal
 /// targets, always available on any clip (mix-bus params). `synth_param`
-/// names one of the current track's instrument's continuous params by its
-/// `setParamAbsolute` id - despite the name (kept from when only PolySynth
-/// had automatable params), it covers Sampler and SoundFont tracks too;
-/// `instrumentAutomatableParams`/`findAutomatableParam` below resolve the id
-/// against whichever instrument the track actually holds.
+/// names either the current track's instrument's continuous params
+/// (`instance_id == 0`, `param_id` a `setParamAbsolute` id - despite the
+/// name (kept from when only PolySynth had automatable params), it covers
+/// Sampler and SoundFont tracks too; `instrumentAutomatableParams`/
+/// `findAutomatableParam` below resolve the id against whichever instrument
+/// the track actually holds) or a specific FX unit's param (`instance_id`
+/// != 0, `param_id` a `dsp.fx_params` local index - see
+/// `arrangement.Clip.Automation.SynthParamCurve`'s doc comment for the
+/// addressing convention).
+pub const SynthParamTarget = struct { instance_id: u32 = 0, param_id: u32 };
+
 pub const AutomationFocus = union(enum) {
     gain,
     pan,
-    synth_param: u32,
+    synth_param: SynthParamTarget,
 };
 
 /// Gain (dB, matches `:gain`/`Track.gain_db`) and pan (-1..1, matches
@@ -70,7 +76,8 @@ pub fn switchTo(app: *App, track: u16, cursor_bar: u32) void {
     // doesn't have a lane for yet - fall back to gain rather than opening on
     // a curve this clip has no data for.
     if (std.meta.activeTag(app.automation_focus) == .synth_param) {
-        if (clip.automation.findSynthParam(app.automation_focus.synth_param) == null) {
+        const t = app.automation_focus.synth_param;
+        if (clip.automation.findSynthParam(t.instance_id, t.param_id) == null) {
             app.automation_focus = .gain;
         }
     }
@@ -105,7 +112,7 @@ pub fn curvePoints(app: *App, clip: *ws.Clip, target: AutomationFocus) !*[]Autom
     return switch (target) {
         .gain => &clip.automation.gain,
         .pan => &clip.automation.pan,
-        .synth_param => |id| try clip.automation.synthParamPoints(app.allocator, id),
+        .synth_param => |t| try clip.automation.synthParamPoints(app.allocator, t.instance_id, t.param_id),
     };
 }
 
@@ -113,7 +120,7 @@ pub fn curvePointsConst(clip: *const ws.Clip, target: AutomationFocus) []const A
     return switch (target) {
         .gain => clip.automation.gain,
         .pan => clip.automation.pan,
-        .synth_param => |id| clip.automation.findSynthParam(id) orelse &.{},
+        .synth_param => |t| clip.automation.findSynthParam(t.instance_id, t.param_id) orelse &.{},
     };
 }
 
@@ -133,11 +140,39 @@ pub fn findAutomatableParam(app: *App, id: u32) ?*const ws.dsp.device.Automatabl
     return null;
 }
 
+/// The FX unit `instance_id` names, if it's still in the current automation
+/// track's chain - null if the unit was removed since the lane was created
+/// (a stale lane then just reads/shows as "?", same "vanished target" case
+/// `nextTarget` already handles for instrument params).
+pub fn findFxUnit(app: *App, instance_id: u32) ?*ws.FxUnit {
+    if (app.automation_track >= app.session.racks.items.len) return null;
+    return app.session.racks.items[app.automation_track].fx.findInstance(instance_id);
+}
+
+/// Display label for `target` - an instrument param's own label, or an FX
+/// unit's local param name (no per-unit label table exists, unlike
+/// instrument params - `dsp.fx_params.paramName` is the short knob name the
+/// FX chain editor itself uses).
+pub fn targetLabel(app: *App, target: SynthParamTarget) []const u8 {
+    if (target.instance_id == 0)
+        return if (findAutomatableParam(app, target.param_id)) |info| info.label else "?";
+    const unit = findFxUnit(app, target.instance_id) orelse return "?";
+    return ws.dsp.fx_params.paramName(&unit.payload, target.param_id);
+}
+
+/// [min, max] for `target`, instrument or FX unit.
+pub fn targetRange(app: *App, target: SynthParamTarget) [2]f32 {
+    if (target.instance_id == 0)
+        return if (findAutomatableParam(app, target.param_id)) |info| info.range else .{ 0.0, 1.0 };
+    const unit = findFxUnit(app, target.instance_id) orelse return .{ 0.0, 1.0 };
+    return ws.dsp.fx_params.paramRange(&unit.payload, target.param_id);
+}
+
 pub fn curveRange(app: *App, target: AutomationFocus) [2]f32 {
     return switch (target) {
         .gain => gain_range,
         .pan => pan_range,
-        .synth_param => |id| if (findAutomatableParam(app, id)) |info| info.range else .{ 0.0, 1.0 },
+        .synth_param => |t| targetRange(app, t),
     };
 }
 
@@ -145,24 +180,32 @@ fn curveStep(app: *App, target: AutomationFocus) f32 {
     return switch (target) {
         .gain => app.automation_gain_step_db,
         .pan => app.automation_pan_step,
-        .synth_param => |id| if (findAutomatableParam(app, id)) |info| info.step else 0.01,
+        .synth_param => |t| if (t.instance_id == 0)
+            (if (findAutomatableParam(app, t.param_id)) |info| info.step else 0.01)
+        else if (findFxUnit(app, t.instance_id)) |unit|
+            ws.dsp.fx_params.paramStepFine(&unit.payload, t.param_id)
+        else
+            0.01,
     };
 }
 
-/// `tab`'s cycle: gain -> pan -> whichever synth params already have a lane
-/// on THIS clip (in the order they were first added) -> back to gain. Unlike
-/// gain/pan, a synth param with no lane yet isn't offered - that's what the
-/// picker (`p`) is for, since offering all ~30 candidates via tab would make
+/// `tab`'s cycle: gain -> pan -> whichever synth/FX params already have a
+/// lane on THIS clip (in the order they were first added) -> back to gain.
+/// Unlike gain/pan, a param with no lane yet isn't offered - that's what the
+/// picker (`p`) is for, since offering every candidate via tab would make
 /// the common case (a handful of active lanes) slow to cycle through.
 fn nextTarget(clip: *const ws.Clip, cur: AutomationFocus) AutomationFocus {
     const items = clip.automation.synth_params.items;
     switch (cur) {
         .gain => return .pan,
-        .pan => return if (items.len > 0) .{ .synth_param = items[0].param_id } else .gain,
-        .synth_param => |id| {
+        .pan => return if (items.len > 0) .{ .synth_param = .{ .instance_id = items[0].instance_id, .param_id = items[0].param_id } } else .gain,
+        .synth_param => |t| {
             for (items, 0..) |sp, i| {
-                if (sp.param_id != id) continue;
-                return if (i + 1 < items.len) .{ .synth_param = items[i + 1].param_id } else .gain;
+                if (sp.instance_id != t.instance_id or sp.param_id != t.param_id) continue;
+                return if (i + 1 < items.len)
+                    .{ .synth_param = .{ .instance_id = items[i + 1].instance_id, .param_id = items[i + 1].param_id } }
+                else
+                    .gain;
             }
             return .gain; // the focused param vanished from this clip - bounce home
         },
@@ -572,11 +615,13 @@ fn openParamPicker(app: *App) void {
         return;
     }
     if (std.meta.activeTag(app.automation_focus) == .synth_param) {
-        const cur_id = app.automation_focus.synth_param;
-        for (params, 0..) |p, i| {
-            // zig fmt: off
-            if (p.id == cur_id) { app.automation_param_cursor = @intCast(i); break; }
-            // zig fmt: on
+        const cur = app.automation_focus.synth_param;
+        if (cur.instance_id == 0) {
+            for (params, 0..) |p, i| {
+                // zig fmt: off
+                if (p.id == cur.param_id) { app.automation_param_cursor = @intCast(i); break; }
+                // zig fmt: on
+            }
         }
     }
     app.automation_param_scroll = 0;
@@ -589,11 +634,38 @@ fn openParamPicker(app: *App) void {
 /// returns to the automation view.
 pub fn selectParam(app: *App, param_id: u32) void {
     const clip = currentClip(app) orelse return;
-    _ = clip.automation.synthParamPoints(app.allocator, param_id) catch {
+    _ = clip.automation.synthParamPoints(app.allocator, 0, param_id) catch {
         app.setStatus("couldn't add param lane (out of memory)", .{});
         return;
     };
-    app.automation_focus = .{ .synth_param = param_id };
+    app.automation_focus = .{ .synth_param = .{ .param_id = param_id } };
+    app.view = .automation;
+}
+
+/// Create (or focus, if it already exists) an automation lane for FX unit
+/// `instance_id`'s param `param_id`, on the clip the automation editor was
+/// last opened on for `track` - the FX-chain-view counterpart to
+/// `selectParam`, reached from there (spectrum_ed's `A` key) instead of the
+/// instrument picker, since an FX unit's params aren't shaped like
+/// `AutomatableParam` (no shared section/label/range table across every FX
+/// kind) so they don't fit that picker. Automation is clip-scoped, so this
+/// needs a clip already selected via the arrangement's own `a` - there's no
+/// clip to attach a lane to otherwise (matches master/group FX chains never
+/// being automatable at all: they have no clip).
+pub fn addFxParamLane(app: *App, track: u16, instance_id: u32, param_id: u32) void {
+    if (app.automation_clip == null or app.automation_track != track) {
+        app.setStatus("open automation on a clip first ('a' in the arrangement)", .{});
+        return;
+    }
+    const clip = currentClip(app) orelse {
+        app.setStatus("that clip is gone", .{});
+        return;
+    };
+    _ = clip.automation.synthParamPoints(app.allocator, instance_id, param_id) catch {
+        app.setStatus("couldn't add param lane (out of memory)", .{});
+        return;
+    };
+    app.automation_focus = .{ .synth_param = .{ .instance_id = instance_id, .param_id = param_id } };
     app.view = .automation;
 }
 

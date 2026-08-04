@@ -67,6 +67,8 @@ pub const meter = @import("dsp/meter.zig");
 pub const StereoCorrelation = meter.StereoCorrelation;
 pub const LoudnessMeter = meter.LoudnessMeter;
 
+pub const fx_params = @import("dsp/fx_params.zig");
+
 test {
     _ = device;
     _ = PolySynth;
@@ -112,4 +114,5 @@ test {
     _ = SpectrumAnalyzer;
     _ = ParametricEq;
     _ = meter;
+    _ = fx_params;
 }

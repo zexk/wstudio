@@ -27,6 +27,8 @@ const FxPayload = ws.FxPayload;
 const App = @import("../app.zig").App;
 const history = @import("../history.zig");
 const fuzzy = @import("../fuzzy.zig");
+const fx_p = ws.dsp.fx_params;
+const automation_ed = @import("automation.zig");
 
 /// Spectrum-analyzer pane geometry, shared with the TUI render half
 /// (views/spectrum.zig) so the mouse row math here and the draw path agree.
@@ -1090,6 +1092,26 @@ pub fn focusedUnit(app: *App, fx: *const Fx) ?*FxUnit {
     return fx.units.items[app.fx_focus];
 }
 
+/// `A`: add (or jump to) an automation lane for the focused unit's focused
+/// param (`app.fx_param`) - see `automation_ed.addFxParamLane`'s doc comment
+/// for why this is a separate entry point from the instrument param picker.
+/// Master/group chains have no clip to attach a lane to, so this only fires
+/// for a track's own chain; comp's sidechain rows and CLAP/VST3 aren't
+/// automatable at all (`isAutomatable`).
+fn addFocusedFxParamLane(app: *App, target: EqTarget) void {
+    if (target != .track) {
+        app.setStatus("FX automation is per-track only", .{});
+        return;
+    }
+    const fx = fxPtr(app, target) orelse return;
+    const unit = focusedUnit(app, fx) orelse return;
+    if (!fx_p.isAutomatable(unit.kind(), app.fx_param)) {
+        app.setStatus("this param can't be automated", .{});
+        return;
+    }
+    automation_ed.addFxParamLane(app, app.eq_track, unit.instance_id, @intCast(app.fx_param));
+}
+
 fn syncChain(app: *App, target: EqTarget) void {
     switch (target) {
         .track => {
@@ -1460,6 +1482,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 return true;
             },
             'a' => { openPicker(app, target); return true; },
+            'A' => { addFocusedFxParamLane(app, target); return true; },
             'x' => { removeFocused(app, target); return true; },
             '<' => { moveFocused(app, target, -1); return true; },
             '>' => { moveFocused(app, target, 1); return true; },

@@ -100,6 +100,14 @@ Bundled wavetable identities (`SynthSnap.wt_bundled` and OSC B/C counterparts)
 are additive fields. Missing values select `basic`, matching every project
 saved before bundled spectral, formant, metallic, and analog tables shipped.
 
+`SynthParamAutomationSnap.instance_id` is an additive field: 0 (the default,
+and every pre-existing file's implicit value) targets the clip's track's own
+instrument, matching `synth_param_automation`'s original v13 meaning
+unchanged; a nonzero value targets a specific FX unit in the track's chain by
+its stable `instance_id`, with `param_id` then indexing that unit's own
+`dsp/fx_params.zig` table instead of the instrument's `setParamAbsolute` id
+space.
+
 `test/fixtures/wsj/` contains tiny, hand-written fixtures
 of each historical shape (no `variants` for v2, no `master_fx_chain` for v9,
 etc.), one per row of the table above. `persist.zig`'s "golden-file corpus"

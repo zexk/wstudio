@@ -46,7 +46,7 @@ fn curveRange(app: anytype, target: AutomationFocus) [2]f32 {
         .gain => .{ -40.0, 12.0 }, // wider than the persisted -60 floor - a
         // fade all the way to -60dB would otherwise pin the whole graph flat
         .pan => .{ -1.0, 1.0 },
-        .synth_param => |id| if (automation_ed.findAutomatableParam(app, id)) |info| info.range else .{ 0.0, 1.0 },
+        .synth_param => |t| automation_ed.targetRange(app, t),
     };
 }
 
@@ -72,7 +72,7 @@ pub fn drawAutomation(
     const target_label: []const u8 = switch (target) {
         .gain => "GAIN",
         .pan => "PAN",
-        .synth_param => |id| if (automation_ed.findAutomatableParam(app, id)) |info| info.label else "?",
+        .synth_param => |t| automation_ed.targetLabel(app, t),
     };
 
     try w.writeAll(bold ++ " AUTOMATION" ++ rst);
@@ -253,7 +253,7 @@ pub fn drawAutomationParamPicker(app: anytype, w: *std.Io.Writer, rows: usize) !
             .param => |i| {
                 const p = params[i];
                 const is_sel = i == app.automation_param_cursor;
-                const has_lane = if (clip) |c| c.automation.findSynthParam(p.id) != null else false;
+                const has_lane = if (clip) |c| c.automation.findSynthParam(0, p.id) != null else false;
                 if (is_sel) try w.writeAll(sel);
                 try w.writeAll(if (is_sel) "  > " else "    ");
                 try w.writeAll(if (has_lane) "\u{2022} " else "  ");

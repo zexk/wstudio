@@ -31,6 +31,7 @@ pub const Vst3Plugin = @import("vst3/plugin.zig").Vst3Plugin;
 const PatternPlayer = @import("dsp/pattern.zig").PatternPlayer;
 const Transport = @import("transport.zig").Transport;
 const FxModBus = @import("dsp/fx_mod.zig").Bus;
+const fx_params = @import("dsp/fx_params.zig");
 
 /// A signal source: generates audio from MIDI events.
 /// Add new synthesiser/sampler variants here as the engine grows.
@@ -300,8 +301,24 @@ pub const FxUnit = struct {
     /// `Engine.processChainWithSidechain` hands a compressor its detector
     /// buffer through exactly this path and the comp then fell back to
     /// self-detection (audible as flat attenuation instead of pumping).
+    ///
+    /// An `automation_param` addressed to THIS unit's `instance_id` (see the
+    /// event's own doc comment) is handled here directly instead of being
+    /// forwarded - no individual FX kind implements `handleEvent` for it,
+    /// unlike instruments, since a plain effect has no note/CC concept to
+    /// hang a dispatch method off of. `isAutomatable` guards against a
+    /// stale/out-of-range index (e.g. a comp sidechain row, never a legal
+    /// automation target) reaching a live field write.
     fn handleEvent(self: *FxUnit, ev: dsp.Event) void {
-        self.payload.device().sendEvent(ev);
+        switch (ev) {
+            .automation_param => |p| {
+                if (p.instance_id == 0 or p.instance_id != self.instance_id) return;
+                const idx: usize = @intCast(p.id);
+                if (!fx_params.isAutomatable(self.kind(), idx)) return;
+                fx_params.setParamAbsolute(&self.payload, idx, p.value);
+            },
+            else => self.payload.device().sendEvent(ev),
+        }
     }
 
     const vtable: dsp.Device.VTable = .{
