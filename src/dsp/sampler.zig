@@ -295,7 +295,7 @@ pub const Sampler = struct {
         // active voice below (each copies it into its own `eff` snapshot) -
         // ticking once here, not per-voice, is what keeps polyphonic notes
         // on this pad in phase with each other.
-        if (self.pad.mod_dest != .off) self.pad.mod_lfo.tick(self.pad.mod_rate_hz / @as(f32, @floatCast(sr)));
+        pad_dsp.tickModLfo(&self.pad, sr);
 
         for (&self.voices) |*nv| {
             if (!nv.active) continue;

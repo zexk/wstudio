@@ -1249,7 +1249,7 @@ pub const Slicer = struct {
             // One shared LFO phase per block, same reasoning as
             // Sampler.processBlock: tick once here rather than per-voice, so
             // simultaneous voices on this slice (rolls) stay in phase.
-            if (pad.mod_dest != .off) pad.mod_lfo.tick(pad.mod_rate_hz / @as(f32, @floatCast(sr)));
+            pad_mod.tickModLfo(pad, sr);
             for (pool) |*sv| {
                 if (!sv.active) continue;
                 // Keep a mid-block trigger's `block_start` offset for its

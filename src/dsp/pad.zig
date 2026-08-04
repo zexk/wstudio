@@ -457,6 +457,14 @@ const StretchState = struct {
     out_played: f64 = 0,
 };
 
+/// Advance a pad's shared per-block LFO phase, gated on `mod_dest != .off`
+/// exactly like `renderVoice`'s `mod_val` gate. Call once per block, not per
+/// voice - see the callers in Sampler.processBlock/Slicer.processBlock for
+/// why (keeps simultaneous voices on the same pad in phase).
+pub fn tickModLfo(pad: *Pad, sr: f64) void {
+    if (pad.mod_dest != .off) pad.mod_lfo.tick(pad.mod_rate_hz / @as(f32, @floatCast(sr)));
+}
+
 /// Play one pad voice into `buf`: fractional pitched read with linear
 /// interpolation, region trim, optional reverse, amp ADSR + release fade,
 /// and a linear pan law (center = unity in both channels).
