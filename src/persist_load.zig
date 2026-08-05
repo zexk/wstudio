@@ -842,6 +842,7 @@ pub fn applyPadSnap(p: *Pad, ps: PadSnap) void {
     p.mod_depth       = finiteClamp(f32, ps.mod_depth, 0.0, 1.0, 0.0);
     p.mod_shape       = ps.mod_shape;
     p.mod_dest        = ps.mod_dest;
+    p.loop            = ps.loop;
 }
 // zig fmt: on
 

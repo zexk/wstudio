@@ -410,6 +410,10 @@ pub const PadSnap = struct {
     mod_depth: f32 = 0.0,
     mod_shape: lfo_mod.Shape = .sine,
     mod_dest: pad_mod.ModDest = .off,
+    /// Region loop mode (see `dsp.Pad.loop`). Additive optional-with-default
+    /// field, no version bump needed - an older file omits it and loads
+    /// one-shot, exactly how it played when it was saved.
+    loop: pad_mod.LoopMode = .off,
 };
 
 /// v23: one drum-machine note - position, duration, velocity - replacing

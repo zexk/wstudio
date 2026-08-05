@@ -57,6 +57,10 @@ pub const Pad = struct {
     /// composing into a duration-preserving pitch-shift. See
     /// `renderVoiceStretched`.
     stretch_ratio: f32 = 1.0,
+    /// Repeat the play region instead of stopping at its end - see
+    /// `LoopMode`. `.off` (the default) is the one-shot behaviour every
+    /// existing pad has.
+    loop: LoopMode = .off,
     /// Bipolar tone filter (-1..+1), one knob covering both directions the
     /// way a DJ/sampler filter does: negative sweeps a one-pole low-pass down
     /// from 20 kHz to 200 Hz, positive sweeps a one-pole high-pass up from
@@ -94,6 +98,49 @@ pub const Pad = struct {
     /// site skip the LFO entirely in that case.
     mod_dest: ModDest = .off,
 };
+
+/// How the play region repeats. `forward` restarts at the region start (the
+/// classic sampler loop, with whatever discontinuity the two edges imply);
+/// `ping_pong` reflects at each edge instead, so the seam is continuous in
+/// position and never clicks.
+///
+/// A loop only takes effect where something can end the voice - a note-off
+/// (gate play mode) or a sequenced step's own length. A latched one-shot has
+/// neither, so it plays the region once as always rather than ringing
+/// forever; see `renderVoice`'s `looping`.
+pub const LoopMode = enum { off, forward, ping_pong };
+pub const loop_mode_names = [_][]const u8{ "off", "forward", "ping-pong" };
+
+/// Position within the region, in source frames from its start, for a voice
+/// that has consumed `played` source frames. Everything past the first pass
+/// only exists for a looping voice - `.off` returns `played` untouched, so
+/// the non-looping read position is byte-identical to before loops existed.
+pub fn loopPos(played: f64, region_len: f64, mode: LoopMode) f64 {
+    return switch (mode) {
+        .off => played,
+        .forward => @mod(played, region_len),
+        // One ping-pong cycle is two passes; the second is the first
+        // mirrored, which is why no direction state is needed on the voice.
+        .ping_pong => blk: {
+            const cycle = 2.0 * region_len;
+            const p = @mod(played, cycle);
+            break :blk if (p < region_len) p else cycle - p;
+        },
+    };
+}
+
+test "loopPos wraps forward and reflects ping-pong" {
+    // Region 100 frames long, sampled either side of the seam at 100.
+    try std.testing.expectApproxEqAbs(@as(f64, 90.0), loopPos(90, 100, .forward), 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 10.0), loopPos(110, 100, .forward), 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 10.0), loopPos(310, 100, .forward), 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 90.0), loopPos(110, 100, .ping_pong), 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 10.0), loopPos(190, 100, .ping_pong), 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 10.0), loopPos(210, 100, .ping_pong), 1e-9);
+    // Continuous across the turn: approaching 100 from either side agrees.
+    try std.testing.expectApproxEqAbs(loopPos(99.9, 100, .ping_pong), loopPos(100.1, 100, .ping_pong), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f64, 400.0), loopPos(400, 100, .off), 1e-9);
+}
 
 /// Destinations a pad's LFO can offset. Deliberately a single choice, not a
 /// matrix - see `dsp/synth.zig`'s `ModRow` for the richer per-voice version
@@ -142,14 +189,15 @@ pub fn emptyPad() *const Pad {
 /// Number of shared, continuous per-pad params `adjustParam`/`setParamAbsolute`/
 /// `paramValue` cover - start/end/pitch/attack/decay/sustain/release/gain/pan,
 /// the reverse toggle at id 9, the fade in/out pair at 10/11, stretch at 12,
-/// filter at 13, the gate toggle at 14, and the per-pad LFO's rate/depth/
-/// shape/dest at 15-18. Callers with extra ids of their own (Sampler's
+/// filter at 13, the gate toggle at 14, the per-pad LFO's rate/depth/
+/// shape/dest at 15-18, and the loop mode at 19. Callers with extra ids of
+/// their own (Sampler's
 /// root_note/mono, ...) dispatch those separately and fall through to these
-/// for 0-18. The *packed* half of the space must stay within `paramId`'s
+/// for 0-19. The *packed* half of the space must stay within `paramId`'s
 /// param field - DrumMachine/Slicer pack the param id into its low 5 bits
-/// (32 slots), which 0-18 fits with room to spare; Sampler's own ids past
+/// (32 slots), which 0-19 fits with room to spare; Sampler's own ids past
 /// this table are never packed.
-pub const param_count: u16 = 19;
+pub const param_count: u16 = 20;
 
 /// Ids of the two enum params in this table, so callers that need to treat
 /// them differently (undo capture, the automation param picker, the UI's
@@ -164,6 +212,8 @@ pub const pitch_id: u16 = 2;
 pub const stretch_id: u16 = 12;
 pub const mod_shape_id: u16 = 17;
 pub const mod_dest_id: u16 = 18;
+/// The loop-mode cycle (see `LoopMode`), named for the same reason.
+pub const loop_id: u16 = 19;
 
 pub fn playDurationSeconds(pad: *const Pad, sample_rate: u32) f32 {
     if (sample_rate == 0 or pad.samples.len == 0) return 0;
@@ -223,6 +273,13 @@ pub fn adjustParam(pad: *Pad, id: u16, steps: i32) void {
         const n: i32 = @typeInfo(ModDest).@"enum".fields.len;
         const cur: i32 = @intFromEnum(pad.mod_dest);
         pad.mod_dest = @enumFromInt(@mod(cur + steps, n));
+        return;
+    }
+    if (id == loop_id) {
+        if (steps == 0) return;
+        const n: i32 = @typeInfo(LoopMode).@"enum".fields.len;
+        const cur: i32 = @intFromEnum(pad.loop);
+        pad.loop = @enumFromInt(@mod(cur + steps, n));
         return;
     }
     if (id == 6) {
@@ -287,6 +344,7 @@ pub fn setParamAbsolute(pad: *Pad, id: u16, value: f32) void {
         16 => pad.mod_depth  = std.math.clamp(value, 0.0, 1.0),
         17 => pad.mod_shape  = @enumFromInt(@as(u8, @intFromFloat(std.math.clamp(@round(value), 0.0, @as(f32, @typeInfo(lfo_dsp.Shape).@"enum".fields.len - 1))))),
         18 => pad.mod_dest   = @enumFromInt(@as(u8, @intFromFloat(std.math.clamp(@round(value), 0.0, @as(f32, @typeInfo(ModDest).@"enum".fields.len - 1))))),
+        19 => pad.loop       = @enumFromInt(@as(u8, @intFromFloat(std.math.clamp(@round(value), 0.0, @as(f32, @typeInfo(LoopMode).@"enum".fields.len - 1))))),
         // zig fmt: on
         else => {},
     }
@@ -328,6 +386,7 @@ pub fn paramValue(pad: *const Pad, id: u16) ?f32 {
         16 => pad.mod_depth,
         17 => @floatFromInt(@intFromEnum(pad.mod_shape)),
         18 => @floatFromInt(@intFromEnum(pad.mod_dest)),
+        19 => @floatFromInt(@intFromEnum(pad.loop)),
         // zig fmt: on
         else => null,
     };
@@ -535,13 +594,19 @@ pub fn renderVoice(
     // pre-existing gap this modulation inherits rather than fixes.
     const mod_filter: f32 = if (pad.mod_dest == .filter) std.math.clamp(pad.filter + mod_val, -1.0, 1.0) else pad.filter;
     const fc = filterCoef(mod_filter, sample_rate);
-    const gated = pad.gate;
+    // A loop needs something to end the voice: a note-off (gate play mode) or
+    // the sequenced step's own length. A latched one-shot has neither, so it
+    // ignores the loop mode rather than ringing forever and hogging a voice
+    // slot - see `LoopMode`. `gated` follows, since that release path is what
+    // ends a looping voice.
+    const loop: LoopMode = if (pad.gate or voice.hold_frames >= 0.0) pad.loop else .off;
+    const gated = pad.gate or loop != .off;
 
     const start = voice.block_start;
     var i: usize = start;
     while (i < frames) : (i += 1) {
         // zig fmt: off
-        if (voice.played >= region_len) { voice.active = false; break; }
+        if (loop == .off and voice.played >= region_len) { voice.active = false; break; }
         // zig fmt: on
         if (gated) releaseAtHold(voice, voice.played / rate);
         const gate_g = if (gated) gateLevel(voice.release_frames, sample_rate, pad.release_s * voice.art.release_scale) else 1.0;
@@ -550,19 +615,23 @@ pub fn renderVoice(
         // zig fmt: on
 
         // Read position within the clip for this voice's progress.
-        const rp: f64 = if (pad.reverse) (hi - 1.0 - voice.played) else (lo + voice.played);
+        const pos = loopPos(voice.played, region_len, loop);
+        const rp: f64 = if (pad.reverse) (hi - 1.0 - pos) else (lo + pos);
         const s = sampleAt(pad.samples, rp);
 
         // Envelope (output time): attack/decay/sustain on the body, a
         // release fade over the final `release_s` of the region, and the
         // edit fades - fade-in over elapsed time, fade-out over remaining
         // time - multiplied on top (see the Pad field doc comment).
+        // The two remaining-time ramps are end-of-region fades, so a looping
+        // voice skips them: it has no region end to fade at (and `left_out`
+        // goes negative past the first pass). Its fade-out is `gate_g`, from
+        // the note-off that actually ends it.
         const t_out = voice.played / rate / sample_rate;
         const left_out = (region_len - voice.played) / rate / sample_rate;
         const env = adsrLevel(t_out, pad.attack_s, pad.decay_s, pad.sustain) *
-            linearRamp(left_out, pad.release_s) *
             linearRamp(t_out, pad.fade_in_s) *
-            linearRamp(left_out, pad.fade_out_s);
+            (if (loop != .off) 1.0 else linearRamp(left_out, pad.release_s) * linearRamp(left_out, pad.fade_out_s));
 
         const v = filterStep(&voice.filt, fc, s * env) * gate_g;
         buf[i * channels] += v * gl;
@@ -626,7 +695,13 @@ fn renderVoiceStretched(
     }
 
     const fc = filterCoef(pad.filter, sr);
-    const gated = pad.gate;
+    // Same "a loop needs an ending" rule the plain path applies - see
+    // `renderVoice`. Ping-pong degrades to a forward loop here: reversing
+    // `dir` mid-stream would also have to re-anchor the correlation search
+    // against a window it has never seen, the same class of gap this path
+    // already has for the tone filter.
+    const loop: LoopMode = if (pad.gate or voice.hold_frames >= 0.0) pad.loop else .off;
+    const gated = pad.gate or loop != .off;
 
     const start = voice.block_start;
     var i: usize = start;
@@ -643,15 +718,25 @@ fn renderVoiceStretched(
         }
 
         const grain_off = dir * @as(f64, @floatFromInt(st.out_in_grain)) * rate;
-        const cur_read = st.cur_src + grain_off;
+        var cur_read = st.cur_src + grain_off;
 
         // Region exhaustion, derived from the actual read position rather
         // than an accumulated counter - naturally absorbs a grain hop that
         // overshoots the region end.
-        const remaining_src: f64 = if (pad.reverse) (cur_read - lo) else (hi - cur_read);
+        var remaining_src: f64 = if (pad.reverse) (cur_read - lo) else (hi - cur_read);
         if (remaining_src <= 0.0) {
-            voice.active = false;
-            break;
+            if (loop == .off) {
+                voice.active = false;
+                break;
+            }
+            // Restart the region as a fresh grain rather than crossfading
+            // across the seam - `prev_src` points past the region end, so
+            // the outgoing grain has nothing left to fade from.
+            st.cur_src = if (pad.reverse) hi - 1.0 else lo;
+            st.has_prev = false;
+            st.out_in_grain = 0;
+            cur_read = st.cur_src;
+            remaining_src = if (pad.reverse) (cur_read - lo) else (hi - cur_read);
         }
         if (gated) releaseAtHold(voice, st.out_played);
         const gate_g = if (gated) gateLevel(voice.release_frames, sr, pad.release_s * voice.art.release_scale) else 1.0;
@@ -672,12 +757,14 @@ fn renderVoiceStretched(
         // directly (stretch already folded in, unlike the plain path's
         // `played/rate`), and `left_out` converts the remaining *source*
         // frames back to output seconds via the same stretch factor.
+        // A looping voice skips the two remaining-time ramps for the reason
+        // the plain path's envelope spells out - they fade a region end this
+        // voice keeps passing straight through.
         const t_out = st.out_played / sr;
         const left_out = remaining_src * stretch_ratio / rate / sr;
         const env = adsrLevel(t_out, pad.attack_s, pad.decay_s, pad.sustain) *
-            linearRamp(left_out, pad.release_s) *
             linearRamp(t_out, pad.fade_in_s) *
-            linearRamp(left_out, pad.fade_out_s);
+            (if (loop != .off) 1.0 else linearRamp(left_out, pad.release_s) * linearRamp(left_out, pad.fade_out_s));
 
         const v = filterStep(&voice.filt, fc, s * env) * gate_g;
         buf[i * channels] += v * gl;
@@ -1140,4 +1227,56 @@ test "hold_frames releases a gated voice on its own, and only a gated one" {
     }
     try std.testing.expect(latched.active);
     try std.testing.expect(latched.release_frames < 0.0);
+}
+
+test "a loop replays the region only while something can end the voice" {
+    var samples = [_]f32{0.5} ** 4_800;
+    var buf = [_]Sample{0} ** 512;
+
+    // Gated + forward loop: still running well past one pass of the region
+    // (4800 frames = 19 blocks at this rate), and still audible rather than
+    // sitting in an end-of-region fade.
+    var pad: Pad = .{ .samples = &samples, .gate = true, .loop = .forward, .release_s = 0.01 };
+    var voice: Voice = .{ .active = true };
+    var blocks: usize = 0;
+    while (blocks < 40) : (blocks += 1) renderVoice(&voice, &pad, &buf, 2, 256, 48_000.0);
+    try std.testing.expect(voice.active);
+    try std.testing.expect(voice.played > 4_800.0);
+    @memset(&buf, 0);
+    renderVoice(&voice, &pad, &buf, 2, 256, 48_000.0);
+    try std.testing.expect(@abs(buf[0]) > 0.1);
+
+    // The same pad without the loop: one pass and done.
+    pad.loop = .off;
+    var once: Voice = .{ .active = true };
+    blocks = 0;
+    while (blocks < 40) : (blocks += 1) renderVoice(&once, &pad, &buf, 2, 256, 48_000.0);
+    try std.testing.expect(!once.active);
+
+    // A latched one-shot has no note-off and no step length, so the loop is
+    // ignored rather than ringing forever - the same call `gate` makes.
+    pad.loop = .ping_pong;
+    pad.gate = false;
+    var latched: Voice = .{ .active = true };
+    blocks = 0;
+    while (blocks < 40) : (blocks += 1) renderVoice(&latched, &pad, &buf, 2, 256, 48_000.0);
+    try std.testing.expect(!latched.active);
+
+    // ...but the same latched pad on a sequencer step loops for the step's
+    // own length, then releases on its own.
+    var stepped: Voice = .{ .active = true, .hold_frames = 9_600 };
+    blocks = 0;
+    while (blocks < 30) : (blocks += 1) renderVoice(&stepped, &pad, &buf, 2, 256, 48_000.0);
+    try std.testing.expect(stepped.active); // 7680 frames in: past one pass, still held
+    try std.testing.expect(stepped.played > 4_800.0);
+    while (stepped.active and blocks < 80) : (blocks += 1) renderVoice(&stepped, &pad, &buf, 2, 256, 48_000.0);
+    try std.testing.expect(!stepped.active);
+
+    // Time-stretched playback loops too (ping-pong degrades to forward there).
+    pad.stretch_ratio = 2.0;
+    pad.gate = true;
+    var stretched: Voice = .{ .active = true };
+    blocks = 0;
+    while (blocks < 60) : (blocks += 1) renderVoice(&stretched, &pad, &buf, 2, 256, 48_000.0);
+    try std.testing.expect(stretched.active);
 }

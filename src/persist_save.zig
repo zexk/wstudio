@@ -249,7 +249,7 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
                     .stretch_ratio = s.pad.stretch_ratio,
                     .filter = s.pad.filter, .gate = s.pad.gate, .retrig = s.pad.retrig,
                     .mod_rate_hz = s.pad.mod_rate_hz, .mod_depth = s.pad.mod_depth,
-                    .mod_shape = s.pad.mod_shape, .mod_dest = s.pad.mod_dest,
+                    .mod_shape = s.pad.mod_shape, .mod_dest = s.pad.mod_dest, .loop = s.pad.loop,
                     // Always saved - see the drum pad loop's comment above.
                     .name = try aa.dupe(u8, s.clipName()),
                 },
@@ -305,7 +305,7 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
                         .stretch_ratio = p.stretch_ratio,
                         .filter = p.filter, .gate = p.gate, .retrig = p.retrig,
                         .mod_rate_hz = p.mod_rate_hz, .mod_depth = p.mod_depth,
-                        .mod_shape = p.mod_shape, .mod_dest = p.mod_dest,
+                        .mod_shape = p.mod_shape, .mod_dest = p.mod_dest, .loop = p.loop,
                         // Always saved (like a track name), independent of
                         // whether the pad has user-loaded audio - a `:rename`
                         // on a shipped-kit pad has no sample_file to carry the
@@ -341,7 +341,7 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
                     .stretch_ratio = p.stretch_ratio,
                     .filter = p.filter, .gate = p.gate, .retrig = p.retrig,
                     .mod_rate_hz = p.mod_rate_hz, .mod_depth = p.mod_depth,
-                    .mod_shape = p.mod_shape, .mod_dest = p.mod_dest,
+                    .mod_shape = p.mod_shape, .mod_dest = p.mod_dest, .loop = p.loop,
                 };
             }
             sls.slices = slices;

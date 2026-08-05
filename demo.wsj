@@ -1882,7 +1882,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -1907,7 +1908,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -1932,7 +1934,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -1957,7 +1960,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -1982,7 +1986,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2007,7 +2012,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2032,7 +2038,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2057,7 +2064,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2082,7 +2090,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2107,7 +2116,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2132,7 +2142,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2157,7 +2168,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2182,7 +2194,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2207,7 +2220,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2232,7 +2246,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2257,7 +2272,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2282,7 +2298,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2307,7 +2324,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2332,7 +2350,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2357,7 +2376,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2382,7 +2402,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2407,7 +2428,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2432,7 +2454,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2457,7 +2480,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2482,7 +2506,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2507,7 +2532,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2532,7 +2558,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2557,7 +2584,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2582,7 +2610,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2607,7 +2636,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2632,7 +2662,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2657,7 +2688,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2682,7 +2714,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2707,7 +2740,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2732,7 +2766,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2757,7 +2792,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2782,7 +2818,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2807,7 +2844,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2832,7 +2870,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2857,7 +2896,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2882,7 +2922,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2907,7 +2948,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2932,7 +2974,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2957,7 +3000,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -2982,7 +3026,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3007,7 +3052,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3032,7 +3078,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3057,7 +3104,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3082,7 +3130,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3107,7 +3156,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3132,7 +3182,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3157,7 +3208,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3182,7 +3234,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3207,7 +3260,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3232,7 +3286,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3257,7 +3312,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3282,7 +3338,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3307,7 +3364,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3332,7 +3390,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3357,7 +3416,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3382,7 +3442,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3407,7 +3468,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3432,7 +3494,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           },
           {
             "gain": 1,
@@ -3457,7 +3520,8 @@
             "mod_rate_hz": 2,
             "mod_depth": 0,
             "mod_shape": "sine",
-            "mod_dest": "off"
+            "mod_dest": "off",
+            "loop": "off"
           }
         ],
         "variants": [
