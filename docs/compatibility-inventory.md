@@ -7,9 +7,9 @@ names.
 
 ## Freeze
 
-- Project JSON types, defaults, migrations, and sidecar paths: `Snapshot` and
-  related snapshot types in `src/persist.zig`, with version history and sidecar
-  policy in `FORMAT.md`. Historical fixtures cover versions 1 through 27.
+- Project JSON types, defaults, and sidecar paths: `Snapshot` and related
+  snapshot types in `src/persist_types.zig`, with the version pin and sidecar
+  policy in `FORMAT.md`.
 - Lua options: `Config` and `option_specs` in `src/config.zig`. Tests require
   every name in Nix schema, `examples/init.lua`, and `docs/lua-api.md`, and
   require Lua and Nix theme enum parity.
@@ -31,13 +31,11 @@ names.
 
 ## Migrate
 
-- Project versions 1 through 26 load through defaults or explicit migrations
-  described in `FORMAT.md`. Retired JSON fields remain read-only and new saves
-  do not emit them.
+- Project files load only at the exact current `file_version`; there are no
+  migrations. wstudio shipped with no installs in the wild, so every older
+  `.wsj` was a dev-only artifact (see `FORMAT.md`).
 - Command aliases listed by `cmds` route to same handlers as canonical names.
   They remain accepted through 1.0 but stay out of compact help listings.
-- User-state files left in old `~/.config/wstudio` location remain readable and
-  move to platform config directory on next save.
 
 ## Remove now
 
