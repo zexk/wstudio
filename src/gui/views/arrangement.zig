@@ -131,10 +131,20 @@ pub fn draw(app: anytype) void {
             const pmin = [2]f32{ x + 1, lane_y + 5 };
             const pmax = [2]f32{ @min(x + clip_w, origin[0] + canvas_w - 1), lane_y + lane_h - 5 };
             const selected = if (app.arrangement_clip) |selection| selection.track == ti and selection.clip == ci else false;
-            const clip_color: [4]f32 = switch (clip.content) {
-                .melodic => .{ theme.audio[0], theme.audio[1], theme.audio[2], if (selected) 1 else 0.68 },
-                .drum => .{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], if (selected) 1 else 0.68 },
+            // The lane's own track colour when it has one, else the content
+            // accent (audio/rhythm) the clip used before track colours
+            // reached this view - same fallback tui/views/arrangement.zig
+            // makes with `track_color orelse acc`.
+            const track_col = app.core.session.project.tracks.items[ti].color;
+            const base: [4]f32 = if (track_col > 0) gui_style.trackColor(track_col) else switch (clip.content) {
+                .melodic => theme.audio,
+                .drum => theme.rhythm,
             };
+            const clip_color: [4]f32 = .{ base[0], base[1], base[2], if (selected) 1 else 0.68 };
+            // Labels and previews sit on the darkened header strip / clip
+            // body, so their ink follows the fill instead of assuming a
+            // bright accent.
+            const ink = gui_style.legibleOn(base);
             draw_list.addRectFilled(.{ .pmin = pmin, .pmax = pmax, .col = color(clip_color), .rounding = 4 });
             draw_list.addRectFilled(.{
                 .pmin = pmin,
@@ -148,7 +158,7 @@ pub fn draw(app: anytype) void {
             }
             switch (clip.content) {
                 .melodic => |melodic| {
-                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(theme.fg0), "MIDI  {d}", .{melodic.notes.len});
+                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(ink), "MIDI  {d}", .{melodic.notes.len});
                     var min_pitch: u7 = 127;
                     var max_pitch: u7 = 0;
                     for (melodic.notes) |note| {
@@ -168,21 +178,21 @@ pub fn draw(app: anytype) void {
                         var reps: u32 = 0;
                         while (repeat_x < pmax[0] and reps < 256) : (repeat_x += pattern_px) {
                             if (reps > 0) {
-                                draw_list.addLine(.{ .p1 = .{ repeat_x, pmin[1] + 22 }, .p2 = .{ repeat_x, pmax[1] }, .col = color(.{ theme.fg0[0], theme.fg0[1], theme.fg0[2], 0.3 }), .thickness = 1 });
+                                draw_list.addLine(.{ .p1 = .{ repeat_x, pmin[1] + 22 }, .p2 = .{ repeat_x, pmax[1] }, .col = color(.{ ink[0], ink[1], ink[2], 0.3 }), .thickness = 1 });
                             }
                             for (melodic.notes) |note| {
                                 const note_x = repeat_x + @as(f32, @floatCast(note.start_beat)) * beat_w;
                                 if (note_x >= pmax[0]) continue;
                                 const note_y = pmin[1] + 26 + @as(f32, @floatFromInt(max_pitch - note.pitch)) / pitch_span * preview_height;
                                 const note_w = @max(2, @as(f32, @floatCast(note.duration_beat)) * beat_w);
-                                draw_list.addLine(.{ .p1 = .{ note_x, note_y }, .p2 = .{ @min(note_x + note_w, pmax[0] - 2), note_y }, .col = color(.{ theme.fg0[0], theme.fg0[1], theme.fg0[2], 0.72 }), .thickness = 2 });
+                                draw_list.addLine(.{ .p1 = .{ note_x, note_y }, .p2 = .{ @min(note_x + note_w, pmax[0] - 2), note_y }, .col = color(.{ ink[0], ink[1], ink[2], 0.72 }), .thickness = 2 });
                             }
                             reps += 1;
                         }
                     }
                 },
                 .drum => |drum| {
-                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(theme.bg0), "PATTERN {c}  {d}st", .{ 'A' + drum.variant, drum.step_count });
+                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(ink), "PATTERN {c}  {d}st", .{ 'A' + drum.variant, drum.step_count });
                     // step_px is fixed by beat_w/steps_per_beat, not the clip's box
                     // width, so a chopped (shortened) clip truncates the pattern
                     // instead of squeezing every step into the smaller box, and a
@@ -195,7 +205,7 @@ pub fn draw(app: anytype) void {
                         var reps: u32 = 0;
                         while (repeat_x < pmax[0] and reps < 256) : (repeat_x += pattern_px) {
                             if (reps > 0) {
-                                draw_list.addLine(.{ .p1 = .{ repeat_x, pmin[1] + 22 }, .p2 = .{ repeat_x, pmax[1] }, .col = color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.45 }), .thickness = 1 });
+                                draw_list.addLine(.{ .p1 = .{ repeat_x, pmin[1] + 22 }, .p2 = .{ repeat_x, pmax[1] }, .col = color(.{ ink[0], ink[1], ink[2], 0.45 }), .thickness = 1 });
                             }
                             for (0..drum.step_count) |step| {
                                 const grid_x = repeat_x + (@as(f32, @floatFromInt(step)) + 0.5) * step_px;
@@ -204,7 +214,7 @@ pub fn draw(app: anytype) void {
                                     draw_list.addLine(.{
                                         .p1 = .{ grid_x, pmin[1] + 27 },
                                         .p2 = .{ grid_x, pmax[1] - 5 },
-                                        .col = color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.24 }),
+                                        .col = color(.{ ink[0], ink[1], ink[2], 0.24 }),
                                         .thickness = 1,
                                     });
                                 }
@@ -214,7 +224,7 @@ pub fn draw(app: anytype) void {
                                 }
                                 if (hits == 0) continue;
                                 const hit_h = @min(15, @as(f32, @floatFromInt(hits)) * 2);
-                                draw_list.addLine(.{ .p1 = .{ grid_x, pmax[1] - 6 }, .p2 = .{ grid_x, pmax[1] - 6 - hit_h }, .col = color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.72 }), .thickness = 2 });
+                                draw_list.addLine(.{ .p1 = .{ grid_x, pmax[1] - 6 }, .p2 = .{ grid_x, pmax[1] - 6 - hit_h }, .col = color(.{ ink[0], ink[1], ink[2], 0.72 }), .thickness = 2 });
                             }
                             reps += 1;
                         }
