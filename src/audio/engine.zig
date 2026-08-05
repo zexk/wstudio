@@ -210,6 +210,13 @@ pub const max_sidechain_sources: u8 = 8;
 /// Aux-send types live on `Project` (see its own doc comments) - `Project`
 /// is already imported below and this avoids a circular import the other
 /// way around.
+/// Free-floating modulation controllers - see `dsp/controller.zig`. Owned
+/// by `Project`, mirrored here as a plain value array the audio thread
+/// reads (they are stateless, so there is nothing to keep in sync beyond
+/// the values themselves).
+pub const controller_mod = @import("../dsp/controller.zig");
+pub const max_controllers = controller_mod.max_controllers;
+
 pub const max_sends_per_track = @import("../project.zig").max_sends_per_track;
 pub const SendTarget = @import("../project.zig").SendTarget;
 pub const SendSlot = @import("../project.zig").SendSlot;
@@ -458,6 +465,11 @@ pub const Engine = struct {
     /// Per-chain-slot sidechain-detector routing for the master bus, parallel
     /// to `master_chain` - safe to embed directly (not scaled by max_tracks).
     master_sidechain_sources: [9]?Compressor.SidechainSource = [_]?Compressor.SidechainSource{null} ** 9,
+    /// Project-wide modulation controllers, pushed whole by
+    /// `Session.syncControllers`. Read-only on the audio thread, same
+    /// "control thread replaces, audio thread only reads" discipline
+    /// `track_sends` follows.
+    controllers: [max_controllers]?controller_mod.Controller = @splat(null),
     /// This block's captured signal per registered sidechain-detector source
     /// track - see `SidechainCapture`. Rebuilt every block in `renderTracks`.
     sidechain_captures: [max_sidechain_sources]SidechainCapture = [_]SidechainCapture{.{}} ** max_sidechain_sources,
@@ -774,6 +786,13 @@ pub const Engine = struct {
     /// whenever a send target/level changes.
     pub fn setTrackSends(self: *Engine, track: u16, sends: TrackSendSlots) void {
         self.track_sends[@min(track, max_tracks - 1)] = sends;
+    }
+
+    /// Replace the whole controller bank (control thread) - same shape as
+    /// `setTrackSends`. Called by `Session.syncControllers` whenever a
+    /// controller's shape/rate/depth or target list changes.
+    pub fn setControllers(self: *Engine, controllers: [max_controllers]?controller_mod.Controller) void {
+        self.controllers = controllers;
     }
 
     /// Replace a track's flattened gain or pan automation curve wholesale
@@ -1284,6 +1303,26 @@ pub const Engine = struct {
                     .id = slot.param_id.load(.acquire),
                     .value = val,
                     .instance_id = slot.instance_id.load(.acquire),
+                } });
+            }
+        }
+
+        // Modulation controllers ride the same event path, evaluated after
+        // the curves above so a controller wired to a param that also has an
+        // automation lane visibly does something - a silent no-op because
+        // some clip still holds a stale lane would be the harder behaviour
+        // to explain. Stateless (phase comes from `beat_pos`), so this is a
+        // read of the bank plus one event per bound target.
+        for (&self.controllers) |maybe| {
+            const ctrl = maybe orelse continue;
+            const level = ctrl.valueAt(beat_pos);
+            for (ctrl.targets) |maybe_target| {
+                const target = maybe_target orelse continue;
+                if (target.track != ti) continue;
+                self.sendTrackEvent(ti, .{ .automation_param = .{
+                    .id = @intCast(target.param_id),
+                    .value = target.valueFor(level),
+                    .instance_id = target.instance_id,
                 } });
             }
         }
@@ -2627,4 +2666,50 @@ test "out-of-range track commands do not target the last slot" {
     var block: [64]Sample = undefined;
     engine.process(&block);
     try std.testing.expectEqual(@as(f32, 1.0), engine.trackAt(last).gain);
+}
+
+test "a controller drives a synth param on whatever track its target names" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.filter_cutoff = 1_000.0;
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.trackAt(1).* = .{ .active = true };
+    engine.setTrackChain(1, &.{synth.device()});
+
+    var bank: [max_controllers]?controller_mod.Controller = @splat(null);
+    bank[0] = .{ .shape = .sine, .beats = 4.0, .depth = 1.0 };
+    // Cutoff (param 21) centred at 1 kHz over the synth's own 20..20k range.
+    bank[0].?.targets[0] = .{
+        .track = 1,
+        .param_id = 21,
+        .center = 1_000.0,
+        .lo = 20.0,
+        .hi = 20_000.0,
+    };
+    engine.setControllers(bank);
+
+    var block: [512]Sample = undefined;
+    // Beat 0: a sine is at zero, so the param sits at its centre.
+    engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, 1_000.0), synth.filter_cutoff, 1.0);
+
+    // A quarter of the way through the 4-beat cycle the sine peaks, which
+    // pushes the cutoff half the range above centre.
+    engine.transport.position_frames = engine.transport.framesAtBeats(1.0);
+    engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, 1_000.0 + 9_990.0), synth.filter_cutoff, 5.0);
+
+    // The same target on a different track leaves this one alone.
+    bank[0].?.targets[0].?.track = 0;
+    engine.setControllers(bank);
+    synth.filter_cutoff = 1_000.0;
+    engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, 1_000.0), synth.filter_cutoff, 1.0);
+
+    // Clearing the bank stops driving it too.
+    engine.setControllers(@splat(null));
+    synth.filter_cutoff = 1_000.0;
+    engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, 1_000.0), synth.filter_cutoff, 1.0);
 }

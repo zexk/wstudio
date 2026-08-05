@@ -57,6 +57,7 @@ pub const PatternPlayer = pattern.PatternPlayer;
 
 pub const automation = @import("dsp/automation.zig");
 pub const tuning = @import("dsp/tuning.zig");
+pub const controller = @import("dsp/controller.zig");
 pub const Tuning = tuning.Tuning;
 pub const AutomationPoint = automation.AutomationPoint;
 pub const AutomationCurve = automation.AutomationCurve;
@@ -115,6 +116,7 @@ test {
     _ = soundfont_player;
     _ = pattern;
     _ = automation;
+    _ = controller;
     _ = fft;
     _ = SpectrumAnalyzer;
     _ = ParametricEq;

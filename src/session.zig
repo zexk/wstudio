@@ -252,7 +252,7 @@ pub const Session = struct {
     fn finishTrackInsert(self: *Session, idx: u16, total: u16, rack: *Rack, gain: f32, pan: f32, muted: bool) void {
         self.engine.applyInsertTrack(idx, total, gain, pan, muted);
         self.syncTrackChain(idx, rack);
-        self.remapSidechainSources(.{ .insert = idx });
+        self.remapTrackReferences(.{ .insert = idx });
     }
 
     /// Build a fresh, unattached `*Rack` housing a brand-new instance of
@@ -731,7 +731,7 @@ pub const Session = struct {
 
         // Compressors elsewhere may sidechain off a track index that just
         // shifted (or off the deleted track itself) - rewrite and resync.
-        self.remapSidechainSources(.{ .delete = @intCast(track_idx) });
+        self.remapTrackReferences(.{ .delete = @intCast(track_idx) });
     }
 
     /// Per-track mixer fields `restoreTrack` needs, mirroring `Track`'s own
@@ -753,7 +753,7 @@ pub const Session = struct {
     /// structures with no further copy, since the caller (undo's
     /// `TrackFullState`) already holds a deep copy made specifically for
     /// this restore. Mirrors `insertTrack`'s exact call shape - including
-    /// running `remapSidechainSources` only after the rack is already in
+    /// running `remapTrackReferences` only after the rack is already in
     /// `self.racks`, so a sidechain reference living on the RESTORED rack's
     /// own chain gets swept by the same pass as everyone else's.
     pub fn restoreTrack(self: *Session, at: u16, name: []const u8, meta: RestoredMeta, rack: *Rack, clips: []Clip) !void {
@@ -869,7 +869,7 @@ pub const Session = struct {
         self.engine.swapTracks(@intCast(a), @intCast(b));
         // Same rule as deleteTrack: sidechain sources name tracks, so they
         // follow the swap.
-        self.remapSidechainSources(.{ .swap = .{ .a = @intCast(a), .b = @intCast(b) } });
+        self.remapTrackReferences(.{ .swap = .{ .a = @intCast(a), .b = @intCast(b) } });
     }
 
     pub fn toggleArm(self: *Session, track_idx: usize) void {
@@ -1201,7 +1201,7 @@ pub const Session = struct {
     }
 
     /// How a structural track change (delete/swap/insert) reshapes a track
-    /// index. Shared by `remapSidechainSources` below and, via
+    /// index. Shared by `remapTrackReferences` below and, via
     /// `tui/undo.zig`'s re-export, `History.retarget` for undo entries - one
     /// definition of "what happens to a track index" instead of two unions
     /// with the same three cases drifting apart.
@@ -1223,15 +1223,19 @@ pub const Session = struct {
         }
     };
 
-    /// Rewrite every compressor's `sidechain_source` (track racks, group
-    /// buses, master) after track indices shift, then push the refreshed
-    /// routing to the engine. Without this a compressor keeps its raw
-    /// index and silently starts detecting from whatever track slid into
-    /// it - the source is a persisted USER setting naming a specific
-    /// track, so it must follow that track (or clear when it's deleted),
-    /// same reason `TrackState.group` values are per-track state the
-    /// engine shifts in applyDeleteTrack.
-    fn remapSidechainSources(self: *Session, op: TrackRemap) void {
+    /// Rewrite every persisted track reference - compressor sidechain
+    /// sources and modulation-controller targets - after track indices
+    /// shift, then push the refreshed routing to the engine. Both name a
+    /// specific track the user picked, so both must follow that track (or
+    /// clear when it is deleted); walking them together keeps the three
+    /// structural call sites from having to remember two functions.
+    ///
+    /// Without this a compressor keeps its raw index and silently starts
+    /// detecting from whatever track slid into it, and a controller starts
+    /// driving a knob on a track the user never wired it to - same reason
+    /// `TrackState.group` values are per-track state the engine shifts in
+    /// applyDeleteTrack.
+    fn remapTrackReferences(self: *Session, op: TrackRemap) void {
         const remapFx = struct {
             fn go(fx: *rack_mod.Fx, op_: TrackRemap) void {
                 for (fx.units.items) |u| switch (u.payload) {
@@ -1259,6 +1263,23 @@ pub const Session = struct {
         }
         for (0..engine_mod.max_groups) |gi| self.syncGroupChain(@intCast(gi));
         self.syncMasterChain();
+
+        const applyRemap = struct {
+            fn go(op_: TrackRemap, track: u16) ?u16 {
+                return op_.apply(track);
+            }
+        }.go;
+        for (&self.project.controllers) |*slot| {
+            if (slot.*) |*c| c.remapTracks(op, applyRemap);
+        }
+        self.syncControllers();
+    }
+
+    /// Push the project's controller bank to the audio thread. Call after
+    /// any edit to a controller or its targets, and after a load - the
+    /// engine holds a plain copy (they carry no state to preserve).
+    pub fn syncControllers(self: *Session) void {
+        self.engine.setControllers(self.project.controllers);
     }
 
     /// Create a new group named `name` in the first free slot. Starts with

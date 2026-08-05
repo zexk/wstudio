@@ -7,6 +7,7 @@ const std = @import("std");
 const types = @import("core/types.zig");
 const theory = @import("theory.zig");
 const dsp_tuning = @import("dsp/tuning.zig");
+const dsp_controller = @import("dsp/controller.zig");
 
 pub const TrackKind = enum { audio, midi };
 
@@ -88,6 +89,10 @@ pub const Project = struct {
     loop_enabled: bool = false,
     loop_start_bar: u32 = 0,
     loop_end_bar: u32 = 0,
+    /// Free-floating modulation controllers (see `dsp/controller.zig`).
+    /// Project-scoped rather than per-track: one controller drives knobs
+    /// across any number of tracks, which is the whole point of it.
+    controllers: [dsp_controller.max_controllers]?dsp_controller.Controller = @splat(null),
     tracks: std.ArrayList(Track) = .empty,
     sections: std.ArrayList(Section) = .empty,
 
