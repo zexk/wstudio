@@ -56,7 +56,7 @@ const pad_mod = @import("pad.zig");
 const drum_kit = @import("drum_kit.zig");
 const Sampler = @import("sampler.zig").Sampler;
 const Note = @import("pattern.zig").Note;
-const step_grid = @import("step_grid.zig");
+const step_grid_ops = @import("step_grid_ops.zig");
 
 const Sample = types.Sample;
 
@@ -678,7 +678,7 @@ pub const DrumMachine = struct {
     }
 
     pub fn toggleStep(self: *DrumMachine, pad: u8, step: u16) void {
-        step_grid.toggleStep(&self.midi, self.step_count, pad, step);
+        step_grid_ops.toggleStep(&self.midi, self.step_count, pad, step);
     }
 
     /// Change the native grid without moving hits in musical time: every
@@ -743,32 +743,32 @@ pub const DrumMachine = struct {
         return true;
     }
 
-    // Step editing is `step_grid.zig`'s, shared with the Slicer's identical
+    // Step editing is `step_grid_ops.zig`'s, shared with the Slicer's identical
     // grid; only the pad vocabulary is ours. See that file for the bodies.
     pub fn stepActive(self: *const DrumMachine, pad: u8, step: u16) bool {
-        return step_grid.stepActive(&self.midi, self.step_count, pad, step);
+        return step_grid_ops.stepActive(&self.midi, self.step_count, pad, step);
     }
 
     /// One step's velocity, 0-127 (127 = full, see velGain). 127 for a step
     /// with no note, matching a fresh/toggled-on step's default.
     pub fn stepVel(self: *const DrumMachine, pad: u8, step: u16) u8 {
-        return step_grid.stepVel(&self.midi, self.step_count, pad, step);
+        return step_grid_ops.stepVel(&self.midi, self.step_count, pad, step);
     }
 
     pub fn setStepVel(self: *DrumMachine, pad: u8, step: u16, level: u8) void {
-        step_grid.setStepVel(&self.midi, self.step_count, pad, step, level);
+        step_grid_ops.setStepVel(&self.midi, self.step_count, pad, step, level);
     }
 
     /// Cycle through the named preset bands (127→95→63→31→127) - a quick
     /// single-key gesture; `nudgeStepVel` covers the full 1-127 range.
     pub fn cycleStepVel(self: *DrumMachine, pad: u8, step: u16) void {
-        step_grid.cycleStepVel(&self.midi, self.step_count, pad, step);
+        step_grid_ops.cycleStepVel(&self.midi, self.step_count, pad, step);
     }
 
     /// Nudge one step's velocity by `delta`, clamped to 1..127 - 0 would be
     /// silent; use x/X to remove a step instead of zeroing its velocity.
     pub fn nudgeStepVel(self: *DrumMachine, pad: u8, step: u16, delta: i32) void {
-        step_grid.nudgeStepVel(&self.midi, self.step_count, pad, step, delta);
+        step_grid_ops.nudgeStepVel(&self.midi, self.step_count, pad, step, delta);
     }
 
     /// Does `note` fire on this pass? Probability and condition are ANDed,
@@ -803,82 +803,82 @@ pub const DrumMachine = struct {
     /// Audio thread reads this every step boundary, so it stays branch-cheap
     /// and never touches storage it doesn't have.
     pub fn padSteps(self: *const DrumMachine, p: u8, pattern_len: u16) u16 {
-        return step_grid.laneSteps(&self.pad_len, p, pattern_len);
+        return step_grid_ops.laneSteps(&self.pad_len, p, pattern_len);
     }
 
     /// Set pad `p`'s own loop length; 0 (or anything past the pattern) goes
     /// back to following the pattern.
     pub fn setPadLen(self: *DrumMachine, p: u8, len: u16) void {
-        step_grid.setLaneLen(&self.pad_len, self.step_count, p, len);
+        step_grid_ops.setLaneLen(&self.pad_len, self.step_count, p, len);
     }
 
     /// Nudge pad `p`'s loop length, treating "follows the pattern" as the
     /// full length so stepping down from it lands one below rather than
     /// jumping to 1.
     pub fn nudgePadLen(self: *DrumMachine, p: u8, delta: i32) void {
-        step_grid.nudgeLaneLen(&self.pad_len, self.step_count, p, delta);
+        step_grid_ops.nudgeLaneLen(&self.pad_len, self.step_count, p, delta);
     }
 
     /// Fire chance of the step in percent; 100 on an empty step.
     pub fn stepProb(self: *const DrumMachine, pad: u8, step: u16) u8 {
-        return step_grid.stepProb(&self.midi, self.step_count, pad, step);
+        return step_grid_ops.stepProb(&self.midi, self.step_count, pad, step);
     }
 
     /// Set the chance outright, clamped to 0-100. The keyboard only walks
     /// the presets; scripts (and anything else wanting an exact value) need
     /// the direct setter, same split `stepVel` already has.
     pub fn setStepProb(self: *DrumMachine, pad: u8, step: u16, percent: i32) void {
-        step_grid.setStepProb(&self.midi, self.step_count, pad, step, percent);
+        step_grid_ops.setStepProb(&self.midi, self.step_count, pad, step, percent);
     }
 
     pub fn cycleStepProb(self: *DrumMachine, pad: u8, step: u16) void {
-        step_grid.cycleStepProb(&self.midi, self.step_count, pad, step);
+        step_grid_ops.cycleStepProb(&self.midi, self.step_count, pad, step);
     }
 
     /// Timing offset of the step as a percent of one step; 0 on an empty one.
     pub fn stepMicro(self: *const DrumMachine, pad: u8, step: u16) i8 {
-        return step_grid.stepMicro(&self.midi, self.step_count, pad, step);
+        return step_grid_ops.stepMicro(&self.midi, self.step_count, pad, step);
     }
 
     /// Half a step either way. Past that a hit would cross its neighbour's
     /// boundary, which is a different step, not a feel.
     pub fn setStepMicro(self: *DrumMachine, pad: u8, step: u16, pct: i32) void {
-        step_grid.setStepMicro(&self.midi, self.step_count, pad, step, pct);
+        step_grid_ops.setStepMicro(&self.midi, self.step_count, pad, step, pct);
     }
 
     pub fn nudgeStepMicro(self: *DrumMachine, pad: u8, step: u16, delta: i32) void {
-        step_grid.nudgeStepMicro(&self.midi, self.step_count, pad, step, delta);
+        step_grid_ops.nudgeStepMicro(&self.midi, self.step_count, pad, step, delta);
     }
 
     /// Hits packed into the step; 0 (a plain single hit) on an empty step.
     pub fn stepRetrig(self: *const DrumMachine, pad: u8, step: u16) u8 {
-        return step_grid.stepRetrig(&self.midi, self.step_count, pad, step);
+        return step_grid_ops.stepRetrig(&self.midi, self.step_count, pad, step);
     }
 
     /// Set the roll size outright, clamped to 0-8 (the widest preset).
     /// Direct-setter twin of `cycleStepRetrig`.
     pub fn setStepRetrig(self: *DrumMachine, pad: u8, step: u16, hits: i32) void {
-        step_grid.setStepRetrig(&self.midi, self.step_count, pad, step, hits);
+        step_grid_ops.setStepRetrig(&self.midi, self.step_count, pad, step, hits);
     }
 
     pub fn cycleStepRetrig(self: *DrumMachine, pad: u8, step: u16) void {
-        step_grid.cycleStepRetrig(&self.midi, self.step_count, pad, step);
+        step_grid_ops.cycleStepRetrig(&self.midi, self.step_count, pad, step);
     }
 
     /// Trig condition on the step; `always` on an empty step.
     pub fn stepCond(self: *const DrumMachine, pad: u8, step: u16) Cond {
-        return step_grid.stepCond(&self.midi, self.step_count, pad, step);
+        return step_grid_ops.stepCond(&self.midi, self.step_count, pad, step);
     }
 
     /// Set the condition outright. Direct-setter twin of `cycleStepCond`.
     pub fn setStepCond(self: *DrumMachine, pad: u8, step: u16, cond: Cond) void {
-        step_grid.setStepCond(&self.midi, self.step_count, pad, step, cond);
+        step_grid_ops.setStepCond(&self.midi, self.step_count, pad, step, cond);
     }
 
     /// Walk the condition list by `delta` (wrapping), the keyboard stand-in
     /// for the hardware's encoder.
     pub fn cycleStepCond(self: *DrumMachine, pad: u8, step: u16, delta: i32) void {
-        step_grid.cycleStepCond(&self.midi, self.step_count, pad, step, delta);
+        step_grid_ops.cycleStepCond(&self.midi, self.step_count, pad, step, delta);
     }
 
     /// Flip the fill switch every `fill`/`not_fill` step reads. Returns the
@@ -891,17 +891,17 @@ pub const DrumMachine = struct {
 
     /// Per-step transpose in semitones, 0 on an empty step (nothing to tune).
     pub fn stepTune(self: *const DrumMachine, pad: u8, step: u16) i8 {
-        return step_grid.stepTune(&self.midi, self.step_count, pad, step);
+        return step_grid_ops.stepTune(&self.midi, self.step_count, pad, step);
     }
 
     /// Same ±24 semitone range a pad's own pitch param clamps to, so a hit
     /// can't be tuned somewhere the pad itself could never reach.
     pub fn setStepTune(self: *DrumMachine, pad: u8, step: u16, semis: i32) void {
-        step_grid.setStepTune(&self.midi, self.step_count, pad, step, semis);
+        step_grid_ops.setStepTune(&self.midi, self.step_count, pad, step, semis);
     }
 
     pub fn nudgeStepTune(self: *DrumMachine, pad: u8, step: u16, delta: i32) void {
-        step_grid.nudgeStepTune(&self.midi, self.step_count, pad, step, delta);
+        step_grid_ops.nudgeStepTune(&self.midi, self.step_count, pad, step, delta);
     }
 
     /// Wipe one pad's row: no steps.

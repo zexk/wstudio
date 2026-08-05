@@ -53,7 +53,7 @@ const Voice = pad_mod.Voice;
 const DrumMachine = @import("drum_sampler.zig").DrumMachine;
 const Note = @import("pattern.zig").Note;
 const onset = @import("onset.zig");
-const step_grid = @import("step_grid.zig");
+const step_grid_ops = @import("step_grid_ops.zig");
 
 const Sample = types.Sample;
 
@@ -804,87 +804,87 @@ pub const Slicer = struct {
 
     // -----------------------------------------------------------------------
     // Step grid (control thread edits; audio thread reads in processBlock).
-    // The bodies are `step_grid.zig`'s, shared with the DrumMachine's
+    // The bodies are `step_grid_ops.zig`'s, shared with the DrumMachine's
     // identical grid over the same `MidiNote` payload; only the slice
     // vocabulary is ours. See that file for the per-field rationale.
     pub fn toggleStep(self: *Slicer, slice: u8, step: u16) void {
-        step_grid.toggleStep(&self.midi, self.step_count, slice, step);
+        step_grid_ops.toggleStep(&self.midi, self.step_count, slice, step);
     }
 
     pub fn stepActive(self: *const Slicer, slice: u8, step: u16) bool {
-        return step_grid.stepActive(&self.midi, self.step_count, slice, step);
+        return step_grid_ops.stepActive(&self.midi, self.step_count, slice, step);
     }
 
     pub fn stepVel(self: *const Slicer, slice: u8, step: u16) u8 {
-        return step_grid.stepVel(&self.midi, self.step_count, slice, step);
+        return step_grid_ops.stepVel(&self.midi, self.step_count, slice, step);
     }
 
     pub fn setStepVel(self: *Slicer, slice: u8, step: u16, level: u8) void {
-        step_grid.setStepVel(&self.midi, self.step_count, slice, step, level);
+        step_grid_ops.setStepVel(&self.midi, self.step_count, slice, step, level);
     }
 
     /// Step one step's velocity through the named preset bands - same
     /// single-key gesture as `DrumMachine.cycleStepVel`.
     pub fn cycleStepVel(self: *Slicer, slice: u8, step: u16) void {
-        step_grid.cycleStepVel(&self.midi, self.step_count, slice, step);
+        step_grid_ops.cycleStepVel(&self.midi, self.step_count, slice, step);
     }
 
     /// Nudge one step's velocity by `delta`, clamped to 1..127 - 0 would be
     /// silent; use x to remove a step instead of zeroing its velocity.
     pub fn nudgeStepVel(self: *Slicer, slice: u8, step: u16, delta: i32) void {
-        step_grid.nudgeStepVel(&self.midi, self.step_count, slice, step, delta);
+        step_grid_ops.nudgeStepVel(&self.midi, self.step_count, slice, step, delta);
     }
 
     /// Fire chance of the step in percent; 100 on an empty step.
     pub fn stepProb(self: *const Slicer, slice: u8, step: u16) u8 {
-        return step_grid.stepProb(&self.midi, self.step_count, slice, step);
+        return step_grid_ops.stepProb(&self.midi, self.step_count, slice, step);
     }
 
     pub fn setStepProb(self: *Slicer, slice: u8, step: u16, percent: i32) void {
-        step_grid.setStepProb(&self.midi, self.step_count, slice, step, percent);
+        step_grid_ops.setStepProb(&self.midi, self.step_count, slice, step, percent);
     }
 
     pub fn cycleStepProb(self: *Slicer, slice: u8, step: u16) void {
-        step_grid.cycleStepProb(&self.midi, self.step_count, slice, step);
+        step_grid_ops.cycleStepProb(&self.midi, self.step_count, slice, step);
     }
 
     /// Timing offset as a percent of one step; 0 on an empty step.
     pub fn stepMicro(self: *const Slicer, slice: u8, step: u16) i8 {
-        return step_grid.stepMicro(&self.midi, self.step_count, slice, step);
+        return step_grid_ops.stepMicro(&self.midi, self.step_count, slice, step);
     }
 
     pub fn setStepMicro(self: *Slicer, slice: u8, step: u16, pct: i32) void {
-        step_grid.setStepMicro(&self.midi, self.step_count, slice, step, pct);
+        step_grid_ops.setStepMicro(&self.midi, self.step_count, slice, step, pct);
     }
 
     pub fn nudgeStepMicro(self: *Slicer, slice: u8, step: u16, delta: i32) void {
-        step_grid.nudgeStepMicro(&self.midi, self.step_count, slice, step, delta);
+        step_grid_ops.nudgeStepMicro(&self.midi, self.step_count, slice, step, delta);
     }
 
     /// Hits packed into this step; 0/1 is a plain single hit.
     pub fn stepRetrig(self: *const Slicer, slice: u8, step: u16) u8 {
-        return step_grid.stepRetrig(&self.midi, self.step_count, slice, step);
+        return step_grid_ops.stepRetrig(&self.midi, self.step_count, slice, step);
     }
 
     pub fn setStepRetrig(self: *Slicer, slice: u8, step: u16, hits: i32) void {
-        step_grid.setStepRetrig(&self.midi, self.step_count, slice, step, hits);
+        step_grid_ops.setStepRetrig(&self.midi, self.step_count, slice, step, hits);
     }
 
     pub fn cycleStepRetrig(self: *Slicer, slice: u8, step: u16) void {
-        step_grid.cycleStepRetrig(&self.midi, self.step_count, slice, step);
+        step_grid_ops.cycleStepRetrig(&self.midi, self.step_count, slice, step);
     }
 
     /// Trig condition of the step; `always` on an empty step.
     pub fn stepCond(self: *const Slicer, slice: u8, step: u16) Cond {
-        return step_grid.stepCond(&self.midi, self.step_count, slice, step);
+        return step_grid_ops.stepCond(&self.midi, self.step_count, slice, step);
     }
 
     pub fn setStepCond(self: *Slicer, slice: u8, step: u16, cond: Cond) void {
-        step_grid.setStepCond(&self.midi, self.step_count, slice, step, cond);
+        step_grid_ops.setStepCond(&self.midi, self.step_count, slice, step, cond);
     }
 
     pub fn cycleStepCond(self: *Slicer, slice: u8, step: u16, delta: i32) void {
-        step_grid.cycleStepCond(&self.midi, self.step_count, slice, step, delta);
+        step_grid_ops.cycleStepCond(&self.midi, self.step_count, slice, step, delta);
     }
 
     /// Flip the fill switch every `fill`/`not_fill` condition reads, and
@@ -897,34 +897,34 @@ pub const Slicer = struct {
 
     /// Per-step transpose in semitones; 0 on an empty step.
     pub fn stepTune(self: *const Slicer, slice: u8, step: u16) i8 {
-        return step_grid.stepTune(&self.midi, self.step_count, slice, step);
+        return step_grid_ops.stepTune(&self.midi, self.step_count, slice, step);
     }
 
     pub fn setStepTune(self: *Slicer, slice: u8, step: u16, semis: i32) void {
-        step_grid.setStepTune(&self.midi, self.step_count, slice, step, semis);
+        step_grid_ops.setStepTune(&self.midi, self.step_count, slice, step, semis);
     }
 
     pub fn nudgeStepTune(self: *Slicer, slice: u8, step: u16, delta: i32) void {
-        step_grid.nudgeStepTune(&self.midi, self.step_count, slice, step, delta);
+        step_grid_ops.nudgeStepTune(&self.midi, self.step_count, slice, step, delta);
     }
 
     /// Steps slice `s` actually loops over inside a `pattern_len`-long
     /// pattern: its own `slice_len` when that's set and fits, else the whole
     /// pattern. See `DrumMachine.padSteps`.
     pub fn sliceSteps(self: *const Slicer, s: u8, pattern_len: u16) u16 {
-        return step_grid.laneSteps(&self.slice_len, s, pattern_len);
+        return step_grid_ops.laneSteps(&self.slice_len, s, pattern_len);
     }
 
     /// Set slice `s`'s own loop length; 0 (or anything past the pattern) goes
     /// back to following the pattern.
     pub fn setSliceLen(self: *Slicer, s: u8, len: u16) void {
-        step_grid.setLaneLen(&self.slice_len, self.step_count, s, len);
+        step_grid_ops.setLaneLen(&self.slice_len, self.step_count, s, len);
     }
 
     /// Nudge slice `s`'s loop length, treating "follows the pattern" as the
     /// full length so stepping down from it lands one below.
     pub fn nudgeSliceLen(self: *Slicer, s: u8, delta: i32) void {
-        step_grid.nudgeLaneLen(&self.slice_len, self.step_count, s, delta);
+        step_grid_ops.nudgeLaneLen(&self.slice_len, self.step_count, s, delta);
     }
 
     /// Wipe one slice's row: no steps at all.
