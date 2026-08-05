@@ -1097,6 +1097,21 @@ test "load sanitizes non-finite project, automation, pad, and note fields" {
     try testing.expectEqual(@as(f64, 0.0), note.start_beat);
     try testing.expectEqual(@as(f64, 0.0), note.duration_beat);
     try testing.expectEqual(pattern_mod.default_velocity, note.velocity);
+    // A note snapshot predating per-note expression has none of those three
+    // fields; the defaults must read back as a plain, centred, in-tune note.
+    try testing.expect(note.art.isNeutral());
+    // A hand-edited one is pulled back into range rather than reaching a voice.
+    const wild = sanitizeNote(.{
+        .pitch = 60,
+        .start_beat = 0.0,
+        .duration_beat = 1.0,
+        .pan = -8.0,
+        .fine_cents = 400.0,
+        .release_scale = 99.0,
+    });
+    try testing.expectEqual(@as(f32, -1.0), wild.art.pan);
+    try testing.expectEqual(@as(f32, 100.0), wild.art.fine_cents);
+    try testing.expectEqual(@as(f32, 4.0), wild.art.release_scale);
 
     var lfo_points: [synth_mod.max_lfo_shape_points]synth_mod.LfoShapePoint = undefined;
     var lfo_count: u8 = 0;
@@ -2259,7 +2274,15 @@ test "a loaded project renders sample-identical to the session that saved it" {
             const pp = &s.racks.items[0].pattern_player.?;
             pp.length_beats = 4.0;
             pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
-            pp.addNote(.{ .pitch = 67, .start_beat = 1.5, .duration_beat = 0.5, .velocity = 0.5 });
+            pp.addNote(.{
+                .pitch = 67,
+                .start_beat = 1.5,
+                .duration_beat = 0.5,
+                .velocity = 0.5,
+                // Per-note expression rides the same round trip as velocity:
+                // a note that saves centred and in tune has lost it.
+                .art = .{ .pan = -0.6, .fine_cents = 25.0, .release_scale = 2.5 },
+            });
             _ = try s.racks.items[0].fx.insert(s.allocator, 0, .delay, s.project.sample_rate);
             s.syncTrackChain(0, s.racks.items[0]);
             // Both writes App.setTrackGain/setTrackPan make - the struct the

@@ -133,6 +133,7 @@ pub const PatternPlayer = struct {
             .start_beat = if (std.math.isFinite(note.start_beat) and note.start_beat >= 0.0) note.start_beat else 0.0,
             .duration_beat = if (std.math.isFinite(note.duration_beat) and note.duration_beat >= 0.0) note.duration_beat else 0.0,
             .velocity = if (std.math.isFinite(note.velocity)) std.math.clamp(note.velocity, 0.0, 1.0) else default_velocity,
+            .art = note.art.clamped(),
         };
     }
 

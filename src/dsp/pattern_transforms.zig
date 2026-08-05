@@ -337,6 +337,7 @@ pub fn chop(self: *PatternPlayer, sel: Sel, step_beats: f64) ?u16 {
                 .start_beat = start,
                 .duration_beat = @min(step_beats, end - start),
                 .velocity = n.velocity,
+                .art = n.art,
             };
             self.note_count += 1;
         }
@@ -379,6 +380,7 @@ pub fn flam(self: *PatternPlayer, sel: Sel, offset_beats: f64, repeats: u8) ?u16
                 .start_beat = start,
                 .duration_beat = @min(n.duration_beat, step),
                 .velocity = @max(0.05, n.velocity * fade),
+                .art = n.art,
             });
             self.note_count += 1;
             added += 1;

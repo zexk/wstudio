@@ -751,12 +751,27 @@ test "wsj-relative paths cannot escape the project directory" {
 /// Copy a pattern player's notes into freshly allocated NoteSnaps. Notes are
 /// read under the lock into a stack buffer, then the lock is released before
 /// the allocator runs - avoids leaking the lock on OOM.
+/// One note to its snapshot. Shared by the live pattern and the arrangement
+/// clip paths, which used to spell the same field list out twice - and so
+/// dropped per-note expression from whichever of the two was missed.
+fn noteToSnap(n: pattern_mod.Note) NoteSnap {
+    return .{
+        .pitch = n.pitch,
+        .start_beat = n.start_beat,
+        .duration_beat = n.duration_beat,
+        .velocity = n.velocity,
+        .pan = n.art.pan,
+        .fine_cents = n.art.fine_cents,
+        .release_scale = n.art.release_scale,
+    };
+}
+
 pub fn notesToSnap(aa: std.mem.Allocator, pp: *PatternPlayer) ![]const NoteSnap {
     var tmp: [pattern_mod.max_notes]NoteSnap = undefined;
     while (!pp.notes_lock.tryLock()) std.atomic.spinLoopHint();
     const count = pp.note_count;
     for (pp.notes[0..@as(usize, count)], tmp[0..@as(usize, count)]) |n, *ns| {
-        ns.* = .{ .pitch = n.pitch, .start_beat = n.start_beat, .duration_beat = n.duration_beat, .velocity = n.velocity };
+        ns.* = noteToSnap(n);
     }
     pp.notes_lock.unlock();
     return aa.dupe(NoteSnap, tmp[0..@as(usize, count)]);
@@ -772,10 +787,7 @@ pub fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
             c.kind = .melodic;
             c.length_beats = m.length_beats;
             const ns = try aa.alloc(NoteSnap, m.notes.len);
-            for (m.notes, ns) |n, *o| o.* = .{
-                .pitch = n.pitch, .start_beat = n.start_beat,
-                .duration_beat = n.duration_beat, .velocity = n.velocity,
-            };
+            for (m.notes, ns) |n, *o| o.* = noteToSnap(n);
             c.notes = ns;
         },
         .drum => |d| {

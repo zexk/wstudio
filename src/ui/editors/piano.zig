@@ -692,6 +692,7 @@ pub fn resizeNoteFromLeft(app: *App, pitch: u7, start_step: u16, new_start_step:
     const new_start = stepToBeat(app, new_start_step);
     if (new_start >= end - 1e-9) return false;
     const velocity = note.velocity;
+    const art = note.art;
     history.recordMelodic(app, app.piano_track);
     pp.removeNote(pitch, old_start);
     _ = pp.tryAddNote(.{
@@ -699,6 +700,7 @@ pub fn resizeNoteFromLeft(app: *App, pitch: u7, start_step: u16, new_start_step:
         .start_beat = new_start,
         .duration_beat = end - new_start,
         .velocity = velocity,
+        .art = art,
     });
     app.piano_cursor_pitch = pitch;
     app.piano_cursor_step = new_start_step;
@@ -769,6 +771,7 @@ pub fn cloneNoteBack(app: *App, source_pitch: u7, source_step: u16, target_pitch
         .start_beat = start_beat,
         .duration_beat = moved.duration_beat,
         .velocity = moved.velocity,
+        .art = moved.art,
     })) {
         app.setStatus("pattern full ({d} notes max)", .{pattern_mod.max_notes});
         return false;

@@ -512,49 +512,73 @@
             "pitch": 69,
             "start_beat": 0,
             "duration_beat": 0.5,
-            "velocity": 0.800000011920929
+            "velocity": 0.800000011920929,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 72,
             "start_beat": 0.5,
             "duration_beat": 0.5,
-            "velocity": 0.800000011920929
+            "velocity": 0.800000011920929,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 76,
             "start_beat": 1,
             "duration_beat": 0.5,
-            "velocity": 0.800000011920929
+            "velocity": 0.800000011920929,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 72,
             "start_beat": 1.5,
             "duration_beat": 0.5,
-            "velocity": 0.800000011920929
+            "velocity": 0.800000011920929,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 69,
             "start_beat": 2,
             "duration_beat": 0.5,
-            "velocity": 0.800000011920929
+            "velocity": 0.800000011920929,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 72,
             "start_beat": 2.5,
             "duration_beat": 0.5,
-            "velocity": 0.800000011920929
+            "velocity": 0.800000011920929,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 77,
             "start_beat": 3,
             "duration_beat": 0.5,
-            "velocity": 0.800000011920929
+            "velocity": 0.800000011920929,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 76,
             "start_beat": 3.5,
             "duration_beat": 0.5,
-            "velocity": 0.800000011920929
+            "velocity": 0.800000011920929,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           }
         ],
         "length_beats": 8,
@@ -1134,37 +1158,55 @@
             "pitch": 57,
             "start_beat": 0,
             "duration_beat": 3.5,
-            "velocity": 0.699999988079071
+            "velocity": 0.699999988079071,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 60,
             "start_beat": 0,
             "duration_beat": 3.5,
-            "velocity": 0.699999988079071
+            "velocity": 0.699999988079071,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 64,
             "start_beat": 0,
             "duration_beat": 3.5,
-            "velocity": 0.699999988079071
+            "velocity": 0.699999988079071,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 53,
             "start_beat": 4,
             "duration_beat": 3.5,
-            "velocity": 0.699999988079071
+            "velocity": 0.699999988079071,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 57,
             "start_beat": 4,
             "duration_beat": 3.5,
-            "velocity": 0.699999988079071
+            "velocity": 0.699999988079071,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 60,
             "start_beat": 4,
             "duration_beat": 3.5,
-            "velocity": 0.699999988079071
+            "velocity": 0.699999988079071,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           }
         ],
         "length_beats": 8,
@@ -1675,49 +1717,73 @@
             "pitch": 33,
             "start_beat": 0,
             "duration_beat": 0.9,
-            "velocity": 0.8500000238418579
+            "velocity": 0.8500000238418579,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 33,
             "start_beat": 1,
             "duration_beat": 0.9,
-            "velocity": 0.8500000238418579
+            "velocity": 0.8500000238418579,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 33,
             "start_beat": 2,
             "duration_beat": 0.9,
-            "velocity": 0.8500000238418579
+            "velocity": 0.8500000238418579,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 33,
             "start_beat": 3,
             "duration_beat": 0.9,
-            "velocity": 0.8500000238418579
+            "velocity": 0.8500000238418579,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 29,
             "start_beat": 4,
             "duration_beat": 0.9,
-            "velocity": 0.8500000238418579
+            "velocity": 0.8500000238418579,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 29,
             "start_beat": 5,
             "duration_beat": 0.9,
-            "velocity": 0.8500000238418579
+            "velocity": 0.8500000238418579,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 29,
             "start_beat": 6,
             "duration_beat": 0.9,
-            "velocity": 0.8500000238418579
+            "velocity": 0.8500000238418579,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           },
           {
             "pitch": 29,
             "start_beat": 7,
             "duration_beat": 0.9,
-            "velocity": 0.8500000238418579
+            "velocity": 0.8500000238418579,
+            "pan": 0,
+            "fine_cents": 0,
+            "release_scale": 1
           }
         ],
         "length_beats": 8,
@@ -3524,49 +3590,73 @@
               "pitch": 69,
               "start_beat": 0,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 72,
               "start_beat": 0.5,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 76,
               "start_beat": 1,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 72,
               "start_beat": 1.5,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 69,
               "start_beat": 2,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 72,
               "start_beat": 2.5,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 77,
               "start_beat": 3,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 76,
               "start_beat": 3.5,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             }
           ],
           "length_beats": 8,
@@ -3587,49 +3677,73 @@
               "pitch": 69,
               "start_beat": 0,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 72,
               "start_beat": 0.5,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 76,
               "start_beat": 1,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 72,
               "start_beat": 1.5,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 69,
               "start_beat": 2,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 72,
               "start_beat": 2.5,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 77,
               "start_beat": 3,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 76,
               "start_beat": 3.5,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             }
           ],
           "length_beats": 8,
@@ -3650,49 +3764,73 @@
               "pitch": 69,
               "start_beat": 0,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 72,
               "start_beat": 0.5,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 76,
               "start_beat": 1,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 72,
               "start_beat": 1.5,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 69,
               "start_beat": 2,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 72,
               "start_beat": 2.5,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 77,
               "start_beat": 3,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 76,
               "start_beat": 3.5,
               "duration_beat": 0.5,
-              "velocity": 0.800000011920929
+              "velocity": 0.800000011920929,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             }
           ],
           "length_beats": 8,
@@ -3717,37 +3855,55 @@
               "pitch": 57,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 60,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 64,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 53,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 57,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 60,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             }
           ],
           "length_beats": 8,
@@ -3768,37 +3924,55 @@
               "pitch": 57,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 60,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 64,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 53,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 57,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 60,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             }
           ],
           "length_beats": 8,
@@ -3819,37 +3993,55 @@
               "pitch": 57,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 60,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 64,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 53,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 57,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 60,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             }
           ],
           "length_beats": 8,
@@ -3870,37 +4062,55 @@
               "pitch": 57,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 60,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 64,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 53,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 57,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 60,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             }
           ],
           "length_beats": 8,
@@ -3921,37 +4131,55 @@
               "pitch": 57,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 60,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 64,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 53,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 57,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 60,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             }
           ],
           "length_beats": 8,
@@ -3972,37 +4200,55 @@
               "pitch": 57,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 60,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 64,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 53,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 57,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 60,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             }
           ],
           "length_beats": 8,
@@ -4023,37 +4269,55 @@
               "pitch": 57,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 60,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 64,
               "start_beat": 0,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 53,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 57,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 60,
               "start_beat": 4,
               "duration_beat": 3.5,
-              "velocity": 0.699999988079071
+              "velocity": 0.699999988079071,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             }
           ],
           "length_beats": 8,
@@ -4078,49 +4342,73 @@
               "pitch": 33,
               "start_beat": 0,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 33,
               "start_beat": 1,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 33,
               "start_beat": 2,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 33,
               "start_beat": 3,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 4,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 5,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 6,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 7,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             }
           ],
           "length_beats": 8,
@@ -4141,49 +4429,73 @@
               "pitch": 33,
               "start_beat": 0,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 33,
               "start_beat": 1,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 33,
               "start_beat": 2,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 33,
               "start_beat": 3,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 4,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 5,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 6,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 7,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             }
           ],
           "length_beats": 8,
@@ -4204,49 +4516,73 @@
               "pitch": 33,
               "start_beat": 0,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 33,
               "start_beat": 1,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 33,
               "start_beat": 2,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 33,
               "start_beat": 3,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 4,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 5,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 6,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 7,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             }
           ],
           "length_beats": 8,
@@ -4267,49 +4603,73 @@
               "pitch": 33,
               "start_beat": 0,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 33,
               "start_beat": 1,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 33,
               "start_beat": 2,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 33,
               "start_beat": 3,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 4,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 5,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 6,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 7,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             }
           ],
           "length_beats": 8,
@@ -4330,49 +4690,73 @@
               "pitch": 33,
               "start_beat": 0,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 33,
               "start_beat": 1,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 33,
               "start_beat": 2,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 33,
               "start_beat": 3,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 4,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 5,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 6,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 7,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             }
           ],
           "length_beats": 8,
@@ -4393,49 +4777,73 @@
               "pitch": 33,
               "start_beat": 0,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 33,
               "start_beat": 1,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 33,
               "start_beat": 2,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 33,
               "start_beat": 3,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 4,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 5,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 6,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             },
             {
               "pitch": 29,
               "start_beat": 7,
               "duration_beat": 0.9,
-              "velocity": 0.8500000238418579
+              "velocity": 0.8500000238418579,
+              "pan": 0,
+              "fine_cents": 0,
+              "release_scale": 1
             }
           ],
           "length_beats": 8,

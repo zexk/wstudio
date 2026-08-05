@@ -71,11 +71,19 @@ pub const SynthParamAutomationSnap = struct {
 // Snapshot types - plain data, JSON-serialisable
 // ---------------------------------------------------------------------------
 
+/// Per-note expression (`dsp.Articulation`) is stored flat rather than as a
+/// nested object: three scalars, defaulted to neutral, so a file written
+/// before per-note expression existed loads with every note centred, in
+/// tune and on the patch's own release. Additive - no `file_version` bump,
+/// see FORMAT.md's versioning policy.
 pub const NoteSnap = struct {
     pitch: u8,
     start_beat: f64,
     duration_beat: f64,
     velocity: f32 = 0.85,
+    pan: f32 = 0.0,
+    fine_cents: f32 = 0.0,
+    release_scale: f32 = 1.0,
 };
 
 pub const SynthSnap = struct {
@@ -531,7 +539,13 @@ pub const ReverbSnap = struct {
 /// (numeric enum tags would silently shift meaning if the DSP-side enum's
 /// member order ever changes).
 pub const EqBandKindSnap = enum {
-    peak, lowpass, highpass, lowshelf, highshelf, notch, tiltshelf,
+    peak,
+    lowpass,
+    highpass,
+    lowshelf,
+    highshelf,
+    notch,
+    tiltshelf,
     /// A response type this build has no filter for; loads as `.peak`.
     /// Adding one was a `file_version` bump before `openEnumParse` existed.
     unknown,
@@ -688,8 +702,28 @@ pub const TransientShaperSnap = struct {
 /// Mirrors rack.zig's FxKind - persist keeps its own copy so snapshots stay
 /// pure data, same pattern as `InstrumentKind` below.
 pub const FxKind = enum {
-    gate, comp, mb_comp, ott, limiter, transient_shaper, eq, filter, utility, stereo_width,
-    auto_pan, sat, crush, chorus, phaser, flanger, tape, freq_shift, delay, reverb, clap, vst3,
+    gate,
+    comp,
+    mb_comp,
+    ott,
+    limiter,
+    transient_shaper,
+    eq,
+    filter,
+    utility,
+    stereo_width,
+    auto_pan,
+    sat,
+    crush,
+    chorus,
+    phaser,
+    flanger,
+    tape,
+    freq_shift,
+    delay,
+    reverb,
+    clap,
+    vst3,
     /// A kind this build has no unit for, written by a newer wstudio. The
     /// loader drops the slot; see `openEnumParse`.
     unknown,
@@ -777,7 +811,15 @@ pub const FxUnitSnap = struct {
 };
 
 pub const InstrumentKind = enum {
-    empty, poly_synth, sampler, drum_machine, slicer, clap, vst3, soundfont, acoustic,
+    empty,
+    poly_synth,
+    sampler,
+    drum_machine,
+    slicer,
+    clap,
+    vst3,
+    soundfont,
+    acoustic,
     /// An instrument this build doesn't have, written by a newer wstudio.
     /// The track loads empty; see `openEnumParse`.
     unknown,
