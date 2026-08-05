@@ -1122,6 +1122,16 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
     }
 }
 // zig fmt: on
+/// Percent of the param's own range rather than of 1.0, for the params the
+/// DSP caps below 1.0 (reverb room, delay feedback) - a knob turned to its
+/// ceiling should read 100%, not 98%.
+fn formatRangePercent(buf: []u8, p: *const ws.FxPayload, idx: usize, v: f32) []const u8 {
+    const r = fx_p.paramRange(p, idx);
+    const span = r[1] - r[0];
+    const pct = if (span > 0.0) (v - r[0]) / span * 100.0 else 0.0;
+    return std.fmt.bufPrint(buf, "{d:.0}%", .{pct}) catch "?";
+}
+
 pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) []const u8 {
     const v = getParam(p, idx);
     return switch (p.*) {
@@ -1210,12 +1220,14 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
         },
         .delay => switch (idx) {
             0 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v * 1000.0}) catch "?",
+            1 => formatRangePercent(buf, p, idx, v), // feedback, capped at 0.95
             else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
         },
         .reverb => switch (idx) {
+            0 => formatRangePercent(buf, p, idx, v), // room, capped at 0.98
             3 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?", // predelay
             5 => std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?", // low cut
-            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?", // room, damp, mix, width
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?", // damp, mix, width
         },
         .gate => switch (idx) {
             0 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
