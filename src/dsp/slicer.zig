@@ -53,6 +53,7 @@ const Voice = pad_mod.Voice;
 const DrumMachine = @import("drum_sampler.zig").DrumMachine;
 const Note = @import("pattern.zig").Note;
 const onset = @import("onset.zig");
+const step_grid = @import("step_grid.zig");
 
 const Sample = types.Sample;
 
@@ -90,12 +91,6 @@ pub const Slicer = struct {
     pub const param_stride: u16 = 32;
 
     pub const vel_full: u8 = 127;
-    /// Named preset bands `cycleStepVel` steps through - same ladder as
-    /// DrumMachine's, so the two grids' `c` key feels identical. Same goes
-    /// for the chance and roll ladders below.
-    const vel_presets = [_]u8{ 127, 95, 63, 31 };
-    const prob_presets = [_]u8{ 100, 75, 50, 25, 10 };
-    const retrig_presets = [_]u8{ 0, 2, 3, 4, 6, 8 };
     pub fn velGain(level: u8) f32 {
         return @as(f32, @floatFromInt(level)) / @as(f32, @floatFromInt(vel_full));
     }
@@ -809,136 +804,87 @@ pub const Slicer = struct {
 
     // -----------------------------------------------------------------------
     // Step grid (control thread edits; audio thread reads in processBlock).
-    // Every accessor below mirrors `DrumMachine`'s of the same name, over the
-    // same `MidiNote` payload - see that file for the per-field rationale.
-
+    // The bodies are `step_grid.zig`'s, shared with the DrumMachine's
+    // identical grid over the same `MidiNote` payload; only the slice
+    // vocabulary is ours. See that file for the per-field rationale.
     pub fn toggleStep(self: *Slicer, slice: u8, step: u16) void {
-        if (slice >= max_slices or step >= self.step_count) return;
-        self.midi[slice][step] = if (self.midi[slice][step] == null)
-            gridNote(slice, step, vel_full)
-        else
-            null;
+        step_grid.toggleStep(&self.midi, self.step_count, slice, step);
     }
 
     pub fn stepActive(self: *const Slicer, slice: u8, step: u16) bool {
-        if (slice >= max_slices or step >= self.step_count) return false;
-        return self.midi[slice][step] != null;
+        return step_grid.stepActive(&self.midi, self.step_count, slice, step);
     }
 
     pub fn stepVel(self: *const Slicer, slice: u8, step: u16) u8 {
-        if (slice >= max_slices or step >= self.step_count) return vel_full;
-        const note = self.midi[slice][step] orelse return vel_full;
-        return note.velocity;
+        return step_grid.stepVel(&self.midi, self.step_count, slice, step);
     }
 
     pub fn setStepVel(self: *Slicer, slice: u8, step: u16, level: u8) void {
-        if (slice >= max_slices or step >= self.step_count) return;
-        if (self.midi[slice][step]) |*note| note.velocity = @intCast(@min(level, vel_full));
+        step_grid.setStepVel(&self.midi, self.step_count, slice, step, level);
     }
 
     /// Step one step's velocity through the named preset bands - same
     /// single-key gesture as `DrumMachine.cycleStepVel`.
     pub fn cycleStepVel(self: *Slicer, slice: u8, step: u16) void {
-        const cur = self.stepVel(slice, step);
-        var idx: usize = vel_presets.len - 1; // not a preset value -> next lands on preset[0]
-        for (vel_presets, 0..) |v, i| {
-            // zig fmt: off
-            if (v == cur) { idx = i; break; }
-            // zig fmt: on
-        }
-        self.setStepVel(slice, step, vel_presets[(idx + 1) % vel_presets.len]);
+        step_grid.cycleStepVel(&self.midi, self.step_count, slice, step);
     }
 
     /// Nudge one step's velocity by `delta`, clamped to 1..127 - 0 would be
     /// silent; use x to remove a step instead of zeroing its velocity.
     pub fn nudgeStepVel(self: *Slicer, slice: u8, step: u16, delta: i32) void {
-        const cur: i32 = self.stepVel(slice, step);
-        const next = std.math.clamp(cur + delta, 1, 127);
-        self.setStepVel(slice, step, @intCast(next));
+        step_grid.nudgeStepVel(&self.midi, self.step_count, slice, step, delta);
     }
 
     /// Fire chance of the step in percent; 100 on an empty step.
     pub fn stepProb(self: *const Slicer, slice: u8, step: u16) u8 {
-        if (slice >= max_slices or step >= self.step_count) return 100;
-        const note = self.midi[slice][step] orelse return 100;
-        return note.prob;
+        return step_grid.stepProb(&self.midi, self.step_count, slice, step);
     }
 
     pub fn setStepProb(self: *Slicer, slice: u8, step: u16, percent: i32) void {
-        if (slice >= max_slices or step >= self.step_count) return;
-        if (self.midi[slice][step]) |*note| note.prob = @intCast(std.math.clamp(percent, 0, 100));
+        step_grid.setStepProb(&self.midi, self.step_count, slice, step, percent);
     }
 
     pub fn cycleStepProb(self: *Slicer, slice: u8, step: u16) void {
-        if (slice >= max_slices or step >= self.step_count) return;
-        const note = if (self.midi[slice][step]) |*n| n else return;
-        for (prob_presets, 0..) |p, i| {
-            if (note.prob == p) {
-                note.prob = prob_presets[(i + 1) % prob_presets.len];
-                return;
-            }
-        }
-        note.prob = prob_presets[0];
+        step_grid.cycleStepProb(&self.midi, self.step_count, slice, step);
     }
 
     /// Timing offset as a percent of one step; 0 on an empty step.
     pub fn stepMicro(self: *const Slicer, slice: u8, step: u16) i8 {
-        if (slice >= max_slices or step >= self.step_count) return 0;
-        const note = self.midi[slice][step] orelse return 0;
-        return note.micro;
+        return step_grid.stepMicro(&self.midi, self.step_count, slice, step);
     }
 
     pub fn setStepMicro(self: *Slicer, slice: u8, step: u16, pct: i32) void {
-        if (slice >= max_slices or step >= self.step_count) return;
-        if (self.midi[slice][step]) |*note| note.micro = @intCast(std.math.clamp(pct, -50, 50));
+        step_grid.setStepMicro(&self.midi, self.step_count, slice, step, pct);
     }
 
     pub fn nudgeStepMicro(self: *Slicer, slice: u8, step: u16, delta: i32) void {
-        self.setStepMicro(slice, step, @as(i32, self.stepMicro(slice, step)) + delta);
+        step_grid.nudgeStepMicro(&self.midi, self.step_count, slice, step, delta);
     }
 
     /// Hits packed into this step; 0/1 is a plain single hit.
     pub fn stepRetrig(self: *const Slicer, slice: u8, step: u16) u8 {
-        if (slice >= max_slices or step >= self.step_count) return 0;
-        const note = self.midi[slice][step] orelse return 0;
-        return note.retrig;
+        return step_grid.stepRetrig(&self.midi, self.step_count, slice, step);
     }
 
     pub fn setStepRetrig(self: *Slicer, slice: u8, step: u16, hits: i32) void {
-        if (slice >= max_slices or step >= self.step_count) return;
-        if (self.midi[slice][step]) |*note| note.retrig = @intCast(std.math.clamp(hits, 0, 8));
+        step_grid.setStepRetrig(&self.midi, self.step_count, slice, step, hits);
     }
 
     pub fn cycleStepRetrig(self: *Slicer, slice: u8, step: u16) void {
-        if (slice >= max_slices or step >= self.step_count) return;
-        const note = if (self.midi[slice][step]) |*n| n else return;
-        for (retrig_presets, 0..) |r, i| {
-            if (note.retrig == r) {
-                note.retrig = retrig_presets[(i + 1) % retrig_presets.len];
-                return;
-            }
-        }
-        note.retrig = retrig_presets[0];
+        step_grid.cycleStepRetrig(&self.midi, self.step_count, slice, step);
     }
 
     /// Trig condition of the step; `always` on an empty step.
     pub fn stepCond(self: *const Slicer, slice: u8, step: u16) Cond {
-        if (slice >= max_slices or step >= self.step_count) return .always;
-        const note = self.midi[slice][step] orelse return .always;
-        return note.cond;
+        return step_grid.stepCond(&self.midi, self.step_count, slice, step);
     }
 
     pub fn setStepCond(self: *Slicer, slice: u8, step: u16, cond: Cond) void {
-        if (slice >= max_slices or step >= self.step_count) return;
-        if (self.midi[slice][step]) |*note| note.cond = cond;
+        step_grid.setStepCond(&self.midi, self.step_count, slice, step, cond);
     }
 
     pub fn cycleStepCond(self: *Slicer, slice: u8, step: u16, delta: i32) void {
-        const tags = std.meta.tags(Cond);
-        const cur = @intFromEnum(self.stepCond(slice, step));
-        const n: i32 = @intCast(tags.len);
-        const next = @mod(@as(i32, cur) + delta, n);
-        self.setStepCond(slice, step, @enumFromInt(@as(u8, @intCast(next))));
+        step_grid.cycleStepCond(&self.midi, self.step_count, slice, step, delta);
     }
 
     /// Flip the fill switch every `fill`/`not_fill` condition reads, and
@@ -951,43 +897,34 @@ pub const Slicer = struct {
 
     /// Per-step transpose in semitones; 0 on an empty step.
     pub fn stepTune(self: *const Slicer, slice: u8, step: u16) i8 {
-        if (slice >= max_slices or step >= self.step_count) return 0;
-        const note = self.midi[slice][step] orelse return 0;
-        return note.tune;
+        return step_grid.stepTune(&self.midi, self.step_count, slice, step);
     }
 
     pub fn setStepTune(self: *Slicer, slice: u8, step: u16, semis: i32) void {
-        if (slice >= max_slices or step >= self.step_count) return;
-        if (self.midi[slice][step]) |*note| note.tune = @intCast(std.math.clamp(semis, -24, 24));
+        step_grid.setStepTune(&self.midi, self.step_count, slice, step, semis);
     }
 
     pub fn nudgeStepTune(self: *Slicer, slice: u8, step: u16, delta: i32) void {
-        self.setStepTune(slice, step, @as(i32, self.stepTune(slice, step)) + delta);
+        step_grid.nudgeStepTune(&self.midi, self.step_count, slice, step, delta);
     }
 
     /// Steps slice `s` actually loops over inside a `pattern_len`-long
     /// pattern: its own `slice_len` when that's set and fits, else the whole
     /// pattern. See `DrumMachine.padSteps`.
     pub fn sliceSteps(self: *const Slicer, s: u8, pattern_len: u16) u16 {
-        if (s >= max_slices or pattern_len == 0) return @max(pattern_len, 1);
-        const own = self.slice_len[s];
-        if (own == 0 or own > pattern_len) return pattern_len;
-        return @max(own, 1);
+        return step_grid.laneSteps(&self.slice_len, s, pattern_len);
     }
 
     /// Set slice `s`'s own loop length; 0 (or anything past the pattern) goes
     /// back to following the pattern.
     pub fn setSliceLen(self: *Slicer, s: u8, len: u16) void {
-        if (s >= max_slices) return;
-        self.slice_len[s] = if (len >= self.step_count) 0 else len;
+        step_grid.setLaneLen(&self.slice_len, self.step_count, s, len);
     }
 
     /// Nudge slice `s`'s loop length, treating "follows the pattern" as the
     /// full length so stepping down from it lands one below.
     pub fn nudgeSliceLen(self: *Slicer, s: u8, delta: i32) void {
-        if (s >= max_slices) return;
-        const cur: i32 = self.sliceSteps(s, self.step_count);
-        self.setSliceLen(s, @intCast(std.math.clamp(cur + delta, 1, self.step_count)));
+        step_grid.nudgeLaneLen(&self.slice_len, self.step_count, s, delta);
     }
 
     /// Wipe one slice's row: no steps at all.
