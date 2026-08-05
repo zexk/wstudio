@@ -26,6 +26,8 @@ const synthBar = style.synthBar;
 const synthSection = style.synthSection;
 const barRow = style.barRow;
 const enumRow = style.enumRow;
+const rowHead = style.rowHead;
+const rowVal = style.rowVal;
 
 const synth_ed = @import("../../ui/editors/synth.zig");
 
@@ -229,6 +231,16 @@ comptime {
 
 const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr", "wt" };
 
+/// The `wt.table` row. A plain name readout rather than `enumRow`'s inline
+/// option strip: five bundled names plus "imported" would run well past a
+/// synth column's width (same reason the soundfont view prints its preset).
+fn wtTableRow(w: *std.Io.Writer, is_sel: bool, dimmed: bool, kind: ?ws.dsp.synth.BundledWavetable) !void {
+    try rowHead(w, is_sel, dimmed, "wt.table");
+    try w.writeByte(' ');
+    try rowVal(w, is_sel, dimmed, synth_ed.wtTableName(kind));
+    try endLine(w);
+}
+
 fn secOscA(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "OSC A", acc);
@@ -259,6 +271,7 @@ fn secOscA(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.warp_amount}));
     try barRow(w, c == 185, synth.waveform != .wavetable, acc, "wt.pos", synth.wt_pos, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.wt_pos}));
+    try wtTableRow(w, c == 251, synth.waveform != .wavetable, synth.wt_bundled);
 }
 // zig fmt: on
 
@@ -294,6 +307,7 @@ fn secOscB(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_b_warp_amount}));
     try barRow(w, c == 186, !b_on or synth.osc_b_waveform != .wavetable, acc, "wt.pos", synth.osc_b_wt_pos, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_b_wt_pos}));
+    try wtTableRow(w, c == 252, !b_on or synth.osc_b_waveform != .wavetable, synth.osc_b_wt_bundled);
 }
 
 fn secMod(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
@@ -629,6 +643,7 @@ fn secOscC(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try enumRow(w, c == 58, !c_on or synth.osc_c_unison <= 1, acc, "uni.mode", &uni_mode_names, @intFromEnum(synth.osc_c_unison_mode));
     try barRow(w, c == 187, !c_on or synth.osc_c_waveform != .wavetable, acc, "wt.pos", synth.osc_c_wt_pos, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_c_wt_pos}));
+    try wtTableRow(w, c == 253, !c_on or synth.osc_c_waveform != .wavetable, synth.osc_c_wt_bundled);
 }
 
 /// Mod-matrix rows, 3 editor fields each (source / dest / depth). Dest and

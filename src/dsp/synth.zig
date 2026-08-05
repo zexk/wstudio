@@ -103,8 +103,8 @@ pub const max_lfo_shape_points: u8 = 8;
 /// occupies ids `base + s*17 .. base + s*17 + 15` (point `i`'s phase at
 /// `+i*2`, value at `+i*2+1`) plus one count id at `base + s*17 + 16`.
 /// Highest id used: 195 + 2*17 + 16 = 245. 246-248 are the three envelope
-/// curvature knobs and 249-250 the two filter drives; 251-253 stay free,
-/// and 254/255 are `dest_pitch`/`dest_amp`.
+/// curvature knobs and 249-250 the two filter drives; 251-253 are
+/// `PolySynth.wt_table_ids`, and 254/255 are `dest_pitch`/`dest_amp`.
 pub const lfo_custom_id_base: u16 = 195;
 pub const lfo_custom_ids_per_slot: u16 = max_lfo_shape_points * 2 + 1;
 const default_lfo_custom_points: [max_lfo_shape_points]LfoShapePoint = blk: {
@@ -981,6 +981,41 @@ pub const PolySynth = struct {
             },
         }
     }
+
+    /// The `wt.table` editor rows, one per oscillator, filling the 251-253
+    /// gap. Deliberately absent from `param_specs`, `automatable_params` and
+    /// `mod_dest_ids`: stepping one reloads a table, and that allocates and
+    /// runs an FFT, so the edit is applied on the control thread (see
+    /// `ui/editors/synth.zig`'s `adjustParam`) rather than taking the usual
+    /// audio-thread command queue every other param uses. `paramValue` still
+    /// answers for them so both frontends draw the row like any other
+    /// list-valued param.
+    pub const wt_table_ids = [_]u16{ 251, 252, 253 };
+
+    /// Which oscillator a `wt_table_ids` entry belongs to; null for any other id.
+    pub fn wtTableSlot(id: u16) ?OscSlot {
+        return switch (id) {
+            wt_table_ids[0] => .a,
+            wt_table_ids[1] => .b,
+            wt_table_ids[2] => .c,
+            else => null,
+        };
+    }
+
+    /// The slot's bundled table, or null while it holds a
+    /// `:load-wavetable` import instead of one of the bundled five.
+    pub fn wtBundled(self: *const PolySynth, slot: OscSlot) ?BundledWavetable {
+        return switch (slot) {
+            .a => self.wt_bundled,
+            .b => self.osc_b_wt_bundled,
+            .c => self.osc_c_wt_bundled,
+        };
+    }
+
+    /// `wt.table`'s value for an imported table - one past the last bundled
+    /// tag. No `h`/`l` step ever produces it (there is no file to step to);
+    /// it only shows what `:load-wavetable` already put in the slot.
+    pub const wt_table_imported: f32 = @floatFromInt(std.meta.fields(BundledWavetable).len);
 
     /// Select bundled tables transactionally. Null keeps current slot, which
     /// lets user presets remain independent from imported wavetable audio.
@@ -3041,6 +3076,11 @@ pub const PolySynth = struct {
                     .count => |c| @floatFromInt(self.lfo_custom_count[c.slot]),
                     .point => |p| if (p.is_value) self.lfo_custom[p.slot][p.index].value else self.lfo_custom[p.slot][p.index].phase,
                 };
+            },
+            wt_table_ids[0]...wt_table_ids[2] => {
+                const slot = wtTableSlot(id) orelse return null;
+                const kind = self.wtBundled(slot) orelse return wt_table_imported;
+                return @floatFromInt(@intFromEnum(kind));
             },
             else => {},
         }

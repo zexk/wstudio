@@ -87,6 +87,7 @@ pub const main_sections = [_]SectionDef{
         .{ .id = 4,  .label = "uni.det" },   .{ .id = 5,  .label = "spread" },
         .{ .id = 39, .label = "uni.mode" },  .{ .id = 41, .label = "warp" },
         .{ .id = 42, .label = "warp amt" },  .{ .id = 185, .label = "wt.pos" },
+        .{ .id = 251, .label = "wt.table" },
     } },
     .{ .title = "OSC B", .tone = .source, .band = 0, .params = &.{
         .{ .id = 6,  .label = "on/off" },    .{ .id = 7,  .label = "waveform" },
@@ -95,6 +96,7 @@ pub const main_sections = [_]SectionDef{
         .{ .id = 12, .label = "unison" },    .{ .id = 13, .label = "uni.det" },
         .{ .id = 40, .label = "uni.mode" },  .{ .id = 43, .label = "warp" },
         .{ .id = 44, .label = "warp amt" },  .{ .id = 186, .label = "wt.pos" },
+        .{ .id = 252, .label = "wt.table" },
     } },
     .{ .title = "OSC C", .tone = .source, .band = 0, .params = &.{
         .{ .id = 50, .label = "on/off" },    .{ .id = 51, .label = "waveform" },
@@ -102,6 +104,7 @@ pub const main_sections = [_]SectionDef{
         .{ .id = 54, .label = "detune" },    .{ .id = 55, .label = "level" },
         .{ .id = 56, .label = "unison" },    .{ .id = 57, .label = "uni.det" },
         .{ .id = 58, .label = "uni.mode" },  .{ .id = 187, .label = "wt.pos" },
+        .{ .id = 253, .label = "wt.table" },
     } },
     .{ .title = "SUB", .tone = .source, .band = 1, .params = &.{
         .{ .id = 34, .label = "level" }, .{ .id = 35, .label = "shape" },
@@ -465,14 +468,16 @@ comptime {
     // Ids owned elsewhere: dead/retired (23, 30-31), FX unit params +
     // their reorder handles (mirrors editors/synth.zig's deadParam/
     // inSubview(.fx)/reorderIdFor - verified against that file's ranges),
-    // and 195-255, the custom-LFO breakpoint block (drawn by its own
-    // curve editor under the shape row, never a cursor-walkable param row)
-    // plus the gap above it left free when param ids widened to u16.
+    // and 195-250 / 254-255, the custom-LFO breakpoint block (drawn by its
+    // own curve editor under the shape row, never a cursor-walkable param
+    // row) plus the gap above it left free when param ids widened to u16.
+    // 251-253 are the OSC A/B/C `wt.table` rows, which the sections above
+    // do claim (see PolySynth.wt_table_ids).
     const excluded = [_][2]u16{
         .{ 23, 23 },   .{ 30, 31 },   .{ 83, 94 },   .{ 103, 115 },
         .{ 126, 136 }, .{ 137, 143 }, .{ 144, 160 }, .{ 161, 166 },
         .{ 167, 175 }, .{ 176, 180 }, .{ 181, 184 }, .{ 188, 194 },
-        .{ 195, 255 },
+        .{ 195, 250 }, .{ 254, 255 },
     };
     for (excluded) |range| {
         var id = range[0];

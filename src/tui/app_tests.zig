@@ -4142,16 +4142,55 @@ test "synth editor jk moves cursor, hl adjusts waveform" {
     const synth = &app.session.racks.items[0].instrument.poly_synth;
     try std.testing.expect(synth.waveform != .saw);
 
-    // AMP ENV's "attack" (id 16) is the MAIN subview's 46th nav entry now
+    // AMP ENV's "attack" (id 16) is the MAIN subview's 49th nav entry now
     // that OSC A/B/C, SUB, NOISE, MOD, and FILTER 1/2 all sort ahead of it
     // - see synth_layout.zig's main_sections declaration order.
-    for (0..46) |_| app.handleKey(.{ .char = 'j' }, 0);
+    for (0..49) |_| app.handleKey(.{ .char = 'j' }, 0);
     try std.testing.expectEqual(@as(u8, 16), app.synth_cursor);
 
     const old_attack = synth.attack_s;
     app.handleKey(.{ .char = 'l' }, 0);
     app.session.engine.process(&block);
     try std.testing.expect(synth.attack_s > old_attack);
+}
+
+test "wt.table h/l picks a bundled wavetable, wrapping past both ends" {
+    const Bundled = ws.dsp.synth.BundledWavetable;
+    var app = try testApp();
+    defer app.deinit();
+
+    app.handleKey(.enter, 0);
+    // OSC A's 11th entry: waveform, pls.width, detune, unison, uni.det,
+    // spread, uni.mode, warp, warp amt, wt.pos, wt.table.
+    for (0..10) |_| app.handleKey(.{ .char = 'j' }, 0);
+    try std.testing.expectEqual(@as(u8, 251), app.synth_cursor);
+
+    const synth = &app.session.racks.items[0].instrument.poly_synth;
+    try std.testing.expectEqual(Bundled.basic, synth.wt_bundled.?);
+    const basic_frames = try std.testing.allocator.dupe(f32, synth.wt.frames);
+    defer std.testing.allocator.free(basic_frames);
+
+    // No engine.process in between: unlike every queued param nudge, this
+    // one is applied on the control thread the moment the key lands.
+    app.handleKey(.{ .char = 'l' }, 0);
+    try std.testing.expectEqual(Bundled.spectral, synth.wt_bundled.?);
+    // The audio changed too, not just the tag naming it.
+    try std.testing.expect(!std.mem.eql(f32, basic_frames, synth.wt.frames));
+
+    app.handleKey(.{ .char = 'h' }, 0);
+    try std.testing.expectEqual(Bundled.basic, synth.wt_bundled.?);
+    try std.testing.expect(std.mem.eql(f32, basic_frames, synth.wt.frames));
+
+    // Wrapping off the first entry lands on the last, the way every other
+    // list-valued row steps.
+    app.handleKey(.{ .char = 'h' }, 0);
+    try std.testing.expectEqual(Bundled.analog, synth.wt_bundled.?);
+    app.handleKey(.{ .char = 'l' }, 0);
+    try std.testing.expectEqual(Bundled.basic, synth.wt_bundled.?);
+
+    // OSC B and C keep their own slots - stepping A left the others alone.
+    try std.testing.expectEqual(Bundled.basic, synth.osc_b_wt_bundled.?);
+    try std.testing.expectEqual(Bundled.basic, synth.osc_c_wt_bundled.?);
 }
 
 test "f in the tracks view opens the preset picker for the cursor track's instrument" {
@@ -4288,9 +4327,9 @@ test "synth section focus isolates navigation and rendering" {
     try std.testing.expect(app.synth_section_focus);
 
     app.handleKey(.{ .char = 'G' }, 0);
-    try std.testing.expectEqual(@as(u8, 185), app.synth_cursor);
+    try std.testing.expectEqual(@as(u8, 251), app.synth_cursor);
     app.handleKey(.{ .char = 'j' }, 0);
-    try std.testing.expectEqual(@as(u8, 185), app.synth_cursor);
+    try std.testing.expectEqual(@as(u8, 251), app.synth_cursor);
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
@@ -4316,9 +4355,9 @@ test "synth editor g/G jump to the first/last parameter" {
 
     app.handleKey(.enter, 0);
     // Just a "did we move off the start" sanity check before testing g/G -
-    // 10 j's lands on OSC B's first entry (id 6, on/off) now that OSC A's
-    // 10 entries (waveform..wt.pos) sort ahead of it.
-    for (0..10) |_| app.handleKey(.{ .char = 'j' }, 0);
+    // 11 j's lands on OSC B's first entry (id 6, on/off) now that OSC A's
+    // 11 entries (waveform..wt.table) sort ahead of it.
+    for (0..11) |_| app.handleKey(.{ .char = 'j' }, 0);
     try std.testing.expectEqual(@as(u8, 6), app.synth_cursor);
 
     app.handleKey(.{ .char = 'g' }, 0);
@@ -4335,9 +4374,9 @@ test "synth editor param nudges coalesce into one undo step, u/U round-trips" {
     var block: [64]types.Sample = undefined;
 
     app.handleKey(.enter, 0); // cursor 0 = synth
-    // 46 j's: land on attack (id 16), the AMP ENV section's first entry -
+    // 49 j's: land on attack (id 16), the AMP ENV section's first entry -
     // see synth_layout.zig's main_sections declaration order.
-    for (0..46) |_| app.handleKey(.{ .char = 'j' }, 0); // land on attack (a numeric param)
+    for (0..49) |_| app.handleKey(.{ .char = 'j' }, 0); // land on attack (a numeric param)
     try std.testing.expectEqual(@as(u8, 16), app.synth_cursor);
 
     const synth = &app.session.racks.items[0].instrument.poly_synth;
@@ -4370,9 +4409,9 @@ test "param undo restores the exact value even when a nudge hit the clamp" {
     var block: [64]types.Sample = undefined;
 
     app.handleKey(.enter, 0); // cursor 0 = synth
-    // 48 j's: land on sustain (id 18), AMP ENV's 3rd entry (attack, decay,
+    // 51 j's: land on sustain (id 18), AMP ENV's 3rd entry (attack, decay,
     // sustain - see synth_layout.zig's main_sections).
-    for (0..48) |_| app.handleKey(.{ .char = 'j' }, 0); // sustain (0..1, clamps)
+    for (0..51) |_| app.handleKey(.{ .char = 'j' }, 0); // sustain (0..1, clamps)
     try std.testing.expectEqual(@as(u8, 18), app.synth_cursor);
 
     const synth = &app.session.racks.items[0].instrument.poly_synth;
@@ -4401,9 +4440,9 @@ test "param undo round-trips a coalesced toggle batch (any nonzero delta = one f
     var block: [64]types.Sample = undefined;
 
     app.handleKey(.enter, 0);
-    // 10 j's: land on osc_b_on (id 6), OSC B's first entry - OSC A's 10
-    // entries (waveform..wt.pos) sort ahead of it now.
-    for (0..10) |_| app.handleKey(.{ .char = 'j' }, 0); // osc_b_on (a toggle)
+    // 11 j's: land on osc_b_on (id 6), OSC B's first entry - OSC A's 11
+    // entries (waveform..wt.table) sort ahead of it now.
+    for (0..11) |_| app.handleKey(.{ .char = 'j' }, 0); // osc_b_on (a toggle)
     try std.testing.expectEqual(@as(u8, 6), app.synth_cursor);
 
     const synth = &app.session.racks.items[0].instrument.poly_synth;
@@ -4430,8 +4469,8 @@ test "synth editor param nudge flushes as its own step when the cursor moves off
     var block: [64]types.Sample = undefined;
 
     app.handleKey(.enter, 0);
-    // 46 j's: land on attack (id 16) - see synth_layout.zig's main_sections.
-    for (0..46) |_| app.handleKey(.{ .char = 'j' }, 0); // attack
+    // 49 j's: land on attack (id 16) - see synth_layout.zig's main_sections.
+    for (0..49) |_| app.handleKey(.{ .char = 'j' }, 0); // attack
     const synth = &app.session.racks.items[0].instrument.poly_synth;
     app.session.engine.process(&block);
     const attack_before = synth.attack_s;

@@ -1,5 +1,6 @@
 //! Synth-editor input: param row navigation ({/} jump sections, Tab cycles
-//! subviews), h/l nudges routed over the engine command queue, and the
+//! subviews), h/l nudges routed over the engine command queue (all but
+//! `wt.table`, which allocates - see `stepWtTable`), and the
 //! cursor-row/scroll math shared with the renderer in views/synth.zig.
 
 const std = @import("std");
@@ -164,6 +165,13 @@ fn uniModeName(mode: anytype) []const u8 {
         .harmonic => "harmonic",
         .ratio => "ratio",
     };
+}
+
+/// A `wt.table` row's display. "imported" is not a selectable option - it
+/// only reports that `:load-wavetable` put a file in this slot, which no
+/// `h`/`l` step can walk back to.
+pub fn wtTableName(kind: ?ws.dsp.synth.BundledWavetable) []const u8 {
+    return if (kind) |k| @tagName(k) else "imported";
 }
 
 fn arpModeName(mode: anytype) []const u8 {
@@ -417,6 +425,7 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         185 => try w.print("{d:.2}",       .{synth.wt_pos}),
         186 => try w.print("{d:.2}",       .{synth.osc_b_wt_pos}),
         187 => try w.print("{d:.2}",       .{synth.osc_c_wt_pos}),
+        251, 252, 253 => try w.writeAll(wtTableName(synth.wtBundled(ws.dsp.PolySynth.wtTableSlot(id).?))),
         188 => try w.writeAll(if (synth.fx_tape_on) "on" else "off"),
         189 => try w.print("{d:.2} Hz",    .{synth.fx_tape_wow_rate_hz}),
         190 => try w.print("{d:.2}",       .{synth.fx_tape_wow_depth}),
@@ -705,7 +714,6 @@ fn shiftField(app: *App, delta: i32) void {
 /// columns comfortably above their own widest row (OSC B's 9-row block).
 /// The matrix subview always renders as a single full-width list regardless
 /// of width - it has no OSC-A/B-style pairing to split.
-
 pub fn updateScroll(app: *App) void {
     if (app.synth_section_focus) {
         app.synth_scroll = 0;
@@ -736,11 +744,11 @@ pub fn updateScroll(app: *App) void {
 /// same param into one undo step.
 fn adjustParam(app: *App, steps: i32) void {
     if (app.synth_track >= app.session.racks.items.len) return;
-    const rack = app.session.racks.items[app.synth_track];
-    switch (rack.instrument) {
-        .poly_synth => {},
+    const synth = switch (app.session.racks.items[app.synth_track].instrument) {
+        .poly_synth => |*s| s,
         else => return,
-    }
+    };
+    if (ws.dsp.PolySynth.wtTableSlot(app.synth_cursor)) |slot| return stepWtTable(app, synth, slot, steps);
     app.dirty = true;
     history.noteParamNudge(app, app.synth_track, app.synth_cursor, steps);
     _ = app.session.engine.send(.{ .set_track_param = .{
@@ -750,6 +758,32 @@ fn adjustParam(app: *App, steps: i32) void {
     } });
 }
 // zig fmt: on
+
+/// `wt.table`'s `h`/`l`, applied here on the control thread rather than over
+/// the engine queue every other param takes: picking a table reloads it and
+/// rebuilds its band-limited mip levels, which allocates and runs an FFT,
+/// and the audio thread must do neither. Same direct-mutation path
+/// `:load-wavetable` already uses, and like it the swap isn't undoable - the
+/// slot holds audio, not a value `set_track_param_abs` could restore.
+fn stepWtTable(app: *App, synth: *ws.dsp.PolySynth, slot: ws.dsp.PolySynth.OscSlot, steps: i32) void {
+    if (steps == 0) return;
+    const Bundled = ws.dsp.synth.BundledWavetable;
+    const n: i32 = @intCast(std.meta.fields(Bundled).len);
+    // An imported table has no tag to step from, so `l` off it enters the
+    // bundled ring at its first entry rather than refusing to move.
+    const cur: i32 = if (synth.wtBundled(slot)) |kind| @intFromEnum(kind) else 0;
+    const next: Bundled = @enumFromInt(@mod(cur + steps, n));
+    synth.selectBundledWavetables(
+        if (slot == .a) next else null,
+        if (slot == .b) next else null,
+        if (slot == .c) next else null,
+    ) catch |e| {
+        app.setStatus("wt.table: {s}", .{@errorName(e)});
+        return;
+    };
+    app.dirty = true;
+    app.setStatus("osc {s} wavetable: {s}", .{ @tagName(slot), @tagName(next) });
+}
 
 /// The param index whose row (in the *scrolled* on-screen layout) is `row`,
 /// or null for the title row / a row that doesn't land on any param (a
