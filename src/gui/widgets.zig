@@ -937,6 +937,34 @@ fn curveGridStep(beat_hi: f64, snap: f64, width: f32) f64 {
     return snap * @max(1, @ceil(beat_hi / snap / @as(f64, @floatFromInt(max_lines))));
 }
 
+/// One segment between two points, shaped by the point it leaves. A plain
+/// straight line here would draw a hold or an ease as a ramp - a picture of
+/// a curve the engine is not playing.
+fn drawCurveSegment(draw_list: anytype, a: [2]f32, b: [2]f32, shape: ws.dsp.automation.Curve, col: u32) void {
+    switch (shape) {
+        .linear => draw_list.addLine(.{ .p1 = a, .p2 = b, .col = col, .thickness = 2 }),
+        .hold => {
+            const corner = [2]f32{ b[0], a[1] };
+            draw_list.addLine(.{ .p1 = a, .p2 = corner, .col = col, .thickness = 2 });
+            draw_list.addLine(.{ .p1 = corner, .p2 = b, .col = col, .thickness = 2 });
+        },
+        // Enough chords that the S reads as a curve at any plot width a
+        // clip lane gets; the value axis follows smoothstep, matching
+        // `automation.interpolate`, while x stays even.
+        .ease => {
+            const chords = 16;
+            var from = a;
+            for (1..chords + 1) |i| {
+                const t = @as(f32, @floatFromInt(i)) / @as(f32, chords);
+                const eased = t * t * (3.0 - 2.0 * t);
+                const to = [2]f32{ a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * eased };
+                draw_list.addLine(.{ .p1 = from, .p2 = to, .col = col, .thickness = 2 });
+                from = to;
+            }
+        },
+    }
+}
+
 pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
     const theme = &gui_style.palette;
     const width = args.width orelse zgui.getContentRegionAvail()[0];
@@ -972,10 +1000,15 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
         const first = curveToScreen(origin, width, height, args.beat_hi, args.value_lo, args.value_hi, 0, args.points[0].value);
         draw_list.addLine(.{ .p1 = .{ origin[0], first[1] }, .p2 = first, .col = gui_style.color(args.accent), .thickness = 2 });
         var prev = first;
+        // The lead-in above is flat, so the shape of the run into the first
+        // point never matters; from there on a segment is shaped by the
+        // point it leaves.
+        var prev_shape: ws.dsp.automation.Curve = .linear;
         for (args.points) |p| {
             const cur = curveToScreen(origin, width, height, args.beat_hi, args.value_lo, args.value_hi, p.beat, p.value);
-            draw_list.addLine(.{ .p1 = prev, .p2 = cur, .col = gui_style.color(args.accent), .thickness = 2 });
+            drawCurveSegment(draw_list, prev, cur, prev_shape, gui_style.color(args.accent));
             prev = cur;
+            prev_shape = p.curve;
         }
         const last = args.points[args.points.len - 1];
         const last_screen = curveToScreen(origin, width, height, args.beat_hi, args.value_lo, args.value_hi, last.beat, last.value);
