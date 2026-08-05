@@ -2527,3 +2527,52 @@ test "save/load round-trip persists a pitch shifter, and its heap grain lines su
     try testing.expectApproxEqAbs(@as(f32, -7.0), copy.pitch_shift.semitones, 1e-4);
     try testing.expect(copy.pitch_shift.lines[0].ptr != p.lines[0].ptr);
 }
+
+test "save/load round-trip persists the controller bank, dropping targets on tracks that are gone" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/ctrl.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    _ = try session.addTrack("second");
+
+    // Slot 2, not 0 - the saved index has to survive, not the array position.
+    session.project.controllers[2] = .{ .shape = .triangle, .beats = 8.0, .depth = 0.75, .phase = 0.25 };
+    session.project.controllers[2].?.targets[0] = .{
+        .track = 1,
+        .param_id = 21,
+        .center = 1000.0,
+        .lo = 20.0,
+        .hi = 20_000.0,
+    };
+    // A target on a track this project doesn't have must not come back.
+    session.project.controllers[2].?.targets[1] = .{
+        .track = 40,
+        .param_id = 3,
+        .center = 0.5,
+        .lo = 0.0,
+        .hi = 1.0,
+    };
+    session.syncControllers();
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+
+    try testing.expect(loaded.project.controllers[0] == null);
+    const c = loaded.project.controllers[2].?;
+    try testing.expectEqual(lfo_mod.Shape.triangle, c.shape);
+    try testing.expectApproxEqAbs(@as(f32, 8.0), c.beats, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 0.75), c.depth, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 0.25), c.phase, 1e-4);
+    try testing.expectEqual(@as(u16, 1), c.targets[0].?.track);
+    try testing.expectEqual(@as(u32, 21), c.targets[0].?.param_id);
+    try testing.expectApproxEqAbs(@as(f32, 1000.0), c.targets[0].?.center, 1e-4);
+    try testing.expect(c.targets[1] == null);
+    // The load path pushes the bank, so the audio thread has it without a
+    // further edit.
+    try testing.expectEqual(@as(u16, 1), loaded.engine.controllers[2].?.targets[0].?.track);
+}

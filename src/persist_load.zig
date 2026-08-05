@@ -6,6 +6,7 @@ const Session = @import("session.zig").Session;
 const wav = @import("core/wav.zig");
 const types = @import("core/types.zig");
 const theory = @import("theory.zig");
+const controller_mod = @import("dsp/controller.zig");
 const project_mod = @import("project.zig");
 const Project = project_mod.Project;
 const track_color_count = project_mod.track_color_count;
@@ -295,6 +296,39 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
     for (snap.sections) |section| {
         if (section.name.len == 0) continue;
         try project.setSection(section.tick, section.name);
+    }
+    for (snap.controllers) |cs| {
+        if (cs.index >= controller_mod.max_controllers) continue;
+        var c: controller_mod.Controller = .{
+            .shape = cs.shape,
+            // A zero or negative period would divide the phase math by
+            // nothing; the upper bound is a 32-bar cycle, well past any
+            // musical use and short of the precision cliff.
+            .beats = finiteClamp(f32, cs.beats, 0.01, 128.0, 4.0),
+            .depth = finiteClamp(f32, cs.depth, 0.0, 1.0, 0.5),
+            .phase = finiteClamp(f32, cs.phase, 0.0, 1.0, 0.0),
+        };
+        var slot: usize = 0;
+        for (cs.targets) |ts| {
+            if (slot == controller_mod.max_targets) break;
+            // A target naming a track this file does not have would drive a
+            // param on whatever track later takes that index - drop it, the
+            // same call `remapTrackReferences` makes on a delete.
+            if (ts.track >= snap.tracks.len) continue;
+            const lo = finiteClamp(f32, ts.lo, -1e9, 1e9, 0.0);
+            const hi = finiteClamp(f32, ts.hi, -1e9, 1e9, 1.0);
+            if (!(hi > lo)) continue;
+            c.targets[slot] = .{
+                .track = ts.track,
+                .instance_id = ts.instance_id,
+                .param_id = ts.param_id,
+                .center = finiteClamp(f32, ts.center, lo, hi, lo),
+                .lo = lo,
+                .hi = hi,
+            };
+            slot += 1;
+        }
+        project.controllers[cs.index] = c;
     }
 
     // zig fmt: off
@@ -654,6 +688,7 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
     // `Session.createRack`, so nothing has handed them the project's
     // temperament yet - do it once here rather than in every instrument arm.
     self.setTuning(self.project.tuning);
+    self.syncControllers();
 
     return self;
 }

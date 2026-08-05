@@ -44,6 +44,7 @@ const dsp = @import("dsp/device.zig");
 const automation_mod = @import("dsp/automation.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
+const controller_mod = @import("dsp/controller.zig");
 /// Newest format version this build writes and reads; newer files are
 /// hard-rejected on load. The canonical version history (what each bump
 /// added and what older files load as) and the bump-vs-additive policy
@@ -1043,6 +1044,30 @@ pub const SectionSnap = struct {
     name: []const u8,
 };
 
+/// One modulation-controller target (see `dsp/controller.zig`). `track`
+/// indices are re-validated on load, same as every other saved track
+/// reference.
+pub const ControllerTargetSnap = struct {
+    track: u16,
+    instance_id: u32 = 0,
+    param_id: u32,
+    center: f32,
+    lo: f32,
+    hi: f32,
+};
+
+/// One controller slot. `index` is its position in the fixed bank rather
+/// than the array order, so a project using only slot 3 stays readable and
+/// keeps its number - same dense fixed-position shape as `GroupSnap`.
+pub const ControllerSnap = struct {
+    index: u8,
+    shape: lfo_mod.Shape = .sine,
+    beats: f32 = 4.0,
+    depth: f32 = 0.5,
+    phase: f32 = 0.0,
+    targets: []const ControllerTargetSnap = &.{},
+};
+
 pub const Snapshot = struct {
     version: u32 = file_version,
     tempo_bpm: f64 = 120.0,
@@ -1073,4 +1098,7 @@ pub const Snapshot = struct {
     master_fx_chain: []const FxUnitSnap = &.{},
     /// See `GroupSnap`'s own doc comment for the dense fixed-position shape.
     groups: []const GroupSnap = &.{},
+    /// Additive: the modulation-controller bank. Older files omit it and
+    /// load with an empty bank, which is exactly how they played.
+    controllers: []const ControllerSnap = &.{},
 };

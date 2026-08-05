@@ -89,6 +89,8 @@ const RackSnap = persist_types.RackSnap;
 const TrackSnap = persist_types.TrackSnap;
 const SendSnap = persist_types.SendSnap;
 const GroupSnap = persist_types.GroupSnap;
+const ControllerSnap = persist_types.ControllerSnap;
+const ControllerTargetSnap = persist_types.ControllerTargetSnap;
 const ClipKind = persist_types.ClipKind;
 const ClipSnap = persist_types.ClipSnap;
 const LaneSnap = persist_types.LaneSnap;
@@ -142,6 +144,33 @@ pub fn save(
         }
     }
 
+    // Only the slots actually in use are written, each carrying its own
+    // bank index - an unused controller has nothing to say.
+    var controller_list: std.ArrayList(ControllerSnap) = .empty;
+    for (session.project.controllers, 0..) |maybe, i| {
+        const c = maybe orelse continue;
+        var targets: std.ArrayList(ControllerTargetSnap) = .empty;
+        for (c.targets) |maybe_target| {
+            const t = maybe_target orelse continue;
+            try targets.append(aa, .{
+                .track = t.track,
+                .instance_id = t.instance_id,
+                .param_id = t.param_id,
+                .center = t.center,
+                .lo = t.lo,
+                .hi = t.hi,
+            });
+        }
+        try controller_list.append(aa, .{
+            .index = @intCast(i),
+            .shape = c.shape,
+            .beats = c.beats,
+            .depth = c.depth,
+            .phase = c.phase,
+            .targets = targets.items,
+        });
+    }
+
     const racks = try aa.alloc(RackSnap, session.racks.items.len);
     for (session.racks.items, racks) |rack, *rs| {
         rs.* = try rackToSnap(aa, rack);
@@ -173,6 +202,7 @@ pub fn save(
         .song_mode = session.song_mode,
         .master_fx_chain = try chainToSnap(aa, &session.master_fx),
         .groups = groups,
+        .controllers = controller_list.items,
     };
 
     const json_bytes = try std.json.Stringify.valueAlloc(aa, snap, .{ .whitespace = .indent_2 });
