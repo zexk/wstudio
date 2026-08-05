@@ -3727,107 +3727,62 @@ pub const App = struct {
     }
 
     // zig fmt: off
-    /// Shift every editor-target/pending-state track index that sits at or
-    /// past `idx` up by one, mirroring a track showing up at `idx` (insert,
-    /// or undo restoring a deleted track back to its old slot). Nothing is
-    /// ever dropped here - an insert can't invalidate a track. Shared by
-    /// `doTrackAdd` and history's track-restore apply so the field
-    /// checklist can't drift between the two call sites - see
-    /// project_bug_hunt_2026_07_11's "any NEW field... must join this list".
-    pub fn shiftFieldsForInsert(self: *App, idx: usize) void {
-        // A field bounced to the invalid sentinel by shiftFieldsForDelete
-        // stays there - it names no track at all, so there's nothing for
-        // an insert to shift, and incrementing the sentinel would overflow.
-        const shiftIfValid = struct {
-            fn f(field: *u16, ins_idx: usize) void {
-                if (field.* != std.math.maxInt(u16) and field.* >= ins_idx) field.* += 1;
+    /// Rewrite every editor-target/pending-state track index for a
+    /// structural track change (insert, delete, swap). One field checklist
+    /// for all three ops, with `TrackRemap.apply` owning the arithmetic -
+    /// the three lists this replaced were the standing source of the
+    /// stale-index bug class. Any NEW field holding a track index must join
+    /// this list - see project_bug_hunt_2026_07_11.
+    ///
+    /// A field naming a deleted track must not merely survive unshifted:
+    /// the slot it names gets reused by whatever track shifts down into it,
+    /// so keeping the old value would silently rebind the field (and any
+    /// open editor keyed on it) to that unrelated track. It is bounced out
+    /// of range instead, so the kindIs()/`>= racks.len` checks in
+    /// exitStaleEditors always treat it as gone. A field already sitting at
+    /// that sentinel names no track at all, so no later op disturbs it.
+    pub fn remapTrackFields(self: *App, op: undo_mod.TrackRemap) void {
+        const remapField = struct {
+            fn f(field: *u16, op_: undo_mod.TrackRemap) void {
+                if (field.* == std.math.maxInt(u16)) return;
+                field.* = op_.apply(field.*) orelse std.math.maxInt(u16);
             }
         }.f;
-        shiftIfValid(&self.synth_track, idx);
-        shiftIfValid(&self.drum_track, idx);
-        shiftIfValid(&self.piano_track, idx);
-        shiftIfValid(&self.eq_track, idx);
-        shiftIfValid(&self.slicer_track, idx);
-        shiftIfValid(&self.automation_track, idx);
-        shiftIfValid(&self.preset_picker_track, idx);
-        shiftIfValid(&self.soundfont_track, idx);
+        remapField(&self.synth_track, op);
+        remapField(&self.drum_track, op);
+        remapField(&self.piano_track, op);
+        remapField(&self.eq_track, op);
+        remapField(&self.slicer_track, op);
+        remapField(&self.automation_track, op);
+        remapField(&self.preset_picker_track, op);
+        remapField(&self.soundfont_track, op);
         switch (self.sampler_target) {
-            .drum => |*t| shiftIfValid(t, idx),
-            .sampler => |*t| shiftIfValid(t, idx),
-            .slice => |*t| shiftIfValid(t, idx),
+            .drum    => |*t| remapField(t, op),
+            .sampler => |*t| remapField(t, op),
+            .slice   => |*t| remapField(t, op),
         }
-        if (self.piano_clip_link) |*link| {
-            if (link.track >= idx) link.track += 1;
-        }
-        if (self.automation_clip) |*link| {
-            if (link.track >= idx) link.track += 1;
-        }
-        for (self.note_offs[0..self.note_off_len]) |*off| {
-            if (off.track >= idx) off.track += 1;
-        }
-    }
-
-    /// Shift/drop every editor-target/pending-state track index for a track
-    /// removed at `idx` - the mirror of `shiftFieldsForInsert`. Shared by
-    /// `doTrackDel` and history's track-delete-redo apply.
-    pub fn shiftFieldsForDelete(self: *App, idx: usize) void {
-        // A field naming the deleted track exactly must not merely survive
-        // unshifted - the slot it names gets reused by whatever track
-        // shifts down into it, so leaving the old value in place would
-        // silently rebind the field (and any open editor keyed on it) to
-        // that unrelated track. Bounce it out of range instead, so the
-        // kindIs()/`>= racks.len` checks in exitStaleEditors always treat
-        // it as gone, regardless of what the reused slot now holds.
-        const shiftOrInvalidate = struct {
-            fn f(field: *u16, del_idx: usize) void {
-                if (field.* == del_idx) {
-                    field.* = std.math.maxInt(u16);
-                } else if (del_idx < field.* and field.* > 0) {
-                    field.* -= 1;
-                }
-            }
-        }.f;
-        shiftOrInvalidate(&self.synth_track, idx);
-        shiftOrInvalidate(&self.drum_track, idx);
-        shiftOrInvalidate(&self.piano_track, idx);
-        shiftOrInvalidate(&self.eq_track, idx);
-        shiftOrInvalidate(&self.slicer_track, idx);
-        shiftOrInvalidate(&self.automation_track, idx);
-        shiftOrInvalidate(&self.preset_picker_track, idx);
-        shiftOrInvalidate(&self.soundfont_track, idx);
+        // A clip link has no sentinel to bounce to - it is dropped outright.
         if (self.piano_clip_link) |link| {
-            if (link.track == idx) {
-                self.piano_clip_link = null;
-            } else if (link.track > idx) {
-                self.piano_clip_link.?.track -= 1;
-            }
+            if (op.apply(link.track)) |t| self.piano_clip_link.?.track = t
+            else self.piano_clip_link = null;
         }
         if (self.automation_clip) |link| {
-            if (link.track == idx) {
-                self.automation_clip = null;
-            } else if (link.track > idx) {
-                self.automation_clip.?.track -= 1;
-            }
+            if (op.apply(link.track)) |t| self.automation_clip.?.track = t
+            else self.automation_clip = null;
         }
-        // Pending qwerty note-offs name tracks too: drop the deleted
-        // track's (its rack is being retired anyway), shift the rest, so a
-        // note that outlives the delete is stopped on the track it's
-        // actually still sounding on.
+        // Pending qwerty note-offs name tracks too: drop a deleted track's
+        // (its rack is being retired anyway), shift the rest, so a note
+        // that outlives the delete is stopped on the track it's actually
+        // still sounding on.
         var no_i: usize = 0;
         while (no_i < self.note_off_len) {
-            const t = self.note_offs[no_i].track;
-            if (t == idx) {
+            if (op.apply(self.note_offs[no_i].track)) |t| {
+                self.note_offs[no_i].track = t;
+                no_i += 1;
+            } else {
                 std.mem.copyForwards(NoteOff, self.note_offs[no_i .. self.note_off_len - 1], self.note_offs[no_i + 1 .. self.note_off_len]);
                 self.note_off_len -= 1;
-            } else {
-                if (t > idx) self.note_offs[no_i].track -= 1;
-                no_i += 1;
             }
-        }
-        switch (self.sampler_target) {
-            .drum    => |*t| shiftOrInvalidate(t, idx),
-            .sampler => |*t| shiftOrInvalidate(t, idx),
-            .slice   => |*t| shiftOrInvalidate(t, idx),
         }
     }
     // zig fmt: on
@@ -3848,10 +3803,10 @@ pub const App = struct {
             return;
         };
 
-        self.shiftFieldsForInsert(idx);
+        const remap: undo_mod.TrackRemap = .{ .insert = idx };
+        self.remapTrackFields(remap);
         if (pos.group) |g| self.session.assignTrackGroup(idx, g);
 
-        const remap: undo_mod.TrackRemap = .{ .insert = idx };
         history.retargetPending(self, remap);
         _ = self.history.retarget(self.allocator, remap);
         history.push(self, .{ .track_delete = idx });
@@ -3894,8 +3849,6 @@ pub const App = struct {
             return;
         };
 
-        self.shiftFieldsForDelete(track_idx);
-
         // Track indices shift below the deleted track: remap every undo/
         // redo entry (and any still-open nudge batch) to keep pointing at
         // the same physical track, dropping only entries that named the
@@ -3903,6 +3856,7 @@ pub const App = struct {
         // this exact-match delete remap would immediately drop the entry
         // that restores the very track it names.
         const remap: undo_mod.TrackRemap = .{ .delete = @intCast(track_idx) };
+        self.remapTrackFields(remap);
         history.retargetPending(self, remap);
         const dropped = self.history.retarget(self.allocator, remap);
 
@@ -4027,40 +3981,12 @@ pub const App = struct {
 
         self.session.swapTracks(cur, other);
 
-        // zig fmt: off
-        const swap = struct {
-            fn f(idx: *u16, a: usize, b: usize) void {
-                if (idx.* == a) idx.* = @intCast(b) else if (idx.* == b) idx.* = @intCast(a);
-            }
-        }.f;
-        swap(&self.synth_track, cur, other);
-        swap(&self.drum_track, cur, other);
-        swap(&self.piano_track, cur, other);
-        swap(&self.eq_track, cur, other);
-        swap(&self.slicer_track, cur, other);
-        swap(&self.automation_track, cur, other);
-        swap(&self.preset_picker_track, cur, other);
-        swap(&self.soundfont_track, cur, other);
-        switch (self.sampler_target) {
-            .drum => |*t| swap(t, cur, other),
-            .sampler => |*t| swap(t, cur, other),
-            .slice => |*t| swap(t, cur, other),
-        }
-        if (self.piano_clip_link) |*link| {
-            if (link.track == cur) link.track = @intCast(other)
-            else if (link.track == other) link.track = @intCast(cur);
-        }
-        if (self.automation_clip) |*link| {
-            if (link.track == cur) link.track = @intCast(other)
-            else if (link.track == other) link.track = @intCast(cur);
-        }
-        for (self.note_offs[0..self.note_off_len]) |*off| swap(&off.track, cur, other);
         // A swap never removes a track, so unlike delete this never drops
         // an entry - every index just exchanges with its neighbor's.
         const remap: undo_mod.TrackRemap = .{ .swap = .{ .a = @intCast(cur), .b = @intCast(other) } };
+        self.remapTrackFields(remap);
         history.retargetPending(self, remap);
         _ = self.history.retarget(self.allocator, remap);
-        // zig fmt: on
 
         self.cursor = other;
         self.dirty = true;

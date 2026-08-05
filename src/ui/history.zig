@@ -690,8 +690,8 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
                 return null;
             };
             app.allocator.free(s.name);
-            app.shiftFieldsForInsert(s.track);
             const remap: undo_mod.TrackRemap = .{ .insert = s.track };
+            app.remapTrackFields(remap);
             retargetPending(app, remap);
             _ = app.history.retarget(app.allocator, remap);
             app.cursor = s.track;
@@ -706,8 +706,8 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
                 state.deinit(app.allocator);
                 return null;
             };
-            app.shiftFieldsForDelete(idx);
             const remap: undo_mod.TrackRemap = .{ .delete = idx };
+            app.remapTrackFields(remap);
             retargetPending(app, remap);
             _ = app.history.retarget(app.allocator, remap);
             const last = app.session.project.tracks.items.len - 1;

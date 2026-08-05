@@ -3344,6 +3344,49 @@ test "track delete removes the rack and shifts later tracks down" {
     try std.testing.expectEqual(InstrumentKind.drum_machine, std.meta.activeTag(app.session.racks.items[1].instrument));
 }
 
+test "structural track changes remap every editor-target field" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.synth_track = 0;
+    app.drum_track = 2;
+    app.sampler_target = .{ .sampler = 1 };
+    app.piano_clip_link = .{ .track = 2, .start_bar = 0 };
+
+    // Insert at 1: everything from index 1 up shifts, index 0 stays put.
+    app.remapTrackFields(.{ .insert = 1 });
+    try std.testing.expectEqual(@as(u16, 0), app.synth_track);
+    try std.testing.expectEqual(@as(u16, 3), app.drum_track);
+    try std.testing.expectEqual(@as(u16, 2), app.sampler_target.sampler);
+    try std.testing.expectEqual(@as(u16, 3), app.piano_clip_link.?.track);
+
+    // A swap exchanges only the two indices it names.
+    app.remapTrackFields(.{ .swap = .{ .a = 0, .b = 3 } });
+    try std.testing.expectEqual(@as(u16, 3), app.synth_track);
+    try std.testing.expectEqual(@as(u16, 0), app.drum_track);
+    try std.testing.expectEqual(@as(u16, 0), app.piano_clip_link.?.track);
+
+    app.note_offs[0] = .{ .at_ns = 0, .track = 0, .note = 60 };
+    app.note_offs[1] = .{ .at_ns = 0, .track = 2, .note = 64 };
+    app.note_off_len = 2;
+
+    // Deleting track 0 bounces the field naming it out of range, drops the
+    // clip link and the note-off on it, and shifts every survivor down.
+    app.remapTrackFields(.{ .delete = 0 });
+    try std.testing.expectEqual(@as(u16, 2), app.synth_track);
+    try std.testing.expectEqual(@as(u16, std.math.maxInt(u16)), app.drum_track);
+    try std.testing.expectEqual(@as(u16, 1), app.sampler_target.sampler);
+    try std.testing.expect(app.piano_clip_link == null);
+    try std.testing.expectEqual(@as(usize, 1), app.note_off_len);
+    try std.testing.expectEqual(@as(u7, 64), app.note_offs[0].note);
+    try std.testing.expectEqual(@as(u16, 1), app.note_offs[0].track);
+
+    // The sentinel names no track, so a later op leaves it where it is
+    // rather than shifting (and overflowing) it.
+    app.remapTrackFields(.{ .insert = 0 });
+    try std.testing.expectEqual(@as(u16, std.math.maxInt(u16)), app.drum_track);
+}
+
 test "track delete remaps a surviving track's undo entry instead of wiping history" {
     var app = try testApp();
     defer app.deinit();
