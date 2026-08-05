@@ -374,12 +374,22 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
     }
 }
 
-/// Names for the sampler param rows, indexed by `app.sampler_param`. The last
-/// two (root, voice) apply only to the standalone Sampler, not drum pads.
+/// Names for the sampler param rows, indexed by `app.sampler_param` - so
+/// every id in `pad.zig`'s shared table must have an entry here, in id order,
+/// or the labels past the gap name the wrong row. The last two (root, voice)
+/// apply only to the standalone Sampler, not drum pads.
 const sampler_param_labels = [_][]const u8{
-    "start", "end",      "pitch",    "attack",  "decay",  "sustain", "release", "gain", "pan",
-    "reverse", "fade in", "fade out", "stretch", "filter", "play",    "root",    "voice",
+    "start", "end",      "pitch",    "attack",  "decay",  "sustain", "release", "gain",  "pan",
+    "reverse", "fade in", "fade out", "stretch", "filter", "play",    "rate",    "depth", "shape",
+    "dest",  "root",     "voice",
 };
+
+comptime {
+    // The table is indexed by raw param id, so it has to grow with the shared
+    // pad table - the MOD params landing at 15-18 silently shifted root/voice
+    // out from under their own labels until this fired.
+    std.debug.assert(sampler_param_labels.len == Sampler.mono_id + 1);
+}
 
 pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     const is_drum = app.sampler_target == .drum;
@@ -425,6 +435,10 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
             try w.writeAll(format.filterLabel(&fbuf, pad.filter));
         },
         14 => try w.writeAll(ws.dsp.pad.play_mode_names[@intFromEnum(ws.dsp.pad.playMode(pad))]),
+        15 => try w.print("{d:.2} Hz", .{pad.mod_rate_hz}),
+        16 => try w.print("{d:.2}", .{pad.mod_depth}),
+        17 => try w.writeAll(ws.dsp.lfo.shape_names[@intFromEnum(pad.mod_shape)]),
+        18 => try w.writeAll(ws.dsp.pad.mod_dest_names[@intFromEnum(pad.mod_dest)]),
         Sampler.root_note_id => {
             const root: u7 = if (app.editingSampler()) |s| s.root_note else 60;
             var nbuf: [5]u8 = undefined;
