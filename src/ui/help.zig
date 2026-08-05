@@ -368,10 +368,12 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key(":snap-scale",  "[<root> [<type>]]  pull every off-scale note onto the nearest tone of that scale");
 
     t.taggedSection(.arrangement, "ARRANGEMENT");
-    t.key("h / l",        "move cursor left / right (one bar)");
-    t.key("H / L",        "move cursor left / right (4 bars)");
+    t.key("h / l",        "move cursor left / right (one grid cell)");
+    t.key("H / L",        "move cursor left / right (4 cells)");
+    t.key("w / b",        "jump to next / previous bar line");
     t.key("B / W",        "jump to previous / next clip edge on current lane");
     t.key("0",            "jump cursor to bar 0 (a count first makes it a digit instead: 10l)");
+    t.key("G",            "jump to the song's end, or with a count to that bar (17G)");
     t.key("j / k",        "move between track lanes");
     t.key("enter",        "stamp the live pattern as a clip - HOLD it and h/l resize the new clip");
     t.key("e",            "edit melodic clip in the piano roll (edits save into the clip)");
@@ -385,7 +387,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("- / +",        "edge-resize clip length by a bar (content loops to fill it)");
     t.key(".",            "repeat the last clip move / resize or visual range delete/paste");
     t.key("( / )",        "set loop start / end at cursor bar");
-    t.key("b",            "toggle A/B loop on/off");
+    t.key("=",            "toggle A/B loop on/off");
     t.key(":punch",       "[on|off]  record only between enabled A/B bounds");
     t.key("g",            "play from cursor bar");
     t.key("T",            "toggle song / pattern mode (manual override; view switches while the");

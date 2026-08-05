@@ -25,10 +25,11 @@ const max_timeline_tick = std.math.maxInt(u32);
 /// old 6).
 pub const gutter: usize = 13;
 
-/// Arrangement (song timeline) input. A bar is the atomic unit: h/l move
-/// by bars, enter stamps the live pattern as a clip, </> shift and +/-
-/// edge-resize the clip under the cursor (content loops to fill), ( ) b
-/// manage the A/B loop, [/] cycle a drum lane's variant, T toggles
+/// Arrangement (song timeline) input. The grid cell is the atomic unit:
+/// h/l move by one, w/b by a bar, W/B by a clip edge, G to the song's end
+/// (or a counted bar), enter stamps the live pattern as a clip, </> shift
+/// and +/- edge-resize the clip under the cursor (content loops to fill),
+/// ( ) = manage the A/B loop, [/] cycle a drum lane's variant, T toggles
 /// song/pattern mode, a opens the automation editor. Operators and
 /// visual mode follow the shared grammar (docs/editing-grammar.md),
 /// current-lane only. Returns false for unhandled keys so the transport
@@ -62,6 +63,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'l' => { moveBar(app, app.takeCount()); finishOperator(app, op); return true; },
                 'H' => { moveBar(app, -4 * app.takeCount()); finishOperator(app, op); return true; },
                 'L' => { moveBar(app, 4 * app.takeCount()); finishOperator(app, op); return true; },
+                // dw/yw stop at the end of the nth bar forward rather than
+                // on w's own landing cell (the next bar's first), vim's dw
+                // nuance - same split the grid editors make.
+                'w' => { operatorBarForward(app, app.takeCount()); finishOperator(app, op); return true; },
+                'b' => { operatorBarBackward(app, app.takeCount()); finishOperator(app, op); return true; },
+                'g' => { app.arr_cursor_bar = 0; finishOperator(app, op); return true; },
+                'G' => { gotoEnd(app); finishOperator(app, op); return true; },
                 else => { app.arr_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
             },
             else => { app.arr_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
@@ -124,12 +132,30 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 moveBar(app, 4 * app.takeCount());
                 return true;
             },
+            // w/b: the bar tier above h/l's grid cell - with a 1/16 grid
+            // h/l crawl, so this is how the cursor actually covers a song.
+            // W/B are the tier above that again: clip edges on this lane.
+            'w' => {
+                jumpBar(app, app.takeCount());
+                return true;
+            },
+            'b' => {
+                jumpBar(app, -app.takeCount());
+                return true;
+            },
             'W' => {
                 moveClipEdge(app, 1, app.takeCount());
                 return true;
             },
             'B' => {
                 moveClipEdge(app, -1, app.takeCount());
+                return true;
+            },
+            // G: the song's end (its last bar of material), or with a count
+            // the bar itself - vim's `{n}G` line jump, bars being this
+            // editor's lines. `0` is the other end.
+            'G' => {
+                gotoEnd(app);
                 return true;
             },
             // Vim's own '0': jump-to-start only when no count is pending -
@@ -269,7 +295,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 setLoopEnd(app);
                 return true;
             },
-            'b' => {
+            // `=` toggles the A/B loop (visual `=` sets one from the
+            // selection - one loop key, two modes). `b` is the bar motion
+            // every other timeline editor already binds it to.
+            '=' => {
                 toggleLoop(app);
                 return true;
             },
@@ -353,6 +382,12 @@ fn handleVisual(app: *App, key: modal_mod.Key, lane_count: usize) bool {
             'l' => { moveBar(app, app.takeCount()); return true; },
             'H' => { moveBar(app, -4 * app.takeCount()); return true; },
             'L' => { moveBar(app, 4 * app.takeCount()); return true; },
+            'w' => { jumpBar(app, app.takeCount()); return true; },
+            'b' => { jumpBar(app, -app.takeCount()); return true; },
+            'g' => { app.arr_cursor_bar = 0; return true; },
+            'G' => { gotoEnd(app); return true; },
+            'W' => { moveClipEdge(app, 1, app.takeCount()); return true; },
+            'B' => { moveClipEdge(app, -1, app.takeCount()); return true; },
             'j' => { moveLane(app, lane_count, app.takeCount()); return true; },
             'k' => { moveLane(app, lane_count, -app.takeCount()); return true; },
             // vim's `o`: bounce the cursor to the selection's other corner
@@ -672,6 +707,41 @@ fn repeatLastEdit(app: *App) void {
 fn moveBar(app: *App, delta: i64) void {
     const nb = @as(i64, app.arr_cursor_bar) + delta;
     app.arr_cursor_bar = @intCast(std.math.clamp(nb, 0, maxCursorBar(app)));
+}
+
+/// Grid cells per musical bar - w/b's jump unit and `{n}G`'s bar math. The
+/// cursor counts grid cells (`arr_grid`), which at 1/4 is a beat and at
+/// 1/128 far less, so a bar is however many of those fit; a grid coarser
+/// than a bar floors at one cell.
+fn cellsPerBar(app: *const App) u32 {
+    return @max(1, ws.time_grid.barTicks(app.session.project.beats_per_bar) / app.arr_grid.ticks());
+}
+
+/// `w`/`b`: jump whole bars, snapping to the bar line first - the shared
+/// step-grid motion, with cells for steps (see step_grid.jumpBar). The
+/// timeline is unbounded, so the "step count" is the cursor's own ceiling.
+fn jumpBar(app: *App, delta: i32) void {
+    step_grid.jumpBar(&app.arr_cursor_bar, delta, @as(i64, maxCursorBar(app)) + 1, cellsPerBar(app));
+}
+
+fn operatorBarForward(app: *App, n: i32) void {
+    step_grid.operatorBarForward(&app.arr_cursor_bar, n, @as(i64, maxCursorBar(app)) + 1, cellsPerBar(app));
+}
+
+fn operatorBarBackward(app: *App, n: i32) void {
+    step_grid.operatorBarBackward(&app.arr_cursor_bar, n, @as(i64, maxCursorBar(app)) + 1, cellsPerBar(app));
+}
+
+/// `G`: the last cell holding song material (the arrangement's end), or
+/// `{n}G`: the start of musical bar n, 1-based like the ruler prints them.
+fn gotoEnd(app: *App) void {
+    if (app.modal.count > 0) {
+        const bar: u32 = @intCast(@max(app.takeCount(), 1) - 1);
+        app.arr_cursor_bar = @min(bar *| cellsPerBar(app), maxCursorBar(app));
+        return;
+    }
+    const end = app.session.arrangement.lengthTicks();
+    app.arr_cursor_bar = if (end == 0) 0 else (end - 1) / app.arr_grid.ticks();
 }
 
 fn moveSection(app: *App, direction: i8) void {

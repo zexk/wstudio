@@ -61,9 +61,10 @@ inversions rather than one.
 
 ## Motions
 
-- `h`/`l`: one step (piano, drum, slicer, automation) or one bar
-  (arrangement).
-- `H`/`L`: 4 steps from wherever the cursor is (one beat), or 4 bars in
+- `h`/`l`: one step (piano, drum, slicer, automation) or one grid cell
+  (arrangement - whatever `z`/`Z` currently set, a beat at the default
+  1/4).
+- `H`/`L`: 4 steps from wherever the cursor is (one beat), or 4 cells in
   the arrangement.
 - `w`/`b`: one beat, snapped to beat boundaries (unlike `H`/`L`, which
   do not snap). The piano roll respects the triplet grid (6 steps per
@@ -72,8 +73,13 @@ inversions rather than one.
   and rejected as too coarse: on a default 16-step pattern it crossed
   the whole visible grid in one press. The implementing functions are
   still named `jumpBar`/`barLenSteps` for historical reasons; despite
-  the names the unit is one beat.
-- `g`/`G`: start / end.
+  the names the unit is one beat. The arrangement is the one editor
+  where the unit really is a musical bar - its grid cells are small
+  enough that a song needs the coarser tier, and `W`/`B` go coarser
+  still (the next clip edge on the lane).
+- `g`/`G`: start / end. In the arrangement `G` takes a count as a bar
+  number (`17G` jumps to bar 17), and `0` is the start (`g` there plays
+  from the cursor).
 - `j`/`k`: the second axis where one exists (pitch, pad, lane, value
   nudge in automation). In blockwise visual mode they grow the selected
   row band. Never valid as an operator motion: `d`/`y` + a motion is
@@ -95,11 +101,12 @@ cancels. `dw`/`yw` end at the last step of the nth beat forward, not at
 | piano roll  | note at cursor   | beat                 | cursor pitch's row      |
 | drum grid   | step at cursor   | beat (4 steps)       | cursor pad's row (= X)  |
 | slicer grid | step at cursor   | beat (4 steps)       | cursor slice's row (= X)|
-| arrangement | clip under cursor| (bar IS the unit)    | whole lane              |
+| arrangement | clip under cursor| bar                  | whole lane              |
 | automation  | point at cursor  | beat (4 steps)       | whole curve             |
 
-The arrangement collapses a tier: a bar is already its atomic unit, so
-`h`/`l` move by bars and there is no separate word motion size.
+The arrangement collapses a tier at the char end: `x` cuts the cell
+under the cursor out of whatever clip covers it, so there is no separate
+"delete the clip" key below `dd`'s whole lane.
 
 `yy` in the piano roll and drum grid is the whole-pattern yank rather
 than a one-row yank: it is the cross-track pattern-copy vehicle (`p`

@@ -4994,6 +4994,42 @@ test "arrangement clip-edge motions skip empty time" {
     try std.testing.expectEqual(@as(u32, 12), app.arr_cursor_bar);
 }
 
+test "arrangement w/b snap to bar lines; G lands on the song end or a counted bar" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .arrangement;
+    app.cursor = 0;
+
+    // Default 1/4 grid: a cell is a beat, so a 4/4 bar is 4 cells. w from
+    // mid-bar snaps forward to the next bar line, b back to the previous.
+    app.arr_cursor_bar = 5;
+    app.handleKey(.{ .char = 'w' }, 0);
+    try std.testing.expectEqual(@as(u32, 8), app.arr_cursor_bar);
+    app.handleKey(.{ .char = 'b' }, 0);
+    try std.testing.expectEqual(@as(u32, 4), app.arr_cursor_bar);
+    for ("2w") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u32, 12), app.arr_cursor_bar);
+
+    // A one-bar clip at bar 2 ends at cell 12, so G stops on cell 11 - the
+    // last cell that still holds song material.
+    try app.session.stampClip(0, 2);
+    app.arr_cursor_bar = 0;
+    app.handleKey(.{ .char = 'G' }, 0);
+    try std.testing.expectEqual(@as(u32, 11), app.arr_cursor_bar);
+
+    // With a count G is vim's line jump, counting the ruler's 1-based bars.
+    for ("3G") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(u32, 8), app.arr_cursor_bar);
+
+    // dw cuts through the end of the bar it starts in, not into the next:
+    // the clip on bar 3 survives the cut that clears bar 2.
+    try app.session.stampClip(0, 3);
+    app.arr_cursor_bar = 8;
+    for ("dw") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expect(app.session.arrangement.lane(0).?.clipAt(8 * 32) == null);
+    try std.testing.expect(app.session.arrangement.lane(0).?.clipAt(12 * 32) != null);
+}
+
 test "arrangement blockwise visual bounds the cut to the lane band j/k grows" {
     var app = try testApp();
     defer app.deinit();
@@ -5751,8 +5787,8 @@ test "A/B loop: ( ) b arm the region and the transport wraps inside it" {
     try std.testing.expect(engine.transport.position_frames < 288_000);
     try std.testing.expect(engine.transport.position_frames >= 96_000);
 
-    // b toggles it off; playback then runs past the old loop end.
-    app.handleKey(.{ .char = 'b' }, 0);
+    // = toggles it off; playback then runs past the old loop end.
+    app.handleKey(.{ .char = '=' }, 0);
     try std.testing.expect(!p.loop_enabled);
     _ = engine.send(.{ .seek_frames = 287_744 });
     engine.process(&block);
