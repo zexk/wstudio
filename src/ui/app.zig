@@ -1644,6 +1644,63 @@ pub const App = struct {
         return true;
     }
 
+    /// Which modal modes bypass a view's own key handler and go straight to
+    /// `modal.handle`. Command and search always do - they own the prompt
+    /// line, and a view that grabbed those keys would eat the text being
+    /// typed. The variants differ only in how much more they hand over.
+    const EditorBypass = enum {
+        /// Command and search only; the editor still sees insert and visual.
+        prompt,
+        /// ...and insert: in a grid view the qwerty layout is playing notes,
+        /// not navigating, so modal.handle owns every key until escape drops
+        /// back to normal (see recordNote in editors/drum.zig and
+        /// editors/piano.zig, and docs/editing-grammar.md).
+        prompt_insert,
+        /// Anything but normal mode.
+        non_normal,
+
+        fn covers(self: EditorBypass, mode: modal_mod.Mode) bool {
+            return switch (self) {
+                .prompt => mode == .command or mode == .search,
+                .prompt_insert => mode == .command or mode == .search or mode == .insert,
+                .non_normal => mode != .normal,
+            };
+        }
+    };
+
+    /// The editor views' shared key routing: offer the key to the view's own
+    /// handler unless the modal state owns it, and fall back to
+    /// `modal.handle` whenever the view passes. A key the editor handled
+    /// discards any unused count prefix - vim's rule that a count binds to
+    /// the command it precedes, then dies with it.
+    fn routeEditorKey(
+        self: *App,
+        key: modal_mod.Key,
+        now_ns: i96,
+        bypass: EditorBypass,
+        editorKey: *const fn (*App, modal_mod.Key) bool,
+    ) void {
+        if (bypass.covers(self.modal.mode) or !editorKey(self, key)) {
+            self.applyAction(self.modal.handle(key), now_ns);
+        } else self.modal.count = 0;
+    }
+
+    /// The picker views' shared key routing. `/` (and the search mode it
+    /// enters) goes to the modal prompt so the picker's filter narrows live
+    /// while typing; submit/cancel land in applyAction's `.search_submit`
+    /// case. Unlike `routeEditorKey` the picker handler is total - there is
+    /// no unhandled key to fall through with.
+    fn routePickerKey(
+        self: *App,
+        key: modal_mod.Key,
+        now_ns: i96,
+        pickerKey: *const fn (*App, modal_mod.Key) void,
+    ) void {
+        if (self.modal.mode == .search or (key == .char and key.char == '/')) {
+            self.applyAction(self.modal.handle(key), now_ns);
+        } else pickerKey(self, key);
+    }
+
     fn handleKeyBuiltin(self: *App, key_in: modal_mod.Key, now_ns: i96) void {
         self.now_ns = now_ns;
         if (key_in == .ctrl_c) {
@@ -1731,67 +1788,28 @@ pub const App = struct {
                     else => {},
                 }
             },
-            // Editor-handled keys discard any unused count prefix (vim: a
-            // count binds to the command it precedes, then dies with it).
-            // Normal and visual route through the editor first; command
-            // mode bypasses it, and insert mode bypasses the grid switch so
-            // qwerty keys trigger pads (see recordNote in editors/drum.zig
-            // and docs/editing-grammar.md).
-            .drum_grid => {
-                if (self.modal.mode == .command or self.modal.mode == .search or self.modal.mode == .insert or !drum_ed.handleKey(self, key)) {
-                    self.applyAction(self.modal.handle(key), now_ns);
-                } else self.modal.count = 0;
-            },
-            .slicer_grid => {
-                if (self.modal.mode == .command or self.modal.mode == .search or self.modal.mode == .insert or !slicer_ed.handleKey(self, key)) {
-                    self.applyAction(self.modal.handle(key), now_ns);
-                } else self.modal.count = 0;
-            },
-            .synth_editor => if (self.modal.mode == .command or self.modal.mode == .search or !synth_ed.handleKey(self, key)) {
-                self.applyAction(self.modal.handle(key), now_ns);
-            } else { self.modal.count = 0; },
-            // `!= .normal` already covers search (and command, insert, visual).
-            .sampler_editor => if (self.modal.mode != .normal or !sampler_ed.handleKey(self, key)) {
-                self.applyAction(self.modal.handle(key), now_ns);
-            } else { self.modal.count = 0; },
-            .soundfont_editor => if (self.modal.mode != .normal or !soundfont_ed.handleKey(self, key)) {
-                self.applyAction(self.modal.handle(key), now_ns);
-            } else { self.modal.count = 0; },
-            .track_spectrum, .master_spectrum, .group_spectrum => if (self.modal.mode == .command or self.modal.mode == .search or !spectrum_ed.handleKey(self, key)) {
-                self.applyAction(self.modal.handle(key), now_ns);
-            } else { self.modal.count = 0; },
-            // Insert mode bypasses the roll's own switch entirely - once
-            // inserted, the piano-keyboard layout needs h/j/k/l as notes,
-            // not roll navigation, so modal.handle owns every key until
-            // escape drops back to normal (see recordNote in editors/piano.zig).
-            .piano_roll => if (self.modal.mode == .command or self.modal.mode == .search or self.modal.mode == .insert or !piano_ed.handleKey(self, key)) {
-                self.applyAction(self.modal.handle(key), now_ns);
-            } else { self.modal.count = 0; },
-            .instrument_picker => if (self.modal.mode == .search or (key == .char and key.char == '/')) {
-                self.applyAction(self.modal.handle(key), now_ns);
-            } else self.handlePickerKey(key),
-            // `/` (and the search mode it enters) is routed to the modal
-            // prompt so the picker's filter narrows live while typing -
-            // submit/cancel land in applyAction's `.search_submit` case.
-            // Same shape as `.preset_picker`'s own routing below.
-            .fx_picker => if (self.modal.mode == .search or (key == .char and key.char == '/')) {
-                self.applyAction(self.modal.handle(key), now_ns);
-            } else self.handleFxPickerKey(key),
+            // Every editor view routes the same way; `routeEditorKey` and
+            // `EditorBypass` above own the contract, so an arm here is just
+            // "which handler, and how much does the modal state take first".
+            .drum_grid => self.routeEditorKey(key, now_ns, .prompt_insert, drum_ed.handleKey),
+            .slicer_grid => self.routeEditorKey(key, now_ns, .prompt_insert, slicer_ed.handleKey),
+            .piano_roll => self.routeEditorKey(key, now_ns, .prompt_insert, piano_ed.handleKey),
+            .synth_editor => self.routeEditorKey(key, now_ns, .prompt, synth_ed.handleKey),
+            .track_spectrum, .master_spectrum, .group_spectrum => self.routeEditorKey(key, now_ns, .prompt, spectrum_ed.handleKey),
+            .arrangement => self.routeEditorKey(key, now_ns, .prompt, arrangement_ed.handleKey),
+            .automation => self.routeEditorKey(key, now_ns, .prompt, automation_ed.handleKey),
+            .sampler_editor => self.routeEditorKey(key, now_ns, .non_normal, sampler_ed.handleKey),
+            .soundfont_editor => self.routeEditorKey(key, now_ns, .non_normal, soundfont_ed.handleKey),
+            .instrument_picker => self.routePickerKey(key, now_ns, App.handlePickerKey),
+            .fx_picker => self.routePickerKey(key, now_ns, App.handleFxPickerKey),
+            .automation_param_picker => self.routePickerKey(key, now_ns, App.handleAutomationParamPickerKey),
+            .preset_picker => self.routePickerKey(key, now_ns, preset_ed.handleKey),
+            // The browser has no `/` binding of its own to intercept: its
+            // search mode is entered from its own key handler, so only an
+            // already-open prompt routes past it.
             .file_browser => if (self.modal.mode == .search) {
                 self.applyAction(self.modal.handle(key), now_ns);
             } else self.handleBrowserKey(key),
-            .arrangement => if (self.modal.mode == .command or self.modal.mode == .search or !arrangement_ed.handleKey(self, key)) {
-                self.applyAction(self.modal.handle(key), now_ns);
-            } else { self.modal.count = 0; },
-            .automation => if (self.modal.mode == .command or self.modal.mode == .search or !automation_ed.handleKey(self, key)) {
-                self.applyAction(self.modal.handle(key), now_ns);
-            } else { self.modal.count = 0; },
-            .automation_param_picker => if (self.modal.mode == .search or (key == .char and key.char == '/')) {
-                self.applyAction(self.modal.handle(key), now_ns);
-            } else self.handleAutomationParamPickerKey(key),
-            .preset_picker => if (self.modal.mode == .search or (key == .char and key.char == '/')) {
-                self.applyAction(self.modal.handle(key), now_ns);
-            } else preset_ed.handleKey(self, key),
             .tracks => {
                 self.tracksRowSync();
                 // Visual mode: a contiguous row-range selection, checked
