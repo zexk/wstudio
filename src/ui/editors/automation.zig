@@ -183,7 +183,7 @@ fn curveStep(app: *App, target: AutomationFocus) f32 {
         .synth_param => |t| if (t.instance_id == 0)
             (if (findAutomatableParam(app, t.param_id)) |info| info.step else 0.01)
         else if (findFxUnit(app, t.instance_id)) |unit|
-            ws.dsp.fx_params.paramStepFine(&unit.payload, t.param_id)
+            ws.dsp.fx_params.paramStep(&unit.payload, t.param_id, false)
         else
             0.01,
     };

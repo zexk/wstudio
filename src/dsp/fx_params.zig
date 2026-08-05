@@ -565,55 +565,61 @@ pub fn setParamAbsolute(p: *FxPayload, idx: usize, value: f32) void {
     }
 }
 
-/// Fine h/l nudge step for param `idx` on kind `k` - sized per param so a
-/// single press is a musically useful move, same table `ui/editors/
-/// fx_editor.zig`'s own `paramStep` draws its fine values from (that
-/// function also handles a coarse variant and comp/clap/vst3's app-dependent
-/// rows; this one only needs the plain fine step, for automation lane
-/// nudging).
-pub fn paramStepFine(p: *const FxPayload, idx: usize) f32 {
+/// Nudge step for param `idx` - `coarse` picks the bigger of the two, sized
+/// per param so a single press is a musically useful move (1 dB fine / 6 dB
+/// coarse for EQ and comp threshold, fractions for the 0..1-ish delay/reverb
+/// knobs). `ui/editors/fx_editor.zig` wraps this for the rows it owns
+/// (comp sidechain, CLAP ranges).
+pub fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
     return switch (p.*) {
         .eq => |*e| switch (eqBandField(idx).field) {
-            eq_field_freq => 10.0,
-            eq_field_q => 0.1,
-            eq_field_dyn_threshold, eq_field_dyn_amount => 1.0,
-            else => if (eq_mod.usesGain(e.bands[eqBandField(idx).band].kind)) @as(f32, 1.0) else 1.0,
+            eq_field_kind => 1.0,
+            eq_field_freq => if (coarse) @as(f32, 100.0) else 10.0,
+            eq_field_q => if (coarse) @as(f32, 0.5) else 0.1,
+            eq_field_solo, eq_field_dyn_enabled, eq_field_stereo_mode => 1.0,
+            eq_field_dyn_threshold, eq_field_dyn_amount => if (coarse) @as(f32, 6.0) else 1.0,
+            // gain steps normally; slope steps whole cascade stages, coarse
+            // jumping the full 1..max_slope range in one press.
+            else => if (eq_mod.usesGain(e.bands[eqBandField(idx).band].kind))
+                (if (coarse) @as(f32, 6.0) else 1.0)
+            else
+                (if (coarse) @as(f32, eq_mod.max_slope) else 1.0),
         },
         .mb_comp => switch (idx) {
-            mb_xover_lo, mb_xover_hi => 10.0,
-            mb_attack => 5.0,
-            mb_release => 20.0,
-            mb_knee => 1.0,
-            mb_style => 1.0,
-            mb_mix => 0.05,
+            mb_xover_lo, mb_xover_hi => if (coarse) @as(f32, 100.0) else 10.0,
+            mb_attack => if (coarse) @as(f32, 50.0) else 5.0,
+            mb_release => if (coarse) @as(f32, 200.0) else 20.0,
+            mb_knee => if (coarse) @as(f32, 3.0) else 1.0,
+            mb_style => 1.0, // toggle, whole steps only
+            mb_mix => if (coarse) @as(f32, 0.2) else 0.05,
             else => switch (mbBandField(idx).field) {
-                0 => 1.0,
-                1 => 0.5,
-                else => 0.5,
+                0 => if (coarse) @as(f32, 6.0) else 1.0, // threshold
+                1 => if (coarse) @as(f32, 2.0) else 0.5, // ratio
+                else => if (coarse) @as(f32, 3.0) else 0.5, // makeup
             },
         },
         .comp => switch (idx) {
             6, 7 => 1.0,
-            else => tableStep(&comp_specs, idx, false),
+            else => tableStep(&comp_specs, idx, coarse),
         },
-        .gate => tableStep(&gate_specs, idx, false),
-        .filter => tableStep(&filter_specs, idx, false),
-        .utility => tableStep(&utility_specs, idx, false),
-        .stereo_width => tableStep(&stereo_width_specs, idx, false),
-        .auto_pan => tableStep(&auto_pan_specs, idx, false),
-        .transient_shaper => tableStep(&transient_shaper_specs, idx, false),
-        .sat => tableStep(&sat_specs, idx, false),
-        .crush => tableStep(&crush_specs, idx, false),
-        .chorus => tableStep(&chorus_specs, idx, false),
-        .phaser => tableStep(&phaser_specs, idx, false),
-        .flanger => tableStep(&flanger_specs, idx, false),
-        .tape => tableStep(&tape_specs, idx, false),
-        .freq_shift => tableStep(&freq_shift_specs, idx, false),
-        .reverb => tableStep(&reverb_specs, idx, false),
-        .delay => tableStep(&delay_specs, idx, false),
-        .ott => tableStep(&ott_specs, idx, false),
-        .limiter => tableStep(&limiter_specs, idx, false),
-        .clap, .vst3 => 0.01,
+        .gate => tableStep(&gate_specs, idx, coarse),
+        .filter => tableStep(&filter_specs, idx, coarse),
+        .utility => tableStep(&utility_specs, idx, coarse),
+        .stereo_width => tableStep(&stereo_width_specs, idx, coarse),
+        .auto_pan => tableStep(&auto_pan_specs, idx, coarse),
+        .transient_shaper => tableStep(&transient_shaper_specs, idx, coarse),
+        .sat => tableStep(&sat_specs, idx, coarse),
+        .crush => tableStep(&crush_specs, idx, coarse),
+        .chorus => tableStep(&chorus_specs, idx, coarse),
+        .phaser => tableStep(&phaser_specs, idx, coarse),
+        .flanger => tableStep(&flanger_specs, idx, coarse),
+        .tape => tableStep(&tape_specs, idx, coarse),
+        .freq_shift => tableStep(&freq_shift_specs, idx, coarse),
+        .reverb => tableStep(&reverb_specs, idx, coarse),
+        .delay => tableStep(&delay_specs, idx, coarse),
+        .ott => tableStep(&ott_specs, idx, coarse),
+        .limiter => tableStep(&limiter_specs, idx, coarse),
+        .clap, .vst3 => if (coarse) @as(f32, 0.1) else 0.01,
     };
 }
 

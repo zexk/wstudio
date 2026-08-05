@@ -119,32 +119,7 @@ pub fn compactHz(buf: []u8, hz: f32) []const u8 {
     return std.fmt.bufPrint(buf, "{d:.0}", .{hz}) catch "?";
 }
 
-pub fn paramCount(k: FxKind) usize {
-    return switch (k) {
-        .eq => eq_mod.num_eq_bands * eq_fields_per_band,
-        .mb_comp => mb_comp_param_count,
-        .comp => comp_specs.len + 2, // + sidechain track + sidechain pad
-        .gate => gate_specs.len,
-        .filter => filter_specs.len,
-        .utility => utility_specs.len,
-        .stereo_width => stereo_width_specs.len,
-        .auto_pan => auto_pan_specs.len,
-        .sat => sat_specs.len,
-        .crush => crush_specs.len,
-        .chorus => chorus_specs.len,
-        .phaser => phaser_specs.len,
-        .flanger => flanger_specs.len,
-        .tape => tape_specs.len,
-        .freq_shift => freq_shift_specs.len,
-        .reverb => reverb_specs.len,
-        .delay => delay_specs.len,
-        .ott => ott_specs.len,
-        .limiter => limiter_specs.len,
-        .transient_shaper => transient_shaper_specs.len,
-        .clap => 0,
-        .vst3 => 0,
-    };
-}
+pub const paramCount = fx_p.paramCount;
 
 /// True if `track` currently hosts a drum machine - the only instrument
 /// with individually addressable pads, so the only one `scpad` (see
@@ -207,322 +182,66 @@ test "parameter grid follows sequential navigation order" {
     try std.testing.expectEqual(@as(?usize, null), grid.index(2, 1));
 }
 
-/// Flat param list for a multiband compressor: 7 shared controls (crossover
-/// x2, attack, release, knee, style, mix) followed by 3 fields (thresh/
-/// ratio/makeup) per band, low->mid->high - same "one sequential list"
-/// shape the EQ's flattened band/field list already uses.
-pub const mb_xover_lo = 0;
-pub const mb_xover_hi = 1;
-pub const mb_attack = 2;
-pub const mb_release = 3;
-pub const mb_knee = 4;
-pub const mb_style = 5;
-pub const mb_mix = 6;
-pub const mb_shared_count = 7;
-pub const mb_fields_per_band = 3; // thresh, ratio, makeup
-const mb_comp_param_count = mb_shared_count + multiband_comp.num_bands * mb_fields_per_band;
+// Flat param-index layout for the multiband comp and the EQ, plus the
+// band/field split helpers - defined in dsp/fx_params.zig (the audio thread
+// addresses the same indices) and aliased here under their original names.
+pub const mb_xover_lo = fx_p.mb_xover_lo;
+pub const mb_xover_hi = fx_p.mb_xover_hi;
+pub const mb_attack = fx_p.mb_attack;
+pub const mb_release = fx_p.mb_release;
+pub const mb_knee = fx_p.mb_knee;
+pub const mb_style = fx_p.mb_style;
+pub const mb_mix = fx_p.mb_mix;
+pub const mb_shared_count = fx_p.mb_shared_count;
+pub const mb_fields_per_band = fx_p.mb_fields_per_band;
+pub const MbBandField = fx_p.MbBandField;
+pub const mbBandField = fx_p.mbBandField;
+pub const eq_field_kind = fx_p.eq_field_kind;
+pub const eq_field_freq = fx_p.eq_field_freq;
+pub const eq_field_q = fx_p.eq_field_q;
+pub const eq_field_gain = fx_p.eq_field_gain;
+pub const eq_field_solo = fx_p.eq_field_solo;
+pub const eq_field_stereo_mode = fx_p.eq_field_stereo_mode;
+pub const eq_field_dyn_enabled = fx_p.eq_field_dyn_enabled;
+pub const eq_field_dyn_threshold = fx_p.eq_field_dyn_threshold;
+pub const eq_field_dyn_amount = fx_p.eq_field_dyn_amount;
+pub const eq_fields_per_band = fx_p.eq_fields_per_band;
+pub const eqBandField = fx_p.eqBandField;
 
 /// The OTT unit's four params, in display order - the whole point of the
 /// kind is that this list stays this short (see dsp/ott.zig).
 pub const ott_depth = 0;
 pub const ott_time = 1;
 
-pub const MbBandField = struct { band: usize, field: usize };
-
-pub fn mbBandField(idx: usize) MbBandField {
-    const rel = idx - mb_shared_count;
-    return .{ .band = rel / mb_fields_per_band, .field = rel % mb_fields_per_band };
-}
-
-/// EQ params are a flat `band*eq_fields_per_band + field` list (kind, freq,
-/// q, gain per band), the same "one sequential param list" shape every
-/// other multi-param unit here uses - no separate band/field navigation
-/// axis needed. `eq_field_gain`'s row is "gain" for peak/shelf bands or
-/// "slope" for lowpass/highpass ones (see `paramName`/`getParam`/`setParam`) -
-/// the two response families never apply at once (a filter band's gain is
-/// stored but the DSP ignores it), so they share the one flat slot instead
-/// of needing a fifth per-band field.
-pub const eq_field_kind = 0;
-pub const eq_field_freq = 1;
-pub const eq_field_q = 2;
-pub const eq_field_gain = 3;
-/// Isolate this band's region to audition it (exclusive - see
-/// `ParametricEq.setSolo`).
-pub const eq_field_solo = 4;
-/// Stereo/mid/side targeting for this band - see `eq_mod.StereoMode`.
-pub const eq_field_stereo_mode = 5;
-/// Dynamic EQ: whether `eq_field_dyn_threshold`/`eq_field_dyn_amount` are
-/// live for this band (only meaningful for the gain-based kinds).
-pub const eq_field_dyn_enabled = 6;
-pub const eq_field_dyn_threshold = 7;
-pub const eq_field_dyn_amount = 8;
-pub const eq_fields_per_band = 9;
-
-pub fn eqBandField(idx: usize) struct { band: usize, field: usize } {
-    return .{ .band = idx / eq_fields_per_band, .field = idx % eq_fields_per_band };
-}
-
-/// [band][field] name table (thresh/ratio/makeup x low/mid/high) - a static
-/// lookup instead of building the string at call time, matching every other
-/// param-name function here (no allocation). Every label stays <=9 chars -
-/// `style.rowHead`'s label column is a fixed 9-wide field; "mid-makeup" (10
-/// chars) broke that alignment, so all three makeup labels use "*-mkup".
-const mb_band_param_names = [multiband_comp.num_bands][mb_fields_per_band][]const u8{
-    .{ "lo-thr", "lo-ratio", "lo-mkup" },
-    .{ "mid-thr", "mid-ratio", "mid-mkup" },
-    .{ "hi-thr", "hi-ratio", "hi-mkup" },
-};
-
-fn mbBandParamName(bf: MbBandField) []const u8 {
-    return mb_band_param_names[bf.band][bf.field];
-}
-
-/// One row of the per-kind param table driving the "plain" FX kinds
-/// below - everything that reduces to reading/writing one f32 field (or,
-/// for a couple of clamped/derived params, calling an existing method)
-/// against a static range. EQ, multiband comp, and comp's sidechain rows
-/// don't fit this shape (banded indexing, cross-field/`app`-derived state)
-/// and keep their own switch arms instead.
-const ParamSpec = struct {
-    name: []const u8,
-    field: []const u8 = "",
-    getter: ?[]const u8 = null,
-    setter: ?[]const u8 = null,
-    min: f32,
-    max: f32,
-    step_fine: f32,
-    step_coarse: f32,
-    round: bool = false,
-};
-
-fn tableName(comptime table: []const ParamSpec, idx: usize) []const u8 {
-    inline for (table, 0..) |spec, i| if (i == idx) return spec.name;
-    return "?";
-}
-
-fn tableRange(comptime table: []const ParamSpec, idx: usize) [2]f32 {
-    inline for (table, 0..) |spec, i| if (i == idx) return .{ spec.min, spec.max };
-    return .{ 0.0, 1.0 };
-}
-
-fn tableStep(comptime table: []const ParamSpec, idx: usize, coarse: bool) f32 {
-    inline for (table, 0..) |spec, i| if (i == idx) return if (coarse) spec.step_coarse else spec.step_fine;
-    return 1.0;
-}
-
-fn tableGet(self: anytype, comptime table: []const ParamSpec, idx: usize) f32 {
-    inline for (table, 0..) |spec, i| {
-        if (i == idx) {
-            if (spec.getter) |g| return @field(@TypeOf(self.*), g)(self);
-            return @field(self.*, spec.field);
-        }
-    }
-    return 0;
-}
-
-/// Clamps (and, for whole-number params, rounds) `value` to `spec`'s range
-/// before writing it - through the setter method if one's given, otherwise
-/// straight into the field. The clamp always runs even when a setter also
-/// clamps internally (e.g. `Ott.setDepth`): harmless double-clamp there.
-fn tableSet(self: anytype, comptime table: []const ParamSpec, idx: usize, value: f32) void {
-    inline for (table, 0..) |spec, i| {
-        if (i == idx) {
-            const clamped = if (spec.round)
-                std.math.clamp(@round(value), spec.min, spec.max)
-            else
-                std.math.clamp(value, spec.min, spec.max);
-            if (spec.setter) |s| {
-                @field(@TypeOf(self.*), s)(self, clamped);
-            } else {
-                @field(self.*, spec.field) = clamped;
-            }
-            return;
-        }
-    }
-}
-
-const gate_specs = [_]ParamSpec{
-    .{ .name = "thresh", .field = "threshold_db", .min = -80.0, .max = 0.0, .step_fine = 1.0, .step_coarse = 6.0 },
-    .{ .name = "attack", .field = "attack_ms", .min = 0.1, .max = 50.0, .step_fine = 0.5, .step_coarse = 5.0 },
-    .{ .name = "hold", .field = "hold_ms", .min = 0.0, .max = 500.0, .step_fine = 5.0, .step_coarse = 50.0 },
-    .{ .name = "release", .field = "release_ms", .min = 5.0, .max = 1000.0, .step_fine = 10.0, .step_coarse = 100.0 },
-};
-
-const filter_specs = [_]ParamSpec{
-    .{ .name = "mode", .field = "mode", .min = 0.0, .max = 2.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
-    .{ .name = "cutoff", .field = "cutoff_hz", .min = 20.0, .max = 20000.0, .step_fine = 10.0, .step_coarse = 100.0 },
-    .{ .name = "resonance", .field = "resonance", .min = 0.1, .max = 1.4, .step_fine = 0.05, .step_coarse = 0.2 },
-    .{ .name = "drive", .field = "drive_db", .min = 0.0, .max = 24.0, .step_fine = 1.0, .step_coarse = 6.0 },
-    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-};
-
-const utility_specs = [_]ParamSpec{
-    .{ .name = "gain", .field = "gain_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
-    .{ .name = "polarity", .field = "invert", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
-    .{ .name = "mono", .field = "mono", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
-    .{ .name = "channel", .field = "channel", .min = 0.0, .max = 2.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
-    .{ .name = "swap", .field = "swap", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
-};
-
-const stereo_width_specs = [_]ParamSpec{
-    .{ .name = "width", .field = "width", .min = 0.0, .max = 2.0, .step_fine = 0.05, .step_coarse = 0.25 },
-    .{ .name = "output", .field = "output_db", .min = -24.0, .max = 12.0, .step_fine = 0.5, .step_coarse = 3.0 },
-};
-
-const auto_pan_specs = [_]ParamSpec{
-    .{ .name = "rate", .field = "rate_hz", .min = 0.05, .max = 20.0, .step_fine = 0.05, .step_coarse = 1.0 },
-    .{ .name = "sync", .field = "sync", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
-    .{ .name = "beats", .field = "beats", .min = 0.25, .max = 16.0, .step_fine = 0.25, .step_coarse = 1.0 },
-    .{ .name = "depth", .field = "depth", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-    .{ .name = "phase", .field = "phase", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
-};
-
-const transient_shaper_specs = [_]ParamSpec{
-    .{ .name = "attack", .field = "attack", .min = -1.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-    .{ .name = "sustain", .field = "sustain", .min = -1.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-    .{ .name = "output", .field = "output_db", .min = -24.0, .max = 12.0, .step_fine = 0.5, .step_coarse = 3.0 },
-};
-
-const sat_specs = [_]ParamSpec{
-    .{ .name = "drive", .field = "drive_db", .min = 0.0, .max = 36.0, .step_fine = 1.0, .step_coarse = 6.0 },
-    .{ .name = "output", .field = "out_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
-    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-    .{ .name = "shape", .field = "shape", .min = 0.0, .max = 2.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
-};
-
-const crush_specs = [_]ParamSpec{
-    .{ .name = "bits", .field = "bits", .min = 1.0, .max = 16.0, .step_fine = 1.0, .step_coarse = 4.0, .round = true },
-    .{ .name = "downsmp", .field = "downsample", .min = 1.0, .max = 32.0, .step_fine = 1.0, .step_coarse = 4.0, .round = true },
-    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-};
-
-const chorus_specs = [_]ParamSpec{
-    .{ .name = "rate", .field = "rate_hz", .min = 0.05, .max = 5.0, .step_fine = 0.05, .step_coarse = 0.5 },
-    .{ .name = "depth", .field = "depth_ms", .min = 0.0, .max = chorus_mod.max_depth_ms, .step_fine = 0.5, .step_coarse = 2.0 },
-    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-};
-
-const phaser_specs = [_]ParamSpec{
-    .{ .name = "rate", .field = "rate_hz", .min = 0.05, .max = 5.0, .step_fine = 0.05, .step_coarse = 0.5 },
-    .{ .name = "depth", .field = "depth", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-    .{ .name = "feedback", .field = "feedback", .min = 0.0, .max = 0.9, .step_fine = 0.05, .step_coarse = 0.2 },
-    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-};
-
-/// Flanger's controls are the same shape as phaser's (mechanical copy when
-/// the unit was added - see docs/ FX chain notes).
-const flanger_specs = phaser_specs;
-
-const tape_specs = [_]ParamSpec{
-    .{ .name = "wow rate", .field = "wow_rate_hz", .min = 0.05, .max = 3.0, .step_fine = 0.05, .step_coarse = 0.3 },
-    .{ .name = "wow depth", .field = "wow_depth", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-    .{ .name = "flutter rate", .field = "flutter_rate_hz", .min = 3.0, .max = 15.0, .step_fine = 0.5, .step_coarse = 2.0 },
-    .{ .name = "flutter depth", .field = "flutter_depth", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-};
-
-const freq_shift_specs = [_]ParamSpec{
-    .{ .name = "shift", .field = "shift_hz", .min = -2000.0, .max = 2000.0, .step_fine = 10.0, .step_coarse = 100.0 },
-    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-};
-
-const reverb_specs = [_]ParamSpec{
-    .{ .name = "room", .field = "room", .min = 0.0, .max = 0.98, .step_fine = 0.02, .step_coarse = 0.1 },
-    .{ .name = "damp", .field = "damp", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-    .{ .name = "predelay", .field = "predelay_ms", .min = 0.0, .max = 250.0, .step_fine = 5.0, .step_coarse = 25.0 },
-    .{ .name = "width", .field = "width", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-    .{ .name = "low cut", .field = "low_cut_hz", .min = 0.0, .max = 500.0, .step_fine = 10.0, .step_coarse = 50.0 },
-};
-
-/// `time`'s max matches the 2.0s line `StereoDelay.init` allocates at every
-/// call site; `time_s` is a plain sanitized field now (no more `setTime`
-/// control-side reset), so the knob can be dragged live with no click.
-const delay_specs = [_]ParamSpec{
-    .{ .name = "time", .field = "time_s", .min = 0.0, .max = 2.0, .step_fine = 0.01, .step_coarse = 0.1 },
-    .{ .name = "feedback", .field = "feedback", .min = 0.0, .max = 0.95, .step_fine = 0.05, .step_coarse = 0.2 },
-    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-    .{ .name = "damp", .field = "damp", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-};
-
-const ott_specs = [_]ParamSpec{
-    .{ .name = "depth", .getter = "depth", .setter = "setDepth", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-    .{ .name = "time", .field = "time", .setter = "setTime", .min = 0.25, .max = 4.0, .step_fine = 0.05, .step_coarse = 0.5 },
-    .{ .name = "in", .field = "gain_in_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
-    .{ .name = "out", .field = "gain_out_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
-};
-
-const limiter_specs = [_]ParamSpec{
-    .{ .name = "ceiling", .field = "ceiling", .min = 0.25, .max = 1.0, .step_fine = 0.005, .step_coarse = 0.05 },
-    .{ .name = "release", .field = "release_ms", .min = 1.0, .max = 1000.0, .step_fine = 10.0, .step_coarse = 100.0 },
-    .{ .name = "lookahead", .field = "lookahead_ms", .min = 0.0, .max = limiter_mod.max_lookahead_ms, .step_fine = 1.0, .step_coarse = 5.0 },
-};
-
-/// `comp`'s first 6 params only - idx 6/7 are the sidechain track/pad
-/// spinners, which need `app` and cross-field state the table shape can't
-/// express, so they stay hand-written in every switch below.
-const comp_specs = [_]ParamSpec{
-    .{ .name = "thresh", .field = "threshold_db", .min = -60.0, .max = 0.0, .step_fine = 1.0, .step_coarse = 6.0 },
-    .{ .name = "ratio", .field = "ratio", .min = 1.0, .max = 20.0, .step_fine = 0.5, .step_coarse = 2.0 },
-    .{ .name = "attack", .field = "attack_ms", .min = 0.1, .max = 500.0, .step_fine = 5.0, .step_coarse = 50.0 },
-    .{ .name = "release", .field = "release_ms", .min = 1.0, .max = 2000.0, .step_fine = 20.0, .step_coarse = 200.0 },
-    .{ .name = "makeup", .field = "makeup_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
-    .{ .name = "knee", .field = "knee_db", .min = 0.0, .max = 24.0, .step_fine = 1.0, .step_coarse = 3.0 },
-};
+// The ParamSpec table machinery and every plain-kind spec table live in
+// dsp/fx_params.zig so the audio thread can reach them; aliased back here
+// under their original names so this file's switches read unchanged.
+const tableName = fx_p.tableName;
+const tableRange = fx_p.tableRange;
+const tableStep = fx_p.tableStep;
+const tableGet = fx_p.tableGet;
+const tableSet = fx_p.tableSet;
+const gate_specs = fx_p.gate_specs;
+const filter_specs = fx_p.filter_specs;
+const utility_specs = fx_p.utility_specs;
+const stereo_width_specs = fx_p.stereo_width_specs;
+const auto_pan_specs = fx_p.auto_pan_specs;
+const transient_shaper_specs = fx_p.transient_shaper_specs;
+const sat_specs = fx_p.sat_specs;
+const crush_specs = fx_p.crush_specs;
+const chorus_specs = fx_p.chorus_specs;
+const phaser_specs = fx_p.phaser_specs;
+const flanger_specs = fx_p.flanger_specs;
+const tape_specs = fx_p.tape_specs;
+const freq_shift_specs = fx_p.freq_shift_specs;
+const reverb_specs = fx_p.reverb_specs;
+const delay_specs = fx_p.delay_specs;
+const ott_specs = fx_p.ott_specs;
+const limiter_specs = fx_p.limiter_specs;
+const comp_specs = fx_p.comp_specs;
 
 /// Param name at `idx` in `p` - bounds match `paramCount`.
-pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
-    return switch (p.*) {
-        .eq => |*e| blk: {
-            const bf = eqBandField(idx);
-            break :blk switch (bf.field) {
-                eq_field_kind => "kind",
-                eq_field_freq => "freq",
-                eq_field_q => "q",
-                eq_field_solo => "solo",
-                eq_field_stereo_mode => "stereo",
-                eq_field_dyn_enabled => "dyn on",
-                eq_field_dyn_threshold => "dyn thr",
-                eq_field_dyn_amount => "dyn amt",
-                else => if (eq_mod.usesGain(e.bands[bf.band].kind)) "gain" else "slope",
-            };
-        },
-        .mb_comp => switch (idx) {
-            mb_xover_lo => "xover-lo",
-            mb_xover_hi => "xover-hi",
-            mb_attack => "attack",
-            mb_release => "release",
-            mb_knee => "knee",
-            mb_style => "style",
-            mb_mix => "mix",
-            else => mbBandParamName(mbBandField(idx)),
-        },
-        .comp => switch (idx) {
-            6 => "sidechain",
-            7 => "scpad",
-            else => tableName(&comp_specs, idx),
-        },
-        .gate => tableName(&gate_specs, idx),
-        .filter => tableName(&filter_specs, idx),
-        .utility => tableName(&utility_specs, idx),
-        .stereo_width => tableName(&stereo_width_specs, idx),
-        .auto_pan => tableName(&auto_pan_specs, idx),
-        .transient_shaper => tableName(&transient_shaper_specs, idx),
-        .sat => tableName(&sat_specs, idx),
-        .crush => tableName(&crush_specs, idx),
-        .chorus => tableName(&chorus_specs, idx),
-        .phaser => tableName(&phaser_specs, idx),
-        .flanger => tableName(&flanger_specs, idx),
-        .tape => tableName(&tape_specs, idx),
-        .freq_shift => tableName(&freq_shift_specs, idx),
-        .reverb => tableName(&reverb_specs, idx),
-        .delay => tableName(&delay_specs, idx),
-        .ott => tableName(&ott_specs, idx),
-        .limiter => tableName(&limiter_specs, idx),
-        .clap => "param",
-        .vst3 => "param",
-    };
-}
+pub const paramName = fx_p.paramName;
 
 /// Parameter label copied into `buf` for external runtime metadata, or the
 /// static built-in label. The returned slice remains valid for the caller's
@@ -559,42 +278,11 @@ test "invalid CLAP parameter metadata has safe UI fallbacks" {
     try std.testing.expectEqual(@as(f32, 4), clapValue(9, 0, .{ -2, 4 }));
 }
 
-/// Current value of param `idx` in `p` - bounds match `paramCount`.
+/// Current value of param `idx` in `p` - bounds match `paramCount`. Only
+/// the rows `fx_params.getParam` can't reach (comp's sidechain pair, live
+/// plugin values) are handled here.
 pub fn getParam(p: *const FxPayload, idx: usize) f32 {
     return switch (p.*) {
-        .eq => |*e| blk: {
-            const bf = eqBandField(idx);
-            const band = &e.bands[bf.band];
-            break :blk switch (bf.field) {
-                eq_field_kind => @floatFromInt(@intFromEnum(band.kind)),
-                eq_field_freq => band.freq,
-                eq_field_q => band.q,
-                eq_field_solo => if (band.solo) 1.0 else 0.0,
-                eq_field_stereo_mode => @floatFromInt(@intFromEnum(band.stereo_mode)),
-                eq_field_dyn_enabled => if (band.dyn_enabled) 1.0 else 0.0,
-                eq_field_dyn_threshold => band.dyn_threshold_db,
-                eq_field_dyn_amount => band.dyn_amount_db,
-                else => if (eq_mod.usesGain(band.kind)) band.gain_db else @floatFromInt(band.slope),
-            };
-        },
-        .mb_comp => |*m| switch (idx) {
-            mb_xover_lo => m.xover_lo_hz,
-            mb_xover_hi => m.xover_hi_hz,
-            mb_attack => m.attack_ms,
-            mb_release => m.release_ms,
-            mb_knee => m.knee_db,
-            mb_style => if (m.style == .ott) 1.0 else 0.0,
-            mb_mix => m.mix,
-            else => blk: {
-                const bf = mbBandField(idx);
-                const band = m.bands[bf.band];
-                break :blk switch (bf.field) {
-                    0 => band.threshold_db,
-                    1 => band.ratio,
-                    else => band.makeup_db,
-                };
-            },
-        },
         .comp => |*c| switch (idx) {
             // Sidechain source, encoded as 0 = none, positive N = 1-based
             // track index (matches the tracks view's own 1-based row
@@ -602,9 +290,7 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
             // `paramRange`/`setParam`/`formatValue`'s matching branches) -
             // lets this slot share the same float-valued get/set/range/step
             // shape every other param here uses instead of a separate enum
-            // path. Negative (not "past tracks.len") because `getParam`
-            // itself has no `app`/track-count to offset by - only
-            // `paramRange`/`setParam`/`formatValue` do.
+            // path.
             6 => if (c.sidechain_source) |s| (if (s.is_group)
                 -(@as(f32, @floatFromInt(s.track)) + 1.0)
             else
@@ -612,25 +298,8 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
             // Sidechain pad, same 0=none/N=1-based encoding as idx 6 - only
             // meaningful once a track is picked there; see `setParam`.
             7 => if (c.sidechain_source) |s| (if (s.pad) |pd| @as(f32, @floatFromInt(pd)) + 1.0 else 0.0) else 0.0,
-            else => tableGet(c, &comp_specs, idx),
+            else => fx_p.getParam(p, idx),
         },
-        .gate => |*g| tableGet(g, &gate_specs, idx),
-        .filter => |*f| tableGet(f, &filter_specs, idx),
-        .utility => |*u| tableGet(u, &utility_specs, idx),
-        .stereo_width => |*w| tableGet(w, &stereo_width_specs, idx),
-        .auto_pan => |*a| tableGet(a, &auto_pan_specs, idx),
-        .transient_shaper => |*t| tableGet(t, &transient_shaper_specs, idx),
-        .sat => |*s| tableGet(s, &sat_specs, idx),
-        .crush => |*c| tableGet(c, &crush_specs, idx),
-        .chorus => |*c| tableGet(c, &chorus_specs, idx),
-        .phaser => |*p2| tableGet(p2, &phaser_specs, idx),
-        .flanger => |*fl| tableGet(fl, &flanger_specs, idx),
-        .tape => |*t| tableGet(t, &tape_specs, idx),
-        .freq_shift => |*f| tableGet(f, &freq_shift_specs, idx),
-        .reverb => |*r| tableGet(r, &reverb_specs, idx),
-        .delay => |*d| tableGet(d, &delay_specs, idx),
-        .ott => |*o| tableGet(o, &ott_specs, idx),
-        .limiter => |*l| tableGet(l, &limiter_specs, idx),
         .clap => |plugin| blk: {
             const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk 0;
             const range = clapRange(info.min_value, info.max_value) orelse break :blk 0;
@@ -641,73 +310,29 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
             const info = plugin.parameterInfo(idx) orelse break :blk 0;
             break :blk @floatCast(plugin.parameterValue(info.id) orelse info.default_normalized_value);
         },
+        else => fx_p.getParam(p, idx),
     };
 }
 
-/// Display string for param `idx`'s current value in `p` - the units and
-/// precision each FX kind's values read in (Hz, dB, %, ms, ...). Shared by
-/// the TUI chain view and the status renderers (ui/status.zig); `app` is
-/// only used by the compressor's sidechain rows to resolve a track/pad name.
-/// [min, max] of param `idx` in a unit of kind `k` - the same bounds
-/// `setParam` clamps to, exported so the view can draw each param as a
-/// filled bar (barRow wants a 0..1-ish normalised value).
+/// [min, max] of param `idx` in `p` - the same bounds `setParam` clamps to,
+/// exported so the view can draw each param as a filled bar (barRow wants a
+/// 0..1-ish normalised value). `app` is only needed by comp's sidechain
+/// rows, whose bounds are "how many tracks/groups the session has".
 pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
     return switch (p.*) {
-        .eq => |*e| switch (eqBandField(idx).field) {
-            eq_field_kind => .{ 0.0, @floatFromInt(eq_kind_specs.len - 1) },
-            eq_field_freq => .{ 20.0, 20000.0 },
-            eq_field_q => .{ 0.1, 10.0 },
-            eq_field_solo, eq_field_dyn_enabled => .{ 0.0, 1.0 },
-            eq_field_stereo_mode => .{ 0.0, @floatFromInt(std.meta.fields(eq_mod.StereoMode).len - 1) },
-            eq_field_dyn_threshold => .{ -60.0, 0.0 },
-            eq_field_dyn_amount => .{ -18.0, 18.0 },
-            else => if (eq_mod.usesGain(e.bands[eqBandField(idx).band].kind))
-                [2]f32{ -18.0, 18.0 }
-            else
-                [2]f32{ 1.0, @floatFromInt(eq_mod.max_slope) },
-        },
-        .mb_comp => switch (idx) {
-            mb_xover_lo, mb_xover_hi => .{ 20.0, 20000.0 },
-            mb_attack => .{ 0.1, 500.0 },
-            mb_release => .{ 1.0, 2000.0 },
-            mb_knee => .{ 0.0, 24.0 },
-            mb_style => .{ 0.0, 1.0 },
-            mb_mix => .{ 0.0, 1.0 },
-            else => switch (mbBandField(idx).field) {
-                0 => .{ -60.0, 0.0 }, // threshold
-                1 => .{ 1.0, 20.0 }, // ratio
-                else => .{ -24.0, 24.0 }, // makeup
-            },
-        },
         .comp => switch (idx) {
             // Negative half of the range is group buses (see `getParam`'s
             // doc comment for the encoding), positive half is tracks.
             6 => .{ -@as(f32, @floatFromInt(ws.engine.max_groups)), @floatFromInt(app.session.project.tracks.items.len) },
             7 => .{ 0.0, @floatFromInt(DrumMachine.max_pads) },
-            else => tableRange(&comp_specs, idx),
+            else => fx_p.paramRange(p, idx),
         },
-        .gate => tableRange(&gate_specs, idx),
-        .filter => tableRange(&filter_specs, idx),
-        .utility => tableRange(&utility_specs, idx),
-        .stereo_width => tableRange(&stereo_width_specs, idx),
-        .auto_pan => tableRange(&auto_pan_specs, idx),
-        .transient_shaper => tableRange(&transient_shaper_specs, idx),
-        .sat => tableRange(&sat_specs, idx),
-        .crush => tableRange(&crush_specs, idx),
-        .chorus => tableRange(&chorus_specs, idx),
-        .phaser => tableRange(&phaser_specs, idx),
-        .flanger => tableRange(&flanger_specs, idx),
-        .tape => tableRange(&tape_specs, idx),
-        .freq_shift => tableRange(&freq_shift_specs, idx),
-        .reverb => tableRange(&reverb_specs, idx),
-        .delay => tableRange(&delay_specs, idx),
-        .ott => tableRange(&ott_specs, idx),
-        .limiter => tableRange(&limiter_specs, idx),
         .clap => |plugin| blk: {
             const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk .{ 0, 1 };
             break :blk clapRange(info.min_value, info.max_value) orelse .{ 0, 1 };
         },
         .vst3 => .{ 0, 1 },
+        else => fx_p.paramRange(p, idx),
     };
 }
 
@@ -757,52 +382,12 @@ pub fn isListParam(k: FxKind, idx: usize) bool {
     };
 }
 
-// zig fmt: off
 /// Clamped absolute set of param `idx` in `p` - bounds match `paramRange`.
+/// Delegates to `fx_params.setParamAbsolute` for every param that is just a
+/// DSP field; the rows below need `app` (comp's sidechain source resolves
+/// against the session's tracks) or the engine command queue.
 pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
     switch (p.*) {
-        .eq => |*e| {
-            const bf = eqBandField(idx);
-            const band = &e.bands[bf.band];
-            switch (bf.field) {
-                eq_field_kind => {
-                    const rounded = std.math.clamp(@round(value), 0.0, @as(f32, @floatFromInt(eq_kind_specs.len - 1)));
-                    e.setType(bf.band, @enumFromInt(@as(u8, @intFromFloat(rounded))), band.slope);
-                },
-                eq_field_freq => e.setFreq(bf.band, value),
-                eq_field_q => e.setQ(bf.band, value),
-                eq_field_solo => e.setSolo(bf.band, value >= 0.5),
-                eq_field_stereo_mode => {
-                    const rounded = std.math.clamp(@round(value), 0.0, @as(f32, @floatFromInt(std.meta.fields(eq_mod.StereoMode).len - 1)));
-                    e.setStereoMode(bf.band, @enumFromInt(@as(u8, @intFromFloat(rounded))));
-                },
-                eq_field_dyn_enabled => e.setDynEnabled(bf.band, value >= 0.5),
-                eq_field_dyn_threshold => e.setDynThreshold(bf.band, value),
-                eq_field_dyn_amount => e.setDynAmount(bf.band, value),
-                else => if (eq_mod.usesGain(band.kind))
-                    e.setGain(bf.band, value)
-                else
-                    e.setType(bf.band, band.kind, @intFromFloat(std.math.clamp(@round(value), 1.0, @as(f32, eq_mod.max_slope)))),
-            }
-        },
-        .mb_comp => |*m| switch (idx) {
-            mb_xover_lo => m.setXoverLo(value),
-            mb_xover_hi => m.setXoverHi(value),
-            mb_attack => m.attack_ms = std.math.clamp(value, 0.1, 500.0),
-            mb_release => m.release_ms = std.math.clamp(value, 1.0, 2000.0),
-            mb_knee => m.knee_db = std.math.clamp(value, 0.0, 24.0),
-            mb_style => m.style = if (value >= 0.5) .ott else .classic,
-            mb_mix => m.mix = std.math.clamp(value, 0.0, 1.0),
-            else => {
-                const bf = mbBandField(idx);
-                const band = &m.bands[bf.band];
-                switch (bf.field) {
-                    0 => band.threshold_db = std.math.clamp(value, -60.0, 0.0),
-                    1 => band.ratio = std.math.clamp(value, 1.0, 20.0),
-                    else => band.makeup_db = std.math.clamp(value, -24.0, 24.0),
-                }
-            },
-        },
         .comp => |*c| switch (idx) {
             6 => {
                 const rounded = std.math.clamp(
@@ -832,25 +417,8 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
                     .is_group = false,
                 };
             },
-            else => tableSet(c, &comp_specs, idx, value),
+            else => fx_p.setParamAbsolute(p, idx, value),
         },
-        .gate => |*g| tableSet(g, &gate_specs, idx, value),
-        .filter => |*f| tableSet(f, &filter_specs, idx, value),
-        .utility => |*u| tableSet(u, &utility_specs, idx, value),
-        .stereo_width => |*w| tableSet(w, &stereo_width_specs, idx, value),
-        .auto_pan => |*a| tableSet(a, &auto_pan_specs, idx, value),
-        .transient_shaper => |*t| tableSet(t, &transient_shaper_specs, idx, value),
-        .sat => |*s| tableSet(s, &sat_specs, idx, value),
-        .crush => |*c| tableSet(c, &crush_specs, idx, value),
-        .chorus => |*c| tableSet(c, &chorus_specs, idx, value),
-        .phaser => |*p2| tableSet(p2, &phaser_specs, idx, value),
-        .flanger => |*fl| tableSet(fl, &flanger_specs, idx, value),
-        .tape => |*t| tableSet(t, &tape_specs, idx, value),
-        .freq_shift => |*f| tableSet(f, &freq_shift_specs, idx, value),
-        .reverb => |*r| tableSet(r, &reverb_specs, idx, value),
-        .delay => |*d| tableSet(d, &delay_specs, idx, value),
-        .ott => |*o| tableSet(o, &ott_specs, idx, value),
-        .limiter => |*l| tableSet(l, &limiter_specs, idx, value),
         // Routed through the engine command queue, not a direct
         // `plugin.setParameter` call: that mutates the plugin's own
         // fixed-size pending-event buffer with no synchronization, and
@@ -876,71 +444,23 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
                 .value = value,
             } });
         },
+        else => fx_p.setParamAbsolute(p, idx, value),
     }
 }
-// zig fmt: on
-
-/// Nudge step for `j`/`k` (`coarse` = `J`/`K`) - sized per param so a single
-/// press is a musically useful move (e.g. 1dB fine / 6dB coarse for EQ and
-/// comp threshold, fractions for the 0..1-ish delay/reverb knobs).
+/// Nudge step for `j`/`k` (`coarse` = `J`/`K`). Only CLAP needs the
+/// plugin's own range to size a step; everything else comes from the shared
+/// table, except comp's sidechain-track row, which steps whole track
+/// indices.
 fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
     return switch (p.*) {
-        .eq => |*e| switch (eqBandField(idx).field) {
-            eq_field_kind => 1.0,
-            eq_field_freq => if (coarse) @as(f32, 100.0) else 10.0,
-            eq_field_q => if (coarse) @as(f32, 0.5) else 0.1,
-            eq_field_solo, eq_field_dyn_enabled, eq_field_stereo_mode => 1.0,
-            eq_field_dyn_threshold => if (coarse) @as(f32, 6.0) else 1.0,
-            eq_field_dyn_amount => if (coarse) @as(f32, 6.0) else 1.0,
-            // gain steps normally; slope steps whole cascade stages, coarse
-            // jumping the full 1..max_slope range in one press.
-            else => if (eq_mod.usesGain(e.bands[eqBandField(idx).band].kind))
-                (if (coarse) @as(f32, 6.0) else 1.0)
-            else
-                (if (coarse) @as(f32, eq_mod.max_slope) else 1.0),
-        },
-        .mb_comp => switch (idx) {
-            mb_xover_lo, mb_xover_hi => if (coarse) @as(f32, 100.0) else 10.0,
-            mb_attack => if (coarse) @as(f32, 50.0) else 5.0,
-            mb_release => if (coarse) @as(f32, 200.0) else 20.0,
-            mb_knee => if (coarse) @as(f32, 3.0) else 1.0,
-            mb_style => 1.0, // toggle, whole steps only
-            mb_mix => if (coarse) @as(f32, 0.2) else 0.05,
-            else => switch (mbBandField(idx).field) {
-                0 => if (coarse) @as(f32, 6.0) else 1.0, // threshold
-                1 => if (coarse) @as(f32, 2.0) else 0.5, // ratio
-                else => if (coarse) @as(f32, 3.0) else 0.5, // makeup
-            },
-        },
-        .comp => switch (idx) {
-            6 => if (coarse) @as(f32, 5.0) else 1.0, // step whole track indices
-            7 => 1.0,
-            else => tableStep(&comp_specs, idx, coarse),
-        },
-        .gate => tableStep(&gate_specs, idx, coarse),
-        .filter => tableStep(&filter_specs, idx, coarse),
-        .utility => tableStep(&utility_specs, idx, coarse),
-        .stereo_width => tableStep(&stereo_width_specs, idx, coarse),
-        .auto_pan => tableStep(&auto_pan_specs, idx, coarse),
-        .transient_shaper => tableStep(&transient_shaper_specs, idx, coarse),
-        .sat => tableStep(&sat_specs, idx, coarse),
-        .crush => tableStep(&crush_specs, idx, coarse),
-        .chorus => tableStep(&chorus_specs, idx, coarse),
-        .phaser => tableStep(&phaser_specs, idx, coarse),
-        .flanger => tableStep(&flanger_specs, idx, coarse),
-        .tape => tableStep(&tape_specs, idx, coarse),
-        .freq_shift => tableStep(&freq_shift_specs, idx, coarse),
-        .reverb => tableStep(&reverb_specs, idx, coarse),
-        .delay => tableStep(&delay_specs, idx, coarse),
-        .ott => tableStep(&ott_specs, idx, coarse),
-        .limiter => tableStep(&limiter_specs, idx, coarse),
+        .comp => if (idx == 6 and coarse) 5.0 else fx_p.paramStep(p, idx, coarse),
         .clap => |plugin| blk: {
             const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk 0;
             const range = clapRange(info.min_value, info.max_value) orelse break :blk 0;
             const span = range[1] - range[0];
             break :blk @max(if (coarse) span / 10.0 else span / 100.0, std.math.floatEps(f32));
         },
-        .vst3 => if (coarse) 0.1 else 0.01,
+        else => fx_p.paramStep(p, idx, coarse),
     };
 }
 
