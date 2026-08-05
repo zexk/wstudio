@@ -1,13 +1,8 @@
 const std = @import("std");
 const ws = @import("wstudio");
 
-pub fn main(init: std.process.Init) !void {
-    var args = try std.process.Args.Iterator.initAllocator(init.minimal.args, init.gpa);
-    defer args.deinit();
-    _ = args.skip();
-    const plugin_path = args.next() orelse return error.MissingPluginPath;
-
-    const plugin = try ws.dsp.ClapPlugin.load(init.gpa, plugin_path, null, 48_000);
+fn runScenario(gpa: std.mem.Allocator, io: std.Io, plugin_path: []const u8) !void {
+    const plugin = try ws.dsp.ClapPlugin.load(gpa, plugin_path, null, 48_000);
     defer plugin.deinit();
     try std.testing.expect(plugin.serviceMainThread());
     try std.testing.expect(plugin.hasGui());
@@ -41,15 +36,15 @@ pub fn main(init: std.process.Init) !void {
     samples = .{ 1, 1, 1, 1 };
     plugin.device().process(&samples);
     try std.testing.expectEqualSlices(f32, &.{ 3, 3, 3, 3 }, &samples);
-    const state = (try plugin.saveState(init.gpa)).?;
-    defer init.gpa.free(state);
+    const state = (try plugin.saveState(gpa)).?;
+    defer gpa.free(state);
     plugin.setParameter(7, null, 1);
     plugin.device().process(&samples);
     try std.testing.expectEqual(@as(f64, 1), plugin.parameterValue(7).?);
     try std.testing.expect(try plugin.loadState(state));
     try std.testing.expectEqual(@as(f64, 3), plugin.parameterValue(7).?);
 
-    const mono = try ws.dsp.ClapPlugin.load(init.gpa, plugin_path, "studio.wstudio.test.mono", 48_000);
+    const mono = try ws.dsp.ClapPlugin.load(gpa, plugin_path, "studio.wstudio.test.mono", 48_000);
     defer mono.deinit();
     mono.setParameter(7, null, 2);
     var mono_samples = [_]f32{ 1, 3, 2, 4 };
@@ -57,27 +52,45 @@ pub fn main(init: std.process.Init) !void {
     try std.testing.expectEqualSlices(f32, &.{ 4, 4, 6, 6 }, &mono_samples);
 
     var fx: ws.Fx = .{};
-    defer fx.deinit(init.gpa);
+    defer fx.deinit(gpa);
     try std.testing.expectError(
         error.ClapPluginIsNotEffect,
-        fx.insertClap(init.gpa, 0, plugin_path, "studio.wstudio.test.instrument", 48_000),
+        fx.insertClap(gpa, 0, plugin_path, "studio.wstudio.test.instrument", 48_000),
     );
 
     const project_path = ".zig-cache/clap-integration.wsj";
     {
-        var session = try ws.Session.initDefault(init.gpa);
+        var session = try ws.Session.initDefault(gpa);
         defer session.deinit();
         try session.setClapInstrument(0, plugin_path, "studio.wstudio.test.instrument");
         const instrument = session.racks.items[0].instrument.clap;
         instrument.setParameter(7, null, 3);
         var silent = [_]f32{0} ** 4;
         instrument.device().process(&silent);
-        try ws.persist.save(init.gpa, &session, init.io, project_path);
+        try ws.persist.save(gpa, &session, io, project_path);
     }
-    defer std.Io.Dir.cwd().deleteFile(init.io, project_path) catch {};
-    var loaded = try ws.persist.load(init.gpa, init.io, project_path);
+    defer std.Io.Dir.cwd().deleteFile(io, project_path) catch {};
+    var loaded = try ws.persist.load(gpa, io, project_path);
     defer loaded.deinit();
     const loaded_plugin = loaded.racks.items[0].instrument.clap;
     try std.testing.expectEqualStrings("studio.wstudio.test.instrument", loaded_plugin.id());
     try std.testing.expectEqual(@as(f64, 3), loaded_plugin.parameterValue(7).?);
+}
+
+/// Runs the same scenario twice: once with sandboxing forced off (the
+/// `Direct`/in-process path - unchanged code, but otherwise unexercised by
+/// this binary now that sandboxing defaults on) and once at whatever the
+/// module default is (bridged on Linux). Same assertions either way -
+/// this is the "bridged round-trip matches the unbridged path" check.
+pub fn main(init: std.process.Init) !void {
+    var args = try std.process.Args.Iterator.initAllocator(init.minimal.args, init.gpa);
+    defer args.deinit();
+    _ = args.skip();
+    const plugin_path = args.next() orelse return error.MissingPluginPath;
+
+    ws.plugin_host.bridge.sandbox_enabled.store(false, .release);
+    try runScenario(init.gpa, init.io, plugin_path);
+
+    ws.plugin_host.bridge.sandbox_enabled.store(true, .release);
+    try runScenario(init.gpa, init.io, plugin_path);
 }

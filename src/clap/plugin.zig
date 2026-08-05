@@ -7,6 +7,8 @@ const types = @import("../core/types.zig");
 const Transport = @import("../transport.zig").Transport;
 const dynlib_compat = @import("dynlib_compat.zig");
 const open_entry = @import("open_entry.zig");
+const bridge_mod = @import("../plugin_host/bridge.zig");
+const wire = @import("../plugin_host/transport.zig");
 
 const max_events = 256;
 const max_thread_pool_workers = 4;
@@ -294,39 +296,73 @@ fn acceptOutputEvent(list: ?*const abi.OutputEvents, event: *const abi.EventHead
     return true;
 }
 
+/// Public CLAP plugin handle. Wraps either a real in-process instance
+/// (`Direct`, today's implementation, byte-for-byte unchanged internally)
+/// or a `*Bridge` handle to a sandboxed child process running that same
+/// unmodified `Direct` code (see plugin_host/child_main.zig) - the split
+/// exists so a crashing/hanging third-party plugin can't take the whole
+/// process down with it. Every method here dispatches on `impl`; callers
+/// (rack.zig, session.zig, persist_*.zig, ui/*) never need to know which
+/// mode a given instance is in.
 pub const ClapPlugin = struct {
     allocator: std.mem.Allocator,
-    library: dynlib_compat.DynLib,
-    entry: *const abi.PluginEntry,
-    plugin: *const abi.Plugin,
-    host_context: *HostContext,
-    path_z: [:0]u8,
-    input_left: []f32,
-    input_right: []f32,
-    output_left: []f32,
-    output_right: []f32,
-    input_channel_ptrs: [2]?[*]f32 = .{ null, null },
-    output_channel_ptrs: [2]?[*]f32 = .{ null, null },
-    events: EventList = EventList.init(),
-    output_events: abi.OutputEvents,
+    /// Cached at load time so external readers (`Fx.insertClap`,
+    /// `Session.setClapInstrument`) can check it as a plain field, exactly
+    /// as before this split - a live CLAP restart can change `Direct`'s own
+    /// copy, but nothing re-reads this cache after the initial post-load
+    /// check anyway, in either mode.
     audio_inputs_count: u32,
-    input_channels: u32,
-    output_channels: u32,
-    note_dialect: NoteDialect,
-    supports_midi: bool,
-    sample_rate: u32,
+    impl: Impl,
+    /// Bridged-mode only: `attachTransport` also stores here (in addition
+    /// to `Direct.transport` when direct) since `processBlock` needs it
+    /// without an extra branch back into `Impl.direct`.
     transport: ?*const Transport = null,
-    steady_time: i64 = 0,
-    activated: bool = true,
-    started: bool = false,
-    restart_in_progress: std.atomic.Value(bool) = .init(false),
-    restart_ready: std.atomic.Value(bool) = .init(false),
-    gui_created: bool = false,
-    gui_visible: bool = false,
+    /// Bridged-mode only: events queued by `handleEvent`/`setParameter`
+    /// between blocks, published to the child on the next `processBlock`
+    /// - the parent-process counterpart of `Direct.events`.
+    pending_events: [wire.max_events]wire.WireEvent = undefined,
+    pending_count: u32 = 0,
+
+    const Impl = union(enum) {
+        direct: Direct,
+        bridged: *bridge_mod.Bridge,
+    };
 
     pub const device = device_mod.deviceOf(@This());
 
     pub fn load(
+        allocator: std.mem.Allocator,
+        path: []const u8,
+        plugin_id: ?[]const u8,
+        sample_rate: u32,
+    ) !*ClapPlugin {
+        if (bridge_mod.sandboxActive()) return loadBridged(allocator, path, plugin_id, sample_rate);
+        return loadDirect(allocator, path, plugin_id, sample_rate);
+    }
+
+    fn loadBridged(
+        allocator: std.mem.Allocator,
+        path: []const u8,
+        plugin_id: ?[]const u8,
+        sample_rate: u32,
+    ) !*ClapPlugin {
+        const b = try bridge_mod.Bridge.spawn(allocator, .{
+            .kind = .clap,
+            .path = path,
+            .plugin_id = plugin_id orelse "",
+            .sample_rate = sample_rate,
+        });
+        errdefer b.deinit();
+        const self = try allocator.create(ClapPlugin);
+        self.* = .{
+            .allocator = allocator,
+            .audio_inputs_count = b.audio_inputs_count,
+            .impl = .{ .bridged = b },
+        };
+        return self;
+    }
+
+    fn loadDirect(
         allocator: std.mem.Allocator,
         path: []const u8,
         plugin_id: ?[]const u8,
@@ -375,89 +411,345 @@ pub const ClapPlugin = struct {
         errdefer allocator.free(output_right);
         self.* = .{
             .allocator = allocator,
-            .library = library,
-            .entry = entry,
-            .plugin = plugin,
-            .host_context = host_context,
-            .path_z = path_z,
-            .input_left = input_left,
-            .input_right = input_right,
-            .output_left = output_left,
-            .output_right = output_right,
             .audio_inputs_count = audio_layout.input_count,
-            .input_channels = audio_layout.input_channels,
-            .output_channels = audio_layout.output_channels,
-            .note_dialect = note_support.dialect,
-            .supports_midi = note_support.supports_midi,
-            .sample_rate = sample_rate,
-            .output_events = .{ .ctx = host_context, .try_push = acceptOutputEvent },
+            .impl = .{ .direct = .{
+                .allocator = allocator,
+                .library = library,
+                .entry = entry,
+                .plugin = plugin,
+                .host_context = host_context,
+                .path_z = path_z,
+                .input_left = input_left,
+                .input_right = input_right,
+                .output_left = output_left,
+                .output_right = output_right,
+                .audio_inputs_count = audio_layout.input_count,
+                .input_channels = audio_layout.input_channels,
+                .output_channels = audio_layout.output_channels,
+                .note_dialect = note_support.dialect,
+                .supports_midi = note_support.supports_midi,
+                .sample_rate = sample_rate,
+                .output_events = .{ .ctx = host_context, .try_push = acceptOutputEvent },
+            } },
         };
-        self.events.bind();
+        self.impl.direct.events.bind();
         return self;
     }
 
-    fn validateAudioPorts(plugin: *const abi.Plugin) !AudioPortLayout {
-        const ports = getExt(abi.PluginAudioPorts, plugin, abi.ext_audio_ports) orelse
-            return error.MissingAudioPorts;
-        const input_count = ports.count(plugin, true);
-        const output_count = ports.count(plugin, false);
-        if (input_count > 1 or output_count != 1) return error.UnsupportedAudioPortLayout;
-
-        var input_channels: u32 = 0;
-        if (input_count == 1) {
-            var input_info: abi.AudioPortInfo = undefined;
-            if (!ports.get(plugin, 0, true, &input_info) or (input_info.channel_count != 1 and input_info.channel_count != 2))
-                return error.UnsupportedAudioPortLayout;
-            input_channels = input_info.channel_count;
-        }
-        var output_info: abi.AudioPortInfo = undefined;
-        if (!ports.get(plugin, 0, false, &output_info) or (output_info.channel_count != 1 and output_info.channel_count != 2))
-            return error.UnsupportedAudioPortLayout;
-        return .{ .input_count = input_count, .input_channels = input_channels, .output_channels = output_info.channel_count };
-    }
-
-    fn detectNoteSupport(plugin: *const abi.Plugin) struct {
-        dialect: NoteDialect,
-        supports_midi: bool,
-    } {
-        const ports = getExt(abi.PluginNotePorts, plugin, abi.ext_note_ports) orelse
-            return .{ .dialect = .none, .supports_midi = false };
-        if (ports.count(plugin, true) == 0) return .{ .dialect = .none, .supports_midi = false };
-        var info: abi.NotePortInfo = undefined;
-        if (!ports.get(plugin, 0, true, &info)) return .{ .dialect = .none, .supports_midi = false };
-        const supports_clap = info.supported_dialects & abi.note_dialect_clap != 0;
-        const supports_midi = info.supported_dialects & abi.note_dialect_midi != 0;
-        const dialect: NoteDialect = if (info.preferred_dialect == abi.note_dialect_midi and supports_midi)
-            .midi
-        else if (supports_clap)
-            .clap
-        else if (supports_midi)
-            .midi
-        else
-            .none;
-        return .{ .dialect = dialect, .supports_midi = supports_midi };
-    }
-
-    fn selectPluginId(
-        allocator: std.mem.Allocator,
-        factory: *const abi.PluginFactory,
-        requested: ?[]const u8,
-    ) ![:0]u8 {
-        const count = factory.get_plugin_count(factory);
-        if (count == 0) return error.NoPlugins;
-        if (requested) |wanted| {
-            for (0..count) |index| {
-                const desc = factory.get_plugin_descriptor(factory, @intCast(index)) orelse continue;
-                if (std.mem.eql(u8, std.mem.span(desc.id), wanted))
-                    return allocator.dupeZ(u8, wanted);
-            }
-            return error.PluginNotFound;
-        }
-        const desc = factory.get_plugin_descriptor(factory, 0) orelse return error.InvalidPluginDescriptor;
-        return allocator.dupeZ(u8, std.mem.span(desc.id));
-    }
-
     pub fn deinit(self: *ClapPlugin) void {
+        switch (self.impl) {
+            .direct => |*d| d.deinit(),
+            .bridged => |b| b.deinit(),
+        }
+        self.allocator.destroy(self);
+    }
+
+    pub fn processBlock(self: *ClapPlugin, buf: []types.Sample) void {
+        switch (self.impl) {
+            .direct => |*d| d.processBlock(buf),
+            .bridged => |b| {
+                b.processBlock(buf, self.pending_events[0..self.pending_count], self.transport);
+                self.pending_count = 0;
+            },
+        }
+    }
+
+    fn pushPending(self: *ClapPlugin, w: wire.WireEvent) void {
+        if (self.pending_count < wire.max_events) {
+            self.pending_events[self.pending_count] = w;
+            self.pending_count += 1;
+        }
+    }
+
+    pub fn handleEvent(self: *ClapPlugin, event: device_mod.Event) void {
+        switch (self.impl) {
+            .direct => |*d| d.handleEvent(self, event),
+            .bridged => {
+                const self_ptr: *anyopaque = @ptrCast(self);
+                if (wire.fromDeviceEvent(event, self_ptr)) |w| self.pushPending(w);
+            },
+        }
+    }
+
+    pub fn pluginPath(self: *const ClapPlugin) []const u8 {
+        return switch (self.impl) {
+            .direct => |*d| d.pluginPath(),
+            .bridged => |b| b.path,
+        };
+    }
+
+    pub fn attachTransport(self: *ClapPlugin, transport: *const Transport) void {
+        self.transport = transport;
+        switch (self.impl) {
+            .direct => |*d| d.attachTransport(transport),
+            .bridged => {},
+        }
+    }
+
+    pub fn id(self: *const ClapPlugin) []const u8 {
+        return switch (self.impl) {
+            .direct => |*d| d.id(),
+            .bridged => |b| b.resolved_id,
+        };
+    }
+
+    pub fn name(self: *const ClapPlugin) []const u8 {
+        return switch (self.impl) {
+            .direct => |*d| d.name(),
+            .bridged => |b| b.resolved_name,
+        };
+    }
+
+    pub fn parameterCount(self: *const ClapPlugin) u32 {
+        return switch (self.impl) {
+            .direct => |*d| d.parameterCount(),
+            .bridged => |b| blk: {
+                const resp = b.call(.parameter_count, &.{}) catch break :blk 0;
+                break :blk if (resp.len >= 4) std.mem.bytesToValue(u32, resp[0..4]) else 0;
+            },
+        };
+    }
+
+    pub fn parameterInfo(self: *const ClapPlugin, index: u32) ?abi.ParamInfo {
+        return switch (self.impl) {
+            .direct => |*d| d.parameterInfo(index),
+            .bridged => |b| blk: {
+                const resp = b.call(.parameter_info, std.mem.asBytes(&index)) catch break :blk null;
+                if (resp.len < @sizeOf(abi.ParamInfo)) break :blk null;
+                break :blk std.mem.bytesToValue(abi.ParamInfo, resp[0..@sizeOf(abi.ParamInfo)]);
+            },
+        };
+    }
+
+    pub fn parameterName(self: *const ClapPlugin, index: u32, buffer: []u8) ?[]const u8 {
+        return switch (self.impl) {
+            .direct => |*d| d.parameterName(index, buffer),
+            .bridged => |b| blk: {
+                const resp = b.call(.parameter_name, std.mem.asBytes(&index)) catch break :blk null;
+                if (resp.len == 0 or buffer.len == 0) break :blk null;
+                const len = @min(resp.len, buffer.len);
+                @memcpy(buffer[0..len], resp[0..len]);
+                break :blk buffer[0..len];
+            },
+        };
+    }
+
+    pub fn parameterValue(self: *const ClapPlugin, id_value: u32) ?f64 {
+        return switch (self.impl) {
+            .direct => |*d| d.parameterValue(id_value),
+            .bridged => |b| blk: {
+                const resp = b.call(.parameter_value, std.mem.asBytes(&id_value)) catch break :blk null;
+                break :blk if (resp.len >= 8) std.mem.bytesToValue(f64, resp[0..8]) else null;
+            },
+        };
+    }
+
+    pub fn formatParameter(
+        self: *const ClapPlugin,
+        id_value: u32,
+        value: f64,
+        buffer: []u8,
+    ) ?[]const u8 {
+        return switch (self.impl) {
+            .direct => |*d| d.formatParameter(id_value, value, buffer),
+            .bridged => |b| blk: {
+                var req: [12]u8 = undefined;
+                @memcpy(req[0..4], std.mem.asBytes(&id_value));
+                @memcpy(req[4..12], std.mem.asBytes(&value));
+                const resp = b.call(.format_parameter, &req) catch break :blk null;
+                if (resp.len == 0 or buffer.len == 0) break :blk null;
+                const len = @min(resp.len, buffer.len);
+                @memcpy(buffer[0..len], resp[0..len]);
+                break :blk buffer[0..len];
+            },
+        };
+    }
+
+    /// Queue a parameter edit for the next audio block. The caller must use
+    /// the engine command queue when it runs concurrently with audio.
+    pub fn setParameter(self: *ClapPlugin, id_value: u32, cookie: ?*anyopaque, value: f64) void {
+        switch (self.impl) {
+            .direct => |*d| d.pushParameter(id_value, cookie, value),
+            .bridged => self.pushPending(.{ .kind = .clap_param, .param_id = id_value, .cookie = cookie, .value = value }),
+        }
+    }
+
+    pub fn saveState(self: *ClapPlugin, allocator: std.mem.Allocator) !?[]u8 {
+        switch (self.impl) {
+            .direct => |*d| return d.saveState(allocator),
+            .bridged => |b| {
+                const resp = try b.call(.save_state, &.{});
+                if (resp.len == 0) return null;
+                return try allocator.dupe(u8, resp);
+            },
+        }
+    }
+
+    pub fn loadState(self: *ClapPlugin, bytes: []const u8) !bool {
+        switch (self.impl) {
+            .direct => |*d| return d.loadState(bytes),
+            .bridged => |b| {
+                _ = try b.call(.load_state, bytes);
+                return true;
+            },
+        }
+    }
+
+    pub fn latencyFrames(self: *const ClapPlugin) u32 {
+        return switch (self.impl) {
+            .direct => |*d| d.latencyFrames(),
+            .bridged => |b| b.latencyFrames(),
+        };
+    }
+
+    pub fn tailFrames(self: *const ClapPlugin) ?u32 {
+        return switch (self.impl) {
+            .direct => |*d| d.tailFrames(),
+            .bridged => |b| b.tailFrames(),
+        };
+    }
+
+    pub fn reset(self: *ClapPlugin) void {
+        switch (self.impl) {
+            .direct => |*d| d.reset(),
+            .bridged => |b| {
+                self.pending_count = 0;
+                b.requestReset();
+            },
+        }
+    }
+
+    pub fn hasGui(self: *const ClapPlugin) bool {
+        return switch (self.impl) {
+            .direct => |*d| d.hasGui(),
+            .bridged => |b| b.has_gui,
+        };
+    }
+
+    pub fn toggleGui(self: *ClapPlugin) !bool {
+        switch (self.impl) {
+            .direct => |*d| return d.toggleGui(),
+            .bridged => |b| {
+                const resp = try b.call(.toggle_gui, &.{});
+                return resp.len > 0 and resp[0] != 0;
+            },
+        }
+    }
+
+    /// Service callbacks whose CLAP contract requires the host's main
+    /// thread. Bridged mode forwards this as a synchronous RPC to the
+    /// child (see plugin_host/bridge.zig's `Bridge.serviceMainThread`),
+    /// which runs the real plugin's own `serviceMainThread` and reports
+    /// back - callers (app.zig's `servicePluginHosts`, and this file's own
+    /// integration test) depend on servicing being complete by the time
+    /// this call returns, the same as the direct path's plain function
+    /// call.
+    pub fn serviceMainThread(self: *ClapPlugin) bool {
+        return switch (self.impl) {
+            .direct => |*d| d.serviceMainThread(),
+            .bridged => |b| b.serviceMainThread(),
+        };
+    }
+};
+
+fn validateAudioPorts(plugin: *const abi.Plugin) !AudioPortLayout {
+    const ports = getExt(abi.PluginAudioPorts, plugin, abi.ext_audio_ports) orelse
+        return error.MissingAudioPorts;
+    const input_count = ports.count(plugin, true);
+    const output_count = ports.count(plugin, false);
+    if (input_count > 1 or output_count != 1) return error.UnsupportedAudioPortLayout;
+
+    var input_channels: u32 = 0;
+    if (input_count == 1) {
+        var input_info: abi.AudioPortInfo = undefined;
+        if (!ports.get(plugin, 0, true, &input_info) or (input_info.channel_count != 1 and input_info.channel_count != 2))
+            return error.UnsupportedAudioPortLayout;
+        input_channels = input_info.channel_count;
+    }
+    var output_info: abi.AudioPortInfo = undefined;
+    if (!ports.get(plugin, 0, false, &output_info) or (output_info.channel_count != 1 and output_info.channel_count != 2))
+        return error.UnsupportedAudioPortLayout;
+    return .{ .input_count = input_count, .input_channels = input_channels, .output_channels = output_info.channel_count };
+}
+
+fn detectNoteSupport(plugin: *const abi.Plugin) struct {
+    dialect: NoteDialect,
+    supports_midi: bool,
+} {
+    const ports = getExt(abi.PluginNotePorts, plugin, abi.ext_note_ports) orelse
+        return .{ .dialect = .none, .supports_midi = false };
+    if (ports.count(plugin, true) == 0) return .{ .dialect = .none, .supports_midi = false };
+    var info: abi.NotePortInfo = undefined;
+    if (!ports.get(plugin, 0, true, &info)) return .{ .dialect = .none, .supports_midi = false };
+    const supports_clap = info.supported_dialects & abi.note_dialect_clap != 0;
+    const supports_midi = info.supported_dialects & abi.note_dialect_midi != 0;
+    const dialect: NoteDialect = if (info.preferred_dialect == abi.note_dialect_midi and supports_midi)
+        .midi
+    else if (supports_clap)
+        .clap
+    else if (supports_midi)
+        .midi
+    else
+        .none;
+    return .{ .dialect = dialect, .supports_midi = supports_midi };
+}
+
+fn selectPluginId(
+    allocator: std.mem.Allocator,
+    factory: *const abi.PluginFactory,
+    requested: ?[]const u8,
+) ![:0]u8 {
+    const count = factory.get_plugin_count(factory);
+    if (count == 0) return error.NoPlugins;
+    if (requested) |wanted| {
+        for (0..count) |index| {
+            const desc = factory.get_plugin_descriptor(factory, @intCast(index)) orelse continue;
+            if (std.mem.eql(u8, std.mem.span(desc.id), wanted))
+                return allocator.dupeZ(u8, wanted);
+        }
+        return error.PluginNotFound;
+    }
+    const desc = factory.get_plugin_descriptor(factory, 0) orelse return error.InvalidPluginDescriptor;
+    return allocator.dupeZ(u8, std.mem.span(desc.id));
+}
+
+/// Real in-process CLAP hosting - unchanged from before sandboxing existed.
+/// Constructed by `ClapPlugin.loadDirect`; also the exact code
+/// plugin_host/child_main.zig runs inside a sandboxed child (via
+/// `ClapPlugin.load` with sandboxing disabled, since the child always
+/// loads directly - sandboxing a sandbox would be turtles all the way
+/// down).
+const Direct = struct {
+    allocator: std.mem.Allocator,
+    library: dynlib_compat.DynLib,
+    entry: *const abi.PluginEntry,
+    plugin: *const abi.Plugin,
+    host_context: *HostContext,
+    path_z: [:0]u8,
+    input_left: []f32,
+    input_right: []f32,
+    output_left: []f32,
+    output_right: []f32,
+    input_channel_ptrs: [2]?[*]f32 = .{ null, null },
+    output_channel_ptrs: [2]?[*]f32 = .{ null, null },
+    events: EventList = EventList.init(),
+    output_events: abi.OutputEvents,
+    audio_inputs_count: u32,
+    input_channels: u32,
+    output_channels: u32,
+    note_dialect: NoteDialect,
+    supports_midi: bool,
+    sample_rate: u32,
+    transport: ?*const Transport = null,
+    steady_time: i64 = 0,
+    activated: bool = true,
+    started: bool = false,
+    restart_in_progress: std.atomic.Value(bool) = .init(false),
+    restart_ready: std.atomic.Value(bool) = .init(false),
+    gui_created: bool = false,
+    gui_visible: bool = false,
+
+    fn deinit(self: *Direct) void {
         self.destroyGui();
         if (self.started) self.plugin.stop_processing(self.plugin);
         if (self.activated) self.plugin.deactivate(self.plugin);
@@ -470,10 +762,9 @@ pub const ClapPlugin = struct {
         self.allocator.free(self.output_right);
         self.allocator.free(self.path_z);
         self.allocator.destroy(self.host_context);
-        self.allocator.destroy(self);
     }
 
-    pub fn processBlock(self: *ClapPlugin, buf: []types.Sample) void {
+    fn processBlock(self: *Direct, buf: []types.Sample) void {
         const frames = buf.len / 2;
         if (frames == 0 or frames > types.max_block_frames or buf.len % 2 != 0) return;
         on_audio_thread = true;
@@ -545,7 +836,12 @@ pub const ClapPlugin = struct {
         }
     }
 
-    pub fn handleEvent(self: *ClapPlugin, event: device_mod.Event) void {
+    /// `outer` is the `ClapPlugin` wrapper this `Direct` is embedded in -
+    /// needed only for the `clap_param` identity check below, since a
+    /// track-wide broadcast's `target` is always the outer pointer callers
+    /// actually hold (`Direct`'s own address differs, being embedded
+    /// inside `ClapPlugin.impl`).
+    pub fn handleEvent(self: *Direct, outer: *ClapPlugin, event: device_mod.Event) void {
         switch (event) {
             .note_on => |note| switch (self.note_dialect) {
                 .clap => self.pushNote(abi.event_note_on, note.note, note.velocity),
@@ -569,7 +865,7 @@ pub const ClapPlugin = struct {
                 self.pushMidi(.{ 0xe0, @truncate(value), @truncate(value >> 7) });
             },
             .clap_param => |param| {
-                if (param.target == @as(*anyopaque, @ptrCast(self)))
+                if (param.target == @as(*anyopaque, @ptrCast(outer)))
                     self.pushParameter(param.id, param.cookie, param.value);
             },
             else => {},
@@ -589,7 +885,7 @@ pub const ClapPlugin = struct {
         };
     }
 
-    fn pushNote(self: *ClapPlugin, event_type: u16, key: ?u7, velocity: f32) void {
+    fn pushNote(self: *Direct, event_type: u16, key: ?u7, velocity: f32) void {
         self.events.push(.{ .note = .{
             .header = eventHeader(@sizeOf(abi.EventNote), event_type),
             .note_id = -1,
@@ -600,7 +896,7 @@ pub const ClapPlugin = struct {
         } });
     }
 
-    fn pushMidi(self: *ClapPlugin, data: [3]u8) void {
+    fn pushMidi(self: *Direct, data: [3]u8) void {
         self.events.push(.{ .midi = .{
             .header = eventHeader(@sizeOf(abi.EventMidi), abi.event_midi),
             .port_index = 0,
@@ -608,39 +904,39 @@ pub const ClapPlugin = struct {
         } });
     }
 
-    pub fn pluginPath(self: *const ClapPlugin) []const u8 {
+    pub fn pluginPath(self: *const Direct) []const u8 {
         return self.path_z;
     }
 
-    pub fn attachTransport(self: *ClapPlugin, transport: *const Transport) void {
+    pub fn attachTransport(self: *Direct, transport: *const Transport) void {
         self.transport = transport;
     }
 
-    pub fn id(self: *const ClapPlugin) []const u8 {
+    pub fn id(self: *const Direct) []const u8 {
         return std.mem.span(self.plugin.desc.id);
     }
 
-    pub fn name(self: *const ClapPlugin) []const u8 {
+    pub fn name(self: *const Direct) []const u8 {
         return std.mem.span(self.plugin.desc.name);
     }
 
-    fn paramsExtension(self: *const ClapPlugin) ?*const abi.PluginParams {
+    fn paramsExtension(self: *const Direct) ?*const abi.PluginParams {
         return getExt(abi.PluginParams, self.plugin, abi.ext_params);
     }
 
-    pub fn parameterCount(self: *const ClapPlugin) u32 {
+    pub fn parameterCount(self: *const Direct) u32 {
         const params = self.paramsExtension() orelse return 0;
         return params.count(self.plugin);
     }
 
-    pub fn parameterInfo(self: *const ClapPlugin, index: u32) ?abi.ParamInfo {
+    pub fn parameterInfo(self: *const Direct, index: u32) ?abi.ParamInfo {
         const params = self.paramsExtension() orelse return null;
         var info: abi.ParamInfo = undefined;
         if (!params.get_info(self.plugin, index, &info)) return null;
         return info;
     }
 
-    pub fn parameterName(self: *const ClapPlugin, index: u32, buffer: []u8) ?[]const u8 {
+    pub fn parameterName(self: *const Direct, index: u32, buffer: []u8) ?[]const u8 {
         const info = self.parameterInfo(index) orelse return null;
         const param_name = std.mem.sliceTo(&info.name, 0);
         if (param_name.len == 0 or buffer.len == 0) return null;
@@ -649,7 +945,7 @@ pub const ClapPlugin = struct {
         return buffer[0..len];
     }
 
-    pub fn parameterValue(self: *const ClapPlugin, id_value: u32) ?f64 {
+    pub fn parameterValue(self: *const Direct, id_value: u32) ?f64 {
         const params = self.paramsExtension() orelse return null;
         var value: f64 = undefined;
         if (!params.get_value(self.plugin, id_value, &value)) return null;
@@ -657,7 +953,7 @@ pub const ClapPlugin = struct {
     }
 
     pub fn formatParameter(
-        self: *const ClapPlugin,
+        self: *const Direct,
         id_value: u32,
         value: f64,
         buffer: []u8,
@@ -669,13 +965,7 @@ pub const ClapPlugin = struct {
         return std.mem.sliceTo(buffer, 0);
     }
 
-    /// Queue a parameter edit for the next audio block. The caller must use
-    /// the engine command queue when it runs concurrently with audio.
-    pub fn setParameter(self: *ClapPlugin, id_value: u32, cookie: ?*anyopaque, value: f64) void {
-        self.pushParameter(id_value, cookie, value);
-    }
-
-    fn pushParameter(self: *ClapPlugin, id_value: u32, cookie: ?*anyopaque, value: f64) void {
+    fn pushParameter(self: *Direct, id_value: u32, cookie: ?*anyopaque, value: f64) void {
         self.events.push(.{ .param = .{
             .header = eventHeader(@sizeOf(abi.EventParamValue), abi.event_param_value),
             .param_id = id_value,
@@ -689,7 +979,7 @@ pub const ClapPlugin = struct {
         self.host_context.state_dirty.store(true, .release);
     }
 
-    pub fn saveState(self: *ClapPlugin, allocator: std.mem.Allocator) !?[]u8 {
+    pub fn saveState(self: *Direct, allocator: std.mem.Allocator) !?[]u8 {
         const state = getExt(abi.PluginState, self.plugin, abi.ext_state) orelse return null;
         var writer = StateWriter{ .allocator = allocator };
         errdefer writer.bytes.deinit(allocator);
@@ -698,7 +988,7 @@ pub const ClapPlugin = struct {
         return try writer.bytes.toOwnedSlice(allocator);
     }
 
-    pub fn loadState(self: *ClapPlugin, bytes: []const u8) !bool {
+    pub fn loadState(self: *Direct, bytes: []const u8) !bool {
         const state = getExt(abi.PluginState, self.plugin, abi.ext_state) orelse return false;
         var reader = StateReader{ .bytes = bytes };
         var stream = abi.InputStream{ .ctx = &reader, .read = StateReader.read };
@@ -707,30 +997,30 @@ pub const ClapPlugin = struct {
         return true;
     }
 
-    pub fn latencyFrames(self: *const ClapPlugin) u32 {
+    pub fn latencyFrames(self: *const Direct) u32 {
         const latency = getExt(abi.PluginLatency, self.plugin, abi.ext_latency) orelse return 0;
         return latency.get(self.plugin);
     }
 
-    pub fn tailFrames(self: *const ClapPlugin) ?u32 {
+    pub fn tailFrames(self: *const Direct) ?u32 {
         const tail = getExt(abi.PluginTail, self.plugin, abi.ext_tail) orelse return null;
         return tail.get(self.plugin);
     }
 
-    pub fn reset(self: *ClapPlugin) void {
+    pub fn reset(self: *Direct) void {
         self.events.len = 0;
         if (self.started) self.plugin.reset(self.plugin);
     }
 
-    fn guiExtension(self: *const ClapPlugin) ?*const abi.PluginGui {
+    fn guiExtension(self: *const Direct) ?*const abi.PluginGui {
         return getExt(abi.PluginGui, self.plugin, abi.ext_gui);
     }
 
-    pub fn hasGui(self: *const ClapPlugin) bool {
+    pub fn hasGui(self: *const Direct) bool {
         return self.guiExtension() != null;
     }
 
-    pub fn toggleGui(self: *ClapPlugin) !bool {
+    pub fn toggleGui(self: *Direct) !bool {
         if (!self.gui_created) {
             try self.createGui();
         } else if (self.gui_visible) {
@@ -745,7 +1035,7 @@ pub const ClapPlugin = struct {
         return self.gui_visible;
     }
 
-    fn createGui(self: *ClapPlugin) !void {
+    fn createGui(self: *Direct) !void {
         const gui = self.guiExtension() orelse return error.GuiUnavailable;
         var preferred_api: ?[*:0]const u8 = null;
         var preferred_floating = false;
@@ -781,7 +1071,7 @@ pub const ClapPlugin = struct {
         self.gui_visible = true;
     }
 
-    fn destroyGui(self: *ClapPlugin) void {
+    fn destroyGui(self: *Direct) void {
         if (!self.gui_created) return;
         const gui = self.guiExtension() orelse return;
         if (self.gui_visible) _ = gui.hide(self.plugin);
@@ -794,7 +1084,7 @@ pub const ClapPlugin = struct {
     /// thread. Parameter, latency, and tail queries are uncached, so their
     /// change notifications only need acknowledging. Returns whether the
     /// plugin marked its opaque state dirty since the previous service.
-    pub fn serviceMainThread(self: *ClapPlugin) bool {
+    pub fn serviceMainThread(self: *Direct) bool {
         if (self.restart_ready.swap(false, .acquire)) {
             self.plugin.deactivate(self.plugin);
             self.activated = false;
