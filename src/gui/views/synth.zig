@@ -633,10 +633,10 @@ fn nudgeParam(app: anytype, id: u16, key: u8) void {
 /// arrangement Serum, Vital and Massive all use, and what a single sketch
 /// in a global header cannot express.
 fn drawOscDisplay(synth: *const ws.dsp.PolySynth, waveform_id: u16, accent: [4]f32) void {
-    const shape: struct { wave: ws.dsp.synth.Waveform, pw: f32 } = switch (waveform_id) {
-        0 => .{ .wave = synth.waveform, .pw = synth.pulse_width },
-        7 => .{ .wave = synth.osc_b_waveform, .pw = synth.osc_b_pulse_width },
-        else => .{ .wave = synth.osc_c_waveform, .pw = synth.osc_c_pulse_width },
+    const shape: struct { wave: ws.dsp.synth.Waveform, pw: f32, wt: ws.dsp.wavetable.Wavetable, wt_pos: f32 } = switch (waveform_id) {
+        0 => .{ .wave = synth.waveform, .pw = synth.pulse_width, .wt = synth.wt, .wt_pos = synth.wt_pos },
+        7 => .{ .wave = synth.osc_b_waveform, .pw = synth.osc_b_pulse_width, .wt = synth.osc_b_wt, .wt_pos = synth.osc_b_wt_pos },
+        else => .{ .wave = synth.osc_c_waveform, .pw = synth.osc_c_pulse_width, .wt = synth.osc_c_wt, .wt_pos = synth.osc_c_wt_pos },
     };
     const width = zgui.getContentRegionAvail()[0];
     const height: f32 = 42;
@@ -646,7 +646,7 @@ fn drawOscDisplay(synth: *const ws.dsp.PolySynth, waveform_id: u16, accent: [4]f
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg1), .rounding = gui_style.panel_rounding });
     const mid = origin[1] + height * 0.5;
     draw_list.addLine(.{ .p1 = .{ origin[0], mid }, .p2 = .{ origin[0] + width, mid }, .col = color(theme.bg4), .thickness = 1 });
-    drawOscillatorShape(draw_list, .{ origin[0] + 8, origin[1] + 5 }, .{ width - 16, height - 10 }, shape.wave, shape.pw, accent);
+    drawOscillatorShape(draw_list, .{ origin[0] + 8, origin[1] + 5 }, .{ width - 16, height - 10 }, shape.wave, shape.pw, shape.wt, shape.wt_pos, accent);
     zgui.dummy(.{ .w = 0, .h = 4 });
 }
 
@@ -706,16 +706,22 @@ fn drawLfoDisplay(synth: *const ws.dsp.PolySynth, slot: usize, accent: [4]f32) v
 }
 
 /// Two cycles of `waveform`, so a duty-cycle change reads as a change in
-/// shape rather than only in a number.
-fn drawOscillatorShape(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, waveform: ws.dsp.synth.Waveform, pulse_width: f32, accent: [4]f32) void {
-    const steps = 96;
+/// shape rather than only in a number. `.wavetable` reads the oscillator's
+/// own table at its current `wt_pos` - a picked table is only worth picking
+/// if you can see which one you picked, and every other mode already shows
+/// its real shape here.
+fn drawOscillatorShape(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, waveform: ws.dsp.synth.Waveform, pulse_width: f32, wt: ws.dsp.wavetable.Wavetable, wt_pos: f32, accent: [4]f32) void {
+    // Denser than the classic shapes strictly need, so a bright wavetable
+    // frame draws as its own outline instead of an undersampled scribble.
+    const steps = 192;
     var prev = pos;
     for (1..steps + 1) |i| {
         const phase = @as(f32, @floatFromInt(i)) / @as(f32, steps) * 2.0;
         const frac = phase - @floor(phase);
         const sample: f32 = switch (waveform) {
             .sine => @sin(phase * std.math.pi * 2.0),
-            .saw, .wavetable => frac * 2.0 - 1.0,
+            .saw => frac * 2.0 - 1.0,
+            .wavetable => ws.dsp.wavetable.lookup(wt, wt_pos, frac, 0.0),
             .triangle => 1.0 - 4.0 * @abs(@round(phase) - phase),
             .square => if (frac < pulse_width) 1.0 else -1.0,
         };
