@@ -283,7 +283,6 @@ pub const PatternPlayer = struct {
         return removed;
     }
 
-
     /// Scale every velocity `sel` covers so the loudest note lands at full,
     /// keeping the dynamics between notes intact - the rescue for a take
     /// recorded too timid, where `:vel-ramp` would flatten the performance.
@@ -312,6 +311,7 @@ pub const PatternPlayer = struct {
     pub const shiftNotesInRange = pattern_transforms.shiftNotesInRange;
     pub const shapeNotesInRange = pattern_transforms.shapeNotesInRange;
     pub const reverseNotesInRange = pattern_transforms.reverseNotesInRange;
+    pub const invertNotesInRange = pattern_transforms.invertNotesInRange;
     pub const velocityRamp = pattern_transforms.velocityRamp;
     pub const legato = pattern_transforms.legato;
     pub const strum = pattern_transforms.strum;
@@ -792,6 +792,45 @@ test "reverseNotesInRange mirrors a figure so it plays backwards" {
     // Degenerate/invalid ranges are no-ops.
     try std.testing.expectEqual(@as(u16, 0), pp.reverseNotesInRange(.{ .lo_beat = 2.0, .hi_beat = 2.0 }));
     try std.testing.expectEqual(@as(u16, 0), pp.reverseNotesInRange(.{ .lo_beat = 0.0, .hi_beat = std.math.nan(f64) }));
+}
+
+test "invertNotesInRange folds pitches around the selection's own midpoint" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 4.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 1.0, .duration_beat = 1.0 });
+    pp.addNote(.{ .pitch = 67, .start_beat = 2.0, .duration_beat = 1.0 });
+
+    // Extremes swap (60<->67), the middle folds: 60+67-64 = 63.
+    try std.testing.expectEqual(@as(u16, 3), pp.invertNotesInRange(.{ .lo_beat = 0.0, .hi_beat = 4.0 }));
+    try std.testing.expectEqual(@as(u7, 67), pp.notes[0].pitch);
+    try std.testing.expectEqual(@as(u7, 63), pp.notes[1].pitch);
+    try std.testing.expectEqual(@as(u7, 60), pp.notes[2].pitch);
+
+    // Inverting twice restores the original figure.
+    _ = pp.invertNotesInRange(.{ .lo_beat = 0.0, .hi_beat = 4.0 });
+    try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch);
+    try std.testing.expectEqual(@as(u7, 64), pp.notes[1].pitch);
+    try std.testing.expectEqual(@as(u7, 67), pp.notes[2].pitch);
+
+    // A partial range mirrors only what it covers, around its own extremes.
+    _ = pp.invertNotesInRange(.{ .lo_beat = 0.0, .hi_beat = 2.0 });
+    try std.testing.expectEqual(@as(u7, 64), pp.notes[0].pitch);
+    try std.testing.expectEqual(@as(u7, 60), pp.notes[1].pitch);
+    try std.testing.expectEqual(@as(u7, 67), pp.notes[2].pitch);
+
+    // Empty selection is a no-op, and pitches stay inside the MIDI range
+    // even when the figure sits against an edge.
+    try std.testing.expectEqual(@as(u16, 0), pp.invertNotesInRange(.{ .lo_beat = 3.0, .hi_beat = 4.0 }));
+    pp.clearNotes();
+    pp.addNote(.{ .pitch = 0, .start_beat = 0.0, .duration_beat = 1.0 });
+    pp.addNote(.{ .pitch = 127, .start_beat = 1.0, .duration_beat = 1.0 });
+    _ = pp.invertNotesInRange(.{ .lo_beat = 0.0, .hi_beat = 4.0 });
+    try std.testing.expectEqual(@as(u7, 127), pp.notes[0].pitch);
+    try std.testing.expectEqual(@as(u7, 0), pp.notes[1].pitch);
 }
 
 test "velocityRamp interpolates by note position, endpoints exact" {

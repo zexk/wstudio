@@ -22,6 +22,11 @@ fn stepsPerBeatF(app: *App) f64 {
     return @floatFromInt(app.pianoStepsPerBeat());
 }
 
+/// Same, as the signed count the step-axis motions are scaled by.
+fn stepsPerBeat(app: *App) i32 {
+    return @intCast(app.pianoStepsPerBeat());
+}
+
 /// Convert a step index to a beat position under the current grid.
 fn stepToBeat(app: *App, step: u16) f64 {
     return @as(f64, @floatFromInt(step)) / stepsPerBeatF(app);
@@ -943,7 +948,7 @@ fn handleVisual(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, m
     if (app.piano_visual_edit) return handleVisualEdit(app, key, pp, max_step);
     switch (key) {
         .escape => { exitVisual(app); app.setStatus("selection cancelled", .{}); return true; },
-        .enter => { app.piano_visual_edit = true; app.setStatus("editing selection: hjkl move, [] resize, <> velocity, enter/esc stops", .{}); return true; },
+        .enter => { app.piano_visual_edit = true; app.setStatus("editing selection: hjkl moves the notes (HJKL by beat/octave), [] resize, <> velocity, r reverse, i invert, enter/esc stops", .{}); return true; },
         .char => |c| switch (c) {
             'h' => { moveStep(app, max_step, -app.takeCount()); return true; },
             'l' => { moveStep(app, max_step, app.takeCount()); return true; },
@@ -968,6 +973,7 @@ fn handleVisual(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, m
             '<' => { slideSelection(app, pp, max_step, -app.takeCount()); return true; },
             '>' => { slideSelection(app, pp, max_step, app.takeCount()); return true; },
             'r' => { reverseSelection(app, pp); return true; },
+            'i' => { invertSelection(app, pp); return true; },
             'o' => {
                 if (app.piano_visual_anchor) |a| {
                     app.piano_visual_anchor = app.piano_cursor_step;
@@ -997,6 +1003,11 @@ fn handleVisual(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, m
 }
 // zig fmt: on
 
+/// Visual mode's edit sub-mode (`enter`): the same hjkl fingers, but every
+/// motion moves the *notes* instead of the selection. Shifted motions take
+/// the musical step up from the unshifted one - a beat instead of a step,
+/// an octave instead of a semitone - so a phrase can be walked into place
+/// coarse-then-fine without reaching for counts.
 fn handleVisualEdit(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, max_step: u16) bool {
     switch (key) {
         .escape, .enter => {
@@ -1006,12 +1017,18 @@ fn handleVisualEdit(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlaye
         .char => |c| switch (c) {
             'h' => slideSelection(app, pp, max_step, -app.takeCount()),
             'l' => slideSelection(app, pp, max_step, app.takeCount()),
+            'H' => slideSelection(app, pp, max_step, -stepsPerBeat(app) * app.takeCount()),
+            'L' => slideSelection(app, pp, max_step, stepsPerBeat(app) * app.takeCount()),
             'j' => transposeSelection(app, pp, -app.takeCount()),
             'k' => transposeSelection(app, pp, app.takeCount()),
+            'J' => transposeSelection(app, pp, -12 * app.takeCount()),
+            'K' => transposeSelection(app, pp, 12 * app.takeCount()),
             '[' => shapeSelection(app, pp, -1.0 / stepsPerBeatF(app) * @as(f64, @floatFromInt(app.takeCount())), 0),
             ']' => shapeSelection(app, pp, 1.0 / stepsPerBeatF(app) * @as(f64, @floatFromInt(app.takeCount())), 0),
             '<' => shapeSelection(app, pp, 0, -0.1 * @as(f32, @floatFromInt(app.takeCount()))),
             '>' => shapeSelection(app, pp, 0, 0.1 * @as(f32, @floatFromInt(app.takeCount()))),
+            'r' => reverseSelection(app, pp),
+            'i' => invertSelection(app, pp),
             '0'...'9' => return false,
             else => {},
         },
@@ -1135,6 +1152,23 @@ fn reverseSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
     }
     history.push(app, entry);
     app.setStatus("reversed {d} notes", .{moved});
+    syncLinkedClip(app);
+}
+
+/// Visual `i`: melodic inversion - fold the selected notes around their own
+/// pitch midpoint (rising figure becomes falling). The selection stays live,
+/// so a second `i` folds it straight back, and it pairs with `r` the way
+/// retrograde and inversion pair in counterpoint.
+fn invertSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
+    var entry = history.captureMelodic(app, app.piano_track);
+    const moved = pp.invertNotesInRange(selection(app));
+    if (moved == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("no notes selected", .{});
+        return;
+    }
+    history.push(app, entry);
+    app.setStatus("inverted {d} notes", .{moved});
     syncLinkedClip(app);
 }
 

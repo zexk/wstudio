@@ -5352,6 +5352,31 @@ test "piano roll visual enter edits every selected note" {
     try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
 }
 
+test "piano roll visual edit shifts by beat/octave and inverts" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
+    pp.addNote(.{ .pitch = 67, .start_beat = 0.25, .duration_beat = 0.25 });
+
+    app.handleKey(.{ .char = 'V' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.handleKey(.enter, 0);
+    // L slides a whole beat, K lifts an octave.
+    app.handleKey(.{ .char = 'L' }, 0);
+    app.handleKey(.{ .char = 'K' }, 0);
+    try std.testing.expect(pp.noteAt(72, 1.0) != null);
+    try std.testing.expect(pp.noteAt(79, 1.25) != null);
+    // i folds the pair around its own midpoint: the two pitches swap.
+    app.handleKey(.{ .char = 'i' }, 0);
+    try std.testing.expect(pp.noteAt(79, 1.0) != null);
+    try std.testing.expect(pp.noteAt(72, 1.25) != null);
+    app.handleKey(.escape, 0);
+    app.handleKey(.escape, 0);
+}
+
 test "piano roll visual transpose refuses to clamp at the MIDI range edge" {
     var app = try testApp();
     defer app.deinit();

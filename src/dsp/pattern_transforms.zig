@@ -1,5 +1,5 @@
 //! Note-range editing operations for `PatternPlayer` (piano-roll commands:
-//! transpose/slide, velocity ramp/normalize, legato, strum, glue, dedupe,
+//! transpose/slide, retrograde/inversion, velocity ramp/normalize, legato, strum, glue, dedupe,
 //! chop, flam, arpeggiate, limit/remap pitch, set lengths). Split out of
 //! pattern.zig because these are UI-thread editing tools with no bearing
 //! on the audio-thread playback in that file (`scanRange`/`processBlock`).
@@ -79,6 +79,36 @@ pub fn reverseNotesInRange(self: *PatternPlayer, sel: Sel) u16 {
         // moves too, so choke anything sounding before it goes.
         self.queueNoteOff(n.pitch);
         n.start_beat = @max(sel.lo_beat, sel.lo_beat + sel.hi_beat - n.start_beat - n.duration_beat);
+        moved += 1;
+    }
+    return moved;
+}
+
+/// Pitch-mirror (melodic inversion) every note `sel` covers, reflecting
+/// each pitch around the midpoint of the *selected notes'* own range: the
+/// lowest and highest swap, everything between folds across. Mirroring
+/// around the notes rather than the selection band keeps the figure where
+/// it sits and can never leave the MIDI range (the extremes only trade
+/// places), so a second call flips it straight back. Returns the count
+/// moved (UI thread).
+pub fn invertNotesInRange(self: *PatternPlayer, sel: Sel) u16 {
+    while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
+    defer self.notes_lock.unlock();
+    var lo: i32 = 128;
+    var hi: i32 = -1;
+    for (self.notes[0..self.note_count]) |n| {
+        if (!sel.contains(n)) continue;
+        lo = @min(lo, @as(i32, n.pitch));
+        hi = @max(hi, @as(i32, n.pitch));
+    }
+    if (hi < lo) return 0;
+    var moved: u16 = 0;
+    for (self.notes[0..self.note_count]) |*n| {
+        if (!sel.contains(n.*)) continue;
+        // The pitch changes, so anything sounding at the old one would
+        // never see its note_off - same hazard as shiftNotesInRange.
+        self.queueNoteOff(n.pitch);
+        n.pitch = @intCast(lo + hi - @as(i32, n.pitch));
         moved += 1;
     }
     return moved;

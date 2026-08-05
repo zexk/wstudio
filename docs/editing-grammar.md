@@ -36,9 +36,14 @@ where that editor deviates.
   active every unrelated key is swallowed so a stray press cannot
   switch views or curves mid-selection.
 
-  In the piano roll, `enter` starts selected-note editing. `h`/`l` move
-  every selected note in time, `j`/`k` transpose, `[`/`]` resize, and
-  `<`/`>` change velocity. `enter` or escape returns to selection.
+  In the piano roll, `enter` starts selected-note editing, and the
+  selection recolours so the two modes are told apart on the grid. The
+  same fingers now move the notes: `h`/`l` in time, `j`/`k` in pitch,
+  with `H`/`L` and `J`/`K` taking the musical step up from those (a beat,
+  an octave). `[`/`]` resize, `<`/`>` change velocity, `r` reverses in
+  time and `i` inverts around the selection's pitch midpoint - `r` and
+  `i` work in plain visual mode too. `enter` or escape returns to
+  selection.
 - **Command** (`:`) / **search** (`/`): handled outside the editors.
 
 ## Counts
