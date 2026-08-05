@@ -240,12 +240,23 @@ pub const Sampler = struct {
         self.triggerHeld(note, vel, block_start, -1.0);
     }
 
+    /// `trigger` carrying the sequencer's per-note expression - the
+    /// sampler's half of `PolySynth.noteOnArt`, split from `trigger` for the
+    /// same reason: a pad hit, a drum step and an audition have none.
+    pub fn triggerArt(self: *Sampler, note: u7, vel: f32, block_start: u32, art: dsp.Articulation) void {
+        self.triggerHeldArt(note, vel, block_start, -1.0, art);
+    }
+
     /// `trigger` with a gated hold: how long a gated pad (`Pad.gate`) plays
     /// before releasing itself, in output frames - see `pad.Voice.hold_frames`.
     /// A step sequencer has no note-off to send, so it passes its step's own
     /// length here; anything holding a key passes -1 and waits for the
     /// note-off instead.
     pub fn triggerHeld(self: *Sampler, note: u7, vel: f32, block_start: u32, hold: f64) void {
+        self.triggerHeldArt(note, vel, block_start, hold, .neutral);
+    }
+
+    pub fn triggerHeldArt(self: *Sampler, note: u7, vel: f32, block_start: u32, hold: f64, art: dsp.Articulation) void {
         // Mono mode (and the pad's own `.retrigger` play mode): a new note
         // always cuts every still-ringing voice first, so long one-shots
         // (e.g. a bass note) never overlap themselves.
@@ -265,7 +276,7 @@ pub const Sampler = struct {
             .note = note,
             .semis = @as(f32, @floatFromInt(@as(i16, note) - @as(i16, self.root_note))),
             .age = self.next_age,
-            .v = .{ .active = true, .played = 0, .block_start = block_start, .vel = vel, .hold_frames = hold },
+            .v = .{ .active = true, .played = 0, .block_start = block_start, .vel = vel, .hold_frames = hold, .art = art },
         };
         self.next_age +%= 1;
     }
@@ -328,7 +339,7 @@ pub const Sampler = struct {
     pub fn handleEvent(self: *Sampler, ev: dsp.Event) void {
         switch (ev) {
             // zig fmt: off
-            .note_on   => |e| self.trigger(e.note, e.velocity, 0),
+            .note_on   => |e| self.triggerArt(e.note, e.velocity, 0, e.art),
             .note_off  => |e| self.releaseNote(e.note),
             // e.id is u16 (wide enough for DrumMachine's pad-encoded ids);
             // truncate rather than @intCast, same reasoning as PolySynth's

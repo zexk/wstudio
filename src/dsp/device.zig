@@ -17,8 +17,46 @@ pub fn smoothingCoefMs(ms: f32, sample_rate: f32) f32 {
     return @exp(-1.0 / (ms * 0.001 * sample_rate));
 }
 
+/// Per-note expression a sequenced note carries beyond pitch and velocity.
+/// Every field's default is its neutral value, so a live keyboard press, a
+/// MIDI note or an arpeggiated step - none of which supply any of this -
+/// sounds exactly as it did before per-note expression existed.
+///
+/// Kept as one struct rather than three loose parameters so growing it
+/// later doesn't touch the ~70 `Event.note_on` construction sites again.
+pub const Articulation = struct {
+    /// -1 hard left .. +1 hard right, applied on top of whatever pan the
+    /// voice already has (a synth's unison spread, a sampler's own pan).
+    pan: f32 = 0.0,
+    /// Detune in cents, on top of the instrument's own tuning. This is the
+    /// per-note counterpart of a patch's detune knob, not a pitch bend:
+    /// it's fixed for the note's whole life.
+    fine_cents: f32 = 0.0,
+    /// Multiplies the instrument's amp-envelope release time, so one note
+    /// can ring past the patch's own tail without a second patch. 1 = the
+    /// patch's release exactly.
+    release_scale: f32 = 1.0,
+
+    pub const neutral: Articulation = .{};
+
+    /// Clamps to the ranges the editors and the loader both enforce, so a
+    /// hand-edited project or a Lua caller can't push a voice somewhere the
+    /// UI has no way to show or undo.
+    pub fn clamped(self: Articulation) Articulation {
+        return .{
+            .pan = sanitizeParam(self.pan, -1.0, 1.0, 0.0),
+            .fine_cents = sanitizeParam(self.fine_cents, -100.0, 100.0, 0.0),
+            .release_scale = sanitizeParam(self.release_scale, 0.1, 4.0, 1.0),
+        };
+    }
+
+    pub fn isNeutral(self: Articulation) bool {
+        return self.pan == 0.0 and self.fine_cents == 0.0 and self.release_scale == 1.0;
+    }
+};
+
 pub const Event = union(enum) {
-    note_on: struct { note: u7, velocity: f32 },
+    note_on: struct { note: u7, velocity: f32, art: Articulation = .neutral },
     note_off: struct { note: u7 },
     all_off,
     cc: struct { cc: u7, value: u7 },

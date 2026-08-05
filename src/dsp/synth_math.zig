@@ -76,16 +76,43 @@ pub fn unisonSpreadCents(mode: UnisonMode, ui: usize, n: usize, detune: f32) f32
 /// which oscillator's arrays they write into. spread=0 (or n<=1) gives
 /// the same per-channel amplitude as the original mono path.
 pub fn computeUnisonPan(n: usize, spread: f32, pan_l: *[max_unison]f32, pan_r: *[max_unison]f32) void {
-    const pan_scale = std.math.sqrt2;
     for (0..n) |ui| {
         const raw: f32 = if (n > 1 and spread > 0.0)
             ((@as(f32, @floatFromInt(ui)) / @as(f32, @floatFromInt(n - 1))) * 2.0 - 1.0) * spread
         else
             0.0;
-        const angle = (raw + 1.0) * std.math.pi * 0.25;
-        pan_l[ui] = pan_scale * @cos(angle);
-        pan_r[ui] = pan_scale * @sin(angle);
+        const g = panGains(raw);
+        pan_l[ui] = g[0];
+        pan_r[ui] = g[1];
     }
+}
+
+/// One source's `{left, right}` gains at `raw` (-1 hard left .. +1 hard
+/// right). Constant power, √2-compensated so centre is unity in both
+/// channels rather than -3 dB - the law `computeUnisonPan` has always used,
+/// pulled out so a per-note pan lands the same way a spread voice does
+/// instead of introducing a second pan law inside one instrument.
+pub fn panGains(raw: f32) [2]f32 {
+    const angle = (std.math.clamp(raw, -1.0, 1.0) + 1.0) * std.math.pi * 0.25;
+    return .{ std.math.sqrt2 * @cos(angle), std.math.sqrt2 * @sin(angle) };
+}
+
+test "panGains: centre is unity, ends are constant power" {
+    const c = panGains(0.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), c[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), c[1], 1e-6);
+
+    const l = panGains(-1.0);
+    try std.testing.expectApproxEqAbs(std.math.sqrt2, l[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), l[1], 1e-6);
+
+    // Power is conserved across the sweep: l² + r² holds at 2.
+    for ([_]f32{ -1.0, -0.5, 0.0, 0.37, 1.0 }) |p| {
+        const g = panGains(p);
+        try std.testing.expectApproxEqAbs(@as(f32, 2.0), g[0] * g[0] + g[1] * g[1], 1e-5);
+    }
+    // Out-of-range input clamps instead of wrapping past hard left/right.
+    try std.testing.expectEqual(panGains(1.0), panGains(9.0));
 }
 
 /// Advances one ADSR generator by one sample - shared body of the amp,

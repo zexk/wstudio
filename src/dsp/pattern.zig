@@ -47,6 +47,11 @@ pub const Note = struct {
     start_beat:    f64,
     duration_beat: f64,
     velocity:      f32 = default_velocity,
+    /// Per-note pan/fine-tuning/release - see `dsp.Articulation`. Defaults
+    /// are neutral, so a note written before per-note expression existed
+    /// (or by a step edit, the qwerty piano, or a MIDI import) plays the
+    /// way it always did.
+    art:           dsp.Articulation = .neutral,
 };
 // zig fmt: on
 
@@ -501,7 +506,7 @@ pub const PatternPlayer = struct {
         for (notes) |n| {
             const start = @mod(swungBeat(n.start_beat, swing_pct), loop_beats);
             if (start >= lo and start < hi) {
-                target.sendEvent(.{ .note_on = .{ .note = n.pitch, .velocity = n.velocity } });
+                target.sendEvent(.{ .note_on = .{ .note = n.pitch, .velocity = n.velocity, .art = n.art } });
                 sounding[n.pitch] +|= 1;
             }
         }

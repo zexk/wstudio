@@ -8,6 +8,7 @@ const std = @import("std");
 const types = @import("../core/types.zig");
 const wav = @import("../core/wav.zig");
 const lfo_dsp = @import("lfo.zig");
+const dsp = @import("device.zig");
 const Lfo = lfo_dsp.Lfo;
 
 const Sample = types.Sample;
@@ -350,6 +351,10 @@ pub const Voice = struct {
     /// its pad's Sampler on a different note; a Slicer voice has no note to
     /// shift, so the offset rides on the voice itself.
     tune: i8 = 0,
+    /// The sequenced note's own pan/fine-tune/release - see
+    /// `dsp.Articulation`. Neutral for a pad hit, a live key, or a drum
+    /// step, none of which have a piano-roll note behind them.
+    art: dsp.Articulation = .neutral,
     /// WSOLA state, touched only when `pad.stretch_ratio != 1.0` - see
     /// `renderVoiceStretched`. Reconstructed from scalars each grain hop
     /// rather than a cached buffer, since `pad.samples` is already fully
@@ -496,6 +501,7 @@ pub fn renderVoice(
     const mod_val: f32 = if (pad.mod_dest == .off) 0.0 else pad.mod_lfo.sample(pad.mod_shape) * pad.mod_depth;
 
     const semis: f64 = @as(f64, pad.pitch_semitones) + @as(f64, @floatFromInt(voice.tune)) +
+        @as(f64, voice.art.fine_cents) / 100.0 +
         (if (pad.mod_dest == .pitch) @as(f64, mod_val) * 12.0 else 0.0);
     const rate: f64 = std.math.pow(f64, 2.0, semis / 12.0);
 
@@ -504,7 +510,8 @@ pub fn renderVoice(
     // (tremolo dips toward silence rather than going negative); pan
     // modulation is additive, same units as the pad's own `pan`.
     const mod_gain_mult: f32 = if (pad.mod_dest == .gain) std.math.clamp(1.0 + mod_val, 0.0, 2.0) else 1.0;
-    const mod_pan: f32 = if (pad.mod_dest == .pan) std.math.clamp(pad.pan + mod_val, -1.0, 1.0) else pad.pan;
+    const pan_base: f32 = std.math.clamp(pad.pan + voice.art.pan, -1.0, 1.0);
+    const mod_pan: f32 = if (pad.mod_dest == .pan) std.math.clamp(pan_base + mod_val, -1.0, 1.0) else pan_base;
     const gl: f32 = pad.gain * mod_gain_mult * voice.vel * @min(1.0, 1.0 - mod_pan);
     const gr: f32 = pad.gain * mod_gain_mult * voice.vel * @min(1.0, 1.0 + mod_pan);
 
@@ -537,7 +544,7 @@ pub fn renderVoice(
         if (voice.played >= region_len) { voice.active = false; break; }
         // zig fmt: on
         if (gated) releaseAtHold(voice, voice.played / rate);
-        const gate_g = if (gated) gateLevel(voice.release_frames, sample_rate, pad.release_s) else 1.0;
+        const gate_g = if (gated) gateLevel(voice.release_frames, sample_rate, pad.release_s * voice.art.release_scale) else 1.0;
         // zig fmt: off
         if (gate_g <= 0.0) { voice.active = false; break; }
         // zig fmt: on
@@ -647,7 +654,7 @@ fn renderVoiceStretched(
             break;
         }
         if (gated) releaseAtHold(voice, st.out_played);
-        const gate_g = if (gated) gateLevel(voice.release_frames, sr, pad.release_s) else 1.0;
+        const gate_g = if (gated) gateLevel(voice.release_frames, sr, pad.release_s * voice.art.release_scale) else 1.0;
         if (gate_g <= 0.0) {
             voice.active = false;
             break;

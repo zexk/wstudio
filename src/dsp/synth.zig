@@ -456,6 +456,10 @@ pub const PolySynth = struct {
     // zig fmt: off
     held_notes:      [16]u7  = [_]u7{0}  ** 16,
     held_velocities: [16]f32 = [_]f32{0} ** 16,
+    /// Per-note expression of each held key, so a mono/legato re-trigger and
+    /// the arp both replay the note the roll actually wrote rather than a
+    /// neutral copy of its pitch.
+    held_art: [16]dsp.Articulation = [_]dsp.Articulation{.neutral} ** 16,
     held_count: u8 = 0,
 
     // ── SUB ─────────────────────────────────────────────────────────────────
@@ -612,6 +616,7 @@ pub const PolySynth = struct {
     /// down, frozen at its last value across a release when arp_hold is on.
     arp_latch_notes: [16]u7  = [_]u7{0} ** 16,
     arp_latch_vel:   [16]f32 = [_]f32{0} ** 16,
+    arp_latch_art:   [16]dsp.Articulation = [_]dsp.Articulation{.neutral} ** 16,
     arp_latch_count: u8      = 0,
     /// On->off edge detector so turning the arp off mid-note releases
     /// whatever it was sounding instead of leaving it stuck (see
@@ -868,6 +873,9 @@ pub const PolySynth = struct {
         active: bool = false,
         note:   u7   = 0,
         velocity: f32 = 0.0,
+        /// The sequenced note's own pan/fine-tune/release, fixed for the
+        /// voice's life - see `dsp.Articulation`.
+        art: dsp.Articulation = .neutral,
         /// Phase accumulators for OSC A and OSC B unison voices.
         phases:   [max_unison]f32 = [_]f32{0.0} ** max_unison,
         phases_b: [max_unison]f32 = [_]f32{0.0} ** max_unison,
@@ -1310,9 +1318,18 @@ pub const PolySynth = struct {
     }
 
     pub fn noteOn(self: *PolySynth, note: u7, velocity: f32) void {
+        self.noteOnArt(note, velocity, .neutral);
+    }
+
+    /// `noteOn` carrying the sequencer's per-note expression. Split from
+    /// `noteOn` rather than made its third parameter because everything that
+    /// isn't the piano roll - the live keyboard, MIDI in, an audition, every
+    /// test - has nothing to say about pan, tuning or release and shouldn't
+    /// have to spell out that it doesn't.
+    pub fn noteOnArt(self: *PolySynth, note: u7, velocity: f32, art: dsp.Articulation) void {
         if (self.arp_on) {
             const was_empty = self.held_count == 0;
-            self.pushHeld(note, velocity);
+            self.pushHeld(note, velocity, art);
             self.arpUpdateLatch();
             // Fresh press from silence: trigger immediately and restart the
             // step clock, rather than waiting out whatever phase happened
@@ -1326,13 +1343,13 @@ pub const PolySynth = struct {
         }
         switch (self.voice_mode) {
             // zig fmt: off
-            .poly   => self.noteOnPoly(note, velocity),
-            .mono   => { self.pushHeld(note, velocity); self.noteOnMono(note, velocity, true); },
+            .poly   => self.noteOnPoly(note, velocity, art),
+            .mono   => { self.pushHeld(note, velocity, art); self.noteOnMono(note, velocity, art, true); },
             // zig fmt: on
             .legato => {
                 const was_active = self.voices[0].active;
-                self.pushHeld(note, velocity);
-                self.noteOnMono(note, velocity, !was_active);
+                self.pushHeld(note, velocity, art);
+                self.noteOnMono(note, velocity, art, !was_active);
             },
         }
     }
@@ -1366,7 +1383,7 @@ pub const PolySynth = struct {
                 self.popHeld(note);
                 if (self.held_count > 0) {
                     const i = self.held_count - 1;
-                    self.noteOnMono(self.held_notes[i], self.held_velocities[i], true);
+                    self.noteOnMono(self.held_notes[i], self.held_velocities[i], self.held_art[i], true);
                 } else {
                     // Not just voices[0]: mono/legato only ever *trigger*
                     // into slot 0, but switching voice_mode away from .poly
@@ -1386,7 +1403,7 @@ pub const PolySynth = struct {
                 self.popHeld(note);
                 if (self.held_count > 0) {
                     const i = self.held_count - 1;
-                    self.noteOnMono(self.held_notes[i], self.held_velocities[i], false);
+                    self.noteOnMono(self.held_notes[i], self.held_velocities[i], self.held_art[i], false);
                 } else {
                     // Same stray-voice hazard as .mono above. Slot 0 keeps
                     // its original unconditional release (legato's own
@@ -1415,7 +1432,7 @@ pub const PolySynth = struct {
     /// Also where `.key`/`.one_shot` LFOs restart: this is exactly the set
     /// of note-ons that reset the amplitude envelope, so a legato slide
     /// leaves a running growl alone while every real new note re-arms it.
-    fn triggerVoice(self: *PolySynth, note: u7, velocity: f32, was_active: bool, prev_log: f32) Voice {
+    fn triggerVoice(self: *PolySynth, note: u7, velocity: f32, art: dsp.Articulation, was_active: bool, prev_log: f32) Voice {
         self.next_voice_id +%= 1;
         self.retriggerLfos();
         self.mod_alternate = !self.mod_alternate;
@@ -1425,6 +1442,7 @@ pub const PolySynth = struct {
             .active           = true,
             .note             = note,
             .velocity         = velocity,
+            .art              = art,
             .stage            = .attack,
             .stage2           = .attack,
             .stage3           = .attack,
@@ -1439,24 +1457,26 @@ pub const PolySynth = struct {
         };
     }
 
-    fn noteOnPoly(self: *PolySynth, note: u7, velocity: f32) void {
+    fn noteOnPoly(self: *PolySynth, note: u7, velocity: f32, art: dsp.Articulation) void {
         self.newest_voice = self.allocVoice();
         const v = &self.voices[self.newest_voice];
-        v.* = self.triggerVoice(note, velocity, v.active, v.glide_log);
+        v.* = self.triggerVoice(note, velocity, art, v.active, v.glide_log);
     }
 
     /// Activate or update the single mono/legato voice.
     /// retrigger=true → reset amplitude envelope from attack.
-    fn noteOnMono(self: *PolySynth, note: u7, velocity: f32, retrigger: bool) void {
+    fn noteOnMono(self: *PolySynth, note: u7, velocity: f32, art: dsp.Articulation, retrigger: bool) void {
         self.newest_voice = 0;
         const v          = &self.voices[0];
         const was_active = v.active;
         const target_log = std.math.log2(noteToFreq(note));
         if (retrigger or !was_active) {
-            v.* = self.triggerVoice(note, velocity, was_active, v.glide_log);
+            v.* = self.triggerVoice(note, velocity, art, was_active, v.glide_log);
         } else {
-            // Legato: update pitch only, envelope continues.
+            // Legato: update pitch only, envelope continues - the new key's
+            // own expression rides along, since that key is what sounds now.
             v.note = note;
+            v.art = art;
             if (self.glide_s > 0.0) {
                 v.glide_rate = (target_log - v.glide_log) /
                     @max(self.glide_s * self.sample_rate, 1.0);
@@ -1469,10 +1489,11 @@ pub const PolySynth = struct {
         }
     }
 
-    fn pushHeld(self: *PolySynth, note: u7, velocity: f32) void {
+    fn pushHeld(self: *PolySynth, note: u7, velocity: f32, art: dsp.Articulation) void {
         for (0..self.held_count) |i| {
             if (self.held_notes[i] == note) {
                 self.held_velocities[i] = velocity;
+                self.held_art[i] = art;
                 return;
             }
         }
@@ -1481,6 +1502,7 @@ pub const PolySynth = struct {
             self.held_notes[self.held_count]      = note;
             // zig fmt: on
             self.held_velocities[self.held_count] = velocity;
+            self.held_art[self.held_count] = art;
             self.held_count += 1;
         }
     }
@@ -1494,6 +1516,7 @@ pub const PolySynth = struct {
                     self.held_notes[j]      = self.held_notes[j + 1];
                     // zig fmt: on
                     self.held_velocities[j] = self.held_velocities[j + 1];
+                    self.held_art[j] = self.held_art[j + 1];
                 }
                 return;
             }
@@ -1504,6 +1527,7 @@ pub const PolySynth = struct {
         self.arp_latch_count = self.held_count;
         @memcpy(self.arp_latch_notes[0..self.held_count], self.held_notes[0..self.held_count]);
         @memcpy(self.arp_latch_vel[0..self.held_count], self.held_velocities[0..self.held_count]);
+        @memcpy(self.arp_latch_art[0..self.held_count], self.held_art[0..self.held_count]);
     }
 
     /// Release every currently active voice (there's nothing else sounding
@@ -1525,22 +1549,26 @@ pub const PolySynth = struct {
     /// lowest octave first. Notes that shift past MIDI's range are dropped
     /// rather than clamped, so the sequence's rhythm stays even instead of
     /// piling extra hits on the boundary note.
-    fn arpBuildSeq(self: *const PolySynth, seq_notes: *[16 * max_arp_octaves]u7, seq_vels: *[16 * max_arp_octaves]f32) usize {
+    fn arpBuildSeq(self: *const PolySynth, seq_notes: *[16 * max_arp_octaves]u7, seq_vels: *[16 * max_arp_octaves]f32, seq_art: *[16 * max_arp_octaves]dsp.Articulation) usize {
         const n: usize = self.arp_latch_count;
         var notes: [16]u7 = self.arp_latch_notes;
         var vels: [16]f32 = self.arp_latch_vel;
+        var arts: [16]dsp.Articulation = self.arp_latch_art;
         if (self.arp_mode != .played) {
             var i: usize = 1;
             while (i < n) : (i += 1) {
                 const key = notes[i];
                 const key_v = vels[i];
+                const key_a = arts[i];
                 var j = i;
                 while (j > 0 and notes[j - 1] > key) : (j -= 1) {
                     notes[j] = notes[j - 1];
                     vels[j] = vels[j - 1];
+                    arts[j] = arts[j - 1];
                 }
                 notes[j] = key;
                 vels[j] = key_v;
+                arts[j] = key_a;
             }
         }
         const octaves: usize = @intCast(std.math.clamp(self.arp_octaves, 1, max_arp_octaves));
@@ -1551,6 +1579,7 @@ pub const PolySynth = struct {
                 if (shifted < 0 or shifted > 127) continue;
                 seq_notes[k] = @intCast(shifted);
                 seq_vels[k] = vels[i];
+                seq_art[k] = arts[i];
                 k += 1;
             }
         }
@@ -1566,14 +1595,15 @@ pub const PolySynth = struct {
 
         if (self.arp_mode == .chord) {
             self.arpReleaseActive();
-            for (0..n) |i| self.noteOnPoly(self.arp_latch_notes[i], self.arp_latch_vel[i]);
+            for (0..n) |i| self.noteOnPoly(self.arp_latch_notes[i], self.arp_latch_vel[i], self.arp_latch_art[i]);
             self.arp_gate_open = true;
             return;
         }
 
         var seq_notes: [16 * max_arp_octaves]u7 = undefined;
         var seq_vels: [16 * max_arp_octaves]f32 = undefined;
-        const k = self.arpBuildSeq(&seq_notes, &seq_vels);
+        var seq_art: [16 * max_arp_octaves]dsp.Articulation = undefined;
+        const k = self.arpBuildSeq(&seq_notes, &seq_vels, &seq_art);
         if (k == 0) return;
 
         // zig fmt: off
@@ -1602,7 +1632,7 @@ pub const PolySynth = struct {
         // zig fmt: on
 
         self.arpReleaseActive();
-        self.noteOnPoly(seq_notes[idx], seq_vels[idx]);
+        self.noteOnPoly(seq_notes[idx], seq_vels[idx], seq_art[idx]);
         self.arp_gate_open = true;
     }
 
@@ -1728,7 +1758,10 @@ pub const PolySynth = struct {
             const sustain_v      = eff(&mods, 18, self.sustain);
             const attack_inc     = 1.0 / @max(eff(&mods, 16, self.attack_s)  * self.sample_rate, 1.0);
             const decay_inc      = (1.0 - sustain_v) / @max(eff(&mods, 17, self.decay_s) * self.sample_rate, 1.0);
-            const release_inc    = 1.0 / @max(eff(&mods, 19, self.release_s) * self.sample_rate, 1.0);
+            // The note's own release_scale stretches (or shortens) the amp
+            // tail only - the filter and ENV 3 releases stay on the patch,
+            // so a longer note rings out rather than re-voicing the patch.
+            const release_inc    = 1.0 / @max(eff(&mods, 19, self.release_s) * v.art.release_scale * self.sample_rate, 1.0);
 
             const fenv_sustain_v   = eff(&mods, 26, self.fenv_sustain);
             const fenv_attack_inc  = 1.0 / @max(eff(&mods, 24, self.fenv_attack_s)  * self.sample_rate, 1.0);
@@ -1779,8 +1812,10 @@ pub const PolySynth = struct {
             const fc2 = self.computeFilterCoeffs(effective_cutoff2, self.filter2_type, eff(&mods, 48, self.filter2_res));
 
             // Pitch: the virtual dest is in octaves. Glide is log-freq space.
+            // The note's own fine tuning sits alongside the patch's detune -
+            // both are fixed cent offsets, so they simply add.
             const base_freq = std.math.pow(f32, 2.0,
-                v.glide_log + eff(&mods, 2, self.detune_cents) / 1200.0 + mods.amt(dest_pitch) +
+                v.glide_log + (eff(&mods, 2, self.detune_cents) + v.art.fine_cents) / 1200.0 + mods.amt(dest_pitch) +
                 self.pitch_bend_semitones / 12.0);
 
             // Amp: virtual dest is a gain factor about unity (tremolo when
@@ -1885,6 +1920,10 @@ pub const PolySynth = struct {
             // Stereo pan gains per unison voice - constant-power, √2-compensated so
             // spread=0 gives the same per-channel amplitude as the original mono path.
             const uni_spread = eff(&mods, 5, self.unison_spread);
+            // The note's own pan multiplies the whole voice - after the
+            // unison spread, which places the voice's parts relative to
+            // wherever the note itself sits.
+            const art_pan = synth_math.panGains(v.art.pan);
             var pan_l_a: [max_unison]f32 = undefined;
             var pan_r_a: [max_unison]f32 = undefined;
             computeUnisonPan(n_a, uni_spread, &pan_l_a, &pan_r_a);
@@ -2053,8 +2092,8 @@ pub const PolySynth = struct {
                 }
 
                 const sg = v.env * v.velocity * v.out_gain * amp_mod;
-                buf[i * 2]     += filt_l * sg;
-                buf[i * 2 + 1] += filt_r * sg;
+                buf[i * 2]     += filt_l * sg * art_pan[0];
+                buf[i * 2 + 1] += filt_r * sg * art_pan[1];
                 // zig fmt: on
 
                 // Amplitude envelope - hitting zero on release kills the
@@ -3295,7 +3334,7 @@ pub const PolySynth = struct {
     pub fn handleEvent(self: *PolySynth, ev: dsp.Event) void {
         switch (ev) {
             // zig fmt: off
-            .note_on    => |e| self.noteOn(e.note, e.velocity),
+            .note_on    => |e| self.noteOnArt(e.note, e.velocity, e.art),
             .note_off   => |e| self.noteOff(e.note),
             .all_off    => self.resetAll(),
             .cc         => |e| self.applyCC(e.cc, e.value),
@@ -4159,6 +4198,118 @@ test "glide: snaps immediately when glide_s=0" {
     @memset(&buf, 0.0); synth.processBlock(&buf);
     // zig fmt: on
     try std.testing.expectApproxEqAbs(a4_log, synth.voices[0].glide_log, 1e-4);
+}
+
+test "per-note articulation: pan places the voice, fine cents retunes it" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.filter_type = .lp;
+    synth.filter_cutoff = 20_000.0;
+
+    // Hard left: the right channel goes silent, the left does not.
+    synth.noteOnArt(69, 1.0, .{ .pan = -1.0 });
+    var buf: [512]Sample = undefined;
+    @memset(&buf, 0.0);
+    synth.processBlock(&buf);
+    var left: f32 = 0.0;
+    var right: f32 = 0.0;
+    var i: usize = 0;
+    while (i < buf.len) : (i += 2) {
+        left = @max(left, @abs(buf[i]));
+        right = @max(right, @abs(buf[i + 1]));
+    }
+    try std.testing.expect(left > 0.01);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), right, 1e-6);
+
+    // Fine tuning lands on the voice's own frequency, not the patch's.
+    synth.resetAll();
+    synth.noteOnArt(69, 1.0, .{ .fine_cents = 50.0 });
+    try std.testing.expectApproxEqAbs(
+        std.math.log2(PolySynth.noteToFreq(69)),
+        synth.voices[synth.newest_voice].glide_log,
+        1e-5,
+    );
+    try std.testing.expectEqual(@as(f32, 50.0), synth.voices[synth.newest_voice].art.fine_cents);
+
+    // A plain noteOn stays neutral, so nothing that isn't the roll changes.
+    synth.resetAll();
+    synth.noteOn(69, 1.0);
+    try std.testing.expect(synth.voices[synth.newest_voice].art.isNeutral());
+}
+
+test "per-note articulation: release_scale stretches only the amp tail" {
+    // Two identical notes, released at the same instant, differing only in
+    // release_scale: the stretched one must still be sounding after the
+    // short one has died.
+    var short = try PolySynth.init(std.testing.allocator, 48_000);
+    defer short.deinit();
+    var long = try PolySynth.init(std.testing.allocator, 48_000);
+    defer long.deinit();
+    for ([_]*PolySynth{ &short, &long }) |s| {
+        s.release_s = 0.05;
+        s.filter_cutoff = 20_000.0;
+    }
+
+    short.noteOnArt(69, 1.0, .{ .release_scale = 1.0 });
+    long.noteOnArt(69, 1.0, .{ .release_scale = 4.0 });
+    var buf: [512]Sample = undefined;
+    @memset(&buf, 0.0);
+    short.processBlock(&buf);
+    @memset(&buf, 0.0);
+    long.processBlock(&buf);
+    short.noteOff(69);
+    long.noteOff(69);
+
+    // 0.1 s of release: past the 0.05 s tail, well inside the 0.2 s one.
+    for (0..10) |_| {
+        @memset(&buf, 0.0);
+        short.processBlock(&buf);
+        @memset(&buf, 0.0);
+        long.processBlock(&buf);
+    }
+    try std.testing.expect(!short.voices[0].active);
+    try std.testing.expect(long.voices[0].active);
+}
+
+test "per-note articulation: the arp replays each held note's own expression" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.arp_on = true;
+    synth.arp_mode = .chord;
+
+    synth.noteOnArt(60, 1.0, .{ .pan = -1.0 });
+    synth.noteOnArt(64, 1.0, .{ .pan = 1.0 });
+    // Both held notes are latched with their own pan, not a neutral copy.
+    try std.testing.expectEqual(@as(f32, -1.0), synth.arp_latch_art[0].pan);
+    try std.testing.expectEqual(@as(f32, 1.0), synth.arp_latch_art[1].pan);
+
+    // The first press fires immediately with only itself latched, so run the
+    // step timer until a step lands on the full latched chord.
+    var buf: [512]Sample = undefined;
+    var seen_left = false;
+    var seen_right = false;
+    for (0..64) |_| {
+        @memset(&buf, 0.0);
+        synth.processBlock(&buf);
+        for (synth.voices) |v| {
+            if (!v.active) continue;
+            if (v.note == 60 and v.art.pan == -1.0) seen_left = true;
+            if (v.note == 64 and v.art.pan == 1.0) seen_right = true;
+        }
+        if (seen_left and seen_right) break;
+    }
+    try std.testing.expect(seen_left and seen_right);
+}
+
+test "Articulation.clamped pulls a hand-edited value back into range" {
+    const wild = dsp.Articulation{ .pan = 5.0, .fine_cents = -900.0, .release_scale = 0.0 };
+    const safe = wild.clamped();
+    try std.testing.expectEqual(@as(f32, 1.0), safe.pan);
+    try std.testing.expectEqual(@as(f32, -100.0), safe.fine_cents);
+    try std.testing.expectEqual(@as(f32, 0.1), safe.release_scale);
+
+    const nan = dsp.Articulation{ .pan = std.math.nan(f32), .fine_cents = std.math.inf(f32), .release_scale = std.math.nan(f32) };
+    try std.testing.expect(nan.clamped().isNeutral());
 }
 
 test "mono mode: only one voice active" {
