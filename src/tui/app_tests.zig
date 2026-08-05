@@ -19,6 +19,7 @@ const cmd_mod = @import("../ui/cmd.zig");
 const drum_ed = @import("../ui/editors/drum.zig");
 const step_grid = @import("../ui/editors/step_grid.zig");
 const slicer_ed = @import("../ui/editors/slicer.zig");
+const automation_mod = ws.dsp.automation;
 const automation_ed = @import("../ui/editors/automation.zig");
 const style = @import("style.zig");
 const piano_ed = @import("../ui/editors/piano.zig");
@@ -2128,6 +2129,56 @@ test "automation editor char/word tiers: x deletes the point under the cursor, w
     for ("dw") |c| _ = automation_ed.handleKey(&app, .{ .char = c });
     try std.testing.expectEqual(@as(usize, 1), clip.automation.gain.len);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), clip.automation.gain[0].beat, 1e-9); // step 4 = beat 1
+}
+
+test "automation editor: c cycles the segment shape and the curve plays it back" {
+    var app = try testApp();
+    defer app.deinit();
+
+    try app.session.stampClip(0, 0);
+    automation_ed.switchTo(&app, 0, 0);
+    const clip = automation_ed.currentClip(&app).?;
+    clip.length_ticks = 256;
+
+    // An interpolated step has no shape of its own to set.
+    app.automation_cursor_step = 2;
+    _ = automation_ed.handleKey(&app, .{ .char = 'c' });
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "no point exactly here") != null);
+
+    // Two points a beat apart, so the segment between them is measurable.
+    app.automation_cursor_step = 0;
+    _ = automation_ed.handleKey(&app, .{ .char = 'k' });
+    app.automation_cursor_step = 4;
+    for (0..4) |_| _ = automation_ed.handleKey(&app, .{ .char = 'k' });
+    try std.testing.expectEqual(@as(usize, 2), clip.automation.gain.len);
+
+    const a = clip.automation.gain[0].value;
+    const b = clip.automation.gain[1].value;
+    try std.testing.expect(b > a);
+    const mid = 0.5; // beat halfway between step 0 and step 4
+
+    // linear: the midpoint sits halfway between the two values.
+    try std.testing.expectApproxEqAbs((a + b) / 2.0, automation_mod.interpolate(clip.automation.gain, mid).?, 1e-5);
+
+    app.automation_cursor_step = 0;
+    _ = automation_ed.handleKey(&app, .{ .char = 'c' }); // -> hold
+    try std.testing.expectEqual(automation_mod.Curve.hold, clip.automation.gain[0].curve);
+    try std.testing.expectApproxEqAbs(a, automation_mod.interpolate(clip.automation.gain, mid).?, 1e-5);
+
+    _ = automation_ed.handleKey(&app, .{ .char = 'c' }); // -> ease
+    try std.testing.expectEqual(automation_mod.Curve.ease, clip.automation.gain[0].curve);
+    // Smoothstep is symmetric, so its midpoint matches linear's; a quarter
+    // in is where it visibly lags.
+    try std.testing.expect(automation_mod.interpolate(clip.automation.gain, 0.25).? < (a + b) / 2.0);
+
+    _ = automation_ed.handleKey(&app, .{ .char = 'c' }); // -> back to linear
+    try std.testing.expectEqual(automation_mod.Curve.linear, clip.automation.gain[0].curve);
+
+    // The shape is undoable with the value edits, at the same whole-lane
+    // granularity every other automation edit uses.
+    _ = automation_ed.handleKey(&app, .{ .char = 'c' }); // -> hold again
+    _ = automation_ed.handleKey(&app, .{ .char = 'u' });
+    try std.testing.expectEqual(automation_mod.Curve.linear, clip.automation.gain[0].curve);
 }
 
 test "automation editor: tab only cycles gain/pan until the picker adds a synth param" {

@@ -408,6 +408,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("j / k",        "nudge the value at cursor (fine step) - adds a point if none exists");
     t.key("J / K",        "nudge the value at cursor (coarse step)");
     t.key("x",            "delete the point at cursor exactly");
+    t.key("c",            "cycle the ramp leaving the point at cursor: linear -> hold (step) -> ease (S-curve)");
     t.key("g / G",        "jump cursor to clip start / end");
     t.key("w / b",        "jump to the next / previous beat start");
     t.key("d / y",        "operator: add a motion (h/l/H/L/w/b/g/G, counts work: d3l) to clear / yank that range");

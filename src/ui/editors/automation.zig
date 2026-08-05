@@ -289,6 +289,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'w' => { jumpBar(app, clip, app.takeCount()); return true; },
             'b' => { jumpBar(app, clip, -app.takeCount()); return true; },
             'x' => { deletePoint(app, clip); return true; },
+            // c: cycle the shape of the ramp leaving the point under the
+            // cursor (linear -> hold -> ease). The graph redraws through
+            // `interpolate`, so the new shape is visible immediately.
+            'c' => { cycleCurve(app, clip); return true; },
             // d/y are operators (see armOperator) - dd/yy act on the whole
             // curve.
             'd' => { armOperator(app, 'd'); return true; },
@@ -581,6 +585,30 @@ fn nudgeValue(app: *App, clip: *ws.Clip, steps: i32) void {
     };
     app.last_edit = .{ .automation_nudge = .{ .delta = steps } };
     if (app.session.song_mode) app.session.rebuildSongData();
+}
+
+/// `c`: walk the point under the cursor through the segment shapes. Needs an
+/// explicit point - an interpolated step has no shape of its own to set, it
+/// is already being drawn by the shape of the point behind it.
+fn cycleCurve(app: *App, clip: *ws.Clip) void {
+    const beat = @as(f64, @floatFromInt(app.automation_cursor_step)) * 0.25;
+    const points = curvePoints(app, clip, app.automation_focus) catch {
+        app.setStatus("automation edit failed (out of memory)", .{});
+        return;
+    };
+    const cur = automation_mod.curveAt(points.*, beat) orelse {
+        app.setStatus("no point exactly here", .{});
+        return;
+    };
+    const next: automation_mod.Curve = switch (cur) {
+        .linear => .hold,
+        .hold => .ease,
+        .ease => .linear,
+    };
+    history.recordLane(app, app.automation_track);
+    _ = automation_mod.setCurve(points.*, beat, next);
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.setStatus("curve {s}", .{@tagName(next)});
 }
 
 fn deletePoint(app: *App, clip: *ws.Clip) void {

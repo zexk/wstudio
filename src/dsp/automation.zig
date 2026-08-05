@@ -98,6 +98,16 @@ pub fn setPoint(allocator: std.mem.Allocator, points: *[]AutomationPoint, beat: 
     points.* = grown;
 }
 
+/// The shape of the segment leaving the point at `beat` (within epsilon),
+/// or null when no point sits exactly there - the same match `hasPointAt`
+/// and `setCurve` use, so callers never need the epsilon themselves.
+pub fn curveAt(points: []const AutomationPoint, beat: f64) ?Curve {
+    for (points) |p| {
+        if (@abs(p.beat - beat) < 1e-9) return p.curve;
+    }
+    return null;
+}
+
 /// Set the shape of the segment leaving the point at `beat` (within
 /// epsilon). Returns false when there is no point there. No allocation: the
 /// point already exists, only its shape changes.

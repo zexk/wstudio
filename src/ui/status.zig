@@ -595,7 +595,13 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
         }
         if (explicit) {
             try w.writeAll(rst);
-            try w.writeAll(dim ++ " (point)" ++ rst);
+            // Linear is the absence of a shape, so only a `c`-set one is
+            // worth the width here.
+            switch (automation_mod.curveAt(points, beat) orelse .linear) {
+                .linear => try w.writeAll(dim ++ " (point)" ++ rst),
+                .hold => try w.writeAll(dim ++ " (point, hold)" ++ rst),
+                .ease => try w.writeAll(dim ++ " (point, ease)" ++ rst),
+            }
         } else {
             try w.writeAll(dim ++ " (interpolated)" ++ rst);
         }
