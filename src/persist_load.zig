@@ -351,7 +351,9 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
 
         // zig fmt: off
         switch (rs.kind) {
-            .empty => {},
+            // An instrument this build has no code for (a newer wstudio wrote
+            // it) loads as an empty track rather than failing the project.
+            .empty, .unknown => {},
             .poly_synth => {
                 const synth = try PolySynth.init(allocator, sr);
                 rack.instrument = .{ .poly_synth = synth };
@@ -942,6 +944,7 @@ pub fn applyFxChain(
 ) !void {
     for (chain) |us| {
         if (fx_out.units.items.len >= Fx.max_units) break;
+        if (us.kind == .unknown) continue; // slot from a newer build: drop it
         const unit = switch (us.kind) {
             .clap => blk: {
                 const cs = us.clap orelse return error.MalformedProject;
@@ -964,7 +967,7 @@ pub fn applyFxChain(
                     .eq => .eq, .filter => .filter, .utility => .utility, .stereo_width => .stereo_width, .auto_pan => .auto_pan, .sat => .sat, .crush => .crush, .chorus => .chorus,
                     .phaser => .phaser, .flanger => .flanger, .tape => .tape,
                     .freq_shift => .freq_shift, .delay => .delay, .reverb => .reverb,
-                    .clap, .vst3 => unreachable,
+                    .clap, .vst3, .unknown => unreachable,
                 };
                 break :blk try fx_out.insert(allocator, fx_out.units.items.len, kind, sr);
             },
@@ -1029,6 +1032,7 @@ pub fn applyFxChain(
                         .peak => .peak, .lowpass => .lowpass, .highpass => .highpass,
                         .lowshelf => .lowshelf, .highshelf => .highshelf,
                         .notch => .notch, .tiltshelf => .tiltshelf,
+                        .unknown => .peak, // response type from a newer build
                     }, b.slope);
                     e.setSolo(i, b.solo);
                     e.setStereoMode(i, switch (b.stereo_mode) {

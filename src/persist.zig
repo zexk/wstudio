@@ -2327,3 +2327,34 @@ test "a loaded project renders sample-identical to the session that saved it" {
         for (live, reloaded) |a, b| try testing.expectApproxEqAbs(a, b, 1e-6);
     }
 }
+
+test "an unknown FX or instrument kind loads as a dropped slot, not an error" {
+    const testing = std.testing;
+
+    // A file a newer wstudio wrote: one FX kind and one instrument kind this
+    // build has never heard of, at the current version (loads are pinned, so
+    // a bump would reject the file outright - see FORMAT.md).
+    const json = std.fmt.comptimePrint(
+        \\{{"version":{d},
+        \\ "tracks":[{{"name":"a"}},{{"name":"b"}}],
+        \\ "racks":[
+        \\  {{"label":"a","kind":"poly_synth","fx_chain":[
+        \\    {{"kind":"quantum_flux"}},{{"kind":"sat"}}]}},
+        \\  {{"label":"b","kind":"granular_resynth"}}]}}
+    , .{file_version});
+
+    var parsed = try std.json.parseFromSlice(Snapshot, testing.allocator, json, .{ .ignore_unknown_fields = true });
+    defer parsed.deinit();
+    try testing.expectEqual(persist_types.FxKind.unknown, parsed.value.racks[0].fx_chain[0].kind);
+    try testing.expectEqual(persist_types.InstrumentKind.unknown, parsed.value.racks[1].kind);
+
+    var session = try buildSession(testing.allocator, &parsed.value);
+    defer session.deinit();
+
+    // The unknown FX slot is dropped and the known one still loads; the
+    // unknown instrument leaves an empty track rather than failing the file.
+    const chain = session.racks.items[0].fx;
+    try testing.expectEqual(@as(usize, 1), chain.units.items.len);
+    try testing.expectEqual(rack_mod.FxKind.sat, chain.units.items[0].kind());
+    try testing.expectEqual(std.meta.Tag(@TypeOf(session.racks.items[1].instrument)).empty, std.meta.activeTag(session.racks.items[1].instrument));
+}

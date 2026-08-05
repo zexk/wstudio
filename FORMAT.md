@@ -37,10 +37,18 @@ Fields still evolve without a bump:
   swing, per-pad choke groups, bounce bit depth, and more) shipped this
   way. Check the field's own doc comment in `persist_types.zig` if the
   default matters.
+- **Adding an FX kind, instrument kind, or EQ band kind requires no bump
+  either.** Those three enums (`FxKind`, `InstrumentKind`,
+  `EqBandKindSnap`) decode by name into an `unknown` member instead of
+  failing the parse, so a build that predates the kind drops that one FX
+  slot, loads that track empty, or falls back to a peak band, and opens
+  the rest of the project. Historically each new unit cost a bump purely
+  because `std.json` hard-errors on an unrecognized enum name.
 - **Bump `file_version` for a breaking or semantic change**: a field whose
-  *absence* can't be given a backward-compatible default, a sub-structure
-  changing shape, or any new enum name older builds must reject rather
-  than fail to parse. A bump makes every older file unloadable by design.
+  *absence* can't be given a backward-compatible default, or a
+  sub-structure changing shape. A bump makes every older file unloadable
+  by design - with no migrations left, that is now a destructive act, so
+  prefer an additive field or an open enum.
 
 ## Snapshot notes
 
