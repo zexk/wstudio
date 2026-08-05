@@ -77,6 +77,9 @@ pub const cmdGroupDel = commands_tracks.cmdGroupDel;
 pub const cmdGroupFx = commands_tracks.cmdGroupFx;
 pub const cmdTrackGroup = commands_tracks.cmdTrackGroup;
 pub const cmdTrackSend = commands_tracks.cmdTrackSend;
+pub const cmdController = commands_tracks.cmdController;
+pub const cmdControllerBind = commands_tracks.cmdControllerBind;
+pub const cmdControllerClear = commands_tracks.cmdControllerClear;
 pub const cmdRenamePad = commands_tracks.cmdRenamePad;
 pub const activeScope = commands_load.activeScope;
 pub const cmdSynthPreset = commands_load.cmdSynthPreset;
@@ -210,6 +213,9 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "group-fx",    .desc = "<n>  open group n's FX chain", .run = wrap(cmdGroupFx) },
     .{ .name = "track-group", .desc = "<track> <group|none>  assign (or clear) which group a track submixes through", .run = wrap(cmdTrackGroup) },
     .{ .name = "track-send",  .desc = "<track> <slot> none|master|<group> [<dB>]  set (or clear) a track's parallel aux send", .run = wrap(cmdTrackSend) },
+    .{ .name = "ctrl",        .desc = "[<n> [shape] [beats] [depth] [phase]]  list, create or retune a modulation controller", .run = wrap(cmdController) },
+    .{ .name = "ctrl-bind",   .desc = "<n>  wire controller n to the param under the open editor's cursor", .run = wrap(cmdControllerBind) },
+    .{ .name = "ctrl-clear",  .desc = "<n>  free controller n and every knob it drives", .run = wrap(cmdControllerClear) },
     .{ .name = "write",       .desc = "[file]  save project (default: project.wsj)", .run = wrap(cmdSave) },
     .{ .name = "save",        .desc = "[file]  save project (alias for :write)",     .run = wrap(cmdSave) },
     .{ .name = "w",           .desc = "[file]  save project (alias for :write)",     .run = wrap(cmdSave) },

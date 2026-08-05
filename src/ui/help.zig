@@ -150,6 +150,9 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key(":group-fx <n>", "open group n's FX chain - same shared chain view as a track/master");
     t.key(":track-group",  "<track> <group|none>  assign or clear a track's group by number");
     t.key(":group-del <n>", "delete group n - members fall back to the master mix");
+    t.key(":ctrl",         "[<n> [shape] [beats] [depth] [phase]]  list, create or retune a modulation controller");
+    t.key(":ctrl-bind <n>", "wire controller n to the param under the open synth/sampler/FX editor's cursor");
+    t.key(":ctrl-clear <n>", "free controller n and every knob it drives");
     t.key("tab",          "open the arrangement (song timeline) - tab there returns here; while");
     t.key("",             "  stopped this enables song mode, tabbing back (or opening a pattern");
     t.key("",             "  editor from here) reverts to pattern mode; nothing changes while playing");

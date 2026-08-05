@@ -413,7 +413,7 @@ pub fn flushFxNudge(app: *App) void {
 /// when the track is gone or its instrument has no such param (e.g. the
 /// instrument was swapped since the entry was captured - the undo/redo
 /// then skips rather than writing a foreign id).
-fn liveParamValue(app: *App, track: u16, id: u16) ?f32 {
+pub fn liveParamValue(app: *App, track: u16, id: u16) ?f32 {
     if (track >= app.session.racks.items.len) return null;
     return switch (app.session.racks.items[track].instrument) {
         .poly_synth => |*s| s.paramValue(id),

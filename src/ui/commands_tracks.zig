@@ -475,3 +475,225 @@ pub fn cmdRenamePad(app: *App, args: []const u8) void {
     app.dirty = true;
     app.setStatus("pad {d} renamed: {s}", .{ pad_idx + 1, dm.pads[pad_idx].?.clipName() });
 }
+
+// ---------------------------------------------------------------------------
+// Modulation controllers (see dsp/controller.zig)
+
+const controller_mod = ws.dsp.controller;
+const lfo_mod = ws.dsp.lfo;
+
+/// The param the open editor's cursor is sitting on, as a controller target
+/// would address it - the synth/sampler editors' cursors are already raw
+/// param ids, and the FX chain view pairs its focused unit's `instance_id`
+/// with the row index. Null (with a status set) when the current view has no
+/// bindable param under the cursor.
+///
+/// Ranges and the current value come from the same tables the automation
+/// editor and the FX editor already use, so a param that can't be automated
+/// can't be bound either.
+fn focusedControllerTarget(app: *App) ?controller_mod.Target {
+    switch (app.view) {
+        .track_spectrum => {
+            if (app.eq_track >= app.session.racks.items.len) return null;
+            const fx = &app.session.racks.items[app.eq_track].fx;
+            const unit = spectrum_ed.focusedUnit(app, fx) orelse {
+                app.setStatus("ctrl-bind: this chain is empty", .{});
+                return null;
+            };
+            if (!ws.dsp.fx_params.isAutomatable(unit.kind(), app.fx_param)) {
+                app.setStatus("ctrl-bind: this param can't be modulated", .{});
+                return null;
+            }
+            const range = ws.dsp.fx_params.paramRange(&unit.payload, app.fx_param);
+            if (!(range[1] > range[0])) return null;
+            return .{
+                .track = app.eq_track,
+                .instance_id = unit.instance_id,
+                .param_id = @intCast(app.fx_param),
+                .center = ws.dsp.fx_params.getParam(&unit.payload, app.fx_param),
+                .lo = range[0],
+                .hi = range[1],
+            };
+        },
+        .synth_editor, .sampler_editor => {
+            const track = if (app.view == .synth_editor) app.synth_track else app.sampler_target.track();
+            const id: u16 = if (app.view == .synth_editor)
+                @intCast(app.synth_cursor)
+            else
+                @intCast(app.sampler_param);
+            if (track >= app.session.racks.items.len) return null;
+            const params = app.session.racks.items[track].instrument.automatableParams();
+            for (params) |p| {
+                if (p.id != id) continue;
+                if (!(p.range[1] > p.range[0])) return null;
+                return .{
+                    .track = track,
+                    .param_id = id,
+                    .center = history.liveParamValue(app, track, id) orelse p.range[0],
+                    .lo = p.range[0],
+                    .hi = p.range[1],
+                };
+            }
+            app.setStatus("ctrl-bind: this param can't be modulated", .{});
+            return null;
+        },
+        else => {
+            app.setStatus("ctrl-bind: open a synth, sampler or FX editor first", .{});
+            return null;
+        },
+    }
+}
+
+/// Parse and bounds-check a 1-based controller number.
+fn controllerArg(app: *App, cmd: []const u8, tok: []const u8) ?u8 {
+    const n = std.fmt.parseInt(u8, tok, 10) catch {
+        app.setStatus("{s}: bad controller number '{s}'", .{ cmd, tok });
+        return null;
+    };
+    if (n == 0 or n > controller_mod.max_controllers) {
+        app.setStatus("{s}: controller must be 1-{d}", .{ cmd, controller_mod.max_controllers });
+        return null;
+    }
+    return n - 1;
+}
+
+/// `:ctrl` lists the bank; `:ctrl <n> [shape] [beats] [depth] [phase]`
+/// creates or retunes controller `n`. Every argument past the number is
+/// optional and keeps whatever the slot already had (or the default on a
+/// fresh slot), so retuning just the rate is `:ctrl 1 sine 2`.
+pub fn cmdController(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        listControllers(app);
+        return;
+    }
+    var it = std.mem.splitScalar(u8, trimmed, ' ');
+    const idx = controllerArg(app, "ctrl", it.next() orelse "") orelse return;
+    const slot = &app.session.project.controllers[idx];
+    var c: controller_mod.Controller = slot.* orelse .{};
+
+    if (it.next()) |shape_str| {
+        if (shape_str.len > 0) {
+            c.shape = std.meta.stringToEnum(lfo_mod.Shape, shape_str) orelse {
+                app.setStatus("ctrl: shape must be one of sine, triangle, saw, square", .{});
+                return;
+            };
+        }
+    }
+    if (it.next()) |beats_str| {
+        if (beats_str.len > 0) {
+            const beats = parseFiniteFloat(f32, beats_str) catch {
+                app.setStatus("ctrl: bad cycle length '{s}'", .{beats_str});
+                return;
+            };
+            if (beats < 0.01 or beats > 128.0) {
+                app.setStatus("ctrl: cycle length must be 0.01-128 beats", .{});
+                return;
+            }
+            c.beats = beats;
+        }
+    }
+    if (it.next()) |depth_str| {
+        if (depth_str.len > 0) {
+            const depth = parseFiniteFloat(f32, depth_str) catch {
+                app.setStatus("ctrl: bad depth '{s}'", .{depth_str});
+                return;
+            };
+            c.depth = std.math.clamp(depth, 0.0, 1.0);
+        }
+    }
+    if (it.next()) |phase_str| {
+        if (phase_str.len > 0) {
+            const phase = parseFiniteFloat(f32, phase_str) catch {
+                app.setStatus("ctrl: bad phase '{s}'", .{phase_str});
+                return;
+            };
+            c.phase = std.math.clamp(phase, 0.0, 1.0);
+        }
+    }
+
+    slot.* = c;
+    app.session.syncControllers();
+    app.dirty = true;
+    app.setStatus("ctrl {d}: {s}, {d:.2} beats, depth {d:.2}, phase {d:.2}", .{
+        idx + 1, @tagName(c.shape), c.beats, c.depth, c.phase,
+    });
+}
+
+fn listControllers(app: *App) void {
+    var buf: [512]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    var any = false;
+    for (app.session.project.controllers, 0..) |maybe, i| {
+        const c = maybe orelse continue;
+        var bound: usize = 0;
+        for (c.targets) |t| {
+            if (t != null) bound += 1;
+        }
+        if (any) w.writeAll("  ") catch break;
+        w.print("{d}: {s} {d:.2}b d{d:.2} → {d} knob(s)", .{
+            i + 1, @tagName(c.shape), c.beats, c.depth, bound,
+        }) catch break;
+        any = true;
+    }
+    if (!any) {
+        app.setStatus("no controllers - ':ctrl 1 sine 4 0.5' makes one, then 'ctrl-bind 1' on a param", .{});
+        return;
+    }
+    app.setStatus("controllers: {s}", .{w.buffered()});
+}
+
+/// `:ctrl-bind <n>` wires controller `n` to the param under the open
+/// editor's cursor. The param's current value becomes the centre the
+/// controller swings around, so binding never jumps the sound.
+pub fn cmdControllerBind(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        app.setStatus("usage: ctrl-bind <controller 1-{d}>", .{controller_mod.max_controllers});
+        return;
+    }
+    const idx = controllerArg(app, "ctrl-bind", trimmed) orelse return;
+    const slot = &app.session.project.controllers[idx];
+    if (slot.* == null) {
+        app.setStatus("ctrl-bind: controller {d} doesn't exist yet - ':ctrl {d}' makes it", .{ idx + 1, idx + 1 });
+        return;
+    }
+    const target = focusedControllerTarget(app) orelse return;
+
+    // Re-binding the same knob retunes it (fresh centre) rather than
+    // stacking a second target that would fight the first every block.
+    for (&slot.*.?.targets) |*existing| {
+        const e = existing.* orelse continue;
+        if (e.track != target.track or e.instance_id != target.instance_id or e.param_id != target.param_id) continue;
+        existing.* = target;
+        app.session.syncControllers();
+        app.dirty = true;
+        app.setStatus("ctrl {d}: re-centred on this param", .{idx + 1});
+        return;
+    }
+    const free = slot.*.?.freeSlot() orelse {
+        app.setStatus("ctrl {d}: full ({d} targets)", .{ idx + 1, controller_mod.max_targets });
+        return;
+    };
+    slot.*.?.targets[free] = target;
+    app.session.syncControllers();
+    app.dirty = true;
+    app.setStatus("ctrl {d} → track {d} param {d}", .{ idx + 1, target.track + 1, target.param_id });
+}
+
+/// `:ctrl-clear <n>` frees a whole slot, targets and all. There is no
+/// per-target unbind: with a bank this small, rebuilding a controller is
+/// two commands, and a knob left at whatever value the controller last
+/// wrote is easier to fix than a half-cleared list is to reason about.
+pub fn cmdControllerClear(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        app.setStatus("usage: ctrl-clear <controller 1-{d}>", .{controller_mod.max_controllers});
+        return;
+    }
+    const idx = controllerArg(app, "ctrl-clear", trimmed) orelse return;
+    app.session.project.controllers[idx] = null;
+    app.session.syncControllers();
+    app.dirty = true;
+    app.setStatus("ctrl {d}: cleared", .{idx + 1});
+}
