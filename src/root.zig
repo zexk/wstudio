@@ -27,6 +27,8 @@ pub const FxPayload = @import("rack.zig").FxPayload;
 pub const FxKind = @import("rack.zig").FxKind;
 pub const plugin_catalog = @import("plugin_catalog.zig");
 pub const vst3 = @import("vst3.zig");
+pub const clap = @import("clap.zig");
+pub const plugin_host = @import("plugin_host.zig");
 
 pub const engine = @import("audio/engine.zig");
 pub const Engine = engine.Engine;

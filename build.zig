@@ -229,10 +229,40 @@ pub fn build(b: *std.Build) void {
     const install_font_step = b.step("install-font", "Install the TUI's icon font for your user");
     install_font_step.dependOn(&run_install_font.step);
 
+    // The sandboxed-plugin child process (see src/plugin_host/). Installed
+    // alongside the main binary so `plugin_host/bridge.zig` can find it via
+    // `std.process.executableDirPathAlloc` at the same install prefix.
+    const plugin_bridge = b.addExecutable(.{
+        .name = "wstudio-plugin-bridge",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/plugin_host/child_main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "wstudio", .module = wstudio_mod },
+            },
+        }),
+    });
+    const install_plugin_bridge = b.addInstallArtifact(plugin_bridge, .{});
+    b.getInstallStep().dependOn(&install_plugin_bridge.step);
+    // Every run/test binary below executes straight out of `.zig-cache`, not
+    // the installed prefix, so `bridge.zig`'s default sibling-of-the-running-
+    // exe lookup (right for a real `zig-out/bin` deployment) can't find
+    // `wstudio-plugin-bridge` - it lives in a different cache-hash directory
+    // entirely. Point every one of them at the installed copy instead via
+    // `WSTUDIO_PLUGIN_BRIDGE_EXE`, which `Bridge.spawn` checks first.
+    const plugin_bridge_path = b.getInstallPath(.bin, plugin_bridge.out_filename);
+    run_cmd.step.dependOn(&install_plugin_bridge.step);
+    run_cmd.setEnvironmentVariable("WSTUDIO_PLUGIN_BRIDGE_EXE", plugin_bridge_path);
+
     const mod_tests = b.addTest(.{ .root_module = wstudio_mod });
     const run_mod_tests = b.addRunArtifact(mod_tests);
+    run_mod_tests.step.dependOn(&install_plugin_bridge.step);
+    run_mod_tests.setEnvironmentVariable("WSTUDIO_PLUGIN_BRIDGE_EXE", plugin_bridge_path);
     const exe_tests = b.addTest(.{ .root_module = exe.root_module });
     const run_exe_tests = b.addRunArtifact(exe_tests);
+    run_exe_tests.step.dependOn(&install_plugin_bridge.step);
+    run_exe_tests.setEnvironmentVariable("WSTUDIO_PLUGIN_BRIDGE_EXE", plugin_bridge_path);
 
     const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_mod_tests.step);
@@ -260,7 +290,30 @@ pub fn build(b: *std.Build) void {
     });
     const run_clap_integration_test = b.addRunArtifact(clap_integration_test);
     run_clap_integration_test.addArtifactArg(clap_test_plugin);
+    run_clap_integration_test.step.dependOn(&install_plugin_bridge.step);
+    run_clap_integration_test.setEnvironmentVariable("WSTUDIO_PLUGIN_BRIDGE_EXE", plugin_bridge_path);
     test_step.dependOn(&run_clap_integration_test.step);
+
+    // Drives `Bridge` directly against the same CLAP test plugin, killing
+    // (SIGKILL) or freezing (SIGSTOP) the child process from outside to
+    // prove a crashed/hung plugin degrades to silence instead of hanging
+    // or taking this process down - see plugin_host/crash_hang_test.zig.
+    const crash_hang_test = b.addExecutable(.{
+        .name = "plugin-crash-hang-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/plugin_host/crash_hang_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "wstudio", .module = wstudio_mod },
+            },
+        }),
+    });
+    const run_crash_hang_test = b.addRunArtifact(crash_hang_test);
+    run_crash_hang_test.addArtifactArg(clap_test_plugin);
+    run_crash_hang_test.step.dependOn(&install_plugin_bridge.step);
+    run_crash_hang_test.setEnvironmentVariable("WSTUDIO_PLUGIN_BRIDGE_EXE", plugin_bridge_path);
+    test_step.dependOn(&run_crash_hang_test.step);
 
     const vst3_test_plugin = b.addLibrary(.{
         .name = "wstudio-vst3-test",
@@ -295,6 +348,8 @@ pub fn build(b: *std.Build) void {
     const module = wf.addCopyFile(vst3_test_plugin.getEmittedBin(), b.pathJoin(&.{ "wstudio-test.vst3", module_relative }));
     run_vst3_integration_test.addFileArg(module);
     run_vst3_integration_test.addDirectoryArg(wf.getDirectory().path(b, "wstudio-test.vst3"));
+    run_vst3_integration_test.step.dependOn(&install_plugin_bridge.step);
+    run_vst3_integration_test.setEnvironmentVariable("WSTUDIO_PLUGIN_BRIDGE_EXE", plugin_bridge_path);
     test_step.dependOn(&run_vst3_integration_test.step);
 
     const check_step = b.step("check", "Build wstudio and run all tests");
