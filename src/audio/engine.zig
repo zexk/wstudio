@@ -216,6 +216,7 @@ pub const max_sidechain_sources: u8 = 8;
 /// the values themselves).
 pub const controller_mod = @import("../dsp/controller.zig");
 pub const max_controllers = controller_mod.max_controllers;
+pub const max_cc_bindings = controller_mod.max_cc_bindings;
 
 pub const max_sends_per_track = @import("../project.zig").max_sends_per_track;
 pub const SendTarget = @import("../project.zig").SendTarget;
@@ -470,6 +471,12 @@ pub const Engine = struct {
     /// "control thread replaces, audio thread only reads" discipline
     /// `track_sends` follows.
     controllers: [max_controllers]?controller_mod.Controller = @splat(null),
+    /// Learned MIDI CC bindings, pushed whole alongside `controllers`.
+    cc_bindings: [max_cc_bindings]?controller_mod.CcBinding = @splat(null),
+    /// See `lastCc`. Written by the audio thread as it drains CC commands,
+    /// read by the UI thread; zero means "nothing seen yet", which is why
+    /// the sequence counter starts at 1.
+    last_cc: std.atomic.Value(u32) = .init(0),
     /// This block's captured signal per registered sidechain-detector source
     /// track - see `SidechainCapture`. Rebuilt every block in `renderTracks`.
     sidechain_captures: [max_sidechain_sources]SidechainCapture = [_]SidechainCapture{.{}} ** max_sidechain_sources,
@@ -789,10 +796,29 @@ pub const Engine = struct {
     }
 
     /// Replace the whole controller bank (control thread) - same shape as
-    /// `setTrackSends`. Called by `Session.syncControllers` whenever a
+    /// `setTrackSends`. Called by `Session.syncModulation` whenever a
     /// controller's shape/rate/depth or target list changes.
     pub fn setControllers(self: *Engine, controllers: [max_controllers]?controller_mod.Controller) void {
         self.controllers = controllers;
+    }
+
+    /// Replace the learned MIDI CC map (control thread), same discipline as
+    /// `setControllers`.
+    pub fn setCcBindings(self: *Engine, bindings: [max_cc_bindings]?controller_mod.CcBinding) void {
+        self.cc_bindings = bindings;
+    }
+
+    /// Controller number of the most recent CC the audio thread saw, packed
+    /// with a counter that advances on every message so a repeat of the same
+    /// number still reads as new. Null before any CC has arrived. Polled by
+    /// `App.tick` to drive `:cc-bind`'s learn mode - the same "reader thread
+    /// signals, the UI picks it up once a frame" shape `MidiIn.dirty`
+    /// already uses, but on the engine so it works for every platform's MIDI
+    /// backend at once.
+    pub fn lastCc(self: *Engine) ?struct { cc: u7, seq: u24 } {
+        const packed_cc = self.last_cc.load(.acquire);
+        if (packed_cc == 0) return null;
+        return .{ .cc = @intCast(packed_cc & 0x7F), .seq = @intCast(packed_cc >> 8) };
     }
 
     /// Replace a track's flattened gain or pan automation curve wholesale
@@ -1074,7 +1100,7 @@ pub const Engine = struct {
                 for (t.chain.slice()) |dev| dev.sendEvent(.all_off);
             },
             // zig fmt: off
-            .cc         => |c| self.sendTrackEvent(c.track, .{ .cc         = .{ .cc   = c.cc,   .value = c.value } }),
+            .cc         => |c| self.applyCc(c.track, c.cc, c.value),
             // zig fmt: on
             .pitch_bend => |c| self.sendTrackEvent(c.track, .{ .pitch_bend = .{ .bend = c.bend } }),
             .set_track_param => |c| self.sendTrackEvent(c.track, .{ .set_param = .{ .id = c.id, .steps = c.steps } }),
@@ -1171,6 +1197,38 @@ pub const Engine = struct {
     fn trackAtIfValid(self: *Engine, index: u16) ?*TrackState {
         if (index >= max_tracks) return null;
         return self.tracks[index].load(.acquire);
+    }
+
+    /// Route one incoming MIDI CC. A learned binding (see
+    /// `controller_mod.CcBinding`) drives its own target's param, on
+    /// whatever track that lives on, and *replaces* the raw forward for that
+    /// controller number - otherwise a knob learned onto CC7 would move both
+    /// the param it was bound to and every instrument's `applyCC` gain at
+    /// once. An unbound CC still reaches the routed track's devices exactly
+    /// as before.
+    ///
+    /// Also records the number for `lastCc` regardless, which is what makes
+    /// learn mode able to see a knob that is already bound to something.
+    fn applyCc(self: *Engine, track: u16, cc: u7, value: u7) void {
+        // Bit 7 is a "something has arrived" flag - a CC number of 0 with a
+        // wrapped counter would otherwise pack to plain zero, which `lastCc`
+        // reads as "nothing seen yet".
+        const prev = self.last_cc.load(.monotonic);
+        const seq: u32 = ((prev >> 8) +% 1) & 0xFFFFFF;
+        self.last_cc.store((seq << 8) | 0x80 | @as(u32, cc), .release);
+
+        var bound = false;
+        for (&self.cc_bindings) |maybe| {
+            const b = maybe orelse continue;
+            if (b.cc != cc) continue;
+            bound = true;
+            self.sendTrackEvent(b.target.track, .{ .automation_param = .{
+                .id = @intCast(b.target.param_id),
+                .value = b.target.valueAt01(@as(f32, @floatFromInt(value)) / 127.0),
+                .instance_id = b.target.instance_id,
+            } });
+        }
+        if (!bound) self.sendTrackEvent(track, .{ .cc = .{ .cc = cc, .value = value } });
     }
 
     fn sendTrackEvent(self: *Engine, track: u16, ev: dsp.Event) void {
@@ -2712,4 +2770,79 @@ test "a controller drives a synth param on whatever track its target names" {
     synth.filter_cutoff = 1_000.0;
     engine.process(&block);
     try std.testing.expectApproxEqAbs(@as(f32, 1_000.0), synth.filter_cutoff, 1.0);
+}
+
+test "a learned CC drives its own target's param and stops reaching the routed track" {
+    var bound_synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer bound_synth.deinit();
+    var routed_synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer routed_synth.deinit();
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.trackAt(0).* = .{ .active = true };
+    engine.setTrackChain(0, &.{routed_synth.device()});
+    engine.trackAt(1).* = .{ .active = true };
+    engine.setTrackChain(1, &.{bound_synth.device()});
+
+    var map: [max_cc_bindings]?controller_mod.CcBinding = @splat(null);
+    map[0] = .{
+        .cc = 74,
+        .target = .{
+            .track = 1,
+            .param_id = 21, // filter cutoff
+            .center = 1_000.0,
+            .lo = 20.0,
+            .hi = 20_000.0,
+        },
+    };
+    engine.setCcBindings(map);
+
+    var block: [512]Sample = undefined;
+    // A hardware knob is absolute over the whole range: full scale is the top.
+    _ = engine.sendMidi(.{ .cc = .{ .track = 0, .cc = 74, .value = 127 } });
+    engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, 20_000.0), bound_synth.filter_cutoff, 1.0);
+
+    // CC7 is the gain `applyCC` handles; unbound, it still reaches the
+    // track the MIDI input is routed to and nothing else.
+    routed_synth.gain = 1.0;
+    bound_synth.gain = 1.0;
+    _ = engine.sendMidi(.{ .cc = .{ .track = 0, .cc = 7, .value = 0 } });
+    engine.process(&block);
+    try std.testing.expect(routed_synth.gain < 1.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), bound_synth.gain, 1e-6);
+
+    // Learning CC7 takes it over: the routed track's gain stops following it.
+    map[1] = .{ .cc = 7, .target = .{
+        .track = 1,
+        .param_id = 21,
+        .center = 1_000.0,
+        .lo = 20.0,
+        .hi = 20_000.0,
+    } };
+    engine.setCcBindings(map);
+    routed_synth.gain = 1.0;
+    _ = engine.sendMidi(.{ .cc = .{ .track = 0, .cc = 7, .value = 0 } });
+    engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), routed_synth.gain, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 20.0), bound_synth.filter_cutoff, 1.0);
+}
+
+test "lastCc reports every CC, including a repeat of the same number" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    try std.testing.expect(engine.lastCc() == null);
+
+    var block: [64]Sample = undefined;
+    _ = engine.sendMidi(.{ .cc = .{ .track = 0, .cc = 0, .value = 40 } });
+    engine.process(&block);
+    // CC 0 has to read as a real message, not as "nothing yet".
+    const first = engine.lastCc().?;
+    try std.testing.expectEqual(@as(u7, 0), first.cc);
+
+    _ = engine.sendMidi(.{ .cc = .{ .track = 0, .cc = 0, .value = 41 } });
+    engine.process(&block);
+    const second = engine.lastCc().?;
+    try std.testing.expectEqual(@as(u7, 0), second.cc);
+    try std.testing.expect(second.seq != first.seq);
 }

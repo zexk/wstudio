@@ -93,6 +93,9 @@ pub const Project = struct {
     /// Project-scoped rather than per-track: one controller drives knobs
     /// across any number of tracks, which is the whole point of it.
     controllers: [dsp_controller.max_controllers]?dsp_controller.Controller = @splat(null),
+    /// Learned MIDI CC bindings - the same targets, driven by hardware
+    /// instead of an LFO. See `dsp_controller.CcBinding`.
+    cc_bindings: [dsp_controller.max_cc_bindings]?dsp_controller.CcBinding = @splat(null),
     tracks: std.ArrayList(Track) = .empty,
     sections: std.ArrayList(Section) = .empty,
 

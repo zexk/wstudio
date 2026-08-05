@@ -613,7 +613,7 @@ pub fn cmdController(app: *App, args: []const u8) void {
     }
 
     slot.* = c;
-    app.session.syncControllers();
+    app.session.syncModulation();
     app.dirty = true;
     app.setStatus("ctrl {d}: {s}, {d:.2} beats, depth {d:.2}, phase {d:.2}", .{
         idx + 1, @tagName(c.shape), c.beats, c.depth, c.phase,
@@ -666,7 +666,7 @@ pub fn cmdControllerBind(app: *App, args: []const u8) void {
         const e = existing.* orelse continue;
         if (e.track != target.track or e.instance_id != target.instance_id or e.param_id != target.param_id) continue;
         existing.* = target;
-        app.session.syncControllers();
+        app.session.syncModulation();
         app.dirty = true;
         app.setStatus("ctrl {d}: re-centred on this param", .{idx + 1});
         return;
@@ -676,7 +676,7 @@ pub fn cmdControllerBind(app: *App, args: []const u8) void {
         return;
     };
     slot.*.?.targets[free] = target;
-    app.session.syncControllers();
+    app.session.syncModulation();
     app.dirty = true;
     app.setStatus("ctrl {d} → track {d} param {d}", .{ idx + 1, target.track + 1, target.param_id });
 }
@@ -693,7 +693,7 @@ pub fn cmdControllerClear(app: *App, args: []const u8) void {
     }
     const idx = controllerArg(app, "ctrl-clear", trimmed) orelse return;
     app.session.project.controllers[idx] = null;
-    app.session.syncControllers();
+    app.session.syncModulation();
     app.dirty = true;
     app.setStatus("ctrl {d}: cleared", .{idx + 1});
 }

@@ -2556,7 +2556,7 @@ test "save/load round-trip persists the controller bank, dropping targets on tra
         .lo = 0.0,
         .hi = 1.0,
     };
-    session.syncControllers();
+    session.syncModulation();
 
     try save(testing.allocator, &session, testing.io, wsj_path);
     var loaded = try load(testing.allocator, testing.io, wsj_path);

@@ -1272,14 +1272,26 @@ pub const Session = struct {
         for (&self.project.controllers) |*slot| {
             if (slot.*) |*c| c.remapTracks(op, applyRemap);
         }
-        self.syncControllers();
+        // A CC binding is one target rather than a list, so it clears
+        // outright when its track goes rather than compacting.
+        for (&self.project.cc_bindings) |*slot| {
+            const b = slot.* orelse continue;
+            if (op.apply(b.target.track)) |nt| {
+                slot.*.?.target.track = nt;
+            } else {
+                slot.* = null;
+            }
+        }
+        self.syncModulation();
     }
 
-    /// Push the project's controller bank to the audio thread. Call after
-    /// any edit to a controller or its targets, and after a load - the
-    /// engine holds a plain copy (they carry no state to preserve).
-    pub fn syncControllers(self: *Session) void {
+    /// Push the project's modulation - the controller bank and the learned
+    /// MIDI CC map - to the audio thread. Call after any edit to either, and
+    /// after a load; the engine holds plain copies (neither carries state to
+    /// preserve).
+    pub fn syncModulation(self: *Session) void {
         self.engine.setControllers(self.project.controllers);
+        self.engine.setCcBindings(self.project.cc_bindings);
     }
 
     /// Create a new group named `name` in the first free slot. Starts with

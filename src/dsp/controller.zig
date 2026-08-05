@@ -13,6 +13,10 @@
 //! beat every pass and survive a transport jump or a reload. That also makes
 //! it stateless, which is why the engine can hold these as plain values with
 //! no per-block bookkeeping.
+//!
+//! Learned MIDI CC bindings (`CcBinding`) live here too: a hardware knob is
+//! the same thing pointed at the same `Target`, driven by an incoming
+//! controller message instead of a shape.
 
 const std = @import("std");
 const lfo = @import("lfo.zig");
@@ -51,6 +55,31 @@ pub const Target = struct {
         const span = (self.hi - self.lo) * 0.5;
         return std.math.clamp(self.center + out * span, self.lo, self.hi);
     }
+
+    /// Absolute param value for a 0..1 position - what a hardware knob
+    /// sends. Absolute over the full range rather than a swing around
+    /// `center`: a physical control has its own position, and a player
+    /// turning it to the top expects the top, not "centre plus half".
+    pub fn valueAt01(self: Target, t: f32) f32 {
+        return std.math.clamp(self.lo + (self.hi - self.lo) * t, self.lo, self.hi);
+    }
+};
+
+/// Bindings a project can learn. Same small-fixed-bank reasoning as
+/// `max_controllers`; a hardware surface's worth of knobs, not a mapping
+/// table.
+pub const max_cc_bindings: u8 = 16;
+
+/// One learned MIDI continuous-controller mapping: hardware CC `cc` drives
+/// `target`, wherever that param lives.
+///
+/// Bindings are project-wide, not per-input-track: the MIDI input's routed
+/// track decides which instrument *plays*, and a knob wired to a filter on
+/// some other track has to keep working when the player moves the note
+/// focus - which is the whole reason this is not just an `applyCC` entry.
+pub const CcBinding = struct {
+    cc: u7,
+    target: Target,
 };
 
 pub const Controller = struct {
@@ -143,4 +172,13 @@ test "dropTrack removes a track's targets and keeps the list dense" {
     try std.testing.expectEqual(@as(u16, 3), c.targets[0].?.track);
     try std.testing.expect(c.targets[1] == null);
     try std.testing.expectEqual(@as(u8, 1), c.freeSlot().?);
+}
+
+test "a hardware knob maps across the whole param range, not around a centre" {
+    const t: Target = .{ .track = 0, .param_id = 3, .center = 1000.0, .lo = 20.0, .hi = 20_000.0 };
+    try std.testing.expectApproxEqAbs(@as(f32, 20.0), t.valueAt01(0.0), 1e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 20_000.0), t.valueAt01(1.0), 1e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 10_010.0), t.valueAt01(0.5), 1e-2);
+    // A CC value can only be 0..127, but a bad range must still clamp.
+    try std.testing.expectApproxEqAbs(@as(f32, 20_000.0), t.valueAt01(4.0), 1e-4);
 }

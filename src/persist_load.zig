@@ -688,7 +688,7 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
     // `Session.createRack`, so nothing has handed them the project's
     // temperament yet - do it once here rather than in every instrument arm.
     self.setTuning(self.project.tuning);
-    self.syncControllers();
+    self.syncModulation();
 
     return self;
 }
