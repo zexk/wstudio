@@ -5,6 +5,7 @@ const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
 const midi = @import("../midi.zig");
+const tuning_mod = @import("tuning.zig");
 pub const MbStyle = @import("multiband_comp.zig").Style;
 const wavetable = @import("wavetable.zig");
 const Wavetable = wavetable.Wavetable;
@@ -450,6 +451,18 @@ pub const PolySynth = struct {
 
     // ── VOICE ────────────────────────────────────────────────────────────────
     voice_mode: VoiceMode = .poly,
+    /// Project-wide temperament, pushed straight onto the live instrument by
+    /// `Session.setTuning` (control thread) while this one is sounding. Not
+    /// part of `Patch`: a preset describes a sound, and the temperament a
+    /// piece is played in belongs to the piece, not to any one instrument.
+    ///
+    /// Written as twelve plain floats with no synchronization, like
+    /// `Pad.pitch_semitones` before it: the worst a torn read can do is give
+    /// a single note one block of the previous table's cents, which is
+    /// inaudible and corrects itself on the next note. A lock here would put
+    /// the audio thread behind the control thread for a table it re-reads
+    /// every note-on.
+    tuning: tuning_mod.Tuning = .{},
     /// Portamento time in seconds. 0 = off (snap).
     glide_s: f32 = 0.0,
     /// Note stack for mono/legato: last-in, first-out.
@@ -1063,6 +1076,15 @@ pub const PolySynth = struct {
         return midi.noteToFreq(note);
     }
 
+    /// log2 of a note's frequency in the current temperament. Every pitch
+    /// path here already works in log2 (glide interpolates in it, so a
+    /// portamento sweeps at a constant musical rate), which is also where a
+    /// cents offset is a plain addition rather than a multiply - 1200 cents
+    /// is one octave is 1.0 here.
+    fn noteLog2(self: *const PolySynth, note: u7) f32 {
+        return std.math.log2(noteToFreq(note)) + self.tuning.offsetCents(note) / 1200.0;
+    }
+
     /// A full synth patch: every parameter `adjustParam`/`applyCC` can touch,
     /// minus per-instance state (sample_rate, voices, held-note stack, pitch
     /// bend, LFO phase). Presets in `synth_presets.zig` are just values of
@@ -1436,7 +1458,7 @@ pub const PolySynth = struct {
         self.next_voice_id +%= 1;
         self.retriggerLfos();
         self.mod_alternate = !self.mod_alternate;
-        const target_log = std.math.log2(noteToFreq(note));
+        const target_log = self.noteLog2(note);
         const start_log = if (was_active and self.glide_s > 0.0) prev_log else target_log;
         return .{
             .active           = true,
@@ -1469,7 +1491,7 @@ pub const PolySynth = struct {
         self.newest_voice = 0;
         const v          = &self.voices[0];
         const was_active = v.active;
-        const target_log = std.math.log2(noteToFreq(note));
+        const target_log = self.noteLog2(note);
         if (retrigger or !was_active) {
             v.* = self.triggerVoice(note, velocity, art, was_active, v.glide_log);
         } else {
@@ -1782,7 +1804,7 @@ pub const PolySynth = struct {
             // zig fmt: on
 
             // Glide: advance current log-freq toward target at block rate.
-            const target_log = std.math.log2(noteToFreq(v.note));
+            const target_log = self.noteLog2(v.note);
             if (eff(&mods, 33, self.glide_s) > 0.0 and v.glide_rate != 0.0) {
                 v.glide_log += v.glide_rate * @as(f32, @floatFromInt(frames));
                 // zig fmt: off
@@ -4184,6 +4206,37 @@ test "glide: pitch slides over time (log-linear)" {
     const a4_log = std.math.log2(PolySynth.noteToFreq(69));
     try std.testing.expect(synth.voices[0].glide_log > c4_log);
     try std.testing.expect(synth.voices[0].glide_log < a4_log);
+}
+
+test "a temperament retunes the pitch a note actually sounds at" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+
+    // Equal temperament is exactly the untuned path, so nothing else in the
+    // synth has to know whether a tuning is set.
+    synth.noteOn(64, 1.0); // E4
+    try std.testing.expectApproxEqAbs(
+        std.math.log2(PolySynth.noteToFreq(64)),
+        synth.voices[0].glide_log,
+        1e-5,
+    );
+
+    // Just intonation's major third is 13.7 cents flat of the equal-tempered
+    // one - the interval the tuning exists to fix.
+    synth.resetAll();
+    synth.tuning = tuning_mod.Preset.just_major.tuning(0);
+    synth.noteOn(64, 1.0);
+    const equal_e = std.math.log2(PolySynth.noteToFreq(64));
+    try std.testing.expectApproxEqAbs(equal_e - 13.7 / 1200.0, synth.voices[0].glide_log, 1e-5);
+
+    // The root of the temperament is its own reference, so C is untouched.
+    synth.resetAll();
+    synth.noteOn(60, 1.0);
+    try std.testing.expectApproxEqAbs(
+        std.math.log2(PolySynth.noteToFreq(60)),
+        synth.voices[0].glide_log,
+        1e-5,
+    );
 }
 
 test "glide: snaps immediately when glide_s=0" {

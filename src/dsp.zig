@@ -55,6 +55,8 @@ pub const pattern = @import("dsp/pattern.zig");
 pub const PatternPlayer = pattern.PatternPlayer;
 
 pub const automation = @import("dsp/automation.zig");
+pub const tuning = @import("dsp/tuning.zig");
+pub const Tuning = tuning.Tuning;
 pub const AutomationPoint = automation.AutomationPoint;
 pub const AutomationCurve = automation.AutomationCurve;
 
