@@ -306,6 +306,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     history.flushParamNudge(app);
                     app.sampler_target = .{ .slice = app.slicer_track };
                     app.sampler_param = 0;
+                    app.sampler_return = .slicer_grid;
                     app.view = .sampler_editor;
                     return true;
                 },

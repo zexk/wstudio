@@ -397,6 +397,11 @@ pub const App = struct {
     /// Selected param row in the sampler editor (0..param_count-1). For a drum
     /// pad the edited pad is `drum_cursor[0]`, shared with the drum grid.
     sampler_param: u8 = 0,
+    /// Where esc/e leaves the sampler editor: the view that opened it. A pad
+    /// panel is reachable both from the tracks view (enter) and from the grid
+    /// that sequences it (e), and each should back out where it came from.
+    /// Set by every site that switches to `.sampler_editor`.
+    sampler_return: AppView = .tracks,
     /// Highlighted row in the instrument picker.
     picker_cursor: u8 = 0,
     /// True when the instrument picker was opened on an already-populated
@@ -1896,11 +1901,7 @@ pub const App = struct {
                         switch (key.char) {
                             'M' => { spectrum_ed.switchToMaster(self); self.setTrackRow(self.track_rows_len); return; },
                             's' => { spectrum_ed.switchToTrack(self, @intCast(self.cursor)); return; },
-                            'p' => {
-                                piano_ed.switchTo(self, @intCast(self.cursor));
-                                if (self.view == .piano_roll) self.autoSongMode(false);
-                                return;
-                            },
+                            'p' => { self.openStepEditor(@intCast(self.cursor)); return; },
                             'a' => { self.doTrackAdd(null); return; },
                             'I' => { self.openInstrumentPicker(self.cursor, true); return; },
                             // Same key the instrument editors use, one level
@@ -2746,6 +2747,30 @@ pub const App = struct {
 
     /// Open the editor matching the track's instrument, or the instrument
     /// picker if the track is blank.
+    /// The note editor for a track: the piano roll on a melodic instrument,
+    /// the step grid on a drum machine / slicer. Bound to `p` everywhere the
+    /// piano roll used to be bound to it (see openTrack's comment).
+    pub fn openStepEditor(self: *App, track: u16) void {
+        if (track >= self.session.racks.items.len) return;
+        switch (self.session.racks.items[track].instrument) {
+            .drum_machine => {
+                self.drum_track = track;
+                self.drum_stamp = false;
+                self.view = .drum_grid;
+                self.autoSongMode(false);
+            },
+            .slicer => {
+                self.slicer_track = track;
+                self.view = .slicer_grid;
+                self.autoSongMode(false);
+            },
+            else => {
+                piano_ed.switchTo(self, track);
+                if (self.view == .piano_roll) self.autoSongMode(false);
+            },
+        }
+    }
+
     fn openTrack(self: *App, cursor: usize) void {
         if (cursor >= self.session.racks.items.len) return;
         switch (self.session.racks.items[cursor].instrument) {
@@ -2760,18 +2785,27 @@ pub const App = struct {
             .sampler => {
                 self.sampler_target = .{ .sampler = @intCast(cursor) };
                 self.sampler_param = 0;
+                self.sampler_return = .tracks;
                 self.view = .sampler_editor;
             },
+            // A drum machine / slicer is a multisampler: enter opens the
+            // pad (slice) control panel, the same way enter opens a synth's
+            // or sampler's params, and `p` opens its step grid - the note
+            // editor a melodic track reaches with the same key.
             .drum_machine => {
                 self.drum_track = @intCast(cursor);
                 self.drum_stamp = false;
-                self.view = .drum_grid;
-                self.autoSongMode(false);
+                self.sampler_target = .{ .drum = @intCast(cursor) };
+                self.sampler_param = 0;
+                self.sampler_return = .tracks;
+                self.view = .sampler_editor;
             },
             .slicer => {
                 self.slicer_track = @intCast(cursor);
-                self.view = .slicer_grid;
-                self.autoSongMode(false);
+                self.sampler_target = .{ .slice = @intCast(cursor) };
+                self.sampler_param = 0;
+                self.sampler_return = .tracks;
+                self.view = .sampler_editor;
             },
             .clap, .vst3 => {
                 self.piano_track = @intCast(cursor);
@@ -2878,8 +2912,8 @@ pub const App = struct {
             .empty => "?: help",
             .poly_synth => "j/k: move  h/l: adjust  i: play  ?: help",
             .sampler => "j/k: move  h/l: adjust  i: play  ?: help",
-            .drum_machine => "enter: step  i: play  space: record  ?: help",
-            .slicer => "enter: step  i: play  :load  ?: help",
+            .drum_machine => "enter: pads  p: steps  i: play  ?: help",
+            .slicer => "enter: slices  p: steps  :load  ?: help",
             .clap, .vst3 => "enter: piano roll  i: play  ?: help",
             .soundfont => "h/l: adjust  :load  i: play  ?: help",
             .acoustic => "h/l: adjust  f: banks  i: play  ?: help",

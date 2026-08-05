@@ -324,6 +324,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'e' => {
                     app.sampler_target = .{ .drum = app.drum_track };
                     app.sampler_param = 0;
+                    app.sampler_return = .drum_grid;
                     app.view = .sampler_editor;
                     return true;
                 },

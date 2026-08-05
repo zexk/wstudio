@@ -127,8 +127,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.taggedSection(.tracks, "TRACKS");
     t.group("BASICS");
     t.key("j / k",        "move cursor down / up over rows - tracks, group rows, then MASTER last");
-    t.key("enter",        "open the selected instrument editor - on a group row / MASTER: open its FX chain");
-    t.key("p",            "piano roll for melodic tracks (synth, sampler, SoundFont, CLAP, or VST3)");
+    t.key("enter",        "open the selected instrument editor (a drum machine / slicer opens its pad / slice panel) - on a group row / MASTER: open its FX chain");
+    t.key("p",            "note editor - piano roll on a melodic track, step grid on a drum machine / slicer");
     t.key("s",            "FX chain for selected track - same on a group row / MASTER");
     t.key("m",            "mute / unmute selected track - on a group row: the bus's own mute flag");
     t.key("S",            "solo / unsolo selected track - on a group row: the bus's own solo flag");
@@ -280,8 +280,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("a",            "audition current pad/slice");
     t.key("enter",        "with no sample loaded yet, open the file browser (nothing to edit until then)");
     t.key("s",            "FX chain for this track");
-    t.key("p",            "piano roll for this track (a standalone Sampler only - a pad/slice has none)");
-    t.key("esc / e",      "back to the grid that opened this editor (tracks view for a sampler)");
+    t.key("p",            "note editor for this track - piano roll for a Sampler, step grid for a pad/slice");
+    t.key("esc / e",      "back to the view that opened this editor (tracks, or the grid that sequences the pad/slice)");
     t.key(":load",        "[file.wav]  load a sample into the cursor pad or sampler track (omit the file to browse); sampler tracks auto-detect the clip's root note");
     t.key(":bpm-sync",    "[clip-bpm]  match clip to project tempo and :scale root");
     t.key("B",            "detect clip BPM/root; match project tempo/key set by :scale (sampler/slice only)");

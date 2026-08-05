@@ -14,7 +14,6 @@ const history = @import("../history.zig");
 const commands = @import("../commands.zig");
 const format = @import("../format.zig");
 const spectrum = @import("fx_editor.zig");
-const piano = @import("piano.zig");
 
 /// Waveform panel caps, shared with the TUI render half (views/sampler.zig):
 /// width in columns and height in rows (min'd against the leftover row
@@ -91,12 +90,11 @@ fn paramCount(app: *App) u8 {
 // zig fmt: off
 /// Sampler editor: j/k pick a param row, h/l/H/L nudge it. For a drum pad
 /// or a slice, 1–8 jump to that slot within the current bank (shared
-/// `drum_cursor[0]`/`slicer_cursor[0]`, see movePadBank's doc comment) and
-/// esc/e return to the grid that opened it; for a standalone Sampler,
-/// esc/e return to the tracks view. a auditions the current pad/slice /
-/// the sampler's root note (mirrors the piano roll/drum grid's own
-/// audition key - 'p' is reserved for paste elsewhere, so it's kept free
-/// here rather than meaning something different per view).
+/// `drum_cursor[0]`/`slicer_cursor[0]`, see movePadBank's doc comment).
+/// esc/e return to whichever view opened this one (`app.sampler_return`):
+/// the tracks view, or the grid that sequences the pad/slice. a auditions
+/// the current pad/slice / the sampler's root note (mirrors the piano
+/// roll/drum grid's own audition key).
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     const is_drum = app.sampler_target == .drum;
     const is_slice = app.sampler_target == .slice;
@@ -129,24 +127,19 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 commands.run(app, "bpm-sync");
                 return true;
             },
-            // s/p reach this track's FX chain and piano roll without a detour
-            // through the tracks view - the same two keys the synth editor
-            // binds, so every instrument editor sideways-navigates alike.
-            // A pad's/slice's sampler still routes s to its owning track's
-            // chain (there is only one), but has no piano roll of its own -
-            // esc/e goes back to the grid that sequences it instead.
+            // s/p reach this track's FX chain and note editor without a
+            // detour through the tracks view - the same two keys the synth
+            // editor binds, so every instrument editor sideways-navigates
+            // alike. p is the piano roll on a standalone Sampler and the
+            // step grid on a pad/slice (App.openStepEditor).
             's' => {
                 history.flushParamNudge(app);
                 spectrum.switchToTrack(app, app.sampler_target.track());
                 return true;
             },
             'p' => {
-                if (is_drum or is_slice) {
-                    app.setStatus("no piano roll here - esc/e returns to the grid", .{});
-                    return true;
-                }
                 history.flushParamNudge(app);
-                piano.switchTo(app, app.sampler_target.track());
+                app.openStepEditor(app.sampler_target.track());
                 return true;
             },
             // j/k rows and h/l nudges take a vim count prefix (3j, 5l, …),
@@ -204,11 +197,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 /// Where esc/e land: back to the grid that opened this editor, or the
 /// tracks view for a standalone Sampler.
 fn returnView(app: *App) app_mod.AppView {
-    return switch (app.sampler_target) {
-        .drum => .drum_grid,
-        .slice => .slicer_grid,
-        .sampler => .tracks,
-    };
+    return app.sampler_return;
 }
 
 fn targetHasAudio(app: *App) bool {

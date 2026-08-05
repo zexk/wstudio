@@ -240,7 +240,7 @@ test "instrument picker / narrows instruments and enter inserts match" {
     try std.testing.expectEqual(ws.InstrumentKind.slicer, items[0].kind);
 
     app.handleKey(.enter, 0);
-    try std.testing.expectEqual(AppView.slicer_grid, app.view);
+    try std.testing.expectEqual(AppView.sampler_editor, app.view);
     try std.testing.expectEqual(ws.InstrumentKind.slicer, std.meta.activeTag(app.session.racks.items[0].instrument));
 }
 
@@ -607,17 +607,29 @@ test "typed :q quits via the modal layer" {
     try std.testing.expect(app.should_quit);
 }
 
-test "enter on a drum track switches to drum_grid view" {
+test "enter on a drum track opens its pad panel, p opens the step grid" {
     var app = try testApp();
     defer app.deinit();
 
     app.cursor = 2; // drum machine
     app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.sampler_editor, app.view);
+    try std.testing.expectEqual(@as(u16, 2), app.sampler_target.drum);
+    try std.testing.expectEqual(@as(u16, 2), app.drum_track);
+
+    // Opened from the tracks view, so esc goes back there - not to the grid.
+    app.handleKey(.escape, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+
+    app.handleKey(.{ .char = 'p' }, 0);
     try std.testing.expectEqual(AppView.drum_grid, app.view);
     try std.testing.expectEqual(@as(u16, 2), app.drum_track);
 
+    // e from the grid reopens the panel, and esc returns to the grid.
+    app.handleKey(.{ .char = 'e' }, 0);
+    try std.testing.expectEqual(AppView.sampler_editor, app.view);
     app.handleKey(.escape, 0);
-    try std.testing.expectEqual(AppView.tracks, app.view);
+    try std.testing.expectEqual(AppView.drum_grid, app.view);
 }
 
 test "slicer grid: slice, step toggle, play triggers the right slice" {
@@ -2950,12 +2962,15 @@ test "sampler/soundfont editors reach the FX chain and piano roll the way the sy
     try std.testing.expectEqual(AppView.piano_roll, app.view);
     try std.testing.expectEqual(@as(u16, 1), app.piano_track);
 
-    // A drum pad's sampler has no roll of its own - s still reaches the
-    // owning track's chain, p reports instead of jumping somewhere wrong.
+    // A drum pad's note editor is the step grid, so p lands there instead
+    // of the roll; s still reaches the owning track's chain.
     app.sampler_target = .{ .drum = 2 };
     app.view = .sampler_editor;
     app.handleKey(.{ .char = 'p' }, 0);
-    try std.testing.expectEqual(AppView.sampler_editor, app.view);
+    try std.testing.expectEqual(AppView.drum_grid, app.view);
+    try std.testing.expectEqual(@as(u16, 2), app.drum_track);
+
+    app.view = .sampler_editor;
     app.handleKey(.{ .char = 's' }, 0);
     try std.testing.expectEqual(AppView.track_spectrum, app.view);
     try std.testing.expectEqual(@as(u16, 2), app.eq_track);
@@ -4519,13 +4534,13 @@ test "p key opens piano roll for sampler track" {
     try std.testing.expectEqual(@as(u16, 1), app.piano_track);
 }
 
-test "piano roll p does not open for drum track" {
+test "p on a drum track opens the step grid, not the piano roll" {
     var app = try testApp();
     defer app.deinit();
 
     app.cursor = 2; // drum machine
     app.handleKey(.{ .char = 'p' }, 0);
-    try std.testing.expectEqual(AppView.tracks, app.view);
+    try std.testing.expectEqual(AppView.drum_grid, app.view);
 }
 
 test "piano roll insert mode records a take at the playhead while playing" {
@@ -4621,7 +4636,7 @@ test "drum grid insert mode records a pad hit at the playhead while playing" {
     defer app.deinit();
 
     app.cursor = 2; // drum machine
-    app.handleKey(.enter, 0);
+    app.handleKey(.{ .char = 'p' }, 0);
     try std.testing.expectEqual(AppView.drum_grid, app.view);
 
     _ = app.session.engine.send(.play);
@@ -4653,7 +4668,7 @@ test "drum grid insert mode previews without recording while the transport is st
     defer app.deinit();
 
     app.cursor = 2;
-    app.handleKey(.enter, 0);
+    app.handleKey(.{ .char = 'p' }, 0);
     app.handleKey(.{ .char = 'i' }, 0);
     try std.testing.expectEqual(ws.input.Mode.insert, app.modal.mode);
     app.handleKey(.{ .char = 'a' }, 0);
@@ -4672,7 +4687,7 @@ test "drum grid insert mode doesn't stack a duplicate hit on the same step" {
     defer app.deinit();
 
     app.cursor = 2;
-    app.handleKey(.enter, 0);
+    app.handleKey(.{ .char = 'p' }, 0);
     _ = app.session.engine.send(.play);
     var block: [64]types.Sample = undefined;
     app.session.engine.process(&block);
@@ -6638,15 +6653,15 @@ test "entering an empty slicer track opens its editor before its file browser" {
     app.view = .tracks;
     app.handleKey(.enter, 0);
 
-    try std.testing.expectEqual(AppView.slicer_grid, app.view);
+    try std.testing.expectEqual(AppView.sampler_editor, app.view);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.file_browser, app.view);
     try std.testing.expectEqual(app_mod.BrowserPurpose.load_slice, app.browser_purpose);
-    try std.testing.expectEqual(AppView.slicer_grid, app.prev_view);
+    try std.testing.expectEqual(AppView.sampler_editor, app.prev_view);
     app.handleKey(.escape, 0);
-    try std.testing.expectEqual(AppView.slicer_grid, app.view);
+    try std.testing.expectEqual(AppView.sampler_editor, app.view);
 
-    // Once a clip is loaded, re-entering the track lands in the grid
+    // Once a clip is loaded, re-entering the track lands in the slice panel
     // itself instead of bouncing back to the browser.
     const sl = app.slicerInst();
     sl.sliceInto(1);
@@ -6654,7 +6669,9 @@ test "entering an empty slicer track opens its editor before its file browser" {
     sl.samples = try app.allocator.alloc(f32, 4);
     app.view = .tracks;
     app.handleKey(.enter, 0);
-    try std.testing.expectEqual(AppView.slicer_grid, app.view);
+    try std.testing.expectEqual(AppView.sampler_editor, app.view);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.sampler_editor, app.view);
 }
 
 test "enter in an editor with nothing loaded opens that editor's file browser" {
@@ -6864,7 +6881,7 @@ test "mouse click on a tracks-view row selects and opens it" {
     // row 0 = "TRACKS" title; track i sits at row i+1 (see App.tracksMouse).
     app.handleMouse(.{ .x = 5, .y = app_mod.content_top + 3, .button = .left, .kind = .press }, 80, 24, 0);
     try std.testing.expectEqual(@as(usize, 2), app.cursor); // track 2 = drum machine
-    try std.testing.expectEqual(AppView.drum_grid, app.view);
+    try std.testing.expectEqual(AppView.sampler_editor, app.view);
 }
 
 test "mouse scroll in tracks view moves the cursor like j/k" {

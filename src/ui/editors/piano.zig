@@ -285,6 +285,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     .sampler => {
                         app.sampler_target = .{ .sampler = app.piano_track };
                         app.sampler_param = 0;
+                        app.sampler_return = .tracks;
                         app.view = .sampler_editor;
                     },
                     .soundfont, .acoustic => {
