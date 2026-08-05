@@ -1,13 +1,8 @@
 const std = @import("std");
 const ws = @import("wstudio");
 
-pub fn main(init: std.process.Init) !void {
-    var args = std.process.Args.Iterator.init(init.minimal.args);
-    _ = args.next();
-    const module_path = args.next() orelse return error.MissingPluginPath;
-    const bundle_path = args.next() orelse return error.MissingBundlePath;
-
-    var registry = ws.vst3.scan.Registry.init(init.gpa);
+fn runScenario(gpa: std.mem.Allocator, io: std.Io, module_path: []const u8, bundle_path: []const u8) !void {
+    var registry = ws.vst3.scan.Registry.init(gpa);
     defer registry.deinit();
     try registry.scanModule(module_path, bundle_path);
     try std.testing.expectEqual(@as(usize, 3), registry.plugins.items.len);
@@ -17,11 +12,11 @@ pub fn main(init: std.process.Init) !void {
     try std.testing.expectEqualStrings("wstudio", registry.plugins.items[0].vendor);
 
     for (0..3) |_| {
-        const repeated = try ws.vst3.Vst3Plugin.loadModule(init.gpa, module_path, bundle_path, "57535445464645435400000000000001", 48_000, false);
+        const repeated = try ws.vst3.Vst3Plugin.loadModule(gpa, module_path, bundle_path, "57535445464645435400000000000001", 48_000, false);
         repeated.deinit();
     }
 
-    var instrument = try ws.vst3.Vst3Plugin.loadModule(init.gpa, module_path, bundle_path, "575354494e535452554d454e54000001", 48_000, true);
+    var instrument = try ws.vst3.Vst3Plugin.loadModule(gpa, module_path, bundle_path, "575354494e535452554d454e54000001", 48_000, true);
     defer instrument.deinit();
     var transport: ws.Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120, .position_frames = 48_000, .playing = true };
     instrument.attachTransport(&transport);
@@ -38,16 +33,16 @@ pub fn main(init: std.process.Init) !void {
     try std.testing.expectEqual(@as(u32, 7), instrument.latencySamples());
     try std.testing.expectEqual(@as(u32, 7), instrument.device().latencyFrames());
 
-    var effect = try ws.vst3.Vst3Plugin.loadModule(init.gpa, module_path, bundle_path, "57535445464645435400000000000001", 48_000, false);
+    var effect = try ws.vst3.Vst3Plugin.loadModule(gpa, module_path, bundle_path, "57535445464645435400000000000001", 48_000, false);
     defer effect.deinit();
     try std.testing.expectEqual(@as(usize, 1), effect.parameterCount());
     try std.testing.expectEqual(@as(u32, 100), effect.parameterInfo(0).?.id);
     effect.setParameter(100, 0.5);
     try std.testing.expectEqual(@as(f64, 0.5), effect.parameterValue(100).?);
-    const component_state = try effect.saveComponentState(init.gpa);
-    defer init.gpa.free(component_state);
-    const controller_state = (try effect.saveControllerState(init.gpa)).?;
-    defer init.gpa.free(controller_state);
+    const component_state = try effect.saveComponentState(gpa);
+    defer gpa.free(component_state);
+    const controller_state = (try effect.saveControllerState(gpa)).?;
+    defer gpa.free(controller_state);
     effect.setParameter(100, 0.25);
     var restart_audio = [_]ws.types.Sample{ 0, 0 };
     effect.processBlock(&restart_audio);
@@ -64,24 +59,42 @@ pub fn main(init: std.process.Init) !void {
 
     const project_path = ".zig-cache/vst3-integration.wsj";
     {
-        var session = try ws.Session.initDefault(init.gpa);
+        var session = try ws.Session.initDefault(gpa);
         defer session.deinit();
         try session.setVst3Instrument(0, bundle_path, "575354494e535452554d454e54000001", "wstudio VST3 Test Instrument");
         const saved_plugin = session.racks.items[0].instrument.vst3;
         saved_plugin.setParameter(100, 0.75);
-        try ws.persist.save(init.gpa, &session, init.io, project_path);
+        try ws.persist.save(gpa, &session, io, project_path);
     }
-    defer std.Io.Dir.cwd().deleteFile(init.io, project_path) catch {};
-    var loaded = try ws.persist.load(init.gpa, init.io, project_path);
+    defer std.Io.Dir.cwd().deleteFile(io, project_path) catch {};
+    var loaded = try ws.persist.load(gpa, io, project_path);
     defer loaded.deinit();
     const loaded_plugin = loaded.racks.items[0].instrument.vst3;
     try std.testing.expectEqualStrings("575354494e535452554d454e54000001", loaded_plugin.classId());
     try std.testing.expectEqual(@as(f64, 0.75), loaded_plugin.parameterValue(100).?);
 
-    var mono = try ws.vst3.Vst3Plugin.loadModule(init.gpa, module_path, bundle_path, "5753544d4f4e4f465800000000000001", 48_000, false);
+    var mono = try ws.vst3.Vst3Plugin.loadModule(gpa, module_path, bundle_path, "5753544d4f4e4f465800000000000001", 48_000, false);
     defer mono.deinit();
     var mono_audio = [_]ws.types.Sample{ 0.2, 0.6 };
     mono.processBlock(&mono_audio);
     try std.testing.expectApproxEqAbs(@as(f32, 0.8), mono_audio[0], 0.0001);
     try std.testing.expectApproxEqAbs(mono_audio[0], mono_audio[1], 0.0001);
+}
+
+/// Runs the same scenario twice: once with sandboxing forced off (the
+/// `Direct`/in-process path - unchanged code, but otherwise unexercised by
+/// this binary now that sandboxing defaults on) and once at whatever the
+/// module default is (bridged on Linux). Same assertions either way -
+/// this is the "bridged round-trip matches the unbridged path" check.
+pub fn main(init: std.process.Init) !void {
+    var args = std.process.Args.Iterator.init(init.minimal.args);
+    _ = args.next();
+    const module_path = args.next() orelse return error.MissingPluginPath;
+    const bundle_path = args.next() orelse return error.MissingBundlePath;
+
+    ws.plugin_host.bridge.sandbox_enabled.store(false, .release);
+    try runScenario(init.gpa, init.io, module_path, bundle_path);
+
+    ws.plugin_host.bridge.sandbox_enabled.store(true, .release);
+    try runScenario(init.gpa, init.io, module_path, bundle_path);
 }

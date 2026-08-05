@@ -7,6 +7,8 @@ const scan = @import("scan.zig");
 const device_mod = @import("../dsp/device.zig");
 const types = @import("../core/types.zig");
 const Transport = @import("../transport.zig").Transport;
+const bridge_mod = @import("../plugin_host/bridge.zig");
+const wire = @import("../plugin_host/transport.zig");
 
 const max_events = 256;
 const max_param_changes = 64;
@@ -255,51 +257,105 @@ fn vstSamplePosition(frames: u64) i64 {
     return std.math.cast(i64, frames) orelse std.math.maxInt(i64);
 }
 
+/// Public VST3 plugin handle. Wraps either a real in-process instance
+/// (`Direct`, today's implementation, byte-for-byte unchanged internally)
+/// or a `*Bridge` handle to a sandboxed child process running that same
+/// unmodified `Direct` code (see plugin_host/child_main.zig) - see
+/// `ClapPlugin` in src/clap/plugin.zig for the identical split and why
+/// it's shaped this way. `pluginPath`/`classId` need no RPC in either
+/// mode: unlike CLAP's plugin id (which can be null, letting the plugin's
+/// own factory pick a default), VST3's bundle path and 32-char class id
+/// are always caller-supplied `load()` arguments, so the outer wrapper
+/// just caches them directly.
 pub const Vst3Plugin = struct {
     allocator: std.mem.Allocator,
-    module: module_mod.Module,
-    component: *abi.Component,
-    processor: *abi.AudioProcessor,
-    controller: ?*abi.EditController,
-    midi_mapping: ?*abi.MidiMapping,
-    component_connection: ?*abi.ConnectionPoint,
-    controller_connection: ?*abi.ConnectionPoint,
-    host_context: *HostContext,
     bundle_path: []u8,
     class_id: [32]u8,
-    input_channels: u8,
-    output_channels: u8,
-    input_left: []f32,
-    input_right: []f32,
-    output_left: []f32,
-    output_right: []f32,
-    input_ptrs: [2][*]f32 = undefined,
-    output_ptrs: [2][*]f32 = undefined,
-    events: HostEventList = .{},
-    active_notes: [128]bool = .{false} ** 128,
+    impl: Impl,
     transport: ?*const Transport = null,
-    param_changes: ParamChanges = .{},
-    restart_in_progress: std.atomic.Value(bool) = .init(false),
-    restart_ready: std.atomic.Value(bool) = .init(false),
-    sample_rate: u32,
-    instrument: bool,
-    parameter_indices: [max_parameters]u16 = undefined,
-    parameter_count: usize = 0,
-    parameter_names: [max_parameters][64]u8 = undefined,
+    /// Bridged-mode only: events queued by `handleEvent`/`setParameter`
+    /// between blocks, published to the child on the next `processBlock`.
+    pending_events: [wire.max_events]wire.WireEvent = undefined,
+    pending_count: u32 = 0,
+    /// Bridged-mode only: populated once at load time over RPC (the same
+    /// eager-population loop `Direct.loadModule` runs itself, just fed by
+    /// `parameterCount`/`parameterInfo` calls instead of direct vtable
+    /// access) since these don't change afterward - see `Direct`'s own
+    /// fields of the same name for the direct-mode source of truth.
     automatable_params: [max_parameters]device_mod.AutomatableParam = undefined,
+    automatable_names: [max_parameters][64]u8 = undefined,
     automatable_count: usize = 0,
 
-    pub const device = device_mod.deviceOf(Vst3Plugin);
+    const Impl = union(enum) {
+        direct: Direct,
+        bridged: *bridge_mod.Bridge,
+    };
+
+    pub const device = device_mod.deviceOf(@This());
 
     pub fn load(allocator: std.mem.Allocator, bundle_path: []const u8, id: []const u8, sample_rate: u32, instrument: bool) !*Vst3Plugin {
+        if (bridge_mod.sandboxActive()) return loadBridged(allocator, bundle_path, id, sample_rate, instrument);
+        return loadDirect(allocator, bundle_path, id, sample_rate, instrument);
+    }
+
+    fn loadBridged(allocator: std.mem.Allocator, bundle_path: []const u8, id: []const u8, sample_rate: u32, instrument: bool) !*Vst3Plugin {
+        const class_id = try abi.parseUid(id); // validated here too so a malformed id fails before spawning a child
+        const b = try bridge_mod.Bridge.spawn(allocator, .{
+            .kind = .vst3,
+            .path = bundle_path,
+            .plugin_id = id,
+            .sample_rate = sample_rate,
+            .instrument = instrument,
+        });
+        errdefer b.deinit();
+        const self = try allocator.create(Vst3Plugin);
+        errdefer allocator.destroy(self);
+        self.* = .{
+            .allocator = allocator,
+            .bundle_path = try allocator.dupe(u8, bundle_path),
+            .class_id = abi.formatUid(class_id),
+            .impl = .{ .bridged = b },
+        };
+        if (instrument) {
+            const count_resp = b.call(.parameter_count, &.{}) catch &.{};
+            const count: usize = if (count_resp.len >= 4) std.mem.bytesToValue(u32, count_resp[0..4]) else 0;
+            var index: usize = 0;
+            while (index < @min(count, max_parameters)) : (index += 1) {
+                const idx32: u32 = @intCast(index);
+                const info_resp = b.call(.parameter_info, std.mem.asBytes(&idx32)) catch continue;
+                if (info_resp.len < @sizeOf(abi.ParameterInfo)) continue;
+                const info = std.mem.bytesToValue(abi.ParameterInfo, info_resp[0..@sizeOf(abi.ParameterInfo)]);
+                if (info.flags & 1 == 0) continue;
+                const slot = self.automatable_count;
+                const title = std.mem.sliceTo(&info.title, 0);
+                const len = std.unicode.utf16LeToUtf8(&self.automatable_names[slot], title) catch 0;
+                self.automatable_params[slot] = .{
+                    .id = info.id,
+                    .label = self.automatable_names[slot][0..len],
+                    .section = "VST3",
+                    .range = .{ 0, 1 },
+                    .step = 0.01,
+                };
+                self.automatable_count += 1;
+            }
+        }
+        return self;
+    }
+
+    fn loadDirect(allocator: std.mem.Allocator, bundle_path: []const u8, id: []const u8, sample_rate: u32, instrument: bool) !*Vst3Plugin {
         const relative = try scan.moduleRelativePath(allocator, std.fs.path.basename(bundle_path), @import("builtin").os.tag, @import("builtin").cpu.arch);
         defer allocator.free(relative);
         const module_path = try std.fs.path.join(allocator, &.{ bundle_path, relative });
         defer allocator.free(module_path);
-        return loadModule(allocator, module_path, bundle_path, id, sample_rate, instrument);
+        return loadModuleDirect(allocator, module_path, bundle_path, id, sample_rate, instrument);
     }
 
     pub fn loadModule(allocator: std.mem.Allocator, module_path: []const u8, bundle_path: []const u8, id: []const u8, sample_rate: u32, instrument: bool) !*Vst3Plugin {
+        if (bridge_mod.sandboxActive()) return loadBridged(allocator, bundle_path, id, sample_rate, instrument);
+        return loadModuleDirect(allocator, module_path, bundle_path, id, sample_rate, instrument);
+    }
+
+    fn loadModuleDirect(allocator: std.mem.Allocator, module_path: []const u8, bundle_path: []const u8, id: []const u8, sample_rate: u32, instrument: bool) !*Vst3Plugin {
         const class_id = try abi.parseUid(id);
         var module = try module_mod.Module.open(bundle_path, module_path);
         errdefer module.close();
@@ -432,51 +488,333 @@ pub const Vst3Plugin = struct {
         errdefer allocator.free(output_right);
         const owned_path = try allocator.dupe(u8, bundle_path);
         errdefer allocator.free(owned_path);
+        const owned_path_outer = try allocator.dupe(u8, bundle_path);
+        errdefer allocator.free(owned_path_outer);
         self.* = .{
             .allocator = allocator,
-            .module = module,
-            .component = component,
-            .processor = processor,
-            .controller = controller,
-            .midi_mapping = midi_mapping,
-            .component_connection = component_connection,
-            .controller_connection = controller_connection,
-            .host_context = host_context,
-            .bundle_path = owned_path,
+            .bundle_path = owned_path_outer,
             .class_id = abi.formatUid(class_id),
-            .input_channels = @intCast(input_channels),
-            .output_channels = @intCast(output_info.channel_count),
-            .input_left = input_left,
-            .input_right = input_right,
-            .output_left = output_left,
-            .output_right = output_right,
-            .sample_rate = sample_rate,
-            .instrument = instrument,
+            .impl = .{ .direct = .{
+                .allocator = allocator,
+                .module = module,
+                .component = component,
+                .processor = processor,
+                .controller = controller,
+                .midi_mapping = midi_mapping,
+                .component_connection = component_connection,
+                .controller_connection = controller_connection,
+                .host_context = host_context,
+                .bundle_path = owned_path,
+                .class_id = abi.formatUid(class_id),
+                .input_channels = @intCast(input_channels),
+                .output_channels = @intCast(output_info.channel_count),
+                .input_left = input_left,
+                .input_right = input_right,
+                .output_left = output_left,
+                .output_right = output_right,
+                .sample_rate = sample_rate,
+                .instrument = instrument,
+            } },
         };
         if (controller) |value| {
+            const direct = &self.impl.direct;
             const count: usize = @intCast(@min(@max(value.vtable.get_parameter_count(value), 0), max_parameters));
             for (0..count) |raw_index| {
                 var info: abi.ParameterInfo = undefined;
                 if (value.vtable.get_parameter_info(value, @intCast(raw_index), &info) != 0 or info.flags & 1 == 0) continue;
-                const index = self.parameter_count;
-                self.parameter_indices[index] = @intCast(raw_index);
-                self.parameter_count += 1;
+                const index = direct.parameter_count;
+                direct.parameter_indices[index] = @intCast(raw_index);
+                direct.parameter_count += 1;
                 const title = std.mem.sliceTo(&info.title, 0);
-                const len = std.unicode.utf16LeToUtf8(&self.parameter_names[index], title) catch 0;
-                self.automatable_params[self.automatable_count] = .{
+                const len = std.unicode.utf16LeToUtf8(&direct.parameter_names[index], title) catch 0;
+                direct.automatable_params[direct.automatable_count] = .{
                     .id = info.id,
-                    .label = self.parameter_names[index][0..len],
+                    .label = direct.parameter_names[index][0..len],
                     .section = "VST3",
                     .range = .{ 0, 1 },
                     .step = 0.01,
                 };
-                self.automatable_count += 1;
+                direct.automatable_count += 1;
             }
         }
         return self;
     }
 
     pub fn deinit(self: *Vst3Plugin) void {
+        switch (self.impl) {
+            .direct => |*d| d.deinit(),
+            .bridged => |b| b.deinit(),
+        }
+        self.allocator.free(self.bundle_path);
+        self.allocator.destroy(self);
+    }
+
+    pub fn processBlock(self: *Vst3Plugin, buf: []types.Sample) void {
+        switch (self.impl) {
+            .direct => |*d| d.processBlock(buf),
+            .bridged => |b| {
+                b.processBlock(buf, self.pending_events[0..self.pending_count], self.transport);
+                self.pending_count = 0;
+            },
+        }
+    }
+
+    fn pushPending(self: *Vst3Plugin, w: wire.WireEvent) void {
+        if (self.pending_count < wire.max_events) {
+            self.pending_events[self.pending_count] = w;
+            self.pending_count += 1;
+        }
+    }
+
+    pub fn handleEvent(self: *Vst3Plugin, event: device_mod.Event) void {
+        switch (self.impl) {
+            .direct => |*d| d.handleEvent(self, event),
+            .bridged => {
+                const self_ptr: *anyopaque = @ptrCast(self);
+                if (wire.fromDeviceEvent(event, self_ptr)) |w| self.pushPending(w);
+            },
+        }
+    }
+
+    pub fn attachTransport(self: *Vst3Plugin, transport: *const Transport) void {
+        self.transport = transport;
+        switch (self.impl) {
+            .direct => |*d| d.attachTransport(transport),
+            .bridged => {},
+        }
+    }
+
+    pub fn pluginPath(self: *const Vst3Plugin) []const u8 {
+        return self.bundle_path;
+    }
+
+    pub fn classId(self: *const Vst3Plugin) []const u8 {
+        return &self.class_id;
+    }
+
+    pub fn parameterCount(self: *const Vst3Plugin) usize {
+        return switch (self.impl) {
+            .direct => |*d| d.parameterCount(),
+            .bridged => |b| blk: {
+                const resp = b.call(.parameter_count, &.{}) catch break :blk 0;
+                break :blk if (resp.len >= 4) std.mem.bytesToValue(u32, resp[0..4]) else 0;
+            },
+        };
+    }
+
+    pub fn parameterInfo(self: *const Vst3Plugin, index: usize) ?abi.ParameterInfo {
+        return switch (self.impl) {
+            .direct => |*d| d.parameterInfo(index),
+            .bridged => |b| blk: {
+                const index32: u32 = @intCast(index);
+                const resp = b.call(.parameter_info, std.mem.asBytes(&index32)) catch break :blk null;
+                if (resp.len < @sizeOf(abi.ParameterInfo)) break :blk null;
+                break :blk std.mem.bytesToValue(abi.ParameterInfo, resp[0..@sizeOf(abi.ParameterInfo)]);
+            },
+        };
+    }
+
+    pub fn automationParams(self: *const Vst3Plugin) []const device_mod.AutomatableParam {
+        return switch (self.impl) {
+            .direct => |*d| d.automationParams(),
+            .bridged => self.automatable_params[0..self.automatable_count],
+        };
+    }
+
+    pub fn parameterName(self: *const Vst3Plugin, index: usize, buf: []u8) ?[]const u8 {
+        return switch (self.impl) {
+            .direct => |*d| d.parameterName(index, buf),
+            .bridged => |b| blk: {
+                const index32: u32 = @intCast(index);
+                const resp = b.call(.parameter_name, std.mem.asBytes(&index32)) catch break :blk null;
+                if (resp.len == 0 or buf.len == 0) break :blk null;
+                const len = @min(resp.len, buf.len);
+                @memcpy(buf[0..len], resp[0..len]);
+                break :blk buf[0..len];
+            },
+        };
+    }
+
+    pub fn formatParameter(self: *const Vst3Plugin, id: u32, value: f64, buf: []u8) ?[]const u8 {
+        return switch (self.impl) {
+            .direct => |*d| d.formatParameter(id, value, buf),
+            .bridged => |b| blk: {
+                var req: [12]u8 = undefined;
+                @memcpy(req[0..4], std.mem.asBytes(&id));
+                @memcpy(req[4..12], std.mem.asBytes(&value));
+                const resp = b.call(.format_parameter, &req) catch break :blk null;
+                if (resp.len == 0 or buf.len == 0) break :blk null;
+                const len = @min(resp.len, buf.len);
+                @memcpy(buf[0..len], resp[0..len]);
+                break :blk buf[0..len];
+            },
+        };
+    }
+
+    pub fn saveComponentState(self: *Vst3Plugin, allocator: std.mem.Allocator) ![]u8 {
+        return switch (self.impl) {
+            .direct => |*d| d.saveComponentState(allocator),
+            .bridged => |b| {
+                const resp = try b.call(.save_state, &.{});
+                return try savedComponentFromWire(allocator, resp);
+            },
+        };
+    }
+
+    pub fn saveControllerState(self: *Vst3Plugin, allocator: std.mem.Allocator) !?[]u8 {
+        return switch (self.impl) {
+            .direct => |*d| d.saveControllerState(allocator),
+            .bridged => |b| {
+                const resp = try b.call(.save_state, &.{});
+                return try savedControllerFromWire(allocator, resp);
+            },
+        };
+    }
+
+    pub fn loadState(self: *Vst3Plugin, component_bytes: []const u8, controller_bytes: []const u8) !void {
+        switch (self.impl) {
+            .direct => |*d| return d.loadState(component_bytes, controller_bytes),
+            .bridged => |b| {
+                var buf: [rpc_max_payload]u8 = undefined;
+                const payload = try encodeStateForWire(&buf, component_bytes, controller_bytes);
+                _ = try b.call(.load_state, payload);
+            },
+        }
+    }
+
+    pub fn parameterValue(self: *const Vst3Plugin, id: u32) ?f64 {
+        return switch (self.impl) {
+            .direct => |*d| d.parameterValue(id),
+            .bridged => |b| blk: {
+                const resp = b.call(.parameter_value, std.mem.asBytes(&id)) catch break :blk null;
+                break :blk if (resp.len >= 8) std.mem.bytesToValue(f64, resp[0..8]) else null;
+            },
+        };
+    }
+
+    pub fn setParameter(self: *Vst3Plugin, id: u32, value: f64) void {
+        switch (self.impl) {
+            .direct => |*d| d.setParameter(id, value),
+            .bridged => |b| {
+                var req: [12]u8 = undefined;
+                @memcpy(req[0..4], std.mem.asBytes(&id));
+                @memcpy(req[4..12], std.mem.asBytes(&value));
+                _ = b.call(.set_parameter, &req) catch {};
+            },
+        }
+    }
+
+    pub fn reset(self: *Vst3Plugin) void {
+        switch (self.impl) {
+            .direct => |*d| d.reset(),
+            .bridged => |b| {
+                self.pending_count = 0;
+                b.requestReset();
+            },
+        }
+    }
+
+    pub fn latencySamples(self: *const Vst3Plugin) u32 {
+        return switch (self.impl) {
+            .direct => |*d| d.latencySamples(),
+            .bridged => |b| b.latencyFrames(),
+        };
+    }
+
+    pub fn latencyFrames(self: *const Vst3Plugin) u32 {
+        return self.latencySamples();
+    }
+
+    /// Bridged mode forwards this as a synchronous RPC to the child (see
+    /// `ClapPlugin.serviceMainThread` in src/clap/plugin.zig for why it
+    /// must be synchronous, not a passive background-published flag).
+    pub fn serviceMainThread(self: *Vst3Plugin) bool {
+        return switch (self.impl) {
+            .direct => |*d| d.serviceMainThread(),
+            .bridged => |b| b.serviceMainThread(),
+        };
+    }
+};
+
+const rpc_max_payload = @import("../plugin_host/rpc.zig").max_payload;
+
+/// `save_state`'s bridged response packs both streams as the child's
+/// `dispatch` already frames them (u32 length + bytes, twice) - see
+/// child_main.zig's `.save_state` VST3 arm. Component state is
+/// unconditionally present.
+fn savedComponentFromWire(allocator: std.mem.Allocator, payload: []const u8) ![]u8 {
+    if (payload.len < 4) return error.ComponentStateSaveFailed;
+    const len = std.mem.readInt(u32, payload[0..4], .little);
+    if (4 + len > payload.len) return error.ComponentStateSaveFailed;
+    return try allocator.dupe(u8, payload[4..][0..len]);
+}
+
+fn savedControllerFromWire(allocator: std.mem.Allocator, payload: []const u8) !?[]u8 {
+    if (payload.len < 4) return error.ComponentStateSaveFailed;
+    const component_len = std.mem.readInt(u32, payload[0..4], .little);
+    const rest = payload[4 + component_len ..];
+    if (rest.len < 4) return error.ComponentStateSaveFailed;
+    const controller_len = std.mem.readInt(u32, rest[0..4], .little);
+    if (4 + controller_len > rest.len) return error.ComponentStateSaveFailed;
+    if (controller_len == 0) return null;
+    return try allocator.dupe(u8, rest[4..][0..controller_len]);
+}
+
+/// Wire format for `load_state`'s request - matches what child_main.zig's
+/// `.load_state` VST3 arm expects to unpack: u32 length + component
+/// bytes, then u32 length + controller bytes.
+fn encodeStateForWire(buf: []u8, component_bytes: []const u8, controller_bytes: []const u8) ![]const u8 {
+    var pos: usize = 0;
+    if (pos + 4 + component_bytes.len + 4 + controller_bytes.len > buf.len) return error.StatePayloadTooLarge;
+    std.mem.writeInt(u32, buf[pos..][0..4], @intCast(component_bytes.len), .little);
+    pos += 4;
+    @memcpy(buf[pos..][0..component_bytes.len], component_bytes);
+    pos += component_bytes.len;
+    std.mem.writeInt(u32, buf[pos..][0..4], @intCast(controller_bytes.len), .little);
+    pos += 4;
+    @memcpy(buf[pos..][0..controller_bytes.len], controller_bytes);
+    pos += controller_bytes.len;
+    return buf[0..pos];
+}
+
+/// Real in-process VST3 hosting - unchanged from before sandboxing
+/// existed. Constructed by `Vst3Plugin.loadModuleDirect`; also the exact
+/// code plugin_host/child_main.zig runs inside a sandboxed child.
+const Direct = struct {
+    allocator: std.mem.Allocator,
+    module: module_mod.Module,
+    component: *abi.Component,
+    processor: *abi.AudioProcessor,
+    controller: ?*abi.EditController,
+    midi_mapping: ?*abi.MidiMapping,
+    component_connection: ?*abi.ConnectionPoint,
+    controller_connection: ?*abi.ConnectionPoint,
+    host_context: *HostContext,
+    bundle_path: []u8,
+    class_id: [32]u8,
+    input_channels: u8,
+    output_channels: u8,
+    input_left: []f32,
+    input_right: []f32,
+    output_left: []f32,
+    output_right: []f32,
+    input_ptrs: [2][*]f32 = undefined,
+    output_ptrs: [2][*]f32 = undefined,
+    events: HostEventList = .{},
+    active_notes: [128]bool = .{false} ** 128,
+    transport: ?*const Transport = null,
+    param_changes: ParamChanges = .{},
+    restart_in_progress: std.atomic.Value(bool) = .init(false),
+    restart_ready: std.atomic.Value(bool) = .init(false),
+    sample_rate: u32,
+    instrument: bool,
+    parameter_indices: [max_parameters]u16 = undefined,
+    parameter_count: usize = 0,
+    parameter_names: [max_parameters][64]u8 = undefined,
+    automatable_params: [max_parameters]device_mod.AutomatableParam = undefined,
+    automatable_count: usize = 0,
+
+    fn deinit(self: *Direct) void {
         _ = self.processor.vtable.set_processing(self.processor, 0);
         _ = self.component.vtable.set_active(self.component, 0);
         _ = self.processor.vtable.release(self.processor);
@@ -503,10 +841,12 @@ pub const Vst3Plugin = struct {
         self.allocator.free(self.output_left);
         self.allocator.free(self.output_right);
         self.allocator.destroy(self.host_context);
-        self.allocator.destroy(self);
+        // No `allocator.destroy(self)` here: unlike the outer `Vst3Plugin`,
+        // `Direct` is embedded by value inside `Vst3Plugin.impl`, not its
+        // own heap allocation - the outer `deinit` frees the whole thing.
     }
 
-    pub fn processBlock(self: *Vst3Plugin, buf: []types.Sample) void {
+    fn processBlock(self: *Direct, buf: []types.Sample) void {
         const frames = buf.len / 2;
         if (frames == 0 or frames > types.max_block_frames or buf.len % 2 != 0) return;
         const restart_flags = self.host_context.restart_flags.load(.acquire);
@@ -551,7 +891,10 @@ pub const Vst3Plugin = struct {
         }
     }
 
-    pub fn handleEvent(self: *Vst3Plugin, event: device_mod.Event) void {
+    /// `outer` is the `Vst3Plugin` wrapper this `Direct` is embedded in -
+    /// needed only for the `vst3_param` identity check below, matching
+    /// `ClapPlugin`'s `Direct.handleEvent` (see src/clap/plugin.zig).
+    fn handleEvent(self: *Direct, outer: *Vst3Plugin, event: device_mod.Event) void {
         switch (event) {
             .note_on => |note| self.pushNote(true, note.note, note.velocity),
             .note_off => |note| self.pushNote(false, note.note, 0),
@@ -559,19 +902,19 @@ pub const Vst3Plugin = struct {
             .cc => |cc| self.pushMidiMapping(cc.cc, @as(f64, @floatFromInt(cc.value)) / 127.0),
             .pitch_bend => |bend| self.pushMidiMapping(129, @as(f64, @floatFromInt(@as(i32, bend.bend) + 8192)) / 16383.0),
             .automation_param => |param| if (self.instrument) self.setParameter(param.id, param.value),
-            .vst3_param => |param| if (param.target == @as(*anyopaque, @ptrCast(self))) self.setParameter(param.id, param.value),
+            .vst3_param => |param| if (param.target == @as(*anyopaque, @ptrCast(outer))) self.setParameter(param.id, param.value),
             else => {},
         }
     }
 
-    fn pushMidiMapping(self: *Vst3Plugin, controller_number: i16, value: f64) void {
+    fn pushMidiMapping(self: *Direct, controller_number: i16, value: f64) void {
         const mapping = self.midi_mapping orelse return;
         var id: u32 = 0;
         if (mapping.vtable.get_midi_controller_assignment(mapping, 0, 0, controller_number, &id) == 0)
             self.param_changes.push(id, std.math.clamp(value, 0, 1));
     }
 
-    fn pushNote(self: *Vst3Plugin, on: bool, note: u7, velocity: f32) void {
+    fn pushNote(self: *Direct, on: bool, note: u7, velocity: f32) void {
         if (self.events.len == max_events) return;
         var event: abi.Event = std.mem.zeroes(abi.Event);
         event.flags = 1;
@@ -587,23 +930,15 @@ pub const Vst3Plugin = struct {
         self.active_notes[note] = on;
     }
 
-    pub fn attachTransport(self: *Vst3Plugin, transport: *const Transport) void {
+    fn attachTransport(self: *Direct, transport: *const Transport) void {
         self.transport = transport;
     }
 
-    pub fn pluginPath(self: *const Vst3Plugin) []const u8 {
-        return self.bundle_path;
-    }
-
-    pub fn classId(self: *const Vst3Plugin) []const u8 {
-        return &self.class_id;
-    }
-
-    pub fn parameterCount(self: *const Vst3Plugin) usize {
+    fn parameterCount(self: *const Direct) usize {
         return self.parameter_count;
     }
 
-    pub fn parameterInfo(self: *const Vst3Plugin, index: usize) ?abi.ParameterInfo {
+    fn parameterInfo(self: *const Direct, index: usize) ?abi.ParameterInfo {
         const controller = self.controller orelse return null;
         var info: abi.ParameterInfo = undefined;
         if (index >= self.parameter_count) return null;
@@ -611,18 +946,18 @@ pub const Vst3Plugin = struct {
         return info;
     }
 
-    pub fn automationParams(self: *const Vst3Plugin) []const device_mod.AutomatableParam {
+    fn automationParams(self: *const Direct) []const device_mod.AutomatableParam {
         return self.automatable_params[0..self.automatable_count];
     }
 
-    pub fn parameterName(self: *const Vst3Plugin, index: usize, buf: []u8) ?[]const u8 {
+    fn parameterName(self: *const Direct, index: usize, buf: []u8) ?[]const u8 {
         const info = self.parameterInfo(index) orelse return null;
         const title = std.mem.sliceTo(&info.title, 0);
         const len = std.unicode.utf16LeToUtf8(buf, title) catch return null;
         return buf[0..len];
     }
 
-    pub fn formatParameter(self: *const Vst3Plugin, id: u32, value: f64, buf: []u8) ?[]const u8 {
+    fn formatParameter(self: *const Direct, id: u32, value: f64, buf: []u8) ?[]const u8 {
         const controller = self.controller orelse return null;
         var text: [128]u16 = undefined;
         if (controller.vtable.get_param_string_by_value(controller, id, value, &text) != 0) return null;
@@ -630,14 +965,14 @@ pub const Vst3Plugin = struct {
         return buf[0..len];
     }
 
-    pub fn saveComponentState(self: *Vst3Plugin, allocator: std.mem.Allocator) ![]u8 {
+    fn saveComponentState(self: *Direct, allocator: std.mem.Allocator) ![]u8 {
         var stream = MemoryStream.init(allocator);
         defer stream.deinit();
         if (self.component.vtable.get_state(self.component, &stream.interface) != 0) return error.ComponentStateSaveFailed;
         return try allocator.dupe(u8, stream.data.items);
     }
 
-    pub fn saveControllerState(self: *Vst3Plugin, allocator: std.mem.Allocator) !?[]u8 {
+    fn saveControllerState(self: *Direct, allocator: std.mem.Allocator) !?[]u8 {
         const controller = self.controller orelse return null;
         var stream = MemoryStream.init(allocator);
         defer stream.deinit();
@@ -645,7 +980,7 @@ pub const Vst3Plugin = struct {
         return @as(?[]u8, try allocator.dupe(u8, stream.data.items));
     }
 
-    pub fn loadState(self: *Vst3Plugin, component_bytes: []const u8, controller_bytes: []const u8) !void {
+    fn loadState(self: *Direct, component_bytes: []const u8, controller_bytes: []const u8) !void {
         self.param_changes.len = 0;
         var component_stream = try MemoryStream.initRead(self.allocator, component_bytes);
         defer component_stream.deinit();
@@ -661,19 +996,19 @@ pub const Vst3Plugin = struct {
         }
     }
 
-    pub fn parameterValue(self: *const Vst3Plugin, id: u32) ?f64 {
+    fn parameterValue(self: *const Direct, id: u32) ?f64 {
         const controller = self.controller orelse return null;
         return controller.vtable.get_param_normalized(controller, id);
     }
 
-    pub fn setParameter(self: *Vst3Plugin, id: u32, value: f64) void {
+    fn setParameter(self: *Direct, id: u32, value: f64) void {
         const controller = self.controller orelse return;
         const normalized = std.math.clamp(value, 0, 1);
         if (controller.vtable.set_param_normalized(controller, id, normalized) == 0)
             self.param_changes.push(id, normalized);
     }
 
-    fn makeProcessContext(self: *const Vst3Plugin) abi.ProcessContext {
+    fn makeProcessContext(self: *const Direct) abi.ProcessContext {
         const transport = self.transport orelse return std.mem.zeroes(abi.ProcessContext);
         const beats = transport.positionBeats();
         const beats_per_bar: f64 = @floatFromInt(@max(transport.time_signature.beats_per_bar, 1));
@@ -700,16 +1035,12 @@ pub const Vst3Plugin = struct {
         };
     }
 
-    pub fn reset(_: *Vst3Plugin) void {}
-    pub fn latencySamples(self: *const Vst3Plugin) u32 {
+    fn reset(_: *Direct) void {}
+    fn latencySamples(self: *const Direct) u32 {
         return self.processor.vtable.get_latency_samples(self.processor);
     }
 
-    pub fn latencyFrames(self: *const Vst3Plugin) u32 {
-        return self.latencySamples();
-    }
-
-    pub fn serviceMainThread(self: *Vst3Plugin) bool {
+    fn serviceMainThread(self: *Direct) bool {
         if (self.restart_ready.swap(false, .acquire)) {
             _ = self.component.vtable.set_active(self.component, 0);
             var setup: abi.ProcessSetup = .{ .process_mode = 0, .symbolic_sample_size = 0, .max_samples_per_block = types.max_block_frames, .sample_rate = @floatFromInt(self.sample_rate) };
@@ -718,7 +1049,7 @@ pub const Vst3Plugin = struct {
             const start_result = if (active_ok) self.processor.vtable.set_processing(self.processor, 1) else -1;
             const restarted = active_ok and (start_result == 0 or start_result == abi.not_implemented);
             if (!restarted)
-                std.log.err("VST3 restart failed: {s}", .{self.classId()});
+                std.log.err("VST3 restart failed: {s}", .{&self.class_id});
             if (restarted) self.restart_in_progress.store(false, .release);
         }
         _ = self.host_context.restart_flags.swap(0, .acquire);
