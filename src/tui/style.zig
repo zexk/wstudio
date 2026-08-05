@@ -21,6 +21,7 @@ pub const sel = ansi.sel;
 pub const blu = ansi.blu;
 pub const mag = ansi.mag;
 pub const bcyn = ansi.bcyn;
+pub const bmag = ansi.bmag;
 pub const bwht = ansi.bwht;
 pub const track_palette = ansi.track_palette;
 pub const track_color_names = ansi.track_color_names;

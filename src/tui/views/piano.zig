@@ -21,6 +21,7 @@ const sel = style.sel;
 const blu = style.blu;
 const mag = style.mag;
 const bcyn = style.bcyn;
+const bmag = style.bmag;
 const endLine = style.endLine;
 const hr = style.hr;
 
@@ -198,6 +199,10 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     // pitch band (`v`, blockwise) or every pitch row (`V`, linewise - a null
     // pitch anchor). See editors/step_grid.zig's rowRange.
     const visual_active = app.modal.mode == .visual;
+    // The edit sub-mode (visual + enter) recolours the whole selection: the
+    // same keys now move notes instead of the selection, so the mode has to
+    // be readable off the grid, not just the status line.
+    const sel_color = if (app.piano_visual_edit) bmag else yel;
     const sel_anchor = app.piano_visual_anchor orelse app.piano_cursor_step;
     const sel_lo: u16 = @min(sel_anchor, app.piano_cursor_step);
     const sel_hi: u16 = @max(sel_anchor, app.piano_cursor_step);
@@ -241,7 +246,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
             // fallback below colours the downbeat dot itself instead
             // (mirrors arrangement.zig's compact ruler).
             const next_downbeat = (col + 1 < vis_cols or step + 1 == loop_step) and (step + 1) % spb == 0;
-            const tick_color = if (in_sel) yel else dim;
+            const tick_color = if (in_sel) sel_color else dim;
 
             // zig fmt: off
             if (is_cur) {
@@ -253,12 +258,12 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
                 try writeStepPad(w, cw -| 1, next_downbeat, tick_color);
             } else if (starts) {
                 // Shade the note head by velocity: loud = bold, soft = dim.
-                // Selected notes (visual mode) swap the accent for yellow.
+                // Selected notes swap the accent for the selection colour.
                 // Compact (cw==1) has room for only the head glyph, dropping
                 // the "=" tail segment normal width shows alongside it.
                 const vel = pp.velocityAt(pitch, beat_pos) orelse 0.85;
                 const head = if (vel >= 0.8) bold else if (vel < 0.45) dim else "";
-                const note_color = if (in_sel) yel else acc;
+                const note_color = if (in_sel) sel_color else acc;
                 try w.writeAll(note_color);
                 try w.writeAll(head);
                 try w.writeAll("[" ++ rst);
@@ -268,11 +273,12 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
                     try writeStepPad(w, cw -| 2, next_downbeat, tick_color);
                 }
             } else if (covers) {
-                try w.writeAll(if (in_sel) yel else acc);
+                try w.writeAll(if (in_sel) sel_color else acc);
                 try w.writeAll("=" ++ rst);
                 try writeStepPad(w, cw -| 1, next_downbeat, tick_color);
             } else if (in_sel) {
-                try w.writeAll(yel ++ "·" ++ rst);
+                try w.writeAll(sel_color);
+                try w.writeAll("·" ++ rst);
                 try writeStepPad(w, cw -| 1, next_downbeat, tick_color);
             } else {
                 // cw==1 has no padding column to carry the beat tick, so the

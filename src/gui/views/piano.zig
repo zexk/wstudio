@@ -327,8 +327,12 @@ pub fn draw(app: anytype) void {
         const y1 = grid_y + @as(f32, @floatFromInt(@as(usize, top_pitch) -| @min(band.hi, top_pitch))) * row_h;
         const y2 = grid_y + @as(f32, @floatFromInt(@min(row_count, @as(usize, top_pitch) -| band.lo + 1))) * row_h;
         if (y2 > y1) {
-            draw_list.addRectFilled(.{ .pmin = .{ x1, y1 }, .pmax = .{ x2, y2 }, .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.12 }) });
-            draw_list.addRect(.{ .pmin = .{ x1 + 1, y1 + 1 }, .pmax = .{ x2 - 1, y2 - 1 }, .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.55 }), .thickness = 1 });
+            // The edit sub-mode (visual + enter) recolours the rectangle: the
+            // same keys now move notes instead of the selection, so the mode
+            // has to be readable off the grid, not just the status line.
+            const tint = if (app.core.piano_visual_edit) theme.modulation else theme.rhythm;
+            draw_list.addRectFilled(.{ .pmin = .{ x1, y1 }, .pmax = .{ x2, y2 }, .col = color(.{ tint[0], tint[1], tint[2], 0.12 }) });
+            draw_list.addRect(.{ .pmin = .{ x1 + 1, y1 + 1 }, .pmax = .{ x2 - 1, y2 - 1 }, .col = color(.{ tint[0], tint[1], tint[2], 0.55 }), .thickness = 1 });
         }
     }
     const step_stride = gridStride(steps, steps_per_beat, grid_w);
