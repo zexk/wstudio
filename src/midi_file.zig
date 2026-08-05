@@ -23,6 +23,15 @@ pub const default_tempo_bpm: f64 = 120.0;
 /// Encode `notes` as a format-0 Standard MIDI File at `tempo_bpm`. Every
 /// note becomes a channel-0 note-on/note-off pair; velocity (0-1 float) maps
 /// onto the 1-127 MIDI range. Returns an allocator-owned buffer.
+///
+/// Per-note expression (`Note.art` - pan, fine tuning, release) is
+/// deliberately dropped rather than approximated. Every MIDI vehicle for
+/// those is per *channel*, not per note (CC10, pitch bend, CC72), so on a
+/// single channel a chord's notes would overwrite each other's settings and
+/// the last one written would win for all of them - silently wrong in a way
+/// that only shows up on polyphonic material. Carrying it needs MPE, one
+/// channel per sounding note, which is a different file to write. An import
+/// likewise leaves every note neutral.
 pub fn write(allocator: std.mem.Allocator, notes: []const Note, tempo_bpm: f64) ![]u8 {
     var track: std.ArrayListUnmanaged(u8) = .empty;
     defer track.deinit(allocator);
