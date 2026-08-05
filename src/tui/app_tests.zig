@@ -9166,3 +9166,40 @@ test "applying a synth preset defers the displaced FX chain's free until the aud
     app.session.reclaimRetiredFx();
     try std.testing.expectEqual(@as(usize, 0), app.session.retired_fx.items.len);
 }
+
+test "cc-learn binds the armed param to the next controller message, not an earlier one" {
+    var app = try testApp();
+    defer app.deinit();
+
+    // Arm on the synth's filter cutoff, the way :cc-learn does.
+    app.view = .synth_editor;
+    app.synth_track = 0;
+    app.synth_cursor = 21;
+    commands.run(&app, "cc-learn");
+    try std.testing.expect(app.cc_learn != null);
+
+    // A frame with nothing on the wire leaves it armed.
+    app.tick(1);
+    try std.testing.expect(app.cc_learn != null);
+    try std.testing.expect(app.session.project.cc_bindings[0] == null);
+
+    var block: [128]f32 = undefined;
+    _ = app.session.engine.sendMidi(.{ .cc = .{ .track = 0, .cc = 74, .value = 100 } });
+    app.session.engine.process(&block);
+    app.tick(2);
+    try std.testing.expect(app.cc_learn == null);
+    const b = app.session.project.cc_bindings[0].?;
+    try std.testing.expectEqual(@as(u7, 74), b.cc);
+    try std.testing.expectEqual(@as(u32, 21), b.target.param_id);
+    try std.testing.expectEqual(@as(u16, 0), b.target.track);
+
+    // Re-learning the same knob onto another param re-points it rather than
+    // leaving one CC driving two things.
+    app.synth_cursor = 22;
+    commands.run(&app, "cc-learn");
+    _ = app.session.engine.sendMidi(.{ .cc = .{ .track = 0, .cc = 74, .value = 20 } });
+    app.session.engine.process(&block);
+    app.tick(3);
+    try std.testing.expectEqual(@as(u32, 22), app.session.project.cc_bindings[0].?.target.param_id);
+    try std.testing.expect(app.session.project.cc_bindings[1] == null);
+}

@@ -810,6 +810,16 @@ pub const App = struct {
     /// convention as `preset_filter_buf`. See `automation_ed.activeParamFilter`.
     automation_param_filter_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
     automation_param_filter_len: usize = 0,
+    /// `:cc-bind` with no number arms MIDI learn: the target is resolved
+    /// from the editor cursor at that moment (so the player can look away
+    /// and reach for the hardware), and the next controller message the
+    /// engine reports binds it. See `commands.pollCcLearn`, called from
+    /// `tick`.
+    cc_learn: ?ws.dsp.controller.Target = null,
+    /// The engine's CC sequence number when learn was armed - only a message
+    /// arriving *after* that counts, or a knob touched a moment earlier
+    /// would bind itself the instant learn opened.
+    cc_learn_seq: ?u24 = null,
     /// Cursor position within the clip, in 16th-note steps (0 = clip start,
     /// same unit the piano roll/drum grid use - beat = step / 4.0).
     automation_cursor_step: u32 = 0,
@@ -3584,6 +3594,7 @@ pub const App = struct {
 
     pub fn tick(self: *App, now_ns: i96) void {
         self.servicePluginHosts();
+        commands.pollCcLearn(self);
         const dropped_commands = self.session.engine.takeDroppedCommands();
         if (dropped_commands != 0) {
             self.setStatus("audio command queue full: {d} command{s} dropped", .{ dropped_commands, if (dropped_commands == 1) "" else "s" });

@@ -24,6 +24,8 @@ history lives in [FORMAT.md](FORMAT.md).
 - Project-level modulation controllers: four tempo-synced LFOs, each driving up
   to eight instrument or FX params across any tracks, via `:ctrl` and
   `:ctrl-bind`.
+- MIDI learn: `:cc-learn` binds a hardware controller knob to the param under
+  the cursor, on any track, and `:cc`/`:cc-clear` list and drop bindings.
 - Punch-in/out recording inside existing arrangement A/B bounds via `:punch`.
 - Recorded audio clips start with editable 5 ms boundary fades to prevent clicks.
 

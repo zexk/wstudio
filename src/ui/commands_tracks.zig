@@ -697,3 +697,131 @@ pub fn cmdControllerClear(app: *App, args: []const u8) void {
     app.dirty = true;
     app.setStatus("ctrl {d}: cleared", .{idx + 1});
 }
+
+/// `:cc` lists learned MIDI bindings; `:cc <number>` binds that controller
+/// number to the param under the open editor's cursor outright, for when
+/// the number is already known.
+pub fn cmdCc(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        listCcBindings(app);
+        return;
+    }
+    const cc = std.fmt.parseInt(u8, trimmed, 10) catch {
+        app.setStatus("cc: bad controller number '{s}'", .{trimmed});
+        return;
+    };
+    if (cc > 127) {
+        app.setStatus("cc: controller number must be 0-127", .{});
+        return;
+    }
+    const target = focusedControllerTarget(app) orelse return;
+    bindCc(app, @intCast(cc), target);
+}
+
+fn listCcBindings(app: *App) void {
+    var buf: [512]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    var any = false;
+    for (app.session.project.cc_bindings) |maybe| {
+        const b = maybe orelse continue;
+        if (any) w.writeAll("  ") catch break;
+        w.print("CC{d}→t{d}p{d}", .{ b.cc, b.target.track + 1, b.target.param_id }) catch break;
+        any = true;
+    }
+    if (!any) {
+        app.setStatus("no MIDI bindings - put the cursor on a param and run ':cc-learn'", .{});
+        return;
+    }
+    app.setStatus("midi: {s}", .{w.buffered()});
+}
+
+/// Store `target` under `cc`, replacing whatever that number already drove -
+/// one hardware knob moving two params at once is never what a re-learn
+/// meant. Shared by the explicit `:cc <n>` form and the learn path.
+fn bindCc(app: *App, cc: u7, target: controller_mod.Target) void {
+    var free: ?usize = null;
+    for (&app.session.project.cc_bindings, 0..) |*slot, i| {
+        if (slot.*) |b| {
+            if (b.cc == cc) {
+                slot.* = .{ .cc = cc, .target = target };
+                app.session.syncModulation();
+                app.dirty = true;
+                app.setStatus("CC{d} → track {d} param {d} (was bound, re-pointed)", .{ cc, target.track + 1, target.param_id });
+                return;
+            }
+        } else if (free == null) {
+            free = i;
+        }
+    }
+    const idx = free orelse {
+        app.setStatus("cc: all {d} binding slots are in use", .{controller_mod.max_cc_bindings});
+        return;
+    };
+    app.session.project.cc_bindings[idx] = .{ .cc = cc, .target = target };
+    app.session.syncModulation();
+    app.dirty = true;
+    app.setStatus("CC{d} → track {d} param {d}", .{ cc, target.track + 1, target.param_id });
+}
+
+/// `:cc-learn` arms MIDI learn on the param under the cursor: the next
+/// controller message that arrives binds it. The target is resolved now
+/// rather than when the message lands, so the player can look away from the
+/// screen and reach for the hardware without the cursor mattering any more.
+pub fn cmdCcLearn(app: *App, args: []const u8) void {
+    _ = args;
+    if (app.cc_learn != null) {
+        app.cc_learn = null;
+        app.cc_learn_seq = null;
+        app.setStatus("cc-learn: cancelled", .{});
+        return;
+    }
+    const target = focusedControllerTarget(app) orelse return;
+    app.cc_learn = target;
+    // Only a message arriving after this counts - see `App.cc_learn_seq`.
+    app.cc_learn_seq = if (app.session.engine.lastCc()) |last| last.seq else 0;
+    app.setStatus("cc-learn: move a knob on your controller ( :cc-learn again to cancel )", .{});
+}
+
+/// Called once a frame from `App.tick`. Does nothing until learn is armed,
+/// then watches the engine's last-seen controller number - the engine
+/// records it for every CC regardless of routing or existing bindings, so a
+/// knob that already drives something can still be re-learned.
+pub fn pollCcLearn(app: *App) void {
+    const target = app.cc_learn orelse return;
+    const last = app.session.engine.lastCc() orelse return;
+    if (app.cc_learn_seq) |armed| {
+        if (last.seq == armed) return;
+    }
+    app.cc_learn = null;
+    app.cc_learn_seq = null;
+    bindCc(app, last.cc, target);
+}
+
+/// `:cc-clear` drops every binding; `:cc-clear <number>` drops just that
+/// one. The param keeps whatever value the knob last wrote - the same way a
+/// cleared automation lane leaves the param where it stood.
+pub fn cmdCcClear(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        app.session.project.cc_bindings = @splat(null);
+        app.session.syncModulation();
+        app.dirty = true;
+        app.setStatus("midi bindings: all cleared", .{});
+        return;
+    }
+    const cc = std.fmt.parseInt(u8, trimmed, 10) catch {
+        app.setStatus("cc-clear: bad controller number '{s}'", .{trimmed});
+        return;
+    };
+    for (&app.session.project.cc_bindings) |*slot| {
+        const b = slot.* orelse continue;
+        if (b.cc != cc) continue;
+        slot.* = null;
+        app.session.syncModulation();
+        app.dirty = true;
+        app.setStatus("CC{d}: unbound", .{cc});
+        return;
+    }
+    app.setStatus("cc-clear: CC{d} isn't bound", .{cc});
+}

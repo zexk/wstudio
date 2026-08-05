@@ -80,6 +80,10 @@ pub const cmdTrackSend = commands_tracks.cmdTrackSend;
 pub const cmdController = commands_tracks.cmdController;
 pub const cmdControllerBind = commands_tracks.cmdControllerBind;
 pub const cmdControllerClear = commands_tracks.cmdControllerClear;
+pub const cmdCc = commands_tracks.cmdCc;
+pub const cmdCcLearn = commands_tracks.cmdCcLearn;
+pub const cmdCcClear = commands_tracks.cmdCcClear;
+pub const pollCcLearn = commands_tracks.pollCcLearn;
 pub const cmdRenamePad = commands_tracks.cmdRenamePad;
 pub const activeScope = commands_load.activeScope;
 pub const cmdSynthPreset = commands_load.cmdSynthPreset;
@@ -216,6 +220,9 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "ctrl",        .desc = "[<n> [shape] [beats] [depth] [phase]]  list, create or retune a modulation controller", .run = wrap(cmdController) },
     .{ .name = "ctrl-bind",   .desc = "<n>  wire controller n to the param under the open editor's cursor", .run = wrap(cmdControllerBind) },
     .{ .name = "ctrl-clear",  .desc = "<n>  free controller n and every knob it drives", .run = wrap(cmdControllerClear) },
+    .{ .name = "cc",          .desc = "[<number>]  list learned MIDI bindings, or bind one to the param under the cursor", .run = wrap(cmdCc) },
+    .{ .name = "cc-learn",    .desc = "arm MIDI learn on the param under the cursor - the next knob you move binds to it", .run = wrap(cmdCcLearn) },
+    .{ .name = "cc-clear",    .desc = "[<number>]  drop one MIDI binding, or all of them", .run = wrap(cmdCcClear) },
     .{ .name = "write",       .desc = "[file]  save project (default: project.wsj)", .run = wrap(cmdSave) },
     .{ .name = "save",        .desc = "[file]  save project (alias for :write)",     .run = wrap(cmdSave) },
     .{ .name = "w",           .desc = "[file]  save project (alias for :write)",     .run = wrap(cmdSave) },

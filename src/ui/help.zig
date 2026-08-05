@@ -153,6 +153,9 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key(":ctrl",         "[<n> [shape] [beats] [depth] [phase]]  list, create or retune a modulation controller");
     t.key(":ctrl-bind <n>", "wire controller n to the param under the open synth/sampler/FX editor's cursor");
     t.key(":ctrl-clear <n>", "free controller n and every knob it drives");
+    t.key(":cc-learn",     "arm MIDI learn on the param under the cursor - the next knob you move binds to it");
+    t.key(":cc",           "[<number>]  list learned MIDI bindings, or bind one by number");
+    t.key(":cc-clear",     "[<number>]  drop one MIDI binding, or all of them");
     t.key("tab",          "open the arrangement (song timeline) - tab there returns here; while");
     t.key("",             "  stopped this enables song mode, tabbing back (or opening a pattern");
     t.key("",             "  editor from here) reverts to pattern mode; nothing changes while playing");
