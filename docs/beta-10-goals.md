@@ -118,7 +118,7 @@ large subsystems, not release-candidate polish.
   limiter ceiling, tails, and demo mix by ear and through finite/peak checks.
   New effects must start useful and must not change sound while bypassed.
 - Run `zig fmt` on touched Zig files, full tests, native build, isolated TUI and
-  GUI screenshot journeys, beta.7 soak, format corpus, Lua/config parity, CLI,
+  GUI screenshot journeys, soak, format corpus, Lua/config parity, CLI,
   plugin fixtures, third-party plugin pass, Valgrind, release archives, and Nix
   evaluation/build checks.
 - Run native release journeys on Linux and Windows. Run macOS when hardware and

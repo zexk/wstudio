@@ -15,26 +15,14 @@ code keeps a one-line pointer.
   parameter-nudge coalescing, and the deliberately limited undo scope.
 - [user-config-storage.md](user-config-storage.md): paths, atomic JSON writes,
   corrupt-file quarantine, and the boundary between drum tuning and audio.
-- [beta-5-goals.md](beta-5-goals.md): beta.5 goals and exit criteria.
-- [beta-6-goals.md](beta-6-goals.md): bounded VST3 hosting baseline.
-- [beta-7-goals.md](beta-7-goals.md): complete-project production workflow
-  journeys, blocker policy, and exit criteria.
-- [beta-7-validation.md](beta-7-validation.md): exact journey, soak, export,
-  fault-injection, and environment coverage commands.
-- [beta-8-goals.md](beta-8-goals.md): compatibility freeze for project files,
-  Lua/config, commands, input grammar, CLI behavior, and plugin persistence.
-- [beta-9-goals.md](beta-9-goals.md): release-candidate blocker policy,
-  clean-install journeys, artifact checks, and exit gate.
-- [beta-9-validation.md](beta-9-validation.md): automated release-candidate
-  gate results, package checks, and exact environment skips.
 - [beta-10-goals.md](beta-10-goals.md): final release-candidate coherence,
   20-effect rack, bounded DAW-completeness candidates, polish, and exit gate.
 - [beta-10-validation.md](beta-10-validation.md): recorded frontend journey,
   automated checks, fixes, and explicit hardware or OS skips.
 - [compatibility-inventory.md](compatibility-inventory.md): beta.8 freeze,
   migration, removal, and internal dispositions with authoritative registries.
-- [road-to-1.0.md](road-to-1.0.md): release themes from beta.5 through the
-  1.0 feature freeze.
+- [road-to-1.0.md](road-to-1.0.md): what is left between the final release
+  candidate and the 1.0 tag.
 - [ui-conventions.md](ui-conventions.md): TUI layout and chrome
   conventions (row budget, status row, prompt row, frame bracketing,
   icon fallback) plus the design decisions behind them.

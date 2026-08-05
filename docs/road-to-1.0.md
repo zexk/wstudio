@@ -3,54 +3,10 @@
 Beta.10 is the final release candidate. Scope narrows toward 1.0 instead of
 growing until the final tag.
 
-## 1.0.0-beta.5: close known gaps
-
-Finish the existing [beta.5 goals](beta-5-goals.md): device routing, complete
-undo coverage, CLAP lifecycle support, and GUI integration coverage.
-
-No new instrument or effect work belongs in this release.
-
-## 1.0.0-beta.6: VST3 hosting
-
-Implement the bounded [beta.6 VST3 goals](beta-6-goals.md). Add VST3
-instruments and effects to the format-neutral plugin catalog that already
-distinguishes CLAP, VST3, and VST2.
-
-Target the same useful baseline already offered for CLAP: discovery, audio and
-note processing, parameters, saved identity and state, latency, and generic
-parameter editing. Native custom editor windows remain separate platform work.
-
-VST2 stays outside the 1.0 plan. It requires a separate host adapter and its
-distribution license is no longer available to new hosts.
-
-## 1.0.0-beta.7: production workflow
-
-Use complete projects and beta feedback to close the bounded
-[beta.7 production-workflow goals](beta-7-goals.md) across recording, editing,
-arrangement, automation, mixing, plugin use, save/load, and export.
-
-Prefer fixes and missing links between existing features. No new instrument,
-effect, plugin format, or editing subsystem.
-
-## 1.0.0-beta.8: compatibility freeze
-
-Settle [beta.8 compatibility-freeze goals](beta-8-goals.md): `.wsj`
-migrations, Lua API behavior, configuration names, commands, keyboard grammar,
-CLI behavior, documentation, and plugin persistence.
-
-After this beta, incompatible changes require a documented migration or wait
-until after 1.0.
-
-## 1.0.0-beta.9: release candidate
-
-Follow the bounded [beta.9 release-candidate goals](beta-9-goals.md). Feature
-freeze. Fix crashes, data loss, audio corruption, platform failures, and
-release or documentation defects. Verify clean installs, bundled demo, project
-round trips, device setup, plugins, and release artifacts on Linux, Windows,
-and macOS.
-
-Beta.9 validation exposed a real VST3 activation blocker and left native
-hardware journeys incomplete, so it is not promoted directly to 1.0.
+The per-release goal and validation documents for beta.5 through beta.9 are
+gone now that those releases shipped: what they delivered is recorded in
+[CHANGELOG.md](../CHANGELOG.md), and the surfaces they froze in
+[compatibility-inventory.md](compatibility-inventory.md).
 
 ## 1.0.0-beta.10: final release candidate
 

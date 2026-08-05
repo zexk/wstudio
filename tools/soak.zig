@@ -1,5 +1,5 @@
-//! Beta.7 production-workflow soak using existing Session, persistence, and
-//! bounce paths. Simulates one hour as fast as host CPU permits.
+//! Production-workflow soak using existing Session, persistence, and bounce
+//! paths. Simulates one hour as fast as host CPU permits.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -35,8 +35,8 @@ pub fn main(init: std.process.Init) !void {
     }
     if (peak == 0) return error.SilentProject;
 
-    try std.Io.Dir.cwd().createDirPath(init.io, ".zig-cache/beta7-soak");
-    const roundtrip_path = ".zig-cache/beta7-soak/roundtrip.wsj";
+    try std.Io.Dir.cwd().createDirPath(init.io, ".zig-cache/soak");
+    const roundtrip_path = ".zig-cache/soak/roundtrip.wsj";
     for (0..10) |_| {
         try ws.persist.save(init.gpa, &session, init.io, roundtrip_path);
         var loaded = try ws.persist.load(init.gpa, init.io, roundtrip_path);
@@ -45,7 +45,7 @@ pub fn main(init: std.process.Init) !void {
     const bounce_range = ws.bounce.range(&session, 2);
     for (0..3) |i| {
         var path_buf: [64]u8 = undefined;
-        const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/beta7-soak/export-{d}.wav", .{i + 1});
+        const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/soak/export-{d}.wav", .{i + 1});
         try ws.bounce.writeFile(init.gpa, init.io, path, &session, bounce_range, .pcm16);
     }
 
