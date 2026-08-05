@@ -539,6 +539,10 @@ fn drawParamGrid(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, g
             const selected = app.core.fx_param == index;
             zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = if (selected) theme.bg3 else theme.bg1 });
             zgui.pushStyleColor4f(.{ .idx = .border, .c = if (selected) kindAccent(unit.kind()) else theme.line });
+            // Before `beginChild`: a card entirely off the fold is skipped
+            // wholesale, so the knob inside it never gets to mark itself as
+            // the focused row - the one case cursor-following exists for.
+            scroll.noteFocusRow(selected, zgui.getCursorScreenPos()[1], row_height);
             if (zgui.beginChild(id, .{ .w = if (column + 1 == row_columns) 0 else width, .h = row_height, .child_flags = .{ .border = true } })) {
                 drawParam(app, target, unit, index, knob_diameter);
             }

@@ -634,6 +634,7 @@ pub fn xyPad(label: [:0]const u8, args: XYPad) KnobResult {
     const origin = zgui.getCursorScreenPos();
     const draw_list = zgui.getWindowDrawList();
     const pad_w = if (args.width > 0) args.width else args.size;
+    scroll.noteFocusRow(args.focused, origin[1], args.size);
 
     _ = zgui.invisibleButton(label, .{ .w = pad_w, .h = args.size });
     const active = zgui.isItemActive();
@@ -739,6 +740,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
     const height = args.height;
     const origin = zgui.getCursorScreenPos();
     const draw_list = zgui.getWindowDrawList();
+    scroll.noteFocusRow(args.focused_stage != null, origin[1], height);
     zgui.dummy(.{ .w = width, .h = height });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg2), .rounding = gui_style.panel_rounding });
 
@@ -942,6 +944,7 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
     const origin = zgui.getCursorScreenPos();
     const draw_list = zgui.getWindowDrawList();
     var result = CurveResult{};
+    scroll.noteFocusRow(args.focused_index != null, origin[1], height);
 
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg1), .rounding = gui_style.panel_rounding });
     if (args.snap_beats > 0 and args.beat_hi > 0) {

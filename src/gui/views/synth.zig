@@ -10,6 +10,7 @@ const synth_ed = @import("../../ui/editors/synth.zig");
 const synth_layout = @import("../../ui/synth_layout.zig");
 const gui_style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
+const scroll = @import("../scroll.zig");
 const zgui = @import("zgui");
 
 const color = gui_style.color;
@@ -142,11 +143,16 @@ fn drawSections(
 /// Which section owns `cursor`, for `z`'s isolate-one-card mode.
 fn cursorSection(sections: []const synth_layout.SectionDef, cursor: u16) ?usize {
     for (sections, 0..) |section, index| {
-        for (section.params) |entry| {
-            if (cursor >= entry.id and cursor < entry.id + entry.fields) return index;
-        }
+        if (sectionHasParam(section, cursor)) return index;
     }
     return null;
+}
+
+fn sectionHasParam(section: synth_layout.SectionDef, cursor: u16) bool {
+    for (section.params) |entry| {
+        if (cursor >= entry.id and cursor < entry.id + entry.fields) return true;
+    }
+    return false;
 }
 
 fn drawCard(
@@ -159,6 +165,13 @@ fn drawCard(
 ) void {
     var child_buf: [48]u8 = undefined;
     const child_id = std.fmt.bufPrintZ(&child_buf, "{s}-{d}", .{ child_prefix, index }) catch return;
+    // A card whose child lies entirely outside the scroll viewport is
+    // skipped wholesale: `beginChild` returns false and nothing inside it
+    // runs, the focused param's own `noteFocusRow` included - which is
+    // exactly the case cursor-following exists for. Mark the card itself
+    // first so `j` past the fold still has somewhere to scroll to; a card
+    // that does draw overwrites this with its focused row's real band.
+    scroll.noteFocusRow(sectionHasParam(section, app.core.synth_cursor), zgui.getCursorScreenPos()[1], 0);
     zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.bg2 });
     if (zgui.beginChild(child_id, .{
         .w = width,
@@ -592,6 +605,7 @@ fn zeroSkewParam(id: u16) bool {
 /// clicking it reuses the same command path an `h`/`l` keypress would.
 fn drawParamToggle(app: anytype, id: u16, label_text: []const u8, active: bool, accent: [4]f32) void {
     const focused = app.core.synth_cursor == id;
+    scroll.noteFocusRow(focused, zgui.getCursorScreenPos()[1], zgui.getFontSize() + 8);
     zgui.textColored(if (focused) accent else theme.fg1, "{s}", .{label_text});
     zgui.sameLine(.{ .spacing = 8 });
     var btn_buf: [48]u8 = undefined;

@@ -88,6 +88,12 @@ fn drawSharedSections(app: anytype, target: Target) void {
         // grew an inner scrollbar, which turns one module of an instrument
         // into a sublist to scroll through. The panel is a unit; it sizes to
         // what it holds.
+        //
+        // Marked before `beginChild` because a panel entirely off the fold is
+        // skipped wholesale - nothing inside runs, its focused row's own
+        // `noteFocusRow` included, which is the one case cursor-following is
+        // for. A panel that does draw overwrites this with the real band.
+        scroll.noteFocusRow(sectionHasParam(section, app.core.sampler_param), zgui.getCursorScreenPos()[1], 0);
         if (zgui.beginChild(child_id, .{
             .w = column_width,
             .h = 0,
@@ -120,6 +126,13 @@ fn drawSharedSections(app: anytype, target: Target) void {
         }
         zgui.endChild();
     }
+}
+
+fn sectionHasParam(section: sampler_ed.Section, cursor: u8) bool {
+    for (section.rows) |row| {
+        if (row.id == cursor) return true;
+    }
+    return false;
 }
 
 fn sectionColumns(available: f32, gap: f32) usize {
