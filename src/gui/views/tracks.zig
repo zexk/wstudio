@@ -4,7 +4,6 @@ const std = @import("std");
 const ws = @import("wstudio");
 const format = @import("../../ui/format.zig");
 const spectrum_ed = @import("../../ui/editors/fx_editor.zig");
-const icons = @import("../../ui/icons.zig");
 const gui_style = @import("../style.zig");
 const scroll = @import("../scroll.zig");
 const meters = @import("../meters.zig");
@@ -388,7 +387,7 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "mute-{d}", .{track_index}) catch "mute", badgeX(block_x0, 1), badge_y, "M", track.muted, theme.danger)) {
         app.core.apiSetTrackMuted(track_index, !track.muted);
     }
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "arm-{d}", .{track_index}) catch "arm", badgeX(block_x0, 2), badge_y, icons.record, app.core.session.isArmed(track_index), theme.danger)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "arm-{d}", .{track_index}) catch "arm", badgeX(block_x0, 2), badge_y, "", app.core.session.isArmed(track_index), theme.danger)) {
         app.core.apiSetTrackArmed(track_index, !app.core.session.isArmed(track_index));
     }
     drawTrackRowCursorOutline(chrome, height);
@@ -566,11 +565,18 @@ fn drawTrackBadgeToggle(draw_list: zgui.DrawList, id: [:0]const u8, x: f32, y: f
     const bg = if (active) active_bg else if (hovered) theme.bg4 else theme.bg2;
     const fg = if (active) legibleOn(active_bg) else if (hovered) theme.fg1 else theme.fg3;
     draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + badge_w, y + badge_h }, .col = color(bg), .rounding = gui_style.item_rounding });
-    const label_size = zgui.calcTextSize(label, .{});
-    draw_list.addText(.{
-        x + (badge_w - label_size[0]) / 2,
-        y + (badge_h - label_size[1]) / 2,
-    }, color(fg), "{s}", .{label});
+    if (label.len == 0) {
+        // Record arm: the nerd-font record glyph fills its em box, so next to
+        // the cap-height "M"/"S" it reads as a much bigger badge. Draw the dot
+        // directly at a radius that matches their visual weight instead.
+        draw_list.addCircleFilled(.{ .p = .{ x + badge_w / 2, y + badge_h / 2 }, .r = 4, .col = color(fg) });
+    } else {
+        const label_size = zgui.calcTextSize(label, .{});
+        draw_list.addText(.{
+            x + (badge_w - label_size[0]) / 2,
+            y + (badge_h - label_size[1]) / 2,
+        }, color(fg), "{s}", .{label});
+    }
     return activated;
 }
 
