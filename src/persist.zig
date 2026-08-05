@@ -2528,7 +2528,7 @@ test "save/load round-trip persists a pitch shifter, and its heap grain lines su
     try testing.expect(copy.pitch_shift.lines[0].ptr != p.lines[0].ptr);
 }
 
-test "save/load round-trip persists the controller bank, dropping targets on tracks that are gone" {
+test "save/load round-trip persists controllers and learned CCs, dropping targets on tracks that are gone" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -2556,6 +2556,21 @@ test "save/load round-trip persists the controller bank, dropping targets on tra
         .lo = 0.0,
         .hi = 1.0,
     };
+    session.project.cc_bindings[0] = .{ .cc = 74, .target = .{
+        .track = 1,
+        .param_id = 21,
+        .center = 1000.0,
+        .lo = 20.0,
+        .hi = 20_000.0,
+    } };
+    // ...and neither must a CC binding on one.
+    session.project.cc_bindings[1] = .{ .cc = 75, .target = .{
+        .track = 40,
+        .param_id = 3,
+        .center = 0.5,
+        .lo = 0.0,
+        .hi = 1.0,
+    } };
     session.syncModulation();
 
     try save(testing.allocator, &session, testing.io, wsj_path);
@@ -2572,7 +2587,12 @@ test "save/load round-trip persists the controller bank, dropping targets on tra
     try testing.expectEqual(@as(u32, 21), c.targets[0].?.param_id);
     try testing.expectApproxEqAbs(@as(f32, 1000.0), c.targets[0].?.center, 1e-4);
     try testing.expect(c.targets[1] == null);
-    // The load path pushes the bank, so the audio thread has it without a
+    const cc = loaded.project.cc_bindings[0].?;
+    try testing.expectEqual(@as(u7, 74), cc.cc);
+    try testing.expectEqual(@as(u32, 21), cc.target.param_id);
+    try testing.expect(loaded.project.cc_bindings[1] == null);
+    // The load path pushes both, so the audio thread has them without a
     // further edit.
     try testing.expectEqual(@as(u16, 1), loaded.engine.controllers[2].?.targets[0].?.track);
+    try testing.expectEqual(@as(u7, 74), loaded.engine.cc_bindings[0].?.cc);
 }

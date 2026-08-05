@@ -250,6 +250,27 @@ pub fn sampleName(ps: PadSnap) []const u8 {
     return if (ps.name.len > 0) ps.name else std.fs.path.stem(ps.sample_file);
 }
 
+/// A saved modulation target, or null if it cannot be trusted. A target
+/// naming a track this file does not have would drive a param on whatever
+/// track later takes that index, and a degenerate range would leave the
+/// mapping math dividing by nothing - the same call `remapTrackReferences`
+/// makes when a track is deleted. Shared by the controller bank and the
+/// learned CC map, which sanitize identically.
+fn sanitizeControllerTarget(ts: persist_types.ControllerTargetSnap, track_count: usize) ?controller_mod.Target {
+    if (ts.track >= track_count) return null;
+    const lo = finiteClamp(f32, ts.lo, -1e9, 1e9, 0.0);
+    const hi = finiteClamp(f32, ts.hi, -1e9, 1e9, 1.0);
+    if (!(hi > lo)) return null;
+    return .{
+        .track = ts.track,
+        .instance_id = ts.instance_id,
+        .param_id = ts.param_id,
+        .center = finiteClamp(f32, ts.center, lo, hi, lo),
+        .lo = lo,
+        .hi = hi,
+    };
+}
+
 pub fn finiteClamp(comptime T: type, value: T, lo: T, hi: T, fallback: T) T {
     if (!std.math.isFinite(value)) return fallback;
     return std.math.clamp(value, lo, hi);
@@ -311,24 +332,18 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
         var slot: usize = 0;
         for (cs.targets) |ts| {
             if (slot == controller_mod.max_targets) break;
-            // A target naming a track this file does not have would drive a
-            // param on whatever track later takes that index - drop it, the
-            // same call `remapTrackReferences` makes on a delete.
-            if (ts.track >= snap.tracks.len) continue;
-            const lo = finiteClamp(f32, ts.lo, -1e9, 1e9, 0.0);
-            const hi = finiteClamp(f32, ts.hi, -1e9, 1e9, 1.0);
-            if (!(hi > lo)) continue;
-            c.targets[slot] = .{
-                .track = ts.track,
-                .instance_id = ts.instance_id,
-                .param_id = ts.param_id,
-                .center = finiteClamp(f32, ts.center, lo, hi, lo),
-                .lo = lo,
-                .hi = hi,
-            };
+            c.targets[slot] = sanitizeControllerTarget(ts, snap.tracks.len) orelse continue;
             slot += 1;
         }
         project.controllers[cs.index] = c;
+    }
+    var cc_slot: usize = 0;
+    for (snap.cc_bindings) |bs| {
+        if (cc_slot == controller_mod.max_cc_bindings) break;
+        if (bs.cc > 127) continue;
+        const target = sanitizeControllerTarget(bs.target, snap.tracks.len) orelse continue;
+        project.cc_bindings[cc_slot] = .{ .cc = @intCast(bs.cc), .target = target };
+        cc_slot += 1;
     }
 
     // zig fmt: off

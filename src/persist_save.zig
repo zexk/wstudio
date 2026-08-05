@@ -91,6 +91,7 @@ const SendSnap = persist_types.SendSnap;
 const GroupSnap = persist_types.GroupSnap;
 const ControllerSnap = persist_types.ControllerSnap;
 const ControllerTargetSnap = persist_types.ControllerTargetSnap;
+const CcBindingSnap = persist_types.CcBindingSnap;
 const ClipKind = persist_types.ClipKind;
 const ClipSnap = persist_types.ClipSnap;
 const LaneSnap = persist_types.LaneSnap;
@@ -171,6 +172,19 @@ pub fn save(
         });
     }
 
+    var cc_list: std.ArrayList(CcBindingSnap) = .empty;
+    for (session.project.cc_bindings) |maybe| {
+        const b = maybe orelse continue;
+        try cc_list.append(aa, .{ .cc = b.cc, .target = .{
+            .track = b.target.track,
+            .instance_id = b.target.instance_id,
+            .param_id = b.target.param_id,
+            .center = b.target.center,
+            .lo = b.target.lo,
+            .hi = b.target.hi,
+        } });
+    }
+
     const racks = try aa.alloc(RackSnap, session.racks.items.len);
     for (session.racks.items, racks) |rack, *rs| {
         rs.* = try rackToSnap(aa, rack);
@@ -203,6 +217,7 @@ pub fn save(
         .master_fx_chain = try chainToSnap(aa, &session.master_fx),
         .groups = groups,
         .controllers = controller_list.items,
+        .cc_bindings = cc_list.items,
     };
 
     const json_bytes = try std.json.Stringify.valueAlloc(aa, snap, .{ .whitespace = .indent_2 });

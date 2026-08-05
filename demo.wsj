@@ -5156,5 +5156,6 @@
       "soloed": false
     }
   ],
-  "controllers": []
+  "controllers": [],
+  "cc_bindings": []
 }

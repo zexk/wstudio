@@ -1068,6 +1068,12 @@ pub const ControllerSnap = struct {
     targets: []const ControllerTargetSnap = &.{},
 };
 
+/// One learned MIDI CC binding (see `dsp/controller.zig`).
+pub const CcBindingSnap = struct {
+    cc: u8,
+    target: ControllerTargetSnap,
+};
+
 pub const Snapshot = struct {
     version: u32 = file_version,
     tempo_bpm: f64 = 120.0,
@@ -1101,4 +1107,7 @@ pub const Snapshot = struct {
     /// Additive: the modulation-controller bank. Older files omit it and
     /// load with an empty bank, which is exactly how they played.
     controllers: []const ControllerSnap = &.{},
+    /// Additive: learned MIDI CC bindings. Older files omit it and load
+    /// with none, which is the fixed-`applyCC`-only behaviour they had.
+    cc_bindings: []const CcBindingSnap = &.{},
 };
