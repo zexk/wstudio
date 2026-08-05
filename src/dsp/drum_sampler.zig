@@ -56,6 +56,7 @@ const pad_mod = @import("pad.zig");
 const drum_kit = @import("drum_kit.zig");
 const Sampler = @import("sampler.zig").Sampler;
 const Note = @import("pattern.zig").Note;
+const step_grid = @import("step_grid.zig");
 
 const Sample = types.Sample;
 
@@ -214,10 +215,6 @@ pub const DrumMachine = struct {
             };
         }
     };
-
-    /// Named preset bands `cycleStepVel`'s quick single-key gesture steps
-    /// through: 127→95→63→31→127.
-    const vel_presets = [_]u8{ 127, 95, 63, 31 };
 
     /// Gain for a step's 0-127 velocity value (127 = full volume).
     pub fn velGain(level: u8) f32 {
@@ -681,11 +678,7 @@ pub const DrumMachine = struct {
     }
 
     pub fn toggleStep(self: *DrumMachine, pad: u8, step: u16) void {
-        if (pad >= max_pads or step >= self.step_count) return;
-        self.midi[pad][step] = if (self.midi[pad][step] == null)
-            gridNote(pad, step, vel_full)
-        else
-            null;
+        step_grid.toggleStep(&self.midi, self.step_count, pad, step);
     }
 
     /// Change the native grid without moving hits in musical time: every
@@ -750,43 +743,32 @@ pub const DrumMachine = struct {
         return true;
     }
 
+    // Step editing is `step_grid.zig`'s, shared with the Slicer's identical
+    // grid; only the pad vocabulary is ours. See that file for the bodies.
     pub fn stepActive(self: *const DrumMachine, pad: u8, step: u16) bool {
-        if (pad >= max_pads or step >= self.step_count) return false;
-        return self.midi[pad][step] != null;
+        return step_grid.stepActive(&self.midi, self.step_count, pad, step);
     }
 
     /// One step's velocity, 0-127 (127 = full, see velGain). 127 for a step
     /// with no note, matching a fresh/toggled-on step's default.
     pub fn stepVel(self: *const DrumMachine, pad: u8, step: u16) u8 {
-        if (pad >= max_pads or step >= self.step_count) return vel_full;
-        const note = self.midi[pad][step] orelse return vel_full;
-        return note.velocity;
+        return step_grid.stepVel(&self.midi, self.step_count, pad, step);
     }
 
     pub fn setStepVel(self: *DrumMachine, pad: u8, step: u16, level: u8) void {
-        if (pad >= max_pads or step >= self.step_count) return;
-        if (self.midi[pad][step]) |*note| note.velocity = @intCast(@min(level, vel_full));
+        step_grid.setStepVel(&self.midi, self.step_count, pad, step, level);
     }
 
     /// Cycle through the named preset bands (127→95→63→31→127) - a quick
     /// single-key gesture; `nudgeStepVel` covers the full 1-127 range.
     pub fn cycleStepVel(self: *DrumMachine, pad: u8, step: u16) void {
-        const cur = self.stepVel(pad, step);
-        var idx: usize = vel_presets.len - 1; // not a preset value -> next lands on preset[0]
-        for (vel_presets, 0..) |v, i| {
-            // zig fmt: off
-            if (v == cur) { idx = i; break; }
-            // zig fmt: on
-        }
-        self.setStepVel(pad, step, vel_presets[(idx + 1) % vel_presets.len]);
+        step_grid.cycleStepVel(&self.midi, self.step_count, pad, step);
     }
 
     /// Nudge one step's velocity by `delta`, clamped to 1..127 - 0 would be
     /// silent; use x/X to remove a step instead of zeroing its velocity.
     pub fn nudgeStepVel(self: *DrumMachine, pad: u8, step: u16, delta: i32) void {
-        const cur: i32 = self.stepVel(pad, step);
-        const next = std.math.clamp(cur + delta, 1, 127);
-        self.setStepVel(pad, step, @intCast(next));
+        step_grid.nudgeStepVel(&self.midi, self.step_count, pad, step, delta);
     }
 
     /// Does `note` fire on this pass? Probability and condition are ANDed,
@@ -821,129 +803,82 @@ pub const DrumMachine = struct {
     /// Audio thread reads this every step boundary, so it stays branch-cheap
     /// and never touches storage it doesn't have.
     pub fn padSteps(self: *const DrumMachine, p: u8, pattern_len: u16) u16 {
-        if (p >= max_pads or pattern_len == 0) return @max(pattern_len, 1);
-        const own = self.pad_len[p];
-        if (own == 0 or own > pattern_len) return pattern_len;
-        return @max(own, 1);
+        return step_grid.laneSteps(&self.pad_len, p, pattern_len);
     }
 
     /// Set pad `p`'s own loop length; 0 (or anything past the pattern) goes
     /// back to following the pattern.
     pub fn setPadLen(self: *DrumMachine, p: u8, len: u16) void {
-        if (p >= max_pads) return;
-        self.pad_len[p] = if (len >= self.step_count) 0 else len;
+        step_grid.setLaneLen(&self.pad_len, self.step_count, p, len);
     }
 
     /// Nudge pad `p`'s loop length, treating "follows the pattern" as the
     /// full length so stepping down from it lands one below rather than
     /// jumping to 1.
     pub fn nudgePadLen(self: *DrumMachine, p: u8, delta: i32) void {
-        if (p >= max_pads) return;
-        const cur: i32 = self.padSteps(p, self.step_count);
-        self.setPadLen(p, @intCast(std.math.clamp(cur + delta, 1, self.step_count)));
+        step_grid.nudgeLaneLen(&self.pad_len, self.step_count, p, delta);
     }
-
-    /// Preset chances `cycleStepProb` walks, in the order one key press
-    /// steps through them - the same "a few useful values beat a continuous
-    /// range you have to nudge" call `vel_presets` already made.
-    const prob_presets = [_]u8{ 100, 75, 50, 25, 10 };
 
     /// Fire chance of the step in percent; 100 on an empty step.
     pub fn stepProb(self: *const DrumMachine, pad: u8, step: u16) u8 {
-        if (pad >= max_pads or step >= self.step_count) return 100;
-        const note = self.midi[pad][step] orelse return 100;
-        return note.prob;
+        return step_grid.stepProb(&self.midi, self.step_count, pad, step);
     }
 
     /// Set the chance outright, clamped to 0-100. The keyboard only walks
-    /// `prob_presets`; scripts (and anything else wanting an exact value)
-    /// need the direct setter, same split `stepVel` already has.
+    /// the presets; scripts (and anything else wanting an exact value) need
+    /// the direct setter, same split `stepVel` already has.
     pub fn setStepProb(self: *DrumMachine, pad: u8, step: u16, percent: i32) void {
-        if (pad >= max_pads or step >= self.step_count) return;
-        if (self.midi[pad][step]) |*note| note.prob = @intCast(std.math.clamp(percent, 0, 100));
+        step_grid.setStepProb(&self.midi, self.step_count, pad, step, percent);
     }
 
     pub fn cycleStepProb(self: *DrumMachine, pad: u8, step: u16) void {
-        if (pad >= max_pads or step >= self.step_count) return;
-        const note = if (self.midi[pad][step]) |*n| n else return;
-        for (prob_presets, 0..) |p, i| {
-            if (note.prob == p) {
-                note.prob = prob_presets[(i + 1) % prob_presets.len];
-                return;
-            }
-        }
-        note.prob = prob_presets[0];
+        step_grid.cycleStepProb(&self.midi, self.step_count, pad, step);
     }
 
     /// Timing offset of the step as a percent of one step; 0 on an empty one.
     pub fn stepMicro(self: *const DrumMachine, pad: u8, step: u16) i8 {
-        if (pad >= max_pads or step >= self.step_count) return 0;
-        const note = self.midi[pad][step] orelse return 0;
-        return note.micro;
+        return step_grid.stepMicro(&self.midi, self.step_count, pad, step);
     }
 
     /// Half a step either way. Past that a hit would cross its neighbour's
     /// boundary, which is a different step, not a feel.
     pub fn setStepMicro(self: *DrumMachine, pad: u8, step: u16, pct: i32) void {
-        if (pad >= max_pads or step >= self.step_count) return;
-        if (self.midi[pad][step]) |*note| note.micro = @intCast(std.math.clamp(pct, -50, 50));
+        step_grid.setStepMicro(&self.midi, self.step_count, pad, step, pct);
     }
 
     pub fn nudgeStepMicro(self: *DrumMachine, pad: u8, step: u16, delta: i32) void {
-        self.setStepMicro(pad, step, @as(i32, self.stepMicro(pad, step)) + delta);
+        step_grid.nudgeStepMicro(&self.midi, self.step_count, pad, step, delta);
     }
-
-    /// Roll sizes `cycleStepRetrig` walks: off, then the divisions that stay
-    /// musical inside one step. 0 renders as a plain single hit.
-    const retrig_presets = [_]u8{ 0, 2, 3, 4, 6, 8 };
 
     /// Hits packed into the step; 0 (a plain single hit) on an empty step.
     pub fn stepRetrig(self: *const DrumMachine, pad: u8, step: u16) u8 {
-        if (pad >= max_pads or step >= self.step_count) return 0;
-        const note = self.midi[pad][step] orelse return 0;
-        return note.retrig;
+        return step_grid.stepRetrig(&self.midi, self.step_count, pad, step);
     }
 
-    /// Set the roll size outright, clamped to 0-8 (the widest
-    /// `retrig_presets` entry). Direct-setter twin of `cycleStepRetrig`.
+    /// Set the roll size outright, clamped to 0-8 (the widest preset).
+    /// Direct-setter twin of `cycleStepRetrig`.
     pub fn setStepRetrig(self: *DrumMachine, pad: u8, step: u16, hits: i32) void {
-        if (pad >= max_pads or step >= self.step_count) return;
-        if (self.midi[pad][step]) |*note| note.retrig = @intCast(std.math.clamp(hits, 0, 8));
+        step_grid.setStepRetrig(&self.midi, self.step_count, pad, step, hits);
     }
 
     pub fn cycleStepRetrig(self: *DrumMachine, pad: u8, step: u16) void {
-        if (pad >= max_pads or step >= self.step_count) return;
-        const note = if (self.midi[pad][step]) |*n| n else return;
-        for (retrig_presets, 0..) |r, i| {
-            if (note.retrig == r) {
-                note.retrig = retrig_presets[(i + 1) % retrig_presets.len];
-                return;
-            }
-        }
-        note.retrig = retrig_presets[0];
+        step_grid.cycleStepRetrig(&self.midi, self.step_count, pad, step);
     }
 
     /// Trig condition on the step; `always` on an empty step.
     pub fn stepCond(self: *const DrumMachine, pad: u8, step: u16) Cond {
-        if (pad >= max_pads or step >= self.step_count) return .always;
-        const note = self.midi[pad][step] orelse return .always;
-        return note.cond;
+        return step_grid.stepCond(&self.midi, self.step_count, pad, step);
     }
 
     /// Set the condition outright. Direct-setter twin of `cycleStepCond`.
     pub fn setStepCond(self: *DrumMachine, pad: u8, step: u16, cond: Cond) void {
-        if (pad >= max_pads or step >= self.step_count) return;
-        if (self.midi[pad][step]) |*note| note.cond = cond;
+        step_grid.setStepCond(&self.midi, self.step_count, pad, step, cond);
     }
 
     /// Walk the condition list by `delta` (wrapping), the keyboard stand-in
     /// for the hardware's encoder.
     pub fn cycleStepCond(self: *DrumMachine, pad: u8, step: u16, delta: i32) void {
-        if (pad >= max_pads or step >= self.step_count) return;
-        const note = if (self.midi[pad][step]) |*n| n else return;
-        const count: i32 = @typeInfo(Cond).@"enum".fields.len;
-        const cur: i32 = @intFromEnum(note.cond);
-        note.cond = @enumFromInt(@mod(cur + delta, count));
+        step_grid.cycleStepCond(&self.midi, self.step_count, pad, step, delta);
     }
 
     /// Flip the fill switch every `fill`/`not_fill` step reads. Returns the
@@ -956,20 +891,17 @@ pub const DrumMachine = struct {
 
     /// Per-step transpose in semitones, 0 on an empty step (nothing to tune).
     pub fn stepTune(self: *const DrumMachine, pad: u8, step: u16) i8 {
-        if (pad >= max_pads or step >= self.step_count) return 0;
-        const note = self.midi[pad][step] orelse return 0;
-        return note.tune;
+        return step_grid.stepTune(&self.midi, self.step_count, pad, step);
     }
 
     /// Same ±24 semitone range a pad's own pitch param clamps to, so a hit
     /// can't be tuned somewhere the pad itself could never reach.
     pub fn setStepTune(self: *DrumMachine, pad: u8, step: u16, semis: i32) void {
-        if (pad >= max_pads or step >= self.step_count) return;
-        if (self.midi[pad][step]) |*note| note.tune = @intCast(std.math.clamp(semis, -24, 24));
+        step_grid.setStepTune(&self.midi, self.step_count, pad, step, semis);
     }
 
     pub fn nudgeStepTune(self: *DrumMachine, pad: u8, step: u16, delta: i32) void {
-        self.setStepTune(pad, step, @as(i32, self.stepTune(pad, step)) + delta);
+        step_grid.nudgeStepTune(&self.midi, self.step_count, pad, step, delta);
     }
 
     /// Wipe one pad's row: no steps.
