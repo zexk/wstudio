@@ -1471,6 +1471,56 @@ test "piano roll setVelocity (GUI lane drag) writes without its own undo entry" 
     try std.testing.expect(!piano_ed.setVelocity(&app, 72, 1, 0.5)); // no note
 }
 
+test "piano roll f cycles which per-note field </> edits" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.length_beats = 4.0;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25, .velocity = 0.5 });
+    app.piano_cursor_pitch = 60;
+    app.piano_cursor_step = 0;
+
+    // Velocity is the default, so `<`/`>` behaves exactly as it always did.
+    try std.testing.expectEqual(ws.dsp.pattern.NoteField.velocity, app.piano_note_field);
+    app.handleKey(.{ .char = '>' }, 0);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.6), pp.noteAt(60, 0.0).?.velocity, 1e-4);
+
+    // f moves to pan; the same keys now move pan and leave velocity alone.
+    app.handleKey(.{ .char = 'f' }, 0);
+    try std.testing.expectEqual(ws.dsp.pattern.NoteField.pan, app.piano_note_field);
+    app.handleKey(.{ .char = '>' }, 0);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.2), pp.noteAt(60, 0.0).?.art.pan, 1e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.6), pp.noteAt(60, 0.0).?.velocity, 1e-4);
+
+    // A count scales the field's own step, and the field clamps its own range.
+    app.handleKey(.{ .char = '9' }, 0);
+    app.handleKey(.{ .char = '>' }, 0);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), pp.noteAt(60, 0.0).?.art.pan, 1e-4);
+
+    // F walks back; wrapping past the first field lands on the last.
+    app.handleKey(.{ .char = 'F' }, 0);
+    try std.testing.expectEqual(ws.dsp.pattern.NoteField.velocity, app.piano_note_field);
+    app.handleKey(.{ .char = 'F' }, 0);
+    try std.testing.expectEqual(ws.dsp.pattern.NoteField.release, app.piano_note_field);
+
+    // `.` repeats the nudge on the field it was recorded with - the last one
+    // was pan, so returning to velocity first doesn't redirect it.
+    app.handleKey(.{ .char = 'f' }, 0); // back to velocity
+    try std.testing.expectEqual(ws.dsp.pattern.NoteField.velocity, app.piano_note_field);
+    const before_velocity = pp.noteAt(60, 0.0).?.velocity;
+    app.handleKey(.{ .char = '.' }, 0);
+    try std.testing.expectApproxEqAbs(before_velocity, pp.noteAt(60, 0.0).?.velocity, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), pp.noteAt(60, 0.0).?.art.pan, 1e-4);
+
+    // Each nudge is its own undo entry, same as velocity always was: undoing
+    // back past the two pan steps leaves the pan the first one set.
+    app.handleKey(.{ .char = 'u' }, 0);
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.2), pp.noteAt(60, 0.0).?.art.pan, 1e-4);
+}
+
 test "piano roll :audition previews the pitch under the cursor on every j/k move" {
     var app = try testApp();
     defer app.deinit();

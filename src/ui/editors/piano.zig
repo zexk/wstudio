@@ -235,9 +235,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 app.setStatus("moving note - h/l/j/k drag, J/K octave, esc drops", .{});
                 return true;
             },
-            // </> nudge the velocity of the note under the cursor (count-scaled).
-            '<' => { nudgeVelocity(app, -0.1 * @as(f32, @floatFromInt(app.takeCount()))); return true; },
-            '>' => { nudgeVelocity(app, 0.1 * @as(f32, @floatFromInt(app.takeCount()))); return true; },
+            // </> nudge the selected per-note field (count-scaled); f/F pick
+            // which one - see NoteField and `app.piano_note_field`.
+            '<' => { nudgeSelected(app, -1); return true; },
+            '>' => { nudgeSelected(app, 1); return true; },
+            'f' => { cycleNoteField(app, 1); return true; },
+            'F' => { cycleNoteField(app, -1); return true; },
             '.' => { repeatLastEdit(app, pp, max_step); return true; },
             'c' => { stampChord(app, false); return true; },
             'C' => { stampChord(app, true); return true; },
@@ -406,7 +409,7 @@ fn repeatDrag(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dstep: i
 /// if the last edit came from a different editor or there wasn't one.
 fn repeatLastEdit(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16) void {
     switch (app.last_edit) {
-        .piano_nudge_velocity => |v| nudgeVelocity(app, v.delta),
+        .piano_nudge_note_field => |v| nudgeNoteField(app, v.field, v.delta),
         .piano_resize => |v| resizeOrLen(app, v.delta),
         .piano_drag => |v| repeatDrag(app, pp, max_step, v.dstep, v.dpitch),
         .piano_range_delete => |v| {
@@ -786,27 +789,64 @@ pub fn cloneNoteBack(app: *App, source_pitch: u7, source_step: u16, target_pitch
 /// entry for the whole gesture (see the GUI's `recordVelocityGesture`, the
 /// same split the automation lane's drag drawing uses).
 pub fn setVelocity(app: *App, pitch: u7, start_step: u16, velocity: f32) bool {
+    return setNoteField(app, .velocity, pitch, start_step, velocity);
+}
+
+/// `setVelocity` for any per-note field - what the GUI lane writes once it
+/// can draw more than velocity. Same no-undo contract.
+pub fn setNoteField(app: *App, field: ws.dsp.pattern.NoteField, pitch: u7, start_step: u16, value: f32) bool {
     const pp = currentPatternPlayer(app) orelse return false;
     app.piano_cursor_pitch = pitch;
     app.piano_cursor_step = start_step;
     const note = pp.noteAt(pitch, stepToBeat(app, start_step)) orelse return false;
-    const wanted = std.math.clamp(velocity, 0.05, 1.0);
-    if (@abs(wanted - note.velocity) < 1e-4) return false;
-    note.velocity = wanted;
-    app.setStatus("velocity: {d:.0}%", .{wanted * 100.0});
+    const r = field.range();
+    const wanted = std.math.clamp(value, r[0], r[1]);
+    if (@abs(wanted - field.get(note.*)) < 1e-4) return false;
+    field.set(note, wanted);
+    var buf: [16]u8 = undefined;
+    app.setStatus("{s}: {s}", .{ field.label(), field.format(wanted, &buf) });
     syncLinkedClip(app);
     return true;
 }
 
-/// Nudge the velocity of the note under the cursor by `delta` (clamped 0.05–1).
-fn nudgeVelocity(app: *App, delta: f32) void {
+/// `<`/`>`: step the selected field by `dir` of its own step size, scaled by
+/// any count prefix. The per-field step lives on `NoteField` so a count of 3
+/// means the same "three notches" whichever field is selected.
+fn nudgeSelected(app: *App, dir: i32) void {
+    const field = app.piano_note_field;
+    const scale: f32 = @floatFromInt(app.takeCount());
+    nudgeNoteField(app, field, @as(f32, @floatFromInt(dir)) * field.step() * scale);
+}
+
+/// `f`/`F`: pick which per-note value `<`/`>` edits. Reports the cursor
+/// note's current value for the newly selected field, so the readout that
+/// answers "what am I about to change" is the same one the nudge prints.
+fn cycleNoteField(app: *App, delta: i32) void {
+    app.piano_note_field = app.piano_note_field.cycle(delta);
+    const field = app.piano_note_field;
+    const pp = currentPatternPlayer(app) orelse {
+        app.setStatus("</> now edits {s}", .{field.label()});
+        return;
+    };
+    if (pp.noteAt(app.piano_cursor_pitch, stepToBeat(app, app.piano_cursor_step))) |n| {
+        var buf: [16]u8 = undefined;
+        app.setStatus("</> now edits {s} - this note: {s}", .{ field.label(), field.format(field.get(n.*), &buf) });
+    } else {
+        app.setStatus("</> now edits {s}", .{field.label()});
+    }
+}
+
+/// Nudge one per-note field on the note under the cursor, clamped to that
+/// field's own range (see `NoteField.set`).
+fn nudgeNoteField(app: *App, field: ws.dsp.pattern.NoteField, delta: f32) void {
     const pp = currentPatternPlayer(app) orelse return;
     const start_beat = stepToBeat(app, app.piano_cursor_step);
     if (pp.noteAt(app.piano_cursor_pitch, start_beat)) |n| {
         history.push(app, history.captureMelodic(app, app.piano_track));
-        n.velocity = std.math.clamp(n.velocity + delta, 0.05, 1.0);
-        app.last_edit = .{ .piano_nudge_velocity = .{ .delta = delta } };
-        app.setStatus("velocity: {d:.0}%", .{n.velocity * 100.0});
+        field.set(n, field.get(n.*) + delta);
+        app.last_edit = .{ .piano_nudge_note_field = .{ .field = field, .delta = delta } };
+        var buf: [16]u8 = undefined;
+        app.setStatus("{s}: {s}", .{ field.label(), field.format(field.get(n.*), &buf) });
         syncLinkedClip(app);
     } else {
         app.setStatus("no note under cursor", .{});

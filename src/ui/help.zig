@@ -342,7 +342,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("(insert) space","start recording - clicks a one-bar count-in first if stopped");
     t.key("(insert) esc", "back to normal - while playing, notes recorded at the playhead");
     t.group("EDIT AND SHAPE");
-    t.key("< / >",        "decrease / increase velocity of note at cursor (count-scaled)");
+    t.key("< / >",        "decrease / increase the selected field on the note at cursor (count-scaled)");
+    t.key("f / F",        "cycle what </> and the GUI lane edit: velocity, pan, fine tuning, release");
     t.key("e",            "open synth editor for this track");
     t.key("s",            "FX chain for this track");
     t.key("[ / ]",        "resize note at cursor, else set default length (count-scaled)");

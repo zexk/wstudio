@@ -55,6 +55,126 @@ pub const Note = struct {
 };
 // zig fmt: on
 
+/// The per-note values the piano roll's `<`/`>` can edit, and everything an
+/// editor needs to present one. A single table so the TUI's nudge, its
+/// status line and the GUI's lane can never disagree about what a field is
+/// called, how far it goes, or how it reads - the velocity lane grew all
+/// three of those independently and adding pan/fine/release beside it would
+/// have tripled the disagreement.
+pub const NoteField = enum {
+    velocity,
+    pan,
+    fine,
+    release,
+
+    pub const count = @typeInfo(NoteField).@"enum".fields.len;
+
+    pub fn label(self: NoteField) []const u8 {
+        return switch (self) {
+            .velocity => "velocity",
+            .pan => "pan",
+            .fine => "fine",
+            .release => "release",
+        };
+    }
+
+    /// Editable range. Velocity stops at 0.05 rather than 0 because a
+    /// silent note is indistinguishable from a deleted one.
+    pub fn range(self: NoteField) [2]f32 {
+        return switch (self) {
+            .velocity => .{ 0.05, 1.0 },
+            .pan => .{ -1.0, 1.0 },
+            .fine => .{ -100.0, 100.0 },
+            .release => .{ 0.1, 4.0 },
+        };
+    }
+
+    /// How far one `<`/`>` press moves - about a tenth of each range, so
+    /// every field takes a comparable number of presses end to end.
+    pub fn step(self: NoteField) f32 {
+        return switch (self) {
+            .velocity => 0.1,
+            .pan => 0.2,
+            .fine => 10.0,
+            .release => 0.4,
+        };
+    }
+
+    pub fn get(self: NoteField, n: Note) f32 {
+        return switch (self) {
+            .velocity => n.velocity,
+            .pan => n.art.pan,
+            .fine => n.art.fine_cents,
+            .release => n.art.release_scale,
+        };
+    }
+
+    pub fn set(self: NoteField, n: *Note, value: f32) void {
+        const r = self.range();
+        const v = std.math.clamp(value, r[0], r[1]);
+        switch (self) {
+            .velocity => n.velocity = v,
+            .pan => n.art.pan = v,
+            .fine => n.art.fine_cents = v,
+            .release => n.art.release_scale = v,
+        }
+    }
+
+    /// `value`'s 0..1 position in the field's range - what a lane's bar
+    /// height is, and what a lane drag reads back through `set`.
+    pub fn norm(self: NoteField, value: f32) f32 {
+        const r = self.range();
+        return std.math.clamp((value - r[0]) / (r[1] - r[0]), 0.0, 1.0);
+    }
+
+    pub fn fromNorm(self: NoteField, t: f32) f32 {
+        const r = self.range();
+        return r[0] + std.math.clamp(t, 0.0, 1.0) * (r[1] - r[0]);
+    }
+
+    /// `value` written the way a user reads this field: velocity as a whole
+    /// percentage, fine tuning as whole cents, pan and release as two
+    /// decimals. One formatter so the TUI status line, the nudge readout and
+    /// the GUI lane all print a field identically - `24 ct` in one place and
+    /// `24.00 ct` in another is the kind of drift three call sites invite.
+    /// Falls back to the bare number if `buf` is too small (16 bytes is
+    /// always enough).
+    pub fn format(self: NoteField, value: f32, buf: []u8) []const u8 {
+        return switch (self) {
+            .velocity => std.fmt.bufPrint(buf, "{d:.0}%", .{value * 100.0}),
+            .fine => std.fmt.bufPrint(buf, "{d:.0} ct", .{value}),
+            .release => std.fmt.bufPrint(buf, "{d:.2}x", .{value}),
+            .pan => std.fmt.bufPrint(buf, "{d:.2}", .{value}),
+        } catch self.label();
+    }
+
+    pub fn cycle(self: NoteField, delta: i32) NoteField {
+        const n: i32 = @intCast(count);
+        const cur: i32 = @intFromEnum(self);
+        return @enumFromInt(@mod(cur + delta, n));
+    }
+};
+
+test "NoteField: every field round-trips through norm and reads its own value" {
+    var n = Note{ .pitch = 60, .start_beat = 0, .duration_beat = 1 };
+    inline for (comptime std.meta.tags(NoteField)) |f| {
+        const r = f.range();
+        f.set(&n, r[1]);
+        try std.testing.expectEqual(r[1], f.get(n));
+        try std.testing.expectApproxEqAbs(@as(f32, 1.0), f.norm(f.get(n)), 1e-6);
+        f.set(&n, r[0]);
+        try std.testing.expectApproxEqAbs(@as(f32, 0.0), f.norm(f.get(n)), 1e-6);
+        // Out-of-range writes clamp rather than reaching a voice.
+        f.set(&n, r[1] * 100.0 + 1.0);
+        try std.testing.expectEqual(r[1], f.get(n));
+        try std.testing.expectApproxEqAbs(r[0], f.fromNorm(0.0), 1e-4);
+    }
+    // Cycling wraps both ways and covers every field.
+    try std.testing.expectEqual(NoteField.pan, NoteField.velocity.cycle(1));
+    try std.testing.expectEqual(NoteField.release, NoteField.velocity.cycle(-1));
+    try std.testing.expectEqual(NoteField.velocity, NoteField.velocity.cycle(NoteField.count));
+}
+
 /// A piano-roll range selection: a half-open time window, optionally
 /// narrowed to a pitch band. The full-pitch default is what the piano
 /// roll's linewise visual mode (`V`) and every whole-pattern command pass,

@@ -550,8 +550,13 @@ fn drawVelocityLane(app: anytype, pp: *ws.dsp.PatternPlayer, width: f32, gutter_
     if (dragging) dragVelocity(app, pp, origin, grid_x, beat_w, height);
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg0) });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ grid_x, origin[1] + height }, .col = color(theme.bg2) });
-    draw_list.addText(.{ origin[0] + 8, origin[1] + 8 }, color(theme.rhythm), "VELOCITY", .{});
-    draw_list.addText(.{ origin[0] + 8, origin[1] + 30 }, color(theme.fg3), "</> or drag", .{});
+    const field = app.core.piano_note_field;
+    var head_buf: [24]u8 = undefined;
+    const head = std.ascii.upperString(&head_buf, field.label());
+    draw_list.addText(.{ origin[0] + 8, origin[1] + 8 }, color(theme.rhythm), "{s}", .{head});
+    // Kept to what fits the gutter - the status line already spells out that
+    // `f` cycles the field, and this header names whichever one is showing.
+    draw_list.addText(.{ origin[0] + 8, origin[1] + 30 }, color(theme.fg3), "</> f drag", .{});
 
     const steps_per_beat = app.core.pianoStepsPerBeat();
     const beat_count: usize = @intFromFloat(@ceil(beats));
@@ -566,7 +571,9 @@ fn drawVelocityLane(app: anytype, pp: *ws.dsp.PatternPlayer, width: f32, gutter_
     for (pp.notes[0..pp.note_count]) |note| {
         const x = grid_x + @as(f32, @floatCast(note.start_beat)) * beat_w;
         const bar_width = @max(3, beat_w / @as(f32, @floatFromInt(steps_per_beat)) - 2);
-        const bar_height = std.math.clamp(note.velocity, 0.05, 1) * (height - 16);
+        // Normalised through the field's own range, so a bipolar pan reads
+        // as a half-height bar at centre instead of an empty one.
+        const bar_height = @max(2.0, field.norm(field.get(note)) * (height - 16));
         const start_step: u16 = ws.dsp.pattern.clampStep(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
         const selected = note.pitch == app.core.piano_cursor_pitch and start_step == app.core.piano_cursor_step;
         draw_list.addRectFilled(.{
@@ -619,10 +626,11 @@ fn dragVelocity(app: anytype, pp: *ws.dsp.PatternPlayer, origin: [2]f32, grid_x:
     if (step_f >= @as(f32, @floatCast(pp.length_beats)) * @as(f32, @floatFromInt(steps_per_beat))) return;
     const step: u16 = ws.dsp.pattern.clampStep(step_f);
     const note = velocityBarAt(pp, app.core.piano_cursor_pitch, step, steps_per_beat) orelse return;
-    const wanted = std.math.clamp((origin[1] + height - mouse[1]) / (height - 16), 0.05, 1.0);
-    if (@abs(wanted - note.velocity) < 1e-4) return;
+    const field = app.core.piano_note_field;
+    const wanted = field.fromNorm((origin[1] + height - mouse[1]) / (height - 16));
+    if (@abs(wanted - field.get(note)) < 1e-4) return;
     recordVelocityGesture(app);
-    _ = piano_ed.setVelocity(&app.core, note.pitch, step, wanted);
+    _ = piano_ed.setNoteField(&app.core, field, note.pitch, step, wanted);
 }
 
 pub fn recordVelocityGesture(app: anytype) void {

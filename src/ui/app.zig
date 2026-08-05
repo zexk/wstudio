@@ -285,7 +285,7 @@ pub const AutomationRangeClip = struct {
 /// arrangement}.zig's repeatLastEdit.
 pub const RepeatOp = union(enum) {
     none,
-    piano_nudge_velocity: struct { delta: f32 },
+    piano_nudge_note_field: struct { field: ws.dsp.pattern.NoteField, delta: f32 },
     piano_resize: struct { delta: f64 },
     piano_drag: struct { dstep: i32, dpitch: i32 },
     piano_range_delete: struct { width: u16 },
@@ -603,6 +603,10 @@ pub const App = struct {
     piano_scroll_step: u16 = 0,
     piano_scroll_pitch: u7 = 72,
     piano_note_len: f64 = 0.25,
+    /// Which per-note value `<`/`>` edits and the GUI's lane draws, cycled
+    /// by `f`/`F` - see `dsp.pattern.NoteField`. Global and not persisted,
+    /// same bucket as `piano_grid`: a view setting, not part of the music.
+    piano_note_field: ws.dsp.pattern.NoteField = .velocity,
     /// Piano-roll step grid: straight sixteenths (4 steps/beat) or
     /// sixteenth-note triplets (6 steps/beat), toggled by `T`. Global, not
     /// persisted - a display/editing aid like `piano_scale`.

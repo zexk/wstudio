@@ -354,10 +354,12 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
     try w.writeAll(dim ++ "  pos " ++ rst);
     try w.print("{d}.{d}.{d}", .{ bar, beat, sub });
     if (note) |n| {
+        const field = app.piano_note_field;
+        var fbuf: [16]u8 = undefined;
         try w.writeAll(dim ++ "  note " ++ rst);
         try w.print("{d:.2}b", .{n.duration_beat});
-        try w.writeAll(dim ++ "  vel " ++ rst);
-        try w.print("{d:.0}%", .{n.velocity * 100.0});
+        try w.writeAll(dim ++ "  " ++ rst);
+        try w.print(dim ++ "{s} " ++ rst ++ "{s}", .{ field.label(), field.format(field.get(n.*), &fbuf) });
     } else {
         try w.writeAll(dim ++ "  new " ++ rst);
         try w.print("{d:.2}b", .{app.piano_note_len});
@@ -366,7 +368,7 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
         try w.writeAll(dim ++ "  " ++ rst);
         try w.writeAll(app.status_buf[0..app.status_len]);
     } else if (note != null) {
-        try w.writeAll(dim ++ "  [ ]: resize  < >: velocity  M: move" ++ rst);
+        try w.print(dim ++ "  [ ]: resize  < >: {s}  f: field  M: move" ++ rst, .{app.piano_note_field.label()});
     } else {
         try w.writeAll(dim ++ "  n/N: note/rest + advance  enter: toggle  a: hear" ++ rst);
     }
