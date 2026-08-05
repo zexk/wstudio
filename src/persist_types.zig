@@ -43,6 +43,7 @@ const Phaser = @import("dsp/phaser.zig").Phaser;
 const dsp = @import("dsp/device.zig");
 const automation_mod = @import("dsp/automation.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
+const tuning_mod = @import("dsp/tuning.zig");
 /// Newest format version this build writes and reads; newer files are
 /// hard-rejected on load. The canonical version history (what each bump
 /// added and what older files load as) and the bump-vs-additive policy
@@ -1032,6 +1033,11 @@ pub const Snapshot = struct {
     tempo_bpm: f64 = 120.0,
     /// Song key for scale tools and sample tuning; null means no key.
     scale: ?theory.Scale = null,
+    /// Additive: the temperament pitched instruments play in. Older files
+    /// omit it and land on equal temperament, which is what they sounded
+    /// like. Stored as the raw cents table rather than a preset name so a
+    /// hand-edited or future table still loads as the numbers it is.
+    tuning: tuning_mod.Tuning = .{},
     /// Time signature numerator (the unit is always /4).
     beats_per_bar: u8 = 4,
     /// A/B loop region in bars (`loop_end_bar` exclusive).

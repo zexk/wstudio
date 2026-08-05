@@ -281,6 +281,13 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
     project.sample_rate = snap.sample_rate;
     project.tempo_bpm = finiteClamp(f64, snap.tempo_bpm, 20.0, 400.0, 120.0);
     project.scale = snap.scale;
+    // A hand-edited cents value has to be finite or every note it touches
+    // renders silence; ±1200 (an octave either way) is far past any real
+    // temperament but still lets someone use the table as a transposer.
+    project.tuning.root = snap.tuning.root;
+    for (snap.tuning.cents, &project.tuning.cents) |in, *out| {
+        out.* = finiteClamp(f32, in, -1200.0, 1200.0, 0.0);
+    }
     project.beats_per_bar = beats_per_bar;
     project.loop_start_bar = snap.loop_start_bar;
     project.loop_end_bar = snap.loop_end_bar;
@@ -642,6 +649,11 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
         for (ls.clips) |cs| try lane.place(allocator, try clipFromSnap(allocator, cs));
     }
     self.setSongMode(snap.song_mode);
+
+    // The racks above were built straight from their snapshots, not through
+    // `Session.createRack`, so nothing has handed them the project's
+    // temperament yet - do it once here rather than in every instrument arm.
+    self.setTuning(self.project.tuning);
 
     return self;
 }

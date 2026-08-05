@@ -6,6 +6,7 @@
 const std = @import("std");
 const types = @import("core/types.zig");
 const theory = @import("theory.zig");
+const dsp_tuning = @import("dsp/tuning.zig");
 
 pub const TrackKind = enum { audio, midi };
 
@@ -72,6 +73,11 @@ pub const Project = struct {
     tempo_bpm: f64 = 120.0,
     /// Song key used by piano-roll scale tools and sample tuning.
     scale: ?theory.Scale = null,
+    /// Temperament every pitched instrument plays in. Orthogonal to `scale`
+    /// above: that one picks which of the twelve keys the piece uses, this
+    /// one picks what frequency those keys sound at. The default is equal
+    /// temperament, which changes nothing.
+    tuning: dsp_tuning.Tuning = .{},
     /// Beats per bar (the time signature's numerator; the unit stays /4).
     /// Control-side source of truth - the transport mirrors it, exactly
     /// like `tempo_bpm`.

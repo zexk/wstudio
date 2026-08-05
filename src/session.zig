@@ -25,6 +25,7 @@ const Slicer = @import("dsp/slicer.zig").Slicer;
 const SoundfontPlayer = @import("dsp/soundfont_player.zig").SoundfontPlayer;
 const Compressor = @import("dsp/compressor.zig").Compressor;
 const dsp = @import("dsp/device.zig");
+const tuning_mod = @import("dsp/tuning.zig");
 const arr_mod = @import("arrangement.zig");
 const Arrangement = arr_mod.Arrangement;
 const Clip = arr_mod.Clip;
@@ -276,6 +277,10 @@ pub const Session = struct {
                 // Attached after the synth lands in the heap rack, same
                 // rule the pattern player below follows.
                 rack.instrument.poly_synth.attachTransport(&self.engine.transport);
+                // A track added after the project's temperament was chosen
+                // has to join it, or it would play the piece in 12-TET
+                // against everything else.
+                rack.instrument.poly_synth.tuning = self.project.tuning;
                 rack.label = "synth";
             },
             .sampler => {
@@ -1093,6 +1098,26 @@ pub const Session = struct {
         if (idx >= self.project.tracks.items.len or slot >= project_mod.max_sends_per_track) return;
         self.project.tracks.items[idx].sends[slot] = null;
         self.pushTrackSends(idx);
+    }
+
+    /// Adopt a temperament project-wide and push it onto every live synth.
+    /// Written straight into each instrument rather than sent as an engine
+    /// command: the audio thread reads those instruments in place, so the
+    /// field IS the channel - the same way `Sampler.setPitch` retunes a
+    /// sounding pad. See `PolySynth.tuning` for why the unsynchronized
+    /// twelve-float write is safe here.
+    ///
+    /// Only pitched synth voices are retuned. A drum pad's pitch is a sample
+    /// playback rate against no tonal centre, so a temperament has nothing
+    /// to say about it.
+    pub fn setTuning(self: *Session, t: tuning_mod.Tuning) void {
+        self.project.tuning = t;
+        for (self.racks.items) |rack| {
+            switch (rack.instrument) {
+                .poly_synth => |*s| s.tuning = t,
+                else => {},
+            }
+        }
     }
 
     /// Push the master bus's active FX units (in chain order) to the audio

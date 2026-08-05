@@ -2,6 +2,23 @@
   "version": 36,
   "tempo_bpm": 120,
   "scale": null,
+  "tuning": {
+    "cents": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "root": 0
+  },
   "beats_per_bar": 4,
   "loop_enabled": false,
   "loop_start_bar": 0,

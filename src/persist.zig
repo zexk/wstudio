@@ -55,6 +55,7 @@ const Crusher = @import("dsp/crusher.zig").Crusher;
 const Phaser = @import("dsp/phaser.zig").Phaser;
 const dsp = @import("dsp/device.zig");
 const automation_mod = @import("dsp/automation.zig");
+const tuning_mod = @import("dsp/tuning.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
 
 const persist_types = @import("persist_types.zig");
@@ -518,6 +519,49 @@ test "save/load round-trip persists an FX-unit-targeted automation lane (instanc
     // is what `AutomationCurveSnap.jsonParse` has to read back.
     try testing.expectEqual(automation_mod.Curve.hold, loaded_points[0].curve);
     try testing.expectEqual(automation_mod.Curve.linear, loaded_points[1].curve);
+}
+
+test "save/load round-trip persists the project temperament onto every synth" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/tuning.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    session.setTuning(tuning_mod.Preset.werckmeister3.tuning(2));
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+
+    try testing.expectEqual(@as(u4, 2), loaded.project.tuning.root);
+    try testing.expectApproxEqAbs(
+        tuning_mod.Preset.werckmeister3.table()[1],
+        loaded.project.tuning.cents[1],
+        1e-4,
+    );
+    // The point of saving it: the reloaded instruments actually play in it.
+    for (loaded.racks.items) |rack| {
+        if (rack.instrument == .poly_synth)
+            try testing.expectEqual(loaded.project.tuning, rack.instrument.poly_synth.tuning);
+    }
+}
+
+test "load clamps a hand-edited tuning offset instead of rendering silence" {
+    const testing = std.testing;
+    var snap = persist_types.Snapshot{
+        .tracks = &.{.{ .name = "lead" }},
+        .racks = &.{.{ .label = "lead", .kind = .poly_synth }},
+    };
+    snap.tuning.cents[3] = std.math.nan(f32);
+    snap.tuning.cents[4] = 1e9;
+
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+    try testing.expectApproxEqAbs(@as(f32, 0), session.project.tuning.cents[3], 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, 1200.0), session.project.tuning.cents[4], 1e-6);
 }
 
 test "failed save removes temporary project file" {
