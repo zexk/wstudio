@@ -29,6 +29,7 @@ const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
 const soundfont_mod = @import("soundfont.zig");
+const tuning_mod = @import("tuning.zig");
 const SoundFont = soundfont_mod.SoundFont;
 const Region = soundfont_mod.Region;
 const pad_dsp = @import("pad.zig");
@@ -66,6 +67,10 @@ pub const SoundfontPlayer = struct {
     pan: f32 = 0.0,
     /// Additional transpose on top of every region's own tuning, semitones.
     transpose_semitones: f32 = 0.0,
+    /// Project temperament - see `PolySynth.tuning` for the field's contract
+    /// and why the unsynchronized write is safe. Folded into the region's own
+    /// cents below, where the format already works in cents anyway.
+    tuning: tuning_mod.Tuning = .{},
 
     // Audio-thread-only state:
     voices: [max_voices]Voice = [_]Voice{.{}} ** max_voices,
@@ -330,7 +335,8 @@ pub const SoundfontPlayer = struct {
         const key_diff: f32 = @floatFromInt(@as(i16, note) - @as(i16, region.root_key));
         const cents: f64 = @as(f64, key_diff) * region.scale_tuning_cents +
             @as(f64, region.tune_semitones) * 100.0 +
-            @as(f64, self.transpose_semitones) * 100.0;
+            @as(f64, self.transpose_semitones) * 100.0 +
+            @as(f64, self.tuning.offsetCents(note));
         const rate = std.math.pow(f64, 2.0, cents / 1200.0);
 
         const use_filter = region.filter_cutoff_hz != null;

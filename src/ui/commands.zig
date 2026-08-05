@@ -21,6 +21,7 @@ const piano_ed = @import("editors/piano.zig");
 const preset_ed = @import("editors/preset_picker.zig");
 const spectrum_ed = @import("editors/fx_editor.zig");
 const theory = ws.theory;
+const tuning_mod = ws.dsp.tuning;
 const pattern_mod = ws.dsp.pattern;
 const user_presets = @import("user_presets.zig");
 const user_drum_kits = @import("user_drum_kits.zig");
@@ -247,6 +248,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
     .{ .name = "punch",       .desc = "[on|off]  record only inside the enabled A/B bounds", .run = wrap(cmdPunch) },
     .{ .name = "scale",       .desc = "[<root> [<type>]|off]  piano-roll scale highlight + chord-stamp key", .run = wrap(cmdScale) },
+    .{ .name = "tuning",      .desc = "[<name> [<root>]]  temperament synths play in: equal, just_major, pythagorean, meantone_quarter, werckmeister3, kirnberger3", .run = wrap(cmdTuning) },
     .{ .name = "snap-scale",  .desc = "[<root> [<type>]]  pull every off-scale note onto the nearest tone of the active :scale", .run = wrap(cmdSnapScale), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "ghost",       .desc = "[on|off]  dim every other melodic track's notes into the piano-roll background", .run = wrap(cmdGhost) },
     .{ .name = "audition",    .desc = "[on|off]  preview the pitch under the piano-roll cursor on every j/k move", .run = wrap(cmdAudition) },
@@ -736,6 +738,40 @@ pub fn cmdScale(app: *App, args: []const u8) void {
     app.session.project.scale = .{ .root = root, .kind = kind };
     app.dirty = true;
     app.setStatus("scale: {s} {s}", .{ theory.pitchClassName(root), kind.label() });
+}
+
+/// `:tuning [<name> [<root>]]` - the temperament pitched instruments play
+/// in. Orthogonal to `:scale`, which only decides which of the twelve keys
+/// the piece uses; this decides what frequency those keys sound at.
+pub fn cmdTuning(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        const t = app.session.project.tuning;
+        if (t.isEqual())
+            app.setStatus("tuning: equal (12-TET)", .{})
+        else
+            app.setStatus("tuning: custom, root {s}", .{theory.pitchClassName(t.root)});
+        return;
+    }
+    var it = std.mem.splitScalar(u8, trimmed, ' ');
+    const name = it.next().?;
+    const rest = std.mem.trim(u8, it.rest(), " ");
+    const preset = tuning_mod.Preset.parse(name) orelse {
+        app.setStatus("tuning: unknown '{s}' (try equal/just_major/pythagorean/…)", .{name});
+        return;
+    };
+    // A bare name keeps the root already in use, so walking the temperaments
+    // to audition them doesn't reset the key each time.
+    const root: u4 = if (rest.len > 0)
+        theory.parsePitchClass(rest) orelse {
+            app.setStatus("tuning: unknown root '{s}'", .{rest});
+            return;
+        }
+    else
+        app.session.project.tuning.root;
+    app.session.setTuning(preset.tuning(root));
+    app.dirty = true;
+    app.setStatus("tuning: {s}, root {s}", .{ preset.label(), theory.pitchClassName(root) });
 }
 
 pub const EuclidPreset = struct {

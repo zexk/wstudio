@@ -16,6 +16,7 @@ const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
 const pad_dsp = @import("pad.zig");
+const tuning_mod = @import("tuning.zig");
 const Pad = pad_dsp.Pad;
 const Voice = pad_dsp.Voice;
 const pitch = @import("pitch.zig");
@@ -50,6 +51,11 @@ pub const Sampler = struct {
     pad: Pad,
     /// MIDI note at which the clip plays at its native pitch.
     root_note: u7 = 60,
+    /// Project temperament - see `PolySynth.tuning` for the field's contract
+    /// and why the unsynchronized write is safe. A melodic sampler is played
+    /// against a tonal centre like any other pitched instrument, so it has
+    /// to follow the same one the synths do.
+    tuning: tuning_mod.Tuning = .{},
     /// Mono voice mode: a retrigger cuts every other still-ringing voice
     /// first, so overlapping one-shots (e.g. a held 808 bass note replayed
     /// before it decays) don't stack. Off by default (polyphonic).
@@ -274,7 +280,8 @@ pub const Sampler = struct {
         self.voices[slot] = .{
             .active = true,
             .note = note,
-            .semis = @as(f32, @floatFromInt(@as(i16, note) - @as(i16, self.root_note))),
+            .semis = @as(f32, @floatFromInt(@as(i16, note) - @as(i16, self.root_note))) +
+                self.tuning.offsetCents(note) / 100.0,
             .age = self.next_age,
             .v = .{ .active = true, .played = 0, .block_start = block_start, .vel = vel, .hold_frames = hold, .art = art },
         };

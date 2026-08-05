@@ -543,10 +543,30 @@ test "save/load round-trip persists the project temperament onto every synth" {
         1e-4,
     );
     // The point of saving it: the reloaded instruments actually play in it.
+    // Every chromatic instrument, not just the synths - a sampler left in
+    // 12-TET would beat against them.
     for (loaded.racks.items) |rack| {
-        if (rack.instrument == .poly_synth)
-            try testing.expectEqual(loaded.project.tuning, rack.instrument.poly_synth.tuning);
+        switch (rack.instrument) {
+            .poly_synth => |*s| try testing.expectEqual(loaded.project.tuning, s.tuning),
+            .sampler => |*s| try testing.expectEqual(loaded.project.tuning, s.tuning),
+            .soundfont, .acoustic => |*s| try testing.expectEqual(loaded.project.tuning, s.tuning),
+            else => {},
+        }
     }
+}
+
+test "a track added after the temperament was chosen joins it" {
+    const testing = std.testing;
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    session.setTuning(tuning_mod.Preset.pythagorean.tuning(0));
+
+    const idx = try session.insertTrack(@intCast(session.racks.items.len), "late");
+    try session.setInstrument(idx, .sampler);
+    try testing.expectEqual(
+        session.project.tuning,
+        session.racks.items[idx].instrument.sampler.tuning,
+    );
 }
 
 test "load clamps a hand-edited tuning offset instead of rendering silence" {

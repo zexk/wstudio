@@ -277,10 +277,6 @@ pub const Session = struct {
                 // Attached after the synth lands in the heap rack, same
                 // rule the pattern player below follows.
                 rack.instrument.poly_synth.attachTransport(&self.engine.transport);
-                // A track added after the project's temperament was chosen
-                // has to join it, or it would play the piece in 12-TET
-                // against everything else.
-                rack.instrument.poly_synth.tuning = self.project.tuning;
                 rack.label = "synth";
             },
             .sampler => {
@@ -315,6 +311,15 @@ pub const Session = struct {
                 rack.instrument = .{ .acoustic = SoundfontPlayer.init(self.allocator, sr) };
                 rack.label = "acoustic";
             },
+        }
+        // A track added after the project's temperament was chosen has to
+        // join it, or it plays the piece in 12-TET against everything else.
+        // Same instrument set `setTuning` covers - see its doc comment.
+        switch (rack.instrument) {
+            .poly_synth => |*s| s.tuning = self.project.tuning,
+            .sampler => |*s| s.tuning = self.project.tuning,
+            .soundfont, .acoustic => |*s| s.tuning = self.project.tuning,
+            else => {},
         }
         switch (kind) {
             .poly_synth, .sampler, .clap, .vst3, .soundfont, .acoustic => {
@@ -1107,14 +1112,19 @@ pub const Session = struct {
     /// sounding pad. See `PolySynth.tuning` for why the unsynchronized
     /// twelve-float write is safe here.
     ///
-    /// Only pitched synth voices are retuned. A drum pad's pitch is a sample
-    /// playback rate against no tonal centre, so a temperament has nothing
-    /// to say about it.
+    /// Every chromatically-played instrument follows it, or the retuned ones
+    /// would beat against the rest of the project. Drum machines and slicers
+    /// are left alone on purpose: their pitch is a sample playback rate
+    /// against no tonal centre, so a temperament has nothing to say about
+    /// it. Hosted CLAP/VST3 plugins own their own tuning and have no port
+    /// for this one.
     pub fn setTuning(self: *Session, t: tuning_mod.Tuning) void {
         self.project.tuning = t;
         for (self.racks.items) |rack| {
             switch (rack.instrument) {
                 .poly_synth => |*s| s.tuning = t,
+                .sampler => |*s| s.tuning = t,
+                .soundfont, .acoustic => |*s| s.tuning = t,
                 else => {},
             }
         }
