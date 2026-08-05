@@ -1,4 +1,5 @@
-//! Continuous parameter automation: sorted breakpoints, linearly interpolated.
+//! Continuous parameter automation: sorted breakpoints, interpolated with a
+//! per-segment shape.
 //!
 //! Clips (arrangement.zig) own their points in clip-relative beats - edited
 //! by the user, persisted in the .wsj. `Session.rebuildSongData` flattens
@@ -9,17 +10,40 @@
 
 const std = @import("std");
 
+/// Shape of the segment *leaving* a point, so the curve between two points
+/// is the earlier one's business - the same "a node owns the ramp after it"
+/// model LMMS's progression types use, but per point rather than per clip,
+/// so one lane can hold a switch flat and then ramp.
+pub const Curve = enum {
+    /// Straight ramp to the next point.
+    linear,
+    /// Stay flat, then jump at the next point. What a switch-like parameter
+    /// (an FX bypass, a waveform choice) needs - a ramp through the values
+    /// in between would sweep settings the user never asked for.
+    hold,
+    /// Smoothstep: flat at both ends of the segment, steepest in the middle.
+    /// Chosen over LMMS's cubic Hermite because it needs no neighbouring
+    /// points to derive a tangent from and cannot overshoot the two values
+    /// it connects - an overshoot on a clamped parameter is a silent
+    /// surprise, not a nicer curve.
+    ease,
+};
+
 pub const AutomationPoint = struct {
     /// Beat position. Clip-relative when stored on a Clip; absolute song
     /// beat once flattened into an `AutomationCurve`.
     beat: f64,
     value: f32,
+    /// Shape of the ramp from here to the next point. Ignored on the last
+    /// point, which has no segment after it.
+    curve: Curve = .linear,
 };
 
-/// Linear interpolation across `points` (must be sorted ascending by `beat`).
-/// Holds the first/last value past either edge. `null` means "no points" -
-/// distinct from a single flat point, so callers can tell "no automation
-/// here" from "automation holding a constant value".
+/// Interpolate across `points` (must be sorted ascending by `beat`), each
+/// segment shaped by the `curve` of the point it starts from. Holds the
+/// first/last value past either edge. `null` means "no points" - distinct
+/// from a single flat point, so callers can tell "no automation here" from
+/// "automation holding a constant value".
 pub fn interpolate(points: []const AutomationPoint, beat: f64) ?f32 {
     if (points.len == 0) return null;
     if (beat <= points[0].beat) return points[0].value;
@@ -32,7 +56,14 @@ pub fn interpolate(points: []const AutomationPoint, beat: f64) ?f32 {
             const b = points[i];
             const span = b.beat - a.beat;
             const t: f64 = if (span <= 0) 1.0 else (beat - a.beat) / span;
-            return a.value + (b.value - a.value) * @as(f32, @floatCast(t));
+            const shaped: f64 = switch (a.curve) {
+                .linear => t,
+                // Not `0` - a zero-width span lands here with t == 1, and a
+                // held segment still has to reach the next value at its end.
+                .hold => if (t >= 1.0) 1.0 else 0.0,
+                .ease => t * t * (3.0 - 2.0 * t),
+            };
+            return a.value + (b.value - a.value) * @as(f32, @floatCast(shaped));
         }
     }
     return last.value;
@@ -65,6 +96,19 @@ pub fn setPoint(allocator: std.mem.Allocator, points: *[]AutomationPoint, beat: 
     std.mem.sort(AutomationPoint, grown, {}, lessThanBeat);
     allocator.free(points.*);
     points.* = grown;
+}
+
+/// Set the shape of the segment leaving the point at `beat` (within
+/// epsilon). Returns false when there is no point there. No allocation: the
+/// point already exists, only its shape changes.
+pub fn setCurve(points: []AutomationPoint, beat: f64, curve: Curve) bool {
+    for (points) |*p| {
+        if (@abs(p.beat - beat) < 1e-9) {
+            p.curve = curve;
+            return true;
+        }
+    }
+    return false;
 }
 
 /// Remove the point at `beat` (within epsilon). Returns true if one was
@@ -149,6 +193,55 @@ test "interpolate holds edges and ramps linearly between points" {
     try testing.expectApproxEqAbs(@as(f32, 0.0), interpolate(&pts, 0.0).?, 1e-6);
     try testing.expectApproxEqAbs(@as(f32, 1.0), interpolate(&pts, 2.0).?, 1e-6);
     try testing.expectApproxEqAbs(@as(f32, 2.0), interpolate(&pts, 10.0).?, 1e-6);
+}
+
+test "a segment is shaped by the curve of the point it leaves" {
+    // Same two values three ways: only the first point's curve differs, and
+    // the last point's curve never matters (no segment follows it).
+    const shapes = [_]struct { curve: Curve, mid: f32 }{
+        .{ .curve = .linear, .mid = 1.0 },
+        .{ .curve = .ease, .mid = 1.0 }, // smoothstep is symmetric: 0.5 at the midpoint
+        .{ .curve = .hold, .mid = 0.0 },
+    };
+    for (shapes) |s| {
+        const pts = [_]AutomationPoint{
+            .{ .beat = 1.0, .value = 0.0, .curve = s.curve },
+            .{ .beat = 3.0, .value = 2.0 },
+        };
+        try testing.expectApproxEqAbs(@as(f32, 0.0), interpolate(&pts, 1.0).?, 1e-6);
+        try testing.expectApproxEqAbs(s.mid, interpolate(&pts, 2.0).?, 1e-6);
+        // Every shape still arrives at the next point's value, hold included.
+        try testing.expectApproxEqAbs(@as(f32, 2.0), interpolate(&pts, 3.0).?, 1e-6);
+        try testing.expectApproxEqAbs(@as(f32, 2.0), interpolate(&pts, 9.0).?, 1e-6);
+    }
+
+    // Ease is flatter than linear near the ends and steeper in the middle,
+    // which is the whole point of offering it.
+    const eased = [_]AutomationPoint{
+        .{ .beat = 0.0, .value = 0.0, .curve = .ease },
+        .{ .beat = 1.0, .value = 1.0 },
+    };
+    try testing.expect(interpolate(&eased, 0.25).? < 0.25);
+    try testing.expect(interpolate(&eased, 0.75).? > 0.75);
+}
+
+test "setCurve retargets an existing point and reports a miss" {
+    var points: []AutomationPoint = &.{};
+    defer testing.allocator.free(points);
+    try setPoint(testing.allocator, &points, 0.0, 0.0);
+    try setPoint(testing.allocator, &points, 2.0, 1.0);
+    try testing.expectEqual(Curve.linear, points[0].curve);
+
+    try testing.expect(setCurve(points, 0.0, .hold));
+    try testing.expectEqual(Curve.hold, points[0].curve);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), interpolate(points, 1.0).?, 1e-6);
+
+    // Re-setting the value leaves the shape alone - they are independent
+    // edits on the same point.
+    try setPoint(testing.allocator, &points, 0.0, 0.5);
+    try testing.expectEqual(Curve.hold, points[0].curve);
+
+    try testing.expect(!setCurve(points, 7.0, .ease));
 }
 
 test "setPoint inserts sorted and updates in place" {
