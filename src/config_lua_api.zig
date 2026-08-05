@@ -831,7 +831,7 @@ pub fn apiNotesGet(state: ?*c.lua_State) callconv(.c) c_int {
     const count = pp.copyNotes(&buf);
     c.lua_createtable(l, @intCast(count), 0);
     for (buf[0..count], 1..) |note, i| {
-        c.lua_createtable(l, 0, 4);
+        c.lua_createtable(l, 0, 7);
         c.lua_pushinteger(l, note.pitch);
         c.lua_setfield(l, -2, "pitch");
         c.lua_pushnumber(l, note.start_beat);
@@ -840,6 +840,14 @@ pub fn apiNotesGet(state: ?*c.lua_State) callconv(.c) c_int {
         c.lua_setfield(l, -2, "duration_beat");
         c.lua_pushnumber(l, note.velocity);
         c.lua_setfield(l, -2, "velocity");
+        // Per-note expression, flat like the snapshot's - a script that
+        // ignores these reads and writes exactly what it always did.
+        c.lua_pushnumber(l, note.art.pan);
+        c.lua_setfield(l, -2, "pan");
+        c.lua_pushnumber(l, note.art.fine_cents);
+        c.lua_setfield(l, -2, "fine_cents");
+        c.lua_pushnumber(l, note.art.release_scale);
+        c.lua_setfield(l, -2, "release_scale");
         c.lua_rawseti(l, -2, @intCast(i));
     }
     return 1;
@@ -864,6 +872,13 @@ pub fn apiNotesSet(state: ?*c.lua_State) callconv(.c) c_int {
             .start_beat = tableNumber(l, -1, "start_beat", 0, 0, 1_000_000),
             .duration_beat = tableNumber(l, -1, "duration_beat", 1, 0, 1_000_000),
             .velocity = @floatCast(tableNumber(l, -1, "velocity", pattern_mod.default_velocity, 0, 1)),
+            // Ranges match NoteField's, so a script cannot place a note
+            // somewhere `<`/`>` has no way to reach or undo.
+            .art = .{
+                .pan = @floatCast(tableNumber(l, -1, "pan", 0, -1, 1)),
+                .fine_cents = @floatCast(tableNumber(l, -1, "fine_cents", 0, -100, 100)),
+                .release_scale = @floatCast(tableNumber(l, -1, "release_scale", 1, 0.1, 4)),
+            },
         };
         c.lua_settop(l, -2);
     }

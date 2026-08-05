@@ -8488,7 +8488,8 @@ test "wstudio.api reads and replaces melodic pattern content" {
     // A whole-pattern write is one undo entry, and reads it back verbatim.
     try rt.loadString(
         \\wstudio.api.notes_set(1, {
-        \\  { pitch = 60, start_beat = 0.0, duration_beat = 0.5, velocity = 0.4 },
+        \\  { pitch = 60, start_beat = 0.0, duration_beat = 0.5, velocity = 0.4,
+        \\    pan = -0.5, fine_cents = 30, release_scale = 2.0 },
         \\  { pitch = 64, start_beat = 1.5 },
         \\})
     );
@@ -8500,9 +8501,23 @@ test "wstudio.api reads and replaces melodic pattern content" {
         \\assert(#n == 2)
         \\assert(n[1].pitch == 60 and n[1].start_beat == 0.0 and n[1].duration_beat == 0.5)
         \\assert(math.abs(n[1].velocity - 0.4) < 1e-6)
+        \\-- per-note expression round-trips as written
+        \\assert(math.abs(n[1].pan + 0.5) < 1e-6)
+        \\assert(math.abs(n[1].fine_cents - 30) < 1e-4)
+        \\assert(math.abs(n[1].release_scale - 2.0) < 1e-6)
         \\-- omitted fields fall back to the same defaults a step edit uses
         \\assert(n[2].pitch == 64 and n[2].duration_beat == 1.0)
+        \\assert(n[2].pan == 0.0 and n[2].fine_cents == 0.0 and n[2].release_scale == 1.0)
     );
+    // Out of range raises and applies nothing, the way `pitch = 200` does.
+    try std.testing.expectError(error.LuaError, rt.loadString(
+        \\wstudio.api.notes_set(1, { { pitch = 60, pan = -9 } })
+    ));
+    try std.testing.expectError(error.LuaError, rt.loadString(
+        \\wstudio.api.notes_set(1, { { pitch = 60, release_scale = 99 } })
+    ));
+    try std.testing.expectEqual(@as(u16, 2), pp.note_count);
+    history.doUndo(&app);
     history.doUndo(&app);
     try std.testing.expectEqual(@as(u16, 0), pp.note_count);
 

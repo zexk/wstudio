@@ -498,7 +498,7 @@ wstudio.api.set_current_track(i)
 -- pattern content
 wstudio.api.pattern_get(i)                -> { kind, length_beats, steps_per_beat?, step_count? }
 wstudio.api.pattern_set(i, { length_beats = 8 })
-wstudio.api.notes_get(i)                  -> { { pitch, start_beat, duration_beat, velocity }, ... }
+wstudio.api.notes_get(i)                  -> { { pitch, start_beat, duration_beat, velocity, pan, fine_cents, release_scale }, ... }
 wstudio.api.notes_set(i, notes)           -- replaces the whole pattern
 wstudio.api.steps_get(i)                  -> { { pad, step, velocity, prob, micro, retrig, cond, tune }, ... }
 wstudio.api.steps_set(i, steps)           -- replaces the whole drum grid
@@ -619,6 +619,12 @@ Design decisions:
   Slicer tracks have a step grid of their own shape and are not scriptable
   yet, so both raise there. Drum-step velocities are 0-1 like note
   velocities, quantised on the way in to the grid's own 127 levels.
+- **A note's per-note expression is optional on the way in.** `pan` (-1..1),
+  `fine_cents` (-100..100) and `release_scale` (0.1..4) are the same three
+  values the roll's `f` key cycles through; omit them and a note is centred,
+  in tune and on the patch's own release, exactly as before they existed.
+  `notes_get` always reports all three. Out-of-range values raise and apply
+  nothing, the way every other numeric field here does.
 - **FX chains are addressed by target, not by the open view.** A bare track
   index covers the common case; `{ master = true }` and `{ group = n }` reach
   the buses. Scripting a chain never moves whichever chain the user has open.
