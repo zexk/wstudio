@@ -118,6 +118,11 @@
 -- setting a directory scans only that one. Leading `~` expands to $HOME.
 -- wstudio.o.vst3_plugin_path = ""
 
+-- Run hosted CLAP/VST3 plugins in their own sandboxed child process
+-- (Linux only) so a crashing or hanging plugin can't take the whole DAW
+-- down with it. Set to false to fall back to in-process hosting.
+-- wstudio.o.sandbox_plugins = true
+
 -- Include dotfiles and dot-directories in the file browser.
 -- wstudio.o.file_browser_show_hidden = false
 

@@ -226,6 +226,11 @@ in
       default = null;
       description = "Extra VST3 plugin search directory. Empty uses the platform default search paths.";
     };
+    sandbox_plugins = mkOption {
+      type = types.nullOr types.bool;
+      default = null;
+      description = "Run hosted CLAP/VST3 plugins in a sandboxed child process (Linux only) so a crashing or hanging plugin can't take the whole DAW down with it.";
+    };
     undo_history_entries =
       rangedInt 8 512
         "Entries kept on the undo stack before the oldest start dropping off.";

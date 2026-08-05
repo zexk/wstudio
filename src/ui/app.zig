@@ -1486,6 +1486,11 @@ pub const App = struct {
         self.default_browse_dir = user_config.default_browse_dir;
         self.clap_plugin_path = user_config.clap_plugin_path;
         self.vst3_plugin_path = user_config.vst3_plugin_path;
+        // Process-wide switch `ClapPlugin.load`/`Vst3Plugin.load` read on
+        // every hosted-plugin load - see plugin_host/bridge.zig. Set here
+        // (once, at session init) rather than threaded through the ~4
+        // independent call sites that construct a hosted plugin.
+        ws.plugin_host.bridge.sandbox_enabled.store(user_config.sandbox_plugins, .release);
         var project_path_buf: [std.fs.max_path_bytes]u8 = undefined;
         const project_path = commands.expandHome(&project_path_buf, user_config.default_project_path.slice());
         self.default_project_path = .{};

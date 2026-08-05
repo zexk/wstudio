@@ -91,6 +91,12 @@ pub const Config = struct {
     default_browse_dir: PathBuf = .{},
     clap_plugin_path: PathBuf = .{},
     vst3_plugin_path: PathBuf = .{},
+    /// Whether hosted CLAP/VST3 plugins run in their own sandboxed child
+    /// process (Linux only - see src/plugin_host/) so a crashing or
+    /// hanging plugin can't take the whole DAW down with it. Escape hatch
+    /// for troubleshooting; the fallback (or non-Linux platforms) is
+    /// today's in-process hosting.
+    sandbox_plugins: bool = true,
     default_project_path: PathBuf = PathBuf.init("project.wsj"),
     file_browser_show_hidden: bool = false,
     default_drum_grid: @import("wstudio").time_grid.Division = .sixteenth,
@@ -184,6 +190,7 @@ pub const option_specs = [_]OptionSpec{
     .{ .name = "default_browse_dir" },
     .{ .name = "clap_plugin_path" },
     .{ .name = "vst3_plugin_path" },
+    .{ .name = "sandbox_plugins" },
     .{ .name = "default_project_path", .allow_empty = false },
     .{ .name = "file_browser_show_hidden" },
     .{ .name = "default_drum_grid" },

@@ -150,7 +150,7 @@ Current option set (see examples/init.lua for defaults and ranges):
 | `audio_block_frames`, `audio_backend`, `audio_output_device`, `audio_input_device`, `tap_timeout_ms` | core |
 | `note_preview_ms`, `cmd_history_lines`, `status_message_ms` | core |
 | `default_browse_dir`, `default_project_path`, `file_browser_show_hidden` | core |
-| `clap_plugin_path`, `vst3_plugin_path` | core |
+| `clap_plugin_path`, `vst3_plugin_path`, `sandbox_plugins` | core |
 | `default_drum_grid`, `default_piano_grid`, `default_arrangement_grid` | core |
 | `default_piano_triplet_grid`, `default_piano_note_length_steps`, `default_piano_pitch` | core |
 | `piano_ghost_notes`, `piano_audition`, `undo_history_entries` | core |
