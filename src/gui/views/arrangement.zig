@@ -248,7 +248,16 @@ pub fn draw(app: anytype) void {
         const cursor_y = origin[1] + ruler_h + @as(f32, @floatFromInt(app.core.cursor)) * lane_h;
         // A held-enter stamp session tints the cursor so the widened box
         // reads as "adjusting this clip", not just "sitting on it".
-        const cursor_col = if (app.core.arr_stamp) theme.rhythm else theme.focus;
+        // Otherwise the cursor wears the lane's own track colour (the
+        // generic focus tone only for an uncoloured track), matching how
+        // tui/views/arrangement.zig colours its lane cells.
+        const track_col = app.core.session.project.tracks.items[app.core.cursor].color;
+        const cursor_col = if (app.core.arr_stamp)
+            theme.rhythm
+        else if (track_col > 0)
+            gui_style.trackColor(track_col)
+        else
+            theme.focus;
         draw_list.addRectFilled(.{
             .pmin = .{ cursor_x + 1, cursor_y + 1 },
             .pmax = .{ @min(cursor_x + cursor_w, origin[0] + canvas_w - 1), cursor_y + lane_h - 1 },
