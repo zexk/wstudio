@@ -63,7 +63,7 @@ pub fn main(init: std.process.Init) !void {
         const r = session.racks.items[0];
         const sr = session.project.sample_rate;
         _ = try r.fx.insert(gpa, r.fx.units.items.len, .comp, sr);
-        (try r.fx.insert(gpa, r.fx.units.items.len, .delay, sr)).payload.delay.setTime(0.375);
+        (try r.fx.insert(gpa, r.fx.units.items.len, .delay, sr)).payload.delay.time_s = 0.375;
         _ = try r.fx.insert(gpa, r.fx.units.items.len, .reverb, sr);
         const pp = &r.pattern_player.?;
         pp.length_beats = 8.0;
@@ -163,9 +163,11 @@ pub fn main(init: std.process.Init) !void {
     // Variant B: the main groove plus a snare/tom fill on beat 4.
     const dm = &session.racks.items[drums].instrument.drum_machine;
     std.debug.assert(dm.addVariant());
-    _ = dm.pattern[1].fetchOr(0b1010 << 12, .acq_rel); // snare on steps 13, 15
-    _ = dm.pattern[5].fetchOr(1 << 12, .acq_rel); // tom-1 on step 13
-    _ = dm.pattern[6].fetchOr(1 << 14, .acq_rel); // tom-2 on step 15
+    // Pad indices follow the soundtype grouping in dsp/drum_kit.zig.
+    dm.toggleStep(2, 12); // snare on the last beat
+    dm.toggleStep(2, 14);
+    dm.toggleStep(11, 12); // tom-1
+    dm.toggleStep(12, 14); // tom-2
 
     // The one-bar drum loop underpins the whole song: groove (A) bar by bar,
     // with the fill (B) closing every 4-bar phrase.
@@ -179,20 +181,20 @@ pub fn main(init: std.process.Init) !void {
     // Ship it in song mode so the arrangement drives playback on open.
     session.setSongMode(true);
 
-    const bars = session.arrangement.lengthBars();
+    const ticks = session.arrangement.lengthTicks();
     try ws.persist.save(gpa, &session, io, out_path);
 
     // Reload what we just wrote so a broken save never ships silently.
     var check = try ws.persist.load(gpa, io, out_path);
     defer check.deinit();
     std.debug.assert(check.song_mode);
-    std.debug.assert(check.arrangement.lengthBars() == bars);
+    std.debug.assert(check.arrangement.lengthTicks() == ticks);
 
     var stdout_buf: [256]u8 = undefined;
     var stdout_w = std.Io.File.stdout().writer(io, &stdout_buf);
     const stdout = &stdout_w.interface;
-    try stdout.print("wrote {s} ({d} bars, {d} tracks) - reload ok\n", .{
-        out_path, bars, session.project.tracks.items.len,
+    try stdout.print("wrote {s} ({d} ticks, {d} tracks) - reload ok\n", .{
+        out_path, ticks, session.project.tracks.items.len,
     });
     try stdout.flush();
 }
