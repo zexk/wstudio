@@ -216,17 +216,8 @@ pub const DrumMachine = struct {
     };
 
     /// Named preset bands `cycleStepVel`'s quick single-key gesture steps
-    /// through: 127→95→63→31→127 (the same 100/75/25/25% feel the old 2-bit
-    /// encoding had, just at the new resolution). Also doubles as the
-    /// index-keyed remap `legacyVelToNew` uses for pre-v12 files, so an old
-    /// file's 2-bit level plays back at effectively the same loudness.
+    /// through: 127→95→63→31→127.
     const vel_presets = [_]u8{ 127, 95, 63, 31 };
-
-    /// Remap a pre-v12 file's 2-bit velocity level (0-3, see the old
-    /// `vel_lo`/`vel_hi` bitplane encoding) onto the new 0-127 scale.
-    pub fn legacyVelToNew(level: u2) u8 {
-        return vel_presets[level];
-    }
 
     /// Gain for a step's 0-127 velocity value (127 = full volume).
     pub fn velGain(level: u8) f32 {

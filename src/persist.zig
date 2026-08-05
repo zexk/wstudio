@@ -1184,7 +1184,6 @@ test "buildSession: drum variant bank round-trips; v2 files get one variant" {
     try testing.expectEqual(@as(u8, 2), dm.variant_count);
     try testing.expectEqual(@as(u8, 1), dm.variant);
     try testing.expectEqual(@as(u16, 32), dm.step_count);
-    // Pre-v36 pad 1 remaps to today's pad 2 (drum_kit.legacyPadIndex).
     try testing.expect(dm.stepActive(2, 31)); // live = variant B
     dm.selectVariant(0);
     try testing.expectEqual(@as(u16, 16), dm.step_count);

@@ -207,7 +207,7 @@ pub const CC = enum(u7) {
     noise_level       = 26,  // → noise_level (0–1)
     noise_color       = 27,  // → noise_color (0=dark … 1=white)
     lfo_rate          = 28,  // → lfo_rate_hz log (0.01–20 Hz)
-    lfo_depth_cc      = 29,  // → mod_wheel (0–1), legacy alias of CC 1
+    lfo_depth_cc      = 29,  // → mod_wheel (0–1), second alias of CC 1
     mod_amount        = 30,  // → mod_amount (0–8, covers FM β and AM depth)
     filter_res        = 71,  // GM timbre → filter_res (0–1)
     amp_release       = 72,  // GM release → release_s (0–4 s)

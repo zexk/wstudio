@@ -362,8 +362,10 @@ pub const Fx = struct {
     units: std.ArrayListUnmanaged(*FxUnit) = .empty,
     next_instance_id: u32 = 1,
 
-    /// Also accommodates migration of 14 legacy synth inserts ahead of an
-    /// existing nine-unit rack chain.
+    /// Chain length cap. Every unit costs a stack slot in the fixed-size
+    /// `[max_units]Device` buffers the audio thread builds each block, so it
+    /// stays a compile-time bound rather than growing freely; 24 is well past
+    /// any musically useful insert count.
     pub const max_units = 24;
 
     fn allocInstanceId(self: *Fx) u32 {

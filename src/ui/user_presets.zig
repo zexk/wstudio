@@ -26,10 +26,6 @@ const FileSnapshot = struct {
 };
 
 const filename = "instrument_presets.wspreset";
-const legacy_filename = "synth_presets.json";
-
-const LegacyPreset = struct { name: []const u8, patch: Patch };
-const LegacySnapshot = struct { version: u32 = 1, presets: []const LegacyPreset = &.{} };
 
 /// Load every saved preset. Empty (not an error) if the file doesn't exist
 /// yet or `$HOME` is unset - a missing presets file should never block
@@ -38,7 +34,7 @@ const LegacySnapshot = struct { version: u32 = 1, presets: []const LegacyPreset 
 /// a later save can't clobber it.
 pub fn load(allocator: std.mem.Allocator, io: std.Io, sample_rate: u32) std.ArrayListUnmanaged(UserPreset) {
     var parsed = json_store.load(FileSnapshot, allocator, io, filename, 4 * 1024 * 1024) orelse
-        return importLegacy(allocator, io);
+        return .empty;
     defer parsed.deinit();
 
     if (!std.mem.eql(u8, parsed.value.format, "wstudio-instrument-preset") or parsed.value.version > 1) {
@@ -61,18 +57,6 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io, sample_rate: u32) std.Arra
             continue;
         };
     }
-    return list;
-}
-
-fn importLegacy(allocator: std.mem.Allocator, io: std.Io) std.ArrayListUnmanaged(UserPreset) {
-    var parsed = json_store.load(LegacySnapshot, allocator, io, legacy_filename, 4 * 1024 * 1024) orelse return .empty;
-    defer parsed.deinit();
-    var list: std.ArrayListUnmanaged(UserPreset) = .empty;
-    for (parsed.value.presets) |p| {
-        const name = allocator.dupe(u8, p.name) catch continue;
-        list.append(allocator, .{ .name = name, .patch = p.patch }) catch allocator.free(name);
-    }
-    if (list.items.len > 0) save(allocator, io, list.items) catch {};
     return list;
 }
 

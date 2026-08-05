@@ -33,26 +33,6 @@ pub fn configPath(buf: []u8, comptime filename: []const u8) ?[]const u8 {
     return std.fmt.bufPrint(buf, "{s}{c}" ++ filename, .{ dir, sep }) catch null;
 }
 
-/// Where these files landed before they followed `userConfigDir`: always
-/// `$HOME/.config/wstudio` (`$USERPROFILE` on Windows), regardless of
-/// `$XDG_CONFIG_HOME` or `%APPDATA%`. `load` still reads it when the real
-/// path holds nothing, so a beta user who set either variable keeps their
-/// bookmarks and presets; `save` only ever writes the real path, so the
-/// first save after this moves the file for good. Null when it would name
-/// the same file `configPath` already returned.
-fn legacyConfigPath(buf: []u8, comptime filename: []const u8) ?[]const u8 {
-    const home = std.c.getenv("HOME") orelse std.c.getenv("USERPROFILE") orelse return null;
-    const sep: u8 = if (builtin.os.tag == .windows) '\\' else '/';
-    const path = std.fmt.bufPrint(
-        buf,
-        "{s}{c}.config{c}wstudio{c}" ++ filename,
-        .{ std.mem.sliceTo(home, 0), sep, sep, sep },
-    ) catch return null;
-    var current_buf: [path_buf_len]u8 = undefined;
-    const current = configPath(&current_buf, filename) orelse return path;
-    return if (std.mem.eql(u8, current, path)) null else path;
-}
-
 /// Best-effort rescue for a file that exists but didn't parse: rename it
 /// aside instead of leaving `load` to report an empty result, which would
 /// let the very next save overwrite it with that empty result and wipe
@@ -80,17 +60,15 @@ pub fn quarantine(io: std.Io, path: []const u8) void {
 pub fn quarantineLoaded(io: std.Io, comptime filename: []const u8) void {
     var path_buf: [path_buf_len]u8 = undefined;
     if (configPath(&path_buf, filename)) |path| {
-        if (std.Io.Dir.cwd().statFile(io, path, .{})) |_| return quarantine(io, path) else |_| {}
+        if (std.Io.Dir.cwd().statFile(io, path, .{})) |_| quarantine(io, path) else |_| {}
     }
-    var legacy_buf: [path_buf_len]u8 = undefined;
-    if (legacyConfigPath(&legacy_buf, filename)) |path| quarantine(io, path);
 }
 
-/// Read and parse `Snapshot` from `configPath`, falling back to
-/// `legacyConfigPath`. Null (not an error) when no config dir resolves, no
-/// file exists at either path, or neither parses (a parse failure also
-/// quarantines the file it read) - callers treat all of those as "nothing
-/// saved yet". Caller owns the returned `Parsed` and must `.deinit()` it.
+/// Read and parse `Snapshot` from `configPath`. Null (not an error) when no
+/// config dir resolves, no file exists there, or it doesn't parse (a parse
+/// failure also quarantines the file) - callers treat all of those as
+/// "nothing saved yet". Caller owns the returned `Parsed` and must
+/// `.deinit()` it.
 pub fn load(
     comptime Snapshot: type,
     allocator: std.mem.Allocator,
@@ -99,16 +77,13 @@ pub fn load(
     limit_bytes: usize,
 ) ?std.json.Parsed(Snapshot) {
     var path_buf: [path_buf_len]u8 = undefined;
-    if (configPath(&path_buf, filename)) |path| {
-        const current_exists = if (std.Io.Dir.cwd().statFile(io, path, .{})) |_| true else |err| switch (err) {
-            error.FileNotFound => false,
-            else => return null,
-        };
-        if (current_exists) return readAt(Snapshot, allocator, io, path, limit_bytes);
-    }
-    var legacy_buf: [path_buf_len]u8 = undefined;
-    const legacy = legacyConfigPath(&legacy_buf, filename) orelse return null;
-    return readAt(Snapshot, allocator, io, legacy, limit_bytes);
+    const path = configPath(&path_buf, filename) orelse return null;
+    const exists = if (std.Io.Dir.cwd().statFile(io, path, .{})) |_| true else |err| switch (err) {
+        error.FileNotFound => false,
+        else => return null,
+    };
+    if (!exists) return null;
+    return readAt(Snapshot, allocator, io, path, limit_bytes);
 }
 
 fn readAt(
@@ -141,8 +116,7 @@ fn readAt(
 }
 
 /// Serialize `snapshot` and write it to `configPath` via a tmp file +
-/// rename, creating the directory first if needed. Never writes the legacy
-/// path - a save is what migrates a file out of it.
+/// rename, creating the directory first if needed.
 pub fn save(
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -222,7 +196,7 @@ pub fn testExpectQuarantined(io: std.Io, path: []const u8) !void {
     file.close(io);
 }
 
-test "the store follows XDG_CONFIG_HOME and still reads the legacy path" {
+test "the store follows XDG_CONFIG_HOME" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     try testRedirectHome(&tmp);
@@ -238,33 +212,18 @@ test "the store follows XDG_CONFIG_HOME and still reads the legacy path" {
     const S = struct { n: u32 = 0 };
     const io = std.testing.io;
 
-    // $XDG_CONFIG_HOME outranks $HOME, and the pre-XDG location stays
-    // readable rather than reading as "nothing saved yet".
+    // $XDG_CONFIG_HOME outranks $HOME, and nothing there yet reads as
+    // "nothing saved yet".
     var path_buf: [path_buf_len]u8 = undefined;
     const path = configPath(&path_buf, "xdg_probe.json").?;
     try std.testing.expect(std.mem.startsWith(u8, path, xdg));
+    try std.testing.expect(load(S, std.testing.allocator, io, "xdg_probe.json", 4096) == null);
 
-    var legacy_buf: [path_buf_len]u8 = undefined;
-    const legacy = legacyConfigPath(&legacy_buf, "xdg_probe.json").?;
-    try std.Io.Dir.cwd().createDirPath(io, std.fs.path.dirname(legacy).?);
-    {
-        const file = try std.Io.Dir.cwd().createFile(io, legacy, .{});
-        defer file.close(io);
-        var buf: [32]u8 = undefined;
-        var fw = file.writer(io, &buf);
-        try fw.interface.writeAll("{\"n\":7}");
-        try fw.interface.flush();
-    }
+    // A save lands under $XDG_CONFIG_HOME and is what the next load returns.
+    try save(std.testing.allocator, io, "xdg_probe.json", S{ .n = 9 });
     var parsed = load(S, std.testing.allocator, io, "xdg_probe.json", 4096).?;
     defer parsed.deinit();
-    try std.testing.expectEqual(@as(u32, 7), parsed.value.n);
-
-    // Saving migrates it: the write lands under $XDG_CONFIG_HOME, and that
-    // copy is what the next load returns.
-    try save(std.testing.allocator, io, "xdg_probe.json", S{ .n = 9 });
-    var migrated = load(S, std.testing.allocator, io, "xdg_probe.json", 4096).?;
-    defer migrated.deinit();
-    try std.testing.expectEqual(@as(u32, 9), migrated.value.n);
+    try std.testing.expectEqual(@as(u32, 9), parsed.value.n);
     var file = try std.Io.Dir.cwd().openFile(io, path, .{});
     file.close(io);
 

@@ -1498,30 +1498,6 @@ pub const variants = [_]KitVariant{
     } },
 };
 
-/// Where each pad of the pre-v36 layout (kick, snare, hihat, open, clap,
-/// tom-1, tom-2, rim, then the second voices) lives in today's soundtype
-/// grouping. See `legacyLayout`.
-const legacy_order = [16]u8{ 0, 2, 4, 6, 8, 11, 12, 9, 1, 3, 5, 7, 13, 14, 10, 15 };
-
-/// The same kit with its pads back in the pre-v36 order. A project older than
-/// v36 sequenced pad *indices*, and its kit audio is regenerated on load
-/// rather than stored (see persist.zig) - rebuilding it in the old order is
-/// what keeps its snare pattern on the snare.
-pub fn legacyLayout(v: *const KitVariant) KitVariant {
-    var out = v.*;
-    for (legacy_order, 0..) |src, i| out.pads[i] = v.pads[src];
-    return out;
-}
-
-/// Where a pre-v36 file's pad index `old` lives today - the same
-/// permutation `legacyLayout` applies to kit audio, exposed so
-/// `persist.zig` can apply it to the file's own pad-indexed note/choke-
-/// group/pad-length/pad data too. Values >= 16 (impossible in a real
-/// pre-v36 file, which only ever had 16 pads) pass through unchanged.
-pub fn legacyPadIndex(old: u8) u8 {
-    return if (old < legacy_order.len) legacy_order[old] else old;
-}
-
 /// Look a factory kit up by name, or null if there is no such flavour.
 pub fn byName(name: []const u8) ?*const KitVariant {
     for (&variants) |*v| {

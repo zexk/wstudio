@@ -734,13 +734,6 @@ pub const Runtime = struct {
         }
         var path_buf: [std.fs.max_path_bytes]u8 = undefined;
         if (userConfigPath(&path_buf)) |path| {
-            if (builtin.os.tag == .macos) {
-                if (try loadIfPresent(self, io, path)) return true;
-                var legacy_buf: [std.fs.max_path_bytes]u8 = undefined;
-                if (legacyMacConfigPath(&legacy_buf)) |legacy| {
-                    if (try loadIfPresent(self, io, legacy)) return true;
-                }
-            }
             return self.loadOrGenerateUserConfig(io, path, system_config_path);
         }
         return loadIfPresent(self, io, system_config_path);
@@ -840,21 +833,8 @@ pub const Runtime = struct {
 fn prependUserLuaPath(state: *c.lua_State) void {
     var dir_buf: [std.fs.max_path_bytes]u8 = undefined;
     const dir = userConfigDir(&dir_buf) orelse return;
-    var prefix_buf: [4 * std.fs.max_path_bytes + 64]u8 = undefined;
-    const prefix = if (builtin.os.tag == .macos) blk: {
-        var legacy_buf: [std.fs.max_path_bytes]u8 = undefined;
-        const legacy_path = legacyMacConfigPath(&legacy_buf) orelse break :blk std.fmt.bufPrint(
-            &prefix_buf,
-            "{s}/lua/?.lua;{s}/lua/?/init.lua;",
-            .{ dir, dir },
-        ) catch return;
-        const legacy_dir = std.fs.path.dirname(legacy_path).?;
-        break :blk std.fmt.bufPrint(
-            &prefix_buf,
-            "{s}/lua/?.lua;{s}/lua/?/init.lua;{s}/lua/?.lua;{s}/lua/?/init.lua;",
-            .{ dir, dir, legacy_dir, legacy_dir },
-        ) catch return;
-    } else std.fmt.bufPrint(
+    var prefix_buf: [2 * std.fs.max_path_bytes + 64]u8 = undefined;
+    const prefix = std.fmt.bufPrint(
         &prefix_buf,
         "{s}/lua/?.lua;{s}/lua/?/init.lua;",
         .{ dir, dir },
@@ -918,11 +898,6 @@ fn configDirFromEnv(buf: []u8, os: std.Target.Os.Tag, xdg: ?[]const u8, appdata:
     }
     if (home) |dir| return std.fmt.bufPrint(buf, "{s}{c}.config{c}wstudio", .{ dir, sep, sep }) catch null;
     return null;
-}
-
-fn legacyMacConfigPath(buf: []u8) ?[]const u8 {
-    const home = envValue("HOME") orelse return null;
-    return std.fmt.bufPrint(buf, "{s}/.config/wstudio/init.lua", .{home}) catch null;
 }
 
 pub fn userConfigPath(buf: []u8) ?[]const u8 {
