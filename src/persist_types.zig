@@ -677,6 +677,15 @@ pub const FreqShiftSnap = struct {
     mix: f32 = 1.0,
 };
 
+/// Granular pitch shifter (see `dsp/pitch_shift.zig`). New FX kind, so no
+/// `file_version` bump - see FORMAT.md.
+pub const PitchShiftSnap = struct {
+    semitones: f32 = 0.0,
+    cents: f32 = 0.0,
+    grain_ms: f32 = 60.0,
+    mix: f32 = 1.0,
+};
+
 pub const FilterSnap = struct {
     mode: f32 = 0,
     cutoff_hz: f32 = 1000,
@@ -743,6 +752,7 @@ pub const FxKind = enum {
     flanger,
     tape,
     freq_shift,
+    pitch_shift,
     delay,
     reverb,
     clap,
@@ -829,6 +839,7 @@ pub const FxUnitSnap = struct {
     flanger: ?FlangerSnap = null,
     tape: ?TapeSnap = null,
     freq_shift: ?FreqShiftSnap = null,
+    pitch_shift: ?PitchShiftSnap = null,
     clap: ?ClapSnap = null,
     vst3: ?Vst3Snap = null,
 };

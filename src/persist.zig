@@ -2491,3 +2491,39 @@ test "an unknown FX or instrument kind loads as a dropped slot, not an error" {
     try testing.expectEqual(rack_mod.FxKind.sat, chain.units.items[0].kind());
     try testing.expectEqual(std.meta.Tag(@TypeOf(session.racks.items[1].instrument)).empty, std.meta.activeTag(session.racks.items[1].instrument));
 }
+
+test "save/load round-trip persists a pitch shifter, and its heap grain lines survive dupe" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/pitch.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    const sr = session.project.sample_rate;
+    const unit = try session.master_fx.insert(testing.allocator, 0, .pitch_shift, sr);
+    unit.payload.pitch_shift.semitones = -7.0;
+    unit.payload.pitch_shift.cents = 12.0;
+    unit.payload.pitch_shift.grain_ms = 35.0;
+    unit.payload.pitch_shift.mix = 0.4;
+    session.syncMasterChain();
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+
+    const p = &loaded.master_fx.units.items[0].payload.pitch_shift;
+    try testing.expectApproxEqAbs(@as(f32, -7.0), p.semitones, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 12.0), p.cents, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 35.0), p.grain_ms, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 0.4), p.mix, 1e-4);
+    // Loaded from JSON, so the lines are freshly allocated, not aliased from
+    // the saved session - the same rule chorus/delay/reverb follow.
+    try testing.expect(p.lines[0].ptr != unit.payload.pitch_shift.lines[0].ptr);
+
+    var copy = try loaded.master_fx.units.items[0].payload.dupe(testing.allocator, sr);
+    defer copy.deinit(testing.allocator);
+    try testing.expectApproxEqAbs(@as(f32, -7.0), copy.pitch_shift.semitones, 1e-4);
+    try testing.expect(copy.pitch_shift.lines[0].ptr != p.lines[0].ptr);
+}

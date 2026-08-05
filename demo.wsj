@@ -642,6 +642,7 @@
           "flanger": null,
           "tape": null,
           "freq_shift": null,
+          "pitch_shift": null,
           "clap": null,
           "vst3": null
         },
@@ -674,6 +675,7 @@
           "flanger": null,
           "tape": null,
           "freq_shift": null,
+          "pitch_shift": null,
           "clap": null,
           "vst3": null
         },
@@ -708,6 +710,7 @@
           "flanger": null,
           "tape": null,
           "freq_shift": null,
+          "pitch_shift": null,
           "clap": null,
           "vst3": null
         }
@@ -1267,6 +1270,7 @@
           "flanger": null,
           "tape": null,
           "freq_shift": null,
+          "pitch_shift": null,
           "clap": null,
           "vst3": null
         }
@@ -1847,6 +1851,7 @@
           "flanger": null,
           "tape": null,
           "freq_shift": null,
+          "pitch_shift": null,
           "clap": null,
           "vst3": null
         }

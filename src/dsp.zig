@@ -30,6 +30,7 @@ pub const Phaser = @import("dsp/phaser.zig").Phaser;
 pub const Flanger = @import("dsp/flanger.zig").Flanger;
 pub const Tape = @import("dsp/tape.zig").Tape;
 pub const FreqShifter = @import("dsp/freq_shift.zig").FreqShifter;
+pub const PitchShift = @import("dsp/pitch_shift.zig").PitchShift;
 pub const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 pub const Pad = @import("dsp/pad.zig").Pad;
 pub const pad = @import("dsp/pad.zig");
@@ -99,6 +100,7 @@ test {
     _ = Flanger;
     _ = Tape;
     _ = FreqShifter;
+    _ = PitchShift;
     _ = DrumMachine;
     _ = pad;
     _ = Sampler;

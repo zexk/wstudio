@@ -61,8 +61,16 @@ pub const spectrum_band_count: usize = 80;
 /// The insertable kinds in picker display order (signal-flow-ish: dynamics,
 /// tone, character, modulation, time).
 pub const picker_kinds = [_]FxKind{
-    .gate, .comp, .mb_comp, .ott, .limiter, .transient_shaper, .eq, .filter, .utility, .stereo_width, .auto_pan, .sat, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .delay, .reverb,
+    .gate, .comp, .mb_comp, .ott, .limiter, .transient_shaper, .eq, .filter, .utility, .stereo_width, .auto_pan, .sat, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .pitch_shift, .delay, .reverb,
 };
+
+comptime {
+    // Nothing else forces this list to keep up with `FxKind` - a new unit
+    // compiles clean and is simply unreachable from the picker, which is how
+    // the pitch shifter first shipped invisible. `clap`/`vst3` are inserted
+    // by the plugin browser, not from this list.
+    std.debug.assert(picker_kinds.len == std.meta.fields(FxKind).len - 2);
+}
 
 /// The `/` filter narrowing the FX insert picker right now - same
 /// live-while-typing rule `preset_ed.activeFilter` uses.
@@ -1298,6 +1306,12 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
         },
         .freq_shift => switch (idx) {
             0 => std.fmt.bufPrint(buf, "{s}{d:.0}Hz", .{ if (v >= 0.0) "+" else "", v }) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        },
+        .pitch_shift => switch (idx) {
+            0 => std.fmt.bufPrint(buf, "{s}{d:.0}st", .{ if (v >= 0.0) "+" else "", v }) catch "?",
+            1 => std.fmt.bufPrint(buf, "{s}{d:.0}c", .{ if (v >= 0.0) "+" else "", v }) catch "?",
+            2 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
             else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
         },
         .clap => |plugin| blk: {

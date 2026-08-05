@@ -993,7 +993,7 @@ pub fn applyFxChain(
                     .gate => .gate, .comp => .comp, .mb_comp => .mb_comp, .ott => .ott, .limiter => .limiter, .transient_shaper => .transient_shaper,
                     .eq => .eq, .filter => .filter, .utility => .utility, .stereo_width => .stereo_width, .auto_pan => .auto_pan, .sat => .sat, .crush => .crush, .chorus => .chorus,
                     .phaser => .phaser, .flanger => .flanger, .tape => .tape,
-                    .freq_shift => .freq_shift, .delay => .delay, .reverb => .reverb,
+                    .freq_shift => .freq_shift, .pitch_shift => .pitch_shift, .delay => .delay, .reverb => .reverb,
                     .clap, .vst3, .unknown => unreachable,
                 };
                 break :blk try fx_out.insert(allocator, fx_out.units.items.len, kind, sr);
@@ -1087,6 +1087,7 @@ pub fn applyFxChain(
             .flanger => |*fl| if (us.flanger) |fs| applySnapToDevice(fl, fs),
             .tape => |*t| if (us.tape) |ts| applySnapToDevice(t, ts),
             .freq_shift => |*f| if (us.freq_shift) |fs| applySnapToDevice(f, fs),
+            .pitch_shift => |*p| if (us.pitch_shift) |ps| applySnapToDevice(p, ps),
             .clap, .vst3 => {},
         }
     }
@@ -1220,7 +1221,7 @@ pub fn migrateSynthFx(allocator: std.mem.Allocator, s: *PolySynth, fx: *Fx, sr: 
                 v.damp = s.fx_reverb_damp;
                 v.mix = s.fx_reverb_mix;
             },
-            .filter, .limiter, .utility, .stereo_width, .auto_pan, .transient_shaper, .clap, .vst3 => unreachable,
+            .filter, .limiter, .utility, .stereo_width, .auto_pan, .transient_shaper, .pitch_shift, .clap, .vst3 => unreachable,
         }
     }
     clearMigratedSynthFx(s);

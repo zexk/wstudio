@@ -161,7 +161,7 @@ pub fn fxKindAccent(kind: ws.FxKind) [4]f32 {
         .gate, .comp, .mb_comp, .ott, .limiter, .transient_shaper => palette.danger,
         .eq, .filter, .utility, .stereo_width => palette.rhythm,
         .sat, .crush, .tape => palette.modulation,
-        .chorus, .flanger, .phaser, .freq_shift, .auto_pan => palette.focus,
+        .chorus, .flanger, .phaser, .freq_shift, .pitch_shift, .auto_pan => palette.focus,
         .delay, .reverb => palette.audio,
         .clap, .vst3 => palette.focus,
     };

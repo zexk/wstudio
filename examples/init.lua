@@ -533,8 +533,9 @@
 --                                                --   "sat", "crush",
 --                                                --   "chorus", "phaser",
 --                                                --   "flanger", "tape",
---                                                --   "freq_shift", "delay",
---                                                --   "reverb"
+--                                                --   "freq_shift",
+--                                                --   "pitch_shift",
+--                                                --   "delay", "reverb"
 --   wstudio.api.fx_del(target, slot)
 --   wstudio.api.fx_move(target, slot, to)        -> final slot
 --   wstudio.api.fx_set(target, slot, { bypassed = true })

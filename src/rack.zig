@@ -20,6 +20,7 @@ const Phaser = @import("dsp/phaser.zig").Phaser;
 const Flanger = @import("dsp/flanger.zig").Flanger;
 const Tape = @import("dsp/tape.zig").Tape;
 const FreqShifter = @import("dsp/freq_shift.zig").FreqShifter;
+const PitchShift = @import("dsp/pitch_shift.zig").PitchShift;
 const Filter = @import("dsp/filter.zig").Filter;
 const Limiter = @import("dsp/limiter.zig").Limiter;
 const Utility = @import("dsp/utility.zig").Utility;
@@ -99,7 +100,8 @@ pub const InstrumentKind = std.meta.Tag(Instrument);
 
 /// One effect processor a chain slot can hold. Add new unit variants here as
 /// the engine grows - the TUI's picker and persistence key off `FxKind`.
-/// chorus/delay/reverb own heap buffers (mod/delay lines); deinit frees them.
+/// chorus/pitch_shift/delay/reverb own heap buffers (mod/delay/grain lines);
+/// deinit frees them.
 pub const FxPayload = union(enum) {
     gate: Gate,
     comp: Compressor,
@@ -119,6 +121,7 @@ pub const FxPayload = union(enum) {
     flanger: Flanger,
     tape: Tape,
     freq_shift: FreqShifter,
+    pitch_shift: PitchShift,
     delay: StereoDelay,
     reverb: Reverb,
     clap: *ClapPlugin,
@@ -139,6 +142,7 @@ pub const FxPayload = union(enum) {
             .clap => |plugin| plugin.deinit(),
             .vst3 => |plugin| plugin.deinit(),
             .chorus => |*c| c.deinit(allocator),
+            .pitch_shift => |*p| p.deinit(allocator),
             .delay => |*d| d.deinit(allocator),
             .reverb => |*r| r.deinit(allocator),
             .limiter => |*l| l.deinit(allocator),
@@ -146,7 +150,7 @@ pub const FxPayload = union(enum) {
         }
     }
 
-    /// Deep-copies one payload: chorus/delay/reverb get fresh lines (only
+    /// Deep-copies one payload: chorus/pitch_shift/delay/reverb get fresh lines (only
     /// their params carry over - matches what project save/load already
     /// does); the rest are plain value state and copy directly.
     pub fn dupe(self: *const FxPayload, allocator: std.mem.Allocator, sr: u32) !FxPayload {
@@ -157,6 +161,14 @@ pub const FxPayload = union(enum) {
                 nc.depth_ms = c.depth_ms;
                 nc.mix = c.mix;
                 return .{ .chorus = nc };
+            },
+            .pitch_shift => |p| {
+                var np = try PitchShift.init(allocator, sr);
+                np.semitones = p.semitones;
+                np.cents = p.cents;
+                np.grain_ms = p.grain_ms;
+                np.mix = p.mix;
+                return .{ .pitch_shift = np };
             },
             .delay => |d| {
                 var nd = try StereoDelay.init(allocator, sr, 2.0);
@@ -424,6 +436,7 @@ pub const Fx = struct {
             .flanger => .{ .flanger = Flanger.init(sr) },
             .tape    => .{ .tape = Tape.init(sr) },
             .freq_shift => .{ .freq_shift = FreqShifter.init(sr) },
+            .pitch_shift => .{ .pitch_shift = try PitchShift.init(allocator, sr) },
             .delay   => blk: {
                 var delay = try StereoDelay.init(allocator, sr, 2.0);
                 delay.time_s = 0.25;
@@ -855,8 +868,8 @@ test "Fx.dupe deep-copies params and heap buffers independently (used by undo's 
 }
 
 const internal_fx_kinds = [_]FxKind{
-    .gate,   .comp,   .mb_comp, .ott,  .limiter,    .transient_shaper, .eq,     .filter, .utility, .stereo_width, .auto_pan, .sat, .crush,
-    .chorus, .phaser, .flanger, .tape, .freq_shift, .delay,            .reverb,
+    .gate,   .comp,   .mb_comp, .ott,  .limiter,    .transient_shaper, .eq,    .filter, .utility, .stereo_width, .auto_pan, .sat, .crush,
+    .chorus, .phaser, .flanger, .tape, .freq_shift, .pitch_shift,      .delay, .reverb,
 };
 
 test "every FX payload stays finite when constructed with zero sample rate" {

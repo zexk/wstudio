@@ -318,7 +318,7 @@ fn plotAxes(kind: ws.FxKind) PlotAxes {
         .chorus, .phaser, .flanger => .{ .x_lo = "TIME", .y = "OFFSET" },
         // A shifter maps frequency to frequency; IN/OUT reads as a level
         // transfer, which is the one thing it does not do.
-        .freq_shift => .{ .x_lo = "IN FREQ", .y = "OUT FREQ" },
+        .freq_shift, .pitch_shift => .{ .x_lo = "IN FREQ", .y = "OUT FREQ" },
         else => .{ .x_lo = "IN", .y = "OUT" },
     };
 }
@@ -349,6 +349,9 @@ fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
         // from the depth knob and its amplitude from the rate knob.
         .chorus, .flanger, .phaser, .auto_pan => 0.5 + @sin(t * std.math.pi * 2.0 * (1.0 + amount * 5.0)) * (0.08 + shape * 0.38),
         .freq_shift => std.math.clamp(t + (amount - 0.5) * 0.35, 0, 1),
+        // A transposition is a straight line through frequency with a
+        // different slope, drawn against the same IN/OUT FREQ axes.
+        .pitch_shift => std.math.clamp(t * (0.4 + amount * 1.2), 0, 1),
         .delay => std.math.clamp(@exp(-t * (1.5 + shape * 4.0)) * (0.55 + 0.4 * @sin(t * std.math.pi * (6.0 + amount * 10.0))), 0, 1),
         .reverb => std.math.clamp(@exp(-t * (0.8 + (1.0 - amount) * 4.0)) * (0.7 + 0.2 * @sin(t * std.math.pi * 26.0)), 0, 1),
         .eq, .filter, .utility, .stereo_width, .tape => t,

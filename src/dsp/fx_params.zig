@@ -19,6 +19,7 @@ const eq_mod = @import("eq.zig");
 const multiband_comp = @import("multiband_comp.zig");
 const chorus_mod = @import("chorus.zig");
 const limiter_mod = @import("limiter.zig");
+const pitch_shift_mod = @import("pitch_shift.zig");
 
 /// Flat param list for a multiband compressor: 7 shared controls (crossover
 /// x2, attack, release, knee, style, mix) followed by 3 fields (thresh/
@@ -232,6 +233,13 @@ pub const freq_shift_specs = [_]ParamSpec{
     .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
 };
 
+pub const pitch_shift_specs = [_]ParamSpec{
+    .{ .name = "shift", .field = "semitones", .min = -24.0, .max = 24.0, .step_fine = 1.0, .step_coarse = 12.0 },
+    .{ .name = "fine", .field = "cents", .min = -100.0, .max = 100.0, .step_fine = 1.0, .step_coarse = 10.0 },
+    .{ .name = "grain", .field = "grain_ms", .min = pitch_shift_mod.min_grain_ms, .max = pitch_shift_mod.max_grain_ms, .step_fine = 5.0, .step_coarse = 20.0 },
+    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+};
+
 pub const reverb_specs = [_]ParamSpec{
     .{ .name = "room", .field = "room", .min = 0.0, .max = 0.98, .step_fine = 0.02, .step_coarse = 0.1 },
     .{ .name = "damp", .field = "damp", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
@@ -294,6 +302,7 @@ pub fn paramCount(k: FxKind) usize {
         .flanger => flanger_specs.len,
         .tape => tape_specs.len,
         .freq_shift => freq_shift_specs.len,
+        .pitch_shift => pitch_shift_specs.len,
         .reverb => reverb_specs.len,
         .delay => delay_specs.len,
         .ott => ott_specs.len,
@@ -363,6 +372,7 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
         .flanger => tableName(&flanger_specs, idx),
         .tape => tableName(&tape_specs, idx),
         .freq_shift => tableName(&freq_shift_specs, idx),
+        .pitch_shift => tableName(&pitch_shift_specs, idx),
         .reverb => tableName(&reverb_specs, idx),
         .delay => tableName(&delay_specs, idx),
         .ott => tableName(&ott_specs, idx),
@@ -428,6 +438,7 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
         .flanger => |*fl| tableGet(fl, &flanger_specs, idx),
         .tape => |*t| tableGet(t, &tape_specs, idx),
         .freq_shift => |*f| tableGet(f, &freq_shift_specs, idx),
+        .pitch_shift => |*ps| tableGet(ps, &pitch_shift_specs, idx),
         .reverb => |*r| tableGet(r, &reverb_specs, idx),
         .delay => |*d| tableGet(d, &delay_specs, idx),
         .ott => |*o| tableGet(o, &ott_specs, idx),
@@ -484,6 +495,7 @@ pub fn paramRange(p: *const FxPayload, idx: usize) [2]f32 {
         .flanger => tableRange(&flanger_specs, idx),
         .tape => tableRange(&tape_specs, idx),
         .freq_shift => tableRange(&freq_shift_specs, idx),
+        .pitch_shift => tableRange(&pitch_shift_specs, idx),
         .reverb => tableRange(&reverb_specs, idx),
         .delay => tableRange(&delay_specs, idx),
         .ott => tableRange(&ott_specs, idx),
@@ -557,6 +569,7 @@ pub fn setParamAbsolute(p: *FxPayload, idx: usize, value: f32) void {
         .flanger => |*fl| tableSet(fl, &flanger_specs, idx, value),
         .tape => |*t| tableSet(t, &tape_specs, idx, value),
         .freq_shift => |*f| tableSet(f, &freq_shift_specs, idx, value),
+        .pitch_shift => |*ps| tableSet(ps, &pitch_shift_specs, idx, value),
         .reverb => |*r| tableSet(r, &reverb_specs, idx, value),
         .delay => |*d| tableSet(d, &delay_specs, idx, value),
         .ott => |*o| tableSet(o, &ott_specs, idx, value),
@@ -615,6 +628,7 @@ pub fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
         .flanger => tableStep(&flanger_specs, idx, coarse),
         .tape => tableStep(&tape_specs, idx, coarse),
         .freq_shift => tableStep(&freq_shift_specs, idx, coarse),
+        .pitch_shift => tableStep(&pitch_shift_specs, idx, coarse),
         .reverb => tableStep(&reverb_specs, idx, coarse),
         .delay => tableStep(&delay_specs, idx, coarse),
         .ott => tableStep(&ott_specs, idx, coarse),

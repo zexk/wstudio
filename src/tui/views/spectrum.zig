@@ -92,6 +92,7 @@ fn sectionColor(k: ws.FxKind) []const u8 {
         .sat => red,
         .crush => mag,
         .chorus => bcyn,
+        .pitch_shift => bcyn,
         .auto_pan => bcyn,
         .flanger => bcyn,
         .tape => bcyn,

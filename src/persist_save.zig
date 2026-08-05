@@ -70,6 +70,7 @@ const PhaserSnap = persist_types.PhaserSnap;
 const FlangerSnap = persist_types.FlangerSnap;
 const TapeSnap = persist_types.TapeSnap;
 const FreqShiftSnap = persist_types.FreqShiftSnap;
+const PitchShiftSnap = persist_types.PitchShiftSnap;
 const FilterSnap = persist_types.FilterSnap;
 const LimiterSnap = persist_types.LimiterSnap;
 const UtilitySnap = persist_types.UtilitySnap;
@@ -522,6 +523,7 @@ pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx) ![]FxUnitSnap {
             .flanger => |fl| .{ .kind = .flanger, .flanger = snapFromDevice(FlangerSnap, fl) },
             .tape => |t| .{ .kind = .tape, .tape = snapFromDevice(TapeSnap, t) },
             .freq_shift => |f| .{ .kind = .freq_shift, .freq_shift = snapFromDevice(FreqShiftSnap, f) },
+            .pitch_shift => |p| .{ .kind = .pitch_shift, .pitch_shift = snapFromDevice(PitchShiftSnap, p) },
             .clap => |plugin| .{ .kind = .clap, .clap = try clapToSnap(aa, plugin) },
             .vst3 => |plugin| .{ .kind = .vst3, .vst3 = try vst3ToSnap(aa, plugin) },
         };

@@ -14,7 +14,7 @@ turns the keyboard into a piano, **visual** selects and yanks ranges, and
 harpsichord, synths, samplers, a drum machine, a sample-chopping slicer, and a
 full effects rack (gate, compressor,
 multiband compressor, OTT, limiter, transient shaper, EQ, multimode filter, utility, stereo width, auto-pan/tremolo, saturation, bitcrush, chorus, phaser, flanger,
-tape, frequency shifter, delay, reverb) built in, so there's no plugin
+tape, frequency shifter, pitch shifter, delay, reverb) built in, so there's no plugin
 hunting before the first note.
 
 ## Quickstart
