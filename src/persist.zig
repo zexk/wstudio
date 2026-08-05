@@ -499,6 +499,8 @@ test "save/load round-trip persists an FX-unit-targeted automation lane (instanc
     const clip = session.arrangement.lane(0).?.clipAt(0).?;
     const points = try clip.automation.synthParamPoints(session.allocator, sat_unit.instance_id, 2); // sat mix
     try automation_mod.setPoint(session.allocator, points, 0.0, 0.4);
+    try automation_mod.setPoint(session.allocator, points, 4.0, 0.9);
+    try testing.expect(automation_mod.setCurve(points.*, 0.0, .hold));
 
     try save(testing.allocator, &session, testing.io, wsj_path);
     var loaded = try load(testing.allocator, testing.io, wsj_path);
@@ -510,8 +512,12 @@ test "save/load round-trip persists an FX-unit-targeted automation lane (instanc
     try testing.expectEqual(sat_unit.instance_id, loaded_unit.instance_id);
     const loaded_clip = loaded.arrangement.lane(0).?.clipAt(0).?;
     const loaded_points = loaded_clip.automation.findSynthParam(loaded_unit.instance_id, 2).?;
-    try testing.expectEqual(@as(usize, 1), loaded_points.len);
+    try testing.expectEqual(@as(usize, 2), loaded_points.len);
     try testing.expectApproxEqAbs(@as(f32, 0.4), loaded_points[0].value, 1e-6);
+    // Through real JSON, not just the snapshot structs: the segment shape
+    // is what `AutomationCurveSnap.jsonParse` has to read back.
+    try testing.expectEqual(automation_mod.Curve.hold, loaded_points[0].curve);
+    try testing.expectEqual(automation_mod.Curve.linear, loaded_points[1].curve);
 }
 
 test "failed save removes temporary project file" {
@@ -1006,6 +1012,40 @@ test "clipToSnap/clipFromSnap round-trip gain/pan automation" {
     try testing.expectApproxEqAbs(@as(f32, 0.0), restored.automation.gain[1].value, 1e-6);
     try testing.expectEqual(@as(usize, 1), restored.automation.pan.len);
     try testing.expectApproxEqAbs(@as(f32, -1.0), restored.automation.pan[0].value, 1e-6);
+}
+
+test "a point's curve shape survives the round-trip, and an unknown one loads linear" {
+    const testing = std.testing;
+    var clip = ws_arrangement.Clip.initDrum(0, 1, .{
+        .midi = try DrumMachine.allocMidi(testing.allocator, 16),
+        .step_count = 16,
+    });
+    defer clip.deinit(testing.allocator);
+    try automation_mod.setPoint(testing.allocator, &clip.automation.gain, 0.0, -6.0);
+    try automation_mod.setPoint(testing.allocator, &clip.automation.gain, 1.0, -3.0);
+    try automation_mod.setPoint(testing.allocator, &clip.automation.gain, 2.0, 0.0);
+    try testing.expect(automation_mod.setCurve(clip.automation.gain, 0.0, .hold));
+    try testing.expect(automation_mod.setCurve(clip.automation.gain, 1.0, .ease));
+
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const snap = try clipToSnap(arena.allocator(), clip);
+    try testing.expectEqual(persist_types.AutomationCurveSnap.hold, snap.gain_automation[0].curve);
+    try testing.expectEqual(persist_types.AutomationCurveSnap.ease, snap.gain_automation[1].curve);
+    try testing.expectEqual(persist_types.AutomationCurveSnap.linear, snap.gain_automation[2].curve);
+
+    var restored = try clipFromSnap(testing.allocator, snap);
+    defer restored.deinit(testing.allocator);
+    try testing.expectEqual(automation_mod.Curve.hold, restored.automation.gain[0].curve);
+    try testing.expectEqual(automation_mod.Curve.ease, restored.automation.gain[1].curve);
+
+    // A shape written by a future build degrades to the one every older
+    // file already implied, rather than failing the whole load.
+    var future = try arena.allocator().dupe(persist_types.AutomationPointSnap, snap.gain_automation);
+    future[0].curve = .unknown;
+    const forward = try automationFromSnap(testing.allocator, future, -60.0, 12.0);
+    defer testing.allocator.free(forward);
+    try testing.expectEqual(automation_mod.Curve.linear, forward[0].curve);
 }
 
 test "automationFromSnap sorts unsorted points and clamps out-of-range values" {

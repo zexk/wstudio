@@ -813,7 +813,15 @@ pub fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
 
 pub fn automationToSnap(aa: std.mem.Allocator, points: []const AutomationPoint) ![]const AutomationPointSnap {
     const out = try aa.alloc(AutomationPointSnap, points.len);
-    for (points, out) |p, *o| o.* = .{ .beat = p.beat, .value = p.value };
+    for (points, out) |p, *o| o.* = .{
+        .beat = p.beat,
+        .value = p.value,
+        .curve = switch (p.curve) {
+            .linear => .linear,
+            .hold => .hold,
+            .ease => .ease,
+        },
+    };
     return out;
 }
 

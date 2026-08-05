@@ -50,9 +50,27 @@ const AutomationPoint = automation_mod.AutomationPoint;
 /// on the snapshot fields they concern.
 pub const file_version: u32 = 36;
 
+/// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
+/// reasoning as `EqBandKindSnap`.
+pub const AutomationCurveSnap = enum {
+    linear,
+    hold,
+    ease,
+    /// A segment shape this build cannot draw; loads as `.linear`, the only
+    /// shape a point could have before this field existed.
+    unknown,
+
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !AutomationCurveSnap {
+        return openEnumParse(AutomationCurveSnap, allocator, source, options);
+    }
+};
+
 pub const AutomationPointSnap = struct {
     beat: f64,
     value: f32,
+    /// Additive: shape of the segment leaving this point. Older files omit
+    /// it and land on `.linear`, which is what they played.
+    curve: AutomationCurveSnap = .linear,
 };
 
 /// One synth-instrument- or FX-unit-param automation lane - see `ClipSnap.

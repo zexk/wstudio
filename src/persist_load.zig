@@ -790,6 +790,11 @@ pub fn automationFromSnap(
     for (snaps, out) |s, *o| o.* = .{
         .beat = finiteClamp(f64, s.beat, 0.0, std.math.floatMax(f64), 0.0),
         .value = finiteClamp(f32, s.value, lo, hi, std.math.clamp(0.0, lo, hi)),
+        .curve = switch (s.curve) {
+            .linear, .unknown => .linear,
+            .hold => .hold,
+            .ease => .ease,
+        },
     };
     std.mem.sort(AutomationPoint, out, {}, struct {
         fn lessThan(_: void, a: AutomationPoint, b: AutomationPoint) bool {
