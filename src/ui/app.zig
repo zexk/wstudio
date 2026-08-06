@@ -738,12 +738,16 @@ pub const App = struct {
     automation_op_pending: ?u8 = null,
     /// Multi-key prefix state (normal mode, not `.visual`): `g`/`z`/`c`
     /// arm here on their own, and the next key drains as a pair (`gg`,
-    /// `gs`, `zg`, `cq`). Editors read it via `takePrefix` at the top of
+    /// `gs`, `zg`, `co`). Editors read it via `takePrefix` at the top of
     /// their handleKey and fall through on an unknown pair, so a prefix
     /// never eats a key it doesn't own. The Lua keymap layer runs ahead of
     /// the builtin path, so a user `gx` map wins over the builtin pair;
     /// visual and operator-pending mode keep single-key g/G motions.
     pending_prefix: ?u8 = null,
+    /// The count stashed when a prefix armed (`pending_prefix`), so the
+    /// pair can read a `2cc` count the arming key's dispatch would have
+    /// discarded (the piano roll's inversion). See `armPrefix`.
+    pending_prefix_count: u32 = 0,
     /// Tracks view: `d` arms, a second `d` (dd) deletes the cursor track
     /// immediately - no confirm prompt, same "operator + same key repeats on
     /// the whole line" grammar piano/drum/arrangement use for their own
@@ -1747,6 +1751,9 @@ pub const App = struct {
     pub fn armPrefix(self: *App, p: u8) bool {
         if (self.modal.mode != .normal) return false;
         self.pending_prefix = p;
+        // Stash the count the arming key's dispatch is about to discard:
+        // `2c` (a chord's inversion) must survive as `2cc`.
+        self.pending_prefix_count = self.modal.count;
         return true;
     }
 
@@ -1757,7 +1764,10 @@ pub const App = struct {
     pub fn takePrefix(self: *App, key: modal_mod.Key) ?u8 {
         const p = self.pending_prefix orelse return null;
         self.pending_prefix = null;
-        if (key != .char) return null;
+        if (key != .char) {
+            self.pending_prefix_count = 0;
+            return null;
+        }
         return p;
     }
 

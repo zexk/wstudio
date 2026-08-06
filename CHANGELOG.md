@@ -46,6 +46,10 @@ history lives in [FORMAT.md](FORMAT.md).
 - Grid zoom is a `z` prefix: `zg`/`zG` choose a finer/coarser timing grid
   in the piano roll, drum grid, slicer grid, and arrangement, mirroring the
   `gg`/`gG` pair grammar.
+- The piano roll's chord keys move behind a `c` prefix: `cc` stamps the
+  chord (the count still inverts, now `2cc`), `co`/`cO` cycle the quality,
+  and `cr`/`cR` the voicing. The single-key `C` still stamps an instant 7th
+  and seeds the cycle; `o`/`O`/`r`/`R` on the piano roll are free.
 
 ## v1.0.0-beta.9
 

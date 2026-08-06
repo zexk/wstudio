@@ -1395,7 +1395,7 @@ test "piano roll visual mode selects a step range for y/d/P" {
     try std.testing.expect(pp.noteAt(72, 2.0) != null);
 }
 
-test "piano roll chord stamp: bare c is root position, a count prefix inverts" {
+test "piano roll chord stamp: bare cc is root position, a count prefix inverts" {
     var app = try testApp();
     defer app.deinit();
     app.view = .piano_roll;
@@ -1406,27 +1406,30 @@ test "piano roll chord stamp: bare c is root position, a count prefix inverts" {
     app.piano_cursor_step = 0;
 
     app.handleKey(.{ .char = 'c' }, 0);
+    app.handleKey(.{ .char = 'c' }, 0);
     try std.testing.expect(pp.noteAt(60, 0.0) != null);
     try std.testing.expect(pp.noteAt(64, 0.0) != null);
     try std.testing.expect(pp.noteAt(67, 0.0) != null);
 
-    // 2c: root and third an octave up, fifth left where it is.
+    // 2cc: root and third an octave up, fifth left where it is.
     app.piano_cursor_step = 4;
     app.handleKey(.{ .char = '2' }, 0);
+    app.handleKey(.{ .char = 'c' }, 0);
     app.handleKey(.{ .char = 'c' }, 0);
     try std.testing.expect(pp.noteAt(72, 1.0) != null);
     try std.testing.expect(pp.noteAt(76, 1.0) != null);
     try std.testing.expect(pp.noteAt(67, 1.0) != null);
     try std.testing.expect(pp.noteAt(60, 1.0) == null);
 
-    // The count is consumed, so the next bare c is root position again.
+    // The count is consumed, so the next bare cc is root position again.
     app.piano_cursor_step = 8;
+    app.handleKey(.{ .char = 'c' }, 0);
     app.handleKey(.{ .char = 'c' }, 0);
     try std.testing.expect(pp.noteAt(60, 2.0) != null);
     try std.testing.expect(pp.noteAt(72, 2.0) == null);
 }
 
-test "piano roll chord quality cycle: o/O re-stamp in place without orphans" {
+test "piano roll chord quality cycle: co/cO re-stamp in place without orphans" {
     var app = try testApp();
     defer app.deinit();
     app.view = .piano_roll;
@@ -1437,35 +1440,41 @@ test "piano roll chord quality cycle: o/O re-stamp in place without orphans" {
     app.piano_cursor_step = 0;
 
     app.handleKey(.{ .char = 'c' }, 0); // C-E-G
+    app.handleKey(.{ .char = 'c' }, 0);
     try std.testing.expectEqual(@as(u16, 3), pp.note_count);
 
-    // o -> 6th (C-E-G-A); o again -> 7th (C-E-G-B): each cycle swaps one
+    // co -> 6th (C-E-G-A); co again -> 7th (C-E-G-B): each cycle swaps one
     // voice in place, never piling the previous shape's notes up on top.
+    app.handleKey(.{ .char = 'c' }, 0);
     app.handleKey(.{ .char = 'o' }, 0);
     try std.testing.expect(pp.noteAt(69, 0.0) != null);
     try std.testing.expectEqual(@as(u16, 4), pp.note_count);
 
+    app.handleKey(.{ .char = 'c' }, 0);
     app.handleKey(.{ .char = 'o' }, 0);
     try std.testing.expect(pp.noteAt(71, 0.0) != null);
     try std.testing.expect(pp.noteAt(69, 0.0) == null);
     try std.testing.expectEqual(@as(u16, 4), pp.note_count);
 
-    // o again -> 9th stacks a fifth third; O walks back out of it.
+    // co again -> 9th stacks a fifth third; cO walks back out of it.
+    app.handleKey(.{ .char = 'c' }, 0);
     app.handleKey(.{ .char = 'o' }, 0);
     try std.testing.expect(pp.noteAt(74, 0.0) != null);
     try std.testing.expectEqual(@as(u16, 5), pp.note_count);
 
+    app.handleKey(.{ .char = 'c' }, 0);
     app.handleKey(.{ .char = 'O' }, 0);
     try std.testing.expect(pp.noteAt(74, 0.0) == null);
     try std.testing.expectEqual(@as(u16, 4), pp.note_count);
 
+    app.handleKey(.{ .char = 'c' }, 0);
     app.handleKey(.{ .char = 'O' }, 0);
     try std.testing.expect(pp.noteAt(71, 0.0) == null);
     try std.testing.expect(pp.noteAt(69, 0.0) != null);
     try std.testing.expectEqual(@as(u16, 4), pp.note_count);
 }
 
-test "piano roll chord voicing cycle: r/R spread the same chord in place" {
+test "piano roll chord voicing cycle: cr/cR spread the same chord in place" {
     var app = try testApp();
     defer app.deinit();
     app.view = .piano_roll;
@@ -1481,28 +1490,33 @@ test "piano roll chord voicing cycle: r/R spread the same chord in place" {
     try std.testing.expect(pp.noteAt(71, 0.0) != null);
     try std.testing.expectEqual(@as(u16, 4), pp.note_count);
 
-    // The seeded quality: O walks back to 6th, o returns to 7th.
+    // The seeded quality: cO walks back to 6th, co returns to 7th.
+    app.handleKey(.{ .char = 'c' }, 0);
     app.handleKey(.{ .char = 'O' }, 0);
     try std.testing.expect(pp.noteAt(69, 0.0) != null);
     try std.testing.expect(pp.noteAt(71, 0.0) == null);
+    app.handleKey(.{ .char = 'c' }, 0);
     app.handleKey(.{ .char = 'o' }, 0);
     try std.testing.expect(pp.noteAt(71, 0.0) != null);
     try std.testing.expect(pp.noteAt(69, 0.0) == null);
     try std.testing.expectEqual(@as(u16, 4), pp.note_count);
 
-    // r -> drop2: the 2nd-from-top voice (G4) drops an octave to G3.
+    // cr -> drop2: the 2nd-from-top voice (G4) drops an octave to G3.
+    app.handleKey(.{ .char = 'c' }, 0);
     app.handleKey(.{ .char = 'r' }, 0);
     try std.testing.expect(pp.noteAt(55, 0.0) != null);
     try std.testing.expect(pp.noteAt(67, 0.0) == null);
     try std.testing.expectEqual(@as(u16, 4), pp.note_count);
 
-    // r -> open: every other voice above the root pushed up an octave.
+    // cr -> open: every other voice above the root pushed up an octave.
+    app.handleKey(.{ .char = 'c' }, 0);
     app.handleKey(.{ .char = 'r' }, 0);
     try std.testing.expect(pp.noteAt(76, 0.0) != null);
     try std.testing.expect(pp.noteAt(83, 0.0) != null);
     try std.testing.expectEqual(@as(u16, 4), pp.note_count);
 
-    // R -> back to drop2, again without leaving the old voicing behind.
+    // cR -> back to drop2, again without leaving the old voicing behind.
+    app.handleKey(.{ .char = 'c' }, 0);
     app.handleKey(.{ .char = 'R' }, 0);
     try std.testing.expect(pp.noteAt(55, 0.0) != null);
     try std.testing.expect(pp.noteAt(76, 0.0) == null);

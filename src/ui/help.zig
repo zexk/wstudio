@@ -367,9 +367,10 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("(visual) o",   "jump to the selection's other end (also in drum/slicer/arrangement/automation)");
     t.key("[count]p",     "after a range yank: paste count copies back-to-back (3p tiles a bar three times)");
     t.key(".",            "repeat the last nudge, drag, or visual range delete/paste");
-    t.key("c / C",        "stamp a chord at cursor (:scale-aware; C = 7th; count inverts, 2c = 2nd inversion)");
-    t.key("o / O",        "cycle chord quality (triad, 6th, 7th, 9th, 11th, 13th, sus2, sus4, add9, dim, aug), re-stamped in place");
-    t.key("r / R",        "cycle chord voicing (closed, drop2, open), re-stamped in place");
+    t.key("cc",            "stamp a chord at cursor (:scale-aware; count inverts, 2cc = 2nd inversion)");
+    t.key("C",             "stamp a 7th chord at cursor (also seeds the co/cO quality cycle)");
+    t.key("co / cO",       "cycle chord quality (triad, 6th, 7th, 9th, 11th, 13th, sus2, sus4, add9, dim, aug), re-stamped in place");
+    t.key("cr / cR",       "cycle chord voicing (closed, drop2, open), re-stamped in place");
     t.key("T",            "toggle grid: straight 1/16 <-> 1/16 triplet");
     t.key("zg / zG",       "finer / coarser timing grid (1/4 through 1/128)");
     t.key(":clear",       "erase all notes in the pattern");

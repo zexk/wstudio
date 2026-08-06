@@ -55,9 +55,10 @@ operator is pending extend the count without cancelling the operator.
 
 A few commands read the count as a quantity rather than a repeat: `p`
 pastes that many copies, `+`/`-` transpose by that many semitones, and the
-piano roll's `c`/`C` chord stamp takes it as an inversion (`2c` = second
-inversion). Those read the raw count, so a bare press means zero
-inversions rather than one.
+piano roll's `cc` chord stamp takes it as an inversion (`2cc` = second
+inversion; the arming `c` stashes the count so the pair can read it).
+Those read the raw count, so a bare press means zero inversions rather
+than one.
 
 ## Motions
 
@@ -86,6 +87,12 @@ inversions rather than one.
 - `z` is the grid prefix: `zg` = finer timing grid, `zG` = coarser, in the
   piano roll, drum grid, slicer grid, and arrangement. The synth editor's
   single `z` (section focus) and the tracks view's `z` (fold) are untouched.
+- `c` is the chord prefix on the piano roll: `cc` stamps the current chord
+  quality at the cursor, `co`/`cO` cycle the quality, `cr`/`cR` the voicing
+  (all re-stamped in place). The single-key `C` still stamps an instant 7th
+  and seeds the cycle; the old single-key `o`/`O`/`r`/`R` cycles now live
+  behind the prefix. Visual mode keeps its single-key `o` (selection end)
+  and `r` (reverse).
 - `j`/`k`: the second axis where one exists (pitch, pad, lane, value
   nudge in automation). In blockwise visual mode they grow the selected
   row band. Never valid as an operator motion: `d`/`y` + a motion is
