@@ -607,6 +607,17 @@ fn assignModFromCursor(app: *App) void {
 
 // zig fmt: off
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
+    // Multi-key prefixes (docs/editing-grammar.md): `g` armed below drains
+    // on the next key (gg = first param, gG = last). An unknown pair falls
+    // through, so a prefix never eats a key it doesn't own.
+    if (app.takePrefix(key)) |p| switch (p) {
+        'g' => switch (key.char) {
+            'g' => { history.flushParamNudge(app); app.synth_cursor = cursorFirst(app); updateScroll(app); return true; },
+            'G' => { history.flushParamNudge(app); app.synth_cursor = cursorLast(app); updateScroll(app); return true; },
+            else => {},
+        },
+        else => {},
+    };
     switch (key) {
         .escape => { history.flushParamNudge(app); app.view = .tracks; return true; },
         .ctrl_r => { history.doRedo(app); return true; },
@@ -648,8 +659,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'l' => { adjustParam(app, app.takeCount()); return true; },
             'H' => { adjustParam(app, -10 * app.takeCount()); return true; },
             'L' => { adjustParam(app, 10 * app.takeCount()); return true; },
-            'g' => { history.flushParamNudge(app); app.synth_cursor = cursorFirst(app); updateScroll(app); return true; },
-            'G' => { history.flushParamNudge(app); app.synth_cursor = cursorLast(app); updateScroll(app); return true; },
+            // g/G are a two-key pair (gg = first param, gG = last): 'g'
+            // arms the prefix, the follow-up key drains it above.
+            'g' => { _ = app.armPrefix('g'); return true; },
             // `/` isn't bound here - it falls through to modal.handle's
             // generic normal-mode search entry (App.searchSynthParams
             // handles the submit). n/N repeat, same as every other view.

@@ -178,7 +178,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("H / L",        "move cursor left / right (one beat, coarse)");
     t.key("j / k",        "move cursor down / up (pad)");
     t.key("J / K",        "jump a whole bank of 8 pads (64 pads total, paged 8 at a time)");
-    t.key("g / G",        "jump step cursor to pattern start / end");
+    t.key("gg / gG",       "jump step cursor to pattern start / end");
     t.key("w / b",        "jump to the next / previous beat boundary");
     t.key("z / Z",        "finer / coarser timing grid (1/4 through 1/128)");
     t.key("enter / n",    "toggle in place / place a hit and advance (count sets spacing)");
@@ -240,7 +240,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("w / b",        "jump to next / previous beat boundary");
     t.key("j / k",        "move cursor down / up (slice)");
     t.key("J / K",        "jump a whole bank of 8 slices");
-    t.key("g / G",        "jump step cursor to pattern start / end");
+    t.key("gg / gG",       "jump step cursor to pattern start / end");
     t.key("enter / n",    "toggle in place / place a slice and advance (count sets spacing)");
     t.key("",             "  with no clip loaded yet, enter opens the file browser instead");
     t.key("x",            "clear step at cursor");
@@ -278,7 +278,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
 
     t.taggedSection(.sampler_editor, "SAMPLER EDITOR");
     t.key("j / k",        "select parameter");
-    t.key("g / G",        "jump to first / last parameter");
+    t.key("gg / gG",       "jump to first / last parameter");
     t.key("h / l",        "adjust value (fine)");
     t.key("H / L",        "adjust value (coarse ×10)");
     t.key("1–8",          "switch to pad/slice 1–8 within the current bank of 8");
@@ -296,7 +296,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     // banks, SoundFont plays presets out of a .sf2 the user loads.
     t.taggedSection(.soundfont_editor, "ACOUSTIC / SOUNDFONT EDITOR");
     t.key("j / k",        "select parameter (gain / pan / transpose / preset)");
-    t.key("g / G",        "jump to first / last parameter");
+    t.key("gg / gG",       "jump to first / last parameter");
     t.key("h / l",        "adjust value (fine); on PRESET, step to the prev/next preset in the font");
     t.key("H / L",        "adjust value (coarse ×10)");
     t.key("a",            "audition at the piano roll's last cursor pitch (or C4)");
@@ -314,7 +314,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("tab",          "cycle subview: main params / mod matrix");
     t.key("z",            "focus the current MAIN/MOD section; z again restores the full grid");
     t.key("j / k",        "select parameter");
-    t.key("g / G",        "jump to first / last parameter (within the current subview)");
+    t.key("gg / gG",       "jump to first / last parameter (within the current subview)");
     t.key("{ / }",        "prev / next section (within the current subview)");
     t.key("h / l",        "adjust value (fine)");
     t.key("H / L",        "adjust value (coarse ×10)");
@@ -337,7 +337,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("H / L",        "move cursor left / right (one beat, coarse)");
     t.key("j / k",        "move cursor down / up (pitch)");
     t.key("J / K",        "move cursor down / up (one octave)");
-    t.key("g / G",        "jump cursor to loop start / end");
+    t.key("gg / gG",       "jump cursor to loop start / end");
     t.key("w / b",        "jump to the next / previous beat boundary");
     t.key("enter",        "toggle note at cursor; hold to shape it (j/k pitch, J/K octave, h/l length) until released");
     t.key("n / N",        "enter note / rest, then advance by the default note length");
@@ -383,7 +383,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("w / b",        "jump to next / previous bar line");
     t.key("B / W",        "jump to previous / next clip edge on current lane");
     t.key("0",            "jump cursor to bar 0 (a count first makes it a digit instead: 10l)");
-    t.key("G",            "jump to the song's end, or with a count to that bar (17G)");
+    t.key("gG",           "jump to the song's end (gg = bar 0; a count first is dropped)");
     t.key("j / k",        "move between track lanes");
     t.key("enter",        "stamp the live pattern as a clip - HOLD it and h/l resize the new clip");
     t.key("e",            "edit melodic clip in the piano roll (edits save into the clip)");
@@ -399,7 +399,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("( / )",        "set loop start / end at cursor bar");
     t.key("=",            "toggle A/B loop on/off");
     t.key(":punch",       "[on|off]  record only between enabled A/B bounds");
-    t.key("g",            "play from cursor bar");
+    t.key("gs",           "play from cursor bar");
     t.key("T",            "toggle song / pattern mode (manual override; view switches while the");
     t.key("",             "  transport is stopped set it for you: arrangement = song, tracks (or a");
     t.key("",             "  pattern editor from tracks) = pattern; playback is never interrupted)");
@@ -418,7 +418,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("J / K",        "nudge the value at cursor (coarse step)");
     t.key("x",            "delete the point at cursor exactly");
     t.key("c",            "cycle the ramp leaving the point at cursor: linear -> hold (step) -> ease (S-curve)");
-    t.key("g / G",        "jump cursor to clip start / end");
+    t.key("gg / gG",       "jump cursor to clip start / end");
     t.key("w / b",        "jump to the next / previous beat start");
     t.key("d / y",        "operator: add a motion (h/l/H/L/w/b/g/G, counts work: d3l) to clear / yank that range");
     t.key("dd / yy",      "clear / yank the whole curve");

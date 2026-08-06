@@ -736,6 +736,14 @@ pub const App = struct {
     slicer_op_pending: ?u8 = null,
     arr_op_pending: ?u8 = null,
     automation_op_pending: ?u8 = null,
+    /// Multi-key prefix state (normal mode, not `.visual`): `g`/`z`/`c`
+    /// arm here on their own, and the next key drains as a pair (`gg`,
+    /// `gs`, `zg`, `cq`). Editors read it via `takePrefix` at the top of
+    /// their handleKey and fall through on an unknown pair, so a prefix
+    /// never eats a key it doesn't own. The Lua keymap layer runs ahead of
+    /// the builtin path, so a user `gx` map wins over the builtin pair;
+    /// visual and operator-pending mode keep single-key g/G motions.
+    pending_prefix: ?u8 = null,
     /// Tracks view: `d` arms, a second `d` (dd) deletes the cursor track
     /// immediately - no confirm prompt, same "operator + same key repeats on
     /// the whole line" grammar piano/drum/arrangement use for their own
@@ -1320,6 +1328,7 @@ pub const App = struct {
             };
             if (width) |wd| w.print("v{d}", .{wd}) catch {};
         } else if (self.modal.mode == .normal) {
+            if (self.pending_prefix) |p| w.print("{c}", .{p}) catch {};
             const op: ?u8 = switch (self.view) {
                 .piano_roll => self.piano_op_pending,
                 .drum_grid => self.drum_op_pending,
@@ -1729,6 +1738,27 @@ pub const App = struct {
         if (self.modal.mode == .search or (key == .char and key.char == '/')) {
             self.applyAction(self.modal.handle(key), now_ns);
         } else pickerKey(self, key);
+    }
+
+    /// Arm a multi-key prefix for the next normal-mode key (the `gg`-style
+    /// pairs). Editors call this from their own key switches; `takePrefix`
+    /// drains it. Normal mode only - visual and operator-pending keep
+    /// single-key g/G motions.
+    pub fn armPrefix(self: *App, p: u8) bool {
+        if (self.modal.mode != .normal) return false;
+        self.pending_prefix = p;
+        return true;
+    }
+
+    /// Pop the pending prefix (if any) for `key`. A non-char key (escape,
+    /// arrows, tab, …) cancels the prefix without consuming the key itself,
+    /// so an armed `g` never swallows a view switch. Returns the armed
+    /// prefix with `pending_prefix` already cleared, or null.
+    pub fn takePrefix(self: *App, key: modal_mod.Key) ?u8 {
+        const p = self.pending_prefix orelse return null;
+        self.pending_prefix = null;
+        if (key != .char) return null;
+        return p;
     }
 
     fn handleKeyBuiltin(self: *App, key_in: modal_mod.Key, now_ns: i96) void {

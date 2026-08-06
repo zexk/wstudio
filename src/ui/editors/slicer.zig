@@ -110,6 +110,18 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         }
     }
 
+    // Multi-key prefixes (docs/editing-grammar.md): `g` armed below drains
+    // on the next key (gg = pattern start, gG = last step). An unknown pair
+    // falls through, so a prefix never eats a key it doesn't own.
+    if (app.takePrefix(key)) |p| switch (p) {
+        'g' => switch (key.char) {
+            'g' => { step.* = 0; return true; },
+            'G' => { if (sl.step_count > 0) step.* = sl.step_count - 1; return true; },
+            else => {},
+        },
+        else => {},
+    };
+
     switch (key) {
         .escape => { app.view = .tracks; return true; },
         // enter toggles the step; space falls through to transport play/pause.
@@ -136,9 +148,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // as the drum grid's pads.
                 'J' => moveSlice(app, 8 * app.takeCount()),
                 'K' => moveSlice(app, -8 * app.takeCount()),
-                'g' => step.* = 0,
+                // g/G are a two-key pair (gg = pattern start, gG = last
+                // step): 'g' arms the prefix, the follow-up key drains it
+                // above.
+                'g' => {
+                    _ = app.armPrefix('g');
+                },
                 // zig fmt: off
-                'G' => { if (sl.step_count > 0) step.* = sl.step_count - 1; },
                 // zig fmt: on
                 'n' => stepEnter(app),
                 'w' => jumpBar(app, app.takeCount()),

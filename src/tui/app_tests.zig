@@ -1218,6 +1218,7 @@ test "drum grid g jumps the step cursor to the pattern start" {
     app.drum_cursor = .{ 0, 5 };
 
     _ = drum_ed.handleKey(&app, .{ .char = 'g' });
+    _ = drum_ed.handleKey(&app, .{ .char = 'g' });
     try std.testing.expectEqual(@as(u8, 0), app.drum_cursor[1]);
     // Pad cursor is untouched by 'g'.
     try std.testing.expectEqual(@as(u8, 0), app.drum_cursor[0]);
@@ -1229,6 +1230,7 @@ test "drum grid G jumps the step cursor to the pattern end; C cycles choke group
     app.drum_track = 2;
     app.drum_cursor = .{ 0, 0 };
 
+    _ = drum_ed.handleKey(&app, .{ .char = 'g' });
     _ = drum_ed.handleKey(&app, .{ .char = 'G' });
     try std.testing.expectEqual(app.drumMachine().step_count - 1, app.drum_cursor[1]);
 
@@ -2953,6 +2955,7 @@ test "arrangement g plays from the cursor bar" {
     app.view = .arrangement;
     app.arr_cursor_bar = 2;
     app.handleKey(.{ .char = 'g' }, 0);
+    app.handleKey(.{ .char = 's' }, 0);
 
     // Commands land on the audio thread; run one block to apply them.
     var block: [512]ws.types.Sample = undefined;
@@ -3082,8 +3085,10 @@ test "sampler editor j/k honor a vim count prefix; g/G jump to first/last param"
     for ("2k") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(@as(u8, 1), app.sampler_param);
 
+    app.handleKey(.{ .char = 'g' }, 0);
     app.handleKey(.{ .char = 'G' }, 0);
     try std.testing.expectEqual(@as(u8, ws.dsp.Sampler.param_count - 1), app.sampler_param);
+    app.handleKey(.{ .char = 'g' }, 0);
     app.handleKey(.{ .char = 'g' }, 0);
     try std.testing.expectEqual(@as(u8, 0), app.sampler_param);
 }
@@ -4553,6 +4558,7 @@ test "synth section focus isolates navigation and rendering" {
     app.handleKey(.{ .char = 'z' }, 0);
     try std.testing.expect(app.synth_section_focus);
 
+    app.handleKey(.{ .char = 'g' }, 0);
     app.handleKey(.{ .char = 'G' }, 0);
     try std.testing.expectEqual(@as(u8, 251), app.synth_cursor);
     app.handleKey(.{ .char = 'j' }, 0);
@@ -4588,7 +4594,9 @@ test "synth editor g/G jump to the first/last parameter" {
     try std.testing.expectEqual(@as(u8, 6), app.synth_cursor);
 
     app.handleKey(.{ .char = 'g' }, 0);
+    app.handleKey(.{ .char = 'g' }, 0);
     try std.testing.expectEqual(@as(u8, 0), app.synth_cursor);
+    app.handleKey(.{ .char = 'g' }, 0);
     app.handleKey(.{ .char = 'G' }, 0);
     // Last id of the "main" subview: OUT's "gain" (id 38) - the last
     // section in synth_layout.zig's main_sections declaration order.
@@ -4717,7 +4725,8 @@ test "synth editor param nudge flushes as its own step when the cursor moves off
     // the decay nudge is still open (not flushed) - one entry so far.
     try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
 
-    app.handleKey(.{ .char = 'g' }, 0); // flushes the open decay batch
+    app.handleKey(.{ .char = 'g' }, 0); // arms the g prefix
+    app.handleKey(.{ .char = 'g' }, 0); // gg flushes the open decay batch
     try std.testing.expectEqual(@as(usize, 2), app.history.undo_stack.items.len);
 
     app.handleKey(.{ .char = 'u' }, 0); // undo decay nudge
@@ -5291,16 +5300,19 @@ test "arrangement w/b snap to bar lines; G lands on the song end or a counted ba
     for ("2w") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(@as(u32, 12), app.arr_cursor_bar);
 
-    // A one-bar clip at bar 2 ends at cell 12, so G stops on cell 11 - the
+    // A one-bar clip at bar 2 ends at cell 12, so gG stops on cell 11 - the
     // last cell that still holds song material.
     try app.session.stampClip(0, 2);
     app.arr_cursor_bar = 0;
+    app.handleKey(.{ .char = 'g' }, 0);
     app.handleKey(.{ .char = 'G' }, 0);
     try std.testing.expectEqual(@as(u32, 11), app.arr_cursor_bar);
 
-    // With a count G is vim's line jump, counting the ruler's 1-based bars.
-    for ("3G") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expectEqual(@as(u32, 8), app.arr_cursor_bar);
+    // With a count G was vim's line jump (bar n); as a two-key pair it's
+    // a plain "go to end" and the count is just dropped.
+    app.handleKey(.{ .char = 'g' }, 0);
+    app.handleKey(.{ .char = 'G' }, 0);
+    try std.testing.expectEqual(@as(u32, 11), app.arr_cursor_bar);
 
     // dw cuts through the end of the bar it starts in, not into the next:
     // the clip on bar 3 survives the cut that clears bar 2.
@@ -9142,6 +9154,7 @@ test "a loop too long for the u16 step grid draws and edits instead of panicking
     try tui_mod.draw(&app, &w, .{ .cols = 100, .rows = 24 });
 
     app.handleKey(.{ .char = 'l' }, 0);
+    app.handleKey(.{ .char = 'g' }, 0);
     app.handleKey(.{ .char = 'G' }, 0);
 }
 

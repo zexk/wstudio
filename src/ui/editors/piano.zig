@@ -133,6 +133,22 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         }
     }
 
+    // Multi-key prefixes (docs/editing-grammar.md): `g` armed below drains
+    // on the next key (gg = loop start, gG = last step). An unknown pair
+    // falls through, so a prefix never eats a key it doesn't own.
+    if (app.takePrefix(key)) |p| switch (p) {
+        'g' => switch (key.char) {
+            'g' => { app.piano_cursor_step = 0; ensureVisible(app); return true; },
+            'G' => {
+                if (max_step > 0) app.piano_cursor_step = max_step - 1;
+                ensureVisible(app);
+                return true;
+            },
+            else => {},
+        },
+        else => {},
+    };
+
     // Note-grab mode: M holds the note under the cursor and h/l/j/k drag it,
     // J/K an octave at a time (the cursor follows). esc or M drop it; any
     // other key drops it first and is then handled normally below.
@@ -205,17 +221,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // J/K jump an octave (mirrors h/l → H/L coarse-move pattern).
             'J' => { movePitch(app, -12 * app.takeCount()); return true; },
             'K' => { movePitch(app, 12 * app.takeCount()); return true; },
-            // g/G jump the cursor to loop start / last step.
-            'g' => {
-                app.piano_cursor_step = 0;
-                ensureVisible(app);
-                return true;
-            },
-            'G' => {
-                if (max_step > 0) app.piano_cursor_step = max_step - 1;
-                ensureVisible(app);
-                return true;
-            },
+            // g/G are a two-key pair (gg = loop start, gG = last step):
+            // 'g' arms the prefix, the follow-up key drains it above.
+            'g' => { _ = app.armPrefix('g'); return true; },
             // w/b: vim's word motion, one tier up from h/l's step ("char")
             // granularity - jump to the start of the next/current-or-
             // previous beat (matches the drum grid's own w/b granularity).

@@ -92,6 +92,22 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         }
     }
 
+    // Multi-key prefixes (docs/editing-grammar.md): `g` armed below drains
+    // on the next key (gg = pattern start, gG = last step). An unknown pair
+    // falls through, so a prefix never eats a key it doesn't own.
+    if (app.takePrefix(key)) |p| switch (p) {
+        'g' => switch (key.char) {
+            'g' => { app.drum_cursor[1] = 0; return true; },
+            'G' => {
+                const dm = app.drumMachine();
+                if (dm.step_count > 0) step.* = dm.step_count - 1;
+                return true;
+            },
+            else => {},
+        },
+        else => {},
+    };
+
     // Step-stamp mode: a HELD enter freshly activating a step live-shapes
     // it for as long as the key stays down, mirroring the piano roll's own
     // note-stamp - j/k nudge the just-placed step's velocity (a one-shot
@@ -147,13 +163,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // grid to the cursor's bank, floor(pad/8)).
                 'K' => movePad(app, -8 * app.takeCount()),
                 'J' => movePad(app, 8 * app.takeCount()),
-                // g/G jump the step cursor to pattern start/end, matching
-                // the piano roll's convention. Choke-group cycling - that
-                // used to squat on 'G' - lives on 'C' instead (see below).
-                'g' => app.drum_cursor[1] = 0,
-                'G' => {
-                    const dm = app.drumMachine();
-                    if (dm.step_count > 0) step.* = dm.step_count - 1;
+                // g/G are a two-key pair (gg = pattern start, gG = last
+                // step): 'g' arms the prefix, the follow-up key drains it
+                // above. Choke-group cycling - that used to squat on 'G' -
+                // lives on 'C' instead (see below).
+                'g' => {
+                    _ = app.armPrefix('g');
                 },
                 // Advancing entry complements Enter's stationary toggle: a
                 // count leaves space before the next hit (4n = every beat).

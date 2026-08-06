@@ -261,6 +261,18 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         }
     }
 
+    // Multi-key prefixes (docs/editing-grammar.md): `g` armed below drains
+    // on the next key (gg = clip start, gG = clip end). An unknown pair
+    // falls through, so a prefix never eats a key it doesn't own.
+    if (app.takePrefix(key)) |p| switch (p) {
+        'g' => switch (key.char) {
+            'g' => { app.automation_cursor_step = 0; return true; },
+            'G' => { app.automation_cursor_step = maxStep(app, clip); return true; },
+            else => {},
+        },
+        else => {},
+    };
+
     switch (key) {
         .escape => { app.view = .arrangement; return true; },
         .ctrl_r => { history.doRedo(app); return true; },
@@ -279,10 +291,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'k' => { nudgeValue(app, clip, app.takeCount()); return true; },
             'J' => { nudgeValue(app, clip, -10 * app.takeCount()); return true; },
             'K' => { nudgeValue(app, clip, 10 * app.takeCount()); return true; },
-            // g/G jump the cursor to the clip start / end, matching the
-            // piano roll and drum grid's convention.
-            'g' => { app.automation_cursor_step = 0; return true; },
-            'G' => { app.automation_cursor_step = maxStep(app, clip); return true; },
+            // g/G are a two-key pair (gg = clip start, gG = clip end),
+            // matching the piano roll and drum grid's convention: 'g' arms
+            // the prefix, the follow-up key drains it above.
+            'g' => { _ = app.armPrefix('g'); return true; },
             // w/b: vim's word motion, one tier up from h/l's step
             // ("char") granularity - jump to the start of the
             // next/current-or-previous beat.

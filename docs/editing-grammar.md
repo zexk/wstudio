@@ -77,9 +77,12 @@ inversions rather than one.
   where the unit really is a musical bar - its grid cells are small
   enough that a song needs the coarser tier, and `W`/`B` go coarser
   still (the next clip edge on the lane).
-- `g`/`G`: start / end. In the arrangement `G` takes a count as a bar
-  number (`17G` jumps to bar 17), and `0` is the start (`g` there plays
-  from the cursor).
+- `g`/`G` are a two-key pair in normal mode (the `gg` style): `gg` = start,
+  `gG` = end, in every editor that has a start/end (piano roll, drum grid,
+  slicer grid, automation, and the sampler/synth/soundfont param lists). The
+  arrangement is the exception: `gg` = bar 0, `gG` = the song's end, and
+  `gs` plays from the cursor. Visual mode and operator-pending keep the
+  single-key `g`/`G` motions.
 - `j`/`k`: the second axis where one exists (pitch, pad, lane, value
   nudge in automation). In blockwise visual mode they grow the selected
   row band. Never valid as an operator motion: `d`/`y` + a motion is

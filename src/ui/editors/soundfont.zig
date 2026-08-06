@@ -23,6 +23,25 @@ const piano = @import("piano.zig");
 pub const param_count: u8 = ws.dsp.SoundfontPlayer.param_count;
 
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
+    // Multi-key prefixes (docs/editing-grammar.md): `g` armed below drains
+    // on the next key (gg = first param, gG = last). An unknown pair falls
+    // through, so a prefix never eats a key it doesn't own.
+    if (app.takePrefix(key)) |p| switch (p) {
+        'g' => switch (key.char) {
+            'g' => {
+                history.flushParamNudge(app);
+                app.soundfont_param = 0;
+                return true;
+            },
+            'G' => {
+                history.flushParamNudge(app);
+                app.soundfont_param = param_count - 1;
+                return true;
+            },
+            else => {},
+        },
+        else => {},
+    };
     switch (key) {
         .escape => {
             history.flushParamNudge(app);
@@ -79,14 +98,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 adjustParam(app, 10 * app.takeCount());
                 return true;
             },
+            // g/G are a two-key pair (gg = first param, gG = last): 'g'
+            // arms the prefix, the follow-up key drains it above.
             'g' => {
-                history.flushParamNudge(app);
-                app.soundfont_param = 0;
-                return true;
-            },
-            'G' => {
-                history.flushParamNudge(app);
-                app.soundfont_param = param_count - 1;
+                _ = app.armPrefix('g');
                 return true;
             },
             'a' => {

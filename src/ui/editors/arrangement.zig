@@ -76,6 +76,20 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         }
     }
 
+    // Multi-key prefixes (docs/editing-grammar.md): `g` armed below drains
+    // on the next key (gs = play from cursor, gg = bar 0, gG = song end).
+    // An unknown pair falls through, so a prefix never eats a key it
+    // doesn't own.
+    if (app.takePrefix(key)) |p| switch (p) {
+        'g' => switch (key.char) {
+            's' => { playFromCursor(app); return true; },
+            'g' => { app.arr_cursor_bar = 0; return true; },
+            'G' => { gotoEnd(app); return true; },
+            else => {},
+        },
+        else => {},
+    };
+
     // Clip-stamp mode: a HELD enter keeps the cursor on the clip it just
     // stamped so h/l edge-resize it live (the same resizeClip `-`/`+` use),
     // mirroring the piano roll's note stamp and the drum grid's step stamp.
@@ -151,13 +165,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 moveClipEdge(app, -1, app.takeCount());
                 return true;
             },
-            // G: the song's end (its last bar of material), or with a count
-            // the bar itself - vim's `{n}G` line jump, bars being this
-            // editor's lines. `0` is the other end.
-            'G' => {
-                gotoEnd(app);
-                return true;
-            },
+            // g/G are a two-key pair (gg = bar 0, gG = the song's end, or
+            // with a count the bar itself - vim's `{n}G` line jump, bars
+            // being this editor's lines). `0` is the other end.
             // Vim's own '0': jump-to-start only when no count is pending -
             // otherwise it's a digit continuing the count (10l, 20h, …),
             // same rule modal.zig's generic handleNormal already applies.
@@ -243,8 +253,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 editClip(app);
                 return true;
             },
+            // g: play from cursor is the `gs` pair (see the prefix drain
+            // above); the bare 'g' arms the prefix.
             'g' => {
-                playFromCursor(app);
+                _ = app.armPrefix('g');
                 return true;
             },
             'u' => {

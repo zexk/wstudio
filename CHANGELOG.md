@@ -38,6 +38,11 @@ history lives in [FORMAT.md](FORMAT.md).
   scaling, preserving fine control over short and low values.
 - The slicer grid's pattern-variant keys are now `[`/`]`, the same pair the
   drum grid uses; the slice-start nudge moves to `(`/`)`.
+- `g`/`G` motions become two-key pairs: `gg` jumps to the start and `gG` to
+  the end in the piano roll, drum grid, slicer grid, automation, and the
+  sampler/synth/soundfont editors. In the arrangement `gs` plays from the
+  cursor bar, `gg` jumps to bar 0, and `gG` jumps to the song's end. A user
+  Lua keymap on a `g` pair still wins over these builtins.
 
 ## v1.0.0-beta.9
 
