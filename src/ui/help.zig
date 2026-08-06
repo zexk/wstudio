@@ -180,7 +180,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("J / K",        "jump a whole bank of 8 pads (64 pads total, paged 8 at a time)");
     t.key("gg / gG",       "jump step cursor to pattern start / end");
     t.key("w / b",        "jump to the next / previous beat boundary");
-    t.key("z / Z",        "finer / coarser timing grid (1/4 through 1/128)");
+    t.key("zg / zG",       "finer / coarser timing grid (1/4 through 1/128)");
     t.key("enter / n",    "toggle in place / place a hit and advance (count sets spacing)");
     t.key("",             "  hold enter to shape the fresh hit (j/k velocity) until released");
     t.key("x",            "clear the step at cursor");
@@ -247,7 +247,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("X / F",        "clear / fill the cursor slice's row");
     t.key("c",            "cycle step velocity through presets (full/hard/mid/soft)");
     t.key("_ / =",        "step velocity down / up (fine, 1-127)");
-    t.key("z / Z",        "finer / coarser timing grid (1/4 through 1/128)");
+    t.key("zg / zG",       "finer / coarser timing grid (1/4 through 1/128)");
     t.key("t / T",        "tune the step under the cursor down / up a semitone (±24, count-scaled)");
     t.key("R",            "cycle the step into a roll (off/2/3/4/6/8 hits packed into the step)");
     t.key("%",            "cycle the step's fire chance (100/75/50/25/10%)");
@@ -371,7 +371,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("o / O",        "cycle chord quality (triad, 6th, 7th, 9th, 11th, 13th, sus2, sus4, add9, dim, aug), re-stamped in place");
     t.key("r / R",        "cycle chord voicing (closed, drop2, open), re-stamped in place");
     t.key("T",            "toggle grid: straight 1/16 <-> 1/16 triplet");
-    t.key("z / Z",        "finer / coarser timing grid (1/4 through 1/128)");
+    t.key("zg / zG",       "finer / coarser timing grid (1/4 through 1/128)");
     t.key(":clear",       "erase all notes in the pattern");
     t.key(":scale",       "[<root> [<type>]|off]  scale highlight + chord-stamp key");
     t.key(":tuning",      "[<name> [<root>]]  temperament synths play in: equal, just_major, pythagorean, meantone_quarter, werckmeister3, kirnberger3");
@@ -403,7 +403,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("T",            "toggle song / pattern mode (manual override; view switches while the");
     t.key("",             "  transport is stopped set it for you: arrangement = song, tracks (or a");
     t.key("",             "  pattern editor from tracks) = pattern; playback is never interrupted)");
-    t.key("z / Z",        "finer / coarser timing grid (1/4 through 1/128)");
+    t.key("zg / zG",       "finer / coarser timing grid (1/4 through 1/128)");
     t.key("a",            "open gain/pan automation editor for the clip at cursor");
     t.key("/",            "fuzzy-search lane (track) names, n / N repeat forward / backward");
     t.key("{ / }",        "jump to previous / next named section");

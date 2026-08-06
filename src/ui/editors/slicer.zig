@@ -110,13 +110,19 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         }
     }
 
-    // Multi-key prefixes (docs/editing-grammar.md): `g` armed below drains
-    // on the next key (gg = pattern start, gG = last step). An unknown pair
-    // falls through, so a prefix never eats a key it doesn't own.
+    // Multi-key prefixes (docs/editing-grammar.md): `g` and `z` armed below
+    // drain on the next key (gg = pattern start, gG = last step, zg = finer
+    // grid, zG = coarser). An unknown pair falls through, so a prefix never
+    // eats a key it doesn't own.
     if (app.takePrefix(key)) |p| switch (p) {
         'g' => switch (key.char) {
             'g' => { step.* = 0; return true; },
             'G' => { if (sl.step_count > 0) step.* = sl.step_count - 1; return true; },
+            else => {},
+        },
+        'z' => switch (key.char) {
+            'g' => { zoom(app, 1); return true; },
+            'G' => { zoom(app, -1); return true; },
             else => {},
         },
         else => {},
@@ -259,10 +265,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'R' => cycleStepRetrig(app),
                 't' => nudgeTune(app, -app.takeCount()),
                 'T' => nudgeTune(app, app.takeCount()),
-                // z/Z: grid zoom, same keys and same preserve-the-timing
-                // resize the drum grid uses.
-                'z' => zoom(app, 1),
-                'Z' => zoom(app, -1),
+                // z/Z: grid zoom as a two-key pair (zg = finer, zG =
+                // coarser) - the same arms as the drum grid, with the same
+                // preserve-the-timing resize.
+                'z' => {
+                    _ = app.armPrefix('z');
+                },
                 // $: this slice's own loop length, set where the cursor sits
                 // instead of the drum grid's m/M nudges (m merges slices
                 // here) - vim's "end of line", and pressing it on the length

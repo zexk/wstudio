@@ -43,6 +43,9 @@ history lives in [FORMAT.md](FORMAT.md).
   sampler/synth/soundfont editors. In the arrangement `gs` plays from the
   cursor bar, `gg` jumps to bar 0, and `gG` jumps to the song's end. A user
   Lua keymap on a `g` pair still wins over these builtins.
+- Grid zoom is a `z` prefix: `zg`/`zG` choose a finer/coarser timing grid
+  in the piano roll, drum grid, slicer grid, and arrangement, mirroring the
+  `gg`/`gG` pair grammar.
 
 ## v1.0.0-beta.9
 

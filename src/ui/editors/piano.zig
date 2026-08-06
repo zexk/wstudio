@@ -133,9 +133,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         }
     }
 
-    // Multi-key prefixes (docs/editing-grammar.md): `g` armed below drains
-    // on the next key (gg = loop start, gG = last step). An unknown pair
-    // falls through, so a prefix never eats a key it doesn't own.
+    // Multi-key prefixes (docs/editing-grammar.md): `g` and `z` armed below
+    // drain on the next key (gg = loop start, gG = last step, zg = finer
+    // grid, zG = coarser). An unknown pair falls through, so a prefix never
+    // eats a key it doesn't own.
     if (app.takePrefix(key)) |p| switch (p) {
         'g' => switch (key.char) {
             'g' => { app.piano_cursor_step = 0; ensureVisible(app); return true; },
@@ -144,6 +145,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 ensureVisible(app);
                 return true;
             },
+            else => {},
+        },
+        'z' => switch (key.char) {
+            'g' => { zoom(app, 1); return true; },
+            'G' => { zoom(app, -1); return true; },
             else => {},
         },
         else => {},
@@ -347,8 +353,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'u' => { history.doUndo(app); return true; },
             'U' => { history.doRedo(app); return true; },
             'T' => { toggleGrid(app); return true; },
-            'z' => { zoom(app, 1); return true; },
-            'Z' => { zoom(app, -1); return true; },
+            // z/Z are a two-key pair (zg = finer grid, zG = coarser): 'z'
+            // arms the prefix, the follow-up key drains it above.
+            'z' => { _ = app.armPrefix('z'); return true; },
             else => return false,
         },
         else => return false,

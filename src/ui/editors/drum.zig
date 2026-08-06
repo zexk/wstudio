@@ -92,9 +92,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         }
     }
 
-    // Multi-key prefixes (docs/editing-grammar.md): `g` armed below drains
-    // on the next key (gg = pattern start, gG = last step). An unknown pair
-    // falls through, so a prefix never eats a key it doesn't own.
+    // Multi-key prefixes (docs/editing-grammar.md): `g` and `z` armed below
+    // drain on the next key (gg = pattern start, gG = last step, zg = finer
+    // grid, zG = coarser). An unknown pair falls through, so a prefix never
+    // eats a key it doesn't own.
     if (app.takePrefix(key)) |p| switch (p) {
         'g' => switch (key.char) {
             'g' => { app.drum_cursor[1] = 0; return true; },
@@ -103,6 +104,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 if (dm.step_count > 0) step.* = dm.step_count - 1;
                 return true;
             },
+            else => {},
+        },
+        'z' => switch (key.char) {
+            'g' => { zoom(app, 1); return true; },
+            'G' => { zoom(app, -1); return true; },
             else => {},
         },
         else => {},
@@ -178,8 +184,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // next/current-or-previous 4-step group (see barLenSteps).
                 'w' => jumpBar(app, app.takeCount()),
                 'b' => jumpBar(app, -app.takeCount()),
-                'z' => zoom(app, 1),
-                'Z' => zoom(app, -1),
+                // z/Z are a two-key pair (zg = finer grid, zG = coarser):
+                // 'z' arms the prefix, the follow-up key drains it above.
+                'z' => {
+                    _ = app.armPrefix('z');
+                },
                 'a' => {
                     _ = app.session.engine.send(.{ .note_on = .{
                         .track = app.drum_track,

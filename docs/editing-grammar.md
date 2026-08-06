@@ -62,7 +62,7 @@ inversions rather than one.
 ## Motions
 
 - `h`/`l`: one step (piano, drum, slicer, automation) or one grid cell
-  (arrangement - whatever `z`/`Z` currently set, a beat at the default
+  (arrangement - whatever `zg`/`zG` currently set, a beat at the default
   1/4).
 - `H`/`L`: 4 steps from wherever the cursor is (one beat), or 4 cells in
   the arrangement.
@@ -83,6 +83,9 @@ inversions rather than one.
   arrangement is the exception: `gg` = bar 0, `gG` = the song's end, and
   `gs` plays from the cursor. Visual mode and operator-pending keep the
   single-key `g`/`G` motions.
+- `z` is the grid prefix: `zg` = finer timing grid, `zG` = coarser, in the
+  piano roll, drum grid, slicer grid, and arrangement. The synth editor's
+  single `z` (section focus) and the tracks view's `z` (fold) are untouched.
 - `j`/`k`: the second axis where one exists (pitch, pad, lane, value
   nudge in automation). In blockwise visual mode they grow the selected
   row band. Never valid as an operator motion: `d`/`y` + a motion is

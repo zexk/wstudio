@@ -776,10 +776,11 @@ test "slicer grid: parameter locks, per-slice loop, and grid zoom" {
     history.doRedo(&app);
     try std.testing.expectEqual(@as(u16, 5), sl.slice_len[0]);
 
-    // z halves the grid: same music, twice the steps, and the hit and the
+    // zg halves the grid: same music, twice the steps, and the hit and the
     // row's own loop length both move with it.
     const steps_before = sl.step_count;
     _ = slicer_ed.handleKey(&app, .{ .char = 'z' });
+    _ = slicer_ed.handleKey(&app, .{ .char = 'g' });
     try std.testing.expectEqual(@as(u8, 8), sl.steps_per_beat);
     try std.testing.expectEqual(steps_before * 2, sl.step_count);
     const info = app.apiPatternInfo(0);
@@ -787,7 +788,8 @@ test "slicer grid: parameter locks, per-slice loop, and grid zoom" {
     try std.testing.expectEqual(@as(f64, 4.0), info.length_beats);
     try std.testing.expect(sl.stepActive(0, 8));
     try std.testing.expectEqual(@as(u16, 10), sl.sliceSteps(0, sl.step_count));
-    _ = slicer_ed.handleKey(&app, .{ .char = 'Z' });
+    _ = slicer_ed.handleKey(&app, .{ .char = 'z' });
+    _ = slicer_ed.handleKey(&app, .{ .char = 'G' });
     try std.testing.expectEqual(@as(u8, 4), sl.steps_per_beat);
     try std.testing.expectEqual(steps_before, sl.step_count);
     try std.testing.expect(sl.stepActive(0, 4));
@@ -1121,11 +1123,14 @@ test "z and Z select drum grid subdivisions" {
     app.drum_track = 2;
 
     try std.testing.expectEqual(ws.time_grid.Division.sixteenth, app.drum_grid);
-    _ = drum_ed.handleKey(&app, .{ .char = 'Z' });
+    _ = drum_ed.handleKey(&app, .{ .char = 'z' });
+    _ = drum_ed.handleKey(&app, .{ .char = 'G' });
     try std.testing.expectEqual(ws.time_grid.Division.eighth, app.drum_grid);
     _ = drum_ed.handleKey(&app, .{ .char = 'z' });
+    _ = drum_ed.handleKey(&app, .{ .char = 'g' });
     try std.testing.expectEqual(ws.time_grid.Division.sixteenth, app.drum_grid);
     _ = drum_ed.handleKey(&app, .{ .char = 'z' });
+    _ = drum_ed.handleKey(&app, .{ .char = 'g' });
     try std.testing.expectEqual(ws.time_grid.Division.thirty_second, app.drum_grid);
 }
 
@@ -1187,6 +1192,7 @@ test "drum grid m/M set a pad's own loop length, undoably, and rescale on zoom" 
 
     // A grid change preserves musical time, loop length included.
     app.handleKey(.{ .char = 'z' }, 0);
+    app.handleKey(.{ .char = 'g' }, 0);
     try std.testing.expectEqual((steps - 1) * 2, dm.pad_len[0]);
 }
 
@@ -1202,7 +1208,8 @@ test "drum grid Z refuses to coarsen the grid when it would collide two hits" {
     step_grid.setStep(dm, 0, 2, true, ws.dsp.DrumMachine.vel_full);
     const before_count = app.history.undo_stack.items.len;
 
-    _ = drum_ed.handleKey(&app, .{ .char = 'Z' });
+    _ = drum_ed.handleKey(&app, .{ .char = 'z' });
+    _ = drum_ed.handleKey(&app, .{ .char = 'G' });
 
     try std.testing.expectEqual(ws.time_grid.Division.sixteenth, app.drum_grid);
     try std.testing.expect(dm.stepActive(0, 1));
@@ -1855,7 +1862,8 @@ test "z and Z select piano roll subdivisions through 1/128" {
     try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "1/16") != null);
 
-    _ = piano_ed.handleKey(&app, .{ .char = 'Z' });
+    _ = piano_ed.handleKey(&app, .{ .char = 'z' });
+    _ = piano_ed.handleKey(&app, .{ .char = 'G' });
     try std.testing.expectEqual(ws.time_grid.Division.eighth, app.piano_division);
 
     w = std.Io.Writer.fixed(&buf);
@@ -1865,12 +1873,17 @@ test "z and Z select piano roll subdivisions through 1/128" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "1/8") != null);
 
     _ = piano_ed.handleKey(&app, .{ .char = 'z' });
+    _ = piano_ed.handleKey(&app, .{ .char = 'g' });
     try std.testing.expectEqual(ws.time_grid.Division.sixteenth, app.piano_division);
     _ = piano_ed.handleKey(&app, .{ .char = 'z' });
+    _ = piano_ed.handleKey(&app, .{ .char = 'g' });
     try std.testing.expectEqual(ws.time_grid.Division.thirty_second, app.piano_division);
     _ = piano_ed.handleKey(&app, .{ .char = 'z' });
+    _ = piano_ed.handleKey(&app, .{ .char = 'g' });
     _ = piano_ed.handleKey(&app, .{ .char = 'z' });
+    _ = piano_ed.handleKey(&app, .{ .char = 'g' });
     _ = piano_ed.handleKey(&app, .{ .char = 'z' });
+    _ = piano_ed.handleKey(&app, .{ .char = 'g' });
     try std.testing.expectEqual(ws.time_grid.Division.one_twenty_eighth, app.piano_division);
     app.piano_cursor_step = 1;
     _ = piano_ed.handleKey(&app, .enter);
@@ -1964,7 +1977,8 @@ test "z and Z select arrangement grid subdivisions" {
     try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "1/4") != null);
 
-    app.handleKey(.{ .char = 'Z' }, 0);
+    app.handleKey(.{ .char = 'z' }, 0);
+    app.handleKey(.{ .char = 'G' }, 0);
     try std.testing.expectEqual(ws.time_grid.Division.quarter, app.arr_grid);
 
     w = std.Io.Writer.fixed(&buf);
@@ -1974,10 +1988,13 @@ test "z and Z select arrangement grid subdivisions" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "1/4") != null);
 
     app.handleKey(.{ .char = 'z' }, 0);
+    app.handleKey(.{ .char = 'g' }, 0);
     try std.testing.expectEqual(ws.time_grid.Division.eighth, app.arr_grid);
     app.handleKey(.{ .char = 'z' }, 0);
+    app.handleKey(.{ .char = 'g' }, 0);
     try std.testing.expectEqual(ws.time_grid.Division.sixteenth, app.arr_grid);
     app.handleKey(.{ .char = 'z' }, 0);
+    app.handleKey(.{ .char = 'g' }, 0);
     try std.testing.expectEqual(ws.time_grid.Division.thirty_second, app.arr_grid);
 }
 
@@ -1986,7 +2003,10 @@ test "arrangement places moves and cuts clips on the 1/128 grid" {
     defer app.deinit();
     app.view = .arrangement;
     app.cursor = 0;
-    for (0..5) |_| app.handleKey(.{ .char = 'z' }, 0);
+    for (0..5) |_| {
+        app.handleKey(.{ .char = 'z' }, 0);
+        app.handleKey(.{ .char = 'g' }, 0);
+    }
     try std.testing.expectEqual(ws.time_grid.Division.one_twenty_eighth, app.arr_grid);
 
     app.arr_cursor_bar = 1;
