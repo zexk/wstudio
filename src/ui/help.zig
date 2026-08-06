@@ -267,11 +267,11 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("+ / -",        "lengthen / shorten loop (1-64 steps)");
     t.key("E",            "double loop length and copy its content (up to 64 steps)");
     t.key("O",            "replace the grid with slices sequenced once in source order");
-    t.key("[ / ]",        "nudge current slice's start earlier / later (watch the waveform)");
+    t.key("( / )",        "nudge current slice's start earlier / later (watch the waveform)");
     t.key("{ / }",        "nudge current slice's end earlier / later");
     t.key("r",            "toggle current slice's reverse");
     t.key("< / >",        "swing (50% straight ... 75% hardest shuffle)");
-    t.key("( / )",        "prev / next pattern variant (A–H; [ ] are boundary nudges here)");
+    t.key("[ / ]",        "prev / next pattern variant (A–H; the drum grid's same pair)");
     t.key("N / D",        "new pattern variant (copy of current) / delete current");
     t.key("C",            "cycle current slice's choke group (grouped slices cut each other)");
     t.key("e",            "edit the cursor slice in the full sampler editor (pitch, ADSR, gain, pan)");

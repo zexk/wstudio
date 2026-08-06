@@ -683,7 +683,7 @@ test "slicer grid: navigation and per-slice param nudges stay within bounds" {
     // Boundary/reverse nudges ride the command queue (like every other
     // instrument param), so they land when the engine processes a block.
     const start_before = app.slicerInst().slices[3].start_norm;
-    _ = slicer_ed.handleKey(&app, .{ .char = ']' });
+    _ = slicer_ed.handleKey(&app, .{ .char = ')' });
     _ = slicer_ed.handleKey(&app, .{ .char = 'r' });
     var block: [64]types.Sample = undefined;
     app.session.engine.process(&block);
@@ -932,7 +932,7 @@ test "slicer grid: e opens the sampler editor on the cursor slice and returns" {
     try std.testing.expectEqual(AppView.slicer_grid, app.view);
 }
 
-test "slicer grid: variant bank keys ( ) N D, undoable as one stack" {
+test "slicer grid: variant bank keys [ ] N D, undoable as one stack" {
     var app = try testApp();
     defer app.deinit();
     try app.session.setInstrument(0, .slicer);
@@ -947,10 +947,10 @@ test "slicer grid: variant bank keys ( ) N D, undoable as one stack" {
     _ = slicer_ed.handleKey(&app, .{ .char = 'x' }); // B diverges: clear the step
     try std.testing.expect(!app.slicerInst().stepActive(0, 0));
 
-    _ = slicer_ed.handleKey(&app, .{ .char = '(' }); // back to A
+    _ = slicer_ed.handleKey(&app, .{ .char = '[' }); // back to A
     try std.testing.expectEqual(@as(u8, 0), app.slicerInst().variant);
     try std.testing.expect(app.slicerInst().stepActive(0, 0));
-    _ = slicer_ed.handleKey(&app, .{ .char = ')' }); // forward to B
+    _ = slicer_ed.handleKey(&app, .{ .char = ']' }); // forward to B
     try std.testing.expect(!app.slicerInst().stepActive(0, 0));
 
     _ = slicer_ed.handleKey(&app, .{ .char = 'D' }); // delete B

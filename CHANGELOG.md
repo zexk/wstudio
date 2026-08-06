@@ -36,6 +36,8 @@ history lives in [FORMAT.md](FORMAT.md).
 
 - Time, rate, frequency, Q, and portamento controls use perceptual editor
   scaling, preserving fine control over short and low values.
+- The slicer grid's pattern-variant keys are now `[`/`]`, the same pair the
+  drum grid uses; the slice-start nudge moves to `(`/`)`.
 
 ## v1.0.0-beta.9
 

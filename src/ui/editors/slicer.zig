@@ -208,8 +208,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // in the slice editor on 'e'.
                 'r' => nudgeSliceParam(app, 9, 1),
                 // zig fmt: off
-                '[' => nudgeSliceParam(app, 0, -app.takeCount()),
-                ']' => nudgeSliceParam(app, 0, app.takeCount()),
+                '(' => nudgeSliceParam(app, 0, -app.takeCount()),
+                ')' => nudgeSliceParam(app, 0, app.takeCount()),
                 '{' => nudgeSliceParam(app, 1, -app.takeCount()),
                 '}' => nudgeSliceParam(app, 1, app.takeCount()),
                 '<' => adjustSwing(app, -1.0),
@@ -273,10 +273,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'U' => history.doRedo(app),
                 'p', 'P' => pasteSelection(app),
                 '.' => repeatLastEdit(app),
-                // (/) cycle the pattern variant - [ and ] (the drum grid's
-                // variant keys) belong to boundary nudges here.
-                '(' => cycleVariant(app, -1),
-                ')' => cycleVariant(app, 1),
+                // [/] cycle the pattern variant - the same pair as the drum
+                // grid; ( ) nudge the slice start instead (see above).
+                '[' => cycleVariant(app, -1),
+                ']' => cycleVariant(app, 1),
                 'N' => {
                     if (sl.variant_count < Slicer.max_variants)
                         history.recordSlicer(app, app.slicer_track);
