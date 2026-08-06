@@ -607,6 +607,21 @@ pub const App = struct {
     /// by `f`/`F` - see `dsp.pattern.NoteField`. Global and not persisted,
     /// same bucket as `piano_grid`: a view setting, not part of the music.
     piano_note_field: ws.dsp.pattern.NoteField = .velocity,
+    /// Chord quality `c`/`C` stamp and `o`/`O` cycle - see
+    /// `theory.ChordQuality`. Global, not persisted, same bucket as
+    /// `piano_note_field`.
+    piano_chord_quality: ws.theory.ChordQuality = .triad,
+    /// Chord voicing `r`/`R` cycle in place - see `theory.Voicing`.
+    piano_chord_voicing: ws.theory.Voicing = .closed,
+    /// The last chord `c`/`C`/`o`/`O`/`r`/`R` stamped, so cycling quality or
+    /// voicing in place can clean up the previous shape's notes before
+    /// laying down the new one instead of leaving orphaned voices behind.
+    /// `beat < 0` means "nothing stamped yet, or the cursor moved since".
+    piano_chord_last: struct {
+        beat: f64 = -1,
+        pitches: [7]u7 = undefined,
+        count: u3 = 0,
+    } = .{},
     /// Piano-roll step grid: straight sixteenths (4 steps/beat) or
     /// sixteenth-note triplets (6 steps/beat), toggled by `T`. Global, not
     /// persisted - a display/editing aid like `piano_scale`.

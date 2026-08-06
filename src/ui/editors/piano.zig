@@ -242,8 +242,17 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'f' => { cycleNoteField(app, 1); return true; },
             'F' => { cycleNoteField(app, -1); return true; },
             '.' => { repeatLastEdit(app, pp, max_step); return true; },
-            'c' => { stampChord(app, false); return true; },
-            'C' => { stampChord(app, true); return true; },
+            'c' => { stampChord(app, app.piano_chord_quality, true); return true; },
+            // C: seventh, same as always - also sets the quality o/O cycle from.
+            'C' => { app.piano_chord_quality = .seventh; stampChord(app, .seventh, true); return true; },
+            // o/O cycle the chord quality (triad, 6th, 7th, 9th, 11th, 13th,
+            // sus2, sus4, add9, dim, aug) and re-stamp at the cursor, so
+            // holding the key auditions every shape in place. r/R likewise
+            // cycle the voicing (closed/drop2/open) of that same chord.
+            'o' => { cycleChordQuality(app, 1); return true; },
+            'O' => { cycleChordQuality(app, -1); return true; },
+            'r' => { cycleChordVoicing(app, 1); return true; },
+            'R' => { cycleChordVoicing(app, -1); return true; },
             'y' => { armOperator(app, 'y'); return true; },
             // p/P both paste the most recent yank (no linewise before/after
             // distinction): after yy a whole-pattern replace, after a
@@ -526,42 +535,85 @@ fn dropStamp(app: *App) void {
     dropGrab(app);
 }
 
-/// `c`/`C`: stamp a diatonic triad (`c`) or seventh chord (`C`) rooted at the
-/// cursor pitch, using the active `:scale` to harmonize it correctly (e.g.
-/// `c` on the 2nd degree of C major stacks D-F-A). With no scale set,
-/// defaults to a plain major shape rooted at the cursor note. A count prefix
-/// inverts: `1c` first inversion, `2c` second (clamped to the chord's voice
-/// count, see `Chord.inverted`); a bare `c` is root position, which is why
-/// this reads `modal.count` raw instead of `takeCount`'s default-to-1. A
-/// single-key edit - like insert/toggle/delete - so it's not part of `.`
-/// repeat; press it again at a new cursor.
-fn stampChord(app: *App, seventh: bool) void {
+/// `c`/`C`: stamp a chord rooted at the cursor pitch, using the active
+/// `:scale` to harmonize it correctly (e.g. `c` on the 2nd degree of C
+/// major stacks D-F-A). With no scale set, defaults to a plain major shape
+/// rooted at the cursor note. A count prefix inverts: `1c` first inversion,
+/// `2c` second (clamped to the chord's voice count, see `Chord.inverted`);
+/// a bare `c` is root position, which is why this reads `modal.count` raw
+/// instead of `takeCount`'s default-to-1. A single-key edit - like insert/
+/// toggle/delete - so it's not part of `.` repeat; press it again at a new
+/// cursor.
+///
+/// `c` stamps `app.piano_chord_quality` (a triad until changed); `C` always
+/// stamps `.seventh` and also sets the quality, matching the tool's
+/// long-standing "c/C = triad/7th" shortcut. `o`/`O` (see `cycleChordQuality`)
+/// and `r`/`R` (see `cycleChordVoicing`) cycle the quality/voicing and
+/// re-stamp in place - `cleanup_previous` tells this call to also clear out
+/// whatever the previous stamp at this same beat left behind, so cycling
+/// doesn't pile up orphaned voices.
+fn stampChord(app: *App, quality: theory.ChordQuality, cleanup_previous: bool) void {
     const pp = currentPatternPlayer(app) orelse return;
     const inversion: u3 = @intCast(@min(app.modal.count, 7));
     _ = app.takeCount();
     const scale = app.session.project.scale orelse
         theory.Scale{ .root = @intCast(app.piano_cursor_pitch % 12), .kind = .major };
-    const chord = scale.chordAt(app.piano_cursor_pitch, seventh).inverted(inversion);
+    const chord = scale.chordAt(app.piano_cursor_pitch, quality).inverted(inversion).voiced(app.piano_chord_voicing);
     const start_beat = stepToBeat(app, app.piano_cursor_step);
+
+    const last = app.piano_chord_last;
+    const reuse_last = cleanup_previous and last.beat == start_beat;
+
     var replacing: u16 = 0;
     for (chord.pitches[0..chord.count]) |pitch| {
         if (pp.noteStartsAt(pitch, start_beat)) replacing += 1;
     }
-    if (pp.note_count - replacing + chord.count > pattern_mod.max_notes) {
+    var removing: u16 = 0;
+    if (reuse_last) {
+        for (last.pitches[0..last.count]) |old| {
+            if (std.mem.indexOfScalar(u7, chord.pitches[0..chord.count], old) == null and pp.noteStartsAt(old, start_beat)) {
+                removing += 1;
+            }
+        }
+    }
+    if (pp.note_count - replacing - removing + chord.count > pattern_mod.max_notes) {
         app.setStatus("pattern full ({d} notes max)", .{pattern_mod.max_notes});
         return;
     }
     history.push(app, history.captureMelodic(app, app.piano_track));
+    if (reuse_last) {
+        for (last.pitches[0..last.count]) |old| {
+            if (std.mem.indexOfScalar(u7, chord.pitches[0..chord.count], old) == null) pp.removeNote(old, start_beat);
+        }
+    }
     for (chord.pitches[0..chord.count]) |pitch| {
         pp.removeNote(pitch, start_beat);
         _ = pp.tryAddNote(.{ .pitch = pitch, .start_beat = start_beat, .duration_beat = app.piano_note_len });
     }
+    app.piano_chord_last = .{ .beat = start_beat, .pitches = chord.pitches, .count = chord.count };
     if (inversion == 0) {
-        app.setStatus("chord: {d} notes", .{chord.count});
+        app.setStatus("chord: {s} ({s}), {d} notes", .{ quality.label(), app.piano_chord_voicing.label(), chord.count });
     } else {
-        app.setStatus("chord: {d} notes, inversion {d}", .{ chord.count, @min(inversion, chord.count - 1) });
+        app.setStatus("chord: {s} ({s}), {d} notes, inversion {d}", .{
+            quality.label(), app.piano_chord_voicing.label(), chord.count, @min(inversion, chord.count - 1),
+        });
     }
     syncLinkedClip(app);
+}
+
+/// `o`/`O`: cycle `app.piano_chord_quality` forward/back through
+/// `theory.ChordQuality` and re-stamp at the cursor - auditions every shape
+/// in place without re-picking notes. See `stampChord`'s `cleanup_previous`.
+fn cycleChordQuality(app: *App, delta: i32) void {
+    app.piano_chord_quality = app.piano_chord_quality.cycle(delta);
+    stampChord(app, app.piano_chord_quality, true);
+}
+
+/// `r`/`R`: cycle `app.piano_chord_voicing` (closed/drop2/open) and
+/// re-stamp the current quality wider or tighter in place.
+fn cycleChordVoicing(app: *App, delta: i32) void {
+    app.piano_chord_voicing = app.piano_chord_voicing.cycle(delta);
+    stampChord(app, app.piano_chord_quality, true);
 }
 
 /// Live recording: called from `App.applyAction`'s `.note` handler whenever

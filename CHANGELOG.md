@@ -28,6 +28,9 @@ history lives in [FORMAT.md](FORMAT.md).
   the cursor, on any track, and `:cc`/`:cc-clear` list and drop bindings.
 - Punch-in/out recording inside existing arrangement A/B bounds via `:punch`.
 - Recorded audio clips start with editable 5 ms boundary fades to prevent clicks.
+- Piano-roll chord stamping grows beyond triads and 7ths: `o`/`O` cycle chord
+  quality (6th, 9th, 11th, 13th, sus2, sus4, add9, dim, aug) and `r`/`R` cycle
+  voicing (closed, drop2, open), each re-stamping in place at the cursor.
 
 ### Changed
 

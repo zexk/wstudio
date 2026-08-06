@@ -56,6 +56,90 @@ pub const ScaleType = enum {
         if (eq(s, "chromatic")) return .chromatic;
         return null;
     }
+
+    /// Major-family vs minor-family mode, for `fixedChord`'s 3rd/7th flavor
+    /// when a chord quality isn't diatonically derived (sus/add9/dim/aug/6th).
+    pub fn isMinorish(self: ScaleType) bool {
+        return switch (self) {
+            .minor, .dorian, .phrygian, .locrian, .minor_pentatonic => true,
+            .major, .lydian, .mixolydian, .major_pentatonic, .chromatic => false,
+        };
+    }
+};
+
+/// The chord shape `c`/`C`/`o`/`O` stamp in the piano roll. `triad` through
+/// `thirteenth` stack diatonically (in scale-degree thirds) when the root
+/// sits on the active `:scale`; the rest are quality overrides that always
+/// use a fixed, scale-independent interval shape (a sus chord replaces the
+/// 3rd outright, so "diatonic sus2" isn't a meaningful thing to derive).
+pub const ChordQuality = enum {
+    triad,
+    sixth,
+    seventh,
+    ninth,
+    eleventh,
+    thirteenth,
+    sus2,
+    sus4,
+    add9,
+    dim,
+    aug,
+
+    pub const count = @typeInfo(ChordQuality).@"enum".fields.len;
+
+    pub fn cycle(self: ChordQuality, delta: i32) ChordQuality {
+        const cur: i32 = @intFromEnum(self);
+        return @enumFromInt(@mod(cur + delta, @as(i32, count)));
+    }
+
+    pub fn label(self: ChordQuality) []const u8 {
+        return switch (self) {
+            .triad => "triad",
+            .sixth => "6th",
+            .seventh => "7th",
+            .ninth => "9th",
+            .eleventh => "11th",
+            .thirteenth => "13th",
+            .sus2 => "sus2",
+            .sus4 => "sus4",
+            .add9 => "add9",
+            .dim => "dim",
+            .aug => "aug",
+        };
+    }
+
+    /// Diatonic third-stacking only makes sense for the tertian qualities -
+    /// sus/add9/dim/aug/6th are quality overrides, always a fixed shape.
+    fn isTertian(self: ChordQuality) bool {
+        return switch (self) {
+            .triad, .seventh, .ninth, .eleventh, .thirteenth => true,
+            .sixth, .sus2, .sus4, .add9, .dim, .aug => false,
+        };
+    }
+};
+
+/// A chord voicing spread applied in place - `r`/`R` cycle it in the piano
+/// roll, re-stamping the same chord wider or tighter without changing its
+/// root or quality.
+pub const Voicing = enum {
+    closed,
+    drop2,
+    open,
+
+    pub const count = @typeInfo(Voicing).@"enum".fields.len;
+
+    pub fn cycle(self: Voicing, delta: i32) Voicing {
+        const cur: i32 = @intFromEnum(self);
+        return @enumFromInt(@mod(cur + delta, @as(i32, count)));
+    }
+
+    pub fn label(self: Voicing) []const u8 {
+        return switch (self) {
+            .closed => "closed",
+            .drop2 => "drop2",
+            .open => "open",
+        };
+    }
 };
 
 const pc_names = [_][]const u8{ "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
@@ -125,7 +209,7 @@ pub const Scale = struct {
     }
 
     pub const Chord = struct {
-        pitches: [4]u7 = undefined,
+        pitches: [7]u7 = undefined,
         count: u3 = 0,
 
         /// Raise the lowest `n` chord tones by an octave: `n = 1` is first
@@ -143,18 +227,46 @@ pub const Scale = struct {
             }
             return out;
         }
+
+        /// Spread the chord wider (`drop2`: the 2nd-from-top voice drops an
+        /// octave, `open`: every other voice above the root pushed up an
+        /// octave) or back to `closed` (as stacked). All-or-nothing at the
+        /// MIDI range edges, like `inverted`.
+        pub fn voiced(self: Chord, kind: Voicing) Chord {
+            if (self.count < 2) return self;
+            var out = self;
+            switch (kind) {
+                .closed => {},
+                .drop2 => {
+                    const i = self.count - 2;
+                    if (@as(i32, out.pitches[i]) - 12 < 0) return self;
+                    out.pitches[i] -= 12;
+                },
+                .open => {
+                    var i: usize = 1;
+                    while (i < out.count) : (i += 2) {
+                        if (@as(i32, out.pitches[i]) + 12 > 127) return self;
+                        out.pitches[i] += 12;
+                    }
+                },
+            }
+            return out;
+        }
     };
 
-    /// The diatonic triad (`seventh = false`) or seventh chord stacked from
-    /// `pitch` using this scale's degrees - e.g. in C major, chordAt(D,
-    /// false) gives D-F-A (ii). Falls back to a plain major/major-7th shape
-    /// rooted at `pitch` when it doesn't sit on the scale (a chromatic
-    /// passing tone) or the scale is pentatonic/chromatic, where stacking
-    /// scale-degree thirds doesn't produce an ordinary triad.
-    pub fn chordAt(self: Scale, pitch: u7, seventh: bool) Chord {
+    /// The chord of `quality` stacked from `pitch` using this scale's
+    /// degrees - e.g. in C major, chordAt(D, .triad) gives D-F-A (ii).
+    /// Falls back to a fixed shape rooted at `pitch` (major or minor by the
+    /// scale's mode, see `ScaleType.isMinorish`) when `quality` isn't
+    /// tertian (sus/add9/dim/aug/6th - see `ChordQuality.isTertian`),
+    /// `pitch` doesn't sit on the scale (a chromatic passing tone), or the
+    /// scale is pentatonic/chromatic, where stacking scale-degree thirds
+    /// doesn't produce an ordinary chord.
+    pub fn chordAt(self: Scale, pitch: u7, quality: ChordQuality) Chord {
+        const minor = self.kind.isMinorish();
+        if (!quality.isTertian()) return fixedChord(pitch, minor, quality);
         switch (self.kind) {
-            .major_pentatonic, .chromatic => return fixedChord(pitch, false, seventh),
-            .minor_pentatonic => return fixedChord(pitch, true, seventh),
+            .major_pentatonic, .minor_pentatonic, .chromatic => return fixedChord(pitch, minor, quality),
             else => {},
         }
         const iv = self.kind.intervals();
@@ -166,9 +278,16 @@ pub const Scale = struct {
             if (@as(i32, v) == pc) { idx = i; break; }
             // zig fmt: on
         }
-        const root_idx = idx orelse return fixedChord(pitch, false, seventh);
+        const root_idx = idx orelse return fixedChord(pitch, minor, quality);
         const base: i32 = @as(i32, pitch) - pc;
-        const steps: []const usize = if (seventh) &[_]usize{ 0, 2, 4, 6 } else &[_]usize{ 0, 2, 4 };
+        const steps: []const usize = switch (quality) {
+            .triad => &[_]usize{ 0, 2, 4 },
+            .seventh => &[_]usize{ 0, 2, 4, 6 },
+            .ninth => &[_]usize{ 0, 2, 4, 6, 8 },
+            .eleventh => &[_]usize{ 0, 2, 4, 6, 8, 10 },
+            .thirteenth => &[_]usize{ 0, 2, 4, 6, 8, 10, 12 },
+            else => unreachable, // isTertian() guards this
+        };
         var out: Chord = .{};
         for (steps) |s| {
             const deg = root_idx + s;
@@ -183,11 +302,23 @@ pub const Scale = struct {
     }
 };
 
-fn fixedChord(pitch: u7, minor: bool, seventh: bool) Scale.Chord {
-    const shape: []const i32 = if (minor)
-        (if (seventh) &[_]i32{ 0, 3, 7, 10 } else &[_]i32{ 0, 3, 7 })
-    else
-        (if (seventh) &[_]i32{ 0, 4, 7, 11 } else &[_]i32{ 0, 4, 7 });
+/// Fixed, scale-independent interval shape for `quality` rooted at `pitch`.
+/// `minor` picks the 3rd/7th/9th/13th flavor for the qualities that have
+/// one; sus2/sus4/dim/aug have no diatonic 3rd and ignore it.
+fn fixedChord(pitch: u7, minor: bool, quality: ChordQuality) Scale.Chord {
+    const shape: []const i32 = switch (quality) {
+        .triad => if (minor) &[_]i32{ 0, 3, 7 } else &[_]i32{ 0, 4, 7 },
+        .sixth => if (minor) &[_]i32{ 0, 3, 7, 9 } else &[_]i32{ 0, 4, 7, 9 },
+        .seventh => if (minor) &[_]i32{ 0, 3, 7, 10 } else &[_]i32{ 0, 4, 7, 11 },
+        .ninth => if (minor) &[_]i32{ 0, 3, 7, 10, 14 } else &[_]i32{ 0, 4, 7, 11, 14 },
+        .eleventh => if (minor) &[_]i32{ 0, 3, 7, 10, 14, 17 } else &[_]i32{ 0, 4, 7, 11, 14, 17 },
+        .thirteenth => if (minor) &[_]i32{ 0, 3, 7, 10, 14, 17, 21 } else &[_]i32{ 0, 4, 7, 11, 14, 17, 21 },
+        .sus2 => &[_]i32{ 0, 2, 7 },
+        .sus4 => &[_]i32{ 0, 5, 7 },
+        .add9 => if (minor) &[_]i32{ 0, 3, 7, 14 } else &[_]i32{ 0, 4, 7, 14 },
+        .dim => &[_]i32{ 0, 3, 6 },
+        .aug => &[_]i32{ 0, 4, 8 },
+    };
     var out: Scale.Chord = .{};
     for (shape) |iv| {
         const note = @as(i32, pitch) + iv;
@@ -223,7 +354,7 @@ test "Scale.contains: root transposed" {
 
 test "chordAt: C major ii is D-F-A" {
     const s = Scale{ .root = 0, .kind = .major };
-    const c = s.chordAt(62, false); // D4
+    const c = s.chordAt(62, .triad); // D4
     try std.testing.expectEqual(@as(u3, 3), c.count);
     try std.testing.expectEqual(@as(u7, 62), c.pitches[0]); // D
     try std.testing.expectEqual(@as(u7, 65), c.pitches[1]); // F
@@ -232,7 +363,7 @@ test "chordAt: C major ii is D-F-A" {
 
 test "chordAt: C major V7 is G-B-D-F" {
     const s = Scale{ .root = 0, .kind = .major };
-    const c = s.chordAt(67, true); // G4
+    const c = s.chordAt(67, .seventh); // G4
     try std.testing.expectEqual(@as(u3, 4), c.count);
     try std.testing.expectEqual(@as(u7, 67), c.pitches[0]); // G
     try std.testing.expectEqual(@as(u7, 71), c.pitches[1]); // B
@@ -240,9 +371,16 @@ test "chordAt: C major V7 is G-B-D-F" {
     try std.testing.expectEqual(@as(u7, 77), c.pitches[3]); // F5
 }
 
+test "chordAt: C major V9 stacks a 5th third on top of the V7" {
+    const s = Scale{ .root = 0, .kind = .major };
+    const c = s.chordAt(67, .ninth); // G4
+    try std.testing.expectEqual(@as(u3, 5), c.count);
+    try std.testing.expectEqualSlices(u7, &.{ 67, 71, 74, 77, 81 }, c.pitches[0..5]);
+}
+
 test "chordAt: no scale (default major) gives a plain major triad" {
     const s = Scale{ .root = 61 % 12, .kind = .major };
-    const c = s.chordAt(61, false); // C#
+    const c = s.chordAt(61, .triad); // C#
     try std.testing.expectEqual(@as(u7, 61), c.pitches[0]);
     try std.testing.expectEqual(@as(u7, 65), c.pitches[1]);
     try std.testing.expectEqual(@as(u7, 68), c.pitches[2]);
@@ -250,7 +388,7 @@ test "chordAt: no scale (default major) gives a plain major triad" {
 
 test "chordAt: chromatic passing tone falls back to major shape" {
     const s = Scale{ .root = 0, .kind = .major };
-    const c = s.chordAt(61, false); // C#, not in C major
+    const c = s.chordAt(61, .triad); // C#, not in C major
     try std.testing.expectEqual(@as(u7, 61), c.pitches[0]);
     try std.testing.expectEqual(@as(u7, 65), c.pitches[1]);
     try std.testing.expectEqual(@as(u7, 68), c.pitches[2]);
@@ -258,20 +396,33 @@ test "chordAt: chromatic passing tone falls back to major shape" {
 
 test "chordAt: minor pentatonic uses the fixed minor shape" {
     const s = Scale{ .root = 0, .kind = .minor_pentatonic };
-    const c = s.chordAt(60, true);
+    const c = s.chordAt(60, .seventh);
     try std.testing.expectEqual(@as(u3, 4), c.count);
-    try std.testing.expectEqualSlices(u7, &.{ 60, 63, 67, 70 }, &c.pitches);
+    try std.testing.expectEqualSlices(u7, &.{ 60, 63, 67, 70 }, c.pitches[0..4]);
 }
 
 test "chordAt: voices past the MIDI ceiling are omitted" {
-    const c = (Scale{ .root = 7, .kind = .major }).chordAt(127, true);
+    const c = (Scale{ .root = 7, .kind = .major }).chordAt(127, .seventh);
     try std.testing.expectEqual(@as(u3, 1), c.count);
     try std.testing.expectEqual(@as(u7, 127), c.pitches[0]);
 }
 
+test "chordAt: sus2/sus4/dim/aug are fixed shapes regardless of scale" {
+    const s = Scale{ .root = 0, .kind = .major };
+    try std.testing.expectEqualSlices(u7, &.{ 60, 62, 67 }, s.chordAt(60, .sus2).pitches[0..3]);
+    try std.testing.expectEqualSlices(u7, &.{ 60, 65, 67 }, s.chordAt(60, .sus4).pitches[0..3]);
+    try std.testing.expectEqualSlices(u7, &.{ 60, 63, 66 }, s.chordAt(60, .dim).pitches[0..3]);
+    try std.testing.expectEqualSlices(u7, &.{ 60, 64, 68 }, s.chordAt(60, .aug).pitches[0..3]);
+}
+
+test "chordAt: sixth/add9 flavor by the scale's mode" {
+    try std.testing.expectEqualSlices(u7, &.{ 60, 64, 67, 69 }, (Scale{ .root = 0, .kind = .major }).chordAt(60, .sixth).pitches[0..4]);
+    try std.testing.expectEqualSlices(u7, &.{ 60, 63, 67, 69 }, (Scale{ .root = 0, .kind = .minor }).chordAt(60, .sixth).pitches[0..4]);
+}
+
 test "Chord.inverted: raises the lowest voices, clamps a full rotation, bails at 127" {
     const s = Scale{ .root = 0, .kind = .major };
-    const triad = s.chordAt(60, false); // C-E-G
+    const triad = s.chordAt(60, .triad); // C-E-G
     try std.testing.expectEqualSlices(u7, &.{ 72, 64, 67 }, triad.inverted(1).pitches[0..3]);
     try std.testing.expectEqualSlices(u7, &.{ 72, 76, 67 }, triad.inverted(2).pitches[0..3]);
     // A triad has only two inversions; more is the same chord an octave up,
@@ -280,8 +431,26 @@ test "Chord.inverted: raises the lowest voices, clamps a full rotation, bails at
 
     // No room to raise the root: the chord comes back untouched, never with
     // two voices stacked on the same clamped pitch.
-    const high = s.chordAt(120, false); // 120-124-127
+    const high = s.chordAt(120, .triad); // 120-124-127
     try std.testing.expectEqualSlices(u7, high.pitches[0..3], high.inverted(1).pitches[0..3]);
+}
+
+test "Chord.voiced: drop2 drops the 2nd-from-top voice, open spreads alternate voices" {
+    const s = Scale{ .root = 0, .kind = .major };
+    const seventh = s.chordAt(60, .seventh); // C-E-G-B (60,64,67,71)
+    try std.testing.expectEqualSlices(u7, &.{ 60, 64, 55, 71 }, seventh.voiced(.drop2).pitches[0..4]);
+    try std.testing.expectEqualSlices(u7, &.{ 60, 76, 67, 83 }, seventh.voiced(.open).pitches[0..4]);
+    try std.testing.expectEqualSlices(u7, seventh.pitches[0..4], seventh.voiced(.closed).pitches[0..4]);
+
+    // No room to voice further: comes back untouched rather than clamping.
+    const high = s.chordAt(120, .triad); // 120-124-127
+    try std.testing.expectEqualSlices(u7, high.pitches[0..3], high.voiced(.open).pitches[0..3]);
+}
+
+test "ChordQuality.cycle and Voicing.cycle wrap around" {
+    try std.testing.expectEqual(ChordQuality.sixth, ChordQuality.triad.cycle(1));
+    try std.testing.expectEqual(ChordQuality.aug, ChordQuality.triad.cycle(-1));
+    try std.testing.expectEqual(Voicing.closed, Voicing.open.cycle(1));
 }
 
 test "parsePitchClass: letters, sharps, flats" {
