@@ -504,7 +504,7 @@ test "finishRecording creates one audio source and region from synthetic capture
     const region = lane.clips.items[0].content.audio;
     try std.testing.expectEqual(app.session.project.audio_sources.items[0].id, region.source_id);
     try std.testing.expectEqual(@as(u64, 5), region.source_length_frames);
-    try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "recorded 1 clip(s)");
+    try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "recorded 1 take(s)");
 
     history.doUndo(&app);
     try std.testing.expectEqual(old_clip_count, app.session.arrangement.lane(1).?.clips.items.len);
@@ -2977,6 +2977,29 @@ test "arrangement e on a drum clip stays put" {
     app.handleKey(.{ .char = 'e' }, 0);
     try std.testing.expectEqual(AppView.arrangement, app.view);
     try std.testing.expect(app.piano_clip_link == null);
+}
+
+test "loop recording splits passes into alternate takes" {
+    var app = try testApp();
+    defer app.deinit();
+    app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
+    app.recording_active_len = 1;
+    app.recording_active_buf[0] = 1;
+    app.recording_loop_start_bar = 2;
+    app.recording_loop_end_bar = 4;
+    try app.recording_accum.appendNTimes(app.allocator, 0.5, 18);
+
+    app.finishRecording();
+
+    try std.testing.expectEqual(@as(usize, 3), app.session.project.audio_sources.items.len);
+    const clip = &app.session.arrangement.lane(1).?.clips.items[0];
+    try std.testing.expectEqual(@as(u32, 64), clip.start_tick);
+    try std.testing.expectEqual(@as(usize, 3), clip.content.audio.takeCount());
+    try std.testing.expectEqual(@as(u64, 2), clip.content.audio.source_length_frames);
+    try std.testing.expectEqual(@as(u64, 8), clip.content.audio.alternate_takes[0].?.source_length_frames);
+    try std.testing.expectEqual(@as(u64, 8), clip.content.audio.alternate_takes[1].?.source_length_frames);
+    history.doUndo(&app);
+    try std.testing.expectEqual(@as(usize, 0), app.session.arrangement.lane(1).?.clips.items.len);
 }
 
 test "audio region gain and fades edit at arrangement cursor and undo" {

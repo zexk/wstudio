@@ -452,6 +452,10 @@ pub const App = struct {
     /// marks a punch pass while loop wrapping is temporarily disabled.
     recording_punch_start_bar: ?u32 = null,
     recording_punch_end_bar: ?u32 = null,
+    /// Loop bounds captured when an audio record pass starts with A/B looping
+    /// enabled. Captured PCM is split into one alternate take per loop span.
+    recording_loop_start_bar: ?u32 = null,
+    recording_loop_end_bar: ?u32 = null,
     /// Audio-input capture for record-armed Sampler tracks (see
     /// `Session.isAudioArmed`). Opened only for the duration of a record
     /// pass by `startPendingRecording`, closed by `finishRecording` -
@@ -2755,6 +2759,8 @@ pub const App = struct {
                 self.setStatus("record: recovery take kept at {s}", .{take.pathSlice()});
                 self.recording_active_len = 0;
                 self.recording_take = null;
+                self.recording_loop_start_bar = null;
+                self.recording_loop_end_bar = null;
                 return;
             };
             defer self.allocator.free(bytes);
@@ -2762,6 +2768,8 @@ pub const App = struct {
                 self.setStatus("record: recovery take kept at {s}", .{take.pathSlice()});
                 self.recording_active_len = 0;
                 self.recording_take = null;
+                self.recording_loop_start_bar = null;
+                self.recording_loop_end_bar = null;
                 return;
             };
             disk_samples = parsed.samples;
@@ -2774,43 +2782,58 @@ pub const App = struct {
             if (self.recording_take) |*take| take.discard();
             self.recording_take = null;
             self.recording_active_len = 0;
+            self.recording_loop_start_bar = null;
+            self.recording_loop_end_bar = null;
             return;
         }
 
         const bpm = @max(self.session.project.tempo_bpm, 1.0);
         const sr_f: f64 = @floatFromInt(self.session.project.sample_rate);
-        const beats = @as(f64, @floatFromInt(captured.len)) * bpm / (sr_f * 60.0);
-        const length_ticks: u32 = @max(1, @as(u32, @intFromFloat(@ceil(beats * ws.time_grid.ticks_per_beat))));
         const source_path = if (self.recording_take) |*take| take.pathSlice() else "recorded";
-        const source_id = self.session.project.addAudioSource(source_path, self.session.project.sample_rate, 1, captured) catch {
-            self.setStatus("record: cannot attach recovery take", .{});
-            self.recording_active_len = 0;
-            self.recording_take = null;
-            return;
-        };
+        const loop_bars = if (self.recording_loop_start_bar != null and self.recording_loop_end_bar.? > self.recording_loop_start_bar.?)
+            self.recording_loop_end_bar.? - self.recording_loop_start_bar.?
+        else
+            0;
+        const loop_frames: usize = if (loop_bars > 0)
+            @intCast(@min(@as(u64, loop_bars) *| self.session.project.framesPerBar(), std.math.maxInt(usize)))
+        else
+            captured.len;
+        const take_count = (captured.len + loop_frames - 1) / loop_frames;
+        const start_bar = self.recording_punch_start_bar orelse self.recording_loop_start_bar orelse self.arr_cursor_bar;
+        const start_tick = start_bar *| self.arr_grid.ticks();
+        for (targets) |track_idx| history.recordLane(self, track_idx);
+
         var clip_count: usize = 0;
-        for (targets) |track_idx| {
-            const start_bar = self.recording_punch_start_bar orelse self.arr_cursor_bar;
-            const start_tick = start_bar *| self.arr_grid.ticks();
-            const lane = self.session.arrangement.lane(track_idx) orelse continue;
-            history.recordLane(self, track_idx);
-            if (lane.clipAt(start_tick)) |clip| {
-                if (clip.start_tick == start_tick and clip.addAudioTake(.{
+        for (0..take_count) |take_index| {
+            const lo = take_index * loop_frames;
+            const hi = @min(lo + loop_frames, captured.len);
+            const take_samples = captured[lo..hi];
+            const beats = @as(f64, @floatFromInt(take_samples.len)) * bpm / (sr_f * 60.0);
+            const length_ticks: u32 = if (loop_bars > 0 and take_samples.len == loop_frames)
+                loop_bars *| ws.time_grid.barTicks(self.session.project.beats_per_bar)
+            else
+                @max(1, @as(u32, @intFromFloat(@ceil(beats * ws.time_grid.ticks_per_beat))));
+            const source_id = self.session.project.addAudioSource(source_path, self.session.project.sample_rate, 1, take_samples) catch continue;
+            for (targets) |track_idx| {
+                const lane = self.session.arrangement.lane(track_idx) orelse continue;
+                if (lane.clipAt(start_tick)) |clip| {
+                    if (clip.start_tick == start_tick and clip.addAudioTake(.{
+                        .source_id = source_id,
+                        .source_start_frame = 0,
+                        .source_length_frames = take_samples.len,
+                        .length_ticks = length_ticks,
+                    })) {
+                        clip_count += 1;
+                        continue;
+                    }
+                }
+                lane.place(self.allocator, ws.Clip.initAudio(start_tick, length_ticks, .{
                     .source_id = source_id,
                     .source_start_frame = 0,
-                    .source_length_frames = captured.len,
-                    .length_ticks = length_ticks,
-                })) {
-                    clip_count += 1;
-                    continue;
-                }
+                    .source_length_frames = take_samples.len,
+                })) catch continue;
+                clip_count += 1;
             }
-            lane.place(self.allocator, ws.Clip.initAudio(start_tick, length_ticks, .{
-                .source_id = source_id,
-                .source_start_frame = 0,
-                .source_length_frames = captured.len,
-            })) catch continue;
-            clip_count += 1;
         }
         if (self.session.song_mode) self.session.rebuildSongData();
 
@@ -2818,7 +2841,7 @@ pub const App = struct {
         if (self.recording_first_dropout_frame) |frame| {
             self.setStatus("recorded {d} clip(s), dropout {d} frames at frame {d}", .{ clip_count, self.recording_dropout_frames, frame });
         } else {
-            self.setStatus("recorded {d} clip(s) ({d:.1}s)", .{ clip_count, secs });
+            self.setStatus("recorded {d} take(s) on {d} track(s) ({d:.1}s)", .{ take_count, targets.len, secs });
         }
         if (clip_count > 0) self.dirty = true;
         self.recording_take = null;
@@ -2826,6 +2849,8 @@ pub const App = struct {
         self.recording_first_dropout_frame = null;
         self.recording_capture_base_frame = null;
         self.recording_active_len = 0;
+        self.recording_loop_start_bar = null;
+        self.recording_loop_end_bar = null;
     }
 
     /// t taps the tempo: each tap after the first sets the BPM from the
@@ -3333,6 +3358,8 @@ pub const App = struct {
                     if (self.recording_punch_start_bar != null) self.session.syncLoop();
                     self.recording_punch_start_bar = null;
                     self.recording_punch_end_bar = null;
+                    self.recording_loop_start_bar = null;
+                    self.recording_loop_end_bar = null;
                     self.setStatus("count-in cancelled", .{});
                 } else if (!snap.playing and (self.hasArmedAudioTarget() or
                     (self.modal.mode == .insert and (self.view == .piano_roll or self.view == .drum_grid or self.view == .slicer_grid))))
@@ -3351,6 +3378,8 @@ pub const App = struct {
                     self.resolveArmedAudioTargets();
                     self.recording_punch_start_bar = if (self.punch_enabled) self.session.project.loop_start_bar else null;
                     self.recording_punch_end_bar = if (self.punch_enabled) self.session.project.loop_end_bar else null;
+                    self.recording_loop_start_bar = if (!self.punch_enabled and self.session.project.loop_enabled) self.session.project.loop_start_bar else null;
+                    self.recording_loop_end_bar = if (self.recording_loop_start_bar != null) self.session.project.loop_end_bar else null;
                     if (self.punch_enabled) {
                         const fpb = self.session.project.framesPerBar();
                         _ = self.session.engine.send(.{ .set_loop = .{
@@ -3358,6 +3387,8 @@ pub const App = struct {
                             .start_frames = @as(u64, self.session.project.loop_start_bar) *| fpb,
                             .end_frames = @as(u64, self.session.project.loop_end_bar) *| fpb,
                         } });
+                    } else if (self.recording_loop_start_bar) |start_bar| {
+                        _ = self.session.engine.send(.{ .seek_frames = @as(u64, start_bar) *| self.session.project.framesPerBar() });
                     }
                     _ = self.session.engine.send(.{ .record = self.count_in_bars });
                     if (self.count_in_bars > 0) self.setStatus("count-in...", .{});
@@ -4277,6 +4308,8 @@ pub const App = struct {
         self.punch_enabled = false;
         self.recording_punch_start_bar = null;
         self.recording_punch_end_bar = null;
+        self.recording_loop_start_bar = null;
+        self.recording_loop_end_bar = null;
         self.history.clear(self.allocator);
         self.pending_param_nudge = null;
         if (self.pending_fx_nudge) |*p| p.deinit(self.allocator);
