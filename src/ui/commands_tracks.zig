@@ -436,13 +436,13 @@ pub fn cmdTrackSend(app: *App, args: []const u8) void {
     if (std.ascii.eqlIgnoreCase(target_str, "master")) {
         app.session.setTrackSend(track_idx, slot, .master, level_db);
         app.dirty = true;
-        app.setStatus("track {d} send {d} → master @ {d:.1}dB (uncompensated)", .{ track_1, slot_1, level_db });
+        app.setStatus("track {d} send {d} → master @ {d:.1}dB", .{ track_1, slot_1, level_db });
         return;
     }
     const idx = existingGroupArg(app, "track-send", target_str) orelse return;
     app.session.setTrackSend(track_idx, slot, .{ .group = idx }, level_db);
     app.dirty = true;
-    app.setStatus("track {d} send {d} → group {d} @ {d:.1}dB (uncompensated)", .{ track_1, slot_1, idx + 1, level_db });
+    app.setStatus("track {d} send {d} → group {d} @ {d:.1}dB", .{ track_1, slot_1, idx + 1, level_db });
 }
 
 /// `cmdRename` only reaches this while the drum grid is actually open, so
