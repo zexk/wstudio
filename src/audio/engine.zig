@@ -143,9 +143,9 @@ const SynthAutomationSlot = struct {
 };
 
 /// A device chain (track/master/group FX chain) as read by the audio
-/// thread while the control thread may be replacing it wholesale (adding,
-/// removing, or reordering FX/instrument slots) with no other
-/// synchronization between the two. `dsp.Device` is a two-word ptr+vtable
+/// thread while the control thread may replace it wholesale. The graph
+/// mutation gate excludes concurrent reads during publication. `dsp.Device`
+/// is a two-word ptr+vtable
 /// pair (see `dsp/device.zig`), not atomically writable as a single unit -
 /// an audio-thread read torn mid-overwrite could pair one device's data
 /// pointer with a DIFFERENT device type's vtable, calling the wrong
@@ -486,6 +486,12 @@ pub const Engine = struct {
     /// thread can drive process() into a file without racing the audio thread.
     bounce_active: std.atomic.Value(bool) = .init(false),
     bounce_parked: std.atomic.Value(bool) = .init(false),
+    /// Structural graph mutation gate. Audio owns it for one complete block;
+    /// control-side publishers wait for that block, then update coherent
+    /// pointer/routing banks. Audio never waits: if mutation already owns the
+    /// gate, that callback emits silence. Structural edits are rare enough
+    /// that one dropped block beats torn device/routing state.
+    graph_mutating: std.atomic.Value(bool) = .init(false),
     /// One gain/pan automation pair per track slot - see `TrackAutomation`'s
     /// doc comment for why this is a separate heap allocation rather than a
     /// field on `TrackState`. Indexed the same as `tracks`.
@@ -654,25 +660,12 @@ pub const Engine = struct {
     /// motion - they are indexed the same as `tracks` and would otherwise
     /// stay keyed to the pre-shift indices.
     ///
-    /// Called from the UI/control thread while the audio thread may be
-    /// mid-`process()`. Shifts POINTERS (single-word atomic stores), never
-    /// `TrackState` values - see `tracks`'s doc comment for why a raw
-    /// struct copy would be crash-capable here. `track_sidechain`/
-    /// `automation` stay plain value shifts (small POD arrays, no fat
-    /// pointers to tear) - same lower-severity "stale for one block" race
-    /// they already tolerated before this change, unaffected by it.
-    ///
-    /// Note: a multi-slot shift still can't be made atomic as a WHOLE
-    /// through per-slot pointer stores alone - for one instant mid-shift,
-    /// two adjacent slots briefly point at the same backing track, so an
-    /// audio-thread render pass unlucky enough to land in that window
-    /// could render that one track's instrument twice in the same block
-    /// (an audible glitch, self-corrects next block, not a crash). That
-    /// residual is pre-existing (the original value-copy version had the
-    /// same window) and out of scope here; only the type-confusion/crash
-    /// risk from copying `TrackState`'s `ChainBank` by value is what this
-    /// change closes.
+    /// `graph_mutating` excludes audio reads for this whole shift, including
+    /// parallel routing and automation arrays. Pointers move instead of
+    /// `TrackState` values so stable device state stays at one address.
     pub fn applyInsertTrack(self: *Engine, idx: u16, total: u16, gain: f32, pan: f32, muted: bool) void {
+        self.lockGraph();
+        defer self.unlockGraph();
         var i: usize = @min(total, max_tracks - 1);
         // The pointer about to be evicted from the visible range - nothing
         // in [idx, total] still needs its CURRENT content, so it's safe to
@@ -700,9 +693,10 @@ pub const Engine = struct {
     }
 
     /// Shift engine slots [idx+1, total) down by one, clearing the last slot.
-    /// Same parallel-array rule, and same pointer-vs-value/residual-glitch
-    /// notes, as `applyInsertTrack`.
+    /// Same graph-gate and stable-pointer rules as `applyInsertTrack`.
     pub fn applyDeleteTrack(self: *Engine, idx: u16, total: u16) void {
+        self.lockGraph();
+        defer self.unlockGraph();
         // The track actually being deleted - overwritten out of the visible
         // range by the very first loop iteration below, so nothing else
         // needs its content past this point.
@@ -722,12 +716,12 @@ pub const Engine = struct {
         self.track_count.store(total - 1, .release);
     }
 
-    /// Swap two tracks' engine slots (state + chain + the parallel
-    /// automation/sidechain rows) in place. Same race class as
-    /// applyInsertTrack/applyDeleteTrack - called from the UI/control
-    /// thread while the audio thread may be mid-block. Pointer swap, not a
-    /// value swap - see `tracks`'s doc comment.
+    /// Swap two tracks' engine slots, including parallel routing and
+    /// automation rows, under the graph gate. Pointer swap keeps device
+    /// state at stable addresses.
     pub fn swapTracks(self: *Engine, a: u16, b: u16) void {
+        self.lockGraph();
+        defer self.unlockGraph();
         const pa = self.tracks[a].load(.monotonic);
         const pb = self.tracks[b].load(.monotonic);
         self.tracks[a].store(pb, .release);
@@ -811,8 +805,19 @@ pub const Engine = struct {
     }
 
     pub fn setTrackChain(self: *Engine, track: u16, devices: []const dsp.Device) void {
+        self.lockGraph();
+        defer self.unlockGraph();
         self.trackAt(track).chain.set(devices);
         if (devices.len != 0) self.ensureTrackDelay(track);
+    }
+
+    /// Publish chain and its parallel sidechain routing as one graph change.
+    pub fn setTrackChainState(self: *Engine, track: u16, devices: []const dsp.Device, sources: []const ?Compressor.SidechainSource) void {
+        self.lockGraph();
+        defer self.unlockGraph();
+        self.trackAt(track).chain.set(devices);
+        if (devices.len != 0) self.ensureTrackDelay(track);
+        replaceSidechainSlots(&self.track_sidechain[@min(track, max_tracks - 1)], sources);
     }
 
     fn ensureTrackDelay(self: *Engine, track: u16) void {
@@ -865,6 +870,8 @@ pub const Engine = struct {
     /// whenever this track's Fx chain (re)syncs, since the audio thread
     /// never introspects chain contents to discover this itself.
     pub fn setTrackSidechainSources(self: *Engine, track: u16, sources: []const ?Compressor.SidechainSource) void {
+        self.lockGraph();
+        defer self.unlockGraph();
         replaceSidechainSlots(&self.track_sidechain[@min(track, max_tracks - 1)], sources);
     }
 
@@ -873,6 +880,8 @@ pub const Engine = struct {
     /// `setTrackSidechainSources`. Called by `Session.pushTrackSends`
     /// whenever a send target/level changes.
     pub fn setTrackSends(self: *Engine, track: u16, sends: TrackSendSlots) void {
+        self.lockGraph();
+        defer self.unlockGraph();
         self.track_sends[@min(track, max_tracks - 1)] = sends;
     }
 
@@ -880,12 +889,16 @@ pub const Engine = struct {
     /// `setTrackSends`. Called by `Session.syncModulation` whenever a
     /// controller's shape/rate/depth or target list changes.
     pub fn setControllers(self: *Engine, controllers: [max_controllers]?controller_mod.Controller) void {
+        self.lockGraph();
+        defer self.unlockGraph();
         self.controllers = controllers;
     }
 
     /// Replace the learned MIDI CC map (control thread), same discipline as
     /// `setControllers`.
     pub fn setCcBindings(self: *Engine, bindings: [max_cc_bindings]?controller_mod.CcBinding) void {
+        self.lockGraph();
+        defer self.unlockGraph();
         self.cc_bindings = bindings;
     }
 
@@ -952,11 +965,22 @@ pub const Engine = struct {
     /// Same shape as `setTrackChain` but for the master bus - no instrument
     /// slot, just whichever FX stages `Session.master_fx` has active.
     pub fn setMasterChain(self: *Engine, devices: []const dsp.Device) void {
+        self.lockGraph();
+        defer self.unlockGraph();
         self.master_chain.set(devices);
+    }
+
+    pub fn setMasterChainState(self: *Engine, devices: []const dsp.Device, sources: []const ?Compressor.SidechainSource) void {
+        self.lockGraph();
+        defer self.unlockGraph();
+        self.master_chain.set(devices);
+        replaceSidechainSlots(&self.master_sidechain_sources, sources);
     }
 
     /// Same shape as `setTrackSidechainSources` but for the master chain.
     pub fn setMasterSidechainSources(self: *Engine, sources: []const ?Compressor.SidechainSource) void {
+        self.lockGraph();
+        defer self.unlockGraph();
         replaceSidechainSlots(&self.master_sidechain_sources, sources);
     }
 
@@ -967,14 +991,28 @@ pub const Engine = struct {
     /// `syncMasterChain` already follows for the master bus.
     pub fn setGroupChain(self: *Engine, idx: u8, active: bool, devices: []const dsp.Device) void {
         if (idx >= max_groups) return;
+        self.lockGraph();
+        defer self.unlockGraph();
         const g = &self.groups[idx];
         g.active = active;
         g.chain.set(devices);
     }
 
+    pub fn setGroupChainState(self: *Engine, idx: u8, active: bool, devices: []const dsp.Device, sources: []const ?Compressor.SidechainSource) void {
+        if (idx >= max_groups) return;
+        self.lockGraph();
+        defer self.unlockGraph();
+        const g = &self.groups[idx];
+        g.active = active;
+        g.chain.set(devices);
+        replaceSidechainSlots(&g.sidechain_sources, sources);
+    }
+
     /// Same shape as `setTrackSidechainSources` but for group submix bus `idx`.
     pub fn setGroupSidechainSources(self: *Engine, idx: u8, sources: []const ?Compressor.SidechainSource) void {
         if (idx >= max_groups) return;
+        self.lockGraph();
+        defer self.unlockGraph();
         replaceSidechainSlots(&self.groups[idx].sidechain_sources, sources);
     }
 
@@ -1016,8 +1054,11 @@ pub const Engine = struct {
         const frames: u32 = @intCast(out.len / channels);
         std.debug.assert(frames <= types.max_block_frames);
 
-        self.drainCommands();
         @memset(out, 0.0);
+        if (self.graph_mutating.cmpxchgStrong(false, true, .acquire, .monotonic) != null) return;
+        defer self.graph_mutating.store(false, .release);
+
+        self.drainCommands();
         const track_count = self.track_count.load(.acquire);
         @memset(self.track_peak[0..track_count], .{ 0.0, 0.0 });
 
@@ -1086,6 +1127,14 @@ pub const Engine = struct {
         self.shared.lufs_short_term_bits.store(@bitCast(self.master_loudness.shortTerm()), .monotonic);
         self.shared.lufs_integrated_bits.store(@bitCast(self.master_loudness.integrated()), .monotonic);
         _ = self.shared.blocks_done.fetchAdd(1, .release);
+    }
+
+    fn lockGraph(self: *Engine) void {
+        while (self.graph_mutating.cmpxchgWeak(false, true, .acquire, .monotonic) != null) std.atomic.spinLoopHint();
+    }
+
+    fn unlockGraph(self: *Engine) void {
+        self.graph_mutating.store(false, .release);
     }
 
     /// How many blocks `process` has completed. A device that was still in a
@@ -1810,6 +1859,19 @@ const LatentImpulse = struct {
 
 test "engine rejects a zero sample rate" {
     try std.testing.expectError(error.InvalidSampleRate, Engine.init(std.testing.allocator, 0));
+}
+
+test "audio callback returns silence instead of waiting on a graph mutation" {
+    var e = try Engine.init(std.testing.allocator, 48_000);
+    defer e.deinit();
+    var out: [8]Sample = @splat(1.0);
+
+    e.lockGraph();
+    e.process(&out);
+    e.unlockGraph();
+
+    const silence: [8]Sample = @splat(0.0);
+    try std.testing.expectEqualSlices(Sample, &silence, &out);
 }
 
 test "plugin delay compensation aligns track impulses" {

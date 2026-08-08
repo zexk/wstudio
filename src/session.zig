@@ -1070,9 +1070,8 @@ pub const Session = struct {
     pub fn syncTrackChain(self: *Session, idx: u16, rack: *rack_mod.Rack) void {
         rack.fx.attachTransport(&self.engine.transport);
         var buf: [rack_mod.Rack.chain_cap]dsp.Device = undefined;
-        self.engine.setTrackChain(idx, rack.chain(&buf));
         var sc_buf: [rack_mod.Rack.chain_cap]?Compressor.SidechainSource = undefined;
-        self.engine.setTrackSidechainSources(idx, rack.sidechainSources(&sc_buf));
+        self.engine.setTrackChainState(idx, rack.chain(&buf), rack.sidechainSources(&sc_buf));
     }
 
     /// Push track `idx`'s aux-send list (`Track.sends`) to the audio thread
@@ -1138,9 +1137,8 @@ pub const Session = struct {
     pub fn syncMasterChain(self: *Session) void {
         self.master_fx.attachTransport(&self.engine.transport);
         var buf: [rack_mod.Fx.max_units]dsp.Device = undefined;
-        self.engine.setMasterChain(self.master_fx.chain(&buf));
         var sc_buf: [rack_mod.Fx.max_units]?Compressor.SidechainSource = undefined;
-        self.engine.setMasterSidechainSources(self.master_fx.sidechainSources(&sc_buf));
+        self.engine.setMasterChainState(self.master_fx.chain(&buf), self.master_fx.sidechainSources(&sc_buf));
     }
 
     /// Push group `idx`'s active FX units (and their sidechain-detector
@@ -1156,14 +1154,12 @@ pub const Session = struct {
         var sc_buf: [rack_mod.Fx.max_units]?Compressor.SidechainSource = undefined;
         if (self.groups[idx]) |*g| {
             g.fx.attachTransport(&self.engine.transport);
-            self.engine.setGroupChain(idx, true, g.fx.chain(&buf));
-            self.engine.setGroupSidechainSources(idx, g.fx.sidechainSources(&sc_buf));
+            self.engine.setGroupChainState(idx, true, g.fx.chain(&buf), g.fx.sidechainSources(&sc_buf));
             _ = self.engine.send(.{ .set_group_gain = .{ .group = idx, .gain = types.dbToGain(g.gain_db) } });
             _ = self.engine.send(.{ .set_group_mute = .{ .group = idx, .muted = g.muted } });
             _ = self.engine.send(.{ .set_group_solo = .{ .group = idx, .soloed = g.soloed } });
         } else {
-            self.engine.setGroupChain(idx, false, &.{});
-            self.engine.setGroupSidechainSources(idx, &.{});
+            self.engine.setGroupChainState(idx, false, &.{}, &.{});
             _ = self.engine.send(.{ .set_group_gain = .{ .group = idx, .gain = 1.0 } });
             _ = self.engine.send(.{ .set_group_mute = .{ .group = idx, .muted = false } });
             _ = self.engine.send(.{ .set_group_solo = .{ .group = idx, .soloed = false } });
