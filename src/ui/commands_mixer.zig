@@ -39,11 +39,24 @@ const cursorTrackIdx = cu.cursorTrackIdx;
 /// dst are the same backing buffer - which `app.project_path_buf` is.
 fn savePath(app: *App, args: []const u8, buf: []u8) []const u8 {
     const arg = std.mem.trim(u8, args, " ");
-    if (arg.len > 0) return expandHome(buf, arg);
+    if (arg.len > 0) return withDefaultProjectExtension(buf, expandHome(buf, arg));
     const p = app.projectPath() orelse app.defaultProjectPath();
     const len = @min(p.len, buf.len);
     @memcpy(buf[0..len], p[0..len]);
     return buf[0..len];
+}
+
+fn withDefaultProjectExtension(buf: []u8, path: []const u8) []const u8 {
+    if (std.fs.path.extension(path).len > 0 or path.len + ".wsj".len > buf.len) return path;
+    if (path.ptr != buf.ptr) @memcpy(buf[0..path.len], path);
+    @memcpy(buf[path.len..][0..".wsj".len], ".wsj");
+    return buf[0 .. path.len + ".wsj".len];
+}
+
+test "save paths default to wsj extension" {
+    var buf: [64]u8 = undefined;
+    try std.testing.expectEqualStrings("song.wsj", withDefaultProjectExtension(&buf, "song"));
+    try std.testing.expectEqualStrings("song.other", withDefaultProjectExtension(&buf, "song.other"));
 }
 
 pub fn cmdSave(app: *App, args: []const u8) void {
