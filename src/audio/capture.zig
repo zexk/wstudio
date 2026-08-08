@@ -20,6 +20,7 @@ const builtin = @import("builtin");
 const capture_types = @import("capture_types.zig");
 
 pub const CaptureBlock = capture_types.CaptureBlock;
+pub const Dropout = capture_types.Dropout;
 pub const chunk_frames = capture_types.chunk_frames;
 
 const has_alsa = builtin.os.tag == .linux;
@@ -88,6 +89,16 @@ pub const AudioInput = struct {
             .alsa => if (has_alsa) self.alsa.pop() else unreachable,
             .wasapi => if (has_wasapi) self.wasapi.pop() else unreachable,
             .coreaudio => if (has_coreaudio) self.coreaudio.pop() else unreachable,
+        };
+    }
+
+    pub fn popDropout(self: *AudioInput) ?Dropout {
+        const source = if (self.active != .none) self.active else self.stopped;
+        return switch (source) {
+            .none => null,
+            .alsa => if (has_alsa) self.alsa.popDropout() else unreachable,
+            .wasapi => if (has_wasapi) self.wasapi.popDropout() else unreachable,
+            .coreaudio => if (has_coreaudio) self.coreaudio.popDropout() else unreachable,
         };
     }
 };

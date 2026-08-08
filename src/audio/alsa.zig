@@ -115,12 +115,16 @@ pub const AlsaCapture = struct {
     thread: ?std.Thread = null,
     running: std.atomic.Value(bool) = .init(false),
     queue: capture_types.Queue = .{},
+    dropouts: capture_types.DropoutQueue = .{},
+    next_frame: u64 = 0,
 
     pub const Error = error{ InvalidSampleRate, DeviceOpenFailed, DeviceConfigFailed, ThreadSpawnFailed };
 
     pub fn start(self: *AlsaCapture, sample_rate: u32, device_name: []const u8) Error!void {
         try capture_types.validateSampleRate(sample_rate);
         while (self.queue.pop() != null) {}
+        while (self.dropouts.pop() != null) {}
+        self.next_frame = 0;
         var device_buf: [std.fs.max_path_bytes + 1]u8 = undefined;
         const device = std.fmt.bufPrintZ(&device_buf, "{s}", .{if (device_name.len > 0) device_name else "default"}) catch
             return error.DeviceOpenFailed;
@@ -169,6 +173,10 @@ pub const AlsaCapture = struct {
         return self.queue.pop();
     }
 
+    pub fn popDropout(self: *AlsaCapture) ?capture_types.Dropout {
+        return self.dropouts.pop();
+    }
+
     fn run(self: *AlsaCapture) void {
         const pcm = self.pcm.?;
         while (self.running.load(.acquire)) {
@@ -180,7 +188,9 @@ pub const AlsaCapture = struct {
                 continue;
             }
             block.frames = @intCast(read);
-            _ = self.queue.push(block); // drop on overflow, same tolerance as note_queue
+            block.start_frame = self.next_frame;
+            self.next_frame += block.frames;
+            if (!self.queue.push(block)) _ = self.dropouts.push(.{ .start_frame = block.start_frame, .frames = block.frames });
         }
     }
 };

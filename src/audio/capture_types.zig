@@ -20,10 +20,14 @@ pub fn validateSampleRate(sample_rate: u32) error{InvalidSampleRate}!void {
 pub const CaptureBlock = struct {
     samples: [chunk_frames]types.Sample = undefined,
     frames: u32 = 0,
+    start_frame: u64 = 0,
 };
+
+pub const Dropout = struct { start_frame: u64, frames: u32 };
 
 /// Capacity headroom between capture-thread pushes and the control
 /// thread's per-frame drain (see `App.tick`) - same lock-free tolerance
 /// `midi_in.zig`'s `note_queue` already accepts (a full queue just drops
 /// the newest block rather than blocking the capture thread).
 pub const Queue = Spsc(CaptureBlock, 32);
+pub const DropoutQueue = Spsc(Dropout, 32);

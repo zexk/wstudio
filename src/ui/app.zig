@@ -42,6 +42,7 @@ const help = @import("help.zig");
 const app_browser = @import("app_browser.zig");
 const app_completion = @import("app_completion.zig");
 const app_api = @import("app_api.zig");
+const RecordingTake = @import("recording_take.zig").RecordingTake;
 
 const Engine = engine_mod.Engine;
 const Sampler = ws.dsp.Sampler;
@@ -470,6 +471,12 @@ pub const App = struct {
     /// non-empty only between the count-in finishing and the pass ending.
     recording_active_buf: [32]u16 = undefined,
     recording_active_len: usize = 0,
+    /// Disk-backed active take. File remains in `.wstudio-recovery` after a
+    /// crash and carries a valid WAV header after every drained block.
+    recording_take: ?RecordingTake = null,
+    recording_dropout_frames: u64 = 0,
+    recording_first_dropout_frame: ?u64 = null,
+    recording_capture_base_frame: ?u64 = null,
     /// Mono samples captured so far this record pass, drained from
     /// `audio_input` once per `tick`. Every active target gets an
     /// independent copy of this same take (see `finishRecording`) - no
@@ -1037,6 +1044,7 @@ pub const App = struct {
 
     pub fn deinit(self: *App) void {
         if (self.audio_input.active != .none) self.audio_input.stop();
+        if (self.recording_take) |*take| take.finish();
         self.recording_accum.deinit(self.allocator);
         self.external_plugins.deinit();
         user_presets.deinit(self.allocator, &self.user_synth_presets);
@@ -2691,26 +2699,53 @@ pub const App = struct {
     fn startPendingRecording(self: *App) void {
         if (self.recording_pending_len == 0) return;
         if (self.audio_input.start(self.session.project.sample_rate, self.audio_input_device.slice())) |_| {
+            self.recording_take = RecordingTake.start(
+                self.io,
+                @truncate(@as(u96, @bitCast(std.Io.Clock.real.now(self.io).nanoseconds))),
+                self.session.project.sample_rate,
+            ) catch {
+                self.audio_input.stop();
+                self.setStatus("record: cannot create recovery take", .{});
+                self.recording_pending_len = 0;
+                return;
+            };
             self.recording_active_len = self.recording_pending_len;
             @memcpy(
                 self.recording_active_buf[0..self.recording_active_len],
                 self.recording_pending_buf[0..self.recording_pending_len],
             );
             self.recording_accum.clearRetainingCapacity();
+            self.recording_dropout_frames = 0;
+            self.recording_first_dropout_frame = null;
+            self.recording_capture_base_frame = null;
         } else |_| {
             self.setStatus("record: no audio input device", .{});
         }
         self.recording_pending_len = 0;
     }
 
-    /// Drains whatever `audio_input` has queued into `recording_accum` -
+    /// Drains whatever `audio_input` has queued into the recovery WAV -
     /// called every tick while a pass is active, and once more at the very
     /// end of `finishRecording` to pick up the tail.
     fn drainRecording(self: *App) void {
+        while (self.audio_input.popDropout()) |dropout| {
+            if (self.recording_first_dropout_frame == null) self.recording_first_dropout_frame = dropout.start_frame;
+            self.recording_dropout_frames += dropout.frames;
+        }
         const allowed = self.recordingPositionAllowed(self.session.engine.uiSnapshot().position_frames);
         while (self.audio_input.pop()) |block| {
             if (!allowed) continue;
-            self.recording_accum.appendSlice(self.allocator, block.samples[0..block.frames]) catch break;
+            if (self.recording_take) |*take| {
+                if (self.recording_capture_base_frame == null) self.recording_capture_base_frame = block.start_frame;
+                const relative_frame = block.start_frame - self.recording_capture_base_frame.?;
+                take.appendAt(relative_frame, block.samples[0..block.frames], self.session.project.sample_rate) catch {
+                    self.setStatus("record: recovery take write failed", .{});
+                    break;
+                };
+            } else {
+                // Synthetic tests and callers without a capture device.
+                self.recording_accum.appendSlice(self.allocator, block.samples[0..block.frames]) catch break;
+            }
         }
     }
 
@@ -2730,22 +2765,45 @@ pub const App = struct {
         self.audio_input.stop();
         self.drainRecording();
 
+        var disk_samples: ?[]f32 = null;
+        defer if (disk_samples) |samples| self.allocator.free(samples);
+        if (self.recording_take) |*take| {
+            take.finish();
+            const bytes = std.Io.Dir.cwd().readFileAlloc(self.io, take.pathSlice(), self.allocator, .limited(4 * 1024 * 1024 * 1024)) catch {
+                self.setStatus("record: recovery take kept at {s}", .{take.pathSlice()});
+                self.recording_active_len = 0;
+                self.recording_take = null;
+                return;
+            };
+            defer self.allocator.free(bytes);
+            const parsed = ws.wav.parseAlloc(self.allocator, bytes) catch {
+                self.setStatus("record: recovery take kept at {s}", .{take.pathSlice()});
+                self.recording_active_len = 0;
+                self.recording_take = null;
+                return;
+            };
+            disk_samples = parsed.samples;
+        }
+        const captured = disk_samples orelse self.recording_accum.items;
+
         const targets = self.recording_active_buf[0..self.recording_active_len];
-        if (self.recording_accum.items.len == 0) {
+        if (captured.len == 0) {
             self.setStatus("no audio captured", .{});
+            if (self.recording_take) |*take| take.discard();
+            self.recording_take = null;
             self.recording_active_len = 0;
             return;
         }
 
         const bpm = @max(self.session.project.tempo_bpm, 1.0);
         const sr_f: f64 = @floatFromInt(self.session.project.sample_rate);
-        const beats = @as(f64, @floatFromInt(self.recording_accum.items.len)) * bpm / (sr_f * 60.0);
+        const beats = @as(f64, @floatFromInt(captured.len)) * bpm / (sr_f * 60.0);
         const length_beats = @max(beats, 1.0);
         var clip_count: usize = 0;
         for (targets) |track_idx| {
             const s = self.samplerAt(track_idx) orelse continue;
             var backup = history.captureTrackKindSwap(self, track_idx);
-            const copy = self.allocator.dupe(f32, self.recording_accum.items) catch {
+            const copy = self.allocator.dupe(f32, captured) catch {
                 if (backup) |*b| b.deinit(self.allocator);
                 continue;
             };
@@ -2768,9 +2826,18 @@ pub const App = struct {
         }
         if (self.session.song_mode) self.session.rebuildSongData();
 
-        const secs = @as(f64, @floatFromInt(self.recording_accum.items.len)) / sr_f;
-        self.setStatus("recorded {d} clip(s) ({d:.1}s)", .{ clip_count, secs });
+        const secs = @as(f64, @floatFromInt(captured.len)) / sr_f;
+        if (self.recording_first_dropout_frame) |frame| {
+            self.setStatus("recorded {d} clip(s), dropout {d} frames at frame {d}", .{ clip_count, self.recording_dropout_frames, frame });
+        } else {
+            self.setStatus("recorded {d} clip(s) ({d:.1}s)", .{ clip_count, secs });
+        }
         if (clip_count > 0) self.dirty = true;
+        if (clip_count > 0) if (self.recording_take) |*take| take.discard();
+        self.recording_take = null;
+        self.recording_dropout_frames = 0;
+        self.recording_first_dropout_frame = null;
+        self.recording_capture_base_frame = null;
         self.recording_active_len = 0;
     }
 
@@ -4193,6 +4260,8 @@ pub const App = struct {
         // guard against it) would otherwise leave the capture device open
         // and stamp onto tracks that no longer exist.
         if (self.audio_input.active != .none) self.audio_input.stop();
+        if (self.recording_take) |*take| take.finish();
+        self.recording_take = null;
         self.recording_pending_len = 0;
         self.recording_active_len = 0;
         self.recording_accum.clearRetainingCapacity();

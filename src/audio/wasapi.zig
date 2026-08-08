@@ -222,12 +222,16 @@ pub const WasapiCapture = struct {
     thread: ?std.Thread = null,
     running: std.atomic.Value(bool) = .init(false),
     queue: capture_types.Queue = .{},
+    dropouts: capture_types.DropoutQueue = .{},
+    next_frame: u64 = 0,
 
     pub const Error = error{ InvalidSampleRate, ComInitFailed, DeviceOpenFailed, DeviceConfigFailed, ThreadSpawnFailed };
 
     pub fn start(self: *WasapiCapture, sample_rate: u32, device_name: []const u8) Error!void {
         try capture_types.validateSampleRate(sample_rate);
         while (self.queue.pop() != null) {}
+        while (self.dropouts.pop() != null) {}
+        self.next_frame = 0;
         if (!ok(c.CoInitializeEx(null, c.COINIT_MULTITHREADED))) return error.ComInitFailed;
         errdefer c.CoUninitialize();
 
@@ -323,6 +327,10 @@ pub const WasapiCapture = struct {
         return self.queue.pop();
     }
 
+    pub fn popDropout(self: *WasapiCapture) ?capture_types.Dropout {
+        return self.dropouts.pop();
+    }
+
     fn run(self: *WasapiCapture) void {
         if (!ok(c.CoInitializeEx(null, c.COINIT_MULTITHREADED))) return;
         defer c.CoUninitialize();
@@ -350,7 +358,9 @@ pub const WasapiCapture = struct {
                         @memcpy(block.samples[0..n], src[offset..][0..n]);
                     }
                     block.frames = n;
-                    _ = self.queue.push(block);
+                    block.start_frame = self.next_frame;
+                    self.next_frame += block.frames;
+                    if (!self.queue.push(block)) _ = self.dropouts.push(.{ .start_frame = block.start_frame, .frames = block.frames });
                     offset += n;
                 }
 

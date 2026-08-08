@@ -194,6 +194,8 @@ pub const CoreAudioBackend = struct {
 pub const CoreAudioCapture = struct {
     unit: AudioUnit = null,
     queue: capture_types.Queue = .{},
+    dropouts: capture_types.DropoutQueue = .{},
+    next_frame: u64 = 0,
     buffer: [types.max_block_frames]types.Sample = undefined,
 
     pub const Error = error{ InvalidSampleRate, DeviceOpenFailed, DeviceConfigFailed };
@@ -218,6 +220,8 @@ pub const CoreAudioCapture = struct {
     pub fn start(self: *CoreAudioCapture, sample_rate: u32, device_name: []const u8) Error!void {
         try capture_types.validateSampleRate(sample_rate);
         while (self.queue.pop() != null) {}
+        while (self.dropouts.pop() != null) {}
+        self.next_frame = 0;
         const device = if (device_name.len > 0)
             std.fmt.parseInt(u32, device_name, 10) catch return error.DeviceOpenFailed
         else
@@ -287,6 +291,10 @@ pub const CoreAudioCapture = struct {
         return self.queue.pop();
     }
 
+    pub fn popDropout(self: *CoreAudioCapture) ?capture_types.Dropout {
+        return self.dropouts.pop();
+    }
+
     fn captureCallback(
         context: ?*anyopaque,
         flags: *u32,
@@ -315,7 +323,9 @@ pub const CoreAudioCapture = struct {
             const count = @min(capture_types.chunk_frames, frames - offset);
             @memcpy(block.samples[0..count], self.buffer[offset..][0..count]);
             block.frames = count;
-            _ = self.queue.push(block);
+            block.start_frame = self.next_frame;
+            self.next_frame += block.frames;
+            if (!self.queue.push(block)) _ = self.dropouts.push(.{ .start_frame = block.start_frame, .frames = block.frames });
             offset += count;
         }
         return 0;
