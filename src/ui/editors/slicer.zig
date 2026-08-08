@@ -110,11 +110,16 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         }
     }
 
-    // Multi-key prefixes (docs/editing-grammar.md): `g` and `z` armed below
+    // Multi-key prefixes (docs/editing-grammar.md): `c`, `g`, and `z` armed below
     // drain on the next key (gg = pattern start, gG = last step, zg = finer
     // grid, zG = coarser). An unknown pair falls through, so a prefix never
     // eats a key it doesn't own.
     if (app.takePrefix(key)) |p| switch (p) {
+        'c' => switch (key.char) {
+            'v' => { cycleStepVelocity(app); return true; },
+            'r' => { cycleStepRetrig(app); return true; },
+            else => {},
+        },
         'g' => switch (key.char) {
             'g' => { step.* = 0; return true; },
             'G' => { if (sl.step_count > 0) step.* = sl.step_count - 1; return true; },
@@ -238,11 +243,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 '>' => adjustSwing(app, 1.0),
                 // zig fmt: on
                 'c' => {
-                    if (sl.stepActive(@intCast(slice.*), step.*)) {
-                        history.recordSlicer(app, app.slicer_track);
-                        sl.cycleStepVel(@intCast(slice.*), step.*);
-                        app.setStatus("vel {d}", .{sl.stepVel(@intCast(slice.*), step.*)});
-                    } else app.setStatus("no step here - enter places one", .{});
+                    _ = app.armPrefix('c');
                 },
                 '_' => nudgeVel(app, -app.takeCount()),
                 '=' => nudgeVel(app, app.takeCount()),
@@ -251,7 +252,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // spent them (its chop gestures came first): %/& are the two
                 // halves of a trig condition (chance and rule, ANDed), ! flips
                 // the machine-wide fill switch the FILL rules read, ;/' drag
-                // one hit early or late, R packs the step into a roll, and t/T
+                // one hit early or late, cr packs the step into a roll, and t/T
                 // detune just this hit. The drum grid reaches cond on T, roll
                 // on r and tune on (/), all of which mean something else here.
                 '%' => cycleStepProb(app),
@@ -262,7 +263,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 },
                 ';' => nudgeMicro(app, -app.takeCount()),
                 '\'' => nudgeMicro(app, app.takeCount()),
-                'R' => cycleStepRetrig(app),
+                'R' => startRenamePrompt(app),
                 't' => nudgeTune(app, -app.takeCount()),
                 'T' => nudgeTune(app, app.takeCount()),
                 // z/Z: grid zoom as a two-key pair (zg = finer, zG =
@@ -342,6 +343,25 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     }
 }
 
+fn cycleStepVelocity(app: *App) void {
+    const slice: u8 = @intCast(app.slicer_cursor[0]);
+    const step = app.slicer_cursor[1];
+    const sl = app.slicerInst();
+    if (sl.stepActive(slice, step)) {
+        history.recordSlicer(app, app.slicer_track);
+        sl.cycleStepVel(slice, step);
+        app.setStatus("vel {d}", .{sl.stepVel(slice, step)});
+    } else app.setStatus("no step here - enter places one", .{});
+}
+
+fn startRenamePrompt(app: *App) void {
+    app.modal.mode = .command;
+    app.cmd_history_pos = app.cmd_history.items.len;
+    const text = std.fmt.bufPrint(&app.modal.cmd_buf, "rename ", .{}) catch return;
+    app.modal.cmd_len = text.len;
+    app.modal.cmd_cursor = text.len;
+}
+
 /// Nudge one of the cursor slice's params over the command queue, noting it
 /// for coalesced undo - same route editors/sampler.zig's adjustParam takes.
 fn nudgeSliceParam(app: *App, param: u8, steps: i32) void {
@@ -354,7 +374,7 @@ fn nudgeSliceParam(app: *App, param: u8, steps: i32) void {
     _ = app.session.engine.send(.{ .set_track_param = .{ .track = app.slicer_track, .id = id, .steps = steps } });
 }
 
-/// Nudge the cursor step's velocity (full 1-127 range; 'c' cycles the
+/// Nudge the cursor step's velocity (full 1-127 range; 'cv' cycles the
 /// named presets).
 fn nudgeVel(app: *App, delta: i32) void {
     const sl = app.slicerInst();

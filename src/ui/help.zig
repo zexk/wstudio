@@ -245,11 +245,11 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("",             "  with no clip loaded yet, enter opens the file browser instead");
     t.key("x",            "clear step at cursor");
     t.key("X / F",        "clear / fill the cursor slice's row");
-    t.key("c",            "cycle step velocity through presets (full/hard/mid/soft)");
+    t.key("cv",           "cycle step velocity through presets (full/hard/mid/soft)");
     t.key("_ / =",        "step velocity down / up (fine, 1-127)");
     t.key("zg / zG",       "finer / coarser timing grid (1/4 through 1/128)");
     t.key("t / T",        "tune the step under the cursor down / up a semitone (±24, count-scaled)");
-    t.key("R",            "cycle the step into a roll (off/2/3/4/6/8 hits packed into the step)");
+    t.key("cr",           "cycle the step into a roll (off/2/3/4/6/8 hits packed into the step)");
     t.key("%",            "cycle the step's fire chance (100/75/50/25/10%)");
     t.key("&",            "cycle the step's trig condition (1ST, FILL, 1:2, 2:4 … - ANDed with the chance)");
     t.key("!",            "flip the FILL switch every FILL/!FILL step reads - instant variation, no editing");
@@ -274,6 +274,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("[ / ]",        "prev / next pattern variant (A–H; the drum grid's same pair)");
     t.key("N / D",        "new pattern variant (copy of current) / delete current");
     t.key("C",            "cycle current slice's choke group (grouped slices cut each other)");
+    t.key("R",            "rename the loaded slicer clip (opens :rename)");
     t.key("e",            "edit the cursor slice in the full sampler editor (pitch, ADSR, gain, pan)");
 
     t.taggedSection(.sampler_editor, "SAMPLER EDITOR");
