@@ -961,7 +961,7 @@ fn editClip(app: *App) void {
             app.setStatus("editing clip @ tick {d} - edits land in the clip", .{clip.start_tick});
         },
         .drum => app.setStatus("pattern clips play from their stamp - edit variants in the grid", .{}),
-        .audio => app.setStatus("audio region: use arrangement trim and move commands", .{}),
+        .audio => |audio| app.setStatus("audio region: {d} take(s); :take, :clip-gain, :clip-fade", .{audio.takeCount()}),
     }
 }
 

@@ -808,6 +808,16 @@ pub fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.
             .gain_db = finiteClamp(f32, cs.audio_gain_db, -60.0, 24.0, 0.0),
             .fade_in_frames = cs.audio_fade_in_frames,
             .fade_out_frames = cs.audio_fade_out_frames,
+            .alternate_takes = blk: {
+                var takes: [ws_arrangement.max_audio_takes - 1]?ws_arrangement.Clip.AudioRegion.Take = @splat(null);
+                for (cs.audio_alternate_takes[0..@min(cs.audio_alternate_takes.len, takes.len)], 0..) |take, i| takes[i] = .{
+                    .source_id = take.source_id,
+                    .source_start_frame = take.source_start_frame,
+                    .source_length_frames = take.source_length_frames,
+                    .length_ticks = @max(1, take.length_ticks),
+                };
+                break :blk takes;
+            },
         }),
     };
     errdefer out.deinit(allocator);

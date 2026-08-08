@@ -889,6 +889,13 @@ pub fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
             c.audio_gain_db = audio.gain_db;
             c.audio_fade_in_frames = audio.fade_in_frames;
             c.audio_fade_out_frames = audio.fade_out_frames;
+            const takes = try aa.alloc(persist_types.AudioTakeSnap, audio.takeCount() - 1);
+            var n: usize = 0;
+            for (audio.alternate_takes) |take| if (take) |value| {
+                takes[n] = .{ .source_id = value.source_id, .source_start_frame = value.source_start_frame, .source_length_frames = value.source_length_frames, .length_ticks = value.length_ticks };
+                n += 1;
+            };
+            c.audio_alternate_takes = takes[0..n];
         },
     }
     c.gain_automation = try automationToSnap(aa, clip.automation.gain);

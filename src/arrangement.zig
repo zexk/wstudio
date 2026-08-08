@@ -6,6 +6,7 @@ const Note = @import("dsp/pattern.zig").Note;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
 const automation_mod = @import("dsp/automation.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
+pub const max_audio_takes: usize = 8;
 
 /// A clip placed on a track lane. Positions use `time_grid.ticks_per_beat`.
 pub const Clip = struct {
@@ -112,12 +113,26 @@ pub const Clip = struct {
     };
 
     pub const AudioRegion = struct {
+        pub const Take = struct {
+            source_id: u32,
+            source_start_frame: u64,
+            source_length_frames: u64,
+            length_ticks: u32,
+        };
+
         source_id: u32,
         source_start_frame: u64,
         source_length_frames: u64,
         gain_db: f32 = 0.0,
         fade_in_frames: u64 = 0,
         fade_out_frames: u64 = 0,
+        alternate_takes: [max_audio_takes - 1]?Take = @splat(null),
+
+        pub fn takeCount(self: AudioRegion) usize {
+            var count: usize = 1;
+            for (self.alternate_takes) |take| count += @intFromBool(take != null);
+            return count;
+        }
     };
 
     /// A private copy of a piano-roll pattern.
@@ -221,6 +236,54 @@ pub const Clip = struct {
 
     pub fn endTick(self: Clip) u32 {
         return self.start_tick +| self.length_ticks;
+    }
+
+    pub fn addAudioTake(self: *Clip, take: AudioRegion.Take) bool {
+        switch (self.content) {
+            .audio => {},
+            else => return false,
+        }
+        const audio = &self.content.audio;
+        for (&audio.alternate_takes) |*slot| {
+            if (slot.* != null) continue;
+            slot.* = .{ .source_id = audio.source_id, .source_start_frame = audio.source_start_frame, .source_length_frames = audio.source_length_frames, .length_ticks = self.length_ticks };
+            audio.source_id = take.source_id;
+            audio.source_start_frame = take.source_start_frame;
+            audio.source_length_frames = take.source_length_frames;
+            self.length_ticks = take.length_ticks;
+            return true;
+        }
+        audio.alternate_takes[0] = .{ .source_id = audio.source_id, .source_start_frame = audio.source_start_frame, .source_length_frames = audio.source_length_frames, .length_ticks = self.length_ticks };
+        audio.source_id = take.source_id;
+        audio.source_start_frame = take.source_start_frame;
+        audio.source_length_frames = take.source_length_frames;
+        self.length_ticks = take.length_ticks;
+        return true;
+    }
+
+    pub fn cycleAudioTake(self: *Clip, delta: i32) bool {
+        switch (self.content) {
+            .audio => {},
+            else => return false,
+        }
+        const audio = &self.content.audio;
+        const count = audio.takeCount() - 1;
+        if (count == 0) return false;
+        const current: AudioRegion.Take = .{ .source_id = audio.source_id, .source_start_frame = audio.source_start_frame, .source_length_frames = audio.source_length_frames, .length_ticks = self.length_ticks };
+        const selected = if (delta >= 0) audio.alternate_takes[0].? else audio.alternate_takes[count - 1].?;
+        if (delta >= 0) {
+            for (0..count - 1) |i| audio.alternate_takes[i] = audio.alternate_takes[i + 1];
+            audio.alternate_takes[count - 1] = current;
+        } else {
+            var i = count - 1;
+            while (i > 0) : (i -= 1) audio.alternate_takes[i] = audio.alternate_takes[i - 1];
+            audio.alternate_takes[0] = current;
+        }
+        audio.source_id = selected.source_id;
+        audio.source_start_frame = selected.source_start_frame;
+        audio.source_length_frames = selected.source_length_frames;
+        self.length_ticks = selected.length_ticks;
+        return true;
     }
 
     pub fn covers(self: Clip, tick: u32) bool {
@@ -444,6 +507,19 @@ pub const Arrangement = struct {
 // ---------------------------------------------------------------------------
 
 const testing = std.testing;
+
+test "audio takes cycle through every alternate" {
+    var clip = Clip.initAudio(0, 32, .{ .source_id = 1, .source_start_frame = 0, .source_length_frames = 10 });
+    try std.testing.expect(clip.addAudioTake(.{ .source_id = 2, .source_start_frame = 0, .source_length_frames = 20, .length_ticks = 64 }));
+    try std.testing.expect(clip.addAudioTake(.{ .source_id = 3, .source_start_frame = 0, .source_length_frames = 30, .length_ticks = 96 }));
+    try std.testing.expectEqual(@as(usize, 3), clip.content.audio.takeCount());
+    try std.testing.expect(clip.cycleAudioTake(1));
+    try std.testing.expectEqual(@as(u32, 1), clip.content.audio.source_id);
+    try std.testing.expect(clip.cycleAudioTake(1));
+    try std.testing.expectEqual(@as(u32, 2), clip.content.audio.source_id);
+    try std.testing.expect(clip.cycleAudioTake(-1));
+    try std.testing.expectEqual(@as(u32, 1), clip.content.audio.source_id);
+}
 
 test "place inserts sorted and reports lane length" {
     const a = testing.allocator;

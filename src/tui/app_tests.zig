@@ -512,6 +512,22 @@ test "finishRecording creates one audio source and region from synthetic capture
     history.doRedo(&app);
     try std.testing.expectEqual(@as(usize, 1), app.session.arrangement.lane(1).?.clips.items.len);
     try std.testing.expectEqual(region.source_id, app.session.arrangement.lane(1).?.clips.items[0].content.audio.source_id);
+
+    app.recording_active_len = 1;
+    app.recording_active_buf[0] = 1;
+    app.recording_accum.clearRetainingCapacity();
+    try app.recording_accum.appendSlice(app.allocator, &[_]f32{ 0.6, 0.7, 0.8 });
+    app.finishRecording();
+    try std.testing.expectEqual(@as(usize, 1), app.session.arrangement.lane(1).?.clips.items.len);
+    try std.testing.expectEqual(@as(usize, 2), app.session.arrangement.lane(1).?.clips.items[0].content.audio.takeCount());
+    const newest_source = app.session.arrangement.lane(1).?.clips.items[0].content.audio.source_id;
+    app.view = .arrangement;
+    app.cursor = 1;
+    app.arr_cursor_bar = 2;
+    commands.run(&app, "take next");
+    try std.testing.expectEqual(region.source_id, app.session.arrangement.lane(1).?.clips.items[0].content.audio.source_id);
+    history.doUndo(&app);
+    try std.testing.expectEqual(newest_source, app.session.arrangement.lane(1).?.clips.items[0].content.audio.source_id);
 }
 
 test "finishRecording with no captured audio skips the stamp and reports it" {

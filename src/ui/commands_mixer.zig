@@ -538,6 +538,40 @@ pub fn cmdClipFade(app: *App, args: []const u8) void {
     app.setStatus("clip fades: {d:.3}s in, {d:.3}s out", .{ in_s, out_s });
 }
 
+pub fn cmdTake(app: *App, args: []const u8) void {
+    if (app.view != .arrangement) {
+        app.setStatus("take: open arrangement first", .{});
+        return;
+    }
+    const lane = app.session.arrangement.lane(app.cursor) orelse return;
+    const clip = lane.clipAt(app.arr_cursor_bar *| app.arr_grid.ticks()) orelse {
+        app.setStatus("take: no clip at cursor", .{});
+        return;
+    };
+    const arg = std.mem.trim(u8, args, " ");
+    const delta: i32 = if (arg.len == 0 or std.mem.eql(u8, arg, "next"))
+        1
+    else if (std.mem.eql(u8, arg, "prev"))
+        -1
+    else {
+        app.setStatus("take: expected next or prev", .{});
+        return;
+    };
+    const take_count = switch (clip.content) {
+        .audio => |audio| audio.takeCount(),
+        else => 0,
+    };
+    if (take_count <= 1) {
+        app.setStatus("take: clip has no alternate takes", .{});
+        return;
+    }
+    history.recordLane(app, @intCast(app.cursor));
+    std.debug.assert(clip.cycleAudioTake(delta));
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.dirty = true;
+    app.setStatus("take: cycled {s} ({d} total)", .{ if (delta > 0) "next" else "previous", take_count });
+}
+
 pub fn cmdVol(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {

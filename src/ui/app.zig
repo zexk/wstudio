@@ -2794,6 +2794,17 @@ pub const App = struct {
             const start_tick = start_bar *| self.arr_grid.ticks();
             const lane = self.session.arrangement.lane(track_idx) orelse continue;
             history.recordLane(self, track_idx);
+            if (lane.clipAt(start_tick)) |clip| {
+                if (clip.start_tick == start_tick and clip.addAudioTake(.{
+                    .source_id = source_id,
+                    .source_start_frame = 0,
+                    .source_length_frames = captured.len,
+                    .length_ticks = length_ticks,
+                })) {
+                    clip_count += 1;
+                    continue;
+                }
+            }
             lane.place(self.allocator, ws.Clip.initAudio(start_tick, length_ticks, .{
                 .source_id = source_id,
                 .source_start_frame = 0,

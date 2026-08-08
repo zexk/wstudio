@@ -1007,6 +1007,13 @@ pub const GroupSnap = struct {
 
 pub const ClipKind = enum { melodic, drum, audio };
 
+pub const AudioTakeSnap = struct {
+    source_id: u32,
+    source_start_frame: u64,
+    source_length_frames: u64,
+    length_ticks: u32,
+};
+
 /// One placed clip. Melodic clips carry a private note copy + loop length; drum
 /// clips carry a step-count and per-pad bitmask. Mirrors `arrangement.Clip`.
 pub const ClipSnap = struct {
@@ -1033,6 +1040,7 @@ pub const ClipSnap = struct {
     audio_gain_db: f32 = 0.0,
     audio_fade_in_frames: u64 = 0,
     audio_fade_out_frames: u64 = 0,
+    audio_alternate_takes: []const AudioTakeSnap = &.{},
     /// Gain (dB) / pan (-1..1) automation breakpoints, clip-relative beats.
     /// Independent of `kind` - either clip type can carry them.
     gain_automation: []const AutomationPointSnap = &.{},
