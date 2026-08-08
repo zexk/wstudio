@@ -2846,7 +2846,7 @@ pub const App = struct {
             const length_ticks: u32 = if (loop_bars > 0 and take_frames == loop_frames)
                 @intFromFloat(@min((self.session.project.beatAtBar(start_bar +| loop_bars) - self.session.project.beatAtBar(start_bar)) * ws.time_grid.ticks_per_beat, std.math.maxInt(u32)))
             else
-                @max(1, @as(u32, @intFromFloat(@ceil(beats * ws.time_grid.ticks_per_beat))));
+                @max(1, @as(u32, @intFromFloat(@ceil(beats * ws.time_grid.ticks_per_beat - 1e-9))));
             const source_id = self.session.project.addAudioSource(source_path, self.session.project.sample_rate, channel_count, take_samples) catch continue;
             for (targets) |track_idx| {
                 const lane = self.session.arrangement.lane(track_idx) orelse continue;
