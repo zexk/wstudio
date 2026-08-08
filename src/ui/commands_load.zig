@@ -691,11 +691,11 @@ pub fn cmdPadLen(app: *App, args: []const u8) void {
         app.setStatus("{s}: loops over {d} of {d} steps", .{ dm.padName(pad), dm.pad_len[pad], dm.step_count });
 }
 
-/// `:bpm-sync [clip-bpm]` - Serato's BPM sync: stretch the cursor track's
-/// clip so it runs at the project tempo, instead of nudging it into place by
-/// ear. With no argument the clip's own tempo is detected (dsp/tempo.zig);
+/// `:bpm-sync [clip-bpm]` - fit the cursor track's clip to project tempo.
+/// Slicers repitch, while standalone samplers warp to preserve pitch. With no
+/// argument the clip's own tempo is detected (dsp/tempo.zig);
 /// pass a number when the detector misses or the clip's real tempo is known.
-/// Works on a slicer (every slice gets the same ratio, they share one clip)
+/// Works on a slicer (every slice gets the same repitch, they share one clip)
 /// and on a standalone sampler; a drum machine's pads are one-shots, not
 /// loops, so there is nothing to fit there.
 pub fn cmdBpmSync(app: *App, args: []const u8) void {
@@ -725,16 +725,12 @@ pub fn cmdBpmSync(app: *App, args: []const u8) void {
             };
             break :blk r.bpm;
         };
-        const ratio = ws.dsp.tempo.stretchToTempo(clip_bpm, project_bpm);
-        const tune = tuneToProjectRoot(app, sl.samples, sl.sample_rate);
+        const semitones = repitchToTempo(clip_bpm, project_bpm);
         history.recordSlicer(app, track);
-        sl.stretchAll(ratio);
-        if (tune) |semitones| sl.pitchAll(semitones);
+        sl.stretchAll(1.0);
+        sl.pitchAll(semitones);
         app.dirty = true;
-        if (tune) |semitones|
-            app.setStatus("sync: {d:.1} -> {d:.1} BPM, tune {d:.2} st", .{ clip_bpm, project_bpm, semitones })
-        else
-            app.setStatus("sync: {d:.1} -> {d:.1} BPM (no project key or clear pitch)", .{ clip_bpm, project_bpm });
+        app.setStatus("sync: {d:.1} -> {d:.1} BPM, repitch {d:.2} st", .{ clip_bpm, project_bpm, semitones });
         return;
     }
 
@@ -790,6 +786,10 @@ pub fn tuneToProjectRoot(app: *const App, samples: []const f32, sample_rate: u32
     return tuneToRoot(scale.root, detected);
 }
 
+pub fn repitchToTempo(clip_bpm: f32, project_bpm: f32) f32 {
+    return -12.0 * @log2(ws.dsp.tempo.stretchToTempo(clip_bpm, project_bpm));
+}
+
 pub fn tuneToRoot(root: u4, detected: ws.dsp.pitch.Result) f32 {
     var delta = @as(i32, root) - @as(i32, detected.note % 12);
     if (delta > 6) delta -= 12;
@@ -800,6 +800,11 @@ pub fn tuneToRoot(root: u4, detected: ws.dsp.pitch.Result) f32 {
 test "tuneToRoot takes shortest pitch-class shift and corrects cents" {
     try std.testing.expectApproxEqAbs(@as(f32, 2.0), tuneToRoot(0, .{ .note = 70, .cents = 0 }), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, -2.25), tuneToRoot(10, .{ .note = 60, .cents = 25 }), 1e-6);
+}
+
+test "repitchToTempo changes playback rate without warp" {
+    try std.testing.expectApproxEqAbs(@as(f32, 12.0 * @log2(1.2)), repitchToTempo(100, 120), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), repitchToTempo(120, 120), 1e-6);
 }
 
 /// `:chop-random [n]` - Serato's "Set Random": chop into n slices at random

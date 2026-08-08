@@ -230,8 +230,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key(":chop-random", "[n]  roll the dice: n uneven slices, boundaries picked at random (default 8)");
     t.key(":slice",       "<n>  equal-divide the loaded clip into n slices (1-64)");
     t.key(":spread",      "[semitones]  ramp pitch across the slices, one step each (default 1)");
-    t.key(":bpm-sync",    "[clip-bpm]  match clip to project tempo and :scale root");
-    t.key("B",            "detect clip BPM/root; match project tempo/key set by :scale");
+    t.key(":bpm-sync",    "[clip-bpm]  match project tempo; slicers repitch, samplers warp");
+    t.key("B",            "detect clip BPM; repitch to project tempo (tune root if no pulse)");
     t.key("q / Q",        "transient chop / random 8-slice chop");
     t.key("A",            "cycle every slice: retrigger / one-shot / GATE");
     t.key("s / m",        "split cursor slice in half / merge it into the next (patterns follow)");
@@ -290,8 +290,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("p",            "note editor for this track - piano roll for a Sampler, step grid for a pad/slice");
     t.key("esc / e",      "back to the view that opened this editor (tracks, or the grid that sequences the pad/slice)");
     t.key(":load",        "[file.wav]  load a sample into the cursor pad or sampler track (omit the file to browse); sampler tracks auto-detect the clip's root note");
-    t.key(":bpm-sync",    "[clip-bpm]  match clip to project tempo and :scale root");
-    t.key("B",            "detect clip BPM/root; match project tempo/key set by :scale (sampler/slice only)");
+    t.key(":bpm-sync",    "[clip-bpm]  match project tempo; slicers repitch, samplers warp");
+    t.key("B",            "detect BPM; slicers repitch, samplers warp (sampler/slice only)");
 
     // One editor, two instruments: Acoustic plays the bundled VCSL sample
     // banks, SoundFont plays presets out of a .sf2 the user loads.
