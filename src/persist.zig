@@ -1961,7 +1961,7 @@ test "save/load round-trip persists audio sources and regions" {
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
-    const source_id = try session.project.addAudioSource("recorded", 48_000, 1, &.{ 0.25, -0.125 });
+    const source_id = try session.project.addAudioSource("recorded", 48_000, 2, &.{ 0.25, -0.25, -0.125, 0.125 });
     try session.arrangement.lane(0).?.place(testing.allocator, ws_arrangement.Clip.initAudio(0, 32, .{
         .source_id = source_id,
         .source_start_frame = 0,
@@ -1982,7 +1982,9 @@ test "save/load round-trip persists audio sources and regions" {
     var loaded = try load(testing.allocator, testing.io, wsj_path);
     defer loaded.deinit();
     try testing.expectEqual(@as(usize, 1), loaded.project.audio_sources.items.len);
+    try testing.expectEqual(@as(u16, 2), loaded.project.audio_sources.items[0].channel_count);
     try testing.expectApproxEqAbs(@as(f32, 0.25), loaded.project.audio_sources.items[0].samples[0], wav_eps);
+    try testing.expectApproxEqAbs(@as(f32, -0.25), loaded.project.audio_sources.items[0].samples[1], wav_eps);
     const region = loaded.arrangement.lane(0).?.clips.items[0].content.audio;
     try testing.expectEqual(source_id, region.source_id);
     try testing.expectEqual(@as(u64, 1), region.source_length_frames);

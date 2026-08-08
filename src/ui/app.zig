@@ -484,11 +484,9 @@ pub const App = struct {
     recording_dropout_frames: u64 = 0,
     recording_first_dropout_frame: ?u64 = null,
     recording_capture_base_frame: ?u64 = null,
-    /// Mono samples captured so far this record pass, drained from
-    /// `audio_input` once per `tick`. Every active target gets an
-    /// independent copy of this same take (see `finishRecording`) - no
-    /// per-channel/per-track routing, see the capture module's doc comment.
+    /// Interleaved samples captured so far this record pass.
     recording_accum: std.ArrayListUnmanaged(f32) = .empty,
+    recording_channel_count: u16 = 1,
     /// j/k nudge sizes in the automation editor, from
     /// `default_automation_gain_step_db`/`default_automation_pan_step`.
     automation_gain_step_db: f32 = 1.0,
@@ -2685,7 +2683,7 @@ pub const App = struct {
 
     fn drainInputMonitor(self: *App) void {
         while (self.audio_input.popDropout()) |_| {}
-        while (self.audio_input.pop()) |block| self.session.engine.monitorInput(block.samples[0..block.frames]);
+        while (self.audio_input.pop()) |block| self.session.engine.monitorInputInterleaved(block.samples[0 .. block.frames * block.channels], block.channels);
     }
 
     pub fn setPunch(self: *App, enabled: bool) bool {
@@ -2724,6 +2722,7 @@ pub const App = struct {
             self.io,
             @truncate(@as(u96, @bitCast(std.Io.Clock.real.now(self.io).nanoseconds))),
             self.session.project.sample_rate,
+            2,
         ) catch {
             if (self.input_monitor != .on) self.audio_input.stop();
             self.setStatus("record: cannot create recovery take", .{});
@@ -2752,18 +2751,20 @@ pub const App = struct {
         }
         const allowed = self.recordingPositionAllowed(self.session.engine.uiSnapshot().position_frames);
         while (self.audio_input.pop()) |block| {
-            if (self.input_monitor != .off) self.session.engine.monitorInput(block.samples[0..block.frames]);
+            const sample_count = block.frames * block.channels;
+            self.recording_channel_count = block.channels;
+            if (self.input_monitor != .off) self.session.engine.monitorInputInterleaved(block.samples[0..sample_count], block.channels);
             if (!allowed) continue;
             if (self.recording_take) |*take| {
                 if (self.recording_capture_base_frame == null) self.recording_capture_base_frame = block.start_frame;
                 const relative_frame = block.start_frame - self.recording_capture_base_frame.?;
-                take.appendAt(relative_frame, block.samples[0..block.frames], self.session.project.sample_rate) catch {
+                take.appendAt(relative_frame, block.samples[0..sample_count], self.session.project.sample_rate) catch {
                     self.setStatus("record: recovery take write failed", .{});
                     break;
                 };
             } else {
                 // Synthetic tests and callers without a capture device.
-                self.recording_accum.appendSlice(self.allocator, block.samples[0..block.frames]) catch break;
+                self.recording_accum.appendSlice(self.allocator, block.samples[0..sample_count]) catch break;
             }
         }
     }
@@ -2792,7 +2793,7 @@ pub const App = struct {
                 return;
             };
             defer self.allocator.free(bytes);
-            const parsed = ws.wav.parseAlloc(self.allocator, bytes) catch {
+            const parsed = ws.wav.parseInterleavedAlloc(self.allocator, bytes) catch {
                 self.setStatus("record: recovery take kept at {s}", .{take.pathSlice()});
                 self.recording_active_len = 0;
                 self.recording_take = null;
@@ -2801,8 +2802,11 @@ pub const App = struct {
                 return;
             };
             disk_samples = parsed.samples;
+            self.recording_channel_count = parsed.channel_count;
         }
         const captured = disk_samples orelse self.recording_accum.items;
+        const channel_count = @max(self.recording_channel_count, 1);
+        const captured_frames = captured.len / channel_count;
 
         const targets = self.recording_active_buf[0..self.recording_active_len];
         if (captured.len == 0) {
@@ -2824,8 +2828,9 @@ pub const App = struct {
         const loop_frames: usize = if (loop_bars > 0)
             @intCast(@min(self.session.project.frameAtBar(self.recording_loop_end_bar.?) -| self.session.project.frameAtBar(self.recording_loop_start_bar.?), std.math.maxInt(usize)))
         else
-            captured.len;
-        const take_count = (captured.len + loop_frames - 1) / loop_frames;
+            captured_frames;
+        const loop_samples = loop_frames * channel_count;
+        const take_count = (captured.len + loop_samples - 1) / loop_samples;
         const start_bar = self.recording_punch_start_bar orelse self.recording_loop_start_bar orelse self.arr_cursor_bar;
         const start_tick = start_bar *| self.arr_grid.ticks();
         const start_frame = self.session.project.framesAtBeat(ws.time_grid.tickToBeat(start_tick));
@@ -2833,22 +2838,23 @@ pub const App = struct {
 
         var clip_count: usize = 0;
         for (0..take_count) |take_index| {
-            const lo = take_index * loop_frames;
-            const hi = @min(lo + loop_frames, captured.len);
+            const lo = take_index * loop_samples;
+            const hi = @min(lo + loop_samples, captured.len);
             const take_samples = captured[lo..hi];
-            const beats = self.session.project.beatAtFrames(start_frame +| take_samples.len) - self.session.project.beatAtFrames(start_frame);
-            const length_ticks: u32 = if (loop_bars > 0 and take_samples.len == loop_frames)
+            const take_frames = take_samples.len / channel_count;
+            const beats = self.session.project.beatAtFrames(start_frame +| take_frames) - self.session.project.beatAtFrames(start_frame);
+            const length_ticks: u32 = if (loop_bars > 0 and take_frames == loop_frames)
                 @intFromFloat(@min((self.session.project.beatAtBar(start_bar +| loop_bars) - self.session.project.beatAtBar(start_bar)) * ws.time_grid.ticks_per_beat, std.math.maxInt(u32)))
             else
                 @max(1, @as(u32, @intFromFloat(@ceil(beats * ws.time_grid.ticks_per_beat))));
-            const source_id = self.session.project.addAudioSource(source_path, self.session.project.sample_rate, 1, take_samples) catch continue;
+            const source_id = self.session.project.addAudioSource(source_path, self.session.project.sample_rate, channel_count, take_samples) catch continue;
             for (targets) |track_idx| {
                 const lane = self.session.arrangement.lane(track_idx) orelse continue;
                 if (lane.clipAt(start_tick)) |clip| {
                     if (clip.start_tick == start_tick and clip.addAudioTake(.{
                         .source_id = source_id,
                         .source_start_frame = 0,
-                        .source_length_frames = take_samples.len,
+                        .source_length_frames = take_frames,
                         .length_ticks = length_ticks,
                     })) {
                         clip_count += 1;
@@ -2858,14 +2864,14 @@ pub const App = struct {
                 lane.place(self.allocator, ws.Clip.initAudio(start_tick, length_ticks, .{
                     .source_id = source_id,
                     .source_start_frame = 0,
-                    .source_length_frames = take_samples.len,
+                    .source_length_frames = take_frames,
                 })) catch continue;
                 clip_count += 1;
             }
         }
         if (self.session.song_mode) self.session.rebuildSongData();
 
-        const secs = @as(f64, @floatFromInt(captured.len)) / sr_f;
+        const secs = @as(f64, @floatFromInt(captured_frames)) / sr_f;
         if (self.recording_first_dropout_frame) |frame| {
             self.setStatus("recorded {d} clip(s), dropout {d} frames at frame {d}", .{ clip_count, self.recording_dropout_frames, frame });
         } else {

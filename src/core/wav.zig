@@ -98,6 +98,7 @@ pub const ReadResult = struct {
     /// Caller must free with the same allocator.
     samples: []f32,
     sample_rate: u32,
+    channel_count: u16 = 1,
 };
 
 /// Parse a WAV file from raw bytes. Handles 16-bit PCM (format 1) and
@@ -106,6 +107,14 @@ pub fn parseAlloc(
     allocator: std.mem.Allocator,
     data: []const u8,
 ) (ParseError || std.mem.Allocator.Error)!ReadResult {
+    return parseAllocMode(allocator, data, true);
+}
+
+pub fn parseInterleavedAlloc(allocator: std.mem.Allocator, data: []const u8) (ParseError || std.mem.Allocator.Error)!ReadResult {
+    return parseAllocMode(allocator, data, false);
+}
+
+fn parseAllocMode(allocator: std.mem.Allocator, data: []const u8, downmix: bool) (ParseError || std.mem.Allocator.Error)!ReadResult {
     if (data.len < 12) return error.Truncated;
     if (!std.mem.eql(u8, data[0..4], "RIFF")) return error.NotWav;
     if (!std.mem.eql(u8, data[8..12], "WAVE")) return error.NotWav;
@@ -163,10 +172,18 @@ pub fn parseAlloc(
             if (chunk_size % bytes_per_frame != 0) return error.Truncated;
             const total_samples = chunk_size / bytes_per_sample;
             const frame_count = total_samples / num_channels;
-            const buf = try allocator.alloc(f32, frame_count);
+            const output_channels: usize = if (downmix) 1 else num_channels;
+            const buf = try allocator.alloc(f32, frame_count * output_channels);
             errdefer allocator.free(buf);
             for (0..frame_count) |i| {
-                if (num_channels == 1) {
+                if (!downmix) {
+                    const stride = num_channels * bytes_per_sample;
+                    for (0..num_channels) |channel| {
+                        const sample = decodeSample(chunk[i * stride + channel * bytes_per_sample ..], bits_per_sample, audio_format);
+                        if (!std.math.isFinite(sample)) return error.BadFmt;
+                        buf[i * output_channels + channel] = sample;
+                    }
+                } else if (num_channels == 1) {
                     const sample = decodeSample(chunk[i * bytes_per_sample ..], bits_per_sample, audio_format);
                     if (!std.math.isFinite(sample)) return error.BadFmt;
                     buf[i] = sample;
@@ -197,6 +214,7 @@ pub fn parseAlloc(
     return .{
         .samples = out orelse return error.NoData,
         .sample_rate = sample_rate,
+        .channel_count = if (downmix) 1 else num_channels,
     };
 }
 

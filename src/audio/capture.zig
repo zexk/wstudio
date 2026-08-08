@@ -137,6 +137,7 @@ test "audio input exposes queued ALSA tail after stop" {
     var input: AudioInput = .{};
     var block: CaptureBlock = .{};
     block.frames = 1;
+    block.channels = 1;
     block.samples[0] = 0.5;
     try std.testing.expect(input.alsa.queue.push(block));
     input.active = .alsa;

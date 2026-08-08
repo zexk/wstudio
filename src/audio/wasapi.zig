@@ -255,10 +255,10 @@ pub const WasapiCapture = struct {
 
         const fmt = c.WAVEFORMATEX{
             .wFormatTag = c.WAVE_FORMAT_IEEE_FLOAT,
-            .nChannels = 1, // mono - matches Sampler.pad.samples's storage format exactly
+            .nChannels = capture_types.channel_count,
             .nSamplesPerSec = sample_rate,
-            .nAvgBytesPerSec = sample_rate * 4,
-            .nBlockAlign = 4,
+            .nAvgBytesPerSec = sample_rate * 4 * capture_types.channel_count,
+            .nBlockAlign = 4 * capture_types.channel_count,
             .wBitsPerSample = 32,
             .cbSize = 0,
         };
@@ -351,13 +351,16 @@ pub const WasapiCapture = struct {
                 while (offset < frames_avail) {
                     var block: CaptureBlock = .{};
                     const n = @min(capture_types.chunk_frames, frames_avail - offset);
+                    const sample_count = n * capture_types.channel_count;
                     if (flags & c.AUDCLNT_BUFFERFLAGS_SILENT != 0) {
-                        @memset(block.samples[0..n], 0.0);
+                        @memset(block.samples[0..sample_count], 0.0);
                     } else {
                         const src: [*]const f32 = @ptrCast(@alignCast(data));
-                        @memcpy(block.samples[0..n], src[offset..][0..n]);
+                        const sample_offset = offset * capture_types.channel_count;
+                        @memcpy(block.samples[0..sample_count], src[sample_offset..][0..sample_count]);
                     }
                     block.frames = n;
+                    block.channels = capture_types.channel_count;
                     block.start_frame = self.next_frame;
                     self.next_frame += block.frames;
                     if (!self.queue.push(block)) _ = self.dropouts.push(.{ .start_frame = block.start_frame, .frames = block.frames });

@@ -1175,15 +1175,24 @@ pub const Engine = struct {
     }
 
     pub fn monitorInput(self: *Engine, samples: []const Sample) void {
+        for (samples) |sample| {
+            if (!self.monitor_samples.push(sample)) break;
+            if (!self.monitor_samples.push(sample)) break;
+        }
+    }
+
+    pub fn monitorInputInterleaved(self: *Engine, samples: []const Sample, input_channels: u8) void {
+        if (input_channels == 1) return self.monitorInput(samples);
         for (samples) |sample| if (!self.monitor_samples.push(sample)) break;
     }
 
     fn mixMonitoredInput(self: *Engine, out: []Sample) void {
         var frame: usize = 0;
         while (frame < out.len / channels) : (frame += 1) {
-            const sample = self.monitor_samples.pop() orelse break;
-            out[frame * channels] += sample;
-            out[frame * channels + 1] += sample;
+            const left = self.monitor_samples.pop() orelse break;
+            const right = self.monitor_samples.pop() orelse left;
+            out[frame * channels] += left;
+            out[frame * channels + 1] += right;
         }
     }
 

@@ -130,12 +130,13 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Session
 
 fn restoreAudioSources(allocator: std.mem.Allocator, io: std.Io, path: []const u8, snap: *const Snapshot, session: *Session) void {
     for (snap.audio_sources) |source| {
-        if (source.id == 0 or source.channel_count != 1 or source.file.len == 0) continue;
+        if (source.id == 0 or source.channel_count == 0 or source.channel_count > 2 or source.file.len == 0) continue;
         const data = readWsjRel(allocator, io, path, source.file) orelse continue;
         defer allocator.free(data);
-        const parsed = wav.parseAlloc(allocator, data) catch continue;
+        const parsed = wav.parseInterleavedAlloc(allocator, data) catch continue;
         defer allocator.free(parsed.samples);
-        session.project.addAudioSourceWithId(source.id, source.file, parsed.sample_rate, 1, parsed.samples) catch continue;
+        if (parsed.channel_count != source.channel_count) continue;
+        session.project.addAudioSourceWithId(source.id, source.file, parsed.sample_rate, parsed.channel_count, parsed.samples) catch continue;
     }
 }
 

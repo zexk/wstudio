@@ -7,7 +7,9 @@
 const types = @import("../core/types.zig");
 const Spsc = @import("../core/ring_buffer.zig").Spsc;
 
-/// One chunk of captured mono input, read on the capture thread and
+pub const channel_count: u8 = 2;
+
+/// One chunk of captured stereo input, read on the capture thread and
 /// drained on the control thread. Sized to `chunk_frames`, not
 /// `types.max_block_frames` - capture reads fixed small chunks
 /// independent of whatever block size the output backend negotiated.
@@ -18,8 +20,9 @@ pub fn validateSampleRate(sample_rate: u32) error{InvalidSampleRate}!void {
 }
 
 pub const CaptureBlock = struct {
-    samples: [chunk_frames]types.Sample = undefined,
+    samples: [chunk_frames * channel_count]types.Sample = undefined,
     frames: u32 = 0,
+    channels: u8 = channel_count,
     start_frame: u64 = 0,
 };
 

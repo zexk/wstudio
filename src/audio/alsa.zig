@@ -140,7 +140,7 @@ pub const AlsaCapture = struct {
             pcm,
             c.SND_PCM_FORMAT_FLOAT, // native-endian f32: engine format, no conversion
             c.SND_PCM_ACCESS_RW_INTERLEAVED,
-            1, // mono - matches Sampler.pad.samples's storage format exactly
+            capture_types.channel_count,
             sample_rate,
             1, // allow resampling if the device can't do our rate
             @max(block_us * 4, 20_000),
@@ -188,6 +188,7 @@ pub const AlsaCapture = struct {
                 continue;
             }
             block.frames = @intCast(read);
+            block.channels = capture_types.channel_count;
             block.start_frame = self.next_frame;
             self.next_frame += block.frames;
             if (!self.queue.push(block)) _ = self.dropouts.push(.{ .start_frame = block.start_frame, .frames = block.frames });
@@ -213,6 +214,7 @@ test "alsa capture stop preserves queued tail" {
     var capture: AlsaCapture = .{};
     var block: CaptureBlock = .{};
     block.frames = 1;
+    block.channels = 1;
     block.samples[0] = 0.5;
     try std.testing.expect(capture.queue.push(block));
 

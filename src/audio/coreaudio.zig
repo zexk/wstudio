@@ -196,7 +196,7 @@ pub const CoreAudioCapture = struct {
     queue: capture_types.Queue = .{},
     dropouts: capture_types.DropoutQueue = .{},
     next_frame: u64 = 0,
-    buffer: [types.max_block_frames]types.Sample = undefined,
+    buffer: [types.max_block_frames * capture_types.channel_count]types.Sample = undefined,
 
     pub const Error = error{ InvalidSampleRate, DeviceOpenFailed, DeviceConfigFailed };
 
@@ -257,10 +257,10 @@ pub const CoreAudioCapture = struct {
             .mSampleRate = @floatFromInt(sample_rate),
             .mFormatID = audio_format_linear_pcm,
             .mFormatFlags = audio_format_flag_is_float | audio_format_flag_is_packed,
-            .mBytesPerPacket = @sizeOf(types.Sample),
+            .mBytesPerPacket = @sizeOf(types.Sample) * capture_types.channel_count,
             .mFramesPerPacket = 1,
-            .mBytesPerFrame = @sizeOf(types.Sample),
-            .mChannelsPerFrame = 1,
+            .mBytesPerFrame = @sizeOf(types.Sample) * capture_types.channel_count,
+            .mChannelsPerFrame = capture_types.channel_count,
             .mBitsPerChannel = @bitSizeOf(types.Sample),
             .mReserved = 0,
         };
@@ -309,8 +309,8 @@ pub const CoreAudioCapture = struct {
         var buffers = AudioBufferList{
             .mNumberBuffers = 1,
             .mBuffers = .{.{
-                .mNumberChannels = 1,
-                .mDataByteSize = frames * @sizeOf(types.Sample),
+                .mNumberChannels = capture_types.channel_count,
+                .mDataByteSize = frames * @sizeOf(types.Sample) * capture_types.channel_count,
                 .mData = &self.buffer,
             }},
         };
@@ -321,8 +321,11 @@ pub const CoreAudioCapture = struct {
         while (offset < frames) {
             var block: CaptureBlock = .{};
             const count = @min(capture_types.chunk_frames, frames - offset);
-            @memcpy(block.samples[0..count], self.buffer[offset..][0..count]);
+            const sample_count = count * capture_types.channel_count;
+            const sample_offset = offset * capture_types.channel_count;
+            @memcpy(block.samples[0..sample_count], self.buffer[sample_offset..][0..sample_count]);
             block.frames = count;
+            block.channels = capture_types.channel_count;
             block.start_frame = self.next_frame;
             self.next_frame += block.frames;
             if (!self.queue.push(block)) _ = self.dropouts.push(.{ .start_frame = block.start_frame, .frames = block.frames });
