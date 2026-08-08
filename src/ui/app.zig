@@ -803,10 +803,13 @@ pub const App = struct {
     /// `piano_erase_active`: a right-drag erase brush is running and has
     /// already recorded its one undo entry. `piano_clone_source`: where a
     /// shift+drag started, so the release can leave a copy behind.
+    /// `piano_mouse_grab_offset` keeps a body grab from jumping its onset
+    /// under the pointer.
     /// See editors/piano.zig's handleMouse and gui/views/piano.zig.
     piano_mouse_draw: bool = false,
     piano_erase_active: bool = false,
     piano_clone_source: ?struct { pitch: u7, step: u16 } = null,
+    piano_mouse_grab_offset: u16 = 0,
     /// In-progress drum-grid mouse paint stroke: the state being painted
     /// (true = activating, false = clearing). Null when no drag is active.
     /// See editors/drum.zig's handleMouse.

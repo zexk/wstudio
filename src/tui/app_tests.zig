@@ -7455,6 +7455,25 @@ test "mouse click on an empty piano-roll cell inserts a note" {
     try std.testing.expectEqual(@as(u7, 72), pp.notes[0].pitch);
 }
 
+test "piano-roll mouse grabs sustained note bodies without jumping the onset" {
+    var app = try testApp();
+    defer app.deinit();
+    app.piano_track = 0;
+    app.view = .piano_roll;
+    app.piano_scroll_step = 0;
+    app.piano_scroll_pitch = 72;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 72, .start_beat = 0.0, .duration_beat = 1.0 });
+
+    const row = app_mod.content_top + 3;
+    app.handleMouse(.{ .x = 13, .y = row, .button = .left, .kind = .press }, 80, 24, 0); // note body, step 2
+    app.handleMouse(.{ .x = 16, .y = row, .button = .left, .kind = .drag }, 80, 24, 0); // pointer moves one step
+    app.handleMouse(.{ .x = 16, .y = row, .button = .left, .kind = .release }, 80, 24, 0);
+
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+    try std.testing.expect(pp.noteAt(72, 0.25) != null);
+}
+
 test "piano-roll draw-drag sizes the note it just placed, and that length sticks" {
     var app = try testApp();
     defer app.deinit();

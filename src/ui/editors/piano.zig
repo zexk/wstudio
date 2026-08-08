@@ -1512,10 +1512,13 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
             app.piano_cursor_step = step;
             app.piano_cursor_pitch = pitch;
             const start_beat = stepToBeat(app, step);
-            if (pp.noteAt(pitch, start_beat) != null) {
+            if (pp.noteCovering(pitch, start_beat)) |note| {
+                const note_step = pattern_mod.clampStep(@round(note.start_beat * stepsPerBeatF(app)));
+                app.piano_mouse_grab_offset = step - note_step;
+                app.piano_cursor_step = note_step;
                 app.piano_grab = true;
                 app.piano_grab_delta = .{};
-                if (ev.shift) app.piano_clone_source = .{ .pitch = pitch, .step = step };
+                if (ev.shift) app.piano_clone_source = .{ .pitch = pitch, .step = note_step };
             } else if (insertNoteAt(app, pitch, step)) {
                 app.piano_mouse_draw = true;
             }
@@ -1529,7 +1532,8 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
                 return;
             }
             if (!app.piano_grab) return;
-            const dstep: i32 = @as(i32, step) - @as(i32, app.piano_cursor_step);
+            const target_step = step -| app.piano_mouse_grab_offset;
+            const dstep: i32 = @as(i32, target_step) - @as(i32, app.piano_cursor_step);
             const dpitch: i32 = @as(i32, pitch) - @as(i32, app.piano_cursor_pitch);
             if (dstep == 0 and dpitch == 0) return;
             if (!app.piano_grab_delta.moved) {
