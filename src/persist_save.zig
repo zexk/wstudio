@@ -220,8 +220,6 @@ pub fn save(
         .cc_bindings = cc_list.items,
     };
 
-    const json_bytes = try std.json.Stringify.valueAlloc(aa, snap, .{ .whitespace = .indent_2 });
-
     const tmp_path = try std.fmt.allocPrint(aa, "{s}.tmp", .{path});
     errdefer std.Io.Dir.cwd().deleteFile(io, tmp_path) catch {};
     {
@@ -229,7 +227,9 @@ pub fn save(
         defer file.close(io);
         var buf: [8192]u8 = undefined;
         var fw = file.writer(io, &buf);
-        try fw.interface.writeAll(json_bytes);
+        // Stream straight from snapshot arena. `valueAlloc` duplicated whole
+        // project as one more buffer before writing, doubling peak save memory.
+        try std.json.Stringify.value(snap, .{ .whitespace = .indent_2 }, &fw.interface);
         try fw.interface.flush();
     }
     try std.Io.Dir.cwd().rename(tmp_path, std.Io.Dir.cwd(), path, io);
