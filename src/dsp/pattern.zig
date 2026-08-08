@@ -17,6 +17,20 @@ const PolySynth = @import("synth.zig").PolySynth;
 const pattern_transforms = @import("pattern_transforms.zig");
 
 pub const max_notes: u16 = 512;
+pub const max_midi_events: u16 = 1024;
+
+pub const MidiEvent = struct {
+    beat: f64,
+    midi_track: u16 = 0,
+    channel: u4 = 0,
+    data: union(enum) {
+        cc: struct { controller: u7, value: u7 },
+        program_change: u7,
+        channel_pressure: u7,
+        poly_pressure: struct { pitch: u7, pressure: u7 },
+        pitch_bend: u14,
+    },
+};
 
 /// What a note lands at when nothing supplies a velocity (step edits, the
 /// qwerty piano) - recorded MIDI carries its own.
@@ -47,6 +61,8 @@ pub const Note = struct {
     start_beat:    f64,
     duration_beat: f64,
     velocity:      f32 = default_velocity,
+    channel:       u4 = 0,
+    midi_track:    u16 = 0,
     /// Per-note pan/fine-tuning/release - see `dsp.Articulation`. Defaults
     /// are neutral, so a note written before per-note expression existed
     /// (or by a step edit, the qwerty piano, or a MIDI import) plays the
@@ -206,6 +222,8 @@ pub const PatternPlayer = struct {
     notes:      [max_notes]Note = undefined,
     // zig fmt: on
     note_count: u16 = 0,
+    midi_events: [max_midi_events]MidiEvent = undefined,
+    midi_event_count: u16 = 0,
     /// Loop length in beats (default 4 = 1 bar in 4/4).
     length_beats: f64 = 4.0,
     /// Swing percent (see `swing_min`/`swing_max`): every note landing on an
@@ -253,6 +271,8 @@ pub const PatternPlayer = struct {
             .start_beat = if (std.math.isFinite(note.start_beat) and note.start_beat >= 0.0) note.start_beat else 0.0,
             .duration_beat = if (std.math.isFinite(note.duration_beat) and note.duration_beat >= 0.0) note.duration_beat else 0.0,
             .velocity = if (std.math.isFinite(note.velocity)) std.math.clamp(note.velocity, 0.0, 1.0) else default_velocity,
+            .channel = note.channel,
+            .midi_track = note.midi_track,
             .art = note.art.clamped(),
         };
     }
@@ -323,6 +343,18 @@ pub const PatternPlayer = struct {
         for (notes[0..count], self.notes[0..count]) |n, *dst| dst.* = sanitizeNote(n);
         self.note_count = @intCast(count);
         self.length_beats = if (std.math.isFinite(length_beats)) @max(1.0, length_beats) else 4.0;
+    }
+
+    pub fn setMidiEvents(self: *PatternPlayer, events: []const MidiEvent) void {
+        const count = @min(events.len, @as(usize, max_midi_events));
+        @memcpy(self.midi_events[0..count], events[0..count]);
+        self.midi_event_count = @intCast(count);
+    }
+
+    pub fn copyMidiEvents(self: *const PatternPlayer, out: []MidiEvent) u16 {
+        const count: u16 = @intCast(@min(self.midi_event_count, out.len));
+        @memcpy(out[0..count], self.midi_events[0..count]);
+        return count;
     }
 
     /// Remove every note (UI thread). Used by :clear.

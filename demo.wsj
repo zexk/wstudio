@@ -1,5 +1,5 @@
 {
-  "version": 43,
+  "version": 44,
   "tempo_bpm": 120,
   "tempo_points": [],
   "scale": null,
@@ -438,6 +438,8 @@
                 "start_beat": 0,
                 "duration_beat": 0.5,
                 "velocity": 0.800000011920929,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -447,6 +449,8 @@
                 "start_beat": 0.5,
                 "duration_beat": 0.5,
                 "velocity": 0.800000011920929,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -456,6 +460,8 @@
                 "start_beat": 1,
                 "duration_beat": 0.5,
                 "velocity": 0.800000011920929,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -465,6 +471,8 @@
                 "start_beat": 1.5,
                 "duration_beat": 0.5,
                 "velocity": 0.800000011920929,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -474,6 +482,8 @@
                 "start_beat": 2,
                 "duration_beat": 0.5,
                 "velocity": 0.800000011920929,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -483,6 +493,8 @@
                 "start_beat": 2.5,
                 "duration_beat": 0.5,
                 "velocity": 0.800000011920929,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -492,6 +504,8 @@
                 "start_beat": 3,
                 "duration_beat": 0.5,
                 "velocity": 0.800000011920929,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -501,11 +515,14 @@
                 "start_beat": 3.5,
                 "duration_beat": 0.5,
                 "velocity": 0.800000011920929,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
               }
             ],
+            "midi_events": [],
             "length_beats": 8,
             "swing": 50
           }
@@ -925,6 +942,8 @@
                 "start_beat": 0,
                 "duration_beat": 3.5,
                 "velocity": 0.699999988079071,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -934,6 +953,8 @@
                 "start_beat": 0,
                 "duration_beat": 3.5,
                 "velocity": 0.699999988079071,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -943,6 +964,8 @@
                 "start_beat": 0,
                 "duration_beat": 3.5,
                 "velocity": 0.699999988079071,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -952,6 +975,8 @@
                 "start_beat": 4,
                 "duration_beat": 3.5,
                 "velocity": 0.699999988079071,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -961,6 +986,8 @@
                 "start_beat": 4,
                 "duration_beat": 3.5,
                 "velocity": 0.699999988079071,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -970,11 +997,14 @@
                 "start_beat": 4,
                 "duration_beat": 3.5,
                 "velocity": 0.699999988079071,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
               }
             ],
+            "midi_events": [],
             "length_beats": 8,
             "swing": 50
           }
@@ -1365,6 +1395,8 @@
                 "start_beat": 0,
                 "duration_beat": 0.9,
                 "velocity": 0.8500000238418579,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -1374,6 +1406,8 @@
                 "start_beat": 1,
                 "duration_beat": 0.9,
                 "velocity": 0.8500000238418579,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -1383,6 +1417,8 @@
                 "start_beat": 2,
                 "duration_beat": 0.9,
                 "velocity": 0.8500000238418579,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -1392,6 +1428,8 @@
                 "start_beat": 3,
                 "duration_beat": 0.9,
                 "velocity": 0.8500000238418579,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -1401,6 +1439,8 @@
                 "start_beat": 4,
                 "duration_beat": 0.9,
                 "velocity": 0.8500000238418579,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -1410,6 +1450,8 @@
                 "start_beat": 5,
                 "duration_beat": 0.9,
                 "velocity": 0.8500000238418579,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -1419,6 +1461,8 @@
                 "start_beat": 6,
                 "duration_beat": 0.9,
                 "velocity": 0.8500000238418579,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
@@ -1428,11 +1472,14 @@
                 "start_beat": 7,
                 "duration_beat": 0.9,
                 "velocity": 0.8500000238418579,
+                "channel": 0,
+                "midi_track": 0,
                 "pan": 0,
                 "fine_cents": 0,
                 "release_scale": 1
               }
             ],
+            "midi_events": [],
             "length_beats": 8,
             "swing": 50
           }
@@ -3275,6 +3322,8 @@
                   "start_beat": 0,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3284,6 +3333,8 @@
                   "start_beat": 0.5,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3293,6 +3344,8 @@
                   "start_beat": 1,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3302,6 +3355,8 @@
                   "start_beat": 1.5,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3311,6 +3366,8 @@
                   "start_beat": 2,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3320,6 +3377,8 @@
                   "start_beat": 2.5,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3329,6 +3388,8 @@
                   "start_beat": 3,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3338,6 +3399,8 @@
                   "start_beat": 3.5,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3362,6 +3425,8 @@
                   "start_beat": 0,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3371,6 +3436,8 @@
                   "start_beat": 0.5,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3380,6 +3447,8 @@
                   "start_beat": 1,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3389,6 +3458,8 @@
                   "start_beat": 1.5,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3398,6 +3469,8 @@
                   "start_beat": 2,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3407,6 +3480,8 @@
                   "start_beat": 2.5,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3416,6 +3491,8 @@
                   "start_beat": 3,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3425,6 +3502,8 @@
                   "start_beat": 3.5,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3449,6 +3528,8 @@
                   "start_beat": 0,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3458,6 +3539,8 @@
                   "start_beat": 0.5,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3467,6 +3550,8 @@
                   "start_beat": 1,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3476,6 +3561,8 @@
                   "start_beat": 1.5,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3485,6 +3572,8 @@
                   "start_beat": 2,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3494,6 +3583,8 @@
                   "start_beat": 2.5,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3503,6 +3594,8 @@
                   "start_beat": 3,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3512,6 +3605,8 @@
                   "start_beat": 3.5,
                   "duration_beat": 0.5,
                   "velocity": 0.800000011920929,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3540,6 +3635,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3549,6 +3646,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3558,6 +3657,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3567,6 +3668,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3576,6 +3679,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3585,6 +3690,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3609,6 +3716,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3618,6 +3727,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3627,6 +3738,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3636,6 +3749,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3645,6 +3760,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3654,6 +3771,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3678,6 +3797,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3687,6 +3808,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3696,6 +3819,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3705,6 +3830,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3714,6 +3841,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3723,6 +3852,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3747,6 +3878,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3756,6 +3889,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3765,6 +3900,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3774,6 +3911,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3783,6 +3922,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3792,6 +3933,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3816,6 +3959,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3825,6 +3970,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3834,6 +3981,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3843,6 +3992,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3852,6 +4003,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3861,6 +4014,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3885,6 +4040,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3894,6 +4051,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3903,6 +4062,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3912,6 +4073,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3921,6 +4084,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3930,6 +4095,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3954,6 +4121,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3963,6 +4132,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3972,6 +4143,8 @@
                   "start_beat": 0,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3981,6 +4154,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3990,6 +4165,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -3999,6 +4176,8 @@
                   "start_beat": 4,
                   "duration_beat": 3.5,
                   "velocity": 0.699999988079071,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4027,6 +4206,8 @@
                   "start_beat": 0,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4036,6 +4217,8 @@
                   "start_beat": 1,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4045,6 +4228,8 @@
                   "start_beat": 2,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4054,6 +4239,8 @@
                   "start_beat": 3,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4063,6 +4250,8 @@
                   "start_beat": 4,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4072,6 +4261,8 @@
                   "start_beat": 5,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4081,6 +4272,8 @@
                   "start_beat": 6,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4090,6 +4283,8 @@
                   "start_beat": 7,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4114,6 +4309,8 @@
                   "start_beat": 0,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4123,6 +4320,8 @@
                   "start_beat": 1,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4132,6 +4331,8 @@
                   "start_beat": 2,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4141,6 +4342,8 @@
                   "start_beat": 3,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4150,6 +4353,8 @@
                   "start_beat": 4,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4159,6 +4364,8 @@
                   "start_beat": 5,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4168,6 +4375,8 @@
                   "start_beat": 6,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4177,6 +4386,8 @@
                   "start_beat": 7,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4201,6 +4412,8 @@
                   "start_beat": 0,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4210,6 +4423,8 @@
                   "start_beat": 1,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4219,6 +4434,8 @@
                   "start_beat": 2,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4228,6 +4445,8 @@
                   "start_beat": 3,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4237,6 +4456,8 @@
                   "start_beat": 4,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4246,6 +4467,8 @@
                   "start_beat": 5,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4255,6 +4478,8 @@
                   "start_beat": 6,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4264,6 +4489,8 @@
                   "start_beat": 7,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4288,6 +4515,8 @@
                   "start_beat": 0,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4297,6 +4526,8 @@
                   "start_beat": 1,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4306,6 +4537,8 @@
                   "start_beat": 2,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4315,6 +4548,8 @@
                   "start_beat": 3,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4324,6 +4559,8 @@
                   "start_beat": 4,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4333,6 +4570,8 @@
                   "start_beat": 5,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4342,6 +4581,8 @@
                   "start_beat": 6,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4351,6 +4592,8 @@
                   "start_beat": 7,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4375,6 +4618,8 @@
                   "start_beat": 0,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4384,6 +4629,8 @@
                   "start_beat": 1,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4393,6 +4640,8 @@
                   "start_beat": 2,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4402,6 +4651,8 @@
                   "start_beat": 3,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4411,6 +4662,8 @@
                   "start_beat": 4,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4420,6 +4673,8 @@
                   "start_beat": 5,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4429,6 +4684,8 @@
                   "start_beat": 6,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4438,6 +4695,8 @@
                   "start_beat": 7,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4462,6 +4721,8 @@
                   "start_beat": 0,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4471,6 +4732,8 @@
                   "start_beat": 1,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4480,6 +4743,8 @@
                   "start_beat": 2,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4489,6 +4754,8 @@
                   "start_beat": 3,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4498,6 +4765,8 @@
                   "start_beat": 4,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4507,6 +4776,8 @@
                   "start_beat": 5,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4516,6 +4787,8 @@
                   "start_beat": 6,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1
@@ -4525,6 +4798,8 @@
                   "start_beat": 7,
                   "duration_beat": 0.9,
                   "velocity": 0.8500000238418579,
+                  "channel": 0,
+                  "midi_track": 0,
                   "pan": 0,
                   "fine_cents": 0,
                   "release_scale": 1

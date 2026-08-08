@@ -437,6 +437,7 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                     // math and the playback wrap.
                     rack.pattern_player.?.length_beats = finiteClamp(f64, ss.pattern.length_beats, 1.0, std.math.floatMax(f64), 4.0);
                     loadNotes(&rack.pattern_player.?, ss.pattern.notes);
+                    rack.pattern_player.?.setMidiEvents(ss.pattern.midi_events);
                     rack.pattern_player.?.setSwing(ss.pattern.swing);
             },
             .sampler => |smp| {
@@ -449,6 +450,7 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                     s.mono = smp.mono;
                     rack.pattern_player.?.length_beats = finiteClamp(f64, smp.pattern.length_beats, 1.0, std.math.floatMax(f64), 4.0);
                     loadNotes(&rack.pattern_player.?, smp.pattern.notes);
+                    rack.pattern_player.?.setMidiEvents(smp.pattern.midi_events);
                     rack.pattern_player.?.setSwing(smp.pattern.swing);
             },
             .drum_machine => |ds| {
@@ -585,6 +587,7 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
                 rack.pattern_player.?.length_beats = finiteClamp(f64, cs.pattern.length_beats, 1.0, std.math.floatMax(f64), 4.0);
                 loadNotes(&rack.pattern_player.?, cs.pattern.notes);
+                rack.pattern_player.?.setMidiEvents(cs.pattern.midi_events);
                 rack.pattern_player.?.setSwing(cs.pattern.swing);
             },
             .vst3 => |vs| {
@@ -599,6 +602,7 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
                 rack.pattern_player.?.length_beats = finiteClamp(f64, vs.pattern.length_beats, 1.0, std.math.floatMax(f64), 4.0);
                 loadNotes(&rack.pattern_player.?, vs.pattern.notes);
+                rack.pattern_player.?.setMidiEvents(vs.pattern.midi_events);
                 rack.pattern_player.?.setSwing(vs.pattern.swing);
             },
             inline .soundfont, .acoustic => |sfs, tag| {
@@ -613,6 +617,7 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                     // resets it to 0, so setting it here would be wiped.
                     rack.pattern_player.?.length_beats = finiteClamp(f64, sfs.pattern.length_beats, 1.0, std.math.floatMax(f64), 4.0);
                     loadNotes(&rack.pattern_player.?, sfs.pattern.notes);
+                    rack.pattern_player.?.setMidiEvents(sfs.pattern.midi_events);
                     rack.pattern_player.?.setSwing(sfs.pattern.swing);
             },
         }
@@ -923,6 +928,8 @@ pub fn sanitizeNote(n: NoteSnap) pattern_mod.Note {
         .start_beat = finiteClamp(f64, n.start_beat, 0.0, std.math.floatMax(f64), 0.0),
         .duration_beat = finiteClamp(f64, n.duration_beat, 0.0, std.math.floatMax(f64), 0.0),
         .velocity = finiteClamp(f32, n.velocity, 0.0, 1.0, pattern_mod.default_velocity),
+        .channel = @intCast(@min(n.channel, 15)),
+        .midi_track = n.midi_track,
         // One clamp for all three, shared with the Lua setter and the
         // editors, so a hand-edited file can't place a note somewhere the
         // UI has no way to show or undo.

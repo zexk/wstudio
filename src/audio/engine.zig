@@ -42,6 +42,7 @@ pub const Command = union(enum) {
     set_meter_denominator: u8,
     set_tempo_point: time_map.TempoPoint,
     set_meter_point: time_map.MeterPoint,
+    clear_time_map,
     set_master_gain: f32,
     set_track_gain: struct { track: u16, gain: f32 },
     set_track_pan: struct { track: u16, pan: f32 },
@@ -1353,6 +1354,10 @@ pub const Engine = struct {
             .set_meter_denominator => |denominator| self.transport.time_signature.beat_unit = denominator,
             .set_tempo_point => |point| self.transport.setTempoPoint(point),
             .set_meter_point => |point| self.transport.setMeterPoint(point),
+            .clear_time_map => {
+                self.transport.tempo_point_count = 0;
+                self.transport.meter_point_count = 0;
+            },
             .set_master_gain => |g| self.master_gain = g,
             .set_track_gain => |c| if (self.trackAtIfValid(c.track)) |track| {
                 track.gain = c.gain;

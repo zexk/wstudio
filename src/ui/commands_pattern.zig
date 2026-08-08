@@ -571,11 +571,8 @@ pub fn cmdSwing(app: *App, args: []const u8) void {
 }
 
 /// `:import-midi <file>` - replace the piano-roll pattern with a Standard
-/// MIDI File's notes (every track's events merged onto one timeline - see
-/// midi_file.zig's doc comment). Same track-resolution rule as `:clear`.
-/// Doesn't touch the project tempo - the file's own tempo is only reported
-/// in the status line, since silently retiming the project on import would
-/// surprise whoever's mid-session.
+/// MIDI File's notes and channel events. Source track/channel identity and
+/// tempo changes stay attached for round-trip export.
 pub fn cmdImportMidi(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
@@ -590,14 +587,24 @@ pub fn cmdImportMidi(app: *App, args: []const u8) void {
     const path = expandHome(&path_buf, trimmed);
     const data = readFileForLoad(app, path) orelse return;
     defer app.allocator.free(data);
-    const result = ws.midi_file.parse(app.allocator, data) catch |e| {
+    var result = ws.midi_file.parse(app.allocator, data) catch |e| {
         app.setStatus("import-midi: parse error: {s}", .{@errorName(e)});
         return;
     };
-    defer app.allocator.free(result.notes);
+    defer result.deinit(app.allocator);
 
     history.recordMelodic(app, @intCast(m.track));
     m.pp.setNotes(result.notes, result.length_beats);
+    m.pp.setMidiEvents(result.events);
+    app.session.project.tempo_bpm = result.tempo_bpm;
+    app.session.project.tempo_points.clearRetainingCapacity();
+    _ = app.session.engine.send(.clear_time_map);
+    _ = app.session.engine.send(.{ .set_tempo = result.tempo_bpm });
+    for (result.tempo_points) |point| {
+        app.session.project.setTempoPoint(point) catch continue;
+        _ = app.session.engine.send(.{ .set_tempo_point = point });
+    }
+    app.session.syncLoop();
     piano_ed.syncLinkedClip(app);
     if (result.truncated)
         app.setStatus("imported {d} notes (capped at {d}) at {d:.0} BPM", .{ result.notes.len, pattern_mod.max_notes, result.tempo_bpm })
@@ -606,8 +613,7 @@ pub fn cmdImportMidi(app: *App, args: []const u8) void {
 }
 
 /// `:export-midi <file>` - write the piano-roll pattern as a format-0
-/// Standard MIDI File at the project's tempo. Same track-resolution rule as
-/// `:clear`/`:import-midi`.
+/// Standard MIDI File with project tempo changes and imported channel events.
 pub fn cmdExportMidi(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
@@ -620,8 +626,10 @@ pub fn cmdExportMidi(app: *App, args: []const u8) void {
     };
     var note_buf: [pattern_mod.max_notes]pattern_mod.Note = undefined;
     const count = m.pp.copyNotes(&note_buf);
+    var event_buf: [pattern_mod.max_midi_events]pattern_mod.MidiEvent = undefined;
+    const event_count = m.pp.copyMidiEvents(&event_buf);
 
-    const bytes = ws.midi_file.write(app.allocator, note_buf[0..count], app.session.project.tempo_bpm) catch {
+    const bytes = ws.midi_file.writeProject(app.allocator, note_buf[0..count], event_buf[0..event_count], app.session.project.tempo_points.items, app.session.project.tempo_bpm) catch {
         app.setStatus("export-midi: out of memory", .{});
         return;
     };

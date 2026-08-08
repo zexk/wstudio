@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 43;
+pub const file_version: u32 = 44;
 
 /// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
 /// reasoning as `EqBandKindSnap`.
@@ -88,6 +88,8 @@ pub const NoteSnap = struct {
     start_beat: f64,
     duration_beat: f64,
     velocity: f32 = 0.85,
+    channel: u8 = 0,
+    midi_track: u16 = 0,
     pan: f32 = 0.0,
     fine_cents: f32 = 0.0,
     release_scale: f32 = 1.0,
@@ -95,6 +97,7 @@ pub const NoteSnap = struct {
 
 pub const PatternSnap = struct {
     notes: []const NoteSnap = &.{},
+    midi_events: []const pattern_mod.MidiEvent = &.{},
     length_beats: f64 = 4.0,
     swing: f32 = 50.0,
 };

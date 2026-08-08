@@ -291,7 +291,7 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
             
             var ss = synthToSnap(s);
             if (rack.pattern_player) |*pp| {
-                ss.pattern = .{ .length_beats = pp.length_beats, .notes = try notesToSnap(aa, pp), .swing = pp.swing.load(.monotonic) };
+                ss.pattern = try patternToSnap(aa, pp);
             }
             rs.content = .{ .poly_synth = ss };
         },
@@ -315,7 +315,7 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
                 .mono = s.mono,
             };
             if (rack.pattern_player) |*pp| {
-                smp.pattern = .{ .length_beats = pp.length_beats, .notes = try notesToSnap(aa, pp), .swing = pp.swing.load(.monotonic) };
+                smp.pattern = try patternToSnap(aa, pp);
             }
             rs.content = .{ .sampler = smp };
         },
@@ -431,14 +431,14 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
         .clap => |plugin| {
             var cs = try clapToSnap(aa, plugin);
             if (rack.pattern_player) |*pp| {
-                cs.pattern = .{ .length_beats = pp.length_beats, .notes = try notesToSnap(aa, pp), .swing = pp.swing.load(.monotonic) };
+                cs.pattern = try patternToSnap(aa, pp);
             }
             rs.content = .{ .clap = cs };
         },
         .vst3 => |plugin| {
             var vs = try vst3ToSnap(aa, plugin);
             if (rack.pattern_player) |*pp| {
-                vs.pattern = .{ .length_beats = pp.length_beats, .notes = try notesToSnap(aa, pp), .swing = pp.swing.load(.monotonic) };
+                vs.pattern = try patternToSnap(aa, pp);
             }
             rs.content = .{ .vst3 = vs };
         },
@@ -451,7 +451,7 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
                 .library = if (sf.builtin) |id| @tagName(id) else "",
             };
             if (rack.pattern_player) |*pp| {
-                sfs.pattern = .{ .length_beats = pp.length_beats, .notes = try notesToSnap(aa, pp), .swing = pp.swing.load(.monotonic) };
+                sfs.pattern = try patternToSnap(aa, pp);
             }
             rs.content = if (tag == .acoustic) .{ .acoustic = sfs } else .{ .soundfont = sfs };
         },
@@ -820,6 +820,8 @@ fn noteToSnap(n: pattern_mod.Note) NoteSnap {
         .start_beat = n.start_beat,
         .duration_beat = n.duration_beat,
         .velocity = n.velocity,
+        .channel = n.channel,
+        .midi_track = n.midi_track,
         .pan = n.art.pan,
         .fine_cents = n.art.fine_cents,
         .release_scale = n.art.release_scale,
@@ -835,6 +837,15 @@ pub fn notesToSnap(aa: std.mem.Allocator, pp: *PatternPlayer) ![]const NoteSnap 
     }
     pp.notes_lock.unlock();
     return aa.dupe(NoteSnap, tmp[0..@as(usize, count)]);
+}
+
+fn patternToSnap(aa: std.mem.Allocator, pp: *PatternPlayer) !persist_types.PatternSnap {
+    return .{
+        .length_beats = pp.length_beats,
+        .notes = try notesToSnap(aa, pp),
+        .midi_events = pp.midi_events[0..pp.midi_event_count],
+        .swing = pp.swing.load(.monotonic),
+    };
 }
 
 // zig fmt: off
