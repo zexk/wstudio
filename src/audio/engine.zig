@@ -1855,7 +1855,9 @@ pub const Engine = struct {
             const send_levels = self.automation_bus[0..frames];
             const send_automated = auto.sends[slot].fillValues(send_levels, beat_pos, beat_step, snd.level);
             for (0..frames) |i| {
-                const gain_l, const gain_r = if (automated) blk: {
+                const gain_l, const gain_r = if (snd.pre_fader)
+                    .{ @as(f32, 1.0), @as(f32, 1.0) }
+                else if (automated) blk: {
                     const angle = (pans[i] + 1.0) * std.math.pi / 4.0;
                     break :blk .{ gains[i] * @cos(angle), gains[i] * @sin(angle) };
                 } else .{ base_gain_l, base_gain_r };
@@ -3055,6 +3057,26 @@ test "a track's aux send taps a group in parallel with its primary route, withou
     var loud_muted: f32 = 0.0;
     for (block_muted) |s| loud_muted = @max(loud_muted, @abs(s));
     try std.testing.expectEqual(@as(f32, 0.0), loud_muted);
+}
+
+test "pre-fader send remains audible with track fader down" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.trackAt(0).* = .{ .active = true, .gain = 0 };
+    engine.setTrackChain(0, &.{synth.device()});
+    engine.setGroupChain(0, true, &.{});
+    var sends: TrackSendSlots = @splat(null);
+    sends[0] = .{ .target = .{ .group = 0 }, .level = 1, .pre_fader = true };
+    engine.setTrackSends(0, sends);
+    _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1 } });
+
+    var block: [512]Sample = undefined;
+    for (0..4) |_| engine.process(&block);
+    var peak: f32 = 0;
+    for (block) |sample| peak = @max(peak, @abs(sample));
+    try std.testing.expect(peak > 0.05);
 }
 
 test "a compressor on the master chain sidechains off a group bus (group renders before master)" {

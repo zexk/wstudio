@@ -117,11 +117,11 @@ pub fn save(
     for (session.project.tracks.items, tracks) |t, *ts| {
         var sends_buf: [project_mod.max_sends_per_track]SendSnap = undefined;
         var sends_len: usize = 0;
-        for (t.sends) |maybe_send| {
+        for (t.sends, 0..) |maybe_send, slot| {
             const snd = maybe_send orelse continue;
             sends_buf[sends_len] = switch (snd.target) {
-                .master => .{ .is_group = false, .group = 0, .level_db = types.gainToDb(snd.level) },
-                .group => |g| .{ .is_group = true, .group = g, .level_db = types.gainToDb(snd.level) },
+                .master => .{ .slot = @intCast(slot), .is_group = false, .group = 0, .level_db = types.gainToDb(snd.level), .pre_fader = snd.pre_fader },
+                .group => |g| .{ .slot = @intCast(slot), .is_group = true, .group = g, .level_db = types.gainToDb(snd.level), .pre_fader = snd.pre_fader },
             };
             sends_len += 1;
         }

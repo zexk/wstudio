@@ -1097,11 +1097,12 @@ pub const Session = struct {
     /// Set aux-send slot `slot` on track `idx` to target `target` at
     /// `level_db`, and push the change. Clamped to the same -60..+12 dB
     /// range track gain uses.
-    pub fn setTrackSend(self: *Session, idx: u16, slot: u8, target: project_mod.SendTarget, level_db: f32) void {
+    pub fn setTrackSend(self: *Session, idx: u16, slot: u8, target: project_mod.SendTarget, level_db: f32, pre_fader: bool) void {
         if (idx >= self.project.tracks.items.len or slot >= project_mod.max_sends_per_track) return;
         self.project.tracks.items[idx].sends[slot] = .{
             .target = target,
             .level = types.dbToGain(std.math.clamp(level_db, -60.0, 12.0)),
+            .pre_fader = pre_fader,
         };
         self.pushTrackSends(idx);
         self.captureMixAutomation(.{ .send_level = .{ .track = idx, .slot = slot } }, level_db);

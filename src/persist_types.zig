@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 44;
+pub const file_version: u32 = 45;
 
 /// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
 /// reasoning as `EqBandKindSnap`.
@@ -686,9 +686,11 @@ pub const TrackSnap = struct {
 /// `sidechain_source`/`sidechain_is_group` pair uses) - trivial JSON
 /// round-trip, no tag-string handling.
 pub const SendSnap = struct {
+    slot: u8,
     is_group: bool = false,
     group: u8 = 0,
     level_db: f32 = -60.0,
+    pre_fader: bool = false,
 };
 
 /// One track-grouping submix bus. Mirrors `Session.Group`. `Snapshot.groups`

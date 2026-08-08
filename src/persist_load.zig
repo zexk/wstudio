@@ -373,10 +373,12 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
         // "bank of N" convention the engine's own fixed sidechain/group
         // banks already use.
         var sends: [project_mod.max_sends_per_track]?project_mod.SendSlot = @splat(null);
-        for (t.sends[0..@min(t.sends.len, project_mod.max_sends_per_track)], 0..) |ss, i| {
-            sends[i] = .{
+        for (t.sends[0..@min(t.sends.len, project_mod.max_sends_per_track)]) |ss| {
+            if (ss.slot >= project_mod.max_sends_per_track) continue;
+            sends[ss.slot] = .{
                 .target = if (ss.is_group) .{ .group = @min(ss.group, engine_mod.max_groups - 1) } else .master,
                 .level = types.dbToGain(finiteClamp(f32, ss.level_db, -60.0, 12.0, -60.0)),
+                .pre_fader = ss.pre_fader,
             };
         }
         _ = try project.addTrack(.{

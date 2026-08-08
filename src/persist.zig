@@ -426,10 +426,10 @@ test "save/load round-trip persists a track's aux sends (master + group)" {
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
     const g = try session.addGroup("verb");
-    session.setTrackSend(0, 0, .master, -6.0);
-    session.setTrackSend(0, 1, .{ .group = g }, -12.0);
+    session.setTrackSend(0, 0, .master, -6.0, true);
+    session.setTrackSend(0, 1, .{ .group = g }, -12.0, false);
     for (2..project_mod.max_sends_per_track) |slot|
-        session.setTrackSend(0, @intCast(slot), .master, -18.0);
+        session.setTrackSend(0, @intCast(slot), .master, -18.0, false);
 
     try save(testing.allocator, &session, testing.io, wsj_path);
     var loaded = try load(testing.allocator, testing.io, wsj_path);
@@ -438,9 +438,11 @@ test "save/load round-trip persists a track's aux sends (master + group)" {
     const send0 = sends[0].?;
     try testing.expectEqual(project_mod.SendTarget.master, send0.target);
     try testing.expectApproxEqAbs(types.dbToGain(-6.0), send0.level, 1e-4);
+    try testing.expect(send0.pre_fader);
     const send1 = sends[1].?;
     try testing.expectEqual(g, send1.target.group);
     try testing.expectApproxEqAbs(types.dbToGain(-12.0), send1.level, 1e-4);
+    try testing.expect(!send1.pre_fader);
     const last = sends[project_mod.max_sends_per_track - 1].?;
     try testing.expectEqual(project_mod.SendTarget.master, last.target);
     try testing.expectApproxEqAbs(types.dbToGain(-18.0), last.level, 1e-4);

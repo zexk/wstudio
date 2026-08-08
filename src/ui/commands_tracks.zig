@@ -397,7 +397,7 @@ pub fn cmdTrackSend(app: *App, args: []const u8) void {
     const slot_str = it.next() orelse "";
     const target_str = it.next() orelse "";
     if (track_str.len == 0 or slot_str.len == 0 or target_str.len == 0) {
-        app.setStatus("usage: track-send <track> <slot 1-{d}> none|master|<group> [<dB>]", .{ws.max_sends_per_track});
+        app.setStatus("usage: track-send <track> <slot 1-{d}> none|master|<group> [pre|post] [<dB>]", .{ws.max_sends_per_track});
         return;
     }
     const track_1 = std.fmt.parseInt(usize, track_str, 10) catch {
@@ -427,20 +427,28 @@ pub fn cmdTrackSend(app: *App, args: []const u8) void {
         return;
     }
 
-    const level_str = std.mem.trim(u8, it.rest(), " ");
-    const level_db = if (level_str.len == 0) -6.0 else std.fmt.parseFloat(f32, level_str) catch {
-        app.setStatus("track-send: bad level '{s}'", .{level_str});
+    var rest = std.mem.tokenizeScalar(u8, it.rest(), ' ');
+    const first = rest.next();
+    const pre_fader = if (first) |word| std.ascii.eqlIgnoreCase(word, "pre") else false;
+    const post_fader = if (first) |word| std.ascii.eqlIgnoreCase(word, "post") else false;
+    const level_str = if (pre_fader or post_fader) rest.next() else first;
+    if (rest.next() != null) {
+        app.setStatus("track-send: too many arguments", .{});
+        return;
+    }
+    const level_db = if (level_str == null) -6.0 else std.fmt.parseFloat(f32, level_str.?) catch {
+        app.setStatus("track-send: bad level '{s}'", .{level_str.?});
         return;
     };
 
     if (std.ascii.eqlIgnoreCase(target_str, "master")) {
-        app.session.setTrackSend(track_idx, slot, .master, level_db);
+        app.session.setTrackSend(track_idx, slot, .master, level_db, pre_fader);
         app.dirty = true;
         app.setStatus("track {d} send {d} → master @ {d:.1}dB", .{ track_1, slot_1, level_db });
         return;
     }
     const idx = existingGroupArg(app, "track-send", target_str) orelse return;
-    app.session.setTrackSend(track_idx, slot, .{ .group = idx }, level_db);
+    app.session.setTrackSend(track_idx, slot, .{ .group = idx }, level_db, pre_fader);
     app.dirty = true;
     app.setStatus("track {d} send {d} → group {d} @ {d:.1}dB", .{ track_1, slot_1, idx + 1, level_db });
 }

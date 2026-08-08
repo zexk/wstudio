@@ -39,6 +39,7 @@ pub const SendTarget = union(enum) { master, group: u8 };
 pub const SendSlot = struct {
     target: SendTarget,
     level: f32 = 0.0,
+    pre_fader: bool = false,
 };
 
 pub const Track = struct {
