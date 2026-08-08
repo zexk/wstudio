@@ -1305,7 +1305,7 @@ pub const PolySynth = struct {
         self.mod_alternate = !self.mod_alternate;
         const target_log = self.noteLog2(note);
         const start_log = if (was_active and self.glide_s > 0.0) prev_log else target_log;
-        return .{
+        var voice: Voice = .{
             .active           = true,
             .note             = note,
             .velocity         = velocity,
@@ -1322,6 +1322,14 @@ pub const PolySynth = struct {
             .alternate        = if (self.mod_alternate) 1.0 else -1.0,
             .id               = self.next_voice_id,
         };
+        // Free-running starts keep stacked voices from phase-locking into a
+        // large transient. Surge uses the same default for its oscillators.
+        for (&voice.phases, &voice.phases_b, &voice.phases_c) |*a, *b, *c| {
+            a.* = nextNoise(&self.mod_rand_state) * 0.5 + 0.5;
+            b.* = nextNoise(&self.mod_rand_state) * 0.5 + 0.5;
+            c.* = nextNoise(&self.mod_rand_state) * 0.5 + 0.5;
+        }
+        return voice;
     }
 
     fn noteOnPoly(self: *PolySynth, note: u7, velocity: f32, art: dsp.Articulation) void {
@@ -1504,12 +1512,15 @@ pub const PolySynth = struct {
     }
 
     fn allocVoice(self: *PolySynth) u8 {
-        var quietest: u8 = 0;
+        var oldest: u8 = 0;
+        var quietest_release: ?u8 = null;
         for (self.voices, 0..) |v, i| {
             if (!v.active) return @intCast(i);
-            if (v.env < self.voices[quietest].env) quietest = @intCast(i);
+            if (v.id < self.voices[oldest].id) oldest = @intCast(i);
+            if (v.stage == .release and (quietest_release == null or v.env < self.voices[quietest_release.?].env))
+                quietest_release = @intCast(i);
         }
-        return quietest;
+        return quietest_release orelse oldest;
     }
 
     /// Summed matrix modulation per destination for one voice/block:
@@ -1836,11 +1847,7 @@ pub const PolySynth = struct {
                     a_r += samp * pan_r_a[ui];
                     a_mono += samp;
                     v.phases[ui] += inc;
-                    if (self.mod_mode == .fm_b_to_a) {
-                        v.phases[ui] -= @floor(v.phases[ui]);
-                    } else {
-                        if (v.phases[ui] >= 1.0) v.phases[ui] -= 1.0;
-                    }
+                    v.phases[ui] -= @floor(v.phases[ui]);
                 }
                 a_mono /= @as(f32, @floatFromInt(n_a));
 
@@ -1857,11 +1864,7 @@ pub const PolySynth = struct {
                         b_r += samp * pan_r_b[ui];
                         b_mono += samp;
                         v.phases_b[ui] += inc;
-                        if (self.mod_mode == .fm_a_to_b) {
-                            v.phases_b[ui] -= @floor(v.phases_b[ui]);
-                        } else {
-                            if (v.phases_b[ui] >= 1.0) v.phases_b[ui] -= 1.0;
-                        }
+                        v.phases_b[ui] -= @floor(v.phases_b[ui]);
                     }
                     b_mono /= @as(f32, @floatFromInt(n_b));
                 }
@@ -1893,7 +1896,7 @@ pub const PolySynth = struct {
                         c_l += samp * pan_l_c[ui];
                         c_r += samp * pan_r_c[ui];
                         v.phases_c[ui] += phase_incs_c[ui];
-                        if (v.phases_c[ui] >= 1.0) v.phases_c[ui] -= 1.0;
+                        v.phases_c[ui] -= @floor(v.phases_c[ui]);
                     }
                 }
 
@@ -1907,7 +1910,7 @@ pub const PolySynth = struct {
                     const sub_wf: Waveform = if (self.sub_shape == .sine) .sine else .square;
                     sub_out = oscWave(sub_wf, v.sub_phase, 0.5, sub_phase_inc);
                     v.sub_phase += sub_phase_inc;
-                    if (v.sub_phase >= 1.0) v.sub_phase -= 1.0;
+                    v.sub_phase -= @floor(v.sub_phase);
                 }
 
                 // Noise: always centre.
@@ -4641,6 +4644,55 @@ test "polyBLEP reduces saw discontinuity" {
     const naive_jump = @abs(synth_math.oscWave(.saw, 0.0, 0.5, 0.0) - synth_math.oscWave(.saw, 0.99, 0.5, 0.0));
     const blep_jump = @abs(synth_math.oscWave(.saw, 0.0, 0.5, 0.02) - synth_math.oscWave(.saw, 0.99, 0.5, 0.02));
     try std.testing.expect(blep_jump < naive_jump);
+}
+
+test "voice trigger decorrelates oscillator lanes" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.noteOn(60, 1.0);
+
+    const voice = synth.voices[synth.newest_voice];
+    try std.testing.expect(voice.phases[0] != voice.phases[1]);
+    for (voice.phases, voice.phases_b, voice.phases_c) |a, b, c| {
+        try std.testing.expect(a >= 0.0 and a < 1.0);
+        try std.testing.expect(b >= 0.0 and b < 1.0);
+        try std.testing.expect(c >= 0.0 and c < 1.0);
+    }
+}
+
+test "voice stealing prefers releases then oldest active voice" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    for (&synth.voices, 0..) |*voice, i| voice.* = .{ .active = true, .env = 0.8, .id = i + 10 };
+    synth.voices[3].stage = .release;
+    synth.voices[3].env = 0.2;
+    synth.voices[7].env = 0.0;
+    try std.testing.expectEqual(@as(u8, 3), synth.allocVoice());
+
+    synth.voices[3].stage = .sustain;
+    synth.voices[5].id = 1;
+    try std.testing.expectEqual(@as(u8, 5), synth.allocVoice());
+}
+
+test "extreme pitch modulation keeps oscillator phases normalized" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.osc_b_on = true;
+    synth.osc_c_on = true;
+    synth.sub_level = 1.0;
+    synth.macro1 = 1.0;
+    for (&synth.mod_matrix) |*row| row.* = .{ .source = .mac1, .dest = PolySynth.dest_pitch, .depth = 1.0 };
+    synth.noteOn(127, 1.0);
+
+    var buf = [_]Sample{ 0.0, 0.0 };
+    synth.processBlock(&buf);
+    const voice = synth.voices[synth.newest_voice];
+    for (voice.phases, voice.phases_b, voice.phases_c) |a, b, c| {
+        try std.testing.expect(a >= 0.0 and a < 1.0);
+        try std.testing.expect(b >= 0.0 and b < 1.0);
+        try std.testing.expect(c >= 0.0 and c < 1.0);
+    }
+    try std.testing.expect(voice.sub_phase >= 0.0 and voice.sub_phase < 1.0);
 }
 
 test "filter drive bypasses at unity and saturates above it" {
