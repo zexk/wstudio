@@ -306,7 +306,9 @@ pub const Sampler = struct {
         const frames: u32 = @intCast(buf.len / channels);
         const sr: f64 = @floatFromInt(self.sample_rate);
 
-        while (!self.pad_lock.tryLock()) std.atomic.spinLoopHint();
+        // Sample swaps run on control thread. Missing one render block is
+        // safer than making audio callback wait for decode/load cleanup.
+        if (!self.pad_lock.tryLock()) return;
         defer self.pad_lock.unlock();
 
         // One shared LFO phase per block, read by every simultaneously
@@ -375,6 +377,16 @@ fn generateTestClip(allocator: std.mem.Allocator, sample_rate: u32) ![]f32 {
         s.* = env * (0.9 * @sin(phase) + 0.2 * @sin(2.0 * phase));
     }
     return out;
+}
+
+test "processBlock skips pad-lock contention" {
+    var s = try Sampler.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    try std.testing.expect(s.pad_lock.tryLock());
+    defer s.pad_lock.unlock();
+    var buf = [_]Sample{ 1, 1 };
+    s.processBlock(&buf);
+    try std.testing.expectEqualSlices(Sample, &.{ 1, 1 }, &buf);
 }
 
 // -----------------------------------------------------------------------

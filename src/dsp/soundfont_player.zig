@@ -49,6 +49,7 @@ pub const SoundfontPlayer = struct {
     /// audio-thread read (`trigger`/`processBlock`) - same convention as
     /// `Sampler.pad_lock`.
     font_lock: std.atomic.Mutex = .unlocked,
+    reset_pending: std.atomic.Value(bool) = .init(false),
     font: ?SoundFont = null,
     /// The original file bytes, kept only so the project sidecar can
     /// re-export them unmodified on save - `font` is a simplified,
@@ -126,6 +127,7 @@ pub const SoundfontPlayer = struct {
         errdefer if (copy.font) |*f| f.deinit();
         copy.source_bytes = try self.allocator.dupe(u8, self.source_bytes);
         copy.font_lock = .unlocked;
+        copy.reset_pending = .init(false);
         copy.voices = [_]Voice{.{}} ** max_voices;
         copy.next_age = 0;
         return copy;
@@ -298,7 +300,9 @@ pub const SoundfontPlayer = struct {
     /// for a layered/stereo-paired instrument (see the file's top doc
     /// comment). Runs on the audio thread via the `note_on` device event.
     pub fn trigger(self: *SoundfontPlayer, note: u7, vel: f32, block_start: u32) void {
-        while (!self.font_lock.tryLock()) std.atomic.spinLoopHint();
+        // Font swaps run on control thread. Drop note if swap owns lock;
+        // audio callback must never wait for old font destruction.
+        if (!self.font_lock.tryLock()) return;
         defer self.font_lock.unlock();
         const font = self.font orelse return;
         if (self.preset_index >= font.presets.len) return;
@@ -379,8 +383,12 @@ pub const SoundfontPlayer = struct {
         const frames: u32 = @intCast(buf.len / channels);
         const sr: f64 = @floatFromInt(self.sample_rate);
 
-        while (!self.font_lock.tryLock()) std.atomic.spinLoopHint();
+        // Skip block during font swap instead of stalling audio callback.
+        if (!self.font_lock.tryLock()) return;
         defer self.font_lock.unlock();
+        if (self.reset_pending.swap(false, .acquire)) {
+            for (&self.voices) |*v| v.active = false;
+        }
         const font = self.font orelse {
             for (&self.voices) |*v| v.active = false;
             return;
@@ -393,7 +401,10 @@ pub const SoundfontPlayer = struct {
     }
 
     pub fn resetAll(self: *SoundfontPlayer) void {
-        while (!self.font_lock.tryLock()) std.atomic.spinLoopHint();
+        if (!self.font_lock.tryLock()) {
+            self.reset_pending.store(true, .release);
+            return;
+        }
         defer self.font_lock.unlock();
         for (&self.voices) |*v| v.active = false;
     }
@@ -420,6 +431,19 @@ pub const SoundfontPlayer = struct {
 
 // ---------------------------------------------------------------------------
 // Voice rendering (audio thread, allocation-free)
+
+test "audio methods skip font-lock contention" {
+    var p = SoundfontPlayer.init(std.testing.allocator, 48_000);
+    defer p.deinit();
+    try std.testing.expect(p.font_lock.tryLock());
+    defer p.font_lock.unlock();
+    var buf = [_]Sample{ 1, 1 };
+    p.trigger(60, 1, 0);
+    p.processBlock(&buf);
+    p.resetAll();
+    try std.testing.expect(p.reset_pending.load(.acquire));
+    try std.testing.expectEqualSlices(Sample, &.{ 1, 1 }, &buf);
+}
 
 /// Attack/hold/decay/sustain level at output time `t` seconds since
 /// trigger - pure function of elapsed time, same shape as dsp/pad.zig's

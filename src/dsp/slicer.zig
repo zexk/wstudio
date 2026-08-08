@@ -1120,7 +1120,9 @@ pub const Slicer = struct {
         const frames: u32 = @intCast(buf.len / channels);
         const sr: f64 = @floatFromInt(self.sample_rate);
 
-        while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
+        // Control-side sample/pattern swaps may hold lock. Skip block rather
+        // than stall realtime thread behind allocation or cleanup.
+        if (!self.sample_lock.tryLock()) return;
         defer self.sample_lock.unlock();
 
         if (self.transport.playing and self.slice_count > 0) {
@@ -1467,6 +1469,17 @@ test "swing setters ignore non-finite values" {
     try std.testing.expectEqual(@as(f32, 62.0), s.swing.load(.monotonic));
     s.adjustSwing(std.math.nan(f32));
     try std.testing.expectEqual(@as(f32, 62.0), s.swing.load(.monotonic));
+}
+
+test "processBlock skips sample-lock contention" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    try std.testing.expect(s.sample_lock.tryLock());
+    defer s.sample_lock.unlock();
+    var buf = [_]Sample{ 1, 1 };
+    s.processBlock(&buf);
+    try std.testing.expectEqualSlices(Sample, &.{ 1, 1 }, &buf);
 }
 
 test "sliceInto equal-divides the clip and clamps out-of-range counts" {
