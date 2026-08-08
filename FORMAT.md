@@ -2,7 +2,7 @@
 
 A `.wsj` file is pretty-printed JSON: a `Snapshot` of the session (tracks,
 racks/instruments, arrangement, master FX) plus a `version` field. The
-authoritative type definitions live in `src/persist.zig`; this doc is the
+authoritative type definitions live in `src/persist_types.zig`; this doc is the
 human-readable map of that file, not a replacement for it.
 
 ## Saving
@@ -23,9 +23,7 @@ alongside the `.wsj` into a sidecar directory, not embedded in the JSON. See
 this build writes or reads. Loading enforces one rule:
 
 - **A file whose `version` is not exactly `file_version` is hard-rejected**
-  (`error.UnsupportedVersion`). There are no migration paths: wstudio
-  reached 1.0 with no released installs, so every pre-1.0 `.wsj` was a
-  dev-only artifact and carrying migrations for them bought nothing.
+  (`error.UnsupportedVersion`). No migration paths exist.
 
 Current-version JSON uses a strict schema. Unknown fields and enum names fail
 parsing instead of silently dropping sound or changing behavior. Numeric clamps
@@ -33,13 +31,12 @@ and bounds checks remain because they protect against corrupt and hand-edited
 values.
 
 **Bump `file_version` for every schema or semantic change**, including new
-fields and enum members. Defaults still document current behavior for omitted
-optional data, but do not replace versioning.
+fields and enum members.
 
 ## Snapshot notes
 
 Bundled wavetable identities (`SynthSnap.wt_bundled` and OSC B/C counterparts)
-are additive fields; missing values select `basic`.
+select `basic` by default.
 
 `SynthParamAutomationSnap.instance_id` selects what a lane automates: 0 (the
 default) targets the clip's track's own instrument, so `param_id` indexes
@@ -51,8 +48,8 @@ nonzero value targets a specific FX unit in the track's chain by its stable
 `DrumSnap.kit` names the factory kit flavour the machine was last set to
 (`dsp/drum_kit.zig`'s `variants`). Its pads are generated on load rather
 than stored, so a kit costs a name in the JSON and nothing on disk; only
-user-loaded audio reaches the sidecar. A file that omits it - or names a
-flavour this build no longer has - loads with whatever the per-pad `used`
+user-loaded audio reaches the sidecar. An unknown name loads with whatever
+per-pad `used`
 flags describe, which for a machine left on the blank `init` kit is
 nothing at all.
 

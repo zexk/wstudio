@@ -5,10 +5,6 @@ product as one coherent DAW, completes a 20-effect internal rack, and applies
 bounded release polish. Beta.10 replaces beta.9 as the code promoted to 1.0.
 It is not another open-ended feature release.
 
-Compatibility frozen in beta.8 remains in force. Additive project fields and
-public names are allowed. Incompatible changes need an alias or migration
-unless required to prevent data loss, corruption, crash, or a security failure.
-
 ## 1. Close gaps and prove system coherence
 
 Start with beta.9's unresolved release gate, then test features through whole
@@ -33,7 +29,7 @@ workflows instead of accepting isolated subsystem tests.
   plugin deletion or reorder. No editor, automation lane, sidechain, modulation
   route, or plugin parameter may silently retarget another object.
 - Reconcile README, help, man page, Lua docs, config template, Nix modules,
-  version output, changelog, format history, package metadata, demo project,
+  version output, changelog, format contract, package metadata, demo project,
   and release notes against executable registries and actual behavior.
 
 Done when every supported workflow reaches the same saved state and audible
@@ -65,9 +61,8 @@ Add these six missing utility and mix roles:
 
 Each new kind must have bounded parameters, finite output under hostile input,
 bypass, reorder, duplicate, modulation/automation, preset, undo/redo, Lua,
-save/reload, and offline-render coverage. Extend current registries and tagged
-unions. Add a `.wsj` version only if older readers need to reject a newly saved
-variant under `FORMAT.md` policy.
+  save/reload, and offline-render coverage. Extend current registries and tagged
+  unions. Bump `.wsj` version for any schema change under `FORMAT.md` policy.
 
 ### Small DAW-completeness candidates
 
@@ -85,7 +80,7 @@ highlights four smaller workflow gaps worth testing with real projects:
    fades or crossfades qualify only if current clip model can hold them without
    a new audio-arrangement subsystem.
 4. Tempo and time-signature changes on the arrangement timeline, only if they
-   fit current automation/section timing without breaking fixed-beta behavior.
+   fit current automation/section timing without breaking live/offline timing.
 
 Research basis: Live documents punch bounds as part of arrangement looping in
 its [recording workflow](https://www.ableton.com/en/live-manual/12/recording-new-clips/),
@@ -96,7 +91,7 @@ comparison points, not a demand to copy either product.
 
 Accept a candidate only when a beta.10 reference journey proves current
 behavior blocks ordinary recording or arrangement work, implementation stays
-small and additive, both frontends can expose it through shared actions, and a
+small, both frontends can expose it through shared actions, and a
 focused regression check covers it. Otherwise record it for post-1.0. At most
 two candidates ship in beta.10.
 

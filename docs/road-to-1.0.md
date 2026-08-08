@@ -4,9 +4,8 @@ Beta.10 is the final release candidate. Scope narrows toward 1.0 instead of
 growing until the final tag.
 
 The per-release goal and validation documents for beta.5 through beta.9 are
-gone now that those releases shipped: what they delivered is recorded in
-[CHANGELOG.md](../CHANGELOG.md), and the surfaces they froze in
-[compatibility-inventory.md](compatibility-inventory.md).
+gone now that those releases shipped. What they delivered is recorded in
+[CHANGELOG.md](../CHANGELOG.md).
 
 ## 1.0.0-beta.10: final release candidate
 

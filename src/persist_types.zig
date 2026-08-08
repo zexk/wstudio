@@ -45,11 +45,7 @@ const automation_mod = @import("dsp/automation.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
-/// Newest format version this build writes and reads; newer files are
-/// hard-rejected on load. The canonical version history (what each bump
-/// added and what older files load as) and the bump-vs-additive policy
-/// live in FORMAT.md; per-field migration specifics stay as doc comments
-/// on the snapshot fields they concern.
+/// Exact format version this build writes and reads. See FORMAT.md.
 pub const file_version: u32 = 38;
 
 /// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
@@ -63,17 +59,13 @@ pub const AutomationCurveSnap = enum {
 pub const AutomationPointSnap = struct {
     beat: f64,
     value: f32,
-    /// Additive: shape of the segment leaving this point. Older files omit
-    /// it and land on `.linear`, which is what they played.
+    /// Shape of the segment leaving this point.
     curve: AutomationCurveSnap = .linear,
 };
 
 /// One synth-instrument- or FX-unit-param automation lane - see `ClipSnap.
-/// synth_param_automation`. `instance_id`: 0 (the default, matching every
-/// pre-existing file's implicit meaning) targets the track's own
-/// instrument; nonzero targets a specific `FxUnit` by its stable
-/// `instance_id` - additive field, no version bump (old files simply never
-/// set it, same convention the mod matrix's `fx_instance_id` already uses).
+/// synth_param_automation`. `instance_id` 0 targets the track instrument;
+/// nonzero targets a specific `FxUnit` by stable `instance_id`.
 pub const SynthParamAutomationSnap = struct {
     instance_id: u32 = 0,
     param_id: u32,
@@ -84,11 +76,7 @@ pub const SynthParamAutomationSnap = struct {
 // Snapshot types - plain data, JSON-serialisable
 // ---------------------------------------------------------------------------
 
-/// Per-note expression (`dsp.Articulation`) is stored flat rather than as a
-/// nested object: three scalars, defaulted to neutral, so a file written
-/// before per-note expression existed loads with every note centred, in
-/// tune and on the patch's own release. Additive - no `file_version` bump,
-/// see FORMAT.md's versioning policy.
+/// Per-note expression (`dsp.Articulation`) stored flat with neutral defaults.
 pub const NoteSnap = struct {
     pitch: u8,
     start_beat: f64,
@@ -108,10 +96,6 @@ pub const SynthSnap = struct {
     unison: u8 = 1,
     unison_detune: f32 = 15.0,
     unison_spread: f32 = 0.0,
-    /// Additive field: never actually wired to this struct/synthToSnap/
-    /// applyToSynth when the feature shipped, so saved+reloaded projects
-    /// silently lost this setting back to `.spread`. Fixed alongside adding
-    /// warp mode below.
     unison_mode: synth_mod.UnisonMode = .spread,
     warp_mode: synth_mod.WarpMode = .none,
     warp_amount: f32 = 0.0,
@@ -144,10 +128,6 @@ pub const SynthSnap = struct {
     decay_s: f32 = 0.08,
     sustain: f32 = 0.7,
     release_s: f32 = 0.25,
-    /// Envelope segment curvature and filter input drive (additive
-    /// optional-with-default fields, no version bump - absent in every file
-    /// predating them, and their defaults are exactly the straight ramps and
-    /// bypassed drive those files were saved with).
     env_curve: f32 = 0.0,
     // Filter
     filter_type: synth_mod.FilterType = .lp,
@@ -169,16 +149,11 @@ pub const SynthSnap = struct {
     // LFO
     lfo_shape: synth_mod.LfoShape = .sine,
     lfo_rate_hz: f32 = 1.0,
-    /// Tempo sync / retrigger / phase offset / slew, per LFO slot (additive
-    /// optional-with-default fields, no version bump - absent in every file
-    /// predating them reads as the free-running Hz behaviour those files
-    /// were saved with).
     lfo_sync: synth_mod.LfoSync = .off,
     lfo_retrig: synth_mod.LfoRetrig = .free,
     lfo_phase_offset: f32 = 0.0,
     lfo_slew_ms: f32 = 0.0,
-    // LFO 2 / LFO 3 + macros (additive optional-with-default fields, no
-    // version bump)
+    // LFO 2 / LFO 3 + macros
     lfo2_shape: synth_mod.LfoShape = .sine,
     lfo2_rate_hz: f32 = 1.0,
     lfo2_sync: synth_mod.LfoSync = .off,
@@ -191,12 +166,7 @@ pub const SynthSnap = struct {
     lfo3_retrig: synth_mod.LfoRetrig = .free,
     lfo3_phase_offset: f32 = 0.0,
     lfo3_slew_ms: f32 = 0.0,
-    /// `.custom` shape points (additive optional-with-default field, no
-    /// version bump - a sane backward-compatible default exists and there's
-    /// no legacy representation to migrate from). Absence (every file
-    /// predating the feature) reads as
-    /// "no custom points saved"; applyToSynth then leaves PolySynth's own
-    /// flat-zero default in place. Manual in synthToSnap/applyToSynth:
+    /// `.custom` shape points. Manual in synthToSnap/applyToSynth:
     /// `lfo_custom` collides by name with PolySynth's fixed-array field of
     /// the same name (different type - slice vs array), so it's excluded
     /// from the generic reflection copy like mod_matrix; lfo2_custom/
@@ -224,7 +194,7 @@ pub const SynthSnap = struct {
     mod_amount: f32 = 0.0,
     // Output
     gain: f32 = 0.35,
-    // Arpeggiator (additive optional-with-default fields, no version bump)
+    // Arpeggiator
     arp_on: bool = false,
     arp_mode: synth_mod.ArpMode = .up,
     arp_octaves: u8 = 1,
@@ -232,16 +202,13 @@ pub const SynthSnap = struct {
     arp_sync: synth_mod.LfoSync = .off,
     arp_gate: f32 = 0.5,
     arp_hold: bool = false,
-    // ENV 3: free-assignable envelope, matrix source only (additive, no
-    // version bump)
+    // ENV 3: free-assignable envelope, matrix source only
     env3_attack_s: f32 = 0.005,
     env3_decay_s: f32 = 0.3,
     env3_sustain: f32 = 0.0,
     env3_release_s: f32 = 0.3,
     env3_curve: f32 = 0.0,
-    // Wavetable oscillators (v20): frame-scan position is additive, but
-    // the sidecar-path fields are a new field *shape* (a path, not a plain
-    // value) - bumped file_version for clarity, same call as the OTT unit.
+    // Wavetable oscillators
     wt_pos: f32 = 0.0,
     osc_b_wt_pos: f32 = 0.0,
     osc_c_wt_pos: f32 = 0.0,
@@ -253,14 +220,11 @@ pub const SynthSnap = struct {
     // Pattern player
     notes: []const NoteSnap = &.{},
     length_beats: f64 = 4.0,
-    /// Pattern swing, 50 (straight) to 75 (hardest shuffle) - see
-    /// `dsp.PatternPlayer.swing`. Additive optional-with-default field, no
-    /// version bump needed.
+    /// Pattern swing, 50 (straight) to 75 (hardest shuffle).
     swing: f32 = 50.0,
 };
 
-/// Per-pad sampler params. Defaults mirror `dsp.Pad` so projects saved before
-/// the sampler existed (no `pads` array) deserialize to the original behaviour.
+/// Per-pad sampler params. Defaults mirror `dsp.Pad`.
 pub const PadSnap = struct {
     gain: f32 = 1.0,
     pan: f32 = 0.0,
@@ -272,75 +236,50 @@ pub const PadSnap = struct {
     decay_s: f32 = 0.0,
     sustain: f32 = 1.0,
     release_s: f32 = 0.005,
-    /// Edit fades multiplied on top of the ADSR (see `dsp.Pad`). Additive
-    /// optional-with-default fields, no version bump needed (same call as
-    /// `SynthSnap.swing`).
+    /// Edit fades multiplied on top of ADSR (see `dsp.Pad`).
     fade_in_s: f32 = 0.0,
     fade_out_s: f32 = 0.0,
     /// Playback duration multiplier, independent of pitch (see `dsp.Pad`).
-    /// Additive optional-with-default field, no version bump needed.
     stretch_ratio: f32 = 1.0,
-    /// Bipolar tone filter and gated-playback flag (see `dsp.Pad`). Additive
-    /// optional-with-default fields, no version bump needed - an older file
-    /// omits them and loads with the filter bypassed and the pad latched,
-    /// which is exactly how it behaved when it was saved.
+    /// Bipolar tone filter and gated-playback flag (see `dsp.Pad`).
     filter: f32 = 0.0,
     gate: bool = false,
-    /// Retrigger play mode (see `dsp.Pad.retrig`). Additive, no version bump:
-    /// an older file omits it and loads one-shot/gated exactly as saved.
+    /// Retrigger play mode (see `dsp.Pad.retrig`).
     retrig: bool = false,
-    /// v5: user-loaded audio, exported to the project's sample sidecar on
+    /// User-loaded audio, exported to project's sample sidecar on
     /// save. Path relative to the .wsj; empty = shipped/generated audio.
     sample_file: []const u8 = "",
-    /// v5: display name of a user-loaded sample ("" = keep the default).
+    /// Display name of user-loaded sample ("" keeps default).
     name: []const u8 = "",
-    /// Additive field: whether this slot has ever had a sample loaded (the
-    /// shipped kit's pads, or a user `:load-sample`) - `false` means the live
+    /// Whether this slot has ever had a sample loaded (shipped kit or user
+    /// `:load-sample`). `false` means live
     /// `DrumMachine.pads[i]` is null (never materialized; see that field's
-    /// own doc comment) and every other field here is just the struct
-    /// default, not meaningful data. Older files omit it; since a pre-64-pad
-    /// file only ever had exactly `DrumMachine.max_pads` (then 8) entries
-    /// and all 8 were always loaded (the shipped kit), the load path treats
-    /// omitted `used` as `true` for exactly those legacy positions - see
-    /// `buildSession`.
+    /// own doc comment); other fields then hold defaults, not sample data.
     used: bool = false,
-    /// Per-pad LFO (see `dsp.Pad.mod_lfo`). Additive optional-with-default
-    /// fields, no version bump needed - an older file omits them and loads
-    /// with `mod_dest = .off`, silently unmodulated, exactly how it behaved
-    /// when it was saved.
+    /// Per-pad LFO (see `dsp.Pad.mod_lfo`).
     mod_rate_hz: f32 = 2.0,
     mod_depth: f32 = 0.0,
     mod_shape: lfo_mod.Shape = .sine,
     mod_dest: pad_mod.ModDest = .off,
-    /// Region loop mode (see `dsp.Pad.loop`). Additive optional-with-default
-    /// field, no version bump needed - an older file omits it and loads
-    /// one-shot, exactly how it played when it was saved.
+    /// Region loop mode (see `dsp.Pad.loop`).
     loop: pad_mod.LoopMode = .off,
 };
 
-/// v23: one drum-machine note - position, duration, velocity - replacing
-/// the old per-pad bitmask+velocity pair for the drum machine.s own step
-/// data (see VariantSnap/DrumSnap/ClipSnap.s `notes`/`drum_notes` fields).
+/// One drum-machine note: position, duration, velocity, and performance data.
 pub const DrumNoteSnap = struct {
     pad: u8,
     step: u16,
     duration_steps: u16 = 1,
     velocity: u7 = 127,
     /// Per-step transpose in semitones (see `DrumMachine.MidiNote.tune`).
-    /// Additive optional-with-default field, no version bump needed - an
-    /// older file omits it and loads untuned, exactly as it sounded.
     tune: i8 = 0,
-    /// Trig condition and fire chance (see `DrumMachine.Cond`). Same additive
-    /// rule: omitted means "always, 100%", which is how every pre-condition
-    /// file played. `cond` is stored as the enum tag; an out-of-range tag
-    /// from a hand-edited file falls back to `always` rather than erroring.
+    /// Trigger condition and fire chance (see `DrumMachine.Cond`). `cond` is
+    /// stored as enum tag; out-of-range values fall back to `always`.
     prob: u8 = 100,
     cond: u8 = 0,
-    /// Hits packed into the step, 0/1 = a plain single hit (see
-    /// `DrumMachine.MidiNote.retrig`). Additive, same rule as the rest.
+    /// Hits packed into step; 0/1 means one hit.
     retrig: u8 = 0,
-    /// Timing offset as a percent of one step (see
-    /// `DrumMachine.MidiNote.micro`). Additive, same rule.
+    /// Timing offset as percent of one step.
     micro: i8 = 0,
 };
 
@@ -373,9 +312,8 @@ pub const DrumSnap = struct {
     pad_len: []const u16 = &.{},
     /// Name of the factory kit flavour last applied (`dsp/drum_kit.zig`'s
     /// `variants`), regenerated on load - the generated audio itself is
-    /// never written to the sidecar, only user samples are. Additive: an
-    /// omitted/unknown name just means no kit to regenerate, leaving the
-    /// pads as the file's own `used` flags describe them.
+    /// never written to sidecar, only user samples are. Unknown names leave
+    /// pads as their `used` flags describe them.
     kit: []const u8 = "",
 };
 
@@ -385,23 +323,14 @@ pub const CompSnap = struct {
     attack_ms: f32 = 10.0,
     release_ms: f32 = 80.0,
     makeup_db: f32 = 0.0,
-    /// Additive: soft-knee width, dB. Missing on older files -> 0, the
-    /// original hard-knee behaviour.
+    /// Soft-knee width in dB; 0 means hard knee.
     knee_db: f32 = 0.0,
-    /// Additive field (see FORMAT.md's versioning policy): older files omit
-    /// it and load with ordinary self-detecting compression, matching every
-    /// compressor's behaviour before sidechain support existed.
+    /// Null uses ordinary self-detecting compression.
     sidechain_source: ?u16 = null,
-    /// Additive (like `sidechain_source` itself): which drum pad within
-    /// `sidechain_source`'s track to key off, instead of the whole track's
-    /// mix - see `Compressor.SidechainSource.pad`. Older files omit it and
-    /// load with the original whole-track behaviour; meaningless (and
-    /// ignored on load) whenever `sidechain_source` itself is null.
+    /// Drum pad within source track to key off; null uses whole track mix.
+    /// Ignored when `sidechain_source` is null.
     sidechain_pad: ?u8 = null,
-    /// Additive (like `sidechain_source` itself): when true, `sidechain_source`
-    /// names a group submix bus index instead of a track index - see
-    /// `Compressor.SidechainSource.is_group`. Older files omit it and load
-    /// with the original track-indexed meaning.
+    /// Whether `sidechain_source` names a group bus instead of track.
     sidechain_is_group: bool = false,
 };
 
@@ -410,12 +339,9 @@ pub const MultibandCompSnap = struct {
     xover_hi_hz: f32 = 2000.0,
     attack_ms: f32 = 10.0,
     release_ms: f32 = 80.0,
-    /// Additive: soft-knee width, dB, shared across all three bands.
-    /// Missing on older files -> 0, the original hard-knee behaviour.
+    /// Soft-knee width in dB, shared across all bands; 0 means hard knee.
     knee_db: f32 = 0.0,
-    /// Mirrors `dsp.multiband_comp.Style` as a bool (only two states) -
-    /// older files can't have this field (the kind didn't exist), so
-    /// there's no back-compat encoding to preserve, just the plainest shape.
+    /// Mirrors two-state `dsp.multiband_comp.Style`.
     ott: bool = false,
     mix: f32 = 1.0,
     low_threshold_db: f32 = -20.0,
@@ -443,8 +369,6 @@ pub const DelaySnap = struct {
     time_s: f32 = 0.375,
     feedback: f32 = 0.35,
     mix: f32 = 0.25,
-    /// Missing on any file saved before it landed; 0.0 reduces to the
-    /// original unfiltered tap exactly, so old files load with unchanged sound.
     damp: f32 = 0.0,
 };
 
@@ -452,9 +376,6 @@ pub const ReverbSnap = struct {
     mix: f32 = 0.3,
     room: f32 = 0.84,
     damp: f32 = 0.25,
-    /// Missing on any file saved before these three landed; the defaults
-    /// below reduce to the original 3-knob algorithm exactly, so old files
-    /// load with unchanged sound.
     predelay_ms: f32 = 0.0,
     width: f32 = 1.0,
     low_cut_hz: f32 = 0.0,
@@ -481,16 +402,12 @@ pub const EqBandSnap = struct {
     freq: f32,
     q: f32 = 0.7,
     gain_db: f32 = 0.0,
-    /// Additive (like `CompSnap.sidechain_source`): band response type -
-    /// older files omit it and land on the default `.peak`, the only kind
-    /// a band could be before lowpass/highpass existed.
+    /// Band response type.
     kind: EqBandKindSnap = .peak,
-    /// Additive, paired with `kind`: cascade stages for `.lowpass`/
+    /// Cascade stages for `.lowpass`/
     /// `.highpass`/`.notch` (12 dB/oct each), 1..eq_mod.max_slope. Unused
     /// (but present) for peak/shelf/tiltshelf bands.
     slope: u8 = 1,
-    /// Additive: solo/mid-side/dynamic-EQ fields, all missing on older
-    /// files and landing on their off/neutral defaults below.
     solo: bool = false,
     stereo_mode: EqStereoModeSnap = .stereo,
     dyn_enabled: bool = false,
@@ -498,8 +415,7 @@ pub const EqBandSnap = struct {
     dyn_amount_db: f32 = 0.0,
 };
 
-/// Every band at its `ParametricEq.init` frequency, flat - what a file that
-/// omits `bands` entirely (a hand edit) loads as.
+/// Every band at its `ParametricEq.init` frequency, flat.
 const default_eq_bands: [eq_mod.num_eq_bands]EqBandSnap = blk: {
     var out: [eq_mod.num_eq_bands]EqBandSnap = undefined;
     for (&out, &eq_mod.default_frequencies) |*band, freq| band.* = .{ .freq = freq };
@@ -519,8 +435,6 @@ pub const GateSnap = struct {
     threshold_db: f32 = -50.0,
     attack_ms: f32 = 1.0,
     release_ms: f32 = 100.0,
-    /// Additive: missing on older files -> 0, matching the original
-    /// immediate-release behaviour.
     hold_ms: f32 = 0.0,
 };
 
@@ -528,8 +442,6 @@ pub const SatSnap = struct {
     drive_db: f32 = 12.0,
     out_db: f32 = 0.0,
     mix: f32 = 1.0,
-    /// Additive: shape select, missing on older files -> soft/tanh (matches
-    /// Saturator's own default).
     shape: f32 = 0.0,
 };
 
@@ -572,8 +484,7 @@ pub const FreqShiftSnap = struct {
     mix: f32 = 1.0,
 };
 
-/// Granular pitch shifter (see `dsp/pitch_shift.zig`). New FX kind, so no
-/// `file_version` bump - see FORMAT.md.
+/// Granular pitch shifter (see `dsp/pitch_shift.zig`).
 pub const PitchShiftSnap = struct {
     semitones: f32 = 0.0,
     cents: f32 = 0.0,
@@ -592,8 +503,6 @@ pub const FilterSnap = struct {
 pub const LimiterSnap = struct {
     ceiling: f32 = 0.955,
     release_ms: f32 = 80,
-    /// Additive: missing on older files -> 0, the original zero-latency
-    /// reactive limiter exactly.
     lookahead_ms: f32 = 0.0,
 };
 
@@ -624,8 +533,6 @@ pub const TransientShaperSnap = struct {
     output_db: f32 = 0,
 };
 
-/// Legacy (v9 and older) fixed nine-slot rack: one optional per slot, order
-/// implied. Read-only on load; v10 files carry `fx_chain` instead.
 /// Mirrors rack.zig's FxKind - persist keeps its own copy so snapshots stay
 /// pure data, same pattern as `InstrumentKind` below.
 pub const FxKind = enum {
@@ -673,7 +580,7 @@ pub const Vst3Snap = struct {
     swing: f32 = 50.0,
 };
 
-/// One chain slot (v10): its kind, bypass flag, and the params for that kind
+/// One chain slot: its kind, bypass flag, and params for that kind
 /// in the matching optional (the others stay null). A missing params field
 /// loads the unit with its defaults.
 pub const FxUnitSnap = struct {
@@ -718,20 +625,16 @@ pub const InstrumentKind = enum {
 };
 
 /// A single-clip sampler: the pad's params, its root note, and the piano-roll
-/// pattern. User-loaded clip audio rides along via `pad.sample_file` (v5);
+/// pattern. User-loaded clip audio rides along via `pad.sample_file`;
 /// without it the sampler remains empty on load.
 pub const SamplerSnap = struct {
     pad: PadSnap = .{},
     root_note: u8 = 60,
-    /// Mono voice mode (see `dsp.Sampler.mono`). Additive optional-with-
-    /// default field, no version bump needed - defaults to polyphonic so
-    /// older projects load unchanged.
+    /// Mono voice mode (see `dsp.Sampler.mono`).
     mono: bool = false,
     notes: []const NoteSnap = &.{},
     length_beats: f64 = 4.0,
-    /// Pattern swing, 50 (straight) to 75 (hardest shuffle) - see
-    /// `dsp.PatternPlayer.swing`. Additive optional-with-default field, no
-    /// version bump needed.
+    /// Pattern swing, 50 (straight) to 75 (hardest shuffle).
     swing: f32 = 50.0,
 };
 
@@ -764,8 +667,7 @@ pub const SlicerSnap = struct {
 /// A SoundFont (.sf2) player track: the loaded font's sidecar path, the
 /// selected preset (by index into the parsed font - see `SoundfontPlayer.
 /// preset_index`'s own doc comment for why an index rather than bank/
-/// program), the OUT params, and the piano-roll pattern (v25: soundfont is
-/// melodic, gets a PatternPlayer like poly_synth/sampler). `sf2_file` empty
+/// program), OUT params, and piano-roll pattern. `sf2_file` empty
 /// means nothing was loaded - the track loads silent, same "no
 /// sample_file" convention `SamplerSnap.pad` already follows.
 pub const SoundfontSnap = struct {
@@ -801,17 +703,11 @@ pub const TrackSnap = struct {
     pan: f32 = 0.0,
     muted: bool = false,
     soloed: bool = false,
-    /// Additive field (see FORMAT.md's versioning policy): older files omit
-    /// it and load with color 0 ("none"), matching every track's look
-    /// before this field existed - no version bump needed.
+    /// Palette index; 0 means no color.
     color: u8 = 0,
-    /// Additive field: older files omit it and load ungrouped, matching
-    /// every track's routing before grouping existed. Indexes into
-    /// `Snapshot.groups` by position (see that field's own doc comment).
+    /// Index into `Snapshot.groups`; null means ungrouped.
     group: ?u8 = null,
-    /// Additive: parallel aux sends (see `project.SendSlot`). Older files
-    /// omit it and every track loads with none, matching every track's
-    /// routing before sends existed.
+    /// Parallel aux sends (see `project.SendSlot`).
     sends: []const SendSnap = &.{},
 };
 
@@ -835,17 +731,13 @@ pub const GroupSnap = struct {
     active: bool = false,
     name: []const u8 = "",
     fx_chain: []const FxUnitSnap = &.{},
-    /// Additive (like `CompSnap.sidechain_source`): older files omit it and
-    /// the bus loads at unity, its only possible level before faders existed.
+    /// Bus gain in dB.
     gain_db: f32 = 0.0,
-    /// Additive: tracks-view fold state (see `Session.Group.folded`). Older
-    /// files omit it and every group loads unfolded - the prior behaviour.
+    /// Tracks-view fold state (see `Session.Group.folded`).
     folded: bool = false,
-    /// Additive: bus mute (see `Session.Group.muted`). Older files omit it
-    /// and every group loads unmuted - the prior (mute-had-no-bus-flag)
-    /// behaviour.
+    /// Bus mute (see `Session.Group.muted`).
     muted: bool = false,
-    /// Additive: bus solo (see `Session.Group.soloed`), same shape as `muted`.
+    /// Bus solo (see `Session.Group.soloed`).
     soloed: bool = false,
 };
 
@@ -945,10 +837,7 @@ pub const Snapshot = struct {
     tempo_bpm: f64 = 120.0,
     /// Song key for scale tools and sample tuning; null means no key.
     scale: ?theory.Scale = null,
-    /// Additive: the temperament pitched instruments play in. Older files
-    /// omit it and land on equal temperament, which is what they sounded
-    /// like. Stored as the raw cents table rather than a preset name so a
-    /// hand-edited or future table still loads as the numbers it is.
+    /// Temperament as raw cents rather than preset name.
     tuning: tuning_mod.Tuning = .{},
     /// Time signature numerator (the unit is always /4).
     beats_per_bar: u8 = 4,
@@ -971,10 +860,8 @@ pub const Snapshot = struct {
     master_fx_chain: []const FxUnitSnap = &.{},
     /// See `GroupSnap`'s own doc comment for the dense fixed-position shape.
     groups: []const GroupSnap = &.{},
-    /// Additive: the modulation-controller bank. Older files omit it and
-    /// load with an empty bank, which is exactly how they played.
+    /// Modulation-controller bank.
     controllers: []const ControllerSnap = &.{},
-    /// Additive: learned MIDI CC bindings. Older files omit it and load
-    /// with none, which is the fixed-`applyCC`-only behaviour they had.
+    /// Learned MIDI CC bindings.
     cc_bindings: []const CcBindingSnap = &.{},
 };

@@ -73,8 +73,6 @@ pub const PadSnap = persist_types.PadSnap;
 pub const DrumNoteSnap = persist_types.DrumNoteSnap;
 pub const VariantSnap = persist_types.VariantSnap;
 pub const DrumSnap = persist_types.DrumSnap;
-pub const legacy_eq_band_count = persist_types.legacy_eq_band_count;
-pub const migrateEqBands = persist_types.migrateEqBands;
 pub const GateSnap = persist_types.GateSnap;
 pub const SatSnap = persist_types.SatSnap;
 pub const CrushSnap = persist_types.CrushSnap;
@@ -1176,8 +1174,7 @@ test "load sanitizes non-finite project, automation, pad, and note fields" {
     try testing.expectEqual(@as(f64, 0.0), note.start_beat);
     try testing.expectEqual(@as(f64, 0.0), note.duration_beat);
     try testing.expectEqual(pattern_mod.default_velocity, note.velocity);
-    // A note snapshot predating per-note expression has none of those three
-    // fields; the defaults must read back as a plain, centred, in-tune note.
+    // Default expression is centred, in tune, and uses patch release.
     try testing.expect(note.art.isNeutral());
     // A hand-edited one is pulled back into range rather than reaching a voice.
     const wild = sanitizeNote(.{
@@ -1400,7 +1397,7 @@ test "buildSession: a track referencing a slot the file never marked active load
     try testing.expectEqual(@as(?u8, null), session.project.tracks.items[0].group);
 }
 
-test "choke groups round-trip through DrumSnap; older files load ungrouped" {
+test "choke groups round-trip through DrumSnap" {
     const testing = std.testing;
 
     var groups = [_]u8{0} ** DrumMachine.max_pads;
@@ -1420,18 +1417,6 @@ test "choke groups round-trip through DrumSnap; older files load ungrouped" {
     try testing.expectEqual(@as(u8, 1), dm.choke_group[2]);
     try testing.expectEqual(@as(u8, 1), dm.choke_group[3]);
     try testing.expectEqual(@as(u8, 0), dm.choke_group[0]);
-
-    // A snapshot with no choke_group field set must leave every pad
-    // ungrouped even though DrumMachine.init seeds a default hihat/open
-    // pairing - the load path is the source of truth.
-    const bare: Snapshot = .{
-        .tracks = &.{.{ .name = "drums" }},
-        .racks = &.{.{ .label = "drums", .kind = .drum_machine, .drum = .{ .variants = &.{.{}} } }},
-    };
-    var bare_session = try buildSession(testing.allocator, &bare);
-    defer bare_session.deinit();
-    const bare_dm = &bare_session.racks.items[0].instrument.drum_machine;
-    for (bare_dm.choke_group) |g| try testing.expectEqual(@as(u8, 0), g);
 }
 
 test "clip snapshots carry the drum variant label" {
@@ -2188,10 +2173,7 @@ test "save/load round-trip persists a custom LFO shape's points" {
     try testing.expectEqual(synth_mod.LfoShape.custom, ls.lfo3_shape);
     try testing.expectEqual(@as(u8, 2), ls.lfo_custom_count[2]);
     try testing.expectApproxEqAbs(@as(f32, -1.0), ls.lfo_custom[2][1].value, 1e-6);
-    // LFO 2 never got a custom shape - still round-trips its untouched
-    // flat-zero default (synthToSnap always serializes whatever's live,
-    // customized or not; only a file predating this field entirely hits
-    // the null/no-points fallback - see the golden-file test below).
+    // LFO 2 round-trips its untouched flat-zero default.
     try testing.expectEqual(@as(u8, 2), ls.lfo_custom_count[1]);
     try testing.expectApproxEqAbs(@as(f32, 0.0), ls.lfo_custom[1][0].value, 1e-6);
 }

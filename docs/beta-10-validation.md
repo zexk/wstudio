@@ -53,9 +53,9 @@ Postponed until after 1.0. Current tempo and `/4` signature are project-global:
 transport frame/beat conversion, loop and recording bounds, live and offline
 song scheduling, plugin transport, metronome, arrangement grids, Lua, and
 persistence all consume one value. Adding changes at timeline positions would
-require a shared tempo map plus migration and boundary tests across every one of
+require a shared tempo map plus persistence and boundary tests across every one of
 those consumers. That is a new timing subsystem, not bounded release-candidate
-polish, and would risk beta.8 compatibility and live/offline coherence.
+polish, and would risk live/offline coherence.
 
 ## Frontend polish pass
 

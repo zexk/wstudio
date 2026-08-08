@@ -19,8 +19,6 @@ code keeps a one-line pointer.
   20-effect rack, bounded DAW-completeness candidates, polish, and exit gate.
 - [beta-10-validation.md](beta-10-validation.md): recorded frontend journey,
   automated checks, fixes, and explicit hardware or OS skips.
-- [compatibility-inventory.md](compatibility-inventory.md): beta.8 freeze,
-  migration, removal, and internal dispositions with authoritative registries.
 - [road-to-1.0.md](road-to-1.0.md): what is left between the final release
   candidate and the 1.0 tag.
 - [ui-conventions.md](ui-conventions.md): TUI layout and chrome
@@ -32,5 +30,5 @@ code keeps a one-line pointer.
   and ranked post-1.0 backlog for bundled instruments and musical content.
 
 Related documents that predate this directory and stay where they are:
-`README.md` (pitch, layout, usage), `FORMAT.md` (the `.wsj` save format,
-versioning policy, and the canonical version history).
+`README.md` (pitch, layout, usage) and `FORMAT.md` (the `.wsj` save format and
+versioning policy).
