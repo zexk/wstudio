@@ -538,34 +538,6 @@ pub const TransientShaperSnap = struct {
     output_db: f32 = 0,
 };
 
-/// Mirrors rack.zig's FxKind - persist keeps its own copy so snapshots stay
-/// pure data, same pattern as `InstrumentKind` below.
-pub const FxKind = enum {
-    gate,
-    comp,
-    mb_comp,
-    ott,
-    limiter,
-    transient_shaper,
-    eq,
-    filter,
-    utility,
-    stereo_width,
-    auto_pan,
-    sat,
-    crush,
-    chorus,
-    phaser,
-    flanger,
-    tape,
-    freq_shift,
-    pitch_shift,
-    delay,
-    reverb,
-    clap,
-    vst3,
-};
-
 pub const ClapSnap = struct {
     path: []const u8 = "",
     plugin_id: []const u8 = "",
