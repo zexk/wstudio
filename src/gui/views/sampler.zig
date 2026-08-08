@@ -284,7 +284,18 @@ fn drawTargetBank(app: anytype, track: u16, kind: PadTargetKind, selected: u8) v
         .slice => app.core.session.racks.items[track].instrument.slicer.slice_count,
     };
     const bank_start: u8 = selected / 8 * 8;
+    const bank_count: u8 = @max(1, (count + 7) / 8);
+    const bank: u8 = @min(selected / 8, bank_count - 1);
     widgets.sectionTitle(if (kind == .drum) "PAD BANK" else "SLICE MAP", if (kind == .drum) theme.rhythm else theme.audio);
+    zgui.textDisabled("bank {d}/{d}", .{ bank + 1, bank_count });
+    zgui.sameLine(.{ .spacing = 8 });
+    zgui.beginDisabled(.{ .disabled = bank == 0 });
+    if (zgui.smallButton("<##target-bank-prev")) setTargetIndex(app, kind, selected -| 8);
+    zgui.endDisabled();
+    zgui.sameLine(.{ .spacing = 4 });
+    zgui.beginDisabled(.{ .disabled = bank + 1 >= bank_count });
+    if (zgui.smallButton(">##target-bank-next")) setTargetIndex(app, kind, @min(selected +| 8, count -| 1));
+    zgui.endDisabled();
     const available = zgui.getContentRegionAvail()[0];
     const width = @max(72, (available - 7 * 6) / 8);
     for (0..8) |offset| {
@@ -297,11 +308,11 @@ fn drawTargetBank(app: anytype, track: u16, kind: PadTargetKind, selected: u8) v
         var label_buf: [48]u8 = undefined;
         const label = switch (kind) {
             .drum => if (index < count)
-                std.fmt.bufPrintZ(&label_buf, "{d:0>2} {s}##target-{d}", .{ index + 1, app.core.session.racks.items[track].instrument.drum_machine.padName(index), index }) catch continue
+                std.fmt.bufPrintZ(&label_buf, "{d:0>2}\n{s}##target-{d}", .{ index + 1, app.core.session.racks.items[track].instrument.drum_machine.padName(index), index }) catch continue
             else
                 std.fmt.bufPrintZ(&label_buf, "--##target-{d}", .{index}) catch continue,
             .slice => if (index < count)
-                std.fmt.bufPrintZ(&label_buf, "{d:0>2} {d:.0}%##target-{d}", .{ index + 1, app.core.session.racks.items[track].instrument.slicer.slices[index].start_norm * 100, index }) catch continue
+                std.fmt.bufPrintZ(&label_buf, "{d:0>2}\n{d:.0}-{d:.0}%##target-{d}", .{ index + 1, app.core.session.racks.items[track].instrument.slicer.slices[index].start_norm * 100, app.core.session.racks.items[track].instrument.slicer.slices[index].end_norm * 100, index }) catch continue
             else
                 std.fmt.bufPrintZ(&label_buf, "--##target-{d}", .{index}) catch continue,
         };
@@ -309,12 +320,56 @@ fn drawTargetBank(app: anytype, track: u16, kind: PadTargetKind, selected: u8) v
         zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) (if (kind == .drum) theme.rhythm else theme.audio) else theme.bg2 });
         zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) theme.bg0 else if (exists) theme.fg1 else theme.fg3 });
         zgui.beginDisabled(.{ .disabled = index >= count });
-        if (zgui.button(label, .{ .w = width, .h = 34 })) switch (kind) {
-            .drum => app.core.drum_cursor[0] = index,
-            .slice => app.core.slicer_cursor[0] = index,
-        };
+        if (zgui.button(label, .{ .w = width, .h = 46 })) setTargetIndex(app, kind, index);
         zgui.endDisabled();
         zgui.popStyleColor(.{ .count = 2 });
+    }
+    drawTargetSummary(app, track, kind, selected);
+}
+
+fn setTargetIndex(app: anytype, kind: PadTargetKind, index: u8) void {
+    switch (kind) {
+        .drum => app.core.drum_cursor[0] = index,
+        .slice => app.core.slicer_cursor[0] = index,
+    }
+}
+
+fn drawTargetSummary(app: anytype, track: u16, kind: PadTargetKind, selected: u8) void {
+    switch (kind) {
+        .drum => {
+            const drum = &app.core.session.racks.items[track].instrument.drum_machine;
+            const sampler = if (drum.pads[selected]) |*pad| pad else {
+                zgui.textDisabled("pad {d}  empty  |  :load adds a sample", .{selected + 1});
+                return;
+            };
+            const seconds = @as(f32, @floatFromInt(sampler.pad.samples.len)) / @as(f32, @floatFromInt(@max(drum.sample_rate, 1)));
+            zgui.textDisabled("{d:.2}s  |  choke ", .{seconds});
+            zgui.sameLine(.{ .spacing = 0 });
+            if (drum.choke_group[selected] == 0)
+                zgui.textDisabled("off", .{})
+            else
+                zgui.textDisabled("group {d}", .{drum.choke_group[selected]});
+            zgui.sameLine(.{ .spacing = 0 });
+            if (drum.pad_len[selected] == 0)
+                zgui.textDisabled("  |  loop follows pattern", .{})
+            else
+                zgui.textDisabled("  |  loop {d}/{d} steps", .{ drum.pad_len[selected], drum.step_count });
+        },
+        .slice => {
+            const slicer = &app.core.session.racks.items[track].instrument.slicer;
+            if (selected >= slicer.slice_count) return;
+            const slice = slicer.slices[selected];
+            zgui.textDisabled("source {d:.1}-{d:.1}%  |  width {d:.1}%  |  choke ", .{
+                slice.start_norm * 100,
+                slice.end_norm * 100,
+                (slice.end_norm - slice.start_norm) * 100,
+            });
+            zgui.sameLine(.{ .spacing = 0 });
+            if (slicer.choke_group[selected] == 0)
+                zgui.textDisabled("off", .{})
+            else
+                zgui.textDisabled("group {d}", .{slicer.choke_group[selected]});
+        },
     }
 }
 
@@ -483,6 +538,7 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
 
     if (start > 0) draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ start_x, origin[1] + height }, .col = style.color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.6 }) });
     if (played_end < 1) draw_list.addRectFilled(.{ .pmin = .{ played_end_x, origin[1] }, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.6 }) });
+    drawSliceBoundaries(app, target, draw_list, origin, width, height);
 
     const fade_in_x = origin[0] + (start + fade_in_norm) * width;
     const fade_out_x = origin[0] + (played_end - fade_out_norm) * width;
@@ -534,6 +590,40 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
     }
 
     zgui.textDisabled("drag markers to trim, fade dots to shape fades   region {d:.1}-{d:.1}% of {d} samples", .{ start * 100, end * 100, samples.len });
+}
+
+fn drawSliceBoundaries(app: anytype, target: Target, draw_list: zgui.DrawList, origin: [2]f32, width: f32, height: f32) void {
+    const pad_target = switch (target) {
+        .pad => |pad| pad,
+        else => return,
+    };
+    if (pad_target.kind != .slice or pad_target.track >= app.core.session.racks.items.len) return;
+    const slicer = switch (app.core.session.racks.items[pad_target.track].instrument) {
+        .slicer => |*instrument| instrument,
+        else => return,
+    };
+    const labels = sliceLabelsFit(width, slicer.slice_count);
+    for (slicer.slices[0..slicer.slice_count], 0..) |slice, index| {
+        const x = origin[0] + slice.start_norm * width;
+        const selected = index == pad_target.index;
+        draw_list.addLine(.{
+            .p1 = .{ x, origin[1] },
+            .p2 = .{ x, origin[1] + height },
+            .col = style.color(if (selected) theme.focus else .{ theme.fg2[0], theme.fg2[1], theme.fg2[2], 0.42 }),
+            .thickness = if (selected) 2 else 1,
+        });
+        if (labels) draw_list.addText(.{ x + 4, origin[1] + 4 }, style.color(if (selected) theme.focus else theme.fg2), "{d}", .{index + 1});
+    }
+}
+
+fn sliceLabelsFit(width: f32, count: u8) bool {
+    return count > 0 and width / @as(f32, @floatFromInt(count)) >= 28;
+}
+
+test "slice boundary labels hide before they overlap" {
+    try std.testing.expect(sliceLabelsFit(800, 8));
+    try std.testing.expect(!sliceLabelsFit(800, 32));
+    try std.testing.expect(!sliceLabelsFit(800, 0));
 }
 
 fn drawRegionHandle(draw_list: zgui.DrawList, x: f32, top: f32, height: f32, accent: [4]f32, active: bool) void {
