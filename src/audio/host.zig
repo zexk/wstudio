@@ -242,7 +242,7 @@ test "audio host reports callback deadline misses and resets peak" {
     var host = AudioHost.init(.{ .sample_rate = 48_000, .block_frames = 1 }, Slow.render, &io_copy);
     host.io = io;
     var out: [2]@import("../core/types.zig").Sample = undefined;
-    host.timedRender(&out);
+    AudioHost.timedRender(&host, &out);
 
     const health = host.takeHealth();
     try std.testing.expectEqual(@as(u32, 1), health.deadline_misses);
