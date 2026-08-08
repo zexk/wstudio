@@ -1319,6 +1319,8 @@ pub const PolySynth = struct {
         self.mod_alternate = !self.mod_alternate;
         const target_log = self.noteLog2(note);
         const start_log = if (was_active and self.glide_s > 0.0) prev_log else target_log;
+        const random = nextNoise(&self.mod_rand_state);
+        const noise_seed = self.mod_rand_state | 1;
         var voice: Voice = .{
             .active           = true,
             .note             = note,
@@ -1331,8 +1333,8 @@ pub const PolySynth = struct {
             .glide_rate       = if (was_active and self.glide_s > 0.0)
                 (target_log - start_log) / @max(self.glide_s * self.sample_rate, 1.0)
             else 0.0,
-            .noise_rand_state = (@as(u32, note) *% 0x9E3779B9) | 1,
-            .random           = nextNoise(&self.mod_rand_state),
+            .noise_rand_state = noise_seed,
+            .random           = random,
             .alternate        = if (self.mod_alternate) 1.0 else -1.0,
             .pulse_widths     = .{ self.pulse_width, self.osc_b_pulse_width, self.osc_c_pulse_width },
             .wt_positions     = .{ self.wt_pos, self.osc_b_wt_pos, self.osc_c_wt_pos },
@@ -4794,6 +4796,17 @@ test "phase warp amounts ramp to live targets across one block" {
     const amounts = synth.voices[synth.newest_voice].warp_amounts;
     try std.testing.expectApproxEqAbs(@as(f32, 0.3), amounts[0], 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.8), amounts[1], 1e-6);
+}
+
+test "repeated notes receive different noise streams" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.noteOn(60, 1.0);
+    const first_seed = synth.voices[synth.newest_voice].noise_rand_state;
+    synth.noteOn(60, 1.0);
+    const second_seed = synth.voices[synth.newest_voice].noise_rand_state;
+    try std.testing.expect(first_seed != second_seed);
+    try std.testing.expect(first_seed != 0 and second_seed != 0);
 }
 
 test "extreme pitch modulation keeps oscillator phases normalized" {
