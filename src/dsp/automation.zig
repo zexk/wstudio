@@ -186,6 +186,23 @@ pub const AutomationCurve = struct {
         defer self.lock.unlock();
         return interpolate(self.points, beat);
     }
+
+    /// Fill one audio block at frame resolution while holding the curve lock
+    /// once. Returns false, and fills `fallback`, when no curve is available.
+    pub fn fillValues(self: *AutomationCurve, out: []f32, start_beat: f64, beat_step: f64, fallback: f32) bool {
+        @memset(out, fallback);
+        if (!self.lock.tryLock()) return false;
+        defer self.lock.unlock();
+        if (self.points.len == 0) return false;
+
+        var segment: usize = 0;
+        for (out, 0..) |*value, frame| {
+            const beat = start_beat + @as(f64, @floatFromInt(frame)) * beat_step;
+            while (segment + 1 < self.points.len and self.points[segment + 1].beat < beat) segment += 1;
+            value.* = interpolate(self.points[segment..@min(segment + 2, self.points.len)], beat).?;
+        }
+        return true;
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -318,6 +335,19 @@ test "AutomationCurve.set/valueAt round-trip" {
     try testing.expectApproxEqAbs(@as(f32, 0.5), curve.valueAt(2.0).?, 1e-6);
     try curve.set(testing.allocator, &.{});
     try testing.expect(curve.valueAt(2.0) == null);
+}
+
+test "AutomationCurve fills sample-accurate block values" {
+    var curve: AutomationCurve = .{};
+    defer curve.deinit(testing.allocator);
+    try curve.set(testing.allocator, &.{
+        .{ .beat = 0.0, .value = 0.0 },
+        .{ .beat = 1.0, .value = 1.0 },
+    });
+    var values: [5]f32 = undefined;
+
+    try testing.expect(curve.fillValues(&values, 0.0, 0.25, 9.0));
+    try testing.expectEqualSlices(f32, &.{ 0.0, 0.25, 0.5, 0.75, 1.0 }, &values);
 }
 
 test "AutomationCurve preserves long song curves without truncation" {

@@ -428,6 +428,8 @@ pub const Engine = struct {
     /// size reason `automation`/`track_sidechain` are: inline it is ~3.2MB.
     track_pool: []TrackState,
     scratch: [types.max_block_frames * channels]Sample = undefined,
+    automation_gain: [types.max_block_frames]f32 = undefined,
+    automation_pan: [types.max_block_frames]f32 = undefined,
     /// Group submix buses (see `TrackState.group`/`renderTracks`). Fixed
     /// bank of `max_groups` (8), not multiplied by `max_tracks` - negligible
     /// size (~256KB total), safe to embed directly unlike `TrackAutomation`.
@@ -1199,7 +1201,7 @@ pub const Engine = struct {
     /// `pub` so tests elsewhere in the crate can reach a track's state
     /// without duplicating the pointer-indirection load.
     pub fn trackAt(self: *Engine, index: u16) *TrackState {
-        const clamped = @min(index, max_tracks - 1);
+        const clamped: u16 = @min(index, max_tracks - 1);
         const needed = clamped + 1;
         if (needed > self.track_count.load(.monotonic)) self.track_count.store(needed, .release);
         return self.tracks[clamped].load(.acquire);
@@ -1460,11 +1462,15 @@ pub const Engine = struct {
         const group_soloed = if (track.group) |gidx| gidx < max_groups and self.groups[gidx].active and self.groups[gidx].soloed else false;
         if (track.muted or (any_solo and !track.soloed and !group_soloed)) return;
 
-        const gain = auto.gain.valueAt(beat_pos) orelse track.gain;
-        const pan = auto.pan.valueAt(beat_pos) orelse track.pan;
-        const angle = (pan + 1.0) * std.math.pi / 4.0;
-        const gain_l = gain * @cos(angle);
-        const gain_r = gain * @sin(angle);
+        const beat_step = 1.0 / self.transport.framesPerBeat();
+        const gains = self.automation_gain[0..frames];
+        const pans = self.automation_pan[0..frames];
+        const gain_automated = auto.gain.fillValues(gains, beat_pos, beat_step, track.gain);
+        const pan_automated = auto.pan.fillValues(pans, beat_pos, beat_step, track.pan);
+        const automated = gain_automated or pan_automated;
+        const base_angle = (track.pan + 1.0) * std.math.pi / 4.0;
+        const base_gain_l = track.gain * @cos(base_angle);
+        const base_gain_r = track.gain * @sin(base_angle);
 
         // A grouped track (an active group assignment) submixes into its
         // group's accumulator instead of straight to `out` - the
@@ -1481,6 +1487,10 @@ pub const Engine = struct {
             break :blk out;
         };
         for (0..frames) |i| {
+            const gain_l, const gain_r = if (automated) blk: {
+                const angle = (pans[i] + 1.0) * std.math.pi / 4.0;
+                break :blk .{ gains[i] * @cos(angle), gains[i] * @sin(angle) };
+            } else .{ base_gain_l, base_gain_r };
             const left = scratch[i * channels] * gain_l;
             const right = scratch[i * channels + 1] * gain_r;
             dest[i * channels] += left;
@@ -1505,6 +1515,10 @@ pub const Engine = struct {
                 },
             };
             for (0..frames) |i| {
+                const gain_l, const gain_r = if (automated) blk: {
+                    const angle = (pans[i] + 1.0) * std.math.pi / 4.0;
+                    break :blk .{ gains[i] * @cos(angle), gains[i] * @sin(angle) };
+                } else .{ base_gain_l, base_gain_r };
                 send_dest[i * channels] += scratch[i * channels] * gain_l * snd.level;
                 send_dest[i * channels + 1] += scratch[i * channels + 1] * gain_r * snd.level;
             }
