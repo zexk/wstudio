@@ -405,6 +405,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("=",            "toggle A/B loop on/off");
     t.key(":punch",       "[on|off]  record only between enabled A/B bounds");
     t.key(":monitor",     "[off|auto|on]  input monitoring mode");
+    t.key(":comp",        "<take> <start-beat> <end-beat>  splice alternate take range");
     t.key("gs",           "play from cursor bar");
     t.key("T",            "toggle song / pattern mode (manual override; view switches while the");
     t.key("",             "  transport is stopped set it for you: arrangement = song, tracks (or a");

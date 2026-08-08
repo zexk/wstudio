@@ -95,6 +95,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "crossfade",   .desc = "crossfade overlapping audio layers at cursor", .run = wrap(commands_mixer.cmdCrossfade) },
     .{ .name = "consolidate", .desc = "render cursor audio region edits into one source", .run = wrap(commands_mixer.cmdConsolidate) },
     .{ .name = "take",        .desc = "[next|prev]  cycle alternate recordings on audio region", .run = wrap(commands_mixer.cmdTake) },
+    .{ .name = "comp",        .desc = "<take> <start-beat> <end-beat>  splice alternate take range", .run = wrap(commands_mixer.cmdComp) },
     .{ .name = "load",        .desc = "[file]  load the WAV/SF2 type for the current view and selected instrument; omit the file to browse", .run = wrap(commands_load.cmdLoad) },
     .{ .name = "clap-instrument", .desc = "<plugin-id> <path>  load a CLAP instrument on the cursor track", .run = wrap(cmdClapInstrument) },
     .{ .name = "clap-fx",     .desc = "<plugin-id> <path>  append a CLAP effect to the cursor track", .run = wrap(cmdClapFx) },

@@ -745,6 +745,89 @@ pub fn cmdTake(app: *App, args: []const u8) void {
     app.setStatus("take: cycled {s} ({d} total)", .{ if (delta > 0) "next" else "previous", take_count });
 }
 
+pub fn cmdComp(app: *App, args: []const u8) void {
+    if (app.view != .arrangement) {
+        app.setStatus("comp: open arrangement first", .{});
+        return;
+    }
+    var words = std.mem.tokenizeScalar(u8, args, ' ');
+    const take_number = std.fmt.parseInt(usize, words.next() orelse "", 10) catch {
+        app.setStatus("comp: expected <take> <start-beat> <end-beat>", .{});
+        return;
+    };
+    const start_beat = parseFiniteFloat(f64, words.next() orelse "") catch {
+        app.setStatus("comp: expected <take> <start-beat> <end-beat>", .{});
+        return;
+    };
+    const end_beat = parseFiniteFloat(f64, words.next() orelse "") catch {
+        app.setStatus("comp: expected <take> <start-beat> <end-beat>", .{});
+        return;
+    };
+    if (words.next() != null or take_number < 2 or start_beat < 0 or end_beat <= start_beat) {
+        app.setStatus("comp: expected alternate take and increasing beat range", .{});
+        return;
+    }
+    const lane = app.session.arrangement.lane(app.cursor) orelse return;
+    const clip = lane.clipAt(app.arr_cursor_bar *| app.arr_grid.ticks()) orelse {
+        app.setStatus("comp: no clip at cursor", .{});
+        return;
+    };
+    const audio = switch (clip.content) {
+        .audio => |region| region,
+        else => {
+            app.setStatus("comp: clip is not audio", .{});
+            return;
+        },
+    };
+    const alternate_index = take_number - 2;
+    if (alternate_index >= audio.alternate_takes.len or audio.alternate_takes[alternate_index] == null) {
+        app.setStatus("comp: no such alternate take", .{});
+        return;
+    }
+    const alternate = audio.alternate_takes[alternate_index].?;
+    const active_source = app.session.project.audioSource(audio.source_id) orelse return;
+    const alternate_source = app.session.project.audioSource(alternate.source_id) orelse return;
+    const project_rate = app.session.project.sample_rate;
+    const output_frames: usize = @intFromFloat(@as(f64, @floatFromInt(audio.source_length_frames)) * @as(f64, @floatFromInt(project_rate)) / @as(f64, @floatFromInt(active_source.sample_rate)));
+    const result = app.allocator.alloc(f32, output_frames) catch {
+        app.setStatus("comp: out of memory", .{});
+        return;
+    };
+    defer app.allocator.free(result);
+    const range_start: usize = @min(output_frames, @as(usize, @intFromFloat(@round(start_beat * app.session.engine.transport.framesPerBeat()))));
+    const range_end: usize = @min(output_frames, @as(usize, @intFromFloat(@round(end_beat * app.session.engine.transport.framesPerBeat()))));
+    if (range_end <= range_start) {
+        app.setStatus("comp: range falls outside clip", .{});
+        return;
+    }
+    for (result, 0..) |*sample, frame| {
+        const use_alternate = frame >= range_start and frame < range_end;
+        const source = if (use_alternate) alternate_source else active_source;
+        const start = if (use_alternate) alternate.source_start_frame else audio.source_start_frame;
+        const length = if (use_alternate) alternate.source_length_frames else audio.source_length_frames;
+        const source_offset: u64 = @intFromFloat(@as(f64, @floatFromInt(frame)) * @as(f64, @floatFromInt(source.sample_rate)) / @as(f64, @floatFromInt(project_rate)));
+        if (source_offset >= length or start + source_offset >= source.samples.len / source.channel_count) {
+            sample.* = 0;
+            continue;
+        }
+        const base: usize = @intCast((start + source_offset) * source.channel_count);
+        var mono: f32 = 0;
+        for (0..source.channel_count) |channel| mono += source.samples[base + channel];
+        sample.* = mono / @as(f32, @floatFromInt(source.channel_count));
+    }
+    const source_id = app.session.project.addAudioSource("comp", project_rate, 1, result) catch {
+        app.setStatus("comp: failed to create source", .{});
+        return;
+    };
+    history.recordLane(app, @intCast(app.cursor));
+    clip.content.audio.source_id = source_id;
+    clip.content.audio.source_start_frame = 0;
+    clip.content.audio.source_length_frames = output_frames;
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.dirty = true;
+    app.setStatus("comp: take {d}, beats {d:.2}-{d:.2}", .{ take_number, start_beat, end_beat });
+}
+
 pub fn cmdVol(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {

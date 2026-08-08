@@ -3098,6 +3098,29 @@ test "consolidate renders audio region edits into a plain source" {
     try std.testing.expectEqual(@as(f32, 1), audio.stretch_ratio);
 }
 
+test "comp splices a beat range from an alternate audio take" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .arrangement;
+    app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
+    app.session.engine.transport.tempo_bpm = app.session.project.tempo_bpm;
+    const active_id = try app.session.project.addAudioSource("active", app.session.project.sample_rate, 1, &.{ 1, 1, 1, 1 });
+    const alternate_id = try app.session.project.addAudioSource("alternate", app.session.project.sample_rate, 1, &.{ 2, 2, 2, 2 });
+    try app.session.arrangement.lane(0).?.place(app.allocator, ws.Clip.initAudio(0, 64, .{
+        .source_id = active_id,
+        .source_start_frame = 0,
+        .source_length_frames = 4,
+        .alternate_takes = .{ .{ .source_id = alternate_id, .source_start_frame = 0, .source_length_frames = 4, .length_ticks = 64 }, null, null, null, null, null, null },
+    }));
+
+    commands.run(&app, "comp 2 1 3");
+    const audio = app.session.arrangement.lane(0).?.clips.items[0].content.audio;
+    const comp = app.session.project.audioSource(audio.source_id).?;
+    try std.testing.expectEqualSlices(f32, &.{ 1, 2, 2, 1 }, comp.samples);
+    history.doUndo(&app);
+    try std.testing.expectEqual(active_id, app.session.arrangement.lane(0).?.clips.items[0].content.audio.source_id);
+}
+
 test "arrangement g plays from the cursor bar" {
     var app = try testApp();
     defer app.deinit();
