@@ -43,6 +43,15 @@ fn currentPatternPlayer(app: *App) ?*pattern_mod.PatternPlayer {
     return &app.session.racks.items[app.piano_track].pattern_player.?;
 }
 
+/// Resolve any occupied cell on the cursor row to its note onset. Piano-roll
+/// actions should target the visible note body, not require finding its left
+/// edge first.
+fn noteAtCursor(app: *App, pp: *pattern_mod.PatternPlayer) ?*pattern_mod.Note {
+    const note = pp.noteCovering(app.piano_cursor_pitch, stepToBeat(app, app.piano_cursor_step)) orelse return null;
+    app.piano_cursor_step = pattern_mod.clampStep(@round(note.start_beat * stepsPerBeatF(app)));
+    return pp.noteAt(note.pitch, note.start_beat);
+}
+
 pub fn switchTo(app: *App, track: u16) void {
     if (track >= app.session.racks.items.len) return;
     switch (app.session.racks.items[track].instrument) {
@@ -257,8 +266,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'b' => { jumpBar(app, max_step, -app.takeCount()); return true; },
             // M grabs the note under the cursor for dragging (see above).
             'M' => {
-                const start_beat = stepToBeat(app, app.piano_cursor_step);
-                if (pp.noteAt(app.piano_cursor_pitch, start_beat) == null) {
+                if (noteAtCursor(app, pp) == null) {
                     app.setStatus("no note under cursor", .{});
                     return true;
                 }
@@ -273,8 +281,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // Y is FL's shift-drag for keyboard: move the held note, then
             // leave its source copy behind when the grab drops.
             'Y' => {
-                const start_beat = stepToBeat(app, app.piano_cursor_step);
-                if (pp.noteAt(app.piano_cursor_pitch, start_beat) == null) {
+                if (noteAtCursor(app, pp) == null) {
                     app.setStatus("no note under cursor", .{});
                     return true;
                 }
@@ -445,8 +452,7 @@ fn dropGrab(app: *App) void {
 /// `.` after a drag: move whichever note sits under the CURRENT cursor by
 /// the same (dstep, dpitch) offset the last drag ended with.
 fn repeatDrag(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dstep: i32, dpitch: i32) void {
-    const start_beat = stepToBeat(app, app.piano_cursor_step);
-    const n = pp.noteAt(app.piano_cursor_pitch, start_beat) orelse {
+    const n = noteAtCursor(app, pp) orelse {
         app.setStatus("no note under cursor to repeat the move on", .{});
         return;
     };
@@ -736,9 +742,8 @@ fn stepEnter(app: *App, max_step: u16, place_note: bool) void {
 /// applied to newly placed notes.
 fn resizeOrLen(app: *App, delta: f64) void {
     const pp = currentPatternPlayer(app) orelse return;
-    const start_beat = stepToBeat(app, app.piano_cursor_step);
     app.last_edit = .{ .piano_resize = .{ .delta = delta } };
-    if (pp.noteAt(app.piano_cursor_pitch, start_beat)) |n| {
+    if (noteAtCursor(app, pp)) |n| {
         history.push(app, history.captureMelodic(app, app.piano_track));
         n.duration_beat = std.math.clamp(n.duration_beat + delta, 1.0 / stepsPerBeatF(app), pp.length_beats);
         app.setStatus("note len: {d:.2} beats", .{n.duration_beat});
@@ -930,7 +935,7 @@ fn cycleNoteField(app: *App, delta: i32) void {
         app.setStatus("</> now edits {s}", .{field.label()});
         return;
     };
-    if (pp.noteAt(app.piano_cursor_pitch, stepToBeat(app, app.piano_cursor_step))) |n| {
+    if (noteAtCursor(app, pp)) |n| {
         var buf: [16]u8 = undefined;
         app.setStatus("</> now edits {s} - this note: {s}", .{ field.label(), field.format(field.get(n.*), &buf) });
     } else {
@@ -942,8 +947,7 @@ fn cycleNoteField(app: *App, delta: i32) void {
 /// field's own range (see `NoteField.set`).
 fn nudgeNoteField(app: *App, field: ws.dsp.pattern.NoteField, delta: f32) void {
     const pp = currentPatternPlayer(app) orelse return;
-    const start_beat = stepToBeat(app, app.piano_cursor_step);
-    if (pp.noteAt(app.piano_cursor_pitch, start_beat)) |n| {
+    if (noteAtCursor(app, pp)) |n| {
         history.push(app, history.captureMelodic(app, app.piano_track));
         field.set(n, field.get(n.*) + delta);
         app.last_edit = .{ .piano_nudge_note_field = .{ .field = field, .delta = delta } };
@@ -1405,10 +1409,9 @@ fn paste(app: *App) void {
 
 fn deleteNote(app: *App) void {
     const pp = currentPatternPlayer(app) orelse return;
-    const start_beat = stepToBeat(app, app.piano_cursor_step);
-    if (!pp.noteStartsAt(app.piano_cursor_pitch, start_beat)) return;
+    const note = noteAtCursor(app, pp) orelse return;
     history.push(app, history.captureMelodic(app, app.piano_track));
-    pp.removeNote(app.piano_cursor_pitch, start_beat);
+    pp.removeNote(note.pitch, note.start_beat);
     var nbuf: [5]u8 = undefined;
     app.setStatus("removed {s}", .{midi.noteName(app.piano_cursor_pitch, &nbuf)});
     syncLinkedClip(app);
