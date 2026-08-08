@@ -507,15 +507,15 @@ pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx) ![]FxUnitSnap {
     const out = try aa.alloc(FxUnitSnap, fx.units.items.len);
     for (fx.units.items, out) |u, *us| {
         us.* = switch (u.payload) {
-            .comp => |c| .{ .kind = .comp, .comp = .{
+            .comp => |c| .{ .content = .{ .comp = .{
                 .threshold_db = c.threshold_db, .ratio = c.ratio,
                 .attack_ms = c.attack_ms, .release_ms = c.release_ms, .makeup_db = c.makeup_db,
                 .knee_db = c.knee_db,
                 .sidechain_source = if (c.sidechain_source) |sc| sc.track else null,
                 .sidechain_pad = if (c.sidechain_source) |sc| sc.pad else null,
                 .sidechain_is_group = if (c.sidechain_source) |sc| sc.is_group else false,
-            } },
-            .mb_comp => |m| .{ .kind = .mb_comp, .mb_comp = .{
+            } } },
+            .mb_comp => |m| .{ .content = .{ .mb_comp = .{
                 .xover_lo_hz = m.xover_lo_hz, .xover_hi_hz = m.xover_hi_hz,
                 .attack_ms = m.attack_ms, .release_ms = m.release_ms,
                 .knee_db = m.knee_db,
@@ -523,13 +523,13 @@ pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx) ![]FxUnitSnap {
                 .low_threshold_db = m.bands[0].threshold_db, .low_ratio = m.bands[0].ratio, .low_makeup_db = m.bands[0].makeup_db,
                 .mid_threshold_db = m.bands[1].threshold_db, .mid_ratio = m.bands[1].ratio, .mid_makeup_db = m.bands[1].makeup_db,
                 .high_threshold_db = m.bands[2].threshold_db, .high_ratio = m.bands[2].ratio, .high_makeup_db = m.bands[2].makeup_db,
-            } },
-            .ott => |o| .{ .kind = .ott, .ott = .{
+            } } },
+            .ott => |o| .{ .content = .{ .ott = .{
                 .depth = o.depth(), .time = o.time,
                 .gain_in_db = o.gain_in_db, .gain_out_db = o.gain_out_db,
-            } },
-            .delay => |d| .{ .kind = .delay, .delay = snapFromDevice(DelaySnap, d) },
-            .reverb => |r| .{ .kind = .reverb, .reverb = snapFromDevice(ReverbSnap, r) },
+            } } },
+            .delay => |d| .{ .content = .{ .delay = snapFromDevice(DelaySnap, d) } },
+            .reverb => |r| .{ .content = .{ .reverb = snapFromDevice(ReverbSnap, r) } },
             .eq => |e| blk: {
                 var bands: [eq_mod.num_eq_bands]EqBandSnap = undefined;
                 for (&e.bands, 0..) |*b, i| bands[i] = .{
@@ -548,25 +548,9 @@ pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx) ![]FxUnitSnap {
                     .dyn_threshold_db = b.dyn_threshold_db,
                     .dyn_amount_db = b.dyn_amount_db,
                 };
-                break :blk .{ .kind = .eq, .eq = .{ .bands = bands, .auto_gain = e.auto_gain } };
+                break :blk .{ .content = .{ .eq = .{ .bands = bands, .auto_gain = e.auto_gain } } };
             },
-            .filter => |f| .{ .kind = .filter, .filter = snapFromDevice(FilterSnap, f) },
-            .limiter => |l| .{ .kind = .limiter, .limiter = snapFromDevice(LimiterSnap, l) },
-            .utility => |utility| .{ .kind = .utility, .utility = snapFromDevice(UtilitySnap, utility) },
-            .stereo_width => |width| .{ .kind = .stereo_width, .stereo_width = snapFromDevice(StereoWidthSnap, width) },
-            .auto_pan => |pan| .{ .kind = .auto_pan, .auto_pan = snapFromDevice(AutoPanSnap, pan) },
-            .transient_shaper => |transient| .{ .kind = .transient_shaper, .transient_shaper = snapFromDevice(TransientShaperSnap, transient) },
-            .gate => |g| .{ .kind = .gate, .gate = snapFromDevice(GateSnap, g) },
-            .sat => |s| .{ .kind = .sat, .sat = snapFromDevice(SatSnap, s) },
-            .crush => |c| .{ .kind = .crush, .crush = snapFromDevice(CrushSnap, c) },
-            .chorus => |c| .{ .kind = .chorus, .chorus = snapFromDevice(ChorusSnap, c) },
-            .phaser => |p| .{ .kind = .phaser, .phaser = snapFromDevice(PhaserSnap, p) },
-            .flanger => |fl| .{ .kind = .flanger, .flanger = snapFromDevice(FlangerSnap, fl) },
-            .tape => |t| .{ .kind = .tape, .tape = snapFromDevice(TapeSnap, t) },
-            .freq_shift => |f| .{ .kind = .freq_shift, .freq_shift = snapFromDevice(FreqShiftSnap, f) },
-            .pitch_shift => |p| .{ .kind = .pitch_shift, .pitch_shift = snapFromDevice(PitchShiftSnap, p) },
-            .clap => |plugin| .{ .kind = .clap, .clap = try clapToSnap(aa, plugin) },
-            .vst3 => |plugin| .{ .kind = .vst3, .vst3 = try vst3ToSnap(aa, plugin) },
+            inline else => |device, tag| .{ .content = @unionInit(persist_types.FxContentSnap, @tagName(tag), if (tag == .clap) try clapToSnap(aa, device) else if (tag == .vst3) try vst3ToSnap(aa, device) else snapFromDevice(@FieldType(persist_types.FxContentSnap, @tagName(tag)), device)) },
         };
         us.bypassed = u.bypassed;
         us.instance_id = u.instance_id;

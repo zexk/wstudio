@@ -999,23 +999,21 @@ pub fn applyFxChain(
 ) !void {
     for (chain) |us| {
         if (fx_out.units.items.len >= Fx.max_units) break;
-        const unit = switch (us.kind) {
-            .clap => blk: {
-                const cs = us.clap orelse return error.MalformedProject;
+        const unit = switch (us.content) {
+            .clap => |cs| blk: {
                 const loaded = try fx_out.insertClap(allocator, fx_out.units.items.len, cs.path, cs.plugin_id, sr);
                 if (transport) |value| loaded.payload.clap.attachTransport(value);
                 try loadClapState(allocator, loaded.payload.clap, cs.state_base64);
                 break :blk loaded;
             },
-            .vst3 => blk: {
-                const vs = us.vst3 orelse return error.MalformedProject;
+            .vst3 => |vs| blk: {
                 if (vs.path.len == 0 or vs.class_id.len != 32) return error.MalformedProject;
                 const loaded = try fx_out.insertVst3(allocator, fx_out.units.items.len, vs.path, vs.class_id, sr);
                 if (transport) |value| loaded.payload.vst3.attachTransport(value);
                 try loadVst3State(allocator, loaded.payload.vst3, vs.component_state_base64, vs.controller_state_base64);
                 break :blk loaded;
             },
-            else => |saved_kind| blk: {
+            else => |_, saved_kind| blk: {
                 const kind: rack_mod.FxKind = switch (saved_kind) {
                     .gate => .gate, .comp => .comp, .mb_comp => .mb_comp, .ott => .ott, .limiter => .limiter, .transient_shaper => .transient_shaper,
                     .eq => .eq, .filter => .filter, .utility => .utility, .stereo_width => .stereo_width, .auto_pan => .auto_pan, .sat => .sat, .crush => .crush, .chorus => .chorus,
@@ -1034,8 +1032,9 @@ pub fn applyFxChain(
                 if (fx_out.next_instance_id == 0) fx_out.next_instance_id = 1;
             }
         }
-        switch (unit.payload) {
-            .comp => |*c| if (us.comp) |cs| {
+        switch (us.content) {
+            .comp => |cs| {
+                const c = &unit.payload.comp;
                 if (std.math.isFinite(cs.threshold_db)) c.threshold_db = cs.threshold_db;
                 if (std.math.isFinite(cs.ratio)) c.ratio = cs.ratio;
                 if (std.math.isFinite(cs.attack_ms)) c.attack_ms = cs.attack_ms;
@@ -1051,7 +1050,8 @@ pub fn applyFxChain(
                     .is_group = cs.sidechain_is_group,
                 } else null;
             },
-            .mb_comp => |*m| if (us.mb_comp) |ms| {
+            .mb_comp => |ms| {
+                const m = &unit.payload.mb_comp;
                 m.setXovers(ms.xover_lo_hz, ms.xover_hi_hz);
                 if (std.math.isFinite(ms.attack_ms)) m.attack_ms = ms.attack_ms;
                 if (std.math.isFinite(ms.release_ms)) m.release_ms = ms.release_ms;
@@ -1069,15 +1069,17 @@ pub fn applyFxChain(
                     if (std.math.isFinite(saved[2])) band.makeup_db = saved[2];
                 }
             },
-            .ott => |*o| if (us.ott) |os| {
+            .ott => |os| {
+                const o = &unit.payload.ott;
                 o.setDepth(os.depth);
                 o.setTime(os.time);
                 o.gain_in_db = finiteClamp(f32, os.gain_in_db, -24.0, 24.0, o.gain_in_db);
                 o.gain_out_db = finiteClamp(f32, os.gain_out_db, -24.0, 24.0, o.gain_out_db);
             },
-            .delay => |*d| if (us.delay) |ds| applySnapToDevice(d, ds),
-            .reverb => |*r| if (us.reverb) |rs| applySnapToDevice(r, rs),
-            .eq => |*e| if (us.eq) |es| {
+            .delay => |snap| applySnapToDevice(&unit.payload.delay, snap),
+            .reverb => |snap| applySnapToDevice(&unit.payload.reverb, snap),
+            .eq => |es| {
+                const e = &unit.payload.eq;
                 for (es.bands, 0..) |b, i| {
                     e.setFreq(i, b.freq);
                     e.setQ(i, b.q);
@@ -1099,21 +1101,10 @@ pub fn applyFxChain(
                 // The EQ-only bypass maps onto the slot's generic one.
                 if (es.bypass) unit.bypassed = true;
             },
-            .filter => |*f| if (us.filter) |fs| applySnapToDevice(f, fs),
-            .limiter => |*l| if (us.limiter) |ls| applySnapToDevice(l, ls),
-            .utility => |*u| if (us.utility) |usnap| applySnapToDevice(u, usnap),
-            .stereo_width => |*w| if (us.stereo_width) |wsnap| applySnapToDevice(w, wsnap),
-            .auto_pan => |*a| if (us.auto_pan) |asnap| applySnapToDevice(a, asnap),
-            .transient_shaper => |*t| if (us.transient_shaper) |tsnap| applySnapToDevice(t, tsnap),
-            .gate => |*g| if (us.gate) |gs| applySnapToDevice(g, gs),
-            .sat => |*s| if (us.sat) |ss| applySnapToDevice(s, ss),
-            .crush => |*c| if (us.crush) |cs| applySnapToDevice(c, cs),
-            .chorus => |*c| if (us.chorus) |cs| applySnapToDevice(c, cs),
-            .phaser => |*p| if (us.phaser) |ps| applySnapToDevice(p, ps),
-            .flanger => |*fl| if (us.flanger) |fs| applySnapToDevice(fl, fs),
-            .tape => |*t| if (us.tape) |ts| applySnapToDevice(t, ts),
-            .freq_shift => |*f| if (us.freq_shift) |fs| applySnapToDevice(f, fs),
-            .pitch_shift => |*p| if (us.pitch_shift) |ps| applySnapToDevice(p, ps),
+            inline .filter, .limiter, .utility, .stereo_width, .auto_pan,
+            .transient_shaper, .gate, .sat, .crush, .chorus, .phaser,
+            .flanger, .tape, .freq_shift, .pitch_shift => |snap, tag|
+                applySnapToDevice(&@field(unit.payload, @tagName(tag)), snap),
             .clap, .vst3 => {},
         }
     }

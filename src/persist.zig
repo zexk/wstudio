@@ -283,11 +283,11 @@ test "buildSession: v10 fx_chain keeps user order, duplicates, and bypass" {
         .tracks = &.{.{ .name = "lead" }},
         .racks = &.{.{ .label = "lead", .content = .empty }},
         .master_fx_chain = &.{
-            .{ .kind = .reverb, .reverb = .{ .mix = 0.6, .room = 0.9, .damp = 0.1 } },
-            .{ .kind = .sat, .sat = .{ .drive_db = 6.0, .out_db = 0.0, .mix = 1.0 } },
-            .{ .kind = .crush, .bypassed = true },
-            .{ .kind = .sat, .sat = .{ .drive_db = 24.0, .out_db = -3.0, .mix = 0.5 } },
-            .{ .kind = .comp },
+            .{ .content = .{ .reverb = .{ .mix = 0.6, .room = 0.9, .damp = 0.1 } } },
+            .{ .content = .{ .sat = .{ .drive_db = 6.0, .out_db = 0.0, .mix = 1.0 } } },
+            .{ .bypassed = true, .content = .{ .crush = .{} } },
+            .{ .content = .{ .sat = .{ .drive_db = 24.0, .out_db = -3.0, .mix = 0.5 } } },
+            .{ .content = .{ .comp = .{} } },
         },
     };
 
@@ -315,7 +315,7 @@ test "buildSession: a compressor's sidechain_source loads, clamps, and reaches t
         .racks = &.{.{
             .label = "bass", .content = .empty,
             .fx_chain = &.{
-                .{ .kind = .comp, .comp = .{ .sidechain_source = 3 } },
+                .{ .content = .{ .comp = .{ .sidechain_source = 3 } } },
             },
         }},
     };
@@ -331,7 +331,7 @@ test "buildSession: a compressor's sidechain_source loads, clamps, and reaches t
         .racks = &.{.{
             .label = "bass", .content = .empty,
             .fx_chain = &.{
-                .{ .kind = .comp, .comp = .{ .sidechain_source = 65_000 } },
+                .{ .content = .{ .comp = .{ .sidechain_source = 65_000 } } },
             },
         }},
     };
@@ -348,7 +348,7 @@ test "buildSession: a compressor's sidechain_pad loads, clamps, and combines wit
         .racks = &.{.{
             .label = "bass", .content = .empty,
             .fx_chain = &.{
-                .{ .kind = .comp, .comp = .{ .sidechain_source = 3, .sidechain_pad = 200 } },
+                .{ .content = .{ .comp = .{ .sidechain_source = 3, .sidechain_pad = 200 } } },
             },
         }},
     };
@@ -442,7 +442,7 @@ test "an old .wsj with no sidechain_is_group/sends fields loads with unchanged p
             .label = "bass",
             .content = .empty,
             .fx_chain = &.{
-                .{ .kind = .comp, .comp = .{ .sidechain_source = 3 } },
+                .{ .content = .{ .comp = .{ .sidechain_source = 3 } } },
             },
         }},
     };
@@ -1336,7 +1336,7 @@ test "buildSession: groups round-trip name, FX chain, and track membership" {
     groups[2] = .{
         .active = true,
         .name = "drum bus",
-        .fx_chain = &.{.{ .kind = .comp, .comp = .{ .threshold_db = -12.0 } }},
+        .fx_chain = &.{.{ .content = .{ .comp = .{ .threshold_db = -12.0 } } }},
         .gain_db = -6.0206, // linear 0.5
         .folded = true,
     };
@@ -1535,8 +1535,8 @@ test "specialized FX snapshot loading ignores non-finite fields" {
     var fx: Fx = .{};
     defer fx.deinit(testing.allocator);
     try applyFxChain(testing.allocator, &fx, &.{
-        .{ .kind = .comp, .comp = .{ .threshold_db = nan, .ratio = nan, .attack_ms = nan, .release_ms = nan, .makeup_db = nan } },
-        .{ .kind = .mb_comp, .mb_comp = .{
+        .{ .content = .{ .comp = .{ .threshold_db = nan, .ratio = nan, .attack_ms = nan, .release_ms = nan, .makeup_db = nan } } },
+        .{ .content = .{ .mb_comp = .{
             .xover_lo_hz = nan,
             .xover_hi_hz = nan,
             .attack_ms = nan,
@@ -1551,9 +1551,9 @@ test "specialized FX snapshot loading ignores non-finite fields" {
             .high_threshold_db = nan,
             .high_ratio = nan,
             .high_makeup_db = nan,
-        } },
-        .{ .kind = .ott, .ott = .{ .depth = nan, .time = nan, .gain_in_db = nan, .gain_out_db = nan } },
-        .{ .kind = .delay, .delay = .{ .time_s = nan, .feedback = nan, .mix = nan } },
+        } } },
+        .{ .content = .{ .ott = .{ .depth = nan, .time = nan, .gain_in_db = nan, .gain_out_db = nan } } },
+        .{ .content = .{ .delay = .{ .time_s = nan, .feedback = nan, .mix = nan } } },
     }, 48_000, null);
 
     const comp = &fx.units.items[0].payload.comp;

@@ -579,36 +579,36 @@ pub const Vst3Snap = struct {
     pattern: PatternSnap = .{},
 };
 
-/// One chain slot: its kind, bypass flag, and params for that kind
-/// in the matching optional (the others stay null). A missing params field
-/// loads the unit with its defaults.
+pub const FxContentSnap = union(enum) {
+    comp: CompSnap,
+    mb_comp: MultibandCompSnap,
+    ott: OttSnap,
+    delay: DelaySnap,
+    reverb: ReverbSnap,
+    eq: EqSnap,
+    filter: FilterSnap,
+    limiter: LimiterSnap,
+    utility: UtilitySnap,
+    stereo_width: StereoWidthSnap,
+    auto_pan: AutoPanSnap,
+    transient_shaper: TransientShaperSnap,
+    gate: GateSnap,
+    sat: SatSnap,
+    crush: CrushSnap,
+    chorus: ChorusSnap,
+    phaser: PhaserSnap,
+    flanger: FlangerSnap,
+    tape: TapeSnap,
+    freq_shift: FreqShiftSnap,
+    pitch_shift: PitchShiftSnap,
+    clap: ClapSnap,
+    vst3: Vst3Snap,
+};
+
 pub const FxUnitSnap = struct {
-    kind: FxKind,
     instance_id: u32 = 0,
     bypassed: bool = false,
-    comp: ?CompSnap = null,
-    mb_comp: ?MultibandCompSnap = null,
-    ott: ?OttSnap = null,
-    delay: ?DelaySnap = null,
-    reverb: ?ReverbSnap = null,
-    eq: ?EqSnap = null,
-    filter: ?FilterSnap = null,
-    limiter: ?LimiterSnap = null,
-    utility: ?UtilitySnap = null,
-    stereo_width: ?StereoWidthSnap = null,
-    auto_pan: ?AutoPanSnap = null,
-    transient_shaper: ?TransientShaperSnap = null,
-    gate: ?GateSnap = null,
-    sat: ?SatSnap = null,
-    crush: ?CrushSnap = null,
-    chorus: ?ChorusSnap = null,
-    phaser: ?PhaserSnap = null,
-    flanger: ?FlangerSnap = null,
-    tape: ?TapeSnap = null,
-    freq_shift: ?FreqShiftSnap = null,
-    pitch_shift: ?PitchShiftSnap = null,
-    clap: ?ClapSnap = null,
-    vst3: ?Vst3Snap = null,
+    content: FxContentSnap,
 };
 
 pub const RackContentSnap = union(enum) {
