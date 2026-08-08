@@ -120,12 +120,7 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Session
     const data = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(4 * 1024 * 1024));
     defer allocator.free(data);
 
-    var parsed = try std.json.parseFromSlice(
-        Snapshot,
-        allocator,
-        data,
-        .{ .ignore_unknown_fields = true },
-    );
+    var parsed = try std.json.parseFromSlice(Snapshot, allocator, data, .{});
     defer parsed.deinit();
 
     var session = try buildSession(allocator, &parsed.value);
@@ -421,9 +416,7 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
 
         // zig fmt: off
         switch (rs.kind) {
-            // An instrument this build has no code for (a newer wstudio wrote
-            // it) loads as an empty track rather than failing the project.
-            .empty, .unknown => {},
+            .empty => {},
             .poly_synth => {
                 const synth = try PolySynth.init(allocator, sr);
                 rack.instrument = .{ .poly_synth = synth };
@@ -875,7 +868,7 @@ pub fn automationFromSnap(
         .beat = finiteClamp(f64, s.beat, 0.0, std.math.floatMax(f64), 0.0),
         .value = finiteClamp(f32, s.value, lo, hi, std.math.clamp(0.0, lo, hi)),
         .curve = switch (s.curve) {
-            .linear, .unknown => .linear,
+            .linear => .linear,
             .hold => .hold,
             .ease => .ease,
         },
@@ -1026,7 +1019,6 @@ pub fn applyFxChain(
 ) !void {
     for (chain) |us| {
         if (fx_out.units.items.len >= Fx.max_units) break;
-        if (us.kind == .unknown) continue; // slot from a newer build: drop it
         const unit = switch (us.kind) {
             .clap => blk: {
                 const cs = us.clap orelse return error.MalformedProject;
@@ -1049,7 +1041,7 @@ pub fn applyFxChain(
                     .eq => .eq, .filter => .filter, .utility => .utility, .stereo_width => .stereo_width, .auto_pan => .auto_pan, .sat => .sat, .crush => .crush, .chorus => .chorus,
                     .phaser => .phaser, .flanger => .flanger, .tape => .tape,
                     .freq_shift => .freq_shift, .pitch_shift => .pitch_shift, .delay => .delay, .reverb => .reverb,
-                    .clap, .vst3, .unknown => unreachable,
+                    .clap, .vst3 => unreachable,
                 };
                 break :blk try fx_out.insert(allocator, fx_out.units.items.len, kind, sr);
             },
@@ -1114,7 +1106,6 @@ pub fn applyFxChain(
                         .peak => .peak, .lowpass => .lowpass, .highpass => .highpass,
                         .lowshelf => .lowshelf, .highshelf => .highshelf,
                         .notch => .notch, .tiltshelf => .tiltshelf,
-                        .unknown => .peak, // response type from a newer build
                     }, b.slope);
                     e.setSolo(i, b.solo);
                     e.setStereoMode(i, switch (b.stereo_mode) {

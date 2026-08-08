@@ -27,28 +27,14 @@ this build writes or reads. Loading enforces one rule:
   reached 1.0 with no released installs, so every pre-1.0 `.wsj` was a
   dev-only artifact and carrying migrations for them bought nothing.
 
-Fields still evolve without a bump:
+Current-version JSON uses a strict schema. Unknown fields and enum names fail
+parsing instead of silently dropping sound or changing behavior. Numeric clamps
+and bounds checks remain because they protect against corrupt and hand-edited
+values.
 
-- **Adding an optional field with a sane default requires no version
-  bump.** A file written by a build predating the field parses fine (the
-  field takes its `= default` value), and `std.json`'s
-  `ignore_unknown_fields = true` means a newer file's extra field is
-  skipped rather than erroring. Most fields (mono voice mode, pattern
-  swing, per-pad choke groups, bounce bit depth, and more) shipped this
-  way. Check the field's own doc comment in `persist_types.zig` if the
-  default matters.
-- **Adding an FX kind, instrument kind, or EQ band kind requires no bump
-  either.** Those three enums (`FxKind`, `InstrumentKind`,
-  `EqBandKindSnap`) decode by name into an `unknown` member instead of
-  failing the parse, so a build that predates the kind drops that one FX
-  slot, loads that track empty, or falls back to a peak band, and opens
-  the rest of the project. Historically each new unit cost a bump purely
-  because `std.json` hard-errors on an unrecognized enum name.
-- **Bump `file_version` for a breaking or semantic change**: a field whose
-  *absence* can't be given a backward-compatible default, or a
-  sub-structure changing shape. A bump makes every older file unloadable
-  by design - with no migrations left, that is now a destructive act, so
-  prefer an additive field or an open enum.
+**Bump `file_version` for every schema or semantic change**, including new
+fields and enum members. Defaults still document current behavior for omitted
+optional data, but do not replace versioning.
 
 ## Snapshot notes
 

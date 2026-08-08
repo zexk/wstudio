@@ -148,7 +148,7 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
     const json = try std.json.Stringify.valueAlloc(aa, snap_in, .{ .whitespace = .indent_2 });
     defer aa.free(json);
 
-    var parsed = try std.json.parseFromSlice(Snapshot, aa, json, .{ .ignore_unknown_fields = true });
+    var parsed = try std.json.parseFromSlice(Snapshot, aa, json, .{});
     defer parsed.deinit();
     const snap_out = &parsed.value;
 
@@ -1061,7 +1061,7 @@ test "clipToSnap/clipFromSnap round-trip gain/pan automation" {
     try testing.expectApproxEqAbs(@as(f32, -1.0), restored.automation.pan[0].value, 1e-6);
 }
 
-test "a point's curve shape survives the round-trip, and an unknown one loads linear" {
+test "a point's curve shape survives the round-trip" {
     const testing = std.testing;
     var clip = ws_arrangement.Clip.initDrum(0, 1, .{
         .midi = try DrumMachine.allocMidi(testing.allocator, 16),
@@ -1085,14 +1085,6 @@ test "a point's curve shape survives the round-trip, and an unknown one loads li
     defer restored.deinit(testing.allocator);
     try testing.expectEqual(automation_mod.Curve.hold, restored.automation.gain[0].curve);
     try testing.expectEqual(automation_mod.Curve.ease, restored.automation.gain[1].curve);
-
-    // A shape written by a future build degrades to the one every older
-    // file already implied, rather than failing the whole load.
-    var future = try arena.allocator().dupe(persist_types.AutomationPointSnap, snap.gain_automation);
-    future[0].curve = .unknown;
-    const forward = try automationFromSnap(testing.allocator, future, -60.0, 12.0);
-    defer testing.allocator.free(forward);
-    try testing.expectEqual(automation_mod.Curve.linear, forward[0].curve);
 }
 
 test "automationFromSnap sorts unsorted points and clamps out-of-range values" {
@@ -2442,35 +2434,17 @@ test "a loaded project renders sample-identical to the session that saved it" {
     }
 }
 
-test "an unknown FX or instrument kind loads as a dropped slot, not an error" {
+test "strict snapshot parsing rejects unknown kinds and fields" {
     const testing = std.testing;
-
-    // A file a newer wstudio wrote: one FX kind and one instrument kind this
-    // build has never heard of, at the current version (loads are pinned, so
-    // a bump would reject the file outright - see FORMAT.md).
-    const json = std.fmt.comptimePrint(
-        \\{{"version":{d},
-        \\ "tracks":[{{"name":"a"}},{{"name":"b"}}],
-        \\ "racks":[
-        \\  {{"label":"a","kind":"poly_synth","fx_chain":[
-        \\    {{"kind":"quantum_flux"}},{{"kind":"sat"}}]}},
-        \\  {{"label":"b","kind":"granular_resynth"}}]}}
+    const unknown_kind = std.fmt.comptimePrint(
+        \\{{"version":{d},"racks":[{{"kind":"granular_resynth"}}]}}
+    , .{file_version});
+    const unknown_field = std.fmt.comptimePrint(
+        \\{{"version":{d},"future_feature":true}}
     , .{file_version});
 
-    var parsed = try std.json.parseFromSlice(Snapshot, testing.allocator, json, .{ .ignore_unknown_fields = true });
-    defer parsed.deinit();
-    try testing.expectEqual(persist_types.FxKind.unknown, parsed.value.racks[0].fx_chain[0].kind);
-    try testing.expectEqual(persist_types.InstrumentKind.unknown, parsed.value.racks[1].kind);
-
-    var session = try buildSession(testing.allocator, &parsed.value);
-    defer session.deinit();
-
-    // The unknown FX slot is dropped and the known one still loads; the
-    // unknown instrument leaves an empty track rather than failing the file.
-    const chain = session.racks.items[0].fx;
-    try testing.expectEqual(@as(usize, 1), chain.units.items.len);
-    try testing.expectEqual(rack_mod.FxKind.sat, chain.units.items[0].kind());
-    try testing.expectEqual(std.meta.Tag(@TypeOf(session.racks.items[1].instrument)).empty, std.meta.activeTag(session.racks.items[1].instrument));
+    try testing.expectError(error.InvalidEnumTag, std.json.parseFromSlice(Snapshot, testing.allocator, unknown_kind, .{}));
+    try testing.expectError(error.UnknownField, std.json.parseFromSlice(Snapshot, testing.allocator, unknown_field, .{}));
 }
 
 test "save/load round-trip persists a pitch shifter, and its heap grain lines survive dupe" {

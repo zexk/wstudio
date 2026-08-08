@@ -58,13 +58,6 @@ pub const AutomationCurveSnap = enum {
     linear,
     hold,
     ease,
-    /// A segment shape this build cannot draw; loads as `.linear`, the only
-    /// shape a point could have before this field existed.
-    unknown,
-
-    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !AutomationCurveSnap {
-        return openEnumParse(AutomationCurveSnap, allocator, source, options);
-    }
 };
 
 pub const AutomationPointSnap = struct {
@@ -487,13 +480,6 @@ pub const EqBandKindSnap = enum {
     highshelf,
     notch,
     tiltshelf,
-    /// A response type this build has no filter for; loads as `.peak`.
-    /// Adding one was a `file_version` bump before `openEnumParse` existed.
-    unknown,
-
-    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !EqBandKindSnap {
-        return openEnumParse(EqBandKindSnap, allocator, source, options);
-    }
 };
 
 /// Mirrors `eq_mod.StereoMode` as a plain string enum, same JSON-stability
@@ -675,41 +661,7 @@ pub const FxKind = enum {
     reverb,
     clap,
     vst3,
-    /// A kind this build has no unit for, written by a newer wstudio. The
-    /// loader drops the slot; see `openEnumParse`.
-    unknown,
-
-    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !FxKind {
-        return openEnumParse(FxKind, allocator, source, options);
-    }
-
-    pub fn jsonParseFromValue(allocator: std.mem.Allocator, source: std.json.Value, options: std.json.ParseOptions) !FxKind {
-        _ = allocator;
-        _ = options;
-        return switch (source) {
-            .string => |name| std.meta.stringToEnum(FxKind, name) orelse .unknown,
-            else => error.UnexpectedToken,
-        };
-    }
 };
-
-/// `jsonParse` body for a saved kind enum: an unrecognized name decodes as
-/// `.unknown` instead of failing the whole load with `InvalidEnumTag`. That
-/// is what lets a new FX or instrument kind ship without a `file_version`
-/// bump - loads are pinned to one version exactly (see FORMAT.md), so a bump
-/// makes every existing project unopenable, and dropping the one slot this
-/// build can't build beats refusing the whole file.
-fn openEnumParse(comptime E: type, allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !E {
-    const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
-    defer switch (token) {
-        .allocated_number, .allocated_string => |slice| allocator.free(slice),
-        else => {},
-    };
-    return switch (token) {
-        inline .number, .allocated_number, .string, .allocated_string => |slice| std.meta.stringToEnum(E, slice) orelse .unknown,
-        else => error.UnexpectedToken,
-    };
-}
 
 pub const ClapSnap = struct {
     path: []const u8 = "",
@@ -772,22 +724,6 @@ pub const InstrumentKind = enum {
     vst3,
     soundfont,
     acoustic,
-    /// An instrument this build doesn't have, written by a newer wstudio.
-    /// The track loads empty; see `openEnumParse`.
-    unknown,
-
-    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !InstrumentKind {
-        return openEnumParse(InstrumentKind, allocator, source, options);
-    }
-
-    pub fn jsonParseFromValue(allocator: std.mem.Allocator, source: std.json.Value, options: std.json.ParseOptions) !InstrumentKind {
-        _ = allocator;
-        _ = options;
-        return switch (source) {
-            .string => |name| std.meta.stringToEnum(InstrumentKind, name) orelse .unknown,
-            else => error.UnexpectedToken,
-        };
-    }
 };
 
 /// A single-clip sampler: the pad's params, its root note, and the piano-roll
