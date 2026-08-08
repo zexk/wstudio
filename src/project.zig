@@ -19,11 +19,11 @@ pub const track_color_count: u8 = 16;
 
 /// Aux/send slots per track (see `Track.sends`). Same small-fixed-bank
 /// convention as the engine's `max_sidechain_sources`/`max_groups` - a
-/// reverb send, a delay send, maybe a parallel-comp bus is the realistic
-/// ceiling, not a growable list. Defined here (not `audio/engine.zig`, which
+/// Small fixed bank, not a growable list. Defined here (not
+/// `audio/engine.zig`, which
 /// already imports `Project` from this file) so `Track` can hold the type
 /// directly without a circular import.
-pub const max_sends_per_track: u8 = 4;
+pub const max_sends_per_track: u8 = 8;
 
 /// Where a track's aux send lands - either straight to the master bus or
 /// into one of the group submix buses (see `Session.groups`), same

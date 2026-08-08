@@ -2448,7 +2448,9 @@ test "a track's aux send taps a group in parallel with its primary route, withou
     // Same signal now ALSO sent into group 0 at unity - the group's (empty)
     // chain sums straight back into `out` too, so the primary route isn't
     // replaced, it's doubled.
-    engine.setTrackSends(0, .{ .{ .target = .{ .group = 0 }, .level = 1.0 }, null, null, null });
+    var sends: TrackSendSlots = @splat(null);
+    sends[0] = .{ .target = .{ .group = 0 }, .level = 1.0 };
+    engine.setTrackSends(0, sends);
     var block_with_send: [512]Sample = undefined;
     for (0..4) |_| engine.process(&block_with_send);
     var loud_with_send: f32 = 0.0;

@@ -659,7 +659,7 @@ pub const PolySynth = struct {
 
     voices: [max_voices]Voice = [_]Voice{.{}} ** max_voices,
 
-    pub const max_voices = 16;
+    pub const max_voices = 32;
     pub const max_unison = 16;
     /// Hard cap on simultaneous oscillators across all active voices.
     /// With e.g. 8 active voices, unison is capped at 4 each → 32 total.
@@ -4184,8 +4184,8 @@ test "osc_budget: unison capped when many voices active" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
     synth.unison = 16;
-    // With 16 active voices, unison_cap = 32/16 = 2 per voice.
-    for (0..16) |i| synth.noteOn(@intCast(48 + i), 1.0);
+    // With 32 active voices, unison_cap = 32/32 = 1 per voice.
+    for (0..PolySynth.max_voices) |i| synth.noteOn(@intCast(48 + i), 1.0);
     try expectStaysFinite(&synth, 4);
 }
 

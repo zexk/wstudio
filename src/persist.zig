@@ -449,6 +449,8 @@ test "save/load round-trip persists a track's aux sends (master + group)" {
     const g = try session.addGroup("verb");
     session.setTrackSend(0, 0, .master, -6.0);
     session.setTrackSend(0, 1, .{ .group = g }, -12.0);
+    for (2..project_mod.max_sends_per_track) |slot|
+        session.setTrackSend(0, @intCast(slot), .master, -18.0);
 
     try save(testing.allocator, &session, testing.io, wsj_path);
     var loaded = try load(testing.allocator, testing.io, wsj_path);
@@ -460,6 +462,9 @@ test "save/load round-trip persists a track's aux sends (master + group)" {
     const send1 = sends[1].?;
     try testing.expectEqual(g, send1.target.group);
     try testing.expectApproxEqAbs(types.dbToGain(-12.0), send1.level, 1e-4);
+    const last = sends[project_mod.max_sends_per_track - 1].?;
+    try testing.expectEqual(project_mod.SendTarget.master, last.target);
+    try testing.expectApproxEqAbs(types.dbToGain(-18.0), last.level, 1e-4);
 }
 
 test "an old .wsj with no sidechain_is_group/sends fields loads with unchanged prior behavior" {
