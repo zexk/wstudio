@@ -9,6 +9,7 @@ const tui_commands = @import("../ui/commands.zig");
 const ansi = @import("../ui/ansi.zig");
 const icons = @import("../ui/icons.zig");
 const spectrum_ed = @import("../ui/editors/fx_editor.zig");
+const history = @import("../ui/history.zig");
 const gui_style = @import("style.zig");
 const meters = @import("meters.zig");
 const zgui = @import("zgui");
@@ -39,7 +40,8 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
         // left, session/system readouts (what project, what audio backend,
         // how loud) pin to the right edge instead of bunching up right next
         // to the transport cluster on a wide window.
-        drawTransportReadout(icons.tempo ++ "  TEMPO", tempo, true);
+        drawTransportControls(app, snap);
+        drawTransportReadout(icons.tempo ++ "  TEMPO", tempo, false);
         drawTransportReadout("POSITION", position, false);
         drawTransportReadout("METER", meter, false);
         drawTransportReadout("RATE", rate, false);
@@ -61,6 +63,31 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
         drawLoudnessReadout(snap);
     }
     zgui.end();
+}
+
+fn drawTransportControls(app: anytype, snap: ws.engine.UiSnapshot) void {
+    zgui.beginGroup();
+    zgui.textColored(theme.fg3, "TRANSPORT", .{});
+    if (zgui.smallButton(if (snap.playing or snap.pre_rolling) icons.stop ++ "##transport-stop" else icons.play ++ "##transport-play")) {
+        app.core.handleKey(.{ .char = ' ' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+    }
+    zgui.sameLine(.{ .spacing = 5 });
+    if (zgui.smallButton(icons.record ++ "##transport-record") and !snap.playing and !snap.pre_rolling) {
+        if (!hasArmedAudioTarget(&app.core) and app.core.modal.mode == .normal and
+            (app.core.view == .piano_roll or app.core.view == .drum_grid or app.core.view == .slicer_grid))
+            app.core.handleKey(.{ .char = 'i' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+        app.core.handleKey(.{ .char = ' ' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+    }
+    zgui.sameLine(.{ .spacing = 5 });
+    if (zgui.smallButton("UNDO")) history.doUndo(&app.core);
+    zgui.sameLine(.{ .spacing = 5 });
+    if (zgui.smallButton("REDO")) history.doRedo(&app.core);
+    zgui.endGroup();
+}
+
+fn hasArmedAudioTarget(core: anytype) bool {
+    for (0..core.session.racks.items.len) |i| if (core.session.isAudioArmed(i)) return true;
+    return false;
 }
 
 // A terminal meter is a handful of colored block cells; a GUI can afford a

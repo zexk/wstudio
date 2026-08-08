@@ -13,6 +13,7 @@ const color = gui_style.color;
 const theme = &gui_style.palette;
 
 pub const ClipSelection = struct { track: usize, clip: usize, start_tick: u32 };
+pub const ClipDrag = struct { selection: ClipSelection, target_tick: u32, grab_offset_tick: u32 };
 
 fn clipSelectionValid(arrangement: *const ws.Arrangement, selection: ClipSelection) bool {
     if (selection.track >= arrangement.lanes.items.len) return false;
@@ -29,6 +30,10 @@ pub fn draw(app: anytype) void {
     zgui.textColored(if (app.core.session.song_mode) theme.audio else theme.fg3, "{s}", .{if (app.core.session.song_mode) "SONG" else "PATTERN"});
     zgui.sameLine(.{});
     zgui.textColored(theme.audio, "{s}", .{app.core.arr_grid.label()});
+    zgui.sameLine(.{ .spacing = 8 });
+    if (zgui.smallButton("- GRID##arr-grid-down")) app.core.handleKey(.{ .char = 'Z' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+    zgui.sameLine(.{ .spacing = 4 });
+    if (zgui.smallButton("+ GRID##arr-grid-up")) app.core.handleKey(.{ .char = 'z' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     const track_count = app.core.session.project.tracks.items.len;
     const ticks_per_beat = ws.time_grid.ticks_per_beat;
     const beats_per_bar: u32 = app.core.session.project.beats_per_bar;
@@ -45,11 +50,11 @@ pub fn draw(app: anytype) void {
     const lane_h: f32 = if (track_count == 0)
         58
     else
-        std.math.clamp((available[1] - inspector_h - ruler_h - 12) / @as(f32, @floatFromInt(track_count)), 58, 112);
+        std.math.clamp((available[1] - inspector_h - ruler_h - 12) / @as(f32, @floatFromInt(track_count)), 58, 160);
     const canvas_w = @max(420, available[0]);
     const canvas_h = ruler_h + lane_h * @as(f32, @floatFromInt(track_count));
     const origin = zgui.getCursorScreenPos();
-    const clicked = zgui.invisibleButton("arrangement-canvas", .{ .w = canvas_w, .h = canvas_h });
+    _ = zgui.invisibleButton("arrangement-canvas", .{ .w = canvas_w, .h = canvas_h });
     const hovered = zgui.isItemHovered(.{});
     const mouse = zgui.getMousePos();
     const draw_list = zgui.getWindowDrawList();
@@ -58,6 +63,19 @@ pub fn draw(app: anytype) void {
     const total_beats_u64 = @as(u64, bar_count) * beats_per_bar;
     const total_beats: f32 = @floatFromInt(total_beats_u64);
     const beat_w = timeline_w / total_beats;
+
+    if (app.arrangement_drag) |*drag| {
+        if (zgui.isMouseDown(.left)) {
+            if (mouse[0] >= timeline_x) {
+                const raw_tick: u32 = @intFromFloat(@max(0, (mouse[0] - timeline_x) / beat_w * @as(f32, @floatFromInt(ticks_per_beat))));
+                const start_tick = raw_tick -| drag.grab_offset_tick;
+                drag.target_tick = start_tick / app.core.arr_grid.ticks() * app.core.arr_grid.ticks();
+            }
+        } else {
+            finishClipDrag(app, drag.*);
+            app.arrangement_drag = null;
+        }
+    }
 
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(theme.bg0) });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + ruler_h }, .col = color(theme.bg2) });
@@ -288,7 +306,7 @@ pub fn draw(app: anytype) void {
         if (x <= origin[0] + canvas_w) draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(theme.danger), .thickness = 2 });
     }
 
-    if (clicked and hovered and mouse[1] >= origin[1] + ruler_h) {
+    if (track_count > 0 and hovered and zgui.isMouseClicked(.left) and mouse[1] >= origin[1] + ruler_h) {
         const ti = @min(track_count - 1, @as(usize, @intFromFloat((mouse[1] - origin[1] - ruler_h) / lane_h)));
         app.core.cursor = ti;
         app.arrangement_clip = null;
@@ -298,13 +316,63 @@ pub fn draw(app: anytype) void {
             for (app.core.session.arrangement.lanes.items[ti].clips.items, 0..) |clip, ci| {
                 if (clip.covers(tick)) {
                     app.arrangement_clip = .{ .track = ti, .clip = ci, .start_tick = clip.start_tick };
+                    app.arrangement_drag = .{
+                        .selection = app.arrangement_clip.?,
+                        .target_tick = clip.start_tick,
+                        .grab_offset_tick = tick - clip.start_tick,
+                    };
                     break;
                 }
             }
         }
     }
+    if (track_count > 0 and hovered and zgui.isMouseClicked(.right) and mouse[1] >= origin[1] + ruler_h and mouse[0] >= timeline_x) {
+        const ti = @min(track_count - 1, @as(usize, @intFromFloat((mouse[1] - origin[1] - ruler_h) / lane_h)));
+        const tick: u32 = @intFromFloat((mouse[0] - timeline_x) / beat_w * @as(f32, @floatFromInt(ticks_per_beat)));
+        app.arrangement_clip = null;
+        if (ti < app.core.session.arrangement.lanes.items.len) {
+            for (app.core.session.arrangement.lanes.items[ti].clips.items, 0..) |clip, ci| {
+                if (!clip.covers(tick)) continue;
+                app.core.cursor = ti;
+                app.core.arr_cursor_bar = tick / app.core.arr_grid.ticks();
+                app.arrangement_clip = .{ .track = ti, .clip = ci, .start_tick = clip.start_tick };
+                zgui.openPopup("clip-context", .{});
+                break;
+            }
+        }
+    }
+    if (zgui.beginPopup("clip-context", .{})) {
+        const selection = app.arrangement_clip;
+        var action: ?u8 = null;
+        if (zgui.menuItem("Move left", .{ .shortcut = "<" })) action = '<';
+        if (zgui.menuItem("Move right", .{ .shortcut = ">" })) action = '>';
+        if (zgui.menuItem("Shorten", .{ .shortcut = "-" })) action = '-';
+        if (zgui.menuItem("Lengthen", .{ .shortcut = "+" })) action = '+';
+        if (zgui.menuItem("Automation", .{ .shortcut = "a" })) action = 'a';
+        if (zgui.menuItem("Delete", .{ .shortcut = "x" })) action = 'x';
+        zgui.endPopup();
+        if (selection) |selected| if (action) |key| applyInspectorAction(app, selected, key);
+    }
     zgui.spacing();
     drawArrangementInspector(app);
+}
+
+fn finishClipDrag(app: anytype, drag: ClipDrag) void {
+    if (!clipSelectionValid(&app.core.session.arrangement, drag.selection)) return;
+    const grid = app.core.arr_grid.ticks();
+    const from = drag.selection.start_tick / grid;
+    const to = drag.target_tick / grid;
+    if (from == to) return;
+    app.core.cursor = drag.selection.track;
+    app.core.arr_cursor_bar = from;
+    app.core.modal.count = if (to > from) to - from else from - to;
+    app.core.handleKey(.{ .char = if (to > from) '>' else '<' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+    const lane = app.core.session.arrangement.lanes.items[drag.selection.track];
+    for (lane.clips.items, 0..) |clip, index| {
+        if (clip.start_tick != drag.target_tick) continue;
+        app.arrangement_clip = .{ .track = drag.selection.track, .clip = index, .start_tick = clip.start_tick };
+        return;
+    }
 }
 
 test "clip selection rejects deleted or displaced clips" {
@@ -340,13 +408,13 @@ fn drawArrangementInspector(app: anytype) void {
             .drum => "DRUM PATTERN",
         }});
         zgui.spacing();
-        if (zgui.button("< MOVE##clip-move-left", .{})) action = 'h';
+        if (zgui.button("< MOVE##clip-move-left", .{})) action = '<';
         zgui.sameLine(.{ .spacing = 6 });
-        if (zgui.button("MOVE >##clip-move-right", .{})) action = 'l';
+        if (zgui.button("MOVE >##clip-move-right", .{})) action = '>';
         zgui.sameLine(.{ .spacing = 12 });
-        if (zgui.button("- LENGTH##clip-shorter", .{})) action = 'H';
+        if (zgui.button("- LENGTH##clip-shorter", .{})) action = '-';
         zgui.sameLine(.{ .spacing = 6 });
-        if (zgui.button("+ LENGTH##clip-longer", .{})) action = 'L';
+        if (zgui.button("+ LENGTH##clip-longer", .{})) action = '+';
         zgui.sameLine(.{ .spacing = 12 });
         if (zgui.button("AUTOMATION##clip-automation", .{})) action = 'a';
         zgui.sameLine(.{ .spacing = 12 });

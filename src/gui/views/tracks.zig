@@ -176,7 +176,7 @@ fn mixerDrag(args: MixerDrag) MixerDragResult {
     zgui.getWindowDrawList().addRectFilled(.{
         .pmin = .{ item_min[0] + args.w * @min(anchor, t), item_max[1] - 3 },
         .pmax = .{ item_min[0] + args.w * @max(anchor, t), item_max[1] },
-        .col = color(theme.focus),
+        .col = color(theme.fg3),
         .rounding = gui_style.item_rounding,
     });
     return .{
@@ -194,10 +194,18 @@ pub fn draw(app: anytype) void {
     zgui.textDisabled("TRACKS", .{});
     zgui.sameLine(.{});
     zgui.textColored(if (app.core.session.song_mode) theme.audio else theme.fg3, "{s}", .{if (app.core.session.song_mode) "SONG" else "PATTERN"});
+    zgui.sameLine(.{ .spacing = 12 });
+    if (zgui.smallButton("+ TRACK")) app.core.handleKey(.{ .char = 'a' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+    if (app.core.cursorTrack() != null) {
+        zgui.sameLine(.{ .spacing = 6 });
+        if (zgui.smallButton("UP##track-up")) app.core.doTrackMove(-1);
+        zgui.sameLine(.{ .spacing = 4 });
+        if (zgui.smallButton("DOWN##track-down")) app.core.doTrackMove(1);
+    }
     zgui.separator();
     const row_count = app.core.trackRows().len + 1;
     const available_height = zgui.getContentRegionAvail()[1];
-    const row_height = std.math.clamp((available_height - 154) / @as(f32, @floatFromInt(row_count)), 52, 112);
+    const row_height = std.math.clamp((available_height - 154) / @as(f32, @floatFromInt(row_count)), 52, 160);
     for (app.core.trackRows(), 0..) |row, display_row| {
         switch (row) {
             .track => |track_index| drawMixerRow(app, track_index, display_row, row_height),

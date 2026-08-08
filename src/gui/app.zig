@@ -31,6 +31,7 @@ pub const App = struct {
 
     core: tui_app.App,
     arrangement_clip: ?arrangement_view.ClipSelection = null,
+    arrangement_drag: ?arrangement_view.ClipDrag = null,
     piano_mouse_edit: ?piano_view.MouseEdit = null,
     eq_drag_band: ?u8 = null,
     eq_analyzer_key: ?u32 = null,
@@ -83,6 +84,7 @@ pub const App = struct {
     }
 
     pub fn draw(self: *App, audio_label: []const u8) void {
+        if (self.core.view != .arrangement) self.arrangement_drag = null;
         if (self.core.view != .piano_roll) self.piano_mouse_edit = null;
         if (self.automation_edit_active and (self.core.view != .automation or !zgui.isMouseDown(.left))) {
             if (self.core.session.song_mode) self.core.session.rebuildSongData();
