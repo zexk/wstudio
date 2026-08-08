@@ -7,7 +7,13 @@ const std = @import("std");
 pub const ScaleType = enum {
     // zig fmt: off
     major, minor, dorian, phrygian, lydian, mixolydian, locrian,
-    major_pentatonic, minor_pentatonic, chromatic,
+    major_pentatonic, minor_pentatonic, blues, major_blues,
+    harmonic_minor, melodic_minor, lydian_dominant, phrygian_dominant, altered,
+    bebop_major, bebop_dominant, bebop_minor, bebop_dorian,
+    whole_tone, diminished_whole_half, diminished_half_whole,
+    double_harmonic, hungarian_minor, ukrainian_dorian,
+    neapolitan_major, neapolitan_minor, persian, enigmatic,
+    hirajoshi, in_sen, iwato, prometheus, chromatic,
 
     /// Ascending semitone offsets from the root, within one octave.
     pub fn intervals(self: ScaleType) []const u8 {
@@ -21,6 +27,31 @@ pub const ScaleType = enum {
             .locrian           => &[_]u8{ 0, 1, 3, 5, 6, 8, 10 },
             .major_pentatonic  => &[_]u8{ 0, 2, 4, 7, 9 },
             .minor_pentatonic  => &[_]u8{ 0, 3, 5, 7, 10 },
+            .blues             => &[_]u8{ 0, 3, 5, 6, 7, 10 },
+            .major_blues       => &[_]u8{ 0, 2, 3, 4, 7, 9 },
+            .harmonic_minor    => &[_]u8{ 0, 2, 3, 5, 7, 8, 11 },
+            .melodic_minor     => &[_]u8{ 0, 2, 3, 5, 7, 9, 11 },
+            .lydian_dominant   => &[_]u8{ 0, 2, 4, 6, 7, 9, 10 },
+            .phrygian_dominant => &[_]u8{ 0, 1, 4, 5, 7, 8, 10 },
+            .altered           => &[_]u8{ 0, 1, 3, 4, 6, 8, 10 },
+            .bebop_major       => &[_]u8{ 0, 2, 4, 5, 7, 8, 9, 11 },
+            .bebop_dominant    => &[_]u8{ 0, 2, 4, 5, 7, 9, 10, 11 },
+            .bebop_minor       => &[_]u8{ 0, 2, 3, 4, 5, 7, 8, 10 },
+            .bebop_dorian      => &[_]u8{ 0, 2, 3, 4, 5, 7, 9, 10 },
+            .whole_tone        => &[_]u8{ 0, 2, 4, 6, 8, 10 },
+            .diminished_whole_half => &[_]u8{ 0, 2, 3, 5, 6, 8, 9, 11 },
+            .diminished_half_whole => &[_]u8{ 0, 1, 3, 4, 6, 7, 9, 10 },
+            .double_harmonic   => &[_]u8{ 0, 1, 4, 5, 7, 8, 11 },
+            .hungarian_minor   => &[_]u8{ 0, 2, 3, 6, 7, 8, 11 },
+            .ukrainian_dorian  => &[_]u8{ 0, 2, 3, 6, 7, 9, 10 },
+            .neapolitan_major  => &[_]u8{ 0, 1, 3, 5, 7, 9, 11 },
+            .neapolitan_minor  => &[_]u8{ 0, 1, 3, 5, 7, 8, 11 },
+            .persian           => &[_]u8{ 0, 1, 4, 5, 6, 8, 11 },
+            .enigmatic         => &[_]u8{ 0, 1, 4, 6, 8, 10, 11 },
+            .hirajoshi         => &[_]u8{ 0, 2, 3, 7, 8 },
+            .in_sen            => &[_]u8{ 0, 1, 5, 7, 10 },
+            .iwato             => &[_]u8{ 0, 1, 5, 6, 10 },
+            .prometheus        => &[_]u8{ 0, 2, 4, 6, 9, 10 },
             .chromatic         => &[_]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 },
             // zig fmt: on
         };
@@ -37,6 +68,31 @@ pub const ScaleType = enum {
             .locrian => "locrian",
             .major_pentatonic => "maj-pent",
             .minor_pentatonic => "min-pent",
+            .blues => "blues",
+            .major_blues => "major-blues",
+            .harmonic_minor => "harmonic-minor",
+            .melodic_minor => "melodic-minor",
+            .lydian_dominant => "lydian-dominant",
+            .phrygian_dominant => "phrygian-dominant",
+            .altered => "altered",
+            .bebop_major => "bebop-major",
+            .bebop_dominant => "bebop-dominant",
+            .bebop_minor => "bebop-minor",
+            .bebop_dorian => "bebop-dorian",
+            .whole_tone => "whole-tone",
+            .diminished_whole_half => "diminished-whole-half",
+            .diminished_half_whole => "diminished-half-whole",
+            .double_harmonic => "double-harmonic",
+            .hungarian_minor => "hungarian-minor",
+            .ukrainian_dorian => "ukrainian-dorian",
+            .neapolitan_major => "neapolitan-major",
+            .neapolitan_minor => "neapolitan-minor",
+            .persian => "persian",
+            .enigmatic => "enigmatic",
+            .hirajoshi => "hirajoshi",
+            .in_sen => "in-sen",
+            .iwato => "iwato",
+            .prometheus => "prometheus",
             .chromatic => "chromatic",
         };
     }
@@ -44,16 +100,15 @@ pub const ScaleType = enum {
     /// Parses the names/aliases accepted by `:scale` (case-insensitive).
     pub fn parse(s: []const u8) ?ScaleType {
         const eq = std.ascii.eqlIgnoreCase;
-        if (eq(s, "major") or eq(s, "ionian")) return .major;
-        if (eq(s, "minor") or eq(s, "aeolian")) return .minor;
-        if (eq(s, "dorian")) return .dorian;
-        if (eq(s, "phrygian")) return .phrygian;
-        if (eq(s, "lydian")) return .lydian;
-        if (eq(s, "mixolydian")) return .mixolydian;
-        if (eq(s, "locrian")) return .locrian;
+        for (std.meta.tags(ScaleType)) |kind| {
+            if (eq(s, @tagName(kind)) or eq(s, kind.label())) return kind;
+        }
+        if (eq(s, "ionian")) return .major;
+        if (eq(s, "aeolian")) return .minor;
         if (eq(s, "majpent") or eq(s, "major-pentatonic") or eq(s, "major_pentatonic")) return .major_pentatonic;
         if (eq(s, "minpent") or eq(s, "minor-pentatonic") or eq(s, "minor_pentatonic")) return .minor_pentatonic;
-        if (eq(s, "chromatic")) return .chromatic;
+        if (eq(s, "super-locrian")) return .altered;
+        if (eq(s, "byzantine") or eq(s, "arabic")) return .double_harmonic;
         return null;
     }
 
@@ -61,8 +116,8 @@ pub const ScaleType = enum {
     /// when a chord quality isn't diatonically derived (sus/add9/dim/aug/6th).
     pub fn isMinorish(self: ScaleType) bool {
         return switch (self) {
-            .minor, .dorian, .phrygian, .locrian, .minor_pentatonic => true,
-            .major, .lydian, .mixolydian, .major_pentatonic, .chromatic => false,
+            .minor, .dorian, .phrygian, .locrian, .minor_pentatonic, .blues, .harmonic_minor, .melodic_minor, .bebop_minor, .bebop_dorian, .hungarian_minor, .ukrainian_dorian, .neapolitan_minor, .hirajoshi, .in_sen, .iwato => true,
+            else => false,
         };
     }
 };
@@ -265,11 +320,8 @@ pub const Scale = struct {
     pub fn chordAt(self: Scale, pitch: u7, quality: ChordQuality) Chord {
         const minor = self.kind.isMinorish();
         if (!quality.isTertian()) return fixedChord(pitch, minor, quality);
-        switch (self.kind) {
-            .major_pentatonic, .minor_pentatonic, .chromatic => return fixedChord(pitch, minor, quality),
-            else => {},
-        }
         const iv = self.kind.intervals();
+        if (iv.len != 7) return fixedChord(pitch, minor, quality);
         const n = iv.len;
         const pc: i32 = @mod(@as(i32, pitch) - @as(i32, self.root), 12);
         var idx: ?usize = null;
@@ -464,6 +516,10 @@ test "ScaleType.parse: names and aliases" {
     try std.testing.expectEqual(@as(?ScaleType, .major), ScaleType.parse("Major"));
     try std.testing.expectEqual(@as(?ScaleType, .minor), ScaleType.parse("aeolian"));
     try std.testing.expectEqual(@as(?ScaleType, .major_pentatonic), ScaleType.parse("major-pentatonic"));
+    try std.testing.expectEqual(@as(?ScaleType, .bebop_dominant), ScaleType.parse("bebop-dominant"));
+    try std.testing.expectEqual(@as(?ScaleType, .whole_tone), ScaleType.parse("whole_tone"));
+    try std.testing.expectEqual(@as(?ScaleType, .double_harmonic), ScaleType.parse("Byzantine"));
+    try std.testing.expect((Scale{ .root = 0, .kind = .bebop_dominant }).contains(70));
     try std.testing.expectEqual(@as(?ScaleType, null), ScaleType.parse("bogus"));
 }
 
