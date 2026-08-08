@@ -190,13 +190,17 @@ fn drawToolbar(app: anytype) void {
 
     zgui.sameLine(.{ .spacing = 8 });
     if (zgui.button("- GRID##piano-grid-down", .{ .h = 27 })) {
-        app.core.handleKey(.{ .char = 'Z' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+        const now_ns = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
+        app.core.handleKey(.{ .char = 'z' }, now_ns);
+        app.core.handleKey(.{ .char = 'G' }, now_ns);
     }
     zgui.sameLine(.{ .spacing = 4 });
     zgui.textColored(theme.audio, "{s}", .{app.core.piano_division.label()});
     zgui.sameLine(.{ .spacing = 4 });
     if (zgui.button("+ GRID##piano-grid-up", .{ .h = 27 })) {
-        app.core.handleKey(.{ .char = 'z' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+        const now_ns = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
+        app.core.handleKey(.{ .char = 'z' }, now_ns);
+        app.core.handleKey(.{ .char = 'g' }, now_ns);
     }
 
     zgui.sameLine(.{ .spacing = 12 });
