@@ -107,8 +107,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 },
                 'h' => { moveStep(app, max_step, -app.takeCount()); finishOperator(app, pp, op); return true; },
                 'l' => { moveStep(app, max_step, app.takeCount()); finishOperator(app, pp, op); return true; },
-                'H' => { moveStep(app, max_step, -4 * app.takeCount()); finishOperator(app, pp, op); return true; },
-                'L' => { moveStep(app, max_step, 4 * app.takeCount()); finishOperator(app, pp, op); return true; },
+                'H' => { moveStep(app, max_step, -stepsPerBeat(app) * app.takeCount()); finishOperator(app, pp, op); return true; },
+                'L' => { moveStep(app, max_step, stepsPerBeat(app) * app.takeCount()); finishOperator(app, pp, op); return true; },
                 'g' => { app.piano_cursor_step = 0; ensureVisible(app); finishOperator(app, pp, op); return true; },
                 'G' => {
                     if (max_step > 0) app.piano_cursor_step = max_step - 1;
@@ -231,12 +231,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // makes recordNote below reachable: play a take while the
             // transport rolls and it's written into the pattern, quantized
             // to the same grid as every other roll edit.
-            // fine move by one step; shift (HL) jumps one beat (4 steps).
+            // fine move by one step; shift (HL) jumps one beat.
             // All motions take a vim count prefix (3l, 12h, …).
             'h' => { moveStep(app, max_step, -app.takeCount()); return true; },
             'l' => { moveStep(app, max_step, app.takeCount()); return true; },
-            'H' => { moveStep(app, max_step, -4 * app.takeCount()); return true; },
-            'L' => { moveStep(app, max_step, 4 * app.takeCount()); return true; },
+            'H' => { moveStep(app, max_step, -stepsPerBeat(app) * app.takeCount()); return true; },
+            'L' => { moveStep(app, max_step, stepsPerBeat(app) * app.takeCount()); return true; },
             'j' => { movePitch(app, -app.takeCount()); return true; },
             'k' => { movePitch(app, app.takeCount()); return true; },
             // J/K jump an octave (mirrors h/l → H/L coarse-move pattern).
@@ -1073,8 +1073,8 @@ fn handleVisual(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, m
         .char => |c| switch (c) {
             'h' => { moveStep(app, max_step, -app.takeCount()); return true; },
             'l' => { moveStep(app, max_step, app.takeCount()); return true; },
-            'H' => { moveStep(app, max_step, -4 * app.takeCount()); return true; },
-            'L' => { moveStep(app, max_step, 4 * app.takeCount()); return true; },
+            'H' => { moveStep(app, max_step, -stepsPerBeat(app) * app.takeCount()); return true; },
+            'L' => { moveStep(app, max_step, stepsPerBeat(app) * app.takeCount()); return true; },
             // j/k/J/K extend the selection down/up the pitch axis, like
             // every other motion in visual mode and like vim itself - a
             // no-op under `V`, where every pitch is already in. They used to

@@ -1835,6 +1835,29 @@ test "T toggles the piano roll grid between straight and triplet" {
     try std.testing.expectApproxEqAbs(@as(f64, 0.25), app.piano_note_len, 1e-9);
 }
 
+test "piano roll H/L stay one beat on triplet and fine grids" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.length_beats = 4.0;
+
+    _ = piano_ed.handleKey(&app, .{ .char = 'T' });
+    _ = piano_ed.handleKey(&app, .{ .char = 'L' });
+    try std.testing.expectEqual(@as(u16, 6), app.piano_cursor_step);
+
+    _ = piano_ed.handleKey(&app, .{ .char = 'd' });
+    _ = piano_ed.handleKey(&app, .{ .char = 'L' });
+    try std.testing.expectEqual(@as(u16, 12), app.piano_cursor_step);
+
+    _ = piano_ed.handleKey(&app, .{ .char = 'z' });
+    _ = piano_ed.handleKey(&app, .{ .char = 'g' });
+    try std.testing.expectEqual(@as(u16, 8), app.pianoStepsPerBeat());
+    _ = piano_ed.handleKey(&app, .{ .char = 'H' });
+    try std.testing.expectEqual(@as(u16, 8), app.piano_cursor_step);
+}
+
 test "piano roll n/N step-enter notes and rests by the default note length" {
     var app = try testApp();
     defer app.deinit();
