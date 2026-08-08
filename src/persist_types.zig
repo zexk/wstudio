@@ -611,16 +611,16 @@ pub const FxUnitSnap = struct {
     vst3: ?Vst3Snap = null,
 };
 
-pub const InstrumentKind = enum {
+pub const RackContentSnap = union(enum) {
     empty,
-    poly_synth,
-    sampler,
-    drum_machine,
-    slicer,
-    clap,
-    vst3,
-    soundfont,
-    acoustic,
+    poly_synth: SynthSnap,
+    sampler: SamplerSnap,
+    drum_machine: DrumSnap,
+    slicer: SlicerSnap,
+    clap: ClapSnap,
+    vst3: Vst3Snap,
+    soundfont: SoundfontSnap,
+    acoustic: SoundfontSnap,
 };
 
 /// A single-clip sampler: the pad's params, its root note, and the piano-roll
@@ -679,14 +679,7 @@ pub const SoundfontSnap = struct {
 
 pub const RackSnap = struct {
     label: []const u8 = "synth",
-    kind: InstrumentKind,
-    synth: ?SynthSnap = null,
-    sampler: ?SamplerSnap = null,
-    drum: ?DrumSnap = null,
-    slicer: ?SlicerSnap = null,
-    clap: ?ClapSnap = null,
-    vst3: ?Vst3Snap = null,
-    soundfont: ?SoundfontSnap = null,
+    content: RackContentSnap,
     /// The user-built chain in signal-flow order.
     fx_chain: []const FxUnitSnap = &.{},
 };

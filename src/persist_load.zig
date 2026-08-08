@@ -154,7 +154,7 @@ pub fn restoreSamples(
     for (snap.racks, session.racks.items) |rs, rack| {
         switch (rack.instrument) {
             .drum_machine => |*dm| {
-                const ds = rs.drum orelse continue;
+                const ds = rs.content.drum_machine;
                 for (ds.pads, 0..) |ps, pi| {
                     if (pi >= DrumMachine.max_pads) break;
                     if (ps.sample_file.len == 0) {
@@ -176,7 +176,7 @@ pub fn restoreSamples(
                 }
             },
             .sampler => |*s| {
-                const smp = rs.sampler orelse continue;
+                const smp = rs.content.sampler;
                 if (smp.pad.sample_file.len == 0) {
                     if (smp.pad.name.len > 0) s.rename(smp.pad.name);
                     continue;
@@ -189,7 +189,7 @@ pub fn restoreSamples(
                 s.pad.user_sample = true;
             },
             .slicer => |*sl| {
-                const sls = rs.slicer orelse continue;
+                const sls = rs.content.slicer;
                 if (sls.sample_file.len == 0) continue; // empty slicer, nothing to restore
                 const data = readWsjRel(allocator, io, path, sls.sample_file) orelse continue;
                 defer allocator.free(data);
@@ -202,7 +202,7 @@ pub fn restoreSamples(
                 sl.user_sample = true;
             },
             .poly_synth => |*s| {
-                const ss = rs.synth orelse continue;
+                const ss = rs.content.poly_synth;
                 if (ss.wt_file.len > 0) {
                     if (readWsjRel(allocator, io, path, ss.wt_file)) |data| {
                         defer allocator.free(data);
@@ -223,7 +223,11 @@ pub fn restoreSamples(
                 }
             },
             .soundfont, .acoustic => |*sf| {
-                const sfs = rs.soundfont orelse continue;
+                const sfs = switch (rs.content) {
+                    .soundfont => |v| v,
+                    .acoustic => |v| v,
+                    else => continue,
+                };
                 if (std.meta.stringToEnum(@import("dsp/builtin_library.zig").Id, sfs.library)) |id| {
                     sf.loadBuiltin(io, id) catch continue;
                     sf.selectPresetIndex(sfs.preset_index);
@@ -415,9 +419,9 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
         rack.owned_label = true;
 
         // zig fmt: off
-        switch (rs.kind) {
+        switch (rs.content) {
             .empty => {},
-            .poly_synth => {
+            .poly_synth => |ss| {
                 const synth = try PolySynth.init(allocator, sr);
                 rack.instrument = .{ .poly_synth = synth };
                 // PatternPlayer holds a pointer into the heap-allocated Rack -
@@ -425,35 +429,30 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                 // for the synth's own transport (tempo-synced LFOs/arp).
                 rack.instrument.poly_synth.attachTransport(&engine.transport);
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
-                if (rs.synth) |ss| {
-                    try applyToSynth(&rack.instrument.poly_synth, &ss);
+                try applyToSynth(&rack.instrument.poly_synth, &ss);
                     // Same clamp the clip loader applies: a zero/negative/
                     // non-finite loop length breaks the piano roll's step
                     // math and the playback wrap.
                     rack.pattern_player.?.length_beats = finiteClamp(f64, ss.pattern.length_beats, 1.0, std.math.floatMax(f64), 4.0);
                     loadNotes(&rack.pattern_player.?, ss.pattern.notes);
                     rack.pattern_player.?.setSwing(ss.pattern.swing);
-                }
             },
-            .sampler => {
+            .sampler => |smp| {
                 const sampler = try Sampler.init(allocator, sr);
                 rack.instrument = .{ .sampler = sampler };
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
-                if (rs.sampler) |smp| {
-                    const s = &rack.instrument.sampler;
+                const s = &rack.instrument.sampler;
                     applyPadSnap(&s.pad, smp.pad);
                     s.root_note = @intCast(@min(smp.root_note, 127));
                     s.mono = smp.mono;
                     rack.pattern_player.?.length_beats = finiteClamp(f64, smp.pattern.length_beats, 1.0, std.math.floatMax(f64), 4.0);
                     loadNotes(&rack.pattern_player.?, smp.pattern.notes);
                     rack.pattern_player.?.setSwing(smp.pattern.swing);
-                }
             },
-            .drum_machine => {
+            .drum_machine => |ds| {
                 const drum_machine = try DrumMachine.init(allocator, sr, &engine.transport);
                 rack.instrument = .{ .drum_machine = drum_machine };
-                if (rs.drum) |ds| {
-                    const dmp = &rack.instrument.drum_machine;
+                const dmp = &rack.instrument.drum_machine;
                     // Regenerate the kit first: its pads are the audio the
                     // file never carried (only user samples reach the
                     // sidecar), and the per-pad snapshot below then layers
@@ -525,13 +524,11 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                         }
                         applyPadSnap(&dmp.pads[pad].?.pad, ps);
                     }
-                }
             },
-            .slicer => {
+            .slicer => |sls| {
                 const slicer = try Slicer.init(allocator, sr, &engine.transport);
                 rack.instrument = .{ .slicer = slicer };
-                if (rs.slicer) |sls| {
-                    const sl = &rack.instrument.slicer;
+                const sl = &rack.instrument.slicer;
                     const count: u8 = @intCast(@min(sls.slices.len, Slicer.max_slices));
                     sl.slice_count = count;
                     for (sls.slices[0..count], sl.slices[0..count]) |ps, *p| {
@@ -573,10 +570,8 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                         sl.setSliceLen(@intCast(i), l);
                     }
                     sl.setSwing(sls.swing);
-                }
             },
-            .clap => {
-                const cs = rs.clap orelse return error.MalformedProject;
+            .clap => |cs| {
                 if (cs.path.len == 0 or cs.plugin_id.len == 0) return error.MalformedProject;
                 const plugin = try rack_mod.ClapPlugin.load(allocator, cs.path, cs.plugin_id, sr);
                 var plugin_owned = true;
@@ -590,8 +585,7 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                 loadNotes(&rack.pattern_player.?, cs.pattern.notes);
                 rack.pattern_player.?.setSwing(cs.pattern.swing);
             },
-            .vst3 => {
-                const vs = rs.vst3 orelse return error.MalformedProject;
+            .vst3 => |vs| {
                 if (vs.path.len == 0 or vs.class_id.len != 32) return error.MalformedProject;
                 const plugin = try rack_mod.Vst3Plugin.load(allocator, vs.path, vs.class_id, sr, true);
                 var plugin_owned = true;
@@ -605,11 +599,10 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                 loadNotes(&rack.pattern_player.?, vs.pattern.notes);
                 rack.pattern_player.?.setSwing(vs.pattern.swing);
             },
-            inline .soundfont, .acoustic => |tag| {
+            inline .soundfont, .acoustic => |sfs, tag| {
                 rack.instrument = @unionInit(rack_mod.Instrument, @tagName(tag), SoundfontPlayer.init(allocator, sr));
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
-                if (rs.soundfont) |sfs| {
-                    const sf = &@field(rack.instrument, @tagName(tag));
+                const sf = &@field(rack.instrument, @tagName(tag));
                     sf.gain = finiteClamp(f32, sfs.gain, 0.0, 2.0, 1.0);
                     sf.pan = finiteClamp(f32, sfs.pan, -1.0, 1.0, 0.0);
                     sf.transpose_semitones = finiteClamp(f32, sfs.transpose_semitones, -24.0, 24.0, 0.0);
@@ -619,7 +612,6 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                     rack.pattern_player.?.length_beats = finiteClamp(f64, sfs.pattern.length_beats, 1.0, std.math.floatMax(f64), 4.0);
                     loadNotes(&rack.pattern_player.?, sfs.pattern.notes);
                     rack.pattern_player.?.setSwing(sfs.pattern.swing);
-                }
             },
         }
 

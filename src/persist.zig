@@ -120,8 +120,7 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
         .racks = &.{
             .{
                 .label = "supersaw",
-                .kind = .poly_synth,
-                .synth = .{
+                .content = .{ .poly_synth = .{
                     .gain = 0.77,
                     .filter_cutoff = 3_000.0,
                     .voice_mode = .mono,
@@ -133,12 +132,11 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
                         .notes = &.{.{ .pitch = 69, .start_beat = 0.0, .duration_beat = 1.0, .velocity = 0.9 }},
                         .length_beats = 8.0,
                     },
-                },
+                } },
             },
             .{
                 .label = "drums",
-                .kind = .drum_machine,
-                .drum = .{ .variants = &.{.{ .step_count = 16, .notes = &drum_notes }} },
+                .content = .{ .drum_machine = .{ .variants = &.{.{ .step_count = 16, .notes = &drum_notes }} } },
             },
         },
     };
@@ -157,7 +155,7 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
     try testing.expectEqualStrings("lead", snap_out.tracks[0].name);
     try testing.expectApproxEqAbs(@as(f32, -2.5), snap_out.tracks[0].gain_db, 1e-4);
 
-    const sr = snap_out.racks[0].synth.?;
+    const sr = snap_out.racks[0].content.poly_synth;
     try testing.expectApproxEqAbs(@as(f32, 0.77), sr.gain, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 3_000.0), sr.filter_cutoff, 1.0);
     try testing.expectEqual(synth_mod.VoiceMode.mono, sr.voice_mode);
@@ -170,7 +168,7 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
     try testing.expectApproxEqAbs(@as(f64, 8.0), sr.pattern.length_beats, 1e-9);
     try testing.expectEqualStrings("supersaw", snap_out.racks[0].label);
 
-    const dr = snap_out.racks[1].drum.?;
+    const dr = snap_out.racks[1].content.drum_machine;
     try testing.expectEqual(@as(u16, 16), dr.variants[0].step_count);
     try testing.expectEqual(@as(usize, 1), dr.variants[0].notes.len);
     try testing.expectEqual(@as(u8, 0), dr.variants[0].notes[0].pad);
@@ -193,8 +191,7 @@ test "buildSession: constructs valid Session from snapshot" {
         .racks = &.{
             .{
                 .label = "supersaw+comp",
-                .kind = .poly_synth,
-                .synth = .{
+                .content = .{ .poly_synth = .{
                     .gain = 0.77,
                     .filter_cutoff = 3_000.0,
                     .voice_mode = .mono,
@@ -202,15 +199,14 @@ test "buildSession: constructs valid Session from snapshot" {
                         .notes = &.{.{ .pitch = 69, .start_beat = 0.0, .duration_beat = 1.0, .velocity = 0.9 }},
                         .length_beats = 8.0,
                     },
-                },
+                } },
             },
             .{
                 .label = "drums",
-                .kind = .drum_machine,
-                .drum = .{
+                .content = .{ .drum_machine = .{
                     .variants = &.{.{ .step_count = 16, .notes = &.{.{ .pad = 0, .step = 5 }} }},
                     .pads = &pads_snap,
-                },
+                } },
             },
         },
     };
@@ -250,9 +246,9 @@ test "buildSession: a loaded session's armed array is as long as its racks" {
         .sample_rate = 48_000,
         .tracks = &.{ .{ .name = "lead" }, .{ .name = "bass" }, .{ .name = "drums" } },
         .racks = &.{
-            .{ .label = "lead", .kind = .empty },
-            .{ .label = "bass", .kind = .empty },
-            .{ .label = "drums", .kind = .empty },
+            .{ .label = "lead", .content = .empty },
+            .{ .label = "bass", .content = .empty },
+            .{ .label = "drums", .content = .empty },
         },
     };
 
@@ -285,7 +281,7 @@ test "buildSession: v10 fx_chain keeps user order, duplicates, and bypass" {
     const snap: Snapshot = .{
         .sample_rate = 48_000,
         .tracks = &.{.{ .name = "lead" }},
-        .racks = &.{.{ .label = "lead", .kind = .empty }},
+        .racks = &.{.{ .label = "lead", .content = .empty }},
         .master_fx_chain = &.{
             .{ .kind = .reverb, .reverb = .{ .mix = 0.6, .room = 0.9, .damp = 0.1 } },
             .{ .kind = .sat, .sat = .{ .drive_db = 6.0, .out_db = 0.0, .mix = 1.0 } },
@@ -317,7 +313,7 @@ test "buildSession: a compressor's sidechain_source loads, clamps, and reaches t
         .sample_rate = 48_000,
         .tracks = &.{.{ .name = "bass" }},
         .racks = &.{.{
-            .label = "bass", .kind = .empty,
+            .label = "bass", .content = .empty,
             .fx_chain = &.{
                 .{ .kind = .comp, .comp = .{ .sidechain_source = 3 } },
             },
@@ -333,7 +329,7 @@ test "buildSession: a compressor's sidechain_source loads, clamps, and reaches t
         .sample_rate = 48_000,
         .tracks = &.{.{ .name = "bass" }},
         .racks = &.{.{
-            .label = "bass", .kind = .empty,
+            .label = "bass", .content = .empty,
             .fx_chain = &.{
                 .{ .kind = .comp, .comp = .{ .sidechain_source = 65_000 } },
             },
@@ -350,7 +346,7 @@ test "buildSession: a compressor's sidechain_pad loads, clamps, and combines wit
         .sample_rate = 48_000,
         .tracks = &.{.{ .name = "bass" }},
         .racks = &.{.{
-            .label = "bass", .kind = .empty,
+            .label = "bass", .content = .empty,
             .fx_chain = &.{
                 .{ .kind = .comp, .comp = .{ .sidechain_source = 3, .sidechain_pad = 200 } },
             },
@@ -444,7 +440,7 @@ test "an old .wsj with no sidechain_is_group/sends fields loads with unchanged p
         .tracks = &.{.{ .name = "bass" }},
         .racks = &.{.{
             .label = "bass",
-            .kind = .empty,
+            .content = .empty,
             .fx_chain = &.{
                 .{ .kind = .comp, .comp = .{ .sidechain_source = 3 } },
             },
@@ -548,7 +544,7 @@ test "load clamps a hand-edited tuning offset instead of rendering silence" {
     const testing = std.testing;
     var snap = persist_types.Snapshot{
         .tracks = &.{.{ .name = "lead" }},
-        .racks = &.{.{ .label = "lead", .kind = .poly_synth }},
+        .racks = &.{.{ .label = "lead", .content = .{ .poly_synth = .{} } }},
     };
     snap.tuning.cents[3] = std.math.nan(f32);
     snap.tuning.cents[4] = 1e9;
@@ -987,8 +983,8 @@ test "buildSession: arrangement clips and song_mode round-trip" {
     const snap: Snapshot = .{
         .tracks = &.{ .{ .name = "keys" }, .{ .name = "drums" } },
         .racks = &.{
-            .{ .label = "synth", .kind = .poly_synth, .synth = .{} },
-            .{ .label = "drums", .kind = .drum_machine, .drum = .{ .variants = &.{.{ .step_count = 16, .notes = &drum_notes }} } },
+            .{ .label = "synth", .content = .{ .poly_synth = .{} } },
+            .{ .label = "drums", .content = .{ .drum_machine = .{ .variants = &.{.{ .step_count = 16, .notes = &drum_notes }} } } },
         },
         .song_mode = true,
         .sections = &.{.{ .tick = 128, .name = "verse" }},
@@ -1133,7 +1129,7 @@ test "load sanitizes non-finite project, automation, pad, and note fields" {
     const snap: Snapshot = .{
         .tempo_bpm = nan64,
         .tracks = &.{.{ .name = "bad", .gain_db = nan32, .pan = nan32 }},
-        .racks = &.{.{ .label = "empty", .kind = .empty }},
+        .racks = &.{.{ .label = "empty", .content = .empty }},
         .groups = &.{.{ .active = true, .name = "bad", .gain_db = nan32 }},
     };
     var session = try buildSession(testing.allocator, &snap);
@@ -1226,7 +1222,7 @@ test "buildSession: filter cutoff automation clamps an out-of-range hand-edited 
     const testing = std.testing;
     const snap: Snapshot = .{
         .tracks = &.{.{ .name = "keys" }},
-        .racks = &.{.{ .label = "synth", .kind = .poly_synth, .synth = .{} }},
+        .racks = &.{.{ .label = "synth", .content = .{ .poly_synth = .{} } }},
         .arrangement = &.{
             .{ .clips = &.{
                 .{
@@ -1260,8 +1256,7 @@ test "buildSession: drum variant bank round-trips; v2 files get one variant" {
         .tracks = &.{.{ .name = "drums" }},
         .racks = &.{.{
             .label = "drums",
-            .kind = .drum_machine,
-            .drum = .{ .variants = &variants, .variant = 1 },
+            .content = .{ .drum_machine = .{ .variants = &variants, .variant = 1 } },
         }},
     };
     // zig fmt: on
@@ -1282,7 +1277,7 @@ test "buildSession: drum variant bank round-trips; v2 files get one variant" {
     // A bank-less drum snap is not a shape this build can write.
     try testing.expectError(error.MalformedProject, buildSession(testing.allocator, &.{
         .tracks = &.{.{ .name = "drums" }},
-        .racks = &.{.{ .label = "drums", .kind = .drum_machine, .drum = .{} }},
+        .racks = &.{.{ .label = "drums", .content = .{ .drum_machine = .{} } }},
     }));
 }
 
@@ -1290,7 +1285,7 @@ fn buildVariantBanksForAllocationTest(allocator: std.mem.Allocator) !void {
     const variants = [_]VariantSnap{ .{}, .{ .step_count = 32 }, .{ .step_count = 64 } };
     const snap: Snapshot = .{
         .tracks = &.{.{ .name = "drums" }},
-        .racks = &.{.{ .label = "drums", .kind = .drum_machine, .drum = .{ .variants = &variants } }},
+        .racks = &.{.{ .label = "drums", .content = .{ .drum_machine = .{ .variants = &variants } } }},
     };
     var session = try buildSession(allocator, &snap);
     session.deinit();
@@ -1305,7 +1300,7 @@ test "buildSession: time signature lands in project and transport" {
     const snap: Snapshot = .{
         .beats_per_bar = 3,
         .tracks = &.{.{ .name = "t" }},
-        .racks = &.{.{ .label = "t", .kind = .empty }},
+        .racks = &.{.{ .label = "t", .content = .empty }},
     };
     var session = try buildSession(testing.allocator, &snap);
     defer session.deinit();
@@ -1323,8 +1318,7 @@ test "buildSession: a 64-step pattern round-trips bit 63 without truncation" {
         .tracks = &.{.{ .name = "drums" }},
         .racks = &.{.{
             .label = "drums",
-            .kind = .drum_machine,
-            .drum = .{ .variants = &variants, .variant = 0 },
+            .content = .{ .drum_machine = .{ .variants = &variants, .variant = 0 } },
         }},
     };
     var session = try buildSession(testing.allocator, &snap);
@@ -1352,8 +1346,8 @@ test "buildSession: groups round-trip name, FX chain, and track membership" {
             .{ .name = "lead" }, // ungrouped
         },
         .racks = &.{
-            .{ .label = "kick", .kind = .empty },
-            .{ .label = "lead", .kind = .empty },
+            .{ .label = "kick", .content = .empty },
+            .{ .label = "lead", .content = .empty },
         },
         .groups = &groups,
     };
@@ -1388,7 +1382,7 @@ test "buildSession: a track referencing a slot the file never marked active load
     const testing = std.testing;
     const snap: Snapshot = .{
         .tracks = &.{.{ .name = "t", .group = 5 }}, // groups is empty - slot 5 was never active
-        .racks = &.{.{ .label = "t", .kind = .empty }},
+        .racks = &.{.{ .label = "t", .content = .empty }},
     };
     var session = try buildSession(testing.allocator, &snap);
     defer session.deinit();
@@ -1405,8 +1399,7 @@ test "choke groups round-trip through DrumSnap" {
         .tracks = &.{.{ .name = "drums" }},
         .racks = &.{.{
             .label = "drums",
-            .kind = .drum_machine,
-            .drum = .{ .variants = &.{.{}}, .choke_group = &groups },
+            .content = .{ .drum_machine = .{ .variants = &.{.{}}, .choke_group = &groups } },
         }},
     };
     var session = try buildSession(testing.allocator, &snap);
@@ -1444,13 +1437,13 @@ test "buildSession: rejects malformed and future files" {
     try testing.expectError(error.UnsupportedVersion, buildSession(testing.allocator, &.{
         .version = file_version + 1,
         .tracks = &.{.{ .name = "a" }},
-        .racks = &.{.{ .label = "e", .kind = .empty }},
+        .racks = &.{.{ .label = "e", .content = .empty }},
     }));
 
     // Track/rack count mismatch.
     try testing.expectError(error.MalformedProject, buildSession(testing.allocator, &.{
         .tracks = &.{ .{ .name = "a" }, .{ .name = "b" } },
-        .racks = &.{.{ .label = "e", .kind = .empty }},
+        .racks = &.{.{ .label = "e", .content = .empty }},
     }));
 
     // Matched but empty: breaks the at-least-one-track invariant every
@@ -1479,23 +1472,23 @@ test "buildSession: rejects malformed and future files" {
     try testing.expectError(error.InvalidSampleRate, buildSession(testing.allocator, &.{
         .sample_rate = 0,
         .tracks = &.{.{ .name = "a" }},
-        .racks = &.{.{ .label = "e", .kind = .empty }},
+        .racks = &.{.{ .label = "e", .content = .empty }},
     }));
 
     // Clip spans must be non-empty and fit the u32 bar timeline.
     try testing.expectError(error.MalformedProject, buildSession(testing.allocator, &.{
         .tracks = &.{.{ .name = "a" }},
-        .racks = &.{.{ .label = "e", .kind = .empty }},
+        .racks = &.{.{ .label = "e", .content = .empty }},
         .arrangement = &.{.{ .clips = &.{.{ .start_tick = 1, .length_ticks = 0 }} }},
     }));
     try testing.expectError(error.MalformedProject, buildSession(testing.allocator, &.{
         .tracks = &.{.{ .name = "a" }},
-        .racks = &.{.{ .label = "e", .kind = .empty }},
+        .racks = &.{.{ .label = "e", .content = .empty }},
         .arrangement = &.{.{ .clips = &.{.{ .start_tick = std.math.maxInt(u32), .length_ticks = 1 }} }},
     }));
     try testing.expectError(error.MalformedProject, buildSession(testing.allocator, &.{
         .tracks = &.{.{ .name = "a" }},
-        .racks = &.{.{ .label = "e", .kind = .empty }},
+        .racks = &.{.{ .label = "e", .content = .empty }},
         .arrangement = &.{.{ .clips = &.{.{
             .start_tick = std.math.maxInt(u32) - 1,
             .length_ticks = 2,
@@ -1601,14 +1594,15 @@ test "buildSession: clamps out-of-range pad and note values" {
         .tracks = &.{.{ .name = "drums" }},
         .racks = &.{.{
             .label = "drums",
-            .kind = .drum_machine,
-            .drum = .{
-                .variants = &.{.{}},
-                .pads = blk: {
-                    var ps = [_]PadSnap{.{}} ** DrumMachine.max_pads;
-                    // end < start and both far out of range.
-                    ps[0] = .{ .used = true, .start_norm = 7.0, .end_norm = -3.0, .gain = 99.0 };
-                    break :blk &ps;
+            .content = .{
+                .drum_machine = .{
+                    .variants = &.{.{}},
+                    .pads = blk: {
+                        var ps = [_]PadSnap{.{}} ** DrumMachine.max_pads;
+                        // end < start and both far out of range.
+                        ps[0] = .{ .used = true, .start_norm = 7.0, .end_norm = -3.0, .gain = 99.0 };
+                        break :blk &ps;
+                    },
                 },
             },
         }},
@@ -1631,8 +1625,8 @@ test "buildSession: clamps a zero or negative pattern loop length" {
     const snap: Snapshot = .{
         .tracks = &.{ .{ .name = "lead" }, .{ .name = "keys" } },
         .racks = &.{
-            .{ .label = "synth", .kind = .poly_synth, .synth = .{ .pattern = .{ .length_beats = 0.0 } } },
-            .{ .label = "sampler", .kind = .sampler, .sampler = .{ .pattern = .{ .length_beats = -8.0 } } },
+            .{ .label = "synth", .content = .{ .poly_synth = .{ .pattern = .{ .length_beats = 0.0 } } } },
+            .{ .label = "sampler", .content = .{ .sampler = .{ .pattern = .{ .length_beats = -8.0 } } } },
         },
     };
 
@@ -1654,7 +1648,7 @@ test "buildSession: track color round-trips and clamps out-of-range values" {
             .{ .name = "lead", .color = 3 },
             .{ .name = "bass", .color = 255 }, // hand-edited, past the palette
         },
-        .racks = &.{ .{ .label = "empty", .kind = .empty }, .{ .label = "empty", .kind = .empty } },
+        .racks = &.{ .{ .label = "empty", .content = .empty }, .{ .label = "empty", .content = .empty } },
     };
 
     var session = try buildSession(testing.allocator, &snap);
@@ -1670,11 +1664,10 @@ test "buildSession: empty and sampler racks round-trip" {
     const snap: Snapshot = .{
         .tracks = &.{ .{ .name = "blank" }, .{ .name = "keys" } },
         .racks = &.{
-            .{ .label = "empty", .kind = .empty },
+            .{ .label = "empty", .content = .empty },
             .{
                 .label = "sampler",
-                .kind = .sampler,
-                .sampler = .{
+                .content = .{ .sampler = .{
                     .pad = .{ .pitch_semitones = 3.0, .gain = 0.8, .reverse = true },
                     .root_note = 48,
                     .mono = true,
@@ -1683,7 +1676,7 @@ test "buildSession: empty and sampler racks round-trip" {
                         .length_beats = 2.0,
                         .swing = 68.0,
                     },
-                },
+                } },
             },
         },
     };
@@ -1716,8 +1709,7 @@ test "buildSession clamps malformed synth params from a hand-edited file" {
         .racks = &.{
             .{
                 .label = "synth",
-                .kind = .poly_synth,
-                .synth = .{
+                .content = .{ .poly_synth = .{
                     .unison = 255,
                     .osc_b_unison = 0,
                     .gain = 999.0,
@@ -1729,7 +1721,7 @@ test "buildSession clamps malformed synth params from a hand-edited file" {
                     .osc_b_warp_amount = 50.0,
                     .lfo_rate_hz = 0.0,
                     .pattern = .{ .swing = 999.0 },
-                },
+                } },
             },
         },
     };
@@ -2080,7 +2072,7 @@ test "buildSession: A/B loop region lands in project and transport" {
         .loop_start_bar = 2,
         .loop_end_bar = 4,
         .tracks = &.{.{ .name = "t" }},
-        .racks = &.{.{ .label = "t", .kind = .empty }},
+        .racks = &.{.{ .label = "t", .content = .empty }},
     };
     var session = try buildSession(testing.allocator, &snap);
     defer session.deinit();
@@ -2097,7 +2089,7 @@ test "buildSession: A/B loop region lands in project and transport" {
         .loop_start_bar = 4,
         .loop_end_bar = 2,
         .tracks = &.{.{ .name = "t" }},
-        .racks = &.{.{ .label = "t", .kind = .empty }},
+        .racks = &.{.{ .label = "t", .content = .empty }},
     });
     defer bad.deinit();
     try testing.expect(!bad.engine.transport.loop_enabled);
@@ -2399,13 +2391,13 @@ test "a loaded project renders sample-identical to the session that saved it" {
 test "strict snapshot parsing rejects unknown kinds and fields" {
     const testing = std.testing;
     const unknown_kind = std.fmt.comptimePrint(
-        \\{{"version":{d},"racks":[{{"kind":"granular_resynth"}}]}}
+        \\{{"version":{d},"racks":[{{"content":{{"granular_resynth":{{}}}}}}]}}
     , .{file_version});
     const unknown_field = std.fmt.comptimePrint(
         \\{{"version":{d},"future_feature":true}}
     , .{file_version});
 
-    try testing.expectError(error.InvalidEnumTag, std.json.parseFromSlice(Snapshot, testing.allocator, unknown_kind, .{}));
+    try testing.expectError(error.UnknownField, std.json.parseFromSlice(Snapshot, testing.allocator, unknown_kind, .{}));
     try testing.expectError(error.UnknownField, std.json.parseFromSlice(Snapshot, testing.allocator, unknown_field, .{}));
 }
 

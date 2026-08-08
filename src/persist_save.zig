@@ -275,23 +275,23 @@ pub fn midiToNoteSnaps(aa: std.mem.Allocator, midi: *const [DrumMachine.max_pads
 }
 
 pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
-    var rs: RackSnap = .{ .label = rack.label, .kind = undefined };
+    var rs: RackSnap = .{ .label = rack.label, .content = undefined };
 
     // zig fmt: off
     switch (rack.instrument) {
         .empty => {
-            rs.kind = .empty;
+            rs.content = .empty;
         },
         .poly_synth => |*s| {
-            rs.kind = .poly_synth;
+            
             var ss = synthToSnap(s);
             if (rack.pattern_player) |*pp| {
                 ss.pattern = .{ .length_beats = pp.length_beats, .notes = try notesToSnap(aa, pp), .swing = pp.swing.load(.monotonic) };
             }
-            rs.synth = ss;
+            rs.content = .{ .poly_synth = ss };
         },
         .sampler => |*s| {
-            rs.kind = .sampler;
+            
             var smp: SamplerSnap = .{
                 .pad = .{
                     .gain = s.pad.gain, .pan = s.pad.pan, .pitch_semitones = s.pad.pitch_semitones,
@@ -312,10 +312,10 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
             if (rack.pattern_player) |*pp| {
                 smp.pattern = .{ .length_beats = pp.length_beats, .notes = try notesToSnap(aa, pp), .swing = pp.swing.load(.monotonic) };
             }
-            rs.sampler = smp;
+            rs.content = .{ .sampler = smp };
         },
         .drum_machine => |*dm| {
-            rs.kind = .drum_machine;
+            
             var ds: DrumSnap = .{
                 .variant = dm.variant,
                 .swing = dm.swing.load(.monotonic),
@@ -369,10 +369,10 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
                 }
             }
             ds.pads = pads;
-            rs.drum = ds;
+            rs.content = .{ .drum_machine = ds };
         },
         .slicer => |*sl| {
-            rs.kind = .slicer;
+            
             var sls: SlicerSnap = .{
                 .swing = sl.swing.load(.monotonic),
                 // Always saved - see the drum pad loop's identical comment
@@ -421,26 +421,23 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
             @memcpy(slice_len, &sl.slice_len);
             sls.slice_len = slice_len;
 
-            rs.slicer = sls;
+            rs.content = .{ .slicer = sls };
         },
         .clap => |plugin| {
-            rs.kind = .clap;
             var cs = try clapToSnap(aa, plugin);
             if (rack.pattern_player) |*pp| {
                 cs.pattern = .{ .length_beats = pp.length_beats, .notes = try notesToSnap(aa, pp), .swing = pp.swing.load(.monotonic) };
             }
-            rs.clap = cs;
+            rs.content = .{ .clap = cs };
         },
         .vst3 => |plugin| {
-            rs.kind = .vst3;
             var vs = try vst3ToSnap(aa, plugin);
             if (rack.pattern_player) |*pp| {
                 vs.pattern = .{ .length_beats = pp.length_beats, .notes = try notesToSnap(aa, pp), .swing = pp.swing.load(.monotonic) };
             }
-            rs.vst3 = vs;
+            rs.content = .{ .vst3 = vs };
         },
         inline .soundfont, .acoustic => |*sf, tag| {
-            rs.kind = if (tag == .acoustic) .acoustic else .soundfont;
             var sfs: SoundfontSnap = .{
                 .preset_index = sf.preset_index,
                 .gain = sf.gain,
@@ -451,7 +448,7 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
             if (rack.pattern_player) |*pp| {
                 sfs.pattern = .{ .length_beats = pp.length_beats, .notes = try notesToSnap(aa, pp), .swing = pp.swing.load(.monotonic) };
             }
-            rs.soundfont = sfs;
+            rs.content = if (tag == .acoustic) .{ .acoustic = sfs } else .{ .soundfont = sfs };
         },
     }
 
@@ -612,7 +609,7 @@ pub fn exportSamples(
                 const base = try std.fmt.allocPrint(aa, "t{d}p{d}.wav", .{ ti, pi });
                 const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
                 try writeSampleWav(aa, io, path, rel, &dir_ready, sr, p.samples);
-                rs.drum.?.pads[pi].sample_file = rel;
+                rs.content.drum_machine.pads[pi].sample_file = rel;
                 try written.put(aa, base, {});
                 // .name already set by rackToSnap (unconditionally, for every pad).
             },
@@ -620,7 +617,7 @@ pub fn exportSamples(
                 const base = try std.fmt.allocPrint(aa, "t{d}clip.wav", .{ti});
                 const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
                 try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.pad.samples);
-                rs.sampler.?.pad.sample_file = rel;
+                rs.content.sampler.pad.sample_file = rel;
                 try written.put(aa, base, {});
                 // .name already set by rackToSnap (unconditionally).
             },
@@ -628,7 +625,7 @@ pub fn exportSamples(
                 const base = try std.fmt.allocPrint(aa, "t{d}clip.wav", .{ti});
                 const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
                 try writeSampleWav(aa, io, path, rel, &dir_ready, sr, sl.samples);
-                rs.slicer.?.sample_file = rel;
+                rs.content.slicer.sample_file = rel;
                 try written.put(aa, base, {});
                 // .name already set by rackToSnap (unconditionally).
             },
@@ -638,21 +635,21 @@ pub fn exportSamples(
                     const base = try std.fmt.allocPrint(aa, "t{d}oscA.wav", .{ti});
                     const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
                     try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.wt.frames[0 .. s.wt.frame_count * wavetable_mod.frame_len]);
-                    rs.synth.?.wt_file = rel;
+                    rs.content.poly_synth.wt_file = rel;
                     try written.put(aa, base, {});
                 }
                 if (s.osc_b_wt_user) {
                     const base = try std.fmt.allocPrint(aa, "t{d}oscB.wav", .{ti});
                     const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
                     try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.osc_b_wt.frames[0 .. s.osc_b_wt.frame_count * wavetable_mod.frame_len]);
-                    rs.synth.?.osc_b_wt_file = rel;
+                    rs.content.poly_synth.osc_b_wt_file = rel;
                     try written.put(aa, base, {});
                 }
                 if (s.osc_c_wt_user) {
                     const base = try std.fmt.allocPrint(aa, "t{d}oscC.wav", .{ti});
                     const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
                     try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.osc_c_wt.frames[0 .. s.osc_c_wt.frame_count * wavetable_mod.frame_len]);
-                    rs.synth.?.osc_c_wt_file = rel;
+                    rs.content.poly_synth.osc_c_wt_file = rel;
                     try written.put(aa, base, {});
                 }
                 // zig fmt: on
@@ -661,7 +658,7 @@ pub fn exportSamples(
                 const base = try std.fmt.allocPrint(aa, "t{d}.sf2", .{ti});
                 const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
                 try writeSampleBytes(aa, io, path, rel, &dir_ready, sf.source_bytes);
-                rs.soundfont.?.sf2_file = rel;
+                rs.content.soundfont.sf2_file = rel;
                 try written.put(aa, base, {});
             },
             else => {},
