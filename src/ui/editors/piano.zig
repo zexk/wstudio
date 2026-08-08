@@ -174,6 +174,15 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'O' => { cycleChordQuality(app, -1); return true; },
             'r' => { cycleChordVoicing(app, 1); return true; },
             'R' => { cycleChordVoicing(app, -1); return true; },
+            '2' => { stampChordAs(app, .sus2); return true; },
+            '3' => { stampChordAs(app, .triad); return true; },
+            '4' => { stampChordAs(app, .sus4); return true; },
+            '6' => { stampChordAs(app, .sixth); return true; },
+            '7' => { stampChordAs(app, .seventh); return true; },
+            '9' => { stampChordAs(app, .ninth); return true; },
+            'a' => { stampChordAs(app, .add9); return true; },
+            'd' => { stampChordAs(app, .dim); return true; },
+            '+' => { stampChordAs(app, .aug); return true; },
             else => {},
         },
         else => {},
@@ -663,6 +672,12 @@ fn stampChord(app: *App, quality: theory.ChordQuality, cleanup_previous: bool) v
 fn cycleChordQuality(app: *App, delta: i32) void {
     app.piano_chord_quality = app.piano_chord_quality.cycle(delta);
     stampChord(app, app.piano_chord_quality, true);
+}
+
+fn stampChordAs(app: *App, quality: theory.ChordQuality) void {
+    app.piano_chord_quality = quality;
+    app.modal.count = app.pending_prefix_count;
+    stampChord(app, quality, true);
 }
 
 /// `cr`/`cR`: cycle `app.piano_chord_voicing` (closed/drop2/open) and

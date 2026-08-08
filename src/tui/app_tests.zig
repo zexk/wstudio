@@ -1476,6 +1476,26 @@ test "piano roll chord quality cycle: co/cO re-stamp in place without orphans" {
     try std.testing.expectEqual(@as(u16, 4), pp.note_count);
 }
 
+test "piano roll chord shortcuts stamp requested quality and seed cycle" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    app.piano_cursor_pitch = 60;
+
+    for ("c7") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expect(pp.noteAt(71, 0.0) != null);
+    for ("cO") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expect(pp.noteAt(71, 0.0) == null);
+    try std.testing.expect(pp.noteAt(69, 0.0) != null);
+
+    for ("cd") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expect(pp.noteAt(63, 0.0) != null);
+    try std.testing.expect(pp.noteAt(66, 0.0) != null);
+    try std.testing.expect(pp.noteAt(69, 0.0) == null);
+}
+
 test "piano roll chord voicing cycle: cr/cR spread the same chord in place" {
     var app = try testApp();
     defer app.deinit();

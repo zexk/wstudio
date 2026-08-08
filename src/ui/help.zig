@@ -370,6 +370,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("[count]p",     "after a range yank: paste count copies back-to-back (3p tiles a bar three times)");
     t.key(".",            "repeat the last nudge, drag, or visual range delete/paste");
     t.key("cc",            "stamp a chord at cursor (:scale-aware; count inverts, 2cc = 2nd inversion)");
+    t.key("c2 c3 c4 c6 c7 c9", "stamp sus2, triad, sus4, 6th, 7th, or 9th directly (count inverts)");
+    t.key("ca cd c+",       "stamp add9, diminished, or augmented directly");
     t.key("C",             "stamp a 7th chord at cursor (also seeds the co/cO quality cycle)");
     t.key("co / cO",       "cycle chord quality (triad, 6th, 7th, 9th, 11th, 13th, sus2, sus4, add9, dim, aug), re-stamped in place");
     t.key("cr / cR",       "cycle chord voicing (closed, drop2, open), re-stamped in place");
