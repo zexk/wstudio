@@ -405,6 +405,8 @@ pub const Engine = struct {
     /// Commands are realtime messages and cannot block their producer. Count
     /// queue saturation so the UI can report it instead of failing silently.
     dropped_commands: std.atomic.Value(u32) = .init(0),
+    /// Largest primary-route latency beyond PDC storage seen since UI poll.
+    excessive_latency_frames: std.atomic.Value(u32) = .init(0),
     master_gain: f32 = 1.0,
     /// Always-on master-bus limiter: catches hot mixes before the WAV
     /// writer's ±1 clamp (and the DAC) turns them into hard-clip distortion.
@@ -828,28 +830,39 @@ pub const Engine = struct {
         if (delay.samples.cmpxchgStrong(null, samples, .release, .acquire) != null) std.heap.page_allocator.destroy(samples);
     }
 
-    fn chainLatency(chain: []const dsp.Device) u32 {
+    fn chainLatencyRaw(chain: []const dsp.Device) u32 {
         var total: u32 = 0;
         for (chain) |device| total +|= device.latencyFrames();
-        return @min(total, max_pdc_frames);
+        return total;
     }
 
     fn primaryRouteLatency(self: *const Engine, track: *const TrackState) u32 {
-        var total = chainLatency(track.chain.slice());
+        var total = chainLatencyRaw(track.chain.slice());
         if (track.group) |group| {
-            if (group < max_groups and self.groups[group].active) total +|= chainLatency(self.groups[group].chain.slice());
+            if (group < max_groups and self.groups[group].active) total +|= chainLatencyRaw(self.groups[group].chain.slice());
         }
         return @min(total, max_pdc_frames);
     }
 
-    fn maxPrimaryRouteLatency(self: *const Engine) u32 {
+    fn maxPrimaryRouteLatency(self: *Engine) u32 {
         var maximum: u32 = 0;
         const count = self.track_count.load(.acquire);
         for (self.tracks[0..count]) |*slot| {
             const track = slot.load(.acquire);
-            if (track.active) maximum = @max(maximum, self.primaryRouteLatency(track));
+            if (!track.active) continue;
+            var raw = chainLatencyRaw(track.chain.slice());
+            if (track.group) |group| {
+                if (group < max_groups and self.groups[group].active) raw +|= chainLatencyRaw(self.groups[group].chain.slice());
+            }
+            const compensated: u32 = @min(raw, max_pdc_frames);
+            maximum = @max(maximum, compensated);
+            if (raw > max_pdc_frames) _ = self.excessive_latency_frames.fetchMax(raw - @as(u32, max_pdc_frames), .monotonic);
         }
         return maximum;
+    }
+
+    pub fn takeExcessiveLatencyFrames(self: *Engine) u32 {
+        return self.excessive_latency_frames.swap(0, .acq_rel);
     }
 
     /// Replaces `dst` wholesale with `sources`, null-padding past its
@@ -1890,6 +1903,19 @@ test "plugin delay compensation aligns track impulses" {
     try std.testing.expectEqual(@as(Sample, 0), output[0]);
     try std.testing.expectEqual(@as(Sample, 0), output[2]);
     try std.testing.expect(output[4] > 0.3);
+}
+
+test "plugin latency beyond PDC storage is surfaced" {
+    var latent = LatentImpulse{ .latency = max_pdc_frames + 37 };
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.trackAt(0).* = .{ .active = true };
+    engine.setTrackChain(0, &.{latent.device()});
+
+    var output: [8]Sample = undefined;
+    engine.process(&output);
+    try std.testing.expectEqual(@as(u32, 37), engine.takeExcessiveLatencyFrames());
+    try std.testing.expectEqual(@as(u32, 0), engine.takeExcessiveLatencyFrames());
 }
 
 test "realtime render parks and clears output during offline bounce" {

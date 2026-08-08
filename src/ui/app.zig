@@ -3726,6 +3726,8 @@ pub const App = struct {
         if (dropped_commands != 0) {
             self.setStatus("audio command queue full: {d} command{s} dropped", .{ dropped_commands, if (dropped_commands == 1) "" else "s" });
         }
+        const excessive_latency = self.session.engine.takeExcessiveLatencyFrames();
+        if (excessive_latency != 0) self.setStatus("PDC limit exceeded by {d} frames", .{excessive_latency});
         // `setStatus` can't stamp an absolute deadline (see `status_pending`'s
         // doc comment); do it here, on the first tick after it fired.
         if (self.status_pending) {
