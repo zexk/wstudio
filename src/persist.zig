@@ -312,34 +312,6 @@ test "buildSession: v10 fx_chain keeps user order, duplicates, and bypass" {
     try testing.expectEqual(@as(usize, 4), session.engine.master_chain.slice().len);
 }
 
-test "a migrated synth insert lands in the rack chain once, not once per load" {
-    const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
-
-    // Pre-chain file: the distortion lives on the synth patch, not in fx_chain.
-    const snap: Snapshot = .{
-        .sample_rate = 48_000,
-        .tracks = &.{.{ .name = "lead" }},
-        .racks = &.{.{ .label = "lead", .kind = .poly_synth, .synth = .{ .fx_dist_on = true } }},
-    };
-    var session = try buildSession(testing.allocator, &snap);
-    defer session.deinit();
-    try testing.expectEqual(@as(usize, 1), session.racks.items[0].fx.units.items.len);
-    try testing.expect(!session.racks.items[0].instrument.poly_synth.fx_dist_on);
-
-    // The flag is cleared, so writing this session back out and loading it
-    // again migrates nothing on top of the chain that already holds the unit.
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
-    defer loaded.deinit();
-    const units = loaded.racks.items[0].fx.units.items;
-    try testing.expectEqual(@as(usize, 1), units.len);
-    try testing.expectEqual(rack_mod.FxKind.sat, units[0].kind());
-}
-
 // zig fmt: off
 test "buildSession: a compressor's sidechain_source loads, clamps, and reaches the engine's routing" {
     const testing = std.testing;
@@ -1782,7 +1754,6 @@ test "buildSession clamps malformed synth params from a hand-edited file" {
                     .osc_b_warp_amount = 50.0,
                     .lfo_rate_hz = 0.0,
                     .swing = 999.0,
-                    .fx_tape_wow_rate_hz = 999.0,
                 },
             },
         },
@@ -1802,7 +1773,6 @@ test "buildSession clamps malformed synth params from a hand-edited file" {
     try testing.expectEqual(@as(f32, 0.0), s.warp_amount);
     try testing.expectEqual(@as(f32, 1.0), s.osc_b_warp_amount);
     try testing.expect(s.lfo_rate_hz >= 0.01);
-    try testing.expect(s.fx_tape_wow_rate_hz <= 3.0);
 
     const pp = &session.racks.items[0].pattern_player.?;
     try testing.expectApproxEqAbs(PatternPlayer.swing_max, pp.swing.load(.monotonic), 1e-6);
@@ -2250,42 +2220,6 @@ test "save/load round-trip persists a custom LFO shape's points" {
     // the null/no-points fallback - see the golden-file test below).
     try testing.expectEqual(@as(u8, 2), ls.lfo_custom_count[1]);
     try testing.expectApproxEqAbs(@as(f32, 0.0), ls.lfo_custom[1][0].value, 1e-6);
-}
-
-test "save/load migrates synth tape FX into rack chain" {
-    const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/synth_tape.wsj", .{&tmp.sub_path});
-
-    var session = try Session.initDefault(testing.allocator);
-    defer session.deinit();
-    session.racks.items[0].instrument = .{ .poly_synth = try PolySynth.init(testing.allocator, session.project.sample_rate) };
-    const s = &session.racks.items[0].instrument.poly_synth;
-    // zig fmt: off
-    s.fx_tape_on = true;
-    s.fx_tape_wow_rate_hz = 1.1;      s.fx_tape_wow_depth = 0.7;
-    s.fx_tape_flutter_rate_hz = 10.0; s.fx_tape_flutter_depth = 0.5;
-    s.fx_tape_mix = 0.65;
-    // zig fmt: on
-    _ = try session.racks.items[0].fx.insert(testing.allocator, 0, .comp, session.project.sample_rate);
-
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
-    defer loaded.deinit();
-
-    const lr = loaded.racks.items[0];
-    try testing.expect(!lr.instrument.poly_synth.fx_tape_on);
-    try testing.expectEqual(@as(usize, 2), lr.fx.units.items.len);
-    try testing.expectEqual(rack_mod.FxKind.tape, lr.fx.units.items[0].kind());
-    try testing.expectEqual(rack_mod.FxKind.comp, lr.fx.units.items[1].kind());
-    const tape = &lr.fx.units.items[0].payload.tape;
-    try testing.expectApproxEqAbs(@as(f32, 1.1), tape.wow_rate_hz, 1e-6);
-    try testing.expectApproxEqAbs(@as(f32, 0.7), tape.wow_depth, 1e-6);
-    try testing.expectApproxEqAbs(@as(f32, 10.0), tape.flutter_rate_hz, 1e-6);
-    try testing.expectApproxEqAbs(@as(f32, 0.5), tape.flutter_depth, 1e-6);
-    try testing.expectApproxEqAbs(@as(f32, 0.65), tape.mix, 1e-6);
 }
 
 test "a synth preset replaces the whole FX chain and rebinds its mod rows" {

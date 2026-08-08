@@ -631,15 +631,6 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
         }
 
         try applyFxChain(allocator, &rack.fx, rs.fx_chain, sr, &engine.transport);
-        // Clearing the migrated flags is what keeps this idempotent: they are
-        // saved verbatim by synthToSnap, so a chain that migrated on one load
-        // and got written back out would migrate a *second* copy of every unit
-        // on the next load, growing the chain by one per save/load cycle.
-        // `applySynthPatch` clears for the same reason.
-        if (rack.instrument == .poly_synth) {
-            try migrateSynthFx(allocator, &rack.instrument.poly_synth, &rack.fx, sr);
-            clearMigratedSynthFx(&rack.instrument.poly_synth);
-        }
         try racks.append(allocator, rack);
     }
     // zig fmt: on
@@ -954,19 +945,6 @@ pub fn loadNotes(pp: *PatternPlayer, notes: []const NoteSnap) void {
     }
 }
 
-/// `fx_order` needs more than a per-field enum check: `std.json` guarantees
-/// every entry is a *legal* `FxUnitKind`, but not that all kinds are
-/// present exactly once (a hand-edited file could duplicate one kind and
-/// drop another, silently dropping the missing unit from processing).
-/// `order.len == FxUnitKind`'s variant count, so "every kind appears at
-/// least once" already implies no duplicates (pigeonhole).
-pub fn isValidFxOrder(order: [14]synth_mod.FxUnitKind) bool {
-    var seen = [_]bool{false} ** 14;
-    for (order) |kind| seen[@intFromEnum(kind)] = true;
-    for (seen) |s| if (!s) return false;
-    return true;
-}
-
 /// Apply a synth snapshot onto a live PolySynth, clamping every numeric
 /// field to the same ranges `adjustParam` enforces - mirrors
 /// `applyPadSnap`'s reasoning: a hand-edited or corrupted file could
@@ -980,8 +958,7 @@ pub fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) !void {
     // Every plain param_specs field (id->field->range, shared with the live
     // h/l-nudge and automation paths) - see PolySynth.applyParamSpecs. What's
     // left below is what param_specs deliberately excludes: the mod matrix
-    // (fixed array vs. optional slice, plus pre-v17 legacy migration) and
-    // fx_order (needs isValidFxOrder validation, not a plain clamp).
+    // (fixed array vs. optional slice, plus pre-v17 legacy migration).
     s.applyParamSpecs(ss);
     if (ss.mod_matrix) |rows| {
         // v17 file: take the rows as saved (clamped; a bad dest falls back
@@ -1007,9 +984,6 @@ pub fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) !void {
         s.mod_matrix[0] = rows[0];
         s.mod_matrix[1] = rows[1];
     }
-    // fx_order needs isValidFxOrder validation (a hand-edited file could
-    // repeat or drop a unit kind), not a plain per-field clamp.
-    s.fx_order = if (isValidFxOrder(ss.fx_order)) ss.fx_order else synth_mod.default_fx_order;
     applyLfoCustomSnap(&s.lfo_custom[0], &s.lfo_custom_count[0], ss.lfo_custom);
     applyLfoCustomSnap(&s.lfo_custom[1], &s.lfo_custom_count[1], ss.lfo2_custom);
     applyLfoCustomSnap(&s.lfo_custom[2], &s.lfo_custom_count[2], ss.lfo3_custom);
