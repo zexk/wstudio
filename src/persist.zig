@@ -129,10 +129,10 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
                     .warp_amount = 0.65,
                     .osc_b_warp_mode = .sync,
                     .osc_b_warp_amount = 0.35,
-                    .notes = &.{
-                        .{ .pitch = 69, .start_beat = 0.0, .duration_beat = 1.0, .velocity = 0.9 },
+                    .pattern = .{
+                        .notes = &.{.{ .pitch = 69, .start_beat = 0.0, .duration_beat = 1.0, .velocity = 0.9 }},
+                        .length_beats = 8.0,
                     },
-                    .length_beats = 8.0,
                 },
             },
             .{
@@ -165,9 +165,9 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
     try testing.expectApproxEqAbs(@as(f32, 0.65), sr.warp_amount, 1e-4);
     try testing.expectEqual(synth_mod.WarpMode.sync, sr.osc_b_warp_mode);
     try testing.expectApproxEqAbs(@as(f32, 0.35), sr.osc_b_warp_amount, 1e-4);
-    try testing.expectEqual(@as(usize, 1), sr.notes.len);
-    try testing.expectEqual(@as(u8, 69), sr.notes[0].pitch);
-    try testing.expectApproxEqAbs(@as(f64, 8.0), sr.length_beats, 1e-9);
+    try testing.expectEqual(@as(usize, 1), sr.pattern.notes.len);
+    try testing.expectEqual(@as(u8, 69), sr.pattern.notes[0].pitch);
+    try testing.expectApproxEqAbs(@as(f64, 8.0), sr.pattern.length_beats, 1e-9);
     try testing.expectEqualStrings("supersaw", snap_out.racks[0].label);
 
     const dr = snap_out.racks[1].drum.?;
@@ -198,10 +198,10 @@ test "buildSession: constructs valid Session from snapshot" {
                     .gain = 0.77,
                     .filter_cutoff = 3_000.0,
                     .voice_mode = .mono,
-                    .notes = &.{
-                        .{ .pitch = 69, .start_beat = 0.0, .duration_beat = 1.0, .velocity = 0.9 },
+                    .pattern = .{
+                        .notes = &.{.{ .pitch = 69, .start_beat = 0.0, .duration_beat = 1.0, .velocity = 0.9 }},
+                        .length_beats = 8.0,
                     },
-                    .length_beats = 8.0,
                 },
             },
             .{
@@ -1633,8 +1633,8 @@ test "buildSession: clamps a zero or negative pattern loop length" {
     const snap: Snapshot = .{
         .tracks = &.{ .{ .name = "lead" }, .{ .name = "keys" } },
         .racks = &.{
-            .{ .label = "synth", .kind = .poly_synth, .synth = .{ .length_beats = 0.0 } },
-            .{ .label = "sampler", .kind = .sampler, .sampler = .{ .length_beats = -8.0 } },
+            .{ .label = "synth", .kind = .poly_synth, .synth = .{ .pattern = .{ .length_beats = 0.0 } } },
+            .{ .label = "sampler", .kind = .sampler, .sampler = .{ .pattern = .{ .length_beats = -8.0 } } },
         },
     };
 
@@ -1680,11 +1680,11 @@ test "buildSession: empty and sampler racks round-trip" {
                     .pad = .{ .pitch_semitones = 3.0, .gain = 0.8, .reverse = true },
                     .root_note = 48,
                     .mono = true,
-                    .notes = &.{
-                        .{ .pitch = 64, .start_beat = 0.0, .duration_beat = 0.5, .velocity = 0.7 },
+                    .pattern = .{
+                        .notes = &.{.{ .pitch = 64, .start_beat = 0.0, .duration_beat = 0.5, .velocity = 0.7 }},
+                        .length_beats = 2.0,
+                        .swing = 68.0,
                     },
-                    .length_beats = 2.0,
-                    .swing = 68.0,
                 },
             },
         },
@@ -1730,7 +1730,7 @@ test "buildSession clamps malformed synth params from a hand-edited file" {
                     .warp_amount = -50.0,
                     .osc_b_warp_amount = 50.0,
                     .lfo_rate_hz = 0.0,
-                    .swing = 999.0,
+                    .pattern = .{ .swing = 999.0 },
                 },
             },
         },

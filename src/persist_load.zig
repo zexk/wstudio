@@ -430,9 +430,9 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                     // Same clamp the clip loader applies: a zero/negative/
                     // non-finite loop length breaks the piano roll's step
                     // math and the playback wrap.
-                    rack.pattern_player.?.length_beats = finiteClamp(f64, ss.length_beats, 1.0, std.math.floatMax(f64), 4.0);
-                    loadNotes(&rack.pattern_player.?, ss.notes);
-                    rack.pattern_player.?.setSwing(ss.swing);
+                    rack.pattern_player.?.length_beats = finiteClamp(f64, ss.pattern.length_beats, 1.0, std.math.floatMax(f64), 4.0);
+                    loadNotes(&rack.pattern_player.?, ss.pattern.notes);
+                    rack.pattern_player.?.setSwing(ss.pattern.swing);
                 }
             },
             .sampler => {
@@ -444,9 +444,9 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                     applyPadSnap(&s.pad, smp.pad);
                     s.root_note = @intCast(@min(smp.root_note, 127));
                     s.mono = smp.mono;
-                    rack.pattern_player.?.length_beats = finiteClamp(f64, smp.length_beats, 1.0, std.math.floatMax(f64), 4.0);
-                    loadNotes(&rack.pattern_player.?, smp.notes);
-                    rack.pattern_player.?.setSwing(smp.swing);
+                    rack.pattern_player.?.length_beats = finiteClamp(f64, smp.pattern.length_beats, 1.0, std.math.floatMax(f64), 4.0);
+                    loadNotes(&rack.pattern_player.?, smp.pattern.notes);
+                    rack.pattern_player.?.setSwing(smp.pattern.swing);
                 }
             },
             .drum_machine => {
@@ -586,9 +586,9 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                 rack.instrument = .{ .clap = plugin };
                 plugin_owned = false;
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
-                rack.pattern_player.?.length_beats = finiteClamp(f64, cs.length_beats, 1.0, std.math.floatMax(f64), 4.0);
-                loadNotes(&rack.pattern_player.?, cs.notes);
-                rack.pattern_player.?.setSwing(cs.swing);
+                rack.pattern_player.?.length_beats = finiteClamp(f64, cs.pattern.length_beats, 1.0, std.math.floatMax(f64), 4.0);
+                loadNotes(&rack.pattern_player.?, cs.pattern.notes);
+                rack.pattern_player.?.setSwing(cs.pattern.swing);
             },
             .vst3 => {
                 const vs = rs.vst3 orelse return error.MalformedProject;
@@ -601,9 +601,9 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                 rack.instrument = .{ .vst3 = plugin };
                 plugin_owned = false;
                 rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &engine.transport);
-                rack.pattern_player.?.length_beats = finiteClamp(f64, vs.length_beats, 1.0, std.math.floatMax(f64), 4.0);
-                loadNotes(&rack.pattern_player.?, vs.notes);
-                rack.pattern_player.?.setSwing(vs.swing);
+                rack.pattern_player.?.length_beats = finiteClamp(f64, vs.pattern.length_beats, 1.0, std.math.floatMax(f64), 4.0);
+                loadNotes(&rack.pattern_player.?, vs.pattern.notes);
+                rack.pattern_player.?.setSwing(vs.pattern.swing);
             },
             inline .soundfont, .acoustic => |tag| {
                 rack.instrument = @unionInit(rack_mod.Instrument, @tagName(tag), SoundfontPlayer.init(allocator, sr));
@@ -616,9 +616,9 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                     // preset_index is restored by restoreSamples, after the
                     // sidecar .sf2 (if any) has actually loaded - loadSf2
                     // resets it to 0, so setting it here would be wiped.
-                    rack.pattern_player.?.length_beats = finiteClamp(f64, sfs.length_beats, 1.0, std.math.floatMax(f64), 4.0);
-                    loadNotes(&rack.pattern_player.?, sfs.notes);
-                    rack.pattern_player.?.setSwing(sfs.swing);
+                    rack.pattern_player.?.length_beats = finiteClamp(f64, sfs.pattern.length_beats, 1.0, std.math.floatMax(f64), 4.0);
+                    loadNotes(&rack.pattern_player.?, sfs.pattern.notes);
+                    rack.pattern_player.?.setSwing(sfs.pattern.swing);
                 }
             },
         }

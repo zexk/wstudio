@@ -286,9 +286,7 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
             rs.kind = .poly_synth;
             var ss = synthToSnap(s);
             if (rack.pattern_player) |*pp| {
-                ss.length_beats = pp.length_beats;
-                ss.notes = try notesToSnap(aa, pp);
-                ss.swing = pp.swing.load(.monotonic);
+                ss.pattern = .{ .length_beats = pp.length_beats, .notes = try notesToSnap(aa, pp), .swing = pp.swing.load(.monotonic) };
             }
             rs.synth = ss;
         },
@@ -312,9 +310,7 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
                 .mono = s.mono,
             };
             if (rack.pattern_player) |*pp| {
-                smp.length_beats = pp.length_beats;
-                smp.notes = try notesToSnap(aa, pp);
-                smp.swing = pp.swing.load(.monotonic);
+                smp.pattern = .{ .length_beats = pp.length_beats, .notes = try notesToSnap(aa, pp), .swing = pp.swing.load(.monotonic) };
             }
             rs.sampler = smp;
         },
@@ -431,9 +427,7 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
             rs.kind = .clap;
             var cs = try clapToSnap(aa, plugin);
             if (rack.pattern_player) |*pp| {
-                cs.length_beats = pp.length_beats;
-                cs.notes = try notesToSnap(aa, pp);
-                cs.swing = pp.swing.load(.monotonic);
+                cs.pattern = .{ .length_beats = pp.length_beats, .notes = try notesToSnap(aa, pp), .swing = pp.swing.load(.monotonic) };
             }
             rs.clap = cs;
         },
@@ -441,9 +435,7 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
             rs.kind = .vst3;
             var vs = try vst3ToSnap(aa, plugin);
             if (rack.pattern_player) |*pp| {
-                vs.length_beats = pp.length_beats;
-                vs.notes = try notesToSnap(aa, pp);
-                vs.swing = pp.swing.load(.monotonic);
+                vs.pattern = .{ .length_beats = pp.length_beats, .notes = try notesToSnap(aa, pp), .swing = pp.swing.load(.monotonic) };
             }
             rs.vst3 = vs;
         },
@@ -457,9 +449,7 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
                 .library = if (sf.builtin) |id| @tagName(id) else "",
             };
             if (rack.pattern_player) |*pp| {
-                sfs.length_beats = pp.length_beats;
-                sfs.notes = try notesToSnap(aa, pp);
-                sfs.swing = pp.swing.load(.monotonic);
+                sfs.pattern = .{ .length_beats = pp.length_beats, .notes = try notesToSnap(aa, pp), .swing = pp.swing.load(.monotonic) };
             }
             rs.soundfont = sfs;
         },

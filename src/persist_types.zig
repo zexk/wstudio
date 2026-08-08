@@ -46,7 +46,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 38;
+pub const file_version: u32 = 39;
 
 /// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
 /// reasoning as `EqBandKindSnap`.
@@ -85,6 +85,12 @@ pub const NoteSnap = struct {
     pan: f32 = 0.0,
     fine_cents: f32 = 0.0,
     release_scale: f32 = 1.0,
+};
+
+pub const PatternSnap = struct {
+    notes: []const NoteSnap = &.{},
+    length_beats: f64 = 4.0,
+    swing: f32 = 50.0,
 };
 
 pub const SynthSnap = struct {
@@ -218,10 +224,7 @@ pub const SynthSnap = struct {
     osc_b_wt_file: []const u8 = "",
     osc_c_wt_file: []const u8 = "",
     // Pattern player
-    notes: []const NoteSnap = &.{},
-    length_beats: f64 = 4.0,
-    /// Pattern swing, 50 (straight) to 75 (hardest shuffle).
-    swing: f32 = 50.0,
+    pattern: PatternSnap = .{},
 };
 
 /// Per-pad sampler params. Defaults mirror `dsp.Pad`.
@@ -565,9 +568,7 @@ pub const ClapSnap = struct {
     path: []const u8 = "",
     plugin_id: []const u8 = "",
     state_base64: []const u8 = "",
-    notes: []const NoteSnap = &.{},
-    length_beats: f64 = 4.0,
-    swing: f32 = 50.0,
+    pattern: PatternSnap = .{},
 };
 
 pub const Vst3Snap = struct {
@@ -575,9 +576,7 @@ pub const Vst3Snap = struct {
     class_id: []const u8 = "",
     component_state_base64: []const u8 = "",
     controller_state_base64: []const u8 = "",
-    notes: []const NoteSnap = &.{},
-    length_beats: f64 = 4.0,
-    swing: f32 = 50.0,
+    pattern: PatternSnap = .{},
 };
 
 /// One chain slot: its kind, bypass flag, and params for that kind
@@ -632,10 +631,7 @@ pub const SamplerSnap = struct {
     root_note: u8 = 60,
     /// Mono voice mode (see `dsp.Sampler.mono`).
     mono: bool = false,
-    notes: []const NoteSnap = &.{},
-    length_beats: f64 = 4.0,
-    /// Pattern swing, 50 (straight) to 75 (hardest shuffle).
-    swing: f32 = 50.0,
+    pattern: PatternSnap = .{},
 };
 
 /// One shared-clip Slicer instrument. `sample_file`/`name` mirror
@@ -678,9 +674,7 @@ pub const SoundfontSnap = struct {
     gain: f32 = 1.0,
     pan: f32 = 0.0,
     transpose_semitones: f32 = 0.0,
-    notes: []const NoteSnap = &.{},
-    length_beats: f64 = 4.0,
-    swing: f32 = 50.0,
+    pattern: PatternSnap = .{},
 };
 
 pub const RackSnap = struct {
