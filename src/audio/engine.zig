@@ -220,6 +220,8 @@ pub const AudioRegion = struct {
     gain: f32 = 1.0,
     fade_in_frames: u64 = 0,
     fade_out_frames: u64 = 0,
+    stretch_ratio: f32 = 1.0,
+    reverse: bool = false,
     samples: []const Sample,
 };
 
@@ -1792,9 +1794,9 @@ pub const Engine = struct {
             const source_frames = region.samples.len / @max(region.channel_count, 1);
             for (first..last) |timeline_frame| {
                 const relative = timeline_frame - region.start_frame;
-                const source_offset = relative * region.source_sample_rate / engine_rate;
+                const source_offset: u64 = @intFromFloat(@as(f64, @floatFromInt(relative)) * @as(f64, @floatFromInt(region.source_sample_rate)) / @as(f64, @floatFromInt(engine_rate)) / region.stretch_ratio);
                 if (source_offset >= region.source_length_frames) break;
-                const source_frame = region.source_start_frame + source_offset;
+                const source_frame = region.source_start_frame + if (region.reverse) region.source_length_frames - source_offset - 1 else source_offset;
                 if (source_frame >= source_frames) break;
                 const dst: usize = @intCast((timeline_frame - block_start) * channels);
                 const src: usize = @intCast(source_frame * region.channel_count);
@@ -2105,6 +2107,30 @@ test "audio region applies gain and linear edge fades" {
     var output: [8]Sample = undefined;
     engine.process(&output);
     for (output, [_]Sample{ 0, 0, 0.25, 0.25, 0.25, 0.25, 0, 0 }) |actual, expected| {
+        try std.testing.expectApproxEqAbs(expected, actual, 1e-6);
+    }
+}
+
+test "audio region stretch and reverse remap source frames" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.trackAt(0).* = .{ .active = true, .gain = std.math.sqrt2 };
+    const source = [_]Sample{ 0.1, 0.2, 0.3, 0.4 };
+    engine.setTrackAudioRegions(0, &.{.{
+        .start_frame = 0,
+        .end_frame = 4,
+        .source_start_frame = 0,
+        .source_length_frames = 4,
+        .source_sample_rate = 48_000,
+        .channel_count = 1,
+        .stretch_ratio = 2,
+        .reverse = true,
+        .samples = &source,
+    }});
+
+    var output: [8]Sample = undefined;
+    engine.process(&output);
+    for (output, [_]Sample{ 0.4, 0.4, 0.4, 0.4, 0.3, 0.3, 0.3, 0.3 }) |actual, expected| {
         try std.testing.expectApproxEqAbs(expected, actual, 1e-6);
     }
 }

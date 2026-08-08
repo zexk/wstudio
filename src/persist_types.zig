@@ -46,7 +46,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 39;
+pub const file_version: u32 = 40;
 
 /// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
 /// reasoning as `EqBandKindSnap`.
@@ -726,6 +726,8 @@ pub const AudioClipSnap = struct {
     gain_db: f32 = 0.0,
     fade_in_frames: u64 = 0,
     fade_out_frames: u64 = 0,
+    stretch_ratio: f32 = 1.0,
+    reverse: bool = false,
     alternate_takes: []const AudioTakeSnap = &.{},
 };
 

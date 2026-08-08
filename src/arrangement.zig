@@ -126,6 +126,8 @@ pub const Clip = struct {
         gain_db: f32 = 0.0,
         fade_in_frames: u64 = 0,
         fade_out_frames: u64 = 0,
+        stretch_ratio: f32 = 1.0,
+        reverse: bool = false,
         alternate_takes: [max_audio_takes - 1]?Take = @splat(null),
 
         pub fn takeCount(self: AudioRegion) usize {

@@ -852,6 +852,7 @@ pub fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
                 .source_id = audio.source_id, .source_start_frame = audio.source_start_frame,
                 .source_length_frames = audio.source_length_frames, .gain_db = audio.gain_db,
                 .fade_in_frames = audio.fade_in_frames, .fade_out_frames = audio.fade_out_frames,
+                .stretch_ratio = audio.stretch_ratio, .reverse = audio.reverse,
                 .alternate_takes = takes[0..n],
             } };
         },

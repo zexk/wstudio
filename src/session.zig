@@ -1582,6 +1582,8 @@ pub const Session = struct {
                 .gain = types.dbToGain(std.math.clamp(audio.gain_db, -60.0, 24.0)),
                 .fade_in_frames = @min(audio.fade_in_frames, length_frames),
                 .fade_out_frames = @min(audio.fade_out_frames, length_frames),
+                .stretch_ratio = std.math.clamp(audio.stretch_ratio, 0.125, 8.0),
+                .reverse = audio.reverse,
                 .samples = source.samples,
             }) catch @panic("out of memory syncing audio regions");
         }

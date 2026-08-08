@@ -538,6 +538,52 @@ pub fn cmdClipFade(app: *App, args: []const u8) void {
     app.setStatus("clip fades: {d:.3}s in, {d:.3}s out", .{ in_s, out_s });
 }
 
+pub fn cmdClipStretch(app: *App, args: []const u8) void {
+    const audio = audioRegionAtCursor(app, "clip-stretch") orelse return;
+    const arg = std.mem.trim(u8, args, " ");
+    if (arg.len == 0) {
+        app.setStatus("clip stretch: {d:.3}x", .{audio.stretch_ratio});
+        return;
+    }
+    const ratio = parseFiniteFloat(f32, arg) catch {
+        app.setStatus("clip-stretch: expected 0.125 to 8", .{});
+        return;
+    };
+    if (ratio < 0.125 or ratio > 8.0) {
+        app.setStatus("clip-stretch: expected 0.125 to 8", .{});
+        return;
+    }
+    history.recordLane(app, @intCast(app.cursor));
+    audio.stretch_ratio = ratio;
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.dirty = true;
+    app.setStatus("clip stretch: {d:.3}x", .{ratio});
+}
+
+pub fn cmdClipReverse(app: *App, _: []const u8) void {
+    const audio = audioRegionAtCursor(app, "clip-reverse") orelse return;
+    history.recordLane(app, @intCast(app.cursor));
+    audio.reverse = !audio.reverse;
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.dirty = true;
+    app.setStatus("clip reverse: {s}", .{if (audio.reverse) "on" else "off"});
+}
+
+pub fn cmdClipSlip(app: *App, args: []const u8) void {
+    const audio = audioRegionAtCursor(app, "clip-slip") orelse return;
+    const seconds = parseFiniteFloat(f64, std.mem.trim(u8, args, " ")) catch {
+        app.setStatus("clip-slip: expected signed seconds", .{});
+        return;
+    };
+    const frames_f = seconds * @as(f64, @floatFromInt(app.session.project.sample_rate));
+    const delta: i64 = @intFromFloat(@round(std.math.clamp(frames_f, @as(f64, @floatFromInt(std.math.minInt(i64))), @as(f64, @floatFromInt(std.math.maxInt(i64))))));
+    history.recordLane(app, @intCast(app.cursor));
+    audio.source_start_frame = if (delta >= 0) audio.source_start_frame +| @as(u64, @intCast(delta)) else audio.source_start_frame -| @as(u64, @intCast(-delta));
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.dirty = true;
+    app.setStatus("clip slipped to source frame {d}", .{audio.source_start_frame});
+}
+
 pub fn cmdTake(app: *App, args: []const u8) void {
     if (app.view != .arrangement) {
         app.setStatus("take: open arrangement first", .{});
