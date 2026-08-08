@@ -769,12 +769,12 @@ pub fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.
         },
         .drum => |snap| blk2: {
             var d: ws_arrangement.Clip.Drum = .{
-                .step_count = std.math.clamp(snap.step_count, 1, DrumMachine.max_steps),
-                .steps_per_beat = std.math.clamp(snap.steps_per_beat, 1, 32),
+                .step_count = std.math.clamp(snap.pattern.step_count, 1, DrumMachine.max_steps),
+                .steps_per_beat = std.math.clamp(snap.pattern.steps_per_beat, 1, 32),
                 .variant = @min(snap.variant, DrumMachine.max_variants - 1),
             };
             d.midi = try DrumMachine.allocMidi(allocator, d.step_count);
-            applyNoteSnap(&d.midi, d.step_count, snap.notes);
+            applyNoteSnap(&d.midi, d.step_count, snap.pattern.notes);
             break :blk2 ws_arrangement.Clip.initDrum(start_tick, length_ticks, d);
         },
         .audio => |audio| ws_arrangement.Clip.initAudio(start_tick, length_ticks, .{

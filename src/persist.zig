@@ -995,7 +995,7 @@ test "buildSession: arrangement clips and song_mode round-trip" {
                 } } } },
             } },
             .{ .clips = &.{
-                .{ .start_tick = 0, .length_ticks = 128, .content = .{ .drum = .{ .step_count = 16, .notes = &drum_notes } } },
+                .{ .start_tick = 0, .length_ticks = 128, .content = .{ .drum = .{ .pattern = .{ .step_count = 16, .notes = &drum_notes } } } },
             } },
         },
     };
@@ -1210,7 +1210,7 @@ test "clip load clamps invalid loop, step, and velocity values" {
     // One hit on pad 0's step 0, whose stored velocity is past the 0-127
     // scale and has to clamp on load.
     var drum = try clipFromSnap(testing.allocator, .{
-        .content = .{ .drum = .{ .step_count = 0, .notes = &.{.{ .pad = 0, .step = 0, .velocity = 127 }} } },
+        .content = .{ .drum = .{ .pattern = .{ .step_count = 0, .notes = &.{.{ .pad = 0, .step = 0, .velocity = 127 }} } } },
     });
     defer drum.deinit(testing.allocator);
     try testing.expectEqual(@as(u16, 1), drum.content.drum.step_count);

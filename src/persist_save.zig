@@ -842,7 +842,7 @@ pub fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
             for (m.notes, ns) |n, *o| o.* = noteToSnap(n);
             break :blk .{ .melodic = .{ .notes = ns, .length_beats = m.length_beats } };
         },
-        .drum => |d| .{ .drum = .{ .notes = try midiToNoteSnaps(aa, &d.midi), .step_count = d.step_count, .steps_per_beat = d.steps_per_beat, .variant = d.variant } },
+        .drum => |d| .{ .drum = .{ .pattern = .{ .notes = try midiToNoteSnaps(aa, &d.midi), .step_count = d.step_count, .steps_per_beat = d.steps_per_beat }, .variant = d.variant } },
         .audio => |audio| blk: {
             const takes = try aa.alloc(persist_types.AudioTakeSnap, audio.takeCount() - 1);
             var n: usize = 0;

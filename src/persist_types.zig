@@ -286,7 +286,7 @@ pub const DrumNoteSnap = struct {
     micro: i8 = 0,
 };
 
-pub const VariantSnap = struct {
+pub const DrumPatternSnap = struct {
     step_count: u16 = 16,
     /// Native pattern resolution.
     steps_per_beat: u8 = 4,
@@ -295,6 +295,8 @@ pub const VariantSnap = struct {
     /// dropping the out-of-range entries instead of failing to parse.
     notes: []const DrumNoteSnap = &.{},
 };
+
+pub const VariantSnap = DrumPatternSnap;
 
 pub const DrumSnap = struct {
     /// Mutable slice (not `[]const`) - `exportSamples` fills in
@@ -741,9 +743,7 @@ pub const MelodicClipSnap = struct {
 };
 
 pub const DrumClipSnap = struct {
-    notes: []const DrumNoteSnap = &.{},
-    step_count: u16 = 16,
-    steps_per_beat: u8 = 4,
+    pattern: DrumPatternSnap = .{},
     variant: u8 = 0,
 };
 

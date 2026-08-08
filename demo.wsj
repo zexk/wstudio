@@ -4527,54 +4527,56 @@
           "length_ticks": 256,
           "content": {
             "drum": {
-              "notes": [
-                {
-                  "pad": 2,
-                  "step": 12,
-                  "duration_steps": 1,
-                  "velocity": 127,
-                  "tune": 0,
-                  "prob": 100,
-                  "cond": 0,
-                  "retrig": 0,
-                  "micro": 0
-                },
-                {
-                  "pad": 2,
-                  "step": 14,
-                  "duration_steps": 1,
-                  "velocity": 127,
-                  "tune": 0,
-                  "prob": 100,
-                  "cond": 0,
-                  "retrig": 0,
-                  "micro": 0
-                },
-                {
-                  "pad": 11,
-                  "step": 12,
-                  "duration_steps": 1,
-                  "velocity": 127,
-                  "tune": 0,
-                  "prob": 100,
-                  "cond": 0,
-                  "retrig": 0,
-                  "micro": 0
-                },
-                {
-                  "pad": 12,
-                  "step": 14,
-                  "duration_steps": 1,
-                  "velocity": 127,
-                  "tune": 0,
-                  "prob": 100,
-                  "cond": 0,
-                  "retrig": 0,
-                  "micro": 0
-                }
-              ],
-              "step_count": 32,
-              "steps_per_beat": 4,
+              "pattern": {
+                "step_count": 32,
+                "steps_per_beat": 4,
+                "notes": [
+                  {
+                    "pad": 2,
+                    "step": 12,
+                    "duration_steps": 1,
+                    "velocity": 127,
+                    "tune": 0,
+                    "prob": 100,
+                    "cond": 0,
+                    "retrig": 0,
+                    "micro": 0
+                  },
+                  {
+                    "pad": 2,
+                    "step": 14,
+                    "duration_steps": 1,
+                    "velocity": 127,
+                    "tune": 0,
+                    "prob": 100,
+                    "cond": 0,
+                    "retrig": 0,
+                    "micro": 0
+                  },
+                  {
+                    "pad": 11,
+                    "step": 12,
+                    "duration_steps": 1,
+                    "velocity": 127,
+                    "tune": 0,
+                    "prob": 100,
+                    "cond": 0,
+                    "retrig": 0,
+                    "micro": 0
+                  },
+                  {
+                    "pad": 12,
+                    "step": 14,
+                    "duration_steps": 1,
+                    "velocity": 127,
+                    "tune": 0,
+                    "prob": 100,
+                    "cond": 0,
+                    "retrig": 0,
+                    "micro": 0
+                  }
+                ]
+              },
               "variant": 1
             }
           },
