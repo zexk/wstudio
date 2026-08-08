@@ -24,6 +24,7 @@ const drum_kit = @import("dsp/drum_kit.zig");
 const Slicer = @import("dsp/slicer.zig").Slicer;
 const SoundfontPlayer = @import("dsp/soundfont_player.zig").SoundfontPlayer;
 const Compressor = @import("dsp/compressor.zig").Compressor;
+const sidechain_node_count: usize = @as(usize, engine_mod.max_tracks) + engine_mod.max_groups + 1;
 const dsp = @import("dsp/device.zig");
 const tuning_mod = @import("dsp/tuning.zig");
 const arr_mod = @import("arrangement.zig");
@@ -53,6 +54,8 @@ pub const InstrumentDefaults = struct {
 };
 
 pub const Session = struct {
+    pub const SidechainConsumer = union(enum) { track: u16, group: u8, master };
+
     allocator: std.mem.Allocator,
     project: Project,
     /// Heap-allocated so its address (and Transport's address) never moves.
@@ -1071,7 +1074,10 @@ pub const Session = struct {
         rack.fx.attachTransport(&self.engine.transport);
         var buf: [rack_mod.Rack.chain_cap]dsp.Device = undefined;
         var sc_buf: [rack_mod.Rack.chain_cap]?Compressor.SidechainSource = undefined;
-        self.engine.setTrackChainState(idx, rack.chain(&buf), rack.sidechainSources(&sc_buf));
+        const sources = rack.sidechainSources(&sc_buf);
+        const checked = sc_buf[0..sources.len];
+        self.rejectSidechainCycles(.{ .track = idx }, checked);
+        self.engine.setTrackChainState(idx, rack.chain(&buf), checked);
     }
 
     /// Push track `idx`'s aux-send list (`Track.sends`) to the audio thread
@@ -1138,7 +1144,10 @@ pub const Session = struct {
         self.master_fx.attachTransport(&self.engine.transport);
         var buf: [rack_mod.Fx.max_units]dsp.Device = undefined;
         var sc_buf: [rack_mod.Fx.max_units]?Compressor.SidechainSource = undefined;
-        self.engine.setMasterChainState(self.master_fx.chain(&buf), self.master_fx.sidechainSources(&sc_buf));
+        const sources = self.master_fx.sidechainSources(&sc_buf);
+        const checked = sc_buf[0..sources.len];
+        self.rejectSidechainCycles(.master, checked);
+        self.engine.setMasterChainState(self.master_fx.chain(&buf), checked);
     }
 
     /// Push group `idx`'s active FX units (and their sidechain-detector
@@ -1154,7 +1163,10 @@ pub const Session = struct {
         var sc_buf: [rack_mod.Fx.max_units]?Compressor.SidechainSource = undefined;
         if (self.groups[idx]) |*g| {
             g.fx.attachTransport(&self.engine.transport);
-            self.engine.setGroupChainState(idx, true, g.fx.chain(&buf), g.fx.sidechainSources(&sc_buf));
+            const sources = g.fx.sidechainSources(&sc_buf);
+            const checked = sc_buf[0..sources.len];
+            self.rejectSidechainCycles(.{ .group = idx }, checked);
+            self.engine.setGroupChainState(idx, true, g.fx.chain(&buf), checked);
             _ = self.engine.send(.{ .set_group_gain = .{ .group = idx, .gain = types.dbToGain(g.gain_db) } });
             _ = self.engine.send(.{ .set_group_mute = .{ .group = idx, .muted = g.muted } });
             _ = self.engine.send(.{ .set_group_solo = .{ .group = idx, .soloed = g.soloed } });
@@ -1163,6 +1175,96 @@ pub const Session = struct {
             _ = self.engine.send(.{ .set_group_gain = .{ .group = idx, .gain = 1.0 } });
             _ = self.engine.send(.{ .set_group_mute = .{ .group = idx, .muted = false } });
             _ = self.engine.send(.{ .set_group_solo = .{ .group = idx, .soloed = false } });
+        }
+    }
+
+    /// Remove sidechain edges that would close a cycle through existing
+    /// sidechains or the fixed track/group/master routing tree.
+    fn rejectSidechainCycles(self: *Session, consumer: SidechainConsumer, sources: []?Compressor.SidechainSource) void {
+        for (sources) |*source| {
+            if (source.*) |candidate| {
+                if (self.sidechainWouldCycle(consumer, candidate)) source.* = null;
+            }
+        }
+    }
+
+    pub fn sidechainWouldCycle(self: *Session, consumer: SidechainConsumer, source: Compressor.SidechainSource) bool {
+        const consumer_node = consumerNode(consumer);
+        const source_node = self.sourceNode(source) orelse return false;
+        var seen: [sidechain_node_count]bool = @splat(false);
+        var pending: [sidechain_node_count]u16 = undefined;
+        var len: usize = 1;
+        pending[0] = source_node;
+        seen[source_node] = true;
+
+        while (len > 0) {
+            len -= 1;
+            const node = pending[len];
+            if (node == consumer_node) return true;
+            self.appendNodeDependencies(node, &pending, &len, &seen);
+        }
+        return false;
+    }
+
+    fn consumerNode(consumer: SidechainConsumer) u16 {
+        return switch (consumer) {
+            .track => |track| @min(track, engine_mod.max_tracks - 1),
+            .group => |group| engine_mod.max_tracks + @as(u16, @min(group, engine_mod.max_groups - 1)),
+            .master => engine_mod.max_tracks + @as(u16, engine_mod.max_groups),
+        };
+    }
+
+    fn sourceNode(self: *const Session, source: Compressor.SidechainSource) ?u16 {
+        if (source.is_group) {
+            if (source.track >= engine_mod.max_groups or self.groups[source.track] == null) return null;
+            return engine_mod.max_tracks + @as(u16, source.track);
+        }
+        if (source.track >= self.racks.items.len) return null;
+        return source.track;
+    }
+
+    fn appendNodeDependencies(self: *Session, node: u16, pending: *[sidechain_node_count]u16, len: *usize, seen: *[sidechain_node_count]bool) void {
+        const master_node: u16 = engine_mod.max_tracks + @as(u16, engine_mod.max_groups);
+        if (node < engine_mod.max_tracks) {
+            if (node >= self.racks.items.len) return;
+            var buf: [rack_mod.Rack.chain_cap]?Compressor.SidechainSource = undefined;
+            self.appendSources(self.racks.items[node].sidechainSources(&buf), pending, len, seen);
+            return;
+        }
+        if (node < master_node) {
+            const group: u8 = @intCast(node - engine_mod.max_tracks);
+            if (self.groups[group]) |*g| {
+                var buf: [rack_mod.Fx.max_units]?Compressor.SidechainSource = undefined;
+                self.appendSources(g.fx.sidechainSources(&buf), pending, len, seen);
+                for (self.project.tracks.items, 0..) |track, i| if (track.group == group and !seen[i]) {
+                    seen[i] = true;
+                    pending[len.*] = @intCast(i);
+                    len.* += 1;
+                };
+            }
+            return;
+        }
+        var buf: [rack_mod.Fx.max_units]?Compressor.SidechainSource = undefined;
+        self.appendSources(self.master_fx.sidechainSources(&buf), pending, len, seen);
+        for (self.groups, 0..) |group, i| if (group != null and !seen[engine_mod.max_tracks + i]) {
+            seen[engine_mod.max_tracks + i] = true;
+            pending[len.*] = @intCast(engine_mod.max_tracks + i);
+            len.* += 1;
+        };
+        for (self.project.tracks.items, 0..) |track, i| if (track.group == null and !seen[i]) {
+            seen[i] = true;
+            pending[len.*] = @intCast(i);
+            len.* += 1;
+        };
+    }
+
+    fn appendSources(self: *const Session, sources: []const ?Compressor.SidechainSource, pending: *[sidechain_node_count]u16, len: *usize, seen: *[sidechain_node_count]bool) void {
+        for (sources) |maybe| {
+            const node = self.sourceNode(maybe orelse continue) orelse continue;
+            if (seen[node]) continue;
+            seen[node] = true;
+            pending[len.*] = node;
+            len.* += 1;
         }
     }
 
@@ -2128,6 +2230,33 @@ test "syncMasterChain and syncGroupChain push sidechain routing too" {
     group_comp.payload.comp.sidechain_source = .{ .track = 3 };
     s.syncGroupChain(idx);
     try std.testing.expectEqual(@as(u16, 3), s.engine.groups[idx].sidechain_sources[0].?.track);
+}
+
+test "sidechain cycles are rejected before engine publication" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    _ = try s.addTrack("second");
+    const first = try s.racks.items[0].fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
+    const second = try s.racks.items[1].fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
+    first.payload.comp.sidechain_source = .{ .track = 1 };
+    s.syncTrackChain(0, s.racks.items[0]);
+    second.payload.comp.sidechain_source = .{ .track = 0 };
+    s.syncTrackChain(1, s.racks.items[1]);
+
+    try std.testing.expect(s.engine.track_sidechain[0][0] != null);
+    try std.testing.expectEqual(@as(?Compressor.SidechainSource, null), s.engine.track_sidechain[1][0]);
+}
+
+test "track cannot sidechain from its own destination group" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    const group = try s.addGroup("bus");
+    s.assignTrackGroup(0, group);
+    const comp = try s.racks.items[0].fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
+    comp.payload.comp.sidechain_source = .{ .track = group, .is_group = true };
+    s.syncTrackChain(0, s.racks.items[0]);
+
+    try std.testing.expectEqual(@as(?Compressor.SidechainSource, null), s.engine.track_sidechain[0][0]);
 }
 
 test "deleteTrack remaps other compressors' sidechain_source track indices" {

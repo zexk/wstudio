@@ -291,7 +291,7 @@ test "invalid CLAP parameter metadata has safe UI fallbacks" {
 /// plugin values) are handled here.
 pub fn getParam(p: *const FxPayload, idx: usize) f32 {
     return switch (p.*) {
-        .comp => |*c| switch (idx) {
+        .comp => |c| switch (idx) {
             // Sidechain source, encoded as 0 = none, positive N = 1-based
             // track index (matches the tracks view's own 1-based row
             // numbering), negative -N = 1-based group bus index (see
@@ -396,36 +396,49 @@ pub fn isListParam(k: FxKind, idx: usize) bool {
 /// against the session's tracks) or the engine command queue.
 pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
     switch (p.*) {
-        .comp => |*c| switch (idx) {
-            6 => {
-                const rounded = std.math.clamp(
-                    @round(value),
-                    -@as(f32, @floatFromInt(ws.engine.max_groups)),
-                    @as(f32, @floatFromInt(app.session.project.tracks.items.len)),
-                );
-                if (@abs(rounded) < 0.5) {
-                    c.sidechain_source = null;
-                } else if (rounded < 0.0) {
-                    const group: u16 = @intFromFloat(-rounded - 1.0);
-                    c.sidechain_source = .{ .track = group, .pad = null, .is_group = true };
-                } else {
-                    const track: u16 = @intFromFloat(rounded - 1.0);
-                    const pad = if (c.sidechain_source) |sc| (if (sc.is_group) null else sc.pad) else null;
-                    c.sidechain_source = .{ .track = track, .pad = pad, .is_group = false };
-                }
-            },
-            // Only meaningful once a TRACK is picked at idx 6 (a group
-            // source has no pad concept) - a no-op otherwise, same as
-            // before a source existed at all.
-            7 => if (c.sidechain_source) |sc| if (!sc.is_group) {
-                const rounded = std.math.clamp(@round(value), 0.0, @as(f32, @floatFromInt(DrumMachine.max_pads)));
-                c.sidechain_source = .{
-                    .track = sc.track,
-                    .pad = if (rounded < 0.5) null else @intFromFloat(rounded - 1.0),
-                    .is_group = false,
+        .comp => |*c| {
+            switch (idx) {
+                6 => {
+                    const rounded = std.math.clamp(
+                        @round(value),
+                        -@as(f32, @floatFromInt(ws.engine.max_groups)),
+                        @as(f32, @floatFromInt(app.session.project.tracks.items.len)),
+                    );
+                    if (@abs(rounded) < 0.5) {
+                        c.sidechain_source = null;
+                    } else if (rounded < 0.0) {
+                        const group: u16 = @intFromFloat(-rounded - 1.0);
+                        c.sidechain_source = .{ .track = group, .pad = null, .is_group = true };
+                    } else {
+                        const track: u16 = @intFromFloat(rounded - 1.0);
+                        const pad = if (c.sidechain_source) |sc| (if (sc.is_group) null else sc.pad) else null;
+                        c.sidechain_source = .{ .track = track, .pad = pad, .is_group = false };
+                    }
+                },
+                // Only meaningful once a TRACK is picked at idx 6 (a group
+                // source has no pad concept) - a no-op otherwise, same as
+                // before a source existed at all.
+                7 => if (c.sidechain_source) |sc| if (!sc.is_group) {
+                    const rounded = std.math.clamp(@round(value), 0.0, @as(f32, @floatFromInt(DrumMachine.max_pads)));
+                    c.sidechain_source = .{
+                        .track = sc.track,
+                        .pad = if (rounded < 0.5) null else @intFromFloat(rounded - 1.0),
+                        .is_group = false,
+                    };
+                },
+                else => fx_p.setParamAbsolute(p, idx, value),
+            }
+            if (idx == 6) if (c.sidechain_source) |source| {
+                const consumer: ws.Session.SidechainConsumer = switch (currentTarget(app)) {
+                    .track => .{ .track = app.eq_track },
+                    .group => .{ .group = app.eq_group },
+                    .master => .master,
                 };
-            },
-            else => fx_p.setParamAbsolute(p, idx, value),
+                if (app.session.sidechainWouldCycle(consumer, source)) {
+                    c.sidechain_source = null;
+                    app.setStatus("sidechain cycle rejected", .{});
+                }
+            };
         },
         // Routed through the engine command queue, not a direct
         // `plugin.setParameter` call: that mutates the plugin's own
