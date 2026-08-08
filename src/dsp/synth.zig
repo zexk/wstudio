@@ -757,6 +757,8 @@ pub const PolySynth = struct {
         pulse_widths: [3]f32 = @splat(0.5),
         /// Current A/B/C wavetable positions, likewise ramped per sample.
         wt_positions: [3]f32 = @splat(0.0),
+        /// Current A/B warp amounts, likewise ramped per sample.
+        warp_amounts: [2]f32 = @splat(0.0),
         // Amplitude envelope
         env:   f32   = 0.0,
         stage: Stage = .attack,
@@ -1334,6 +1336,7 @@ pub const PolySynth = struct {
             .alternate        = if (self.mod_alternate) 1.0 else -1.0,
             .pulse_widths     = .{ self.pulse_width, self.osc_b_pulse_width, self.osc_c_pulse_width },
             .wt_positions     = .{ self.wt_pos, self.osc_b_wt_pos, self.osc_c_wt_pos },
+            .warp_amounts     = .{ self.warp_amount, self.osc_b_warp_amount },
             .steal_tail_l     = if (was_active) prev_out[0] else 0.0,
             .steal_tail_r     = if (was_active) prev_out[1] else 0.0,
             .steal_fade       = if (was_active) 1.0 else 0.0,
@@ -1752,6 +1755,10 @@ pub const PolySynth = struct {
             var wt_steps: [3]f32 = undefined;
             for (&wt_steps, wt_targets, v.wt_positions) |*step, target, current|
                 step.* = (target - current) / @as(f32, @floatFromInt(frames));
+            const warp_targets = [2]f32{ warp_amt_a, warp_amt_b };
+            var warp_steps: [2]f32 = undefined;
+            for (&warp_steps, warp_targets, v.warp_amounts) |*step, target, current|
+                step.* = (target - current) / @as(f32, @floatFromInt(frames));
 
             // Precompute per-unison phase increments for OSC A.
             const uni_det_a = eff(&mods, 4, self.unison_detune);
@@ -1849,7 +1856,7 @@ pub const PolySynth = struct {
                 // FM B→A: render B first so b_mono is ready when A phases advance.
                 if (self.osc_b_on and self.mod_mode == .fm_b_to_a) {
                     for (0..n_b) |ui| {
-                        const samp = self.oscSampleB(v.phases_b[ui], phase_incs_b[ui], v.pulse_widths[1], warp_amt_b, v.wt_positions[1]);
+                        const samp = self.oscSampleB(v.phases_b[ui], phase_incs_b[ui], v.pulse_widths[1], v.warp_amounts[1], v.wt_positions[1]);
                         b_l += samp * pan_l_b[ui];
                         b_r += samp * pan_r_b[ui];
                         b_mono += samp;
@@ -1868,7 +1875,7 @@ pub const PolySynth = struct {
                         phase_incs_a[ui] * (1.0 + mod_amount_v * b_mono)
                     else
                         phase_incs_a[ui];
-                    const samp = self.oscSampleA(v.phases[ui], inc, v.pulse_widths[0], warp_amt_a, v.wt_positions[0]);
+                    const samp = self.oscSampleA(v.phases[ui], inc, v.pulse_widths[0], v.warp_amounts[0], v.wt_positions[0]);
                     a_l += samp * pan_l_a[ui];
                     a_r += samp * pan_r_a[ui];
                     a_mono += samp;
@@ -1885,7 +1892,7 @@ pub const PolySynth = struct {
                             phase_incs_b[ui] * (1.0 + mod_amount_v * a_mono)
                         else
                             phase_incs_b[ui];
-                        const samp = self.oscSampleB(v.phases_b[ui], inc, v.pulse_widths[1], warp_amt_b, v.wt_positions[1]);
+                        const samp = self.oscSampleB(v.phases_b[ui], inc, v.pulse_widths[1], v.warp_amounts[1], v.wt_positions[1]);
                         b_l += samp * pan_l_b[ui];
                         b_r += samp * pan_r_b[ui];
                         b_mono += samp;
@@ -1997,6 +2004,7 @@ pub const PolySynth = struct {
                 v.steal_fade = @max(v.steal_fade - steal_fade_step, 0.0);
                 for (&v.pulse_widths, pw_steps) |*current, step| current.* += step;
                 for (&v.wt_positions, wt_steps) |*current, step| current.* += step;
+                for (&v.warp_amounts, warp_steps) |*current, step| current.* += step;
                 // zig fmt: on
 
                 // Amplitude envelope - hitting zero on release kills the
@@ -4768,6 +4776,24 @@ test "wavetable positions ramp to live targets across one block" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.2), positions[0], 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.6), positions[1], 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), positions[2], 1e-6);
+}
+
+test "phase warp amounts ramp to live targets across one block" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.warp_mode = .bend;
+    synth.osc_b_on = true;
+    synth.osc_b_warp_mode = .sync;
+    synth.noteOn(60, 1.0);
+
+    synth.warp_amount = 0.3;
+    synth.osc_b_warp_amount = 0.8;
+    var buf = [_]Sample{0.0} ** 16;
+    synth.processBlock(&buf);
+
+    const amounts = synth.voices[synth.newest_voice].warp_amounts;
+    try std.testing.expectApproxEqAbs(@as(f32, 0.3), amounts[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.8), amounts[1], 1e-6);
 }
 
 test "extreme pitch modulation keeps oscillator phases normalized" {
