@@ -129,6 +129,8 @@ pub const AutomationTarget = enum { gain, pan };
 /// slot. Curves allocate their point buffers only when used, so complete id
 /// coverage no longer implies a fixed point-buffer cost per track.
 pub const max_synth_slots = 256;
+const max_parameter_events = 64;
+const max_sample_accurate_lanes = 4;
 
 /// One instrument-param automation slot. Array index is parameter id;
 /// `active` lets audio thread skip empty curves without racing control-side
@@ -140,6 +142,11 @@ const SynthAutomationSlot = struct {
     /// `instance_id` - see `dsp.Event.automation_param`'s doc comment.
     instance_id: std.atomic.Value(u32) = .init(0),
     curve: AutomationCurve = .{},
+};
+
+const ParameterEvent = struct {
+    offset: u32,
+    event: dsp.Event,
 };
 
 /// A device chain (track/master/group FX chain) as read by the audio
@@ -1139,7 +1146,7 @@ pub const Engine = struct {
             .{ .target = self.active_spectrum_target.?, .analyzer = &self.master_spectrum, .pre = self.spectrum_pre }
         else
             null;
-        self.processChainWithSidechain(self.master_chain.slice(), &self.master_sidechain_sources, out, frames, master_tap);
+        self.processChainWithSidechain(self.master_chain.slice(), &self.master_sidechain_sources, out, frames, master_tap, &.{});
 
         self.preview.processBlock(out);
 
@@ -1482,16 +1489,36 @@ pub const Engine = struct {
         buf: []Sample,
         frames: u32,
         tap: ?SpectrumTap,
+        parameter_events: []const ParameterEvent,
     ) void {
         for (chain, 0..) |dev, slot| {
-            if (sidechain_sources[slot]) |src| {
-                if (self.sidechainCapture(src, frames)) |sc_buf| dev.sendEvent(.{ .set_sidechain_buf = .{ .buf = sc_buf } });
-            }
+            const sidechain = if (sidechain_sources[slot]) |src| self.sidechainCapture(src, frames) else null;
             if (tap) |t| if (dev.ptr == t.target and t.pre) {
                 t.analyzer.push(buf);
                 t.analyzer.analyze();
             };
-            dev.process(buf);
+            if (dev.acceptsSampleOffsetEvents()) {
+                for (parameter_events) |param| dev.sendEvent(param.event);
+                if (sidechain) |sc_buf| dev.sendEvent(.{ .set_sidechain_buf = .{ .buf = sc_buf } });
+                dev.process(buf);
+            } else {
+                var cursor: u32 = 0;
+                var event_index: usize = 0;
+                while (cursor < frames) {
+                    while (event_index < parameter_events.len and parameter_events[event_index].offset == cursor) : (event_index += 1) {
+                        var event = parameter_events[event_index].event;
+                        event.automation_param.sample_offset = 0;
+                        dev.sendEvent(event);
+                    }
+                    const next = if (event_index < parameter_events.len) @min(parameter_events[event_index].offset, frames) else frames;
+                    if (next == cursor) continue;
+                    const first: usize = cursor * channels;
+                    const last: usize = next * channels;
+                    if (sidechain) |sc_buf| dev.sendEvent(.{ .set_sidechain_buf = .{ .buf = sc_buf[first..last] } });
+                    dev.process(buf[first..last]);
+                    cursor = next;
+                }
+            }
             if (tap) |t| if (dev.ptr == t.target and !t.pre) {
                 t.analyzer.push(buf);
                 t.analyzer.analyze();
@@ -1542,14 +1569,49 @@ pub const Engine = struct {
         // adjustParam/CC already use. Only fires for slots actually
         // holding a param this track (valueAt is null otherwise), so
         // tracks with no synth-param automation pay nothing extra.
+        var lanes: [max_sample_accurate_lanes]*SynthAutomationSlot = undefined;
+        var lane_count: usize = 0;
         for (&auto.synth_slots) |*slot| {
             if (!slot.active.load(.acquire)) continue;
-            if (slot.curve.valueAt(beat_pos)) |val| {
+            if (lane_count < lanes.len) {
+                lanes[lane_count] = slot;
+                lane_count += 1;
+            } else if (slot.curve.valueAt(beat_pos)) |val| {
                 self.sendTrackEvent(ti, .{ .automation_param = .{
                     .id = slot.param_id.load(.acquire),
                     .value = val,
                     .instance_id = slot.instance_id.load(.acquire),
                 } });
+            }
+        }
+
+        var parameter_events: [max_parameter_events]ParameterEvent = undefined;
+        var parameter_event_count: usize = 0;
+        var lane_values: [max_sample_accurate_lanes][max_parameter_events]f32 = undefined;
+        if (lane_count > 0) {
+            const points_per_lane = max_parameter_events / lane_count;
+            const spacing: u32 = @max(1, std.math.divCeil(u32, frames, @intCast(points_per_lane)) catch 1);
+            const point_count: usize = @intCast(std.math.divCeil(u32, frames, spacing) catch 1);
+            const beat_step = @as(f64, @floatFromInt(spacing)) / self.transport.framesPerBeat();
+            var active_lane: [max_sample_accurate_lanes]bool = .{false} ** max_sample_accurate_lanes;
+            for (lanes[0..lane_count], 0..) |slot, lane| {
+                active_lane[lane] = slot.curve.fillValues(lane_values[lane][0..point_count], beat_pos, beat_step, 0);
+            }
+            for (0..point_count) |point| {
+                for (lanes[0..lane_count], 0..) |slot, lane| {
+                    if (!active_lane[lane]) continue;
+                    const offset: u32 = @intCast(point * spacing);
+                    parameter_events[parameter_event_count] = .{
+                        .offset = offset,
+                        .event = .{ .automation_param = .{
+                            .id = slot.param_id.load(.acquire),
+                            .value = lane_values[lane][point],
+                            .instance_id = slot.instance_id.load(.acquire),
+                            .sample_offset = offset,
+                        } },
+                    };
+                    parameter_event_count += 1;
+                }
             }
         }
 
@@ -1584,10 +1646,12 @@ pub const Engine = struct {
         // request before its own `process()` call below, regardless of
         // whether it sits at chain slot 0 (no pattern player) or 1. Zeroed
         // first so a pad that doesn't exist yields silence, not garbage.
+        var has_pad_capture = false;
         for (&self.sidechain_captures) |*c| {
             const src = c.source orelse continue;
             if (src.is_group or src.track != ti) continue;
             const pad = src.pad orelse continue;
+            has_pad_capture = true;
             const dest = c.buf[0 .. frames * channels];
             @memset(dest, 0.0);
             for (chain) |dev| {
@@ -1611,7 +1675,10 @@ pub const Engine = struct {
             .{ .target = self.active_spectrum_target.?, .analyzer = &self.track_spectrum, .pre = self.spectrum_pre }
         else
             null;
-        self.processChainWithSidechain(chain, &self.track_sidechain[ti], scratch, frames, track_tap);
+        // ponytail: per-pad capture owns one whole-block destination. Keep
+        // automation at block start until capture requests carry slice offsets.
+        const timed_events = if (has_pad_capture) parameter_events[0..@min(parameter_event_count, lane_count)] else parameter_events[0..parameter_event_count];
+        self.processChainWithSidechain(chain, &self.track_sidechain[ti], scratch, frames, track_tap, timed_events);
         const route_latency = self.primaryRouteLatency(track);
         // ponytail: one delay follows primary route. Add per-send delay when
         // sends through differently-latent buses need phase alignment too.
@@ -1849,7 +1916,7 @@ pub const Engine = struct {
                 .{ .target = self.active_spectrum_target.?, .analyzer = &self.track_spectrum, .pre = self.spectrum_pre }
             else
                 null;
-            self.processChainWithSidechain(g.chain.slice(), &g.sidechain_sources, gscratch, frames, group_tap);
+            self.processChainWithSidechain(g.chain.slice(), &g.sidechain_sources, gscratch, frames, group_tap, &.{});
 
             // If this group is itself a registered sidechain-detector
             // source (`SidechainSource.is_group`), finalize its capture now

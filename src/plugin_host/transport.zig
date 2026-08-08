@@ -58,6 +58,7 @@ pub const WireEvent = extern struct {
     cc_value: u8 = 0,
     bend: i16 = 0,
     param_id: u32 = 0,
+    sample_offset: u32 = 0,
     cookie: ?*anyopaque = null,
     value: f64 = 0,
 };
@@ -74,9 +75,9 @@ pub fn fromDeviceEvent(ev: device_mod.Event, self_ptr: *anyopaque) ?WireEvent {
         .all_off => .{ .kind = .all_off },
         .cc => |c| .{ .kind = .cc, .cc = c.cc, .cc_value = c.value },
         .pitch_bend => |b| .{ .kind = .pitch_bend, .bend = b.bend },
-        .automation_param => |p| .{ .kind = .automation_param, .param_id = p.id, .value = p.value },
-        .clap_param => |p| if (p.target == self_ptr) .{ .kind = .clap_param, .param_id = p.id, .cookie = p.cookie, .value = p.value } else null,
-        .vst3_param => |p| if (p.target == self_ptr) .{ .kind = .vst3_param, .param_id = p.id, .value = p.value } else null,
+        .automation_param => |p| .{ .kind = .automation_param, .param_id = p.id, .sample_offset = p.sample_offset, .value = p.value },
+        .clap_param => |p| if (p.target == self_ptr) .{ .kind = .clap_param, .param_id = p.id, .cookie = p.cookie, .value = p.value, .sample_offset = p.sample_offset } else null,
+        .vst3_param => |p| if (p.target == self_ptr) .{ .kind = .vst3_param, .param_id = p.id, .value = p.value, .sample_offset = p.sample_offset } else null,
         else => null,
     };
 }
@@ -92,9 +93,9 @@ pub fn toDeviceEvent(wire: WireEvent, self_ptr: *anyopaque) ?device_mod.Event {
         .all_off => .all_off,
         .cc => .{ .cc = .{ .cc = @intCast(wire.cc), .value = @intCast(wire.cc_value) } },
         .pitch_bend => .{ .pitch_bend = .{ .bend = wire.bend } },
-        .automation_param => .{ .automation_param = .{ .id = wire.param_id, .value = @floatCast(wire.value) } },
-        .clap_param => .{ .clap_param = .{ .target = self_ptr, .id = wire.param_id, .cookie = wire.cookie, .value = wire.value } },
-        .vst3_param => .{ .vst3_param = .{ .target = self_ptr, .id = wire.param_id, .value = wire.value } },
+        .automation_param => .{ .automation_param = .{ .id = wire.param_id, .value = @floatCast(wire.value), .sample_offset = wire.sample_offset } },
+        .clap_param => .{ .clap_param = .{ .target = self_ptr, .id = wire.param_id, .cookie = wire.cookie, .value = wire.value, .sample_offset = wire.sample_offset } },
+        .vst3_param => .{ .vst3_param = .{ .target = self_ptr, .id = wire.param_id, .value = wire.value, .sample_offset = wire.sample_offset } },
     };
 }
 
@@ -245,6 +246,14 @@ test "fromDeviceEvent drops clap_param not addressed at this instance" {
     try std.testing.expect(fromDeviceEvent(ev, self_ptr) == null);
     const mine_ev: device_mod.Event = .{ .clap_param = .{ .target = self_ptr, .id = 5, .cookie = null, .value = 1.0 } };
     try std.testing.expect(fromDeviceEvent(mine_ev, self_ptr) != null);
+}
+
+test "WireEvent preserves parameter sample offset" {
+    var target: u32 = 0;
+    const self_ptr: *anyopaque = @ptrCast(&target);
+    const ev: device_mod.Event = .{ .automation_param = .{ .id = 7, .value = 0.5, .sample_offset = 123 } };
+    const back = toDeviceEvent(fromDeviceEvent(ev, self_ptr).?, self_ptr).?;
+    try std.testing.expectEqual(@as(u32, 123), back.automation_param.sample_offset);
 }
 
 test "monotonicNs advances and sleepNs actually sleeps" {

@@ -330,11 +330,11 @@ pub const FxUnit = struct {
                 switch (self.payload) {
                     .clap => |plugin| {
                         const info = plugin.parameterInfo(@intCast(idx)) orelse return;
-                        plugin.setParameter(info.id, info.cookie, p.value);
+                        plugin.setParameterAt(info.id, info.cookie, p.value, p.sample_offset);
                     },
                     .vst3 => |plugin| {
                         const info = plugin.parameterInfo(idx) orelse return;
-                        plugin.setParameter(info.id, p.value);
+                        plugin.setParameterAt(info.id, p.value, p.sample_offset);
                     },
                     else => fx_params.setParamAbsolute(&self.payload, idx, p.value),
                 }
@@ -344,6 +344,12 @@ pub const FxUnit = struct {
     }
 
     const vtable: dsp.Device.VTable = .{
+        .sample_offset_events = struct {
+            fn call(ptr: *anyopaque) bool {
+                const self: *FxUnit = @ptrCast(@alignCast(ptr));
+                return self.payload.device().acceptsSampleOffsetEvents();
+            }
+        }.call,
         .event = struct {
             fn call(ptr: *anyopaque, ev: dsp.Event) void {
                 const self: *FxUnit = @ptrCast(@alignCast(ptr));

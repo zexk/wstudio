@@ -84,11 +84,11 @@ pub const Event = union(enum) {
     /// its stable id (see `rack.FxUnit.instance_id`); `id` is then a local
     /// index into that unit's own `dsp.fx_params` table. 0 is never a real
     /// instance id (see `Fx.allocInstanceId`), so it's a safe sentinel.
-    automation_param: struct { id: u32, value: f32, instance_id: u32 = 0 },
+    automation_param: struct { id: u32, value: f32, instance_id: u32 = 0, sample_offset: u32 = 0 },
     /// CLAP parameters use stable opaque u32 IDs. `target` keeps a
     /// track-wide event broadcast from changing every CLAP in the chain.
-    clap_param: struct { target: *anyopaque, id: u32, cookie: ?*anyopaque, value: f64 },
-    vst3_param: struct { target: *anyopaque, id: u32, value: f64 },
+    clap_param: struct { target: *anyopaque, id: u32, cookie: ?*anyopaque, value: f64, sample_offset: u32 = 0 },
+    vst3_param: struct { target: *anyopaque, id: u32, value: f64, sample_offset: u32 = 0 },
     /// Supply this block's external sidechain-detector signal - pushed by
     /// the engine to a single chain slot (not broadcast to a whole chain
     /// the way `sendTrackEvent` sends the other variants) right before that
@@ -166,6 +166,11 @@ pub const Device = struct {
                 return 0;
             }
         }.zero,
+        sample_offset_events: *const fn (ptr: *anyopaque) bool = struct {
+            fn no(_: *anyopaque) bool {
+                return false;
+            }
+        }.no,
     };
 
     pub fn process(self: Device, buf: []types.Sample) void {
@@ -182,6 +187,10 @@ pub const Device = struct {
 
     pub fn latencyFrames(self: Device) u32 {
         return self.vtable.latency_frames(self.ptr);
+    }
+
+    pub fn acceptsSampleOffsetEvents(self: Device) bool {
+        return self.vtable.sample_offset_events(self.ptr);
     }
 };
 
@@ -210,11 +219,15 @@ pub fn deviceOf(comptime T: type) fn (*T) Device {
             const self: *T = @ptrCast(@alignCast(ptr));
             return if (@hasDecl(T, "latencyFrames")) self.latencyFrames() else 0;
         }
+        fn sampleOffsetEventsOpaque(_: *anyopaque) bool {
+            return @hasDecl(T, "sample_offset_events") and T.sample_offset_events;
+        }
         const vtable: Device.VTable = .{
             .process = processOpaque,
             .reset = resetOpaque,
             .event = if (@hasDecl(T, "handleEvent")) eventOpaque else null,
             .latency_frames = latencyOpaque,
+            .sample_offset_events = sampleOffsetEventsOpaque,
         };
         fn device(self: *T) Device {
             return .{ .ptr = self, .vtable = &vtable };

@@ -344,6 +344,7 @@ fn acceptOutputEvent(list: ?*const abi.OutputEvents, event: *const abi.EventHead
 /// (rack.zig, session.zig, persist_*.zig, ui/*) never need to know which
 /// mode a given instance is in.
 pub const ClapPlugin = struct {
+    pub const sample_offset_events = true;
     allocator: std.mem.Allocator,
     /// Cached at load time so external readers (`Fx.insertClap`,
     /// `Session.setClapInstrument`) can check it as a plain field, exactly
@@ -609,9 +610,13 @@ pub const ClapPlugin = struct {
     /// Queue a parameter edit for the next audio block. The caller must use
     /// the engine command queue when it runs concurrently with audio.
     pub fn setParameter(self: *ClapPlugin, id_value: u32, cookie: ?*anyopaque, value: f64) void {
+        self.setParameterAt(id_value, cookie, value, 0);
+    }
+
+    pub fn setParameterAt(self: *ClapPlugin, id_value: u32, cookie: ?*anyopaque, value: f64, sample_offset: u32) void {
         switch (self.impl) {
-            .direct => |*d| d.pushParameter(id_value, cookie, value),
-            .bridged => self.pushPending(.{ .kind = .clap_param, .param_id = id_value, .cookie = cookie, .value = value }),
+            .direct => |*d| d.pushParameter(id_value, cookie, value, sample_offset),
+            .bridged => self.pushPending(.{ .kind = .clap_param, .param_id = id_value, .cookie = cookie, .value = value, .sample_offset = sample_offset }),
         }
     }
 
@@ -922,8 +927,9 @@ const Direct = struct {
             },
             .clap_param => |param| {
                 if (param.target == @as(*anyopaque, @ptrCast(outer)))
-                    self.pushParameter(param.id, param.cookie, param.value);
+                    self.pushParameter(param.id, param.cookie, param.value, param.sample_offset);
             },
+            .automation_param => |param| if (self.audio_inputs_count == 0) self.pushParameter(param.id, null, param.value, param.sample_offset),
             else => {},
         }
     }
@@ -932,9 +938,13 @@ const Direct = struct {
     /// `event_type` - shared by pushNote/pushMidi/pushParameter, which
     /// otherwise each repeat the same 5-field literal.
     fn eventHeader(size: u32, event_type: u16) abi.EventHeader {
+        return eventHeaderAt(size, event_type, 0);
+    }
+
+    fn eventHeaderAt(size: u32, event_type: u16, sample_offset: u32) abi.EventHeader {
         return .{
             .size = size,
-            .time = 0,
+            .time = sample_offset,
             .space_id = abi.core_event_space_id,
             .event_type = event_type,
             .flags = 0,
@@ -1021,9 +1031,9 @@ const Direct = struct {
         return std.mem.sliceTo(buffer, 0);
     }
 
-    fn pushParameter(self: *Direct, id_value: u32, cookie: ?*anyopaque, value: f64) void {
+    fn pushParameter(self: *Direct, id_value: u32, cookie: ?*anyopaque, value: f64, sample_offset: u32) void {
         self.events.push(.{ .param = .{
-            .header = eventHeader(@sizeOf(abi.EventParamValue), abi.event_param_value),
+            .header = eventHeaderAt(@sizeOf(abi.EventParamValue), abi.event_param_value, sample_offset),
             .param_id = id_value,
             .cookie = cookie,
             .note_id = -1,

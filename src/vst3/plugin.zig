@@ -168,9 +168,12 @@ const HostEventList = struct {
 };
 
 const ParamQueue = struct {
+    const max_points = 64;
+    const Point = struct { offset: i32, value: f64 };
     interface: abi.ParamValueQueue = .{ .vtable = &vtable },
     id: u32 = 0,
-    value: f64 = 0,
+    points: [max_points]Point = undefined,
+    len: usize = 0,
 
     fn from(raw: *anyopaque) *ParamQueue {
         return @ptrCast(@alignCast(raw));
@@ -185,18 +188,22 @@ const ParamQueue = struct {
     fn getId(raw: *anyopaque) callconv(abi.abi_callconv) u32 {
         return from(raw).id;
     }
-    fn count(_: *anyopaque) callconv(abi.abi_callconv) i32 {
-        return 1;
+    fn count(raw: *anyopaque) callconv(abi.abi_callconv) i32 {
+        return @intCast(from(raw).len);
     }
     fn get(raw: *anyopaque, index: i32, offset: *i32, value: *f64) callconv(abi.abi_callconv) abi.Result {
-        if (index != 0) return -1;
-        offset.* = 0;
-        value.* = from(raw).value;
+        const self = from(raw);
+        if (index < 0 or index >= self.len) return -1;
+        offset.* = self.points[@intCast(index)].offset;
+        value.* = self.points[@intCast(index)].value;
         return 0;
     }
-    fn add(raw: *anyopaque, _: i32, value: f64, index: *i32) callconv(abi.abi_callconv) abi.Result {
-        from(raw).value = value;
-        index.* = 0;
+    fn add(raw: *anyopaque, offset: i32, value: f64, index: *i32) callconv(abi.abi_callconv) abi.Result {
+        const self = from(raw);
+        if (self.len == max_points) return -1;
+        self.points[self.len] = .{ .offset = offset, .value = value };
+        index.* = @intCast(self.len);
+        self.len += 1;
         return 0;
     }
     const vtable: abi.ParamValueQueueVTable = .{ .query_interface = query, .add_ref = ref, .release = ref, .get_parameter_id = getId, .get_point_count = count, .get_point = get, .add_point = add };
@@ -239,10 +246,10 @@ const ParamChanges = struct {
         self.len += 1;
         return &self.queues[self.len - 1].interface;
     }
-    fn push(self: *ParamChanges, id: u32, value: f64) void {
+    fn push(self: *ParamChanges, id: u32, offset: u32, value: f64) void {
         var queue_index: i32 = 0;
         const queue = add(self, &id, &queue_index) orelse return;
-        _ = queue.vtable.add_point(queue, 0, value, &queue_index);
+        _ = queue.vtable.add_point(queue, @intCast(offset), value, &queue_index);
     }
     const vtable: abi.ParameterChangesVTable = .{ .query_interface = query, .add_ref = ref, .release = ref, .get_parameter_count = count, .get_parameter_data = get, .add_parameter_data = add };
 };
@@ -269,6 +276,7 @@ fn vstSamplePosition(frames: u64) i64 {
 /// are always caller-supplied `load()` arguments, so the outer wrapper
 /// just caches them directly.
 pub const Vst3Plugin = struct {
+    pub const sample_offset_events = true;
     allocator: std.mem.Allocator,
     bundle_path: []u8,
     class_id: [32]u8,
@@ -695,13 +703,20 @@ pub const Vst3Plugin = struct {
 
     pub fn setParameter(self: *Vst3Plugin, id: u32, value: f64) void {
         switch (self.impl) {
-            .direct => |*d| d.setParameter(id, value),
+            .direct => |*d| d.setParameter(id, value, 0),
             .bridged => |b| {
                 var req: [12]u8 = undefined;
                 @memcpy(req[0..4], std.mem.asBytes(&id));
                 @memcpy(req[4..12], std.mem.asBytes(&value));
                 _ = b.call(.set_parameter, &req) catch {};
             },
+        }
+    }
+
+    pub fn setParameterAt(self: *Vst3Plugin, id: u32, value: f64, sample_offset: u32) void {
+        switch (self.impl) {
+            .direct => |*d| d.setParameter(id, value, sample_offset),
+            .bridged => self.pushPending(.{ .kind = .vst3_param, .param_id = id, .value = value, .sample_offset = sample_offset }),
         }
     }
 
@@ -935,8 +950,8 @@ const Direct = struct {
             .all_off => for (&self.active_notes, 0..) |active, note| if (active) self.pushNote(false, @intCast(note), 0),
             .cc => |cc| self.pushMidiMapping(cc.cc, @as(f64, @floatFromInt(cc.value)) / 127.0),
             .pitch_bend => |bend| self.pushMidiMapping(129, @as(f64, @floatFromInt(@as(i32, bend.bend) + 8192)) / 16383.0),
-            .automation_param => |param| if (self.instrument) self.setParameter(param.id, param.value),
-            .vst3_param => |param| if (param.target == @as(*anyopaque, @ptrCast(outer))) self.setParameter(param.id, param.value),
+            .automation_param => |param| if (self.instrument) self.setParameter(param.id, param.value, param.sample_offset),
+            .vst3_param => |param| if (param.target == @as(*anyopaque, @ptrCast(outer))) self.setParameter(param.id, param.value, param.sample_offset),
             else => {},
         }
     }
@@ -945,7 +960,7 @@ const Direct = struct {
         const mapping = self.midi_mapping orelse return;
         var id: u32 = 0;
         if (mapping.vtable.get_midi_controller_assignment(mapping, 0, 0, controller_number, &id) == 0)
-            self.param_changes.push(id, std.math.clamp(value, 0, 1));
+            self.param_changes.push(id, 0, std.math.clamp(value, 0, 1));
     }
 
     fn pushNote(self: *Direct, on: bool, note: u7, velocity: f32) void {
@@ -1035,11 +1050,11 @@ const Direct = struct {
         return controller.vtable.get_param_normalized(controller, id);
     }
 
-    fn setParameter(self: *Direct, id: u32, value: f64) void {
+    fn setParameter(self: *Direct, id: u32, value: f64, sample_offset: u32) void {
         const controller = self.controller orelse return;
         const normalized = std.math.clamp(value, 0, 1);
         if (controller.vtable.set_param_normalized(controller, id, normalized) == 0)
-            self.param_changes.push(id, normalized);
+            self.param_changes.push(id, sample_offset, normalized);
     }
 
     fn makeProcessContext(self: *const Direct) abi.ProcessContext {
@@ -1162,4 +1177,17 @@ test "controller cleanup terminates only initialized instances and always releas
 test "VST3 sample position clamps beyond signed ABI range" {
     try std.testing.expectEqual(@as(i64, 48_000), vstSamplePosition(48_000));
     try std.testing.expectEqual(std.math.maxInt(i64), vstSamplePosition(std.math.maxInt(u64)));
+}
+
+test "VST3 parameter queue preserves sample offsets" {
+    var changes: ParamChanges = .{};
+    changes.push(7, 12, 0.25);
+    changes.push(7, 48, 0.75);
+    const queue = ParamChanges.get(&changes.interface, 0).?;
+    try std.testing.expectEqual(@as(i32, 2), queue.vtable.get_point_count(queue));
+    var offset: i32 = 0;
+    var value: f64 = 0;
+    try std.testing.expectEqual(@as(abi.Result, 0), queue.vtable.get_point(queue, 1, &offset, &value));
+    try std.testing.expectEqual(@as(i32, 48), offset);
+    try std.testing.expectEqual(@as(f64, 0.75), value);
 }
