@@ -38,6 +38,7 @@ pub const pad_sections = [_]Section{
         .{ .id = 1,  .label = "End",     .gui_format = "%.3f" },
         .{ .id = 2,  .label = "Pitch",   .gui_format = "%.0f st" },
         .{ .id = 12, .label = "Stretch", .gui_format = "%.2fx" },
+        .{ .id = 20, .label = "Warp",    .gui_format = "%.0f" },
         .{ .id = 14, .label = "Gate",    .gui_format = "%.0f" },
         .{ .id = 19, .label = "Loop",    .gui_format = "%.0f" },
     } },
@@ -296,12 +297,12 @@ test "param row order follows the drawn rows, not the raw id space" {
     // A drum pad / slice: stretch (id 12) draws inside SAMPLE, so j from
     // pitch has to land on it rather than skipping to the AMP ENV section.
     const pad = paramOrder(true, DrumMachine.pad_param_count, &buf);
-    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 14, 19, 3, 4, 5, 6, 7, 8, 9, 13, 10, 11, 15, 16, 17, 18 }, pad);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 20, 14, 19, 3, 4, 5, 6, 7, 8, 9, 13, 10, 11, 15, 16, 17, 18 }, pad);
 
     var buf2: [24]u8 = undefined;
     // A standalone Sampler adds the KEY section at the bottom.
     const sampler = paramOrder(false, Sampler.param_count, &buf2);
-    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 14, 19, 3, 4, 5, 6, 7, 8, 9, 13, 10, 11, 15, 16, 17, 18, Sampler.root_note_id, Sampler.mono_id }, sampler);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 20, 14, 19, 3, 4, 5, 6, 7, 8, 9, 13, 10, 11, 15, 16, 17, 18, Sampler.root_note_id, Sampler.mono_id }, sampler);
 }
 
 /// Audition the sampler editor's current target.

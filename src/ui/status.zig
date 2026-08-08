@@ -381,7 +381,7 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
 const sampler_param_labels = [_][]const u8{
     "start", "end",      "pitch",    "attack",  "decay",  "sustain", "release", "gain",  "pan",
     "reverse", "fade in", "fade out", "stretch", "filter", "play",    "rate",    "depth", "shape",
-    "dest",  "loop",     "root",     "voice",
+    "dest",  "loop",     "warp",     "root",     "voice",
 };
 
 comptime {
@@ -440,6 +440,7 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
         17 => try w.writeAll(ws.dsp.lfo.shape_names[@intFromEnum(pad.mod_shape)]),
         18 => try w.writeAll(ws.dsp.pad.mod_dest_names[@intFromEnum(pad.mod_dest)]),
         19 => try w.writeAll(ws.dsp.pad.loop_mode_names[@intFromEnum(pad.loop)]),
+        20 => try w.writeAll(ws.dsp.pad.warp_method_names[@intFromEnum(pad.warp_method)]),
         Sampler.root_note_id => {
             const root: u7 = if (app.editingSampler()) |s| s.root_note else 60;
             var nbuf: [5]u8 = undefined;

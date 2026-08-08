@@ -140,11 +140,12 @@ pub fn drawSamplerEditor(
     }
     try barRow(w, c == 12, false, acc, "stretch", pad.stretch_ratio, 4.0,
         try std.fmt.bufPrint(&buf, "{d:.2}x", .{pad.stretch_ratio}));
+    try enumRow(w, c == 20, pad.stretch_ratio == 1, acc, "warp", &ws.dsp.pad.warp_method_names, @intFromEnum(pad.warp_method));
     {
         try enumRow(w, c == 14, false, acc, "play", &ws.dsp.pad.play_mode_names, @intFromEnum(ws.dsp.pad.playMode(pad)));
         try enumRow(w, c == 19, false, acc, "loop", &ws.dsp.pad.loop_mode_names, @intFromEnum(pad.loop));
     }
-    written += 6;
+    written += 7;
 
     // ── AMP ENV ──────────────────────────────────
     try synthSection(w, sampler_ed.pad_sections[1].title, grn);

@@ -75,12 +75,13 @@ const cases = [_]Case{
     .{ .name = "pitch_cancel_+12st", .pitch_semitones = 12, .stretch_ratio = 2.0 },
 };
 
-fn renderCase(allocator: std.mem.Allocator, clip: []const f32, case: Case, out: *std.ArrayList(f32)) !void {
+fn renderCase(allocator: std.mem.Allocator, clip: []const f32, case: Case, method: ws.dsp.pad.WarpMethod, out: *std.ArrayList(f32)) !void {
     var s = try ws.dsp.Sampler.init(allocator, sample_rate);
     defer s.deinit();
     s.setSamples(try allocator.dupe(f32, clip), "demo");
     s.pad.pitch_semitones = case.pitch_semitones;
     s.pad.stretch_ratio = case.stretch_ratio;
+    s.pad.warp_method = method;
     s.trigger(60, 1.0, 0);
 
     out.clearRetainingCapacity();
@@ -127,12 +128,14 @@ pub fn main(init: std.process.Init) !void {
     for (clips) |clip_spec| {
         const clip = try clip_spec.gen(gpa);
         defer gpa.free(clip);
-        for (cases) |case| {
-            try renderCase(gpa, clip, case, &out_buf);
-            var name_buf: [128]u8 = undefined;
-            const name = try std.fmt.bufPrint(&name_buf, "{s}_{s}.wav", .{ clip_spec.name, case.name });
-            try writeWav(io, dir, name, out_buf.items);
-            try stdout.print("wrote {s}/{s} ({d} frames)\n", .{ out_dir, name, out_buf.items.len });
+        for ([_]ws.dsp.pad.WarpMethod{ .beats, .tones }) |method| {
+            for (cases) |case| {
+                try renderCase(gpa, clip, case, method, &out_buf);
+                var name_buf: [128]u8 = undefined;
+                const name = try std.fmt.bufPrint(&name_buf, "{s}_{s}_{s}.wav", .{ clip_spec.name, @tagName(method), case.name });
+                try writeWav(io, dir, name, out_buf.items);
+                try stdout.print("wrote {s}/{s} ({d} frames)\n", .{ out_dir, name, out_buf.items.len });
+            }
         }
     }
     try stdout.flush();

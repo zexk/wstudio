@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 46;
+pub const file_version: u32 = 47;
 
 /// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
 /// reasoning as `EqBandKindSnap`.
@@ -253,6 +253,7 @@ pub const PadSnap = struct {
     fade_out_s: f32 = 0.0,
     /// Playback duration multiplier, independent of pitch (see `dsp.Pad`).
     stretch_ratio: f32 = 1.0,
+    warp_method: pad_mod.WarpMethod = .beats,
     /// Bipolar tone filter and gated-playback flag (see `dsp.Pad`).
     filter: f32 = 0.0,
     gate: bool = false,

@@ -57,6 +57,9 @@ pub const Pad = struct {
     /// composing into a duration-preserving pitch-shift. See
     /// `renderVoiceStretched`.
     stretch_ratio: f32 = 1.0,
+    /// Algorithm used when `stretch_ratio` is not 1. Beats uses short grains
+    /// for sharp attacks; tones uses long correlation windows for sustain.
+    warp_method: WarpMethod = .beats,
     /// Repeat the play region instead of stopping at its end - see
     /// `LoopMode`. `.off` (the default) is the one-shot behaviour every
     /// existing pad has.
@@ -110,6 +113,9 @@ pub const Pad = struct {
 /// forever; see `renderVoice`'s `looping`.
 pub const LoopMode = enum { off, forward, ping_pong };
 pub const loop_mode_names = [_][]const u8{ "off", "forward", "ping-pong" };
+
+pub const WarpMethod = enum { beats, tones };
+pub const warp_method_names = [_][]const u8{ "beats", "tones" };
 
 /// Position within the region, in source frames from its start, for a voice
 /// that has consumed `played` source frames. Everything past the first pass
@@ -190,14 +196,14 @@ pub fn emptyPad() *const Pad {
 /// `paramValue` cover - start/end/pitch/attack/decay/sustain/release/gain/pan,
 /// the reverse toggle at id 9, the fade in/out pair at 10/11, stretch at 12,
 /// filter at 13, the gate toggle at 14, the per-pad LFO's rate/depth/
-/// shape/dest at 15-18, and the loop mode at 19. Callers with extra ids of
+/// shape/dest at 15-18, loop mode at 19, and warp method at 20. Callers with extra ids of
 /// their own (Sampler's
 /// root_note/mono, ...) dispatch those separately and fall through to these
-/// for 0-19. The *packed* half of the space must stay within `paramId`'s
+/// for 0-20. The *packed* half of the space must stay within `paramId`'s
 /// param field - DrumMachine/Slicer pack the param id into its low 5 bits
-/// (32 slots), which 0-19 fits with room to spare; Sampler's own ids past
+/// (32 slots), which 0-20 fits with room to spare; Sampler's own ids past
 /// this table are never packed.
-pub const param_count: u16 = 20;
+pub const param_count: u16 = 21;
 
 /// Ids of the two enum params in this table, so callers that need to treat
 /// them differently (undo capture, the automation param picker, the UI's
@@ -214,6 +220,7 @@ pub const mod_shape_id: u16 = 17;
 pub const mod_dest_id: u16 = 18;
 /// The loop-mode cycle (see `LoopMode`), named for the same reason.
 pub const loop_id: u16 = 19;
+pub const warp_method_id: u16 = 20;
 
 pub fn playDurationSeconds(pad: *const Pad, sample_rate: u32) f32 {
     if (sample_rate == 0 or pad.samples.len == 0) return 0;
@@ -282,6 +289,10 @@ pub fn adjustParam(pad: *Pad, id: u16, steps: i32) void {
         pad.loop = @enumFromInt(@mod(cur + steps, n));
         return;
     }
+    if (id == warp_method_id) {
+        if (steps != 0) pad.warp_method = if (pad.warp_method == .beats) .tones else .beats;
+        return;
+    }
     if (id == 6) {
         pad.release_s = std.math.clamp(pad.release_s * std.math.pow(f32, 2.0, @as(f32, @floatFromInt(steps)) / 12.0), 0.001, 5.0);
         return;
@@ -345,6 +356,7 @@ pub fn setParamAbsolute(pad: *Pad, id: u16, value: f32) void {
         17 => pad.mod_shape  = @enumFromInt(@as(u8, @intFromFloat(std.math.clamp(@round(value), 0.0, @as(f32, @typeInfo(lfo_dsp.Shape).@"enum".fields.len - 1))))),
         18 => pad.mod_dest   = @enumFromInt(@as(u8, @intFromFloat(std.math.clamp(@round(value), 0.0, @as(f32, @typeInfo(ModDest).@"enum".fields.len - 1))))),
         19 => pad.loop       = @enumFromInt(@as(u8, @intFromFloat(std.math.clamp(@round(value), 0.0, @as(f32, @typeInfo(LoopMode).@"enum".fields.len - 1))))),
+        20 => pad.warp_method = @enumFromInt(@as(u8, @intFromFloat(std.math.clamp(@round(value), 0.0, @as(f32, @typeInfo(WarpMethod).@"enum".fields.len - 1))))),
         // zig fmt: on
         else => {},
     }
@@ -387,6 +399,7 @@ pub fn paramValue(pad: *const Pad, id: u16) ?f32 {
         17 => @floatFromInt(@intFromEnum(pad.mod_shape)),
         18 => @floatFromInt(@intFromEnum(pad.mod_dest)),
         19 => @floatFromInt(@intFromEnum(pad.loop)),
+        20 => @floatFromInt(@intFromEnum(pad.warp_method)),
         // zig fmt: on
         else => null,
     };
@@ -510,6 +523,9 @@ const StretchState = struct {
     active: bool = false,
     /// Current grain's source-frame anchor.
     cur_src: f64 = 0,
+    /// Requested-ratio anchor. Correlation searches around this timeline so
+    /// alignment offsets cannot accumulate into duration drift.
+    ideal_src: f64 = 0,
     /// Outgoing grain's natural (no-jump) continuation anchor.
     prev_src: f64 = 0,
     has_prev: bool = false,
@@ -577,11 +593,12 @@ pub fn renderVoice(
     // WSOLA time-stretch: only when requested and the region holds at least
     // two grains' worth of material - otherwise fall through to the plain
     // path below unchanged (byte-for-byte identical at stretch_ratio == 1.0).
-    if (pad.stretch_ratio != 1.0 and region_len >= 2.0 * grainFrames(sample_rate)) {
+    if (pad.stretch_ratio != 1.0 and region_len >= 2.0 * grainFrames(sample_rate, pad.warp_method)) {
         if (!voice.stretch.active) {
             voice.stretch = .{
                 .active = true,
                 .cur_src = if (pad.reverse) hi - 1.0 - voice.played else lo + voice.played,
+                .ideal_src = if (pad.reverse) hi - 1.0 - voice.played else lo + voice.played,
                 .out_played = voice.played / rate,
             };
         }
@@ -643,21 +660,20 @@ pub fn renderVoice(
     voice.block_start = 0;
 }
 
-/// Grain length in frames (~30ms) - long enough to cover a full period down
-/// to the lowest note `dsp/pitch.zig` will estimate a fundamental for.
-fn grainFrames(sr: f64) f64 {
-    return 0.030 * sr;
+fn grainFrames(sr: f64, method: WarpMethod) f64 {
+    const seconds: f64 = if (method == .beats) 0.016 else 0.060;
+    return seconds * sr;
 }
 
-/// Synthesis hop (~15ms, 50% overlap of `grainFrames`). Also the crossfade
-/// length: with 50% overlap, hop and overlap are the same length.
-fn hopFrames(sr: f64) f64 {
-    return 0.015 * sr;
+/// 50%-overlap synthesis hop. Also crossfade length.
+fn hopFrames(sr: f64, method: WarpMethod) f64 {
+    return grainFrames(sr, method) * 0.5;
 }
 
-/// Correlation search radius (~5ms either side of the nominal jump target).
-fn searchRadiusFrames(sr: f64) f64 {
-    return 0.005 * sr;
+/// Correlation search radius around nominal jump target.
+fn searchRadiusFrames(sr: f64, method: WarpMethod) f64 {
+    const seconds: f64 = if (method == .beats) 0.003 else 0.010;
+    return seconds * sr;
 }
 
 /// WSOLA time-stretch path: plays `pad.samples` at the pitch `rate` already
@@ -684,14 +700,15 @@ fn renderVoiceStretched(
     gr: f32,
 ) void {
     const dir: f64 = if (pad.reverse) -1.0 else 1.0;
-    const ha = hopFrames(sr);
+    const ha = hopFrames(sr, pad.warp_method);
     const ha_i: u32 = @intFromFloat(@max(1.0, @round(ha)));
-    const search_r = searchRadiusFrames(sr);
+    const search_r = searchRadiusFrames(sr, pad.warp_method);
     const stretch_ratio: f64 = @max(0.01, @as(f64, pad.stretch_ratio));
 
     const st = &voice.stretch;
     if (st.out_played == 0.0) {
         st.cur_src = if (pad.reverse) hi - 1.0 else lo;
+        st.ideal_src = st.cur_src;
     }
 
     const fc = filterCoef(pad.filter, sr);
@@ -710,7 +727,8 @@ fn renderVoiceStretched(
         if (st.out_in_grain >= ha_i) {
             const advance = dir * ha * rate;
             const prev_src = st.cur_src + advance;
-            const nominal_src = st.cur_src + advance / stretch_ratio;
+            st.ideal_src += advance / stretch_ratio;
+            const nominal_src = st.ideal_src;
             st.prev_src = prev_src;
             st.cur_src = searchBestAlign(pad.samples, prev_src, nominal_src, search_r, ha, dir, lo, hi);
             st.has_prev = true;
@@ -733,6 +751,7 @@ fn renderVoiceStretched(
             // across the seam - `prev_src` points past the region end, so
             // the outgoing grain has nothing left to fade from.
             st.cur_src = if (pad.reverse) hi - 1.0 else lo;
+            st.ideal_src = st.cur_src;
             st.has_prev = false;
             st.out_in_grain = 0;
             cur_read = st.cur_src;
@@ -797,6 +816,8 @@ fn searchBestAlign(
 ) f64 {
     const hop_i: usize = @intFromFloat(@max(1.0, @round(hop)));
     const steps: i64 = @intFromFloat(@round(search_r));
+    // Long tone windows need half-rate correlation to keep audio-thread cost bounded.
+    const stride: usize = if (hop_i >= 1000) 2 else 1;
     if (steps <= 0) return std.math.clamp(nominal_src, lo, hi - 1.0);
 
     // Normalized cross-correlation, not raw SSD: a decaying/enveloped source
@@ -807,12 +828,12 @@ fn searchBestAlign(
     // unstretched continuation. Dividing out each window's own energy keeps
     // the search scale-invariant.
     const score = struct {
-        fn at(smp: []const f32, prev: f64, cand: f64, len: usize, direction: f64, lo2: f64, hi2: f64) f64 {
+        fn at(smp: []const f32, prev: f64, cand: f64, len: usize, stride2: usize, direction: f64, lo2: f64, hi2: f64) f64 {
             var dot: f64 = 0.0;
             var ea: f64 = 0.0;
             var eb: f64 = 0.0;
             var j: usize = 0;
-            while (j < len) : (j += 1) {
+            while (j < len) : (j += stride2) {
                 const off = direction * @as(f64, @floatFromInt(j));
                 const a: f64 = sampleAt(smp, std.math.clamp(prev + off, lo2, hi2 - 1.0));
                 const b: f64 = sampleAt(smp, std.math.clamp(cand + off, lo2, hi2 - 1.0));
@@ -835,17 +856,17 @@ fn searchBestAlign(
     // `stretch_ratio` instead of the source's own periodicity.
     const margin = 0.001;
     var best_k: i64 = 0;
-    var best_score = score(samples, prev_src, nominal_src, hop_i, dir, lo, hi);
-    var d: i64 = 1;
-    while (d <= steps) : (d += 1) {
+    var best_score = score(samples, prev_src, nominal_src, hop_i, stride, dir, lo, hi);
+    var d: i64 = @intCast(stride);
+    while (d <= steps) : (d += @intCast(stride)) {
         const cand_neg = nominal_src - @as(f64, @floatFromInt(d));
-        const s_neg = score(samples, prev_src, cand_neg, hop_i, dir, lo, hi);
+        const s_neg = score(samples, prev_src, cand_neg, hop_i, stride, dir, lo, hi);
         if (s_neg > best_score + margin) {
             best_score = s_neg;
             best_k = -d;
         }
         const cand_pos = nominal_src + @as(f64, @floatFromInt(d));
-        const s_pos = score(samples, prev_src, cand_pos, hop_i, dir, lo, hi);
+        const s_pos = score(samples, prev_src, cand_pos, hop_i, stride, dir, lo, hi);
         if (s_pos > best_score + margin) {
             best_score = s_pos;
             best_k = d;
@@ -1106,7 +1127,7 @@ test "adjustParam uses the same bounds as absolute parameter assignment" {
     for (0..param_count) |raw_id| {
         // Toggles and perceptually-scaled time controls do not use additive
         // `paramStep`; each gets focused assertions below.
-        if (raw_id == reverse_id or raw_id == gate_id or raw_id == 3 or raw_id == 4 or raw_id == 6 or raw_id == 10 or raw_id == 11 or raw_id == mod_shape_id or raw_id == mod_dest_id) continue;
+        if (raw_id == reverse_id or raw_id == gate_id or raw_id == 3 or raw_id == 4 or raw_id == 6 or raw_id == 10 or raw_id == 11 or raw_id == mod_shape_id or raw_id == mod_dest_id or raw_id == loop_id or raw_id == warp_method_id) continue;
         const id: u8 = @intCast(raw_id);
         var nudged = initial;
         var assigned = initial;
@@ -1114,6 +1135,12 @@ test "adjustParam uses the same bounds as absolute parameter assignment" {
         setParamAbsolute(&assigned, id, paramValue(&initial, id).? + 3.0 * paramStep(id));
         try testing.expectApproxEqAbs(paramValue(&assigned, id).?, paramValue(&nudged, id).?, 1e-6);
     }
+
+    var method = initial;
+    adjustParam(&method, warp_method_id, 1);
+    try testing.expectEqual(WarpMethod.tones, method.warp_method);
+    adjustParam(&method, warp_method_id, -1);
+    try testing.expectEqual(WarpMethod.beats, method.warp_method);
 
     var toggled = initial;
     adjustParam(&toggled, reverse_id, 1);

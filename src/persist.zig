@@ -658,7 +658,7 @@ test "save/load round-trip persists a slicer's slices, pattern, and swing" {
     try testing.expectApproxEqAbs(@as(f32, 65.0), sl.swing.load(.monotonic), 1e-4);
 }
 
-test "save/load round-trip persists a pad's LFO mod params and loop mode across sampler, drum, and slicer" {
+test "save/load round-trip persists pad modes across sampler, drum, and slicer" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -680,6 +680,7 @@ test "save/load round-trip persists a pad's LFO mod params and loop mode across 
         s.pad.mod_shape = .square;
         s.pad.mod_dest = .filter;
         s.pad.loop = .ping_pong;
+        s.pad.warp_method = .tones;
     }
     {
         const dm = &session.racks.items[1].instrument.drum_machine;
@@ -689,6 +690,7 @@ test "save/load round-trip persists a pad's LFO mod params and loop mode across 
         dm.pads[0].?.pad.mod_shape = .triangle;
         dm.pads[0].?.pad.mod_dest = .pan;
         dm.pads[0].?.pad.loop = .forward;
+        dm.pads[0].?.pad.warp_method = .tones;
     }
     {
         const sl = &session.racks.items[2].instrument.slicer;
@@ -698,6 +700,7 @@ test "save/load round-trip persists a pad's LFO mod params and loop mode across 
         sl.slices[1].mod_shape = .saw;
         sl.slices[1].mod_dest = .pitch;
         sl.slices[1].loop = .forward;
+        sl.slices[1].warp_method = .tones;
     }
 
     try save(testing.allocator, &session, testing.io, wsj_path);
@@ -710,6 +713,7 @@ test "save/load round-trip persists a pad's LFO mod params and loop mode across 
     try testing.expectEqual(lfo_mod.Shape.square, s.pad.mod_shape);
     try testing.expectEqual(pad_mod.ModDest.filter, s.pad.mod_dest);
     try testing.expectEqual(pad_mod.LoopMode.ping_pong, s.pad.loop);
+    try testing.expectEqual(pad_mod.WarpMethod.tones, s.pad.warp_method);
 
     const dm = &loaded.racks.items[1].instrument.drum_machine;
     try testing.expectApproxEqAbs(@as(f32, 3.25), dm.pads[0].?.pad.mod_rate_hz, 1e-4);
@@ -717,6 +721,7 @@ test "save/load round-trip persists a pad's LFO mod params and loop mode across 
     try testing.expectEqual(lfo_mod.Shape.triangle, dm.pads[0].?.pad.mod_shape);
     try testing.expectEqual(pad_mod.ModDest.pan, dm.pads[0].?.pad.mod_dest);
     try testing.expectEqual(pad_mod.LoopMode.forward, dm.pads[0].?.pad.loop);
+    try testing.expectEqual(pad_mod.WarpMethod.tones, dm.pads[0].?.pad.warp_method);
 
     const sl = &loaded.racks.items[2].instrument.slicer;
     try testing.expectApproxEqAbs(@as(f32, 8.0), sl.slices[1].mod_rate_hz, 1e-4);
@@ -724,6 +729,7 @@ test "save/load round-trip persists a pad's LFO mod params and loop mode across 
     try testing.expectEqual(lfo_mod.Shape.saw, sl.slices[1].mod_shape);
     try testing.expectEqual(pad_mod.ModDest.pitch, sl.slices[1].mod_dest);
     try testing.expectEqual(pad_mod.LoopMode.forward, sl.slices[1].loop);
+    try testing.expectEqual(pad_mod.WarpMethod.tones, sl.slices[1].warp_method);
 }
 
 test "save/load round-trip persists a slicer's variant bank and choke groups" {

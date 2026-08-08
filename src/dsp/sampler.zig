@@ -449,9 +449,10 @@ test "stretch_ratio scales playback duration" {
     s.setSamples(try generateTestClip(std.testing.allocator, 48_000), "tone");
 
     const blocks_to_finish = struct {
-        fn run(smp: *Sampler, stretch: f32) usize {
+        fn run(smp: *Sampler, stretch: f32, method: pad_dsp.WarpMethod) usize {
             smp.resetAll();
             smp.pad.stretch_ratio = stretch;
+            smp.pad.warp_method = method;
             smp.trigger(60, 1.0, 0);
             var buf: [512]Sample = undefined;
             var n: usize = 0;
@@ -463,10 +464,12 @@ test "stretch_ratio scales playback duration" {
         }
     }.run;
 
-    const base_blocks = blocks_to_finish(&s, 1.0);
-    const stretched_blocks = blocks_to_finish(&s, 2.0);
-    const ratio = @as(f64, @floatFromInt(stretched_blocks)) / @as(f64, @floatFromInt(base_blocks));
-    try std.testing.expect(ratio > 1.7 and ratio < 2.3);
+    for ([_]pad_dsp.WarpMethod{ .beats, .tones }) |method| {
+        const base_blocks = blocks_to_finish(&s, 1.0, method);
+        const stretched_blocks = blocks_to_finish(&s, 2.0, method);
+        const ratio = @as(f64, @floatFromInt(stretched_blocks)) / @as(f64, @floatFromInt(base_blocks));
+        try std.testing.expect(ratio > 1.9 and ratio < 2.1);
+    }
 }
 
 test "stretch_ratio composes with pitch to preserve duration while shifting pitch" {
