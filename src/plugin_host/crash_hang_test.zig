@@ -81,6 +81,9 @@ fn testHang(gpa: std.mem.Allocator, plugin_path: []const u8) !void {
 
     const pid = b.child.id orelse return error.NoChildPid;
     try std.posix.kill(pid, .STOP); // stuck, not exited - the reaper's wait() won't fire
+    var status: u32 = 0;
+    if (std.os.linux.waitpid(pid, &status, std.os.linux.W.UNTRACED) != @as(usize, @intCast(pid)) or
+        !std.os.linux.W.IFSTOPPED(status)) return error.ChildDidNotStop;
 
     buf = .{ 1, 1, 1, 1 };
     const before = transport.monotonicNs();
