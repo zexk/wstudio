@@ -541,8 +541,7 @@ pub fn focusedUnit(app: *App, fx: *const Fx) ?*FxUnit {
 /// param (`app.fx_param`) - see `automation_ed.addFxParamLane`'s doc comment
 /// for why this is a separate entry point from the instrument param picker.
 /// Master/group chains have no clip to attach a lane to, so this only fires
-/// for a track's own chain; comp's sidechain rows and CLAP/VST3 aren't
-/// automatable at all (`isAutomatable`).
+/// for a track's own chain; comp's sidechain rows aren't automatable.
 fn addFocusedFxParamLane(app: *App, target: EqTarget) void {
     if (target != .track) {
         app.setStatus("FX automation is per-track only", .{});
@@ -550,7 +549,7 @@ fn addFocusedFxParamLane(app: *App, target: EqTarget) void {
     }
     const fx = fxPtr(app, target) orelse return;
     const unit = focusedUnit(app, fx) orelse return;
-    if (!fx_p.isAutomatable(unit.kind(), app.fx_param)) {
+    if (!fx_p.isPayloadAutomatable(&unit.payload, app.fx_param)) {
         app.setStatus("this param can't be automated", .{});
         return;
     }

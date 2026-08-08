@@ -326,8 +326,18 @@ pub const FxUnit = struct {
             .automation_param => |p| {
                 if (p.instance_id == 0 or p.instance_id != self.instance_id) return;
                 const idx: usize = @intCast(p.id);
-                if (!fx_params.isAutomatable(self.kind(), idx)) return;
-                fx_params.setParamAbsolute(&self.payload, idx, p.value);
+                if (!fx_params.isPayloadAutomatable(&self.payload, idx)) return;
+                switch (self.payload) {
+                    .clap => |plugin| {
+                        const info = plugin.parameterInfo(@intCast(idx)) orelse return;
+                        plugin.setParameter(info.id, info.cookie, p.value);
+                    },
+                    .vst3 => |plugin| {
+                        const info = plugin.parameterInfo(idx) orelse return;
+                        plugin.setParameter(info.id, p.value);
+                    },
+                    else => fx_params.setParamAbsolute(&self.payload, idx, p.value),
+                }
             },
             else => self.payload.device().sendEvent(ev),
         }

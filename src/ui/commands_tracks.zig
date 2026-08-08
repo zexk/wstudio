@@ -500,7 +500,7 @@ fn focusedControllerTarget(app: *App) ?controller_mod.Target {
                 app.setStatus("ctrl-bind: this chain is empty", .{});
                 return null;
             };
-            if (!ws.dsp.fx_params.isAutomatable(unit.kind(), app.fx_param)) {
+            if (!ws.dsp.fx_params.isPayloadAutomatable(&unit.payload, app.fx_param)) {
                 app.setStatus("ctrl-bind: this param can't be modulated", .{});
                 return null;
             }

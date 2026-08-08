@@ -327,6 +327,16 @@ pub fn isAutomatable(k: FxKind, idx: usize) bool {
     };
 }
 
+/// Payload-aware counterpart for hosted plugins, whose parameter tables are
+/// dynamic rather than represented by `paramCount`.
+pub fn isPayloadAutomatable(p: *const FxPayload, idx: usize) bool {
+    return switch (p.*) {
+        .clap => |plugin| idx < plugin.parameterCount(),
+        .vst3 => |plugin| idx < plugin.parameterCount(),
+        else => isAutomatable(std.meta.activeTag(p.*), idx),
+    };
+}
+
 /// Param name at `idx` in `p` - bounds match `paramCount`.
 pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
     return switch (p.*) {
@@ -500,7 +510,11 @@ pub fn paramRange(p: *const FxPayload, idx: usize) [2]f32 {
         .delay => tableRange(&delay_specs, idx),
         .ott => tableRange(&ott_specs, idx),
         .limiter => tableRange(&limiter_specs, idx),
-        .clap, .vst3 => .{ 0.0, 1.0 },
+        .clap => |plugin| blk: {
+            const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk .{ 0.0, 1.0 };
+            break :blk .{ @floatCast(info.min_value), @floatCast(info.max_value) };
+        },
+        .vst3 => .{ 0.0, 1.0 },
     };
 }
 

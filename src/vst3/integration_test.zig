@@ -57,6 +57,14 @@ fn runScenario(gpa: std.mem.Allocator, io: std.Io, module_path: []const u8, bund
     effect.processBlock(&effect_audio);
     try std.testing.expectApproxEqAbs(@as(f32, 0.2), effect_audio[0], 0.0001);
 
+    var fx: ws.Fx = .{};
+    defer fx.deinit(gpa);
+    const automated = try fx.insertVst3(gpa, 0, bundle_path, "57535445464645435400000000000001", 48_000);
+    automated.device().sendEvent(.{ .automation_param = .{ .instance_id = automated.instance_id, .id = 0, .value = 0.75 } });
+    var automated_audio = [_]f32{ 1, 1 };
+    automated.device().process(&automated_audio);
+    try std.testing.expectEqual(@as(f64, 0.75), automated.payload.vst3.parameterValue(100).?);
+
     const project_path = ".zig-cache/vst3-integration.wsj";
     {
         var session = try ws.Session.initDefault(gpa);
