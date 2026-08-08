@@ -3076,6 +3076,28 @@ test "audio region gain and fades edit at arrangement cursor and undo" {
     try std.testing.expectApproxEqAbs(@as(f32, 0), app.session.arrangement.lane(0).?.clips.items[0].content.audio.gain_db, 1e-6);
 }
 
+test "consolidate renders audio region edits into a plain source" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .arrangement;
+    app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
+    app.session.engine.transport.tempo_bpm = app.session.project.tempo_bpm;
+    const source_id = try app.session.project.addAudioSource("raw", app.session.project.sample_rate, 1, &.{ 0.1, 0.2 });
+    try app.session.arrangement.lane(0).?.place(app.allocator, ws.Clip.initAudio(0, 64, .{
+        .source_id = source_id,
+        .source_start_frame = 0,
+        .source_length_frames = 2,
+        .reverse = true,
+    }));
+
+    commands.run(&app, "consolidate");
+    const audio = app.session.arrangement.lane(0).?.clips.items[0].content.audio;
+    const consolidated = app.session.project.audioSource(audio.source_id).?;
+    try std.testing.expectEqualSlices(f32, &.{ 0.2, 0.1 }, consolidated.samples);
+    try std.testing.expect(!audio.reverse);
+    try std.testing.expectEqual(@as(f32, 1), audio.stretch_ratio);
+}
+
 test "arrangement g plays from the cursor bar" {
     var app = try testApp();
     defer app.deinit();

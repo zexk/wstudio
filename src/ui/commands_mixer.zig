@@ -651,6 +651,66 @@ pub fn cmdCrossfade(app: *App, _: []const u8) void {
     app.setStatus("crossfade: {d} frames", .{frames});
 }
 
+pub fn cmdConsolidate(app: *App, _: []const u8) void {
+    if (app.view != .arrangement) {
+        app.setStatus("consolidate: open arrangement first", .{});
+        return;
+    }
+    const lane = app.session.arrangement.lane(app.cursor) orelse return;
+    const clip = lane.clipAt(app.arr_cursor_bar *| app.arr_grid.ticks()) orelse {
+        app.setStatus("consolidate: no clip at cursor", .{});
+        return;
+    };
+    const audio = switch (clip.content) {
+        .audio => |region| region,
+        else => {
+            app.setStatus("consolidate: clip is not audio", .{});
+            return;
+        },
+    };
+    const source = app.session.project.audioSource(audio.source_id) orelse {
+        app.setStatus("consolidate: missing audio source", .{});
+        return;
+    };
+    const frames_per_beat = app.session.engine.transport.framesPerBeat();
+    const frame_count: usize = @intFromFloat(@max(1.0, ws.time_grid.tickToBeat(clip.length_ticks) * frames_per_beat));
+    const rendered = app.allocator.alloc(f32, frame_count) catch {
+        app.setStatus("consolidate: out of memory", .{});
+        return;
+    };
+    defer app.allocator.free(rendered);
+    const source_frames = source.samples.len / source.channel_count;
+    const gain = ws.types.dbToGain(audio.gain_db);
+    for (rendered, 0..) |*sample, i| {
+        const offset: u64 = @intFromFloat(@as(f64, @floatFromInt(i)) * @as(f64, @floatFromInt(source.sample_rate)) / @as(f64, @floatFromInt(app.session.project.sample_rate)) / audio.stretch_ratio);
+        if (offset >= audio.source_length_frames) {
+            sample.* = 0;
+            continue;
+        }
+        const source_frame = audio.source_start_frame + if (audio.reverse) audio.source_length_frames - offset - 1 else offset;
+        if (source_frame >= source_frames) {
+            sample.* = 0;
+            continue;
+        }
+        const fade_in = if (audio.fade_in_frames > 0) @min(1.0, @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(audio.fade_in_frames))) else 1.0;
+        const remaining = frame_count - i - 1;
+        const fade_out = if (audio.fade_out_frames > 0) @min(1.0, @as(f32, @floatFromInt(remaining)) / @as(f32, @floatFromInt(audio.fade_out_frames))) else 1.0;
+        var mono: f32 = 0;
+        const source_index: usize = @intCast(source_frame * source.channel_count);
+        for (0..source.channel_count) |channel| mono += source.samples[source_index + channel];
+        sample.* = mono / @as(f32, @floatFromInt(source.channel_count)) * gain * @min(fade_in, fade_out);
+    }
+    const source_id = app.session.project.addAudioSource("consolidated", app.session.project.sample_rate, 1, rendered) catch {
+        app.setStatus("consolidate: failed to create source", .{});
+        return;
+    };
+    history.recordLane(app, @intCast(app.cursor));
+    clip.content.audio = .{ .source_id = source_id, .source_start_frame = 0, .source_length_frames = @intCast(frame_count) };
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.dirty = true;
+    app.setStatus("consolidated audio region", .{});
+}
+
 pub fn cmdTake(app: *App, args: []const u8) void {
     if (app.view != .arrangement) {
         app.setStatus("take: open arrangement first", .{});
