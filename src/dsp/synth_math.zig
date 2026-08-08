@@ -323,6 +323,19 @@ pub fn polyBlep(t: f32, dt: f32) f32 {
     return 0.0;
 }
 
+/// Convert frequency to cycles per sample, capped at Nyquist. Above-Nyquist
+/// phase motion cannot represent a distinct oscillator and only aliases.
+pub fn phaseInc(freq: f32, sample_rate: f32) f32 {
+    if (!(freq > 0.0) or !(sample_rate > 0.0)) return 0.0;
+    return @min(freq / sample_rate, 0.5);
+}
+
+test "phaseInc caps oscillator motion at Nyquist" {
+    try std.testing.expectEqual(@as(f32, 0.25), phaseInc(12_000.0, 48_000.0));
+    try std.testing.expectEqual(@as(f32, 0.5), phaseInc(96_000.0, 48_000.0));
+    try std.testing.expectEqual(@as(f32, 0.0), phaseInc(std.math.nan(f32), 48_000.0));
+}
+
 /// `dt` sizes polyBLEP correction for saw and square discontinuities.
 pub fn oscWave(wf: Waveform, phase: f32, pw: f32, dt: f32) Sample {
     return switch (wf) {

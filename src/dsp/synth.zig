@@ -30,6 +30,7 @@ const lfoSample = synth_math.lfoSample;
 const cycleEnum = synth_math.cycleEnum;
 const warpedInc = synth_math.warpedInc;
 const polyBlep = synth_math.polyBlep;
+const phaseInc = synth_math.phaseInc;
 const oscWave = synth_math.oscWave;
 const envShape = synth_math.envShape;
 const advanceEnv = synth_math.advanceEnv;
@@ -1743,7 +1744,7 @@ pub const PolySynth = struct {
             var phase_incs_a: [max_unison]f32 = undefined;
             for (0..n_a) |ui| {
                 const spread: f32 = if (n_a > 1) unisonSpreadCents(self.unison_mode, ui, n_a, uni_det_a) else 0.0;
-                phase_incs_a[ui] = base_freq * std.math.pow(f32, 2.0, spread / 1200.0) / self.sample_rate;
+                phase_incs_a[ui] = phaseInc(base_freq * std.math.pow(f32, 2.0, spread / 1200.0), self.sample_rate);
             }
 
             // Precompute per-unison phase increments for OSC B.
@@ -1756,7 +1757,7 @@ pub const PolySynth = struct {
                 const uni_det_b = eff(&mods, 13, self.osc_b_unison_detune);
                 for (0..n_b) |ui| {
                     const spread: f32 = if (n_b > 1) unisonSpreadCents(self.osc_b_unison_mode, ui, n_b, uni_det_b) else 0.0;
-                    phase_incs_b[ui] = b_freq * std.math.pow(f32, 2.0, spread / 1200.0) / self.sample_rate;
+                    phase_incs_b[ui] = phaseInc(b_freq * std.math.pow(f32, 2.0, spread / 1200.0), self.sample_rate);
                 }
             }
 
@@ -1770,12 +1771,12 @@ pub const PolySynth = struct {
                 const uni_det_c = eff(&mods, 57, self.osc_c_unison_detune);
                 for (0..n_c) |ui| {
                     const spread: f32 = if (n_c > 1) unisonSpreadCents(self.osc_c_unison_mode, ui, n_c, uni_det_c) else 0.0;
-                    phase_incs_c[ui] = c_freq * std.math.pow(f32, 2.0, spread / 1200.0) / self.sample_rate;
+                    phase_incs_c[ui] = phaseInc(c_freq * std.math.pow(f32, 2.0, spread / 1200.0), self.sample_rate);
                 }
             }
 
             // Per-voice sub phase increment (half-frequency = one octave below).
-            const sub_phase_inc = base_freq * 0.5 / self.sample_rate;
+            const sub_phase_inc = phaseInc(base_freq * 0.5, self.sample_rate);
 
             // Noise color: one-pole LP pole coefficient. color=1 → white, color=0 → dark.
             const noise_lp_a = (1.0 - eff(&mods, 37, self.noise_color)) * 0.99;
