@@ -735,13 +735,39 @@ pub const GroupSnap = struct {
     soloed: bool = false,
 };
 
-pub const ClipKind = enum { melodic, drum, audio };
-
 pub const AudioTakeSnap = struct {
     source_id: u32,
     source_start_frame: u64,
     source_length_frames: u64,
     length_ticks: u32,
+};
+
+pub const MelodicClipSnap = struct {
+    notes: []const NoteSnap = &.{},
+    length_beats: f64 = 4.0,
+};
+
+pub const DrumClipSnap = struct {
+    notes: []const DrumNoteSnap = &.{},
+    step_count: u16 = 16,
+    steps_per_beat: u8 = 4,
+    variant: u8 = 0,
+};
+
+pub const AudioClipSnap = struct {
+    source_id: u32,
+    source_start_frame: u64 = 0,
+    source_length_frames: u64,
+    gain_db: f32 = 0.0,
+    fade_in_frames: u64 = 0,
+    fade_out_frames: u64 = 0,
+    alternate_takes: []const AudioTakeSnap = &.{},
+};
+
+pub const ClipContentSnap = union(enum) {
+    melodic: MelodicClipSnap,
+    drum: DrumClipSnap,
+    audio: AudioClipSnap,
 };
 
 /// One placed clip. Melodic clips carry a private note copy + loop length; drum
@@ -750,27 +776,7 @@ pub const ClipSnap = struct {
     /// Exact placement at 32 ticks per quarter-note beat.
     start_tick: u32 = 0,
     length_ticks: u32 = time_grid.ticks_per_beat * 4,
-    kind: ClipKind = .melodic,
-    // melodic
-    notes: []const NoteSnap = &.{},
-    length_beats: f64 = 4.0,
-    // drum
-    /// Sparse per-pad note list - the drum clip's whole step grid.
-    /// Missing/out-of-range entries are dropped on load (see clipFromSnap).
-    drum_notes: []const DrumNoteSnap = &.{},
-    step_count: u16 = 16,
-    /// Native drum-clip resolution.
-    steps_per_beat: u8 = 4,
-    /// Variant letter label (index) the clip was stamped from.
-    variant: u8 = 0,
-    // audio
-    source_id: u32 = 0,
-    source_start_frame: u64 = 0,
-    source_length_frames: u64 = 0,
-    audio_gain_db: f32 = 0.0,
-    audio_fade_in_frames: u64 = 0,
-    audio_fade_out_frames: u64 = 0,
-    audio_alternate_takes: []const AudioTakeSnap = &.{},
+    content: ClipContentSnap = .{ .melodic = .{} },
     /// Gain (dB) / pan (-1..1) automation breakpoints, clip-relative beats.
     /// Independent of `kind` - either clip type can carry them.
     gain_automation: []const AutomationPointSnap = &.{},

@@ -855,39 +855,29 @@ pub fn notesToSnap(aa: std.mem.Allocator, pp: *PatternPlayer) ![]const NoteSnap 
 /// Serialise one arrangement clip. Melodic clips duplicate their notes into
 /// freshly allocated NoteSnaps; drum clips copy the bitmask by value.
 pub fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
-    var c: ClipSnap = .{ .start_tick = clip.start_tick, .length_ticks = clip.length_ticks };
-    switch (clip.content) {
-        .melodic => |m| {
-            c.kind = .melodic;
-            c.length_beats = m.length_beats;
+    const content: persist_types.ClipContentSnap = switch (clip.content) {
+        .melodic => |m| blk: {
             const ns = try aa.alloc(NoteSnap, m.notes.len);
             for (m.notes, ns) |n, *o| o.* = noteToSnap(n);
-            c.notes = ns;
+            break :blk .{ .melodic = .{ .notes = ns, .length_beats = m.length_beats } };
         },
-        .drum => |d| {
-            c.kind = .drum;
-            c.drum_notes = try midiToNoteSnaps(aa, &d.midi);
-            c.step_count = d.step_count;
-            c.steps_per_beat = d.steps_per_beat;
-            c.variant = d.variant;
-        },
-        .audio => |audio| {
-            c.kind = .audio;
-            c.source_id = audio.source_id;
-            c.source_start_frame = audio.source_start_frame;
-            c.source_length_frames = audio.source_length_frames;
-            c.audio_gain_db = audio.gain_db;
-            c.audio_fade_in_frames = audio.fade_in_frames;
-            c.audio_fade_out_frames = audio.fade_out_frames;
+        .drum => |d| .{ .drum = .{ .notes = try midiToNoteSnaps(aa, &d.midi), .step_count = d.step_count, .steps_per_beat = d.steps_per_beat, .variant = d.variant } },
+        .audio => |audio| blk: {
             const takes = try aa.alloc(persist_types.AudioTakeSnap, audio.takeCount() - 1);
             var n: usize = 0;
             for (audio.alternate_takes) |take| if (take) |value| {
                 takes[n] = .{ .source_id = value.source_id, .source_start_frame = value.source_start_frame, .source_length_frames = value.source_length_frames, .length_ticks = value.length_ticks };
                 n += 1;
             };
-            c.audio_alternate_takes = takes[0..n];
+            break :blk .{ .audio = .{
+                .source_id = audio.source_id, .source_start_frame = audio.source_start_frame,
+                .source_length_frames = audio.source_length_frames, .gain_db = audio.gain_db,
+                .fade_in_frames = audio.fade_in_frames, .fade_out_frames = audio.fade_out_frames,
+                .alternate_takes = takes[0..n],
+            } };
         },
-    }
+    };
+    var c: ClipSnap = .{ .start_tick = clip.start_tick, .length_ticks = clip.length_ticks, .content = content };
     c.gain_automation = try automationToSnap(aa, clip.automation.gain);
     c.pan_automation = try automationToSnap(aa, clip.automation.pan);
     if (clip.automation.synth_params.items.len > 0) {

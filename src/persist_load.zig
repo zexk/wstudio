@@ -762,39 +762,39 @@ pub fn applyNoteSnap(midi: *[DrumMachine.max_pads][]?DrumMachine.MidiNote, step_
 pub fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.Clip {
     const start_tick = cs.start_tick;
     const length_ticks = cs.length_ticks;
-    var out: ws_arrangement.Clip = switch (cs.kind) {
-        .melodic => blk: {
+    var out: ws_arrangement.Clip = switch (cs.content) {
+        .melodic => |m| blk: {
             var tmp: [pattern_mod.max_notes]pattern_mod.Note = undefined;
-            const count = @min(cs.notes.len, @as(usize, pattern_mod.max_notes));
-            for (cs.notes[0..count], tmp[0..count]) |n, *o| o.* = sanitizeNote(n);
+            const count = @min(m.notes.len, @as(usize, pattern_mod.max_notes));
+            for (m.notes[0..count], tmp[0..count]) |n, *o| o.* = sanitizeNote(n);
             break :blk try ws_arrangement.Clip.initMelodic(
                 allocator,
                 start_tick,
                 length_ticks,
                 tmp[0..count],
-                finiteClamp(f64, cs.length_beats, 1.0, std.math.floatMax(f64), 1.0),
+                finiteClamp(f64, m.length_beats, 1.0, std.math.floatMax(f64), 1.0),
             );
         },
-        .drum => blk2: {
+        .drum => |snap| blk2: {
             var d: ws_arrangement.Clip.Drum = .{
-                .step_count = std.math.clamp(cs.step_count, 1, DrumMachine.max_steps),
-                .steps_per_beat = std.math.clamp(cs.steps_per_beat, 1, 32),
-                .variant = @min(cs.variant, DrumMachine.max_variants - 1),
+                .step_count = std.math.clamp(snap.step_count, 1, DrumMachine.max_steps),
+                .steps_per_beat = std.math.clamp(snap.steps_per_beat, 1, 32),
+                .variant = @min(snap.variant, DrumMachine.max_variants - 1),
             };
             d.midi = try DrumMachine.allocMidi(allocator, d.step_count);
-            applyNoteSnap(&d.midi, d.step_count, cs.drum_notes);
+            applyNoteSnap(&d.midi, d.step_count, snap.notes);
             break :blk2 ws_arrangement.Clip.initDrum(start_tick, length_ticks, d);
         },
-        .audio => ws_arrangement.Clip.initAudio(start_tick, length_ticks, .{
-            .source_id = cs.source_id,
-            .source_start_frame = cs.source_start_frame,
-            .source_length_frames = cs.source_length_frames,
-            .gain_db = finiteClamp(f32, cs.audio_gain_db, -60.0, 24.0, 0.0),
-            .fade_in_frames = cs.audio_fade_in_frames,
-            .fade_out_frames = cs.audio_fade_out_frames,
+        .audio => |audio| ws_arrangement.Clip.initAudio(start_tick, length_ticks, .{
+            .source_id = audio.source_id,
+            .source_start_frame = audio.source_start_frame,
+            .source_length_frames = audio.source_length_frames,
+            .gain_db = finiteClamp(f32, audio.gain_db, -60.0, 24.0, 0.0),
+            .fade_in_frames = audio.fade_in_frames,
+            .fade_out_frames = audio.fade_out_frames,
             .alternate_takes = blk: {
                 var takes: [ws_arrangement.max_audio_takes - 1]?ws_arrangement.Clip.AudioRegion.Take = @splat(null);
-                for (cs.audio_alternate_takes[0..@min(cs.audio_alternate_takes.len, takes.len)], 0..) |take, i| takes[i] = .{
+                for (audio.alternate_takes[0..@min(audio.alternate_takes.len, takes.len)], 0..) |take, i| takes[i] = .{
                     .source_id = take.source_id,
                     .source_start_frame = take.source_start_frame,
                     .source_length_frames = take.source_length_frames,

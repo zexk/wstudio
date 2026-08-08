@@ -994,12 +994,12 @@ test "buildSession: arrangement clips and song_mode round-trip" {
         .sections = &.{.{ .tick = 128, .name = "verse" }},
         .arrangement = &.{
             .{ .clips = &.{
-                .{ .start_tick = 256, .length_ticks = 128, .kind = .melodic, .length_beats = 4.0, .notes = &.{
+                .{ .start_tick = 256, .length_ticks = 128, .content = .{ .melodic = .{ .length_beats = 4.0, .notes = &.{
                     .{ .pitch = 64, .start_beat = 1.0, .duration_beat = 0.5, .velocity = 0.8 },
-                } },
+                } } } },
             } },
             .{ .clips = &.{
-                .{ .start_tick = 0, .length_ticks = 128, .kind = .drum, .step_count = 16, .drum_notes = &drum_notes },
+                .{ .start_tick = 0, .length_ticks = 128, .content = .{ .drum = .{ .step_count = 16, .notes = &drum_notes } } },
             } },
         },
     };
@@ -1206,7 +1206,7 @@ test "load sanitizes non-finite project, automation, pad, and note fields" {
 test "clip load clamps invalid loop, step, and velocity values" {
     const testing = std.testing;
     var melodic = try clipFromSnap(testing.allocator, .{
-        .length_beats = std.math.nan(f64),
+        .content = .{ .melodic = .{ .length_beats = std.math.nan(f64) } },
     });
     defer melodic.deinit(testing.allocator);
     try testing.expectEqual(@as(f64, 1.0), melodic.content.melodic.length_beats);
@@ -1214,9 +1214,7 @@ test "clip load clamps invalid loop, step, and velocity values" {
     // One hit on pad 0's step 0, whose stored velocity is past the 0-127
     // scale and has to clamp on load.
     var drum = try clipFromSnap(testing.allocator, .{
-        .kind = .drum,
-        .step_count = 0,
-        .drum_notes = &.{.{ .pad = 0, .step = 0, .velocity = 127 }},
+        .content = .{ .drum = .{ .step_count = 0, .notes = &.{.{ .pad = 0, .step = 0, .velocity = 127 }} } },
     });
     defer drum.deinit(testing.allocator);
     try testing.expectEqual(@as(u16, 1), drum.content.drum.step_count);
@@ -1232,7 +1230,7 @@ test "buildSession: filter cutoff automation clamps an out-of-range hand-edited 
         .arrangement = &.{
             .{ .clips = &.{
                 .{
-                    .kind = .melodic, .length_beats = 4.0,
+                    .content = .{ .melodic = .{ .length_beats = 4.0 } },
                     .synth_param_automation = &.{.{ .param_id = 21, .points = &.{.{ .beat = 0.0, .value = 99_999.0 }} }},
                 },
             } },
@@ -1432,7 +1430,7 @@ test "clip snapshots carry the drum variant label" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const cs = try clipToSnap(arena.allocator(), session.arrangement.lane(0).?.clips.items[0]);
-    try testing.expectEqual(@as(u8, 1), cs.variant);
+    try testing.expectEqual(@as(u8, 1), cs.content.drum.variant);
 
     var clip = try clipFromSnap(testing.allocator, cs);
     defer clip.deinit(testing.allocator);
