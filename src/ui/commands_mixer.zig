@@ -463,6 +463,81 @@ pub fn cmdSectionDel(app: *App, _: []const u8) void {
     app.setStatus("section deleted", .{});
 }
 
+fn audioRegionAtCursor(app: *App, command: []const u8) ?*ws.Clip.AudioRegion {
+    if (app.view != .arrangement) {
+        app.setStatus("{s}: open arrangement first", .{command});
+        return null;
+    }
+    const lane = app.session.arrangement.lane(app.cursor) orelse return null;
+    const clip = lane.clipAt(app.arr_cursor_bar *| app.arr_grid.ticks()) orelse {
+        app.setStatus("{s}: no clip at cursor", .{command});
+        return null;
+    };
+    switch (clip.content) {
+        .audio => {},
+        else => {
+            app.setStatus("{s}: clip is not audio", .{command});
+            return null;
+        },
+    }
+    return &clip.content.audio;
+}
+
+pub fn cmdClipGain(app: *App, args: []const u8) void {
+    const audio = audioRegionAtCursor(app, "clip-gain") orelse return;
+    const arg = std.mem.trim(u8, args, " ");
+    if (arg.len == 0) {
+        app.setStatus("clip gain: {d:.1}dB", .{audio.gain_db});
+        return;
+    }
+    const db = parseFiniteFloat(f32, arg) catch {
+        app.setStatus("clip-gain: expected -60 to 24 dB", .{});
+        return;
+    };
+    if (db < -60.0 or db > 24.0) {
+        app.setStatus("clip-gain: expected -60 to 24 dB", .{});
+        return;
+    }
+    history.recordLane(app, @intCast(app.cursor));
+    audio.gain_db = db;
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.dirty = true;
+    app.setStatus("clip gain: {d:.1}dB", .{db});
+}
+
+pub fn cmdClipFade(app: *App, args: []const u8) void {
+    const audio = audioRegionAtCursor(app, "clip-fade") orelse return;
+    const arg = std.mem.trim(u8, args, " ");
+    if (arg.len == 0) {
+        const sr: f64 = @floatFromInt(app.session.project.sample_rate);
+        app.setStatus("clip fades: {d:.3}s in, {d:.3}s out", .{
+            @as(f64, @floatFromInt(audio.fade_in_frames)) / sr,
+            @as(f64, @floatFromInt(audio.fade_out_frames)) / sr,
+        });
+        return;
+    }
+    var it = std.mem.tokenizeScalar(u8, arg, ' ');
+    const in_s = parseFiniteFloat(f64, it.next() orelse "") catch {
+        app.setStatus("clip-fade: expected <in-seconds> <out-seconds>", .{});
+        return;
+    };
+    const out_s = parseFiniteFloat(f64, it.next() orelse "") catch {
+        app.setStatus("clip-fade: expected <in-seconds> <out-seconds>", .{});
+        return;
+    };
+    if (it.next() != null or in_s < 0 or out_s < 0 or in_s > 3600 or out_s > 3600) {
+        app.setStatus("clip-fade: seconds must be between 0 and 3600", .{});
+        return;
+    }
+    const sr: f64 = @floatFromInt(app.session.project.sample_rate);
+    history.recordLane(app, @intCast(app.cursor));
+    audio.fade_in_frames = @intFromFloat(@round(in_s * sr));
+    audio.fade_out_frames = @intFromFloat(@round(out_s * sr));
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.dirty = true;
+    app.setStatus("clip fades: {d:.3}s in, {d:.3}s out", .{ in_s, out_s });
+}
+
 pub fn cmdVol(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {

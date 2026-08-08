@@ -2963,6 +2963,30 @@ test "arrangement e on a drum clip stays put" {
     try std.testing.expect(app.piano_clip_link == null);
 }
 
+test "audio region gain and fades edit at arrangement cursor and undo" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .arrangement;
+    try app.session.arrangement.lane(0).?.place(app.allocator, ws.Clip.initAudio(0, 32, .{
+        .source_id = 1,
+        .source_start_frame = 0,
+        .source_length_frames = 96_000,
+    }));
+
+    commands.run(&app, "clip-gain -6");
+    commands.run(&app, "clip-fade 0.25 0.5");
+    const audio = &app.session.arrangement.lane(0).?.clips.items[0].content.audio;
+    try std.testing.expectApproxEqAbs(@as(f32, -6), audio.gain_db, 1e-6);
+    try std.testing.expectEqual(@as(u64, 12_000), audio.fade_in_frames);
+    try std.testing.expectEqual(@as(u64, 24_000), audio.fade_out_frames);
+
+    history.doUndo(&app);
+    try std.testing.expectApproxEqAbs(@as(f32, -6), app.session.arrangement.lane(0).?.clips.items[0].content.audio.gain_db, 1e-6);
+    try std.testing.expectEqual(@as(u64, 0), app.session.arrangement.lane(0).?.clips.items[0].content.audio.fade_in_frames);
+    history.doUndo(&app);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), app.session.arrangement.lane(0).?.clips.items[0].content.audio.gain_db, 1e-6);
+}
+
 test "arrangement g plays from the cursor bar" {
     var app = try testApp();
     defer app.deinit();

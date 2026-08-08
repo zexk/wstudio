@@ -124,6 +124,8 @@ pub const cmdUnsolo = commands_mixer.cmdUnsolo;
 pub const cmdSeek = commands_mixer.cmdSeek;
 pub const cmdSection = commands_mixer.cmdSection;
 pub const cmdSectionDel = commands_mixer.cmdSectionDel;
+pub const cmdClipGain = commands_mixer.cmdClipGain;
+pub const cmdClipFade = commands_mixer.cmdClipFade;
 pub const cmdVol = commands_mixer.cmdVol;
 
 fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u8) void {
@@ -183,6 +185,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(cmdSeek) },
     .{ .name = "section",     .desc = "<name>  add or rename section at arrangement cursor", .run = wrap(cmdSection) },
     .{ .name = "section-del", .desc = "delete section at arrangement cursor", .run = wrap(cmdSectionDel) },
+    .{ .name = "clip-gain",   .desc = "[<dB>]  audio-region gain at arrangement cursor (-60..24)", .run = wrap(cmdClipGain) },
+    .{ .name = "clip-fade",   .desc = "[<in-seconds> <out-seconds>]  audio-region edge fades", .run = wrap(cmdClipFade) },
     .{ .name = "load",        .desc = "[file]  load the WAV/SF2 type for the current view and selected instrument; omit the file to browse", .run = wrap(cmdLoad) },
     .{ .name = "clap-instrument", .desc = "<plugin-id> <path>  load a CLAP instrument on the cursor track", .run = wrap(cmdClapInstrument) },
     .{ .name = "clap-fx",     .desc = "<plugin-id> <path>  append a CLAP effect to the cursor track", .run = wrap(cmdClapFx) },
