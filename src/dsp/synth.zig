@@ -424,6 +424,8 @@ pub const PolySynth = struct {
     fx_mod_bus: FxModBus = .{},
     /// MIDI mod wheel (CC1), 0..1 - the `.wheel` matrix source.
     mod_wheel: f32 = 0.0,
+    /// Smoothed wheel then macro 1..4 values consumed by matrix rows.
+    controller_smooth: [5]f32 = @splat(0.0),
     /// Per-trigger modulation state. Values are copied into each voice so
     /// later notes cannot change modulation under notes already sounding.
     mod_rand_state: u32 = 0xA341316C,
@@ -1586,11 +1588,11 @@ pub const PolySynth = struct {
                 .aenv     => if (v) |vv| vv.env else 0.0,
                 .velocity => if (v) |vv| vv.velocity else 0.0,
                 .keytrack => if (v) |vv| (@as(f32, @floatFromInt(vv.note)) - 60.0) / 64.0 else 0.0,
-                .wheel    => self.mod_wheel,
-                .mac1     => self.macro1,
-                .mac2     => self.macro2,
-                .mac3     => self.macro3,
-                .mac4     => self.macro4,
+                .wheel    => self.controller_smooth[0],
+                .mac1     => self.controller_smooth[1],
+                .mac2     => self.controller_smooth[2],
+                .mac3     => self.controller_smooth[3],
+                .mac4     => self.controller_smooth[4],
                 .env3     => if (v) |vv| vv.env3 else 0.0,
                 .random    => if (v) |vv| vv.random else 0.0,
                 .alternate => if (v) |vv| vv.alternate else 0.0,
@@ -1633,6 +1635,7 @@ pub const PolySynth = struct {
     pub fn processBlock(self: *PolySynth, buf: []Sample) void {
         const frames = buf.len / 2;
         if (frames == 0) return;
+        self.smoothControllers(frames);
 
         // Block-rate LFOs: sample once before the voice loop so all voices
         // receive the same values, avoiding inter-voice phase desync.
@@ -2111,6 +2114,14 @@ pub const PolySynth = struct {
         }
     }
 
+    fn smoothControllers(self: *PolySynth, frames: usize) void {
+        const targets = [5]f32{ self.mod_wheel, self.macro1, self.macro2, self.macro3, self.macro4 };
+        const blocks_per_s = self.sample_rate / @as(f32, @floatFromInt(frames));
+        const coef = dsp.smoothingCoefMs(5.0, blocks_per_s);
+        for (&self.controller_smooth, targets) |*current, target|
+            current.* = target + (current.* - target) * coef;
+    }
+
     /// Block-rate value of the LFO in `slot`: the held random level for
     /// sample & hold, the normalized Lorenz x-axis for chaos, a pure
     /// function of phase for every other shape.
@@ -2461,6 +2472,7 @@ pub const PolySynth = struct {
         self.arp_phase = 0.0;
         self.arp_gate_open = false;
         self.arp_was_on = false;
+        self.controller_smooth = @splat(0.0);
         self.fx_mod_bus.clear();
     }
 
@@ -4886,6 +4898,19 @@ test "filter drives ramp to live targets across one block" {
     const drives = synth.voices[synth.newest_voice].filter_drives;
     try std.testing.expectApproxEqAbs(@as(f32, 3.0), drives[0], 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 7.0), drives[1], 1e-6);
+}
+
+test "mod wheel and macros smooth before matrix evaluation" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.mod_wheel = 1.0;
+    synth.macro1 = 1.0;
+    synth.smoothControllers(128);
+    try std.testing.expect(synth.controller_smooth[0] > 0.0 and synth.controller_smooth[0] < 1.0);
+    try std.testing.expect(synth.controller_smooth[1] > 0.0 and synth.controller_smooth[1] < 1.0);
+    for (0..20) |_| synth.smoothControllers(128);
+    try std.testing.expect(synth.controller_smooth[0] > 0.99);
+    try std.testing.expect(synth.controller_smooth[1] > 0.99);
 }
 
 test "extreme pitch modulation keeps oscillator phases normalized" {
