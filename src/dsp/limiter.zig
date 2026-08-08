@@ -168,10 +168,9 @@ pub const Limiter = struct {
         }
     }
 
-    /// Reported so a host with proper delay compensation could realign
-    /// other tracks - see `Engine.trackLatencyFrames`. Recomputed from the
-    /// live param each call rather than cached, same as every other value
-    /// derived from a sanitized param here.
+    /// Reported so `Engine` can realign other primary track routes.
+    /// Recomputed from the live param each call rather than cached, same as
+    /// every other value derived from a sanitized param here.
     pub fn latencyFrames(self: *const Limiter) u32 {
         const lookahead_ms = dsp.sanitizeParam(self.lookahead_ms, 0.0, max_lookahead_ms, 0.0);
         return @intFromFloat(lookahead_ms * 0.001 * self.sample_rate);

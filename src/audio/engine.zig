@@ -199,6 +199,34 @@ const TrackState = struct {
     /// signal routes through instead of straight to the master mix. `null`
     /// (the default) is the pre-grouping behaviour, unchanged.
     group: ?u8 = null,
+    pdc: TrackDelay = .{},
+};
+
+/// Bounded per-track delay used to align primary mix routes. Storage is
+/// allocated on the control thread only when some track reports latency.
+const max_pdc_frames: usize = 8192;
+const pdc_samples = (max_pdc_frames + 1) * channels;
+const PdcBuffer = [pdc_samples]Sample;
+
+const TrackDelay = struct {
+    samples: std.atomic.Value(?*PdcBuffer) = .init(null),
+    write_frame: usize = 0,
+
+    fn process(self: *TrackDelay, buf: []Sample, delay_frames: usize) void {
+        const storage = self.samples.load(.acquire) orelse return;
+        const frame_capacity = max_pdc_frames + 1;
+        const delay = @min(delay_frames, max_pdc_frames);
+        for (0..buf.len / channels) |frame| {
+            const read_frame = (self.write_frame + frame_capacity - delay) % frame_capacity;
+            inline for (0..channels) |channel| {
+                const input_index = frame * channels + channel;
+                const write_index = self.write_frame * channels + channel;
+                storage[write_index] = buf[input_index];
+                buf[input_index] = storage[read_frame * channels + channel];
+            }
+            self.write_frame = (self.write_frame + 1) % frame_capacity;
+        }
+    }
 };
 
 /// Bank of distinct tracks that can be captured as a sidechain-compressor
@@ -574,6 +602,11 @@ pub const Engine = struct {
         self.allocator.free(self.automation);
         self.allocator.free(self.track_sidechain);
         self.allocator.free(self.track_sends);
+        for (self.track_pool) |*track| {
+            if (track.pdc.samples.load(.acquire)) |samples| {
+                std.heap.page_allocator.destroy(samples);
+            }
+        }
         self.allocator.free(self.tracks);
         self.allocator.free(self.track_pool);
     }
@@ -594,6 +627,7 @@ pub const Engine = struct {
             const state = slot.load(.monotonic);
             if (i < project.tracks.items.len) {
                 const t = project.tracks.items[i];
+                const pdc = state.pdc;
                 state.* = .{
                     .active = true,
                     .gain = types.dbToGain(t.gain_db),
@@ -601,10 +635,12 @@ pub const Engine = struct {
                     .muted = t.muted,
                     .soloed = t.soloed,
                     .group = t.group,
+                    .pdc = pdc,
                 };
                 self.track_sends[i] = t.sends;
             } else {
-                state.* = .{};
+                const pdc = state.pdc;
+                state.* = .{ .pdc = pdc };
                 self.track_sends[i] = [_]?SendSlot{null} ** max_sends_per_track;
             }
         }
@@ -648,11 +684,13 @@ pub const Engine = struct {
             self.track_sends[i] = self.track_sends[i - 1];
             self.automation[i].swapContent(&self.automation[i - 1]);
         }
+        const pdc = fresh.pdc;
         fresh.* = .{
             .active = true,
             .gain = gain,
             .pan = pan,
             .muted = muted,
+            .pdc = pdc,
         };
         self.tracks[idx].store(fresh, .release);
         self.track_sidechain[idx] = [_]?Compressor.SidechainSource{null} ** max_chain_devices;
@@ -675,7 +713,8 @@ pub const Engine = struct {
             self.track_sends[i] = self.track_sends[i + 1];
             self.automation[i].swapContent(&self.automation[i + 1]);
         }
-        evicted.* = .{};
+        const pdc = evicted.pdc;
+        evicted.* = .{ .pdc = pdc };
         self.tracks[total - 1].store(evicted, .release);
         self.track_sidechain[total - 1] = [_]?Compressor.SidechainSource{null} ** max_chain_devices;
         self.track_sends[total - 1] = [_]?SendSlot{null} ** max_sends_per_track;
@@ -773,6 +812,39 @@ pub const Engine = struct {
 
     pub fn setTrackChain(self: *Engine, track: u16, devices: []const dsp.Device) void {
         self.trackAt(track).chain.set(devices);
+        if (devices.len != 0) self.ensureTrackDelay(track);
+    }
+
+    fn ensureTrackDelay(self: *Engine, track: u16) void {
+        const delay = &self.trackAt(track).pdc;
+        if (delay.samples.load(.acquire) != null) return;
+        const samples = std.heap.page_allocator.create(PdcBuffer) catch return;
+        @memset(samples, 0.0);
+        if (delay.samples.cmpxchgStrong(null, samples, .release, .acquire) != null) std.heap.page_allocator.destroy(samples);
+    }
+
+    fn chainLatency(chain: []const dsp.Device) u32 {
+        var total: u32 = 0;
+        for (chain) |device| total +|= device.latencyFrames();
+        return @min(total, max_pdc_frames);
+    }
+
+    fn primaryRouteLatency(self: *const Engine, track: *const TrackState) u32 {
+        var total = chainLatency(track.chain.slice());
+        if (track.group) |group| {
+            if (group < max_groups and self.groups[group].active) total +|= chainLatency(self.groups[group].chain.slice());
+        }
+        return @min(total, max_pdc_frames);
+    }
+
+    fn maxPrimaryRouteLatency(self: *const Engine) u32 {
+        var maximum: u32 = 0;
+        const count = self.track_count.load(.acquire);
+        for (self.tracks[0..count]) |*slot| {
+            const track = slot.load(.acquire);
+            if (track.active) maximum = @max(maximum, self.primaryRouteLatency(track));
+        }
+        return maximum;
     }
 
     /// Replaces `dst` wholesale with `sources`, null-padding past its
@@ -1351,7 +1423,7 @@ pub const Engine = struct {
     /// chain that reads its captured signal, never twice (that would
     /// double-tick a stateful instrument's envelopes/oscillator phase within
     /// one block).
-    fn renderOneTrack(self: *Engine, ti: u16, out: []Sample, frames: u32, beat_pos: f64, any_solo: bool) void {
+    fn renderOneTrack(self: *Engine, ti: u16, out: []Sample, frames: u32, beat_pos: f64, any_solo: bool, max_route_latency: u32) void {
         const track = self.trackAt(ti);
         // One snapshot for this whole render pass - the control thread may
         // flip `track.chain`'s active buffer between calls to `slice()`, so
@@ -1436,6 +1508,10 @@ pub const Engine = struct {
         else
             null;
         self.processChainWithSidechain(chain, &self.track_sidechain[ti], scratch, frames, track_tap);
+        const route_latency = self.primaryRouteLatency(track);
+        // ponytail: one delay follows primary route. Add per-send delay when
+        // sends through differently-latent buses need phase alignment too.
+        track.pdc.process(scratch, max_route_latency - route_latency);
 
         // If this track is itself a registered sidechain-detector source,
         // finalize its capture now - before `scratch` gets reused by the
@@ -1556,6 +1632,7 @@ pub const Engine = struct {
         // evaluation per block (not per sample) - plenty of resolution for a
         // parameter curve, same granularity the metronome's beat math uses.
         const beat_pos = @as(f64, @floatFromInt(self.transport.position_frames)) / self.transport.framesPerBeat();
+        const max_route_latency = self.maxPrimaryRouteLatency();
 
         // Zero every active group's submix accumulator before tracks sum
         // into it below - same per-block-zero convention as the per-track
@@ -1613,7 +1690,7 @@ pub const Engine = struct {
                 };
             }
             if (dup) continue;
-            self.renderOneTrack(ti, out, frames, beat_pos, any_solo);
+            self.renderOneTrack(ti, out, frames, beat_pos, any_solo, max_route_latency);
         }
 
         // Phase 2: every other track, in original order, skipping whatever
@@ -1633,7 +1710,7 @@ pub const Engine = struct {
                 };
             }
             if (already_done) continue;
-            self.renderOneTrack(ti, out, frames, beat_pos, any_solo);
+            self.renderOneTrack(ti, out, frames, beat_pos, any_solo, max_route_latency);
         }
 
         // Each active group's FX chain applies to its submix, then the
@@ -1706,8 +1783,51 @@ fn testCompressor(threshold_db: f32) Compressor {
     return comp;
 }
 
+const LatentImpulse = struct {
+    latency: u32,
+    frame: u32 = 0,
+
+    pub fn processBlock(self: *@This(), buf: []Sample) void {
+        for (0..buf.len / channels) |i| {
+            if (self.frame == self.latency) {
+                buf[i * channels] += 0.25;
+                buf[i * channels + 1] += 0.25;
+            }
+            self.frame += 1;
+        }
+    }
+
+    pub fn reset(self: *@This()) void {
+        self.frame = 0;
+    }
+
+    pub fn latencyFrames(self: *const @This()) u32 {
+        return self.latency;
+    }
+
+    const device = dsp.deviceOf(@This());
+};
+
 test "engine rejects a zero sample rate" {
     try std.testing.expectError(error.InvalidSampleRate, Engine.init(std.testing.allocator, 0));
+}
+
+test "plugin delay compensation aligns track impulses" {
+    var immediate = LatentImpulse{ .latency = 0 };
+    var latent = LatentImpulse{ .latency = 2 };
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.trackAt(0).* = .{ .active = true };
+    engine.trackAt(1).* = .{ .active = true };
+    engine.setTrackChain(0, &.{immediate.device()});
+    engine.setTrackChain(1, &.{latent.device()});
+
+    var output: [8]Sample = undefined;
+    engine.process(&output);
+
+    try std.testing.expectEqual(@as(Sample, 0), output[0]);
+    try std.testing.expectEqual(@as(Sample, 0), output[2]);
+    try std.testing.expect(output[4] > 0.3);
 }
 
 test "realtime render parks and clears output during offline bounce" {
