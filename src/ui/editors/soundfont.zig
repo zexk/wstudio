@@ -14,7 +14,7 @@ const modal_mod = ws.input;
 const app_mod = @import("../app.zig");
 const App = app_mod.App;
 const history = @import("../history.zig");
-const commands = @import("../commands.zig");
+const commands_load = @import("../commands_load.zig");
 const preset_picker = @import("preset_picker.zig");
 const spectrum = @import("fx_editor.zig");
 const piano = @import("piano.zig");
@@ -56,7 +56,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         .enter => {
             const sf = app.editingSoundfont();
             if (sf != null and sf.?.presetCount() > 0) return false;
-            commands.cmdLoad(app, "");
+            commands_load.cmdLoad(app, "");
             return true;
         },
         .char => |c| switch (c) {

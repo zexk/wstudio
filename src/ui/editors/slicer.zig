@@ -13,6 +13,7 @@ const app_mod = @import("../app.zig");
 const App = app_mod.App;
 const StepRangeClip = app_mod.StepRangeClip;
 const history = @import("../history.zig");
+const commands_load = @import("../commands_load.zig");
 const commands = @import("../commands.zig");
 const step_grid = @import("step_grid.zig");
 
@@ -138,7 +139,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         // enter toggles the step; space falls through to transport play/pause.
         // With no clip there are no steps to toggle, so enter opens its browser.
         .enter => {
-            if (sl.slice_count == 0 and !sl.hasAudio()) { commands.cmdLoad(app, ""); return true; }
+            if (sl.slice_count == 0 and !sl.hasAudio()) { commands_load.cmdLoad(app, ""); return true; }
             history.recordSlicer(app, app.slicer_track);
             sl.toggleStep(@intCast(slice.*), step.*);
             return true;

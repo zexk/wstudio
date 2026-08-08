@@ -11,6 +11,7 @@ const app_mod = @import("../app.zig");
 const App = app_mod.App;
 const SamplerMarker = app_mod.SamplerMarker;
 const history = @import("../history.zig");
+const commands_load = @import("../commands_load.zig");
 const commands = @import("../commands.zig");
 const format = @import("../format.zig");
 const spectrum = @import("fx_editor.zig");
@@ -120,7 +121,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         // Empty targets have nothing to edit, so enter opens their browser.
         .enter => {
             if (targetHasAudio(app)) return false;
-            commands.cmdLoad(app, "");
+            commands_load.cmdLoad(app, "");
             return true;
         },
         .char => |c| switch (c) {

@@ -15,6 +15,7 @@ const Transport = ws.Transport;
 const DrumMachine = ws.dsp.DrumMachine;
 const Slicer = ws.dsp.Slicer;
 const commands = @import("commands.zig");
+const commands_tracks = @import("commands_tracks.zig");
 const cmd_mod = @import("cmd.zig");
 const config_mod = @import("../config.zig");
 const undo_mod = @import("undo.zig");
@@ -3742,7 +3743,7 @@ pub const App = struct {
 
     pub fn tick(self: *App, now_ns: i96) void {
         self.servicePluginHosts();
-        commands.pollCcLearn(self);
+        commands_tracks.pollCcLearn(self);
         const dropped_commands = self.session.engine.takeDroppedCommands();
         if (dropped_commands != 0) {
             self.setStatus("audio command queue full: {d} command{s} dropped", .{ dropped_commands, if (dropped_commands == 1) "" else "s" });

@@ -18,6 +18,7 @@ const config_mod = @import("../config.zig");
 const app_mod = @import("../ui/app.zig");
 const App = app_mod.App;
 const commands = @import("../ui/commands.zig");
+const commands_load = @import("../ui/commands_load.zig");
 const cmd_mod = @import("../ui/cmd.zig");
 const icons = @import("../ui/icons.zig");
 const spectrum_ed = @import("../ui/editors/fx_editor.zig");
@@ -56,7 +57,7 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
     // budget up front so the frame never grows taller than the terminal.
     const max_suggestion_rows = self.completion_popup_rows;
     const suggestion_rows: usize = if (self.modal.mode == .command and self.suggest_popup_open)
-        cmd_mod.suggestionRows(self.allCmds(), self.suggestionFilterText(), commands.activeScope(self), max_suggestion_rows)
+        cmd_mod.suggestionRows(self.allCmds(), self.suggestionFilterText(), commands_load.activeScope(self), max_suggestion_rows)
     else
         0;
     const content_rows = rows -| suggestion_rows;
@@ -183,8 +184,8 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
             w,
             self.allCmds(),
             self.suggestionFilterText(),
-            commands.activeScope(self),
-            self.suggestionSelected(commands.activeScope(self)),
+            commands_load.activeScope(self),
+            self.suggestionSelected(commands_load.activeScope(self)),
             max_suggestion_rows,
         );
     }

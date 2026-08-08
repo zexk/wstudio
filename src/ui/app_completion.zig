@@ -10,6 +10,7 @@ const ws = @import("wstudio");
 const modal_mod = ws.input;
 const cmd_mod = @import("cmd.zig");
 const commands = @import("commands.zig");
+const commands_load = @import("commands_load.zig");
 const fuzzy = @import("fuzzy.zig");
 const cmd_history_store = @import("cmd_history_store.zig");
 const config_mod = @import("../config.zig");
@@ -88,7 +89,7 @@ pub fn completeCommand(self: *App) void {
     self.suggest_popup_open = true;
     // Offer the same in-scope, mnemonic names as the popup. Compatibility
     // aliases and force variants remain dispatchable when typed in full.
-    const active = commands.activeScope(self);
+    const active = commands_load.activeScope(self);
     var name_buf: [cmds_cap][]const u8 = undefined;
     var n: usize = 0;
     for (self.allCmds()) |c| {

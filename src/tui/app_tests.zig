@@ -15,6 +15,8 @@ const history = @import("../ui/history.zig");
 const AppView = app_mod.AppView;
 const note_ms = app_mod.note_ms;
 const commands = @import("../ui/commands.zig");
+const commands_load = @import("../ui/commands_load.zig");
+const commands_mixer = @import("../ui/commands_mixer.zig");
 const cmd_mod = @import("../ui/cmd.zig");
 const drum_ed = @import("../ui/editors/drum.zig");
 const step_grid = @import("../ui/editors/step_grid.zig");
@@ -282,7 +284,7 @@ test "renderBounce sequences notes offline and restores transport" {
     try std.testing.expect(!app.session.engine.transport.playing);
 
     var buffer: [4096 * engine_mod.channels]types.Sample = undefined;
-    commands.renderBounce(&app, &buffer, 0);
+    commands_mixer.renderBounce(&app, &buffer, 0);
 
     var peak: f32 = 0.0;
     for (buffer) |s| peak = @max(peak, @abs(s));
@@ -307,7 +309,7 @@ test "renderBounce honors a nonzero start_frame and restores transport position"
 
     const start_frame: u64 = @intFromFloat(fpb * 1.0);
     var buffer: [256 * engine_mod.channels]types.Sample = undefined;
-    commands.renderBounce(&app, &buffer, start_frame);
+    commands_mixer.renderBounce(&app, &buffer, start_frame);
 
     var peak: f32 = 0.0;
     for (buffer) |s| peak = @max(peak, @abs(s));
@@ -7222,7 +7224,7 @@ test "loading a standalone sample restores prior sampler state on undo" {
     var path_buf: [128]u8 = undefined;
     const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/sample.wav", .{&tmp.sub_path});
 
-    commands.loadSampleFromPath(&app, path);
+    commands_load.loadSampleFromPath(&app, path);
     try std.testing.expectEqual(@as(usize, 3), app.session.racks.items[0].instrument.sampler.pad.samples.len);
 
     history.doUndo(&app);
@@ -7265,7 +7267,7 @@ test ":load in arrangement refuses without a sampler track, then targets a whole
     try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "vox.wav", .data = fw.buffered() });
 
     app.arr_cursor_bar = 2;
-    commands.loadClipFromPath(&app, path);
+    commands_load.loadClipFromPath(&app, path);
 
     try std.testing.expect(app.session.racks.items[0].instrument.sampler.pad.user_sample);
     try std.testing.expectEqual(@as(usize, 5), app.session.racks.items[0].instrument.sampler.pad.samples.len);
@@ -8556,10 +8558,10 @@ test ":library is offered on acoustic tracks and hidden on soundfont ones" {
     app.cursor = 0;
 
     try app.session.setInstrument(0, .acoustic);
-    try std.testing.expectEqual(cmd_mod.Scope.acoustic, commands.activeScope(&app));
+    try std.testing.expectEqual(cmd_mod.Scope.acoustic, commands_load.activeScope(&app));
 
     try app.session.setInstrument(0, .soundfont);
-    try std.testing.expectEqual(cmd_mod.Scope.soundfont, commands.activeScope(&app));
+    try std.testing.expectEqual(cmd_mod.Scope.soundfont, commands_load.activeScope(&app));
 }
 
 test "neither soundfont kind can be fed the other's content by a fully-typed command" {

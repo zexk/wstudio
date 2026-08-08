@@ -10,6 +10,8 @@ const std = @import("std");
 const ws = @import("wstudio");
 const modal_mod = ws.input;
 const commands = @import("commands.zig");
+const commands_load = @import("commands_load.zig");
+const commands_util = @import("commands_util.zig");
 const bookmark_store = @import("bookmark_store.zig");
 const recent_project_store = @import("recent_project_store.zig");
 
@@ -292,7 +294,7 @@ pub fn browserActivate(self: *App) void {
     if (self.browser_visual_anchor) |anchor| {
         const lo = @min(anchor, self.browser_cursor);
         const hi = @min(@max(anchor, self.browser_cursor), self.browser_entries.items.len - 1);
-        commands.loadPadsFromEntries(self, self.browser_entries.items[lo .. hi + 1]);
+        commands_util.loadPadsFromEntries(self, self.browser_entries.items[lo .. hi + 1]);
         self.closeBrowser();
         return;
     }
@@ -314,12 +316,12 @@ pub fn browserActivate(self: *App) void {
         } else {
             self.requestReload(joined);
         },
-        .load_sample => commands.loadSampleFromPath(self, joined),
-        .load_pad => |pad| commands.loadPadFromPath(self, pad, joined),
-        .load_clip => commands.loadClipFromPath(self, joined),
-        .load_slice => commands.loadSliceFromPath(self, joined),
-        .load_wavetable => |slot| commands.loadWavetableFromPath(self, slot, joined),
-        .load_soundfont => commands.loadSoundfontFromPath(self, joined),
+        .load_sample => commands_load.loadSampleFromPath(self, joined),
+        .load_pad => |pad| commands_util.loadPadFromPath(self, pad, joined),
+        .load_clip => commands_load.loadClipFromPath(self, joined),
+        .load_slice => commands_load.loadSliceFromPath(self, joined),
+        .load_wavetable => |slot| commands_load.loadWavetableFromPath(self, slot, joined),
+        .load_soundfont => commands_load.loadSoundfontFromPath(self, joined),
     }
     self.closeBrowser();
 }
@@ -338,7 +340,7 @@ pub fn auditionBrowserEntry(self: *App) void {
     if (entry.is_dir) return;
     const joined = std.fs.path.join(self.allocator, &.{ self.browser_dir, entry.name }) catch return;
     defer self.allocator.free(joined);
-    commands.auditionPath(self, joined);
+    commands_load.auditionPath(self, joined);
 }
 
 pub fn closeBrowser(self: *App) void {

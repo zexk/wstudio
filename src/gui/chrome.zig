@@ -5,7 +5,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const status = @import("../ui/status.zig");
 const tui_cmd = @import("../ui/cmd.zig");
-const tui_commands = @import("../ui/commands.zig");
+const commands_load = @import("../ui/commands_load.zig");
 const ansi = @import("../ui/ansi.zig");
 const icons = @import("../ui/icons.zig");
 const spectrum_ed = @import("../ui/editors/fx_editor.zig");
@@ -322,7 +322,7 @@ pub fn drawCommandPrompt(app: anytype) void {
     if (mode != .command) return;
     const filter = app.core.suggestionFilterText();
     if (filter.len == 0) return;
-    const active = tui_commands.activeScope(&app.core);
+    const active = commands_load.activeScope(&app.core);
     const count = tui_cmd.suggestionCount(app.core.allCmds(), filter, active);
     if (count < 2) return;
     const rows = @min(count, @as(usize, app.core.completion_popup_rows));
