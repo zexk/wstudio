@@ -124,6 +124,11 @@ the user config directory's `lua/?.lua` (and `?/init.lua`) to `package.path`,
 mirroring Neovim's `lua/` runtime directory. That is the whole plugin story
 for now and it costs a few lines.
 
+Config Lua keeps pure-language standard libraries and user-module `require`,
+but does not expose `io`, `os`, `debug`, `dofile`, `loadfile`, or native C
+module loading. Use validated `wstudio.api` functions for project and file
+operations. Config remains trusted user code, not a security boundary.
+
 ## Options: `wstudio.o`
 
 Shipped shape (Neovim's `vim.o`): a proxy table whose `__index`/`__newindex`

@@ -240,6 +240,7 @@ pub const Runtime = struct {
         const state = c.luaL_newstate() orelse return error.OutOfMemory;
         c.luaL_openlibs(state);
         prependUserLuaPath(state);
+        hardenLua(state);
         return .{ .state = state, .frontend = frontend };
     }
 
@@ -564,6 +565,24 @@ fn prependUserLuaPath(state: *c.lua_State) void {
     c.lua_concat(state, 2);
     c.lua_setfield(state, -2, "path");
     c.lua_settop(state, -2);
+}
+
+/// Keep pure Lua config and user-module support, but remove standard-library
+/// escape hatches into host filesystem, processes, debugger, and native code.
+fn hardenLua(state: *c.lua_State) void {
+    const globals = [_][*:0]const u8{ "io", "os", "debug", "dofile", "loadfile" };
+    for (globals) |name| {
+        c.lua_pushnil(state);
+        c.lua_setglobal(state, name);
+    }
+
+    _ = c.lua_getglobal(state, "package");
+    c.lua_pushnil(state);
+    c.lua_setfield(state, -2, "loadlib");
+    _ = c.lua_getfield(state, -1, "searchers");
+    c.lua_pushnil(state);
+    c.lua_rawseti(state, -2, 3); // remove native C-module searcher
+    c.lua_settop(state, -3);
 }
 
 fn loadIfPresent(self: *Runtime, io: std.Io, path: []const u8) !bool {
@@ -1009,6 +1028,16 @@ test "require path includes the user lua dir" {
     var rt = try Runtime.init(.tui);
     defer rt.deinit();
     try rt.loadString("assert(package.path:find('wstudio/lua/?.lua', 1, true) ~= nil)");
+}
+
+test "Lua runtime hides host filesystem process debug and native module access" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString(
+        "assert(io == nil and os == nil and debug == nil);" ++
+            "assert(dofile == nil and loadfile == nil);" ++
+            "assert(package.loadlib == nil and package.searchers[3] == nil)",
+    );
 }
 
 const TestHost = struct {
