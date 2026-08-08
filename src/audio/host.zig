@@ -49,6 +49,9 @@ pub const AudioHost = struct {
     wasapi: WasapiBackend,
     coreaudio: CoreAudioBackend,
     fallback: backend_mod.NullBackend,
+    io: std.Io = undefined,
+    callback_deadline_misses: std.atomic.Value(u32) = .init(0),
+    peak_callback_ns: std.atomic.Value(u64) = .init(0),
     /// Which backend start() landed on; null while stopped.
     active: ?Active = null,
 
@@ -70,6 +73,8 @@ pub const AudioHost = struct {
     /// back to silence; explicit backend or device failures propagate.
     pub fn start(self: *AudioHost, io: std.Io, choice: Choice) !void {
         std.debug.assert(self.active == null);
+        self.io = io;
+        self.configureRenderCallbacks();
         var last_error: ?anyerror = null;
         if (has_linux_backends) {
             switch (choice) {
@@ -138,6 +143,48 @@ pub const AudioHost = struct {
         }
     }
 
+    pub const Health = struct { deadline_misses: u32, peak_callback_ns: u64 };
+
+    pub fn takeHealth(self: *AudioHost) Health {
+        return .{
+            .deadline_misses = self.callback_deadline_misses.swap(0, .acq_rel),
+            .peak_callback_ns = self.peak_callback_ns.swap(0, .acq_rel),
+        };
+    }
+
+    fn configureRenderCallbacks(self: *AudioHost) void {
+        if (has_linux_backends) {
+            self.pipewire.render = timedRender;
+            self.pipewire.ctx = self;
+            self.jack.render = timedRender;
+            self.jack.ctx = self;
+            self.alsa.render = timedRender;
+            self.alsa.ctx = self;
+        }
+        if (has_wasapi) {
+            self.wasapi.render = timedRender;
+            self.wasapi.ctx = self;
+        }
+        if (has_coreaudio) {
+            self.coreaudio.render = timedRender;
+            self.coreaudio.ctx = self;
+        }
+        self.fallback.render = timedRender;
+        self.fallback.ctx = self;
+    }
+
+    fn timedRender(raw: *anyopaque, out: []@import("../core/types.zig").Sample) void {
+        const self: *AudioHost = @ptrCast(@alignCast(raw));
+        const before = std.Io.Clock.awake.now(self.io).nanoseconds;
+        self.render(self.ctx, out);
+        const after = std.Io.Clock.awake.now(self.io).nanoseconds;
+        const elapsed: u64 = @intCast(@max(after - before, 0));
+        _ = self.peak_callback_ns.fetchMax(elapsed, .monotonic);
+        const frames = out.len / @max(self.config.channels, 1);
+        const deadline: u64 = @intFromFloat(@as(f64, @floatFromInt(frames)) / @as(f64, @floatFromInt(self.config.sample_rate)) * std.time.ns_per_s);
+        if (elapsed > deadline) _ = self.callback_deadline_misses.fetchAdd(1, .monotonic);
+    }
+
     pub fn stop(self: *AudioHost) void {
         const active = self.active orelse return;
         self.active = null;
@@ -178,6 +225,29 @@ test "audio host honors the explicit none choice" {
     defer host.stop();
     try std.testing.expectEqual(@as(?Active, .silent), host.active);
     try std.testing.expectEqualStrings("none (silent)", host.label());
+}
+
+test "audio host reports callback deadline misses and resets peak" {
+    var threaded: std.Io.Threaded = .init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const Slow = struct {
+        fn render(ctx: *anyopaque, out: []@import("../core/types.zig").Sample) void {
+            const clock: *std.Io = @ptrCast(@alignCast(ctx));
+            clock.sleep(.fromMilliseconds(2), .awake) catch {};
+            @memset(out, 0.0);
+        }
+    };
+    var io_copy = io;
+    var host = AudioHost.init(.{ .sample_rate = 48_000, .block_frames = 1 }, Slow.render, &io_copy);
+    host.io = io;
+    var out: [2]@import("../core/types.zig").Sample = undefined;
+    host.timedRender(&out);
+
+    const health = host.takeHealth();
+    try std.testing.expectEqual(@as(u32, 1), health.deadline_misses);
+    try std.testing.expect(health.peak_callback_ns >= std.time.ns_per_ms);
+    try std.testing.expectEqual(@as(u64, 0), host.takeHealth().peak_callback_ns);
 }
 
 test "audio host propagates explicit backend configuration errors" {

@@ -213,6 +213,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
         glfw.pollEvents();
         if (window.shouldClose() and !app.core.requestQuit()) window.setShouldClose(false);
         app.core.tick(std.Io.Timestamp.now(init.io, .awake).nanoseconds);
+        app.core.reportAudioHealth(audio.takeHealth());
         if (app.core.pending_reload != .none) {
             const kind = app.core.pending_reload;
             app.core.pending_reload = .none;

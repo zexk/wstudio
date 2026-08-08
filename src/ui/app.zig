@@ -3780,6 +3780,15 @@ pub const App = struct {
         if (!playing and was_playing) self.recording_punch_end_bar = null;
     }
 
+    pub fn reportAudioHealth(self: *App, health: ws.AudioHost.Health) void {
+        if (health.deadline_misses == 0) return;
+        self.setStatus("audio: {d} deadline miss{s}, peak {d:.2}ms", .{
+            health.deadline_misses,
+            if (health.deadline_misses == 1) "" else "es",
+            @as(f64, @floatFromInt(health.peak_callback_ns)) / std.time.ns_per_ms,
+        });
+    }
+
     /// External-plugin main-thread callbacks and dirty-state notifications share the
     /// frontend-neutral frame tick so TUI and GUI hosts behave identically.
     fn servicePluginHosts(self: *App) void {

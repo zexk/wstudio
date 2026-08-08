@@ -423,6 +423,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
             else => app.handleKey(key, now),
         };
         app.tick(now);
+        app.reportAudioHealth(audio.takeHealth());
 
         // zig fmt: off
         // :e / :new asked for a session swap. Build the replacement first
