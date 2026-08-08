@@ -78,6 +78,7 @@ pub const reload_path_buf_len: usize = 1024;
 /// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
 const default_autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
 pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, arrangement, file_browser, automation, automation_param_picker, slicer_grid, preset_picker, soundfont_editor };
+pub const InputMonitor = enum { off, auto, on };
 
 /// Macro machinery bounds (see `App.macroIntercept`): the two-key pending
 /// states, per-register key capacity, and the nested-`@` replay cap.
@@ -462,6 +463,7 @@ pub const App = struct {
     /// pass by `startPendingRecording`, closed by `finishRecording` -
     /// never held open otherwise.
     audio_input: ws.AudioInput = .{},
+    input_monitor: InputMonitor = .auto,
     /// Backend-native capture device name. Empty selects the system default.
     audio_input_device: config_mod.PathBuf = .{},
     /// Audio-armed track indices resolved by `toggle_play` at the moment
@@ -2667,6 +2669,25 @@ pub const App = struct {
         }
     }
 
+    pub fn setInputMonitor(self: *App, mode: InputMonitor) bool {
+        if (mode == .on and self.audio_input.active == .none) {
+            self.audio_input.start(self.session.project.sample_rate, self.audio_input_device.slice()) catch {
+                self.setStatus("monitor: no audio input device", .{});
+                return false;
+            };
+        } else if (mode != .on and self.recording_active_len == 0 and self.audio_input.active != .none) {
+            self.audio_input.stop();
+        }
+        self.input_monitor = mode;
+        self.setStatus("input monitor {s}", .{@tagName(mode)});
+        return true;
+    }
+
+    fn drainInputMonitor(self: *App) void {
+        while (self.audio_input.popDropout()) |_| {}
+        while (self.audio_input.pop()) |block| self.session.engine.monitorInput(block.samples[0..block.frames]);
+    }
+
     pub fn setPunch(self: *App, enabled: bool) bool {
         const p = &self.session.project;
         if (enabled and (!p.loop_enabled or p.loop_end_bar <= p.loop_start_bar)) {
@@ -2693,29 +2714,32 @@ pub const App = struct {
     /// leaves the pass MIDI-only rather than failing the whole record.
     fn startPendingRecording(self: *App) void {
         if (self.recording_pending_len == 0) return;
-        if (self.audio_input.start(self.session.project.sample_rate, self.audio_input_device.slice())) |_| {
-            self.recording_take = RecordingTake.start(
-                self.io,
-                @truncate(@as(u96, @bitCast(std.Io.Clock.real.now(self.io).nanoseconds))),
-                self.session.project.sample_rate,
-            ) catch {
-                self.audio_input.stop();
-                self.setStatus("record: cannot create recovery take", .{});
+        if (self.audio_input.active == .none) {
+            self.audio_input.start(self.session.project.sample_rate, self.audio_input_device.slice()) catch {
+                self.setStatus("record: no audio input device", .{});
                 self.recording_pending_len = 0;
                 return;
             };
-            self.recording_active_len = self.recording_pending_len;
-            @memcpy(
-                self.recording_active_buf[0..self.recording_active_len],
-                self.recording_pending_buf[0..self.recording_pending_len],
-            );
-            self.recording_accum.clearRetainingCapacity();
-            self.recording_dropout_frames = 0;
-            self.recording_first_dropout_frame = null;
-            self.recording_capture_base_frame = null;
-        } else |_| {
-            self.setStatus("record: no audio input device", .{});
         }
+        self.recording_take = RecordingTake.start(
+            self.io,
+            @truncate(@as(u96, @bitCast(std.Io.Clock.real.now(self.io).nanoseconds))),
+            self.session.project.sample_rate,
+        ) catch {
+            if (self.input_monitor != .on) self.audio_input.stop();
+            self.setStatus("record: cannot create recovery take", .{});
+            self.recording_pending_len = 0;
+            return;
+        };
+        self.recording_active_len = self.recording_pending_len;
+        @memcpy(
+            self.recording_active_buf[0..self.recording_active_len],
+            self.recording_pending_buf[0..self.recording_pending_len],
+        );
+        self.recording_accum.clearRetainingCapacity();
+        self.recording_dropout_frames = 0;
+        self.recording_first_dropout_frame = null;
+        self.recording_capture_base_frame = null;
         self.recording_pending_len = 0;
     }
 
@@ -2729,6 +2753,7 @@ pub const App = struct {
         }
         const allowed = self.recordingPositionAllowed(self.session.engine.uiSnapshot().position_frames);
         while (self.audio_input.pop()) |block| {
+            if (self.input_monitor != .off) self.session.engine.monitorInput(block.samples[0..block.frames]);
             if (!allowed) continue;
             if (self.recording_take) |*take| {
                 if (self.recording_capture_base_frame == null) self.recording_capture_base_frame = block.start_frame;
@@ -2752,7 +2777,7 @@ pub const App = struct {
     /// same reason).
     pub fn finishRecording(self: *App) void {
         if (self.recording_active_len == 0) return;
-        self.audio_input.stop();
+        if (self.input_monitor != .on) self.audio_input.stop();
         self.drainRecording();
 
         var disk_samples: ?[]f32 = null;
@@ -3797,6 +3822,7 @@ pub const App = struct {
         if (self.recording_active_len > 0 and self.recording_punch_start_bar != null and position_frames >= punch_end)
             self.finishRecording()
         else if (self.recording_active_len > 0) self.drainRecording();
+        if (self.recording_active_len == 0 and self.input_monitor == .on) self.drainInputMonitor();
         if (!playing and was_playing) self.finishRecording();
         if (!playing and was_playing) self.recording_punch_start_bar = null;
         if (!playing and was_playing) self.recording_punch_end_bar = null;
@@ -4309,6 +4335,7 @@ pub const App = struct {
         self.recording_pending_len = 0;
         self.recording_active_len = 0;
         self.recording_accum.clearRetainingCapacity();
+        self.input_monitor = .auto;
         self.punch_enabled = false;
         self.recording_punch_start_bar = null;
         self.recording_punch_end_bar = null;

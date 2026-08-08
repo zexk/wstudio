@@ -4384,6 +4384,19 @@ test ":punch requires A/B bounds and gates recording to their frame range" {
     try std.testing.expectEqual(initial_notes + 1, app.session.racks.items[0].pattern_player.?.note_count);
 }
 
+test ":monitor selects persistent input monitoring modes" {
+    var app = try testApp();
+    defer app.deinit();
+
+    commands.run(&app, "monitor off");
+    try std.testing.expectEqual(app_mod.InputMonitor.off, app.input_monitor);
+    commands.run(&app, "monitor auto");
+    try std.testing.expectEqual(app_mod.InputMonitor.auto, app.input_monitor);
+    commands.run(&app, "monitor bogus");
+    try std.testing.expectEqual(app_mod.InputMonitor.auto, app.input_monitor);
+    try std.testing.expectEqualStrings("monitor: expected off, auto, or on", app.status_buf[0..app.status_len]);
+}
+
 test ":signature sets beats per bar and reshapes bar math" {
     var app = try testApp();
     defer app.deinit();

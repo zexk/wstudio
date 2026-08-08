@@ -166,6 +166,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "import-midi", .desc = "<file>  replace the pattern with a Standard MIDI File's notes",     .run = wrap(commands_pattern.cmdImportMidi), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "export-midi", .desc = "<file>  write the pattern as a Standard MIDI File",                 .run = wrap(commands_pattern.cmdExportMidi), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
+    .{ .name = "monitor",     .desc = "[off|auto|on]  input monitoring mode",                .run = wrap(cmdMonitor) },
     .{ .name = "punch",       .desc = "[on|off]  record only inside the enabled A/B bounds", .run = wrap(cmdPunch) },
     .{ .name = "scale",       .desc = "[<root> [<type>]|off]  piano-roll scale highlight + chord-stamp key", .run = wrap(cmdScale) },
     .{ .name = "tuning",      .desc = "[<name> [<root>]]  temperament synths play in: equal, just_major, pythagorean, meantone_quarter, werckmeister3, kirnberger3", .run = wrap(cmdTuning) },
@@ -608,6 +609,25 @@ fn cmdMetronome(app: *App, args: []const u8) void {
     const on = onOffArg(app, "metronome", args, app.session.metronome_enabled) orelse return;
     app.session.setMetronome(on);
     app.setStatus("metronome {s}", .{if (on) "on" else "off"});
+}
+
+fn cmdMonitor(app: *App, args: []const u8) void {
+    const value = std.mem.trim(u8, args, " ");
+    if (value.len == 0) {
+        app.setStatus("input monitor {s}", .{@tagName(app.input_monitor)});
+        return;
+    }
+    const mode: app_mod.InputMonitor = if (std.mem.eql(u8, value, "off"))
+        .off
+    else if (std.mem.eql(u8, value, "auto"))
+        .auto
+    else if (std.mem.eql(u8, value, "on"))
+        .on
+    else {
+        app.setStatus("monitor: expected off, auto, or on", .{});
+        return;
+    };
+    _ = app.setInputMonitor(mode);
 }
 
 fn cmdPunch(app: *App, args: []const u8) void {

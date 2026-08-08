@@ -429,6 +429,9 @@ pub const Engine = struct {
     /// reads half-updated. Same queue shape, kept separate so each side
     /// still only ever has the one producer `Spsc` requires.
     midi_commands: Spsc(Command, 256) = .{},
+    /// Mono input samples crossing from capture/control thread to audio
+    /// thread for direct monitoring. Capacity covers about 340 ms at 48 kHz.
+    monitor_samples: Spsc(Sample, 16384) = .{},
     /// Commands are realtime messages and cannot block their producer. Count
     /// queue saturation so the UI can report it instead of failing silently.
     dropped_commands: std.atomic.Value(u32) = .init(0),
@@ -1116,6 +1119,19 @@ pub const Engine = struct {
         self.process(out);
     }
 
+    pub fn monitorInput(self: *Engine, samples: []const Sample) void {
+        for (samples) |sample| if (!self.monitor_samples.push(sample)) break;
+    }
+
+    fn mixMonitoredInput(self: *Engine, out: []Sample) void {
+        var frame: usize = 0;
+        while (frame < out.len / channels) : (frame += 1) {
+            const sample = self.monitor_samples.pop() orelse break;
+            out[frame * channels] += sample;
+            out[frame * channels + 1] += sample;
+        }
+    }
+
     pub fn process(self: *Engine, out: []Sample) void {
         const frames: u32 = @intCast(out.len / channels);
         std.debug.assert(frames <= types.max_block_frames);
@@ -1154,6 +1170,7 @@ pub const Engine = struct {
         self.processChainWithSidechain(self.master_chain.slice(), &self.master_sidechain_sources, out, frames, master_tap, &.{});
 
         self.preview.processBlock(out);
+        self.mixMonitoredInput(out);
 
         for (out) |*s| s.* *= self.master_gain;
         self.limiter.processBlock(out);
@@ -1967,6 +1984,15 @@ const PolySynth = @import("../dsp/synth.zig").PolySynth;
 const DrumMachine = @import("../dsp/drum_sampler.zig").DrumMachine;
 const drum_kit = @import("../dsp/drum_kit.zig");
 const Compressor = @import("../dsp/compressor.zig").Compressor;
+
+test "input monitor duplicates mono capture into stereo output" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.monitorInput(&.{ 0.25, -0.5 });
+    var out: [4]Sample = undefined;
+    engine.process(&out);
+    try std.testing.expectEqualSlices(Sample, &.{ 0.25, 0.25, -0.5, -0.5 }, &out);
+}
 
 /// A drum machine with audible pads: a fresh one is the blank "init" kit
 /// (see DrumMachine.init), so tests that need sound load a flavour first.
