@@ -31,6 +31,7 @@ const cycleEnum = synth_math.cycleEnum;
 const warpedInc = synth_math.warpedInc;
 const polyBlep = synth_math.polyBlep;
 const phaseInc = synth_math.phaseInc;
+const modulatedPhaseInc = synth_math.modulatedPhaseInc;
 const oscWave = synth_math.oscWave;
 const envShape = synth_math.envShape;
 const advanceEnv = synth_math.advanceEnv;
@@ -1874,7 +1875,7 @@ pub const PolySynth = struct {
                 // its correction (see `polyBlep`).
                 for (0..n_a) |ui| {
                     const inc: f32 = if (self.mod_mode == .fm_b_to_a)
-                        phase_incs_a[ui] * (1.0 + mod_amount_v * b_mono)
+                        modulatedPhaseInc(phase_incs_a[ui], 1.0 + mod_amount_v * b_mono)
                     else
                         phase_incs_a[ui];
                     const samp = self.oscSampleA(v.phases[ui], inc, v.pulse_widths[0], v.warp_amounts[0], v.wt_positions[0]);
@@ -1891,7 +1892,7 @@ pub const PolySynth = struct {
                     for (0..n_b) |ui| {
                         // FM A→B: advance B's phase modulated by a_mono.
                         const inc: f32 = if (self.mod_mode == .fm_a_to_b)
-                            phase_incs_b[ui] * (1.0 + mod_amount_v * a_mono)
+                            modulatedPhaseInc(phase_incs_b[ui], 1.0 + mod_amount_v * a_mono)
                         else
                             phase_incs_b[ui];
                         const samp = self.oscSampleB(v.phases_b[ui], inc, v.pulse_widths[1], v.warp_amounts[1], v.wt_positions[1]);
@@ -4687,6 +4688,10 @@ test "polyBLEP reduces saw discontinuity" {
     const naive_jump = @abs(synth_math.oscWave(.saw, 0.0, 0.5, 0.0) - synth_math.oscWave(.saw, 0.99, 0.5, 0.0));
     const blep_jump = @abs(synth_math.oscWave(.saw, 0.0, 0.5, 0.02) - synth_math.oscWave(.saw, 0.99, 0.5, 0.02));
     try std.testing.expect(blep_jump < naive_jump);
+    try std.testing.expectEqual(
+        synth_math.oscWave(.saw, 0.99, 0.5, 0.02),
+        synth_math.oscWave(.saw, 0.99, 0.5, -0.02),
+    );
 }
 
 test "voice trigger decorrelates oscillator lanes" {

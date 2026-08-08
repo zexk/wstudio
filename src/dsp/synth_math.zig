@@ -330,24 +330,39 @@ pub fn phaseInc(freq: f32, sample_rate: f32) f32 {
     return @min(freq / sample_rate, 0.5);
 }
 
+/// Apply an audio-rate FM multiplier without letting final phase motion
+/// outrun Nyquist. Negative values retain through-zero FM direction.
+pub fn modulatedPhaseInc(base: f32, multiplier: f32) f32 {
+    const inc = base * multiplier;
+    if (!std.math.isFinite(inc)) return 0.0;
+    return std.math.clamp(inc, -0.5, 0.5);
+}
+
 test "phaseInc caps oscillator motion at Nyquist" {
     try std.testing.expectEqual(@as(f32, 0.25), phaseInc(12_000.0, 48_000.0));
     try std.testing.expectEqual(@as(f32, 0.5), phaseInc(96_000.0, 48_000.0));
     try std.testing.expectEqual(@as(f32, 0.0), phaseInc(std.math.nan(f32), 48_000.0));
 }
 
+test "modulatedPhaseInc caps both FM directions" {
+    try std.testing.expectEqual(@as(f32, 0.5), modulatedPhaseInc(0.25, 8.0));
+    try std.testing.expectEqual(@as(f32, -0.5), modulatedPhaseInc(0.25, -8.0));
+    try std.testing.expectEqual(@as(f32, 0.0), modulatedPhaseInc(0.25, std.math.nan(f32)));
+}
+
 /// `dt` sizes polyBLEP correction for saw and square discontinuities.
 pub fn oscWave(wf: Waveform, phase: f32, pw: f32, dt: f32) Sample {
+    const step = @abs(dt);
     return switch (wf) {
         // zig fmt: off
         .sine     => @sin(2.0 * std.math.pi * phase),
-        .saw      => 2.0 * phase - 1.0 - polyBlep(phase, dt),
+        .saw      => 2.0 * phase - 1.0 - polyBlep(phase, step),
         .triangle => 1.0 - 4.0 * @abs(phase - 0.5),
         // Rising edge at phase 0, falling edge at the duty point.
         .square   => blk: {
             const naive: f32 = if (phase < pw) 1.0 else -1.0;
             const off = phase - pw;
-            break :blk naive + polyBlep(phase, dt) - polyBlep(off - @floor(off), dt);
+            break :blk naive + polyBlep(phase, step) - polyBlep(off - @floor(off), step);
         },
         // Callers branch to `wavetable.lookup` before reaching here -
         // this arm only exists to keep the switch exhaustive.
