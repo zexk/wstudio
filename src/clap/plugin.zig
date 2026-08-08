@@ -117,6 +117,14 @@ const HostContext = struct {
     plugin: ?*const abi.Plugin = null,
     plugin_thread_pool: ?*const abi.PluginThreadPool = null,
     main_thread_id: std.Thread.Id,
+    workers: [max_thread_pool_workers]?std.Thread = .{null} ** max_thread_pool_workers,
+    worker_args: [max_thread_pool_workers]WorkerArg = undefined,
+    worker_count: u32 = 0,
+    request_worker_count: u32 = 0,
+    task_count: u32 = 0,
+    work_epoch: std.atomic.Value(u32) = .init(0),
+    workers_remaining: std.atomic.Value(u32) = .init(0),
+    workers_stopping: std.atomic.Value(bool) = .init(false),
 
     fn init() HostContext {
         return .{
@@ -138,6 +146,21 @@ const HostContext = struct {
 
     fn bind(self: *HostContext) void {
         self.host.host_data = self;
+    }
+
+    fn startWorkers(self: *HostContext) void {
+        for (0..max_thread_pool_workers) |i| {
+            self.worker_args[i] = .{ .host = self, .index = @intCast(i) };
+            self.workers[i] = std.Thread.spawn(.{}, WorkerArg.run, .{&self.worker_args[i]}) catch break;
+            self.worker_count += 1;
+        }
+    }
+
+    fn stopWorkers(self: *HostContext) void {
+        self.workers_stopping.store(true, .release);
+        _ = self.work_epoch.fetchAdd(1, .release);
+        std.Options.debug_io.futexWake(u32, &self.work_epoch.raw, max_thread_pool_workers);
+        for (self.workers) |thread| if (thread) |t| t.join();
     }
 
     fn fromHost(host: *const abi.Host) *HostContext {
@@ -162,16 +185,21 @@ const HostContext = struct {
         if (!on_audio_thread or on_thread_pool or num_tasks == 0) return false;
         const plugin = self.plugin orelse return false;
         const pool = self.plugin_thread_pool orelse return false;
-        // ponytail: spawn bounded workers per request; keep persistent workers if profiling shows thread startup misses deadlines.
-        const worker_count: usize = @min(num_tasks, max_thread_pool_workers);
-        var jobs: [max_thread_pool_workers]ThreadPoolJob = undefined;
-        var threads: [max_thread_pool_workers]?std.Thread = .{null} ** max_thread_pool_workers;
-        for (0..worker_count) |i| {
-            jobs[i] = .{ .plugin = plugin, .pool = pool, .next = @intCast(i), .step = @intCast(worker_count), .count = num_tasks };
-            threads[i] = std.Thread.spawn(.{}, ThreadPoolJob.run, .{&jobs[i]}) catch null;
-            if (threads[i] == null) jobs[i].run();
+        const worker_count = @min(num_tasks, self.worker_count);
+        if (worker_count == 0) {
+            for (0..num_tasks) |task| pool.exec(plugin, @intCast(task));
+            return true;
         }
-        for (threads[0..worker_count]) |thread| if (thread) |t| t.join();
+        self.task_count = num_tasks;
+        self.request_worker_count = worker_count;
+        self.workers_remaining.store(worker_count, .release);
+        _ = self.work_epoch.fetchAdd(1, .release);
+        std.Options.debug_io.futexWake(u32, &self.work_epoch.raw, max_thread_pool_workers);
+        while (self.workers_remaining.load(.acquire) != 0) {
+            const remaining = self.workers_remaining.load(.acquire);
+            if (remaining != 0)
+                std.Options.debug_io.futexWaitUncancelable(u32, &self.workers_remaining.raw, remaining);
+        }
         return true;
     }
 
@@ -269,22 +297,33 @@ const HostContext = struct {
     const host_thread_pool: abi.HostThreadPool = .{ .request_exec = requestExec };
 };
 
-const ThreadPoolJob = struct {
-    plugin: *const abi.Plugin,
-    pool: *const abi.PluginThreadPool,
-    next: u32,
-    step: u32,
-    count: u32,
+const WorkerArg = struct {
+    host: *HostContext,
+    index: u32,
 
-    fn run(self: *const ThreadPoolJob) void {
+    fn run(self: *const WorkerArg) void {
         on_audio_thread = true;
         on_thread_pool = true;
         defer {
             on_thread_pool = false;
             on_audio_thread = false;
         }
-        var task = self.next;
-        while (task < self.count) : (task += self.step) self.pool.exec(self.plugin, task);
+        var epoch: u32 = 0;
+        while (true) {
+            while (self.host.work_epoch.load(.acquire) == epoch)
+                std.Options.debug_io.futexWaitUncancelable(u32, &self.host.work_epoch.raw, epoch);
+            epoch = self.host.work_epoch.load(.acquire);
+            if (self.host.workers_stopping.load(.acquire)) return;
+            if (self.index >= self.host.request_worker_count) continue;
+
+            const plugin = self.host.plugin orelse continue;
+            const pool = self.host.plugin_thread_pool orelse continue;
+            var task = self.index;
+            while (task < self.host.task_count) : (task += self.host.request_worker_count)
+                pool.exec(plugin, task);
+            if (self.host.workers_remaining.fetchSub(1, .acq_rel) == 1)
+                std.Options.debug_io.futexWake(u32, &self.host.workers_remaining.raw, 1);
+        }
     }
 };
 
@@ -393,6 +432,8 @@ pub const ClapPlugin = struct {
         if (!plugin.init(plugin)) return error.PluginInitFailed;
         host_context.plugin = plugin;
         host_context.plugin_thread_pool = getExt(abi.PluginThreadPool, plugin, abi.ext_thread_pool);
+        if (host_context.plugin_thread_pool != null) host_context.startWorkers();
+        errdefer host_context.stopWorkers();
         const audio_layout = try validateAudioPorts(plugin);
         const note_support = detectNoteSupport(plugin);
         if (!plugin.activate(plugin, @floatFromInt(sample_rate), 1, types.max_block_frames))
@@ -753,6 +794,7 @@ const Direct = struct {
         self.destroyGui();
         if (self.started) self.plugin.stop_processing(self.plugin);
         if (self.activated) self.plugin.deactivate(self.plugin);
+        self.host_context.stopWorkers();
         self.plugin.destroy(self.plugin);
         self.entry.deinit();
         self.library.close();
