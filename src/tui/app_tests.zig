@@ -4360,11 +4360,11 @@ test ":punch requires A/B bounds and gates recording to their frame range" {
     try std.testing.expectEqual(initial_notes + 1, app.session.racks.items[0].pattern_player.?.note_count);
 }
 
-test ":sig sets beats per bar and reshapes bar math" {
+test ":signature sets beats per bar and reshapes bar math" {
     var app = try testApp();
     defer app.deinit();
 
-    for (":sig 3") |c| app.handleKey(.{ .char = c }, 0);
+    for (":signature 3") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(u8, 3), app.session.project.beats_per_bar);
 

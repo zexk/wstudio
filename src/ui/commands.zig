@@ -172,17 +172,13 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "quit",        .desc = "quit (refuses if unsaved changes)",   .run = wrap(cmdQuit) },
     .{ .name = "quit!",       .desc = "quit, discarding unsaved changes",    .run = wrap(cmdQuitForce) },
     .{ .name = "q!",          .desc = "quit, discarding unsaved changes (alias for :quit!)", .run = wrap(cmdQuitForce) },
-    .{ .name = "qa",          .desc = "quit (alias for :quit)",              .run = wrap(cmdQuit) },
-    .{ .name = "qa!",         .desc = "quit, discarding changes (alias for :quit!)", .run = wrap(cmdQuitForce) },
     .{ .name = "bpm",         .desc = "[<value>]  tempo in BPM (20–400)",    .run = wrap(cmdBpm) },
     .{ .name = "signature",   .desc = "[<n>[/4]]  time signature (1–16 beats per bar)", .run = wrap(cmdSig) },
-    .{ .name = "sig",         .desc = "[<n>[/4]]  time signature (alias for :signature)", .run = wrap(cmdSig) },
     .{ .name = "gain",        .desc = "[<track>] [<dB>]  track gain (no track: cursor track)", .run = wrap(cmdGain) },
     .{ .name = "pan",         .desc = "[<track>] [<-1..1>]  track pan (no track: cursor track)", .run = wrap(cmdPan) },
     .{ .name = "unmute",      .desc = "clear mute on every track (m toggles one track at a time)", .run = wrap(cmdUnmute) },
     .{ .name = "unsolo",      .desc = "clear solo on every track (S toggles one track at a time)", .run = wrap(cmdUnsolo) },
     .{ .name = "volume",      .desc = "[<dB>]  master volume (–40 to +6)",   .run = wrap(cmdVol) },
-    .{ .name = "vol",         .desc = "[<dB>]  master volume (alias for :volume)", .run = wrap(cmdVol) },
     .{ .name = "seek",        .desc = "<bar>  move playhead to bar",         .run = wrap(cmdSeek) },
     .{ .name = "section",     .desc = "<name>  add or rename section at arrangement cursor", .run = wrap(cmdSection) },
     .{ .name = "section-del", .desc = "delete section at arrangement cursor", .run = wrap(cmdSectionDel) },
@@ -212,10 +208,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "new",         .desc = "start a blank project (refuses if unsaved changes)", .run = wrap(cmdNew) },
     .{ .name = "new!",        .desc = "start a blank project, discarding unsaved changes", .run = wrap(cmdNewForce) },
     .{ .name = "help",        .desc = "list all commands",                   .run = wrap(cmdHelp) },
-    .{ .name = "h",           .desc = "list all commands (alias for :help)", .run = wrap(cmdHelp) },
     .{ .name = "track-add",   .desc = "[name]  add a synth track",           .run = wrap(cmdTrackAdd) },
     .{ .name = "track-del",   .desc = "[n]  delete track n (default: cursor)", .run = wrap(cmdTrackDel) },
-    .{ .name = "d",           .desc = "[n]  delete track n (alias for :track-del)", .run = wrap(cmdTrackDel) },
     .{ .name = "rename",      .desc = "[<n>] <name>  rename what the open editor is editing - a drum pad, a slicer/sampler clip, a group (cursor on a group row), else a track; n picks a different pad or track", .run = wrap(cmdRename) },
     .{ .name = "track-instrument", .desc = "[<n>] <synth|sampler|drum|slicer|soundfont|acoustic>  change track n's instrument, keeping its notes where the old and new kinds are compatible (no n: cursor track)", .run = wrap(cmdTrackInstrument) },
     .{ .name = "group-add",   .desc = "create an untitled track-grouping submix bus", .run = wrap(cmdGroupAdd) },
@@ -231,16 +225,12 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "cc-learn",    .desc = "arm MIDI learn on the param under the cursor - the next knob you move binds to it", .run = wrap(cmdCcLearn) },
     .{ .name = "cc-clear",    .desc = "[<number>]  drop one MIDI binding, or all of them", .run = wrap(cmdCcClear) },
     .{ .name = "write",       .desc = "[file]  save project (default: project.wsj)", .run = wrap(cmdSave) },
-    .{ .name = "save",        .desc = "[file]  save project (alias for :write)",     .run = wrap(cmdSave) },
     .{ .name = "w",           .desc = "[file]  save project (alias for :write)",     .run = wrap(cmdSave) },
-    .{ .name = "wa",          .desc = "[file]  save project (alias for :write)",     .run = wrap(cmdSave) },
     .{ .name = "write-quit",  .desc = "[file]  save project and quit",               .run = wrap(cmdWriteQuit) },
     .{ .name = "wq",          .desc = "[file]  save project and quit (alias for :write-quit)", .run = wrap(cmdWriteQuit) },
     .{ .name = "x",           .desc = "[file]  save project and quit (alias for :write-quit)", .run = wrap(cmdWriteQuit) },
     .{ .name = "wq!",         .desc = "[file]  save project and quit (alias for :write-quit)", .run = wrap(cmdWriteQuit) },
-    .{ .name = "xa",          .desc = "[file]  save project and quit (alias for :write-quit)", .run = wrap(cmdWriteQuit) },
     .{ .name = "bounce",       .desc = "[file] [16|24]  render session to WAV (default: bounce.wav, 16-bit)", .run = wrap(cmdBounce) },
-    .{ .name = "export",       .desc = "[file] [16|24]  render session to WAV (alias for :bounce)",          .run = wrap(cmdBounce) },
     .{ .name = "bounce-stems", .desc = "[dir] [16|24]  render each non-empty track soloed to <dir>/<N>-<track>.wav (default: stems/)", .run = wrap(cmdBounceStems) },
     .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern, or every pad in a drum machine", .run = wrap(cmdClear), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "%d",          .desc = "erase all notes/hits in the pattern (alias for :clear)",  .run = wrap(cmdClear), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
@@ -940,7 +930,7 @@ test "expandHome expands ~ and ~/rest via $HOME; leaves other forms alone" {
     try testing.expectEqualStrings("~/song.wsj", expandHome(&tiny, "~/song.wsj"));
 }
 
-test ":save reports the expanded path, not the literal ~, on failure" {
+test ":write reports the expanded path, not the literal ~, on failure" {
     var app = try App.init(std.testing.allocator, std.testing.io);
     defer app.deinit();
     const home_c = std.c.getenv("HOME") orelse return error.SkipZigTest;
@@ -949,7 +939,7 @@ test ":save reports the expanded path, not the literal ~, on failure" {
     // A directory that doesn't exist under $HOME - save fails, but the
     // status must show where it actually tried to write.
     var cmd_buf: [80]u8 = undefined;
-    const cmd = try std.fmt.bufPrint(&cmd_buf, ":save ~/__wstudio_missing__/p.wsj", .{});
+    const cmd = try std.fmt.bufPrint(&cmd_buf, ":write ~/__wstudio_missing__/p.wsj", .{});
     for (cmd) |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     const status = app.status_buf[0..app.status_len];
