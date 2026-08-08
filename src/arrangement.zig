@@ -12,6 +12,7 @@ pub const max_audio_takes: usize = 8;
 pub const Clip = struct {
     start_tick: u32,
     length_ticks: u32,
+    layer: u8 = 0,
     content: Content,
     /// Gain/pan automation for this clip's span, in clip-relative beats (0 =
     /// clip start). Independent of `content` - every clip kind (melodic or
@@ -319,7 +320,7 @@ pub const Lane = struct {
         const end = clip.endTick();
         var i: usize = 0;
         while (i < self.clips.items.len) {
-            if (self.clips.items[i].overlaps(start, end)) {
+            if (self.clips.items[i].layer == clip.layer and self.clips.items[i].overlaps(start, end)) {
                 var removed = self.clips.orderedRemove(i);
                 removed.deinit(allocator);
             } else i += 1;
@@ -327,7 +328,7 @@ pub const Lane = struct {
         // Insert at the first clip starting after `start`.
         var idx: usize = self.clips.items.len;
         for (self.clips.items, 0..) |c, j| {
-            if (c.start_tick > start) {
+            if (c.start_tick > start or (c.start_tick == start and c.layer > clip.layer)) {
                 idx = j;
                 break;
             }
@@ -337,7 +338,10 @@ pub const Lane = struct {
 
     /// Remove the clip covering `bar`, if any. Returns true if one was removed.
     pub fn removeAt(self: *Lane, allocator: std.mem.Allocator, bar: u32) bool {
-        for (self.clips.items, 0..) |c, i| {
+        var i = self.clips.items.len;
+        while (i > 0) {
+            i -= 1;
+            const c = self.clips.items[i];
             if (c.covers(bar)) {
                 var removed = self.clips.orderedRemove(i);
                 removed.deinit(allocator);
@@ -349,10 +353,11 @@ pub const Lane = struct {
 
     /// Pointer to the clip covering `bar`, or null.
     pub fn clipAt(self: *Lane, bar: u32) ?*Clip {
+        var found: ?*Clip = null;
         for (self.clips.items) |*c| {
-            if (c.covers(bar)) return c;
+            if (c.covers(bar) and (found == null or c.layer >= found.?.layer)) found = c;
         }
-        return null;
+        return found;
     }
 
     /// Remove every clip (e.g. when a track's instrument kind changes).
@@ -550,6 +555,19 @@ test "place evicts overlapping clips" {
 
     try testing.expectEqual(@as(usize, 1), lane.clips.items.len);
     try testing.expectEqual(@as(u32, 2), lane.clips.items[0].start_tick);
+}
+
+test "different clip layers may overlap and top layer wins lookup" {
+    const a = std.testing.allocator;
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    try lane.place(a, Clip.initAudio(0, 8, .{ .source_id = 1, .source_start_frame = 0, .source_length_frames = 8 }));
+    var upper = Clip.initAudio(2, 4, .{ .source_id = 2, .source_start_frame = 0, .source_length_frames = 4 });
+    upper.layer = 1;
+    try lane.place(a, upper);
+
+    try std.testing.expectEqual(@as(usize, 2), lane.clips.items.len);
+    try std.testing.expectEqual(@as(u32, 2), lane.clipAt(3).?.content.audio.source_id);
 }
 
 test "clip constructors enforce non-empty lengths" {

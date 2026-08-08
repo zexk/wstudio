@@ -857,7 +857,7 @@ pub fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
             } };
         },
     };
-    var c: ClipSnap = .{ .start_tick = clip.start_tick, .length_ticks = clip.length_ticks, .content = content };
+    var c: ClipSnap = .{ .start_tick = clip.start_tick, .length_ticks = clip.length_ticks, .layer = clip.layer, .content = content };
     c.gain_automation = try automationToSnap(aa, clip.automation.gain);
     c.pan_automation = try automationToSnap(aa, clip.automation.pan);
     if (clip.automation.synth_params.items.len > 0) {

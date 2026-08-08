@@ -91,6 +91,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "clip-stretch", .desc = "[<ratio>]  audio-region time stretch (0.125 to 8)", .run = wrap(commands_mixer.cmdClipStretch) },
     .{ .name = "clip-reverse", .desc = "toggle reversed audio-region playback", .run = wrap(commands_mixer.cmdClipReverse) },
     .{ .name = "clip-slip",   .desc = "<signed-seconds>  move audio inside its region", .run = wrap(commands_mixer.cmdClipSlip) },
+    .{ .name = "clip-layer",  .desc = "[<0-255>]  inspect or set arrangement clip layer", .run = wrap(commands_mixer.cmdClipLayer) },
+    .{ .name = "crossfade",   .desc = "crossfade overlapping audio layers at cursor", .run = wrap(commands_mixer.cmdCrossfade) },
     .{ .name = "take",        .desc = "[next|prev]  cycle alternate recordings on audio region", .run = wrap(commands_mixer.cmdTake) },
     .{ .name = "load",        .desc = "[file]  load the WAV/SF2 type for the current view and selected instrument; omit the file to browse", .run = wrap(commands_load.cmdLoad) },
     .{ .name = "clap-instrument", .desc = "<plugin-id> <path>  load a CLAP instrument on the cursor track", .run = wrap(cmdClapInstrument) },

@@ -46,7 +46,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 40;
+pub const file_version: u32 = 41;
 
 /// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
 /// reasoning as `EqBandKindSnap`.
@@ -743,6 +743,7 @@ pub const ClipSnap = struct {
     /// Exact placement at 32 ticks per quarter-note beat.
     start_tick: u32 = 0,
     length_ticks: u32 = time_grid.ticks_per_beat * 4,
+    layer: u8 = 0,
     content: ClipContentSnap = .{ .melodic = .{} },
     /// Gain (dB) / pan (-1..1) automation breakpoints, clip-relative beats.
     /// Independent of `kind` - either clip type can carry them.

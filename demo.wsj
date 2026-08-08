@@ -1,5 +1,5 @@
 {
-  "version": 40,
+  "version": 41,
   "tempo_bpm": 120,
   "scale": null,
   "tuning": {
@@ -3263,6 +3263,7 @@
         {
           "start_tick": 1024,
           "length_ticks": 256,
+          "layer": 0,
           "content": {
             "melodic": {
               "notes": [
@@ -3349,6 +3350,7 @@
         {
           "start_tick": 1280,
           "length_ticks": 256,
+          "layer": 0,
           "content": {
             "melodic": {
               "notes": [
@@ -3435,6 +3437,7 @@
         {
           "start_tick": 1536,
           "length_ticks": 256,
+          "layer": 0,
           "content": {
             "melodic": {
               "notes": [
@@ -3525,6 +3528,7 @@
         {
           "start_tick": 256,
           "length_ticks": 256,
+          "layer": 0,
           "content": {
             "melodic": {
               "notes": [
@@ -3593,6 +3597,7 @@
         {
           "start_tick": 512,
           "length_ticks": 256,
+          "layer": 0,
           "content": {
             "melodic": {
               "notes": [
@@ -3661,6 +3666,7 @@
         {
           "start_tick": 768,
           "length_ticks": 256,
+          "layer": 0,
           "content": {
             "melodic": {
               "notes": [
@@ -3729,6 +3735,7 @@
         {
           "start_tick": 1024,
           "length_ticks": 256,
+          "layer": 0,
           "content": {
             "melodic": {
               "notes": [
@@ -3797,6 +3804,7 @@
         {
           "start_tick": 1280,
           "length_ticks": 256,
+          "layer": 0,
           "content": {
             "melodic": {
               "notes": [
@@ -3865,6 +3873,7 @@
         {
           "start_tick": 1536,
           "length_ticks": 256,
+          "layer": 0,
           "content": {
             "melodic": {
               "notes": [
@@ -3933,6 +3942,7 @@
         {
           "start_tick": 1792,
           "length_ticks": 256,
+          "layer": 0,
           "content": {
             "melodic": {
               "notes": [
@@ -4005,6 +4015,7 @@
         {
           "start_tick": 256,
           "length_ticks": 256,
+          "layer": 0,
           "content": {
             "melodic": {
               "notes": [
@@ -4091,6 +4102,7 @@
         {
           "start_tick": 512,
           "length_ticks": 256,
+          "layer": 0,
           "content": {
             "melodic": {
               "notes": [
@@ -4177,6 +4189,7 @@
         {
           "start_tick": 768,
           "length_ticks": 256,
+          "layer": 0,
           "content": {
             "melodic": {
               "notes": [
@@ -4263,6 +4276,7 @@
         {
           "start_tick": 1024,
           "length_ticks": 256,
+          "layer": 0,
           "content": {
             "melodic": {
               "notes": [
@@ -4349,6 +4363,7 @@
         {
           "start_tick": 1280,
           "length_ticks": 256,
+          "layer": 0,
           "content": {
             "melodic": {
               "notes": [
@@ -4435,6 +4450,7 @@
         {
           "start_tick": 1536,
           "length_ticks": 256,
+          "layer": 0,
           "content": {
             "melodic": {
               "notes": [
@@ -4525,6 +4541,7 @@
         {
           "start_tick": 1920,
           "length_ticks": 256,
+          "layer": 0,
           "content": {
             "drum": {
               "pattern": {

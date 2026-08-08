@@ -584,6 +584,73 @@ pub fn cmdClipSlip(app: *App, args: []const u8) void {
     app.setStatus("clip slipped to source frame {d}", .{audio.source_start_frame});
 }
 
+pub fn cmdClipLayer(app: *App, args: []const u8) void {
+    if (app.view != .arrangement) {
+        app.setStatus("clip-layer: open arrangement first", .{});
+        return;
+    }
+    const lane = app.session.arrangement.lane(app.cursor) orelse return;
+    const clip = lane.clipAt(app.arr_cursor_bar *| app.arr_grid.ticks()) orelse {
+        app.setStatus("clip-layer: no clip at cursor", .{});
+        return;
+    };
+    const arg = std.mem.trim(u8, args, " ");
+    if (arg.len == 0) {
+        app.setStatus("clip layer: {d}", .{clip.layer});
+        return;
+    }
+    const layer = std.fmt.parseInt(u8, arg, 10) catch {
+        app.setStatus("clip-layer: expected 0 to 255", .{});
+        return;
+    };
+    history.recordLane(app, @intCast(app.cursor));
+    clip.layer = layer;
+    app.dirty = true;
+    app.setStatus("clip layer: {d}", .{layer});
+}
+
+pub fn cmdCrossfade(app: *App, _: []const u8) void {
+    if (app.view != .arrangement) {
+        app.setStatus("crossfade: open arrangement first", .{});
+        return;
+    }
+    const lane = app.session.arrangement.lane(app.cursor) orelse return;
+    const tick = app.arr_cursor_bar *| app.arr_grid.ticks();
+    const selected = lane.clipAt(tick) orelse {
+        app.setStatus("crossfade: no clip at cursor", .{});
+        return;
+    };
+    if (selected.content != .audio) {
+        app.setStatus("crossfade: clip is not audio", .{});
+        return;
+    }
+    var other: ?*ws.Clip = null;
+    for (lane.clips.items) |*candidate| {
+        if (candidate == selected or candidate.content != .audio) continue;
+        if (candidate.start_tick < selected.endTick() and selected.start_tick < candidate.endTick()) {
+            other = candidate;
+            break;
+        }
+    }
+    const peer = other orelse {
+        app.setStatus("crossfade: no overlapping audio layer", .{});
+        return;
+    };
+    const overlap_ticks = @min(selected.endTick(), peer.endTick()) - @max(selected.start_tick, peer.start_tick);
+    const frames: u64 = @intFromFloat(ws.time_grid.tickToBeat(overlap_ticks) * app.session.engine.transport.framesPerBeat());
+    history.recordLane(app, @intCast(app.cursor));
+    if (selected.start_tick >= peer.start_tick) {
+        selected.content.audio.fade_in_frames = frames;
+        peer.content.audio.fade_out_frames = frames;
+    } else {
+        selected.content.audio.fade_out_frames = frames;
+        peer.content.audio.fade_in_frames = frames;
+    }
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.dirty = true;
+    app.setStatus("crossfade: {d} frames", .{frames});
+}
+
 pub fn cmdTake(app: *App, args: []const u8) void {
     if (app.view != .arrangement) {
         app.setStatus("take: open arrangement first", .{});

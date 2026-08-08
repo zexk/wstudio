@@ -797,6 +797,7 @@ pub fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.
         }),
     };
     errdefer out.deinit(allocator);
+    out.layer = cs.layer;
     out.automation.gain = try automationFromSnap(allocator, cs.gain_automation, -60.0, 12.0);
     out.automation.pan = try automationFromSnap(allocator, cs.pan_automation, -1.0, 1.0);
     try applySynthParamAutomationSnap(allocator, &out.automation, cs.synth_param_automation);
