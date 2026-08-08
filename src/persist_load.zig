@@ -805,6 +805,9 @@ pub fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.
             .source_id = cs.source_id,
             .source_start_frame = cs.source_start_frame,
             .source_length_frames = cs.source_length_frames,
+            .gain_db = finiteClamp(f32, cs.audio_gain_db, -60.0, 24.0, 0.0),
+            .fade_in_frames = cs.audio_fade_in_frames,
+            .fade_out_frames = cs.audio_fade_out_frames,
         }),
     };
     errdefer out.deinit(allocator);

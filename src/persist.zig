@@ -1996,6 +1996,9 @@ test "save/load round-trip persists audio sources and regions" {
         .source_id = source_id,
         .source_start_frame = 0,
         .source_length_frames = 2,
+        .gain_db = -3.0,
+        .fade_in_frames = 1,
+        .fade_out_frames = 2,
     }));
     session.setSongMode(true);
     try save(testing.allocator, &session, testing.io, wsj_path);
@@ -2007,6 +2010,9 @@ test "save/load round-trip persists audio sources and regions" {
     const region = loaded.arrangement.lane(0).?.clips.items[0].content.audio;
     try testing.expectEqual(source_id, region.source_id);
     try testing.expectEqual(@as(u64, 2), region.source_length_frames);
+    try testing.expectApproxEqAbs(@as(f32, -3.0), region.gain_db, 1e-6);
+    try testing.expectEqual(@as(u64, 1), region.fade_in_frames);
+    try testing.expectEqual(@as(u64, 2), region.fade_out_frames);
 }
 
 test "save/load round-trip persists a :load-wavetable-imported table, default state writes no sidecar" {

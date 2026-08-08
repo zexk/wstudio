@@ -115,6 +115,9 @@ pub const Clip = struct {
         source_id: u32,
         source_start_frame: u64,
         source_length_frames: u64,
+        gain_db: f32 = 0.0,
+        fade_in_frames: u64 = 0,
+        fade_out_frames: u64 = 0,
     };
 
     /// A private copy of a piano-roll pattern.

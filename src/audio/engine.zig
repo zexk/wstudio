@@ -217,6 +217,9 @@ pub const AudioRegion = struct {
     source_length_frames: u64,
     source_sample_rate: u32,
     channel_count: u16,
+    gain: f32 = 1.0,
+    fade_in_frames: u64 = 0,
+    fade_out_frames: u64 = 0,
     samples: []const Sample,
 };
 
@@ -1795,8 +1798,18 @@ pub const Engine = struct {
                 if (source_frame >= source_frames) break;
                 const dst: usize = @intCast((timeline_frame - block_start) * channels);
                 const src: usize = @intCast(source_frame * region.channel_count);
-                out[dst] += region.samples[src];
-                out[dst + 1] += if (region.channel_count > 1) region.samples[src + 1] else region.samples[src];
+                const fade_in = if (region.fade_in_frames > 0)
+                    @min(1.0, @as(f32, @floatFromInt(relative)) / @as(f32, @floatFromInt(region.fade_in_frames)))
+                else
+                    1.0;
+                const remaining = region.end_frame - timeline_frame - 1;
+                const fade_out = if (region.fade_out_frames > 0)
+                    @min(1.0, @as(f32, @floatFromInt(remaining)) / @as(f32, @floatFromInt(region.fade_out_frames)))
+                else
+                    1.0;
+                const gain = region.gain * @min(fade_in, fade_out);
+                out[dst] += region.samples[src] * gain;
+                out[dst + 1] += (if (region.channel_count > 1) region.samples[src + 1] else region.samples[src]) * gain;
             }
         }
     }
@@ -2067,6 +2080,31 @@ test "audio region renders source trim on its timeline" {
     var output: [8]Sample = undefined;
     engine.process(&output);
     for (output, [_]Sample{ 0, 0, 0.25, 0.25, 0.5, 0.5, 0, 0 }) |actual, expected| {
+        try std.testing.expectApproxEqAbs(expected, actual, 1e-6);
+    }
+}
+
+test "audio region applies gain and linear edge fades" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.trackAt(0).* = .{ .active = true, .gain = std.math.sqrt2 };
+    const source = [_]Sample{ 1, 1, 1, 1 };
+    engine.setTrackAudioRegions(0, &.{.{
+        .start_frame = 0,
+        .end_frame = 4,
+        .source_start_frame = 0,
+        .source_length_frames = 4,
+        .source_sample_rate = 48_000,
+        .channel_count = 1,
+        .gain = 0.5,
+        .fade_in_frames = 2,
+        .fade_out_frames = 2,
+        .samples = &source,
+    }});
+
+    var output: [8]Sample = undefined;
+    engine.process(&output);
+    for (output, [_]Sample{ 0, 0, 0.25, 0.25, 0.25, 0.25, 0, 0 }) |actual, expected| {
         try std.testing.expectApproxEqAbs(expected, actual, 1e-6);
     }
 }

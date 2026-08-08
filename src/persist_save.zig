@@ -886,6 +886,9 @@ pub fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
             c.source_id = audio.source_id;
             c.source_start_frame = audio.source_start_frame;
             c.source_length_frames = audio.source_length_frames;
+            c.audio_gain_db = audio.gain_db;
+            c.audio_fade_in_frames = audio.fade_in_frames;
+            c.audio_fade_out_frames = audio.fade_out_frames;
         },
     }
     c.gain_automation = try automationToSnap(aa, clip.automation.gain);

@@ -250,7 +250,7 @@ pub fn draw(app: anytype) void {
                     }
                 },
                 .audio => |region| {
-                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(ink), "AUDIO  {d}f", .{region.source_length_frames});
+                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(ink), "AUDIO  {d}f  {d:.1}dB", .{ region.source_length_frames, region.gain_db });
                     const mid = (pmin[1] + 22 + pmax[1]) * 0.5;
                     draw_list.addLine(.{ .p1 = .{ pmin[0] + 5, mid }, .p2 = .{ pmax[0] - 5, mid }, .col = color(.{ ink[0], ink[1], ink[2], 0.72 }), .thickness = 2 });
                 },
