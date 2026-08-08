@@ -641,9 +641,9 @@ pub const App = struct {
     /// Global and not persisted, in the same bucket
     /// as `piano_grid`/`piano_scale`.
     piano_division: GridDivision = .sixteenth,
-    /// True while `M` holds the piano-roll note under the cursor - h/l/j/k
-    /// then drag the note instead of the cursor; esc/M (or any other key)
-    /// drop it. See editors/piano.zig.
+    /// True while `M` moves or `Y` clones the piano-roll note under the
+    /// cursor. h/l/j/k then drag it instead of the cursor; esc/M/Y (or any
+    /// other key) drops it. See editors/piano.zig.
     piano_grab: bool = false,
     /// True while enter is held on a freshly inserted note (not when it
     /// deletes one) - a live-shaping session mirroring `piano_grab`: j/k

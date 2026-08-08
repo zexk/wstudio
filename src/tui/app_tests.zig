@@ -5973,6 +5973,32 @@ test "piano roll M grabs a note; h/l/j/k drag it as one undo step" {
     try std.testing.expect(!app.piano_grab);
 }
 
+test "piano roll Y clones a note through the keyboard grab path" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5, .velocity = 0.7 });
+    app.piano_cursor_step = 0;
+    app.piano_cursor_pitch = 60;
+
+    app.handleKey(.{ .char = 'Y' }, 0);
+    app.handleKey(.{ .char = 'L' }, 0);
+    app.handleKey(.{ .char = 'k' }, 0);
+    app.handleKey(.escape, 0);
+
+    try std.testing.expectEqual(@as(u16, 2), pp.note_count);
+    try std.testing.expect(pp.noteAt(60, 0.0) != null);
+    const clone = pp.noteAt(61, 1.0).?;
+    try std.testing.expectApproxEqAbs(@as(f64, 0.5), clone.duration_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.7), clone.velocity, 1e-6);
+
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+    try std.testing.expect(pp.noteAt(60, 0.0) != null);
+}
+
 test "piano roll . repeats the last drag on whatever note sits under the new cursor" {
     var app = try testApp();
     defer app.deinit();

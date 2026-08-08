@@ -171,6 +171,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     };
 
     // Note-grab mode: M holds the note under the cursor and h/l/j/k drag it,
+    // while Y leaves a clone at the source when the grab drops.
     // J/K an octave at a time (the cursor follows). esc or M drop it; any
     // other key drops it first and is then handled normally below.
     if (app.piano_grab) {
@@ -179,11 +180,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             .char => |c| switch (c) {
                 'h' => { dragNote(app, pp, max_step, -1, 0); return true; },
                 'l' => { dragNote(app, pp, max_step, 1, 0); return true; },
+                'H' => { dragNote(app, pp, max_step, -stepsPerBeat(app), 0); return true; },
+                'L' => { dragNote(app, pp, max_step, stepsPerBeat(app), 0); return true; },
                 'j' => { dragNote(app, pp, max_step, 0, -1); return true; },
                 'k' => { dragNote(app, pp, max_step, 0, 1); return true; },
                 'J' => { dragNote(app, pp, max_step, 0, -12); return true; },
                 'K' => { dragNote(app, pp, max_step, 0, 12); return true; },
-                'M' => { dropGrab(app); app.setStatus("note dropped", .{}); return true; },
+                'M', 'Y' => { dropGrab(app); app.setStatus("note dropped", .{}); return true; },
                 else => dropGrab(app),
             },
             else => dropGrab(app),
@@ -211,6 +214,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'K' => { dragNote(app, pp, max_step, 0, 12); return true; },
                 'h' => { resizeOrLen(app, -1.0 / stepsPerBeatF(app)); return true; },
                 'l' => { resizeOrLen(app, 1.0 / stepsPerBeatF(app)); return true; },
+                'H' => { resizeOrLen(app, -1.0); return true; },
+                'L' => { resizeOrLen(app, 1.0); return true; },
                 else => dropStamp(app),
             },
             else => dropStamp(app),
@@ -259,9 +264,25 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 }
                 // One grab = one undo entry, however far the drag goes.
                 history.push(app, history.captureMelodic(app, app.piano_track));
+                app.piano_clone_source = null;
                 app.piano_grab = true;
                 app.piano_grab_delta = .{};
-                app.setStatus("moving note - h/l/j/k drag, J/K octave, esc drops", .{});
+                app.setStatus("moving note - h/l step, H/L beat, j/k pitch, J/K octave", .{});
+                return true;
+            },
+            // Y is FL's shift-drag for keyboard: move the held note, then
+            // leave its source copy behind when the grab drops.
+            'Y' => {
+                const start_beat = stepToBeat(app, app.piano_cursor_step);
+                if (pp.noteAt(app.piano_cursor_pitch, start_beat) == null) {
+                    app.setStatus("no note under cursor", .{});
+                    return true;
+                }
+                history.push(app, history.captureMelodic(app, app.piano_track));
+                app.piano_clone_source = .{ .pitch = app.piano_cursor_pitch, .step = app.piano_cursor_step };
+                app.piano_grab = true;
+                app.piano_grab_delta = .{};
+                app.setStatus("cloning note - h/l step, H/L beat, j/k pitch, J/K octave", .{});
                 return true;
             },
             // </> nudge the selected per-note field (count-scaled); f/F pick
@@ -409,6 +430,10 @@ fn dragNote(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dstep: i32
 /// repeatable edit if the note actually moved.
 fn dropGrab(app: *App) void {
     app.piano_grab = false;
+    defer app.piano_clone_source = null;
+    if (app.piano_clone_source) |src| {
+        _ = cloneNoteBack(app, src.pitch, src.step, app.piano_cursor_pitch, app.piano_cursor_step);
+    }
     if (app.piano_grab_delta.dstep != 0 or app.piano_grab_delta.dpitch != 0) {
         app.last_edit = .{ .piano_drag = .{
             .dstep = app.piano_grab_delta.dstep,
@@ -549,7 +574,7 @@ fn toggleOrStamp(app: *App, pp: *pattern_mod.PatternPlayer) void {
     app.playNote(app.piano_track, app.piano_cursor_pitch, app.now_ns);
     app.piano_stamp = true;
     app.piano_grab_delta = .{};
-    app.setStatus("stamping - hold: j/k pitch, h/l length; release/esc drops", .{});
+    app.setStatus("stamping - j/k pitch, J/K octave, h/l step, H/L beat", .{});
 }
 
 /// Drop a live-shaping stamp session, recording its accumulated pitch drag
@@ -1516,9 +1541,6 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
             defer app.piano_clone_source = null;
             if (!app.piano_grab) return;
             if (app.piano_grab_delta.moved) {
-                if (app.piano_clone_source) |src| {
-                    _ = cloneNoteBack(app, src.pitch, src.step, app.piano_cursor_pitch, app.piano_cursor_step);
-                }
                 dropGrab(app);
             } else {
                 app.piano_grab = false;

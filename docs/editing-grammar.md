@@ -44,6 +44,10 @@ where that editor deviates.
   time and `i` inverts around the selection's pitch midpoint - `r` and
   `i` work in plain visual mode too. `enter` or escape returns to
   selection.
+
+  In normal mode, `M` grabs one note for the same move gestures, including
+  `H`/`L` by a beat and `J`/`K` by an octave. `Y` clones it first, matching
+  FL Studio's shift-drag workflow. Escape, `M`, or `Y` drops the note.
 - **Command** (`:`) / **search** (`/`): handled outside the editors.
 
 ## Counts

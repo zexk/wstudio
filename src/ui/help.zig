@@ -340,10 +340,11 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("J / K",        "move cursor down / up (one octave)");
     t.key("gg / gG",       "jump cursor to loop start / end");
     t.key("w / b",        "jump to the next / previous beat boundary");
-    t.key("enter",        "toggle note at cursor; hold to shape it (j/k pitch, J/K octave, h/l length) until released");
+    t.key("enter",        "toggle note; hold to shape pitch with j/k/J/K, length with h/l/H/L");
     t.key("n / N",        "enter note / rest, then advance by the default note length");
     t.key("x",            "delete note at cursor");
-    t.key("M",            "grab note at cursor - h/l/j/k drag it, J/K an octave, esc drops");
+    t.key("M",            "grab note at cursor - h/l step, H/L beat, j/k pitch, J/K octave");
+    t.key("Y",            "clone note at cursor with the same grab motions; esc drops");
     t.key("a",            "preview note at cursor (:audition sounds every j/k move too)");
     t.key("i",            "insert mode: play the qwerty piano (a-row/q-row, z/x octave)");
     t.key("(insert) space","start recording - clicks a one-bar count-in first if stopped");
