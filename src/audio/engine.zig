@@ -418,6 +418,10 @@ pub const Engine = struct {
     /// `applyInsertTrack`/`applyDeleteTrack`/`swapTracks`). Heap slice of
     /// length `max_tracks`, owned, freed in `deinit`.
     tracks: []std.atomic.Value(*TrackState),
+    /// Number of logical track slots worth visiting on the audio thread.
+    /// Tracks are contiguous, so walking the remaining `max_tracks` empty
+    /// slots every block only burns realtime budget.
+    track_count: std.atomic.Value(u16) = .init(0),
     /// Stable backing storage `tracks` indexes into by pointer - a fixed
     /// pool of `max_tracks` objects, never moved once allocated. Heap slice
     /// (owned, freed in `deinit`) for the same by-value-construction/stack
@@ -602,6 +606,7 @@ pub const Engine = struct {
                 self.track_sends[i] = [_]?SendSlot{null} ** max_sends_per_track;
             }
         }
+        self.track_count.store(@intCast(@min(project.tracks.items.len, max_tracks)), .release);
     }
 
     /// Shift engine slots [idx, total) up by one (to make room for a new
@@ -651,6 +656,7 @@ pub const Engine = struct {
         self.track_sidechain[idx] = [_]?Compressor.SidechainSource{null} ** max_chain_devices;
         self.track_sends[idx] = [_]?SendSlot{null} ** max_sends_per_track;
         self.automation[idx].clear(self.allocator);
+        self.track_count.store(@min(total + 1, max_tracks), .release);
     }
 
     /// Shift engine slots [idx+1, total) down by one, clearing the last slot.
@@ -672,6 +678,7 @@ pub const Engine = struct {
         self.track_sidechain[total - 1] = [_]?Compressor.SidechainSource{null} ** max_chain_devices;
         self.track_sends[total - 1] = [_]?SendSlot{null} ** max_sends_per_track;
         self.automation[total - 1].clear(self.allocator);
+        self.track_count.store(total - 1, .release);
     }
 
     /// Swap two tracks' engine slots (state + chain + the parallel
@@ -937,7 +944,8 @@ pub const Engine = struct {
 
         self.drainCommands();
         @memset(out, 0.0);
-        self.track_peak = [_][channels]f32{.{ 0.0, 0.0 }} ** max_tracks;
+        const track_count = self.track_count.load(.acquire);
+        @memset(self.track_peak[0..track_count], .{ 0.0, 0.0 });
 
         if (self.pre_roll_frames_remaining > 0) {
             // Count-in: click through the armed bar, no track audio, and
@@ -996,7 +1004,7 @@ pub const Engine = struct {
         inline for (0..channels) |ch| {
             self.shared.peak_bits[ch].store(@bitCast(self.peak[ch]), .monotonic);
         }
-        for (0..max_tracks) |track| inline for (0..channels) |ch| {
+        for (0..track_count) |track| inline for (0..channels) |ch| {
             self.shared.track_peak_bits[track][ch].store(@bitCast(self.track_peak[track][ch]), .monotonic);
         };
         self.shared.correlation_bits.store(@bitCast(self.master_correlation.value()), .monotonic);
@@ -1191,7 +1199,10 @@ pub const Engine = struct {
     /// `pub` so tests elsewhere in the crate can reach a track's state
     /// without duplicating the pointer-indirection load.
     pub fn trackAt(self: *Engine, index: u16) *TrackState {
-        return self.tracks[@min(index, max_tracks - 1)].load(.acquire);
+        const clamped = @min(index, max_tracks - 1);
+        const needed = clamped + 1;
+        if (needed > self.track_count.load(.monotonic)) self.track_count.store(needed, .release);
+        return self.tracks[clamped].load(.acquire);
     }
 
     fn trackAtIfValid(self: *Engine, index: u16) ?*TrackState {
@@ -1508,11 +1519,12 @@ pub const Engine = struct {
     }
 
     fn renderTracks(self: *Engine, out: []Sample, frames: u32) void {
+        const track_count = self.track_count.load(.acquire);
         // When any track OR any bus is soloed, only soloed tracks/buses are
         // audible - a bus solo is folded into the same global flag rather
         // than a separate gate (see `renderOneTrack`'s `group_soloed` check).
         var any_solo = false;
-        for (self.tracks) |*slot| {
+        for (self.tracks[0..track_count]) |*slot| {
             const t = slot.load(.acquire);
             if (t.active and t.soloed) {
                 any_solo = true;
@@ -1547,7 +1559,7 @@ pub const Engine = struct {
             c.source = null;
             c.captured = false;
         }
-        for (self.tracks, 0..) |*slot, ti| {
+        for (self.tracks[0..track_count], 0..) |*slot, ti| {
             const t = slot.load(.acquire);
             const clen = t.chain.slice().len;
             if (!t.active or clen == 0) continue;
@@ -1597,7 +1609,7 @@ pub const Engine = struct {
         // capture embeds a `max_block_frames`-sized buffer, and copying that
         // 8 times per track (times max_tracks) would be a real per-block
         // cost, not just a style nit.
-        for (0..max_tracks) |ti_usize| {
+        for (0..track_count) |ti_usize| {
             const ti: u16 = @intCast(ti_usize);
             var already_done = false;
             for (&self.sidechain_captures) |*c| {
@@ -2619,6 +2631,7 @@ test "loadProject mirrors track settings" {
     defer engine.deinit();
     engine.loadProject(&project);
 
+    try std.testing.expectEqual(@as(u16, 1), engine.track_count.load(.acquire));
     try std.testing.expect(engine.trackAt(0).*.active);
     try std.testing.expect(!engine.trackAt(1).*.active);
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), engine.trackAt(0).*.gain, 1e-4);
@@ -2634,6 +2647,7 @@ test "applyInsertTrack shifts drum and inits new slot" {
     // Insert before drum (at idx=1, 2 tracks present)
     engine.applyInsertTrack(1, 2, 1.0, 0.0, false);
 
+    try std.testing.expectEqual(@as(u16, 3), engine.track_count.load(.acquire));
     try std.testing.expect(engine.trackAt(1).*.active);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), engine.trackAt(1).*.gain, 1e-6);
     try std.testing.expectEqual(@as(usize, 0), engine.trackAt(1).*.chain.slice().len);
@@ -2668,6 +2682,7 @@ test "applyDeleteTrack shifts tracks down" {
 
     engine.applyDeleteTrack(1, 4);
 
+    try std.testing.expectEqual(@as(u16, 3), engine.track_count.load(.acquire));
     try std.testing.expectApproxEqAbs(@as(f32, 0.1), engine.trackAt(0).*.gain, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.3), engine.trackAt(1).*.gain, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.4), engine.trackAt(2).*.gain, 1e-6);
