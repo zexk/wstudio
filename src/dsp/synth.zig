@@ -761,6 +761,8 @@ pub const PolySynth = struct {
         warp_amounts: [2]f32 = @splat(0.0),
         /// Current A/B modulation depth for FM, AM, and ring modes.
         mod_amount: f32 = 0.0,
+        /// Current filter input drives, ramped before nonlinear stages.
+        filter_drives: [2]f32 = @splat(1.0),
         // Amplitude envelope
         env:   f32   = 0.0,
         stage: Stage = .attack,
@@ -1343,6 +1345,7 @@ pub const PolySynth = struct {
             .wt_positions     = .{ self.wt_pos, self.osc_b_wt_pos, self.osc_c_wt_pos },
             .warp_amounts     = .{ self.warp_amount, self.osc_b_warp_amount },
             .mod_amount       = self.mod_amount,
+            .filter_drives    = .{ self.filter_drive, self.filter2_drive },
             .filter_types     = .{ self.filter_type, self.filter2_type },
             .steal_tail_l     = if (was_active) prev_out[0] else 0.0,
             .steal_tail_r     = if (was_active) prev_out[1] else 0.0,
@@ -1835,6 +1838,10 @@ pub const PolySynth = struct {
             for (&mix_steps, mix_targets, v.mix_gain) |*step, target, current| step.* = (target - current) / @as(f32, @floatFromInt(frames));
             const out_step = (gain_v - v.out_gain) / @as(f32, @floatFromInt(frames));
             const mod_amount_step = (mod_amount_v - v.mod_amount) / @as(f32, @floatFromInt(frames));
+            const drive_targets = [2]f32{ drive1_v, drive2_v };
+            var drive_steps: [2]f32 = undefined;
+            for (&drive_steps, drive_targets, v.filter_drives) |*step, target, current|
+                step.* = (target - current) / @as(f32, @floatFromInt(frames));
             const steal_fade_step = 1.0 / @max(self.sample_rate * 0.001, 1.0);
 
             // Stereo pan gains per unison voice - constant-power, √2-compensated so
@@ -1984,8 +1991,8 @@ pub const PolySynth = struct {
 
                 // Stereo filter: same coefficients, independent L/R histories.
                 // zig fmt: off
-                const filt1_l = filterSample(self.filter_type, fc, &v.f1_l, driveInput(drive1_v, osc_l));
-                const filt1_r = filterSample(self.filter_type, fc, &v.f1_r, driveInput(drive1_v, osc_r));
+                const filt1_l = filterSample(self.filter_type, fc, &v.f1_l, driveInput(v.filter_drives[0], osc_l));
+                const filt1_r = filterSample(self.filter_type, fc, &v.f1_r, driveInput(v.filter_drives[0], osc_r));
 
                 // Filter 2: series chains off filter 1's output; parallel
                 // filters the same dry mix and blends with filter 1's output.
@@ -1996,8 +2003,8 @@ pub const PolySynth = struct {
                     const in2_l = if (self.filter_routing == .series) filt1_l else osc_l;
                     const in2_r = if (self.filter_routing == .series) filt1_r else osc_r;
 
-                    const filt2_l = filterSample(self.filter2_type, fc2, &v.f2_l, driveInput(drive2_v, in2_l));
-                    const filt2_r = filterSample(self.filter2_type, fc2, &v.f2_r, driveInput(drive2_v, in2_r));
+                    const filt2_l = filterSample(self.filter2_type, fc2, &v.f2_l, driveInput(v.filter_drives[1], in2_l));
+                    const filt2_r = filterSample(self.filter2_type, fc2, &v.f2_r, driveInput(v.filter_drives[1], in2_r));
 
                     filt_l = if (self.filter_routing == .series) filt2_l else (filt1_l + filt2_l) * 0.5;
                     filt_r = if (self.filter_routing == .series) filt2_r else (filt1_r + filt2_r) * 0.5;
@@ -2015,6 +2022,7 @@ pub const PolySynth = struct {
                 for (&v.wt_positions, wt_steps) |*current, step| current.* += step;
                 for (&v.warp_amounts, warp_steps) |*current, step| current.* += step;
                 v.mod_amount += mod_amount_step;
+                for (&v.filter_drives, drive_steps) |*current, step| current.* += step;
                 // zig fmt: on
 
                 // Amplitude envelope - hitting zero on release kills the
@@ -4863,6 +4871,21 @@ test "changing filter models clears incompatible voice state" {
     try std.testing.expectEqual(@as(f32, 0.0), voice.f2_l.y1);
     try std.testing.expectEqual(@as(usize, 0), voice.f2_r.comb_pos);
     try std.testing.expectEqual([2]FilterType{ .ladder, .comb }, voice.filter_types);
+}
+
+test "filter drives ramp to live targets across one block" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.filter2_on = true;
+    synth.noteOn(60, 1.0);
+
+    synth.filter_drive = 3.0;
+    synth.filter2_drive = 7.0;
+    var buf = [_]Sample{0.0} ** 16;
+    synth.processBlock(&buf);
+    const drives = synth.voices[synth.newest_voice].filter_drives;
+    try std.testing.expectApproxEqAbs(@as(f32, 3.0), drives[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 7.0), drives[1], 1e-6);
 }
 
 test "extreme pitch modulation keeps oscillator phases normalized" {
