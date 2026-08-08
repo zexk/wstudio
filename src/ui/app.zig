@@ -3783,26 +3783,37 @@ pub const App = struct {
     /// External-plugin main-thread callbacks and dirty-state notifications share the
     /// frontend-neutral frame tick so TUI and GUI hosts behave identically.
     fn servicePluginHosts(self: *App) void {
+        var stalled: u32 = 0;
+        var crashed: u32 = 0;
         for (self.session.racks.items) |rack| {
             switch (rack.instrument) {
-                .clap => |plugin| if (plugin.serviceMainThread()) {
-                    self.dirty = true;
-                },
-                .vst3 => |plugin| if (plugin.serviceMainThread()) {
-                    self.dirty = true;
-                },
+                .clap => |plugin| self.servicePlugin(plugin, &stalled, &crashed),
+                .vst3 => |plugin| self.servicePlugin(plugin, &stalled, &crashed),
                 else => {},
             }
-            for (rack.fx.units.items) |unit| switch (unit.payload) {
-                .clap => |plugin| if (plugin.serviceMainThread()) {
-                    self.dirty = true;
-                },
-                .vst3 => |plugin| if (plugin.serviceMainThread()) {
-                    self.dirty = true;
-                },
-                else => {},
-            };
+            self.serviceFxHosts(&rack.fx, &stalled, &crashed);
         }
+        self.serviceFxHosts(&self.session.master_fx, &stalled, &crashed);
+        for (&self.session.groups) |*group| if (group.*) |*g| self.serviceFxHosts(&g.fx, &stalled, &crashed);
+        if (crashed != 0) {
+            self.setStatus("plugin host: {d} crashed", .{crashed});
+        } else if (stalled != 0) {
+            self.setStatus("plugin host: {d} stalled block{s}", .{ stalled, if (stalled == 1) "" else "s" });
+        }
+    }
+
+    fn servicePlugin(self: *App, plugin: anytype, stalled: *u32, crashed: *u32) void {
+        if (plugin.serviceMainThread()) self.dirty = true;
+        stalled.* +|= plugin.takeHostStalledBlocks();
+        crashed.* +|= @intFromBool(plugin.takeHostCrashed());
+    }
+
+    fn serviceFxHosts(self: *App, fx: *ws.Fx, stalled: *u32, crashed: *u32) void {
+        for (fx.units.items) |unit| switch (unit.payload) {
+            .clap => |plugin| self.servicePlugin(plugin, stalled, crashed),
+            .vst3 => |plugin| self.servicePlugin(plugin, stalled, crashed),
+            else => {},
+        };
     }
 
     /// Every `autosave_interval_ns`, if there are unsaved changes, silently

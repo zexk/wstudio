@@ -65,6 +65,8 @@ fn testCrash(gpa: std.mem.Allocator, plugin_path: []const u8) !void {
     const elapsed = transport.monotonicNs() - before;
     try std.testing.expect(elapsed < assert_bound_ns);
     try std.testing.expectEqualSlices(f32, &.{ 0, 0, 0, 0 }, &buf);
+    try std.testing.expect(b.takeCrashed());
+    try std.testing.expect(!b.takeCrashed());
 
     // `deinit()` on an already-dead bridge must not hang or hit the
     // kill-on-an-already-reaped-pid panic this test would otherwise catch
@@ -94,6 +96,8 @@ fn testHang(gpa: std.mem.Allocator, plugin_path: []const u8) !void {
     // again, which it never will without the SIGCONT below.
     try std.testing.expect(elapsed < assert_bound_ns);
     try std.testing.expectEqualSlices(f32, &.{ 0, 0, 0, 0 }, &buf);
+    try std.testing.expectEqual(@as(u32, 1), b.takeStalledBlocks());
+    try std.testing.expectEqual(@as(u32, 0), b.takeStalledBlocks());
 
     // SIGKILL terminates even a stopped (SIGSTOP'd) process on Linux, so
     // this alone - no SIGCONT needed - lets `deinit()`'s reaper `wait()`

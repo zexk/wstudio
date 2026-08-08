@@ -72,6 +72,7 @@ pub const Bridge = struct {
     rpc_mutex: std.Io.Mutex = .init,
     reaper: std.Thread,
     dead: std.atomic.Value(bool) = .init(false),
+    dead_reported: std.atomic.Value(bool) = .init(false),
     stalled_blocks: std.atomic.Value(u32) = .init(0),
     last_input_seq: u64 = 0,
     resolved_id: []u8,
@@ -95,6 +96,7 @@ pub const Bridge = struct {
         // and every RPC (`toggleGui`, `parameterValue`, ...) spun forever.
         self.rpc_mutex = .init;
         self.dead = .init(false);
+        self.dead_reported = .init(false);
         self.stalled_blocks = .init(0);
         self.last_input_seq = 0;
         self.allocator = allocator;
@@ -233,6 +235,14 @@ pub const Bridge = struct {
 
     pub fn isDead(self: *const Bridge) bool {
         return self.dead.load(.acquire);
+    }
+
+    pub fn takeStalledBlocks(self: *Bridge) u32 {
+        return self.stalled_blocks.swap(0, .acq_rel);
+    }
+
+    pub fn takeCrashed(self: *Bridge) bool {
+        return self.isDead() and !self.dead_reported.swap(true, .acq_rel);
     }
 
     // --- real-time path: shared memory, no RPC, bounded wait ---

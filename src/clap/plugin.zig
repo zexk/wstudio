@@ -691,6 +691,20 @@ pub const ClapPlugin = struct {
             .bridged => |b| b.serviceMainThread(),
         };
     }
+
+    pub fn takeHostStalledBlocks(self: *ClapPlugin) u32 {
+        return switch (self.impl) {
+            .direct => 0,
+            .bridged => |b| b.takeStalledBlocks(),
+        };
+    }
+
+    pub fn takeHostCrashed(self: *ClapPlugin) bool {
+        return switch (self.impl) {
+            .direct => false,
+            .bridged => |b| b.takeCrashed(),
+        };
+    }
 };
 
 fn validateAudioPorts(plugin: *const abi.Plugin) !AudioPortLayout {

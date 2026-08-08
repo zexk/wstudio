@@ -752,6 +752,20 @@ pub const Vst3Plugin = struct {
             .bridged => |b| b.serviceMainThread(),
         };
     }
+
+    pub fn takeHostStalledBlocks(self: *Vst3Plugin) u32 {
+        return switch (self.impl) {
+            .direct => 0,
+            .bridged => |b| b.takeStalledBlocks(),
+        };
+    }
+
+    pub fn takeHostCrashed(self: *Vst3Plugin) bool {
+        return switch (self.impl) {
+            .direct => false,
+            .bridged => |b| b.takeCrashed(),
+        };
+    }
 };
 
 const rpc_max_payload = @import("../plugin_host/rpc.zig").max_payload;
