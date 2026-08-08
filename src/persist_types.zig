@@ -50,7 +50,7 @@ const controller_mod = @import("dsp/controller.zig");
 /// added and what older files load as) and the bump-vs-additive policy
 /// live in FORMAT.md; per-field migration specifics stay as doc comments
 /// on the snapshot fields they concern.
-pub const file_version: u32 = 37;
+pub const file_version: u32 = 38;
 
 /// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
 /// reasoning as `EqBandKindSnap`.
@@ -193,8 +193,8 @@ pub const SynthSnap = struct {
     lfo3_slew_ms: f32 = 0.0,
     /// `.custom` shape points (additive optional-with-default field, no
     /// version bump - a sane backward-compatible default exists and there's
-    /// no legacy representation to migrate from, unlike mod_matrix's null-
-    /// vs-empty split). Absence (every file predating the feature) reads as
+    /// no legacy representation to migrate from). Absence (every file
+    /// predating the feature) reads as
     /// "no custom points saved"; applyToSynth then leaves PolySynth's own
     /// flat-zero default in place. Manual in synthToSnap/applyToSynth:
     /// `lfo_custom` collides by name with PolySynth's fixed-array field of
@@ -209,16 +209,7 @@ pub const SynthSnap = struct {
     macro2: f32 = 0.0,
     macro3: f32 = 0.0,
     macro4: f32 = 0.0,
-    // Mod matrix (v17). Optional so its absence identifies a pre-matrix
-    // file: null triggers the legacy fenv/lfo migration in applyToSynth,
-    // while a present-but-empty matrix (a new file with no routing) is
-    // honored as-is.
-    mod_matrix: ?[]const synth_mod.PolySynth.ModRow = null,
-    /// Legacy fixed mod routes (pre-v17), load-only: folded into matrix
-    /// rows when `mod_matrix` is null. Written at defaults by new saves.
-    fenv_amount: f32 = 0.0,
-    lfo_depth: f32 = 0.0,
-    lfo_target: synth_mod.LfoTarget = .none,
+    mod_matrix: []const synth_mod.PolySynth.ModRow = &.{},
     // Voice
     voice_mode: synth_mod.VoiceMode = .poly,
     glide_s: f32 = 0.0,

@@ -1,5 +1,5 @@
 {
-  "version": 37,
+  "version": 38,
   "tempo_bpm": 120,
   "scale": null,
   "tuning": {
@@ -401,9 +401,6 @@
             "fx_instance_id": 0
           }
         ],
-        "fenv_amount": 0,
-        "lfo_depth": 0,
-        "lfo_target": "none",
         "voice_mode": "poly",
         "glide_s": 0,
         "sub_level": 0,
@@ -957,9 +954,6 @@
             "fx_instance_id": 0
           }
         ],
-        "fenv_amount": 0,
-        "lfo_depth": 0,
-        "lfo_target": "none",
         "voice_mode": "poly",
         "glide_s": 0,
         "sub_level": 0,
@@ -1424,9 +1418,6 @@
             "fx_instance_id": 0
           }
         ],
-        "fenv_amount": 0,
-        "lfo_depth": 0,
-        "lfo_target": "none",
         "voice_mode": "mono",
         "glide_s": 0.05000000074505806,
         "sub_level": 0.44999998807907104,

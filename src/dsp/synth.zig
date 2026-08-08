@@ -164,10 +164,6 @@ pub const LfoSync = enum {
 /// as a drawable extra envelope.
 pub const LfoRetrig = enum { free, key, one_shot };
 
-/// Legacy fixed LFO routing, retired when the mod matrix absorbed it.
-/// Kept only so pre-matrix patches/projects still parse; `legacyModRows`
-/// folds it into matrix rows on load.
-pub const LfoTarget  = enum { none, filter, pitch, amp };
 /// Modulation source for a mod-matrix row. The LFOs, `wheel`, and the four
 /// macro knobs are synth-global; fenv/aenv/velocity/keytrack are per-voice.
 /// Macros are plain 0..1 values fanned out through matrix rows - one knob
@@ -788,35 +784,6 @@ pub const PolySynth = struct {
         return null;
     }
 
-    /// Fold the retired fixed mod routes (filter-env amount, LFO target +
-    /// depth) into equivalent matrix rows - the load-time migration for
-    /// pre-matrix presets and project files. Depth scales match the old
-    /// units: fenv was ±4 oct at ±4, lfo→filter ±2 oct at depth 1 (the
-    /// matrix cutoff dest spans ±4 oct at |depth| 1), lfo→pitch ±1 oct at
-    /// depth 1, lfo→amp swing d/2 about unity (the old tremolo's swing;
-    /// its constant -d/2 level dip is not reproduced).
-    pub fn legacyModRows(fenv_amount: f32, lfo_depth: f32, lfo_target: LfoTarget) [2]ModRow {
-        return .{
-            if (fenv_amount != 0.0)
-                .{ .source = .fenv, .dest = 21, .depth = fenv_amount / 4.0 }
-            else
-                .{},
-            switch (lfo_target) {
-                .none => .{},
-                // zig fmt: off
-                .filter => .{ .source = .lfo, .dest = 21,         .depth = lfo_depth * 0.5 },
-                .pitch  => .{ .source = .lfo, .dest = dest_pitch, .depth = lfo_depth },
-                .amp    => .{ .source = .lfo, .dest = dest_amp,   .depth = lfo_depth * 0.5 },
-                // zig fmt: on
-            },
-        };
-    }
-
-    pub fn matrixEmpty(rows: [max_mod_rows]ModRow) bool {
-        for (rows) |r| if (r.source != .none) return false;
-        return true;
-    }
-
     pub const Stage = enum { attack, decay, sustain, release };
 
     /// Comb delay line length per channel per slot. Sets the comb model's
@@ -1182,14 +1149,6 @@ pub const PolySynth = struct {
 
         mod_matrix: [max_mod_rows]ModRow = [_]ModRow{.{}} ** max_mod_rows,
 
-        /// Legacy fixed mod routes, kept as load-only carriers so pre-matrix
-        /// presets (factory and user JSON alike) still apply: `applyPatch`
-        /// folds them into matrix rows when `mod_matrix` is empty. Not
-        /// fields on PolySynth anymore; `toPatch` leaves them at defaults.
-        fenv_amount: f32 = 0.0,
-        lfo_depth: f32 = 0.0,
-        lfo_target: LfoTarget = .none,
-
         voice_mode: VoiceMode = .poly,
         glide_s: f32 = 0.0,
 
@@ -1302,18 +1261,12 @@ pub const PolySynth = struct {
     /// (sample_rate, voices, glide/held-note tracking) is untouched - notes
     /// already sounding pick up the new params on their next block, same as
     /// a single `adjustParam` nudge. Patch fields without a PolySynth
-    /// counterpart are the legacy mod-route carriers, folded into matrix
-    /// rows below instead of copied.
+    /// counterpart are skipped.
     pub fn applyPatch(self: *PolySynth, patch: Patch) void {
         inline for (@typeInfo(Patch).@"struct".fields) |f| {
             if (@hasField(PolySynth, f.name)) {
                 @field(self, f.name) = @field(patch, f.name);
             }
-        }
-        if (matrixEmpty(patch.mod_matrix)) {
-            const rows = legacyModRows(patch.fenv_amount, patch.lfo_depth, patch.lfo_target);
-            self.mod_matrix[0] = rows[0];
-            self.mod_matrix[1] = rows[1];
         }
     }
 
@@ -3731,25 +3684,6 @@ test "mod matrix: velocity source scales its dest per voice" {
     for (buf_vel, buf_dry) |a, b| { rms_vel += a * a; rms_dry += b * b; }
     // zig fmt: on
     try std.testing.expect(rms_vel > rms_dry * 2.0);
-}
-
-test "applyPatch: legacy fenv/lfo fields migrate to matrix rows" {
-    var s = try PolySynth.init(std.testing.allocator, 48_000);
-    defer s.deinit();
-    s.applyPatch(.{ .fenv_amount = 2.0, .lfo_depth = 0.5, .lfo_target = .pitch });
-    try std.testing.expectEqual(ModSource.fenv, s.mod_matrix[0].source);
-    try std.testing.expectEqual(@as(u8, 21), s.mod_matrix[0].dest);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.5), s.mod_matrix[0].depth, 1e-6);
-    try std.testing.expectEqual(ModSource.lfo, s.mod_matrix[1].source);
-    try std.testing.expectEqual(PolySynth.dest_pitch, s.mod_matrix[1].dest);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.5), s.mod_matrix[1].depth, 1e-6);
-
-    // A patch that carries its own matrix ignores the legacy fields.
-    var rows = [_]PolySynth.ModRow{.{}} ** PolySynth.max_mod_rows;
-    rows[0] = .{ .source = .wheel, .dest = 34, .depth = -0.4 };
-    s.applyPatch(.{ .fenv_amount = 2.0, .mod_matrix = rows });
-    try std.testing.expectEqual(ModSource.wheel, s.mod_matrix[0].source);
-    try std.testing.expectEqual(ModSource.none, s.mod_matrix[1].source);
 }
 
 test "applyPatchWithWavetables selects bundled audio while null preserves it" {

@@ -4,9 +4,8 @@
 //! rendered/embedded audio), applied at runtime via `PolySynth.applyPatch`.
 //! See `:synth-preset` in commands.zig.
 //!
-//! All patches are matrix-native: legacy fenv_amount/lfo_depth/lfo_target
-//! carriers stay at their defaults and every mod route is an explicit
-//! `mod_matrix` row. Dest ids used below (see `automatable_params`):
+//! Every mod route is an explicit `mod_matrix` row. Dest ids used below
+//! (see `automatable_params`):
 //! 1 PW A · 4 UNI DET A · 8 PW B · 11 LEVEL B · 15 MOD AMT · 21 CUTOFF ·
 //! 22 RES · 34 SUB LVL · 36 NOISE LVL · 42 WARP AMT A · 47 CUTOFF 2 ·
 //! 55 LEVEL C · 85 DIST MIX · 89 CRUSH MIX · 94 FLNG MIX · 107 PHSR MIX ·
@@ -2023,14 +2022,6 @@ pub fn find(name: []const u8) ?Patch {
 
 test "factory library holds exactly 100 presets" {
     try std.testing.expectEqual(@as(usize, 100), presets.len);
-}
-
-test "factory presets are matrix-native (no legacy mod-route carriers)" {
-    for (presets) |p| {
-        try std.testing.expectEqual(@as(f32, 0.0), p.patch.fenv_amount);
-        try std.testing.expectEqual(@as(f32, 0.0), p.patch.lfo_depth);
-        try std.testing.expectEqual(synth.LfoTarget.none, p.patch.lfo_target);
-    }
 }
 
 test "every preset's matrix rows target legal dests at sane depths" {

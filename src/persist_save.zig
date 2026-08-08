@@ -929,7 +929,7 @@ pub fn automationToSnap(aa: std.mem.Allocator, points: []const AutomationPoint) 
 /// uses - every SynthSnap field that names a matching PolySynth field is
 /// copied automatically, so a newly added field can't be forgotten here the
 /// way `unison_mode` and the wavetable save fields once were. `mod_matrix`
-/// stays manual: PolySynth holds a fixed array, SynthSnap an optional slice.
+/// stays manual: PolySynth holds a fixed array, SynthSnap a slice.
 /// `wt_file`/`osc_{b,c}_wt_file` have no PolySynth counterpart (`@hasField`
 /// skips them) and are filled in by the caller after this returns.
 pub fn synthToSnap(s: *const PolySynth) SynthSnap {

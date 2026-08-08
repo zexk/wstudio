@@ -2120,24 +2120,6 @@ test "buildSession: A/B loop region lands in project and transport" {
     try testing.expect(!bad.engine.transport.loop_enabled);
 }
 
-test "applyToSynth: pre-v17 legacy mod fields migrate onto matrix rows" {
-    var s = try PolySynth.init(std.testing.allocator, 48_000);
-    defer s.deinit();
-    const legacy: SynthSnap = .{ .fenv_amount = 2.0, .lfo_depth = 0.8, .lfo_target = .filter };
-    try applyToSynth(&s, &legacy);
-    try std.testing.expectEqual(synth_mod.ModSource.fenv, s.mod_matrix[0].source);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.5), s.mod_matrix[0].depth, 1e-6);
-    try std.testing.expectEqual(synth_mod.ModSource.lfo, s.mod_matrix[1].source);
-    try std.testing.expectEqual(@as(u8, 21), s.mod_matrix[1].dest);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.4), s.mod_matrix[1].depth, 1e-6);
-
-    // A v17 snapshot with a present-but-empty matrix means "no routing" -
-    // the stale legacy fields (written at defaults, but be paranoid) lose.
-    const empty: SynthSnap = .{ .mod_matrix = &.{}, .fenv_amount = 2.0 };
-    try applyToSynth(&s, &empty);
-    try std.testing.expectEqual(synth_mod.ModSource.none, s.mod_matrix[0].source);
-}
-
 test "save/load round-trip persists LFO 2/3, macros, and their matrix sources" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});

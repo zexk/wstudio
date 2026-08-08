@@ -951,31 +951,19 @@ pub fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) !void {
     // Every plain param_specs field (id->field->range, shared with the live
     // h/l-nudge and automation paths) - see PolySynth.applyParamSpecs. What's
     // left below is what param_specs deliberately excludes: the mod matrix
-    // (fixed array vs. optional slice, plus pre-v17 legacy migration).
+    // (fixed array vs. slice).
     s.applyParamSpecs(ss);
-    if (ss.mod_matrix) |rows| {
-        // v17 file: take the rows as saved (clamped; a bad dest falls back
-        // to cutoff inside setParamAbsolute's rules - mirror them here).
-        for (0..PolySynth.max_mod_rows) |k| {
-            if (k < rows.len) {
-                var row = rows[k];
-                row.depth = clamp(row.depth, -1.0, 1.0);
-                if (PolySynth.modDestIndex(row.dest) == null) row.dest = 21;
-                s.mod_matrix[k] = row;
-            } else {
-                s.mod_matrix[k] = .{};
-            }
+    // Take rows as saved, clamped. Bad destinations fall back to cutoff,
+    // matching setParamAbsolute's rule.
+    for (0..PolySynth.max_mod_rows) |k| {
+        if (k < ss.mod_matrix.len) {
+            var row = ss.mod_matrix[k];
+            row.depth = clamp(row.depth, -1.0, 1.0);
+            if (PolySynth.modDestIndex(row.dest) == null) row.dest = 21;
+            s.mod_matrix[k] = row;
+        } else {
+            s.mod_matrix[k] = .{};
         }
-    } else {
-        // Pre-v17 file: fold the legacy fixed routes into matrix rows.
-        const rows = PolySynth.legacyModRows(
-            clamp(ss.fenv_amount, -4.0, 4.0),
-            clamp(ss.lfo_depth, 0.0, 1.0),
-            ss.lfo_target,
-        );
-        s.mod_matrix = [_]PolySynth.ModRow{.{}} ** PolySynth.max_mod_rows;
-        s.mod_matrix[0] = rows[0];
-        s.mod_matrix[1] = rows[1];
     }
     applyLfoCustomSnap(&s.lfo_custom[0], &s.lfo_custom_count[0], ss.lfo_custom);
     applyLfoCustomSnap(&s.lfo_custom[1], &s.lfo_custom_count[1], ss.lfo2_custom);
