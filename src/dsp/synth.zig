@@ -760,6 +760,8 @@ pub const PolySynth = struct {
         wt_positions: [3]f32 = @splat(0.0),
         /// Current A/B warp amounts, likewise ramped per sample.
         warp_amounts: [2]f32 = @splat(0.0),
+        /// Current A/B modulation depth for FM, AM, and ring modes.
+        mod_amount: f32 = 0.0,
         // Amplitude envelope
         env:   f32   = 0.0,
         stage: Stage = .attack,
@@ -1340,6 +1342,7 @@ pub const PolySynth = struct {
             .pulse_widths     = .{ self.pulse_width, self.osc_b_pulse_width, self.osc_c_pulse_width },
             .wt_positions     = .{ self.wt_pos, self.osc_b_wt_pos, self.osc_c_wt_pos },
             .warp_amounts     = .{ self.warp_amount, self.osc_b_warp_amount },
+            .mod_amount       = self.mod_amount,
             .steal_tail_l     = if (was_active) prev_out[0] else 0.0,
             .steal_tail_r     = if (was_active) prev_out[1] else 0.0,
             .steal_fade       = if (was_active) 1.0 else 0.0,
@@ -1829,6 +1832,7 @@ pub const PolySynth = struct {
             var mix_steps: [5]f32 = undefined;
             for (&mix_steps, mix_targets, v.mix_gain) |*step, target, current| step.* = (target - current) / @as(f32, @floatFromInt(frames));
             const out_step = (gain_v - v.out_gain) / @as(f32, @floatFromInt(frames));
+            const mod_amount_step = (mod_amount_v - v.mod_amount) / @as(f32, @floatFromInt(frames));
             const steal_fade_step = 1.0 / @max(self.sample_rate * 0.001, 1.0);
 
             // Stereo pan gains per unison voice - constant-power, √2-compensated so
@@ -1875,7 +1879,7 @@ pub const PolySynth = struct {
                 // its correction (see `polyBlep`).
                 for (0..n_a) |ui| {
                     const inc: f32 = if (self.mod_mode == .fm_b_to_a)
-                        modulatedPhaseInc(phase_incs_a[ui], 1.0 + mod_amount_v * b_mono)
+                        modulatedPhaseInc(phase_incs_a[ui], 1.0 + v.mod_amount * b_mono)
                     else
                         phase_incs_a[ui];
                     const samp = self.oscSampleA(v.phases[ui], inc, v.pulse_widths[0], v.warp_amounts[0], v.wt_positions[0]);
@@ -1892,7 +1896,7 @@ pub const PolySynth = struct {
                     for (0..n_b) |ui| {
                         // FM A→B: advance B's phase modulated by a_mono.
                         const inc: f32 = if (self.mod_mode == .fm_a_to_b)
-                            modulatedPhaseInc(phase_incs_b[ui], 1.0 + mod_amount_v * a_mono)
+                            modulatedPhaseInc(phase_incs_b[ui], 1.0 + v.mod_amount * a_mono)
                         else
                             phase_incs_b[ui];
                         const samp = self.oscSampleB(v.phases_b[ui], inc, v.pulse_widths[1], v.warp_amounts[1], v.wt_positions[1]);
@@ -1909,12 +1913,12 @@ pub const PolySynth = struct {
                 // Clamped to [0,1]: mod_amount up to 8 can drive the formula negative otherwise.
                 if (self.osc_b_on) switch (self.mod_mode) {
                     .am_a_to_b => {
-                        const g = std.math.clamp((1.0 + mod_amount_v * a_mono) / (1.0 + mod_amount_v), 0.0, 1.0);
+                        const g = std.math.clamp((1.0 + v.mod_amount * a_mono) / (1.0 + v.mod_amount), 0.0, 1.0);
                         // zig fmt: off
                         b_l *= g; b_r *= g;
                     },
                     .am_b_to_a => {
-                        const g = std.math.clamp((1.0 + mod_amount_v * b_mono) / (1.0 + mod_amount_v), 0.0, 1.0);
+                        const g = std.math.clamp((1.0 + v.mod_amount * b_mono) / (1.0 + v.mod_amount), 0.0, 1.0);
                         a_l *= g; a_r *= g;
                     },
                     else => {},
@@ -1962,7 +1966,7 @@ pub const PolySynth = struct {
                 // Formula: (1-d) + d·b_mono stays in [-1,1] for d∈[0,1], b_mono∈[-1,1].
                 // FM/AM/none: standard A + B mix (B contribution already modulated above).
                 const ring_factor: f32 = if (ring) blk: {
-                    const depth = std.math.clamp(mod_amount_v, 0.0, 1.0);
+                    const depth = std.math.clamp(v.mod_amount, 0.0, 1.0);
                     break :blk (1.0 - depth) + depth * b_mono;
                 } else 0.0;
                 for (&v.mix_gain, mix_steps) |*gain, step| gain.* += step;
@@ -2008,6 +2012,7 @@ pub const PolySynth = struct {
                 for (&v.pulse_widths, pw_steps) |*current, step| current.* += step;
                 for (&v.wt_positions, wt_steps) |*current, step| current.* += step;
                 for (&v.warp_amounts, warp_steps) |*current, step| current.* += step;
+                v.mod_amount += mod_amount_step;
                 // zig fmt: on
 
                 // Amplitude envelope - hitting zero on release kills the
@@ -4812,6 +4817,19 @@ test "repeated notes receive different noise streams" {
     const second_seed = synth.voices[synth.newest_voice].noise_rand_state;
     try std.testing.expect(first_seed != second_seed);
     try std.testing.expect(first_seed != 0 and second_seed != 0);
+}
+
+test "oscillator modulation amount ramps to live target across one block" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.osc_b_on = true;
+    synth.mod_mode = .fm_b_to_a;
+    synth.noteOn(60, 1.0);
+
+    synth.mod_amount = 6.0;
+    var buf = [_]Sample{0.0} ** 16;
+    synth.processBlock(&buf);
+    try std.testing.expectApproxEqAbs(@as(f32, 6.0), synth.voices[synth.newest_voice].mod_amount, 1e-6);
 }
 
 test "extreme pitch modulation keeps oscillator phases normalized" {
