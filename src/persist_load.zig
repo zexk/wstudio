@@ -1111,26 +1111,25 @@ pub fn applyFxChain(
     }
 }
 
-/// Move old synth-owned inserts into Rack's shared modular chain. Insert at
-/// chain front because legacy signal flow was synth inserts, then rack FX.
-pub fn migrateSynthFx(allocator: std.mem.Allocator, s: *PolySynth, fx: *Fx, sr: u32) !void {
+/// Build factory-preset inserts in Rack's shared modular chain.
+fn buildPresetFx(allocator: std.mem.Allocator, patch: *const PolySynth.Patch, s: *PolySynth, fx: *Fx, sr: u32) !void {
     var pos: usize = 0;
-    for (s.fx_order) |kind| {
+    for (patch.fx_order) |kind| {
         const enabled = switch (kind) {
-            .gate => s.fx_gate_on,
-            .eq => s.fx_eq_on,
-            .comp => s.fx_comp_on,
-            .mb_comp => s.fx_mb_on,
-            .ott => s.fx_ott_on,
-            .dist => s.fx_dist_on,
-            .crush => s.fx_crush_on,
-            .chorus => s.fx_chorus_on,
-            .flanger => s.fx_flanger_on,
-            .tape => s.fx_tape_on,
-            .phaser => s.fx_phaser_on,
-            .freq_shift => s.fx_freq_shift_on,
-            .delay => s.fx_delay_on,
-            .reverb => s.fx_reverb_on,
+            .gate => patch.fx_gate_on,
+            .eq => patch.fx_eq_on,
+            .comp => patch.fx_comp_on,
+            .mb_comp => patch.fx_mb_on,
+            .ott => patch.fx_ott_on,
+            .dist => patch.fx_dist_on,
+            .crush => patch.fx_crush_on,
+            .chorus => patch.fx_chorus_on,
+            .flanger => patch.fx_flanger_on,
+            .tape => patch.fx_tape_on,
+            .phaser => patch.fx_phaser_on,
+            .freq_shift => patch.fx_freq_shift_on,
+            .delay => patch.fx_delay_on,
+            .reverb => patch.fx_reverb_on,
         };
         if (!enabled) continue;
         const rack_kind: rack_mod.FxKind = switch (kind) {
@@ -1147,119 +1146,101 @@ pub fn migrateSynthFx(allocator: std.mem.Allocator, s: *PolySynth, fx: *Fx, sr: 
         pos += 1;
         switch (unit.payload) {
             .gate => |*v| {
-                v.threshold_db = s.fx_gate_threshold_db;
-                v.attack_ms = s.fx_gate_attack_ms;
-                v.release_ms = s.fx_gate_release_ms;
+                v.threshold_db = patch.fx_gate_threshold_db;
+                v.attack_ms = patch.fx_gate_attack_ms;
+                v.release_ms = patch.fx_gate_release_ms;
             },
             .eq => |*v| {
-                v.setFreq(0, s.fx_eq_low_freq);
-                v.setGain(0, s.fx_eq_low_gain_db);
+                v.setFreq(0, patch.fx_eq_low_freq);
+                v.setGain(0, patch.fx_eq_low_gain_db);
                 v.setType(0, .lowshelf, 1);
-                v.setFreq(1, s.fx_eq_mid_freq);
-                v.setGain(1, s.fx_eq_mid_gain_db);
-                v.setQ(1, s.fx_eq_mid_q);
+                v.setFreq(1, patch.fx_eq_mid_freq);
+                v.setGain(1, patch.fx_eq_mid_gain_db);
+                v.setQ(1, patch.fx_eq_mid_q);
                 v.setType(1, .peak, 1);
-                v.setFreq(2, s.fx_eq_high_freq);
-                v.setGain(2, s.fx_eq_high_gain_db);
+                v.setFreq(2, patch.fx_eq_high_freq);
+                v.setGain(2, patch.fx_eq_high_gain_db);
                 v.setType(2, .highshelf, 1);
             },
             .comp => |*v| {
-                v.threshold_db = s.fx_comp_threshold_db;
-                v.ratio = s.fx_comp_ratio;
-                v.attack_ms = s.fx_comp_attack_ms;
-                v.release_ms = s.fx_comp_release_ms;
-                v.makeup_db = s.fx_comp_makeup_db;
+                v.threshold_db = patch.fx_comp_threshold_db;
+                v.ratio = patch.fx_comp_ratio;
+                v.attack_ms = patch.fx_comp_attack_ms;
+                v.release_ms = patch.fx_comp_release_ms;
+                v.makeup_db = patch.fx_comp_makeup_db;
             },
             .mb_comp => |*v| {
-                v.setXovers(s.fx_mb_xover_lo, s.fx_mb_xover_hi);
-                v.attack_ms = s.fx_mb_attack_ms;
-                v.release_ms = s.fx_mb_release_ms;
-                v.style = s.fx_mb_style;
-                v.mix = s.fx_mb_mix;
-                v.bands[0].threshold_db = s.fx_mb_low_threshold_db;
-                v.bands[0].ratio = s.fx_mb_low_ratio;
-                v.bands[0].makeup_db = s.fx_mb_low_makeup_db;
-                v.bands[1].threshold_db = s.fx_mb_mid_threshold_db;
-                v.bands[1].ratio = s.fx_mb_mid_ratio;
-                v.bands[1].makeup_db = s.fx_mb_mid_makeup_db;
-                v.bands[2].threshold_db = s.fx_mb_high_threshold_db;
-                v.bands[2].ratio = s.fx_mb_high_ratio;
-                v.bands[2].makeup_db = s.fx_mb_high_makeup_db;
+                v.setXovers(patch.fx_mb_xover_lo, patch.fx_mb_xover_hi);
+                v.attack_ms = patch.fx_mb_attack_ms;
+                v.release_ms = patch.fx_mb_release_ms;
+                v.style = patch.fx_mb_style;
+                v.mix = patch.fx_mb_mix;
+                v.bands[0].threshold_db = patch.fx_mb_low_threshold_db;
+                v.bands[0].ratio = patch.fx_mb_low_ratio;
+                v.bands[0].makeup_db = patch.fx_mb_low_makeup_db;
+                v.bands[1].threshold_db = patch.fx_mb_mid_threshold_db;
+                v.bands[1].ratio = patch.fx_mb_mid_ratio;
+                v.bands[1].makeup_db = patch.fx_mb_mid_makeup_db;
+                v.bands[2].threshold_db = patch.fx_mb_high_threshold_db;
+                v.bands[2].ratio = patch.fx_mb_high_ratio;
+                v.bands[2].makeup_db = patch.fx_mb_high_makeup_db;
             },
             .ott => |*v| {
-                v.setDepth(s.fx_ott_depth);
-                v.setTime(s.fx_ott_time);
-                v.gain_in_db = s.fx_ott_gain_in_db;
-                v.gain_out_db = s.fx_ott_gain_out_db;
+                v.setDepth(patch.fx_ott_depth);
+                v.setTime(patch.fx_ott_time);
+                v.gain_in_db = patch.fx_ott_gain_in_db;
+                v.gain_out_db = patch.fx_ott_gain_out_db;
             },
             .sat => |*v| {
-                v.drive_db = s.fx_dist_drive_db;
-                v.mix = s.fx_dist_mix;
+                v.drive_db = patch.fx_dist_drive_db;
+                v.mix = patch.fx_dist_mix;
             },
             .crush => |*v| {
-                v.bits = s.fx_crush_bits;
-                v.downsample = s.fx_crush_rate;
-                v.mix = s.fx_crush_mix;
+                v.bits = patch.fx_crush_bits;
+                v.downsample = patch.fx_crush_rate;
+                v.mix = patch.fx_crush_mix;
             },
             .chorus => |*v| {
-                v.rate_hz = s.fx_chorus_rate_hz;
-                v.depth_ms = s.fx_chorus_depth_ms;
-                v.mix = s.fx_chorus_mix;
+                v.rate_hz = patch.fx_chorus_rate_hz;
+                v.depth_ms = patch.fx_chorus_depth_ms;
+                v.mix = patch.fx_chorus_mix;
             },
             .flanger => |*v| {
-                v.rate_hz = s.fx_flanger_rate_hz;
-                v.depth = s.fx_flanger_depth;
-                v.feedback = s.fx_flanger_feedback;
-                v.mix = s.fx_flanger_mix;
+                v.rate_hz = patch.fx_flanger_rate_hz;
+                v.depth = patch.fx_flanger_depth;
+                v.feedback = patch.fx_flanger_feedback;
+                v.mix = patch.fx_flanger_mix;
             },
             .tape => |*v| {
-                v.wow_rate_hz = s.fx_tape_wow_rate_hz;
-                v.wow_depth = s.fx_tape_wow_depth;
-                v.flutter_rate_hz = s.fx_tape_flutter_rate_hz;
-                v.flutter_depth = s.fx_tape_flutter_depth;
-                v.mix = s.fx_tape_mix;
+                v.wow_rate_hz = patch.fx_tape_wow_rate_hz;
+                v.wow_depth = patch.fx_tape_wow_depth;
+                v.flutter_rate_hz = patch.fx_tape_flutter_rate_hz;
+                v.flutter_depth = patch.fx_tape_flutter_depth;
+                v.mix = patch.fx_tape_mix;
             },
             .phaser => |*v| {
-                v.rate_hz = s.fx_phaser_rate_hz;
-                v.depth = s.fx_phaser_depth;
-                v.feedback = s.fx_phaser_feedback;
-                v.mix = s.fx_phaser_mix;
+                v.rate_hz = patch.fx_phaser_rate_hz;
+                v.depth = patch.fx_phaser_depth;
+                v.feedback = patch.fx_phaser_feedback;
+                v.mix = patch.fx_phaser_mix;
             },
             .freq_shift => |*v| {
-                v.shift_hz = s.fx_freq_shift_hz;
-                v.mix = s.fx_freq_shift_mix;
+                v.shift_hz = patch.fx_freq_shift_hz;
+                v.mix = patch.fx_freq_shift_mix;
             },
             .delay => |*v| {
-                v.time_s = s.fx_delay_time_s;
-                v.feedback = s.fx_delay_feedback;
-                v.mix = s.fx_delay_mix;
+                v.time_s = patch.fx_delay_time_s;
+                v.feedback = patch.fx_delay_feedback;
+                v.mix = patch.fx_delay_mix;
             },
             .reverb => |*v| {
-                v.room = s.fx_reverb_room;
-                v.damp = s.fx_reverb_damp;
-                v.mix = s.fx_reverb_mix;
+                v.room = patch.fx_reverb_room;
+                v.damp = patch.fx_reverb_damp;
+                v.mix = patch.fx_reverb_mix;
             },
             .filter, .limiter, .utility, .stereo_width, .auto_pan, .transient_shaper, .pitch_shift, .clap, .vst3 => unreachable,
         }
     }
-    clearMigratedSynthFx(s);
-}
-
-pub fn clearMigratedSynthFx(s: *PolySynth) void {
-    s.fx_gate_on = false;
-    s.fx_eq_on = false;
-    s.fx_comp_on = false;
-    s.fx_mb_on = false;
-    s.fx_ott_on = false;
-    s.fx_dist_on = false;
-    s.fx_crush_on = false;
-    s.fx_chorus_on = false;
-    s.fx_flanger_on = false;
-    s.fx_tape_on = false;
-    s.fx_phaser_on = false;
-    s.fx_freq_shift_on = false;
-    s.fx_delay_on = false;
-    s.fx_reverb_on = false;
 }
 
 pub fn fxKindOwnsParam(kind: synth_mod.FxUnitKind, id: u16) bool {
@@ -1296,20 +1277,19 @@ pub fn applySynthPatch(
     var probe = synth.*;
     probe.applyPatch(patch);
     var replacement: Fx = .{};
-    migrateSynthFx(allocator, &probe, &replacement, sr) catch |err| {
+    buildPresetFx(allocator, &patch, &probe, &replacement, sr) catch |err| {
         replacement.deinit(allocator);
         return err;
     };
     errdefer replacement.deinit(allocator);
     try synth.applyPatchWithWavetables(patch);
-    // `migrateSynthFx` bound every row that modulates an FX param to the
+    // `buildPresetFx` bound every row that modulates an FX param to the
     // unit it created for that param, but it ran against `probe` - the whole
     // point of the probe being that a failed migration leaves the live synth
     // untouched. `applyPatchWithWavetables` just rewrote the real matrix from
     // the patch, whose rows carry no instance id, so carry the bindings over
     // or every migrated modulation lands on nothing.
     for (&synth.mod_matrix, probe.mod_matrix) |*row, migrated| row.fx_instance_id = migrated.fx_instance_id;
-    clearMigratedSynthFx(synth);
     const displaced = rack.fx;
     rack.fx = replacement;
     return displaced;

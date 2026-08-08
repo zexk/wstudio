@@ -208,29 +208,11 @@ pub const WarpMode    = enum { none, bend, mirror, sync };
 pub const ArpMode     = enum { up, down, updown, downup, played, random, chord };
 // zig fmt: on
 
-/// Which insert-FX unit occupies each slot of the synth-internal chain's
-/// processing order. Every unit stays an always-present by-value field on
-/// `PolySynth` (same as before) - this only controls *sequence*, so it adds
-/// no heap allocation and doesn't touch the mod-matrix/automation id space
-/// (every param keeps its existing stable id regardless of position). See
-/// `PolySynth.fx_order`'s own doc comment for the reorder mechanism.
+/// Factory-preset rack FX kinds.
 pub const FxUnitKind = enum { gate, eq, comp, mb_comp, ott, dist, crush, chorus, flanger, tape, phaser, freq_shift, delay, reverb };
 
-/// Starting chain order - preserves the relative order the original 6
-/// fixed units always ran in, so existing presets/projects sound unchanged
-/// on load; each unit added since is slotted in wherever it makes sense in
-/// a typical signal chain (gate first, ahead of everything else; comp/
-/// mb_comp right after it, dynamics before tone-shaping). Purely a starting
-/// point once `fx_order` is user-reorderable.
+/// Default factory-preset rack FX order.
 pub const default_fx_order = [_]FxUnitKind{ .gate, .eq, .comp, .mb_comp, .ott, .dist, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .delay, .reverb };
-
-/// Upper bounds for the two `fx_*` params whose range isn't a round number.
-/// They were the fixed-array delay line's and chorus ring's own capacity
-/// limits back when the synth processed its own effects; nothing plays them
-/// now (the rack chain does), but the ids survive as mod destinations, and a
-/// destination still needs a range to scale a matrix depth against.
-const fx_delay_max_time_s: f32 = 0.6;
-const fx_chorus_max_depth_ms: f32 = 10.0;
 
 pub const PolySynth = struct {
     sample_rate: f32,
@@ -495,96 +477,6 @@ pub const PolySynth = struct {
 
     // ── OUT ─────────────────────────────────────────────────────────────────
     gain: f32 = 0.35,
-    // ── FX ──────────────────────────────────────────────────────────────────
-    // Legacy insert-FX params. The synth stopped processing effects when the
-    // rack's modular chain took over (see rack.zig): nothing here reaches
-    // audio any more. They survive for two reasons - `migrateSynthFx`
-    // (persist.zig) turns them into rack units when a pre-chain project or a
-    // factory preset loads, and their ids stay legal mod-matrix
-    // destinations, which the matrix routes to the *rack* unit that owns the
-    // param via `fx_instance_id`. Base values live here (not on any state
-    // struct) so applyPatch/toPatch keep picking them up by field name.
-    // zig fmt: off
-    fx_gate_on:          bool = false,
-    fx_gate_threshold_db: f32 = -50.0,
-    fx_gate_attack_ms:   f32  = 1.0,
-    fx_gate_release_ms:  f32  = 100.0,
-    fx_eq_on:            bool = false,
-    fx_eq_low_freq:      f32  = 150.0,
-    fx_eq_low_gain_db:   f32  = 0.0,
-    fx_eq_mid_freq:      f32  = 1000.0,
-    fx_eq_mid_gain_db:   f32  = 0.0,
-    fx_eq_mid_q:         f32  = 0.7,
-    fx_eq_high_freq:     f32  = 6000.0,
-    fx_eq_high_gain_db:  f32  = 0.0,
-    fx_comp_on:          bool = false,
-    fx_comp_threshold_db: f32 = -18.0,
-    fx_comp_ratio:       f32  = 4.0,
-    fx_comp_attack_ms:   f32  = 10.0,
-    fx_comp_release_ms:  f32  = 80.0,
-    fx_comp_makeup_db:   f32  = 0.0,
-    fx_mb_on:            bool = false,
-    fx_mb_xover_lo:      f32  = 200.0,
-    fx_mb_xover_hi:      f32  = 2000.0,
-    fx_mb_attack_ms:     f32  = 10.0,
-    fx_mb_release_ms:    f32  = 80.0,
-    fx_mb_style:         MbStyle = .classic,
-    fx_mb_mix:           f32  = 1.0,
-    fx_mb_low_threshold_db:  f32 = -20.0,
-    fx_mb_low_ratio:         f32 = 3.0,
-    fx_mb_low_makeup_db:     f32 = 0.0,
-    fx_mb_mid_threshold_db:  f32 = -18.0,
-    fx_mb_mid_ratio:         f32 = 4.0,
-    fx_mb_mid_makeup_db:     f32 = 0.0,
-    fx_mb_high_threshold_db: f32 = -16.0,
-    fx_mb_high_ratio:        f32 = 3.0,
-    fx_mb_high_makeup_db:    f32 = 0.0,
-    fx_ott_on:           bool = false,
-    fx_ott_depth:        f32  = 1.0,
-    fx_ott_time:         f32  = 1.0,
-    fx_ott_gain_in_db:   f32  = 0.0,
-    fx_ott_gain_out_db:  f32  = 0.0,
-    fx_dist_on:          bool = false,
-    fx_dist_drive_db:    f32  = 12.0,
-    fx_dist_mix:         f32  = 1.0,
-    fx_crush_on:         bool = false,
-    fx_crush_bits:       f32  = 8.0,
-    fx_crush_rate:       f32  = 4.0,
-    fx_crush_mix:        f32  = 1.0,
-    fx_chorus_on:        bool = false,
-    fx_chorus_rate_hz:   f32  = 0.8,
-    fx_chorus_depth_ms:  f32  = 4.0,
-    fx_chorus_mix:       f32  = 0.5,
-    fx_flanger_on:       bool = false,
-    fx_flanger_rate_hz:  f32  = 0.3,
-    fx_flanger_depth:    f32  = 0.7,
-    fx_flanger_feedback: f32  = 0.5,
-    fx_flanger_mix:      f32  = 0.5,
-    fx_tape_on:            bool = false,
-    fx_tape_wow_rate_hz:   f32  = 0.6,
-    fx_tape_wow_depth:     f32  = 0.4,
-    fx_tape_flutter_rate_hz: f32 = 8.0,
-    fx_tape_flutter_depth: f32  = 0.25,
-    fx_tape_mix:           f32  = 1.0,
-    fx_phaser_on:        bool = false,
-    fx_phaser_rate_hz:   f32  = 0.4,
-    fx_phaser_depth:     f32  = 0.9,
-    fx_phaser_feedback:  f32  = 0.5,
-    fx_phaser_mix:       f32  = 0.5,
-    fx_freq_shift_on:    bool = false,
-    fx_freq_shift_hz:    f32  = 0.0,
-    fx_freq_shift_mix:   f32  = 1.0,
-    fx_delay_on:         bool = false,
-    fx_delay_time_s:     f32  = 0.25,
-    fx_delay_feedback:   f32  = 0.3,
-    fx_delay_mix:        f32  = 0.3,
-    fx_reverb_on:        bool = false,
-    fx_reverb_room:      f32  = 0.6,
-    fx_reverb_damp:      f32  = 0.4,
-    fx_reverb_mix:       f32  = 0.3,
-    // zig fmt: on
-    /// ids, never written directly by the editor.
-    fx_order: [14]FxUnitKind = default_fx_order,
     /// Project transport, for the tempo-synced LFO/arp divisions. Null on a
     /// bare synth (tests, `main.zig`'s standalone instance) - every sync
     /// path falls back to plain Hz then. Set through `attachTransport` after
@@ -2546,48 +2438,6 @@ pub const PolySynth = struct {
         }
     }
 
-    /// Move `kind`'s slot in `fx_order` toward the right (steps > 0) or left
-    /// (steps < 0), `|steps|` times, clamping at either end instead of
-    /// wrapping (matches a chain strip, not a cyclic enum). Drives the live
-    /// `<`/`>` keypress via `adjustParam`'s ids 126-131 - undo/redo instead
-    /// goes through `setFxIndex` (see that fn's doc comment for why).
-    fn reorderFx(self: *PolySynth, kind: FxUnitKind, steps: i32) void {
-        const idx = std.mem.indexOfScalar(FxUnitKind, &self.fx_order, kind) orelse return;
-        const target = std.math.clamp(
-            @as(i64, @intCast(idx)) + @as(i64, steps),
-            0,
-            @as(i64, self.fx_order.len - 1),
-        );
-        self.setFxIndex(kind, @intCast(target));
-    }
-
-    /// `kind`'s current slot index in `fx_order`, 0-based - the "value" ids
-    /// 126-131 report from `paramValue` and accept in `setParamAbsolute`.
-    /// Undo/redo for every other param works by capturing an absolute
-    /// before-value and restoring it later (see `history.zig`'s
-    /// `param_nudge` entry) - a reorder action needs *some* scalar that
-    /// fully captures "where this unit was," and its index in the chain is
-    /// exactly that, so the reorder ids piggyback on the same generic
-    /// mechanism every other param already uses instead of a bespoke undo
-    /// entry.
-    fn fxOrderIndex(self: *const PolySynth, kind: FxUnitKind) usize {
-        return std.mem.indexOfScalar(FxUnitKind, &self.fx_order, kind) orelse 0;
-    }
-
-    /// Move `kind` to absolute slot `idx`, shifting the units between its
-    /// old and new position by walking adjacent swaps (same primitive
-    /// `reorderFx` uses, just driven to an absolute target instead of a
-    /// relative count). This is what undo/redo actually calls, through
-    /// `setParamAbsolute`'s ids 126-131 - the live `<`/`>` keypress goes
-    /// through `reorderFx`/`adjustParam` instead.
-    fn setFxIndex(self: *PolySynth, kind: FxUnitKind, idx: usize) void {
-        const cur = std.mem.indexOfScalar(FxUnitKind, &self.fx_order, kind) orelse return;
-        const target = @min(idx, self.fx_order.len - 1);
-        var i = cur;
-        while (i < target) : (i += 1) std.mem.swap(FxUnitKind, &self.fx_order[i], &self.fx_order[i + 1]);
-        while (i > target) : (i -= 1) std.mem.swap(FxUnitKind, &self.fx_order[i], &self.fx_order[i - 1]);
-    }
-
     /// Editor-param kind, deciding how `adjustParam`/`setParamAbsolute`/
     /// `paramValue` read and write a `param_specs` entry's field - see
     /// `specAdjust`/`specSetAbs`/`specValue`. The great majority of the
@@ -2667,13 +2517,8 @@ pub const PolySynth = struct {
 
     /// Copies+clamps every `param_specs` field from `snap` (any struct with
     /// matching field names, typically persist.zig's `SynthSnap`) onto
-    /// `self`, applying the same per-kind range `specSetAbs` uses. Lets
-    /// file-load validation share the id->field->range table instead of
-    /// persist.zig hand-maintaining a fourth parallel copy of it (that copy
-    /// had already drifted: ids 188-193's tape fields were missing from it
-    /// entirely, so a saved tape setting silently reset to defaults on
-    /// reload). Fields on `snap` with no `param_specs` row (`mod_matrix`,
-    /// `fx_order`, pattern-player fields, ...) are the caller's job.
+    /// `self`, applying the same per-kind range `specSetAbs` uses. Fields on
+    /// `snap` with no `param_specs` row are caller's job.
     pub fn applyParamSpecs(self: *PolySynth, snap: anytype) void {
         const Snap = @TypeOf(snap.*);
         inline for (param_specs) |spec| {
@@ -2772,18 +2617,6 @@ pub const PolySynth = struct {
         .{ .id = 57, .field = "osc_c_unison_detune", .min = 0.0, .max = 100.0, .step = 1.0 },
         .{ .id = 58, .field = "osc_c_unison_mode", .kind = .cycle, .enum_type = UnisonMode },
         // MATRIX (59-82) has its own switch arm below.
-        .{ .id = 83, .field = "fx_dist_on", .kind = .toggle },
-        .{ .id = 84, .field = "fx_dist_drive_db", .min = 0.0, .max = 36.0, .step = 0.5 },
-        .{ .id = 85, .field = "fx_dist_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 86, .field = "fx_crush_on", .kind = .toggle },
-        .{ .id = 87, .field = "fx_crush_bits", .min = 1.0, .max = 16.0, .step = 1.0 },
-        .{ .id = 88, .field = "fx_crush_rate", .min = 1.0, .max = 64.0, .step = 1.0 },
-        .{ .id = 89, .field = "fx_crush_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 90, .field = "fx_flanger_on", .kind = .toggle },
-        .{ .id = 91, .field = "fx_flanger_rate_hz", .kind = .log, .min = 0.02, .max = 8.0 },
-        .{ .id = 92, .field = "fx_flanger_depth", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 93, .field = "fx_flanger_feedback", .min = 0.0, .max = 0.95, .step = 0.01 },
-        .{ .id = 94, .field = "fx_flanger_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 95, .field = "lfo2_shape", .kind = .cycle, .enum_type = LfoShape },
         .{ .id = 96, .field = "lfo2_rate_hz", .kind = .log, .min = 0.01, .max = 20.0 },
         .{ .id = 257, .field = "lfo2_sync", .kind = .cycle, .enum_type = LfoSync },
@@ -2800,19 +2633,6 @@ pub const PolySynth = struct {
         .{ .id = 100, .field = "macro2", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 101, .field = "macro3", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 102, .field = "macro4", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 103, .field = "fx_phaser_on", .kind = .toggle },
-        .{ .id = 104, .field = "fx_phaser_rate_hz", .kind = .log, .min = 0.02, .max = 8.0 },
-        .{ .id = 105, .field = "fx_phaser_depth", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 106, .field = "fx_phaser_feedback", .min = 0.0, .max = 0.95, .step = 0.01 },
-        .{ .id = 107, .field = "fx_phaser_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 108, .field = "fx_delay_on", .kind = .toggle },
-        .{ .id = 109, .field = "fx_delay_time_s", .kind = .log, .min = 0.001, .max = fx_delay_max_time_s },
-        .{ .id = 110, .field = "fx_delay_feedback", .min = 0.0, .max = 0.95, .step = 0.01 },
-        .{ .id = 111, .field = "fx_delay_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 112, .field = "fx_reverb_on", .kind = .toggle },
-        .{ .id = 113, .field = "fx_reverb_room", .min = 0.0, .max = 0.98, .step = 0.01 },
-        .{ .id = 114, .field = "fx_reverb_damp", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 115, .field = "fx_reverb_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 116, .field = "arp_on", .kind = .toggle },
         .{ .id = 117, .field = "arp_mode", .kind = .cycle, .enum_type = ArpMode },
         .{ .id = 118, .field = "arp_octaves", .kind = .int_cont, .min = 1, .max = max_arp_octaves },
@@ -2825,89 +2645,10 @@ pub const PolySynth = struct {
         .{ .id = 124, .field = "env3_sustain", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 125, .field = "env3_release_s", .kind = .log, .min = 0.001, .max = 10.0 },
         .{ .id = 248, .field = "env3_curve", .min = -1.0, .max = 1.0, .step = 0.01 },
-        // FX reorder handles (126-131, 136, 143, 160, 166, 175, 180, 184,
-        // 194) are in `fx_reorder_ids` below, not here.
-        .{ .id = 132, .field = "fx_gate_on", .kind = .toggle },
-        .{ .id = 133, .field = "fx_gate_threshold_db", .min = -80.0, .max = 0.0, .step = 1.0 },
-        .{ .id = 134, .field = "fx_gate_attack_ms", .kind = .log, .min = 0.1, .max = 50.0 },
-        .{ .id = 135, .field = "fx_gate_release_ms", .kind = .log, .min = 5.0, .max = 1000.0 },
-        .{ .id = 137, .field = "fx_comp_on", .kind = .toggle },
-        .{ .id = 138, .field = "fx_comp_threshold_db", .min = -60.0, .max = 0.0, .step = 1.0 },
-        .{ .id = 139, .field = "fx_comp_ratio", .min = 1.0, .max = 20.0, .step = 0.1 },
-        .{ .id = 140, .field = "fx_comp_attack_ms", .kind = .log, .min = 0.1, .max = 500.0 },
-        .{ .id = 141, .field = "fx_comp_release_ms", .kind = .log, .min = 1.0, .max = 2000.0 },
-        .{ .id = 142, .field = "fx_comp_makeup_db", .min = -24.0, .max = 24.0, .step = 0.5 },
-        .{ .id = 144, .field = "fx_mb_on", .kind = .toggle },
-        .{ .id = 145, .field = "fx_mb_xover_lo", .kind = .log, .min = 20.0, .max = 20_000.0 },
-        .{ .id = 146, .field = "fx_mb_xover_hi", .kind = .log, .min = 20.0, .max = 20_000.0 },
-        .{ .id = 147, .field = "fx_mb_attack_ms", .kind = .log, .min = 0.1, .max = 500.0 },
-        .{ .id = 148, .field = "fx_mb_release_ms", .kind = .log, .min = 1.0, .max = 2000.0 },
-        .{ .id = 149, .field = "fx_mb_style", .kind = .cycle, .enum_type = MbStyle },
-        .{ .id = 150, .field = "fx_mb_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 151, .field = "fx_mb_low_threshold_db", .min = -60.0, .max = 0.0, .step = 1.0 },
-        .{ .id = 152, .field = "fx_mb_low_ratio", .min = 1.0, .max = 20.0, .step = 0.1 },
-        .{ .id = 153, .field = "fx_mb_low_makeup_db", .min = -24.0, .max = 24.0, .step = 0.5 },
-        .{ .id = 154, .field = "fx_mb_mid_threshold_db", .min = -60.0, .max = 0.0, .step = 1.0 },
-        .{ .id = 155, .field = "fx_mb_mid_ratio", .min = 1.0, .max = 20.0, .step = 0.1 },
-        .{ .id = 156, .field = "fx_mb_mid_makeup_db", .min = -24.0, .max = 24.0, .step = 0.5 },
-        .{ .id = 157, .field = "fx_mb_high_threshold_db", .min = -60.0, .max = 0.0, .step = 1.0 },
-        .{ .id = 158, .field = "fx_mb_high_ratio", .min = 1.0, .max = 20.0, .step = 0.1 },
-        .{ .id = 159, .field = "fx_mb_high_makeup_db", .min = -24.0, .max = 24.0, .step = 0.5 },
-        .{ .id = 161, .field = "fx_ott_on", .kind = .toggle },
-        .{ .id = 162, .field = "fx_ott_depth", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 163, .field = "fx_ott_time", .min = 0.25, .max = 4.0, .step = 0.05 },
-        .{ .id = 164, .field = "fx_ott_gain_in_db", .min = -24.0, .max = 24.0, .step = 0.5 },
-        .{ .id = 165, .field = "fx_ott_gain_out_db", .min = -24.0, .max = 24.0, .step = 0.5 },
-        .{ .id = 167, .field = "fx_eq_on", .kind = .toggle },
-        .{ .id = 168, .field = "fx_eq_low_freq", .kind = .log, .min = 20.0, .max = 20_000.0 },
-        .{ .id = 169, .field = "fx_eq_low_gain_db", .min = -18.0, .max = 18.0, .step = 0.5 },
-        .{ .id = 170, .field = "fx_eq_mid_freq", .kind = .log, .min = 20.0, .max = 20_000.0 },
-        .{ .id = 171, .field = "fx_eq_mid_gain_db", .min = -18.0, .max = 18.0, .step = 0.5 },
-        .{ .id = 172, .field = "fx_eq_mid_q", .kind = .log, .min = 0.1, .max = 10.0 },
-        .{ .id = 173, .field = "fx_eq_high_freq", .kind = .log, .min = 20.0, .max = 20_000.0 },
-        .{ .id = 174, .field = "fx_eq_high_gain_db", .min = -18.0, .max = 18.0, .step = 0.5 },
-        .{ .id = 176, .field = "fx_chorus_on", .kind = .toggle },
-        .{ .id = 177, .field = "fx_chorus_rate_hz", .kind = .log, .min = 0.05, .max = 5.0 },
-        .{ .id = 178, .field = "fx_chorus_depth_ms", .min = 0.0, .max = fx_chorus_max_depth_ms, .step = 0.1 },
-        .{ .id = 179, .field = "fx_chorus_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 181, .field = "fx_freq_shift_on", .kind = .toggle },
-        .{ .id = 182, .field = "fx_freq_shift_hz", .min = -2000.0, .max = 2000.0, .step = 1.0 },
-        .{ .id = 183, .field = "fx_freq_shift_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
         // WAVETABLE frame position, one per oscillator.
         .{ .id = 185, .field = "wt_pos", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 186, .field = "osc_b_wt_pos", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 187, .field = "osc_c_wt_pos", .min = 0.0, .max = 1.0, .step = 0.01 },
-        // FX TAPE (188-193), reorder handle 194 in `fx_reorder_ids`.
-        .{ .id = 188, .field = "fx_tape_on", .kind = .toggle },
-        .{ .id = 189, .field = "fx_tape_wow_rate_hz", .kind = .log, .min = 0.05, .max = 3.0 },
-        .{ .id = 190, .field = "fx_tape_wow_depth", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 191, .field = "fx_tape_flutter_rate_hz", .kind = .log, .min = 3.0, .max = 15.0 },
-        .{ .id = 192, .field = "fx_tape_flutter_depth", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 193, .field = "fx_tape_mix", .min = 0.0, .max = 1.0, .step = 0.01 },
-    };
-
-    /// `kind`'s reorder-handle id → the FX unit it walks in `fx_order`; not
-    /// real params (no `automatable_params`/`mod_dest_ids` entry, no editor
-    /// row of its own - the FX subview's `</>` sends whichever unit's id
-    /// the cursor currently sits in). `adjustParam` calls `reorderFx`,
-    /// `setParamAbsolute` calls `setFxIndex`, `paramValue` calls
-    /// `fxOrderIndex` - this list drives all three instead of repeating the
-    /// id->kind mapping three times over.
-    const fx_reorder_ids = [_]struct { id: u16, kind: FxUnitKind }{
-        .{ .id = 126, .kind = .dist },
-        .{ .id = 127, .kind = .crush },
-        .{ .id = 128, .kind = .flanger },
-        .{ .id = 129, .kind = .phaser },
-        .{ .id = 130, .kind = .delay },
-        .{ .id = 131, .kind = .reverb },
-        .{ .id = 136, .kind = .gate },
-        .{ .id = 143, .kind = .comp },
-        .{ .id = 160, .kind = .mb_comp },
-        .{ .id = 166, .kind = .ott },
-        .{ .id = 175, .kind = .eq },
-        .{ .id = 180, .kind = .chorus },
-        .{ .id = 184, .kind = .freq_shift },
-        .{ .id = 194, .kind = .tape },
     };
 
     const LfoCustomAddr = union(enum) {
@@ -2948,12 +2689,6 @@ pub const PolySynth = struct {
             return;
         }
         switch (id) {
-            // fx_mb_style: h/l always picks classic/ott by direction, not a
-            // wrap (see `param_specs`'s note on id 149).
-            149 => {
-                self.fx_mb_style = if (steps > 0) .ott else .classic;
-                return;
-            },
             mod_unipolar_id_base...mod_unipolar_id_base + max_mod_rows - 1 => {
                 if (steps != 0) {
                     const row = &self.mod_matrix[id - mod_unipolar_id_base];
@@ -2986,10 +2721,7 @@ pub const PolySynth = struct {
             else => {},
         }
         inline for (param_specs) |spec| {
-            if (spec.id == id) return specAdjust(self, spec, steps);
-        }
-        inline for (fx_reorder_ids) |r| {
-            if (r.id == id) return self.reorderFx(r.kind, steps);
+            if (@hasField(PolySynth, spec.field) and spec.id == id) return specAdjust(self, spec, steps);
         }
     }
 
@@ -3043,15 +2775,7 @@ pub const PolySynth = struct {
             else => {},
         }
         inline for (param_specs) |spec| {
-            if (spec.id == id) return specSetAbs(self, spec, value);
-        }
-        // FX reorder handles: value is the unit's absolute fx_order slot
-        // index; see `setFxIndex`'s doc comment for why undo/redo routes
-        // reordering through here instead of `adjustParam`. Only the lower
-        // bound is clamped here: `setFxIndex` itself clamps the upper end
-        // to the real (growing) slot count.
-        inline for (fx_reorder_ids) |r| {
-            if (r.id == id) return self.setFxIndex(r.kind, @intFromFloat(@round(@max(value, 0.0))));
+            if (@hasField(PolySynth, spec.field) and spec.id == id) return specSetAbs(self, spec, value);
         }
     }
 
@@ -3066,7 +2790,7 @@ pub const PolySynth = struct {
     pub fn isToggleParam(id: u16) bool {
         if (id >= mod_unipolar_id_base and id < mod_unipolar_id_base + max_mod_rows) return true;
         inline for (param_specs) |spec| {
-            if (spec.id == id) return spec.kind == .toggle;
+            if (@hasField(PolySynth, spec.field) and spec.id == id) return spec.kind == .toggle;
         }
         return false;
     }
@@ -3099,10 +2823,7 @@ pub const PolySynth = struct {
             else => {},
         }
         inline for (param_specs) |spec| {
-            if (spec.id == id) return specValue(self, spec);
-        }
-        inline for (fx_reorder_ids) |r| {
-            if (r.id == id) return @floatFromInt(self.fxOrderIndex(r.kind));
+            if (@hasField(PolySynth, spec.field) and spec.id == id) return specValue(self, spec);
         }
         return null;
     }
@@ -3208,7 +2929,7 @@ pub const PolySynth = struct {
         .{ .id = 105,.label = "PHSR DEPTH", .section = "FX PHSR", .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 106,.label = "PHSR FDBK",  .section = "FX PHSR", .range = .{ 0.0,    0.95 },    .step = 0.01 },
         .{ .id = 107,.label = "PHSR MIX",   .section = "FX PHSR", .range = .{ 0.0,    1.0 },     .step = 0.01 },
-        .{ .id = 109,.label = "DLY TIME",   .section = "FX DELAY",.range = .{ 0.001,  fx_delay_max_time_s },.step = 0.01 },
+        .{ .id = 109,.label = "DLY TIME",   .section = "FX DELAY",.range = .{ 0.001,  0.6 },    .step = 0.01 },
         .{ .id = 110,.label = "DLY FDBK",   .section = "FX DELAY",.range = .{ 0.0,    0.95 },    .step = 0.01 },
         .{ .id = 111,.label = "DLY MIX",    .section = "FX DELAY",.range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 113,.label = "VRB ROOM",   .section = "FX VERB", .range = .{ 0.0,    0.98 },    .step = 0.01 },
@@ -4534,10 +4255,6 @@ test "adjustParam clamps extreme step counts without integer overflow" {
 
     synth.adjustParam(dest_id, std.math.maxInt(i32));
     try std.testing.expect(PolySynth.modDestIndex(synth.mod_matrix[0].dest) != null);
-    synth.adjustParam(126, std.math.maxInt(i32));
-    try std.testing.expectEqual(synth.fx_order.len - 1, synth.fxOrderIndex(.dist));
-    synth.adjustParam(126, std.math.minInt(i32));
-    try std.testing.expectEqual(@as(usize, 0), synth.fxOrderIndex(.dist));
 }
 
 test "custom LFO phase edits cannot reorder points" {
@@ -4620,6 +4337,7 @@ test "setParamAbsolute ignores non-finite values for every table-driven paramete
     const inf = std.math.inf(f32);
 
     inline for (PolySynth.param_specs) |spec| {
+        if (!@hasField(PolySynth, spec.field)) continue;
         const before = synth.paramValue(spec.id).?;
         synth.setParamAbsolute(spec.id, nan);
         try std.testing.expectEqual(before, synth.paramValue(spec.id).?);
@@ -4627,7 +4345,7 @@ test "setParamAbsolute ignores non-finite values for every table-driven paramete
         try std.testing.expectEqual(before, synth.paramValue(spec.id).?);
     }
 
-    inline for ([_]u8{ 59, 60, 61, 126, 149, 194 }) |id| {
+    inline for ([_]u8{ 59, 60, 61 }) |id| {
         const before = synth.paramValue(id).?;
         synth.setParamAbsolute(id, std.math.nan(f32));
         try std.testing.expectEqual(before, synth.paramValue(id).?);
@@ -4732,130 +4450,6 @@ test "paramValue/setParamAbsolute round-trip continuous, enum, and toggle params
     try std.testing.expectEqual(filter_before, b.filter_type);
     b.setParamAbsolute(20, 1.0e30);
     try std.testing.expectEqual(FilterType.formant, b.filter_type);
-}
-
-test "FX param ids round-trip through paramValue/setParamAbsolute" {
-    var a = try PolySynth.init(std.testing.allocator, 48_000);
-    defer a.deinit();
-    a.fx_dist_on = true;
-    a.fx_dist_drive_db = 24.0;
-    a.fx_crush_bits = 4.0;
-    a.fx_flanger_on = true;
-    a.fx_flanger_feedback = 0.8;
-
-    var b = try PolySynth.init(std.testing.allocator, 48_000);
-    defer b.deinit();
-    var id: u8 = 83;
-    while (id <= 94) : (id += 1) {
-        if (a.paramValue(id)) |v| b.setParamAbsolute(id, v);
-    }
-    try std.testing.expect(b.fx_dist_on);
-    try std.testing.expectApproxEqAbs(@as(f32, 24.0), b.fx_dist_drive_db, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 4.0), b.fx_crush_bits, 1e-6);
-    try std.testing.expect(b.fx_flanger_on);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.8), b.fx_flanger_feedback, 1e-6);
-    try std.testing.expect(!b.fx_crush_on);
-}
-
-test "FX phaser param ids round-trip through paramValue/setParamAbsolute" {
-    var a = try PolySynth.init(std.testing.allocator, 48_000);
-    defer a.deinit();
-    a.fx_phaser_on = true;
-    a.fx_phaser_rate_hz = 2.5;
-    a.fx_phaser_depth = 0.6;
-    a.fx_phaser_feedback = 0.7;
-    a.fx_phaser_mix = 0.4;
-
-    var b = try PolySynth.init(std.testing.allocator, 48_000);
-    defer b.deinit();
-    var id: u8 = 103;
-    while (id <= 107) : (id += 1) {
-        if (a.paramValue(id)) |v| b.setParamAbsolute(id, v);
-    }
-    try std.testing.expect(b.fx_phaser_on);
-    try std.testing.expectApproxEqAbs(@as(f32, 2.5), b.fx_phaser_rate_hz, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.6), b.fx_phaser_depth, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.7), b.fx_phaser_feedback, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.4), b.fx_phaser_mix, 1e-6);
-}
-
-test "FX delay/reverb param ids round-trip through paramValue/setParamAbsolute" {
-    var a = try PolySynth.init(std.testing.allocator, 48_000);
-    defer a.deinit();
-    a.fx_delay_on = true;
-    a.fx_delay_time_s = 0.4;
-    a.fx_delay_feedback = 0.6;
-    a.fx_delay_mix = 0.5;
-    a.fx_reverb_on = true;
-    a.fx_reverb_room = 0.7;
-    a.fx_reverb_damp = 0.2;
-    a.fx_reverb_mix = 0.8;
-
-    var b = try PolySynth.init(std.testing.allocator, 48_000);
-    defer b.deinit();
-    var id: u8 = 108;
-    while (id <= 115) : (id += 1) {
-        if (a.paramValue(id)) |v| b.setParamAbsolute(id, v);
-    }
-    try std.testing.expect(b.fx_delay_on);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.4), b.fx_delay_time_s, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.6), b.fx_delay_feedback, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.5), b.fx_delay_mix, 1e-6);
-    try std.testing.expect(b.fx_reverb_on);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.7), b.fx_reverb_room, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.2), b.fx_reverb_damp, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.8), b.fx_reverb_mix, 1e-6);
-}
-
-test "FX tape param ids round-trip through paramValue/setParamAbsolute" {
-    var a = try PolySynth.init(std.testing.allocator, 48_000);
-    defer a.deinit();
-    a.fx_tape_on = true;
-    a.fx_tape_wow_rate_hz = 1.2;
-    a.fx_tape_wow_depth = 0.6;
-    a.fx_tape_flutter_rate_hz = 9.0;
-    a.fx_tape_flutter_depth = 0.4;
-    a.fx_tape_mix = 0.75;
-
-    var b = try PolySynth.init(std.testing.allocator, 48_000);
-    defer b.deinit();
-    var id: u8 = 188;
-    while (id <= 193) : (id += 1) {
-        if (a.paramValue(id)) |v| b.setParamAbsolute(id, v);
-    }
-    try std.testing.expect(b.fx_tape_on);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.2), b.fx_tape_wow_rate_hz, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.6), b.fx_tape_wow_depth, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 9.0), b.fx_tape_flutter_rate_hz, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.4), b.fx_tape_flutter_depth, 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.75), b.fx_tape_mix, 1e-6);
-}
-
-test "adjustParam: tape params nudge and toggle (were silently no-op before the param table)" {
-    var s = try PolySynth.init(std.testing.allocator, 48_000);
-    defer s.deinit();
-    const before_on = s.fx_tape_on;
-    s.adjustParam(188, 1);
-    try std.testing.expect(s.fx_tape_on != before_on);
-    const before_rate = s.fx_tape_wow_rate_hz;
-    s.adjustParam(189, 1);
-    try std.testing.expect(s.fx_tape_wow_rate_hz != before_rate);
-    // Reorder handle 194: tape starts last in the default fx_order.
-    const before_idx = s.fxOrderIndex(.tape);
-    s.adjustParam(194, -1);
-    try std.testing.expect(s.fxOrderIndex(.tape) < before_idx);
-}
-
-test "adjustParam: fx_mb_style picks classic/ott by direction, not a wrap" {
-    var s = try PolySynth.init(std.testing.allocator, 48_000);
-    defer s.deinit();
-    s.fx_mb_style = .ott;
-    s.adjustParam(149, 1); // forward while already .ott: stays .ott
-    try std.testing.expectEqual(MbStyle.ott, s.fx_mb_style);
-    s.adjustParam(149, -1);
-    try std.testing.expectEqual(MbStyle.classic, s.fx_mb_style);
-    s.adjustParam(149, -1); // backward while already .classic: stays .classic
-    try std.testing.expectEqual(MbStyle.classic, s.fx_mb_style);
 }
 
 /// Directly seeds held/latch state and drives `arpFireStep` (bypassing the

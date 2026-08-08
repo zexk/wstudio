@@ -359,9 +359,7 @@ pub fn modHeights(n: usize) []const usize {
 }
 
 // ---------------------------------------------------------------------------
-// Navigation primitives - shared by MAIN and MOD (FX keeps its own
-// fx_order-aware walk in editors/synth.zig; these operate on whichever
-// `[]const PositionedEntry` the caller resolved via mainOrder/modOrder).
+// Navigation primitives shared by MAIN and MOD.
 // ---------------------------------------------------------------------------
 
 pub fn indexContaining(order: []const PositionedEntry, id: u16) ?usize {
