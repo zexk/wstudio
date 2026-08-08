@@ -94,6 +94,7 @@ const ControllerTargetSnap = persist_types.ControllerTargetSnap;
 const CcBindingSnap = persist_types.CcBindingSnap;
 const ClipKind = persist_types.ClipKind;
 const ClipSnap = persist_types.ClipSnap;
+const AudioSourceSnap = persist_types.AudioSourceSnap;
 const LaneSnap = persist_types.LaneSnap;
 const SectionSnap = persist_types.SectionSnap;
 const Snapshot = persist_types.Snapshot;
@@ -189,7 +190,14 @@ pub fn save(
     for (session.racks.items, racks) |rack, *rs| {
         rs.* = try rackToSnap(aa, rack);
     }
-    try exportSamples(aa, session, io, path, racks);
+    const audio_sources = try aa.alloc(AudioSourceSnap, session.project.audio_sources.items.len);
+    for (session.project.audio_sources.items, audio_sources) |source, *snap| snap.* = .{
+        .id = source.id,
+        .file = "",
+        .sample_rate = source.sample_rate,
+        .channel_count = source.channel_count,
+    };
+    try exportSamples(aa, session, io, path, racks, audio_sources);
 
     const lanes = try aa.alloc(LaneSnap, session.arrangement.lanes.items.len);
     for (session.arrangement.lanes.items, lanes) |*lane, *ls| {
@@ -213,6 +221,7 @@ pub fn save(
         .racks = racks,
         .arrangement = lanes,
         .sections = sections,
+        .audio_sources = audio_sources,
         .song_mode = session.song_mode,
         .master_fx_chain = try chainToSnap(aa, &session.master_fx),
         .groups = groups,
@@ -595,6 +604,7 @@ pub fn exportSamples(
     io: std.Io,
     path: []const u8,
     racks: []RackSnap,
+    audio_sources: []AudioSourceSnap,
 ) !void {
     const sidecar = try std.fmt.allocPrint(aa, "{s}_samples", .{std.fs.path.stem(path)});
     const sr = session.project.sample_rate;
@@ -667,7 +677,33 @@ pub fn exportSamples(
             else => {},
         }
     }
+    for (session.project.audio_sources.items, audio_sources) |source, *snap| {
+        const base = try std.fmt.allocPrint(aa, "source-{d}.wav", .{source.id});
+        const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
+        try writeAudioSourceWav(aa, io, path, rel, &dir_ready, source);
+        snap.file = rel;
+        try written.put(aa, base, {});
+    }
     try pruneOrphanSamples(aa, io, path, sidecar, &written);
+}
+
+fn writeAudioSourceWav(aa: std.mem.Allocator, io: std.Io, wsj_path: []const u8, rel: []const u8, dir_ready: *bool, source: project_mod.AudioSource) !void {
+    const full = try joinWsjRel(aa, wsj_path, rel);
+    if (!dir_ready.*) {
+        try std.Io.Dir.cwd().createDirPath(io, std.fs.path.dirname(full).?);
+        dir_ready.* = true;
+    }
+    const tmp = try std.fmt.allocPrint(aa, "{s}.tmp", .{full});
+    errdefer std.Io.Dir.cwd().deleteFile(io, tmp) catch {};
+    {
+        const file = try std.Io.Dir.cwd().createFile(io, tmp, .{});
+        defer file.close(io);
+        var buf: [8192]u8 = undefined;
+        var fw = file.writer(io, &buf);
+        try wav.write(&fw.interface, source.sample_rate, source.channel_count, source.samples, .pcm16);
+        try fw.interface.flush();
+    }
+    try std.Io.Dir.cwd().rename(tmp, std.Io.Dir.cwd(), full, io);
 }
 
 /// Delete any `.wav`/`.sf2` in the sample sidecar dir that wasn't written
@@ -844,6 +880,12 @@ pub fn clipToSnap(aa: std.mem.Allocator, clip: ws_arrangement.Clip) !ClipSnap {
             c.step_count = d.step_count;
             c.steps_per_beat = d.steps_per_beat;
             c.variant = d.variant;
+        },
+        .audio => |audio| {
+            c.kind = .audio;
+            c.source_id = audio.source_id;
+            c.source_start_frame = audio.source_start_frame;
+            c.source_length_frames = audio.source_length_frames;
         },
     }
     c.gain_automation = try automationToSnap(aa, clip.automation.gain);

@@ -634,6 +634,7 @@ fn pasteSelection(app: *App, insert: bool) void {
             return switch (c.content) {
                 .melodic => r.pattern_player != null,
                 .drum => std.meta.activeTag(r.instrument) == .drum_machine,
+                .audio => true,
             };
         }
     }.check;
@@ -919,6 +920,7 @@ fn stampClip(app: *App) void {
                     clip.length_ticks / ws.time_grid.ticks_per_beat, DrumMachine.variantLetter(d.variant),
                 }),
                 .melodic => app.setStatus("stamped {d} ticks - hold: h/l length; release/esc drops", .{clip.length_ticks}),
+                .audio => app.setStatus("stamped audio region", .{}),
             }
             app.arr_stamp = true;
         }
@@ -959,6 +961,7 @@ fn editClip(app: *App) void {
             app.setStatus("editing clip @ tick {d} - edits land in the clip", .{clip.start_tick});
         },
         .drum => app.setStatus("pattern clips play from their stamp - edit variants in the grid", .{}),
+        .audio => app.setStatus("audio region: use arrangement trim and move commands", .{}),
     }
 }
 

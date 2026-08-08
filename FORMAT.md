@@ -12,14 +12,14 @@ crash or power loss mid-write can never corrupt an existing project file:
 the rename is the only step that touches the real path, and it's atomic on
 every platform wstudio targets.
 
-User-loaded sample audio (a drum pad or sampler clip loaded from a WAV, as
-opposed to a generated kit pad) is exported alongside the `.wsj` into
-a sidecar directory, not embedded in the JSON. See
+User-loaded sample audio (a drum pad, sampler clip, or arrangement audio
+source loaded from a WAV, as opposed to a generated kit pad) is exported
+alongside the `.wsj` into a sidecar directory, not embedded in the JSON. See
 [Sample sidecar](#sample-sidecar) below.
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 36) is the only format version
+`persist.zig`'s `file_version` (currently 37) is the only format version
 this build writes or reads. Loading enforces one rule:
 
 - **A file whose `version` is not exactly `file_version` is hard-rejected**
@@ -93,6 +93,9 @@ leaves a truncated sample behind.
 
 SoundFont snapshots may instead name a bundled `library` id. Bundled SFZ/FLAC
 banks are part of the wstudio installation, so they need no project sidecar.
+
+Arrangement audio sources use `source-<id>.wav` in that same directory.
+Regions store stable source ids plus nondestructive source offsets and lengths.
 
 The pad's `sample_file` field stores a path *relative to the `.wsj`*, never
 absolute, so a project directory can be moved or copied as a unit and still

@@ -108,6 +108,13 @@ pub const Clip = struct {
     pub const Content = union(enum) {
         melodic: Melodic,
         drum: Drum,
+        audio: AudioRegion,
+    };
+
+    pub const AudioRegion = struct {
+        source_id: u32,
+        source_start_frame: u64,
+        source_length_frames: u64,
     };
 
     /// A private copy of a piano-roll pattern.
@@ -168,10 +175,20 @@ pub const Clip = struct {
         };
     }
 
+    pub fn initAudio(start_tick: u32, length_ticks: u32, region: AudioRegion) Clip {
+        const safe_start = @min(start_tick, std.math.maxInt(u32) - 1);
+        return .{
+            .start_tick = safe_start,
+            .length_ticks = @min(@max(1, length_ticks), std.math.maxInt(u32) - safe_start),
+            .content = .{ .audio = region },
+        };
+    }
+
     pub fn deinit(self: *Clip, allocator: std.mem.Allocator) void {
         switch (self.content) {
             .melodic => |m| allocator.free(m.notes),
             .drum => |*d| DrumMachine.freeMidi(allocator, &d.midi),
+            .audio => {},
         }
         self.automation.deinit(allocator);
     }
@@ -192,6 +209,7 @@ pub const Clip = struct {
                 copy.midi = try DrumMachine.dupeMidi(allocator, &d.midi);
                 break :blk initDrum(self.start_tick, self.length_ticks, copy);
             },
+            .audio => |audio| initAudio(self.start_tick, self.length_ticks, audio),
         };
         errdefer out.deinit(allocator);
         out.automation = try self.automation.dupe(allocator);

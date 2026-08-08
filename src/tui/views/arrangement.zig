@@ -169,7 +169,7 @@ pub fn drawArrangement(
             // Drum clips wear their variant letter on the start cell.
             const letter: ?u8 = if (is_start) switch (clip.?.content) {
                 .drum => |d| ws.dsp.DrumMachine.variantLetter(d.variant),
-                .melodic => null,
+                .melodic, .audio => null,
             } else null;
 
             if (is_cursor) {

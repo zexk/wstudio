@@ -1,5 +1,5 @@
 {
-  "version": 36,
+  "version": 37,
   "tempo_bpm": 120,
   "scale": null,
   "tuning": {
@@ -3750,6 +3750,9 @@
           "step_count": 16,
           "steps_per_beat": 4,
           "variant": 0,
+          "source_id": 0,
+          "source_start_frame": 0,
+          "source_length_frames": 0,
           "gain_automation": [],
           "pan_automation": [],
           "synth_param_automation": []
@@ -3837,6 +3840,9 @@
           "step_count": 16,
           "steps_per_beat": 4,
           "variant": 0,
+          "source_id": 0,
+          "source_start_frame": 0,
+          "source_length_frames": 0,
           "gain_automation": [],
           "pan_automation": [],
           "synth_param_automation": []
@@ -3924,6 +3930,9 @@
           "step_count": 16,
           "steps_per_beat": 4,
           "variant": 0,
+          "source_id": 0,
+          "source_start_frame": 0,
+          "source_length_frames": 0,
           "gain_automation": [],
           "pan_automation": [],
           "synth_param_automation": []
@@ -3997,6 +4006,9 @@
           "step_count": 16,
           "steps_per_beat": 4,
           "variant": 0,
+          "source_id": 0,
+          "source_start_frame": 0,
+          "source_length_frames": 0,
           "gain_automation": [],
           "pan_automation": [],
           "synth_param_automation": []
@@ -4066,6 +4078,9 @@
           "step_count": 16,
           "steps_per_beat": 4,
           "variant": 0,
+          "source_id": 0,
+          "source_start_frame": 0,
+          "source_length_frames": 0,
           "gain_automation": [],
           "pan_automation": [],
           "synth_param_automation": []
@@ -4135,6 +4150,9 @@
           "step_count": 16,
           "steps_per_beat": 4,
           "variant": 0,
+          "source_id": 0,
+          "source_start_frame": 0,
+          "source_length_frames": 0,
           "gain_automation": [],
           "pan_automation": [],
           "synth_param_automation": []
@@ -4204,6 +4222,9 @@
           "step_count": 16,
           "steps_per_beat": 4,
           "variant": 0,
+          "source_id": 0,
+          "source_start_frame": 0,
+          "source_length_frames": 0,
           "gain_automation": [],
           "pan_automation": [],
           "synth_param_automation": []
@@ -4273,6 +4294,9 @@
           "step_count": 16,
           "steps_per_beat": 4,
           "variant": 0,
+          "source_id": 0,
+          "source_start_frame": 0,
+          "source_length_frames": 0,
           "gain_automation": [],
           "pan_automation": [],
           "synth_param_automation": []
@@ -4342,6 +4366,9 @@
           "step_count": 16,
           "steps_per_beat": 4,
           "variant": 0,
+          "source_id": 0,
+          "source_start_frame": 0,
+          "source_length_frames": 0,
           "gain_automation": [],
           "pan_automation": [],
           "synth_param_automation": []
@@ -4411,6 +4438,9 @@
           "step_count": 16,
           "steps_per_beat": 4,
           "variant": 0,
+          "source_id": 0,
+          "source_start_frame": 0,
+          "source_length_frames": 0,
           "gain_automation": [],
           "pan_automation": [],
           "synth_param_automation": []
@@ -4502,6 +4532,9 @@
           "step_count": 16,
           "steps_per_beat": 4,
           "variant": 0,
+          "source_id": 0,
+          "source_start_frame": 0,
+          "source_length_frames": 0,
           "gain_automation": [],
           "pan_automation": [],
           "synth_param_automation": []
@@ -4589,6 +4622,9 @@
           "step_count": 16,
           "steps_per_beat": 4,
           "variant": 0,
+          "source_id": 0,
+          "source_start_frame": 0,
+          "source_length_frames": 0,
           "gain_automation": [],
           "pan_automation": [],
           "synth_param_automation": []
@@ -4676,6 +4712,9 @@
           "step_count": 16,
           "steps_per_beat": 4,
           "variant": 0,
+          "source_id": 0,
+          "source_start_frame": 0,
+          "source_length_frames": 0,
           "gain_automation": [],
           "pan_automation": [],
           "synth_param_automation": []
@@ -4763,6 +4802,9 @@
           "step_count": 16,
           "steps_per_beat": 4,
           "variant": 0,
+          "source_id": 0,
+          "source_start_frame": 0,
+          "source_length_frames": 0,
           "gain_automation": [],
           "pan_automation": [],
           "synth_param_automation": []
@@ -4850,6 +4892,9 @@
           "step_count": 16,
           "steps_per_beat": 4,
           "variant": 0,
+          "source_id": 0,
+          "source_start_frame": 0,
+          "source_length_frames": 0,
           "gain_automation": [],
           "pan_automation": [],
           "synth_param_automation": []
@@ -4937,6 +4982,9 @@
           "step_count": 16,
           "steps_per_beat": 4,
           "variant": 0,
+          "source_id": 0,
+          "source_start_frame": 0,
+          "source_length_frames": 0,
           "gain_automation": [],
           "pan_automation": [],
           "synth_param_automation": []
@@ -5000,6 +5048,9 @@
           "step_count": 32,
           "steps_per_beat": 4,
           "variant": 1,
+          "source_id": 0,
+          "source_start_frame": 0,
+          "source_length_frames": 0,
           "gain_automation": [],
           "pan_automation": [],
           "synth_param_automation": []
@@ -5008,6 +5059,7 @@
     }
   ],
   "sections": [],
+  "audio_sources": [],
   "song_mode": true,
   "master_fx_chain": [],
   "groups": [

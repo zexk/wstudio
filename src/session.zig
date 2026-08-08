@@ -437,7 +437,7 @@ pub const Session = struct {
         for (lane.clips.items, 0..) |c, i| {
             const drum = switch (c.content) {
                 .drum => |d| d,
-                .melodic => continue, // not expected on a drum track, but leave it be
+                .melodic, .audio => continue, // not expected on a drum track, but leave it be
             };
             var n: usize = 0;
             for (drum.midi) |pad_notes| {
@@ -679,7 +679,7 @@ pub const Session = struct {
             for (source_lane.clips.items) |clip| {
                 const drum = switch (clip.content) {
                     .drum => |v| v,
-                    .melodic => continue,
+                    .melodic, .audio => continue,
                 };
                 const clip_notes = try self.allocator.alloc(Note, @max(drum.step_count, 1));
                 defer self.allocator.free(clip_notes);
@@ -994,6 +994,7 @@ pub const Session = struct {
                 self.engine.setTrackAutomation(@intCast(i), .gain, &.{});
                 self.engine.setTrackAutomation(@intCast(i), .pan, &.{});
                 self.engine.clearTrackSynthParams(@intCast(i));
+                self.engine.setTrackAudioRegions(@intCast(i), &.{});
             }
         }
         _ = self.engine.send(.all_notes_off);
@@ -1478,7 +1479,7 @@ pub const Session = struct {
                     for (lane.clips.items) |c| {
                         if (n >= clips.len) break;
                         // zig fmt: off
-                        const drum = switch (c.content) { .drum => |d| d, .melodic => continue };
+                        const drum = switch (c.content) { .drum => |d| d, .melodic, .audio => continue };
                         // zig fmt: on
                         clips[n] = .{
                             .start_step = c.start_tick,
@@ -1497,7 +1498,7 @@ pub const Session = struct {
                     for (lane.clips.items) |c| {
                         if (n >= clips.len) break;
                         // zig fmt: off
-                        const drum = switch (c.content) { .drum => |d| d, .melodic => continue };
+                        const drum = switch (c.content) { .drum => |d| d, .melodic, .audio => continue };
                         // zig fmt: on
                         clips[n] = .{
                             .start_step = c.start_tick,
@@ -1516,7 +1517,7 @@ pub const Session = struct {
                     var n: usize = 0;
                     for (lane.clips.items) |c| {
                         // zig fmt: off
-                        const mel = switch (c.content) { .melodic => |m| m, .drum => continue };
+                        const mel = switch (c.content) { .melodic => |m| m, .drum, .audio => continue };
                         // zig fmt: on
                         const clip_start_beat = time_grid.tickToBeat(c.start_tick);
                         // The captured pattern repeats to fill the clip's own
@@ -1551,7 +1552,37 @@ pub const Session = struct {
                 .empty => {},
             }
             self.flattenClipAutomation(@intCast(i), lane);
+            self.syncAudioRegions(@intCast(i), lane);
         }
+    }
+
+    fn syncAudioRegions(self: *Session, track: u16, lane: *const arr_mod.Lane) void {
+        var regions: std.ArrayList(engine_mod.AudioRegion) = .empty;
+        defer regions.deinit(self.allocator);
+        const frames_per_beat = self.engine.transport.framesPerBeat();
+        for (lane.clips.items) |clip| {
+            const audio = switch (clip.content) {
+                .audio => |region| region,
+                else => continue,
+            };
+            const source = self.project.audioSource(audio.source_id) orelse continue;
+            const source_frames = source.samples.len / @max(source.channel_count, 1);
+            const source_start = @min(audio.source_start_frame, source_frames);
+            const source_length = @min(audio.source_length_frames, source_frames - source_start);
+            if (source_length == 0) continue;
+            const start_frame: u64 = @intFromFloat(time_grid.tickToBeat(clip.start_tick) * frames_per_beat);
+            const length_frames: u64 = @max(1, @as(u64, @intFromFloat(time_grid.tickToBeat(clip.length_ticks) * frames_per_beat)));
+            regions.append(self.allocator, .{
+                .start_frame = start_frame,
+                .end_frame = start_frame +| length_frames,
+                .source_start_frame = source_start,
+                .source_length_frames = source_length,
+                .source_sample_rate = source.sample_rate,
+                .channel_count = source.channel_count,
+                .samples = source.samples,
+            }) catch @panic("out of memory syncing audio regions");
+        }
+        self.engine.setTrackAudioRegions(track, regions.items);
     }
 
     /// Flatten one track's clips' gain/pan/synth-param breakpoints (clip-
@@ -1815,7 +1846,7 @@ test "changeInstrumentKind flattens a drum machine's pads into one melodic patte
     try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
     const melodic = switch (lane.clips.items[0].content) {
         .melodic => |m| m,
-        .drum => return error.ExpectedMelodicClip,
+        .drum, .audio => return error.ExpectedMelodicClip,
     };
     try std.testing.expectEqual(@as(usize, 2), melodic.notes.len);
 }

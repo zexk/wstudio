@@ -476,14 +476,10 @@ test "r toggles record-arm on the cursor track in the tracks view" {
     try std.testing.expectStringEndsWith(app.status_buf[0..app.status_len], "disarmed");
 }
 
-test "finishRecording stamps a Sampler clip from a synthetic capture, mirroring loadClipFromPath" {
+test "finishRecording creates one audio source and region from synthetic capture" {
     var app = try testApp(); // synth(0), sampler(1), drums(2)
     defer app.deinit();
 
-    const old_sample_count = app.session.racks.items[1].instrument.sampler.pad.samples.len;
-    const old_user_sample = app.session.racks.items[1].instrument.sampler.pad.user_sample;
-    const old_note_count = app.session.racks.items[1].pattern_player.?.note_count;
-    const old_length_beats = app.session.racks.items[1].pattern_player.?.length_beats;
     const old_clip_count = app.session.arrangement.lane(1).?.clips.items.len;
 
     // Same contrived-tempo trick `:load`'s own test uses: 1 frame == 1 beat,
@@ -498,39 +494,24 @@ test "finishRecording stamps a Sampler clip from a synthetic capture, mirroring 
     app.finishRecording();
 
     try std.testing.expectEqual(@as(usize, 0), app.recording_active_len);
-    try std.testing.expect(app.session.racks.items[1].instrument.sampler.pad.user_sample);
-    try std.testing.expectEqual(@as(usize, 5), app.session.racks.items[1].instrument.sampler.pad.samples.len);
-    const recorded_pad = &app.session.racks.items[1].instrument.sampler.pad;
-    const captured_duration = ws.dsp.pad.playDurationSeconds(recorded_pad, app.session.project.sample_rate);
-    try std.testing.expectApproxEqAbs(captured_duration, recorded_pad.fade_in_s, 1e-9);
-    try std.testing.expectApproxEqAbs(captured_duration, recorded_pad.fade_out_s, 1e-9);
-
-    const pp = &app.session.racks.items[1].pattern_player.?;
-    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
-    try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch); // default root_note
-    try std.testing.expectEqual(@as(f32, 1.0), pp.notes[0].velocity);
-    try std.testing.expectApproxEqAbs(@as(f64, 5.0), pp.length_beats, 1e-9);
+    try std.testing.expectEqual(@as(usize, 1), app.session.project.audio_sources.items.len);
+    try std.testing.expectEqualSlices(f32, &.{ 0.1, 0.2, 0.3, 0.4, 0.5 }, app.session.project.audio_sources.items[0].samples);
 
     const lane = app.session.arrangement.lane(1).?;
     try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
     try std.testing.expectEqual(@as(u32, 64), lane.clips.items[0].start_tick);
-    try std.testing.expectEqual(@as(u32, 256), lane.clips.items[0].length_ticks); // ceil(5 beats / 4 per bar)
+    try std.testing.expectEqual(@as(u32, 160), lane.clips.items[0].length_ticks);
+    const region = lane.clips.items[0].content.audio;
+    try std.testing.expectEqual(app.session.project.audio_sources.items[0].id, region.source_id);
+    try std.testing.expectEqual(@as(u64, 5), region.source_length_frames);
     try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "recorded 1 clip(s)");
 
     history.doUndo(&app);
-    try std.testing.expectEqual(old_sample_count, app.session.racks.items[1].instrument.sampler.pad.samples.len);
-    try std.testing.expectEqual(old_user_sample, app.session.racks.items[1].instrument.sampler.pad.user_sample);
-    try std.testing.expectEqual(old_note_count, app.session.racks.items[1].pattern_player.?.note_count);
-    try std.testing.expectEqual(old_length_beats, app.session.racks.items[1].pattern_player.?.length_beats);
     try std.testing.expectEqual(old_clip_count, app.session.arrangement.lane(1).?.clips.items.len);
 
     history.doRedo(&app);
-    try std.testing.expect(app.session.racks.items[1].instrument.sampler.pad.user_sample);
-    try std.testing.expectEqual(@as(usize, 5), app.session.racks.items[1].instrument.sampler.pad.samples.len);
-    try std.testing.expectApproxEqAbs(captured_duration, app.session.racks.items[1].instrument.sampler.pad.fade_in_s, 1e-9);
-    try std.testing.expectApproxEqAbs(captured_duration, app.session.racks.items[1].instrument.sampler.pad.fade_out_s, 1e-9);
-    try std.testing.expectEqual(@as(u16, 1), app.session.racks.items[1].pattern_player.?.note_count);
     try std.testing.expectEqual(@as(usize, 1), app.session.arrangement.lane(1).?.clips.items.len);
+    try std.testing.expectEqual(region.source_id, app.session.arrangement.lane(1).?.clips.items[0].content.audio.source_id);
 }
 
 test "finishRecording with no captured audio skips the stamp and reports it" {

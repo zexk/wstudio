@@ -2639,19 +2639,6 @@ pub const App = struct {
         self.setStatus("\"{s}\" {s}", .{ name, if (armed) "armed" else "disarmed" });
     }
 
-    /// The Sampler at `track_idx`, or null if that track isn't one -
-    /// same access pattern as `commands.zig`'s `cursorSampler`, just not
-    /// limited to the cursor track (recording targets are resolved once at
-    /// record-start and may not be wherever the cursor ends up by the time
-    /// the pass finishes).
-    fn samplerAt(self: *App, track_idx: usize) ?*Sampler {
-        if (track_idx >= self.session.racks.items.len) return null;
-        return switch (self.session.racks.items[track_idx].instrument) {
-            .sampler => |*s| s,
-            else => null,
-        };
-    }
-
     fn hasArmedAudioTarget(self: *const App) bool {
         for (0..self.session.racks.items.len) |i| if (self.session.isAudioArmed(i)) return true;
         return false;
@@ -2749,13 +2736,8 @@ pub const App = struct {
         }
     }
 
-    /// Called by `tick` the instant a record pass ends (playing true->false)
-    /// with active audio targets. Stops capture, then hands the take to
-    /// every active target the same way `commands.loadClipFromPath` hands a
-    /// loaded WAV to one: `Sampler.setSamples`, a whole-clip one-shot note,
-    /// and a stamp into the arrangement at `arr_cursor_bar` - "an audio clip
-    /// is just a Sampler track with one note spanning its own duration,
-    /// stamped into the arrangement" applies here exactly as it does there.
+    /// Called by `tick` when a record pass ends. Finalizes one project audio
+    /// source, then places an independent region on every armed target.
     /// `pub` so tests can drive it directly with synthetic
     /// `recording_accum`/`recording_active_*` state, without a real capture
     /// device (mirrors `doTrackAdd`/`doTrackDup` etc. being `pub` for the
@@ -2798,30 +2780,25 @@ pub const App = struct {
         const bpm = @max(self.session.project.tempo_bpm, 1.0);
         const sr_f: f64 = @floatFromInt(self.session.project.sample_rate);
         const beats = @as(f64, @floatFromInt(captured.len)) * bpm / (sr_f * 60.0);
-        const length_beats = @max(beats, 1.0);
+        const length_ticks: u32 = @max(1, @as(u32, @intFromFloat(@ceil(beats * ws.time_grid.ticks_per_beat))));
+        const source_path = if (self.recording_take) |*take| take.pathSlice() else "recorded";
+        const source_id = self.session.project.addAudioSource(source_path, self.session.project.sample_rate, 1, captured) catch {
+            self.setStatus("record: cannot attach recovery take", .{});
+            self.recording_active_len = 0;
+            self.recording_take = null;
+            return;
+        };
         var clip_count: usize = 0;
         for (targets) |track_idx| {
-            const s = self.samplerAt(track_idx) orelse continue;
-            var backup = history.captureTrackKindSwap(self, track_idx);
-            const copy = self.allocator.dupe(f32, captured) catch {
-                if (backup) |*b| b.deinit(self.allocator);
-                continue;
-            };
-            s.setSamples(copy, "recorded");
-            s.pad.user_sample = true;
-            s.pad.fade_in_s = 0.005;
-            s.pad.fade_out_s = 0.005;
-            ws.dsp.pad.clampTimeParamsToDuration(&s.pad, self.session.project.sample_rate);
-
-            const notes = [_]pattern_mod.Note{.{ .pitch = s.root_note, .start_beat = 0.0, .duration_beat = length_beats, .velocity = 1.0 }};
-            self.session.racks.items[track_idx].pattern_player.?.setNotes(&notes, length_beats);
-
             const start_bar = self.recording_punch_start_bar orelse self.arr_cursor_bar;
-            self.session.stampClipAtTick(track_idx, start_bar *| self.arr_grid.ticks()) catch {
-                if (backup) |*b| b.deinit(self.allocator);
-                continue;
-            };
-            history.push(self, backup);
+            const start_tick = start_bar *| self.arr_grid.ticks();
+            const lane = self.session.arrangement.lane(track_idx) orelse continue;
+            history.recordLane(self, track_idx);
+            lane.place(self.allocator, ws.Clip.initAudio(start_tick, length_ticks, .{
+                .source_id = source_id,
+                .source_start_frame = 0,
+                .source_length_frames = captured.len,
+            })) catch continue;
             clip_count += 1;
         }
         if (self.session.song_mode) self.session.rebuildSongData();
@@ -2833,7 +2810,6 @@ pub const App = struct {
             self.setStatus("recorded {d} clip(s) ({d:.1}s)", .{ clip_count, secs });
         }
         if (clip_count > 0) self.dirty = true;
-        if (clip_count > 0) if (self.recording_take) |*take| take.discard();
         self.recording_take = null;
         self.recording_dropout_frames = 0;
         self.recording_first_dropout_frame = null;

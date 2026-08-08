@@ -157,6 +157,7 @@ pub fn draw(app: anytype) void {
             const base: [4]f32 = if (track_col > 0) gui_style.trackColor(track_col) else switch (clip.content) {
                 .melodic => theme.audio,
                 .drum => theme.rhythm,
+                .audio => theme.audio,
             };
             const clip_color: [4]f32 = .{ base[0], base[1], base[2], if (selected) 1 else 0.68 };
             // Labels and previews sit on the darkened header strip / clip
@@ -247,6 +248,11 @@ pub fn draw(app: anytype) void {
                             reps += 1;
                         }
                     }
+                },
+                .audio => |region| {
+                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(ink), "AUDIO  {d}f", .{region.source_length_frames});
+                    const mid = (pmin[1] + 22 + pmax[1]) * 0.5;
+                    draw_list.addLine(.{ .p1 = .{ pmin[0] + 5, mid }, .p2 = .{ pmax[0] - 5, mid }, .col = color(.{ ink[0], ink[1], ink[2], 0.72 }), .thickness = 2 });
                 },
             }
             if (clip.automation.gain.len + clip.automation.pan.len + clip.automation.synth_params.items.len > 0) draw_list.addText(.{ pmax[0] - 16, pmin[1] + 4 }, color(theme.modulation), "A", .{});
@@ -406,6 +412,7 @@ fn drawArrangementInspector(app: anytype) void {
         zgui.textDisabled("{s}", .{switch (clip.content) {
             .melodic => "MIDI",
             .drum => "DRUM PATTERN",
+            .audio => "AUDIO REGION",
         }});
         zgui.spacing();
         if (zgui.button("< MOVE##clip-move-left", .{})) action = '<';

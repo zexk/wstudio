@@ -67,6 +67,14 @@ pub const Section = struct {
     name: []const u8,
 };
 
+pub const AudioSource = struct {
+    id: u32,
+    path: []const u8,
+    sample_rate: u32,
+    channel_count: u16,
+    samples: []f32,
+};
+
 pub const Project = struct {
     allocator: std.mem.Allocator,
     name: []const u8 = "untitled",
@@ -98,6 +106,8 @@ pub const Project = struct {
     cc_bindings: [dsp_controller.max_cc_bindings]?dsp_controller.CcBinding = @splat(null),
     tracks: std.ArrayList(Track) = .empty,
     sections: std.ArrayList(Section) = .empty,
+    audio_sources: std.ArrayList(AudioSource) = .empty,
+    next_audio_source_id: u32 = 1,
 
     pub fn init(allocator: std.mem.Allocator) Project {
         return .{ .allocator = allocator };
@@ -120,6 +130,40 @@ pub const Project = struct {
         self.tracks.deinit(self.allocator);
         for (self.sections.items) |section| self.allocator.free(section.name);
         self.sections.deinit(self.allocator);
+        for (self.audio_sources.items) |source| {
+            self.allocator.free(source.path);
+            self.allocator.free(source.samples);
+        }
+        self.audio_sources.deinit(self.allocator);
+    }
+
+    pub fn addAudioSource(self: *Project, path: []const u8, sample_rate: u32, channel_count: u16, samples: []const f32) !u32 {
+        const id = self.next_audio_source_id;
+        try self.addAudioSourceWithId(id, path, sample_rate, channel_count, samples);
+        return id;
+    }
+
+    pub fn addAudioSourceWithId(self: *Project, id: u32, path: []const u8, sample_rate: u32, channel_count: u16, samples: []const f32) !void {
+        // ponytail: recording is mono today. Lift this when audio import keeps
+        // interleaved channels through WAV decode and source persistence.
+        if (id == 0 or self.audioSource(id) != null or channel_count != 1) return error.InvalidAudioSource;
+        const owned_path = try self.allocator.dupe(u8, path);
+        errdefer self.allocator.free(owned_path);
+        const owned_samples = try self.allocator.dupe(f32, samples);
+        errdefer self.allocator.free(owned_samples);
+        try self.audio_sources.append(self.allocator, .{
+            .id = id,
+            .path = owned_path,
+            .sample_rate = @max(sample_rate, 1),
+            .channel_count = @max(channel_count, 1),
+            .samples = owned_samples,
+        });
+        self.next_audio_source_id = @max(self.next_audio_source_id, id +| 1);
+    }
+
+    pub fn audioSource(self: *const Project, id: u32) ?*const AudioSource {
+        for (self.audio_sources.items) |*source| if (source.id == id) return source;
+        return null;
     }
 
     pub fn setSection(self: *Project, tick: u32, name: []const u8) !void {

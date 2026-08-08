@@ -50,7 +50,7 @@ const controller_mod = @import("dsp/controller.zig");
 /// added and what older files load as) and the bump-vs-additive policy
 /// live in FORMAT.md; per-field migration specifics stay as doc comments
 /// on the snapshot fields they concern.
-pub const file_version: u32 = 36;
+pub const file_version: u32 = 37;
 
 /// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
 /// reasoning as `EqBandKindSnap`.
@@ -1005,7 +1005,7 @@ pub const GroupSnap = struct {
     soloed: bool = false,
 };
 
-pub const ClipKind = enum { melodic, drum };
+pub const ClipKind = enum { melodic, drum, audio };
 
 /// One placed clip. Melodic clips carry a private note copy + loop length; drum
 /// clips carry a step-count and per-pad bitmask. Mirrors `arrangement.Clip`.
@@ -1026,6 +1026,10 @@ pub const ClipSnap = struct {
     steps_per_beat: u8 = 4,
     /// Variant letter label (index) the clip was stamped from.
     variant: u8 = 0,
+    // audio
+    source_id: u32 = 0,
+    source_start_frame: u64 = 0,
+    source_length_frames: u64 = 0,
     /// Gain (dB) / pan (-1..1) automation breakpoints, clip-relative beats.
     /// Independent of `kind` - either clip type can carry them.
     gain_automation: []const AutomationPointSnap = &.{},
@@ -1042,6 +1046,13 @@ pub const LaneSnap = struct {
 pub const SectionSnap = struct {
     tick: u32,
     name: []const u8,
+};
+
+pub const AudioSourceSnap = struct {
+    id: u32,
+    file: []const u8,
+    sample_rate: u32,
+    channel_count: u16,
 };
 
 /// One modulation-controller target (see `dsp/controller.zig`). `track`
@@ -1097,6 +1108,7 @@ pub const Snapshot = struct {
     arrangement: []const LaneSnap = &.{},
     /// Named song sections.
     sections: []const SectionSnap = &.{},
+    audio_sources: []const AudioSourceSnap = &.{},
     /// Whether the loaded project plays the arrangement (true) or live loops.
     song_mode: bool = false,
     /// The master bus's user-built chain in signal-flow order, applied to the

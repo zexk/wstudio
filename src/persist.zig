@@ -1982,6 +1982,33 @@ test "save/load round-trip persists a user-loaded sampler clip" {
     try testing.expectApproxEqAbs(@as(f32, 0.8), ls.pad.gain, 1e-4);
 }
 
+test "save/load round-trip persists audio sources and regions" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    const source_id = try session.project.addAudioSource("recorded", 48_000, 1, &.{ 0.25, -0.125 });
+    try session.arrangement.lane(0).?.place(testing.allocator, ws_arrangement.Clip.initAudio(0, 32, .{
+        .source_id = source_id,
+        .source_start_frame = 0,
+        .source_length_frames = 2,
+    }));
+    session.setSongMode(true);
+    try save(testing.allocator, &session, testing.io, wsj_path);
+
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    try testing.expectEqual(@as(usize, 1), loaded.project.audio_sources.items.len);
+    try testing.expectApproxEqAbs(@as(f32, 0.25), loaded.project.audio_sources.items[0].samples[0], wav_eps);
+    const region = loaded.arrangement.lane(0).?.clips.items[0].content.audio;
+    try testing.expectEqual(source_id, region.source_id);
+    try testing.expectEqual(@as(u64, 2), region.source_length_frames);
+}
+
 test "save/load round-trip persists a :load-wavetable-imported table, default state writes no sidecar" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});

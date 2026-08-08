@@ -130,7 +130,20 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Session
 
     var session = try buildSession(allocator, &parsed.value);
     restoreSamples(allocator, io, path, &parsed.value, &session);
+    restoreAudioSources(allocator, io, path, &parsed.value, &session);
+    if (session.song_mode) session.rebuildSongData();
     return session;
+}
+
+fn restoreAudioSources(allocator: std.mem.Allocator, io: std.Io, path: []const u8, snap: *const Snapshot, session: *Session) void {
+    for (snap.audio_sources) |source| {
+        if (source.id == 0 or source.channel_count != 1 or source.file.len == 0) continue;
+        const data = readWsjRel(allocator, io, path, source.file) orelse continue;
+        defer allocator.free(data);
+        const parsed = wav.parseAlloc(allocator, data) catch continue;
+        defer allocator.free(parsed.samples);
+        session.project.addAudioSourceWithId(source.id, source.file, parsed.sample_rate, 1, parsed.samples) catch continue;
+    }
 }
 
 /// Load the sidecar WAVs referenced by pad snapshots back into the session's
@@ -788,6 +801,11 @@ pub fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.
             applyNoteSnap(&d.midi, d.step_count, cs.drum_notes);
             break :blk2 ws_arrangement.Clip.initDrum(start_tick, length_ticks, d);
         },
+        .audio => ws_arrangement.Clip.initAudio(start_tick, length_ticks, .{
+            .source_id = cs.source_id,
+            .source_start_frame = cs.source_start_frame,
+            .source_length_frames = cs.source_length_frames,
+        }),
     };
     errdefer out.deinit(allocator);
     out.automation.gain = try automationFromSnap(allocator, cs.gain_automation, -60.0, 12.0);
@@ -1346,4 +1364,3 @@ pub fn applySynthPatch(
     rack.fx = replacement;
     return displaced;
 }
-

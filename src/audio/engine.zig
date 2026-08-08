@@ -200,6 +200,21 @@ const TrackState = struct {
     /// (the default) is the pre-grouping behaviour, unchanged.
     group: ?u8 = null,
     pdc: TrackDelay = .{},
+    audio_lane: ?*AudioLane = null,
+};
+
+pub const AudioRegion = struct {
+    start_frame: u64,
+    end_frame: u64,
+    source_start_frame: u64,
+    source_length_frames: u64,
+    source_sample_rate: u32,
+    channel_count: u16,
+    samples: []const Sample,
+};
+
+const AudioLane = struct {
+    regions: []AudioRegion,
 };
 
 /// Bounded per-track delay used to align primary mix routes. Storage is
@@ -611,6 +626,7 @@ pub const Engine = struct {
         self.allocator.free(self.track_sidechain);
         self.allocator.free(self.track_sends);
         for (self.track_pool) |*track| {
+            self.freeAudioLane(track.audio_lane);
             if (track.pdc.samples.load(.acquire)) |samples| {
                 std.heap.page_allocator.destroy(samples);
             }
@@ -673,6 +689,7 @@ pub const Engine = struct {
         // in [idx, total] still needs its CURRENT content, so it's safe to
         // reset in place before being republished at `idx` below.
         const fresh = self.tracks[i].load(.monotonic);
+        self.freeAudioLane(fresh.audio_lane);
         while (i > idx) : (i -= 1) {
             self.tracks[i].store(self.tracks[i - 1].load(.monotonic), .release);
             self.track_sidechain[i] = self.track_sidechain[i - 1];
@@ -710,6 +727,7 @@ pub const Engine = struct {
             self.automation[i].swapContent(&self.automation[i + 1]);
         }
         const pdc = evicted.pdc;
+        self.freeAudioLane(evicted.audio_lane);
         evicted.* = .{ .pdc = pdc };
         self.tracks[total - 1].store(evicted, .release);
         self.track_sidechain[total - 1] = [_]?Compressor.SidechainSource{null} ** max_chain_devices;
@@ -896,6 +914,29 @@ pub const Engine = struct {
         self.lockGraph();
         defer self.unlockGraph();
         self.track_sends[@min(track, max_tracks - 1)] = sends;
+    }
+
+    pub fn setTrackAudioRegions(self: *Engine, track: u16, regions: []const AudioRegion) void {
+        const replacement: ?*AudioLane = if (regions.len == 0) null else blk: {
+            const lane = self.allocator.create(AudioLane) catch @panic("out of memory setting audio regions");
+            lane.regions = self.allocator.dupe(AudioRegion, regions) catch {
+                self.allocator.destroy(lane);
+                @panic("out of memory setting audio regions");
+            };
+            break :blk lane;
+        };
+        self.lockGraph();
+        const state = self.trackAt(track);
+        const old = state.audio_lane;
+        state.audio_lane = replacement;
+        self.unlockGraph();
+        self.freeAudioLane(old);
+    }
+
+    fn freeAudioLane(self: *Engine, lane: ?*AudioLane) void {
+        const value = lane orelse return;
+        self.allocator.free(value.regions);
+        self.allocator.destroy(value);
     }
 
     /// Replace the whole controller bank (control thread) - same shape as
@@ -1492,7 +1533,7 @@ pub const Engine = struct {
         // every use below must share the same snapshot rather than each
         // re-reading it (which could observe the chain change mid-render).
         const chain = track.chain.slice();
-        if (!track.active or chain.len == 0) return;
+        if (!track.active or (chain.len == 0 and track.audio_lane == null)) return;
 
         const auto = &self.automation[ti];
         // Instrument-param automation must reach the device before it
@@ -1534,6 +1575,7 @@ pub const Engine = struct {
 
         const scratch = self.scratch[0 .. frames * channels];
         @memset(scratch, 0.0);
+        if (track.audio_lane) |lane| self.renderAudioLane(lane, scratch, frames);
 
         // If this track is referenced as some compressor's PER-PAD detector
         // source, broadcast a capture request to every device in the chain
@@ -1667,6 +1709,28 @@ pub const Engine = struct {
         {
             self.track_spectrum.push(scratch);
             self.track_spectrum.analyze();
+        }
+    }
+
+    fn renderAudioLane(self: *Engine, lane: *const AudioLane, out: []Sample, frames: u32) void {
+        const block_start = self.transport.position_frames;
+        const engine_rate = @as(u64, self.transport.sample_rate);
+        for (lane.regions) |region| {
+            if (region.end_frame <= block_start or region.start_frame >= block_start + frames) continue;
+            const first = @max(block_start, region.start_frame);
+            const last = @min(block_start + frames, region.end_frame);
+            const source_frames = region.samples.len / @max(region.channel_count, 1);
+            for (first..last) |timeline_frame| {
+                const relative = timeline_frame - region.start_frame;
+                const source_offset = relative * region.source_sample_rate / engine_rate;
+                if (source_offset >= region.source_length_frames) break;
+                const source_frame = region.source_start_frame + source_offset;
+                if (source_frame >= source_frames) break;
+                const dst: usize = @intCast((timeline_frame - block_start) * channels);
+                const src: usize = @intCast(source_frame * region.channel_count);
+                out[dst] += region.samples[src];
+                out[dst + 1] += if (region.channel_count > 1) region.samples[src + 1] else region.samples[src];
+            }
         }
     }
 
@@ -1916,6 +1980,28 @@ test "plugin latency beyond PDC storage is surfaced" {
     engine.process(&output);
     try std.testing.expectEqual(@as(u32, 37), engine.takeExcessiveLatencyFrames());
     try std.testing.expectEqual(@as(u32, 0), engine.takeExcessiveLatencyFrames());
+}
+
+test "audio region renders source trim on its timeline" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.trackAt(0).* = .{ .active = true, .gain = std.math.sqrt2 };
+    const source = [_]Sample{ 0.1, 0.25, 0.5 };
+    engine.setTrackAudioRegions(0, &.{.{
+        .start_frame = 1,
+        .end_frame = 3,
+        .source_start_frame = 1,
+        .source_length_frames = 2,
+        .source_sample_rate = 48_000,
+        .channel_count = 1,
+        .samples = &source,
+    }});
+
+    var output: [8]Sample = undefined;
+    engine.process(&output);
+    for (output, [_]Sample{ 0, 0, 0.25, 0.25, 0.5, 0.5, 0, 0 }) |actual, expected| {
+        try std.testing.expectApproxEqAbs(expected, actual, 1e-6);
+    }
 }
 
 test "realtime render parks and clears output during offline bounce" {
