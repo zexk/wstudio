@@ -728,9 +728,8 @@ pub const PolySynth = struct {
     /// biquad history, the ladder's 4 one-pole stages, and the comb's delay
     /// ring. `diode` reuses the ladder's s1-s4. `formant` reuses x1/x2,
     /// y1/y2, s1/s2 as 3 independent 2-state SVF resonators (s3/s4 unused).
-    /// Only the active model's fields advance; switching models mid-note
-    /// picks up whatever stale state the new model left behind, which
-    /// decays within a few hundred samples.
+    /// Only active model's fields advance. `syncFilterTypes` clears shared
+    /// storage whenever model changes, so stale state never resurfaces.
     const FilterState = struct {
         // zig fmt: off
         x1: f32 = 0.0, x2: f32 = 0.0,
@@ -779,6 +778,7 @@ pub const PolySynth = struct {
         f1_r: FilterState = .{},
         f2_l: FilterState = .{},
         f2_r: FilterState = .{},
+        filter_types: [2]FilterType = .{ .lp, .lp },
         // Glide: current log2(freq) sliding toward log2(noteToFreq(note)).
         glide_log: f32 = 0.0,
         /// log2(freq) change per sample. 0 when glide is off or complete.
@@ -1343,6 +1343,7 @@ pub const PolySynth = struct {
             .wt_positions     = .{ self.wt_pos, self.osc_b_wt_pos, self.osc_c_wt_pos },
             .warp_amounts     = .{ self.warp_amount, self.osc_b_warp_amount },
             .mod_amount       = self.mod_amount,
+            .filter_types     = .{ self.filter_type, self.filter2_type },
             .steal_tail_l     = if (was_active) prev_out[0] else 0.0,
             .steal_tail_r     = if (was_active) prev_out[1] else 0.0,
             .steal_fade       = if (was_active) 1.0 else 0.0,
@@ -1651,6 +1652,7 @@ pub const PolySynth = struct {
 
         for (&self.voices) |*v| {
             if (!v.active) continue;
+            syncFilterTypes(v, .{ self.filter_type, self.filter2_type });
 
             // All matrix modulation below is block-rate per voice - the
             // same rate the retired fixed routes always ran at.
@@ -2408,6 +2410,19 @@ pub const PolySynth = struct {
                 const y3 = svfBandpass(fc.formant.f3, fc.formant.damp3, &st.s1, &st.s2, x) * fc.formant.gain3;
                 return y1 + y2 + y3;
             },
+        }
+    }
+
+    fn syncFilterTypes(v: *Voice, models: [2]FilterType) void {
+        if (v.filter_types[0] != models[0]) {
+            v.f1_l = .{};
+            v.f1_r = .{};
+            v.filter_types[0] = models[0];
+        }
+        if (v.filter_types[1] != models[1]) {
+            v.f2_l = .{};
+            v.f2_r = .{};
+            v.filter_types[1] = models[1];
         }
     }
 
@@ -4830,6 +4845,24 @@ test "oscillator modulation amount ramps to live target across one block" {
     var buf = [_]Sample{0.0} ** 16;
     synth.processBlock(&buf);
     try std.testing.expectApproxEqAbs(@as(f32, 6.0), synth.voices[synth.newest_voice].mod_amount, 1e-6);
+}
+
+test "changing filter models clears incompatible voice state" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.noteOn(60, 1.0);
+    const voice = &synth.voices[synth.newest_voice];
+    voice.f1_l.s4 = 0.75;
+    voice.f1_r.comb[17] = -0.5;
+    voice.f2_l.y1 = 0.25;
+    voice.f2_r.comb_pos = 9;
+
+    PolySynth.syncFilterTypes(voice, .{ .ladder, .comb });
+    try std.testing.expectEqual(@as(f32, 0.0), voice.f1_l.s4);
+    try std.testing.expectEqual(@as(f32, 0.0), voice.f1_r.comb[17]);
+    try std.testing.expectEqual(@as(f32, 0.0), voice.f2_l.y1);
+    try std.testing.expectEqual(@as(usize, 0), voice.f2_r.comb_pos);
+    try std.testing.expectEqual([2]FilterType{ .ladder, .comb }, voice.filter_types);
 }
 
 test "extreme pitch modulation keeps oscillator phases normalized" {
