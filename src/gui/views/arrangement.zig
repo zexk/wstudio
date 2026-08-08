@@ -307,7 +307,7 @@ pub fn draw(app: anytype) void {
 
     const snap = app.core.session.engine.uiSnapshot();
     if (snap.playing) {
-        const play_beat = ws.types.framesToSeconds(snap.position_frames, app.core.session.project.sample_rate) * app.core.session.project.tempo_bpm / 60.0;
+        const play_beat = app.core.session.project.beatAtFrames(snap.position_frames);
         const x = timeline_x + @as(f32, @floatCast(play_beat)) * beat_w;
         if (x <= origin[0] + canvas_w) draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(theme.danger), .thickness = 2 });
     }

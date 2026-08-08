@@ -1,6 +1,7 @@
 {
-  "version": 41,
+  "version": 42,
   "tempo_bpm": 120,
+  "tempo_points": [],
   "scale": null,
   "tuning": {
     "cents": [
@@ -20,6 +21,8 @@
     "root": 0
   },
   "beats_per_bar": 4,
+  "meter_denominator": 4,
+  "meter_points": [],
   "loop_enabled": false,
   "loop_start_bar": 0,
   "loop_end_bar": 0,

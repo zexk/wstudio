@@ -208,9 +208,12 @@ pub fn save(
 
     const snap: Snapshot = .{
         .tempo_bpm = session.project.tempo_bpm,
+        .tempo_points = session.project.tempo_points.items,
         .scale = session.project.scale,
         .tuning = session.project.tuning,
         .beats_per_bar = session.project.beats_per_bar,
+        .meter_denominator = session.project.meter_denominator,
+        .meter_points = session.project.meter_points.items,
         .loop_enabled = session.project.loop_enabled,
         .loop_start_bar = session.project.loop_start_bar,
         .loop_end_bar = session.project.loop_end_bar,

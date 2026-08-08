@@ -16,6 +16,7 @@ pub const SendSlot = @import("project.zig").SendSlot;
 pub const max_sends_per_track = @import("project.zig").max_sends_per_track;
 pub const arrangement = @import("arrangement.zig");
 pub const time_grid = @import("time_grid.zig");
+pub const time_map = @import("time_map.zig");
 pub const Arrangement = arrangement.Arrangement;
 pub const Clip = arrangement.Clip;
 pub const Rack = @import("rack.zig").Rack;

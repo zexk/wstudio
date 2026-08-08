@@ -248,47 +248,111 @@ pub fn cmdBpm(app: *App, args: []const u8) void {
     }
     app.session.project.tempo_bpm = bpm;
     _ = app.session.engine.send(.{ .set_tempo = bpm });
+    if (app.session.song_mode) app.session.rebuildSongData();
     // The loop region is stored in bars; its frame mirror just moved.
     app.session.syncLoop();
     app.dirty = true;
     app.setStatus("bpm: {d:.1}", .{bpm});
 }
 
-/// `:sig [<n>[/4]]` - beats per bar. The beat unit is fixed at /4 (a beat is
-/// always a quarter note, matching the 16th-note step grid everywhere).
 pub fn cmdSig(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
-        app.setStatus("sig: {d}/4", .{app.session.project.beats_per_bar});
+        app.setStatus("sig: {d}/{d}", .{ app.session.project.beats_per_bar, app.session.project.meter_denominator });
         return;
     }
     var it = std.mem.splitScalar(u8, trimmed, '/');
-    const n = std.fmt.parseInt(u8, it.first(), 10) catch {
+    const n = std.fmt.parseInt(u8, it.next() orelse "", 10) catch {
         app.setStatus("signature: expected beats per bar, e.g. :signature 3", .{});
         return;
     };
-    if (it.next()) |unit| {
-        if (!std.mem.eql(u8, unit, "4")) {
-            app.setStatus("sig: only /4 signatures are supported", .{});
+    const denominator = if (it.next()) |unit| blk: {
+        const parsed = std.fmt.parseInt(u8, unit, 10) catch {
+            app.setStatus("signature: expected n/d, e.g. :signature 6/8", .{});
             return;
-        }
+        };
         if (it.next() != null) {
-            app.setStatus("signature: expected beats per bar, e.g. :signature 3/4", .{});
+            app.setStatus("signature: expected n/d, e.g. :signature 6/8", .{});
             return;
         }
-    }
-    if (n < 1 or n > 16) {
-        app.setStatus("sig: beats per bar must be 1–16", .{});
+        break :blk parsed;
+    } else @as(u8, 4);
+    if (n < 1 or n > 32 or !std.math.isPowerOfTwo(denominator) or denominator > 32) {
+        app.setStatus("sig: numerator 1-32; denominator 1, 2, 4, 8, 16, or 32", .{});
         return;
     }
     app.session.project.beats_per_bar = n;
+    app.session.project.meter_denominator = denominator;
     _ = app.session.engine.send(.{ .set_time_signature = n });
+    _ = app.session.engine.send(.{ .set_meter_denominator = denominator });
     // Bar boundaries moved; refit the song timeline if it's driving playback,
     // and re-derive the loop region's frame mirror.
     if (app.session.song_mode) app.session.rebuildSongData();
     app.session.syncLoop();
     app.dirty = true;
-    app.setStatus("sig: {d}/4", .{n});
+    app.setStatus("sig: {d}/{d}", .{ n, denominator });
+}
+
+pub fn cmdTempoPoint(app: *App, args: []const u8) void {
+    var words = std.mem.tokenizeScalar(u8, args, ' ');
+    const beat = parseFiniteFloat(f64, words.next() orelse "") catch {
+        app.setStatus("tempo-point: expected <beat> <bpm> [step|ramp]", .{});
+        return;
+    };
+    const bpm = parseFiniteFloat(f64, words.next() orelse "") catch {
+        app.setStatus("tempo-point: expected <beat> <bpm> [step|ramp]", .{});
+        return;
+    };
+    const shape = words.next() orelse "step";
+    if (words.next() != null or (!std.mem.eql(u8, shape, "step") and !std.mem.eql(u8, shape, "ramp"))) {
+        app.setStatus("tempo-point: shape must be step or ramp", .{});
+        return;
+    }
+    const point: ws.time_map.TempoPoint = .{ .beat = beat, .bpm = bpm, .ramp_to_next = std.mem.eql(u8, shape, "ramp") };
+    app.session.project.setTempoPoint(point) catch {
+        app.setStatus("tempo-point: beat >= 0, BPM 20-400, max 64 points", .{});
+        return;
+    };
+    _ = app.session.engine.send(.{ .set_tempo_point = point });
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.session.syncLoop();
+    app.dirty = true;
+    app.setStatus("tempo point: beat {d:.2}, {d:.1} BPM, {s}", .{ beat, bpm, shape });
+}
+
+pub fn cmdMeterPoint(app: *App, args: []const u8) void {
+    var words = std.mem.tokenizeScalar(u8, args, ' ');
+    const beat = parseFiniteFloat(f64, words.next() orelse "") catch {
+        app.setStatus("meter-point: expected <beat> <n>/<d>", .{});
+        return;
+    };
+    const signature = words.next() orelse "";
+    if (words.next() != null) {
+        app.setStatus("meter-point: expected <beat> <n>/<d>", .{});
+        return;
+    }
+    var parts = std.mem.splitScalar(u8, signature, '/');
+    const numerator = std.fmt.parseInt(u8, parts.first(), 10) catch {
+        app.setStatus("meter-point: expected <beat> <n>/<d>", .{});
+        return;
+    };
+    const denominator = std.fmt.parseInt(u8, parts.next() orelse "", 10) catch {
+        app.setStatus("meter-point: expected <beat> <n>/<d>", .{});
+        return;
+    };
+    if (parts.next() != null) {
+        app.setStatus("meter-point: expected <beat> <n>/<d>", .{});
+        return;
+    }
+    const point: ws.time_map.MeterPoint = .{ .beat = beat, .numerator = numerator, .denominator = denominator };
+    app.session.project.setMeterPoint(point) catch {
+        app.setStatus("meter-point: invalid meter or max 64 points", .{});
+        return;
+    };
+    _ = app.session.engine.send(.{ .set_meter_point = point });
+    app.session.syncLoop();
+    app.dirty = true;
+    app.setStatus("meter point: beat {d:.2}, {d}/{d}", .{ beat, numerator, denominator });
 }
 
 pub fn cmdGain(app: *App, args: []const u8) void {
@@ -418,14 +482,11 @@ pub fn cmdSeek(app: *App, args: []const u8) void {
         app.setStatus("seek: bar number starts at 1", .{});
         return;
     }
-    const sr = @as(f64, @floatFromInt(app.session.project.sample_rate));
-    const bpm = @max(app.session.project.tempo_bpm, 1.0);
-    const beats_per_bar: f64 = @floatFromInt(app.session.project.beats_per_bar);
-    const frames_per_bar: u64 = @intFromFloat(sr * 60.0 / bpm * beats_per_bar);
-    const frames = std.math.mul(u64, bar_1 - 1, frames_per_bar) catch {
+    if (bar_1 - 1 > std.math.maxInt(u32)) {
         app.setStatus("seek: bar number is too large", .{});
         return;
-    };
+    }
+    const frames = app.session.project.frameAtBar(@intCast(bar_1 - 1));
     _ = app.session.engine.send(.{ .seek_frames = frames });
     app.setStatus("seek → bar {d}", .{bar_1});
 }

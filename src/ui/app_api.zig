@@ -59,10 +59,11 @@ pub fn apiTransportInfo(self: *const App) ApiTransportInfo {
     const snap = self.session.engine.uiSnapshot();
     const sr: f64 = @floatFromInt(self.session.project.sample_rate);
     const seconds = @as(f64, @floatFromInt(snap.position_frames)) / sr;
+    const position_beats = self.session.project.beatAtFrames(snap.position_frames);
     return .{
         .playing = snap.playing,
-        .tempo = self.session.project.tempo_bpm,
-        .position_beats = seconds * self.session.project.tempo_bpm / 60.0,
+        .tempo = ws.time_map.tempoAt(self.session.project.tempo_points.items, self.session.project.tempo_bpm, position_beats),
+        .position_beats = position_beats,
         .position_seconds = seconds,
         .position_frames = snap.position_frames,
         .sample_rate = self.session.project.sample_rate,
@@ -77,10 +78,7 @@ pub fn apiTransportInfo(self: *const App) ApiTransportInfo {
 
 pub fn apiSeekBeats(self: *App, beats: f64) bool {
     if (!std.math.isFinite(beats) or beats < 0) return false;
-    const frames_per_beat = @as(f64, @floatFromInt(self.session.project.sample_rate)) * 60.0 / self.session.project.tempo_bpm;
-    const frames_f = beats * frames_per_beat;
-    if (frames_f > @as(f64, @floatFromInt(std.math.maxInt(u64)))) return false;
-    _ = self.session.engine.send(.{ .seek_frames = @intFromFloat(frames_f) });
+    _ = self.session.engine.send(.{ .seek_frames = self.session.project.framesAtBeat(beats) });
     return true;
 }
 

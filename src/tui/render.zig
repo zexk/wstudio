@@ -51,11 +51,12 @@ pub fn drawHeader(
     try w.writeAll(dim ++ "   ");
     try w.writeAll(icons.iconOr(icons.tempo, "bpm"));
     try w.writeAll(" " ++ rst);
-    try w.print("{d:.0}", .{transport.tempo_bpm});
+    const current_meter = transport.currentMeter();
+    try w.print("{d:.0}", .{transport.currentTempo()});
     try w.writeAll(dim ++ "  " ++ rst);
     try w.print("{d}/{d}", .{
-        transport.time_signature.beats_per_bar,
-        transport.time_signature.beat_unit,
+        current_meter.numerator,
+        current_meter.denominator,
     });
     try w.writeAll(dim ++ "   ");
     try w.writeAll(icons.iconOr(icons.master, "mst"));

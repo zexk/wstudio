@@ -2119,7 +2119,7 @@ pub const PolySynth = struct {
     fn syncedRate(self: *const PolySynth, sync: LfoSync, rate_hz: f32) f32 {
         const beats = sync.beatsPerCycle() orelse return rate_hz;
         const t = self.transport orelse return rate_hz;
-        const bpm = if (std.math.isFinite(t.tempo_bpm) and t.tempo_bpm > 0.0) t.tempo_bpm else 120.0;
+        const bpm = t.currentTempo();
         return @floatCast(bpm / 60.0 / beats);
     }
 

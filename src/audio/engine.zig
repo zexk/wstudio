@@ -12,6 +12,7 @@ const automation_mod = @import("../dsp/automation.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
 const AutomationCurve = automation_mod.AutomationCurve;
 const meter_mod = @import("../dsp/meter.zig");
+const time_map = @import("../time_map.zig");
 
 const Sample = types.Sample;
 const SpectrumAnalyzer = spectrum_mod.SpectrumAnalyzer;
@@ -36,8 +37,10 @@ pub const Command = union(enum) {
     stop,
     seek_frames: u64,
     set_tempo: f64,
-    /// Beats per bar; the beat unit stays /4 (a beat is always a quarter).
     set_time_signature: u8,
+    set_meter_denominator: u8,
+    set_tempo_point: time_map.TempoPoint,
+    set_meter_point: time_map.MeterPoint,
     set_master_gain: f32,
     set_track_gain: struct { track: u16, gain: f32 },
     set_track_pan: struct { track: u16, pan: f32 },
@@ -653,11 +656,15 @@ pub const Engine = struct {
     pub fn loadProject(self: *Engine, project: *const Project) void {
         self.transport.tempo_bpm = project.tempo_bpm;
         self.transport.time_signature.beats_per_bar = project.beats_per_bar;
-        const fpb = project.framesPerBar();
+        self.transport.time_signature.beat_unit = project.meter_denominator;
+        self.transport.tempo_point_count = 0;
+        self.transport.meter_point_count = 0;
+        for (project.tempo_points.items) |point| self.transport.setTempoPoint(point);
+        for (project.meter_points.items) |point| self.transport.setMeterPoint(point);
         self.transport.loop_enabled = project.loop_enabled and
             project.loop_end_bar > project.loop_start_bar;
-        self.transport.loop_start_frames = @as(u64, project.loop_start_bar) * fpb;
-        self.transport.loop_end_frames = @as(u64, project.loop_end_bar) * fpb;
+        self.transport.loop_start_frames = project.frameAtBar(project.loop_start_bar);
+        self.transport.loop_end_frames = project.frameAtBar(project.loop_end_bar);
         // Safe to write straight into the pooled `TrackState`s (bypassing
         // ChainBank's atomic swap): `loadProject` only ever runs right
         // after `initInPlace`, on an `Engine` no audio thread has been
@@ -798,17 +805,17 @@ pub const Engine = struct {
     /// then mix whatever's in flight into `out`.
     fn fireMetronome(self: *Engine, out: []Sample, frames: u32) void {
         if (self.transport.playing) {
-            const pos_f = @as(f64, @floatFromInt(self.transport.position_frames));
-            const fpb = self.transport.framesPerBeat();
             var beat_k = self.metronome_next_beat;
-
-            const expected = @as(f64, @floatFromInt(beat_k)) * fpb;
-            if (@abs(expected - pos_f) > fpb * 2.0) {
-                beat_k = @intFromFloat(@ceil(pos_f / fpb));
+            const position = self.transport.position_frames;
+            const current_beat = self.transport.positionBeats();
+            if (@abs(@as(f64, @floatFromInt(beat_k)) - current_beat) > 2.0) beat_k = @intFromFloat(@ceil(current_beat));
+            while (true) : (beat_k += 1) {
+                const boundary = self.transport.framesAtBeats(@floatFromInt(beat_k));
+                if (boundary >= position + frames) break;
+                const fire_frame: u32 = if (boundary <= position) 0 else @intCast(boundary - position);
+                self.metronome.trigger(self.transport.barBeatAtFrames(boundary).beat == 0, fire_frame);
             }
-
-            const bpb: u64 = @max(self.transport.time_signature.beats_per_bar, 1);
-            self.metronome_next_beat = self.fireBeatBoundaries(beat_k, fpb, bpb, pos_f, frames);
+            self.metronome_next_beat = beat_k;
         }
 
         self.metronome.render(out, channels, frames);
@@ -1290,6 +1297,9 @@ pub const Engine = struct {
             .seek_frames => |f| self.transport.seekFrames(f),
             .set_tempo => |bpm| self.transport.tempo_bpm = bpm,
             .set_time_signature => |bpb| self.transport.time_signature.beats_per_bar = bpb,
+            .set_meter_denominator => |denominator| self.transport.time_signature.beat_unit = denominator,
+            .set_tempo_point => |point| self.transport.setTempoPoint(point),
+            .set_meter_point => |point| self.transport.setMeterPoint(point),
             .set_master_gain => |g| self.master_gain = g,
             .set_track_gain => |c| if (self.trackAtIfValid(c.track)) |track| {
                 track.gain = c.gain;
@@ -1856,7 +1866,7 @@ pub const Engine = struct {
         // Block-start beat position, for gain/pan automation below. One
         // evaluation per block (not per sample) - plenty of resolution for a
         // parameter curve, same granularity the metronome's beat math uses.
-        const beat_pos = @as(f64, @floatFromInt(self.transport.position_frames)) / self.transport.framesPerBeat();
+        const beat_pos = self.transport.positionBeats();
         const max_route_latency = self.maxPrimaryRouteLatency();
 
         // Zero every active group's submix accumulator before tracks sum

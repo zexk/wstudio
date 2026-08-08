@@ -8,6 +8,7 @@ const types = @import("core/types.zig");
 const theory = @import("theory.zig");
 const dsp_tuning = @import("dsp/tuning.zig");
 const dsp_controller = @import("dsp/controller.zig");
+const time_map = @import("time_map.zig");
 
 pub const TrackKind = enum { audio, midi };
 
@@ -80,6 +81,7 @@ pub const Project = struct {
     name: []const u8 = "untitled",
     sample_rate: u32 = types.default_sample_rate,
     tempo_bpm: f64 = 120.0,
+    tempo_points: std.ArrayList(time_map.TempoPoint) = .empty,
     /// Song key used by piano-roll scale tools and sample tuning.
     scale: ?theory.Scale = null,
     /// Temperament every pitched instrument plays in. Orthogonal to `scale`
@@ -91,6 +93,8 @@ pub const Project = struct {
     /// Control-side source of truth - the transport mirrors it, exactly
     /// like `tempo_bpm`.
     beats_per_bar: u8 = 4,
+    meter_denominator: u8 = 4,
+    meter_points: std.ArrayList(time_map.MeterPoint) = .empty,
     /// A/B loop region in bars (`loop_end_bar` exclusive; empty = no region).
     /// Control-side source of truth - Session.syncLoop pushes it to the
     /// transport as frames whenever it (or the bar math) changes.
@@ -117,8 +121,10 @@ pub const Project = struct {
     pub fn framesPerBar(self: *const Project) u64 {
         const sr = @as(f64, @floatFromInt(@max(self.sample_rate, 1)));
         const bpm = if (std.math.isFinite(self.tempo_bpm) and self.tempo_bpm > 0.0) self.tempo_bpm else 120.0;
-        const beats_per_bar = @max(self.beats_per_bar, 1);
-        const frames_f = sr * 60.0 / bpm * @as(f64, @floatFromInt(beats_per_bar));
+        const numerator = @max(self.beats_per_bar, 1);
+        const denominator = @max(self.meter_denominator, 1);
+        const quarter_beats = @as(f64, @floatFromInt(numerator)) * 4.0 / @as(f64, @floatFromInt(denominator));
+        const frames_f = sr * 60.0 / bpm * quarter_beats;
         if (!std.math.isFinite(frames_f) or frames_f >= @as(f64, @floatFromInt(std.math.maxInt(u64))))
             return std.math.maxInt(u64);
         const frames: u64 = @intFromFloat(frames_f);
@@ -126,6 +132,8 @@ pub const Project = struct {
     }
 
     pub fn deinit(self: *Project) void {
+        self.tempo_points.deinit(self.allocator);
+        self.meter_points.deinit(self.allocator);
         for (self.tracks.items) |t| self.allocator.free(t.name);
         self.tracks.deinit(self.allocator);
         for (self.sections.items) |section| self.allocator.free(section.name);
@@ -135,6 +143,81 @@ pub const Project = struct {
             self.allocator.free(source.samples);
         }
         self.audio_sources.deinit(self.allocator);
+    }
+
+    pub fn secondsAtBeat(self: *const Project, beat: f64) f64 {
+        return time_map.secondsAtBeat(self.tempo_points.items, self.tempo_bpm, beat);
+    }
+
+    pub fn beatAtSeconds(self: *const Project, seconds: f64) f64 {
+        return time_map.beatAtSeconds(self.tempo_points.items, self.tempo_bpm, seconds);
+    }
+
+    pub fn framesAtBeat(self: *const Project, beat: f64) u64 {
+        const frames = self.secondsAtBeat(beat) * @as(f64, @floatFromInt(@max(self.sample_rate, 1)));
+        if (!std.math.isFinite(frames) or frames >= @as(f64, @floatFromInt(std.math.maxInt(u64)))) return std.math.maxInt(u64);
+        return @intFromFloat(@max(frames, 0.0));
+    }
+
+    pub fn beatAtFrames(self: *const Project, frames: u64) f64 {
+        return self.beatAtSeconds(@as(f64, @floatFromInt(frames)) / @as(f64, @floatFromInt(@max(self.sample_rate, 1))));
+    }
+
+    pub fn meterAtBeat(self: *const Project, beat: f64) time_map.MeterPoint {
+        return time_map.meterAt(self.meter_points.items, .{ .beat = 0, .numerator = @max(self.beats_per_bar, 1), .denominator = @max(self.meter_denominator, 1) }, beat);
+    }
+
+    pub fn beatAtBar(self: *const Project, target_bar: u32) f64 {
+        var segment_beat: f64 = 0;
+        var bars: u64 = 0;
+        var meter = time_map.MeterPoint{ .beat = 0, .numerator = @max(self.beats_per_bar, 1), .denominator = @max(self.meter_denominator, 1) };
+        for (self.meter_points.items) |point| {
+            const length = point.beat - segment_beat;
+            const segment_bars: u64 = @intFromFloat(@ceil(@max(length, 0.0) / meter.quarterBeatsPerBar()));
+            if (@as(u64, target_bar) < bars + segment_bars) return segment_beat + @as(f64, @floatFromInt(@as(u64, target_bar) - bars)) * meter.quarterBeatsPerBar();
+            bars += segment_bars;
+            segment_beat = point.beat;
+            meter = point;
+        }
+        return segment_beat + @as(f64, @floatFromInt(@as(u64, target_bar) -| bars)) * meter.quarterBeatsPerBar();
+    }
+
+    pub fn frameAtBar(self: *const Project, bar: u32) u64 {
+        return self.framesAtBeat(self.beatAtBar(bar));
+    }
+
+    pub fn setTempoPoint(self: *Project, point: time_map.TempoPoint) !void {
+        if (!std.math.isFinite(point.beat) or point.beat < 0 or !std.math.isFinite(point.bpm) or point.bpm < 20 or point.bpm > 400) return error.InvalidTempoPoint;
+        for (self.tempo_points.items) |*existing| {
+            if (existing.beat == point.beat) {
+                existing.* = point;
+                return;
+            }
+        }
+        if (self.tempo_points.items.len == time_map.max_tempo_points) return error.TooManyTempoPoints;
+        var index = self.tempo_points.items.len;
+        for (self.tempo_points.items, 0..) |existing, i| if (existing.beat > point.beat) {
+            index = i;
+            break;
+        };
+        try self.tempo_points.insert(self.allocator, index, point);
+    }
+
+    pub fn setMeterPoint(self: *Project, point: time_map.MeterPoint) !void {
+        if (!std.math.isFinite(point.beat) or point.beat < 0 or point.numerator == 0 or point.numerator > 32 or !std.math.isPowerOfTwo(point.denominator) or point.denominator > 32) return error.InvalidMeterPoint;
+        for (self.meter_points.items) |*existing| {
+            if (existing.beat == point.beat) {
+                existing.* = point;
+                return;
+            }
+        }
+        if (self.meter_points.items.len == time_map.max_meter_points) return error.TooManyMeterPoints;
+        var index = self.meter_points.items.len;
+        for (self.meter_points.items, 0..) |existing, i| if (existing.beat > point.beat) {
+            index = i;
+            break;
+        };
+        try self.meter_points.insert(self.allocator, index, point);
     }
 
     pub fn addAudioSource(self: *Project, path: []const u8, sample_rate: u32, channel_count: u16, samples: []const f32) !u32 {
@@ -313,6 +396,20 @@ test "framesPerBar remains valid with invalid timing fields" {
     p.tempo_bpm = std.math.floatMin(f64);
     p.beats_per_bar = std.math.maxInt(u8);
     try std.testing.expectEqual(std.math.maxInt(u64), p.framesPerBar());
+}
+
+test "tempo and meter points stay sorted and drive conversions" {
+    var p = Project.init(std.testing.allocator);
+    defer p.deinit();
+    try p.setTempoPoint(.{ .beat = 8, .bpm = 120 });
+    try p.setTempoPoint(.{ .beat = 4, .bpm = 60, .ramp_to_next = true });
+    try std.testing.expectEqual(@as(f64, 4), p.tempo_points.items[0].beat);
+    const frame = p.framesAtBeat(7);
+    try std.testing.expectApproxEqAbs(@as(f64, 7), p.beatAtFrames(frame), 0.001);
+
+    try p.setMeterPoint(.{ .beat = 8, .numerator = 6, .denominator = 8 });
+    try std.testing.expectEqual(@as(u8, 8), p.meterAtBeat(9).denominator);
+    try std.testing.expectError(error.InvalidMeterPoint, p.setMeterPoint(.{ .beat = 2, .numerator = 4, .denominator = 3 }));
 }
 
 test "sections stay sorted and follow time edits" {

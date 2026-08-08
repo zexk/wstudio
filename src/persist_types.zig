@@ -12,6 +12,7 @@ const Project = project_mod.Project;
 const track_color_count = project_mod.track_color_count;
 const ws_arrangement = @import("arrangement.zig");
 const time_grid = @import("time_grid.zig");
+const time_map = @import("time_map.zig");
 const rack_mod = @import("rack.zig");
 const Rack = rack_mod.Rack;
 const Fx = rack_mod.Fx;
@@ -46,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 41;
+pub const file_version: u32 = 42;
 
 /// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
 /// reasoning as `EqBandKindSnap`.
@@ -803,12 +804,14 @@ pub const CcBindingSnap = struct {
 pub const Snapshot = struct {
     version: u32 = file_version,
     tempo_bpm: f64 = 120.0,
+    tempo_points: []const time_map.TempoPoint = &.{},
     /// Song key for scale tools and sample tuning; null means no key.
     scale: ?theory.Scale = null,
     /// Temperament as raw cents rather than preset name.
     tuning: tuning_mod.Tuning = .{},
-    /// Time signature numerator (the unit is always /4).
     beats_per_bar: u8 = 4,
+    meter_denominator: u8 = 4,
+    meter_points: []const time_map.MeterPoint = &.{},
     /// A/B loop region in bars (`loop_end_bar` exclusive).
     loop_enabled: bool = false,
     loop_start_bar: u32 = 0,

@@ -412,7 +412,7 @@ pub fn draw(app: anytype) void {
 
     const snap = app.core.session.engine.uiSnapshot();
     if (snap.playing) {
-        const play_beat = @mod(ws.types.framesToSeconds(snap.position_frames, app.core.session.project.sample_rate) * app.core.session.project.tempo_bpm / 60.0, pp.length_beats);
+        const play_beat = @mod(app.core.session.project.beatAtFrames(snap.position_frames), pp.length_beats);
         const x = grid_x + @as(f32, @floatCast(play_beat)) * beat_w;
         draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(theme.danger), .thickness = 2 });
     }

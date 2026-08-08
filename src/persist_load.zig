@@ -312,6 +312,7 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
     errdefer project.deinit();
     project.sample_rate = snap.sample_rate;
     project.tempo_bpm = finiteClamp(f64, snap.tempo_bpm, 20.0, 400.0, 120.0);
+    for (snap.tempo_points) |point| project.setTempoPoint(point) catch return error.MalformedProject;
     project.scale = snap.scale;
     // A hand-edited cents value has to be finite or every note it touches
     // renders silence; ±1200 (an octave either way) is far past any real
@@ -321,6 +322,9 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
         out.* = finiteClamp(f32, in, -1200.0, 1200.0, 0.0);
     }
     project.beats_per_bar = beats_per_bar;
+    if (!std.math.isPowerOfTwo(snap.meter_denominator) or snap.meter_denominator > 32) return error.MalformedProject;
+    project.meter_denominator = snap.meter_denominator;
+    for (snap.meter_points) |point| project.setMeterPoint(point) catch return error.MalformedProject;
     project.loop_start_bar = snap.loop_start_bar;
     project.loop_end_bar = snap.loop_end_bar;
     project.loop_enabled = snap.loop_enabled and snap.loop_end_bar > snap.loop_start_bar;

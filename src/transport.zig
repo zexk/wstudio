@@ -4,6 +4,10 @@
 //! change it by sending engine commands.
 
 const std = @import("std");
+const time_map = @import("time_map.zig");
+
+pub const max_tempo_points = time_map.max_tempo_points;
+pub const max_meter_points = time_map.max_meter_points;
 
 pub const TimeSignature = struct {
     beats_per_bar: u8 = 4,
@@ -16,6 +20,10 @@ pub const Transport = struct {
     sample_rate: u32,
     tempo_bpm: f64 = 120.0,
     time_signature: TimeSignature = .{},
+    tempo_points: [max_tempo_points]time_map.TempoPoint = undefined,
+    tempo_point_count: u8 = 0,
+    meter_points: [max_meter_points]time_map.MeterPoint = undefined,
+    meter_point_count: u8 = 0,
     playing: bool = false,
     /// Absolute position in frames since project start.
     position_frames: u64 = 0,
@@ -28,10 +36,7 @@ pub const Transport = struct {
 
     pub fn framesPerBeat(self: *const Transport) f64 {
         const sample_rate = @max(self.sample_rate, 1);
-        const tempo = if (std.math.isFinite(self.tempo_bpm) and self.tempo_bpm > 0.0)
-            self.tempo_bpm
-        else
-            120.0;
+        const tempo = self.currentTempo();
         return @as(f64, @floatFromInt(sample_rate)) * 60.0 / tempo;
     }
 
@@ -40,14 +45,19 @@ pub const Transport = struct {
     }
 
     pub fn framesAtBeats(self: *const Transport, beats: f64) u64 {
-        const frames = @max(beats, 0.0) * self.framesPerBeat();
+        const frames = time_map.secondsAtBeat(self.tempoPoints(), self.tempo_bpm, beats) * @as(f64, @floatFromInt(@max(self.sample_rate, 1)));
         if (!std.math.isFinite(frames) or frames >= @as(f64, @floatFromInt(std.math.maxInt(u64))))
             return std.math.maxInt(u64);
         return @intFromFloat(frames);
     }
 
     pub fn positionBeats(self: *const Transport) f64 {
-        return @as(f64, @floatFromInt(self.position_frames)) / self.framesPerBeat();
+        return self.beatsAtFrames(self.position_frames);
+    }
+
+    pub fn beatsAtFrames(self: *const Transport, frames: u64) f64 {
+        const seconds = @as(f64, @floatFromInt(frames)) / @as(f64, @floatFromInt(@max(self.sample_rate, 1)));
+        return time_map.beatAtSeconds(self.tempoPoints(), self.tempo_bpm, seconds);
     }
 
     pub fn positionSeconds(self: *const Transport) f64 {
@@ -60,14 +70,89 @@ pub const Transport = struct {
     }
 
     pub fn barBeatAtFrames(self: *const Transport, position_frames: u64) BarBeat {
-        const beats = @as(f64, @floatFromInt(position_frames)) / self.framesPerBeat();
-        const total_beats: u64 = if (!std.math.isFinite(beats) or
-            beats >= @as(f64, @floatFromInt(std.math.maxInt(u64))))
-            std.math.maxInt(u64)
-        else
-            @intFromFloat(@max(beats, 0.0));
-        const bpb: u64 = @max(self.time_signature.beats_per_bar, 1);
-        return .{ .bar = total_beats / bpb, .beat = total_beats % bpb };
+        const target = self.beatsAtFrames(position_frames);
+        if (!std.math.isFinite(target)) {
+            const beats_per_bar: u64 = @max(self.time_signature.beats_per_bar, 1);
+            return .{ .bar = std.math.maxInt(u64) / beats_per_bar, .beat = std.math.maxInt(u64) % beats_per_bar };
+        }
+        var segment_beat: f64 = 0;
+        var bars: u64 = 0;
+        var meter = time_map.MeterPoint{ .beat = 0, .numerator = @max(self.time_signature.beats_per_bar, 1), .denominator = @max(self.time_signature.beat_unit, 1) };
+        for (self.meterPoints()) |point| {
+            if (point.beat > target) break;
+            const bar_beats = meter.quarterBeatsPerBar();
+            const segment_bars = @max(0.0, @ceil((point.beat - segment_beat) / bar_beats));
+            if (segment_bars >= @as(f64, @floatFromInt(std.math.maxInt(u64) - bars))) return .{ .bar = std.math.maxInt(u64), .beat = 0 };
+            bars += @intFromFloat(segment_bars);
+            segment_beat = point.beat;
+            meter = point;
+        }
+        const bar_beats = meter.quarterBeatsPerBar();
+        const within_segment = @max(target - segment_beat, 0.0);
+        const segment_bars = @floor(within_segment / bar_beats);
+        if (segment_bars >= @as(f64, @floatFromInt(std.math.maxInt(u64) - bars))) return .{ .bar = std.math.maxInt(u64), .beat = 0 };
+        bars += @intFromFloat(segment_bars);
+        const within_bar = @mod(within_segment, bar_beats);
+        const beat_unit_quarters = 4.0 / @as(f64, @floatFromInt(meter.denominator));
+        return .{ .bar = bars, .beat = @intFromFloat(@floor(within_bar / beat_unit_quarters)) };
+    }
+
+    pub fn tempoPoints(self: *const Transport) []const time_map.TempoPoint {
+        return self.tempo_points[0..self.tempo_point_count];
+    }
+
+    pub fn meterPoints(self: *const Transport) []const time_map.MeterPoint {
+        return self.meter_points[0..self.meter_point_count];
+    }
+
+    pub fn currentTempo(self: *const Transport) f64 {
+        return time_map.tempoAt(self.tempoPoints(), self.tempo_bpm, self.positionBeats());
+    }
+
+    pub fn currentMeter(self: *const Transport) time_map.MeterPoint {
+        return time_map.meterAt(self.meterPoints(), .{ .beat = 0, .numerator = @max(self.time_signature.beats_per_bar, 1), .denominator = @max(self.time_signature.beat_unit, 1) }, self.positionBeats());
+    }
+
+    pub fn beatAtBar(self: *const Transport, target_bar: u64) f64 {
+        var segment_beat: f64 = 0;
+        var bars: u64 = 0;
+        var meter = time_map.MeterPoint{ .beat = 0, .numerator = @max(self.time_signature.beats_per_bar, 1), .denominator = @max(self.time_signature.beat_unit, 1) };
+        for (self.meterPoints()) |point| {
+            const segment_bars: u64 = @intFromFloat(@ceil(@max(point.beat - segment_beat, 0.0) / meter.quarterBeatsPerBar()));
+            if (target_bar < bars + segment_bars) return segment_beat + @as(f64, @floatFromInt(target_bar - bars)) * meter.quarterBeatsPerBar();
+            bars += segment_bars;
+            segment_beat = point.beat;
+            meter = point;
+        }
+        return segment_beat + @as(f64, @floatFromInt(target_bar -| bars)) * meter.quarterBeatsPerBar();
+    }
+
+    pub fn setTempoPoint(self: *Transport, point: time_map.TempoPoint) void {
+        var index: usize = 0;
+        while (index < self.tempo_point_count and self.tempo_points[index].beat < point.beat) : (index += 1) {}
+        if (index < self.tempo_point_count and self.tempo_points[index].beat == point.beat) {
+            self.tempo_points[index] = point;
+            return;
+        }
+        if (self.tempo_point_count == max_tempo_points) return;
+        var i: usize = self.tempo_point_count;
+        while (i > index) : (i -= 1) self.tempo_points[i] = self.tempo_points[i - 1];
+        self.tempo_points[index] = point;
+        self.tempo_point_count += 1;
+    }
+
+    pub fn setMeterPoint(self: *Transport, point: time_map.MeterPoint) void {
+        var index: usize = 0;
+        while (index < self.meter_point_count and self.meter_points[index].beat < point.beat) : (index += 1) {}
+        if (index < self.meter_point_count and self.meter_points[index].beat == point.beat) {
+            self.meter_points[index] = point;
+            return;
+        }
+        if (self.meter_point_count == max_meter_points) return;
+        var i: usize = self.meter_point_count;
+        while (i > index) : (i -= 1) self.meter_points[i] = self.meter_points[i - 1];
+        self.meter_points[index] = point;
+        self.meter_point_count += 1;
     }
 
     /// Called once per processed block, after rendering it.

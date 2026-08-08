@@ -24,15 +24,17 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
     if (zgui.begin("Transport", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true, .no_scrollbar = true, .no_scroll_with_mouse = true } })) {
         const display_frames = app.core.displayPositionFrames(snap.position_frames);
         const bar_beat = app.core.session.engine.transport.barBeatAtFrames(display_frames);
+        const display_beat = app.core.session.project.beatAtFrames(display_frames);
+        const current_meter = app.core.session.project.meterAtBeat(display_beat);
         var tempo_buf: [32]u8 = undefined;
-        const tempo = std.fmt.bufPrint(&tempo_buf, "{d:.1} BPM", .{app.core.session.project.tempo_bpm}) catch "tempo";
+        const tempo = std.fmt.bufPrint(&tempo_buf, "{d:.1} BPM", .{ws.time_map.tempoAt(app.core.session.project.tempo_points.items, app.core.session.project.tempo_bpm, display_beat)}) catch "tempo";
         var position_buf: [32]u8 = undefined;
         const position = std.fmt.bufPrint(&position_buf, "{d:0>3}.{d}", .{
             bar_beat.bar +| 1,
             bar_beat.beat + 1,
         }) catch "position";
         var meter_buf: [32]u8 = undefined;
-        const meter = std.fmt.bufPrint(&meter_buf, "{d}/4", .{app.core.session.project.beats_per_bar}) catch "meter";
+        const meter = std.fmt.bufPrint(&meter_buf, "{d}/{d}", .{ current_meter.numerator, current_meter.denominator }) catch "meter";
         var rate_buf: [32]u8 = undefined;
         const rate = std.fmt.bufPrint(&rate_buf, "{d:.1} kHz", .{@as(f32, @floatFromInt(app.core.session.project.sample_rate)) / 1000.0}) catch "rate";
 

@@ -1451,12 +1451,11 @@ pub const Session = struct {
     /// frames. Call after editing the loop or anything its bar math depends
     /// on (tempo, time signature).
     pub fn syncLoop(self: *Session) void {
-        const fpb = self.project.framesPerBar();
         _ = self.engine.send(.{ .set_loop = .{
             .enabled = self.project.loop_enabled and
                 self.project.loop_end_bar > self.project.loop_start_bar,
-            .start_frames = loopFrame(self.project.loop_start_bar, fpb),
-            .end_frames = loopFrame(self.project.loop_end_bar, fpb),
+            .start_frames = self.project.frameAtBar(self.project.loop_start_bar),
+            .end_frames = self.project.frameAtBar(self.project.loop_end_bar),
         } });
     }
 
@@ -1559,7 +1558,6 @@ pub const Session = struct {
     fn syncAudioRegions(self: *Session, track: u16, lane: *const arr_mod.Lane) void {
         var regions: std.ArrayList(engine_mod.AudioRegion) = .empty;
         defer regions.deinit(self.allocator);
-        const frames_per_beat = self.engine.transport.framesPerBeat();
         for (lane.clips.items) |clip| {
             const audio = switch (clip.content) {
                 .audio => |region| region,
@@ -1570,8 +1568,10 @@ pub const Session = struct {
             const source_start = @min(audio.source_start_frame, source_frames);
             const source_length = @min(audio.source_length_frames, source_frames - source_start);
             if (source_length == 0) continue;
-            const start_frame: u64 = @intFromFloat(time_grid.tickToBeat(clip.start_tick) * frames_per_beat);
-            const length_frames: u64 = @max(1, @as(u64, @intFromFloat(time_grid.tickToBeat(clip.length_ticks) * frames_per_beat)));
+            const start_beat = time_grid.tickToBeat(clip.start_tick);
+            const end_beat = time_grid.tickToBeat(clip.start_tick +| clip.length_ticks);
+            const start_frame = self.project.framesAtBeat(start_beat);
+            const length_frames = @max(1, self.project.framesAtBeat(end_beat) -| start_frame);
             regions.append(self.allocator, .{
                 .start_frame = start_frame,
                 .end_frame = start_frame +| length_frames,

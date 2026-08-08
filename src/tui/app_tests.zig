@@ -4439,10 +4439,32 @@ test ":signature sets beats per bar and reshapes bar math" {
     const clip = app.session.arrangement.lane(2).?.clips.items[0];
     try std.testing.expectEqual(@as(u32, 288), clip.length_ticks);
 
-    // Bad input is rejected and leaves the setting alone.
-    for (":sig 3/8") |c| app.handleKey(.{ .char = c }, 0);
+    // Denominator changes propagate too.
+    for (":signature 3/8") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(u8, 3), app.session.project.beats_per_bar);
+    try std.testing.expectEqual(@as(u8, 8), app.session.project.meter_denominator);
+    for (":signature 3/7") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(@as(u8, 8), app.session.project.meter_denominator);
+}
+
+test "tempo and meter point commands update project and transport maps" {
+    var app = try testApp();
+    defer app.deinit();
+    commands.run(&app, "tempo-point 4 60 ramp");
+    commands.run(&app, "tempo-point 8 120 step");
+    commands.run(&app, "meter-point 8 6/8");
+    var block: [512]ws.types.Sample = undefined;
+    app.session.engine.process(&block);
+
+    try std.testing.expectEqual(@as(usize, 2), app.session.project.tempo_points.items.len);
+    try std.testing.expectEqual(@as(u8, 2), app.session.engine.transport.tempo_point_count);
+    try std.testing.expectEqual(@as(u8, 8), app.session.project.meter_points.items[0].denominator);
+    try std.testing.expectEqual(@as(u8, 1), app.session.engine.transport.meter_point_count);
+    const at_seven = app.session.project.secondsAtBeat(7);
+    try std.testing.expectApproxEqAbs(@as(f64, 7), app.session.engine.transport.beatsAtFrames(app.session.project.framesAtBeat(7)), 0.001);
+    try std.testing.expect(at_seven > app.session.project.secondsAtBeat(6));
 }
 
 test ":track-add command adds a blank track right after the cursor's track" {

@@ -1060,7 +1060,8 @@ const Direct = struct {
     fn makeProcessContext(self: *const Direct) abi.ProcessContext {
         const transport = self.transport orelse return std.mem.zeroes(abi.ProcessContext);
         const beats = transport.positionBeats();
-        const beats_per_bar: f64 = @floatFromInt(@max(transport.time_signature.beats_per_bar, 1));
+        const meter = transport.currentMeter();
+        const bar = transport.positionBarBeat().bar;
         var state: u32 = (1 << 17) | (1 << 9) | (1 << 11) | (1 << 10) | (1 << 13);
         if (transport.playing) state |= 1 << 1;
         if (transport.loop_enabled) state |= (1 << 2) | (1 << 12);
@@ -1071,12 +1072,12 @@ const Direct = struct {
             .system_time = 0,
             .continuous_time_samples = vstSamplePosition(transport.position_frames),
             .project_time_music = beats,
-            .bar_position_music = @floor(beats / beats_per_bar) * beats_per_bar,
-            .cycle_start_music = @as(f64, @floatFromInt(transport.loop_start_frames)) / transport.framesPerBeat(),
-            .cycle_end_music = @as(f64, @floatFromInt(transport.loop_end_frames)) / transport.framesPerBeat(),
-            .tempo = transport.tempo_bpm,
-            .time_sig_numerator = transport.time_signature.beats_per_bar,
-            .time_sig_denominator = transport.time_signature.beat_unit,
+            .bar_position_music = transport.beatAtBar(bar),
+            .cycle_start_music = transport.beatsAtFrames(transport.loop_start_frames),
+            .cycle_end_music = transport.beatsAtFrames(transport.loop_end_frames),
+            .tempo = transport.currentTempo(),
+            .time_sig_numerator = meter.numerator,
+            .time_sig_denominator = meter.denominator,
             .chord = .{ .key_note = 0, .root_note = 0, .chord_mask = 0 },
             .smpte_offset_subframes = 0,
             .frame_rate = .{ .frames_per_second = 0, .flags = 0 },

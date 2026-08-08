@@ -111,6 +111,9 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
 
     const snap_in: Snapshot = .{
         .tempo_bpm = 140.0,
+        .tempo_points = &.{.{ .beat = 8, .bpm = 90, .ramp_to_next = true }},
+        .meter_denominator = 8,
+        .meter_points = &.{.{ .beat = 12, .numerator = 7, .denominator = 8 }},
         .scale = .{ .root = 9, .kind = .minor },
         .sample_rate = 48_000,
         .tracks = &.{
@@ -149,6 +152,10 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
     const snap_out = &parsed.value;
 
     try testing.expectApproxEqAbs(@as(f64, 140.0), snap_out.tempo_bpm, 0.001);
+    try testing.expectEqual(@as(f64, 8), snap_out.tempo_points[0].beat);
+    try testing.expect(snap_out.tempo_points[0].ramp_to_next);
+    try testing.expectEqual(@as(u8, 8), snap_out.meter_denominator);
+    try testing.expectEqual(@as(u8, 7), snap_out.meter_points[0].numerator);
     try testing.expectEqual(@as(u4, 9), snap_out.scale.?.root);
     try testing.expectEqual(theory.ScaleType.minor, snap_out.scale.?.kind);
     try testing.expectEqual(@as(usize, 2), snap_out.tracks.len);
@@ -183,6 +190,9 @@ test "buildSession: constructs valid Session from snapshot" {
 
     const snap: Snapshot = .{
         .tempo_bpm = 140.0,
+        .tempo_points = &.{.{ .beat = 4, .bpm = 100 }},
+        .meter_denominator = 8,
+        .meter_points = &.{.{ .beat = 6, .numerator = 5, .denominator = 8 }},
         .sample_rate = 48_000,
         .tracks = &.{
             .{ .name = "lead" },
@@ -215,6 +225,9 @@ test "buildSession: constructs valid Session from snapshot" {
     defer session.deinit();
 
     try testing.expectApproxEqAbs(@as(f64, 140.0), session.project.tempo_bpm, 0.001);
+    try testing.expectEqual(@as(f64, 4), session.project.tempo_points.items[0].beat);
+    try testing.expectEqual(@as(u8, 8), session.engine.transport.time_signature.beat_unit);
+    try testing.expectEqual(@as(u8, 5), session.engine.transport.meter_points[0].numerator);
     try testing.expectEqual(@as(usize, 2), session.project.tracks.items.len);
     try testing.expectEqual(@as(usize, 2), session.racks.items.len);
 

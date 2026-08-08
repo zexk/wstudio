@@ -2701,9 +2701,8 @@ pub const App = struct {
 
     pub fn recordingPositionAllowed(self: *const App, position_frames: u64) bool {
         if (!self.punch_enabled and self.recording_punch_start_bar == null) return true;
-        const fpb = self.session.project.framesPerBar();
-        const start = @as(u64, self.recording_punch_start_bar orelse self.session.project.loop_start_bar) *| fpb;
-        const end = @as(u64, self.recording_punch_end_bar orelse self.session.project.loop_end_bar) *| fpb;
+        const start = self.session.project.frameAtBar(self.recording_punch_start_bar orelse self.session.project.loop_start_bar);
+        const end = self.session.project.frameAtBar(self.recording_punch_end_bar orelse self.session.project.loop_end_bar);
         return position_frames >= start and position_frames < end;
     }
 
@@ -2816,20 +2815,20 @@ pub const App = struct {
             return;
         }
 
-        const bpm = @max(self.session.project.tempo_bpm, 1.0);
-        const sr_f: f64 = @floatFromInt(self.session.project.sample_rate);
         const source_path = if (self.recording_take) |*take| take.pathSlice() else "recorded";
+        const sr_f: f64 = @floatFromInt(self.session.project.sample_rate);
         const loop_bars = if (self.recording_loop_start_bar != null and self.recording_loop_end_bar.? > self.recording_loop_start_bar.?)
             self.recording_loop_end_bar.? - self.recording_loop_start_bar.?
         else
             0;
         const loop_frames: usize = if (loop_bars > 0)
-            @intCast(@min(@as(u64, loop_bars) *| self.session.project.framesPerBar(), std.math.maxInt(usize)))
+            @intCast(@min(self.session.project.frameAtBar(self.recording_loop_end_bar.?) -| self.session.project.frameAtBar(self.recording_loop_start_bar.?), std.math.maxInt(usize)))
         else
             captured.len;
         const take_count = (captured.len + loop_frames - 1) / loop_frames;
         const start_bar = self.recording_punch_start_bar orelse self.recording_loop_start_bar orelse self.arr_cursor_bar;
         const start_tick = start_bar *| self.arr_grid.ticks();
+        const start_frame = self.session.project.framesAtBeat(ws.time_grid.tickToBeat(start_tick));
         for (targets) |track_idx| history.recordLane(self, track_idx);
 
         var clip_count: usize = 0;
@@ -2837,9 +2836,9 @@ pub const App = struct {
             const lo = take_index * loop_frames;
             const hi = @min(lo + loop_frames, captured.len);
             const take_samples = captured[lo..hi];
-            const beats = @as(f64, @floatFromInt(take_samples.len)) * bpm / (sr_f * 60.0);
+            const beats = self.session.project.beatAtFrames(start_frame +| take_samples.len) - self.session.project.beatAtFrames(start_frame);
             const length_ticks: u32 = if (loop_bars > 0 and take_samples.len == loop_frames)
-                loop_bars *| ws.time_grid.barTicks(self.session.project.beats_per_bar)
+                @intFromFloat(@min((self.session.project.beatAtBar(start_bar +| loop_bars) - self.session.project.beatAtBar(start_bar)) * ws.time_grid.ticks_per_beat, std.math.maxInt(u32)))
             else
                 @max(1, @as(u32, @intFromFloat(@ceil(beats * ws.time_grid.ticks_per_beat))));
             const source_id = self.session.project.addAudioSource(source_path, self.session.project.sample_rate, 1, take_samples) catch continue;
@@ -3410,14 +3409,13 @@ pub const App = struct {
                     self.recording_loop_start_bar = if (!self.punch_enabled and self.session.project.loop_enabled) self.session.project.loop_start_bar else null;
                     self.recording_loop_end_bar = if (self.recording_loop_start_bar != null) self.session.project.loop_end_bar else null;
                     if (self.punch_enabled) {
-                        const fpb = self.session.project.framesPerBar();
                         _ = self.session.engine.send(.{ .set_loop = .{
                             .enabled = false,
-                            .start_frames = @as(u64, self.session.project.loop_start_bar) *| fpb,
-                            .end_frames = @as(u64, self.session.project.loop_end_bar) *| fpb,
+                            .start_frames = self.session.project.frameAtBar(self.session.project.loop_start_bar),
+                            .end_frames = self.session.project.frameAtBar(self.session.project.loop_end_bar),
                         } });
                     } else if (self.recording_loop_start_bar) |start_bar| {
-                        _ = self.session.engine.send(.{ .seek_frames = @as(u64, start_bar) *| self.session.project.framesPerBar() });
+                        _ = self.session.engine.send(.{ .seek_frames = self.session.project.frameAtBar(start_bar) });
                     }
                     _ = self.session.engine.send(.{ .record = self.count_in_bars });
                     if (self.count_in_bars > 0) self.setStatus("count-in...", .{});
@@ -3818,7 +3816,7 @@ pub const App = struct {
         // edge: the pass ends the instant playback stops.
         if (playing and !was_playing) self.startPendingRecording();
         const position_frames = self.session.engine.uiSnapshot().position_frames;
-        const punch_end = @as(u64, self.recording_punch_end_bar orelse self.session.project.loop_end_bar) *| self.session.project.framesPerBar();
+        const punch_end = self.session.project.frameAtBar(self.recording_punch_end_bar orelse self.session.project.loop_end_bar);
         if (self.recording_active_len > 0 and self.recording_punch_start_bar != null and position_frames >= punch_end)
             self.finishRecording()
         else if (self.recording_active_len > 0) self.drainRecording();

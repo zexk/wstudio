@@ -1240,9 +1240,8 @@ fn fixedTime(value: f64) i64 {
 
 fn makeTransportEvent(transport: *const Transport) abi.EventTransport {
     const sample_rate = @as(f64, @floatFromInt(@max(transport.sample_rate, 1)));
-    const frames_per_beat = transport.framesPerBeat();
     const song_beats = transport.positionBeats();
-    const beats_per_bar = @as(f64, @floatFromInt(@max(transport.time_signature.beats_per_bar, 1)));
+    const meter = transport.currentMeter();
     var flags = abi.transport_has_tempo |
         abi.transport_has_beats_timeline |
         abi.transport_has_seconds_timeline |
@@ -1250,13 +1249,13 @@ fn makeTransportEvent(transport: *const Transport) abi.EventTransport {
     if (transport.playing) flags |= abi.transport_is_playing;
     if (transport.loop_enabled and transport.loop_end_frames > transport.loop_start_frames)
         flags |= abi.transport_is_loop_active;
-    const loop_start_beats = @as(f64, @floatFromInt(transport.loop_start_frames)) / frames_per_beat;
-    const loop_end_beats = @as(f64, @floatFromInt(transport.loop_end_frames)) / frames_per_beat;
-    const bar_number_f = @floor(song_beats / beats_per_bar);
-    const bar_number: i32 = if (bar_number_f >= @as(f64, @floatFromInt(std.math.maxInt(i32))))
+    const loop_start_beats = transport.beatsAtFrames(transport.loop_start_frames);
+    const loop_end_beats = transport.beatsAtFrames(transport.loop_end_frames);
+    const bar = transport.positionBarBeat().bar;
+    const bar_number: i32 = if (bar >= std.math.maxInt(i32))
         std.math.maxInt(i32)
     else
-        @intFromFloat(@max(bar_number_f, 0));
+        @intCast(bar);
     return .{
         .header = .{
             .size = @sizeOf(abi.EventTransport),
@@ -1268,16 +1267,16 @@ fn makeTransportEvent(transport: *const Transport) abi.EventTransport {
         .flags = flags,
         .song_pos_beats = fixedTime(song_beats),
         .song_pos_seconds = fixedTime(transport.positionSeconds()),
-        .tempo = transport.tempo_bpm,
+        .tempo = transport.currentTempo(),
         .tempo_inc = 0,
         .loop_start_beats = fixedTime(loop_start_beats),
         .loop_end_beats = fixedTime(loop_end_beats),
         .loop_start_seconds = fixedTime(@as(f64, @floatFromInt(transport.loop_start_frames)) / sample_rate),
         .loop_end_seconds = fixedTime(@as(f64, @floatFromInt(transport.loop_end_frames)) / sample_rate),
-        .bar_start = fixedTime(@as(f64, @floatFromInt(bar_number)) * beats_per_bar),
+        .bar_start = fixedTime(transport.beatAtBar(bar)),
         .bar_number = bar_number,
-        .tsig_num = transport.time_signature.beats_per_bar,
-        .tsig_denom = transport.time_signature.beat_unit,
+        .tsig_num = meter.numerator,
+        .tsig_denom = meter.denominator,
     };
 }
 

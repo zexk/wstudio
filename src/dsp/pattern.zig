@@ -679,9 +679,8 @@ pub const PatternPlayer = struct {
             return;
         }
 
-        const fpb = self.transport.framesPerBeat();
-        const start_beat = @as(f64, @floatFromInt(pos)) / fpb;
-        const end_beat = @as(f64, @floatFromInt(pos + frames)) / fpb;
+        const start_beat = self.transport.beatsAtFrames(pos);
+        const end_beat = self.transport.beatsAtFrames(pos + frames);
 
         if (self.song_mode and start_beat >= loop) {
             // Past the end of the arrangement: silence anything left

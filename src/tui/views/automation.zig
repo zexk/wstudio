@@ -103,7 +103,7 @@ pub fn drawAutomation(
 
     const points = automation_ed.curvePointsConst(clip, target);
     const range = curveRange(app, target);
-    const playhead = automation_ed.playheadBeat(clip, snap.position_frames, app.session.project.sample_rate, app.session.project.tempo_bpm, snap.playing);
+    const playhead = automation_ed.playheadBeat(clip, app.session.project.beatAtFrames(snap.position_frames), snap.playing);
     const play_step: ?u32 = if (playhead) |beat| @intFromFloat(@floor(beat * 4.0)) else null;
 
     // Visual-mode selection: a step range on the current curve only.

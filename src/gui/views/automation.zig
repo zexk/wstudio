@@ -33,7 +33,7 @@ pub fn draw(app: anytype) void {
         return;
     };
     const snap = app.core.session.engine.uiSnapshot();
-    const playhead = automation_ed.playheadBeat(live_clip, snap.position_frames, app.core.session.project.sample_rate, app.core.session.project.tempo_bpm, snap.playing);
+    const playhead = automation_ed.playheadBeat(live_clip, app.core.session.project.beatAtFrames(snap.position_frames), snap.playing);
 
     drawTargetStrip(app, live_clip);
     zgui.spacing();

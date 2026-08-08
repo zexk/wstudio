@@ -19,7 +19,7 @@ alongside the `.wsj` into a sidecar directory, not embedded in the JSON. See
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 41) is the only format version
+`persist.zig`'s `file_version` (currently 42) is the only format version
 this build writes or reads. Loading enforces one rule:
 
 - **A file whose `version` is not exactly `file_version` is hard-rejected**
@@ -56,6 +56,14 @@ nothing at all.
 Drum patterns and drum arrangement clips optionally store `steps_per_beat`.
 Its default is 4 (a 1/16-note grid); values through 32 give grids as fine as
 1/128 notes.
+
+## Tempo and meter maps
+
+`tempo_bpm`, `beats_per_bar`, and `meter_denominator` define song defaults.
+`tempo_points` stores beat-positioned BPM changes; `ramp_to_next` makes BPM
+linear in beat space until next point. `meter_points` stores beat-positioned
+numerator and denominator changes. Denominators must be powers of two through
+32. Map beats are quarter-note units regardless of active denominator.
 
 ## Sample sidecar
 
