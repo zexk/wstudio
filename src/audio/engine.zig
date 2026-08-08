@@ -364,18 +364,21 @@ const TrackSendSlots = [max_sends_per_track]?SendSlot;
 const TrackAutomation = struct {
     gain: AutomationCurve = .{},
     pan: AutomationCurve = .{},
+    sends: [max_sends_per_track]AutomationCurve = [_]AutomationCurve{.{}} ** max_sends_per_track,
     /// Parameter-id automation. Empty curves allocate no point storage.
     synth_slots: [max_synth_slots]SynthAutomationSlot = [_]SynthAutomationSlot{.{}} ** max_synth_slots,
 
     fn deinit(self: *TrackAutomation, allocator: std.mem.Allocator) void {
         self.gain.deinit(allocator);
         self.pan.deinit(allocator);
+        for (&self.sends) |*curve| curve.deinit(allocator);
         for (&self.synth_slots) |*slot| slot.curve.deinit(allocator);
     }
 
     fn clear(self: *TrackAutomation, allocator: std.mem.Allocator) void {
         self.gain.set(allocator, &.{}) catch unreachable;
         self.pan.set(allocator, &.{}) catch unreachable;
+        for (&self.sends) |*curve| curve.set(allocator, &.{}) catch unreachable;
         for (&self.synth_slots) |*slot| {
             slot.curve.set(allocator, &.{}) catch unreachable;
             slot.active.store(false, .release);
@@ -385,6 +388,7 @@ const TrackAutomation = struct {
     fn swapContent(self: *TrackAutomation, other: *TrackAutomation) void {
         self.gain.swapPoints(&other.gain);
         self.pan.swapPoints(&other.pan);
+        for (&self.sends, &other.sends) |*a, *b| a.swapPoints(b);
         for (&self.synth_slots, &other.synth_slots) |*a, *b| {
             a.curve.swapPoints(&b.curve);
             const active = a.active.load(.acquire);
@@ -495,6 +499,7 @@ pub const Engine = struct {
     route_scratch: [types.max_block_frames * channels]Sample = undefined,
     automation_gain: [types.max_block_frames]f32 = undefined,
     automation_pan: [types.max_block_frames]f32 = undefined,
+    automation_bus: [types.max_block_frames]f32 = undefined,
     /// Group submix buses (see `TrackState.group`/`renderTracks`). Fixed
     /// bank of `max_groups` (8), not multiplied by `max_tracks` - negligible
     /// size (~256KB total), safe to embed directly unlike `TrackAutomation`.
@@ -533,6 +538,8 @@ pub const Engine = struct {
     /// doc comment for why this is a separate heap allocation rather than a
     /// field on `TrackState`. Indexed the same as `tracks`.
     automation: []TrackAutomation,
+    master_gain_automation: AutomationCurve = .{},
+    group_gain_automation: [max_groups]AutomationCurve = [_]AutomationCurve{.{}} ** max_groups,
     /// Per-track chain-slot sidechain-detector routing - see
     /// `TrackSidechainSlots`'s doc comment for why this is a separate heap
     /// allocation. Indexed the same as `tracks`.
@@ -642,6 +649,8 @@ pub const Engine = struct {
         self.master_spectrum.deinit(self.allocator);
         self.track_spectrum.deinit(self.allocator);
         for (self.automation) |*pair| pair.deinit(self.allocator);
+        self.master_gain_automation.deinit(self.allocator);
+        for (&self.group_gain_automation) |*curve| curve.deinit(self.allocator);
         self.allocator.free(self.automation);
         self.allocator.free(self.track_sidechain);
         self.allocator.free(self.track_sends);
@@ -1033,6 +1042,14 @@ pub const Engine = struct {
         }
     }
 
+    pub fn setMixAutomation(self: *Engine, target: automation_mod.MixTarget, points: []const AutomationPoint) void {
+        switch (target) {
+            .master_gain => self.master_gain_automation.set(self.allocator, points) catch @panic("out of memory setting master automation"),
+            .group_gain => |group| if (group < max_groups) self.group_gain_automation[group].set(self.allocator, points) catch @panic("out of memory setting group automation"),
+            .send_level => |send_target| if (send_target.track < max_tracks and send_target.slot < max_sends_per_track) self.automation[send_target.track].sends[send_target.slot].set(self.allocator, points) catch @panic("out of memory setting send automation"),
+        }
+    }
+
     /// Replace a track's instrument- or FX-unit-param automation curve at
     /// `slot_index`. `instance_id` 0 targets the instrument (`param_id` its
     /// own flat id space); nonzero targets that FX unit's `instance_id`
@@ -1209,7 +1226,13 @@ pub const Engine = struct {
         self.preview.processBlock(out);
         self.mixMonitoredInput(out);
 
-        for (out) |*s| s.* *= self.master_gain;
+        const master_gains = self.automation_bus[0..frames];
+        const master_automated = self.master_gain_automation.fillValues(master_gains, self.transport.positionBeats(), 1.0 / self.transport.framesPerBeat(), self.master_gain);
+        for (0..frames) |frame| {
+            const gain = if (master_automated) master_gains[frame] else self.master_gain;
+            out[frame * channels] *= gain;
+            out[frame * channels + 1] *= gain;
+        }
         self.limiter.processBlock(out);
 
         // Peaks measured post-limiter, so the meters show what actually
@@ -1824,13 +1847,16 @@ pub const Engine = struct {
             };
             @memcpy(primary_signal, scratch);
             track.send_pdc[slot].process(primary_signal, max_route_latency - self.routeLatency(track, snd.target));
+            const send_levels = self.automation_bus[0..frames];
+            const send_automated = auto.sends[slot].fillValues(send_levels, beat_pos, beat_step, snd.level);
             for (0..frames) |i| {
                 const gain_l, const gain_r = if (automated) blk: {
                     const angle = (pans[i] + 1.0) * std.math.pi / 4.0;
                     break :blk .{ gains[i] * @cos(angle), gains[i] * @sin(angle) };
                 } else .{ base_gain_l, base_gain_r };
-                send_dest[i * channels] += primary_signal[i * channels] * gain_l * snd.level;
-                send_dest[i * channels + 1] += primary_signal[i * channels + 1] * gain_r * snd.level;
+                const send_level = if (send_automated) send_levels[i] else snd.level;
+                send_dest[i * channels] += primary_signal[i * channels] * gain_l * send_level;
+                send_dest[i * channels + 1] += primary_signal[i * channels + 1] * gain_r * send_level;
             }
         }
 
@@ -2011,7 +2037,13 @@ pub const Engine = struct {
                 c.captured = true;
             }
 
-            for (out, gscratch) |*o, s| o.* += s * g.gain;
+            const group_gains = self.automation_bus[0..frames];
+            const group_automated = self.group_gain_automation[gi].fillValues(group_gains, beat_pos, 1.0 / self.transport.framesPerBeat(), g.gain);
+            for (0..frames) |frame| {
+                const gain = if (group_automated) group_gains[frame] else g.gain;
+                out[frame * channels] += gscratch[frame * channels] * gain;
+                out[frame * channels + 1] += gscratch[frame * channels + 1] * gain;
+            }
 
             if (group_tap == null and self.active_spectrum_source == .group and @as(u8, @intCast(gi)) == self.active_spectrum_group) {
                 self.track_spectrum.push(gscratch);
@@ -2166,6 +2198,18 @@ test "plugin delay compensation aligns primary and send routes" {
     try std.testing.expectEqual(@as(Sample, 0), output[2]);
     try std.testing.expect(output[4] > 0.45);
     try std.testing.expectEqual(@as(Sample, 0), output[8]);
+}
+
+test "mix automation stores independent master group and send curves" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.setMixAutomation(.master_gain, &.{.{ .beat = 0, .value = 0.5 }});
+    engine.setMixAutomation(.{ .group_gain = 2 }, &.{.{ .beat = 0, .value = 0.25 }});
+    engine.setMixAutomation(.{ .send_level = .{ .track = 3, .slot = 1 } }, &.{.{ .beat = 0, .value = 0.75 }});
+
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), engine.master_gain_automation.valueAt(0).?, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), engine.group_gain_automation[2].valueAt(0).?, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), engine.automation[3].sends[1].valueAt(0).?, 1e-6);
 }
 
 test "plugin latency beyond PDC storage is surfaced" {

@@ -80,6 +80,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "signature",   .desc = "[<n>/<d>]  base time signature", .run = wrap(commands_mixer.cmdSig) },
     .{ .name = "tempo-point", .desc = "<beat> <bpm> [step|ramp]  add tempo-map point", .run = wrap(commands_mixer.cmdTempoPoint) },
     .{ .name = "meter-point", .desc = "<beat> <n>/<d>  add meter-map point", .run = wrap(commands_mixer.cmdMeterPoint) },
+    .{ .name = "automation-point", .desc = "<master|group:n|send:t:s> <beat> <dB> [linear|hold|ease]", .run = wrap(commands_mixer.cmdAutomationPoint) },
+    .{ .name = "automation-mode", .desc = "[off|write|touch|latch]  automation capture mode", .run = wrap(commands_mixer.cmdAutomationMode) },
     .{ .name = "gain",        .desc = "[<track>] [<dB>]  track gain (no track: cursor track)", .run = wrap(commands_mixer.cmdGain) },
     .{ .name = "pan",         .desc = "[<track>] [<-1..1>]  track pan (no track: cursor track)", .run = wrap(commands_mixer.cmdPan) },
     .{ .name = "unmute",      .desc = "clear mute on every track (m toggles one track at a time)", .run = wrap(commands_mixer.cmdUnmute) },

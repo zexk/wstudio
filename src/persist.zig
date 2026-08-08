@@ -1402,6 +1402,24 @@ test "buildSession: a track referencing a slot the file never marked active load
     try testing.expectEqual(@as(?u8, null), session.project.tracks.items[0].group);
 }
 
+test "buildSession restores independent mix automation lanes" {
+    const testing = std.testing;
+    const snap: Snapshot = .{
+        .tracks = &.{.{ .name = "track" }},
+        .racks = &.{.{ .label = "track", .content = .empty }},
+        .mix_automation = &.{
+            .{ .target = .master_gain, .points = &.{.{ .beat = 2, .value = -6 }} },
+            .{ .target = .{ .send_level = .{ .track = 0, .slot = 1 } }, .points = &.{.{ .beat = 3, .value = -12, .curve = .hold }} },
+        },
+    };
+    var session = try buildSession(testing.allocator, &snap);
+    defer session.deinit();
+
+    try testing.expectEqual(@as(usize, 2), session.mix_automation.items.len);
+    try testing.expectApproxEqAbs(@as(f32, -6), session.mix_automation.items[0].points[0].value, 1e-6);
+    try testing.expectEqual(automation_mod.Curve.hold, session.mix_automation.items[1].points[0].curve);
+}
+
 test "choke groups round-trip through DrumSnap" {
     const testing = std.testing;
 

@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 42;
+pub const file_version: u32 = 43;
 
 /// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
 /// reasoning as `EqBandKindSnap`.
@@ -62,6 +62,11 @@ pub const AutomationPointSnap = struct {
     value: f32,
     /// Shape of the segment leaving this point.
     curve: AutomationCurveSnap = .linear,
+};
+
+pub const MixAutomationSnap = struct {
+    target: automation_mod.MixTarget,
+    points: []const AutomationPointSnap = &.{},
 };
 
 /// One synth-instrument- or FX-unit-param automation lane - see `ClipSnap.
@@ -835,4 +840,5 @@ pub const Snapshot = struct {
     controllers: []const ControllerSnap = &.{},
     /// Learned MIDI CC bindings.
     cc_bindings: []const CcBindingSnap = &.{},
+    mix_automation: []const MixAutomationSnap = &.{},
 };

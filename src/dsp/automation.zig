@@ -39,6 +39,19 @@ pub const AutomationPoint = struct {
     curve: Curve = .linear,
 };
 
+pub const MixTarget = union(enum) {
+    master_gain,
+    group_gain: u8,
+    send_level: struct { track: u16, slot: u8 },
+};
+
+pub const MixLane = struct {
+    target: MixTarget,
+    points: []AutomationPoint = &.{},
+};
+
+pub const RecordMode = enum { off, write, touch, latch };
+
 /// Interpolate across `points` (must be sorted ascending by `beat`), each
 /// segment shaped by the `curve` of the point it starts from. Holds the
 /// first/last value past either edge. `null` means "no points" - distinct

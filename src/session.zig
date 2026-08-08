@@ -105,6 +105,8 @@ pub const Session = struct {
     /// null-slot" shape `engine_mod.GroupState` mirrors on the audio-thread
     /// side. Persisted (`Snapshot.groups`, see persist.zig).
     groups: [engine_mod.max_groups]?Group = [_]?Group{null} ** engine_mod.max_groups,
+    mix_automation: std.ArrayListUnmanaged(automation_mod.MixLane) = .empty,
+    automation_record_mode: automation_mod.RecordMode = .off,
 
     /// One track-grouping submix bus: a named FX chain every member track's
     /// summed signal passes through before the master mix - same idea as
@@ -1102,6 +1104,7 @@ pub const Session = struct {
             .level = types.dbToGain(std.math.clamp(level_db, -60.0, 12.0)),
         };
         self.pushTrackSends(idx);
+        self.captureMixAutomation(.{ .send_level = .{ .track = idx, .slot = slot } }, level_db);
     }
 
     /// Clear aux-send slot `slot` on track `idx` and push the change.
@@ -1276,6 +1279,7 @@ pub const Session = struct {
         if (self.groups[idx]) |*g| {
             g.gain_db = std.math.clamp(db, -60.0, 12.0);
             _ = self.engine.send(.{ .set_group_gain = .{ .group = idx, .gain = types.dbToGain(g.gain_db) } });
+            self.captureMixAutomation(.{ .group_gain = idx }, g.gain_db);
         }
     }
 
@@ -1379,6 +1383,22 @@ pub const Session = struct {
                 slot.*.?.target.track = nt;
             } else {
                 slot.* = null;
+            }
+        }
+        var lane_index = self.mix_automation.items.len;
+        while (lane_index > 0) {
+            lane_index -= 1;
+            const lane = &self.mix_automation.items[lane_index];
+            switch (lane.target) {
+                .send_level => |send_target| {
+                    if (op.apply(send_target.track)) |track| {
+                        lane.target.send_level.track = track;
+                    } else {
+                        self.allocator.free(lane.points);
+                        _ = self.mix_automation.orderedRemove(lane_index);
+                    }
+                },
+                else => {},
             }
         }
         self.syncModulation();
@@ -1553,6 +1573,38 @@ pub const Session = struct {
             self.flattenClipAutomation(@intCast(i), lane);
             self.syncAudioRegions(@intCast(i), lane);
         }
+        self.syncMixAutomation();
+    }
+
+    pub fn setMixAutomationPoint(self: *Session, target: automation_mod.MixTarget, point: AutomationPoint) !void {
+        var lane: *automation_mod.MixLane = for (self.mix_automation.items) |*item| {
+            if (std.meta.eql(item.target, target)) break item;
+        } else blk: {
+            try self.mix_automation.append(self.allocator, .{ .target = target });
+            break :blk &self.mix_automation.items[self.mix_automation.items.len - 1];
+        };
+        try automation_mod.setPoint(self.allocator, &lane.points, point.beat, point.value);
+        _ = automation_mod.setCurve(lane.points, point.beat, point.curve);
+        self.syncMixAutomationLane(lane.*);
+    }
+
+    pub fn captureMixAutomation(self: *Session, target: automation_mod.MixTarget, value_db: f32) void {
+        if (self.automation_record_mode == .off) return;
+        const snapshot = self.engine.uiSnapshot();
+        if (!snapshot.playing) return;
+        self.setMixAutomationPoint(target, .{ .beat = self.project.beatAtFrames(snapshot.position_frames), .value = value_db }) catch return;
+    }
+
+    fn syncMixAutomation(self: *Session) void {
+        for (self.mix_automation.items) |lane| self.syncMixAutomationLane(lane);
+    }
+
+    fn syncMixAutomationLane(self: *Session, lane: automation_mod.MixLane) void {
+        var linear: std.ArrayList(AutomationPoint) = .empty;
+        defer linear.deinit(self.allocator);
+        linear.ensureTotalCapacity(self.allocator, lane.points.len) catch @panic("out of memory syncing mix automation");
+        for (lane.points) |point| linear.appendAssumeCapacity(.{ .beat = point.beat, .value = types.dbToGain(point.value), .curve = point.curve });
+        self.engine.setMixAutomation(lane.target, linear.items);
     }
 
     fn syncAudioRegions(self: *Session, track: u16, lane: *const arr_mod.Lane) void {
@@ -1683,6 +1735,8 @@ pub const Session = struct {
     pub fn deinit(self: *Session) void {
         self.master_fx.deinit(self.allocator);
         for (&self.groups) |*slot| if (slot.*) |*g| g.deinit(self.allocator);
+        for (self.mix_automation.items) |lane| self.allocator.free(lane.points);
+        self.mix_automation.deinit(self.allocator);
         self.arrangement.deinit(self.allocator);
         // zig fmt: off
         for (self.racks.items) |r| { r.deinit(self.allocator); self.allocator.destroy(r); }

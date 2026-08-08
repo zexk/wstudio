@@ -47,6 +47,7 @@ const persist_types = @import("persist_types.zig");
 const file_version = persist_types.file_version;
 const AutomationPointSnap = persist_types.AutomationPointSnap;
 const SynthParamAutomationSnap = persist_types.SynthParamAutomationSnap;
+const MixAutomationSnap = persist_types.MixAutomationSnap;
 const NoteSnap = persist_types.NoteSnap;
 const SynthSnap = persist_types.SynthSnap;
 const PadSnap = persist_types.PadSnap;
@@ -205,6 +206,8 @@ pub fn save(
     }
     const sections = try aa.alloc(SectionSnap, session.project.sections.items.len);
     for (session.project.sections.items, sections) |section, *ss| ss.* = .{ .tick = section.tick, .name = section.name };
+    const mix_automation = try aa.alloc(MixAutomationSnap, session.mix_automation.items.len);
+    for (session.mix_automation.items, mix_automation) |lane, *snap_lane| snap_lane.* = .{ .target = lane.target, .points = try automationToSnap(aa, lane.points) };
 
     const snap: Snapshot = .{
         .tempo_bpm = session.project.tempo_bpm,
@@ -228,6 +231,7 @@ pub fn save(
         .groups = groups,
         .controllers = controller_list.items,
         .cc_bindings = cc_list.items,
+        .mix_automation = mix_automation,
     };
 
     const tmp_path = try std.fmt.allocPrint(aa, "{s}.tmp", .{path});

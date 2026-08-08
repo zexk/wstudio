@@ -1,5 +1,5 @@
 {
-  "version": 42,
+  "version": 43,
   "tempo_bpm": 120,
   "tempo_points": [],
   "scale": null,
@@ -4758,5 +4758,6 @@
     }
   ],
   "controllers": [],
-  "cc_bindings": []
+  "cc_bindings": [],
+  "mix_automation": []
 }

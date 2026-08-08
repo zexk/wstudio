@@ -688,6 +688,14 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
         const lane = self.arrangement.lane(li) orelse break;
         for (ls.clips) |cs| try lane.place(allocator, try clipFromSnap(allocator, cs));
     }
+    for (snap.mix_automation) |lane| {
+        switch (lane.target) {
+            .master_gain => {},
+            .group_gain => |group| if (group >= engine_mod.max_groups) return error.MalformedProject,
+            .send_level => |send_target| if (send_target.track >= self.project.tracks.items.len or send_target.slot >= project_mod.max_sends_per_track) return error.MalformedProject,
+        }
+        try self.mix_automation.append(allocator, .{ .target = lane.target, .points = try automationFromSnap(allocator, lane.points, -60.0, 12.0) });
+    }
     self.setSongMode(snap.song_mode);
 
     // The racks above were built straight from their snapshots, not through

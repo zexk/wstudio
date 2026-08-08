@@ -4268,6 +4268,7 @@ pub const App = struct {
     pub fn apiSetMasterGainDb(self: *App, db: f32) void {
         self.master_gain_db = std.math.clamp(db, -40.0, 6.0);
         _ = self.session.engine.send(.{ .set_master_gain = types.dbToGain(self.master_gain_db) });
+        self.session.captureMixAutomation(.master_gain, self.master_gain_db);
     }
 
     /// `-`/`+` on the master row - same gesture as a track's gain step, but

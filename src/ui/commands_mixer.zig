@@ -904,3 +904,67 @@ pub fn cmdVol(app: *App, args: []const u8) void {
     const sign: []const u8 = if (app.master_gain_db >= 0) "+" else "";
     app.setStatus("master vol: {s}{d:.1}dB", .{ sign, app.master_gain_db });
 }
+
+pub fn cmdAutomationMode(app: *App, args: []const u8) void {
+    const text = std.mem.trim(u8, args, " ");
+    if (text.len == 0) {
+        app.setStatus("automation mode: {s}", .{@tagName(app.session.automation_record_mode)});
+        return;
+    }
+    app.session.automation_record_mode = std.meta.stringToEnum(ws.dsp.automation.RecordMode, text) orelse {
+        app.setStatus("automation-mode: expected off, write, touch, or latch", .{});
+        return;
+    };
+    app.setStatus("automation mode: {s}", .{text});
+}
+
+pub fn cmdAutomationPoint(app: *App, args: []const u8) void {
+    var words = std.mem.tokenizeScalar(u8, args, ' ');
+    const target_text = words.next() orelse {
+        app.setStatus("automation-point: expected target, beat, and dB", .{});
+        return;
+    };
+    const beat = parseFiniteFloat(f64, words.next() orelse "") catch {
+        app.setStatus("automation-point: beat must be non-negative", .{});
+        return;
+    };
+    const db = parseFiniteFloat(f32, words.next() orelse "") catch {
+        app.setStatus("automation-point: dB must be -60 to 12", .{});
+        return;
+    };
+    if (beat < 0 or db < -60 or db > 12) {
+        app.setStatus("automation-point: beat must be non-negative; dB must be -60 to 12", .{});
+        return;
+    }
+    const curve = if (words.next()) |name| std.meta.stringToEnum(ws.dsp.automation.Curve, name) orelse {
+        app.setStatus("automation-point: curve must be linear, hold, or ease", .{});
+        return;
+    } else .linear;
+    if (words.next() != null) {
+        app.setStatus("automation-point: too many arguments", .{});
+        return;
+    }
+    const target: ws.dsp.automation.MixTarget = parseMixTarget(app, target_text) orelse return;
+    app.session.setMixAutomationPoint(target, .{ .beat = beat, .value = db, .curve = curve }) catch {
+        app.setStatus("automation-point: out of memory", .{});
+        return;
+    };
+    app.dirty = true;
+    app.setStatus("automation point: {s} beat {d:.2}, {d:.1}dB", .{ target_text, beat, db });
+}
+
+fn parseMixTarget(app: *App, text: []const u8) ?ws.dsp.automation.MixTarget {
+    if (std.mem.eql(u8, text, "master")) return .master_gain;
+    if (std.mem.startsWith(u8, text, "group:")) {
+        const group = std.fmt.parseInt(u8, text[6..], 10) catch 0;
+        if (group > 0 and group <= engine_mod.max_groups and app.session.groups[group - 1] != null) return .{ .group_gain = group - 1 };
+    } else if (std.mem.startsWith(u8, text, "send:")) {
+        var fields = std.mem.splitScalar(u8, text[5..], ':');
+        const track = std.fmt.parseInt(u16, fields.next() orelse "", 10) catch 0;
+        const slot = std.fmt.parseInt(u8, fields.next() orelse "", 10) catch 0;
+        if (fields.next() == null and track > 0 and track <= app.session.project.tracks.items.len and slot > 0 and slot <= ws.max_sends_per_track)
+            return .{ .send_level = .{ .track = track - 1, .slot = slot - 1 } };
+    }
+    app.setStatus("automation-point: target must be master, group:n, or send:track:slot", .{});
+    return null;
+}
