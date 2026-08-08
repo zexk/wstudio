@@ -343,7 +343,7 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
     const bar = beat_index / beats_per_bar + 1;
     const beat = beat_index % beats_per_bar + 1;
     const sub = app.piano_cursor_step % spb + 1;
-    const note = pp.noteAt(app.piano_cursor_pitch, beat_pos);
+    const note = pp.noteCovering(app.piano_cursor_pitch, beat_pos);
 
     // zig fmt: off
     try writeModeBadge(w, app.modal.mode);
@@ -359,7 +359,7 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
         try w.writeAll(dim ++ "  note " ++ rst);
         try w.print("{d:.2}b", .{n.duration_beat});
         try w.writeAll(dim ++ "  " ++ rst);
-        try w.print(dim ++ "{s} " ++ rst ++ "{s}", .{ field.label(), field.format(field.get(n.*), &fbuf) });
+        try w.print(dim ++ "{s} " ++ rst ++ "{s}", .{ field.label(), field.format(field.get(n), &fbuf) });
     } else {
         try w.writeAll(dim ++ "  new " ++ rst);
         try w.print("{d:.2}b", .{app.piano_note_len});

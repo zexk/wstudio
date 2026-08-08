@@ -6009,6 +6009,12 @@ test "piano roll keyboard edits target any cell covered by a note" {
     app.piano_cursor_pitch = 60;
     app.piano_cursor_step = 2;
 
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 120, .rows = 24 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "1.00b") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "  new ") == null);
+
     app.handleKey(.{ .char = '>' }, 0);
     try std.testing.expectApproxEqAbs(@as(f32, 0.6), pp.noteAt(60, 0.0).?.velocity, 1e-6);
     try std.testing.expectEqual(@as(u16, 0), app.piano_cursor_step);
