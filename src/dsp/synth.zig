@@ -783,6 +783,13 @@ pub const PolySynth = struct {
         /// Per-sample ramps for A, B, C, sub, noise, then final output.
         mix_gain: [5]f32 = @splat(0.0),
         out_gain: f32 = 0.0,
+        /// Last rendered sample and short continuation used when this slot
+        /// is forcibly stolen. New attack starts at zero under this tail.
+        last_out_l: f32 = 0.0,
+        last_out_r: f32 = 0.0,
+        steal_tail_l: f32 = 0.0,
+        steal_tail_r: f32 = 0.0,
+        steal_fade: f32 = 0.0,
         id: u64 = 0,
     };
 
@@ -1299,7 +1306,7 @@ pub const PolySynth = struct {
     /// Also where `.key`/`.one_shot` LFOs restart: this is exactly the set
     /// of note-ons that reset the amplitude envelope, so a legato slide
     /// leaves a running growl alone while every real new note re-arms it.
-    fn triggerVoice(self: *PolySynth, note: u7, velocity: f32, art: dsp.Articulation, was_active: bool, prev_log: f32) Voice {
+    fn triggerVoice(self: *PolySynth, note: u7, velocity: f32, art: dsp.Articulation, was_active: bool, prev_log: f32, prev_out: [2]f32) Voice {
         self.next_voice_id +%= 1;
         self.retriggerLfos();
         self.mod_alternate = !self.mod_alternate;
@@ -1320,6 +1327,9 @@ pub const PolySynth = struct {
             .noise_rand_state = (@as(u32, note) *% 0x9E3779B9) | 1,
             .random           = nextNoise(&self.mod_rand_state),
             .alternate        = if (self.mod_alternate) 1.0 else -1.0,
+            .steal_tail_l     = if (was_active) prev_out[0] else 0.0,
+            .steal_tail_r     = if (was_active) prev_out[1] else 0.0,
+            .steal_fade       = if (was_active) 1.0 else 0.0,
             .id               = self.next_voice_id,
         };
         // Free-running starts keep stacked voices from phase-locking into a
@@ -1335,7 +1345,7 @@ pub const PolySynth = struct {
     fn noteOnPoly(self: *PolySynth, note: u7, velocity: f32, art: dsp.Articulation) void {
         self.newest_voice = self.allocVoice();
         const v = &self.voices[self.newest_voice];
-        v.* = self.triggerVoice(note, velocity, art, v.active, v.glide_log);
+        v.* = self.triggerVoice(note, velocity, art, v.active, v.glide_log, .{ v.last_out_l, v.last_out_r });
     }
 
     /// Activate or update the single mono/legato voice.
@@ -1346,7 +1356,7 @@ pub const PolySynth = struct {
         const was_active = v.active;
         const target_log = self.noteLog2(note);
         if (retrigger or !was_active) {
-            v.* = self.triggerVoice(note, velocity, art, was_active, v.glide_log);
+            v.* = self.triggerVoice(note, velocity, art, was_active, v.glide_log, .{ v.last_out_l, v.last_out_r });
         } else {
             // Legato: update pitch only, envelope continues - the new key's
             // own expression rides along, since that key is what sounds now.
@@ -1794,6 +1804,7 @@ pub const PolySynth = struct {
             var mix_steps: [5]f32 = undefined;
             for (&mix_steps, mix_targets, v.mix_gain) |*step, target, current| step.* = (target - current) / @as(f32, @floatFromInt(frames));
             const out_step = (gain_v - v.out_gain) / @as(f32, @floatFromInt(frames));
+            const steal_fade_step = 1.0 / @max(self.sample_rate * 0.001, 1.0);
 
             // Stereo pan gains per unison voice - constant-power, √2-compensated so
             // spread=0 gives the same per-channel amplitude as the original mono path.
@@ -1962,8 +1973,13 @@ pub const PolySynth = struct {
                 }
 
                 const sg = v.env * v.velocity * v.out_gain * amp_mod;
-                buf[i * 2]     += filt_l * sg * art_pan[0];
-                buf[i * 2 + 1] += filt_r * sg * art_pan[1];
+                const out_l = filt_l * sg * art_pan[0] + v.steal_tail_l * v.steal_fade;
+                const out_r = filt_r * sg * art_pan[1] + v.steal_tail_r * v.steal_fade;
+                buf[i * 2] += out_l;
+                buf[i * 2 + 1] += out_r;
+                v.last_out_l = out_l;
+                v.last_out_r = out_r;
+                v.steal_fade = @max(v.steal_fade - steal_fade_step, 0.0);
                 // zig fmt: on
 
                 // Amplitude envelope - hitting zero on release kills the
@@ -4672,6 +4688,25 @@ test "voice stealing prefers releases then oldest active voice" {
     synth.voices[3].stage = .sustain;
     synth.voices[5].id = 1;
     try std.testing.expectEqual(@as(u8, 5), synth.allocVoice());
+}
+
+test "stolen voice continues its last sample through a short fade" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    for (&synth.voices, 0..) |*voice, i| voice.* = .{ .active = true, .env = 0.8, .id = i + 1 };
+    synth.voices[0].last_out_l = 0.75;
+    synth.voices[0].last_out_r = -0.5;
+
+    synth.noteOn(60, 1.0);
+    const voice = &synth.voices[synth.newest_voice];
+    try std.testing.expectEqual(@as(f32, 0.75), voice.steal_tail_l);
+    try std.testing.expectEqual(@as(f32, -0.5), voice.steal_tail_r);
+
+    var buf = [_]Sample{ 0.0, 0.0 };
+    synth.processBlock(&buf);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), buf[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -0.5), buf[1], 1e-6);
+    try std.testing.expect(voice.steal_fade < 1.0);
 }
 
 test "extreme pitch modulation keeps oscillator phases normalized" {
