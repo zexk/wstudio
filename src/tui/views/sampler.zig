@@ -19,6 +19,7 @@ const grn = style.grn;
 const bcyn = style.bcyn;
 const mag = style.mag;
 const yel = style.yel;
+const sel = style.sel;
 const endLine = style.endLine;
 const hr = style.hr;
 const synthSection = style.synthSection;
@@ -76,7 +77,7 @@ pub fn drawSamplerEditor(
     try w.writeAll(icons.iconOr(kind_icon, ""));
     if (icons.font_installed) try w.writeAll(" ");
     try w.writeAll(bcyn ++ bold);
-    try w.writeAll(if (is_slice) "SLICE " else "SAMPLER ");
+    try w.writeAll(if (is_drum) "DRUM MACHINE " else if (is_slice) "SLICER " else "SAMPLER ");
     try w.writeAll(rst ++ acc);
     try w.print("\"{s}\"", .{track_name});
     try w.writeAll(rst ++ dim);
@@ -97,6 +98,14 @@ pub fn drawSamplerEditor(
     }
     try endLine(w);
     written += 1;
+
+    if (is_drum) {
+        try drawDrumBank(app, w, pad_idx);
+        written += 3;
+    } else if (is_slice) {
+        try drawSliceMap(app, w, cols);
+        written += 2;
+    }
 
     if (is_drum and pad.samples.len == 0) {
         try synthSection(w, "SAMPLE", acc);
@@ -220,6 +229,43 @@ pub fn drawSamplerEditor(
     // zig fmt: on
 
     while (written < body) : (written += 1) try endLine(w);
+}
+
+fn drawDrumBank(app: anytype, w: *std.Io.Writer, selected: u8) !void {
+    const dm = app.drumMachine();
+    const bank_start = selected / 8 * 8;
+    try synthSection(w, "PAD BANK", mag);
+    for (0..2) |row| {
+        try w.writeAll("  ");
+        for (0..4) |column| {
+            const index: u8 = bank_start + @as(u8, @intCast(row * 4 + column));
+            const active = index == selected;
+            try w.writeAll(if (active) sel else if (dm.pads[index] == null) dim else rst);
+            try w.print(" {d: >2} {s: <8} ", .{ index + 1, dm.padName(index) });
+            try w.writeAll(rst);
+        }
+        try endLine(w);
+    }
+}
+
+fn drawSliceMap(app: anytype, w: *std.Io.Writer, cols: usize) !void {
+    const sl = app.slicerInst();
+    const width = @min(cols -| 4, wave_max_w);
+    try synthSection(w, "SLICE MAP", mag);
+    try w.writeAll("  ");
+    for (0..width) |column| {
+        const norm = @as(f32, @floatFromInt(column)) / @as(f32, @floatFromInt(@max(width -| 1, 1)));
+        var slice: ?u8 = null;
+        for (0..sl.slice_count) |index| {
+            if (norm >= sl.slices[index].start_norm and norm <= sl.slices[index].end_norm) slice = @intCast(index);
+        }
+        if (slice) |index| {
+            try w.writeAll(if (index == app.slicer_cursor[0]) yel ++ bold else dim);
+            try w.writeAll(if (@abs(norm - sl.slices[index].start_norm) < 1.0 / @as(f32, @floatFromInt(width))) "\u{2503}" else "\u{2501}");
+            try w.writeAll(rst);
+        } else try w.writeByte(' ');
+    }
+    try endLine(w);
 }
 
 /// Return a const pointer to pad `idx`'s underlying Pad, or a placeholder if

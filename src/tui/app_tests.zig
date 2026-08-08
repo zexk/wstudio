@@ -3278,7 +3278,7 @@ test "enter on a sampler track opens the standalone sampler editor" {
     try std.testing.expectEqual(AppView.tracks, app.view);
 }
 
-test "draw renders drum-pad sampler editor without overflowing" {
+test "draw renders drum machine control panel without overflowing" {
     var app = try testApp();
     defer app.deinit();
 
@@ -3290,8 +3290,25 @@ test "draw renders drum-pad sampler editor without overflowing" {
     var w = std.Io.Writer.fixed(&buf);
     try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 30 });
     const frame = w.buffered();
-    try std.testing.expect(std.mem.indexOf(u8, frame, "SAMPLER") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "DRUM MACHINE") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "PAD BANK") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "attack") != null);
+}
+
+test "draw renders slicer control panel without overflowing" {
+    var app = try testApp();
+    defer app.deinit();
+
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.sampler_target = .{ .slice = 0 };
+    app.view = .sampler_editor;
+    var buf: [64 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 30 });
+    const frame = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, frame, "SLICER") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "SLICE MAP") != null);
 }
 
 test "draw renders standalone sampler editor with root row" {

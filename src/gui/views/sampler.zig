@@ -237,6 +237,8 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
     const index: u8 = if (kind == .drum) @intCast(app.core.drum_cursor[0]) else @intCast(app.core.slicer_cursor[0]);
     drawPadHeader(app, track, kind, index);
     zgui.spacing();
+    drawTargetBank(app, track, kind, index);
+    zgui.spacing();
     const pad: *ws.dsp.Pad, const sample_rate: u32 = switch (kind) {
         .drum => blk: {
             const drum = switch (app.core.session.racks.items[track].instrument) {
@@ -276,6 +278,46 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
     pane_fit.settle(below_top, 1 + @as(u64, @intFromEnum(kind)));
 }
 
+fn drawTargetBank(app: anytype, track: u16, kind: PadTargetKind, selected: u8) void {
+    const count: u8 = switch (kind) {
+        .drum => ws.dsp.DrumMachine.max_pads,
+        .slice => app.core.session.racks.items[track].instrument.slicer.slice_count,
+    };
+    const bank_start: u8 = selected / 8 * 8;
+    widgets.sectionTitle(if (kind == .drum) "PAD BANK" else "SLICE MAP", if (kind == .drum) theme.rhythm else theme.audio);
+    const available = zgui.getContentRegionAvail()[0];
+    const width = @max(72, (available - 7 * 6) / 8);
+    for (0..8) |offset| {
+        if (offset > 0) zgui.sameLine(.{ .spacing = 6 });
+        const index: u8 = bank_start + @as(u8, @intCast(offset));
+        const exists = index < count and switch (kind) {
+            .drum => app.core.session.racks.items[track].instrument.drum_machine.pads[index] != null,
+            .slice => true,
+        };
+        var label_buf: [48]u8 = undefined;
+        const label = switch (kind) {
+            .drum => if (index < count)
+                std.fmt.bufPrintZ(&label_buf, "{d:0>2} {s}##target-{d}", .{ index + 1, app.core.session.racks.items[track].instrument.drum_machine.padName(index), index }) catch continue
+            else
+                std.fmt.bufPrintZ(&label_buf, "--##target-{d}", .{index}) catch continue,
+            .slice => if (index < count)
+                std.fmt.bufPrintZ(&label_buf, "{d:0>2} {d:.0}%##target-{d}", .{ index + 1, app.core.session.racks.items[track].instrument.slicer.slices[index].start_norm * 100, index }) catch continue
+            else
+                std.fmt.bufPrintZ(&label_buf, "--##target-{d}", .{index}) catch continue,
+        };
+        const active = index == selected;
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) (if (kind == .drum) theme.rhythm else theme.audio) else theme.bg2 });
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) theme.bg0 else if (exists) theme.fg1 else theme.fg3 });
+        zgui.beginDisabled(.{ .disabled = index >= count });
+        if (zgui.button(label, .{ .w = width, .h = 34 })) switch (kind) {
+            .drum => app.core.drum_cursor[0] = index,
+            .slice => app.core.slicer_cursor[0] = index,
+        };
+        zgui.endDisabled();
+        zgui.popStyleColor(.{ .count = 2 });
+    }
+}
+
 fn drawPadEmptyState(app: anytype, title: []const u8, explanation: []const u8) void {
     widgets.sectionTitle("PLAY REGION", theme.audio);
     zgui.spacing();
@@ -291,8 +333,8 @@ fn drawPadEmptyState(app: anytype, title: []const u8, explanation: []const u8) v
 
 fn drawPadHeader(app: anytype, track: u16, kind: PadTargetKind, index: u8) void {
     switch (kind) {
-        .drum => zgui.textDisabled(icons.drum ++ "  SAMPLER", .{}),
-        .slice => zgui.textDisabled(icons.slicer ++ "  SLICE", .{}),
+        .drum => zgui.textDisabled(icons.drum ++ "  DRUM MACHINE", .{}),
+        .slice => zgui.textDisabled(icons.slicer ++ "  SLICER", .{}),
     }
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[track].name});

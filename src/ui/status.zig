@@ -403,7 +403,7 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
 
     // zig fmt: off
     try writeModeBadge(w, app.modal.mode);
-    try writeViewBadge(right, if (is_slice) "SLICE" else "SAMPLER", app.modal.mode);
+    try writeViewBadge(right, if (is_drum) "DRUM" else if (is_slice) "SLICER" else "SAMPLER", app.modal.mode);
     if (is_drum) {
         try w.writeAll(dim ++ "  pad " ++ rst);
         try w.print("{d}", .{pad_idx + 1});
