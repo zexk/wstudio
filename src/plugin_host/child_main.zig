@@ -98,6 +98,7 @@ fn writeHandshake(writer: *std.Io.Writer, failed_msg: ?[]const u8, plugin: ?Real
             @memcpy(hs.name[0..hs.name_len], name[0..hs.name_len]);
         },
         .vst3 => |p| {
+            hs.has_gui = @intFromBool(p.hasGui());
             const id = p.classId();
             hs.id_len = @intCast(@min(id.len, hs.id.len));
             @memcpy(hs.id[0..hs.id_len], id[0..hs.id_len]);
@@ -259,7 +260,15 @@ fn dispatch(shared: *Shared, req: rpc.Received, writer: *std.Io.Writer) !void {
                     var b: [1]u8 = .{@intFromBool(visible)};
                     try rpc.send(writer, req.kind, false, &b);
                 },
-                .vst3 => try rpc.send(writer, req.kind, true, &.{}), // no VST3 editor support today, matches the unbridged path
+                .vst3 => |p| {
+                    const visible = p.toggleGui() catch |err| {
+                        std.log.err("VST3 GUI: {s}, DISPLAY={s}", .{ @errorName(err), if (std.c.getenv("DISPLAY")) |display| std.mem.span(display) else "unset" });
+                        try rpc.send(writer, req.kind, true, &.{});
+                        return;
+                    };
+                    var b: [1]u8 = .{@intFromBool(visible)};
+                    try rpc.send(writer, req.kind, false, &b);
+                },
             }
         },
         .save_state => {

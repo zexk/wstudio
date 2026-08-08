@@ -329,8 +329,63 @@ fn controllerSetState(raw: *anyopaque, stream: *anyopaque) callconv(abi.abi_call
 fn controllerGetState(raw: *anyopaque, stream: *anyopaque) callconv(abi.abi_callconv) abi.Result {
     return streamWrite(stream, controllerOwner(raw).param);
 }
-fn createView(_: *anyopaque, _: [*:0]const u8) callconv(abi.abi_callconv) ?*anyopaque {
-    return null;
+fn viewQuery(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+    if (std.mem.eql(u8, iid, &abi.f_unknown_iid) or std.mem.eql(u8, iid, &abi.plug_view_iid)) {
+        object.* = raw;
+        return 0;
+    }
+    object.* = null;
+    return -1;
+}
+fn viewPlatform(_: *anyopaque, platform: [*:0]const u8) callconv(abi.abi_callconv) abi.Result {
+    return if (std.mem.eql(u8, std.mem.span(platform), "X11EmbedWindowID")) 0 else 1;
+}
+fn viewAttached(_: *anyopaque, _: *anyopaque, _: [*:0]const u8) callconv(abi.abi_callconv) abi.Result {
+    return 0;
+}
+fn viewResult(_: *anyopaque) callconv(abi.abi_callconv) abi.Result {
+    return 0;
+}
+fn viewWheel(_: *anyopaque, _: f32) callconv(abi.abi_callconv) abi.Result {
+    return 0;
+}
+fn viewKey(_: *anyopaque, _: u16, _: i16, _: i16) callconv(abi.abi_callconv) abi.Result {
+    return 0;
+}
+fn viewSize(_: *anyopaque, rect: *abi.ViewRect) callconv(abi.abi_callconv) abi.Result {
+    rect.* = .{ .left = 0, .top = 0, .right = 320, .bottom = 200 };
+    return 0;
+}
+fn viewFocus(_: *anyopaque, _: u8) callconv(abi.abi_callconv) abi.Result {
+    return 0;
+}
+fn viewFrame(_: *anyopaque, _: ?*abi.PlugFrame) callconv(abi.abi_callconv) abi.Result {
+    return 0;
+}
+fn viewConstraint(_: *anyopaque, _: *abi.ViewRect) callconv(abi.abi_callconv) abi.Result {
+    return 0;
+}
+var test_view = abi.PlugView{ .vtable = &view_vtable };
+var view_vtable: abi.PlugViewVTable = .{
+    .query_interface = viewQuery,
+    .add_ref = addRef,
+    .release = release,
+    .is_platform_type_supported = viewPlatform,
+    .attached = viewAttached,
+    .removed = viewResult,
+    .on_wheel = viewWheel,
+    .on_key_down = viewKey,
+    .on_key_up = viewKey,
+    .get_size = viewSize,
+    .on_size = viewConstraint,
+    .on_focus = viewFocus,
+    .set_frame = viewFrame,
+    .can_resize = viewResult,
+    .check_size_constraint = viewConstraint,
+};
+fn createView(_: *anyopaque, name: [*:0]const u8) callconv(abi.abi_callconv) ?*anyopaque {
+    if (!std.mem.eql(u8, std.mem.span(name), "editor")) return null;
+    return &test_view;
 }
 var controller_vtable: abi.EditControllerVTable = .{
     .query_interface = controllerQuery,

@@ -9,6 +9,7 @@ const types = @import("../core/types.zig");
 const Transport = @import("../transport.zig").Transport;
 const bridge_mod = @import("../plugin_host/bridge.zig");
 const wire = @import("../plugin_host/transport.zig");
+const editor_mod = @import("editor.zig");
 
 const max_events = 256;
 const max_param_changes = 64;
@@ -725,6 +726,23 @@ pub const Vst3Plugin = struct {
         return self.latencySamples();
     }
 
+    pub fn hasGui(self: *const Vst3Plugin) bool {
+        return switch (self.impl) {
+            .direct => |*d| d.hasGui(),
+            .bridged => |b| b.has_gui,
+        };
+    }
+
+    pub fn toggleGui(self: *Vst3Plugin) !bool {
+        return switch (self.impl) {
+            .direct => |*d| d.toggleGui(),
+            .bridged => |b| {
+                const response = try b.call(.toggle_gui, &.{});
+                return response.len == 1 and response[0] != 0;
+            },
+        };
+    }
+
     /// Bridged mode forwards this as a synchronous RPC to the child (see
     /// `ClapPlugin.serviceMainThread` in src/clap/plugin.zig for why it
     /// must be synchronous, not a passive background-published flag).
@@ -813,8 +831,10 @@ const Direct = struct {
     parameter_names: [max_parameters][64]u8 = undefined,
     automatable_params: [max_parameters]device_mod.AutomatableParam = undefined,
     automatable_count: usize = 0,
+    editor: ?editor_mod.Editor = null,
 
     fn deinit(self: *Direct) void {
+        if (self.editor) |*editor| editor.close();
         _ = self.processor.vtable.set_processing(self.processor, 0);
         _ = self.component.vtable.set_active(self.component, 0);
         _ = self.processor.vtable.release(self.processor);
@@ -1040,7 +1060,28 @@ const Direct = struct {
         return self.processor.vtable.get_latency_samples(self.processor);
     }
 
+    fn hasGui(self: *const Direct) bool {
+        if (!editor_mod.supported) return false;
+        const controller = self.controller orelse return false;
+        const raw = controller.vtable.create_view(controller, "editor") orelse return false;
+        const view: *abi.PlugView = @ptrCast(@alignCast(raw));
+        defer _ = view.vtable.release(view);
+        return view.vtable.is_platform_type_supported(view, editor_mod.platform_type) == 0;
+    }
+
+    fn toggleGui(self: *Direct) !bool {
+        if (self.editor) |*editor| {
+            editor.close();
+            self.editor = null;
+            return false;
+        }
+        const controller = self.controller orelse return error.GuiUnavailable;
+        self.editor = try editor_mod.Editor.open(controller, "wstudio VST3");
+        return true;
+    }
+
     fn serviceMainThread(self: *Direct) bool {
+        if (self.editor) |*editor| editor.service();
         if (self.restart_ready.swap(false, .acquire)) {
             _ = self.component.vtable.set_active(self.component, 0);
             var setup: abi.ProcessSetup = .{ .process_mode = 0, .symbolic_sample_size = 0, .max_samples_per_block = types.max_block_frames, .sample_rate = @floatFromInt(self.sample_rate) };

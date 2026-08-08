@@ -188,6 +188,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "clap-fx",     .desc = "<plugin-id> <path>  append a CLAP effect to the cursor track", .run = wrap(cmdClapFx) },
     .{ .name = "clap-param",  .desc = "<1-based-index> [value]  inspect or set a CLAP instrument parameter", .run = wrap(cmdClapParam) },
     .{ .name = "clap-gui",    .desc = "toggle the current CLAP instrument or focused effect's native GUI", .run = wrap(cmdClapGui) },
+    .{ .name = "vst3-gui",    .desc = "toggle the current VST3 instrument or focused effect's native GUI", .run = wrap(cmdVst3Gui) },
     .{ .name = "sf-preset",   .desc = "<bank> <program>  jump to a SoundFont preset by its MIDI bank/program number", .run = wrap(cmdSfPreset), .scope = .{ .soundfont = true } },
     .{ .name = "library",     .desc = "<grand|upright|harpsichord>  load a bundled VCSL acoustic instrument", .run = wrap(cmdLibrary), .scope = .{ .acoustic = true } },
     .{ .name = "slice",       .desc = "<n>  equal-divide the slicer's loaded clip into n slices (1-64)", .run = wrap(cmdSlice), .scope = .{ .slicer = true } },
@@ -447,6 +448,32 @@ fn cmdClapGui(app: *App, _: []const u8) void {
         return;
     };
     app.setStatus("CLAP GUI {s}: {s}", .{ if (visible) "opened" else "hidden", plugin.name() });
+}
+
+fn cmdVst3Gui(app: *App, _: []const u8) void {
+    const plugin = blk: {
+        if (app.view == .track_spectrum or app.view == .master_spectrum or app.view == .group_spectrum) {
+            const fx = spectrum_ed.fxPtr(app, spectrum_ed.currentTarget(app)) orelse break :blk null;
+            const unit = spectrum_ed.focusedUnit(app, fx) orelse break :blk null;
+            break :blk switch (unit.payload) {
+                .vst3 => |plugin| plugin,
+                else => null,
+            };
+        }
+        const track = app.cursorTrack() orelse break :blk null;
+        break :blk switch (app.session.racks.items[track].instrument) {
+            .vst3 => |plugin| plugin,
+            else => null,
+        };
+    } orelse {
+        app.setStatus("current instrument or focused effect is not VST3", .{});
+        return;
+    };
+    const visible = plugin.toggleGui() catch |err| {
+        app.setStatus("VST3 GUI: {s}", .{@errorName(err)});
+        return;
+    };
+    app.setStatus("VST3 GUI {s}", .{if (visible) "opened" else "closed"});
 }
 
 /// `:e <file>` swaps in a different project (refusing on unsaved changes,

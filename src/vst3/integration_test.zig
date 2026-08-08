@@ -1,7 +1,8 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const ws = @import("wstudio");
 
-fn runScenario(gpa: std.mem.Allocator, io: std.Io, module_path: []const u8, bundle_path: []const u8) !void {
+fn runScenario(gpa: std.mem.Allocator, io: std.Io, module_path: []const u8, bundle_path: []const u8, has_display: bool) !void {
     var registry = ws.vst3.scan.Registry.init(gpa);
     defer registry.deinit();
     try registry.scanModule(module_path, bundle_path);
@@ -35,6 +36,11 @@ fn runScenario(gpa: std.mem.Allocator, io: std.Io, module_path: []const u8, bund
 
     var effect = try ws.vst3.Vst3Plugin.loadModule(gpa, module_path, bundle_path, "57535445464645435400000000000001", 48_000, false);
     defer effect.deinit();
+    try std.testing.expect(effect.hasGui());
+    if (builtin.os.tag == .linux and has_display) {
+        try std.testing.expect(try effect.toggleGui());
+        try std.testing.expect(!try effect.toggleGui());
+    }
     try std.testing.expectEqual(@as(usize, 1), effect.parameterCount());
     try std.testing.expectEqual(@as(u32, 100), effect.parameterInfo(0).?.id);
     effect.setParameter(100, 0.5);
@@ -101,8 +107,9 @@ pub fn main(init: std.process.Init) !void {
     const bundle_path = args.next() orelse return error.MissingBundlePath;
 
     ws.plugin_host.bridge.sandbox_enabled.store(false, .release);
-    try runScenario(init.gpa, init.io, module_path, bundle_path);
+    const has_display = std.process.Environ.containsUnemptyConstant(init.minimal.environ, "DISPLAY");
+    try runScenario(init.gpa, init.io, module_path, bundle_path, has_display);
 
     ws.plugin_host.bridge.sandbox_enabled.store(true, .release);
-    try runScenario(init.gpa, init.io, module_path, bundle_path);
+    try runScenario(init.gpa, init.io, module_path, bundle_path, has_display);
 }

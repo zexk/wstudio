@@ -145,8 +145,12 @@ pub const Bridge = struct {
             if (options.instrument) "1" else "0",
             shm_fd_str,
         };
+        const environ: std.process.Environ = .{ .block = .{ .slice = std.mem.span(std.c.environ) } };
+        var environ_map = try std.process.Environ.createMap(environ, allocator);
+        defer environ_map.deinit();
         var child = try std.process.spawn(io, .{
             .argv = &argv,
+            .environ_map = &environ_map,
             .stdin = .pipe,
             .stdout = .pipe,
             .stderr = .inherit,

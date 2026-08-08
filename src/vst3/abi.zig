@@ -176,6 +176,56 @@ pub const EditControllerVTable = extern struct {
     create_view: *const fn (*anyopaque, [*:0]const u8) callconv(abi_callconv) ?*anyopaque,
 };
 pub const EditController = extern struct { vtable: *const EditControllerVTable };
+pub const ViewRect = extern struct { left: i32, top: i32, right: i32, bottom: i32 };
+pub const PlugFrameVTable = extern struct {
+    query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
+    add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    release: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    resize_view: *const fn (*anyopaque, *PlugView, *ViewRect) callconv(abi_callconv) Result,
+};
+pub const PlugFrame = extern struct { vtable: *const PlugFrameVTable };
+pub const PlugViewVTable = extern struct {
+    query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
+    add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    release: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    is_platform_type_supported: *const fn (*anyopaque, [*:0]const u8) callconv(abi_callconv) Result,
+    attached: *const fn (*anyopaque, *anyopaque, [*:0]const u8) callconv(abi_callconv) Result,
+    removed: *const fn (*anyopaque) callconv(abi_callconv) Result,
+    on_wheel: *const fn (*anyopaque, f32) callconv(abi_callconv) Result,
+    on_key_down: *const fn (*anyopaque, u16, i16, i16) callconv(abi_callconv) Result,
+    on_key_up: *const fn (*anyopaque, u16, i16, i16) callconv(abi_callconv) Result,
+    get_size: *const fn (*anyopaque, *ViewRect) callconv(abi_callconv) Result,
+    on_size: *const fn (*anyopaque, *ViewRect) callconv(abi_callconv) Result,
+    on_focus: *const fn (*anyopaque, u8) callconv(abi_callconv) Result,
+    set_frame: *const fn (*anyopaque, ?*PlugFrame) callconv(abi_callconv) Result,
+    can_resize: *const fn (*anyopaque) callconv(abi_callconv) Result,
+    check_size_constraint: *const fn (*anyopaque, *ViewRect) callconv(abi_callconv) Result,
+};
+pub const PlugView = extern struct { vtable: *const PlugViewVTable };
+pub const EventHandlerVTable = extern struct {
+    query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
+    add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    release: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    on_fd_is_set: *const fn (*anyopaque, c_int) callconv(abi_callconv) void,
+};
+pub const EventHandler = extern struct { vtable: *const EventHandlerVTable };
+pub const TimerHandlerVTable = extern struct {
+    query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
+    add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    release: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    on_timer: *const fn (*anyopaque) callconv(abi_callconv) void,
+};
+pub const TimerHandler = extern struct { vtable: *const TimerHandlerVTable };
+pub const RunLoopVTable = extern struct {
+    query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
+    add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    release: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    register_event_handler: *const fn (*anyopaque, *EventHandler, c_int) callconv(abi_callconv) Result,
+    unregister_event_handler: *const fn (*anyopaque, *EventHandler) callconv(abi_callconv) Result,
+    register_timer: *const fn (*anyopaque, *TimerHandler, u64) callconv(abi_callconv) Result,
+    unregister_timer: *const fn (*anyopaque, *TimerHandler) callconv(abi_callconv) Result,
+};
+pub const RunLoop = extern struct { vtable: *const RunLoopVTable };
 pub const MidiMappingVTable = extern struct {
     query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
     add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
@@ -292,6 +342,9 @@ pub const edit_controller_iid = uid(0xDCD7BBE3, 0x7742448D, 0xA874AACC, 0x979C75
 pub const midi_mapping_iid = uid(0xDF0FF9F7, 0x49B74669, 0xB63AB732, 0x7ADBF5E5);
 pub const connection_point_iid = uid(0x70A4156F, 0x6E6E4026, 0x989148BF, 0xAA60D8D1);
 pub const component_handler_iid = uid(0x93A0BEA3, 0x0BD045DB, 0x8E890B0C, 0xC1E46AC6);
+pub const plug_view_iid = uid(0x5BC32507, 0xD06049EA, 0xA6151B52, 0x2B755B29);
+pub const plug_frame_iid = uid(0x367FAF01, 0xAFA94693, 0x8D4DA2A0, 0xED0882A3);
+pub const run_loop_iid = uid(0x18C35366, 0x97764F1A, 0x9C5B8385, 0x7A871389);
 
 pub fn formatUid(value: Tuid) [32]u8 {
     var canonical = value;
