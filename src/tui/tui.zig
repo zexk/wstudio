@@ -299,9 +299,8 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
     tui_theme.apply(&term, user_config.tui_theme, &runtime.highlight_overrides);
     // zig fmt: on
 
-    var app = try App.initWithSampleRate(allocator, io, user_config.default_sample_rate);
+    var app = try App.initConfigured(allocator, io, init_path, user_config);
     defer app.deinit();
-    app.applyUserConfig(user_config, init_path == null);
     app.scanExternalPlugins(environ);
     const nerdfont_detected = icons.detectFontInstalled(io);
     icons.font_installed = user_config.has_nerdfonts or nerdfont_detected;
@@ -315,23 +314,6 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
 
     // Load project file before backends start - the backend captures the engine
     // pointer at init, so the swap must happen here.
-    if (init_path) |p| {
-        if (ws.persist.load(allocator, io, p)) |loaded| {
-            app.session.deinit();
-            app.session = loaded;
-            app.setProjectPath(p);
-            app.promptIfBackupNewer(p);
-        } else |e| {
-            std.debug.print("wstudio: cannot load '{s}': {s}\n", .{ p, @errorName(e) });
-            return e;
-        }
-    } else {
-        // No project argument: a crashed pathless session's autosave lands
-        // next to `:w`'s default target (see backupPath's fallback), so the
-        // blank start checks the same spot the pathed start does.
-        app.promptIfBackupNewer(app.defaultProjectPath());
-    }
-
     // The app is fully initialized: route `wstudio.notify`/`wstudio.cmd`
     // into it and flush command lines queued while init.lua ran. The
     // command table must include Lua user commands before the flush, since

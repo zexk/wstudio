@@ -1008,6 +1008,24 @@ pub const App = struct {
         return initWithSampleRate(allocator, io, ws.types.default_sample_rate);
     }
 
+    pub fn initConfigured(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, user_config: config_mod.Config) !App {
+        var app = try initWithSampleRate(allocator, io, user_config.default_sample_rate);
+        errdefer app.deinit();
+
+        if (init_path) |path| {
+            const loaded = ws.persist.load(allocator, io, path) catch |err| {
+                std.debug.print("wstudio: cannot load '{s}': {s}\n", .{ path, @errorName(err) });
+                return err;
+            };
+            app.session.deinit();
+            app.session = loaded;
+            app.setProjectPath(path);
+        }
+        app.applyUserConfig(user_config, init_path == null);
+        app.promptIfBackupNewer(if (init_path) |path| path else app.defaultProjectPath());
+        return app;
+    }
+
     pub fn initWithSampleRate(allocator: std.mem.Allocator, io: std.Io, sample_rate: u32) !App {
         var app: App = .{
             .allocator = allocator,

@@ -50,33 +50,7 @@ pub const App = struct {
     last_workspace_view: tui_app.AppView = .tracks,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, user_config: config_mod.Config) !App {
-        var core = try tui_app.App.initWithSampleRate(allocator, io, user_config.default_sample_rate);
-        errdefer core.deinit();
-        // Startup project failures are fatal so scripts and desktop launchers
-        // receive a nonzero exit instead of an unrelated blank session.
-        var loaded_path = false;
-        if (init_path) |path| {
-            if (ws.persist.load(allocator, io, path)) |session| {
-                core.session.deinit();
-                core.session = session;
-                core.setProjectPath(path);
-                loaded_path = true;
-            } else |err| {
-                std.debug.print("wstudio: cannot load '{s}': {s}\n", .{ path, @errorName(err) });
-                return err;
-            }
-        }
-        core.applyUserConfig(user_config, !loaded_path);
-        // A crashed session leaves a `<path>~` autosave; without this the GUI
-        // silently ignored it and the next save overwrote the recovery file.
-        // Pathless starts check `:w`'s default target, where a pathless
-        // autosave lands - same two cases the TUI covers.
-        if (loaded_path) {
-            core.promptIfBackupNewer(core.projectPath().?);
-        } else {
-            core.promptIfBackupNewer(core.defaultProjectPath());
-        }
-        return .{ .core = core };
+        return .{ .core = try tui_app.App.initConfigured(allocator, io, init_path, user_config) };
     }
 
     pub fn deinit(self: *App) void {
