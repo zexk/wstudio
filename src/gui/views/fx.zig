@@ -443,12 +443,9 @@ fn meterRows(unit: *ws.FxUnit, rows: *[3]MeterRow, text: *[3][20]u8) []const Met
             return rows[0..1];
         },
         .auto_pan => |*pan| {
-            const depth = std.math.clamp(pan.depth, 0, 1);
-            const is_pan = pan.phase >= 0.5;
-            const left = 1.0 - depth * (pan.lfo.sine(0) + 1.0) * 0.5;
-            const right = 1.0 - depth * (pan.lfo.sine(if (is_pan) 0.5 else 0) + 1.0) * 0.5;
-            rows[0] = .{ .label = "LEFT", .value = left, .text = fmtPercent(&text[0], left) };
-            rows[1] = .{ .label = "RIGHT", .value = right, .text = fmtPercent(&text[1], right) };
+            const gains = pan.gains();
+            rows[0] = .{ .label = "LEFT", .value = gains[0], .text = fmtPercent(&text[0], gains[0]) };
+            rows[1] = .{ .label = "RIGHT", .value = gains[1], .text = fmtPercent(&text[1], gains[1]) };
             return rows[0..2];
         },
         .tape => |*tape| {

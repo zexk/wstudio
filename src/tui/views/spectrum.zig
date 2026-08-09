@@ -554,10 +554,8 @@ pub fn drawFxView(
                 body_lines += 1;
             },
             .auto_pan => |*pan| {
-                const depth = std.math.clamp(pan.depth, 0, 1);
-                const left = 1.0 - depth * (pan.lfo.sine(0) + 1.0) * 0.5;
-                const right = 1.0 - depth * (pan.lfo.sine(if (pan.phase >= 0.5) 0.5 else 0) + 1.0) * 0.5;
-                try w.print(dim ++ "   live gain       L {d:.0}%  R {d:.0}%" ++ rst, .{ left * 100, right * 100 });
+                const gains = pan.gains();
+                try w.print(dim ++ "   live gain       L {d:.0}%  R {d:.0}%" ++ rst, .{ gains[0] * 100, gains[1] * 100 });
                 try endLine(w);
                 body_lines += 1;
             },

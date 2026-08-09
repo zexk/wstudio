@@ -27,11 +27,20 @@ pub const AutoPan = struct {
         self.transport = transport;
     }
 
+    pub fn gains(self: AutoPan) [2]f32 {
+        const depth = dsp.sanitizeParam(self.depth, 0, 1, 1);
+        const right_offset: f32 = if (dsp.sanitizeParam(self.phase, 0, 1, 1) >= 0.5) 0.5 else 0;
+        var lfo = self.lfo;
+        lfo.sanitize();
+        return .{
+            1.0 - depth * (lfo.sine(0) + 1.0) * 0.5,
+            1.0 - depth * (lfo.sine(right_offset) + 1.0) * 0.5,
+        };
+    }
+
     pub fn processBlock(self: *AutoPan, buf: []types.Sample) void {
         const rate_hz = dsp.sanitizeParam(self.rate_hz, 0.05, 20, 1);
         const beats = dsp.sanitizeParam(self.beats, 0.25, 16, 1);
-        const depth = dsp.sanitizeParam(self.depth, 0, 1, 1);
-        const pan = dsp.sanitizeParam(self.phase, 0, 1, 1) >= 0.5;
         const synced = dsp.sanitizeParam(self.sync, 0, 1, 1) >= 0.5;
         const rate = if (synced and self.transport != null)
             @as(f32, @floatCast(1.0 / (self.transport.?.framesPerBeat() * beats)))
@@ -41,12 +50,11 @@ pub const AutoPan = struct {
 
         var i: usize = 0;
         while (i + 1 < buf.len) : (i += 2) {
-            const left_lfo = (self.lfo.sine(0) + 1) * 0.5;
-            const right_lfo = (self.lfo.sine(if (pan) 0.5 else 0) + 1) * 0.5;
+            const gains_now = self.gains();
             const left = dsp.sanitizeParam(buf[i], -16, 16, 0);
             const right = dsp.sanitizeParam(buf[i + 1], -16, 16, 0);
-            buf[i] = left * (1 - depth * left_lfo);
-            buf[i + 1] = right * (1 - depth * right_lfo);
+            buf[i] = left * gains_now[0];
+            buf[i + 1] = right * gains_now[1];
             self.lfo.tick(rate);
         }
     }
