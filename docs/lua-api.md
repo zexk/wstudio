@@ -322,7 +322,7 @@ wstudio.keymap.del("n", "gp")
 
 - `mode`: `"n"`, `"i"`, `"v"` (or a list), matching `input/modal.zig`'s
   `Mode` enum. Command and search modes are not mappable.
-- `lhs`: a key chord in Neovim notation (`"g"`, `"<c-p>"`, `"<f5>"`). A
+- `lhs`: a key chord in Neovim notation (`"g"`, `"<c-p>"`, `"<left>"`). A
   small parser maps notation to `modal.Key`; multi-key sequences reuse the
   pending-key mechanism the `g`/`d`/`y` prefixes already use.
 - `rhs`: a Lua function, or a string starting with `:` dispatched through

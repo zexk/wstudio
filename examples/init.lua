@@ -342,7 +342,8 @@
 --            <lt>                    a literal <
 --            <up> <down> <left> <right>
 --            <home> <end>
---            <c-r> <c-w>             the only ctrl keys the terminal decodes
+--            <c-a> <c-e> <c-u> <c-k> readline navigation/deletion
+--            <c-p> <c-n> <c-r> <c-w> history, redo, and word deletion
 --   rhs    A Lua function (called with no arguments), or a string starting
 --          with ":" dispatched exactly like typing that command line.
 --   opts   view = "..." restricts the map to one view (see the list below;

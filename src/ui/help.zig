@@ -93,28 +93,37 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
         t.push(acc ++ "  :{s: <14}" ++ rst ++ dim ++ "{s}", .{ c.name, c.desc });
     }
 
-    t.section("ALL VIEWS");
+    t.section("WORKSPACE BASICS");
     // zig fmt: off
-    t.key("1–9",          "count prefix repeats a motion (3l, 12h, 2j …)");
-    t.key("[ / ]",        "master volume down / up  (except piano roll)");
+    t.key("1–9",          "count prefix repeats motions in grid and parameter editors (3l, 12h, 2j …)");
+    t.key("[ / ]",        "master volume down / up where the active view does not claim this pair");
     t.key("space",        "play / pause");
-    t.key("gg / home",    "seek playhead to start (gg also moves the cursor in piano roll/drum grid/arrangement)");
-    t.key("G / end",      "seek playhead to end of content (G also moves the cursor in piano roll/drum grid)");
-    t.key("i",            "enter INSERT mode (play notes)");
+    t.key("home",         "seek playhead to start (grid and parameter editors use gg for cursor start)");
+    t.key("G / end",      "seek playhead to end of content (visual G and gG move the active view's cursor)");
+    t.key("i",            "enter INSERT mode in tracks and pattern editors (play notes)");
     t.key("esc",          "back / return to NORMAL mode");
     t.key(":",            "open command prompt");
     t.key("(in :) up/down","recall previous / next command");
     t.key("(in :) ^P/^N", "recall previous / next command (readline style)");
     t.key("(in :) tab",   "complete the command name");
+    t.key("(in :/) ←/→",  "move cursor; home/end or ^A/^E jumps to start/end");
+    t.key("(in :/) bs/^W", "delete previous character / word; ^U/^K deletes before / after cursor");
     t.key(":recent",      "open one of the 10 most recently loaded or saved projects");
-    t.key("(in :/) ^A/^E", "move to start / end; ^U/^K deletes before / after the cursor");
     t.key("/",            "search prompt - fuzzy over track names / arrangement lanes / browser filenames / synth params, plain-text in this help");
     t.key("n / N",        "repeat last search forward / backward (tracks, arrangement, file browser, synth editor, help)");
     t.key("`",            "jump to the alternate view - the last place you edited (press again to bounce back)");
     t.key("q{a-z} .. q",  "record a macro into register a-z; q (normal mode) stops it");
     t.key("[count]@{a-z}","replay a macro count times; @@ repeats the last replay");
     t.key("",             "  macros capture everything - motions, edits, : commands, insert-mode notes");
+    t.key("u / U / ^R",   "undo / redo content edits in every workspace editor");
+    t.key("? / :help",    "open this context-sensitive reference");
     t.key("ctrl-c",       "quit");
+
+    t.section("PICKERS  (instrument, effect, automation parameter, preset)");
+    t.key("j / k",        "move highlight; g / G jumps to first / last item");
+    t.key("enter / space", "apply highlighted item; esc / q cancels");
+    t.key("/",            "filter items by name");
+    t.key("J / K",        "preset picker only: move 10 items; [ / ] jumps between sections");
 
     t.section("MOUSE  (additive - every gesture below has a keyboard equivalent)");
     t.key("click",        "select / activate - same as enter (tracks, drum steps, piano notes, list rows)");
@@ -145,7 +154,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.group("ORGANIZE AND MIX");
     t.key("[ / ]",        "cycle selected track's color (16 colors + none)");
     t.key("R",            "rename selected track (opens :rename <n>) - group row: renames the group instead");
-    t.key("v",            "visual mode: select a row range - g groups it; m/S/Y/dd/-+/<>/[] bulk-mute/solo/dup/delete/gain/pan/color it");
+    t.key("v / V",        "visual row range: counts, 0/G endpoints, o swaps ends; g groups, m/S/Y/dd/-+/<>/[] bulk-edit");
     t.key("z",            "fold / unfold the group under the cursor - its member rows hide behind the group's row");
     t.key(":group-fx <n>", "open group n's FX chain - same shared chain view as a track/master");
     t.key(":track-group",  "<track> <group|none>  assign or clear a track's group by number");
@@ -163,7 +172,6 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("t",            "tap tempo (tap a few times to set bpm)");
     t.key("c",            "toggle the click track (also :metronome [on|off])");
     t.key("l",            "MASTER row only: reset the integrated LUFS measurement");
-    t.key("u / U / ^R",   "undo / redo content edits (notes, drums, clips)");
     t.key("/",            "fuzzy-search track names, n / N repeat forward / backward");
     t.key("? / :help",    "this help");
 
@@ -261,7 +269,6 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("v / V",        "visual: a (slice, step) block, j/k grow it / visual line: every slice - y/d/p");
     t.key("p",            "paste the yanked range at the cursor step");
     t.key(".",            "repeat last range delete/paste at the cursor");
-    t.key("u / U / ^R",   "undo / redo (chops, steps, velocities alike)");
     t.key("a",            "preview current slice");
     t.key("i",            "insert mode: trigger slices on the qwerty piano (pitch wraps to slice count)");
     t.key("+ / -",        "lengthen / shorten loop (1-64 steps)");
@@ -320,6 +327,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("h / l",        "adjust value (fine)");
     t.key("H / L",        "adjust value (coarse ×10)");
     t.key("m",            "modulate the param under the cursor - points the first free MATRIX row at it and jumps there");
+    t.key("w / b",        "move between fields inside a mod-matrix row (source / destination / depth)");
     t.key("p",            "open piano roll for this track");
     t.key("s",            "FX chain for this track");
     t.key("f",            "preset picker - factory + saved patches, / filters by name/tag/author, d deletes a save");
@@ -429,17 +437,17 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("w / b",        "jump to the next / previous beat start");
     t.key("d / y",        "operator: add a motion (h/l/H/L/0/w/b/g/G, counts work: d3l) to clear / yank that range");
     t.key("dd / yy",      "clear / yank the whole curve");
-    t.key("v",            "visual mode: select a step range on the current curve - y/d/p");
+    t.key("v / V",        "visual mode: select a step range on the current curve - y/d/p (both keys are equivalent)");
     t.key(".",            "repeat the last nudge or visual range delete/paste");
     t.key("tab",          "cycle gain -> pan -> instrument params already on this clip -> gain");
     t.key("p",            "pick an instrument param to automate (synth ~30, sampler 9 continuous params)");
     t.key("P",            "paste the latest range yank at the cursor (p is taken by the param picker above)");
-    t.key("u / U / ^R",   "undo / redo (whole-lane, same as the arrangement's)");
     t.key("esc",          "back to the arrangement");
 
     t.taggedSection(.spectrum, "FX CHAIN  (same chain view for a track, the master bus, or a group)");
     t.key("",             "chains start empty; build them unit by unit, in any order, duplicates allowed");
     t.key("a",            "insert an effect after the focused slot (opens the FX picker); / filters it by name, g/G jumps first/last");
+    t.key("A",            "add an automation lane for the selected effect parameter");
     t.key("x",            "remove the focused unit");
     t.key("< / >",        "move the focused unit one slot left / right along the chain");
     t.key("b",            "bypass toggle: the unit keeps its settings but the audio skips it");
@@ -475,7 +483,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
 
     t.taggedSection(.file_browser, "FILE BROWSER  (netrw-style; opens on :edit or :load with no path)");
     t.key("j / k",        "move cursor");
-    t.key("enter / l",    "open directory / pick file");
+    t.key("enter/l/space", "open directory / pick file");
     t.key("h / backspace","up to the parent directory");
     t.key("g / G",        "jump to first / last entry");
     t.key("~",            "jump to $HOME");

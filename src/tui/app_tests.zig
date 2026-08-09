@@ -4297,6 +4297,25 @@ test "tracks visual mode: esc cancels; master row can't enter it" {
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "n/a") != null);
 }
 
+test "tracks visual mode supports counts, endpoints, and anchor swap" {
+    var app = try testApp();
+    defer app.deinit();
+    app.cursor = 0;
+
+    app.handleKey(.{ .char = 'V' }, 0);
+    for ("2j") |c| app.handleKey(.{ .char = c }, 0);
+    try std.testing.expectEqual(@as(usize, 2), app.track_row);
+    try std.testing.expectEqual(@as(?usize, 0), app.tracks_visual_anchor);
+
+    app.handleKey(.{ .char = 'o' }, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.track_row);
+    try std.testing.expectEqual(@as(?usize, 2), app.tracks_visual_anchor);
+    app.handleKey(.{ .char = 'G' }, 0);
+    try std.testing.expectEqual(app.track_rows_len - 1, app.track_row);
+    app.handleKey(.{ .char = '0' }, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.track_row);
+}
+
 test ":group-add/:rename/:group-del/:track-group/:group-fx" {
     var app = try testApp();
     defer app.deinit();
@@ -8778,6 +8797,22 @@ test "Lua keymaps intercept keys, chord, and fall through" {
     app.handleKey(.{ .char = 'j' }, 0);
     try rt.loadString("assert(qhit == 1 and qphit == 1)");
     try std.testing.expectEqual(@as(usize, 2), app.track_row);
+}
+
+test "Lua keymaps cannot shadow command prompt" {
+    var app = try testApp();
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("wstudio.keymap.set('n', ':', function() hit = true end);" ++
+        "wstudio.keymap.set('n', 'Q:', function() chord_hit = true end)");
+    app.lua_runtime = &rt;
+
+    app.handleKey(.{ .char = 'Q' }, 0);
+    app.handleKey(.{ .char = ':' }, 0);
+    try std.testing.expectEqual(ws.input.Mode.command, app.modal.mode);
+    try std.testing.expectEqual(@as(u8, 0), app.keymap_pending_len);
+    try rt.loadString("assert(hit == nil and chord_hit == nil)");
 }
 
 test "Lua autocmds fire from core emission points" {

@@ -1191,7 +1191,9 @@ pub const App = struct {
         // would break pending keymap chords) bypass user keymaps entirely;
         // so do the `:`/`/` prompts (not mappable modes, enforced inside
         // the intercept), keeping :help always reachable.
-        if (key_in != .ctrl_c and key_in != .mouse and key_in != .enter_release) {
+        const command_key = key_in == .char and key_in.char == ':';
+        if (command_key) self.keymap_pending_len = 0;
+        if (!command_key and key_in != .ctrl_c and key_in != .mouse and key_in != .enter_release) {
             if (self.userKeymapIntercept(key_in, now_ns)) return;
         }
         self.handleKeyBuiltin(key_in, now_ns);
@@ -1996,7 +1998,7 @@ pub const App = struct {
                             'v', 'V' => {
                                 self.tracks_visual_anchor = self.track_row;
                                 self.modal.mode = .visual;
-                                self.setStatus("visual: j/k extend, g group, m mute, S solo, Y dup, dd del, -+ gain, <> pan, [] color, esc cancel", .{});
+                                self.setStatus("visual: j/k extend, 0/G ends, o swap, g group, m/S/Y/dd/-+/<>/[] edit, esc cancel", .{});
                                 return;
                             },
                             'Y', 'J', 'K', 'p', 'I', 'r', 'f', '<', '>', '[', ']' => {
@@ -2034,7 +2036,7 @@ pub const App = struct {
                             'v', 'V' => {
                                 self.tracks_visual_anchor = self.track_row;
                                 self.modal.mode = .visual;
-                                self.setStatus("visual: j/k extend, g group, m mute, S solo, Y dup, dd del, -+ gain, <> pan, [] color, esc cancel", .{});
+                                self.setStatus("visual: j/k extend, 0/G ends, o swap, g group, m/S/Y/dd/-+/<>/[] edit, esc cancel", .{});
                                 return;
                             },
                             'c' => { self.toggleMetronome(); return; },
@@ -2403,8 +2405,17 @@ pub const App = struct {
         switch (key) {
             .escape => { self.exitTracksVisual(); self.setStatus("selection cancelled", .{}); },
             .char => |c| switch (c) {
-                'j' => if (self.track_row + 1 < self.track_rows_len) self.setTrackRow(self.track_row + 1),
-                'k' => if (self.track_row > 0) self.setTrackRow(self.track_row - 1),
+                '1'...'9' => { _ = self.modal.handle(key); },
+                '0' => if (self.modal.count > 0) {
+                    _ = self.modal.handle(key);
+                } else self.setTrackRow(0),
+                'j' => self.setTrackRow(@min(self.track_row +| @as(usize, @intCast(self.takeCount())), self.track_rows_len -| 1)),
+                'k' => self.setTrackRow(self.track_row -| @as(usize, @intCast(self.takeCount()))),
+                'G' => self.setTrackRow(self.track_rows_len -| 1),
+                'o' => if (self.tracks_visual_anchor) |anchor| {
+                    self.tracks_visual_anchor = self.track_row;
+                    self.setTrackRow(anchor);
+                },
                 'g' => self.groupSelectedTracks(),
                 'm' => self.doVisualMuteToggle(),
                 'S' => self.doVisualSoloToggle(),
