@@ -400,7 +400,10 @@ fn drawPadHeader(app: anytype, track: u16, kind: PadTargetKind, index: u8) void 
         },
         .slice => {
             const slicer = &app.core.session.racks.items[track].instrument.slicer;
-            zgui.textDisabled("slice {d}/{d}", .{ index + 1, slicer.slice_count });
+            if (slicer.slice_count == 0)
+                zgui.textDisabled("no slices", .{})
+            else
+                zgui.textDisabled("slice {d}/{d}", .{ index + 1, slicer.slice_count });
             zgui.sameLine(.{});
             zgui.textColored(theme.audio, "\"{s}\"", .{slicer.clipName()});
         },

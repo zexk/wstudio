@@ -857,6 +857,11 @@ test "slicer grid: undo restores steps AND chop layout through one stack" {
     commands.run(&app, "slice 8"); // re-chop over the programmed pattern
     try std.testing.expectEqual(@as(u8, 8), app.slicerInst().slice_count);
 
+    app.slicer_cursor[0] = 7;
+    commands.run(&app, "slice 4");
+    try std.testing.expectEqual(@as(u8, 3), app.slicer_cursor[0]);
+    _ = slicer_ed.handleKey(&app, .{ .char = 'u' });
+
     _ = slicer_ed.handleKey(&app, .{ .char = 'u' }); // undo the re-chop
     try std.testing.expectEqual(@as(u8, 4), app.slicerInst().slice_count);
     try std.testing.expect(app.slicerInst().stepActive(1, 3));
@@ -866,6 +871,28 @@ test "slicer grid: undo restores steps AND chop layout through one stack" {
 
     _ = slicer_ed.handleKey(&app, .{ .char = 'U' }); // redo the step
     try std.testing.expect(app.slicerInst().stepActive(1, 3));
+}
+
+test "opening a shorter slicer clamps stale slice selection" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    try app.session.setInstrument(1, .slicer);
+    app.session.racks.items[0].instrument.slicer.sliceInto(8);
+    app.session.racks.items[1].instrument.slicer.sliceInto(2);
+    app.slicer_cursor[0] = 7;
+    app.cursor = 1;
+    app.view = .tracks;
+
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.sampler_editor, app.view);
+    try std.testing.expectEqual(@as(u8, 1), app.slicer_cursor[0]);
+
+    app.handleKey(.escape, 0);
+    app.slicer_cursor[0] = 7;
+    app.handleKey(.{ .char = 'p' }, 0);
+    try std.testing.expectEqual(AppView.slicer_grid, app.view);
+    try std.testing.expectEqual(@as(u8, 1), app.slicer_cursor[0]);
 }
 
 test "slicer grid: split shifts programming down, merge folds it back" {

@@ -611,6 +611,7 @@ pub fn loadSliceFromPath(app: *App, path: []const u8) void {
         app.setStatus("load: parse error: {s}", .{@errorName(e)});
         return;
     };
+    clampSlicerCursor(app, sl);
     app.dirty = true;
     app.setStatus("clip loaded: {s} - :slice <n> to chop it", .{stem});
 }
@@ -632,6 +633,7 @@ pub fn cmdSlice(app: *App, args: []const u8) void {
     }
     history.recordSlicer(app, track);
     sl.sliceInto(@intCast(@min(n, Slicer.max_slices)));
+    clampSlicerCursor(app, sl);
     app.dirty = true;
     app.setStatus("sliced into {d}", .{sl.slice_count});
 }
@@ -652,6 +654,7 @@ pub fn cmdChop(app: *App, args: []const u8) void {
     }
     history.recordSlicer(app, track);
     const n = sl.chopTransients(sensitivity);
+    clampSlicerCursor(app, sl);
     app.dirty = true;
     if (n <= 1)
         app.setStatus("chop: no transients found - try a higher sensitivity (:chop 1-9)", .{})
@@ -825,8 +828,13 @@ pub fn cmdChopRandom(app: *App, args: []const u8) void {
     history.recordSlicer(app, track);
     var prng = std.Random.DefaultPrng.init(@bitCast(@as(i64, @truncate(app.now_ns))));
     const made = sl.chopRandom(@intCast(n), prng.random());
+    clampSlicerCursor(app, sl);
     app.dirty = true;
     app.setStatus("rolled {d} random slices", .{made});
+}
+
+fn clampSlicerCursor(app: *App, sl: *const Slicer) void {
+    app.slicer_cursor[0] = @min(app.slicer_cursor[0], sl.slice_count -| 1);
 }
 
 /// `:spread [semitones]` - ramp playback pitch across a slicer's slices or a

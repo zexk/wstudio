@@ -3096,6 +3096,7 @@ pub const App = struct {
             },
             .slicer => {
                 self.slicer_track = track;
+                self.slicer_cursor[0] = @min(self.slicer_cursor[0], self.session.racks.items[track].instrument.slicer.slice_count -| 1);
                 self.view = .slicer_grid;
                 self.autoSongMode(false);
             },
@@ -3137,6 +3138,7 @@ pub const App = struct {
             },
             .slicer => {
                 self.slicer_track = @intCast(cursor);
+                self.slicer_cursor[0] = @min(self.slicer_cursor[0], self.session.racks.items[cursor].instrument.slicer.slice_count -| 1);
                 self.sampler_target = .{ .slice = @intCast(cursor) };
                 self.sampler_param = 0;
                 self.sampler_return = .tracks;
