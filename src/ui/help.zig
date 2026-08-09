@@ -524,6 +524,21 @@ pub fn scrollForSection(section: ?Section, cmds: []const cmd_mod.Def, keymaps: [
     return if (section) |s| t.section_start.get(s) else 0;
 }
 
+pub const Viewport = struct { off: usize, end: usize, max_scroll: usize };
+
+pub fn viewport(count: usize, visible: usize, scroll: *usize) Viewport {
+    const max_scroll = count -| visible;
+    scroll.* = @min(scroll.*, max_scroll);
+    return .{ .off = scroll.*, .end = @min(scroll.* + visible, count), .max_scroll = max_scroll };
+}
+
+test "help viewport clamps stored scroll to last full window" {
+    var scroll: usize = 99;
+    const view = viewport(20, 6, &scroll);
+    try std.testing.expectEqual(@as(usize, 14), scroll);
+    try std.testing.expectEqual(Viewport{ .off = 14, .end = 20, .max_scroll = 14 }, view);
+}
+
 /// Match `pattern` against the help's rendered lines, starting one line
 /// past `start` in `dir` (+1 forward, -1 backward) and wrapping around the
 /// whole text - the same walk App.searchTracks/searchBrowser do over their

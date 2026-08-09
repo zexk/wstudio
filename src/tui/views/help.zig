@@ -41,10 +41,10 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cols: usize, cmds: []const cmd_m
 
     const body = rows -| 4; // lines available below the caller's header, above transport/status
     const visible = body -| 1; // one row reserved for the sticky title
-    const max_scroll = t.count -| visible;
-    if (scroll.* > max_scroll) scroll.* = max_scroll;
-    const off = scroll.*;
-    const end = @min(off + visible, t.count);
+    const viewport = help_model.viewport(t.count, visible, scroll);
+    const max_scroll = viewport.max_scroll;
+    const off = viewport.off;
+    const end = viewport.end;
 
     // Sticky title with a position indicator.
     try w.writeAll(bold ++ " ");

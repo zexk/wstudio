@@ -30,7 +30,7 @@ fn drawReference(app: anytype) void {
     const header_h: f32 = 26;
     const body_h = @max(200, zgui.getContentRegionAvail()[1] - header_h);
     const visible: usize = @intFromFloat(@max(1.0, body_h / line_h));
-    const max_scroll = t.count -| visible;
+    var viewport = help_model.viewport(t.count, visible, &app.core.help_scroll);
 
     // The wheel scrolls the same `help_scroll` window `j`/`k` do. Claim it
     // before ImGui can: this body renders a fixed slice of lines rather than
@@ -42,12 +42,12 @@ fn drawReference(app: anytype) void {
         const step: isize = if (zgui.isKeyDown(.mod_ctrl)) 10 else 3;
         const delta: isize = if (style.wheel_delta > 0) -step else step;
         const next = @as(isize, @intCast(app.core.help_scroll)) + delta;
-        app.core.help_scroll = @intCast(std.math.clamp(next, 0, @as(isize, @intCast(max_scroll))));
+        app.core.help_scroll = @intCast(std.math.clamp(next, 0, @as(isize, @intCast(viewport.max_scroll))));
+        viewport = help_model.viewport(t.count, visible, &app.core.help_scroll);
     }
 
-    if (app.core.help_scroll > max_scroll) app.core.help_scroll = max_scroll;
-    const off = app.core.help_scroll;
-    const end = @min(off + visible, t.count);
+    const off = viewport.off;
+    const end = viewport.end;
 
     zgui.textColored(theme.modulation, "REFERENCE", .{});
     zgui.sameLine(.{ .spacing = 12 });
