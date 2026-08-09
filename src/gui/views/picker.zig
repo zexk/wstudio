@@ -120,6 +120,7 @@ pub fn drawInstrument(app: anytype) void {
     zgui.textColored(theme.fg2, "EXTERNAL", .{});
     zgui.sameLine(.{});
     zgui.textDisabled("CLAP / VST3", .{});
+    drawPluginScanButton(app);
     const external_count = app.core.filteredInstrumentPluginCount();
     for (0..external_count) |external_i| {
         const plugin = app.core.filteredInstrumentPluginAt(external_i).?;
@@ -169,6 +170,7 @@ pub fn drawFx(app: anytype) void {
     zgui.textColored(theme.fg2, "EXTERNAL", .{});
     zgui.sameLine(.{});
     zgui.textDisabled("CLAP / VST3", .{});
+    drawPluginScanButton(app);
     const external_count = total_count - count;
     for (0..external_count) |external_i| {
         const plugin = spectrum_ed.externalPickerAt(&app.core, external_i).?;
@@ -183,6 +185,11 @@ pub fn drawFx(app: anytype) void {
         }
     }
     if (external_count == 0) zgui.textDisabled("No external effects found", .{});
+}
+
+fn drawPluginScanButton(app: anytype) void {
+    zgui.sameLine(.{ .spacing = 14 });
+    if (zgui.smallButton("RESCAN##external-plugins")) app.core.rescanExternalPlugins();
 }
 
 const fxAccent = style.fxKindAccent;

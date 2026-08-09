@@ -150,7 +150,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     // `App.init` reports an unreadable project before returning its error.
     var app = try App.init(init.gpa, init.io, init_path, user_config);
     defer app.deinit();
-    app.core.scanExternalPlugins(init.environ_map);
+    _ = app.core.scanExternalPlugins(init.environ_map);
     app.core.attachRuntime(runtime);
     defer app.core.detachRuntime(runtime);
     var title_path_buf: [1024]u8 = undefined;

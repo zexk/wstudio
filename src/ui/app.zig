@@ -1663,7 +1663,7 @@ pub const App = struct {
         }
     }
 
-    pub fn scanExternalPlugins(self: *App, environ: *const std.process.Environ.Map) void {
+    pub fn scanExternalPlugins(self: *App, environ: *const std.process.Environ.Map) bool {
         self.environ = environ;
         var expanded_buf: [std.fs.max_path_bytes]u8 = undefined;
         const clap_custom_path = commands.expandHome(&expanded_buf, self.clap_plugin_path.slice());
@@ -1672,7 +1672,10 @@ pub const App = struct {
         const clap_paths: []const []const u8 = if (self.clap_plugin_path.len > 0)
             &clap_custom
         else blk: {
-            clap_owned = ws.dsp.clap_scan.searchPaths(self.allocator, environ) catch return;
+            clap_owned = ws.dsp.clap_scan.searchPaths(self.allocator, environ) catch |err| {
+                self.setStatus("plugin scan failed: {s}", .{@errorName(err)});
+                return false;
+            };
             break :blk clap_owned.items;
         };
         defer if (self.clap_plugin_path.len == 0)
@@ -1685,14 +1688,30 @@ pub const App = struct {
         const vst3_paths: []const []const u8 = if (self.vst3_plugin_path.len > 0)
             &vst3_custom
         else blk: {
-            vst3_owned = ws.vst3.scan.searchPaths(self.allocator, environ) catch return;
+            vst3_owned = ws.vst3.scan.searchPaths(self.allocator, environ) catch |err| {
+                self.setStatus("plugin scan failed: {s}", .{@errorName(err)});
+                return false;
+            };
             break :blk vst3_owned.items;
         };
         defer if (self.vst3_plugin_path.len == 0)
             ws.vst3.scan.freeSearchPaths(self.allocator, &vst3_owned);
         self.external_plugins.scan(self.io, clap_paths, vst3_paths) catch |err| {
             self.setStatus("plugin scan failed: {s}", .{@errorName(err)});
+            return false;
         };
+        return true;
+    }
+
+    pub fn rescanExternalPlugins(self: *App) void {
+        const environ = self.environ orelse {
+            self.setStatus("plugin scan unavailable", .{});
+            return;
+        };
+        if (self.scanExternalPlugins(environ)) self.setStatus("plugin scan: {d} instrument(s), {d} effect(s)", .{
+            self.external_plugins.count(.instrument),
+            self.external_plugins.count(.effect),
+        });
     }
 
     /// Frontend-neutral half of `:reload-config` (ui/commands.zig sets
@@ -1707,7 +1726,7 @@ pub const App = struct {
     pub fn afterConfigReload(self: *App, user_config: config_mod.Config) void {
         self.rebuildCmdTable();
         self.applyUserConfig(user_config, false);
-        if (self.environ) |environ| self.scanExternalPlugins(environ);
+        if (self.environ) |environ| _ = self.scanExternalPlugins(environ);
         self.emitEvent(.ConfigDone);
     }
 

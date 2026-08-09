@@ -285,7 +285,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
 
     var app = try App.initConfigured(allocator, io, init_path, user_config);
     defer app.deinit();
-    app.scanExternalPlugins(environ);
+    _ = app.scanExternalPlugins(environ);
     const nerdfont_detected = icons.detectFontInstalled(io);
     icons.font_installed = user_config.has_nerdfonts or nerdfont_detected;
 

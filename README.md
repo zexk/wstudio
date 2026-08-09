@@ -59,7 +59,8 @@ to silent playback.
 
 The instrument and effect pickers divide devices into `Internal` and
 `External` sections. External CLAP plugins are scanned automatically from
-the platform's canonical directories. Set
+the platform's canonical directories. Use `RESCAN` beside the `External`
+section, or `:plugin-scan`, after installing a plugin while wstudio is open. Set
 `wstudio.o.clap_plugin_path = "/path/to/clap"` in `init.lua` to scan only a
 fixed custom directory instead.
 

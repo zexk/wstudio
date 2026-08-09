@@ -187,6 +187,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "rotate",      .desc = "<steps>  rotate the cursor pad's lane in time, wrapping (negative = earlier)", .run = wrap(cmdRotate), .scope = .{ .drum = true } },
     .{ .name = "undo",         .desc = "undo the last edit (alias for the u key)",   .run = wrap(cmdUndo) },
     .{ .name = "redo",         .desc = "redo the last undone edit (alias for the U key)", .run = wrap(cmdRedo) },
+    .{ .name = "plugin-scan",  .desc = "rescan configured CLAP and VST3 plugin paths", .run = wrap(cmdPluginScan) },
     .{ .name = "reload-config", .desc = "re-run init.lua (options, keymaps, user commands, theme)", .run = wrap(cmdReloadConfig) },
     .{ .name = "so",           .desc = "re-run init.lua (alias for :reload-config)", .run = wrap(cmdReloadConfig) },
     .{ .name = "colorscheme", .desc = "[name]  switch the running frontend's color theme now (no name: report it)", .run = wrap(cmdColorscheme) },
@@ -214,6 +215,7 @@ fn cmdQuitForce(app: *App, _: []const u8) void { app.should_quit = true; }
 fn cmdEdit(app: *App, args: []const u8) void { editOrRevert(app, args, false); }
 fn cmdEditForce(app: *App, args: []const u8) void { editOrRevert(app, args, true); }
 fn cmdRecent(app: *App, _: []const u8) void { app.openRecentProjects(); }
+fn cmdPluginScan(app: *App, _: []const u8) void { app.rescanExternalPlugins(); }
 // zig fmt: on
 
 fn clapArgs(app: *App, args: []const u8, usage: []const u8) ?struct { id: []const u8, path: []const u8 } {
