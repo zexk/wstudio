@@ -169,6 +169,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // grid to the cursor's bank, floor(pad/8)).
                 'K' => movePad(app, -8 * app.takeCount()),
                 'J' => movePad(app, 8 * app.takeCount()),
+                '0' => {
+                    if (app.modal.count > 0) return false;
+                    step.* = 0;
+                },
                 // g/G are a two-key pair (gg = pattern start, gG = last
                 // step): 'g' arms the prefix, the follow-up key drains it
                 // above. Choke-group cycling - that used to squat on 'G' -

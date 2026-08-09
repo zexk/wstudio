@@ -178,7 +178,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("H / L",        "move cursor left / right (one beat, coarse)");
     t.key("j / k",        "move cursor down / up (pad)");
     t.key("J / K",        "jump a whole bank of 8 pads (64 pads total, paged 8 at a time)");
-    t.key("gg / gG",       "jump step cursor to pattern start / end");
+    t.key("0 / gg / gG",   "jump step cursor to start (0 or gg) / end (gG); counted 0 stays a digit");
     t.key("w / b",        "jump to the next / previous beat boundary");
     t.key("zg / zG",       "finer / coarser timing grid (1/4 through 1/128)");
     t.key("enter / n",    "toggle in place / place a hit and advance (count sets spacing)");
@@ -240,7 +240,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("w / b",        "jump to next / previous beat boundary");
     t.key("j / k",        "move cursor down / up (slice)");
     t.key("J / K",        "jump a whole bank of 8 slices");
-    t.key("gg / gG",       "jump step cursor to pattern start / end");
+    t.key("0 / gg / gG",   "jump step cursor to start (0 or gg) / end (gG); counted 0 stays a digit");
     t.key("enter / n",    "toggle in place / place a slice and advance (count sets spacing)");
     t.key("",             "  with no clip loaded yet, enter opens the file browser instead");
     t.key("x",            "clear step at cursor");
@@ -338,7 +338,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("H / L",        "move cursor left / right (one beat, coarse)");
     t.key("j / k",        "move cursor down / up (pitch)");
     t.key("J / K",        "move cursor down / up (one octave)");
-    t.key("gg / gG",       "jump cursor to loop start / end");
+    t.key("0 / gg / gG",   "jump cursor to start (0 or gg) / end (gG); counted 0 stays a digit");
     t.key("w / b",        "jump to the next / previous beat boundary");
     t.key("enter",        "toggle note; hold to shape pitch with j/k/J/K, length with h/l/H/L");
     t.key("n / N",        "enter note / rest, then advance by the default note length");
@@ -425,7 +425,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("J / K",        "nudge the value at cursor (coarse step)");
     t.key("x",            "delete the point at cursor exactly");
     t.key("c",            "cycle the ramp leaving the point at cursor: linear -> hold (step) -> ease (S-curve)");
-    t.key("gg / gG",       "jump cursor to clip start / end");
+    t.key("0 / gg / gG",   "jump cursor to start (0 or gg) / end (gG); counted 0 stays a digit");
     t.key("w / b",        "jump to the next / previous beat start");
     t.key("d / y",        "operator: add a motion (h/l/H/L/w/b/g/G, counts work: d3l) to clear / yank that range");
     t.key("dd / yy",      "clear / yank the whole curve");

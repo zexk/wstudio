@@ -290,6 +290,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'k' => { nudgeValue(app, clip, app.takeCount()); return true; },
             'J' => { nudgeValue(app, clip, -10 * app.takeCount()); return true; },
             'K' => { nudgeValue(app, clip, 10 * app.takeCount()); return true; },
+            '0' => {
+                if (app.modal.count > 0) return false;
+                app.automation_cursor_step = 0;
+                return true;
+            },
             // g/G are a two-key pair (gg = clip start, gG = clip end),
             // matching the piano roll and drum grid's convention: 'g' arms
             // the prefix, the follow-up key drains it above.

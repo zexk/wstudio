@@ -265,6 +265,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // J/K jump an octave (mirrors h/l → H/L coarse-move pattern).
             'J' => { movePitch(app, -12 * app.takeCount()); return true; },
             'K' => { movePitch(app, 12 * app.takeCount()); return true; },
+            '0' => {
+                if (app.modal.count > 0) return false;
+                app.piano_cursor_step = 0;
+                ensureVisible(app);
+                return true;
+            },
             // g/G are a two-key pair (gg = loop start, gG = last step):
             // 'g' arms the prefix, the follow-up key drains it above.
             'g' => { _ = app.armPrefix('g'); return true; },

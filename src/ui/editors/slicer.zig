@@ -160,6 +160,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // as the drum grid's pads.
                 'J' => moveSlice(app, 8 * app.takeCount()),
                 'K' => moveSlice(app, -8 * app.takeCount()),
+                '0' => {
+                    if (app.modal.count > 0) return false;
+                    step.* = 0;
+                },
                 // g/G are a two-key pair (gg = pattern start, gG = last
                 // step): 'g' arms the prefix, the follow-up key drains it
                 // above.
