@@ -375,12 +375,19 @@ pub fn adjustParam(app: *App, steps: i32) void {
 // section-header/param rows in a constant order. `waveRows` and
 // `paramRelRow` replicate that sizing/ordering rather than re-deriving it.
 
+/// Rows before the waveform: title, plus the pad bank or slice map when shown.
+fn prefixRows(app: *App) usize {
+    return switch (app.sampler_target) {
+        .drum => 4,
+        .slice => if (targetHasAudio(app)) 4 else 1,
+        .sampler => 1,
+    };
+}
+
 /// Rows the waveform panel actually occupies (0 if there isn't room for
-/// one - drawSamplerEditor skips it below 2 rows). `body` is the view's
-/// content-row budget (`rows -| 5`, matching drawSamplerEditor).
-/// `pad_target` = drum pad or slice: 13 params, no KEY section.
-fn waveRows(pad_target: bool, body: usize) usize {
-    const wr = @min(wave_max_rows, body -| (1 + paramLineCount(pad_target)));
+/// one). `body` is the view's content-row budget (`rows -| 5`).
+fn waveRows(app: *App, body: usize) usize {
+    const wr = @min(wave_max_rows, body -| (prefixRows(app) + paramLineCount(app.sampler_target != .sampler)));
     return if (wr >= 2) wr else 0;
 }
 
@@ -408,10 +415,10 @@ fn paramRelRow(idx: u8) usize {
 /// The param row (in view-content-relative rows) at `row`, or null for the
 /// title/waveform rows or a section-header line.
 fn paramAtRow(app: *App, row: usize, view_rows: usize) ?u8 {
-    const pad_target = app.sampler_target != .sampler;
-    const w_rows = waveRows(pad_target, view_rows -| 5);
-    if (row < 1 + w_rows) return null;
-    const rel = row - (1 + w_rows);
+    const prefix = prefixRows(app);
+    const w_rows = waveRows(app, view_rows -| 5);
+    if (row < prefix + w_rows) return null;
+    const rel = row - (prefix + w_rows);
     const count: u8 = paramCount(app);
     var i: u8 = 0;
     while (i < count) : (i += 1) {
@@ -481,9 +488,13 @@ fn startWaveformDrag(app: *App, x: usize, cols: u16) void {
 /// to follow the mouse while the button stays held. Scroll over a param row
 /// nudges it via `adjustParam` (**ctrl**+scroll = coarse, matching H/L).
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, view_rows: usize) void {
-    const pad_target = app.sampler_target != .sampler;
-    const w_rows = waveRows(pad_target, view_rows -| 5);
-    const in_waveform = w_rows > 0 and row >= 1 and row < 1 + w_rows;
+    if (!targetHasAudio(app)) {
+        app.sampler_drag_marker = null;
+        return;
+    }
+    const prefix = prefixRows(app);
+    const w_rows = waveRows(app, view_rows -| 5);
+    const in_waveform = w_rows > 0 and row >= prefix and row < prefix + w_rows;
 
     switch (ev.kind) {
         .press => {

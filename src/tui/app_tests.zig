@@ -7936,22 +7936,43 @@ test "mouse click/drag on a sampler waveform moves the nearer marker" {
     try std.testing.expectEqual(@as(f32, 0.0), app.drumMachine().pads[0].?.pad.start_norm);
     try std.testing.expectEqual(@as(f32, 1.0), app.drumMachine().pads[0].?.pad.end_norm);
 
-    // rows=35 gives the waveform its full 8-row cap (rows [1,9)) now that the
-    // MOD section adds 5 more param lines below the waveform; gutter=2,
-    // width=min(cols-2,120)=78 for cols=80. x=10 -> norm ~0.10, nearer the
-    // start marker (0.0) than the end (1.0).
+    // Drum bank occupies rows 1-3. It must not behave like waveform.
     var block: [64]types.Sample = undefined;
-    app.handleMouse(.{ .x = 10, .y = app_mod.content_top + 3, .button = .left, .kind = .press }, 80, 35, 0);
+    app.handleMouse(.{ .x = 10, .y = app_mod.content_top + 2, .button = .left, .kind = .press }, 80, 48, 0);
+    app.session.engine.process(&block);
+    try std.testing.expectEqual(@as(f32, 0.0), app.drumMachine().pads[0].?.pad.start_norm);
+
+    // Waveform starts after title and bank. x=10 is nearer start marker.
+    app.handleMouse(.{ .x = 10, .y = app_mod.content_top + 5, .button = .left, .kind = .press }, 80, 48, 0);
     app.session.engine.process(&block);
     try std.testing.expect(app.drumMachine().pads[0].?.pad.start_norm > 0.0);
     try std.testing.expectEqual(@as(f32, 1.0), app.drumMachine().pads[0].?.pad.end_norm); // untouched
 
-    app.handleMouse(.{ .x = 20, .y = app_mod.content_top + 3, .button = .left, .kind = .drag }, 80, 35, 0);
+    app.handleMouse(.{ .x = 20, .y = app_mod.content_top + 5, .button = .left, .kind = .drag }, 80, 48, 0);
     app.session.engine.process(&block);
     try std.testing.expect(app.drumMachine().pads[0].?.pad.start_norm > 0.1);
 
-    app.handleMouse(.{ .x = 20, .y = app_mod.content_top + 3, .button = .left, .kind = .release }, 80, 35, 0);
+    app.handleMouse(.{ .x = 20, .y = app_mod.content_top + 5, .button = .left, .kind = .release }, 80, 48, 0);
     try std.testing.expect(app.sampler_drag_marker == null);
+
+    // Param rows use same offset: prefix(4) + waveform(13) + section(1).
+    app.sampler_param = 7;
+    app.handleMouse(.{ .x = 20, .y = app_mod.content_top + 18, .button = .none, .kind = .scroll_up }, 80, 48, 0);
+    try std.testing.expectEqual(@as(u8, 0), app.sampler_param);
+}
+
+test "empty sampler panel ignores hidden mouse controls" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.sampler_target = .{ .slice = 0 };
+    app.view = .sampler_editor;
+    app.sampler_param = 0;
+
+    app.handleMouse(.{ .x = 20, .y = app_mod.content_top + 20, .button = .none, .kind = .scroll_up }, 80, 48, 0);
+    try std.testing.expectEqual(@as(u8, 0), app.sampler_param);
+    try std.testing.expect(!app.dirty);
 }
 
 test "soundfont mouse rows skip the section headers, and hit nothing while the empty state shows" {
