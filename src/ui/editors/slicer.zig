@@ -33,7 +33,7 @@ const wave_min_rows: usize = 3;
 
 /// Row layout of the slicer grid, shared between the draw path and the
 /// mouse hit-testing here: title(1) + waveform pane + ruler(1, only with
-/// the pane) + step header(1) + a fixed 8-row bank window. The pane soaks
+/// the pane) + bar ruler(1) + a fixed 8-row bank window. The pane soaks
 /// up leftover height and disappears entirely on short terminals (below
 /// `wave_min_rows` there's no room to read it).
 pub const Layout = struct {
@@ -43,7 +43,7 @@ pub const Layout = struct {
     pub fn rulerRows(self: Layout) usize {
         return @intFromBool(self.wave_rows > 0);
     }
-    /// View-content row of the step-number header.
+    /// View-content row of the bar ruler.
     pub fn headerRow(self: Layout) usize {
         return 1 + self.wave_rows + self.rulerRows();
     }
@@ -189,16 +189,16 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     } });
                     app.setStatus("preview: slice {d}", .{slice.* + 1});
                 },
-                // Resize by a whole (decorative) bar, not a single step -
+                // Resize by a whole beat, not a single step -
                 // the drum grid's same rule (see editors/drum.zig).
                 '-' => {
-                    const delta: u16 = @intCast(step_grid.bar_len * app.takeCount());
+                    const delta: u16 = @intCast(@as(i32, sl.steps_per_beat) * app.takeCount());
                     history.recordSlicer(app, app.slicer_track);
                     sl.setStepCount(sl.step_count -| delta);
                     if (step.* >= sl.step_count) step.* = sl.step_count - 1;
                 },
                 '+' => {
-                    const delta: u16 = @intCast(step_grid.bar_len * app.takeCount());
+                    const delta: u16 = @intCast(@as(i32, sl.steps_per_beat) * app.takeCount());
                     history.recordSlicer(app, app.slicer_track);
                     sl.setStepCount(sl.step_count +| delta);
                 },
@@ -603,20 +603,22 @@ fn sequenceSourceOrder(app: *App) void {
     app.setStatus("sequenced {d} slices in source order", .{sl.slice_count});
 }
 
-/// w/b: jump the step cursor by 4-step groups - see step_grid.jumpBar for
-/// the bar-width rationale (same tier as the drum grid's w/b).
+/// w/b: jump the step cursor by beats.
 fn jumpBar(app: *App, delta: i32) void {
-    step_grid.jumpBar(&app.slicer_cursor[1], delta, app.slicerInst().step_count, step_grid.bar_len);
+    const sl = app.slicerInst();
+    step_grid.jumpBar(&app.slicer_cursor[1], delta, sl.step_count, sl.steps_per_beat);
 }
 
 /// dw/yw's range end - see step_grid.operatorBarForward.
 fn operatorBarForward(app: *App, n: i32) void {
-    step_grid.operatorBarForward(&app.slicer_cursor[1], n, app.slicerInst().step_count, step_grid.bar_len);
+    const sl = app.slicerInst();
+    step_grid.operatorBarForward(&app.slicer_cursor[1], n, sl.step_count, sl.steps_per_beat);
 }
 
 /// db/yb's range start - see step_grid.operatorBarBackward.
 fn operatorBarBackward(app: *App, n: i32) void {
-    step_grid.operatorBarBackward(&app.slicer_cursor[1], n, app.slicerInst().step_count, step_grid.bar_len);
+    const sl = app.slicerInst();
+    step_grid.operatorBarBackward(&app.slicer_cursor[1], n, sl.step_count, sl.steps_per_beat);
 }
 
 /// Arm `d`/`y` as a pending operator - see docs/editing-grammar.md.
@@ -830,7 +832,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
     switch (ev.kind) {
         .press => {
             app.slicer_cursor[0] = @intCast(slice);
-            const step = step_grid.stepAt(u8, gutter, 3, app.slicer_step_scroll, sl.step_count, ev.x) orelse {
+            const step = step_grid.stepAt(u8, gutter, 3, app.slicer_step_scroll, sl.step_count, sl.steps_per_beat, ev.x) orelse {
                 app.slicer_paint_state = null;
                 return;
             };
@@ -845,7 +847,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
         },
         .drag => {
             const state = app.slicer_paint_state orelse return;
-            const step = step_grid.stepAt(u8, gutter, 3, app.slicer_step_scroll, sl.step_count, ev.x) orelse return;
+            const step = step_grid.stepAt(u8, gutter, 3, app.slicer_step_scroll, sl.step_count, sl.steps_per_beat, ev.x) orelse return;
             app.slicer_cursor[0] = @intCast(slice);
             app.slicer_cursor[1] = step;
             step_grid.setStep(sl, @intCast(slice), step, state, Slicer.vel_full);

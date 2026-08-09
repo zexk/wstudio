@@ -38,13 +38,13 @@ const layout = slicer_ed.layout;
 
 /// How many steps fit in `cols` - same periodic-separator math as
 /// views/drum.zig's visibleSteps.
-fn visibleSteps(cols: usize) u32 {
+fn visibleSteps(cols: usize, steps_per_beat: u32) u32 {
     if (cols <= gutter) return 1;
     const avail = cols - gutter;
     var n: u32 = 0;
     while (n < Slicer.max_steps) {
         const next = n + 1;
-        const sep = (next + 3) / 4;
+        const sep = (next + steps_per_beat - 1) / steps_per_beat;
         if (next * cell_width + sep > avail) break;
         n = next;
     }
@@ -176,7 +176,10 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
     const step_count_u32: u32 = sl.step_count;
     const track_name = app.session.project.tracks.items[app.slicer_track].name;
 
-    const visible = visibleSteps(cols);
+    const spb: u32 = @max(sl.steps_per_beat, 1);
+    const bar_units = spb * @as(u32, @max(app.session.project.beats_per_bar, 1)) * 4;
+    const meter_denominator: u32 = @max(app.session.project.meter_denominator, 1);
+    const visible = visibleSteps(cols, spb);
     const cur_step_u32: u32 = cur_step;
     if (cur_step_u32 < app.slicer_step_scroll) app.slicer_step_scroll = cur_step_u32;
     if (cur_step_u32 >= app.slicer_step_scroll + visible) app.slicer_step_scroll = cur_step_u32 - visible + 1;
@@ -242,13 +245,16 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
         return;
     }
 
-    // Step header - only the visible scroll window is shown.
+    // Bar ruler. Labels stay within their cell even for very long patterns.
     try w.writeAll(dim ++ "          ");
     var col: u32 = 0;
     while (col < visible and scroll + col < step_count_u32) : (col += 1) {
         const s = scroll + col;
-        if (s % 4 == 0) try w.writeAll("│");
-        try w.print("{d:>2} ", .{s + 1});
+        if (s % spb == 0) try w.writeAll("│");
+        const position_units = s * meter_denominator;
+        const on_bar = position_units % bar_units == 0;
+        const bar = position_units / bar_units + 1;
+        if (!on_bar) try w.writeAll("   ") else if (bar < 100) try w.print("{d:>2} ", .{bar}) else try w.writeAll(" + ");
     }
     try endLine(w);
     written += 1;
@@ -271,7 +277,7 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
         col = 0;
         while (col < visible and scroll + col < step_count_u32) : (col += 1) {
             const s = scroll + col;
-            if (s % 4 == 0) try w.writeAll(dim ++ "│" ++ rst);
+            if (s % spb == 0) try w.writeAll(dim ++ "│" ++ rst);
             const active = sl.stepActive(@intCast(sIdx), @intCast(s));
             const is_cursor = (sIdx == cur_slice and s == cur_step_u32);
             const is_play = is_playing and (s == playing_step);

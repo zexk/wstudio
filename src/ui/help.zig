@@ -215,10 +215,10 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("R",            "rename current pad (opens :rename <n>, 8 chars max)");
     t.key("e",            "open sampler editor for current pad");
     t.key("s",            "FX chain for drum track");
-    t.key("+ / -",        "lengthen / shorten loop (1–64 steps)");
+    t.key("+ / -",        "lengthen / shorten loop by one beat");
     t.key("m / M",        "shorten / lengthen THIS pad's own loop - a 7-step hat drifts against a 16-step kick");
     t.key(":pad-len",     "<n|off>  set the cursor pad's own loop length exactly (off = follow the pattern)");
-    t.key("E",            "double loop length and copy its content (up to 64 steps)");
+    t.key("E",            "double loop length and copy its content");
     t.key("X",            "clear all steps on current pad");
     t.key("F",            "fill all steps on current pad");
     t.key("[ / ]",        "prev / next pattern variant (A–H)");
@@ -271,8 +271,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key(".",            "repeat last range delete/paste at the cursor");
     t.key("a",            "preview current slice");
     t.key("i",            "insert mode: trigger slices on the qwerty piano (pitch wraps to slice count)");
-    t.key("+ / -",        "lengthen / shorten loop (1-64 steps)");
-    t.key("E",            "double loop length and copy its content (up to 64 steps)");
+    t.key("+ / -",        "lengthen / shorten loop by one beat");
+    t.key("E",            "double loop length and copy its content");
     t.key("O",            "replace the grid with slices sequenced once in source order");
     t.key("( / )",        "nudge current slice's start earlier / later (watch the waveform)");
     t.key("{ / }",        "nudge current slice's end earlier / later");

@@ -31,18 +31,18 @@ const banksShown = drum_ed.banksShown;
 const bankWindowStart = drum_ed.bankWindowStart;
 
 /// How many steps fit in `cols` at cell_width each, PLUS the periodic "│"
-/// separator (one extra column every 4 steps) - a plain `(cols-gutter)/
+/// separator (one extra column every beat) - a plain `(cols-gutter)/
 /// cell_width` overcounts by ignoring that extra column and overflows the
 /// terminal width once enough separators accumulate. The loop itself exits
 /// as soon as the next step wouldn't fit, so it stays cheap regardless of
 /// how long the pattern has grown (`max_steps` is just the safety bound).
-fn visibleSteps(cols: usize, cell_width: usize) u32 {
+fn visibleSteps(cols: usize, cell_width: usize, steps_per_beat: u32) u32 {
     if (cols <= gutter) return 1;
     const avail = cols - gutter;
     var n: u32 = 0;
     while (n < DrumMachine.max_steps) {
         const next = n + 1;
-        const sep = (next + 3) / 4;
+        const sep = (next + steps_per_beat - 1) / steps_per_beat;
         if (next * cell_width + sep > avail) break;
         n = next;
     }
@@ -64,9 +64,11 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
 
     // Horizontal step scroll, cursor-follow - same "clamped at draw"
     // convention as views/arrangement.zig's arr_scroll_bar. Needed once
-    // step_count exceeds what fits at cell_width cols/step (max_steps = 64
-    // won't fit most terminals at 3 chars/step).
-    const visible = visibleSteps(cols, cell_width);
+    // step_count exceeds what fits at cell_width columns per step.
+    const spb: u32 = @max(dm.steps_per_beat, 1);
+    const bar_units = spb * @as(u32, @max(app.session.project.beats_per_bar, 1)) * 4;
+    const meter_denominator: u32 = @max(app.session.project.meter_denominator, 1);
+    const visible = visibleSteps(cols, cell_width, spb);
     const cur_step_u32: u32 = cur_step;
     if (cur_step_u32 < app.drum_step_scroll) app.drum_step_scroll = cur_step_u32;
     if (cur_step_u32 >= app.drum_step_scroll + visible) app.drum_step_scroll = cur_step_u32 - visible + 1;
@@ -106,16 +108,19 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
     }
     try endLine(w);
 
-    // step header - only the visible scroll window is shown
+    // Bar ruler. Labels stay within their cell even for very long patterns.
     try w.writeAll(dim ++ "          ");
     var col: u32 = 0;
     while (col < visible and scroll + col < step_count_u32) : (col += 1) {
         const s = scroll + col;
-        if (s % 4 == 0) try w.writeAll("│");
+        if (s % spb == 0) try w.writeAll("│");
+        const position_units = s * meter_denominator;
+        const on_bar = position_units % bar_units == 0;
+        const bar = position_units / bar_units + 1;
         if (cell_width == 1) {
-            try w.writeAll(if (s % 4 == 0) "·" else " ");
+            if (!on_bar) try w.writeByte(' ') else if (bar < 10) try w.print("{d}", .{bar}) else try w.writeByte('+');
         } else {
-            try w.print("{d:>2}", .{s + 1});
+            if (!on_bar) try w.writeAll("  ") else if (bar < 100) try w.print("{d:>2}", .{bar}) else try w.writeAll(" +");
             try w.splatByteAll(' ', cell_width - 2);
         }
     }
@@ -129,7 +134,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
         // A dim rule between stacked banks. Mirrored by editors/drum.zig's
         // mouse pad mapping (pads_per_bank + 1 rows per stacked bank).
         if (p != bank_start and p % pads_per_bank == 0) {
-            try writeBankRule(w, scroll, visible, step_count_u32, cell_width);
+            try writeBankRule(w, scroll, visible, step_count_u32, cell_width, spb);
             printed += 1;
         }
         const name = dm.padName(@intCast(p));
@@ -143,7 +148,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
         col = 0;
         while (col < visible and scroll + col < step_count_u32) : (col += 1) {
             const s = scroll + col;
-            if (s % 4 == 0) {
+            if (s % spb == 0) {
                 try w.writeAll(dim ++ "│" ++ rst);
             }
             const active = dm.stepActive(@intCast(p), @intCast(s));
@@ -185,12 +190,12 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
 /// One dim horizontal rule spanning exactly the grid's width (gutter +
 /// visible step cells + their periodic "│" columns) - the boundary row
 /// between stacked banks.
-fn writeBankRule(w: *std.Io.Writer, scroll: u32, visible: u32, step_count: u32, cell_width: usize) !void {
+fn writeBankRule(w: *std.Io.Writer, scroll: u32, visible: u32, step_count: u32, cell_width: usize, steps_per_beat: u32) !void {
     try w.writeAll(dim);
     for (0..gutter) |_| try w.writeAll("\u{2500}");
     var col: u32 = 0;
     while (col < visible and scroll + col < step_count) : (col += 1) {
-        if ((scroll + col) % 4 == 0) try w.writeAll("\u{2500}");
+        if ((scroll + col) % steps_per_beat == 0) try w.writeAll("\u{2500}");
         for (0..cell_width) |_| try w.writeAll("\u{2500}");
     }
     try endLine(w);

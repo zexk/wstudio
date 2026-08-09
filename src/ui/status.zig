@@ -93,8 +93,8 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !v
     try w.print("{d}/{d}", .{ p + 1, DrumMachine.max_pads });
     try w.writeAll(dim ++ "  step " ++ rst);
     try w.print("{d}/{d}", .{ s + 1, dm.step_count });
-    try w.writeAll(dim ++ "  len " ++ rst);
-    try w.print("{d}", .{dm.step_count});
+    try w.writeAll(dim ++ "  bars " ++ rst);
+    try w.print("{d:.2}", .{@as(f64, @floatFromInt(dm.step_count)) * @as(f64, @floatFromInt(@max(app.session.project.meter_denominator, 1))) / (@as(f64, @floatFromInt(@max(dm.steps_per_beat, 1))) * @as(f64, @floatFromInt(@max(app.session.project.beats_per_bar, 1))) * 4.0)});
     try w.writeAll(dim ++ "  swing " ++ rst);
     try w.print("{d:.0}%", .{dm.swing.load(.monotonic)});
     if (dm.stepActive(@intCast(p), s)) {
@@ -168,6 +168,8 @@ pub fn drawSlicerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
     try w.print("{d}/{d}", .{ sIdx + 1, sl.slice_count });
     try w.writeAll(dim ++ "  step " ++ rst);
     try w.print("{d}/{d}", .{ s + 1, sl.step_count });
+    try w.writeAll(dim ++ "  bars " ++ rst);
+    try w.print("{d:.2}", .{@as(f64, @floatFromInt(sl.step_count)) * @as(f64, @floatFromInt(@max(app.session.project.meter_denominator, 1))) / (@as(f64, @floatFromInt(@max(sl.steps_per_beat, 1))) * @as(f64, @floatFromInt(@max(app.session.project.beats_per_bar, 1))) * 4.0)});
     if (sl.stepActive(sIdx, s)) {
         try w.writeAll(dim ++ "  vel " ++ rst);
         try w.print("{d}", .{sl.stepVel(sIdx, s)});

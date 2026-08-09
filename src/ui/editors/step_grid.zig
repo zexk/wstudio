@@ -148,19 +148,9 @@ pub fn moveClamped(cursor: anytype, delta: i32, count: usize) void {
     cursor.* = @intCast(std.math.clamp(target, 0, top));
 }
 
-// w/b's jump granularity: 4 steps, matching the grid's own `│` separators
-// (drawn every 4 steps regardless of time signature - see the views'
-// header-row comments). A full musical bar turned out too coarse in
-// practice with a default 16-step pattern, so both grids settled on this
-// fixed "decorative bar" width instead.
-pub const bar_len: i32 = 4;
-
-/// w/b: jump the step cursor `delta` `bar_len`-step groups forward/back -
-/// snaps to the nearest group boundary first, then moves whole groups from
-/// there. `bar_len` is this file's own fixed `bar_len` for drum/slicer, or
-/// the piano roll's own beat length under the current grid resolution
-/// (piano.zig's `barLenSteps`, which varies - passed in rather than
-/// hardcoded here) - automation.zig follows the same pattern.
+/// w/b: jump the step cursor `delta` groups forward/back, snapping to the
+/// nearest group boundary first. Drum and slicer pass their live
+/// `steps_per_beat`; piano and automation pass their own grid-derived width.
 pub fn jumpBar(cursor: anytype, delta: i32, step_count: anytype, bar_len_arg: anytype) void {
     if (step_count == 0 or bar_len_arg == 0) {
         cursor.* = 0;
@@ -202,18 +192,26 @@ pub fn operatorBarBackward(cursor: anytype, n: i32, step_count: anytype, bar_len
 
 /// Step index at column `x` within a row, or null if `x` falls in the
 /// gutter or past the last visible step. Replays the exact column math the
-/// views' render loop uses (starting from `scroll`, a 1-char "│" every 4
-/// steps, then a 3-char cell) rather than deriving a closed form.
-pub fn stepAt(comptime T: type, gutter: usize, cell_width: usize, scroll: u32, step_count: anytype, x: usize) ?T {
+/// views' render loop uses (starting from `scroll`, then its separators and
+/// cells) rather than deriving a closed form.
+pub fn stepAt(comptime T: type, gutter: usize, cell_width: usize, scroll: u32, step_count: anytype, steps_per_beat: u8, x: usize) ?T {
     if (x < gutter) return null;
     var col = gutter;
     var s: u32 = scroll;
     while (s < step_count) : (s += 1) {
-        if (s % 4 == 0) col += 1;
+        if (s % @max(steps_per_beat, 1) == 0) col += 1;
         if (x < col + cell_width) return if (x < col) null else @intCast(s); // `x < col`: landed on the separator itself
         col += cell_width;
     }
     return null;
+}
+
+test "stepAt follows beat separators at the live grid resolution" {
+    try std.testing.expectEqual(@as(?u16, null), stepAt(u16, 10, 3, 0, 12, 3, 10));
+    try std.testing.expectEqual(@as(?u16, 0), stepAt(u16, 10, 3, 0, 12, 3, 11));
+    try std.testing.expectEqual(@as(?u16, 2), stepAt(u16, 10, 3, 0, 12, 3, 17));
+    try std.testing.expectEqual(@as(?u16, null), stepAt(u16, 10, 3, 0, 12, 3, 20));
+    try std.testing.expectEqual(@as(?u16, 3), stepAt(u16, 10, 3, 0, 12, 3, 21));
 }
 
 /// Arms `op` ('d' or 'y') as a pending operator (see the operator-pending
@@ -362,20 +360,20 @@ test "cursor motions clamp maximum count prefixes without overflow" {
     moveClamped(&cursor, std.math.minInt(i32), 16);
     try std.testing.expectEqual(@as(u8, 0), cursor);
 
-    jumpBar(&cursor, std.math.maxInt(i32), 16, bar_len);
+    jumpBar(&cursor, std.math.maxInt(i32), 16, 4);
     try std.testing.expectEqual(@as(u8, 15), cursor);
-    operatorBarForward(&cursor, std.math.maxInt(i32), 16, bar_len);
+    operatorBarForward(&cursor, std.math.maxInt(i32), 16, 4);
     try std.testing.expectEqual(@as(u8, 15), cursor);
-    operatorBarBackward(&cursor, std.math.maxInt(i32), 16, bar_len);
+    operatorBarBackward(&cursor, std.math.maxInt(i32), 16, 4);
     try std.testing.expectEqual(@as(u8, 0), cursor);
 }
 
 test "bar motions handle an empty grid" {
     var cursor: u8 = 12;
-    jumpBar(&cursor, 1, 0, bar_len);
+    jumpBar(&cursor, 1, 0, 4);
     try std.testing.expectEqual(@as(u8, 0), cursor);
-    operatorBarForward(&cursor, 1, 0, bar_len);
-    operatorBarBackward(&cursor, 1, 0, bar_len);
+    operatorBarForward(&cursor, 1, 0, 4);
+    operatorBarBackward(&cursor, 1, 0, 4);
     try std.testing.expectEqual(@as(u8, 0), cursor);
 }
 
@@ -389,7 +387,7 @@ test "cursor motions work at u16 width past the old u8 ceiling" {
     var cursor: u16 = 200;
     moveClamped(&cursor, 100, 1000);
     try std.testing.expectEqual(@as(u16, 300), cursor);
-    jumpBar(&cursor, 1, 1000, bar_len);
+    jumpBar(&cursor, 1, 1000, 4);
     try std.testing.expectEqual(@as(u16, 304), cursor);
     moveClamped(&cursor, std.math.maxInt(i32), 1000);
     try std.testing.expectEqual(@as(u16, 999), cursor);

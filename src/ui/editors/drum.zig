@@ -196,7 +196,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'n' => stepEnter(app),
                 // w/b: vim's word motion, one tier up from h/l's step
                 // ("char") granularity - jump to the start of the
-                // next/current-or-previous 4-step group (see barLenSteps).
+                // next/current-or-previous beat.
                 'w' => jumpBar(app, app.takeCount()),
                 'b' => jumpBar(app, -app.takeCount()),
                 // z/Z are a two-key pair (zg = finer grid, zG = coarser):
@@ -212,21 +212,21 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     } });
                     app.setStatus("preview: pad {d}", .{pad.* + 1});
                 },
-                // Resize by a whole (decorative) bar, not a single step -
+                // Resize by a whole beat, not a single step -
                 // now that pads hold real MIDI notes rather than on/off
                 // bits, nudging the loop by one grid cell at a time is a
                 // leftover from the old boolean step sequencer. Trailing
                 // notes past a shrink are dropped (see setStepCount's doc).
                 '-' => {
                     const dm = app.drumMachine();
-                    const delta: u16 = @intCast(step_grid.bar_len * app.takeCount());
+                    const delta: u16 = @intCast(@as(i32, dm.steps_per_beat) * app.takeCount());
                     history.recordDrum(app, app.drum_track);
                     dm.setStepCount(dm.step_count -| delta);
                     if (step.* >= dm.step_count) step.* = dm.step_count - 1;
                 },
                 '+' => {
                     const dm = app.drumMachine();
-                    const delta: u16 = @intCast(step_grid.bar_len * app.takeCount());
+                    const delta: u16 = @intCast(@as(i32, dm.steps_per_beat) * app.takeCount());
                     history.recordDrum(app, app.drum_track);
                     dm.setStepCount(dm.step_count +| delta);
                 },
@@ -470,20 +470,22 @@ fn zoom(app: *App, delta: i8) void {
     app.setStatus("grid: {s} ({d} steps)", .{ app.drum_grid.label(), dm.step_count });
 }
 
-/// w/b: jump the step cursor `delta` 4-step groups forward/back - see
-/// step_grid.jumpBar for the bar-width rationale.
+/// w/b: jump the step cursor `delta` beats forward/back.
 fn jumpBar(app: *App, delta: i32) void {
-    step_grid.jumpBar(&app.drum_cursor[1], delta, app.drumMachine().step_count, step_grid.bar_len);
+    const dm = app.drumMachine();
+    step_grid.jumpBar(&app.drum_cursor[1], delta, dm.step_count, dm.steps_per_beat);
 }
 
 /// dw/yw's range end - see step_grid.operatorBarForward.
 fn operatorBarForward(app: *App, n: i32) void {
-    step_grid.operatorBarForward(&app.drum_cursor[1], n, app.drumMachine().step_count, step_grid.bar_len);
+    const dm = app.drumMachine();
+    step_grid.operatorBarForward(&app.drum_cursor[1], n, dm.step_count, dm.steps_per_beat);
 }
 
 /// db/yb's range start - see step_grid.operatorBarBackward.
 fn operatorBarBackward(app: *App, n: i32) void {
-    step_grid.operatorBarBackward(&app.drum_cursor[1], n, app.drumMachine().step_count, step_grid.bar_len);
+    const dm = app.drumMachine();
+    step_grid.operatorBarBackward(&app.drum_cursor[1], n, dm.step_count, dm.steps_per_beat);
 }
 
 /// Arm `d`/`y` as a pending operator - see docs/editing-grammar.md.
@@ -819,7 +821,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
         else => {},
     }
 
-    if (row < 2) return; // title / step-number header rows - see views/drum.zig
+    if (row < 2) return; // title / bar ruler rows; see views/drum.zig
     // Row 2 is the visible bank window's first pad, not absolute pad 0 -
     // mirrors views/drum.zig's bankWindowStart/banksShown windowing. A dim
     // rule separates stacked banks, so banks occupy pads_per_bank + 1 rows
@@ -844,7 +846,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
             app.drum_stamp = false;
             app.drum_cursor[0] = @intCast(pad);
             const dm = app.drumMachine();
-            const step = step_grid.stepAt(u16, gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, ev.x) orelse {
+            const step = step_grid.stepAt(u16, gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, dm.steps_per_beat, ev.x) orelse {
                 app.drum_paint_state = null;
                 return;
             };
@@ -860,7 +862,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
         .drag => {
             const state = app.drum_paint_state orelse return;
             const dm = app.drumMachine();
-            const step = step_grid.stepAt(u16, gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, ev.x) orelse return;
+            const step = step_grid.stepAt(u16, gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, dm.steps_per_beat, ev.x) orelse return;
             app.drum_cursor[0] = @intCast(pad);
             app.drum_cursor[1] = step;
             step_grid.setStep(dm, @intCast(pad), step, state, DrumMachine.vel_full);

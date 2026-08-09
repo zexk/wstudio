@@ -31,6 +31,7 @@ const soundfont_ed = @import("../ui/editors/soundfont.zig");
 const synth_ed_mod = @import("../ui/editors/synth.zig");
 const preset_ed = @import("../ui/editors/preset_picker.zig");
 const icons = @import("../ui/icons.zig");
+const ansi = @import("../ui/ansi.zig");
 const modal_mod = ws.input;
 
 /// Redirects $HOME at `tmp` for tests that build an App with real io (not
@@ -1147,7 +1148,7 @@ test "z and Z select drum grid subdivisions" {
     try std.testing.expectEqual(ws.time_grid.Division.thirty_second, app.drum_grid);
 }
 
-test "drum grid +/- resize the loop by a bar, not a single step" {
+test "drum grid +/- resize the loop by a beat at the current resolution" {
     var app = try testApp();
     defer app.deinit();
     app.drum_track = 2;
@@ -1161,12 +1162,19 @@ test "drum grid +/- resize the loop by a bar, not a single step" {
     app.handleKey(.{ .char = '-' }, 0);
     try std.testing.expectEqual(start, dm.step_count);
 
-    // A count prefix scales the resize by whole bars too.
+    // A count prefix scales the resize by whole beats too.
     for ("2+") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(start + 8, dm.step_count);
+
+    dm.setStepCount(start);
+    app.handleKey(.{ .char = 'z' }, 0);
+    app.handleKey(.{ .char = 'g' }, 0);
+    const zoomed = dm.step_count;
+    app.handleKey(.{ .char = '+' }, 0);
+    try std.testing.expectEqual(zoomed + dm.steps_per_beat, dm.step_count);
 }
 
-test "slicer grid +/- resize the loop by a bar, not a single step" {
+test "slicer grid +/- resize the loop by a beat at the current resolution" {
     var app = try testApp();
     defer app.deinit();
     try app.session.setInstrument(0, .slicer);
@@ -1181,9 +1189,16 @@ test "slicer grid +/- resize the loop by a bar, not a single step" {
     app.handleKey(.{ .char = '-' }, 0);
     try std.testing.expectEqual(start, sl.step_count);
 
-    // A count prefix scales the resize by whole bars too.
+    // A count prefix scales the resize by whole beats too.
     for ("2+") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(start + 8, sl.step_count);
+
+    sl.setStepCount(start);
+    app.handleKey(.{ .char = 'z' }, 0);
+    app.handleKey(.{ .char = 'g' }, 0);
+    const zoomed = sl.step_count;
+    app.handleKey(.{ .char = '+' }, 0);
+    try std.testing.expectEqual(zoomed + sl.steps_per_beat, sl.step_count);
 }
 
 test "drum grid m/M set a pad's own loop length, undoably, and rescale on zoom" {
@@ -2690,7 +2705,7 @@ test "drum grid visual mode yank/paste carries a range wider than the old 64-ste
     try std.testing.expectEqual(@as(u8, 50), dm.stepVel(0, 140));
 }
 
-test "drum grid visual mode: w/b extend the selection by bar, matching normal-mode jumpBar" {
+test "drum grid visual mode: w/b extend the selection by beat, matching normal-mode jumpBar" {
     var app = try testApp();
     defer app.deinit();
     app.view = .drum_grid;
@@ -2807,7 +2822,7 @@ test "drum grid operator+motion: d3l / y3l act on a range without entering visua
     try std.testing.expect(!dm.stepActive(3, 14));
 }
 
-test "drum grid char/word tiers: x clears just this cell, w/b jump by 4-step group" {
+test "drum grid char/word tiers: x clears just this cell, w/b jump by beat" {
     var app = try testApp();
     defer app.deinit();
     app.view = .drum_grid;
@@ -2815,9 +2830,9 @@ test "drum grid char/word tiers: x clears just this cell, w/b jump by 4-step gro
     const dm = app.drumMachine();
     for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
     dm.setStepCount(32);
-    dm.toggleStep(0, 5); // outside the first 4-step group (0-3)
+    dm.toggleStep(0, 5); // outside the first beat (steps 0-3)
     dm.toggleStep(2, 5);
-    dm.toggleStep(2, 2); // inside the first 4-step group
+    dm.toggleStep(2, 2); // inside the first beat
     dm.toggleStep(1, 20); // far away, untouched by anything below
 
     // x: instant single-cell clear, no operator arming needed.
@@ -2827,14 +2842,14 @@ test "drum grid char/word tiers: x clears just this cell, w/b jump by 4-step gro
     try std.testing.expect(!dm.stepActive(0, 5));
     try std.testing.expect(dm.stepActive(2, 5)); // a different pad's step at the same column survives
 
-    // w: jump forward to the next 4-step group boundary (step 4); b: back to 0.
+    // w: jump forward to the next beat boundary (step 4); b: back to 0.
     app.drum_cursor = .{ 0, 0 };
     app.handleKey(.{ .char = 'w' }, 0);
     try std.testing.expectEqual(@as(u8, 4), app.drum_cursor[1]);
     app.handleKey(.{ .char = 'b' }, 0);
     try std.testing.expectEqual(@as(u8, 0), app.drum_cursor[1]);
 
-    // dw: clear exactly the current 4-step group (0-3), leaving steps
+    // dw: clear exactly the current beat (steps 0-3), leaving steps
     // outside it (5, 20) untouched.
     for ("dw") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expect(!dm.stepActive(2, 2));
@@ -3224,12 +3239,19 @@ test "draw renders drum_grid view without overflowing" {
 
     app.drum_track = 2;
     app.view = .drum_grid;
+    app.session.project.beats_per_bar = 6;
+    app.session.project.meter_denominator = 8;
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "DRUMS") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "kick") != null);
+    var plain_buf: [32 * 1024]u8 = undefined;
+    const plain = ansi.stripAnsi(frame, &plain_buf);
+    try std.testing.expect(std.mem.indexOf(u8, plain, "bars 2.67") != null);
+    try std.testing.expect(std.mem.indexOf(u8, plain, "          │ 1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, plain, "│ 2") != null);
 }
 
 test "e opens drum-pad sampler editor from drum grid; esc returns" {
@@ -7596,8 +7618,8 @@ test "mouse click toggles a drum step and drag paints a run of them" {
     try std.testing.expect(!app.drumMachine().stepActive(0, 2));
     try std.testing.expect(!app.drumMachine().stepActive(0, 3));
 
-    // row 0 = title, row 1 = step header, row 2 = pad 0. Cell columns (10-char
-    // gutter, 1-char "│" every 4 steps, 3-char cells): step1 x in [14,17),
+    // row 0 = title, row 1 = bar ruler, row 2 = pad 0. Cell columns (10-char
+    // gutter, 1-char "│" every beat, 3-char cells): step1 x in [14,17),
     // step2 x in [17,20), step3 x in [20,23) - see editors/drum.zig's stepAt.
     const row = app_mod.content_top + 2;
     app.handleMouse(.{ .x = 15, .y = row, .button = .left, .kind = .press }, 80, 24, 0);

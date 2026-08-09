@@ -389,8 +389,7 @@ pub const App = struct {
     drum_cursor: [2]u16 = .{ 0, 0 },
     /// First visible step column - cursor-follow horizontal scroll, same
     /// "clamped at draw" convention as `arr_scroll_bar`/`automation_scroll`
-    /// (drawDrumGrid updates it; step_count can exceed a terminal's width
-    /// at max_steps = 64).
+    /// (drawDrumGrid updates it; step_count can exceed a terminal's width).
     drum_step_scroll: u32 = 0,
     drum_grid: GridDivision = .sixteenth,
     /// Track currently shown in the drum_grid view (a drum_machine rack).
