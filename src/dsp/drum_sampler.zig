@@ -1280,8 +1280,15 @@ pub const DrumMachine = struct {
     /// the pad if it was still null.
     pub fn loadPadWav(self: *DrumMachine, idx: u8, wav_data: []const u8, name: []const u8) !void {
         if (idx >= max_pads) return;
+        const was_empty = self.pads[idx] == null;
         const pad = try self.ensurePad(idx);
-        try pad.loadWav(wav_data, name);
+        pad.loadWav(wav_data, name) catch |err| {
+            if (was_empty) {
+                pad.deinit();
+                self.pads[idx] = null;
+            }
+            return err;
+        };
     }
 
     // -----------------------------------------------------------------------
@@ -1608,6 +1615,15 @@ test "a fresh machine is blank; a kit flavour fills pads 0-15, init empties them
         try std.testing.expectEqual(@as(usize, 0), dm.pads[p].?.pad.samples.len);
         try std.testing.expectEqual(@as(u8, 0), dm.choke_group[p]);
     }
+}
+
+test "failed WAV load does not materialize an empty drum pad" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    try std.testing.expectError(error.InvalidWav, dm.loadPadWav(0, "not a wav", "broken"));
+    try std.testing.expect(dm.pads[0] == null);
 }
 
 test "step sequencer fires pads at correct boundaries" {
