@@ -34,7 +34,7 @@ pub fn draw(app: anytype) void {
     var purpose_buf: [64]u8 = undefined;
     zgui.textColored(theme.audio, "BROWSE", .{});
     zgui.sameLine(.{});
-    zgui.textDisabled("{s}", .{purposeLabel(app.core.browser_purpose, &purpose_buf)});
+    zgui.textDisabled("{s}", .{app.core.browser_purpose.displayLabel(&purpose_buf)});
     const pattern = app.core.searchPattern();
     if (pattern.len > 0) {
         zgui.sameLine(.{ .spacing = 14 });
@@ -83,12 +83,6 @@ fn drawRecentProjects(app: anytype) void {
             break;
         }
     }
-}
-
-fn purposeLabel(purpose: anytype, buf: []u8) []const u8 {
-    var label_buf: [40]u8 = undefined;
-    const label = purpose.label(&label_buf);
-    return std.fmt.bufPrint(buf, "{s} ({s})", .{ label, purpose.ext() }) catch label;
 }
 
 fn drawBookmarks(app: anytype) void {

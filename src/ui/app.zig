@@ -180,6 +180,12 @@ pub const BrowserPurpose = union(enum) {
         };
     }
 
+    pub fn displayLabel(self: BrowserPurpose, buf: []u8) []const u8 {
+        var label_buf: [40]u8 = undefined;
+        const purpose_label = self.label(&label_buf);
+        return std.fmt.bufPrint(buf, "{s} ({s})", .{ purpose_label, self.ext() }) catch purpose_label;
+    }
+
     pub fn canAudition(self: BrowserPurpose) bool {
         return switch (self) {
             .load_sample, .load_pad, .load_clip, .load_slice, .load_wavetable => true,
@@ -210,6 +216,11 @@ test "browser capabilities match selected file type" {
     try std.testing.expect((BrowserPurpose{ .load_pad = 0 }).canMultiSelect());
     const clip: BrowserPurpose = .load_clip;
     try std.testing.expect(!clip.canMultiSelect());
+}
+
+test "browser purpose display label includes accepted extension" {
+    var buf: [64]u8 = undefined;
+    try std.testing.expectEqualStrings("load pad 4 (.wav)", (BrowserPurpose{ .load_pad = 3 }).displayLabel(&buf));
 }
 
 /// One yanked piano-roll pattern: a private copy of the notes + loop length.

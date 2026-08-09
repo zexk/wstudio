@@ -3,7 +3,6 @@
 //! `App.openBrowser`/`App.handleBrowserKey` for the input side.
 
 const std = @import("std");
-const app_mod = @import("../../ui/app.zig");
 const style = @import("../style.zig");
 const fuzzy = @import("../../ui/fuzzy.zig");
 
@@ -15,12 +14,6 @@ const sel = style.sel;
 const yel = style.yel;
 const endLine = style.endLine;
 
-fn purposeLabel(purpose: app_mod.BrowserPurpose, buf: []u8) []const u8 {
-    var label_buf: [40]u8 = undefined;
-    const label = purpose.label(&label_buf);
-    return std.fmt.bufPrint(buf, "{s} ({s})", .{ label, purpose.ext() }) catch label;
-}
-
 pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     if (app.browser_recent_mode) return drawRecentProjects(app, w, rows);
     if (app.browser_bookmark_mode) return drawBookmarkList(app, w, rows);
@@ -29,7 +22,7 @@ pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     try w.writeAll(bold ++ " BROWSE" ++ rst);
     try w.writeAll(dim ++ "  " ++ rst);
     try w.writeAll(acc);
-    try w.writeAll(purposeLabel(app.browser_purpose, &label_buf));
+    try w.writeAll(app.browser_purpose.displayLabel(&label_buf));
     try w.writeAll(rst);
     try endLine(w);
     try w.writeAll(dim);
