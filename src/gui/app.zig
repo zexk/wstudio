@@ -308,6 +308,7 @@ fn pressedModalKey(mode: ws.input.Mode) ?ws.input.Key {
     const special = [_]struct { gui: zgui.Key, modal: ws.input.Key }{
         .{ .gui = .escape, .modal = .escape },
         .{ .gui = .enter, .modal = .enter },
+        .{ .gui = .keypad_enter, .modal = .enter },
         .{ .gui = .tab, .modal = .tab },
         .{ .gui = .back_space, .modal = .backspace },
         .{ .gui = .home, .modal = .home },
