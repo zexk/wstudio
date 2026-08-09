@@ -8,10 +8,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const ws = @import("wstudio");
-const types = ws.types;
-const backend_mod = ws.backend;
 const modal_mod = ws.input;
-const Engine = ws.engine.Engine;
 const terminal_mod = if (builtin.os.tag == .windows) @import("terminal_windows.zig") else @import("terminal.zig");
 const config_mod = @import("../config.zig");
 const app_mod = @import("../ui/app.zig");
@@ -260,11 +257,6 @@ fn drawCenteredLine(w: *std.Io.Writer, text: []const u8, cols: u16, sgr: []const
     try style.endLine(w);
 }
 
-fn renderTrampoline(ctx: *anyopaque, out: []types.Sample) void {
-    const engine: *Engine = @ptrCast(@alignCast(ctx));
-    engine.renderRealtime(out);
-}
-
 /// Set for the lifetime of `run`'s raw-mode session so `main.zig`'s panic
 /// handler can find the terminal to restore before it prints the crash
 /// trace - without this, a panic left the terminal in raw mode with SGR
@@ -308,19 +300,13 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
     app.attachRuntime(runtime);
     defer app.detachRuntime(runtime);
 
-    var config: backend_mod.Config = .{
-        .sample_rate = app.session.project.sample_rate,
-        .block_frames = user_config.audio_block_frames,
-        .output_device = user_config.audio_output_device.slice(),
-    };
-
     // zig fmt: off
     const has_midi = builtin.os.tag == .linux or builtin.os.tag == .macos or builtin.os.tag == .windows;
     const MidiIn   = if (has_midi) ws.midi_in.MidiIn else void;
     var midi_in: MidiIn = undefined;
     // zig fmt: on
 
-    var audio = ws.AudioHost.init(config, renderTrampoline, app.session.engine);
+    var audio = app.audioHost(user_config.audio_block_frames, user_config.audio_output_device.slice());
     try audio.start(io, user_config.audio_backend);
     defer audio.stop();
 
@@ -399,12 +385,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
 
             app.installPreparedReload(prepared);
 
-            config = .{
-                .sample_rate = app.session.project.sample_rate,
-                .block_frames = user_config.audio_block_frames,
-                .output_device = user_config.audio_output_device.slice(),
-            };
-            audio = ws.AudioHost.init(config, renderTrampoline, app.session.engine);
+            audio = app.audioHost(user_config.audio_block_frames, user_config.audio_output_device.slice());
             // A restart failure here just leaves the session silent
             // rather than tearing down the whole running app.
             audio.start(io, user_config.audio_backend) catch {};

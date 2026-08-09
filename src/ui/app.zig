@@ -1169,6 +1169,20 @@ pub const App = struct {
         return transport;
     }
 
+    pub fn audioHost(self: *App, block_frames: u32, output_device: []const u8) ws.AudioHost {
+        const render = struct {
+            fn callback(ctx: *anyopaque, out: []types.Sample) void {
+                const engine: *Engine = @ptrCast(@alignCast(ctx));
+                engine.renderRealtime(out);
+            }
+        }.callback;
+        return ws.AudioHost.init(.{
+            .sample_rate = self.session.project.sample_rate,
+            .block_frames = block_frames,
+            .output_device = output_device,
+        }, render, self.session.engine);
+    }
+
     pub fn setScale(self: *App, scale: ?ws.theory.Scale) void {
         self.session.project.scale = scale;
         self.dirty = true;

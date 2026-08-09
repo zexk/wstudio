@@ -43,14 +43,6 @@ fn syncWindowTitle(window: *glfw.Window, app: *const App, last: []u8, last_len: 
     window.setTitle(title);
 }
 
-fn guiAudio(sample_rate: u32, block_frames: u32, output_device: []const u8, engine: *ws.Engine) ws.AudioHost {
-    return ws.AudioHost.init(
-        .{ .sample_rate = sample_rate, .block_frames = block_frames, .output_device = output_device },
-        renderAudio,
-        engine,
-    );
-}
-
 // On Windows, glfw.pollEvents blocks inside the Win32 modal loop for the
 // whole resize/move drag, so the main loop renders nothing until release.
 // GLFW delivers refresh/size callbacks from inside that loop; rendering a
@@ -164,7 +156,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     var title_path_buf: [1024]u8 = undefined;
     var title_path_len: usize = 0;
     syncWindowTitle(window, &app, &title_path_buf, &title_path_len);
-    var audio = guiAudio(app.core.session.project.sample_rate, user_config.audio_block_frames, user_config.audio_output_device.slice(), app.core.session.engine);
+    var audio = app.core.audioHost(user_config.audio_block_frames, user_config.audio_output_device.slice());
     try audio.start(init.io, user_config.audio_backend);
     defer audio.stop();
 
@@ -206,7 +198,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 using_midi = false;
             }
             app.core.installPreparedReload(prepared);
-            audio = guiAudio(app.core.session.project.sample_rate, user_config.audio_block_frames, user_config.audio_output_device.slice(), app.core.session.engine);
+            audio = app.core.audioHost(user_config.audio_block_frames, user_config.audio_output_device.slice());
             // A restart failure here leaves the session silent rather
             // than tearing down a running app with unsaved work in it -
             // same call as tui/tui.zig's.
@@ -276,11 +268,6 @@ fn configureFonts(size: f32) void {
     icon_config.glyph_min_advance_x = size;
     _ = zgui.io.addFontFromMemoryWithConfig(ws.icon_font_ttf, size, icon_config, &icon_glyph_ranges);
     zgui.io.setDefaultFont(text_font);
-}
-
-fn renderAudio(ctx: *anyopaque, out: []ws.types.Sample) void {
-    const engine: *ws.Engine = @ptrCast(@alignCast(ctx));
-    engine.renderRealtime(out);
 }
 
 test {
