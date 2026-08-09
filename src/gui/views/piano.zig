@@ -180,17 +180,17 @@ fn drawToolbar(app: anytype) void {
         }
     }
 
-    zgui.sameLine(.{ .spacing = 14 });
+    zgui.sameLine(.{ .spacing = 12 });
     _ = widgets.toggle("GHOST NOTES", &app.core.piano_ghost);
 
-    zgui.sameLine(.{ .spacing = 14 });
+    zgui.sameLine(.{ .spacing = 12 });
     var triplet = app.core.piano_grid == .triplet;
     if (widgets.toggle("TRIPLET", &triplet)) {
         app.core.handleKey(.{ .char = 'T' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     }
 
     zgui.sameLine(.{ .spacing = 8 });
-    if (zgui.button("- GRID##piano-grid-down", .{ .h = 27 })) {
+    if (widgets.iconButton("\u{2212}##piano-grid-down", "Coarser grid  zG")) {
         const now_ns = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
         app.core.handleKey(.{ .char = 'z' }, now_ns);
         app.core.handleKey(.{ .char = 'G' }, now_ns);
@@ -198,18 +198,18 @@ fn drawToolbar(app: anytype) void {
     zgui.sameLine(.{ .spacing = 4 });
     zgui.textColored(theme.audio, "{s}", .{app.core.piano_division.label()});
     zgui.sameLine(.{ .spacing = 4 });
-    if (zgui.button("+ GRID##piano-grid-up", .{ .h = 27 })) {
+    if (widgets.iconButton("+##piano-grid-up", "Finer grid  zg")) {
         const now_ns = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
         app.core.handleKey(.{ .char = 'z' }, now_ns);
         app.core.handleKey(.{ .char = 'g' }, now_ns);
     }
 
     zgui.sameLine(.{ .spacing = 12 });
-    if (zgui.button("- LEN##piano-len-down", .{ .h = 27 })) {
+    if (widgets.iconButton("\u{2190}##piano-len-down", "Shorter notes  [")) {
         app.core.handleKey(.{ .char = '[' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     }
     zgui.sameLine(.{ .spacing = 4 });
-    if (zgui.button("+ LEN##piano-len-up", .{ .h = 27 })) {
+    if (widgets.iconButton("\u{2192}##piano-len-up", "Longer notes  ]")) {
         app.core.handleKey(.{ .char = ']' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     }
 }
@@ -227,28 +227,14 @@ pub fn draw(app: anytype) void {
     zgui.text("\"{s}\"", .{track_name});
     if (app.core.piano_clip_link) |link| {
         zgui.sameLine(.{});
-        zgui.textColored(theme.focus, "clip@bar {d}", .{link.start_bar + 1});
+        zgui.textColored(theme.focus, icons.arrangement ++ "  BAR {d}", .{link.start_bar + 1});
     } else if (app.core.session.song_mode) {
         zgui.sameLine(.{});
-        zgui.textColored(theme.danger, "scratch: not in song until stamped from arrangement", .{});
-    }
-    if (app.core.session.project.scale) |scale| {
-        zgui.sameLine(.{});
-        zgui.textColored(theme.modulation, "scale {s} {s}", .{ ws.theory.pitchClassName(scale.root), scale.kind.label() });
-    }
-    if (app.core.piano_grid == .triplet) {
-        zgui.sameLine(.{});
-        zgui.textColored(theme.rhythm, "triplet", .{});
-    }
-    zgui.sameLine(.{});
-    zgui.textColored(theme.audio, "{s}", .{app.core.piano_division.label()});
-    if (app.core.piano_ghost) {
-        zgui.sameLine(.{});
-        zgui.textDisabled("ghost", .{});
+        zgui.textColored(theme.danger, "SCRATCH  stamp from arrangement", .{});
     }
     if (app.core.piano_audition) {
         zgui.sameLine(.{});
-        zgui.textDisabled("audition", .{});
+        zgui.textColored(theme.audio, icons.play ++ "  AUDITION", .{});
     }
     drawToolbar(app);
 
