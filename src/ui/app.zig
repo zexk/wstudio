@@ -1163,6 +1163,12 @@ pub const App = struct {
         return if (loop_frames > 0) position_frames % loop_frames else position_frames;
     }
 
+    pub fn displayTransport(self: *App, position_frames: u64) Transport {
+        var transport = self.session.engine.transport;
+        transport.position_frames = self.displayPositionFrames(position_frames);
+        return transport;
+    }
+
     // -----------------------------------------------------------------------
     // Input handling
     // -----------------------------------------------------------------------

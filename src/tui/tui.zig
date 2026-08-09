@@ -11,7 +11,6 @@ const ws = @import("wstudio");
 const types = ws.types;
 const backend_mod = ws.backend;
 const modal_mod = ws.input;
-const Transport = ws.Transport;
 const Engine = ws.engine.Engine;
 const terminal_mod = if (builtin.os.tag == .windows) @import("terminal_windows.zig") else @import("terminal.zig");
 const config_mod = @import("../config.zig");
@@ -100,11 +99,7 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
     }
     // zig fmt: on
 
-    var transport: Transport = .{
-        .sample_rate = self.session.project.sample_rate,
-        .tempo_bpm = self.session.project.tempo_bpm,
-        .position_frames = self.displayPositionFrames(snap.position_frames),
-    };
+    const transport = self.displayTransport(snap.position_frames);
     const pos = transport.positionBarBeat();
     const secs = transport.positionSeconds();
     // Left = transport state (play/stop, metronome, bar.beat, clock);

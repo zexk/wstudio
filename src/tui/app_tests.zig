@@ -328,6 +328,15 @@ test "pattern-mode transport position readout wraps at the content length" {
     try std.testing.expectEqual(@as(u64, fpb), app.displayPositionFrames(loop_frames + fpb));
     app.session.song_mode = true;
     try std.testing.expectEqual(loop_frames + fpb, app.displayPositionFrames(loop_frames + fpb));
+
+    app.session.engine.transport.tempo_points[0] = .{ .beat = 0, .bpm = 77 };
+    app.session.engine.transport.tempo_point_count = 1;
+    app.session.engine.transport.meter_points[0] = .{ .beat = 0, .numerator = 7, .denominator = 8 };
+    app.session.engine.transport.meter_point_count = 1;
+    const display = app.displayTransport(loop_frames + fpb);
+    try std.testing.expectEqual(loop_frames + fpb, display.position_frames);
+    try std.testing.expectEqual(@as(f64, 77), display.currentTempo());
+    try std.testing.expectEqual(@as(u8, 7), display.currentMeter().numerator);
 }
 
 test ":humanize jitters the cursor track's pattern and is undoable" {
