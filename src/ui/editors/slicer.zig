@@ -142,10 +142,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 
     switch (key) {
         .escape => { app.view = .tracks; return true; },
-        // enter toggles the step; space falls through to transport play/pause.
-        // With no clip there are no steps to toggle, so enter opens its browser.
+        // Enter toggles a step. Empty machines load audio; loaded clips must
+        // be chopped before a slice row can hold steps.
         .enter => {
-            if (sl.slice_count == 0 and !sl.hasAudio()) { commands_load.cmdLoad(app, ""); return true; }
+            if (sl.slice_count == 0) {
+                if (!sl.hasAudio()) commands_load.cmdLoad(app, "") else app.setStatus("no slices - q: chop or :slice <n>", .{});
+                return true;
+            }
             history.recordSlicer(app, app.slicer_track);
             sl.toggleStep(@intCast(slice.*), step.*);
             return true;

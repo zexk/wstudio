@@ -3411,6 +3411,16 @@ test "empty sampler panel ignores hidden keyboard controls" {
     try std.testing.expect(!app.dirty);
     _ = sampler_ed.handleKey(&app, .enter);
     try std.testing.expectEqual(AppView.slicer_grid, app.view);
+    _ = slicer_ed.handleKey(&app, .enter);
+    try std.testing.expect(!app.slicerInst().stepActive(0, 0));
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "no slices") != null);
+
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
+    var plain_buf: [32 * 1024]u8 = undefined;
+    const plain = ansi.stripAnsi(w.buffered(), &plain_buf);
+    try std.testing.expect(std.mem.indexOf(u8, plain, "slice 1/0") == null);
 }
 
 test "draw renders standalone sampler editor with root row" {

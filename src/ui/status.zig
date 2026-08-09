@@ -162,6 +162,16 @@ pub fn drawSlicerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
     const s = app.slicer_cursor[1];
     try writeModeBadge(w, app.modal.mode);
     try writeViewBadge(right, "SLICER", app.modal.mode);
+    if (sl.slice_count == 0) {
+        try w.writeAll(dim ++ "  no slices  " ++ rst);
+        if (app.status_len > 0)
+            try w.writeAll(app.status_buf[0..app.status_len])
+        else if (sl.hasAudio())
+            try w.writeAll("q: chop  :slice <n>")
+        else
+            try w.writeAll("enter: load");
+        return;
+    }
     try w.writeAll(dim ++ "  pat " ++ rst);
     try w.print("{c}", .{Slicer.variantLetter(sl.variant)});
     try w.writeAll(dim ++ "  slice " ++ rst);
