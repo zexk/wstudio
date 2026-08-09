@@ -797,6 +797,10 @@ pub const Slicer = struct {
         for (self.song_clips[0..self.song_clip_count]) |*old| freeMidi(self.allocator, &old.midi);
         const count = @min(clips.len, @as(usize, max_song_clips));
         for (clips[0..count], self.song_clips[0..count]) |src, *dst| dst.* = src;
+        for (clips[count..]) |src| {
+            var dropped = src;
+            freeMidi(self.allocator, &dropped.midi);
+        }
         self.song_clip_count = @intCast(count);
         self.song_length_steps = length_steps;
         self.song_steps_per_beat = std.math.clamp(steps_per_beat, 1, 32);

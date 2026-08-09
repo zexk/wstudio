@@ -672,6 +672,10 @@ pub const DrumMachine = struct {
         for (self.song_clips[0..self.song_clip_count]) |*old| freeMidi(self.allocator, &old.midi);
         const count = @min(clips.len, @as(usize, max_song_clips));
         for (clips[0..count], self.song_clips[0..count]) |src, *dst| dst.* = src;
+        for (clips[count..]) |src| {
+            var dropped = src;
+            freeMidi(self.allocator, &dropped.midi);
+        }
         self.song_clip_count = @intCast(count);
         self.song_length_steps = length_steps;
         self.song_steps_per_beat = std.math.clamp(steps_per_beat, 1, 32);
@@ -1902,6 +1906,25 @@ test "song mode fires the clip covering the playhead" {
     peak = 0;
     for (buf) |s| peak = @max(peak, @abs(s));
     try std.testing.expect(peak > 0.01);
+}
+
+test "song clip overflow releases transferred MIDI rows" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    var clips: [DrumMachine.max_song_clips + 1]DrumMachine.SongClip = undefined;
+    for (&clips) |*clip| clip.* = .{
+        .start_step = 0,
+        .span_steps = 16,
+        .step_count = 16,
+        .midi = [_][]?DrumMachine.MidiNote{&.{}} ** DrumMachine.max_pads,
+    };
+    clips[DrumMachine.max_song_clips].midi[0] = try std.testing.allocator.alloc(?DrumMachine.MidiNote, 1);
+    clips[DrumMachine.max_song_clips].midi[0][0] = null;
+
+    dm.setSongClips(&clips, 16, 4);
+    try std.testing.expectEqual(DrumMachine.max_song_clips, dm.song_clip_count);
 }
 
 test "song mode swing follows the clip's sixteenth-note grid" {
