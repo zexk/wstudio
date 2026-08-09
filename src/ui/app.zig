@@ -1680,7 +1680,7 @@ pub const App = struct {
     }
 
     pub fn reloadConfig(self: *App, runtime: *config_mod.Runtime) bool {
-        runtime.reload(self.io) catch |err| {
+        _ = runtime.reload(self.io) catch |err| {
             self.afterConfigReload(runtime.config);
             self.setStatus("reload-config: {s}", .{@errorName(err)});
             return false;
