@@ -5,7 +5,7 @@
 const std = @import("std");
 const ws = @import("wstudio");
 const config_mod = @import("../config.zig");
-const tui_app = @import("../ui/app.zig");
+const app_mod = @import("../ui/app.zig");
 const history = @import("../ui/history.zig");
 const chrome = @import("chrome.zig");
 const arrangement_view = @import("views/arrangement.zig");
@@ -29,7 +29,7 @@ pub const App = struct {
     pub const TrackMixerField = enum { gain, pan };
     const TrackMixerEdit = struct { track: u16, field: TrackMixerField, before: f32 };
 
-    core: tui_app.App,
+    core: app_mod.App,
     arrangement_clip: ?arrangement_view.ClipSelection = null,
     arrangement_drag: ?arrangement_view.ClipDrag = null,
     piano_mouse_edit: ?piano_view.MouseEdit = null,
@@ -47,10 +47,10 @@ pub const App = struct {
     meter_last_ns: i128 = 0,
     /// Which view the one shared workspace window last drew - see
     /// `drawWorkspace`, which resets the scroll when this changes.
-    last_workspace_view: tui_app.AppView = .tracks,
+    last_workspace_view: app_mod.AppView = .tracks,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, user_config: config_mod.Config) !App {
-        return .{ .core = try tui_app.App.initConfigured(allocator, io, init_path, user_config) };
+        return .{ .core = try app_mod.App.initConfigured(allocator, io, init_path, user_config) };
     }
 
     pub fn deinit(self: *App) void {
@@ -176,7 +176,7 @@ fn drawWorkspace(app: *App) void {
     zgui.end();
 }
 
-fn drawView(app: *App, view: tui_app.AppView) void {
+fn drawView(app: *App, view: app_mod.AppView) void {
     switch (view) {
         .tracks => tracks_view.draw(app),
         .arrangement => arrangement_view.draw(app),
@@ -204,7 +204,7 @@ fn drawPicker(app: *App) void {
     }
 }
 
-fn isPickerView(view: tui_app.AppView) bool {
+fn isPickerView(view: app_mod.AppView) bool {
     return switch (view) {
         // The file browser is a picker in everything but name: a modal list
         // over whatever view opened it, dismissed with esc, chosen with
@@ -215,7 +215,7 @@ fn isPickerView(view: tui_app.AppView) bool {
     };
 }
 
-fn pickerBaseView(app: *const App) tui_app.AppView {
+fn pickerBaseView(app: *const App) app_mod.AppView {
     return switch (app.core.view) {
         .instrument_picker => .tracks,
         .fx_picker => app.core.fx_picker_return,
@@ -231,7 +231,7 @@ fn pickerBaseView(app: *const App) tui_app.AppView {
     };
 }
 
-fn workspaceViewChanged(previous: *tui_app.AppView, current: tui_app.AppView) bool {
+fn workspaceViewChanged(previous: *app_mod.AppView, current: app_mod.AppView) bool {
     if (previous.* == current) return false;
     previous.* = current;
     return true;
@@ -347,16 +347,16 @@ test "GUI number row respects shift" {
 }
 
 test "workspace viewport resets once when view changes" {
-    var previous: tui_app.AppView = .tracks;
+    var previous: app_mod.AppView = .tracks;
     try std.testing.expect(!workspaceViewChanged(&previous, .tracks));
     try std.testing.expect(workspaceViewChanged(&previous, .piano_roll));
-    try std.testing.expectEqual(tui_app.AppView.piano_roll, previous);
+    try std.testing.expectEqual(app_mod.AppView.piano_roll, previous);
     try std.testing.expect(!workspaceViewChanged(&previous, .piano_roll));
     try std.testing.expect(workspaceViewChanged(&previous, .arrangement));
 }
 
 test "GUI drag gestures record one history entry per activation" {
-    var app: App = .{ .core = try tui_app.App.init(std.testing.allocator, std.testing.io) };
+    var app: App = .{ .core = try app_mod.App.init(std.testing.allocator, std.testing.io) };
     defer app.deinit();
     try app.core.session.setInstrument(0, .poly_synth);
 
@@ -393,18 +393,18 @@ test "GUI drag gestures record one history entry per activation" {
 }
 
 test "GUI picker cards select and escape dismisses" {
-    var app: App = .{ .core = try tui_app.App.init(std.testing.allocator, std.Io.failing) };
+    var app: App = .{ .core = try app_mod.App.init(std.testing.allocator, std.Io.failing) };
     defer app.deinit();
 
     app.core.handleKey(.enter, 0);
     picker_view.dismiss(&app, 0);
-    try std.testing.expectEqual(tui_app.AppView.tracks, app.core.view);
+    try std.testing.expectEqual(app_mod.AppView.tracks, app.core.view);
     try std.testing.expectEqual(ws.InstrumentKind.empty, std.meta.activeTag(app.core.session.racks.items[0].instrument));
 
     app.core.handleKey(.enter, 0);
     picker_view.selectInstrument(&app, 1, 0);
     try std.testing.expectEqual(ws.InstrumentKind.sampler, std.meta.activeTag(app.core.session.racks.items[0].instrument));
-    try std.testing.expectEqual(tui_app.AppView.sampler_editor, app.core.view);
+    try std.testing.expectEqual(app_mod.AppView.sampler_editor, app.core.view);
 }
 
 // Zig only analyzes tests in files the test root references explicitly, so a
