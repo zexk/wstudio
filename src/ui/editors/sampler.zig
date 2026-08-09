@@ -9,6 +9,7 @@ const DrumMachine = ws.dsp.DrumMachine;
 const Sampler = ws.dsp.Sampler;
 const app_mod = @import("../app.zig");
 const App = app_mod.App;
+const SamplerTarget = app_mod.SamplerTarget;
 const SamplerMarker = app_mod.SamplerMarker;
 const history = @import("../history.zig");
 const commands_load = @import("../commands_load.zig");
@@ -88,6 +89,20 @@ fn paramCount(app: *App) u8 {
         .sampler => Sampler.param_count,
         .slice => DrumMachine.pad_param_count,
     };
+}
+
+pub fn engineParamId(target: SamplerTarget, index: u8, id: u8) u16 {
+    return switch (target) {
+        .drum => DrumMachine.paramId(index, id),
+        .slice => ws.dsp.Slicer.paramId(index, id),
+        .sampler => id,
+    };
+}
+
+test "sampler targets map local params onto engine ids" {
+    try std.testing.expectEqual(DrumMachine.paramId(3, 5), engineParamId(.{ .drum = 0 }, 3, 5));
+    try std.testing.expectEqual(ws.dsp.Slicer.paramId(3, 5), engineParamId(.{ .slice = 0 }, 3, 5));
+    try std.testing.expectEqual(@as(u16, 5), engineParamId(.{ .sampler = 0 }, 3, 5));
 }
 
 // zig fmt: off
@@ -339,12 +354,12 @@ pub fn adjustParam(app: *App, steps: i32) void {
     app.dirty = true;
     switch (app.sampler_target) {
         .drum => |t| {
-            const id = DrumMachine.paramId(@intCast(app.drum_cursor[0]), app.sampler_param);
+            const id = engineParamId(app.sampler_target, @intCast(app.drum_cursor[0]), app.sampler_param);
             history.noteParamNudge(app, t, id, steps);
             _ = app.session.engine.send(.{ .set_track_param = .{ .track = t, .id = id, .steps = steps } });
         },
         .slice => |t| {
-            const id = ws.dsp.Slicer.paramId(@intCast(app.slicer_cursor[0]), app.sampler_param);
+            const id = engineParamId(app.sampler_target, @intCast(app.slicer_cursor[0]), app.sampler_param);
             history.noteParamNudge(app, t, id, steps);
             _ = app.session.engine.send(.{ .set_track_param = .{ .track = t, .id = id, .steps = steps } });
         },

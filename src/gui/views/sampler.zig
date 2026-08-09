@@ -66,13 +66,6 @@ const Target = union(enum) {
         };
         return ws.dsp.pad.playDurationSeconds(pad, self.sampleRate());
     }
-
-    fn engineId(self: Target, id: u8) u16 {
-        return switch (self) {
-            .standalone => id,
-            .pad => |t| if (t.kind == .drum) ws.dsp.DrumMachine.paramId(t.index, id) else ws.dsp.Slicer.paramId(t.index, id),
-        };
-    }
 };
 
 fn drawSharedSections(app: anytype, target: Target) void {
@@ -186,7 +179,11 @@ fn drawAmpEnvelope(app: anytype, target: Target) void {
 }
 
 fn setPadParam(app: anytype, target: Target, id: u8, value: f32) void {
-    const engine_id = target.engineId(id);
+    const index: u8 = switch (target) {
+        .standalone => 0,
+        .pad => |t| t.index,
+    };
+    const engine_id = sampler_ed.engineParamId(app.core.sampler_target, index, id);
     app.recordInstrumentEdit(target.track(), engine_id);
     _ = app.core.session.engine.setTrackParam(target.track(), engine_id, value);
     app.core.dirty = true;
