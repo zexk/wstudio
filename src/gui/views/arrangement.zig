@@ -5,6 +5,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const icons = @import("../../ui/icons.zig");
 const gui_style = @import("../style.zig");
+const widgets = @import("../widgets.zig");
 const zgui = @import("zgui");
 const shared_step_grid = @import("../../ui/editors/step_grid.zig");
 const scroll = @import("../scroll.zig");
@@ -31,13 +32,13 @@ pub fn draw(app: anytype) void {
     zgui.sameLine(.{});
     zgui.textColored(theme.audio, "{s}", .{app.core.arr_grid.label()});
     zgui.sameLine(.{ .spacing = 8 });
-    if (zgui.smallButton("- GRID##arr-grid-down")) {
+    if (widgets.iconButton("\u{2212}##arr-grid-down", "Coarser grid  zG")) {
         const now_ns = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
         app.core.handleKey(.{ .char = 'z' }, now_ns);
         app.core.handleKey(.{ .char = 'G' }, now_ns);
     }
     zgui.sameLine(.{ .spacing = 4 });
-    if (zgui.smallButton("+ GRID##arr-grid-up")) {
+    if (widgets.iconButton("+##arr-grid-up", "Finer grid  zg")) {
         const now_ns = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
         app.core.handleKey(.{ .char = 'z' }, now_ns);
         app.core.handleKey(.{ .char = 'g' }, now_ns);
@@ -409,7 +410,7 @@ fn drawArrangementInspector(app: anytype) void {
     var action: ?u8 = null;
     if (zgui.beginChild("arrangement-inspector", .{ .w = 0, .h = 108, .child_flags = .{ .border = true } })) {
         const clip = app.core.session.arrangement.lanes.items[selection.track].clips.items[selection.clip];
-        zgui.textColored(theme.focus, "SELECTED CLIP", .{});
+        zgui.textColored(theme.focus, icons.arrangement ++ "  CLIP", .{});
         zgui.separator();
         zgui.text("Track {d:0>2}", .{selection.track + 1});
         zgui.sameLine(.{ .spacing = 24 });
@@ -423,18 +424,18 @@ fn drawArrangementInspector(app: anytype) void {
             .audio => "AUDIO REGION",
         }});
         zgui.spacing();
-        if (zgui.button("< MOVE##clip-move-left", .{})) action = '<';
+        if (widgets.iconButton("\u{2190}##clip-move-left", "Move left  <")) action = '<';
         zgui.sameLine(.{ .spacing = 6 });
-        if (zgui.button("MOVE >##clip-move-right", .{})) action = '>';
-        zgui.sameLine(.{ .spacing = 12 });
-        if (zgui.button("- LENGTH##clip-shorter", .{})) action = '-';
+        if (widgets.iconButton("\u{2192}##clip-move-right", "Move right  >")) action = '>';
         zgui.sameLine(.{ .spacing = 6 });
-        if (zgui.button("+ LENGTH##clip-longer", .{})) action = '+';
-        zgui.sameLine(.{ .spacing = 12 });
-        if (zgui.button("AUTOMATION##clip-automation", .{})) action = 'a';
-        zgui.sameLine(.{ .spacing = 12 });
+        if (widgets.iconButton("\u{2212}##clip-shorter", "Shorten clip  -")) action = '-';
+        zgui.sameLine(.{ .spacing = 6 });
+        if (widgets.iconButton("+##clip-longer", "Lengthen clip  +")) action = '+';
+        zgui.sameLine(.{ .spacing = 6 });
+        if (widgets.iconButton(icons.arrangement ++ "##clip-automation", "Edit automation  a")) action = 'a';
+        zgui.sameLine(.{ .spacing = 6 });
         zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = theme.danger });
-        if (zgui.button("DELETE##clip-delete", .{})) action = 'x';
+        if (widgets.iconButton("\u{00D7}##clip-delete", "Delete clip  x")) action = 'x';
         zgui.popStyleColor(.{});
     }
     zgui.endChild();
