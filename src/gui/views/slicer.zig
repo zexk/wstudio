@@ -89,9 +89,9 @@ fn drawHeader(app: anytype, slicer: *const ws.dsp.Slicer) void {
         zgui.sameLine(.{});
         zgui.textDisabled("{d}/{d}", .{ slicer.variant + 1, slicer.variant_count });
         zgui.sameLine(.{ .spacing = 8 });
-        if (zgui.smallButton("<##slicer-variant-prev")) app.core.handleKey(.{ .char = '[' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+        if (widgets.iconButton("\u{2039}##slicer-variant-prev", "Previous pattern  [")) app.core.handleKey(.{ .char = '[' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
         zgui.sameLine(.{ .spacing = 4 });
-        if (zgui.smallButton(">##slicer-variant-next")) app.core.handleKey(.{ .char = ']' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+        if (widgets.iconButton("\u{203A}##slicer-variant-next", "Next pattern  ]")) app.core.handleKey(.{ .char = ']' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     }
 }
 
