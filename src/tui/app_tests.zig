@@ -3375,6 +3375,12 @@ test "draw renders slicer control panel without overflowing" {
     const sl = app.slicerInst();
     sl.samples = try app.allocator.alloc(f32, 8);
     @memset(sl.samples, 0);
+    w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 30 });
+    const unchopped = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, unchopped, "Audio loaded, but no slices exist.") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unchopped, "enter: chop view") != null);
+
     sl.sliceInto(3);
     w = std.Io.Writer.fixed(&buf);
     try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 30 });
@@ -3382,6 +3388,29 @@ test "draw renders slicer control panel without overflowing" {
     try std.testing.expect(std.mem.indexOf(u8, loaded, "SLICE MAP 1/1") != null);
     try std.testing.expect(std.mem.indexOf(u8, loaded, "attack") != null);
     try std.testing.expect(std.mem.indexOf(u8, loaded, "j/k: param") != null);
+}
+
+test "empty sampler panel ignores hidden keyboard controls" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.sampler_target = .{ .slice = 0 };
+    app.view = .sampler_editor;
+    app.sampler_param = 2;
+
+    _ = sampler_ed.handleKey(&app, .{ .char = 'j' });
+    _ = sampler_ed.handleKey(&app, .{ .char = 'l' });
+    _ = sampler_ed.handleKey(&app, .{ .char = 'a' });
+    try std.testing.expectEqual(@as(u8, 2), app.sampler_param);
+    try std.testing.expect(!app.dirty);
+
+    app.slicerInst().samples = try app.allocator.alloc(f32, 8);
+    @memset(app.slicerInst().samples, 0);
+    _ = sampler_ed.handleKey(&app, .{ .char = 'l' });
+    try std.testing.expect(!app.dirty);
+    _ = sampler_ed.handleKey(&app, .enter);
+    try std.testing.expectEqual(AppView.slicer_grid, app.view);
 }
 
 test "draw renders standalone sampler editor with root row" {

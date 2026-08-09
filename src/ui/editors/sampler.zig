@@ -134,9 +134,18 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             return true;
         },
         .ctrl_r => { history.doRedo(app); return true; },
-        // Empty targets have nothing to edit, so enter opens their browser.
+        // Empty targets open their browser. Loaded-but-unchopped slicers go
+        // to the grid where chop controls live.
         .enter => {
-            if (targetHasAudio(app)) return false;
+            if (is_slice) {
+                if (app.slicerInst().slice_count > 0) return false;
+                if (app.slicerInst().hasAudio()) {
+                    app.openStepEditor(app.sampler_target.track());
+                    return true;
+                }
+            } else if (targetHasAudio(app)) {
+                return false;
+            }
             commands_load.cmdLoad(app, "");
             return true;
         },
@@ -247,6 +256,14 @@ fn targetHasAudio(app: *App) bool {
     }
 }
 
+fn targetIsEditable(app: *App) bool {
+    return switch (app.sampler_target) {
+        .drum => app.drum_cursor[0] < DrumMachine.max_pads and app.drumMachine().pads[app.drum_cursor[0]] != null,
+        .slice => app.slicer_cursor[0] < app.slicerInst().slice_count,
+        .sampler => app.editingSampler() != null,
+    };
+}
+
 /// Move the pad/slice cursor by `delta`, clamped to the target's slot count
 /// - shared by J/K here and editors/drum.zig's own movePad (kept separate
 /// since the two files don't share a common cursor-motion module).
@@ -291,6 +308,7 @@ fn paramOrder(pad_target: bool, count: u8, out: *[24]u8) []const u8 {
 /// Move the param cursor by `delta` rows, clamped to the param list -
 /// mirrors the synth editor's equivalent.
 fn moveCursor(app: *App, delta: i32) void {
+    if (!targetIsEditable(app)) return;
     var buf: [24]u8 = undefined;
     const order = paramOrder(app.sampler_target != .sampler, paramCount(app), &buf);
     var idx: u8 = 0;
@@ -302,6 +320,7 @@ fn moveCursor(app: *App, delta: i32) void {
 
 /// First/last param row the editor draws, for g/G.
 fn edgeParam(app: *App, last: bool) u8 {
+    if (!targetIsEditable(app)) return app.sampler_param;
     var buf: [24]u8 = undefined;
     const order = paramOrder(app.sampler_target != .sampler, paramCount(app), &buf);
     return if (last) order[order.len - 1] else order[0];
@@ -322,6 +341,7 @@ test "param row order follows the drawn rows, not the raw id space" {
 
 /// Audition the sampler editor's current target.
 fn preview(app: *App) void {
+    if (!targetIsEditable(app)) return;
     switch (app.sampler_target) {
         .drum => |t| {
             _ = app.session.engine.send(.{ .note_on = .{
@@ -351,6 +371,7 @@ fn preview(app: *App) void {
 /// notes the nudge for undo (history.noteParamNudge), coalescing a run of
 /// h/l presses on the same param into one undo step.
 pub fn adjustParam(app: *App, steps: i32) void {
+    if (!targetIsEditable(app)) return;
     app.dirty = true;
     switch (app.sampler_target) {
         .drum => |t| {
@@ -488,7 +509,7 @@ fn startWaveformDrag(app: *App, x: usize, cols: u16) void {
 /// to follow the mouse while the button stays held. Scroll over a param row
 /// nudges it via `adjustParam` (**ctrl**+scroll = coarse, matching H/L).
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, view_rows: usize) void {
-    if (!targetHasAudio(app)) {
+    if (!targetIsEditable(app)) {
         app.sampler_drag_marker = null;
         return;
     }

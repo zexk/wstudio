@@ -408,7 +408,9 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
     try writeModeBadge(w, app.modal.mode);
     try writeViewBadge(right, if (is_drum) "DRUM" else if (is_slice) "SLICER" else "SAMPLER", app.modal.mode);
     if (is_slice and app.slicerInst().slice_count == 0) {
-        try w.writeAll(dim ++ "  no slices  enter: load  e/esc: back" ++ rst);
+        try w.writeAll(dim);
+        try w.writeAll(if (app.slicerInst().hasAudio()) "  no slices  enter: chop view  e/esc: back" else "  no slices  enter: load  e/esc: back");
+        try w.writeAll(rst);
         return;
     }
     if (is_drum) {
