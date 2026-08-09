@@ -4463,6 +4463,53 @@ pub const App = struct {
         return self.pending_reload_buf[0..self.pending_reload_len];
     }
 
+    pub const PreparedReload = struct {
+        kind: ReloadRequest,
+        session: ws.Session,
+    };
+
+    /// Build a requested replacement before frontends stop audio/MIDI.
+    /// Ownership of a returned session passes to `installPreparedReload`.
+    pub fn preparePendingReload(self: *App) ?PreparedReload {
+        const kind = self.pending_reload;
+        if (kind == .none) return null;
+        self.pending_reload = .none;
+        const session = switch (kind) {
+            .blank => ws.Session.initDefault(self.allocator) catch |err| {
+                self.setStatus("new: {s}", .{@errorName(err)});
+                return null;
+            },
+            .load, .restore_backup => ws.persist.load(self.allocator, self.io, self.pendingReloadPath()) catch |err| {
+                self.setStatus("cannot load '{s}': {s}", .{ self.pendingReloadPath(), @errorName(err) });
+                return null;
+            },
+            .none => unreachable,
+        };
+        return .{ .kind = kind, .session = session };
+    }
+
+    pub fn installPreparedReload(self: *App, prepared: PreparedReload) void {
+        self.session.deinit();
+        self.session = prepared.session;
+        self.resetForNewSession();
+        switch (prepared.kind) {
+            .load => {
+                self.setProjectPath(self.pendingReloadPath());
+                self.setStatus("loaded: {s}", .{self.projectPath().?});
+            },
+            .restore_backup => {
+                self.dirty = true;
+                self.setStatus("restored from autosave backup; :write to keep it", .{});
+            },
+            .blank => {
+                self.clearProjectPath();
+                self.setStatus("new project", .{});
+            },
+            .none => unreachable,
+        }
+        if (prepared.kind != .blank) self.emitEvent(.{ .ProjectLoadPost = .{ .path = self.pendingReloadPath() } });
+    }
+
     /// `:restore-backup` - load `backup_path` (the `<project>~` autosave)
     /// on the next loop iteration, same swap mechanism as `:e`, but the
     /// project path stays the original file: the backup's content is newer

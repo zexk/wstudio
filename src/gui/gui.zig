@@ -200,55 +200,25 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
         if (window.shouldClose() and !app.core.requestQuit()) window.setShouldClose(false);
         app.core.tick(std.Io.Timestamp.now(init.io, .awake).nanoseconds);
         app.core.reportAudioHealth(audio.takeHealth());
-        if (app.core.pending_reload != .none) {
-            const kind = app.core.pending_reload;
-            app.core.pending_reload = .none;
-            const loaded: ?ws.Session = switch (kind) {
-                .blank => ws.Session.initDefault(init.gpa) catch null,
-                .load, .restore_backup => ws.persist.load(init.gpa, init.io, app.core.pendingReloadPath()) catch |err| blk: {
-                    app.core.setStatus("cannot load '{s}': {s}", .{ app.core.pendingReloadPath(), @errorName(err) });
-                    break :blk null;
-                },
-                .none => unreachable,
-            };
-            if (loaded) |session| {
-                audio.stop();
-                // Both readers point at the engine `deinit` is about to
-                // free - stop them before it, restart them on the new one.
-                if (has_midi and using_midi) {
-                    midi_in.stop();
-                    using_midi = false;
-                }
-                app.core.session.deinit();
-                app.core.session = session;
-                app.core.resetForNewSession();
-                switch (kind) {
-                    .load => app.core.setProjectPath(app.core.pendingReloadPath()),
-                    // The recovered content only exists in memory - the real
-                    // project file still holds the older save - so it has to
-                    // count as unsaved work, or quitting discards it without
-                    // a word. Keep the original path: `:w` writes back to the
-                    // project, not to `<path>~`.
-                    .restore_backup => {
-                        app.core.dirty = true;
-                        app.core.setStatus("restored from autosave backup; :write to keep it", .{});
-                    },
-                    .blank => app.core.clearProjectPath(),
-                    .none => unreachable,
-                }
-                // A blank session is a new project, not a load - no event.
-                if (kind != .blank) app.core.emitEvent(.{ .ProjectLoadPost = .{ .path = app.core.pendingReloadPath() } });
-                audio = guiAudio(app.core.session.project.sample_rate, user_config.audio_block_frames, user_config.audio_output_device.slice(), app.core.session.engine);
-                // A restart failure here leaves the session silent rather
-                // than tearing down a running app with unsaved work in it -
-                // same call as tui/tui.zig's.
-                audio.start(init.io, user_config.audio_backend) catch {};
-                if (has_midi) {
-                    midi_in = .{ .engine = app.core.session.engine, .velocity_curve = .init(user_config.default_midi_velocity_curve) };
-                    if (midi_in.start(user_config.midi_input_device.slice())) {
-                        using_midi = true;
-                    } else |_| {}
-                }
+        if (app.core.preparePendingReload()) |prepared| {
+            audio.stop();
+            // Both readers point at the engine `deinit` is about to
+            // free - stop them before it, restart them on the new one.
+            if (has_midi and using_midi) {
+                midi_in.stop();
+                using_midi = false;
+            }
+            app.core.installPreparedReload(prepared);
+            audio = guiAudio(app.core.session.project.sample_rate, user_config.audio_block_frames, user_config.audio_output_device.slice(), app.core.session.engine);
+            // A restart failure here leaves the session silent rather
+            // than tearing down a running app with unsaved work in it -
+            // same call as tui/tui.zig's.
+            audio.start(init.io, user_config.audio_backend) catch {};
+            if (has_midi) {
+                midi_in = .{ .engine = app.core.session.engine, .velocity_curve = .init(user_config.default_midi_velocity_curve) };
+                if (midi_in.start(user_config.midi_input_device.slice())) {
+                    using_midi = true;
+                } else |_| {}
             }
         }
         // `:reload-config` - re-source init.lua and re-apply whatever it

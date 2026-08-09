@@ -396,67 +396,27 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
         // only stop the backend once we actually have something to swap in
         // - it holds a raw *Engine pointer captured at start (or the last
         // reload), which the swap would otherwise dangle.
-        if (app.pending_reload != .none) {
-            const kind = app.pending_reload;
-            app.pending_reload = .none;
-            const new_session: ?ws.Session = switch (kind) {
-                .none => unreachable,
-                .blank => ws.Session.initDefault(allocator) catch |e| blk: {
-                    app.setStatus("new: {s}", .{@errorName(e)});
-                    break :blk null;
-                },
-                .load, .restore_backup => blk: {
-                    const path = app.pendingReloadPath();
-                    if (ws.persist.load(allocator, io, path)) |loaded| {
-                        break :blk loaded;
-                    } else |e| {
-                        app.setStatus("e: cannot load '{s}': {s}", .{ path, @errorName(e) });
-                        break :blk null;
-                    }
-                },
+        if (app.preparePendingReload()) |prepared| {
+            audio.stop();
+            if (has_midi) { if (using_midi) midi_in.stop(); }
+
+            app.installPreparedReload(prepared);
+
+            config = .{
+                .sample_rate = app.session.project.sample_rate,
+                .block_frames = user_config.audio_block_frames,
+                .output_device = user_config.audio_output_device.slice(),
             };
-            if (new_session) |loaded| {
-                audio.stop();
-                if (has_midi) { if (using_midi) midi_in.stop(); }
-
-                app.session.deinit();
-                app.session = loaded;
-                app.resetForNewSession();
-                switch (kind) {
-                    .load => app.setProjectPath(app.pendingReloadPath()),
-                    // Keep the original project path - the backup's content
-                    // replaces the in-memory session but `:w` should still
-                    // write back to the real file, not `<path>~`.
-                    .restore_backup => { app.dirty = true; app.setStatus("restored from autosave backup - :write to keep it", .{}); },
-                    .blank => app.project_path_len = 0,
-                    .none => unreachable,
-                }
-                // A blank session is a new project, not a load - no event.
-                if (kind != .blank) app.emitEvent(.{ .ProjectLoadPost = .{ .path = app.pendingReloadPath() } });
-
-                config = .{
-                    .sample_rate = app.session.project.sample_rate,
-                    .block_frames = user_config.audio_block_frames,
-                    .output_device = user_config.audio_output_device.slice(),
-                };
-                audio = ws.AudioHost.init(config, renderTrampoline, app.session.engine);
-                // A restart failure here just leaves the session silent
-                // rather than tearing down the whole running app.
-                audio.start(io, user_config.audio_backend) catch {};
-                using_midi = false;
-                if (has_midi) {
-                    midi_in = .{ .engine = app.session.engine, .velocity_curve = .init(user_config.default_midi_velocity_curve) };
-                    if (midi_in.start(user_config.midi_input_device.slice())) { using_midi = true; } else |_| {}
-                }
-                app.audio_label = audio.label();
-                switch (kind) {
-                    .load => app.setStatus("loaded: {s}", .{app.projectPath().?}),
-                    .blank => app.setStatus("new project", .{}),
-                    // Status already set above ("restored from autosave...").
-                    .restore_backup => {},
-                    .none => unreachable,
-                }
+            audio = ws.AudioHost.init(config, renderTrampoline, app.session.engine);
+            // A restart failure here just leaves the session silent
+            // rather than tearing down the whole running app.
+            audio.start(io, user_config.audio_backend) catch {};
+            using_midi = false;
+            if (has_midi) {
+                midi_in = .{ .engine = app.session.engine, .velocity_curve = .init(user_config.default_midi_velocity_curve) };
+                if (midi_in.start(user_config.midi_input_device.slice())) { using_midi = true; } else |_| {}
             }
+            app.audio_label = audio.label();
         }
 
         // `:reload-config` - re-source init.lua, then re-apply whatever it

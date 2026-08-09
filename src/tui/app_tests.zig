@@ -4137,11 +4137,11 @@ test "session swap resets view, editor targets, and undo history" {
     app.piano_clip_link = .{ .track = 2, .start_bar = 0 };
     try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
 
-    // The swap run() performs for :e/:new, minus the audio backend.
-    const loaded = try ws.Session.initDefault(std.testing.allocator);
-    app.session.deinit();
-    app.session = loaded;
-    app.resetForNewSession();
+    // Shared half of the swap run() performs for :e/:new. Frontends only
+    // stop and restart their audio/MIDI backends around these two calls.
+    app.pending_reload = .blank;
+    const prepared = app.preparePendingReload() orelse return error.TestUnexpectedResult;
+    app.installPreparedReload(prepared);
 
     // The old project's undo entries must not apply to the new one, the
     // drum grid must not draw with a stale (here out-of-range) target.
@@ -4151,6 +4151,8 @@ test "session swap resets view, editor targets, and undo history" {
     try std.testing.expectEqual(@as(u16, 0), app.drum_track);
     try std.testing.expectEqual(@as(usize, 0), app.cursor);
     try std.testing.expect(app.piano_clip_link == null);
+    try std.testing.expect(app.projectPath() == null);
+    try std.testing.expectEqualStrings("new project", app.status_buf[0..app.status_len]);
 }
 
 test "track add/delete/move remap the preset picker's target track" {
