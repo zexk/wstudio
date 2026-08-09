@@ -264,13 +264,10 @@ fn workspaceViewChanged(previous: *tui_app.AppView, current: tui_app.AppView) bo
 }
 
 /// The character GLFW's char callback delivered this frame (see
-/// `pushChar`/gui.zig's `onChar`), read by the OEM-key fallback below.
-/// Unlike the named `zgui.Key` punctuation tokens - which identify a
-/// physical key position, not what it types - this reflects the actual
-/// OS-layout-produced character, so it stays correct on non-US layouts
-/// (e.g. Italian, where `;`/`:` sit where US has `,`/`.`, not `l`'s
-/// neighbor). Cleared every frame in `handleShortcuts` regardless of
-/// whether it was consumed.
+/// `pushChar`/gui.zig's `onChar`). Named `zgui.Key` values identify physical
+/// positions; this carries the actual OS-layout-produced character for
+/// letters, digits, and punctuation. Cleared every frame in
+/// `handleShortcuts` regardless of whether it was consumed.
 var queued_char: ?u8 = null;
 
 /// Called from gui.zig's GLFW char callback with the Unicode codepoint the
@@ -325,13 +322,13 @@ fn pressedModalKey(mode: ws.input.Mode) ?ws.input.Key {
     const letters = "abcdefghijklmnopqrstuvwxyz";
     inline for (letters, 0..) |c, i| {
         const key: zgui.Key = @enumFromInt(@intFromEnum(zgui.Key.a) + i);
-        const modal_key: ws.input.Key = .{ .char = if (shifted) std.ascii.toUpper(c) else c };
+        const modal_key: ws.input.Key = .{ .char = queued_char orelse if (shifted) std.ascii.toUpper(c) else c };
         if (zgui.isKeyPressed(key, keyRepeats(mode, modal_key))) return modal_key;
     }
     const digits = "0123456789";
     inline for (digits, 0..) |c, i| {
         const key: zgui.Key = @enumFromInt(@intFromEnum(zgui.Key.zero) + i);
-        const modal_key: ws.input.Key = .{ .char = numberRowChar(c, shifted) };
+        const modal_key: ws.input.Key = .{ .char = queued_char orelse numberRowChar(c, shifted) };
         if (zgui.isKeyPressed(key, keyRepeats(mode, modal_key))) return modal_key;
     }
     // Edge-detect on the named OEM key (so holding it doesn't repeat-fire,
