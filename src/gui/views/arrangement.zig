@@ -31,9 +31,17 @@ pub fn draw(app: anytype) void {
     zgui.sameLine(.{});
     zgui.textColored(theme.audio, "{s}", .{app.core.arr_grid.label()});
     zgui.sameLine(.{ .spacing = 8 });
-    if (zgui.smallButton("- GRID##arr-grid-down")) app.core.handleKey(.{ .char = 'Z' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+    if (zgui.smallButton("- GRID##arr-grid-down")) {
+        const now_ns = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
+        app.core.handleKey(.{ .char = 'z' }, now_ns);
+        app.core.handleKey(.{ .char = 'G' }, now_ns);
+    }
     zgui.sameLine(.{ .spacing = 4 });
-    if (zgui.smallButton("+ GRID##arr-grid-up")) app.core.handleKey(.{ .char = 'z' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+    if (zgui.smallButton("+ GRID##arr-grid-up")) {
+        const now_ns = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
+        app.core.handleKey(.{ .char = 'z' }, now_ns);
+        app.core.handleKey(.{ .char = 'g' }, now_ns);
+    }
     const track_count = app.core.session.project.tracks.items.len;
     const ticks_per_beat = ws.time_grid.ticks_per_beat;
     const beats_per_bar: u32 = app.core.session.project.beats_per_bar;
