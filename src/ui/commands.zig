@@ -679,9 +679,7 @@ pub fn cmdScale(app: *App, args: []const u8) void {
         return;
     }
     if (std.ascii.eqlIgnoreCase(trimmed, "off")) {
-        app.session.project.scale = null;
-        app.dirty = true;
-        app.setStatus("scale: off", .{});
+        app.setScale(null);
         return;
     }
     var it = std.mem.splitScalar(u8, trimmed, ' ');
@@ -706,9 +704,7 @@ pub fn cmdScale(app: *App, args: []const u8) void {
         s.kind
     else
         .major;
-    app.session.project.scale = .{ .root = root, .kind = kind };
-    app.dirty = true;
-    app.setStatus("scale: {s} {s}", .{ theory.pitchClassName(root), kind.label() });
+    app.setScale(.{ .root = root, .kind = kind });
 }
 
 /// `:tuning [<name> [<root>]]` - the temperament pitched instruments play

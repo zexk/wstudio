@@ -1169,6 +1169,15 @@ pub const App = struct {
         return transport;
     }
 
+    pub fn setScale(self: *App, scale: ?ws.theory.Scale) void {
+        self.session.project.scale = scale;
+        self.dirty = true;
+        if (scale) |active|
+            self.setStatus("scale: {s} {s}", .{ ws.theory.pitchClassName(active.root), active.kind.label() })
+        else
+            self.setStatus("scale: off", .{});
+    }
+
     // -----------------------------------------------------------------------
     // Input handling
     // -----------------------------------------------------------------------

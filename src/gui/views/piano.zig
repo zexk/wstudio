@@ -155,8 +155,7 @@ test "a pen keeps the default length until the pointer leaves its cell" {
 fn drawToolbar(app: anytype) void {
     var scale_on = app.core.session.project.scale != null;
     if (widgets.toggle("SCALE", &scale_on)) {
-        app.core.session.project.scale = if (scale_on) .{} else null;
-        app.core.dirty = true;
+        app.core.setScale(if (scale_on) .{} else null);
     }
     if (app.core.session.project.scale) |scale| {
         zgui.sameLine(.{ .spacing = 8 });
@@ -166,16 +165,18 @@ fn drawToolbar(app: anytype) void {
             .current_item = &root,
             .items_separated_by_zeros = "C\x00C#\x00D\x00D#\x00E\x00F\x00F#\x00G\x00G#\x00A\x00A#\x00B\x00",
         })) {
-            app.core.session.project.scale.?.root = @intCast(root);
-            app.core.dirty = true;
+            var next = scale;
+            next.root = @intCast(root);
+            app.core.setScale(next);
         }
 
         zgui.sameLine(.{ .spacing = 8 });
         var kind = scale.kind;
         zgui.setNextItemWidth(112);
         if (zgui.comboFromEnum("##piano-scale-kind", &kind)) {
-            app.core.session.project.scale.?.kind = kind;
-            app.core.dirty = true;
+            var next = scale;
+            next.kind = kind;
+            app.core.setScale(next);
         }
     }
 
