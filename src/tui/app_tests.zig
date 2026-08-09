@@ -707,6 +707,7 @@ test "slicer grid: q/Q chop shortcuts and A switches playback mode" {
     app.slicer_track = 0;
     app.view = .slicer_grid;
 
+    commands.run(&app, "slice 8");
     for ("qQA") |c| _ = slicer_ed.handleKey(&app, .{ .char = c });
     try std.testing.expectEqual(@as(u8, 0), app.slicerInst().slice_count);
     try std.testing.expect(!app.dirty);
@@ -854,6 +855,7 @@ test "slicer grid: undo restores steps AND chop layout through one stack" {
     try app.session.setInstrument(0, .slicer);
     app.slicer_track = 0;
     app.view = .slicer_grid;
+    try installSlicerTestClip(&app);
     commands.run(&app, "slice 4");
     app.slicer_cursor = .{ 1, 3 };
     _ = slicer_ed.handleKey(&app, .enter); // step on

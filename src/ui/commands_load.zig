@@ -622,6 +622,10 @@ pub fn cmdSlice(app: *App, args: []const u8) void {
         return;
     };
     const sl = &app.session.racks.items[track].instrument.slicer;
+    if (!sl.hasAudio()) {
+        app.setStatus("slice: load audio first", .{});
+        return;
+    }
     const trimmed = std.mem.trim(u8, args, " ");
     const n = std.fmt.parseInt(u16, trimmed, 10) catch {
         app.setStatus("slice: usage :slice <1-{d}>", .{Slicer.max_slices});
