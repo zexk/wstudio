@@ -646,6 +646,10 @@ pub fn cmdChop(app: *App, args: []const u8) void {
         return;
     };
     const sl = &app.session.racks.items[track].instrument.slicer;
+    if (!sl.hasAudio()) {
+        app.setStatus("chop: load audio first", .{});
+        return;
+    }
     const trimmed = std.mem.trim(u8, args, " ");
     const sensitivity: u8 = if (trimmed.len == 0) 5 else std.fmt.parseInt(u8, trimmed, 10) catch 0;
     if (sensitivity < 1 or sensitivity > 9) {
@@ -819,6 +823,10 @@ pub fn cmdChopRandom(app: *App, args: []const u8) void {
         return;
     };
     const sl = &app.session.racks.items[track].instrument.slicer;
+    if (!sl.hasAudio()) {
+        app.setStatus("chop-random: load audio first", .{});
+        return;
+    }
     const trimmed = std.mem.trim(u8, args, " ");
     const n: u16 = if (trimmed.len == 0) 8 else std.fmt.parseInt(u16, trimmed, 10) catch 0;
     if (n < 1 or n > Slicer.max_slices) {

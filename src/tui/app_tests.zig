@@ -706,6 +706,11 @@ test "slicer grid: q/Q chop shortcuts and A switches playback mode" {
     try app.session.setInstrument(0, .slicer);
     app.slicer_track = 0;
     app.view = .slicer_grid;
+
+    for ("qQA") |c| _ = slicer_ed.handleKey(&app, .{ .char = c });
+    try std.testing.expectEqual(@as(u8, 0), app.slicerInst().slice_count);
+    try std.testing.expect(!app.dirty);
+
     try installSlicerTestClip(&app);
 
     _ = slicer_ed.handleKey(&app, .{ .char = 'Q' });

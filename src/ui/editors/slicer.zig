@@ -211,6 +211,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'q' => commands.run(app, "chop"),
                 'Q' => commands.run(app, "chop-random"),
                 'A' => {
+                    if (!hasCursorSlice(app)) return true;
                     history.recordSlicer(app, app.slicer_track);
                     const mode = sl.cycleModeAll();
                     app.dirty = true;
