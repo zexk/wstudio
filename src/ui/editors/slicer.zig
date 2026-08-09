@@ -295,23 +295,25 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // until j/k grow it. V: linewise - the step range across
                 // every slice (visual mode's old unconditional behaviour).
                 // See step_grid.rowRange.
-                'v' => step_grid.enterVisual(app, &app.slicer_visual_anchor, &app.slicer_visual_slice_anchor, step.*, @as(u8, @intCast(slice.*)), true, "slice"),
-                'V' => step_grid.enterVisual(app, &app.slicer_visual_anchor, &app.slicer_visual_slice_anchor, step.*, @as(u8, @intCast(slice.*)), false, "slice"),
+                'v' => if (hasCursorSlice(app)) step_grid.enterVisual(app, &app.slicer_visual_anchor, &app.slicer_visual_slice_anchor, step.*, @as(u8, @intCast(slice.*)), true, "slice"),
+                'V' => if (hasCursorSlice(app)) step_grid.enterVisual(app, &app.slicer_visual_anchor, &app.slicer_visual_slice_anchor, step.*, @as(u8, @intCast(slice.*)), false, "slice"),
                 'x' => clearCursorStep(app),
-                'd' => armOperator(app, 'd'),
-                'y' => armOperator(app, 'y'),
+                'd' => if (hasCursorSlice(app)) armOperator(app, 'd'),
+                'y' => if (hasCursorSlice(app)) armOperator(app, 'y'),
                 'X' => {
+                    if (!hasCursorSlice(app)) return true;
                     history.recordSlicer(app, app.slicer_track);
                     sl.clearSlice(@intCast(slice.*));
                 },
                 'F' => {
+                    if (!hasCursorSlice(app)) return true;
                     history.recordSlicer(app, app.slicer_track);
                     sl.fillSlice(@intCast(slice.*));
                 },
                 'u' => history.doUndo(app),
                 'U' => history.doRedo(app),
-                'p', 'P' => pasteSelection(app),
-                '.' => repeatLastEdit(app),
+                'p', 'P' => if (hasCursorSlice(app)) pasteSelection(app),
+                '.' => if (hasCursorSlice(app)) repeatLastEdit(app),
                 // [/] cycle the pattern variant - the same pair as the drum
                 // grid; ( ) nudge the slice start instead (see above).
                 '[' => cycleVariant(app, -1),
@@ -333,6 +335,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     } else app.setStatus("can't delete the only pattern", .{});
                 },
                 'C' => {
+                    if (!hasCursorSlice(app)) return true;
                     sl.cycleChokeGroup(@intCast(slice.*));
                     app.dirty = true;
                     const g = sl.choke_group[slice.*];
@@ -473,6 +476,7 @@ fn cycleStepCond(app: *App, delta: i32) void {
 /// instead of nudged). On the length it already has it goes back to the
 /// pattern's own.
 fn setSliceLoop(app: *App) void {
+    if (!hasCursorSlice(app)) return;
     const sl = app.slicerInst();
     const slice: u8 = @intCast(app.slicer_cursor[0]);
     const len = app.slicer_cursor[1] + 1;
@@ -567,6 +571,7 @@ fn moveSlice(app: *App, delta: i32) void {
 }
 
 fn stepEnter(app: *App) void {
+    if (!hasCursorSlice(app)) return;
     const sl = app.slicerInst();
     const slice: u8 = @intCast(app.slicer_cursor[0]);
     const step = app.slicer_cursor[1];
@@ -575,6 +580,12 @@ fn stepEnter(app: *App) void {
         step_grid.setStep(sl, slice, step, true, Slicer.vel_full);
     }
     moveStep(app, app.takeCount());
+}
+
+fn hasCursorSlice(app: *App) bool {
+    if (app.slicer_cursor[0] < app.slicerInst().slice_count) return true;
+    app.setStatus("no slices - q: chop or :slice <n>", .{});
+    return false;
 }
 
 fn doublePattern(app: *App) void {

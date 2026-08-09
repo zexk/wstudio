@@ -3421,6 +3421,13 @@ test "empty sampler panel ignores hidden keyboard controls" {
     var plain_buf: [32 * 1024]u8 = undefined;
     const plain = ansi.stripAnsi(w.buffered(), &plain_buf);
     try std.testing.expect(std.mem.indexOf(u8, plain, "slice 1/0") == null);
+
+    for ("nF$C") |c| _ = slicer_ed.handleKey(&app, .{ .char = c });
+    try std.testing.expect(!app.dirty);
+    app.slicerInst().sliceInto(1);
+    try std.testing.expect(!app.slicerInst().stepActive(0, 0));
+    try std.testing.expectEqual(@as(u16, 0), app.slicerInst().slice_len[0]);
+    try std.testing.expectEqual(@as(u8, 1), app.slicerInst().choke_group[0]);
 }
 
 test "draw renders standalone sampler editor with root row" {
