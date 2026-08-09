@@ -527,7 +527,11 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
         const x = origin[0] + width * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(count));
         const in_region = x >= start_x - 0.5 and x <= played_end_x + 0.5;
         const norm = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(count));
-        const h = @max(1, peak * fadeGain(norm, start, played_end, fade_in_norm, fade_out_norm) * height / 2 * 0.94);
+        const fade_gain = @min(
+            ws.dsp.pad.linearRamp(@floatCast(norm - start), fade_in_norm),
+            ws.dsp.pad.linearRamp(@floatCast(played_end - norm), fade_out_norm),
+        );
+        const h = @max(1, peak * fade_gain * height / 2 * 0.94);
         const line_color = if (in_region) bandColor(bands[i]) else [4]f32{ theme.fg3[0], theme.fg3[1], theme.fg3[2], 0.55 };
         draw_list.addLine(.{ .p1 = .{ x, mid_y - h }, .p2 = .{ x, mid_y + h }, .col = style.color(line_color), .thickness = 1 });
     }
@@ -627,20 +631,6 @@ fn drawRegionHandle(draw_list: zgui.DrawList, x: f32, top: f32, height: f32, acc
     const line_color = if (active) accent else [4]f32{ accent[0], accent[1], accent[2], 0.7 };
     draw_list.addLine(.{ .p1 = .{ x, top }, .p2 = .{ x, top + height }, .col = style.color(line_color), .thickness = if (active) 2 else 1.5 });
     draw_list.addTriangleFilled(.{ .p1 = .{ x - 5, top }, .p2 = .{ x + 5, top }, .p3 = .{ x, top + 8 }, .col = style.color(line_color) });
-}
-
-fn fadeGain(position: f32, start: f32, end: f32, fade_in: f32, fade_out: f32) f32 {
-    const fade_in_gain = if (fade_in > 0) std.math.clamp((position - start) / fade_in, 0, 1) else 1;
-    const fade_out_gain = if (fade_out > 0) std.math.clamp((end - position) / fade_out, 0, 1) else 1;
-    return @min(fade_in_gain, fade_out_gain);
-}
-
-test "waveform fade gain tapers displayed peaks" {
-    try std.testing.expectEqual(@as(f32, 0), fadeGain(0, 0, 1, 0.2, 0.25));
-    try std.testing.expectApproxEqAbs(@as(f32, 0.5), fadeGain(0.1, 0, 1, 0.2, 0.25), 1e-6);
-    try std.testing.expectEqual(@as(f32, 1), fadeGain(0.5, 0, 1, 0.2, 0.25));
-    try std.testing.expectApproxEqAbs(@as(f32, 0.5), fadeGain(0.875, 0, 1, 0.2, 0.25), 1e-6);
-    try std.testing.expectEqual(@as(f32, 0), fadeGain(1, 0, 1, 0.2, 0.25));
 }
 
 fn drawFadeLine(draw_list: zgui.DrawList, silent_x: f32, full_x: f32, top: f32, mid_y: f32, accent: [4]f32, active: bool, fade_out: bool) void {

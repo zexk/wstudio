@@ -907,10 +907,16 @@ fn adsrLevel(t: f64, attack_s: f32, decay_s: f32, sustain: f32) f32 {
 /// Linear 0→1 gain ramp over the first `dur` seconds of `t`; 1 past it (or
 /// when the ramp is off, dur = 0). One shape, three uses: the release fade
 /// and the fade-out get remaining output time, the fade-in gets elapsed.
-fn linearRamp(t: f64, dur: f32) f32 {
+pub fn linearRamp(t: f64, dur: f32) f32 {
     const d: f64 = @floatCast(dur);
     if (d <= 0.0 or t >= d) return 1.0;
     return @floatCast(std.math.clamp(t / d, 0.0, 1.0));
+}
+
+test "linear ramp reaches full gain over its duration" {
+    try std.testing.expectEqual(@as(f32, 0), linearRamp(0, 0.2));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), linearRamp(0.1, 0.2), 1e-6);
+    try std.testing.expectEqual(@as(f32, 1), linearRamp(0.2, 0.2));
 }
 
 // -----------------------------------------------------------------------
