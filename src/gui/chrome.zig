@@ -42,18 +42,18 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
         // how loud) pin to the right edge instead of bunching up right next
         // to the transport cluster on a wide window.
         drawTransportControls(app, snap);
-        drawTransportReadout(icons.tempo ++ "  TEMPO", tempo, false);
-        drawTransportReadout("POSITION", position, false);
-        drawTransportReadout("METER", meter, false);
-        drawTransportReadout("RATE", rate, false);
+        drawTransportReadout(icons.tempo ++ "  BPM", tempo, false);
+        drawTransportReadout(icons.arrangement ++ "  POS", position, false);
+        drawTransportReadout(icons.loop ++ "  METER", meter, false);
+        drawTransportReadout(icons.master ++ "  RATE", rate, false);
 
         const project_title: []const u8 = if (app.core.projectPath()) |path|
             std.fs.path.basename(path)
         else
             app.core.session.project.name;
-        const right_w = readoutWidth(icons.save ++ "  PROJECT", project_title) + 24 +
-            readoutWidth(icons.master ++ "  AUDIO", audio_label) + 24 + level_group_w +
-            24 + phase_group_w + 24 + loudness_group_w;
+        const right_w = readoutWidth(icons.save ++ "  PROJECT", project_title) + group_gap +
+            readoutWidth(icons.master ++ "  AUDIO", audio_label) + group_gap + level_group_w +
+            group_gap + phase_group_w + group_gap + loudness_group_w;
         zgui.sameLine(.{ .spacing = 0 });
         zgui.setCursorPosX(@max(zgui.getCursorPosX(), zgui.getWindowSize()[0] - right_w - 20));
 
@@ -68,22 +68,32 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
 
 fn drawTransportControls(app: anytype, snap: ws.engine.UiSnapshot) void {
     zgui.beginGroup();
-    zgui.textColored(theme.fg3, "TRANSPORT", .{});
-    if (zgui.smallButton(if (snap.playing or snap.pre_rolling) icons.stop ++ "##transport-stop" else icons.play ++ "##transport-play")) {
+    zgui.textColored(theme.fg3, icons.logo ++ "  TRANSPORT", .{});
+    if (iconButton(if (snap.playing or snap.pre_rolling) icons.stop ++ "##transport-stop" else icons.play ++ "##transport-play", if (snap.playing or snap.pre_rolling) "Stop  Space" else "Play  Space")) {
         app.core.handleKey(.{ .char = ' ' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     }
     zgui.sameLine(.{ .spacing = 5 });
-    if (zgui.smallButton(icons.record ++ "##transport-record") and !snap.playing and !snap.pre_rolling) {
+    if (iconButton(icons.record ++ "##transport-record", "Record  Space") and !snap.playing and !snap.pre_rolling) {
         if (!hasArmedAudioTarget(&app.core) and app.core.modal.mode == .normal and
             (app.core.view == .piano_roll or app.core.view == .drum_grid or app.core.view == .slicer_grid))
             app.core.handleKey(.{ .char = 'i' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
         app.core.handleKey(.{ .char = ' ' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     }
     zgui.sameLine(.{ .spacing = 5 });
-    if (zgui.smallButton("UNDO")) history.doUndo(&app.core);
+    if (iconButton("\u{21B6}##transport-undo", "Undo  u")) history.doUndo(&app.core);
     zgui.sameLine(.{ .spacing = 5 });
-    if (zgui.smallButton("REDO")) history.doRedo(&app.core);
+    if (iconButton("\u{21B7}##transport-redo", "Redo  U")) history.doRedo(&app.core);
     zgui.endGroup();
+}
+
+fn iconButton(label: [:0]const u8, tooltip: []const u8) bool {
+    const clicked = zgui.smallButton(label);
+    if (zgui.isItemHovered(.{})) {
+        _ = zgui.beginTooltip();
+        zgui.textUnformatted(tooltip);
+        zgui.endTooltip();
+    }
+    return clicked;
 }
 
 fn hasArmedAudioTarget(core: anytype) bool {
@@ -103,7 +113,7 @@ fn drawLevelMeters(app: anytype, snap: ws.engine.UiSnapshot) void {
     meters.updateMeterHold(&app.meter_hold_db, snap.peak, dt);
     for (&app.track_meter_hold_db, snap.track_peak) |*hold, peak| meters.updateMeterHold(hold, peak, dt);
 
-    zgui.sameLine(.{ .spacing = 24 });
+    zgui.sameLine(.{ .spacing = group_gap });
     zgui.beginGroup();
     zgui.textColored(theme.fg3, "LEVEL", .{});
     const origin = zgui.getCursorScreenPos();
@@ -120,7 +130,7 @@ fn drawLevelMeters(app: anytype, snap: ws.engine.UiSnapshot) void {
 /// always-on-screen slot next to LEVEL, the way a hardware phase-scope sits
 /// beside the meter bridge.
 fn drawPhaseMeter(correlation: f32) void {
-    zgui.sameLine(.{ .spacing = 24 });
+    zgui.sameLine(.{ .spacing = group_gap });
     zgui.beginGroup();
     zgui.textColored(theme.fg3, icons.phase ++ "  PHASE", .{});
     const origin = zgui.getCursorScreenPos();
@@ -137,7 +147,7 @@ fn drawPhaseMeter(correlation: f32) void {
 /// since the last `l`-key reset on the MASTER row) - see dsp/meter.zig's
 /// `LoudnessMeter`.
 fn drawLoudnessReadout(snap: anytype) void {
-    zgui.sameLine(.{ .spacing = 24 });
+    zgui.sameLine(.{ .spacing = group_gap });
     zgui.beginGroup();
     zgui.textColored(theme.fg3, icons.loudness ++ "  LUFS", .{});
     var short_buf: [16]u8 = undefined;
@@ -158,7 +168,7 @@ fn lufsText(value: f32, scratch: *[16]u8) []const u8 {
 }
 
 fn drawTransportReadout(label: []const u8, value: []const u8, first: bool) void {
-    if (!first) zgui.sameLine(.{ .spacing = 24 });
+    if (!first) zgui.sameLine(.{ .spacing = group_gap });
     zgui.beginGroup();
     zgui.textColored(theme.fg3, "{s}", .{label});
     zgui.textColored(theme.fg0, "{s}", .{value});
@@ -175,6 +185,7 @@ fn readoutWidth(label: []const u8, value: []const u8) f32 {
 /// `drawLevelMeters`'s on-screen width: the fixed meter-bar width
 /// dominates its "LEVEL" label.
 const level_group_w: f32 = 110;
+const group_gap: f32 = 18;
 /// `drawPhaseMeter`'s bar width, and its on-screen group width (the bar
 /// dominates the "PHASE" label and the numeric readout under it, same as
 /// `level_group_w` above).
