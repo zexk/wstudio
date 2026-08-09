@@ -407,6 +407,10 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
     // zig fmt: off
     try writeModeBadge(w, app.modal.mode);
     try writeViewBadge(right, if (is_drum) "DRUM" else if (is_slice) "SLICER" else "SAMPLER", app.modal.mode);
+    if (is_slice and app.slicerInst().slice_count == 0) {
+        try w.writeAll(dim ++ "  no slices  enter: load  e/esc: back" ++ rst);
+        return;
+    }
     if (is_drum) {
         try w.writeAll(dim ++ "  pad " ++ rst);
         try w.print("{d}", .{pad_idx + 1});
@@ -456,6 +460,12 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
     if (app.status_len > 0) {
         try w.writeAll(dim ++ "  " ++ rst);
         try w.writeAll(app.status_buf[0..app.status_len]);
+    } else if (pad.samples.len == 0) {
+        try w.writeAll(dim ++ "  enter: load  e/esc: back" ++ rst);
+    } else if (is_drum or is_slice) {
+        try w.writeAll(dim ++ "  j/k: param  h/l: adjust  1-8/J/K: select  a: hear  p: steps" ++ rst);
+    } else {
+        try w.writeAll(dim ++ "  j/k: param  h/l: adjust  a: hear  p: piano" ++ rst);
     }
 }
 

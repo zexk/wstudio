@@ -3322,8 +3322,9 @@ test "draw renders drum machine control panel without overflowing" {
     try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 30 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "DRUM MACHINE") != null);
-    try std.testing.expect(std.mem.indexOf(u8, frame, "PAD BANK") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "PAD BANK 1/8") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "attack") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "j/k: param") != null);
 }
 
 test "draw renders slicer control panel without overflowing" {
@@ -3339,7 +3340,21 @@ test "draw renders slicer control panel without overflowing" {
     try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 30 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "SLICER") != null);
-    try std.testing.expect(std.mem.indexOf(u8, frame, "SLICE MAP") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "No audio loaded for this slicer.") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "SLICE MAP") == null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "enter: load") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "slice 1/0") == null);
+
+    const sl = app.slicerInst();
+    sl.samples = try app.allocator.alloc(f32, 8);
+    @memset(sl.samples, 0);
+    sl.sliceInto(3);
+    w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 30 });
+    const loaded = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, loaded, "SLICE MAP 1/1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, loaded, "attack") != null);
+    try std.testing.expect(std.mem.indexOf(u8, loaded, "j/k: param") != null);
 }
 
 test "draw renders standalone sampler editor with root row" {

@@ -87,7 +87,10 @@ pub fn drawSamplerEditor(
         try w.print("\"{s}\"", .{app.drumMachine().padName(pad_idx)});
         try w.writeAll(rst);
     } else if (is_slice) {
-        try w.print("  slice {d}/{d} ", .{ app.slicer_cursor[0] + 1, app.slicerInst().slice_count });
+        if (app.slicerInst().slice_count == 0)
+            try w.writeAll("  no slices ")
+        else
+            try w.print("  slice {d}/{d} ", .{ app.slicer_cursor[0] + 1, app.slicerInst().slice_count });
         try w.writeAll(rst ++ acc);
         try w.print("\"{s}\"", .{app.slicerInst().clipName()});
         try w.writeAll(rst);
@@ -102,15 +105,17 @@ pub fn drawSamplerEditor(
     if (is_drum) {
         try drawDrumBank(app, w, pad_idx);
         written += 3;
-    } else if (is_slice) {
+    } else if (is_slice and pad.samples.len > 0) {
         try drawSliceMap(app, w, cols);
-        written += 2;
+        written += 3;
     }
 
-    if (is_drum and pad.samples.len == 0) {
+    if (pad_target and pad.samples.len == 0) {
         try synthSection(w, "SAMPLE", acc);
         written += 1;
-        try w.writeAll(dim ++ "  This pad has no sample." ++ rst);
+        try w.writeAll(dim);
+        try w.writeAll(if (is_drum) "  This pad has no sample." else "  No audio loaded for this slicer.");
+        try w.writeAll(rst);
         try endLine(w);
         written += 1;
         try w.writeAll(acc ++ "  enter" ++ rst ++ dim ++ " / " ++ rst ++ acc ++ ":load" ++ rst ++ dim ++ "  open the sample browser" ++ rst);
@@ -234,7 +239,8 @@ pub fn drawSamplerEditor(
 fn drawDrumBank(app: anytype, w: *std.Io.Writer, selected: u8) !void {
     const dm = app.drumMachine();
     const bank_start = selected / 8 * 8;
-    try synthSection(w, "PAD BANK", mag);
+    var title_buf: [32]u8 = undefined;
+    try synthSection(w, try std.fmt.bufPrint(&title_buf, "PAD BANK {d}/{d}", .{ selected / 8 + 1, DrumMachine.max_pads / 8 }), mag);
     for (0..2) |row| {
         try w.writeAll("  ");
         for (0..4) |column| {
@@ -251,7 +257,23 @@ fn drawDrumBank(app: anytype, w: *std.Io.Writer, selected: u8) !void {
 fn drawSliceMap(app: anytype, w: *std.Io.Writer, cols: usize) !void {
     const sl = app.slicerInst();
     const width = @min(cols -| 4, wave_max_w);
-    try synthSection(w, "SLICE MAP", mag);
+    const selected: u8 = @intCast(app.slicer_cursor[0]);
+    const bank_start = selected / 8 * 8;
+    const bank_count = @max(1, (sl.slice_count + 7) / 8);
+    var title_buf: [32]u8 = undefined;
+    try synthSection(w, try std.fmt.bufPrint(&title_buf, "SLICE MAP {d}/{d}", .{ selected / 8 + 1, bank_count }), mag);
+    try w.writeAll("  ");
+    for (0..8) |offset| {
+        const index: u8 = bank_start + @as(u8, @intCast(offset));
+        if (index >= sl.slice_count) {
+            try w.writeAll(dim ++ " --      " ++ rst);
+            continue;
+        }
+        try w.writeAll(if (index == selected) sel else rst);
+        try w.print(" {d: >2} {d: >3}% ", .{ index + 1, sl.slices[index].start_norm * 100 });
+        try w.writeAll(rst);
+    }
+    try endLine(w);
     try w.writeAll("  ");
     for (0..width) |column| {
         const norm = @as(f32, @floatFromInt(column)) / @as(f32, @floatFromInt(@max(width -| 1, 1)));
