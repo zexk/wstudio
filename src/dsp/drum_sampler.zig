@@ -1155,7 +1155,10 @@ pub const DrumMachine = struct {
         samples: []f32,
         name: []const u8,
     ) void {
-        if (idx >= max_pads) return;
+        if (idx >= max_pads) {
+            self.allocator.free(samples);
+            return;
+        }
         const pad = self.ensurePad(idx) catch {
             self.allocator.free(samples); // materialize failed - don't leak the caller's buffer
             return;
@@ -1624,6 +1627,15 @@ test "failed WAV load does not materialize an empty drum pad" {
 
     try std.testing.expectError(error.InvalidWav, dm.loadPadWav(0, "not a wav", "broken"));
     try std.testing.expect(dm.pads[0] == null);
+}
+
+test "out-of-range pad sample assignment releases ownership" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+
+    const samples = try std.testing.allocator.alloc(f32, 16);
+    dm.setPadSamples(DrumMachine.max_pads, samples, "invalid");
 }
 
 test "step sequencer fires pads at correct boundaries" {
