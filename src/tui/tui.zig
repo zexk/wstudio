@@ -469,19 +469,14 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
         if (app.pending_config_reload) {
             app.pending_config_reload = false;
             const prev = user_config;
-            if (runtime.reload(io)) |_| {
-                user_config = runtime.config;
-                app.afterConfigReload(user_config);
+            const reloaded = app.reloadConfig(runtime);
+            user_config = runtime.config;
+            if (reloaded) {
                 tui_theme.reset(&term, prev.tui_theme);
                 tui_theme.apply(&term, user_config.tui_theme, &runtime.highlight_overrides);
                 if (user_config.tui_mouse != prev.tui_mouse) term.setMouse(user_config.tui_mouse);
                 if (user_config.has_nerdfonts != prev.has_nerdfonts) icons.font_installed = user_config.has_nerdfonts or nerdfont_detected;
                 if (has_midi and using_midi) midi_in.velocity_curve.store(user_config.default_midi_velocity_curve, .monotonic);
-                app.setStatus("config reloaded", .{});
-            } else |e| {
-                user_config = runtime.config;
-                app.afterConfigReload(user_config);
-                app.setStatus("reload-config: {s}", .{@errorName(e)});
             }
         }
 

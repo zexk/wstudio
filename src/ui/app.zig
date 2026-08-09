@@ -1679,6 +1679,17 @@ pub const App = struct {
         self.emitEvent(.ConfigDone);
     }
 
+    pub fn reloadConfig(self: *App, runtime: *config_mod.Runtime) bool {
+        runtime.reload(self.io) catch |err| {
+            self.afterConfigReload(runtime.config);
+            self.setStatus("reload-config: {s}", .{@errorName(err)});
+            return false;
+        };
+        self.afterConfigReload(runtime.config);
+        self.setStatus("config reloaded", .{});
+        return true;
+    }
+
     pub fn attachRuntime(self: *App, runtime: *config_mod.Runtime) void {
         self.lua_runtime = runtime;
         self.rebuildCmdTable();

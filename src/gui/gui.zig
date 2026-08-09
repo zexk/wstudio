@@ -259,9 +259,9 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
         // tui/tui.zig's matching block for the same call.
         if (app.core.pending_config_reload) {
             app.core.pending_config_reload = false;
-            if (runtime.reload(init.io)) |_| {
-                user_config = runtime.config;
-                app.core.afterConfigReload(user_config);
+            const reloaded = app.core.reloadConfig(runtime);
+            user_config = runtime.config;
+            if (reloaded) {
                 gui_style.selectIdentity(runtime.resolvedTheme(user_config.gui_theme));
                 gui_style.setTheme(user_config.gui_panel_border);
                 gui_style.knob_drag_pixels = user_config.gui_knob_drag_pixels;
@@ -270,11 +270,6 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 gui_style.meter_decay_db_per_s = user_config.gui_meter_decay_db_s;
                 glfw.swapInterval(if (user_config.gui_vsync) 1 else 0);
                 if (has_midi and using_midi) midi_in.velocity_curve.store(user_config.default_midi_velocity_curve, .monotonic);
-                app.core.setStatus("config reloaded", .{});
-            } else |e| {
-                user_config = runtime.config;
-                app.core.afterConfigReload(user_config);
-                app.core.setStatus("reload-config: {s}", .{@errorName(e)});
             }
         }
         // `:colorscheme` - narrower than the block above: `cmdColorscheme`
