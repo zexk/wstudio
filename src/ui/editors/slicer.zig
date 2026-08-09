@@ -86,7 +86,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // zig fmt: off
             .escape => { app.slicer_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
             .char => |c| switch (c) {
-                '0'...'9' => { app.slicer_op_pending = op; return false; },
+                '0' => {
+                    if (app.modal.count > 0) { app.slicer_op_pending = op; return false; }
+                    step.* = 0;
+                    finishOperator(app, op);
+                    return true;
+                },
+                '1'...'9' => { app.slicer_op_pending = op; return false; },
                 'd', 'y' => {
                     if (c == op) {
                         if (op == 'd') clearSliceRow(app) else yankWholePattern(app);
@@ -672,6 +678,11 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
             'w' => { jumpBar(app, app.takeCount()); return true; },
             'b' => { jumpBar(app, -app.takeCount()); return true; },
             'g' => { app.slicer_cursor[1] = 0; return true; },
+            '0' => {
+                if (app.modal.count > 0) return false;
+                app.slicer_cursor[1] = 0;
+                return true;
+            },
             'G' => {
                 const sl = app.slicerInst();
                 if (sl.step_count > 0) app.slicer_cursor[1] = sl.step_count - 1;
@@ -694,7 +705,7 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
             'd' => { deleteSelection(app); return true; },
             'p', 'P' => { pasteSelection(app); return true; },
             // zig fmt: on
-            '0'...'9' => return false,
+            '1'...'9' => return false,
             else => return true,
         },
         else => return true,

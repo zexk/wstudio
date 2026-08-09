@@ -52,7 +52,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // zig fmt: off
             .escape => { app.arr_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
             .char => |c| switch (c) {
-                '0'...'9' => { app.arr_op_pending = op; return false; },
+                '0' => {
+                    if (app.modal.count > 0) { app.arr_op_pending = op; return false; }
+                    app.arr_cursor_bar = 0;
+                    finishOperator(app, op);
+                    return true;
+                },
+                '1'...'9' => { app.arr_op_pending = op; return false; },
                 'd', 'y' => {
                     if (c == op) {
                         if (op == 'd') clearLane(app) else yankWholeLane(app);
@@ -84,6 +90,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         'g' => switch (key.char) {
             's' => { playFromCursor(app); return true; },
             'g' => { app.arr_cursor_bar = 0; return true; },
+            '0' => {
+                if (app.modal.count > 0) return false;
+                app.arr_cursor_bar = 0;
+                return true;
+            },
             'G' => { gotoEnd(app); return true; },
             else => {},
         },
@@ -425,7 +436,7 @@ fn handleVisual(app: *App, key: modal_mod.Key, lane_count: usize) bool {
             'P' => { pasteSelection(app, true); return true; },
             '=' => { loopSelection(app); return true; },
             // zig fmt: on
-            '0'...'9' => return false,
+            '1'...'9' => return false,
             else => return true,
         },
         else => return true,

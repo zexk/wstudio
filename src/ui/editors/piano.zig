@@ -107,7 +107,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         switch (key) {
             .escape => { app.piano_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
             .char => |c| switch (c) {
-                '0'...'9' => { app.piano_op_pending = op; return false; },
+                '0' => {
+                    if (app.modal.count > 0) { app.piano_op_pending = op; return false; }
+                    app.piano_cursor_step = 0;
+                    ensureVisible(app);
+                    finishOperator(app, pp, op);
+                    return true;
+                },
+                '1'...'9' => { app.piano_op_pending = op; return false; },
                 'd', 'y' => {
                     if (c == op) {
                         if (op == 'd') clearPitchRow(app) else yank(app);
@@ -1163,10 +1170,16 @@ fn handleVisual(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlayer, m
             'b' => { jumpBar(app, max_step, -app.takeCount()); return true; },
             'g' => { app.piano_cursor_step = 0; ensureVisible(app); return true; },
             'G' => { if (max_step > 0) app.piano_cursor_step = max_step - 1; ensureVisible(app); return true; },
+            '0' => {
+                if (app.modal.count > 0) return false;
+                app.piano_cursor_step = 0;
+                ensureVisible(app);
+                return true;
+            },
             'y' => { yankSelection(app, pp); return true; },
             'd' => { deleteSelection(app, pp); return true; },
             'p', 'P' => { pasteSelection(app, pp, 1); return true; },
-            '0'...'9' => return false,
+            '1'...'9' => return false,
             else => return true,
         },
         else => return true,

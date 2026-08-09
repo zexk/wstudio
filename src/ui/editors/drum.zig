@@ -63,7 +63,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // zig fmt: off
             .escape => { app.drum_visual_anchor = null; app.setStatus("cancelled", .{}); return true; },
             .char => |c| switch (c) {
-                '0'...'9' => { app.drum_op_pending = op; return false; },
+                '0' => {
+                    if (app.modal.count > 0) { app.drum_op_pending = op; return false; }
+                    step.* = 0;
+                    finishOperator(app, op);
+                    return true;
+                },
+                '1'...'9' => { app.drum_op_pending = op; return false; },
                 'd', 'y' => {
                     if (c == op) {
                         if (op == 'd') clearPadRow(app) else yankWholePattern(app);
@@ -99,6 +105,11 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
     if (app.takePrefix(key)) |p| switch (p) {
         'g' => switch (key.char) {
             'g' => { app.drum_cursor[1] = 0; return true; },
+            '0' => {
+                if (app.modal.count > 0) return false;
+                app.drum_cursor[1] = 0;
+                return true;
+            },
             'G' => {
                 const dm = app.drumMachine();
                 if (dm.step_count > 0) step.* = dm.step_count - 1;
@@ -656,7 +667,7 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
             'd' => { deleteSelection(app); return true; },
             'p', 'P' => { pasteSelection(app); return true; },
             // zig fmt: on
-            '0'...'9' => return false,
+            '1'...'9' => return false,
             else => return true,
         },
         else => return true,

@@ -89,8 +89,9 @@ than one.
   `gs` plays from the cursor. Visual mode and operator-pending keep the
   single-key `g`/`G` motions.
 - Bare `0` also jumps to the start of the time axis in every grid editor,
-  matching vim's start-of-line motion. After a count it remains a digit, so
-  `10l` still moves ten cells.
+  matching vim's start-of-line motion. It works in normal and visual mode
+  and after an operator (`v0`, `d0`, `y0`). After a count it remains a digit,
+  so `10l` still moves ten cells.
 - `z` is the grid prefix: `zg` = finer timing grid, `zG` = coarser, in the
   piano roll, drum grid, slicer grid, and arrangement. The synth editor's
   single `z` (section focus) and the tracks view's `z` (fold) are untouched.
@@ -108,7 +109,7 @@ than one.
 
 ## Operators
 
-`d` and `y` arm an operator; a motion (`h`/`l`/`H`/`L`/`g`/`G`/`w`/`b`)
+`d` and `y` arm an operator; a motion (`h`/`l`/`H`/`L`/`0`/`g`/`G`/`w`/`b`)
 completes it over the range from the arming point to where the motion
 lands. Doubling the key acts on the line tier (below). Any other key
 cancels. `dw`/`yw` end at the last step of the nth beat forward, not at

@@ -193,7 +193,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("!",            "flip the FILL switch every FILL/!FILL step reads - instant variation, no editing");
     t.key("; / '",        "drag the step early / late (±50% of a step) - per-hit feel, where < > swings every off-beat");
     t.key("",             "  cells: [x] plain, (x) tuned, <x> chance/condition/roll, {x} both");
-    t.key("v / V",        "visual: a (pad, step) block, j/k grow it / visual line: every pad - y/d/P");
+    t.key("v / V",        "visual: a (pad, step) block, j/k grow it / visual line: every pad - y/d/p");
     t.key("< / >",        "less / more swing (50–75%)");
     t.key("C",            "cycle current pad's choke group (none/1-4) - same-group pads cut each other off");
     t.key("a",            "preview pad sound");
@@ -216,7 +216,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("[ / ]",        "prev / next pattern variant (A–H)");
     t.key("N",            "new pattern variant (copy of current)");
     t.key("D",            "delete current pattern variant");
-    t.key("d / y",        "operator: add a motion (h/l/H/L/w/b/g/G, counts work: d3l) to clear / yank that range");
+    t.key("d / y",        "operator: add a motion (h/l/H/L/0/w/b/g/G, counts work: d3l) to clear / yank that range");
     t.key("dd / yy",      "clear the cursor pad's row / yank the whole pattern");
     t.key("p",            "paste the latest yank (whole pattern or range, works across tracks)");
     t.key("(visual) y/d/p", "range yank / clear / paste (v or V to enter, hjkl to extend)");
@@ -356,7 +356,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("s",            "FX chain for this track");
     t.key("[ / ]",        "resize note at cursor, else set default length (count-scaled)");
     t.key("+ / -",        "lengthen / shorten loop (1 bar)");
-    t.key("d / y",        "operator: add a motion (h/l/H/L/w/b/g/G, counts work: d3l, y2w) to clear / yank that range");
+    t.key("d / y",        "operator: add a motion (h/l/H/L/0/w/b/g/G, counts work: d3l, y2w) to clear / yank that range");
     t.key("dd / yy",      "clear the cursor pitch's row / yank the whole pattern");
     t.key("p",            "paste the latest yank (whole pattern or range, works across tracks)");
     t.key("v / V",        "visual: a (pitch, step) block, j/k grow it / visual line: every pitch - y/d/p");
@@ -427,7 +427,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("c",            "cycle the ramp leaving the point at cursor: linear -> hold (step) -> ease (S-curve)");
     t.key("0 / gg / gG",   "jump cursor to start (0 or gg) / end (gG); counted 0 stays a digit");
     t.key("w / b",        "jump to the next / previous beat start");
-    t.key("d / y",        "operator: add a motion (h/l/H/L/w/b/g/G, counts work: d3l) to clear / yank that range");
+    t.key("d / y",        "operator: add a motion (h/l/H/L/0/w/b/g/G, counts work: d3l) to clear / yank that range");
     t.key("dd / yy",      "clear / yank the whole curve");
     t.key("v",            "visual mode: select a step range on the current curve - y/d/p");
     t.key(".",            "repeat the last nudge or visual range delete/paste");
