@@ -213,10 +213,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     app.setStatus("preview: pad {d}", .{pad.* + 1});
                 },
                 // Resize by a whole beat, not a single step -
-                // now that pads hold real MIDI notes rather than on/off
-                // bits, nudging the loop by one grid cell at a time is a
-                // leftover from the old boolean step sequencer. Trailing
-                // notes past a shrink are dropped (see setStepCount's doc).
+                // one cell would make resize duration change with grid zoom.
+                // Trailing notes past a shrink are dropped (see setStepCount's doc).
                 '-' => {
                     const dm = app.drumMachine();
                     const delta: u16 = @intCast(@as(i32, dm.steps_per_beat) * app.takeCount());

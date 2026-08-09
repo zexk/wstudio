@@ -62,7 +62,9 @@ pub fn draw(
     const grid_y = origin[1] + ruler_h;
     const grid_w = canvas_w - gutter_w;
     const cell_w = grid_w / @as(f32, @floatFromInt(step_count));
-    const steps_per_beat: usize = if (kind == .drum) instrument.steps_per_beat else 4;
+    const steps_per_beat: usize = @max(instrument.steps_per_beat, 1);
+    const bar_units = steps_per_beat * @as(usize, @max(app.core.session.project.beats_per_bar, 1)) * 4;
+    const meter_denominator: usize = @max(app.core.session.project.meter_denominator, 1);
     const cursor_step = @min(@as(usize, cursor[1]), step_count - 1);
     const accent = if (kind == .drum) theme.rhythm else theme.audio;
     const vel_full = @TypeOf(instrument.*).vel_full;
@@ -151,9 +153,10 @@ pub fn draw(
     for (0..step_count + 1) |step| {
         const x = grid_x + @as(f32, @floatFromInt(step)) * cell_w;
         const on_beat = step % steps_per_beat == 0;
-        const on_bar = step % (steps_per_beat * 4) == 0;
+        const position_units = step * meter_denominator;
+        const on_bar = position_units % bar_units == 0;
         draw_list.addLine(.{ .p1 = .{ x, if (on_beat) origin[1] else grid_y }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(if (on_bar) theme.fg3 else if (on_beat) theme.bg5 else theme.line_soft), .thickness = if (on_bar) 2 else if (on_beat) 1.5 else 1 });
-        if (on_beat and step < step_count) draw_list.addText(.{ x + 5, origin[1] + 5 }, color(theme.fg2), "{d}", .{step / steps_per_beat + 1});
+        if (on_bar and step < step_count) draw_list.addText(.{ x + 5, origin[1] + 5 }, color(theme.fg2), "{d}", .{position_units / bar_units + 1});
     }
 
     if (play_step) |step| {

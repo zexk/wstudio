@@ -577,7 +577,7 @@ fn stepEnter(app: *App) void {
 fn doublePattern(app: *App) void {
     const sl = app.slicerInst();
     if (sl.step_count > Slicer.max_steps / 2) {
-        app.setStatus("can't double {d} steps (64 max)", .{sl.step_count});
+        app.setStatus("can't double {d} steps ({d} max)", .{ sl.step_count, Slicer.max_steps });
         return;
     }
     history.recordSlicer(app, app.slicer_track);

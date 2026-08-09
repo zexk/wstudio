@@ -749,8 +749,8 @@ pub const ClipContentSnap = union(enum) {
     audio: AudioClipSnap,
 };
 
-/// One placed clip. Melodic clips carry a private note copy + loop length; drum
-/// clips carry a step-count and per-pad bitmask. Mirrors `arrangement.Clip`.
+/// One placed clip. Melodic and drum clips carry private note copies plus
+/// their loop timing. Mirrors `arrangement.Clip`.
 pub const ClipSnap = struct {
     /// Exact placement at 32 ticks per quarter-note beat.
     start_tick: u32 = 0,

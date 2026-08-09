@@ -220,7 +220,8 @@ pub fn draw(app: anytype) void {
                     }
                 },
                 .drum => |drum| {
-                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(ink), "PATTERN {c}  {d}st", .{ 'A' + drum.variant, drum.step_count });
+                    const pattern_bars = @as(f32, @floatFromInt(drum.step_count)) * @as(f32, @floatFromInt(@max(app.core.session.project.meter_denominator, 1))) / (@as(f32, @floatFromInt(@max(drum.steps_per_beat, 1))) * @as(f32, @floatFromInt(@max(app.core.session.project.beats_per_bar, 1))) * 4.0);
+                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(ink), "PATTERN {c}  {d:.2} bars", .{ 'A' + drum.variant, pattern_bars });
                     // step_px is fixed by beat_w/steps_per_beat, not the clip's box
                     // width, so a chopped (shortened) clip truncates the pattern
                     // instead of squeezing every step into the smaller box, and a
@@ -238,7 +239,7 @@ pub fn draw(app: anytype) void {
                             for (0..drum.step_count) |step| {
                                 const grid_x = repeat_x + (@as(f32, @floatFromInt(step)) + 0.5) * step_px;
                                 if (grid_x >= pmax[0]) break;
-                                if (step % 4 == 0) {
+                                if (step % @max(drum.steps_per_beat, 1) == 0) {
                                     draw_list.addLine(.{
                                         .p1 = .{ grid_x, pmin[1] + 27 },
                                         .p2 = .{ grid_x, pmax[1] - 5 },

@@ -5,7 +5,7 @@
 //!
 //! Round-trip guarantees:
 //!   - All 38 PolySynth params + piano-roll notes + loop length
-//!   - Drum step-count + per-pad bitmask patterns + per-pad sampler params
+//!   - Drum pattern notes + timing grid + per-pad sampler params
 //!   - Per-track gain / pan / mute / solo + project tempo
 //!   - FX: gate, compressor, multiband compressor (incl. OTT style), limiter,
 //!     transient shaper, EQ, filter, utility, stereo width, auto-pan/tremolo,
