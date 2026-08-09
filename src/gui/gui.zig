@@ -251,12 +251,8 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
 
         syncWindowTitle(window, &app, &title_path_buf, &title_path_len);
 
-        // MIDI input follows the tracks cursor so live playing always targets
-        // the selected track. Written from this thread, read (monotonic) in
-        // the MIDI reader thread.
         if (has_midi and using_midi) {
-            midi_in.active_track.store(@intCast(app.core.cursor), .monotonic);
-            app.core.drainMidiInput(&midi_in);
+            app.core.serviceMidiInput(&midi_in);
         }
         drawFrame();
     }

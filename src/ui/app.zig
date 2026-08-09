@@ -1188,7 +1188,10 @@ pub const App = struct {
         }
     }
 
-    pub fn drainMidiInput(self: *App, midi_in: anytype) void {
+    /// Follow track focus, collect CC dirtiness, and route queued notes
+    /// through control-thread recording. Device open/close stays frontend-owned.
+    pub fn serviceMidiInput(self: *App, midi_in: anytype) void {
+        midi_in.active_track.store(@intCast(self.cursor), .monotonic);
         if (midi_in.dirty.swap(false, .acquire)) self.dirty = true;
         while (midi_in.note_queue.pop()) |recorded| self.recordMidiNote(recorded.pitch, recorded.vel);
     }

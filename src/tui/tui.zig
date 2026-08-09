@@ -450,12 +450,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
             tui_theme.apply(&term, user_config.tui_theme, &runtime.highlight_overrides);
         }
 
-        // MIDI input follows the TUI cursor so live playing always targets the
-        // currently selected track. Written from the UI thread, read (monotonic)
-        // in the MIDI reader thread.
-        if (has_midi) { if (using_midi) midi_in.active_track.store(@intCast(app.cursor), .monotonic); }
-
-        if (has_midi) { if (using_midi) app.drainMidiInput(&midi_in); }
+        if (has_midi) { if (using_midi) app.serviceMidiInput(&midi_in); }
         // zig fmt: on
 
         var w = std.Io.Writer.fixed(&frame_buf);
