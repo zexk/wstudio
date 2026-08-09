@@ -551,7 +551,7 @@ pub fn search(cmds: []const cmd_mod.Def, keymaps: []const config_mod.Keymap, pat
 
 test "help search wraps forward from the end; no match is null" {
     const commands = @import("commands.zig");
-    // "master volume" lives in the ALL VIEWS section near the top, so an
+    // "master volume" lives in WORKSPACE BASICS near the top, so an
     // anchor past the last line (clamped there) only finds it by wrapping.
     try std.testing.expect(search(commands.cmds, &.{}, "master volume", 100000, 1) != null);
     try std.testing.expectEqual(@as(?usize, null), search(commands.cmds, &.{}, "zzqqxxjj", 0, 1));
