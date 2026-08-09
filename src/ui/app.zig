@@ -3143,10 +3143,8 @@ pub const App = struct {
                 self.sampler_return = .tracks;
                 self.view = .sampler_editor;
             },
-            .clap, .vst3 => {
-                self.piano_track = @intCast(cursor);
-                self.view = .piano_roll;
-            },
+            .clap => commands.cmdClapGui(self, ""),
+            .vst3 => commands.cmdVst3Gui(self, ""),
             .soundfont, .acoustic => {
                 self.soundfont_track = @intCast(cursor);
                 self.soundfont_param = 0;
@@ -3250,7 +3248,7 @@ pub const App = struct {
             .sampler => "j/k: move  h/l: adjust  i: play  ?: help",
             .drum_machine => "enter: pads  p: steps  i: play  ?: help",
             .slicer => "enter: slices  p: steps  :load  ?: help",
-            .clap, .vst3 => "enter: piano roll  i: play  ?: help",
+            .clap, .vst3 => "enter: plugin GUI  p: piano  i: play  ?: help",
             .soundfont => "h/l: adjust  :load  i: play  ?: help",
             .acoustic => "h/l: adjust  f: banks  i: play  ?: help",
         };

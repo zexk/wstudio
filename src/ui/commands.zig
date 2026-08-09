@@ -338,7 +338,7 @@ fn cmdClapParam(app: *App, args: []const u8) void {
     });
 }
 
-fn cmdClapGui(app: *App, _: []const u8) void {
+pub fn cmdClapGui(app: *App, _: []const u8) void {
     const plugin = blk: {
         if (app.view == .track_spectrum or app.view == .master_spectrum or app.view == .group_spectrum) {
             const fx = spectrum_ed.fxPtr(app, spectrum_ed.currentTarget(app)) orelse break :blk null;
@@ -364,7 +364,7 @@ fn cmdClapGui(app: *App, _: []const u8) void {
     app.setStatus("CLAP GUI {s}: {s}", .{ if (visible) "opened" else "hidden", plugin.name() });
 }
 
-fn cmdVst3Gui(app: *App, _: []const u8) void {
+pub fn cmdVst3Gui(app: *App, _: []const u8) void {
     const plugin = blk: {
         if (app.view == .track_spectrum or app.view == .master_spectrum or app.view == .group_spectrum) {
             const fx = spectrum_ed.fxPtr(app, spectrum_ed.currentTarget(app)) orelse break :blk null;
