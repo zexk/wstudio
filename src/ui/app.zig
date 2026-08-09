@@ -1178,6 +1178,21 @@ pub const App = struct {
             self.setStatus("scale: off", .{});
     }
 
+    pub fn recordMidiNote(self: *App, pitch: u7, velocity: u7) void {
+        if (self.modal.mode != .insert) return;
+        switch (self.view) {
+            .drum_grid => drum_ed.recordNote(self, pitch, velocity),
+            .slicer_grid => slicer_ed.recordNote(self, pitch, velocity),
+            .piano_roll => piano_ed.recordNote(self, pitch, @as(f32, @floatFromInt(velocity)) / 127.0),
+            else => {},
+        }
+    }
+
+    pub fn drainMidiInput(self: *App, midi_in: anytype) void {
+        if (midi_in.dirty.swap(false, .acquire)) self.dirty = true;
+        while (midi_in.note_queue.pop()) |recorded| self.recordMidiNote(recorded.pitch, recorded.vel);
+    }
+
     // -----------------------------------------------------------------------
     // Input handling
     // -----------------------------------------------------------------------

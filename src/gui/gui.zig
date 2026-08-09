@@ -9,9 +9,6 @@ const ws = @import("wstudio");
 const config_mod = @import("../config.zig");
 const app_mod = @import("app.zig");
 const gui_style = @import("style.zig");
-const drum_ed = @import("../ui/editors/drum.zig");
-const piano_ed = @import("../ui/editors/piano.zig");
-const slicer_ed = @import("../ui/editors/slicer.zig");
 const glfw = @import("zglfw");
 const zgui = @import("zgui");
 const zopengl = @import("zopengl");
@@ -259,25 +256,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
         // the MIDI reader thread.
         if (has_midi and using_midi) {
             midi_in.active_track.store(@intCast(app.core.cursor), .monotonic);
-            // A MIDI CC can mutate saved instrument params straight from the
-            // reader thread (PolySynth.applyCC); it has no App pointer to
-            // flag `dirty` itself, so pick its signal up once per frame.
-            if (midi_in.dirty.swap(false, .acquire)) app.core.dirty = true;
-            // Every note-on the reader thread saw also landed in
-            // `note_queue` (the audition already went straight to the engine
-            // from that thread). Drain it through the same insert-mode
-            // record path qwerty playing uses, gated the same way: only in
-            // insert mode, only for the view whose pattern is being edited.
-            // Unlike qwerty, the played velocity comes through.
-            while (midi_in.note_queue.pop()) |rec| {
-                if (app.core.modal.mode != .insert) continue;
-                switch (app.core.view) {
-                    .drum_grid => drum_ed.recordNote(&app.core, rec.pitch, rec.vel),
-                    .slicer_grid => slicer_ed.recordNote(&app.core, rec.pitch, rec.vel),
-                    .piano_roll => piano_ed.recordNote(&app.core, rec.pitch, @as(f32, @floatFromInt(rec.vel)) / 127.0),
-                    else => {},
-                }
-            }
+            app.core.drainMidiInput(&midi_in);
         }
         drawFrame();
     }

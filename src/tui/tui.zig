@@ -21,9 +21,6 @@ const commands_load = @import("../ui/commands_load.zig");
 const cmd_mod = @import("../ui/cmd.zig");
 const icons = @import("../ui/icons.zig");
 const spectrum_ed = @import("../ui/editors/fx_editor.zig");
-const drum_ed = @import("../ui/editors/drum.zig");
-const slicer_ed = @import("../ui/editors/slicer.zig");
-const piano_ed = @import("../ui/editors/piano.zig");
 const render = @import("render.zig");
 const style = @import("style.zig");
 const tui_theme = @import("theme.zig");
@@ -458,32 +455,7 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
         // in the MIDI reader thread.
         if (has_midi) { if (using_midi) midi_in.active_track.store(@intCast(app.cursor), .monotonic); }
 
-        // A MIDI CC can mutate saved instrument params straight from the
-        // reader thread (PolySynth.applyCC); it has no App pointer to flag
-        // `dirty` itself, so pick up its signal here once per frame instead.
-        if (has_midi) { if (using_midi and midi_in.dirty.swap(false, .acquire)) app.dirty = true; }
-
-        // Live MIDI note recording: every note-on the reader thread saw also
-        // landed in `note_queue` (audition itself already went straight to
-        // the engine from that thread, unaffected by this). Drain it here
-        // and feed each note through the exact same insert-mode recordNote
-        // path qwerty playing uses (the `.note` action handler above) -
-        // gated the same way: only in insert mode, only for the view whose
-        // pattern is actually being edited. A stopped transport or wrong
-        // view/mode just drops the note; the live audition already
-        // happened regardless. Unlike qwerty, the played velocity comes
-        // through, so a take keeps its dynamics.
-        if (has_midi) { if (using_midi) {
-            while (midi_in.note_queue.pop()) |rec| {
-                if (app.modal.mode != .insert) continue;
-                switch (app.view) {
-                    .drum_grid => drum_ed.recordNote(&app, rec.pitch, rec.vel),
-                    .slicer_grid => slicer_ed.recordNote(&app, rec.pitch, rec.vel),
-                    .piano_roll => piano_ed.recordNote(&app, rec.pitch, @as(f32, @floatFromInt(rec.vel)) / 127.0),
-                    else => {},
-                }
-            }
-        } }
+        if (has_midi) { if (using_midi) app.drainMidiInput(&midi_in); }
         // zig fmt: on
 
         var w = std.Io.Writer.fixed(&frame_buf);

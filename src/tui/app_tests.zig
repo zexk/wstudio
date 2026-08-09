@@ -4467,6 +4467,26 @@ test ":monitor selects persistent input monitoring modes" {
     try std.testing.expectEqualStrings("monitor: expected off, auto, or on", app.status_buf[0..app.status_len]);
 }
 
+test "shared MIDI note routing records only in insert-mode editor views" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    _ = app.session.engine.send(.play);
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block);
+
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    const before = pp.note_count;
+    app.recordMidiNote(72, 64);
+    try std.testing.expectEqual(before, pp.note_count);
+
+    app.modal.mode = .insert;
+    app.recordMidiNote(72, 64);
+    try std.testing.expectEqual(before + 1, pp.note_count);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 / 127.0), pp.notes[pp.note_count - 1].velocity, 1e-6);
+}
+
 test ":signature sets beats per bar and reshapes bar math" {
     var app = try testApp();
     defer app.deinit();
