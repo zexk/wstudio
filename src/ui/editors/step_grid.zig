@@ -148,6 +148,22 @@ pub fn moveClamped(cursor: anytype, delta: i32, count: usize) void {
     cursor.* = @intCast(std.math.clamp(target, 0, top));
 }
 
+/// Resize a step pattern by `count` beats without narrowing count-prefix
+/// arithmetic before clamping to the pattern's u16 storage range.
+pub fn resizeByBeats(step_count: u16, steps_per_beat: u8, count: i32, grow: bool) u16 {
+    const current: u32 = step_count;
+    const amount = @as(u32, steps_per_beat) * @as(u32, @intCast(@max(count, 1)));
+    return @intCast(if (grow)
+        @min(@as(u32, std.math.maxInt(u16)), current + amount)
+    else
+        @max(1, current -| amount));
+}
+
+test "beat resize clamps large count prefixes" {
+    try std.testing.expectEqual(std.math.maxInt(u16), resizeByBeats(16, 32, 4096, true));
+    try std.testing.expectEqual(@as(u16, 1), resizeByBeats(16, 32, 4096, false));
+}
+
 /// w/b: jump the step cursor `delta` groups forward/back, snapping to the
 /// nearest group boundary first. Drum and slicer pass their live
 /// `steps_per_beat`; piano and automation pass their own grid-derived width.

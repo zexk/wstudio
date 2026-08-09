@@ -195,15 +195,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // Resize by a whole beat, not a single step -
                 // the drum grid's same rule (see editors/drum.zig).
                 '-' => {
-                    const delta: u16 = @intCast(@as(i32, sl.steps_per_beat) * app.takeCount());
                     history.recordSlicer(app, app.slicer_track);
-                    sl.setStepCount(sl.step_count -| delta);
+                    sl.setStepCount(step_grid.resizeByBeats(sl.step_count, sl.steps_per_beat, app.takeCount(), false));
                     if (step.* >= sl.step_count) step.* = sl.step_count - 1;
                 },
                 '+' => {
-                    const delta: u16 = @intCast(@as(i32, sl.steps_per_beat) * app.takeCount());
                     history.recordSlicer(app, app.slicer_track);
-                    sl.setStepCount(sl.step_count +| delta);
+                    sl.setStepCount(step_grid.resizeByBeats(sl.step_count, sl.steps_per_beat, app.takeCount(), true));
                 },
                 'E' => doublePattern(app),
                 'O' => sequenceSourceOrder(app),

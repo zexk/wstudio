@@ -217,16 +217,14 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // Trailing notes past a shrink are dropped (see setStepCount's doc).
                 '-' => {
                     const dm = app.drumMachine();
-                    const delta: u16 = @intCast(@as(i32, dm.steps_per_beat) * app.takeCount());
                     history.recordDrum(app, app.drum_track);
-                    dm.setStepCount(dm.step_count -| delta);
+                    dm.setStepCount(step_grid.resizeByBeats(dm.step_count, dm.steps_per_beat, app.takeCount(), false));
                     if (step.* >= dm.step_count) step.* = dm.step_count - 1;
                 },
                 '+' => {
                     const dm = app.drumMachine();
-                    const delta: u16 = @intCast(@as(i32, dm.steps_per_beat) * app.takeCount());
                     history.recordDrum(app, app.drum_track);
-                    dm.setStepCount(dm.step_count +| delta);
+                    dm.setStepCount(step_grid.resizeByBeats(dm.step_count, dm.steps_per_beat, app.takeCount(), true));
                 },
                 'E' => doublePattern(app),
                 'c' => {
