@@ -7,7 +7,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const ws = @import("wstudio");
 const config_mod = @import("../config.zig");
-const tui_app = @import("../ui/app.zig");
 const app_mod = @import("app.zig");
 const gui_style = @import("style.zig");
 const drum_ed = @import("../ui/editors/drum.zig");
@@ -163,21 +162,8 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     var app = try App.init(init.gpa, init.io, init_path, user_config);
     defer app.deinit();
     app.core.scanExternalPlugins(init.environ_map);
-    // Same hooks as the TUI: `wstudio.notify`/`wstudio.cmd` land on the
-    // shared core, and init.lua's queued command lines flush here. The
-    // command table must include Lua user commands before the flush, since
-    // queued lines may invoke them.
-    app.core.lua_runtime = runtime;
-    app.core.rebuildCmdTable();
-    runtime.app = &app.core;
-    runtime.attachHost(tui_app.luaHost(&app.core));
-    defer {
-        runtime.host = null;
-        runtime.app = null;
-    }
-    // A project opened on the command line loaded before the runtime
-    // attached, so its event fires here, right after ConfigDone.
-    if (app.core.projectPath()) |p| app.core.emitEvent(.{ .ProjectLoadPost = .{ .path = p } });
+    app.core.attachRuntime(runtime);
+    defer app.core.detachRuntime(runtime);
     var title_path_buf: [1024]u8 = undefined;
     var title_path_len: usize = 0;
     syncWindowTitle(window, &app, &title_path_buf, &title_path_len);

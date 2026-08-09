@@ -8856,6 +8856,23 @@ test "Lua autocmds fire from core emission points" {
     try rt.loadString("assert(log[6] == 'ProjectSavePre:nowhere.wsj', log[6]); assert(#log == 6)");
 }
 
+test "runtime attachment binds and clears both sides" {
+    var app = try testApp();
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.tui);
+    defer rt.deinit();
+
+    app.attachRuntime(&rt);
+    try std.testing.expectEqual(&app, rt.app.?);
+    try std.testing.expectEqual(&rt, app.lua_runtime.?);
+    try std.testing.expect(rt.host != null);
+
+    app.detachRuntime(&rt);
+    try std.testing.expect(rt.app == null);
+    try std.testing.expect(rt.host == null);
+    try std.testing.expect(app.lua_runtime == null);
+}
+
 test "wstudio.api transport and track surface" {
     var app = try testApp();
     defer app.deinit();

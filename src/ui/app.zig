@@ -1664,6 +1664,20 @@ pub const App = struct {
         self.emitEvent(.ConfigDone);
     }
 
+    pub fn attachRuntime(self: *App, runtime: *config_mod.Runtime) void {
+        self.lua_runtime = runtime;
+        self.rebuildCmdTable();
+        runtime.app = self;
+        runtime.attachHost(luaHost(self));
+        if (self.projectPath()) |path| self.emitEvent(.{ .ProjectLoadPost = .{ .path = path } });
+    }
+
+    pub fn detachRuntime(self: *App, runtime: *config_mod.Runtime) void {
+        runtime.host = null;
+        runtime.app = null;
+        self.lua_runtime = null;
+    }
+
     // wstudio.api surface (docs/lua-api.md phase 6): bodies live in
     // app_api.zig, re-exported here under their own names since
     // config_lua_api.zig reaches them as requireApp(l).apiPlay() /

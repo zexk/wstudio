@@ -312,23 +312,9 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
         app.setStatus("warning: console raw-mode setup failed - quick edit may freeze the display", .{});
     }
 
-    // Load project file before backends start - the backend captures the engine
-    // pointer at init, so the swap must happen here.
-    // The app is fully initialized: route `wstudio.notify`/`wstudio.cmd`
-    // into it and flush command lines queued while init.lua ran. The
-    // command table must include Lua user commands before the flush, since
-    // queued lines may invoke them.
-    app.lua_runtime = runtime;
-    app.rebuildCmdTable();
-    runtime.app = &app;
-    runtime.attachHost(app_mod.luaHost(&app));
-    defer {
-        runtime.host = null;
-        runtime.app = null;
-    }
-    // A project opened on the command line loaded before the runtime
-    // attached, so its event fires here, right after ConfigDone.
-    if (app.projectPath()) |p| app.emitEvent(.{ .ProjectLoadPost = .{ .path = p } });
+    // Load project file before backends start: backend captures engine pointer.
+    app.attachRuntime(runtime);
+    defer app.detachRuntime(runtime);
 
     var config: backend_mod.Config = .{
         .sample_rate = app.session.project.sample_rate,
