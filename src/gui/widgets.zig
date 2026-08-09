@@ -5,6 +5,16 @@ const format = @import("../ui/format.zig");
 const gui_style = @import("style.zig");
 const scroll = @import("scroll.zig");
 
+pub fn iconButton(label: [:0]const u8, tooltip: []const u8) bool {
+    const clicked = zgui.smallButton(label);
+    if (zgui.isItemHovered(.{})) {
+        _ = zgui.beginTooltip();
+        zgui.textUnformatted(tooltip);
+        zgui.endTooltip();
+    }
+    return clicked;
+}
+
 /// A section header used inside a bordered/tinted card column: a small
 /// accent chip (matching the header overview panels' accent bars) plus the
 /// label, then a separator and a bit of breathing room before the params.

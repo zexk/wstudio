@@ -12,6 +12,7 @@ const spectrum_ed = @import("../ui/editors/fx_editor.zig");
 const history = @import("../ui/history.zig");
 const gui_style = @import("style.zig");
 const meters = @import("meters.zig");
+const widgets = @import("widgets.zig");
 const zgui = @import("zgui");
 
 const color = gui_style.color;
@@ -69,31 +70,21 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
 fn drawTransportControls(app: anytype, snap: ws.engine.UiSnapshot) void {
     zgui.beginGroup();
     zgui.textColored(theme.fg3, icons.logo ++ "  TRANSPORT", .{});
-    if (iconButton(if (snap.playing or snap.pre_rolling) icons.stop ++ "##transport-stop" else icons.play ++ "##transport-play", if (snap.playing or snap.pre_rolling) "Stop  Space" else "Play  Space")) {
+    if (widgets.iconButton(if (snap.playing or snap.pre_rolling) icons.stop ++ "##transport-stop" else icons.play ++ "##transport-play", if (snap.playing or snap.pre_rolling) "Stop  Space" else "Play  Space")) {
         app.core.handleKey(.{ .char = ' ' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     }
     zgui.sameLine(.{ .spacing = 5 });
-    if (iconButton(icons.record ++ "##transport-record", "Record  Space") and !snap.playing and !snap.pre_rolling) {
+    if (widgets.iconButton(icons.record ++ "##transport-record", "Record  Space") and !snap.playing and !snap.pre_rolling) {
         if (!hasArmedAudioTarget(&app.core) and app.core.modal.mode == .normal and
             (app.core.view == .piano_roll or app.core.view == .drum_grid or app.core.view == .slicer_grid))
             app.core.handleKey(.{ .char = 'i' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
         app.core.handleKey(.{ .char = ' ' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     }
     zgui.sameLine(.{ .spacing = 5 });
-    if (iconButton("\u{21B6}##transport-undo", "Undo  u")) history.doUndo(&app.core);
+    if (widgets.iconButton("\u{21B6}##transport-undo", "Undo  u")) history.doUndo(&app.core);
     zgui.sameLine(.{ .spacing = 5 });
-    if (iconButton("\u{21B7}##transport-redo", "Redo  U")) history.doRedo(&app.core);
+    if (widgets.iconButton("\u{21B7}##transport-redo", "Redo  U")) history.doRedo(&app.core);
     zgui.endGroup();
-}
-
-fn iconButton(label: [:0]const u8, tooltip: []const u8) bool {
-    const clicked = zgui.smallButton(label);
-    if (zgui.isItemHovered(.{})) {
-        _ = zgui.beginTooltip();
-        zgui.textUnformatted(tooltip);
-        zgui.endTooltip();
-    }
-    return clicked;
 }
 
 fn hasArmedAudioTarget(core: anytype) bool {

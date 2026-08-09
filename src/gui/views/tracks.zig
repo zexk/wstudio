@@ -4,9 +4,11 @@ const std = @import("std");
 const ws = @import("wstudio");
 const format = @import("../../ui/format.zig");
 const spectrum_ed = @import("../../ui/editors/fx_editor.zig");
+const icons = @import("../../ui/icons.zig");
 const gui_style = @import("../style.zig");
 const scroll = @import("../scroll.zig");
 const meters = @import("../meters.zig");
+const widgets = @import("../widgets.zig");
 const zgui = @import("zgui");
 
 const color = gui_style.color;
@@ -191,16 +193,16 @@ fn mixerDrag(args: MixerDrag) MixerDragResult {
 
 pub fn draw(app: anytype) void {
     app.core.tracksRowSync();
-    zgui.textDisabled("TRACKS", .{});
+    zgui.textDisabled(icons.logo ++ "  MIXER", .{});
     zgui.sameLine(.{});
     zgui.textColored(if (app.core.session.song_mode) theme.audio else theme.fg3, "{s}", .{if (app.core.session.song_mode) "SONG" else "PATTERN"});
     zgui.sameLine(.{ .spacing = 12 });
-    if (zgui.smallButton("+ TRACK")) app.core.handleKey(.{ .char = 'a' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+    if (widgets.iconButton("+##track-add", "Add track  a")) app.core.handleKey(.{ .char = 'a' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     if (app.core.cursorTrack() != null) {
         zgui.sameLine(.{ .spacing = 6 });
-        if (zgui.smallButton("UP##track-up")) app.core.doTrackMove(-1);
+        if (widgets.iconButton("\u{2191}##track-up", "Move track up  K")) app.core.doTrackMove(-1);
         zgui.sameLine(.{ .spacing = 4 });
-        if (zgui.smallButton("DOWN##track-down")) app.core.doTrackMove(1);
+        if (widgets.iconButton("\u{2193}##track-down", "Move track down  J")) app.core.doTrackMove(1);
     }
     zgui.separator();
     const row_count = app.core.trackRows().len + 1;
@@ -389,10 +391,10 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     // stays in step with `:track-set`/wstudio.api.track_set and undoes the
     // same way a keyboard toggle does.
     var badge_id_buf: [40]u8 = undefined;
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "solo-{d}", .{track_index}) catch "solo", badgeX(block_x0, 0), badge_y, "S", track.soloed, theme.rhythm)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "solo-{d}", .{track_index}) catch "solo", badgeX(block_x0, 0), badge_y, icons.solo, track.soloed, theme.rhythm)) {
         app.core.apiSetTrackSoloed(track_index, !track.soloed);
     }
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "mute-{d}", .{track_index}) catch "mute", badgeX(block_x0, 1), badge_y, "M", track.muted, theme.danger)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "mute-{d}", .{track_index}) catch "mute", badgeX(block_x0, 1), badge_y, icons.mute, track.muted, theme.danger)) {
         app.core.apiSetTrackMuted(track_index, !track.muted);
     }
     if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "arm-{d}", .{track_index}) catch "arm", badgeX(block_x0, 2), badge_y, "", app.core.session.isArmed(track_index), theme.danger)) {
@@ -473,10 +475,10 @@ fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) 
     // slot stays empty rather than shifting these two left out of line with
     // the track rows above.
     var badge_id_buf: [40]u8 = undefined;
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-solo-{d}", .{group_index}) catch "gsolo", badgeX(block_x0, 0), badge_y, "S", group.soloed, theme.rhythm)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-solo-{d}", .{group_index}) catch "gsolo", badgeX(block_x0, 0), badge_y, icons.solo, group.soloed, theme.rhythm)) {
         app.core.doGroupSolo(group_index);
     }
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-mute-{d}", .{group_index}) catch "gmute", badgeX(block_x0, 1), badge_y, "M", group.muted, theme.danger)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-mute-{d}", .{group_index}) catch "gmute", badgeX(block_x0, 1), badge_y, icons.mute, group.muted, theme.danger)) {
         app.core.doGroupMute(group_index);
     }
     drawTrackRowCursorOutline(chrome, height);
@@ -494,7 +496,7 @@ fn drawMasterRow(app: anytype, height: f32) void {
     const selected = chrome.selected;
     const accent = theme.audio;
 
-    drawSideStrip(draw_list, origin, height, accent, "M", .{});
+    drawSideStrip(draw_list, origin, height, accent, icons.master, .{});
 
     const text_x = origin[0] + strip_w + 13;
     draw_list.addText(.{ text_x, origin[1] + 5 }, color(if (selected) theme.fg0 else theme.modulation), "MASTER", .{});
@@ -574,9 +576,8 @@ fn drawTrackBadgeToggle(draw_list: zgui.DrawList, id: [:0]const u8, x: f32, y: f
     const fg = if (active) legibleOn(active_bg) else if (hovered) theme.fg1 else theme.fg3;
     draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + badge_w, y + badge_h }, .col = color(bg), .rounding = gui_style.item_rounding });
     if (label.len == 0) {
-        // Record arm: the nerd-font record glyph fills its em box, so next to
-        // the cap-height "M"/"S" it reads as a much bigger badge. Draw the dot
-        // directly at a radius that matches their visual weight instead.
+        // Record arm uses a drawn dot so its weight matches neighboring
+        // mute and solo glyphs instead of filling the whole em box.
         draw_list.addCircleFilled(.{ .p = .{ x + badge_w / 2, y + badge_h / 2 }, .r = 4, .col = color(fg) });
     } else {
         const label_size = zgui.calcTextSize(label, .{});
