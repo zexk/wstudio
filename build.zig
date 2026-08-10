@@ -42,9 +42,8 @@ pub fn build(b: *std.Build) void {
     // NIX_CFLAGS_COMPILE/NIX_LDFLAGS. Those variables describe the *host*
     // though, so a cross-compiled target is handed its own prefix instead -
     // flake.nix exports it the way it already exports SDKROOT for macOS.
-    // Pitch shifting (dsp/pitch_shift.zig). C++ inside, so its own runtime
-    // comes along through the shared library's dependencies.
-    wstudio_mod.linkSystemLibrary("rubberband", .{});
+    // Rubber Band (dsp/pitch_shift.zig) joins them: C++ inside, so its own
+    // runtime comes along through the shared library's dependencies.
     const target_prefix = if (cross_compiling) b.graph.environ_map.get("WSTUDIO_TARGET_PREFIX") else null;
     if (target_prefix) |prefix| {
         wstudio_mod.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ prefix, "include" }) });
@@ -58,11 +57,14 @@ pub fn build(b: *std.Build) void {
             // and `libfoo.a` - so the import library goes to the linker
             // directly. The release archive ships the matching DLLs.
             wstudio_mod.addObjectFile(.{ .cwd_relative = b.pathJoin(&.{ prefix, "lib", "libsndfile.dll.a" }) });
+            wstudio_mod.addObjectFile(.{ .cwd_relative = b.pathJoin(&.{ prefix, "lib", "librubberband.dll.a" }) });
         } else {
             wstudio_mod.linkSystemLibrary("sndfile", .{ .use_pkg_config = .no });
+            wstudio_mod.linkSystemLibrary("rubberband", .{ .use_pkg_config = .no });
         }
     } else {
         wstudio_mod.linkSystemLibrary("sndfile", .{});
+        wstudio_mod.linkSystemLibrary("rubberband", .{});
         // Static, so a downloaded build does not need the user to have
         // installed it. libsndfile stays dynamic: static would drag in its
         // whole codec chain (FLAC, ogg, vorbis, opus, mpg123, lame) by hand.
