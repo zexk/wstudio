@@ -353,16 +353,6 @@ pub const Slicer = struct {
     // -----------------------------------------------------------------------
     // Loading + slicing (control thread only, not while audio thread runs)
 
-    /// Parse raw WAV bytes into the shared clip. Resamples to engine rate if
-    /// needed. When `reset_slices` is true (the interactive `:load-slice`
-    /// path), clears every slice - the old boundaries (fractions of the OLD
-    /// clip's length) are meaningless against new audio, so the user
-    /// re-chops with `:slice` afterward. `reset_slices = false` is for
-    /// restoring a saved project: persist.zig applies each slice's saved
-    /// start/end/gain/etc. BEFORE the audio bytes are read back from the
-    /// sample sidecar, so this must only re-point every slice's `.samples`
-    /// at the fresh buffer without touching `slice_count` or any slice's own
-    /// params, or the just-restored slicing would be wiped out from under it.
     /// Best-effort check for whether a clip is loaded - used by editors
     /// deciding whether to show an empty state (or, for the GUI/TUI slicer
     /// entry point, jump straight to the file browser instead). Not the
@@ -374,6 +364,16 @@ pub const Slicer = struct {
         return self.samples.len > 0;
     }
 
+    /// Parse raw WAV bytes into the shared clip. Resamples to engine rate if
+    /// needed. When `reset_slices` is true (the interactive `:load-slice`
+    /// path), clears every slice - the old boundaries (fractions of the OLD
+    /// clip's length) are meaningless against new audio, so the user
+    /// re-chops with `:slice` afterward. `reset_slices = false` is for
+    /// restoring a saved project: persist.zig applies each slice's saved
+    /// start/end/gain/etc. BEFORE the audio bytes are read back from the
+    /// sample sidecar, so this must only re-point every slice's `.samples`
+    /// at the fresh buffer without touching `slice_count` or any slice's own
+    /// params, or the just-restored slicing would be wiped out from under it.
     pub fn loadWav(self: *Slicer, wav_data: []const u8, name: []const u8, reset_slices: bool) !void {
         const samples = try pad_mod.decodeWav(self.allocator, wav_data, self.sample_rate);
 
