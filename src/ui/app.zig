@@ -155,12 +155,37 @@ pub const BrowserPurpose = union(enum) {
     load_wavetable: ws.dsp.PolySynth.OscSlot,
     load_soundfont,
 
-    /// The extension the browser filters non-directory entries to (case
-    /// insensitive); directories are always shown regardless.
-    pub fn ext(self: BrowserPurpose) []const u8 {
+    /// Extensions the browser filters non-directory entries to (case
+    /// insensitive); directories are always shown regardless. Everything
+    /// `core/audio_file.zig` decodes is offered, since a sample is a sample
+    /// whatever container it arrived in.
+    pub fn extensions(self: BrowserPurpose) []const []const u8 {
+        return switch (self) {
+            .open_project => &.{".wsj"},
+            .load_sample, .load_pad, .load_clip, .load_slice, .load_wavetable => &.{
+                ".wav",  ".flac", ".aiff", ".aif",
+                ".ogg",  ".oga",  ".opus", ".mp3",
+                ".caf",  ".w64",  ".rf64", ".au",
+                ".aifc", ".voc",
+            },
+            .load_soundfont => &.{".sf2"},
+        };
+    }
+
+    /// Whether `name` passes the filter for this purpose.
+    pub fn accepts(self: BrowserPurpose, name: []const u8) bool {
+        for (self.extensions()) |candidate| {
+            if (std.ascii.endsWithIgnoreCase(name, candidate)) return true;
+        }
+        return false;
+    }
+
+    /// Short description of the filter, for browser headers and messages -
+    /// the audio list is far too long to spell out.
+    pub fn extLabel(self: BrowserPurpose) []const u8 {
         return switch (self) {
             .open_project => ".wsj",
-            .load_sample, .load_pad, .load_clip, .load_slice, .load_wavetable => ".wav",
+            .load_sample, .load_pad, .load_clip, .load_slice, .load_wavetable => "audio",
             .load_soundfont => ".sf2",
         };
     }
@@ -183,7 +208,7 @@ pub const BrowserPurpose = union(enum) {
     pub fn displayLabel(self: BrowserPurpose, buf: []u8) []const u8 {
         var label_buf: [40]u8 = undefined;
         const purpose_label = self.label(&label_buf);
-        return std.fmt.bufPrint(buf, "{s} ({s})", .{ purpose_label, self.ext() }) catch purpose_label;
+        return std.fmt.bufPrint(buf, "{s} ({s})", .{ purpose_label, self.extLabel() }) catch purpose_label;
     }
 
     pub fn canAudition(self: BrowserPurpose) bool {
@@ -218,9 +243,24 @@ test "browser capabilities match selected file type" {
     try std.testing.expect(!clip.canMultiSelect());
 }
 
-test "browser purpose display label includes accepted extension" {
+test "browser purpose display label includes what it accepts" {
     var buf: [64]u8 = undefined;
-    try std.testing.expectEqualStrings("load pad 4 (.wav)", (BrowserPurpose{ .load_pad = 3 }).displayLabel(&buf));
+    try std.testing.expectEqualStrings("load pad 4 (audio)", (BrowserPurpose{ .load_pad = 3 }).displayLabel(&buf));
+    const project: BrowserPurpose = .open_project;
+    try std.testing.expectEqualStrings("open project (.wsj)", project.displayLabel(&buf));
+}
+
+test "browser purpose accepts every audio container, whatever the case" {
+    const sample: BrowserPurpose = .load_sample;
+    try std.testing.expect(sample.accepts("kick.wav"));
+    try std.testing.expect(sample.accepts("PAD.FLAC"));
+    try std.testing.expect(sample.accepts("vox.Opus"));
+    try std.testing.expect(!sample.accepts("notes.txt"));
+    try std.testing.expect(!sample.accepts("song.wsj"));
+    // A project browser stays narrow: audio is not a project.
+    const project: BrowserPurpose = .open_project;
+    try std.testing.expect(!project.accepts("kick.wav"));
+    try std.testing.expect(project.accepts("song.wsj"));
 }
 
 /// One yanked piano-roll pattern: a private copy of the notes + loop length.

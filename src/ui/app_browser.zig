@@ -70,7 +70,7 @@ pub fn setBrowserDir(self: *App, path: []const u8) !void {
     while (try it.next(self.io)) |entry| {
         if (entry.name.len == 0 or (!self.file_browser_show_hidden and entry.name[0] == '.')) continue;
         const is_dir = entry.kind == .directory;
-        if (!is_dir and !std.ascii.endsWithIgnoreCase(entry.name, self.browser_purpose.ext())) continue;
+        if (!is_dir and !self.browser_purpose.accepts(entry.name)) continue;
         const name = try self.allocator.dupe(u8, entry.name);
         errdefer self.allocator.free(name);
         try new_entries.append(self.allocator, .{ .name = name, .is_dir = is_dir });
@@ -332,7 +332,7 @@ pub fn browserActivate(self: *App) void {
 /// Sampler steals its own voice.
 pub fn auditionBrowserEntry(self: *App) void {
     if (!self.browser_purpose.canAudition()) {
-        self.setStatus("audition unavailable for {s}", .{self.browser_purpose.ext()});
+        self.setStatus("audition unavailable for {s}", .{self.browser_purpose.extLabel()});
         return;
     }
     if (self.browser_cursor >= self.browser_entries.items.len) return;

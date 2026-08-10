@@ -7187,6 +7187,9 @@ test "file browser lists dirs first, then extension-filtered files, hiding dotfi
     try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "a.wav", .data = "x" });
     try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "notes.txt", .data = "x" });
     try tmp.dir.writeFile(std.testing.io, .{ .sub_path = ".hidden.wav", .data = "x" });
+    // Anything libsndfile decodes is offered, not only WAV.
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "c.flac", .data = "x" });
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "d.OGG", .data = "x" });
 
     var app = try appRootedAt(&tmp);
     defer app.deinit();
@@ -7195,12 +7198,15 @@ test "file browser lists dirs first, then extension-filtered files, hiding dotfi
 
     try std.testing.expectEqual(AppView.file_browser, app.view);
     const entries = app.browser_entries.items;
-    try std.testing.expectEqual(@as(usize, 3), entries.len); // dir + 2 .wav, txt and dotfile excluded
+    // dir + 2 .wav + .flac + .OGG; txt and dotfile excluded
+    try std.testing.expectEqual(@as(usize, 5), entries.len);
     try std.testing.expect(entries[0].is_dir);
     try std.testing.expectEqualStrings("zzz_sub", entries[0].name);
     try std.testing.expect(!entries[1].is_dir);
     try std.testing.expectEqualStrings("a.wav", entries[1].name);
     try std.testing.expectEqualStrings("b.wav", entries[2].name);
+    try std.testing.expectEqualStrings("c.flac", entries[3].name);
+    try std.testing.expectEqualStrings("d.OGG", entries[4].name);
 }
 
 test "the browser reopens where the last sample came from, but not for projects" {
