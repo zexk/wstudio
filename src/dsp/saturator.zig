@@ -1,5 +1,5 @@
 //! Saturator: a waveshaper with input drive, output trim, dry/wet mix, and
-//! a choice of three curves. Every curve is peak-normalised (shape(g·x) /
+//! a choice of five curves. Every curve is peak-normalised (shape(g·x) /
 //! shape(g) per polarity) so cranking the drive adds density and harmonics
 //! without also adding level; the output trim is a plain make-up/duck
 //! control on top.
@@ -12,6 +12,10 @@
 //!       runs its output through a one-pole DC blocker.
 //!   2 = diode: cubic soft-knee clip (`x - x^3/3`, hard-limited past unity)
 //!       - a sharper knee than tanh for a more aggressive, fuzz-like edge.
+//!   3 = sine:  a quarter sine over the clipped input - flat-topped well
+//!       before the edge, so it thickens without buzzing.
+//!   4 = hard:  no knee at all. Transparent up to the threshold, edged past
+//!       it, and the loudest of the five for a given drive.
 
 const std = @import("std");
 const types = @import("../core/types.zig");
@@ -27,7 +31,13 @@ const tube_asym: f32 = 0.6;
 /// bass alone.
 const dc_pole: f32 = 0.995;
 
-fn shapeVal(kind: u2, pre: f32, x: f32) f32 {
+/// Highest `shape` index. The curves are a table, not a design axis: each is
+/// a different amount and order of harmonics for the same drive, and picking
+/// by ear is the whole workflow. LSP's clipper offers eleven sigmoids; these
+/// five cover soft through hard without two of them sounding alike.
+pub const max_shape: f32 = 4.0;
+
+fn shapeVal(kind: u3, pre: f32, x: f32) f32 {
     return switch (kind) {
         1 => blk: {
             const g = if (x >= 0) pre else pre * tube_asym;
@@ -37,6 +47,12 @@ fn shapeVal(kind: u2, pre: f32, x: f32) f32 {
             const y = pre * x;
             break :blk if (@abs(y) < 1.0) y - (y * y * y) / 3.0 else std.math.copysign(@as(f32, 2.0 / 3.0), y);
         },
+        // Sine: flat-topped well before it clips, so it thickens without
+        // the buzz a hard edge adds - the "fat" end of the table.
+        3 => @sin(std.math.clamp(pre * x, -1.0, 1.0) * (std.math.pi * 0.5)),
+        // Hard clip: no knee at all. Loud and edged, and the only curve
+        // here that leaves the signal untouched right up to the threshold.
+        4 => std.math.clamp(pre * x, -1.0, 1.0),
         else => std.math.tanh(pre * x),
     };
 }
@@ -46,7 +62,8 @@ pub const Saturator = struct {
     out_db: f32 = 0.0,
     /// 0 = dry only, 1 = wet only.
     mix: f32 = 1.0,
-    /// 0 = soft (tanh), 1 = tube (asymmetric), 2 = diode (cubic clip).
+    /// 0 = soft (tanh), 1 = tube (asymmetric), 2 = diode (cubic clip),
+    /// 3 = sine, 4 = hard clip.
     shape: f32 = 0.0,
     /// Per-channel DC-blocker state, only driven when shape = tube.
     dc_x1: [2]f32 = .{ 0.0, 0.0 },
@@ -73,7 +90,7 @@ pub const Saturator = struct {
     /// Everything the shaping needs, so the oversampler can call back into
     /// it per (doubled-rate) sample.
     const Curve = struct {
-        kind: u2,
+        kind: u3,
         pre: f32,
         norm_pos: f32,
         norm_neg: f32,
@@ -90,7 +107,7 @@ pub const Saturator = struct {
         const drive_db = dsp.sanitizeParam(self.drive_db, 0.0, 36.0, 12.0);
         const out_db = dsp.sanitizeParam(self.out_db, -24.0, 24.0, 0.0);
         const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 1.0);
-        const kind: u2 = @intFromFloat(std.math.clamp(@round(dsp.sanitizeParam(self.shape, 0.0, 2.0, 0.0)), 0, 2));
+        const kind: u3 = @intFromFloat(std.math.clamp(@round(dsp.sanitizeParam(self.shape, 0.0, max_shape, 0.0)), 0, max_shape));
         // zig fmt: off
         const pre  = types.dbToGain(drive_db);
         // zig fmt: on
@@ -171,6 +188,25 @@ test "invalid parameters cannot poison output" {
     var buf = [_]Sample{ 0.0, -0.7, 0.05, 0.9 };
     sat.processBlock(&buf);
     for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
+}
+
+test "the symmetric shapes all map full-scale to full-scale" {
+    // Tube is excluded on purpose: its asymmetry plus the DC blocker that
+    // corrects it move the settled level, which the tube test below covers.
+    for ([_]f32{ 0.0, 2.0, 3.0, 4.0 }) |shape| {
+        var sat = Saturator{ .drive_db = 12.0, .shape = shape };
+        const out = settled(&sat, 1.0);
+        try std.testing.expectApproxEqAbs(@as(Sample, 1.0), out[0], 1e-3);
+        try std.testing.expectApproxEqAbs(@as(Sample, -1.0), out[1], 1e-3);
+    }
+}
+
+test "hard clip leaves everything under the threshold alone" {
+    // The point of the shape: no knee, so at unity drive it is a bypass
+    // until the signal actually reaches full scale.
+    var sat = Saturator{ .drive_db = 0.0, .shape = max_shape };
+    const out = settled(&sat, 0.4);
+    try std.testing.expectApproxEqAbs(@as(Sample, 0.4), out[0], 1e-3);
 }
 
 test "diode shape also maps full-scale to full-scale" {

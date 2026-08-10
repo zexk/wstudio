@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 49;
+pub const file_version: u32 = 51;
 
 /// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
 /// reasoning as `EqBandKindSnap`.
@@ -346,6 +346,11 @@ pub const CompSnap = struct {
     mode: f32 = 0.0,
     /// Dry/wet blend; below 1 is parallel compression.
     mix: f32 = 1.0,
+    /// Detector: 0 = peak, 1 = RMS.
+    sc_mode: f32 = 0.0,
+    /// Detector high-pass / low-pass in Hz; 0 = off.
+    sc_hpf_hz: f32 = 0.0,
+    sc_lpf_hz: f32 = 0.0,
     /// Null uses ordinary self-detecting compression.
     sidechain_source: ?u16 = null,
     /// Drum pad within source track to key off; null uses whole track mix.
@@ -529,6 +534,8 @@ pub const LimiterSnap = struct {
     ceiling: f32 = 0.955,
     release_ms: f32 = 80,
     lookahead_ms: f32 = 0.0,
+    /// 0 = sample peak, 1 = true peak (2x inter-sample detection).
+    true_peak: f32 = 0.0,
 };
 
 pub const UtilitySnap = struct {

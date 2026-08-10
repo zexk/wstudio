@@ -7,6 +7,24 @@ const dsp = @import("device.zig");
 
 const Sample = types.Sample;
 
+/// A detector filter under this reads as "off" - a 10Hz highpass does
+/// nothing a compressor can hear, and the zero value has to mean off so the
+/// unshaped path stays the default.
+const min_sc_filter_hz: f32 = 20.0;
+
+/// RMS averaging window. ponytail: fixed, where LSP exposes it as
+/// "reactivity" - attack/release already own how fast the compressor moves,
+/// and a second timing axis is a knob most users would leave alone. Promote
+/// it to a param if material turns up that needs a slower average.
+const rms_window_ms: f32 = 10.0;
+
+/// One-pole smoothing coefficient for a cutoff in Hz (0 when the cutoff is
+/// unset, which leaves the filter state frozen and the signal untouched).
+fn onePoleCoef(hz: f32, sample_rate: f32) f32 {
+    if (hz <= 0.0 or sample_rate <= 0.0) return 0.0;
+    return 1.0 - @exp(-2.0 * std.math.pi * hz / sample_rate);
+}
+
 pub const Compressor = struct {
     /// Which track (and, optionally, which drum pad within it) this
     /// compressor's envelope follower should detect from instead of its own
@@ -60,8 +78,27 @@ pub const Compressor = struct {
     /// Width of the soft-knee transition around threshold, dB. 0 = hard
     /// knee (the ratio applies the instant `over_db` crosses 0).
     knee_db: f32 = 0.0,
+    /// Detector shaping, applied to whatever drives the envelope (this
+    /// unit's own input, or the external sidechain buffer). 0 = peak,
+    /// 1 = RMS. Peak reacts to every transient, RMS to how loud the source
+    /// actually is, which is the difference between a compressor that
+    /// chases snare hits and one that rides a vocal.
+    sc_mode: f32 = 0.0,
+    /// Detector high-pass, Hz; 0 = off. The most-reached-for sidechain
+    /// control there is: without it a bass-heavy source holds the detector
+    /// over the threshold continuously, so the compressor never lets go and
+    /// nothing above the bass gets shaped.
+    sc_hpf_hz: f32 = 0.0,
+    /// Detector low-pass, Hz; 0 = off. The mirror of `sc_hpf_hz`, for
+    /// keying off body rather than off cymbals and sibilance.
+    sc_lpf_hz: f32 = 0.0,
     /// Envelope follower state (linear peak).
     env: f32 = 0.0,
+    /// Detector filter/RMS state - one set, since the detector collapses to
+    /// mono before shaping.
+    sc_lp: f32 = 0.0,
+    sc_hp: f32 = 0.0,
+    sc_ms: f32 = 0.0,
     /// Frames left in the current hold window, counted down one per frame.
     hold_left: f32 = 0.0,
     /// Most recent gain change before makeup, for UI metering.
@@ -161,11 +198,44 @@ pub const Compressor = struct {
         const det = if (self.detector) |d| (if (d.len == buf.len) d else null) else null;
         self.detector = null;
 
+        // Detector shaping. Left at defaults every branch below is skipped
+        // and the level is the same stereo peak it always was, bit for bit.
+        const sc_hpf_hz = dsp.sanitizeParam(self.sc_hpf_hz, 0.0, 2000.0, 0.0);
+        const sc_lpf_hz = dsp.sanitizeParam(self.sc_lpf_hz, 0.0, 20_000.0, 0.0);
+        const rms = dsp.sanitizeParam(self.sc_mode, 0.0, 1.0, 0.0) >= 0.5;
+        const hp_on = sc_hpf_hz >= min_sc_filter_hz;
+        const lp_on = sc_lpf_hz >= min_sc_filter_hz and sc_lpf_hz < 20_000.0;
+        const shaping = hp_on or lp_on or rms;
+        // One-pole coefficients; the highpass is the same lowpass subtracted
+        // from the signal, which is all a detector filter needs to be.
+        const hp_a = onePoleCoef(sc_hpf_hz, self.sample_rate);
+        const lp_a = onePoleCoef(sc_lpf_hz, self.sample_rate);
+        const rms_a = 1.0 - dsp.smoothingCoefMs(rms_window_ms, self.sample_rate);
+        if (!shaping) {
+            self.sc_lp = 0.0;
+            self.sc_hp = 0.0;
+            self.sc_ms = 0.0;
+        }
+
         for (0..frames) |i| {
-            const level = if (det) |d|
-                @max(@abs(d[i * 2]), @abs(d[i * 2 + 1]))
-            else
-                @max(@abs(buf[i * 2]), @abs(buf[i * 2 + 1]));
+            const dl = if (det) |d| d[i * 2] else buf[i * 2];
+            const dr = if (det) |d| d[i * 2 + 1] else buf[i * 2 + 1];
+            const level = if (!shaping) @max(@abs(dl), @abs(dr)) else blk: {
+                // Filtering a rectified level is meaningless, so the shaped
+                // path sums to mono and filters the waveform, then rectifies.
+                var x = (dl + dr) * 0.5;
+                if (lp_on) {
+                    self.sc_lp += lp_a * (x - self.sc_lp);
+                    x = self.sc_lp;
+                }
+                if (hp_on) {
+                    self.sc_hp += hp_a * (x - self.sc_hp);
+                    x -= self.sc_hp;
+                }
+                if (!rms) break :blk @abs(x);
+                self.sc_ms += rms_a * (x * x - self.sc_ms);
+                break :blk @sqrt(@max(self.sc_ms, 0.0));
+            };
             // Hold freezes the envelope (and so the gain reduction) at its
             // deepest instead of letting release start the moment the level
             // dips; a rise re-arms the window.
@@ -209,6 +279,9 @@ pub const Compressor = struct {
         self.env = 0.0;
         self.gain_reduction_db = 0.0;
         self.hold_left = 0.0;
+        self.sc_lp = 0.0;
+        self.sc_hp = 0.0;
+        self.sc_ms = 0.0;
         self.detector = null;
     }
 };
@@ -293,6 +366,69 @@ test "hold defers release until the window expires" {
     // Past the window the fast release recovers to no reduction.
     for (0..20) |_| comp.processBlock(&quiet);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), comp.gain_reduction_db, 1e-3);
+}
+
+test "detector high-pass keeps low end from holding the compressor down" {
+    // A loud 50Hz tone under a quiet signal: unfiltered it pins the
+    // detector over the threshold forever.
+    const sr: f32 = 48_000.0;
+    var plain = Compressor.init(48_000);
+    plain.threshold_db = -24.0;
+    plain.attack_ms = 1.0;
+    var filtered = plain;
+    filtered.sc_hpf_hz = 500.0;
+
+    var buf_plain: [9600]Sample = undefined;
+    for (0..buf_plain.len / 2) |i| {
+        const t = @as(f32, @floatFromInt(i)) / sr;
+        const s = 0.8 * @sin(2.0 * std.math.pi * 50.0 * t);
+        buf_plain[i * 2] = s;
+        buf_plain[i * 2 + 1] = s;
+    }
+    var buf_filtered = buf_plain;
+    plain.processBlock(&buf_plain);
+    filtered.processBlock(&buf_filtered);
+
+    try std.testing.expect(plain.gain_reduction_db < -10.0);
+    // The 500Hz high-pass all but removes 50Hz from the detector, so the
+    // compressor barely engages.
+    try std.testing.expect(filtered.gain_reduction_db > plain.gain_reduction_db + 8.0);
+}
+
+test "RMS detection reacts less to a lone transient than peak does" {
+    var peak = Compressor.init(48_000);
+    peak.threshold_db = -30.0;
+    peak.attack_ms = 0.1;
+    var rms = peak;
+    rms.sc_mode = 1.0;
+
+    // One full-scale frame in an otherwise quiet block.
+    var buf_peak = [_]Sample{0.02} ** 4096;
+    buf_peak[100] = 1.0;
+    buf_peak[101] = 1.0;
+    var buf_rms = buf_peak;
+    peak.processBlock(&buf_peak);
+    rms.processBlock(&buf_rms);
+
+    // Both settle on the same steady level; what differs is how hard the
+    // spike hit on the way, so compare the sample right after it.
+    try std.testing.expect(@abs(buf_rms[110]) > @abs(buf_peak[110]));
+}
+
+test "detector shaping left off is bit-identical to the plain peak detector" {
+    var shaped = Compressor.init(48_000);
+    shaped.threshold_db = -18.0;
+    var plain = shaped;
+    shaped.sc_hpf_hz = 0.0;
+    shaped.sc_lpf_hz = 0.0;
+    shaped.sc_mode = 0.0;
+
+    var a = [_]Sample{0.0} ** 2048;
+    for (&a, 0..) |*s, i| s.* = if (i % 8 < 4) 0.6 else -0.35;
+    var b = a;
+    shaped.processBlock(&a);
+    plain.processBlock(&b);
+    for (a, b) |x, y| try std.testing.expectEqual(y, x);
 }
 
 test "sidechain detector overrides self-detection, and is consumed after one block" {

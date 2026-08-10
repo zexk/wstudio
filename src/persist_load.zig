@@ -1068,6 +1068,9 @@ pub fn applyFxChain(
                 if (std.math.isFinite(cs.hold_ms)) c.hold_ms = cs.hold_ms;
                 if (std.math.isFinite(cs.mode)) c.mode = cs.mode;
                 if (std.math.isFinite(cs.mix)) c.mix = cs.mix;
+                if (std.math.isFinite(cs.sc_mode)) c.sc_mode = cs.sc_mode;
+                if (std.math.isFinite(cs.sc_hpf_hz)) c.sc_hpf_hz = cs.sc_hpf_hz;
+                if (std.math.isFinite(cs.sc_lpf_hz)) c.sc_lpf_hz = cs.sc_lpf_hz;
                 c.sidechain_source = if (cs.sidechain_source) |src| .{
                     .track = if (cs.sidechain_is_group)
                         @min(src, engine_mod.max_groups - 1)

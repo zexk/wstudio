@@ -74,6 +74,30 @@ const Fir = struct {
     }
 };
 
+/// The upsampling half of `Stage2x` on its own, for code that only needs to
+/// *see* what happens between samples rather than process there - a true-peak
+/// limiter is the case: a signal that never exceeds full scale sample by
+/// sample can still reconstruct over it in a converter, and that is exactly
+/// the interpolated point this exposes.
+///
+/// `peak` reports the level of the input frame `latency_frames` back, not of
+/// the frame just pushed: the filter is symmetric, so its answer for a sample
+/// only exists once half the taps have seen past it. Callers must delay their
+/// audio by the same amount or they will clamp late.
+pub const Peak2x = struct {
+    up: [2]Fir = .{ .{}, .{} },
+
+    pub fn reset(self: *Peak2x) void {
+        self.* = .{};
+    }
+
+    pub fn peak(self: *Peak2x, ch: usize, x: f32) f32 {
+        const a = self.up[ch].push(x * 2.0);
+        const b = self.up[ch].push(0.0);
+        return @max(@abs(a), @abs(b));
+    }
+};
+
 /// Stereo 2x oversampling around a per-sample shaping function.
 pub const Stage2x = struct {
     up: [2]Fir = .{ .{}, .{} },

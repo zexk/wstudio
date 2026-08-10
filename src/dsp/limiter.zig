@@ -21,6 +21,7 @@
 const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
+const oversample = @import("oversample.zig");
 
 const Sample = types.Sample;
 
@@ -29,6 +30,10 @@ const Sample = types.Sample;
 /// plus whatever downstream latency reporting does with it) than a limiter
 /// buys by anticipating further out.
 pub const max_lookahead_ms: f32 = 20.0;
+
+/// Group delay of the true-peak detector, and so the length of the audio
+/// pre-delay that keeps detection aligned with the frame it describes.
+const tp_frames: usize = oversample.latency_frames;
 
 pub const Limiter = struct {
     sample_rate: f32,
@@ -39,6 +44,13 @@ pub const Limiter = struct {
     /// How far ahead the limiter scans for peaks before they arrive, 0 =
     /// old zero-latency reactive behaviour.
     lookahead_ms: f32 = 0.0,
+    /// 0 = sample peak, 1 = true peak. A run of samples that each sit under
+    /// the ceiling can still reconstruct over it between them, and that
+    /// overshoot is what clips a converter or an encoder downstream. True
+    /// peak detects at 2x and catches it, at the cost of a fixed extra
+    /// `oversample.latency_frames` of latency (the detector is symmetric, so
+    /// the audio has to wait for its answer).
+    true_peak: f32 = 0.0,
     /// Current gain (≤ 1). Recovers toward 1 at `release_ms`, held down to
     /// the lookahead window's minimum required gain.
     gain: f32 = 1.0,
@@ -56,6 +68,11 @@ pub const Limiter = struct {
     /// Frames processed since init/reset - the absolute index new frames
     /// are written under and old ones expire from the deque against.
     frame_counter: usize = 0,
+    /// 2x detector for `true_peak`, plus the matching audio pre-delay that
+    /// keeps a frame and its own detected peak on the same loop iteration.
+    tp: oversample.Peak2x = .{},
+    tp_delay: [2][tp_frames]Sample = .{ [_]Sample{0.0} ** tp_frames, [_]Sample{0.0} ** tp_frames },
+    tp_idx: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !Limiter {
         const safe_rate = @max(sample_rate, 1);
@@ -96,6 +113,9 @@ pub const Limiter = struct {
         self.deque_head = 0;
         self.deque_len = 0;
         self.frame_counter = 0;
+        self.tp.reset();
+        self.tp_delay = .{ [_]Sample{0.0} ** tp_frames, [_]Sample{0.0} ** tp_frames };
+        self.tp_idx = 0;
     }
 
     /// Target-gain ring index (not the raw absolute frame counter) of the
@@ -112,6 +132,7 @@ pub const Limiter = struct {
         if (!std.math.isFinite(self.gain) or self.gain < 0.0 or self.gain > 1.0) self.gain = 1.0;
         const release = @exp(-1.0 / (release_ms * 0.001 * self.sample_rate));
         const lookahead_frames: usize = @intFromFloat(lookahead_ms * 0.001 * self.sample_rate);
+        const true_peak = dsp.sanitizeParam(self.true_peak, 0.0, 1.0, 0.0) >= 0.5;
         const cap = self.delay[0].len;
 
         var i: usize = 0;
@@ -122,12 +143,29 @@ pub const Limiter = struct {
             if (!std.math.isFinite(buf[i])) buf[i] = 0.0;
             if (!std.math.isFinite(buf[i + 1])) buf[i + 1] = 0.0;
 
-            const level = @max(@abs(buf[i]), @abs(buf[i + 1]));
+            // True peak reads the level of the frame tp_frames back (the
+            // detector is symmetric), so the audio takes the same detour and
+            // the pair stays on one iteration.
+            var l = buf[i];
+            var r = buf[i + 1];
+            const level = if (!true_peak)
+                @max(@abs(l), @abs(r))
+            else blk: {
+                const detected = @max(self.tp.peak(0, l), self.tp.peak(1, r));
+                const dl = self.tp_delay[0][self.tp_idx];
+                const dr = self.tp_delay[1][self.tp_idx];
+                self.tp_delay[0][self.tp_idx] = l;
+                self.tp_delay[1][self.tp_idx] = r;
+                self.tp_idx = (self.tp_idx + 1) % tp_frames;
+                l = dl;
+                r = dr;
+                break :blk detected;
+            };
             const target_gain: f32 = if (level > ceiling) ceiling / level else 1.0;
 
             const write_idx = self.frame_counter % cap;
-            self.delay[0][write_idx] = buf[i];
-            self.delay[1][write_idx] = buf[i + 1];
+            self.delay[0][write_idx] = l;
+            self.delay[1][write_idx] = r;
             self.target[write_idx] = target_gain;
 
             // Expire entries that fell out of the trailing window *before*
@@ -179,7 +217,9 @@ pub const Limiter = struct {
     /// every other value derived from a sanitized param here.
     pub fn latencyFrames(self: *const Limiter) u32 {
         const lookahead_ms = dsp.sanitizeParam(self.lookahead_ms, 0.0, max_lookahead_ms, 0.0);
-        return @intFromFloat(lookahead_ms * 0.001 * self.sample_rate);
+        const lookahead: u32 = @intFromFloat(lookahead_ms * 0.001 * self.sample_rate);
+        const true_peak = dsp.sanitizeParam(self.true_peak, 0.0, 1.0, 0.0) >= 0.5;
+        return lookahead + if (true_peak) @as(u32, tp_frames) else 0;
     }
 
     pub const device = dsp.deviceOf(@This());
@@ -187,6 +227,47 @@ pub const Limiter = struct {
 
 // ---------------------------------------------------------------------------
 // Tests
+
+test "true peak catches an overshoot that sits between samples" {
+    // A quarter-rate sine sampled half a sample off its crests: every
+    // sample lands at 0.707 of the amplitude, well under the ceiling, while
+    // the waveform between them runs past it.
+    const sr: f32 = 48_000.0;
+    const freq: f32 = 12_000.0;
+    var sample_peak = try Limiter.init(std.testing.allocator, 48_000);
+    defer sample_peak.deinit(std.testing.allocator);
+    sample_peak.ceiling = 0.9;
+    var true_peak = try Limiter.init(std.testing.allocator, 48_000);
+    defer true_peak.deinit(std.testing.allocator);
+    true_peak.ceiling = 0.9;
+    true_peak.true_peak = 1.0;
+
+    var buf_sp: [8192]Sample = undefined;
+    for (0..buf_sp.len / 2) |i| {
+        const t = (@as(f32, @floatFromInt(i)) + 0.5) / sr;
+        const s = 0.99 * @sin(2.0 * std.math.pi * freq * t);
+        buf_sp[i * 2] = s;
+        buf_sp[i * 2 + 1] = s;
+    }
+    var buf_tp = buf_sp;
+    sample_peak.processBlock(&buf_sp);
+    true_peak.processBlock(&buf_tp);
+
+    // Sample-peak mode sees nothing over 0.9 and passes it all straight
+    // through; true peak reconstructs the overshoot and pulls the level down.
+    try std.testing.expectEqual(@as(f32, 1.0), sample_peak.gain);
+    try std.testing.expect(true_peak.gain < 1.0);
+}
+
+test "true peak reports its detector delay as latency" {
+    var limiter = try Limiter.init(std.testing.allocator, 48_000);
+    defer limiter.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(u32, 0), limiter.device().latencyFrames());
+    limiter.true_peak = 1.0;
+    try std.testing.expectEqual(@as(u32, tp_frames), limiter.device().latencyFrames());
+    limiter.lookahead_ms = 5.0;
+    try std.testing.expectEqual(@as(u32, 240 + tp_frames), limiter.device().latencyFrames());
+}
 
 test "zero sample rate falls back to a finite limiter rate" {
     var limiter = try Limiter.init(std.testing.allocator, 0);

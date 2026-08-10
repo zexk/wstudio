@@ -20,6 +20,7 @@ const gate_mod = @import("gate.zig");
 const multiband_comp = @import("multiband_comp.zig");
 const chorus_mod = @import("chorus.zig");
 const limiter_mod = @import("limiter.zig");
+const saturator_mod = @import("saturator.zig");
 const pitch_shift_mod = @import("pitch_shift.zig");
 
 /// Flat param list for a multiband compressor: 7 shared controls (crossover
@@ -197,7 +198,7 @@ pub const sat_specs = [_]ParamSpec{
     .{ .name = "drive", .field = "drive_db", .min = 0.0, .max = 36.0, .step_fine = 1.0, .step_coarse = 6.0 },
     .{ .name = "output", .field = "out_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
     .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
-    .{ .name = "shape", .field = "shape", .min = 0.0, .max = 2.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+    .{ .name = "shape", .field = "shape", .min = 0.0, .max = saturator_mod.max_shape, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
 };
 
 pub const crush_specs = [_]ParamSpec{
@@ -270,6 +271,7 @@ pub const limiter_specs = [_]ParamSpec{
     .{ .name = "ceiling", .field = "ceiling", .min = 0.25, .max = 1.0, .step_fine = 0.005, .step_coarse = 0.05 },
     .{ .name = "release", .field = "release_ms", .min = 1.0, .max = 1000.0, .step_fine = 10.0, .step_coarse = 100.0 },
     .{ .name = "lookahead", .field = "lookahead_ms", .min = 0.0, .max = limiter_mod.max_lookahead_ms, .step_fine = 1.0, .step_coarse = 5.0 },
+    .{ .name = "true peak", .field = "true_peak", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
 };
 
 /// `comp`'s first 6 params only - idx 6/7 are the sidechain track/pad
@@ -286,6 +288,9 @@ pub const comp_specs = [_]ParamSpec{
     .{ .name = "hold", .field = "hold_ms", .min = 0.0, .max = 500.0, .step_fine = 5.0, .step_coarse = 50.0 },
     .{ .name = "mode", .field = "mode", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
     .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "sc det", .field = "sc_mode", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+    .{ .name = "sc hpf", .field = "sc_hpf_hz", .min = 0.0, .max = 2000.0, .step_fine = 10.0, .step_coarse = 100.0 },
+    .{ .name = "sc lpf", .field = "sc_lpf_hz", .min = 0.0, .max = 20000.0, .step_fine = 100.0, .step_coarse = 1000.0 },
 };
 
 /// The two UI-only comp rows (sidechain track, sidechain pad) sit directly

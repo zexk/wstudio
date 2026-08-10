@@ -1,5 +1,5 @@
 {
-  "version": 49,
+  "version": 51,
   "tempo_bpm": 120,
   "tempo_points": [],
   "scale": null,
@@ -543,6 +543,9 @@
               "hold_ms": 0,
               "mode": 0,
               "mix": 1,
+              "sc_mode": 0,
+              "sc_hpf_hz": 0,
+              "sc_lpf_hz": 0,
               "sidechain_source": null,
               "sidechain_pad": null,
               "sidechain_is_group": false
@@ -1503,6 +1506,9 @@
               "hold_ms": 0,
               "mode": 0,
               "mix": 1,
+              "sc_mode": 0,
+              "sc_hpf_hz": 0,
+              "sc_lpf_hz": 0,
               "sidechain_source": null,
               "sidechain_pad": null,
               "sidechain_is_group": false

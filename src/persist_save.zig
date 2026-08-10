@@ -517,6 +517,7 @@ pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx) ![]FxUnitSnap {
                 .attack_ms = c.attack_ms, .release_ms = c.release_ms, .makeup_db = c.makeup_db,
                 .knee_db = c.knee_db,
                 .hold_ms = c.hold_ms, .mode = c.mode, .mix = c.mix,
+                .sc_mode = c.sc_mode, .sc_hpf_hz = c.sc_hpf_hz, .sc_lpf_hz = c.sc_lpf_hz,
                 .sidechain_source = if (c.sidechain_source) |sc| sc.track else null,
                 .sidechain_pad = if (c.sidechain_source) |sc| sc.pad else null,
                 .sidechain_is_group = if (c.sidechain_source) |sc| sc.is_group else false,

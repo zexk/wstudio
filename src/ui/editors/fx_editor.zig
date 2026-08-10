@@ -16,6 +16,7 @@ const ws = @import("wstudio");
 const modal_mod = ws.input;
 const dsp = ws.dsp.device;
 const eq_mod = ws.dsp.eq;
+const gate_mod = ws.dsp.gate;
 const multiband_comp = ws.dsp.multiband_comp;
 const chorus_mod = ws.dsp.chorus;
 const limiter_mod = ws.dsp.limiter;
@@ -363,6 +364,12 @@ pub fn paramToggleNames(k: FxKind, idx: usize) ?[2][]const u8 {
             else => null,
         },
         .mb_comp => if (idx == mb_style) .{ "classic", "OTT" } else null,
+        .comp => switch (idx) {
+            7 => .{ "down", "up" },
+            9 => .{ "peak", "RMS" },
+            else => null,
+        },
+        .limiter => if (idx == 3) .{ "sample", "true" } else null,
         .utility => switch (idx) {
             1 => .{ "normal", "invert" },
             2 => .{ "stereo", "mono" },
@@ -1181,7 +1188,12 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
         .comp => switch (idx) {
             0, 4, 5 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
             1 => std.fmt.bufPrint(buf, "{d:.1}:1", .{v}) catch "?",
-            2, 3 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
+            2, 3, 6 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
+            7 => if (v >= 0.5) "up" else "down",
+            8 => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+            9 => if (v >= 0.5) "RMS" else "peak",
+            // 0 is off for both detector filters, which reads better than 0Hz.
+            10, 11 => if (v < 20.0) "off" else std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?",
             // Include the track/group name so changing this routing does
             // not require memorizing which numbered row holds the kick.
             // Keep the number too, since that is what h/l is cycling
@@ -1238,6 +1250,7 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
         },
         .limiter => switch (idx) {
             0 => std.fmt.bufPrint(buf, "{d:.2}dB", .{20.0 * std.math.log10(v)}) catch "?",
+            3 => if (v >= 0.5) "true" else "sample",
             else => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
         },
         .delay => switch (idx) {
@@ -1252,7 +1265,9 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
             else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?", // damp, mix, width
         },
         .gate => switch (idx) {
-            0 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            0, 4 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            // Range bottoms out at full mute rather than reading -80dB.
+            5 => if (v <= gate_mod.mute_range_db) "mute" else std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
             else => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
         },
         .filter => switch (idx) {
