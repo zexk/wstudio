@@ -1091,9 +1091,10 @@ test ":chop finds transients in the default clip or reports none" {
     try app.session.setInstrument(0, .slicer);
     app.slicer_track = 0;
     app.view = .slicer_grid;
+    try installSlicerTestClip(&app);
 
-    // The generated default clip is one pluck: chop must not crash and must
-    // leave a valid (>= 1) slicing either way, undoable.
+    // Whatever the clip turns out to hold, chop must not crash and must leave
+    // a valid (>= 1) slicing either way, undoable.
     const before = app.slicerInst().slice_count;
     commands.run(&app, "chop");
     try std.testing.expect(app.slicerInst().slice_count >= 1);
