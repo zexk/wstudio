@@ -64,4 +64,4 @@ audio-thread implications explicitly. Small pull requests are easier to test
 and review.
 
 By contributing, you agree that your contribution is licensed under the
-project's [MIT License](LICENSE).
+project's [GNU General Public License v3.0 or later](LICENSE).

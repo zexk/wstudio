@@ -34,6 +34,18 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Changed
 
+- The project is now licensed GPL-3.0-or-later instead of MIT. Releases up to
+  v1.0.0-beta.9 stay available under MIT. The move opens the door to the GPL
+  audio libraries that do this work better than the code here does, starting
+  with aubio for tempo/onset/pitch detection and Rubber Band for time-stretch
+  and pitch-shift.
+- Sample loads resample with libsamplerate's sinc converter instead of linear
+  interpolation, so a 44.1k sample in a 48k project no longer folds its top
+  octave down as aliasing. Applies to WAV and FLAC loads, SF2 sample pools,
+  and SFZ regions.
+- WAVs are decoded by dr_wav rather than a stricter parser of our own, so files
+  with trailing metadata chunks or stale RIFF sizes load instead of being
+  refused. A-law, mu-law and ADPCM now load too.
 - Time, rate, frequency, Q, and portamento controls use perceptual editor
   scaling, preserving fine control over short and low values.
 - The slicer grid's pattern-variant keys are now `[`/`]`, the same pair the

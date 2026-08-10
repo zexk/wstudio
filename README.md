@@ -144,5 +144,12 @@ programs.wstudio = {
 
 ## License
 
-MIT. `src/assets/fonts/wstudio-icons.ttf` is a subset of Symbols Nerd Font
-Mono (MIT); see `src/assets/fonts/LICENSE`.
+GPL-3.0-or-later, Copyright (c) 2026 zexk. See [LICENSE](LICENSE). Releases up
+to and including v1.0.0-beta.9 were published under the MIT License and stay
+available on those terms.
+
+Bundled assets keep their own licenses: `src/assets/fonts/wstudio-icons.ttf` is
+a subset of Symbols Nerd Font Mono (MIT, see `src/assets/fonts/LICENSE`),
+DejaVu Sans Mono is Bitstream's (see `src/assets/fonts/DEJAVU-LICENSE`), and the
+bundled VCSL sample library is Creative Commons (see
+`src/assets/library/vcsl/LICENSE`).
