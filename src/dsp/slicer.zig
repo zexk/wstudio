@@ -53,6 +53,8 @@ const Voice = pad_mod.Voice;
 const DrumMachine = @import("drum_sampler.zig").DrumMachine;
 const Note = @import("pattern.zig").Note;
 const onset = @import("onset.zig");
+const tempo = @import("tempo.zig");
+const pitch = @import("pitch.zig");
 const step_grid_ops = @import("step_grid_ops.zig");
 
 const Sample = types.Sample;
@@ -184,6 +186,14 @@ pub const Slicer = struct {
     /// user audio is exported to the project's sample sidecar on save, same
     /// convention `Pad.user_sample` documents.
     user_sample: bool = false,
+    /// Tempo and root pitch class the loaded clip's file name declared (see
+    /// `tempo.bpmFromName`/`pitch.rootFromName`), 0/null when it declared
+    /// neither. `:bpm-sync` trusts these over the analysers. Deliberately
+    /// not saved: the sidecar keeps the audio, not the name it arrived
+    /// under, and a new snapshot field costs a `file_version` bump that
+    /// rejects every existing project (see FORMAT.md).
+    clip_bpm: f32 = 0,
+    clip_root: ?u4 = null,
 
     /// Per-slice params. `slices[i].samples` always aliases `self.samples` -
     /// never independently allocated or freed; `deinit` frees `self.samples`
@@ -382,6 +392,10 @@ pub const Slicer = struct {
         self.allocator.free(self.samples);
         self.samples = samples;
         self.name = pad_mod.fixedName(name);
+        // Read before `fixedName` throws the rest of the name away - eight
+        // characters is nowhere near enough to hold "..._80_..._Gmin".
+        self.clip_bpm = tempo.bpmFromName(name) orelse 0;
+        self.clip_root = pitch.rootFromName(name);
         self.user_sample = true;
         if (reset_slices) {
             self.slice_count = 0;

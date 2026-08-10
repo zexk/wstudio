@@ -675,6 +675,35 @@ test "slicer grid: slice, step toggle, play triggers the right slice" {
     try std.testing.expect(peak > 0.001);
 }
 
+test "bpm-sync warps a slicer for tempo and spends its pitch on the project key" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.cursor = 0;
+    try installSlicerTestClip(&app);
+    app.session.project.tempo_bpm = 85.0;
+    app.session.project.scale = .{ .root = 4, .kind = .minor }; // E minor
+
+    const sl = app.slicerInst();
+    sl.sliceInto(4);
+    // What `Slicer.loadWav` reads out of "SO_JAM_80_bass_upright_onyx_Gmin"
+    // (the parsers themselves are covered in dsp/tempo.zig and dsp/pitch.zig).
+    sl.clip_bpm = 80.0;
+    sl.clip_root = 7; // G
+
+    commands.run(&app, "bpm-sync");
+
+    for (sl.slices[0..sl.slice_count]) |slice| {
+        // Tempo rides the warp: an 80 BPM loop in an 85 BPM project has to
+        // play 80/85 as long.
+        try std.testing.expectApproxEqAbs(@as(f32, 80.0 / 85.0), slice.stretch_ratio, 1e-4);
+        // ...which leaves pitch free for the key. G to E is three semitones
+        // down, the short way round.
+        try std.testing.expectApproxEqAbs(@as(f32, -3.0), slice.pitch_semitones, 1e-4);
+    }
+}
+
 test "slicer grid rows start where the mouse hit-test looks for them" {
     var app = try testApp();
     defer app.deinit();

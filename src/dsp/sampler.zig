@@ -20,6 +20,7 @@ const tuning_mod = @import("tuning.zig");
 const Pad = pad_dsp.Pad;
 const Voice = pad_dsp.Voice;
 const pitch = @import("pitch.zig");
+const tempo = @import("tempo.zig");
 
 const Sample = types.Sample;
 
@@ -51,6 +52,11 @@ pub const Sampler = struct {
     pad: Pad,
     /// MIDI note at which the clip plays at its native pitch.
     root_note: u7 = 60,
+    /// Tempo and root pitch class the loaded clip's file name declared, on
+    /// the same terms (and with the same not-saved caveat) as
+    /// `Slicer.clip_bpm`/`clip_root`.
+    clip_bpm: f32 = 0,
+    clip_root: ?u4 = null,
     /// Project temperament - see `PolySynth.tuning` for the field's contract
     /// and why the unsynchronized write is safe. A melodic sampler is played
     /// against a tonal centre like any other pitched instrument, so it has
@@ -203,6 +209,9 @@ pub const Sampler = struct {
         self.allocator.free(self.pad.samples);
         self.pad.samples = samples;
         self.pad.name = pad_dsp.fixedName(name);
+        // Read before `fixedName` throws the rest of the name away.
+        self.clip_bpm = tempo.bpmFromName(name) orelse 0;
+        self.clip_root = pitch.rootFromName(name);
         pad_dsp.clampTimeParamsToDuration(&self.pad, self.sample_rate);
         self.resetAll();
     }

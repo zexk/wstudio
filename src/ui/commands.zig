@@ -111,7 +111,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "slice",       .desc = "<n>  equal-divide the slicer's loaded clip into n slices (1-64)", .run = wrap(commands_load.cmdSlice), .scope = .{ .slicer = true } },
     .{ .name = "chop",        .desc = "[1-9]  chop the slicer's clip at detected transients (sensitivity, default 5)", .run = wrap(commands_load.cmdChop), .scope = .{ .slicer = true } },
     .{ .name = "chop-random", .desc = "[n]  roll the dice: chop the slicer's clip into n uneven slices (default 8)", .run = wrap(commands_load.cmdChopRandom), .scope = .{ .slicer = true } },
-    .{ .name = "bpm-sync",    .desc = "[clip-bpm]  match project tempo; slicers repitch, samplers warp", .run = wrap(commands_load.cmdBpmSync), .scope = cmd_mod.scopes.sampler_slicer },
+    .{ .name = "bpm-sync",    .desc = "[clip-bpm]  warp the clip to project tempo, tune it to the project key", .run = wrap(commands_load.cmdBpmSync), .scope = cmd_mod.scopes.sampler_slicer },
     .{ .name = "spread",      .desc = "[semitones]  ramp pitch across the slices/pads, one step each (default 1)", .run = wrap(commands_load.cmdSpread), .scope = cmd_mod.scopes.drum_slicer },
     .{ .name = "pad-len",     .desc = "<n|off>  loop the cursor drum pad over its own n steps (polymeter)", .run = wrap(commands_load.cmdPadLen), .scope = .{ .drum = true } },
     .{ .name = "edit",        .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },

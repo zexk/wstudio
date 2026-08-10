@@ -702,13 +702,20 @@ pub fn cmdPadLen(app: *App, args: []const u8) void {
         app.setStatus("{s}: loops over {d} of {d} steps", .{ dm.padName(pad), dm.pad_len[pad], dm.step_count });
 }
 
-/// `:bpm-sync [clip-bpm]` - fit the cursor track's clip to project tempo.
-/// Slicers repitch, while standalone samplers warp to preserve pitch. With no
-/// argument the clip's own tempo is detected (dsp/tempo.zig);
-/// pass a number when the detector misses or the clip's real tempo is known.
-/// Works on a slicer (every slice gets the same repitch, they share one clip)
-/// and on a standalone sampler; a drum machine's pads are one-shots, not
-/// loops, so there is nothing to fit there.
+/// `:bpm-sync [clip-bpm]` - fit the cursor track's clip to project tempo and
+/// key. Tempo rides `stretch_ratio` (warp) and key rides pitch, so the two
+/// don't compete for the one control: a loop can land on the grid AND in the
+/// project's key. Works on a slicer (every slice gets the same warp and
+/// tune, they share one clip) and on a standalone sampler; a drum machine's
+/// pads are one-shots, not loops, so there is nothing to fit there.
+///
+/// The clip's own tempo comes from its file name when it declared one
+/// (`tempo.bpmFromName`), else from the detector, and an explicit argument
+/// beats both - the detector is wrong or silent on most real loop material,
+/// so it is the last resort rather than the first. Key resolves the same
+/// way: the name, then `pitch.detect`.
+///
+/// Rewrites every slice's pitch, so a `:spread` ramp does not survive a sync.
 pub fn cmdBpmSync(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     const forced: ?f32 = if (trimmed.len == 0) null else parseFiniteFloat(f32, trimmed) catch {
@@ -724,24 +731,20 @@ pub fn cmdBpmSync(app: *App, args: []const u8) void {
 
     if (cursorSlicerTrack(app)) |track| {
         const sl = &app.session.racks.items[track].instrument.slicer;
-        const clip_bpm = forced orelse blk: {
-            const r = ws.dsp.tempo.detect(sl.samples, sl.sample_rate) orelse {
-                if (tuneToProjectRoot(app, sl.samples, sl.sample_rate)) |semitones| {
-                    history.recordSlicer(app, track);
-                    sl.pitchAll(semitones);
-                    app.dirty = true;
-                    app.setStatus("sync: tune {d:.2} st; no clear pulse (pass BPM with :bpm-sync 174)", .{semitones});
-                } else app.setStatus("bpm-sync: no clear pulse or pitch - pass BPM and set :scale", .{});
-                return;
-            };
-            break :blk r.bpm;
-        };
-        const semitones = repitchToTempo(clip_bpm, project_bpm);
+        const clip_bpm = forced orelse clipTempo(sl.clip_bpm, sl.samples, sl.sample_rate);
+        const tune = tuneToProjectRoot(app, sl.samples, sl.sample_rate, sl.clip_root);
+        if (clip_bpm == null and tune == null) {
+            app.setStatus("bpm-sync: no clear pulse or pitch - pass BPM and set :scale", .{});
+            return;
+        }
         history.recordSlicer(app, track);
-        sl.stretchAll(1.0);
-        sl.pitchAll(semitones);
+        // Stretch is only touched when the tempo is actually known, so a
+        // key-only sync leaves a hand-dialled warp alone. Pitch always is:
+        // zeroing it is what releases the control from tempo duty.
+        if (clip_bpm) |b| sl.stretchAll(ws.dsp.tempo.stretchToTempo(b, project_bpm));
+        sl.pitchAll(tune orelse 0);
         app.dirty = true;
-        app.setStatus("sync: {d:.1} -> {d:.1} BPM, repitch {d:.2} st", .{ clip_bpm, project_bpm, semitones });
+        reportSync(app, clip_bpm, project_bpm, tune, tempoSource(forced, sl.clip_bpm));
         return;
     }
 
@@ -750,55 +753,73 @@ pub fn cmdBpmSync(app: *App, args: []const u8) void {
         app.session.racks.items[track].instrument == .sampler)
     {
         const smp = &app.session.racks.items[track].instrument.sampler;
-        const clip_bpm = forced orelse blk: {
-            const r = ws.dsp.tempo.detect(smp.pad.samples, smp.sample_rate) orelse {
-                if (tuneToProjectRoot(app, smp.pad.samples, smp.sample_rate)) |semitones| {
-                    history.recordParamSet(app, @intCast(track), ws.dsp.pad.pitch_id);
-                    _ = app.session.engine.send(.{ .set_track_param_abs = .{
-                        .track = @intCast(track),
-                        .id = ws.dsp.pad.pitch_id,
-                        .value = semitones,
-                    } });
-                    app.dirty = true;
-                    app.setStatus("sync: tune {d:.2} st; no clear pulse (pass BPM with :bpm-sync 174)", .{semitones});
-                } else app.setStatus("bpm-sync: no clear pulse or pitch - pass BPM and set :scale", .{});
-                return;
-            };
-            break :blk r.bpm;
-        };
-        const ratio = ws.dsp.tempo.stretchToTempo(clip_bpm, project_bpm);
-        const tune = tuneToProjectRoot(app, smp.pad.samples, smp.sample_rate);
-        history.recordParamSet(app, @intCast(track), ws.dsp.pad.stretch_id);
-        if (tune != null) history.recordParamSet(app, @intCast(track), ws.dsp.pad.pitch_id);
-        _ = app.session.engine.send(.{ .set_track_param_abs = .{
-            .track = @intCast(track),
-            .id = ws.dsp.pad.stretch_id,
-            .value = ratio,
-        } });
-        if (tune) |semitones| _ = app.session.engine.send(.{ .set_track_param_abs = .{
-            .track = @intCast(track),
-            .id = ws.dsp.pad.pitch_id,
-            .value = semitones,
-        } });
+        const clip_bpm = forced orelse clipTempo(smp.clip_bpm, smp.pad.samples, smp.sample_rate);
+        const tune = tuneToProjectRoot(app, smp.pad.samples, smp.sample_rate, smp.clip_root);
+        if (clip_bpm == null and tune == null) {
+            app.setStatus("bpm-sync: no clear pulse or pitch - pass BPM and set :scale", .{});
+            return;
+        }
+        if (clip_bpm) |b| {
+            history.recordParamSet(app, @intCast(track), ws.dsp.pad.stretch_id);
+            _ = app.session.engine.send(.{ .set_track_param_abs = .{
+                .track = @intCast(track),
+                .id = ws.dsp.pad.stretch_id,
+                .value = ws.dsp.tempo.stretchToTempo(b, project_bpm),
+            } });
+        }
+        if (tune) |semitones| {
+            history.recordParamSet(app, @intCast(track), ws.dsp.pad.pitch_id);
+            _ = app.session.engine.send(.{ .set_track_param_abs = .{
+                .track = @intCast(track),
+                .id = ws.dsp.pad.pitch_id,
+                .value = semitones,
+            } });
+        }
         app.dirty = true;
-        if (tune) |semitones|
-            app.setStatus("sync: {d:.1} -> {d:.1} BPM, tune {d:.2} st", .{ clip_bpm, project_bpm, semitones })
-        else
-            app.setStatus("sync: {d:.1} -> {d:.1} BPM (no project key or clear pitch)", .{ clip_bpm, project_bpm });
+        reportSync(app, clip_bpm, project_bpm, tune, tempoSource(forced, smp.clip_bpm));
         return;
     }
 
     app.setStatus("bpm-sync: select a slicer or sampler track first", .{});
 }
 
-pub fn tuneToProjectRoot(app: *const App, samples: []const f32, sample_rate: u32) ?f32 {
-    const scale = app.session.project.scale orelse return null;
-    const detected = ws.dsp.pitch.detect(samples, sample_rate) orelse return null;
-    return tuneToRoot(scale.root, detected);
+/// The clip's own tempo: what its file name declared, else what the detector
+/// can find in the audio, else nothing. Name first because it is right far
+/// more often - see `tempo.bpmFromName`.
+fn clipTempo(name_bpm: f32, samples: []const f32, sample_rate: u32) ?f32 {
+    if (name_bpm > 0.0) return name_bpm;
+    const r = ws.dsp.tempo.detect(samples, sample_rate) orelse return null;
+    return r.bpm;
 }
 
-pub fn repitchToTempo(clip_bpm: f32, project_bpm: f32) f32 {
-    return -12.0 * @log2(ws.dsp.tempo.stretchToTempo(clip_bpm, project_bpm));
+fn tempoSource(forced: ?f32, name_bpm: f32) []const u8 {
+    if (forced != null) return "given";
+    return if (name_bpm > 0.0) "from name" else "detected";
+}
+
+/// `:bpm-sync`'s one status line, shared by both instrument arms. Names where
+/// the tempo came from: the three sources disagree often enough that "85 BPM"
+/// alone doesn't say whether to trust the result.
+fn reportSync(app: *App, clip_bpm: ?f32, project_bpm: f32, tune: ?f32, source: []const u8) void {
+    const b = clip_bpm orelse {
+        app.setStatus("sync: tune {d:.2} st; no tempo in the name and no clear pulse", .{tune.?});
+        return;
+    };
+    if (tune) |semitones|
+        app.setStatus("sync: {d:.1} -> {d:.1} BPM ({s}), tune {d:.2} st", .{ b, project_bpm, source, semitones })
+    else
+        app.setStatus("sync: {d:.1} -> {d:.1} BPM ({s}); no project key or clip key", .{ b, project_bpm, source });
+}
+
+/// Semitones that put the clip's root on the project scale's, or null when
+/// the project has no scale or nothing says what key the clip is in.
+/// `name_root` is what the file name declared (`pitch.rootFromName`); it
+/// wins over analysis, which finds no pitch at all in most loop material.
+pub fn tuneToProjectRoot(app: *const App, samples: []const f32, sample_rate: u32, name_root: ?u4) ?f32 {
+    const scale = app.session.project.scale orelse return null;
+    if (name_root) |root| return tuneToRoot(scale.root, .{ .note = root, .cents = 0 });
+    const detected = ws.dsp.pitch.detect(samples, sample_rate) orelse return null;
+    return tuneToRoot(scale.root, detected);
 }
 
 pub fn tuneToRoot(root: u4, detected: ws.dsp.pitch.Result) f32 {
@@ -811,11 +832,6 @@ pub fn tuneToRoot(root: u4, detected: ws.dsp.pitch.Result) f32 {
 test "tuneToRoot takes shortest pitch-class shift and corrects cents" {
     try std.testing.expectApproxEqAbs(@as(f32, 2.0), tuneToRoot(0, .{ .note = 70, .cents = 0 }), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, -2.25), tuneToRoot(10, .{ .note = 60, .cents = 25 }), 1e-6);
-}
-
-test "repitchToTempo changes playback rate without warp" {
-    try std.testing.expectApproxEqAbs(@as(f32, 12.0 * @log2(1.2)), repitchToTempo(100, 120), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), repitchToTempo(120, 120), 1e-6);
 }
 
 /// `:chop-random [n]` - Serato's "Set Random": chop into n slices at random
