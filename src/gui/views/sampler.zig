@@ -517,9 +517,14 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
     const fade_in_norm = std.math.clamp((target.value(10) orelse 0) * sr_f / total_f, 0, played_end - start);
     const fade_out_norm = std.math.clamp((target.value(11) orelse 0) * sr_f / total_f, 0, played_end - start);
 
-    var overview: [512]f32 = undefined;
-    var bands: [512]waveform.Band = undefined;
-    const count = @min(samples.len, overview.len);
+    // One bucket per pixel column. A fixed bucket count drew the pane as a
+    // comb - 512 one-pixel lines spread over a 1400px pane left two blank
+    // pixels between every column, which reads as a dotted sketch of the
+    // waveform rather than the waveform.
+    var overview: [2048]f32 = undefined;
+    var bands: [2048]waveform.Band = undefined;
+    const columns: usize = @intFromFloat(@max(width, 1));
+    const count = @min(@min(samples.len, overview.len), columns);
     waveform.peakBucketsWarped(samples, overview[0..count], start, end, scale);
     waveform.bandBuckets(samples, bands[0..count], target.sampleRate(), start, end, scale);
     const mid_y = origin[1] + height / 2;
