@@ -147,7 +147,10 @@
           };
           sdk = sdkPkgs.apple-sdk_14.override { enableBootstrap = true; };
         in
-        pkgs.stdenvNoCC.mkDerivation (finalAttrs: {
+        # A full stdenv, not stdenvNoCC: the C compiler wrapper is what puts
+        # buildInputs on NIX_CFLAGS_COMPILE/NIX_LDFLAGS, which is how zig
+        # finds libsndfile and friends.
+        pkgs.stdenv.mkDerivation (finalAttrs: {
           pname = "wstudio-macos";
           inherit version;
           src = self;
@@ -156,6 +159,7 @@
             hash = "sha256-U4HA3J4+mxUbSMWyr6W3JjWa1TthohTYCGJnzZR2qFQ=";
           };
           nativeBuildInputs = [ pkgs.zig.hook ];
+          buildInputs = cLibs pkgs;
           SDKROOT = sdk.sdkroot;
           postConfigure = ''ln -s ${finalAttrs.zigDeps} "$ZIG_GLOBAL_CACHE_DIR/p"'';
           zigBuildFlags = [
