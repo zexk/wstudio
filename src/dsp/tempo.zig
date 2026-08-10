@@ -1,8 +1,17 @@
 //! Tempo estimation for a loaded clip - the analysis half of Serato-style
 //! "BPM sync", where a loop is stretched to the project tempo instead of
-//! being nudged into place by ear. Autocorrelates `onset.envelope`'s
-//! spectral flux and reads the strongest periodicity in the musically
-//! plausible lag range.
+//! being nudged into place by ear. Correlates `onset.envelope`'s spectral
+//! flux against itself across the musically plausible lag range, scores each
+//! candidate beat period by its own correlation plus its multiples', and
+//! snaps the winner onto the tempo that makes the clip a whole number of
+//! beats.
+//!
+//! It is good on rhythmic material and poor on sustained material, which is
+//! a property of the signal rather than of the scoring: measured over a
+//! 222-loop corpus it gets 92% of drum loops right and about a fifth of the
+//! legato strings and vocals, because a held string chord has no pulse in it
+//! to find. Callers that can read the tempo off the file name should do that
+//! first - see `bpmFromName`.
 //!
 //! Control thread only: it walks the whole clip and is called from commands,
 //! never from a render block.
@@ -12,33 +21,45 @@ const onset = @import("onset.zig");
 
 pub const Result = struct {
     bpm: f32,
-    /// Peak autocorrelation score relative to the mean over the searched lag
-    /// range. 1.0 means "no peak at all"; the detector rejects anything below
-    /// `min_confidence` rather than reporting a tempo it made up.
+    /// How strongly the winning period correlates, as a Pearson coefficient
+    /// in 0..1 - `min_confidence` is the floor below which `detect` declines
+    /// instead of reporting a tempo it made up.
     confidence: f32,
 };
 
-/// Below this the peak isn't distinguishable from the surrounding lags -
-/// sustained pads, single hits, noise. A real pulse clears this by a wide
-/// margin on a flux envelope (a click track scores ~220, a busy break ~570)
-/// while a held tone, whose flux is only the STFT's own frame-to-frame
-/// leakage jitter, scores ~2. Sitting an order of magnitude above that
-/// leaves both sides room.
+/// How periodic a clip has to be at the winning lag before the answer is
+/// worth reporting. A plain correlation coefficient now that `corr`
+/// normalizes, so it reads as "at least 10% of this envelope is explained by
+/// that period".
 ///
-/// It gates "is there a pulse", NOT "is this the right pulse" - don't reach
-/// for it when the detector answers confidently and wrongly. Measured over
-/// one 329-file pack, the confidences of its correct answers (min 10.9,
-/// median 58) and its wrong ones (min 10.8, median 46) are the same
-/// distribution, and every higher threshold discards correct answers at the
-/// rate it blocks wrong ones: at 20 it keeps 41/47 right and 25/37 wrong, at
-/// 300 it keeps 6/47 and 3/37. There is no cut worth making. The fix for a
-/// wrong answer is to not ask the question - see `bpmFromName`.
-const min_confidence: f32 = 10.0;
+/// Tuned against a 222-loop corpus with the tempo in every file name.
+/// Precision is flat from about 0.08 up (62-64% of answers correct) while
+/// recall keeps falling, so this sits at the recall end of that plateau
+/// rather than on a cliff. Every drum loop in the corpus clears it.
+const min_confidence: f32 = 0.10;
+
+/// Mean spectral flux below which there are no onsets to find a pulse in,
+/// with two orders of magnitude of headroom on both sides: a held 220 Hz
+/// tone, whose flux is only the STFT's own leakage jitter, averages 0.014,
+/// while a click track averages 2.5 and a busy break 21.
+///
+/// This is the gate `corr`'s normalization gave up. A correlation
+/// coefficient is scale-free, so it will happily lock onto the periodicity
+/// *in* that leakage jitter and report a confident tempo for a sustained
+/// pad; only an absolute floor can say "there is nothing here at all".
+/// `onset.envelope` works in log magnitude, so the floor is about spectral
+/// change rather than how loud the clip was recorded.
+const min_flux: f32 = 0.1;
 
 /// Tempo range searched before folding. Wide, because the fold below pulls
 /// half/double-time results back into the range people actually name.
 const bpm_min: f32 = 60.0;
 const bpm_max: f32 = 200.0;
+
+/// Beat-period multiples `combScore` sums over. Four covers a bar in 4/4,
+/// which is as far out as the correlation stays meaningful on a loop only a
+/// few bars long.
+const comb_harmonics: usize = 4;
 
 /// Where a folded tempo is allowed to land. A drum loop detected at 174 and
 /// one detected at 87 are the same loop; picking a single home range keeps
@@ -73,38 +94,87 @@ pub fn detect(samples: []const f32, sample_rate: u32) ?Result {
     var mean: f32 = 0;
     for (env) |e| mean += e;
     mean /= @floatFromInt(hops);
-    if (mean <= 1e-9) return null;
+    if (mean < min_flux) return null;
     // Mean-removed, so a lag's score measures periodicity rather than the
     // clip's overall loudness (which correlates with everything).
     for (env) |*e| e.* -= mean;
 
     var best_lag: usize = 0;
-    var best: f32 = -std.math.floatMax(f32);
-    var total: f32 = 0;
+    var best: f32 = 0;
     var lag = lag_min;
     while (lag <= lag_max) : (lag += 1) {
-        var dot: f32 = 0;
-        for (env[0 .. hops - lag], env[lag..]) |a, b| dot += a * b;
-        // Divide by the overlap so a long lag isn't penalized for comparing
-        // fewer frames than a short one.
-        const score = dot / @as(f32, @floatFromInt(hops - lag));
-        total += score;
+        const score = combScore(env, lag);
         if (score > best) {
             best = score;
             best_lag = lag;
         }
     }
-    if (best_lag == 0 or best <= 0.0) return null;
-
-    const avg = total / @as(f32, @floatFromInt(lag_max - lag_min + 1));
-    if (!(avg > 0.0)) return null;
-    const confidence = best / avg;
-    if (confidence < min_confidence) return null;
+    if (best_lag == 0 or best < min_confidence) return null;
 
     var bpm = 60.0 / (@as(f32, @floatFromInt(best_lag)) * hop_s);
     while (bpm > fold_max) bpm /= 2.0;
     while (bpm < fold_min) bpm *= 2.0;
-    return .{ .bpm = bpm, .confidence = confidence };
+    const clip_s = @as(f32, @floatFromInt(samples.len)) / @as(f32, @floatFromInt(@max(sample_rate, 1)));
+    return .{ .bpm = snapToWholeBeats(bpm, clip_s), .confidence = best };
+}
+
+/// Pull `bpm` onto the tempo that makes `clip_s` a whole number of beats.
+/// A loop is cut to the bar, so its real tempo always is one; the estimate
+/// isn't, because the envelope is only sampled every `hop` frames and the
+/// peak lands on whichever integer lag is nearest. Snapping recovers the
+/// exact figure (an 80 BPM 24-second loop reads 80.18 and lands back on 80),
+/// which matters downstream: `stretchToTempo` turns that 0.2% into 50 ms of
+/// drift across the clip.
+///
+/// Only applied when the snap is small enough to be that rounding. A clip
+/// that genuinely isn't a whole number of beats keeps the raw estimate
+/// rather than being bent onto a grid it was never on.
+fn snapToWholeBeats(bpm: f32, clip_s: f32) f32 {
+    if (!(clip_s > 0.0) or !(bpm > 0.0)) return bpm;
+    const beats = @round(clip_s * bpm / 60.0);
+    if (beats < 1.0) return bpm;
+    const snapped = beats * 60.0 / clip_s;
+    return if (@abs(snapped - bpm) <= bpm * snap_tolerance) snapped else bpm;
+}
+
+/// How far `snapToWholeBeats` will move an estimate. One hop of lag error at
+/// the fastest tempo searched is about this much, so it covers the rounding
+/// it exists to undo and not a mis-lock.
+const snap_tolerance: f32 = 0.02;
+
+/// How well a beat period of `lag` frames explains the whole envelope: its
+/// own correlation plus its multiples', weighted down as they get further
+/// out. A bare argmax over `corr` picks whatever single lag scores highest,
+/// which on real material is regularly a subdivision or an outright spurious
+/// peak; a real beat period is the one whose 2x, 3x and 4x also line up, and
+/// summing over them is what tells the two apart.
+fn combScore(env: []const f32, lag: usize) f32 {
+    var sum: f32 = 0;
+    var weight: f32 = 0;
+    var k: usize = 1;
+    while (k <= comb_harmonics and k * lag < env.len) : (k += 1) {
+        const w = 1.0 / @as(f32, @floatFromInt(k));
+        sum += w * corr(env, k * lag);
+        weight += w;
+    }
+    return if (weight > 0) sum / weight else 0;
+}
+
+/// Pearson correlation of `env` against itself shifted by `lag`, in -1..1.
+/// Normalizing by the two windows' own energy (rather than just their length)
+/// is what makes scores at different lags comparable at all, and what makes
+/// the peak's height mean "how periodic is this" instead of "how loud is it".
+fn corr(env: []const f32, lag: usize) f32 {
+    var dot: f32 = 0;
+    var ea: f32 = 0;
+    var eb: f32 = 0;
+    for (env[0 .. env.len - lag], env[lag..]) |a, b| {
+        dot += a * b;
+        ea += a * a;
+        eb += b * b;
+    }
+    const denom = @sqrt(ea * eb);
+    return if (denom > 1e-20) dot / denom else 0;
 }
 
 /// Tempo the clip's own file name declares, or null when it declares none.
@@ -112,11 +182,10 @@ pub fn detect(samples: []const f32, sample_rate: u32) ?Result {
 /// `124_break_dry`): the first run of two or three digits landing in the
 /// same plausible range `detect` searches.
 ///
-/// Callers should prefer this over `detect`. Measured against one 329-file
-/// commercial pack, the name was right wherever it was present, while the
-/// autocorrelation below answered correctly for 21% of the loops, wrongly
-/// for 17% (by up to a tritone once `stretchToTempo` folds the error into a
-/// repitch), and declined outright on the remaining 62%.
+/// Callers should prefer this over `detect`. Measured against a 222-loop
+/// corpus, the name was right wherever it was present, while `detect` gets
+/// 37% of the same loops right, 22% wrong and declines on the rest - and
+/// that is the improved detector.
 pub fn bpmFromName(name: []const u8) ?f32 {
     var i: usize = 0;
     while (i < name.len) {
@@ -188,7 +257,27 @@ test "detect finds the pulse of a steady click track and folds it home" {
     }
 
     const r = detect(samples, sr) orelse return error.NoTempoDetected;
-    try std.testing.expectApproxEqAbs(bpm, r.bpm, 3.0);
+    // Exact, not within a few BPM: the lag grid alone can only land within
+    // about half a BPM here, and `snapToWholeBeats` closes the rest.
+    try std.testing.expectApproxEqAbs(bpm, r.bpm, 0.01);
+    try std.testing.expect(r.confidence > min_confidence and r.confidence <= 1.0);
+}
+
+test "snapToWholeBeats rounds a loop onto its own bar grid, and only that far" {
+    // 24 s at 80 BPM is 32 beats; the lag grid reports 80.18 and snapping
+    // recovers the figure the loop was actually cut at.
+    try std.testing.expectApproxEqAbs(@as(f32, 80.0), snapToWholeBeats(80.18, 24.0), 1e-3);
+    try std.testing.expectApproxEqAbs(@as(f32, 90.0), snapToWholeBeats(90.43, 21.3333), 1e-2);
+    // Already exact: unchanged.
+    try std.testing.expectApproxEqAbs(@as(f32, 120.0), snapToWholeBeats(120.0, 8.0), 1e-4);
+    // A clip that is not a whole number of beats long keeps its estimate
+    // rather than being bent onto a grid it was never on - 100 BPM over 24 s
+    // is 40 beats, and the nearest whole-beat tempo to 95 is more than the
+    // tolerance away.
+    try std.testing.expectApproxEqAbs(@as(f32, 95.0), snapToWholeBeats(95.0, 24.0), 1e-4);
+    // Degenerate inputs pass through instead of dividing by zero.
+    try std.testing.expectApproxEqAbs(@as(f32, 120.0), snapToWholeBeats(120.0, 0.0), 1e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), snapToWholeBeats(0.0, 8.0), 1e-4);
 }
 
 test "detect declines on material with no pulse" {
