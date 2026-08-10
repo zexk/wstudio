@@ -32,13 +32,13 @@ pub fn draw(app: anytype) void {
     zgui.sameLine(.{});
     zgui.textColored(theme.audio, "{s}", .{app.core.arr_grid.label()});
     zgui.sameLine(.{ .spacing = 8 });
-    if (widgets.iconButton("\u{2212}##arr-grid-down", "Coarser grid  zG")) {
+    if (widgets.iconButton(icons.minus ++ "##arr-grid-down", "Coarser grid  zG")) {
         const now_ns = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
         app.core.handleKey(.{ .char = 'z' }, now_ns);
         app.core.handleKey(.{ .char = 'G' }, now_ns);
     }
     zgui.sameLine(.{ .spacing = 4 });
-    if (widgets.iconButton("+##arr-grid-up", "Finer grid  zg")) {
+    if (widgets.iconButton(icons.plus ++ "##arr-grid-up", "Finer grid  zg")) {
         const now_ns = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
         app.core.handleKey(.{ .char = 'z' }, now_ns);
         app.core.handleKey(.{ .char = 'g' }, now_ns);
@@ -425,18 +425,18 @@ fn drawArrangementInspector(app: anytype) void {
             .audio => "AUDIO REGION",
         }});
         zgui.spacing();
-        if (widgets.iconButton("\u{2190}##clip-move-left", "Move left  <")) action = '<';
+        if (widgets.iconButton(icons.left ++ "##clip-move-left", "Move left  <")) action = '<';
         zgui.sameLine(.{ .spacing = 6 });
-        if (widgets.iconButton("\u{2192}##clip-move-right", "Move right  >")) action = '>';
+        if (widgets.iconButton(icons.right ++ "##clip-move-right", "Move right  >")) action = '>';
         zgui.sameLine(.{ .spacing = 6 });
-        if (widgets.iconButton("\u{2212}##clip-shorter", "Shorten clip  -")) action = '-';
+        if (widgets.iconButton(icons.minus ++ "##clip-shorter", "Shorten clip  -")) action = '-';
         zgui.sameLine(.{ .spacing = 6 });
-        if (widgets.iconButton("+##clip-longer", "Lengthen clip  +")) action = '+';
+        if (widgets.iconButton(icons.plus ++ "##clip-longer", "Lengthen clip  +")) action = '+';
         zgui.sameLine(.{ .spacing = 6 });
         if (widgets.iconButton(icons.arrangement ++ "##clip-automation", "Edit automation  a")) action = 'a';
         zgui.sameLine(.{ .spacing = 6 });
         zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = theme.danger });
-        if (widgets.iconButton("\u{00D7}##clip-delete", "Delete clip  x")) action = 'x';
+        if (widgets.iconButton(icons.close ++ "##clip-delete", "Delete clip  x")) action = 'x';
         zgui.popStyleColor(.{});
     }
     zgui.endChild();

@@ -68,6 +68,13 @@ next to text that already says the same thing, so a missing font never
 shows a tofu box carrying information. The Mono variant guarantees one
 cell per glyph, keeping hand-aligned columns intact.
 
+That rule is a terminal rule: the GUI links the font in, so its toolbar
+buttons carry a glyph and nothing else, and they take it from the same
+font rather than from DejaVu's arrows and math signs, which sit at a
+different weight and optical size. `widgets.iconButton` then pins every
+one of them to the same square, since ImGui would otherwise size each
+button to its own glyph's advance width.
+
 ## Alignment lockstep
 
 Some widths are shared contracts, not per-view choices: the tracks

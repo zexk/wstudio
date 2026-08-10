@@ -49,8 +49,8 @@ fn drawTitle(app: anytype, drum: *const ws.dsp.DrumMachine) void {
     zgui.textDisabled("Variation {d}/{d}", .{ drum.variant + 1, drum.variant_count });
     zgui.sameLine(.{ .spacing = 8 });
     zgui.beginDisabled(.{ .disabled = drum.variant_count <= 1 });
-    if (widgets.iconButton("\u{2039}##drum-variant-prev", "Previous variation  [")) app.core.handleKey(.{ .char = '[' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+    if (widgets.iconButton(icons.prev ++ "##drum-variant-prev", "Previous variation  [")) app.core.handleKey(.{ .char = '[' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     zgui.sameLine(.{ .spacing = 4 });
-    if (widgets.iconButton("\u{203A}##drum-variant-next", "Next variation  ]")) app.core.handleKey(.{ .char = ']' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+    if (widgets.iconButton(icons.next ++ "##drum-variant-next", "Next variation  ]")) app.core.handleKey(.{ .char = ']' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     zgui.endDisabled();
 }

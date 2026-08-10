@@ -1,9 +1,10 @@
-//! Icon glyphs for the TUI, drawn from a 22-glyph subset of "Symbols Nerd
-//! Font Mono" (MIT license; see assets/fonts/LICENSE and the Nerd Fonts
-//! project at https://github.com/ryanoasis/nerd-fonts). Codepoints were
-//! looked up in the project's authoritative glyphnames.json rather than
-//! guessed, then the font was subsetted with fonttools' pyftsubset down to
-//! just these glyphs (~4.7 KB vs. ~2.5 MB for the full symbols font).
+//! Icon glyphs for the TUI and GUI, drawn from a 35-glyph subset of "Symbols
+//! Nerd Font Mono" (MIT license; see assets/fonts/LICENSE and the Nerd Fonts
+//! project at https://github.com/ryanoasis/nerd-fonts). Codepoints are the
+//! ones the upstream font's own `post` table names (`fa-play`, `md-undo`,
+//! ...) rather than guesses; assets/fonts/LICENSE records the pyftsubset
+//! command that cut it down to just these glyphs (~5.4 KB vs. ~2.5 MB for
+//! the full symbols font), including how to re-read those names.
 //!
 //! These are Private Use Area codepoints: a terminal only renders them as
 //! icons if its font actually has glyphs there, otherwise they show as
@@ -57,6 +58,27 @@ pub const loudness = "\u{f057e}";
 /// glyph so a hosted plugin reads differently from wstudio's own synth.
 pub const plugin = "\u{f06a5}";
 
+// The GUI's toolbar buttons. These say nothing the surrounding Unicode
+// couldn't (they replaced a literal "\u{2190}", "+", "\u{00D7}" and so on),
+// so unlike the icons above they're not about vocabulary - they're about
+// coming from the same font as their neighbours. Mixing DejaVu's arrows and
+// math signs in with Nerd Font glyphs put two unrelated stroke weights and
+// optical sizes in one row of buttons. The TUI keeps the plain Unicode: a
+// terminal has no second font to fall out of step with.
+pub const undo = "\u{f054c}"; // md-undo
+pub const redo = "\u{f044e}"; // md-redo
+pub const prev = "\u{f053}"; // fa-chevron_left
+pub const next = "\u{f054}"; // fa-chevron_right
+pub const plus = "\u{f067}"; // fa-plus
+pub const minus = "\u{f068}"; // fa-minus
+pub const left = "\u{f060}"; // fa-arrow_left
+pub const right = "\u{f061}"; // fa-arrow_right
+pub const up = "\u{f062}"; // fa-arrow_up
+pub const down = "\u{f063}"; // fa-arrow_down
+pub const close = "\u{f00d}"; // fa-xmark
+pub const fold_closed = "\u{f035f}"; // md-menu_right
+pub const fold_open = "\u{f035d}"; // md-menu_down
+
 const std = @import("std");
 const ws = @import("wstudio");
 
@@ -92,12 +114,15 @@ pub fn iconOr(icon: []const u8, ascii: []const u8) []const u8 {
 }
 
 test "every icon decodes to exactly one codepoint" {
-    const all = [_][]const u8{
-        play,   stop,        mute,   solo,     save,     warn,   synth, drum,
-        sampler, eq,         arrangement, tempo, help,   master, loop,  logo,
-        slicer, soundfont,   record, phase,    loudness, plugin,
-    };
-    for (all) |icon| {
+    // Walks this file's declarations rather than a hand-kept list, which
+    // went stale the moment an icon was added - the same drift that left a
+    // glyph range list in gui.zig four icons behind. Every string constant
+    // here is an icon; the non-icon declarations are imports, a bool and
+    // two functions, none of which are pointers.
+    inline for (@typeInfo(@This()).@"struct".decls) |decl| {
+        const value = @field(@This(), decl.name);
+        if (@typeInfo(@TypeOf(value)) != .pointer) continue;
+        const icon: []const u8 = value;
         var it = std.unicode.Utf8Iterator{ .bytes = icon, .i = 0 };
         const cp = it.nextCodepoint() orelse return error.Empty;
         try std.testing.expect(cp >= 0xe000 and cp <= 0xfffff); // PUA range
@@ -109,4 +134,47 @@ test "embedded font asset (ws.icon_font_ttf) looks like a valid, small TTF" {
     const bytes = ws.icon_font_ttf;
     try std.testing.expectEqualStrings("\x00\x01\x00\x00", bytes[0..4]); // sfnt version
     try std.testing.expect(bytes.len > 0 and bytes.len < 100 * 1024);
+}
+
+/// Walks the embedded font's format-12 cmap subtable (the only one that
+/// reaches past U+FFFF, where most of these icons live) looking for one
+/// codepoint. Enough of a TTF reader for the test below and nothing more.
+fn fontHasCodepoint(cp: u21) bool {
+    const bytes = ws.icon_font_ttf;
+    const be = std.mem.readInt;
+    const num_tables = be(u16, bytes[4..6], .big);
+    var cmap: usize = 0;
+    for (0..num_tables) |i| {
+        const rec = 12 + i * 16;
+        if (std.mem.eql(u8, bytes[rec..][0..4], "cmap")) cmap = be(u32, bytes[rec + 8 ..][0..4], .big);
+    }
+    if (cmap == 0) return false;
+    for (0..be(u16, bytes[cmap + 2 ..][0..2], .big)) |i| {
+        const sub = cmap + be(u32, bytes[cmap + 4 + i * 8 + 4 ..][0..4], .big);
+        if (be(u16, bytes[sub..][0..2], .big) != 12) continue;
+        for (0..be(u32, bytes[sub + 12 ..][0..4], .big)) |g| {
+            const group = sub + 16 + g * 12;
+            const first = be(u32, bytes[group..][0..4], .big);
+            const last = be(u32, bytes[group + 4 ..][0..4], .big);
+            if (cp >= first and cp <= last) return true;
+        }
+    }
+    return false;
+}
+
+test "the embedded font actually has every icon this file names" {
+    // The one thing that turns an icon into a tofu box: naming a codepoint
+    // the subsetted font was never cut with. Re-run the pyftsubset command
+    // in assets/fonts/LICENSE with the new codepoint added when this fails.
+    inline for (@typeInfo(@This()).@"struct".decls) |decl| {
+        const value = @field(@This(), decl.name);
+        if (@typeInfo(@TypeOf(value)) != .pointer) continue;
+        const icon: []const u8 = value;
+        var it = std.unicode.Utf8Iterator{ .bytes = icon, .i = 0 };
+        const cp = it.nextCodepoint() orelse return error.Empty;
+        if (!fontHasCodepoint(cp)) {
+            std.debug.print("icon '{s}' is U+{X}, which the font has no glyph for\n", .{ decl.name, cp });
+            return error.MissingGlyph;
+        }
+    }
 }

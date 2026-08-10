@@ -100,13 +100,13 @@ fn drawPresetRow(app: anytype, track: u16, sf: *ws.dsp.SoundfontPlayer) void {
             });
         }
     }
-    if (widgets.iconButton("\u{2039}##soundfont-preset-prev", "Previous preset  h")) {
+    if (widgets.iconButton(icons.prev ++ "##soundfont-preset-prev", "Previous preset  h")) {
         app.core.soundfont_param = 3;
         const prev: u16 = if (idx == 0) @intCast(count - 1) else idx - 1;
         setParam(app, track, 3, @floatFromInt(prev));
     }
     zgui.sameLine(.{});
-    if (widgets.iconButton("\u{203A}##soundfont-preset-next", "Next preset  l")) {
+    if (widgets.iconButton(icons.next ++ "##soundfont-preset-next", "Next preset  l")) {
         app.core.soundfont_param = 3;
         const next: u16 = if (idx + 1 >= count) 0 else idx + 1;
         setParam(app, track, 3, @floatFromInt(next));

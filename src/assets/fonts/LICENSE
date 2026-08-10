@@ -1,7 +1,21 @@
-wstudio-icons.ttf is a 22-glyph subset of "Symbols Nerd Font Mono", built with
+wstudio-icons.ttf is a 35-glyph subset of "Symbols Nerd Font Mono", built with
 fonttools' pyftsubset from the Nerd Fonts v3.4.0 "Symbols Only" release:
 
     https://github.com/ryanoasis/nerd-fonts
+
+To add an icon, look its codepoint up in the upstream font's own glyph names
+(the `post` table names every glyph `fa-play`, `md-undo` and so on, so no
+separate glyphnames.json is needed) and re-cut the subset with it:
+
+    src=.../SymbolsNerdFontMono-Regular.ttf
+    fonttools ttx -t cmap -o - "$src" | grep 'name="md-undo"'
+    pyftsubset "$src" --output-file=wstudio-icons.ttf \
+        --no-hinting --desubroutinize \
+        --unicodes=$(the U+... list, comma separated)
+
+The codepoints in the subset are exactly the ones src/ui/icons.zig names; its
+"the embedded font actually has every icon this file names" test fails if the
+two drift apart.
 
 Nerd Fonts aggregates icons from several upstream sets (Font Awesome,
 Material Design Icons, Devicons, Octicons, and others) into one patched font

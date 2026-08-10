@@ -197,12 +197,12 @@ pub fn draw(app: anytype) void {
     zgui.sameLine(.{});
     zgui.textColored(if (app.core.session.song_mode) theme.audio else theme.fg3, "{s}", .{if (app.core.session.song_mode) "SONG" else "PATTERN"});
     zgui.sameLine(.{ .spacing = 12 });
-    if (widgets.iconButton("+##track-add", "Add track  a")) app.core.handleKey(.{ .char = 'a' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+    if (widgets.iconButton(icons.plus ++ "##track-add", "Add track  a")) app.core.handleKey(.{ .char = 'a' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     if (app.core.cursorTrack() != null) {
         zgui.sameLine(.{ .spacing = 6 });
-        if (widgets.iconButton("\u{2191}##track-up", "Move track up  K")) app.core.doTrackMove(-1);
+        if (widgets.iconButton(icons.up ++ "##track-up", "Move track up  K")) app.core.doTrackMove(-1);
         zgui.sameLine(.{ .spacing = 4 });
-        if (widgets.iconButton("\u{2193}##track-down", "Move track down  J")) app.core.doTrackMove(1);
+        if (widgets.iconButton(icons.down ++ "##track-down", "Move track down  J")) app.core.doTrackMove(1);
     }
     zgui.separator();
     const row_count = app.core.trackRows().len + 1;
@@ -422,7 +422,7 @@ fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) 
     const selected = chrome.selected;
     const accent = theme.modulation;
 
-    drawSideStrip(draw_list, origin, height, accent, "{s}", .{if (group.folded) "\u{25B8}" else "\u{25BE}"});
+    drawSideStrip(draw_list, origin, height, accent, "{s}", .{if (group.folded) icons.fold_closed else icons.fold_open});
 
     var member_count: usize = 0;
     for (app.core.session.project.tracks.items) |track| if (track.group == group_index) {

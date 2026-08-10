@@ -190,7 +190,7 @@ fn drawToolbar(app: anytype) void {
     }
 
     zgui.sameLine(.{ .spacing = 8 });
-    if (widgets.iconButton("\u{2212}##piano-grid-down", "Coarser grid  zG")) {
+    if (widgets.iconButton(icons.minus ++ "##piano-grid-down", "Coarser grid  zG")) {
         const now_ns = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
         app.core.handleKey(.{ .char = 'z' }, now_ns);
         app.core.handleKey(.{ .char = 'G' }, now_ns);
@@ -198,18 +198,18 @@ fn drawToolbar(app: anytype) void {
     zgui.sameLine(.{ .spacing = 4 });
     zgui.textColored(theme.audio, "{s}", .{app.core.piano_division.label()});
     zgui.sameLine(.{ .spacing = 4 });
-    if (widgets.iconButton("+##piano-grid-up", "Finer grid  zg")) {
+    if (widgets.iconButton(icons.plus ++ "##piano-grid-up", "Finer grid  zg")) {
         const now_ns = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
         app.core.handleKey(.{ .char = 'z' }, now_ns);
         app.core.handleKey(.{ .char = 'g' }, now_ns);
     }
 
     zgui.sameLine(.{ .spacing = 12 });
-    if (widgets.iconButton("\u{2190}##piano-len-down", "Shorter notes  [")) {
+    if (widgets.iconButton(icons.left ++ "##piano-len-down", "Shorter notes  [")) {
         app.core.handleKey(.{ .char = '[' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     }
     zgui.sameLine(.{ .spacing = 4 });
-    if (widgets.iconButton("\u{2192}##piano-len-up", "Longer notes  ]")) {
+    if (widgets.iconButton(icons.right ++ "##piano-len-up", "Longer notes  ]")) {
         app.core.handleKey(.{ .char = ']' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     }
 }

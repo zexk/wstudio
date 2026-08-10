@@ -81,9 +81,9 @@ fn drawTransportControls(app: anytype, snap: ws.engine.UiSnapshot) void {
         app.core.handleKey(.{ .char = ' ' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     }
     zgui.sameLine(.{ .spacing = 5 });
-    if (widgets.iconButton("\u{21B6}##transport-undo", "Undo  u")) history.doUndo(&app.core);
+    if (widgets.iconButton(icons.undo ++ "##transport-undo", "Undo  u")) history.doUndo(&app.core);
     zgui.sameLine(.{ .spacing = 5 });
-    if (widgets.iconButton("\u{21B7}##transport-redo", "Redo  U")) history.doRedo(&app.core);
+    if (widgets.iconButton(icons.redo ++ "##transport-redo", "Redo  U")) history.doRedo(&app.core);
     zgui.endGroup();
 }
 

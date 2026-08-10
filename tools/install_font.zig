@@ -1,7 +1,7 @@
 //! Write the TUI's embedded icon font to the user's font directory.
 //!
 //! Run with `zig build install-font`. wstudio's TUI decorates a few views
-//! with icons from a bundled 22-glyph subset of "Symbols Nerd Font Mono"
+//! with icons from a bundled 35-glyph subset of "Symbols Nerd Font Mono"
 //! (see src/ui/icons.zig and src/assets/fonts/LICENSE) - those codepoints
 //! only render as icons once this font (or any Nerd Font) is on the
 //! system and selected as (or falls back to) the terminal's font. The TUI

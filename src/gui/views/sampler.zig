@@ -287,11 +287,11 @@ fn drawTargetBank(app: anytype, track: u16, kind: PadTargetKind, selected: u8) v
     zgui.textDisabled("bank {d}/{d}", .{ bank + 1, bank_count });
     zgui.sameLine(.{ .spacing = 8 });
     zgui.beginDisabled(.{ .disabled = bank == 0 });
-    if (widgets.iconButton("\u{2039}##target-bank-prev", "Previous bank")) setTargetIndex(app, kind, selected -| 8);
+    if (widgets.iconButton(icons.prev ++ "##target-bank-prev", "Previous bank")) setTargetIndex(app, kind, selected -| 8);
     zgui.endDisabled();
     zgui.sameLine(.{ .spacing = 4 });
     zgui.beginDisabled(.{ .disabled = bank + 1 >= bank_count });
-    if (widgets.iconButton("\u{203A}##target-bank-next", "Next bank")) setTargetIndex(app, kind, @min(selected +| 8, count -| 1));
+    if (widgets.iconButton(icons.next ++ "##target-bank-next", "Next bank")) setTargetIndex(app, kind, @min(selected +| 8, count -| 1));
     zgui.endDisabled();
     const available = zgui.getContentRegionAvail()[0];
     const width = @max(72, (available - 7 * 6) / 8);
