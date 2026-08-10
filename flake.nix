@@ -14,6 +14,26 @@
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
       version = "1.0.0-beta.9";
+      # Built with a static archive as well as the usual shared library, so a
+      # downloaded wstudio does not ask the user to install it too. Whatever
+      # `pkgs` this is applied to decides the platform, which is how the
+      # Windows cross-build below gets a mingw copy.
+      speexdsp =
+        pkgs:
+        pkgs.speexdsp.overrideAttrs (old: {
+          configureFlags = (old.configureFlags or [ ]) ++ [ "--enable-static" ];
+        });
+      # One prefix holding both the headers and the archive, since build.zig
+      # points a cross-compile at a single directory.
+      targetPrefix =
+        pkgs:
+        pkgs.symlinkJoin {
+          name = "wstudio-target-prefix";
+          paths = [
+            (speexdsp pkgs)
+            (speexdsp pkgs).dev
+          ];
+        };
       neutralTerminal =
         pkgs:
         pkgs.writeShellApplication {
@@ -45,7 +65,10 @@
             pkgs.pkg-config
             pkgs.installShellFiles
           ];
-          buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+          buildInputs = [
+            (speexdsp pkgs)
+          ]
+          ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             pkgs.alsa-lib
             pkgs.libGL
             pkgs.libx11
@@ -142,6 +165,7 @@
                 zig
                 zls
                 pkg-config
+                (speexdsp pkgs)
               ]
               ++ lib.optionals stdenv.hostPlatform.isLinux [
                 alsa-lib
@@ -158,6 +182,9 @@
               ];
           }
           // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+            # `zig build -Dtarget=x86_64-windows-gnu` from this shell, which is
+            # what CI does, needs the mingw speexdsp rather than the host one.
+            WSTUDIO_TARGET_PREFIX = targetPrefix pkgs.pkgsCross.mingwW64;
             CLAP_PATH = "${pkgs.odin2}/lib/clap";
             WSTUDIO_TEST_CLAP_PATH = "${pkgs.odin2}/lib/clap";
             WSTUDIO_TEST_VST3_PATH = "${pkgs.lsp-plugins}/lib/vst3";
@@ -184,6 +211,9 @@
             hash = "sha256-TgPyqDa597SHF73XU2QriuWwb8AtWLtimaUBJWjB5/Y=";
           };
           nativeBuildInputs = [ pkgs.zig.hook ];
+          # Not buildInputs: those set the host's NIX_CFLAGS, and this build
+          # targets Windows. build.zig reads the prefix instead.
+          WSTUDIO_TARGET_PREFIX = targetPrefix pkgs.pkgsCross.mingwW64;
           postConfigure = ''
             ln -s ${finalAttrs.zigDeps} "$ZIG_GLOBAL_CACHE_DIR/p"
           '';

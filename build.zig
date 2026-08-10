@@ -22,7 +22,6 @@ pub fn build(b: *std.Build) void {
     const lua_dep = b.dependency("lua", .{});
     const lua = buildLua(b, lua_dep, target, optimize);
     const dr_libs_dep = b.dependency("dr_libs", .{});
-    const libsamplerate_dep = b.dependency("libsamplerate", .{});
 
     // The engine as a reusable library module. Frontends import this and
     // never reach into engine internals.
@@ -34,23 +33,21 @@ pub fn build(b: *std.Build) void {
     wstudio_mod.addIncludePath(dr_libs_dep.path(""));
     wstudio_mod.addCSourceFile(.{ .file = b.path("src/vendor/dr_flac.c"), .flags = &.{"-std=c99"} });
     wstudio_mod.addCSourceFile(.{ .file = b.path("src/vendor/dr_wav.c"), .flags = &.{"-std=c99"} });
-    // Only the fastest sinc converter is built: its 70KB coefficient table is
-    // the one `dsp/pad.zig` asks for, and the other two are 592KB and 8.8MB.
-    wstudio_mod.addIncludePath(libsamplerate_dep.path("include"));
-    wstudio_mod.addCSourceFiles(.{
-        .root = libsamplerate_dep.path("src"),
-        .files = &.{ "samplerate.c", "src_linear.c", "src_sinc.c", "src_zoh.c" },
-        // PACKAGE/VERSION are what its own `src_get_version` string is built
-        // from, and would otherwise come from the autotools config.h.
-        .flags = &.{
-            "-std=c99",
-            "-DENABLE_SINC_FAST_CONVERTER",
-            "-DHAVE_STDBOOL_H",
-            "-DPACKAGE=\"libsamplerate\"",
-            "-DVERSION=\"0.2.2\"",
-        },
-    });
-    // The C sources above need it on every target, not just the two that
+    // Sinc resampling for sample loads (dsp/pad.zig). A system library, like
+    // asound below: nix supplies it through buildInputs, and zig picks the
+    // paths up from NIX_CFLAGS_COMPILE/NIX_LDFLAGS. Statically, so a
+    // downloaded build does not need the user to have installed it.
+    wstudio_mod.linkSystemLibrary("speexdsp", .{ .preferred_link_mode = .static });
+    // Those nix variables describe the *host*, so a cross-compiled target
+    // needs its own prefix pointed at explicitly - flake.nix exports this for
+    // the Windows target the same way it exports SDKROOT for macOS.
+    if (target.result.os.tag != b.graph.host.result.os.tag) {
+        if (b.graph.environ_map.get("WSTUDIO_TARGET_PREFIX")) |prefix| {
+            wstudio_mod.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ prefix, "include" }) });
+            wstudio_mod.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ prefix, "lib" }) });
+        }
+    }
+    // dr_flac/dr_wav above need libc on every target, not just the two that
     // link a system audio API.
     wstudio_mod.link_libc = true;
     if (target.result.os.tag == .linux) {

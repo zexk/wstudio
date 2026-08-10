@@ -8,7 +8,7 @@ const std = @import("std");
 const types = @import("../core/types.zig");
 const wav = @import("../core/wav.zig");
 
-const src_c = @cImport(@cInclude("samplerate.h"));
+const speex = @cImport(@cInclude("speex/speex_resampler.h"));
 const lfo_dsp = @import("lfo.zig");
 const dsp = @import("device.zig");
 const Lfo = lfo_dsp.Lfo;
@@ -937,11 +937,15 @@ pub fn decodeWav(
     return samples;
 }
 
+/// Highest quality speex offers (0-10). This runs once per clip on the
+/// control thread, so the cheaper settings buy nothing worth having.
+const resample_quality: c_int = 10;
+
 /// Mono rate conversion for a whole clip. Band-limited, because this runs on
 /// every 44.1k sample dropped into a 48k project and linear interpolation
-/// folds that clip's top octave back down as audible aliasing. Sinc can
-/// overshoot the source peak slightly - normal for a resampler, and the
-/// pad's own gain staging has room for it.
+/// folds that clip's top octave back down as audible aliasing. A windowed
+/// sinc can overshoot the source peak slightly - normal for a resampler, and
+/// the pad's own gain staging has room for it.
 pub fn resample(
     allocator: std.mem.Allocator,
     src: []const f32,
@@ -954,7 +958,7 @@ pub fn resample(
     const dst_len_u128 = (scaled_len + src_rate - 1) / src_rate;
     if (dst_len_u128 > std.math.maxInt(usize)) return error.OutputTooLarge;
     const dst_len: usize = @intCast(dst_len_u128);
-    if (src.len > std.math.maxInt(c_long) or dst_len > std.math.maxInt(c_long)) return error.OutputTooLarge;
+    if (src.len > std.math.maxInt(u32) or dst_len > std.math.maxInt(u32)) return error.OutputTooLarge;
     const out = try allocator.alloc(f32, dst_len);
     errdefer allocator.free(out);
     if (src.len == 0) {
@@ -962,19 +966,22 @@ pub fn resample(
         return out;
     }
 
-    var data: src_c.SRC_DATA = .{
-        .data_in = src.ptr,
-        .data_out = out.ptr,
-        .input_frames = @intCast(src.len),
-        .output_frames = @intCast(dst_len),
-        .input_frames_used = 0,
-        .output_frames_gen = 0,
-        .end_of_input = 0,
-        .src_ratio = @as(f64, @floatFromInt(dst_rate)) / @as(f64, @floatFromInt(src_rate)),
-    };
-    if (src_c.src_simple(&data, src_c.SRC_SINC_FASTEST, 1) != 0) return error.ResampleFailed;
+    var err: c_int = 0;
+    const state = speex.speex_resampler_init(1, src_rate, dst_rate, resample_quality, &err) orelse
+        return error.ResampleFailed;
+    defer speex.speex_resampler_destroy(state);
+    if (err != 0) return error.ResampleFailed;
+    // Primes the filter's history so output frame 0 lines up with input frame
+    // 0. Without it every loaded sample starts a few frames late, which shows
+    // up as a clip whose transient has drifted off the grid it was cut to.
+    if (speex.speex_resampler_skip_zeros(state) != 0) return error.ResampleFailed;
+
+    var in_len: c_uint = @intCast(src.len);
+    var out_len: c_uint = @intCast(dst_len);
+    if (speex.speex_resampler_process_float(state, 0, src.ptr, &in_len, out.ptr, &out_len) != 0)
+        return error.ResampleFailed;
     // The converter stops a frame or two short of the rounded-up length.
-    const generated: usize = @intCast(data.output_frames_gen);
+    const generated: usize = out_len;
     if (generated < dst_len) @memset(out[generated..], 0.0);
     return out;
 }

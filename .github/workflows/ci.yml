@@ -20,6 +20,11 @@ jobs:
       - name: Build with runtime safety
         run: nix develop --command zig build -Doptimize=ReleaseSafe
 
+      # Here rather than on Linux: the package links nixpkgs' speexdsp, and
+      # nixpkgs cannot cross-build that (or much else) for darwin from Linux.
+      - name: Build Nix package
+        run: nix build .#macos
+
   health:
     runs-on: ubuntu-latest
     steps:
@@ -39,4 +44,4 @@ jobs:
         run: nix develop --command zig build -Dtarget=x86_64-windows-gnu
 
       - name: Build Nix packages
-        run: nix build .#default .#windows .#macos
+        run: nix build .#default .#windows
