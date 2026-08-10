@@ -1,6 +1,6 @@
-//! Slicer-grid view + its status bar: a chop-context waveform pane (every
-//! slice boundary marked, cursor slice highlighted, a ruler numbering the
-//! slices) stacked over the step grid. The input half lives in
+//! Slicer-grid view + its status bar: the slice step grid, one row per chop.
+//! The clip's waveform (boundaries, cursor region) is drawn by the slice
+//! panel instead - views/sampler.zig, on 'e'. The input half lives in
 //! editors/slicer.zig.
 
 const std = @import("std");
@@ -9,7 +9,6 @@ const Slicer = ws.dsp.Slicer;
 const engine_mod = ws.engine;
 const style = @import("../style.zig");
 const icons = @import("../../ui/icons.zig");
-const sampler_view = @import("sampler.zig");
 
 const rst = style.rst;
 const bold = style.bold;
@@ -21,20 +20,14 @@ const red = style.red;
 const sel = style.sel;
 const blu = style.blu;
 const mag = style.mag;
-const bcyn = style.bcyn;
 const endLine = style.endLine;
 
-// Grid/waveform geometry lives with the editor (ui/editors/slicer.zig)
-// since its mouse hit-testing shares the exact same layout math.
-const waveform = @import("../../ui/waveform.zig");
+// Grid geometry lives with the editor (ui/editors/slicer.zig) since its
+// mouse hit-testing shares the exact same layout math.
 const slicer_ed = @import("../../ui/editors/slicer.zig");
 const step_grid = @import("../../ui/editors/step_grid.zig");
 const gutter = slicer_ed.gutter;
 const cell_width: usize = 3;
-const wave_indent = slicer_ed.wave_indent;
-const wave_max_w = slicer_ed.wave_max_w;
-const Layout = slicer_ed.Layout;
-const layout = slicer_ed.layout;
 
 /// How many steps fit in `cols` - same periodic-separator math as
 /// views/drum.zig's visibleSteps.
@@ -49,116 +42,6 @@ fn visibleSteps(cols: usize, steps_per_beat: u32) u32 {
         n = next;
     }
     return @max(1, n);
-}
-
-/// Ruler label for slice `i` (0-based): 1-9, then a-z, then '+' past 35 -
-/// one column per label, MPC-bank style.
-fn sliceLabel(i: usize) u8 {
-    if (i < 9) return @intCast('1' + i);
-    if (i < 35) return @intCast('a' + (i - 9));
-    return '+';
-}
-
-/// Column of a normalized position within the pane's width.
-fn normCol(norm: f32, width: usize) usize {
-    const col: usize = @intFromFloat(std.math.clamp(norm, 0.0, 1.0) * @as(f32, @floatFromInt(width)));
-    return @min(col, width -| 1);
-}
-
-/// Render the waveform pane + ruler: per-column peak fill, every slice
-/// start (and the last slice's end) drawn as a bright marker, the cursor
-/// slice's own region and markers highlighted. With no slices yet the
-/// whole clip draws in accent - the "look at what you loaded, then chop"
-/// state.
-fn drawWavePane(
-    app: anytype,
-    w: *std.Io.Writer,
-    sl: *const Slicer,
-    cols: usize,
-    wave_rows: usize,
-) !void {
-    const width = @min(cols -| wave_indent, wave_max_w);
-    const samples = sl.samples;
-    const cur = app.slicer_cursor[0];
-
-    // Per-column peak amplitude over the column's sample bucket, normalized
-    // to the loudest column (same shape as views/sampler.zig's pane). Only
-    // the cursor slice - the one whose region is highlighted - is drawn on
-    // its warped playback timeline; the rest of the clip stays source-time.
-    var amp: [wave_max_w]f32 = undefined;
-    var bands: [wave_max_w]waveform.Band = undefined;
-    if (cur < sl.slice_count) {
-        const p = &sl.slices[cur];
-        const scale = waveform.timeScale(p.pitch_semitones, p.stretch_ratio);
-        waveform.peakBucketsWarped(samples, amp[0..width], p.start_norm, p.end_norm, scale);
-        waveform.bandBuckets(samples, bands[0..width], sl.sample_rate, p.start_norm, p.end_norm, scale);
-    } else {
-        waveform.peakBuckets(samples, amp[0..width]);
-        waveform.bandBuckets(samples, bands[0..width], sl.sample_rate, 0.0, 1.0, 1.0);
-    }
-    var peak: f32 = 1e-6;
-    for (amp[0..width]) |a| peak = @max(peak, a);
-    const inv_peak = 1.0 / peak;
-
-    // Marker + region maps. 0 = no marker; otherwise the slice label (the
-    // last slice's end shares the final column with no label of its own).
-    var marker: [wave_max_w]u8 = [_]u8{0} ** wave_max_w;
-    var marker_cur: [wave_max_w]bool = [_]bool{false} ** wave_max_w;
-    var in_cur: [wave_max_w]bool = [_]bool{false} ** wave_max_w;
-    const count = sl.slice_count;
-    for (0..count) |i| {
-        const col = normCol(sl.slices[i].start_norm, width);
-        if (marker[col] == 0) marker[col] = sliceLabel(i);
-        if (i == cur) marker_cur[col] = true;
-    }
-    if (count > 0) {
-        const last_end = normCol(sl.slices[count - 1].end_norm, width);
-        if (marker[last_end] == 0) marker[last_end] = 255; // unlabeled end marker
-        if (cur + 1 == count) marker_cur[last_end] = true;
-        const p = &sl.slices[cur];
-        const s_col = normCol(p.start_norm, width);
-        const e_col = normCol(p.end_norm, width);
-        // Markers mark the chop points; the highlight follows playback, which
-        // pitch/stretch can push past the end marker or cut short of it.
-        const played_col = normCol(waveform.playedEndNorm(p.start_norm, p.end_norm, waveform.timeScale(p.pitch_semitones, p.stretch_ratio)), width);
-        for (s_col..@max(s_col + 1, played_col)) |x| in_cur[x] = true;
-        marker_cur[e_col] = true;
-    }
-
-    const center = @as(f32, @floatFromInt(wave_rows)) / 2.0;
-    for (0..wave_rows) |row| {
-        try w.writeAll("  ");
-        const d_from_center = @abs(@as(f32, @floatFromInt(row)) + 0.5 - center);
-        for (0..width) |x| {
-            const radius = amp[x] * inv_peak * center;
-            const filled = d_from_center <= radius;
-            if (marker[x] != 0) {
-                try w.writeAll(if (marker_cur[x]) yel ++ bold else bcyn);
-                try w.writeAll("\u{2503}" ++ rst); // ┃
-            } else if (filled) {
-                try w.writeAll(if (count == 0 or in_cur[x]) sampler_view.bandColor(bands[x]) else dim);
-                try w.writeAll("\u{2588}" ++ rst); // █
-            } else if (row == @as(usize, @intFromFloat(center))) {
-                try w.writeAll(dim ++ "\u{2500}" ++ rst); // ─ zero axis
-            } else {
-                try w.writeByte(' ');
-            }
-        }
-        try endLine(w);
-    }
-
-    // Ruler: each slice's number under its start marker.
-    try w.writeAll("  ");
-    for (0..width) |x| {
-        if (marker[x] != 0 and marker[x] != 255) {
-            try w.writeAll(if (marker_cur[x]) yel ++ bold else dim);
-            try w.writeByte(marker[x]);
-            try w.writeAll(rst);
-        } else {
-            try w.writeByte(' ');
-        }
-    }
-    try endLine(w);
 }
 
 pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
@@ -202,7 +85,7 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
     const sel_hi: u32 = @max(sel_anchor, cur_step);
     const sel_rows = step_grid.rowRange(u8, app.slicer_visual_slice_anchor, cur_slice, Slicer.max_slices);
 
-    const lay = layout(slice_count, rows);
+    const bank_rows = slicer_ed.bankRows(slice_count);
     var written: usize = 0;
 
     try w.writeAll(bold ++ " ");
@@ -226,11 +109,6 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
     }
     try endLine(w);
     written += 1;
-
-    if (lay.wave_rows > 0) {
-        try drawWavePane(app, w, sl, cols, lay.wave_rows);
-        written += lay.wave_rows + 1; // + ruler
-    }
 
     if (slice_count == 0) {
         try w.writeAll(dim ++ "  no slices yet - :chop finds the transients, :slice <n> equal-divides" ++ rst);
@@ -299,7 +177,7 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
         written += 1;
     }
     // Pad a partial last bank so the pane height never jumps between banks.
-    for ((bank_end - bank_start)..lay.bank_rows) |_| {
+    for ((bank_end - bank_start)..bank_rows) |_| {
         try endLine(w);
         written += 1;
     }

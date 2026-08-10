@@ -2,21 +2,12 @@ const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
 const icons = @import("../../ui/icons.zig");
-const waveform = @import("../../ui/waveform.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
-const scroll = @import("../scroll.zig");
-const sampler_view = @import("sampler.zig");
 const step_grid = @import("step_grid.zig");
 const commands = @import("../../ui/commands.zig");
 
 const theme = &style.palette;
-
-/// The source-waveform pane yields to the slice sequence under it, which
-/// always pages a whole bank of slices (see editors/step_grid.zig) and so has
-/// a floor the pane must respect rather than push off screen. Keyed on the
-/// slice count, not on how many banks fit - that one moves with the pane.
-var pane_fit: scroll.PaneFit = .{};
 
 pub fn draw(app: anytype) void {
     const track = app.core.slicer_track;
@@ -35,12 +26,6 @@ pub fn draw(app: anytype) void {
         drawEmptyState(app);
         return;
     }
-    widgets.sectionTitle("SOURCE WAVEFORM", theme.audio);
-    while (!slicer.sample_lock.tryLock()) std.atomic.spinLoopHint();
-    drawSourceWaveform(app, slicer);
-    slicer.sample_lock.unlock();
-    zgui.spacing();
-    const below_top = zgui.getCursorPosY();
     drawSliceState(app, slicer);
     zgui.spacing();
     widgets.sectionTitle("SLICE SEQUENCE", theme.focus);
@@ -58,7 +43,6 @@ pub fn draw(app: anytype) void {
         app.core.slicer_visual_slice_anchor,
         &app.core.slicer_paint_state,
     );
-    pane_fit.settle(below_top, slicer.slice_count);
 }
 
 fn drawEmptyState(app: anytype) void {
@@ -92,86 +76,6 @@ fn drawHeader(app: anytype, slicer: *const ws.dsp.Slicer) void {
         if (widgets.iconButton(icons.prev ++ "##slicer-variant-prev", "Previous pattern  [")) app.core.handleKey(.{ .char = '[' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
         zgui.sameLine(.{ .spacing = 4 });
         if (widgets.iconButton(icons.next ++ "##slicer-variant-next", "Next pattern  ]")) app.core.handleKey(.{ .char = ']' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-    }
-}
-
-// Terminal slicer views can only list slice bounds as numbers; drawing the
-// actual waveform with every slice boundary overlaid, and letting a click
-// jump the cursor to the slice under the mouse, is GUI-only.
-fn drawSourceWaveform(app: anytype, slicer: *const ws.dsp.Slicer) void {
-    if (slicer.samples.len == 0) {
-        zgui.textDisabled("No sample loaded.", .{});
-        return;
-    }
-    const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = pane_fit.height(120, 300);
-    const origin = zgui.getCursorScreenPos();
-    _ = zgui.invisibleButton("##slicer-source-wave", .{ .w = width, .h = height });
-    const hovered = zgui.isItemHovered(.{});
-    const mouse = zgui.getMousePos();
-    const draw_list = zgui.getWindowDrawList();
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(theme.bg0), .rounding = style.panel_rounding });
-
-    var overview: [512]f32 = undefined;
-    var bands: [512]waveform.Band = undefined;
-    const count = @min(slicer.samples.len, overview.len);
-    const mid_y = origin[1] + height / 2;
-    const selected: ?u8 = if (slicer.slice_count == 0) null else @min(app.core.slicer_cursor[0], slicer.slice_count - 1);
-
-    // Only the selected slice is drawn on its warped playback timeline (its
-    // own pitch/stretch); the rest of the clip stays in source time.
-    if (selected) |index| {
-        const slice = slicer.slices[index];
-        const scale = waveform.timeScale(slice.pitch_semitones, slice.stretch_ratio);
-        waveform.peakBucketsWarped(slicer.samples, overview[0..count], slice.start_norm, slice.end_norm, scale);
-        waveform.bandBuckets(slicer.samples, bands[0..count], slicer.sample_rate, slice.start_norm, slice.end_norm, scale);
-        draw_list.addRectFilled(.{
-            .pmin = .{ origin[0] + slice.start_norm * width, origin[1] },
-            .pmax = .{ origin[0] + waveform.playedEndNorm(slice.start_norm, slice.end_norm, scale) * width, origin[1] + height },
-            .col = style.color(.{ theme.focus[0], theme.focus[1], theme.focus[2], 0.16 }),
-        });
-    } else {
-        waveform.peakBuckets(slicer.samples, overview[0..count]);
-        waveform.bandBuckets(slicer.samples, bands[0..count], slicer.sample_rate, 0.0, 1.0, 1.0);
-    }
-
-    // Which chop is sounding, drawn on the clip itself: with 32 slices of
-    // one break, the step ruler says when a hit lands but never which
-    // region made the sound. Under the peaks so it tints rather than hides.
-    for (slicer.slices[0..slicer.slice_count], 0..) |slice, i| {
-        if (!slicer.slicePlaying(@intCast(i))) continue;
-        draw_list.addRectFilled(.{
-            .pmin = .{ origin[0] + slice.start_norm * width, origin[1] },
-            .pmax = .{ origin[0] + slice.end_norm * width, origin[1] + height },
-            .col = style.color(.{ theme.danger[0], theme.danger[1], theme.danger[2], 0.20 }),
-        });
-    }
-
-    for (overview[0..count], 0..) |peak, i| {
-        const x = origin[0] + width * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(count));
-        const h = @max(1, peak * height / 2 * 0.94);
-        draw_list.addLine(.{ .p1 = .{ x, mid_y - h }, .p2 = .{ x, mid_y + h }, .col = style.color(sampler_view.bandColor(bands[i])), .thickness = 1 });
-    }
-    draw_list.addLine(.{ .p1 = .{ origin[0], mid_y }, .p2 = .{ origin[0] + width, mid_y }, .col = style.color(theme.line), .thickness = 1 });
-
-    for (slicer.slices[0..slicer.slice_count], 0..) |slice, i| {
-        const active = selected != null and selected.? == i;
-        const x = origin[0] + slice.start_norm * width;
-        draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + height }, .col = style.color(if (active) theme.focus else theme.rhythm), .thickness = if (active) 2 else 1 });
-    }
-    if (slicer.slice_count > 0) {
-        const end_x = origin[0] + slicer.slices[slicer.slice_count - 1].end_norm * width;
-        draw_list.addLine(.{ .p1 = .{ end_x, origin[1] }, .p2 = .{ end_x, origin[1] + height }, .col = style.color(theme.rhythm), .thickness = 1 });
-    }
-
-    if (hovered and zgui.isMouseClicked(.left)) {
-        const norm = std.math.clamp((mouse[0] - origin[0]) / width, 0, 1);
-        for (slicer.slices[0..slicer.slice_count], 0..) |slice, i| {
-            if (norm >= slice.start_norm and norm < slice.end_norm) {
-                app.core.slicer_cursor[0] = @intCast(i);
-                break;
-            }
-        }
     }
 }
 

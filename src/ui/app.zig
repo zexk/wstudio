@@ -2207,7 +2207,7 @@ pub const App = struct {
             .automation => automation_ed.handleMouse(self, ev, row),
             .automation_param_picker => self.automationParamPickerMouse(ev, row),
             .preset_picker => preset_ed.handleMouse(self, ev, row),
-            .slicer_grid => slicer_ed.handleMouse(self, ev, row, cols, view_rows),
+            .slicer_grid => slicer_ed.handleMouse(self, ev, row),
         }
     }
 

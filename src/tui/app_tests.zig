@@ -675,6 +675,34 @@ test "slicer grid: slice, step toggle, play triggers the right slice" {
     try std.testing.expect(peak > 0.001);
 }
 
+test "slicer grid rows start where the mouse hit-test looks for them" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+    try installSlicerTestClip(&app);
+    commands.run(&app, "slice 8");
+
+    var buf: [64 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try @import("render.zig").drawSlicerGrid(&app, &w, 40, 100, app.session.engine.uiSnapshot());
+    const frame = w.buffered();
+
+    // The clip's waveform belongs to the slice panel now, not over the grid.
+    try std.testing.expect(std.mem.indexOf(u8, frame, "\u{2588}") == null);
+
+    // Title, bar ruler, then slice #1 - handleMouse maps a click row back to
+    // a slice with that same offset (`slicer_ed.grid_top`), so a drift here
+    // silently edits the wrong row.
+    var lines = std.mem.splitScalar(u8, frame, '\n');
+    var row: usize = 0;
+    while (lines.next()) |line| : (row += 1) {
+        if (std.mem.indexOf(u8, line, "#1") != null) break;
+    }
+    try std.testing.expectEqual(slicer_ed.grid_top, row);
+}
+
 test "slicer grid: navigation and per-slice param nudges stay within bounds" {
     var app = try testApp();
     defer app.deinit();

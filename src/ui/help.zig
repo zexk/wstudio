@@ -231,8 +231,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key(".",            "repeat last visual-mode range delete/paste at the cursor");
 
     t.taggedSection(.slicer_grid, "SLICER");
-    t.key("",             "chop one loaded sample into slices, step-sequence the chops; the top");
-    t.key("",             "  waveform shows every boundary - the cursor slice is highlighted");
+    t.key("",             "chop one loaded sample into slices, step-sequence the chops; each row");
+    t.key("",             "  names its region - e opens the slice panel and its waveform");
     t.key(":load",        "[file.wav]  load a WAV as the shared clip (opens the file browser with no path)");
     t.key(":chop",        "[1-9]  chop at detected transients (sensitivity, default 5 - higher finds more)");
     t.key(":chop-random", "[n]  roll the dice: n uneven slices, boundaries picked at random (default 8)");
@@ -274,7 +274,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("+ / -",        "lengthen / shorten loop by one beat");
     t.key("E",            "double loop length and copy its content");
     t.key("O",            "replace the grid with slices sequenced once in source order");
-    t.key("( / )",        "nudge current slice's start earlier / later (watch the waveform)");
+    t.key("( / )",        "nudge current slice's start earlier / later (region % follows)");
     t.key("{ / }",        "nudge current slice's end earlier / later");
     t.key("r",            "toggle current slice's reverse");
     t.key("< / >",        "swing (50% straight ... 75% hardest shuffle)");

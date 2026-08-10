@@ -17,56 +17,20 @@ const commands_load = @import("../commands_load.zig");
 const commands = @import("../commands.zig");
 const step_grid = @import("step_grid.zig");
 
-/// Grid/waveform geometry shared with the TUI render half
-/// (views/slicer.zig): the mouse hit-testing below and the draw path must
-/// agree on every column and row, so the layout math lives here once.
+/// Grid geometry shared with the TUI render half (views/slicer.zig): the
+/// mouse hit-testing below and the draw path must agree on every column and
+/// row, so the layout math lives here once.
 /// Left gutter before the step columns (matches views/drum.zig's shape).
 pub const gutter: usize = 10;
 
-/// Waveform pane: 2-column indent (mirrored by `waveNorm`), width cap
-/// shared with the sampler editor's pane, height fed by whatever the row
-/// budget leaves over the fixed grid rows.
-pub const wave_indent: usize = 2;
-pub const wave_max_w: usize = 240;
-const wave_max_rows: usize = 10;
-const wave_min_rows: usize = 3;
+/// View-content row the slice rows start on: title(1) + bar ruler(1). The
+/// slice waveform itself lives in the slice panel ('e'), not over the grid.
+pub const grid_top: usize = 2;
 
-/// Row layout of the slicer grid, shared between the draw path and the
-/// mouse hit-testing here: title(1) + waveform pane + ruler(1, only with
-/// the pane) + bar ruler(1) + a fixed 8-row bank window. The pane soaks
-/// up leftover height and disappears entirely on short terminals (below
-/// `wave_min_rows` there's no room to read it).
-pub const Layout = struct {
-    wave_rows: usize,
-    bank_rows: usize,
-
-    pub fn rulerRows(self: Layout) usize {
-        return @intFromBool(self.wave_rows > 0);
-    }
-    /// View-content row of the bar ruler.
-    pub fn headerRow(self: Layout) usize {
-        return 1 + self.wave_rows + self.rulerRows();
-    }
-};
-
-pub fn layout(slice_count: u8, rows: usize) Layout {
-    const budget = rows -| 4;
-    const bank_rows: usize = if (slice_count == 0) 0 else step_grid.rows_per_bank;
-    const fixed = 1 + 1 + bank_rows; // title + header + bank window
-    const spare = budget -| (fixed + 1); // +1: the ruler rides with the pane
-    const wave: usize = @min(wave_max_rows, spare);
-    return .{ .wave_rows = if (wave >= wave_min_rows) wave else 0, .bank_rows = bank_rows };
-}
-
-/// Normalized 0..1 clip position at column `x` within the waveform pane,
-/// or null outside it - the mouse slice-select below uses this.
-pub fn waveNorm(x: usize, cols: u16) ?f32 {
-    if (x < wave_indent) return null;
-    const width = @min(@as(usize, cols) -| wave_indent, wave_max_w);
-    if (width == 0) return null;
-    const rel = x - wave_indent;
-    if (rel >= width) return null;
-    return std.math.clamp(@as(f32, @floatFromInt(rel)) / @as(f32, @floatFromInt(width)), 0.0, 1.0);
+/// Rows the bank window occupies - a fixed 8-slice page, padded when the
+/// last bank is partial so the grid height never jumps between banks.
+pub fn bankRows(slice_count: u8) usize {
+    return if (slice_count == 0) 0 else step_grid.rows_per_bank;
 }
 
 pub fn handleKey(app: *App, key: modal_mod.Key) bool {
@@ -243,9 +207,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 },
                 // Per-slice boundary/reverse nudges, routed over the command
                 // queue like every other instrument param (undo coalesces a
-                // run on the same boundary) - the top waveform tracks them
-                // live. Deeper per-slice params (pitch/ADSR/gain/pan) live
-                // in the slice editor on 'e'.
+                // run on the same boundary) - the grid's region percentages
+                // track them live, the slice panel's waveform shows the chop
+                // itself. Deeper per-slice params (pitch/ADSR/gain/pan) live
+                // in that same slice editor on 'e'.
                 'r' => nudgeSliceParam(app, 9, 1),
                 // zig fmt: off
                 '(' => nudgeSliceParam(app, 0, -app.takeCount()),
@@ -805,11 +770,9 @@ fn repeatLastEdit(app: *App) void {
 /// Click a step cell to toggle it; drag to paint. **Right**-click always
 /// forces the cell off instead of toggling - see drum.zig's `handleMouse`
 /// doc comment for why a right-drag beats a left-drag for erasing a run of
-/// steps. Click inside the waveform pane to jump the cursor to the slice
-/// under the mouse (and keep the click quiet otherwise - boundary editing
-/// by mouse lives in the slice editor on 'e'). Scroll moves the step
-/// cursor, or - over the gutter - the slice cursor.
-pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, view_rows: usize) void {
+/// steps. Scroll moves the step cursor, or - over the gutter - the slice
+/// cursor.
+pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
     const sl = app.slicerInst();
     switch (ev.kind) {
         .scroll_up, .scroll_down => {
@@ -820,23 +783,6 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
         else => {},
     }
 
-    const lay = layout(sl.slice_count, view_rows);
-    if (lay.wave_rows > 0 and row >= 1 and row < 1 + lay.wave_rows) {
-        // Waveform pane: press selects the slice whose region covers the
-        // clicked column.
-        if (ev.kind != .press) return;
-        const norm = waveNorm(ev.x, cols) orelse return;
-        for (0..sl.slice_count) |i| {
-            const p = &sl.slices[i];
-            if (norm >= p.start_norm and norm < p.end_norm) {
-                app.slicer_cursor[0] = @intCast(i);
-                return;
-            }
-        }
-        return;
-    }
-
-    const grid_top = lay.headerRow() + 1;
     if (row < grid_top) return;
     const bank_start = (@as(usize, app.slicer_cursor[0]) / 8) * 8;
     const slice = bank_start + (row - grid_top);
