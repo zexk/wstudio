@@ -804,14 +804,16 @@ test "rack FX consumes modulation for its stable instance only" {
     var bus: FxModBus = .{};
     sat.mod_bus = &bus;
 
-    var dry = [_]types.Sample{0.1};
+    // Long enough buffers to read past the saturator's oversampling delay,
+    // and the tail of each is what gets compared.
+    var dry: [128]types.Sample = @splat(0.1);
     sat.device().process(&dry);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.1), dry[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.1), dry[dry.len - 1], 1e-6);
 
     bus.add(sat.instance_id, 85, 1.0);
-    var wet = [_]types.Sample{0.1};
+    var wet: [128]types.Sample = @splat(0.1);
     sat.device().process(&wet);
-    try std.testing.expect(wet[0] > dry[0]);
+    try std.testing.expect(wet[wet.len - 1] > dry[dry.len - 1]);
     try std.testing.expectEqual(@as(f32, 0.0), sat.payload.sat.mix);
 }
 

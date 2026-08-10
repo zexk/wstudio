@@ -54,6 +54,31 @@
             "-Dcmdline=disabled"
           ];
         });
+      # Rubber Band's mingw DLL exports its C++ class API as well as the C
+      # one, so the import library nixpkgs ships carries C++ runtime symbols
+      # that collide with the libc++ zig links for imgui ("lld-link:
+      # duplicate symbol: std::bad_alloc::bad_alloc"). This one holds only
+      # the `rubberband_*` C entry points, which is all wstudio calls.
+      rubberbandCImportLib =
+        pkgs:
+        pkgs.runCommand "rubberband-c-implib"
+          {
+            nativeBuildInputs = [ pkgs.stdenv.cc.bintools.bintools ];
+          }
+          ''
+            mkdir -p $out/lib
+            {
+              echo "LIBRARY librubberband-3.dll"
+              echo "EXPORTS"
+              ${pkgs.stdenv.cc.targetPrefix}objdump -p ${rubberband pkgs}/bin/librubberband-3.dll \
+                | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^rubberband_[A-Za-z0-9_]*$/) print $i }' \
+                | sort -u
+            } > rubberband-c.def
+            ${pkgs.stdenv.cc.targetPrefix}dlltool \
+              --def rubberband-c.def \
+              --dllname librubberband-3.dll \
+              --output-lib $out/lib/librubberband-c.dll.a
+          '';
       targetLibs =
         pkgs:
         [
@@ -61,6 +86,7 @@
           (rubberband pkgs)
           pkgs.libsndfile
         ]
+        ++ pkgs.lib.optional pkgs.stdenv.hostPlatform.isWindows (rubberbandCImportLib pkgs)
         ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isWindows [
           pkgs.flac
           pkgs.libogg

@@ -57,7 +57,8 @@ pub fn build(b: *std.Build) void {
             // and `libfoo.a` - so the import library goes to the linker
             // directly. The release archive ships the matching DLLs.
             wstudio_mod.addObjectFile(.{ .cwd_relative = b.pathJoin(&.{ prefix, "lib", "libsndfile.dll.a" }) });
-            wstudio_mod.addObjectFile(.{ .cwd_relative = b.pathJoin(&.{ prefix, "lib", "librubberband.dll.a" }) });
+            // The C-only import library, not the full one: see flake.nix.
+            wstudio_mod.addObjectFile(.{ .cwd_relative = b.pathJoin(&.{ prefix, "lib", "librubberband-c.dll.a" }) });
         } else {
             wstudio_mod.linkSystemLibrary("sndfile", .{ .use_pkg_config = .no });
             wstudio_mod.linkSystemLibrary("rubberband", .{ .use_pkg_config = .no });

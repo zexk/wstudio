@@ -16,6 +16,7 @@
 const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
+const oversample = @import("oversample.zig");
 
 const Sample = types.Sample;
 
@@ -50,13 +51,39 @@ pub const Saturator = struct {
     /// Per-channel DC-blocker state, only driven when shape = tube.
     dc_x1: [2]f32 = .{ 0.0, 0.0 },
     dc_y1: [2]f32 = .{ 0.0, 0.0 },
+    /// The curves below more than double the signal's bandwidth, so they run
+    /// at twice the sample rate - see `dsp/oversample.zig`. Without it, a
+    /// 5kHz tone at +24dB drive folded enough energy back to sit only 12dB
+    /// under the harmonics it was adding.
+    stage: oversample.Stage2x = .{},
 
     pub const device = dsp.deviceOf(@This());
+
+    /// The oversampler's filters delay the signal; the engine compensates.
+    pub fn latencyFrames(_: *const Saturator) u32 {
+        return oversample.latency_frames;
+    }
 
     pub fn reset(self: *Saturator) void {
         self.dc_x1 = .{ 0.0, 0.0 };
         self.dc_y1 = .{ 0.0, 0.0 };
+        self.stage.reset();
     }
+
+    /// Everything the shaping needs, so the oversampler can call back into
+    /// it per (doubled-rate) sample.
+    const Curve = struct {
+        kind: u2,
+        pre: f32,
+        norm_pos: f32,
+        norm_neg: f32,
+        post: f32,
+
+        fn apply(self: Curve, x: f32) f32 {
+            const norm = if (x >= 0) self.norm_pos else self.norm_neg;
+            return shapeVal(self.kind, self.pre, x) * norm * self.post;
+        }
+    };
 
     /// Shape an interleaved stereo buffer in place.
     pub fn processBlock(self: *Saturator, buf: []Sample) void {
@@ -72,11 +99,11 @@ pub const Saturator = struct {
         const norm_pos = 1.0 / shapeVal(kind, pre, 1.0);
         const norm_neg = if (kind == 1) 1.0 / @abs(shapeVal(kind, pre, -1.0)) else norm_pos;
 
+        const curve: Curve = .{ .kind = kind, .pre = pre, .norm_pos = norm_pos, .norm_neg = norm_neg, .post = post };
         for (buf, 0..) |*s, i| {
             const ch = i % 2;
             const dry = s.*;
-            const norm = if (dry >= 0) norm_pos else norm_neg;
-            var wet = shapeVal(kind, pre, dry) * norm * post;
+            var wet = self.stage.process(ch, dry, curve, Curve.apply);
             if (kind == 1) {
                 const y0 = wet - self.dc_x1[ch] + dc_pole * self.dc_y1[ch];
                 self.dc_x1[ch] = wet;
@@ -91,20 +118,39 @@ pub const Saturator = struct {
 // ---------------------------------------------------------------------------
 // Tests
 
+/// Holds `level` on the left and its negative on the right for long enough
+/// that the oversampler's filters have settled, and hands back the last
+/// frame. Every level check below reads a settled sample rather than the
+/// first one, since 2x oversampling costs `latencyFrames` of group delay.
+fn settled(sat: *Saturator, level: Sample) [2]Sample {
+    var buf: [256]Sample = undefined;
+    var i: usize = 0;
+    while (i < buf.len) : (i += 2) {
+        buf[i] = level;
+        buf[i + 1] = -level;
+    }
+    sat.processBlock(&buf);
+    return .{ buf[buf.len - 2], buf[buf.len - 1] };
+}
+
 test "full-scale input maps to full scale at any drive" {
     var sat = Saturator{ .drive_db = 30.0 };
-    var buf = [_]Sample{ 1.0, -1.0 };
-    sat.processBlock(&buf);
-    try std.testing.expectApproxEqAbs(@as(Sample, 1.0), buf[0], 1e-4);
-    try std.testing.expectApproxEqAbs(@as(Sample, -1.0), buf[1], 1e-4);
+    const out = settled(&sat, 1.0);
+    try std.testing.expectApproxEqAbs(@as(Sample, 1.0), out[0], 1e-3);
+    try std.testing.expectApproxEqAbs(@as(Sample, -1.0), out[1], 1e-3);
 }
 
 test "drive raises the level of small signals" {
     var sat = Saturator{ .drive_db = 24.0 };
-    var buf = [_]Sample{ 0.1, -0.1 };
-    sat.processBlock(&buf);
-    try std.testing.expect(buf[0] > 0.5);
-    try std.testing.expect(buf[1] < -0.5);
+    const out = settled(&sat, 0.1);
+    try std.testing.expect(out[0] > 0.5);
+    try std.testing.expect(out[1] < -0.5);
+}
+
+test "the oversampler's delay is reported for compensation" {
+    var sat = Saturator{};
+    try std.testing.expect(sat.latencyFrames() > 0);
+    try std.testing.expectEqual(oversample.latency_frames, sat.latencyFrames());
 }
 
 test "mix 0 passes the input untouched" {
@@ -129,10 +175,9 @@ test "invalid parameters cannot poison output" {
 
 test "diode shape also maps full-scale to full-scale" {
     var sat = Saturator{ .drive_db = 30.0, .shape = 2.0 };
-    var buf = [_]Sample{ 1.0, -1.0 };
-    sat.processBlock(&buf);
-    try std.testing.expectApproxEqAbs(@as(Sample, 1.0), buf[0], 1e-4);
-    try std.testing.expectApproxEqAbs(@as(Sample, -1.0), buf[1], 1e-4);
+    const out = settled(&sat, 1.0);
+    try std.testing.expectApproxEqAbs(@as(Sample, 1.0), out[0], 1e-3);
+    try std.testing.expectApproxEqAbs(@as(Sample, -1.0), out[1], 1e-3);
 }
 
 test "tube shape adds even harmonics but the DC blocker keeps the mean near zero" {
