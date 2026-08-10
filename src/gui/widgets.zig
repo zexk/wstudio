@@ -5,8 +5,21 @@ const format = @import("../ui/format.zig");
 const gui_style = @import("style.zig");
 const scroll = @import("scroll.zig");
 
+/// A square button carrying a single glyph. The square is the point: ImGui
+/// sizes a button to its label's advance width, and these labels come from
+/// two fonts with unrelated metrics - the merged Nerd Font icons (see
+/// `ui/icons.zig`) and DejaVu's arrows/math symbols - so left to itself the
+/// transport row rendered as four buttons of four different widths, and no
+/// two toolbars anywhere lined up. Pinning the width to one em box and
+/// centring the glyph in it (`button_text_align`, which ImGui otherwise
+/// leaves left-aligned) makes any mix of the two fonts read as one strip of
+/// controls. `frame_padding.y = 0` keeps the height `smallButton` had.
 pub fn iconButton(label: [:0]const u8, tooltip: []const u8) bool {
-    const clicked = zgui.smallButton(label);
+    const pad_x = zgui.getStyle().frame_padding[0];
+    zgui.pushStyleVar2f(.{ .idx = .frame_padding, .v = .{ pad_x, 0 } });
+    zgui.pushStyleVar2f(.{ .idx = .button_text_align, .v = .{ 0.5, 0.5 } });
+    const clicked = zgui.button(label, .{ .w = zgui.getFontSize() + pad_x * 2, .h = 0 });
+    zgui.popStyleVar(.{ .count = 2 });
     if (zgui.isItemHovered(.{})) {
         _ = zgui.beginTooltip();
         zgui.textUnformatted(tooltip);
