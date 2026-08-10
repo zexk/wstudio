@@ -130,6 +130,19 @@ pub const Limiter = struct {
             self.delay[1][write_idx] = buf[i + 1];
             self.target[write_idx] = target_gain;
 
+            // Expire entries that fell out of the trailing window *before*
+            // pushing this frame, not after: the window holds at most
+            // `lookahead_frames + 1` entries and the ring is sized for exactly
+            // that, so pushing first can momentarily need one slot more than
+            // the ring has and overwrite the front (reachable at maximum
+            // lookahead on a level that decays monotonically for a whole
+            // window, which never pops anything off the back).
+            const window_start = self.frame_counter -| lookahead_frames;
+            while (self.deque_len > 0 and self.deque[self.deque_head] < window_start) {
+                self.deque_head = (self.deque_head + 1) % cap;
+                self.deque_len -= 1;
+            }
+
             // Ascending Minima: drop every back entry whose target is no
             // smaller than this frame's - they can never be the window
             // minimum again once a smaller-or-equal value exists ahead of
@@ -137,13 +150,6 @@ pub const Limiter = struct {
             while (self.deque_len > 0 and self.target[self.dequeBackTargetIdx()] >= target_gain) self.deque_len -= 1;
             self.deque[(self.deque_head + self.deque_len) % cap] = self.frame_counter;
             self.deque_len += 1;
-
-            // Expire entries that fell out of the trailing window.
-            const window_start = self.frame_counter -| lookahead_frames;
-            while (self.deque_len > 0 and self.deque[self.deque_head] < window_start) {
-                self.deque_head = (self.deque_head + 1) % cap;
-                self.deque_len -= 1;
-            }
 
             self.frame_counter += 1;
 
@@ -335,4 +341,26 @@ test "latencyFrames reports the lookahead window, 0 by default" {
     try std.testing.expectEqual(@as(u32, 0), lim.device().latencyFrames());
     lim.lookahead_ms = 5.0;
     try std.testing.expectEqual(@as(u32, 240), lim.device().latencyFrames());
+}
+
+test "a long monotonic decay at maximum lookahead cannot overflow the minima deque" {
+    var lim = try Limiter.init(std.testing.allocator, 48_000);
+    defer lim.deinit(std.testing.allocator);
+    lim.lookahead_ms = max_lookahead_ms;
+    const cap = lim.deque.len;
+
+    // Steadily decaying level above the ceiling: every frame's required gain
+    // is larger than the last, so nothing is ever popped off the back and the
+    // deque grows by one entry per frame until the window starts expiring.
+    var buf: [8]Sample = undefined;
+    var n: usize = 0;
+    while (n < cap * 2) : (n += 4) {
+        for (0..4) |k| {
+            const s: Sample = 4.0 - @as(f32, @floatFromInt(n + k)) * 0.0005;
+            buf[k * 2] = s;
+            buf[k * 2 + 1] = s;
+        }
+        lim.processBlock(&buf);
+        try std.testing.expect(lim.deque_len <= cap);
+    }
 }
