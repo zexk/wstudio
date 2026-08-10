@@ -604,7 +604,7 @@ fn removeTimeSelection(app: *App) void {
 /// Set arrangement loop from selected time.
 fn loopSelection(app: *App) void {
     const r = selectionRange(app);
-    const tpb = ws.time_grid.barTicks(app.session.project.beats_per_bar);
+    const tpb = ws.time_grid.barTicks(app.session.project.beats_per_bar, app.session.project.meter_denominator);
     app.session.project.loop_start_bar = r.lo / tpb;
     app.session.project.loop_end_bar = (r.hi +| app.arr_grid.ticks() + tpb - 1) / tpb;
     app.session.project.loop_enabled = true;
@@ -741,7 +741,7 @@ fn moveBar(app: *App, delta: i64) void {
 /// 1/128 far less, so a bar is however many of those fit; a grid coarser
 /// than a bar floors at one cell.
 fn cellsPerBar(app: *const App) u32 {
-    return @max(1, ws.time_grid.barTicks(app.session.project.beats_per_bar) / app.arr_grid.ticks());
+    return @max(1, ws.time_grid.barTicks(app.session.project.beats_per_bar, app.session.project.meter_denominator) / app.arr_grid.ticks());
 }
 
 /// `w`/`b`: jump whole bars, snapping to the bar line first - the shared
@@ -980,7 +980,7 @@ fn editClip(app: *App) void {
 /// region arms the loop immediately (b toggles it after).
 fn setLoopStart(app: *App) void {
     const p = &app.session.project;
-    const tpb = ws.time_grid.barTicks(p.beats_per_bar);
+    const tpb = ws.time_grid.barTicks(p.beats_per_bar, p.meter_denominator);
     p.loop_start_bar = cursorTick(app) / tpb;
     if (p.loop_end_bar > p.loop_start_bar) {
         p.loop_enabled = true;
@@ -995,7 +995,7 @@ fn setLoopStart(app: *App) void {
 /// ) sets the loop end after the cursor bar (the bar is included).
 fn setLoopEnd(app: *App) void {
     const p = &app.session.project;
-    const tpb = ws.time_grid.barTicks(p.beats_per_bar);
+    const tpb = ws.time_grid.barTicks(p.beats_per_bar, p.meter_denominator);
     p.loop_end_bar = (cursorTick(app) +| tpb) / tpb;
     if (p.loop_end_bar > p.loop_start_bar) {
         p.loop_enabled = true;

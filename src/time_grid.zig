@@ -51,10 +51,30 @@ pub const Division = enum(u8) {
     }
 };
 
-pub fn barTicks(beats_per_bar: u8) u32 {
-    return @as(u32, beats_per_bar) * ticks_per_beat;
+/// Ticks in one bar of `beats_per_bar`/`beat_unit`. The beat unit matters:
+/// a bar of 6/8 is three quarter notes, not six, and the transport's own
+/// bar/beat readout and loop region already measure it that way
+/// (`time_map.MeterPoint.quarterBeatsPerBar`) - an arrangement grid that
+/// counted the numerator alone drew bars twice as long as the ones the
+/// position display was counting. Exact for every denominator the editor
+/// accepts (powers of two up to 32), since ticks_per_beat * 4 is 128.
+pub fn barTicks(beats_per_bar: u8, beat_unit: u8) u32 {
+    return @as(u32, beats_per_bar) * ticks_per_beat * 4 / @max(beat_unit, 1);
 }
 
 pub fn tickToBeat(tick: u32) f64 {
     return @as(f64, @floatFromInt(tick)) / ticks_per_beat;
+}
+
+test "a bar is the same length here as it is under the transport's own meter" {
+    const std = @import("std");
+    const time_map = @import("time_map.zig");
+    for ([_][2]u8{ .{ 4, 4 }, .{ 3, 4 }, .{ 6, 8 }, .{ 7, 16 }, .{ 5, 32 } }) |sig| {
+        const meter = time_map.MeterPoint{ .beat = 0, .numerator = sig[0], .denominator = sig[1] };
+        try std.testing.expectApproxEqAbs(
+            meter.quarterBeatsPerBar(),
+            tickToBeat(barTicks(sig[0], sig[1])),
+            1e-9,
+        );
+    }
 }

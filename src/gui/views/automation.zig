@@ -58,7 +58,7 @@ fn drawHeader(app: anytype, clip: ?*const ws.Clip) void {
     draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(theme.fg3), "CLIP AUTOMATION", .{});
     draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(theme.fg0), "{s}", .{track.name});
     if (clip) |c| {
-        const ticks_per_bar = ws.time_grid.barTicks(app.core.session.project.beats_per_bar);
+        const ticks_per_bar = ws.time_grid.barTicks(app.core.session.project.beats_per_bar, app.core.session.project.meter_denominator);
         draw_list.addText(.{ origin[0] + width - 190, origin[1] + 13 }, color(accent), "CLIP @ BAR {d}", .{c.start_tick / ticks_per_bar + 1});
         draw_list.addText(.{ origin[0] + width - 190, origin[1] + 39 }, color(theme.fg3), "{d:.2} BEATS", .{ws.time_grid.tickToBeat(c.length_ticks)});
     }

@@ -77,7 +77,7 @@ pub fn drawAutomation(
 
     try w.writeAll(bold ++ " AUTOMATION" ++ rst);
     try w.print("  \"{s}\"", .{track_name});
-    const ticks_per_bar = ws.time_grid.barTicks(app.session.project.beats_per_bar);
+    const ticks_per_bar = ws.time_grid.barTicks(app.session.project.beats_per_bar, app.session.project.meter_denominator);
     const start_bar = clip.start_tick / ticks_per_bar + 1;
     const end_bar = (clip.endTick() -| 1) / ticks_per_bar + 1;
     try w.writeAll(dim ++ "  bars " ++ rst);

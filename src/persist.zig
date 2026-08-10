@@ -2398,7 +2398,7 @@ test "a loaded project renders sample-identical to the session that saved it" {
             pp.length_beats = 4.0;
             pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
             try s.stampClipAtTick(0, 0);
-            try s.stampClipAtTick(0, time_grid.barTicks(4) * 2);
+            try s.stampClipAtTick(0, time_grid.barTicks(4, 4) * 2);
             s.setSongMode(true);
         }
     };

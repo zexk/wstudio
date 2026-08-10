@@ -451,7 +451,7 @@ pub fn apiClipAdd(self: *App, idx: usize, start_bar: u32) ApiClipError!void {
 
 pub fn apiClipDel(self: *App, idx: usize, bar: u32) ApiClipError!void {
     const lane = try self.apiLane(idx);
-    const at = ws.time_grid.barTicks(self.session.project.beats_per_bar) *| bar;
+    const at = ws.time_grid.barTicks(self.session.project.beats_per_bar, self.session.project.meter_denominator) *| bar;
     if (lane.clipAt(at) == null) return error.NoClip;
     history.recordLane(self, @intCast(idx));
     _ = lane.removeAt(self.allocator, at);

@@ -1243,7 +1243,7 @@ pub fn apiClipList(state: ?*c.lua_State) callconv(.c) c_int {
     const app = requireApp(l);
     const idx = checkTrackIndex(l, 1, app);
     const lane = app.apiLane(idx) catch |err| return clipError(l, err);
-    const bar_ticks = ws_root.time_grid.barTicks(app.session.project.beats_per_bar);
+    const bar_ticks = ws_root.time_grid.barTicks(app.session.project.beats_per_bar, app.session.project.meter_denominator);
     c.lua_createtable(l, @intCast(lane.clips.items.len), 0);
     for (lane.clips.items, 1..) |clip, i| {
         c.lua_createtable(l, 0, 5);

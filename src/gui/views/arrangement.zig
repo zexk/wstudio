@@ -46,7 +46,7 @@ pub fn draw(app: anytype) void {
     const track_count = app.core.session.project.tracks.items.len;
     const ticks_per_beat = ws.time_grid.ticks_per_beat;
     const beats_per_bar: u32 = app.core.session.project.beats_per_bar;
-    const ticks_per_bar = ws.time_grid.barTicks(app.core.session.project.beats_per_bar);
+    const ticks_per_bar = ws.time_grid.barTicks(app.core.session.project.beats_per_bar, app.core.session.project.meter_denominator);
     const content_ticks = app.core.session.arrangement.lengthTicks();
     const cursor_tick = app.core.arr_cursor_bar *| app.core.arr_grid.ticks();
     const cursor_bar_count = cursor_tick / ticks_per_bar + 1;

@@ -38,8 +38,8 @@ fn loopFrame(bar: u32, frames_per_bar: u64) u64 {
     return @as(u64, bar) *| frames_per_bar;
 }
 
-fn ticksForBars(bars: u32, beats_per_bar: u8) u32 {
-    return bars *| time_grid.barTicks(beats_per_bar);
+fn ticksForBars(bars: u32, beats_per_bar: u8, beat_unit: u8) u32 {
+    return bars *| time_grid.barTicks(beats_per_bar, beat_unit);
 }
 
 /// Defaults a brand-new instrument is built with, sourced from
@@ -907,7 +907,7 @@ pub const Session = struct {
     /// the pattern length. No-op for empty tracks. Replaces any clips it
     /// overlaps (see `Lane.place`).
     pub fn stampClip(self: *Session, track_idx: usize, start_bar: u32) !void {
-        return self.stampClipAtTick(track_idx, ticksForBars(start_bar, self.project.beats_per_bar));
+        return self.stampClipAtTick(track_idx, ticksForBars(start_bar, self.project.beats_per_bar, self.project.meter_denominator));
     }
 
     /// Length of the clip `stampClipAtTick` would create for a track.
@@ -922,8 +922,10 @@ pub const Session = struct {
             .slicer => |*sl| @as(f64, @floatFromInt(sl.step_count)) / @as(f64, @floatFromInt(sl.steps_per_beat)),
             else => if (rack.pattern_player) |*pp| pp.length_beats else return 0,
         };
-        const beats_per_bar: f64 = @floatFromInt(self.project.beats_per_bar);
-        return ticksForBars(barsFor(len_beats, beats_per_bar), self.project.beats_per_bar);
+        // Bar length in quarter-note beats, which is what len_beats counts -
+        // a 6/8 bar is three of them, not six (see time_grid.barTicks).
+        const beats_per_bar = time_grid.tickToBeat(time_grid.barTicks(self.project.beats_per_bar, self.project.meter_denominator));
+        return ticksForBars(barsFor(len_beats, beats_per_bar), self.project.beats_per_bar, self.project.meter_denominator);
     }
 
     /// Capture a live pattern at an exact musical tick.
@@ -1763,8 +1765,8 @@ test "loop frame conversion saturates at the transport limit" {
 }
 
 test "clip stamp timeline math saturates" {
-    try std.testing.expectEqual(@as(u32, 256), ticksForBars(2, 4));
-    try std.testing.expectEqual(std.math.maxInt(u32), ticksForBars(std.math.maxInt(u32), std.math.maxInt(u8)));
+    try std.testing.expectEqual(@as(u32, 256), ticksForBars(2, 4, 4));
+    try std.testing.expectEqual(std.math.maxInt(u32), ticksForBars(std.math.maxInt(u32), std.math.maxInt(u8), 4));
     try std.testing.expectEqual(std.math.maxInt(u32), Session.barsFor(std.math.floatMax(f64), 1.0));
 }
 

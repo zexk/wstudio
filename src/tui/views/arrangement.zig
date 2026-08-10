@@ -56,7 +56,7 @@ pub fn drawArrangement(
     cols: usize,
     snap: engine_mod.UiSnapshot,
 ) !void {
-    const ticks_per_bar = ws.time_grid.barTicks(app.session.project.beats_per_bar);
+    const ticks_per_bar = ws.time_grid.barTicks(app.session.project.beats_per_bar, app.session.project.meter_denominator);
     const grid_ticks = app.arr_grid.ticks();
     const cw: usize = app.arrCellWidth();
     const visible = visibleBars(cols, cw);
