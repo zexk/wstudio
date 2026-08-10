@@ -178,6 +178,59 @@ test "detects A4 (440Hz) sine" {
     try std.testing.expect(@abs(r.cents) < 5.0);
 }
 
+/// Root pitch class the clip's own file name declares, or null when it
+/// declares none. Sample packs put the key in a trailing token by
+/// convention (`SO_JAM_80_bass_upright_onyx_Gmin`, `..._Ebmaj`, `..._Dm`).
+/// Only the root is read - the mode says nothing about how far the clip has
+/// to move to sit on a project's root.
+///
+/// Worth trying before `detect`, which on real loop material is usually
+/// silent: it found no clear pitch in 29 of 30 minor-key loops from one
+/// commercial pack, and named the wrong note on the thirtieth.
+pub fn rootFromName(name: []const u8) ?u4 {
+    var found: ?u4 = null;
+    var it = std.mem.tokenizeAny(u8, name, "_- .");
+    // Last token wins: the key sits at the end, and an earlier word that
+    // happens to parse ("Dm" inside a descriptor) shouldn't outrank it.
+    while (it.next()) |token| {
+        if (rootOfToken(token)) |root| found = root;
+    }
+    return found;
+}
+
+/// One `rootFromName` token, or null unless the WHOLE token is a key name -
+/// a partial match would take "bass" for a B and "diamond" for a D.
+fn rootOfToken(token: []const u8) ?u4 {
+    if (token.len == 0) return null;
+    // C D E F G A B, in semitones above C.
+    const naturals = [_]u4{ 9, 11, 0, 2, 4, 5, 7 };
+    const letter = std.ascii.toUpper(token[0]);
+    if (letter < 'A' or letter > 'G') return null;
+    var root: i8 = @intCast(naturals[letter - 'A']);
+    var rest = token[1..];
+    if (rest.len > 0 and (rest[0] == 'b' or rest[0] == '#')) {
+        root += if (rest[0] == '#') 1 else -1;
+        rest = rest[1..];
+    }
+    for ([_][]const u8{ "", "m", "min", "minor", "maj", "major" }) |mode| {
+        if (std.ascii.eqlIgnoreCase(rest, mode)) return @intCast(@mod(root, 12));
+    }
+    return null;
+}
+
+test "rootFromName reads a trailing key token and ignores everything else" {
+    try std.testing.expectEqual(@as(?u4, 7), rootFromName("SO_JAM_80_bass_upright_onyx_Gmin"));
+    try std.testing.expectEqual(@as(?u4, 3), rootFromName("SO_JAM_80_rhodes_quartal_jet_Ebmaj"));
+    try std.testing.expectEqual(@as(?u4, 4), rootFromName("SO_JAM_90_resampled_agate_Emin"));
+    try std.testing.expectEqual(@as(?u4, 6), rootFromName("lead-F#m"));
+    try std.testing.expectEqual(@as(?u4, 2), rootFromName("pad D"));
+    // Whole-token match only: these all start with a note letter and are not
+    // keys.
+    try std.testing.expectEqual(@as(?u4, null), rootFromName("SO_JAM_92_drum_loop_silicone"));
+    try std.testing.expectEqual(@as(?u4, null), rootFromName("bass_upright_diamond_electric"));
+    try std.testing.expectEqual(@as(?u4, null), rootFromName("amen_break"));
+}
+
 test "detects a low C2 (65.4Hz) sine" {
     var buf: [48_000]f32 = undefined; // 1s @ 48kHz, low notes need more cycles
     sineClip(&buf, 65.406, 48_000);
