@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 47;
+pub const file_version: u32 = 48;
 
 /// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
 /// reasoning as `EqBandKindSnap`.
@@ -499,11 +499,11 @@ pub const FreqShiftSnap = struct {
     mix: f32 = 1.0,
 };
 
-/// Granular pitch shifter (see `dsp/pitch_shift.zig`).
+/// Pitch shifter (see `dsp/pitch_shift.zig`).
 pub const PitchShiftSnap = struct {
     semitones: f32 = 0.0,
     cents: f32 = 0.0,
-    grain_ms: f32 = 60.0,
+    formant: f32 = 0.0,
     mix: f32 = 1.0,
 };
 

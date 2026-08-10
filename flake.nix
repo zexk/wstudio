@@ -30,10 +30,35 @@
       # libsndfile's codec libraries are here for their DLLs alone: mingw
       # libsndfile links them dynamically, so the release archive has to carry
       # them next to wstudio.exe.
+      # Only the shifting engine, none of the plugin wrappers: those drag in
+      # a JDK (which has no mingw build at all) plus libsamplerate, whose
+      # mingw build is broken. Its own FFT and resampler are built in.
+      rubberband =
+        pkgs:
+        pkgs.rubberband.overrideAttrs (old: {
+          # mingw needs winpthreads named explicitly; the plain `-pthread`
+          # meson passes finds nothing and the shared library fails to link.
+          buildInputs = pkgs.lib.optional pkgs.stdenv.hostPlatform.isWindows pkgs.windows.pthreads;
+          nativeBuildInputs = with pkgs.buildPackages; [
+            meson
+            ninja
+            pkg-config
+          ];
+          mesonFlags = (old.mesonFlags or [ ]) ++ [
+            "-Dfft=builtin"
+            "-Dresampler=builtin"
+            "-Dvamp=disabled"
+            "-Dladspa=disabled"
+            "-Dlv2=disabled"
+            "-Djni=disabled"
+            "-Dcmdline=disabled"
+          ];
+        });
       targetLibs =
         pkgs:
         [
           (speexdsp pkgs)
+          (rubberband pkgs)
           pkgs.libsndfile
         ]
         ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isWindows [

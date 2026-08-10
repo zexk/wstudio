@@ -19,7 +19,7 @@ history lives in [FORMAT.md](FORMAT.md).
 - Internal rack stereo width with mono-compatible mid/side width and output trim.
 - Internal rack auto-pan/tremolo with free or tempo-synced rate.
 - Internal rack transient shaper with attack, sustain, and output trim.
-- Internal rack pitch shifter with semitone and cent transposition, grain size,
+- Internal rack pitch shifter with semitone and cent transposition, formant
   and dry/wet mix.
 - Project-level modulation controllers: four tempo-synced LFOs, each driving up
   to eight instrument or FX params across any tracks, via `:ctrl` and
@@ -39,13 +39,22 @@ history lives in [FORMAT.md](FORMAT.md).
   audio libraries that do this work better than the code here does, starting
   with aubio for tempo/onset/pitch detection and Rubber Band for time-stretch
   and pitch-shift.
-- Sample loads resample with libsamplerate's sinc converter instead of linear
+- The rack pitch shifter is Rubber Band's live shifter instead of a two-tap
+  granular one. Measured on a 220Hz sine taken up 7 semitones, the old one
+  landed 38 cents sharp with a third of its energy on the intended partials
+  and 9dB of level wobble; the new one is exact, at 99.9%, with 0.4dB. Its
+  grain-size control is gone, replaced by formant transposition: 0 keeps the
+  source's formants, so a shifted voice stays a voice.
+- Sample loads resample with speexdsp's sinc converter instead of linear
   interpolation, so a 44.1k sample in a 48k project no longer folds its top
-  octave down as aliasing. Applies to WAV and FLAC loads, SF2 sample pools,
-  and SFZ regions.
-- WAVs are decoded by dr_wav rather than a stricter parser of our own, so files
-  with trailing metadata chunks or stale RIFF sizes load instead of being
-  refused. A-law, mu-law and ADPCM now load too.
+  octave down as aliasing. Applies to every sample load, SF2 sample pool,
+  and SFZ region.
+- Audio decoding is libsndfile's, so FLAC, AIFF, CAF, Ogg Vorbis, Opus and MP3
+  load anywhere a WAV did, and the file browser offers them. Files with
+  trailing metadata chunks or stale RIFF sizes load instead of being refused.
+- The integrated loudness reading applies BS.1770's relative gate, so a long
+  quiet passage no longer drags it down - it was reading 6 LU low on such
+  material against libebur128, and is now within 0.2 LU.
 - Time, rate, frequency, Q, and portamento controls use perceptual editor
   scaling, preserving fine control over short and low values.
 - The slicer grid's pattern-variant keys are now `[`/`]`, the same pair the

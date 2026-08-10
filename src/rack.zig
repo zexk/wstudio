@@ -166,7 +166,7 @@ pub const FxPayload = union(enum) {
                 var np = try PitchShift.init(allocator, sr);
                 np.semitones = p.semitones;
                 np.cents = p.cents;
-                np.grain_ms = p.grain_ms;
+                np.formant = p.formant;
                 np.mix = p.mix;
                 return .{ .pitch_shift = np };
             },

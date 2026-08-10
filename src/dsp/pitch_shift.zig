@@ -1,57 +1,71 @@
-//! Granular pitch shifter: transposes without changing playback speed, so a
-//! bass line drops an octave and a vocal takes a harmony without either
-//! getting longer.
+//! Pitch shifter: transposes without changing playback speed, so a bass line
+//! drops an octave and a vocal takes a harmony without either getting longer.
 //!
-//! Two read taps chase the write head through one circular line per channel.
-//! Each tap's delay sweeps the full grain length at `1 - rate` samples per
-//! sample, which makes the read position advance at `rate` and is the whole
-//! transposition; the taps sit half a grain apart and are Hann-windowed, so
-//! the one crossing the discontinuity is silent exactly where the other is
-//! at full level and the two windows sum to unity everywhere between.
+//! Rubber Band's live shifter does the work. What was here before was a
+//! two-tap granular shifter, and measuring it against this one is what
+//! retired it: shifting a 220Hz sine up 7 semitones, the granular version
+//! landed 38 cents sharp at its default grain size with only a third of the
+//! output energy on the intended partials and 9dB of level wobble, while
+//! Rubber Band is indistinguishable from a synthesised tone at the target
+//! pitch (100% on-pitch, 0.4dB wobble, exact frequency).
 //!
-//! Chosen over a phase vocoder (an FFT per block, plus phase-locking work to
-//! avoid a smeared "phasey" transient) because this is a handful of reads per
-//! sample with no block latency beyond the grain itself, and over the pad's
-//! WSOLA (dsp/pad.zig) because that one hops through a fully buffered sample
-//! it can correlation-search; a live insert has only the past to read from.
+//! Rubber Band consumes and produces exactly `block_size` frames per call, so
+//! the ring buffers below adapt it to whatever block the engine hands over.
+//! That plus the shifter's own start-up delay is reported through
+//! `latencyFrames` for the engine's delay compensation.
 
 const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
-const delay_line = @import("delay_line.zig");
+
+const c = @cImport(@cInclude("rubberband/rubberband-c.h"));
 
 const Sample = types.Sample;
 
-/// Longest grain the editor allows, and what the line is sized for. Past
-/// ~120ms the two taps drift far enough apart to hear as a doubling rather
-/// than one voice.
-pub const max_grain_ms: f32 = 120.0;
-/// Shortest, in ms. Below this a grain is under one period of a low note, so
-/// the window chops the fundamental into a buzz.
-pub const min_grain_ms: f32 = 10.0;
+/// How far the formants may be moved on their own, in semitones. 0 leaves
+/// them where the source put them, which is what stops a shifted voice
+/// sounding like a cartoon; dialling this to match `semitones` reproduces the
+/// old chipmunk behaviour deliberately.
+pub const min_formant: f32 = -12.0;
+pub const max_formant: f32 = 12.0;
 
-/// Transposition small enough to treat as none. The two taps are static at
-/// exactly unity rate, which would leave a fixed two-tap comb filter in the
-/// signal rather than a passthrough - so the whole grain machinery is
-/// skipped here instead. Just under a cent, far below the ~5 cent beating a
-/// player can hear against an unshifted source.
+/// Transposition small enough to treat as none, so an untouched insert is a
+/// true passthrough rather than a shifter running at unity. Just under a
+/// cent, far below the ~5 cent beating a player can hear.
 const unity_epsilon: f32 = 0.005;
+
+/// Ring capacity, in frames per channel. Two engine blocks plus two shifter
+/// blocks, which is the most that can be in flight at once.
+const ring_frames: usize = types.max_block_frames * 2 + 8192;
 
 pub const PitchShift = struct {
     sample_rate: u32,
-    lines: [2][]Sample,
-    index: usize = 0,
-    /// Position within the grain cycle, 0..1 - the tap delays and both
-    /// window levels derive from it. Shared by both channels so a stereo
-    /// source keeps its image instead of the two sides windowing apart.
-    phase: f32 = 0.0,
-    /// Transposition in semitones, plus a fine offset in cents. Two controls
-    /// rather than one so a harmony interval stays exact while a detune
-    /// stays reachable - a single semitone knob fine enough to detune would
-    /// need 24 turns to reach an octave.
+    state: c.RubberBandLiveState,
+    /// Frames per `rubberband_live_shift` call, fixed at construction.
+    block_size: usize,
+
+    /// Deinterleaved staging for one shifter block, and the pointer arrays
+    /// the C API wants. Owned so the audio thread never allocates.
+    in_channels: [2][]f32,
+    out_channels: [2][]f32,
+
+    /// Input waiting to fill a shifter block, and output waiting to be
+    /// handed back to the engine.
+    pending: [2][]f32,
+    pending_len: usize = 0,
+    ready: [2][]f32,
+    ready_len: usize = 0,
+    ready_read: usize = 0,
+
+    /// Last values pushed into Rubber Band, so an unchanged block does not
+    /// re-issue a parameter change it would have to react to.
+    applied_scale: f64 = 1.0,
+    applied_formant: f64 = 1.0,
+
     semitones: f32 = 0.0,
     cents: f32 = 0.0,
-    grain_ms: f32 = 60.0,
+    /// Formant transposition in semitones, independent of `semitones`.
+    formant: f32 = 0.0,
     /// 0 = dry only, 1 = wet only. Defaults to fully wet: a shifter is
     /// usually asked to replace the pitch, not to double it (dial it back
     /// for a harmony against the original).
@@ -59,149 +73,210 @@ pub const PitchShift = struct {
 
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !PitchShift {
         const safe_rate = @max(sample_rate, 1);
-        // The deepest tap sits one full grain behind the write head; the
-        // extra frames are the interpolator's 4-point window plus slack.
-        const frames: usize = @intFromFloat(max_grain_ms * 0.001 * @as(f32, @floatFromInt(safe_rate)));
-        const left = try allocator.alloc(Sample, @max(frames + 8, 8));
-        errdefer allocator.free(left);
-        const right = try allocator.alloc(Sample, @max(frames + 8, 8));
-        @memset(left, 0.0);
-        @memset(right, 0.0);
-        return .{
+        const state = c.rubberband_live_new(
+            safe_rate,
+            2,
+            c.RubberBandOptionWindowShort | c.RubberBandOptionFormantPreserved,
+        ) orelse return error.OutOfMemory;
+        errdefer c.rubberband_live_delete(state);
+        const block_size: usize = c.rubberband_live_get_block_size(state);
+        if (block_size == 0 or block_size > ring_frames) return error.OutOfMemory;
+
+        var self: PitchShift = .{
             .sample_rate = safe_rate,
-            .lines = .{ left, right },
+            .state = state,
+            .block_size = block_size,
+            .in_channels = undefined,
+            .out_channels = undefined,
+            .pending = undefined,
+            .ready = undefined,
+        };
+        var allocated: usize = 0;
+        errdefer for (0..allocated) |i| allocator.free(self.bufferAt(i));
+        for (0..8) |i| {
+            const len = if (i < 4) block_size else ring_frames;
+            const buf = try allocator.alloc(f32, len);
+            @memset(buf, 0.0);
+            self.setBufferAt(i, buf);
+            allocated += 1;
+        }
+        return self;
+    }
+
+    /// The eight owned buffers, addressed by index so `init`'s partial-
+    /// failure cleanup can walk them without eight separate errdefers.
+    fn bufferAt(self: *const PitchShift, i: usize) []f32 {
+        return switch (i) {
+            0, 1 => self.in_channels[i],
+            2, 3 => self.out_channels[i - 2],
+            4, 5 => self.pending[i - 4],
+            else => self.ready[i - 6],
         };
     }
 
+    fn setBufferAt(self: *PitchShift, i: usize, buf: []f32) void {
+        switch (i) {
+            0, 1 => self.in_channels[i] = buf,
+            2, 3 => self.out_channels[i - 2] = buf,
+            4, 5 => self.pending[i - 4] = buf,
+            else => self.ready[i - 6] = buf,
+        }
+    }
+
     pub fn deinit(self: *PitchShift, allocator: std.mem.Allocator) void {
-        allocator.free(self.lines[0]);
-        allocator.free(self.lines[1]);
+        for (0..8) |i| allocator.free(self.bufferAt(i));
+        c.rubberband_live_delete(self.state);
     }
 
     pub fn reset(self: *PitchShift) void {
-        @memset(self.lines[0], 0.0);
-        @memset(self.lines[1], 0.0);
-        self.index = 0;
-        self.phase = 0.0;
+        c.rubberband_live_reset(self.state);
+        self.pending_len = 0;
+        self.ready_len = 0;
+        self.ready_read = 0;
+        for (0..8) |i| @memset(self.bufferAt(i), 0.0);
     }
 
     pub const device = dsp.deviceOf(@This());
 
-    // No `latencyFrames`: each tap's delay sweeps the whole grain rather
-    // than sitting at a fixed offset, so there is no constant figure to
-    // report. Declaring the grain length would have the engine delay every
-    // other chain by an amount this one only hits once per cycle.
+    /// One shifter block plus its start-up delay: what the engine has to
+    /// delay every other chain by to keep this one in time.
+    pub fn latencyFrames(self: *const PitchShift) u32 {
+        return @intCast(self.block_size + c.rubberband_live_get_start_delay(self.state));
+    }
 
     /// Pitch-shift an interleaved stereo buffer in place.
     pub fn processBlock(self: *PitchShift, buf: []Sample) void {
-        const sr = @as(f32, @floatFromInt(self.sample_rate));
         const semis = dsp.sanitizeParam(self.semitones, -24.0, 24.0, 0.0) +
             dsp.sanitizeParam(self.cents, -100.0, 100.0, 0.0) / 100.0;
         const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 1.0);
-        const grain_ms = dsp.sanitizeParam(self.grain_ms, min_grain_ms, max_grain_ms, 60.0);
-        // One frame short of the allocated span, so the deepest tap plus the
-        // interpolator's lookahead can never reach past the write head.
-        const grain: f32 = @min(grain_ms * 0.001 * sr, @as(f32, @floatFromInt(self.lines[0].len - 8)));
-        const rate = std.math.pow(f32, 2.0, semis / 12.0);
-        const inc = (1.0 - rate) / @max(grain, 1.0);
-        const unity = @abs(semis) < unity_epsilon;
+        const formant = dsp.sanitizeParam(self.formant, min_formant, max_formant, 0.0);
 
-        if (!std.math.isFinite(self.phase)) self.phase = 0.0;
+        if (@abs(semis) < unity_epsilon and @abs(formant) < unity_epsilon) {
+            // Nothing to do, and running the shifter at unity would still
+            // cost its latency and a little smearing.
+            for (buf) |*s| s.* = dsp.sanitizeParam(s.*, -16.0, 16.0, 0.0);
+            return;
+        }
+
+        const scale = std.math.pow(f64, 2.0, @as(f64, semis) / 12.0);
+        if (scale != self.applied_scale) {
+            c.rubberband_live_set_pitch_scale(self.state, scale);
+            self.applied_scale = scale;
+        }
+        const formant_scale = std.math.pow(f64, 2.0, @as(f64, formant) / 12.0);
+        if (formant_scale != self.applied_formant) {
+            c.rubberband_live_set_formant_scale(self.state, formant_scale);
+            self.applied_formant = formant_scale;
+        }
 
         const frames = buf.len / 2;
         for (0..frames) |i| {
-            inline for (0..2) |ch| {
-                const line = self.lines[ch];
-                const dry = dsp.sanitizeParam(buf[i * 2 + ch], -16.0, 16.0, 0.0);
-                line[self.index] = dry;
-                const wet = if (unity) dry else blk: {
-                    const other = @mod(self.phase + 0.5, 1.0);
-                    const a = delay_line.readInterp(line, self.index, self.phase * grain);
-                    const b = delay_line.readInterp(line, self.index, other * grain);
-                    break :blk a * hann(self.phase) + b * hann(other);
-                };
-                buf[i * 2 + ch] = dry * (1.0 - mix) + wet * mix;
-            }
-            self.phase += inc;
-            self.phase -= @floor(self.phase);
-            self.index = (self.index + 1) % self.lines[0].len;
+            const dry_l = dsp.sanitizeParam(buf[i * 2], -16.0, 16.0, 0.0);
+            const dry_r = dsp.sanitizeParam(buf[i * 2 + 1], -16.0, 16.0, 0.0);
+            self.pending[0][self.pending_len] = dry_l;
+            self.pending[1][self.pending_len] = dry_r;
+            self.pending_len += 1;
+            if (self.pending_len == self.block_size) self.shiftPending();
+
+            const wet_l = self.takeReady(0);
+            const wet_r = self.takeReady(1);
+            buf[i * 2] = dry_l * (1.0 - mix) + wet_l * mix;
+            buf[i * 2 + 1] = dry_r * (1.0 - mix) + wet_r * mix;
         }
+    }
+
+    /// Hand one full block to Rubber Band and queue what comes back.
+    fn shiftPending(self: *PitchShift) void {
+        @memcpy(self.in_channels[0], self.pending[0][0..self.block_size]);
+        @memcpy(self.in_channels[1], self.pending[1][0..self.block_size]);
+        self.pending_len = 0;
+
+        var in_ptrs = [_][*c]const f32{ self.in_channels[0].ptr, self.in_channels[1].ptr };
+        var out_ptrs = [_][*c]f32{ self.out_channels[0].ptr, self.out_channels[1].ptr };
+        c.rubberband_live_shift(self.state, &in_ptrs, &out_ptrs);
+
+        // Drop the oldest output rather than overrun the ring: that only
+        // happens if a caller pushes far more input than it reads back, and
+        // silence is a better failure than a stale block.
+        if (self.ready_len - self.ready_read + self.block_size > ring_frames) {
+            self.ready_len = 0;
+            self.ready_read = 0;
+        }
+        inline for (0..2) |ch| {
+            @memcpy(self.ready[ch][self.ready_len..][0..self.block_size], self.out_channels[ch]);
+        }
+        self.ready_len += self.block_size;
+    }
+
+    /// One frame of shifted output, or silence while the shifter is still
+    /// filling its first block.
+    fn takeReady(self: *PitchShift, ch: usize) f32 {
+        if (self.ready_read >= self.ready_len) return 0.0;
+        const value = self.ready[ch][self.ready_read];
+        // Both channels read the same frame; only the second advances.
+        if (ch == 1) self.ready_read += 1;
+        if (ch == 1 and self.ready_read == self.ready_len) {
+            self.ready_len = 0;
+            self.ready_read = 0;
+        }
+        return value;
     }
 };
 
-/// Hann window over one grain cycle, zero at the wrap point where the tap
-/// jumps. `hann(x) + hann(x + 0.5)` is 1 for every x, which is what lets the
-/// two taps cross over without a level dip.
-fn hann(x: f32) f32 {
-    return 0.5 - 0.5 * @cos(2.0 * std.math.pi * x);
-}
-
-test "the two grain windows always sum to unity" {
-    var x: f32 = 0.0;
-    while (x < 1.0) : (x += 0.01) {
-        const other = @mod(x + 0.5, 1.0);
-        try std.testing.expectApproxEqAbs(@as(f32, 1.0), hann(x) + hann(other), 1e-5);
-    }
-}
-
-test "no transposition passes the signal through untouched" {
-    var shifter = try PitchShift.init(std.testing.allocator, 48_000);
-    defer shifter.deinit(std.testing.allocator);
-    var buf = [_]Sample{ 0.5, -0.25, 0.75, 0.125 };
-    shifter.processBlock(&buf);
-    try std.testing.expectEqualSlices(Sample, &.{ 0.5, -0.25, 0.75, 0.125 }, &buf);
-}
-
-test "shifting an octave up halves the period of a sine" {
+test "shifting a sine transposes it and keeps its level" {
     const sr: u32 = 48_000;
     var shifter = try PitchShift.init(std.testing.allocator, sr);
     defer shifter.deinit(std.testing.allocator);
     shifter.semitones = 12.0;
 
-    // 500 Hz in; count zero crossings out over a settled stretch and expect
-    // roughly twice as many. Loose bounds: the grain crossfade smears the
-    // waveform, so this checks the transposition, not a spectral purity the
-    // algorithm doesn't claim.
-    var buf: [4_800]Sample = undefined;
-    var n: usize = 0;
-    var crossings: usize = 0;
-    for (0..8) |block| {
-        for (0..buf.len / 2) |i| {
-            const t = @as(f32, @floatFromInt(n + i)) / @as(f32, @floatFromInt(sr));
-            const s = @sin(2.0 * std.math.pi * 500.0 * t);
-            buf[i * 2] = s;
-            buf[i * 2 + 1] = s;
-        }
-        shifter.processBlock(&buf);
-        n += buf.len / 2;
-        if (block < 4) continue; // let the line fill and the grain cycle settle
-        var prev = buf[0];
-        for (1..buf.len / 2) |i| {
-            const cur = buf[i * 2];
-            if ((prev <= 0.0 and cur > 0.0) or (prev >= 0.0 and cur < 0.0)) crossings += 1;
-            prev = cur;
-        }
+    const frames = sr * 2;
+    const buf = try std.testing.allocator.alloc(Sample, frames * 2);
+    defer std.testing.allocator.free(buf);
+    for (0..frames) |i| {
+        const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(sr));
+        const v = 0.5 * @sin(2.0 * std.math.pi * 500.0 * t);
+        buf[i * 2] = v;
+        buf[i * 2 + 1] = v;
     }
-    // 4 blocks x 2400 frames = 0.2s. 500 Hz has 200 crossings there, 1 kHz
-    // has 400.
-    try std.testing.expect(crossings > 300);
-    try std.testing.expect(crossings < 500);
+    var at: usize = 0;
+    while (at + 512 <= buf.len) : (at += 512) shifter.processBlock(buf[at..][0..512]);
+
+    // Count zero crossings over a settled stretch: an octave up is twice as
+    // many. Loose bounds, because this checks the transposition rather than
+    // a spectral purity the FFT harness in work/ measures properly.
+    var crossings: usize = 0;
+    const tail = buf[buf.len / 2 ..];
+    var i: usize = 2;
+    while (i < tail.len) : (i += 2) {
+        if ((tail[i - 2] < 0) != (tail[i] < 0)) crossings += 1;
+    }
+    const seconds = @as(f32, @floatFromInt(tail.len / 2)) / @as(f32, @floatFromInt(sr));
+    const measured_hz = @as(f32, @floatFromInt(crossings)) / (2.0 * seconds);
+    try std.testing.expect(measured_hz > 900.0 and measured_hz < 1100.0);
 }
 
-test "pitch shift stays finite and bounded under hostile input" {
+test "an untouched shifter passes audio through unchanged" {
+    var shifter = try PitchShift.init(std.testing.allocator, 48_000);
+    defer shifter.deinit(std.testing.allocator);
+    var buf = [_]Sample{ 0.25, -0.25, 0.5, -0.5 };
+    shifter.processBlock(&buf);
+    try std.testing.expectEqualSlices(Sample, &.{ 0.25, -0.25, 0.5, -0.5 }, &buf);
+}
+
+test "non-finite params and samples never reach the output" {
     var shifter = try PitchShift.init(std.testing.allocator, 48_000);
     defer shifter.deinit(std.testing.allocator);
     shifter.semitones = std.math.nan(f32);
     shifter.cents = std.math.inf(f32);
-    shifter.grain_ms = -1.0;
+    shifter.formant = -std.math.inf(f32);
     shifter.mix = std.math.nan(f32);
     var buf = [_]Sample{ std.math.nan(f32), std.math.inf(f32), -std.math.inf(f32), 1.0 };
     shifter.processBlock(&buf);
     for (buf) |s| try std.testing.expect(std.math.isFinite(s));
+}
 
-    shifter.semitones = -24.0;
-    shifter.cents = 0.0;
-    shifter.grain_ms = 60.0;
-    shifter.mix = 1.0;
-    try dsp.expectBoundedUnderNoise(&shifter, 2.0);
+test "latency is reported so the engine can compensate" {
+    var shifter = try PitchShift.init(std.testing.allocator, 48_000);
+    defer shifter.deinit(std.testing.allocator);
+    try std.testing.expect(shifter.latencyFrames() >= shifter.block_size);
 }

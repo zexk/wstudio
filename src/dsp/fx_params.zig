@@ -236,7 +236,7 @@ pub const freq_shift_specs = [_]ParamSpec{
 pub const pitch_shift_specs = [_]ParamSpec{
     .{ .name = "shift", .field = "semitones", .min = -24.0, .max = 24.0, .step_fine = 1.0, .step_coarse = 12.0 },
     .{ .name = "fine", .field = "cents", .min = -100.0, .max = 100.0, .step_fine = 1.0, .step_coarse = 10.0 },
-    .{ .name = "grain", .field = "grain_ms", .min = pitch_shift_mod.min_grain_ms, .max = pitch_shift_mod.max_grain_ms, .step_fine = 5.0, .step_coarse = 20.0 },
+    .{ .name = "formant", .field = "formant", .min = pitch_shift_mod.min_formant, .max = pitch_shift_mod.max_formant, .step_fine = 1.0, .step_coarse = 6.0 },
     .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
 };
 

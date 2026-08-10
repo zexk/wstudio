@@ -42,6 +42,9 @@ pub fn build(b: *std.Build) void {
     // NIX_CFLAGS_COMPILE/NIX_LDFLAGS. Those variables describe the *host*
     // though, so a cross-compiled target is handed its own prefix instead -
     // flake.nix exports it the way it already exports SDKROOT for macOS.
+    // Pitch shifting (dsp/pitch_shift.zig). C++ inside, so its own runtime
+    // comes along through the shared library's dependencies.
+    wstudio_mod.linkSystemLibrary("rubberband", .{});
     const target_prefix = if (cross_compiling) b.graph.environ_map.get("WSTUDIO_TARGET_PREFIX") else null;
     if (target_prefix) |prefix| {
         wstudio_mod.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ prefix, "include" }) });

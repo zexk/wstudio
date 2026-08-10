@@ -2442,7 +2442,7 @@ test "strict snapshot parsing rejects unknown kinds and fields" {
     try testing.expectError(error.UnknownField, std.json.parseFromSlice(Snapshot, testing.allocator, unknown_field, .{}));
 }
 
-test "save/load round-trip persists a pitch shifter, and its heap grain lines survive dupe" {
+test "save/load round-trip persists a pitch shifter, and its heap buffers survive dupe" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -2455,7 +2455,7 @@ test "save/load round-trip persists a pitch shifter, and its heap grain lines su
     const unit = try session.master_fx.insert(testing.allocator, 0, .pitch_shift, sr);
     unit.payload.pitch_shift.semitones = -7.0;
     unit.payload.pitch_shift.cents = 12.0;
-    unit.payload.pitch_shift.grain_ms = 35.0;
+    unit.payload.pitch_shift.formant = 5.0;
     unit.payload.pitch_shift.mix = 0.4;
     session.syncMasterChain();
 
@@ -2466,16 +2466,16 @@ test "save/load round-trip persists a pitch shifter, and its heap grain lines su
     const p = &loaded.master_fx.units.items[0].payload.pitch_shift;
     try testing.expectApproxEqAbs(@as(f32, -7.0), p.semitones, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 12.0), p.cents, 1e-4);
-    try testing.expectApproxEqAbs(@as(f32, 35.0), p.grain_ms, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 5.0), p.formant, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 0.4), p.mix, 1e-4);
-    // Loaded from JSON, so the lines are freshly allocated, not aliased from
+    // Loaded from JSON, so the buffers are freshly allocated, not aliased from
     // the saved session - the same rule chorus/delay/reverb follow.
-    try testing.expect(p.lines[0].ptr != unit.payload.pitch_shift.lines[0].ptr);
+    try testing.expect(p.pending[0].ptr != unit.payload.pitch_shift.pending[0].ptr);
 
     var copy = try loaded.master_fx.units.items[0].payload.dupe(testing.allocator, sr);
     defer copy.deinit(testing.allocator);
     try testing.expectApproxEqAbs(@as(f32, -7.0), copy.pitch_shift.semitones, 1e-4);
-    try testing.expect(copy.pitch_shift.lines[0].ptr != p.lines[0].ptr);
+    try testing.expect(copy.pitch_shift.pending[0].ptr != p.pending[0].ptr);
 }
 
 test "save/load round-trip persists controllers and learned CCs, dropping targets on tracks that are gone" {
