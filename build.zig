@@ -207,6 +207,22 @@ pub fn build(b: *std.Build) void {
     const soak_step = b.step("soak", "Run one-hour simulated playback plus save/load/export soak");
     soak_step.dependOn(&run_soak.step);
 
+    // demo.wsj lives above the module root, so no Zig test can @embedFile it;
+    // this tiny loader stands in for one and joins `zig build test` below.
+    const checkdemo = b.addExecutable(.{
+        .name = "checkdemo",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/checkdemo.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "wstudio", .module = wstudio_mod },
+            },
+        }),
+    });
+    const run_checkdemo = b.addRunArtifact(checkdemo);
+    run_checkdemo.addFileArg(b.path("demo.wsj"));
+
     // `zig build install-font` writes the TUI's bundled icon font to the
     // user's font directory (see tools/install_font.zig for why it's needed).
     const install_font = b.addExecutable(.{
@@ -267,6 +283,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
+    test_step.dependOn(&run_checkdemo.step);
 
     const clap_test_plugin = b.addLibrary(.{
         .name = "wstudio-clap-test",
