@@ -308,11 +308,18 @@ pub fn parse(allocator: std.mem.Allocator, data: []const u8) ParseError!ParseRes
     var length_beats: f64 = 1.0;
     for (notes.items) |n| length_beats = @max(length_beats, n.start_beat + n.duration_beat);
 
+    // Each `toOwnedSlice` empties the list it took from, so that list's own
+    // errdefer above stops covering the memory - the next one that fails
+    // would drop the only pointer to what the previous ones handed over.
+    const owned_notes = try notes.toOwnedSlice(allocator);
+    errdefer allocator.free(owned_notes);
+    const owned_tempo_points = try tempo_points.toOwnedSlice(allocator);
+    errdefer allocator.free(owned_tempo_points);
     return .{
-        .notes = try notes.toOwnedSlice(allocator),
+        .notes = owned_notes,
         .length_beats = length_beats,
         .tempo_bpm = tempo_bpm orelse default_tempo_bpm,
-        .tempo_points = try tempo_points.toOwnedSlice(allocator),
+        .tempo_points = owned_tempo_points,
         .events = try events.toOwnedSlice(allocator),
         .truncated = truncated,
     };
@@ -690,4 +697,19 @@ test "SysEx and meta events cancel running status" {
     const meta = "MThd\x00\x00\x00\x06\x00\x00\x00\x01\x01\xe0" ++
         "MTrk\x00\x00\x00\x0b\x00\x90\x3c\x64\x00\xff\x01\x00\x00\x3e\x64";
     try std.testing.expectError(error.InvalidHeader, parse(std.testing.allocator, meta));
+}
+
+fn parseForAllocationTest(allocator: std.mem.Allocator, bytes: []const u8) !void {
+    const result = try parse(allocator, bytes);
+    result.deinit(allocator);
+}
+
+test "parse cleans up every partial allocation" {
+    const notes = [_]Note{
+        .{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0, .velocity = 1.0 },
+        .{ .pitch = 64, .start_beat = 1.0, .duration_beat = 0.5, .velocity = 0.5 },
+    };
+    const bytes = try write(std.testing.allocator, &notes, 140.0);
+    defer std.testing.allocator.free(bytes);
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, parseForAllocationTest, .{bytes});
 }
