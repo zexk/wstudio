@@ -665,7 +665,11 @@ fn parseImpl(allocator: std.mem.Allocator, bytes: []const u8, target_sample_rate
             regions.deinit(allocator);
             continue; // an empty preset (no playable region) contributes nothing
         }
-        try presets.append(allocator, .{
+        // Room first, so the append itself cannot fail: once `toOwnedSlice`
+        // has handed the regions over, `regions`' own errdefer is empty and
+        // a failing append would drop the only pointer to them.
+        try presets.ensureUnusedCapacity(allocator, 1);
+        presets.appendAssumeCapacity(.{
             .name = h.phdr[pi].name,
             .bank = h.phdr[pi].bank,
             .program = h.phdr[pi].program,
@@ -1129,4 +1133,17 @@ test "dupe: independent buffers, same content" {
 
     copy.sample_data[0] = 12.5;
     try std.testing.expect(sf.sample_data[0] != 12.5);
+}
+
+fn parseForAllocationTest(allocator: std.mem.Allocator, bytes: []const u8) !void {
+    var sf = try SoundFont.parse(allocator, bytes, 44_100);
+    sf.deinit();
+}
+
+test "parse cleans up every partial allocation" {
+    // Built at a rate the parse has to resample from, so the resampled-pool
+    // branch is on the path too.
+    const bytes = try buildTestSf2(std.testing.allocator, true, 22_050);
+    defer std.testing.allocator.free(bytes);
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, parseForAllocationTest, .{bytes});
 }
