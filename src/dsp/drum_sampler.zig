@@ -1629,7 +1629,7 @@ test "failed WAV load does not materialize an empty drum pad" {
     var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
     defer dm.deinit();
 
-    try std.testing.expectError(error.InvalidWav, dm.loadPadWav(0, "not a wav", "broken"));
+    try std.testing.expectError(error.NotWav, dm.loadPadWav(0, "not a wav at all", "broken"));
     try std.testing.expect(dm.pads[0] == null);
 }
 
