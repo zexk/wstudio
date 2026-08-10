@@ -351,11 +351,20 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
     const label = ws.midi.noteName(@intCast(app.piano_cursor_pitch), &lbuf);
     const spb: u16 = app.pianoStepsPerBeat();
     const beat_pos = @as(f64, @floatFromInt(app.piano_cursor_step)) / @as(f64, @floatFromInt(spb));
-    const beat_index = app.piano_cursor_step / spb;
-    const beats_per_bar: u16 = app.session.project.beats_per_bar;
-    const bar = beat_index / beats_per_bar + 1;
-    const beat = beat_index % beats_per_bar + 1;
-    const sub = app.piano_cursor_step % spb + 1;
+    // Bars and beats the way the transport counts them: a bar is the
+    // numerator times the signature's beat unit, and a beat IS that unit -
+    // three quarter notes and six eighths in 6/8, not six quarters. The
+    // times-denominator trick keeps it exact in integers, same as the drum
+    // grid's ruler; every x/4 signature comes out identical to before.
+    const denominator: u32 = @max(app.session.project.meter_denominator, 1);
+    const steps_per_beat: u32 = @max(spb, 1);
+    const bar_units = steps_per_beat * @as(u32, @max(app.session.project.beats_per_bar, 1)) * 4;
+    const cursor_units = @as(u32, app.piano_cursor_step) * denominator;
+    const steps_per_unit = @max(steps_per_beat * 4 / denominator, 1);
+    const step_in_bar = cursor_units % bar_units / denominator;
+    const bar = cursor_units / bar_units + 1;
+    const beat = step_in_bar / steps_per_unit + 1;
+    const sub = step_in_bar % steps_per_unit + 1;
     const note = pp.noteCovering(app.piano_cursor_pitch, beat_pos);
 
     // zig fmt: off
