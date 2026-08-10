@@ -1851,7 +1851,13 @@ pub const Engine = struct {
         // either, matching how a real mixer's sends follow the fader.
         for (self.track_sends[ti], 0..) |maybe_send, slot| {
             const snd = maybe_send orelse continue;
-            if (snd.level <= 0.0) continue;
+            // Read the lane before the level gate, not after: `snd.level` is
+            // where an automation lane *starts*, and parking the manual send
+            // at 0 to let the lane ride it up is the ordinary way to automate
+            // one - gating on the manual level alone made those sends silent.
+            const send_levels = self.automation_bus[0..frames];
+            const send_automated = auto.sends[slot].fillValues(send_levels, beat_pos, beat_step, snd.level);
+            if (!send_automated and snd.level <= 0.0) continue;
             const send_dest: []Sample = switch (snd.target) {
                 .master => out,
                 .group => |gidx| blk: {
@@ -1861,8 +1867,6 @@ pub const Engine = struct {
             };
             @memcpy(primary_signal, scratch);
             track.send_pdc[slot].process(primary_signal, max_route_latency - self.routeLatency(track, snd.target));
-            const send_levels = self.automation_bus[0..frames];
-            const send_automated = auto.sends[slot].fillValues(send_levels, beat_pos, beat_step, snd.level);
             for (0..frames) |i| {
                 const gain_l, const gain_r = if (snd.pre_fader)
                     .{ @as(f32, 1.0), @as(f32, 1.0) }
@@ -3498,4 +3502,29 @@ test "lastCc reports every CC, including a repeat of the same number" {
     const second = engine.lastCc().?;
     try std.testing.expectEqual(@as(u7, 0), second.cc);
     try std.testing.expect(second.seq != first.seq);
+}
+
+test "send automation drives a send parked at zero" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.trackAt(0).* = .{ .active = true, .gain = 0 }; // fader down: only the send can be heard
+    engine.setTrackChain(0, &.{synth.device()});
+    engine.setGroupChain(0, true, &.{});
+
+    // The manual level is the automation lane's starting point, not a gate:
+    // parking it at 0 and drawing the ride in the lane is the ordinary way
+    // to automate a send.
+    var sends: TrackSendSlots = @splat(null);
+    sends[0] = .{ .target = .{ .group = 0 }, .level = 0, .pre_fader = true };
+    engine.setTrackSends(0, sends);
+    engine.setMixAutomation(.{ .send_level = .{ .track = 0, .slot = 0 } }, &.{.{ .beat = 0, .value = 1.0 }});
+    _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1 } });
+
+    var block: [512]Sample = undefined;
+    for (0..4) |_| engine.process(&block);
+    var peak: f32 = 0;
+    for (block) |sample| peak = @max(peak, @abs(sample));
+    try std.testing.expect(peak > 0.05);
 }
