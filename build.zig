@@ -207,6 +207,24 @@ pub fn build(b: *std.Build) void {
     const soak_step = b.step("soak", "Run one-hour simulated playback plus save/load/export soak");
     soak_step.dependOn(&run_soak.step);
 
+    // Not part of `zig build test`: it needs a sample corpus on disk that is
+    // far too large to ship, so it stays an on-demand check.
+    const dspcheck = b.addExecutable(.{
+        .name = "dspcheck",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/dspcheck.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "wstudio", .module = wstudio_mod },
+            },
+        }),
+    });
+    const run_dspcheck = b.addRunArtifact(dspcheck);
+    if (b.args) |args| run_dspcheck.addArgs(args) else run_dspcheck.addArg("work/audio_refs");
+    const dspcheck_step = b.step("dspcheck", "Run a directory of real audio files through decode/detect/render/FX");
+    dspcheck_step.dependOn(&run_dspcheck.step);
+
     // demo.wsj lives above the module root, so no Zig test can @embedFile it;
     // this tiny loader stands in for one and joins `zig build test` below.
     const checkdemo = b.addExecutable(.{

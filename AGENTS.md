@@ -14,8 +14,14 @@ zig build run              # launch the TUI
 zig build run -- demo.wsj  # curated four-track demo project
 zig build test             # all tests
 zig build gendemo           # re-write demo.wsj after editing tools/gendemo.zig
+zig build dspcheck -- DIR   # run a real sample library through decode/detect/render/FX
 nix run .#neutral-terminal  # launch Kitty with a clean Nerd Font configuration
 ```
+
+`dspcheck` is not part of `zig build test` - it needs a corpus of real audio
+on disk, far too large to ship. Point it at a directory of samples; it fails
+only on non-finite output, and reports tempo/pitch detector accuracy against
+the BPM and key in the file names. See `tools/dspcheck.zig`.
 
 **`zig build test` does not reliably rebuild `zig-out/bin/wstudio`** -
 it's a separate build target. Before any interactive/tmux verification
