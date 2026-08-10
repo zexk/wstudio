@@ -8308,11 +8308,12 @@ test "FX chain: </> reorder and b bypass reach the engine chain" {
     _ = spectrum_ed.handleKey(&app, .{ .char = '>' });
     try std.testing.expectEqual(@as(usize, 1), app.fx_focus);
 
-    // 'b' bypasses the focused comp: kept in the chain, dropped from the
-    // engine's device list.
+    // 'b' bypasses the focused comp: it stays in both the chain and the
+    // engine's device list, and fades itself out of the signal.
     _ = spectrum_ed.handleKey(&app, .{ .char = 'b' });
     try std.testing.expect(fx.units.items[1].bypassed);
-    try std.testing.expectEqual(@as(usize, 1), app.session.engine.master_chain.slice().len);
+    // Bypassed units stay in the device list and fade themselves out.
+    try std.testing.expectEqual(@as(usize, 2), app.session.engine.master_chain.slice().len);
     _ = spectrum_ed.handleKey(&app, .{ .char = 'b' });
     try std.testing.expectEqual(@as(usize, 2), app.session.engine.master_chain.slice().len);
 }

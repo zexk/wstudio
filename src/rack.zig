@@ -98,6 +98,16 @@ pub const Instrument = union(enum) {
 /// and `Session.setInstrument` to name a kind without a payload.
 pub const InstrumentKind = std.meta.Tag(Instrument);
 
+/// Per-frame step of the bypass crossfade (see `FxUnit.wet`): a ~5ms fade at
+/// 48kHz, the same length LSP's Bypass class defaults to. Fixed rather than
+/// derived from the session rate because an FxUnit is rate-agnostic and the
+/// exact fade length does not matter - only that it is not instant.
+const bypass_fade_step: f32 = 1.0 / 240.0;
+
+/// Frames of dry signal the crossfade copies at a time. Only reached while a
+/// fade is in flight.
+const fade_chunk_frames: usize = 128;
+
 /// One effect processor a chain slot can hold. Add new unit variants here as
 /// the engine grows - the TUI's picker and persistence key off `FxKind`.
 /// chorus/pitch_shift/delay/reverb own heap buffers (mod/delay/grain lines);
@@ -229,19 +239,77 @@ pub const FxUnit = struct {
     payload: FxPayload,
     /// Stable across reorder/save/load. Matrix routes target this, not slot.
     instance_id: u32,
-    /// Bypassed units keep their state but are skipped by `chain()`.
+    /// Bypassed units stay in `chain()` and fade out instead of vanishing
+    /// from it - see `wet`.
     bypassed: bool = false,
+    /// Crossfade position between the unit's output (1) and its untouched
+    /// input (0). Flipping `bypassed` used to drop the unit out of the
+    /// device list between blocks, which steps the signal at the splice:
+    /// audible as a click on anything with a tail, a filter, or any gain
+    /// at all. This ramps instead, at `bypass_fade_step` per frame.
+    ///
+    /// Once the fade has settled at 0 the unit stops processing entirely,
+    /// so a bypassed chain still costs nothing and still passes audio
+    /// through bit for bit. The payload's state does go stale while it sits
+    /// there (a reverb tail decays to nothing, a filter forgets); fading
+    /// back in from dry is what keeps that from clicking on the way back.
+    wet: f32 = 1.0,
     mod_bus: ?*const FxModBus = null,
 
     pub fn kind(self: *const FxUnit) FxKind {
         return std.meta.activeTag(self.payload);
     }
 
+    /// Bypass with no fade, for the paths where there is nothing to fade
+    /// from: loading a project, duplicating a chain, building a fixture.
+    /// The live toggle sets `bypassed` on its own and lets `processBlock`
+    /// ramp `wet` across.
+    pub fn setBypassed(self: *FxUnit, on: bool) void {
+        self.bypassed = on;
+        self.wet = if (on) 0.0 else 1.0;
+    }
+
     fn mod(self: *const FxUnit, param_id: u16) f32 {
         return if (self.mod_bus) |bus| bus.amount(self.instance_id, param_id) else 0.0;
     }
 
+    /// Runs the payload, crossfading against the dry input while `wet` is
+    /// travelling between bypassed and active. A settled bypass returns
+    /// without touching the buffer or the payload at all.
     fn processBlock(self: *FxUnit, buf: []types.Sample) void {
+        const target: f32 = if (self.bypassed) 0.0 else 1.0;
+        if (!std.math.isFinite(self.wet)) self.wet = target;
+        if (self.wet == target) {
+            if (target == 0.0) return;
+            self.processPayload(buf);
+            return;
+        }
+        // Fading: keep a dry copy to blend against. Chunked so the copy is
+        // a small stack buffer rather than a per-unit allocation the size
+        // of the largest block the engine can hand out - the fade only
+        // lasts a few milliseconds, so the chunking never costs anything
+        // in the steady state.
+        var chunk: [fade_chunk_frames * 2]types.Sample = undefined;
+        var off: usize = 0;
+        while (off < buf.len) {
+            const len = @min(buf.len - off, chunk.len);
+            const slice = buf[off..][0..len];
+            @memcpy(chunk[0..len], slice);
+            self.processPayload(slice);
+            var f: usize = 0;
+            while (f + 1 < len) : (f += 2) {
+                self.wet = if (target > self.wet)
+                    @min(target, self.wet + bypass_fade_step)
+                else
+                    @max(target, self.wet - bypass_fade_step);
+                slice[f] = chunk[f] * (1.0 - self.wet) + slice[f] * self.wet;
+                slice[f + 1] = chunk[f + 1] * (1.0 - self.wet) + slice[f + 1] * self.wet;
+            }
+            off += len;
+        }
+    }
+
+    fn processPayload(self: *FxUnit, buf: []types.Sample) void {
         switch (self.payload) {
             .sat => |*v| {
                 const base = v.mix;
@@ -302,6 +370,10 @@ pub const FxUnit = struct {
     }
 
     fn latencyFrames(self: *FxUnit) u32 {
+        // A settled bypass is a wire: it neither delays nor processes, so
+        // it must not claim the payload's latency and have the engine
+        // compensate for a unit that is not running.
+        if (self.bypassed and self.wet == 0.0) return 0;
         return self.payload.device().latencyFrames();
     }
 
@@ -543,12 +615,14 @@ pub const Fx = struct {
         self.units.deinit(allocator);
     }
 
-    /// Fills `buf` with the non-bypassed units in chain order and returns
-    /// the used slice.
+    /// Fills `buf` with every unit in chain order and returns the used
+    /// slice. Bypassed units stay in the list: bypass is a crossfade the
+    /// unit performs on itself (`FxUnit.wet`), and a unit dropped from the
+    /// device list has no way to finish one. A settled bypass costs a
+    /// predicted branch and returns the buffer untouched.
     pub fn chain(self: *Fx, buf: *[max_units]dsp.Device) []const dsp.Device {
         var len: usize = 0;
         for (self.units.items) |u| {
-            if (u.bypassed) continue;
             buf[len] = u.device();
             len += 1;
         }
@@ -556,7 +630,7 @@ pub const Fx = struct {
     }
 
     /// Sidechain-detector source per chain slot, parallel to `chain()`'s own
-    /// device ordering (same bypassed-skip rule, so the two always line up).
+    /// device ordering (same units, same order, so the two always line up).
     /// Only `.comp` payloads with `sidechain_source` set produce a non-null
     /// entry; every other unit kind has no such concept. Feeds `Engine.
     /// set*SidechainSources` - see `Session`'s chain-sync call sites, which
@@ -564,7 +638,6 @@ pub const Fx = struct {
     pub fn sidechainSources(self: *const Fx, buf: *[max_units]?Compressor.SidechainSource) []const ?Compressor.SidechainSource {
         var len: usize = 0;
         for (self.units.items) |u| {
-            if (u.bypassed) continue;
             buf[len] = switch (u.payload) {
                 .comp => |c| c.sidechain_source,
                 else => null,
@@ -590,6 +663,7 @@ pub const Fx = struct {
                 .payload = try u.payload.dupe(allocator, sr),
                 .instance_id = u.instance_id,
                 .bypassed = u.bypassed,
+                .wet = u.wet,
             };
             errdefer nu.payload.deinit(allocator);
             try out.units.append(allocator, nu);
@@ -828,8 +902,10 @@ test "Fx: duplicates allowed, bypass skips, remove frees, cap enforced" {
     var buf: [Fx.max_units]dsp.Device = undefined;
     try std.testing.expectEqual(@as(usize, 2), fx.chain(&buf).len);
 
-    fx.units.items[0].bypassed = true;
-    try std.testing.expectEqual(@as(usize, 1), fx.chain(&buf).len);
+    // Bypassed units stay in the chain (they fade themselves out), so the
+    // device count does not change.
+    fx.units.items[0].setBypassed(true);
+    try std.testing.expectEqual(@as(usize, 2), fx.chain(&buf).len);
 
     fx.remove(allocator, 0);
     try std.testing.expectEqual(@as(usize, 1), fx.units.items.len);
@@ -865,7 +941,7 @@ test "Fx.dupe deep-copies params and heap buffers independently (used by undo's 
     comp.payload.comp.threshold_db = -12.0;
     const delay = try fx.insert(allocator, 1, .delay, 48_000);
     delay.payload.delay.feedback = 0.42;
-    delay.bypassed = true;
+    delay.setBypassed(true);
 
     var dup = try fx.dupe(allocator, 48_000);
     defer dup.deinit(allocator);
@@ -928,14 +1004,49 @@ test "bypassed internal FX leave audio bit-identical" {
     const allocator = std.testing.allocator;
     var fx: Fx = .{};
     defer fx.deinit(allocator);
-    for (internal_fx_kinds) |kind| (try fx.insert(allocator, fx.units.items.len, kind, 48_000)).bypassed = true;
+    for (internal_fx_kinds) |kind| (try fx.insert(allocator, fx.units.items.len, kind, 48_000)).setBypassed(true);
 
     var chain_buf: [Fx.max_units]dsp.Device = undefined;
-    try std.testing.expectEqual(@as(usize, 0), fx.chain(&chain_buf).len);
+    try std.testing.expectEqual(internal_fx_kinds.len, fx.chain(&chain_buf).len);
     var audio = [_]f32{ 0.25, -0.5, 0.75, -1.0 };
     const expected = audio;
     for (fx.chain(&chain_buf)) |device| device.process(&audio);
     try std.testing.expectEqualSlices(f32, &expected, &audio);
+}
+
+test "toggling bypass ramps instead of stepping the signal" {
+    const allocator = std.testing.allocator;
+    var fx: Fx = .{};
+    defer fx.deinit(allocator);
+
+    // A utility at -24dB: bypassing it is a 24dB jump if nothing fades.
+    const unit = try fx.insert(allocator, 0, .utility, 48_000);
+    unit.payload.utility.gain_db = -24.0;
+
+    var chain_buf: [Fx.max_units]dsp.Device = undefined;
+    const chain = fx.chain(&chain_buf);
+
+    var audio = [_]f32{1.0} ** 64;
+    for (chain) |device| device.process(&audio);
+    const active = audio[62];
+    try std.testing.expect(active < 0.1); // the gain really is applied
+
+    // Now bypass it: the first frames after the toggle must stay near the
+    // processed level and climb from there, not jump straight to dry.
+    unit.bypassed = true;
+    @memset(&audio, 1.0);
+    for (chain) |device| device.process(&audio);
+    try std.testing.expect(audio[0] < active * 2.0);
+    try std.testing.expect(audio[62] > audio[0]);
+    try std.testing.expect(audio[62] < 1.0); // 32 frames is well short of the full fade
+
+    // Left running, it settles at exactly dry and stops touching the buffer.
+    for (0..20) |_| {
+        @memset(&audio, 1.0);
+        for (chain) |device| device.process(&audio);
+    }
+    for (audio) |s| try std.testing.expectEqual(@as(f32, 1.0), s);
+    try std.testing.expectEqual(@as(u32, 0), chain[0].latencyFrames());
 }
 
 test "drum_machine Instrument variant: device ptr stable inside heap Rack" {

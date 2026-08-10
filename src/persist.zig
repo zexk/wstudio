@@ -315,8 +315,9 @@ test "buildSession: v10 fx_chain keeps user order, duplicates, and bypass" {
     try testing.expectApproxEqAbs(@as(f32, 24.0), units[3].payload.sat.drive_db, 1e-4);
     // Missing params field (.comp) loads with defaults.
     try testing.expectApproxEqAbs(@as(f32, -18.0), units[4].payload.comp.threshold_db, 1e-4);
-    // The bypassed crusher is skipped by chain(): 4 of 5 reach the engine.
-    try testing.expectEqual(@as(usize, 4), session.engine.master_chain.slice().len);
+    // The bypassed crusher stays in chain() - it fades itself out rather
+    // than leaving the device list - so all 5 reach the engine.
+    try testing.expectEqual(@as(usize, 5), session.engine.master_chain.slice().len);
 }
 
 // zig fmt: off
@@ -855,7 +856,7 @@ test "save/load round-trip persists master FX" {
     (try session.master_fx.insert(alloc, 1, .gate, sr)).payload.gate.threshold_db = -42.0;
     const crush = try session.master_fx.insert(alloc, 2, .crush, sr);
     crush.payload.crush = .{ .bits = 6.0, .downsample = 8.0 };
-    crush.bypassed = true;
+    crush.setBypassed(true);
     (try session.master_fx.insert(alloc, 3, .chorus, sr)).payload.chorus.rate_hz = 1.5;
     (try session.master_fx.insert(alloc, 4, .phaser, sr)).payload.phaser.feedback = 0.7;
     (try session.master_fx.insert(alloc, 5, .comp, sr)).payload.comp.threshold_db = -9.0;
@@ -875,8 +876,9 @@ test "save/load round-trip persists master FX" {
     try testing.expectApproxEqAbs(@as(f32, 1.5), units[3].payload.chorus.rate_hz, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 0.7), units[4].payload.phaser.feedback, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, -9.0), units[5].payload.comp.threshold_db, 1e-4);
-    // The bypassed crusher stays out of the live chain.
-    try testing.expectEqual(@as(usize, 5), loaded.engine.master_chain.slice().len);
+    // The bypassed crusher is still in the live chain; it fades itself out
+    // rather than leaving the device list.
+    try testing.expectEqual(@as(usize, 6), loaded.engine.master_chain.slice().len);
 }
 
 test "save/load round-trip persists a multiband compressor's crossover, style, and per-band params" {

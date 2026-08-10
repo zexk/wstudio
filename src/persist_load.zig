@@ -1048,7 +1048,7 @@ pub fn applyFxChain(
                 break :blk try fx_out.insert(allocator, fx_out.units.items.len, kind, sr);
             },
         };
-        unit.bypassed = us.bypassed;
+        unit.setBypassed(us.bypassed);
         if (us.instance_id != 0 and fx_out.findInstance(us.instance_id) == null) {
             unit.instance_id = us.instance_id;
             if (fx_out.next_instance_id <= us.instance_id) {
@@ -1129,7 +1129,7 @@ pub fn applyFxChain(
                 }
                 e.setAutoGain(es.auto_gain);
                 // The EQ-only bypass maps onto the slot's generic one.
-                if (es.bypass) unit.bypassed = true;
+                if (es.bypass) unit.setBypassed(true);
             },
             inline .filter, .limiter, .utility, .stereo_width, .auto_pan,
             .transient_shaper, .gate, .sat, .crush, .chorus, .phaser,
