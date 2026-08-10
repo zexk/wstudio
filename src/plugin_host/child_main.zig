@@ -20,6 +20,7 @@
 //!   state save/load, GUI toggle) over stdin/stdout.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const ws = @import("wstudio");
 const transport = ws.plugin_host.transport;
 const rpc = ws.plugin_host.rpc;
@@ -333,6 +334,12 @@ fn dispatch(shared: *Shared, req: rpc.Received, writer: *std.Io.Writer) !void {
 }
 
 pub fn main(init: std.process.Init) !void {
+    // Everything below is POSIX: an inherited shared-memory file descriptor
+    // and an mmap of it. Sandboxing is Linux-only anyway (`bridge.zig`'s
+    // `sandboxAvailable`, and `spawn` refuses elsewhere), so on other targets
+    // this binary exists only to keep one install layout, and the comptime
+    // branch keeps the POSIX code from being analysed for them at all.
+    if (builtin.os.tag != .linux) return error.SandboxUnsupportedOnThisPlatform;
     // This process IS the sandbox: it must always load the plugin
     // in-process (via ClapPlugin/Vst3Plugin's Direct path), never spawn
     // another bridge for itself. `sandbox_enabled` defaults to true in

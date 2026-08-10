@@ -26,10 +26,24 @@
       # What a cross-build can get from nixpkgs. Lua is missing on purpose:
       # nixpkgs will not build it for mingw, so build.zig compiles the source
       # drop from build.zig.zon when cross-compiling.
-      targetLibs = pkgs: [
-        (speexdsp pkgs)
-        pkgs.libsndfile
-      ];
+      #
+      # libsndfile's codec libraries are here for their DLLs alone: mingw
+      # libsndfile links them dynamically, so the release archive has to carry
+      # them next to wstudio.exe.
+      targetLibs =
+        pkgs:
+        [
+          (speexdsp pkgs)
+          pkgs.libsndfile
+        ]
+        ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isWindows [
+          pkgs.flac
+          pkgs.libogg
+          pkgs.libvorbis
+          pkgs.libopus
+          pkgs.mpg123
+          pkgs.lame
+        ];
       cLibs = pkgs: targetLibs pkgs ++ [ pkgs.lua5_4 ];
       # One prefix holding both the headers and the libraries, since build.zig
       # points a cross-compile at a single directory.
@@ -37,7 +51,12 @@
         pkgs:
         pkgs.symlinkJoin {
           name = "wstudio-target-prefix";
-          paths = targetLibs pkgs ++ map (p: p.dev) (targetLibs pkgs);
+          # Every code-bearing output, because these packages split themselves
+          # up differently: mingw libsndfile puts its DLL in `bin`, its import
+          # library in `out` and its headers in `dev`.
+          paths = pkgs.lib.concatMap (
+            p: map (out: p.${out}) (pkgs.lib.subtractLists [ "man" "doc" "info" ] (p.outputs or [ "out" ]))
+          ) (targetLibs pkgs);
         };
       neutralTerminal =
         pkgs:

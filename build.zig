@@ -39,20 +39,31 @@ pub fn build(b: *std.Build) void {
     // Sample decoding (core/audio_file.zig) and sinc resampling for sample
     // loads (dsp/pad.zig). System libraries, like asound below: nix supplies
     // them through buildInputs, and zig picks the paths up from
-    // NIX_CFLAGS_COMPILE/NIX_LDFLAGS.
-    wstudio_mod.linkSystemLibrary("sndfile", .{});
-    // Static, so a downloaded build does not need the user to have installed
-    // it. libsndfile stays dynamic: static would drag in its whole codec
-    // chain (FLAC, ogg, vorbis, opus, mpg123, lame) by hand.
-    wstudio_mod.linkSystemLibrary("speexdsp", .{ .preferred_link_mode = .static });
-    // Those nix variables describe the *host*, so a cross-compiled target
-    // needs its own prefix pointed at explicitly - flake.nix exports this for
-    // the Windows target the same way it exports SDKROOT for macOS.
-    if (cross_compiling) {
-        if (b.graph.environ_map.get("WSTUDIO_TARGET_PREFIX")) |prefix| {
-            wstudio_mod.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ prefix, "include" }) });
-            wstudio_mod.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ prefix, "lib" }) });
+    // NIX_CFLAGS_COMPILE/NIX_LDFLAGS. Those variables describe the *host*
+    // though, so a cross-compiled target is handed its own prefix instead -
+    // flake.nix exports it the way it already exports SDKROOT for macOS.
+    const target_prefix = if (cross_compiling) b.graph.environ_map.get("WSTUDIO_TARGET_PREFIX") else null;
+    if (target_prefix) |prefix| {
+        wstudio_mod.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ prefix, "include" }) });
+        wstudio_mod.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ prefix, "lib" }) });
+        // pkg-config in a cross build answers for the host, and its `-I` would
+        // put the host's headers ahead of the prefix's.
+        wstudio_mod.linkSystemLibrary("speexdsp", .{ .preferred_link_mode = .static, .use_pkg_config = .no });
+        if (target.result.os.tag == .windows) {
+            // mingw builds a DLL plus a `libfoo.dll.a` import library, and
+            // zig's system-library search only looks for `foo.dll`, `foo.lib`
+            // and `libfoo.a` - so the import library goes to the linker
+            // directly. The release archive ships the matching DLLs.
+            wstudio_mod.addObjectFile(.{ .cwd_relative = b.pathJoin(&.{ prefix, "lib", "libsndfile.dll.a" }) });
+        } else {
+            wstudio_mod.linkSystemLibrary("sndfile", .{ .use_pkg_config = .no });
         }
+    } else {
+        wstudio_mod.linkSystemLibrary("sndfile", .{});
+        // Static, so a downloaded build does not need the user to have
+        // installed it. libsndfile stays dynamic: static would drag in its
+        // whole codec chain (FLAC, ogg, vorbis, opus, mpg123, lame) by hand.
+        wstudio_mod.linkSystemLibrary("speexdsp", .{ .preferred_link_mode = .static });
     }
     // Needed on every target for the two C libraries above, not just the two
     // targets that link a system audio API.

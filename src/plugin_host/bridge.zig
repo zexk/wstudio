@@ -196,6 +196,10 @@ pub const Bridge = struct {
     }
 
     pub fn deinit(self: *Bridge) void {
+        // A Bridge only ever exists on Linux, since `spawn` refuses to make
+        // one anywhere else - so the POSIX teardown below (kill, munmap, a
+        // raw fd close) is not analysed for other targets at all.
+        if (builtin.os.tag != .linux) return;
         rpc.send(&self.stdin_writer.interface, .shutdown, false, &.{}) catch {};
         // A cooperative child exits on its own after `.shutdown`
         // (`std.process.exit(0)` in its RPC dispatch loop), which the
