@@ -163,9 +163,12 @@ pub const Session = struct {
             racks.deinit(allocator);
         }
 
+        // Room first: `racks`' errdefer only reaches racks that are already
+        // in the list, so a failing append would strand `r0`.
+        try racks.ensureUnusedCapacity(allocator, 1);
         const r0 = try allocator.create(Rack);
         r0.* = .{ .instrument = .empty, .label = "empty" };
-        try racks.append(allocator, r0);
+        racks.appendAssumeCapacity(r0);
 
         var arrangement: Arrangement = .{};
         errdefer arrangement.deinit(allocator);
@@ -2641,4 +2644,16 @@ test "isAudioArmed requires both armed and a Sampler instrument" {
 
     s.toggleArm(0);
     try std.testing.expect(!s.isAudioArmed(0)); // disarmed again
+}
+
+fn sessionForAllocationTest(allocator: std.mem.Allocator) !void {
+    var session = try Session.initDefault(allocator);
+    defer session.deinit();
+    _ = try session.addTrack("second");
+    try session.setInstrument(1, .slicer);
+    _ = try session.duplicateTrack(1);
+}
+
+test "building a session cleans up every partial allocation" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, sessionForAllocationTest, .{});
 }
