@@ -847,8 +847,13 @@ pub const Engine = struct {
     /// unconditionally - count-in isn't gated by `metronome_enabled`; it's
     /// the only timing cue you have while nothing else is playing.
     fn firePreRoll(self: *Engine, out: []Sample, frames: u32) void {
-        const fpb = self.transport.framesPerBeat();
-        const bpb: u64 = @max(self.transport.time_signature.beats_per_bar, 1);
+        // Click the signature's own beat unit rather than a quarter note, so
+        // the accent lands on beat 1 of the bar the count-in actually covers
+        // - `Transport.positionBarBeat` numbers beats the same way. Identical
+        // to the old quarter-note click for any x/4 signature.
+        const meter = self.transport.currentMeter();
+        const fpb = self.transport.framesPerBeat() * 4.0 / @as(f64, @floatFromInt(@max(meter.denominator, 1)));
+        const bpb: u64 = @max(meter.numerator, 1);
         const pos_f: f64 = @floatFromInt(self.pre_roll_elapsed);
 
         self.pre_roll_next_beat = self.fireBeatBoundaries(self.pre_roll_next_beat, fpb, bpb, pos_f, frames);
@@ -1442,7 +1447,10 @@ pub const Engine = struct {
                 if (bars == 0) {
                     self.transport.play();
                 } else {
-                    const bpb: f64 = @floatFromInt(@max(self.transport.time_signature.beats_per_bar, 1));
+                    // The signature's beat unit counts: a 6/8 bar is three
+                    // quarter notes, not six, which is how the transport's
+                    // own bar/beat readout and the loop region measure it.
+                    const bpb = self.transport.currentMeter().quarterBeatsPerBar();
                     const total_beats = @as(f64, @floatFromInt(bars)) * bpb;
                     self.pre_roll_frames_remaining = @intFromFloat(total_beats * self.transport.framesPerBeat());
                     self.pre_roll_elapsed = 0;
@@ -3527,4 +3535,23 @@ test "send automation drives a send parked at zero" {
     var peak: f32 = 0;
     for (block) |sample| peak = @max(peak, @abs(sample));
     try std.testing.expect(peak > 0.05);
+}
+
+test "a one-bar count-in in 6/8 lasts one bar, not two" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    _ = engine.send(.{ .set_time_signature = 6 });
+    _ = engine.send(.{ .set_meter_denominator = 8 });
+    _ = engine.send(.{ .record = 1 });
+    var block: [512]Sample = undefined;
+    engine.process(&block);
+
+    // 120bpm at 48kHz is 24_000 frames per quarter note. A 6/8 bar is three
+    // of them - the same length `Transport.positionBarBeat` and the loop
+    // region give it - not six.
+    try std.testing.expectApproxEqAbs(
+        @as(f64, 3.0 * 24_000.0),
+        @as(f64, @floatFromInt(engine.pre_roll_frames_remaining + 256)),
+        1.0,
+    );
 }
