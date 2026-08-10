@@ -1,8 +1,20 @@
-//! WAV (RIFF) I/O: write 16- or 24-bit PCM for export, parse PCM/float WAVs
-//! for sample loading.
+//! WAV (RIFF) I/O: write 16- or 24-bit PCM for export, parse WAVs for sample
+//! loading.
+//!
+//! Writing is ours because bounce streams to disk and needs the exact final
+//! header up front. Reading is dr_wav's: a hand-written parser has to be
+//! strict to be safe, and strict is wrong here - commercial packs ship files
+//! with trailing metadata chunks, stale RIFF sizes, and format tags hidden in
+//! a WAVE_FORMAT_EXTENSIBLE GUID, all of which are ordinary PCM that a user
+//! expects to load. dr_wav also decodes A-law, mu-law and ADPCM for free.
 
 const std = @import("std");
 const types = @import("types.zig");
+
+const c = @cImport({
+    @cDefine("DR_WAV_NO_STDIO", {});
+    @cInclude("dr_wav.h");
+});
 
 /// Output PCM bit depth for `write`.
 pub const BitDepth = enum(u16) { pcm16 = 16, pcm24 = 24 };
@@ -86,11 +98,7 @@ pub fn write(
 pub const ParseError = error{
     NotWav,
     BadFmt,
-    UnsupportedFormat,
-    UnsupportedBitDepth,
-    DataBeforeFmt,
     NoData,
-    Truncated,
 };
 
 pub const ReadResult = struct {
@@ -101,8 +109,7 @@ pub const ReadResult = struct {
     channel_count: u16 = 1,
 };
 
-/// Parse a WAV file from raw bytes. Handles 16-bit PCM (format 1) and
-/// 32-bit IEEE float (format 3), mono or stereo. Stereo is mixed to mono.
+/// Parse a WAV file from raw bytes, mixing every channel down to mono.
 pub fn parseAlloc(
     allocator: std.mem.Allocator,
     data: []const u8,
@@ -115,108 +122,42 @@ pub fn parseInterleavedAlloc(allocator: std.mem.Allocator, data: []const u8) (Pa
 }
 
 fn parseAllocMode(allocator: std.mem.Allocator, data: []const u8, downmix: bool) (ParseError || std.mem.Allocator.Error)!ReadResult {
-    if (data.len < 12) return error.Truncated;
-    if (!std.mem.eql(u8, data[0..4], "RIFF")) return error.NotWav;
-    if (!std.mem.eql(u8, data[8..12], "WAVE")) return error.NotWav;
-    const riff_size = std.mem.readInt(u32, data[4..8], .little);
-    if (riff_size < 4) return error.Truncated;
-    const riff_end = 8 + @as(usize, riff_size);
-    if (riff_end > data.len) return error.Truncated;
+    var wav: c.drwav = undefined;
+    if (c.drwav_init_memory(&wav, data.ptr, data.len, null) == 0) return error.NotWav;
+    defer _ = c.drwav_uninit(&wav);
+    if (wav.channels == 0 or wav.sampleRate == 0) return error.BadFmt;
+    if (wav.totalPCMFrameCount == 0) return error.NoData;
+    const channels: usize = wav.channels;
+    if (wav.totalPCMFrameCount > std.math.maxInt(usize) / channels) return error.BadFmt;
 
-    var pos: usize = 12;
-    var fmt_ok = false;
-    var audio_format: u16 = 0;
-    var num_channels: u16 = 0;
-    var sample_rate: u32 = 0;
-    var bits_per_sample: u16 = 0;
-    var out: ?[]f32 = null;
-    errdefer if (out) |s| allocator.free(s);
+    const frames: usize = @intCast(wav.totalPCMFrameCount);
+    // Read interleaved either way: the downmix pass needs every channel, and
+    // when it is off this buffer is already the result.
+    const interleaved = try allocator.alloc(f32, frames * channels);
+    errdefer allocator.free(interleaved);
+    const read: usize = @intCast(c.drwav_read_pcm_frames_f32(&wav, wav.totalPCMFrameCount, interleaved.ptr));
+    if (read == 0) return error.NoData;
+    // A truncated data chunk decodes to fewer frames than the header claimed.
+    const decoded = interleaved[0 .. read * channels];
+    for (decoded) |sample| if (!std.math.isFinite(sample)) return error.BadFmt;
 
-    while (pos + 8 <= riff_end) {
-        const id = data[pos..][0..4];
-        const chunk_size = std.mem.readInt(u32, data[pos + 4 ..][0..4], .little);
-        pos += 8;
-        if (chunk_size > riff_end - pos) return error.Truncated;
-        const chunk = data[pos .. pos + chunk_size];
-
-        if (std.mem.eql(u8, id, "fmt ")) {
-            if (fmt_ok) return error.BadFmt;
-            if (chunk_size < 16) return error.BadFmt;
-            audio_format = std.mem.readInt(u16, chunk[0..2], .little);
-            num_channels = std.mem.readInt(u16, chunk[2..4], .little);
-            sample_rate = std.mem.readInt(u32, chunk[4..8], .little);
-            const byte_rate = std.mem.readInt(u32, chunk[8..12], .little);
-            const block_align = std.mem.readInt(u16, chunk[12..14], .little);
-            bits_per_sample = std.mem.readInt(u16, chunk[14..16], .little);
-            if (audio_format == format_extensible) audio_format = try subFormatTag(chunk);
-            if (audio_format != 1 and audio_format != 3) return error.UnsupportedFormat;
-            const supported_depth = switch (audio_format) {
-                1 => bits_per_sample == 16 or bits_per_sample == 24 or bits_per_sample == 32,
-                3 => bits_per_sample == 32,
-                else => unreachable,
-            };
-            if (!supported_depth)
-                return error.UnsupportedBitDepth;
-            if (num_channels == 0 or sample_rate == 0) return error.BadFmt;
-            const bytes_per_sample = bits_per_sample / 8;
-            const expected_align = @as(u32, num_channels) * bytes_per_sample;
-            const expected_rate = @as(u64, sample_rate) * expected_align;
-            if (expected_align > std.math.maxInt(u16) or block_align != expected_align or
-                expected_rate > std.math.maxInt(u32) or byte_rate != expected_rate)
-                return error.BadFmt;
-            fmt_ok = true;
-        } else if (std.mem.eql(u8, id, "data") and out == null) {
-            // First data chunk wins; decoding a second would leak the first.
-            if (!fmt_ok) return error.DataBeforeFmt;
-            const bytes_per_sample = bits_per_sample / 8;
-            const bytes_per_frame = bytes_per_sample * num_channels;
-            if (chunk_size % bytes_per_frame != 0) return error.Truncated;
-            const total_samples = chunk_size / bytes_per_sample;
-            const frame_count = total_samples / num_channels;
-            const output_channels: usize = if (downmix) 1 else num_channels;
-            const buf = try allocator.alloc(f32, frame_count * output_channels);
-            errdefer allocator.free(buf);
-            for (0..frame_count) |i| {
-                if (!downmix) {
-                    const stride = num_channels * bytes_per_sample;
-                    for (0..num_channels) |channel| {
-                        const sample = decodeSample(chunk[i * stride + channel * bytes_per_sample ..], bits_per_sample, audio_format);
-                        if (!std.math.isFinite(sample)) return error.BadFmt;
-                        buf[i * output_channels + channel] = sample;
-                    }
-                } else if (num_channels == 1) {
-                    const sample = decodeSample(chunk[i * bytes_per_sample ..], bits_per_sample, audio_format);
-                    if (!std.math.isFinite(sample)) return error.BadFmt;
-                    buf[i] = sample;
-                } else {
-                    const stride = num_channels * bytes_per_sample;
-                    var sum: f32 = 0;
-                    for (0..num_channels) |ch| {
-                        const sample = decodeSample(chunk[i * stride + ch * bytes_per_sample ..], bits_per_sample, audio_format);
-                        if (!std.math.isFinite(sample)) return error.BadFmt;
-                        sum += sample;
-                    }
-                    if (!std.math.isFinite(sum)) return error.BadFmt;
-                    buf[i] = sum / @as(f32, @floatFromInt(num_channels));
-                }
-            }
-            out = buf;
-        }
-
-        pos += chunk_size;
-        if (chunk_size & 1 != 0) {
-            if (pos >= riff_end) return error.Truncated;
-            pos += 1; // WAV chunks are word-aligned
-        }
+    if (!downmix) {
+        return .{
+            .samples = if (read == frames) interleaved else try allocator.realloc(interleaved, decoded.len),
+            .sample_rate = wav.sampleRate,
+            .channel_count = @intCast(channels),
+        };
     }
 
-    if (pos != riff_end) return error.Truncated;
-
-    return .{
-        .samples = out orelse return error.NoData,
-        .sample_rate = sample_rate,
-        .channel_count = if (downmix) 1 else num_channels,
-    };
+    const mono = try allocator.alloc(f32, read);
+    errdefer allocator.free(mono);
+    for (mono, 0..) |*out, frame| {
+        var sum: f32 = 0;
+        for (0..channels) |channel| sum += decoded[frame * channels + channel];
+        out.* = sum / @as(f32, @floatFromInt(channels));
+    }
+    allocator.free(interleaved);
+    return .{ .samples = mono, .sample_rate = wav.sampleRate, .channel_count = 1 };
 }
 
 /// WAVE_FORMAT_EXTENSIBLE. Plain PCM or float audio wearing a longer `fmt `
@@ -231,32 +172,6 @@ const format_extensible: u16 = 0xFFFE;
 const ksdataformat_suffix = [_]u8{
     0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71,
 };
-
-/// Real format tag out of an extensible `fmt ` chunk's SubFormat GUID.
-fn subFormatTag(chunk: []const u8) ParseError!u16 {
-    // 16 base bytes + cbSize + validBits + channelMask + a 16-byte GUID.
-    if (chunk.len < 40) return error.BadFmt;
-    if (std.mem.readInt(u16, chunk[16..18], .little) < 22) return error.BadFmt;
-    if (!std.mem.eql(u8, chunk[26..40], &ksdataformat_suffix)) return error.UnsupportedFormat;
-    return std.mem.readInt(u16, chunk[24..26], .little);
-}
-
-fn decodeSample(data: []const u8, bits: u16, format: u16) f32 {
-    return switch (bits) {
-        16 => @as(f32, @floatFromInt(std.mem.readInt(i16, data[0..2], .little))) / 32768.0,
-        24 => blk: {
-            const raw: u32 = @as(u32, data[0]) | (@as(u32, data[1]) << 8) | (@as(u32, data[2]) << 16);
-            // sign-extend 24-bit
-            const signed: i32 = @as(i32, @bitCast(raw << 8)) >> 8;
-            break :blk @as(f32, @floatFromInt(signed)) / 8_388_608.0;
-        },
-        32 => if (format == 3)
-            @bitCast(std.mem.readInt(u32, data[0..4], .little))
-        else
-            @as(f32, @floatFromInt(std.mem.readInt(i32, data[0..4], .little))) / 2_147_483_648.0,
-        else => 0.0,
-    };
-}
 
 test "header and sample encoding" {
     var buf: [128]u8 = undefined;
@@ -338,31 +253,6 @@ test "writer rejects invalid and overflowing format metadata" {
     try std.testing.expectEqual(@as(usize, 0), w.buffered().len);
 }
 
-test "rejects inconsistent format byte rate and block alignment" {
-    var raw: [128]u8 = undefined;
-    var w = std.Io.Writer.fixed(&raw);
-    try write(&w, 48_000, 2, &.{ 0.0, 0.0 }, .pcm16);
-
-    const wav = w.buffered();
-    const byte_rate = std.mem.readInt(u32, wav[28..32], .little);
-    std.mem.writeInt(u32, wav[28..32], byte_rate + 1, .little);
-    try std.testing.expectError(error.BadFmt, parseAlloc(std.testing.allocator, wav));
-    std.mem.writeInt(u32, wav[28..32], byte_rate, .little);
-
-    const frame_align = std.mem.readInt(u16, wav[32..34], .little);
-    std.mem.writeInt(u16, wav[32..34], frame_align + 1, .little);
-    try std.testing.expectError(error.BadFmt, parseAlloc(std.testing.allocator, wav));
-}
-
-test "rejects dangling bytes at the end of RIFF contents" {
-    var raw: [128]u8 = undefined;
-    var w = std.Io.Writer.fixed(&raw);
-    try write(&w, 48_000, 1, &.{0.0}, .pcm16);
-    try w.writeByte(0);
-    std.mem.writeInt(u32, w.buffered()[4..8], @intCast(w.buffered().len - 8), .little);
-    try std.testing.expectError(error.Truncated, parseAlloc(std.testing.allocator, w.buffered()));
-}
-
 test "round-trip: write then parse" {
     var raw: [512]u8 = undefined;
     var w = std.Io.Writer.fixed(&raw);
@@ -379,18 +269,6 @@ test "round-trip: write then parse" {
     try std.testing.expectApproxEqAbs(@as(f32, -0.5), result.samples[1], 1.0 / 32768.0 + 1e-6);
 }
 
-test "rejects invalid IEEE float bit depth" {
-    var raw: [128]u8 = undefined;
-    var w = std.Io.Writer.fixed(&raw);
-    try write(&w, 48_000, 1, &.{0.5}, .pcm16);
-
-    const wav = w.buffered();
-    std.mem.writeInt(u16, wav[20..22], 3, .little);
-    try std.testing.expectError(error.UnsupportedBitDepth, parseAlloc(std.testing.allocator, wav));
-}
-
-/// Builds a WAVE_FORMAT_EXTENSIBLE file holding one 16-bit mono sample,
-/// with `sub_tag` as the SubFormat GUID's leading format tag.
 fn writeExtensible(w: *std.Io.Writer, sub_tag: u16, guid_suffix: []const u8) !void {
     try w.writeAll("RIFF");
     try w.writeInt(u32, 4 + 8 + 40 + 8 + 2, .little);
@@ -424,16 +302,6 @@ test "accepts WAVE_FORMAT_EXTENSIBLE by reading the SubFormat tag" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), result.samples[0], 0.0001);
 }
 
-test "rejects an extensible chunk whose GUID is not a KSDATAFORMAT subtype" {
-    var raw: [128]u8 = undefined;
-    var w = std.Io.Writer.fixed(&raw);
-    // Right length, right leading tag, wrong GUID body: without the suffix
-    // check those two bytes would be read as "PCM" out of any GUID at all.
-    try writeExtensible(&w, 1, &[_]u8{0xAB} ** 14);
-
-    try std.testing.expectError(error.UnsupportedFormat, parseAlloc(std.testing.allocator, w.buffered()));
-}
-
 test "rejects non-finite IEEE float samples" {
     var raw: [64]u8 = undefined;
     var w = std.Io.Writer.fixed(&raw);
@@ -454,54 +322,18 @@ test "rejects non-finite IEEE float samples" {
     try std.testing.expectError(error.BadFmt, parseAlloc(std.testing.allocator, w.buffered()));
 }
 
-test "rejects a partial interleaved frame" {
+test "parses a file with a trailing chunk the RIFF size does not cover" {
+    // What a strict parser used to reject and packs ship anyway: metadata
+    // appended after the data chunk, with the RIFF size left stale.
     var raw: [128]u8 = undefined;
     var w = std.Io.Writer.fixed(&raw);
-    try write(&w, 48_000, 1, &.{ 0.1, 0.2, 0.3 }, .pcm16);
+    try write(&w, 44_100, 1, &.{ 0.5, -0.5 }, .pcm16);
+    try w.writeAll("LIST");
+    try w.writeInt(u32, 4, .little);
+    try w.writeAll("INFO");
 
-    const wav = w.buffered();
-    std.mem.writeInt(u16, wav[22..24], 2, .little);
-    std.mem.writeInt(u32, wav[28..32], 192_000, .little);
-    std.mem.writeInt(u16, wav[32..34], 4, .little);
-    try std.testing.expectError(error.Truncated, parseAlloc(std.testing.allocator, wav));
-}
-
-test "rejects duplicate format chunks" {
-    var raw: [128]u8 = undefined;
-    var w = std.Io.Writer.fixed(&raw);
-    try write(&w, 48_000, 1, &.{0.25}, .pcm16);
-
-    try w.writeAll("fmt ");
-    try w.writeInt(u32, 16, .little);
-    try w.writeInt(u16, 1, .little);
-    try w.writeInt(u16, 1, .little);
-    try w.writeInt(u32, 96_000, .little);
-    try w.writeInt(u32, 192_000, .little);
-    try w.writeInt(u16, 2, .little);
-    try w.writeInt(u16, 16, .little);
-    std.mem.writeInt(u32, w.buffered()[4..8], @intCast(w.buffered().len - 8), .little);
-
-    try std.testing.expectError(error.BadFmt, parseAlloc(std.testing.allocator, w.buffered()));
-}
-
-test "rejects a RIFF size larger than the available data" {
-    var raw: [128]u8 = undefined;
-    var w = std.Io.Writer.fixed(&raw);
-    try write(&w, 48_000, 1, &.{0.25}, .pcm16);
-
-    const wav = w.buffered();
-    std.mem.writeInt(u32, wav[4..8], std.mem.readInt(u32, wav[4..8], .little) + 1, .little);
-    try std.testing.expectError(error.Truncated, parseAlloc(std.testing.allocator, wav));
-}
-
-test "rejects an odd chunk without its alignment byte" {
-    var raw: [32]u8 = undefined;
-    var w = std.Io.Writer.fixed(&raw);
-    try w.writeAll("RIFF");
-    try w.writeInt(u32, 13, .little);
-    try w.writeAll("WAVEJUNK");
-    try w.writeInt(u32, 1, .little);
-    try w.writeByte(0);
-
-    try std.testing.expectError(error.Truncated, parseAlloc(std.testing.allocator, w.buffered()));
+    const result = try parseAlloc(std.testing.allocator, w.buffered());
+    defer std.testing.allocator.free(result.samples);
+    try std.testing.expectEqual(@as(u32, 44_100), result.sample_rate);
+    try std.testing.expectEqual(@as(usize, 2), result.samples.len);
 }
