@@ -24,6 +24,10 @@
             .url = "https://github.com/mackron/dr_libs/archive/50bb723e6a459dbb781e26cefee4fd9ca6714d6a.tar.gz",
             .hash = "N-V-__8AAMMUEwCUfVo4P7oAKh1BQxRJ4J1OvUSXB3beJayi",
         },
+        .libsamplerate = .{
+            .url = "https://github.com/libsndfile/libsamplerate/releases/download/0.2.2/libsamplerate-0.2.2.tar.xz",
+            .hash = "N-V-__8AAPT0tAAhpilZWgHW-r5emKKo4to86ENZTkWlbTnQ",
+        },
     },
     .paths = .{
         "build.zig",

@@ -35,7 +35,7 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8, sample_rate: u32)
     const result = try parseAlloc(allocator, bytes);
     errdefer allocator.free(result.samples);
     if (result.sample_rate == sample_rate) return result.samples;
-    const samples = try pad_dsp.resampleLinear(allocator, result.samples, result.sample_rate, sample_rate);
+    const samples = try pad_dsp.resample(allocator, result.samples, result.sample_rate, sample_rate);
     allocator.free(result.samples);
     return samples;
 }

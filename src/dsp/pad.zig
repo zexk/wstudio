@@ -2,11 +2,13 @@
 //! region trim, pitch (playback transpose), amp ADSR, gain, pan, reverse -
 //! and the allocation-free voice renderer that both drum-machine pads
 //! (dsp/drum_sampler.zig) and the standalone Sampler (dsp/sampler.zig) play
-//! through. The control-side linear resampler used on WAV load lives here too.
+//! through. The control-side rate conversion used on WAV load lives here too.
 
 const std = @import("std");
 const types = @import("../core/types.zig");
 const wav = @import("../core/wav.zig");
+
+const src_c = @cImport(@cInclude("samplerate.h"));
 const lfo_dsp = @import("lfo.zig");
 const dsp = @import("device.zig");
 const Lfo = lfo_dsp.Lfo;
@@ -920,7 +922,7 @@ test "linear ramp reaches full gain over its duration" {
 }
 
 // -----------------------------------------------------------------------
-// Linear resampler (control-side, allocates)
+// Sample-rate conversion (control-side, allocates)
 
 pub fn decodeWav(
     allocator: std.mem.Allocator,
@@ -930,12 +932,17 @@ pub fn decodeWav(
     const result = try wav.parseAlloc(allocator, bytes);
     errdefer allocator.free(result.samples);
     if (result.sample_rate == sample_rate) return result.samples;
-    const samples = try resampleLinear(allocator, result.samples, result.sample_rate, sample_rate);
+    const samples = try resample(allocator, result.samples, result.sample_rate, sample_rate);
     allocator.free(result.samples);
     return samples;
 }
 
-pub fn resampleLinear(
+/// Mono rate conversion for a whole clip. Band-limited, because this runs on
+/// every 44.1k sample dropped into a 48k project and linear interpolation
+/// folds that clip's top octave back down as audible aliasing. Sinc can
+/// overshoot the source peak slightly - normal for a resampler, and the
+/// pad's own gain staging has room for it.
+pub fn resample(
     allocator: std.mem.Allocator,
     src: []const f32,
     src_rate: u32,
@@ -943,50 +950,76 @@ pub fn resampleLinear(
 ) ![]f32 {
     if (src_rate == 0 or dst_rate == 0) return error.InvalidSampleRate;
     if (src_rate == dst_rate) return allocator.dupe(f32, src);
-    const ratio: f64 = @as(f64, @floatFromInt(src_rate)) / @as(f64, @floatFromInt(dst_rate));
     const scaled_len = @as(u128, src.len) * dst_rate;
     const dst_len_u128 = (scaled_len + src_rate - 1) / src_rate;
     if (dst_len_u128 > std.math.maxInt(usize)) return error.OutputTooLarge;
     const dst_len: usize = @intCast(dst_len_u128);
+    if (src.len > std.math.maxInt(c_long) or dst_len > std.math.maxInt(c_long)) return error.OutputTooLarge;
     const out = try allocator.alloc(f32, dst_len);
-    for (out, 0..) |*s, i| {
-        const sp: f64 = @as(f64, @floatFromInt(i)) * ratio;
-        const si: usize = @intFromFloat(sp);
-        const frac: f32 = @floatCast(sp - @as(f64, @floatFromInt(si)));
-        if (si + 1 < src.len) {
-            s.* = src[si] * (1.0 - frac) + src[si + 1] * frac;
-        } else if (si < src.len) {
-            s.* = src[si];
-        } else {
-            s.* = 0.0;
-        }
+    errdefer allocator.free(out);
+    if (src.len == 0) {
+        @memset(out, 0.0);
+        return out;
     }
+
+    var data: src_c.SRC_DATA = .{
+        .data_in = src.ptr,
+        .data_out = out.ptr,
+        .input_frames = @intCast(src.len),
+        .output_frames = @intCast(dst_len),
+        .input_frames_used = 0,
+        .output_frames_gen = 0,
+        .end_of_input = 0,
+        .src_ratio = @as(f64, @floatFromInt(dst_rate)) / @as(f64, @floatFromInt(src_rate)),
+    };
+    if (src_c.src_simple(&data, src_c.SRC_SINC_FASTEST, 1) != 0) return error.ResampleFailed;
+    // The converter stops a frame or two short of the rounded-up length.
+    const generated: usize = @intCast(data.output_frames_gen);
+    if (generated < dst_len) @memset(out[generated..], 0.0);
     return out;
 }
 
 // -----------------------------------------------------------------------
 // Tests
 
-test "resampleLinear preserves amplitude" {
+test "resample preserves amplitude" {
     const src = [_]f32{ 0.0, 0.5, 1.0, 0.5, 0.0 };
-    const out = try resampleLinear(std.testing.allocator, &src, 44_100, 48_000);
+    const out = try resample(std.testing.allocator, &src, 44_100, 48_000);
     defer std.testing.allocator.free(out);
     // Output should be longer and all values in [-1, 1]
     try std.testing.expect(out.len > src.len);
     for (out) |s| try std.testing.expect(@abs(s) <= 1.0 + 1e-6);
 }
 
-test "resampleLinear validates rates and rounds output length up" {
+test "resample band-limits instead of folding the top octave down" {
+    // 20kHz at 48k has nowhere to go in a 16k stream (8k Nyquist): a
+    // band-limited converter throws it away, linear interpolation folds it
+    // back in near full scale. This is the whole reason for the C dependency.
+    var src: [4800]f32 = undefined;
+    for (&src, 0..) |*s, i| {
+        const t = @as(f32, @floatFromInt(i)) / 48_000.0;
+        s.* = std.math.sin(2.0 * std.math.pi * 20_000.0 * t);
+    }
+    const out = try resample(std.testing.allocator, &src, 48_000, 16_000);
+    defer std.testing.allocator.free(out);
+
+    var sum_sq: f64 = 0;
+    for (out) |s| sum_sq += @as(f64, s) * @as(f64, s);
+    const rms = std.math.sqrt(sum_sq / @as(f64, @floatFromInt(out.len)));
+    try std.testing.expect(rms < 0.1);
+}
+
+test "resample validates rates and rounds output length up" {
     try std.testing.expectError(
         error.InvalidSampleRate,
-        resampleLinear(std.testing.allocator, &.{1.0}, 0, 48_000),
+        resample(std.testing.allocator, &.{1.0}, 0, 48_000),
     );
     try std.testing.expectError(
         error.InvalidSampleRate,
-        resampleLinear(std.testing.allocator, &.{1.0}, 48_000, 0),
+        resample(std.testing.allocator, &.{1.0}, 48_000, 0),
     );
 
-    const out = try resampleLinear(std.testing.allocator, &.{ 0.0, 0.5, 1.0 }, 2, 3);
+    const out = try resample(std.testing.allocator, &.{ 0.0, 0.5, 1.0 }, 2, 3);
     defer std.testing.allocator.free(out);
     try std.testing.expectEqual(@as(usize, 5), out.len);
 }

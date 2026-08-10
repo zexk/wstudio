@@ -142,7 +142,7 @@ fn appendRegion(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, sampl
     } else return error.UnsupportedSampleFormat;
     defer allocator.free(raw.samples);
     const offset: usize = @min(s.offset, raw.samples.len);
-    const decoded = try pad_dsp.resampleLinear(allocator, raw.samples[offset..], raw.sample_rate, sample_rate);
+    const decoded = try pad_dsp.resample(allocator, raw.samples[offset..], raw.sample_rate, sample_rate);
     defer allocator.free(decoded);
     const start = samples.items.len;
     try samples.appendSlice(allocator, decoded);

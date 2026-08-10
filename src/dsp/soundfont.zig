@@ -39,6 +39,7 @@ pub const ParseError = error{
     NoPresets,
     InvalidSampleRate,
     OutputTooLarge,
+    ResampleFailed,
 } || std.mem.Allocator.Error;
 
 // ---------------------------------------------------------------------------
@@ -555,7 +556,7 @@ fn parseImpl(allocator: std.mem.Allocator, bytes: []const u8, target_sample_rate
     // sample_data's doc comment) - every region's start/end/loop indices
     // below are rewritten from the shdr's native-rate frame numbers to this
     // resampled array's own indices in lock step, so the ratio must be
-    // computed the same way here as in `resampleLinear`.
+    // computed the same way here as in `resample`.
     const raw_frames = raw_sample_data.len / 2;
     const native = try allocator.alloc(f32, raw_frames);
     defer allocator.free(native);
@@ -575,7 +576,7 @@ fn parseImpl(allocator: std.mem.Allocator, bytes: []const u8, target_sample_rate
     const sample_data = if (src_rate == target_sample_rate)
         try allocator.dupe(f32, native)
     else
-        try pad_dsp.resampleLinear(allocator, native, src_rate, target_sample_rate);
+        try pad_dsp.resample(allocator, native, src_rate, target_sample_rate);
     errdefer allocator.free(sample_data);
     const rate_ratio: f64 = @as(f64, @floatFromInt(target_sample_rate)) / @as(f64, @floatFromInt(@max(src_rate, 1)));
 

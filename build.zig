@@ -22,6 +22,7 @@ pub fn build(b: *std.Build) void {
     const lua_dep = b.dependency("lua", .{});
     const lua = buildLua(b, lua_dep, target, optimize);
     const dr_libs_dep = b.dependency("dr_libs", .{});
+    const libsamplerate_dep = b.dependency("libsamplerate", .{});
 
     // The engine as a reusable library module. Frontends import this and
     // never reach into engine internals.
@@ -33,15 +34,32 @@ pub fn build(b: *std.Build) void {
     wstudio_mod.addIncludePath(dr_libs_dep.path(""));
     wstudio_mod.addCSourceFile(.{ .file = b.path("src/vendor/dr_flac.c"), .flags = &.{"-std=c99"} });
     wstudio_mod.addCSourceFile(.{ .file = b.path("src/vendor/dr_wav.c"), .flags = &.{"-std=c99"} });
+    // Only the fastest sinc converter is built: its 70KB coefficient table is
+    // the one `dsp/pad.zig` asks for, and the other two are 592KB and 8.8MB.
+    wstudio_mod.addIncludePath(libsamplerate_dep.path("include"));
+    wstudio_mod.addCSourceFiles(.{
+        .root = libsamplerate_dep.path("src"),
+        .files = &.{ "samplerate.c", "src_linear.c", "src_sinc.c", "src_zoh.c" },
+        // PACKAGE/VERSION are what its own `src_get_version` string is built
+        // from, and would otherwise come from the autotools config.h.
+        .flags = &.{
+            "-std=c99",
+            "-DENABLE_SINC_FAST_CONVERTER",
+            "-DHAVE_STDBOOL_H",
+            "-DPACKAGE=\"libsamplerate\"",
+            "-DVERSION=\"0.2.2\"",
+        },
+    });
+    // The C sources above need it on every target, not just the two that
+    // link a system audio API.
+    wstudio_mod.link_libc = true;
     if (target.result.os.tag == .linux) {
-        wstudio_mod.link_libc = true;
         wstudio_mod.linkSystemLibrary("asound", .{});
         // glibc's fortified wrappers (active when optimizing) break
         // zig's translate-c on @cImport of alsa headers
         wstudio_mod.addCMacro("_FORTIFY_SOURCE", "0");
     }
     if (target.result.os.tag == .windows) {
-        wstudio_mod.link_libc = true;
         // CoCreateInstance/CoInitializeEx/CoUninitialize for the WASAPI
         // backend; kernel32/user32 are linked by default.
         wstudio_mod.linkSystemLibrary("ole32", .{});
