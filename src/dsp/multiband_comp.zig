@@ -119,16 +119,30 @@ const Crossover = struct {
     lo_hp: LrFilter = .{},
     hi_lp: LrFilter = .{},
     hi_hp: LrFilter = .{},
+    /// Phase compensation for the low band. An LR4 pair sums to an allpass,
+    /// not to unity, so the second crossover leaves its allpass phase on
+    /// everything that went through it - the mid and high bands - while the
+    /// low band, which branched off before it, does not carry that phase.
+    /// The two then arrive at the sum out of step and partially cancel around
+    /// `xover_lo`: measured -7 dB at the crossover with the points a third of
+    /// an octave apart. Running the low band through the same allpass (built
+    /// as that crossover's own LP+HP sum, from the filters this type already
+    /// has) puts all three bands back on one phase.
+    ap_lp: LrFilter = .{},
+    ap_hp: LrFilter = .{},
 
     fn setFreqs(self: *Crossover, sr: f32, xover_lo: f32, xover_hi: f32) void {
         self.lo_lp.setLowpass(sr, xover_lo);
         self.lo_hp.setHighpass(sr, xover_lo);
         self.hi_lp.setLowpass(sr, xover_hi);
         self.hi_hp.setHighpass(sr, xover_hi);
+        self.ap_lp.setLowpass(sr, xover_hi);
+        self.ap_hp.setHighpass(sr, xover_hi);
     }
 
     fn split(self: *Crossover, x: f32) [num_bands]f32 {
-        const low_band = self.lo_lp.process(x);
+        const lo_raw = self.lo_lp.process(x);
+        const low_band = self.ap_lp.process(lo_raw) + self.ap_hp.process(lo_raw);
         const high1 = self.lo_hp.process(x);
         const mid_band = self.hi_lp.process(high1);
         const high_band = self.hi_hp.process(high1);
@@ -140,6 +154,8 @@ const Crossover = struct {
         self.lo_hp.reset();
         self.hi_lp.reset();
         self.hi_hp.reset();
+        self.ap_lp.reset();
+        self.ap_hp.reset();
     }
 };
 
@@ -487,5 +503,38 @@ test "reset clears crossover filter state and band envelopes" {
     for (&mb.bands) |b| try std.testing.expectEqual(@as(f32, 0.0), b.env);
     for (&mb.crossover) |cx| {
         try std.testing.expectEqual(@as(f32, 0.0), cx.lo_lp.stage[0].y1);
+    }
+}
+
+test "the three bands sum back flat, even with the crossover points close together" {
+    const sr: u32 = 48_000;
+    // A third of an octave apart: the worst case the setters allow anywhere
+    // near the ear's most sensitive range, and where the uncompensated split
+    // used to dig a -7 dB hole right at the lower crossover.
+    var mb = MultibandComp.init(sr);
+    mb.setXovers(500.0, 700.0);
+    // Unity compressors: ratio 1 reduces nothing, so anything the output is
+    // missing is the crossover's doing, not the gain stage's.
+    for (&mb.bands) |*b| {
+        b.threshold_db = 0.0;
+        b.ratio = 1.0;
+    }
+
+    for ([_]f32{ 100, 300, 400, 500, 700, 1000, 4000 }) |freq| {
+        var buf: [8192]Sample = undefined;
+        for (0..buf.len / 2) |n| {
+            const s = @sin(2.0 * std.math.pi * freq * @as(f32, @floatFromInt(n)) / 48_000.0);
+            buf[n * 2] = s;
+            buf[n * 2 + 1] = s;
+        }
+        mb.reset();
+        mb.processBlock(&buf);
+
+        // Second half only: the first is the filters settling.
+        var acc: f64 = 0.0;
+        for (buf[4096..]) |s| acc += @as(f64, s) * s;
+        const rms = @sqrt(acc / 4096.0);
+        // A unit sine's RMS is 1/sqrt(2). Half a dB either way.
+        try std.testing.expectApproxEqAbs(@as(f64, 0.70710678), rms, 0.042);
     }
 }
