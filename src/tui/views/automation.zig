@@ -91,8 +91,11 @@ pub fn drawAutomation(
     try w.writeAll(rst ++ dim ++ " (tab: switch curve, p: pick param)" ++ rst);
     try endLine(w);
 
-    const bpb = app.session.project.beats_per_bar;
-    const steps_per_bar: u32 = @as(u32, bpb) * 4;
+    // Bar lines in quarter-step units, scaled by the signature's beat unit
+    // so a 6/8 bar is three quarter notes wide, not six - the same exact
+    // integer trick the drum/slicer grids already use for their own rulers.
+    const bar_units: u32 = @as(u32, @max(app.session.project.beats_per_bar, 1)) * 16;
+    const meter_denominator: u32 = @max(app.session.project.meter_denominator, 1);
     const total_steps = @max(1, (clip.length_ticks + 7) / 8);
     const visible: u32 = @intCast(@max(1, cols -| gutter));
 
@@ -117,7 +120,7 @@ pub fn drawAutomation(
     var col: u32 = 0;
     while (col < visible and scroll + col <= total_steps) : (col += 1) {
         const step = scroll + col;
-        try w.writeAll(if (step % steps_per_bar == 0) blu ++ "|" ++ rst else " ");
+        try w.writeAll(if (step * meter_denominator % bar_units == 0) blu ++ "|" ++ rst else " ");
     }
     try endLine(w);
 

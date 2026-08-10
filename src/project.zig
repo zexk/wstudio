@@ -90,9 +90,10 @@ pub const Project = struct {
     /// one picks what frequency those keys sound at. The default is equal
     /// temperament, which changes nothing.
     tuning: dsp_tuning.Tuning = .{},
-    /// Beats per bar (the time signature's numerator; the unit stays /4).
-    /// Control-side source of truth - the transport mirrors it, exactly
-    /// like `tempo_bpm`.
+    /// The time signature's numerator. Control-side source of truth - the
+    /// transport mirrors it, exactly like `tempo_bpm`. NOT a bar length in
+    /// quarter notes: pair it with `meter_denominator` through
+    /// `quarterBeatsPerBar`, since a 6/8 bar is three quarter notes.
     beats_per_bar: u8 = 4,
     meter_denominator: u8 = 4,
     meter_points: std.ArrayList(time_map.MeterPoint) = .empty,
@@ -122,10 +123,7 @@ pub const Project = struct {
     pub fn framesPerBar(self: *const Project) u64 {
         const sr = @as(f64, @floatFromInt(@max(self.sample_rate, 1)));
         const bpm = if (std.math.isFinite(self.tempo_bpm) and self.tempo_bpm > 0.0) self.tempo_bpm else 120.0;
-        const numerator = @max(self.beats_per_bar, 1);
-        const denominator = @max(self.meter_denominator, 1);
-        const quarter_beats = @as(f64, @floatFromInt(numerator)) * 4.0 / @as(f64, @floatFromInt(denominator));
-        const frames_f = sr * 60.0 / bpm * quarter_beats;
+        const frames_f = sr * 60.0 / bpm * self.quarterBeatsPerBar();
         if (!std.math.isFinite(frames_f) or frames_f >= @as(f64, @floatFromInt(std.math.maxInt(u64))))
             return std.math.maxInt(u64);
         const frames: u64 = @intFromFloat(frames_f);
@@ -166,6 +164,18 @@ pub const Project = struct {
 
     pub fn meterAtBeat(self: *const Project, beat: f64) time_map.MeterPoint {
         return time_map.meterAt(self.meter_points.items, .{ .beat = 0, .numerator = @max(self.beats_per_bar, 1), .denominator = @max(self.meter_denominator, 1) }, beat);
+    }
+
+    /// One bar's length in quarter-note beats, which is the unit every
+    /// pattern length, note position and clip tick in the project is measured
+    /// in. The signature's beat unit counts: a 6/8 bar is three quarter notes,
+    /// not six. Same figure `Transport.positionBarBeat` and `beatAtBar` use.
+    pub fn quarterBeatsPerBar(self: *const Project) f64 {
+        return (time_map.MeterPoint{
+            .beat = 0,
+            .numerator = @max(self.beats_per_bar, 1),
+            .denominator = @max(self.meter_denominator, 1),
+        }).quarterBeatsPerBar();
     }
 
     pub fn beatAtBar(self: *const Project, target_bar: u32) f64 {
@@ -427,4 +437,15 @@ test "sections stay sorted and follow time edits" {
     p.removeTime(0, 5);
     try std.testing.expectEqual(@as(usize, 1), p.sections.items.len);
     try std.testing.expectEqual(@as(u32, 20), p.sections.items[0].tick);
+}
+
+test "a bar's length in quarter beats follows the signature's beat unit" {
+    var p = Project.init(std.testing.allocator);
+    defer p.deinit();
+    p.beats_per_bar = 6;
+    p.meter_denominator = 8;
+    // Six eighths, not six quarters.
+    try std.testing.expectApproxEqAbs(@as(f64, 3.0), p.quarterBeatsPerBar(), 1e-9);
+    // ...and the bar->beat conversion the loop region uses agrees.
+    try std.testing.expectApproxEqAbs(@as(f64, 6.0), p.beatAtBar(2), 1e-9);
 }

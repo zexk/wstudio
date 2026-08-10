@@ -395,7 +395,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             '[' => { resizeOrLen(app, -1.0 / stepsPerBeatF(app) * @as(f64, @floatFromInt(app.takeCount()))); return true; },
             ']' => { resizeOrLen(app, 1.0 / stepsPerBeatF(app) * @as(f64, @floatFromInt(app.takeCount()))); return true; },
             '+' => {
-                const bar: f64 = @floatFromInt(app.session.project.beats_per_bar);
+                const bar: f64 = app.session.project.quarterBeatsPerBar();
                 history.push(app, history.captureMelodic(app, app.piano_track));
                 pp.length_beats += bar;
                 app.setStatus("loop: {d:.0} beats", .{pp.length_beats});
@@ -403,7 +403,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 return true;
             },
             '-' => {
-                const bar: f64 = @floatFromInt(app.session.project.beats_per_bar);
+                const bar: f64 = app.session.project.quarterBeatsPerBar();
                 history.push(app, history.captureMelodic(app, app.piano_track));
                 pp.length_beats = @max(bar, pp.length_beats - bar);
                 app.setStatus("loop: {d:.0} beats", .{pp.length_beats});

@@ -128,7 +128,7 @@ pub fn cmdFit(app: *App, _: []const u8) void {
         app.setStatus("fit: the pattern is empty", .{});
         return;
     }
-    const bar: f64 = @floatFromInt(app.session.project.beats_per_bar);
+    const bar: f64 = app.session.project.quarterBeatsPerBar();
     const fitted = @max(bar, @ceil(end / bar - 1e-9) * bar);
     if (@abs(fitted - m.pp.length_beats) < 1e-9) {
         app.setStatus("fit: the loop already ends on {d:.0} beats", .{fitted});

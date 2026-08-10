@@ -604,10 +604,13 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
         return;
     };
 
-    const bpb = app.session.project.beats_per_bar;
-    const steps_per_bar: u32 = @as(u32, bpb) * 4;
-    const bar = app.automation_cursor_step / steps_per_bar;
-    const step_in_bar = app.automation_cursor_step % steps_per_bar;
+    // Same quarter-step-times-denominator bar arithmetic the automation
+    // ruler draws with, so the readout and the bar lines agree in any meter.
+    const bar_units: u32 = @as(u32, @max(app.session.project.beats_per_bar, 1)) * 16;
+    const meter_denominator: u32 = @max(app.session.project.meter_denominator, 1);
+    const cursor_units = app.automation_cursor_step * meter_denominator;
+    const bar = cursor_units / bar_units;
+    const step_in_bar = cursor_units % bar_units / meter_denominator;
     const beat = @as(f64, @floatFromInt(app.automation_cursor_step)) * 0.25;
 
     try writeModeBadge(w, app.modal.mode);
