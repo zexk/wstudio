@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 48;
+pub const file_version: u32 = 49;
 
 /// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
 /// reasoning as `EqBandKindSnap`.
@@ -340,6 +340,12 @@ pub const CompSnap = struct {
     makeup_db: f32 = 0.0,
     /// Soft-knee width in dB; 0 means hard knee.
     knee_db: f32 = 0.0,
+    /// How long reduction is held at its deepest before release starts.
+    hold_ms: f32 = 0.0,
+    /// 0 = downward compression, 1 = upward.
+    mode: f32 = 0.0,
+    /// Dry/wet blend; below 1 is parallel compression.
+    mix: f32 = 1.0,
     /// Null uses ordinary self-detecting compression.
     sidechain_source: ?u16 = null,
     /// Drum pad within source track to key off; null uses whole track mix.
@@ -451,6 +457,10 @@ pub const GateSnap = struct {
     attack_ms: f32 = 1.0,
     release_ms: f32 = 100.0,
     hold_ms: f32 = 0.0,
+    /// Gap between the open and close thresholds; 0 gates on one level.
+    hysteresis_db: f32 = 0.0,
+    /// Attenuation a shut gate falls to; the minimum is full mute.
+    range_db: f32 = -80.0,
 };
 
 pub const SatSnap = struct {

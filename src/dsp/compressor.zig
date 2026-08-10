@@ -40,12 +40,30 @@ pub const Compressor = struct {
     ratio: f32 = 4.0,
     attack_ms: f32 = 10.0,
     release_ms: f32 = 80.0,
+    /// How long gain reduction is held at its deepest before release starts,
+    /// in ms. 0 = old behaviour (release begins the frame the level drops).
+    /// Same argument as the gate's hold: a source that dips between hits
+    /// otherwise lets the compressor recover and re-clamp, which is heard as
+    /// pumping rather than as level control.
+    hold_ms: f32 = 0.0,
+    /// 0 = downward (clamp what is over the threshold), 1 = upward (lift
+    /// what is under it). Upward is the same gain computer mirrored around
+    /// the threshold, which is why it costs a mode rather than a second
+    /// unit; `ott.zig` has always had it per band, the plain compressor did
+    /// not.
+    mode: f32 = 0.0,
+    /// Dry/wet blend of the compressed signal, 1 = fully compressed. Below
+    /// 1 this is parallel ("New York") compression: the uncompressed signal
+    /// keeps its transients while the compressed copy fills in underneath.
+    mix: f32 = 1.0,
     makeup_db: f32 = 0.0,
     /// Width of the soft-knee transition around threshold, dB. 0 = hard
     /// knee (the ratio applies the instant `over_db` crosses 0).
     knee_db: f32 = 0.0,
     /// Envelope follower state (linear peak).
     env: f32 = 0.0,
+    /// Frames left in the current hold window, counted down one per frame.
+    hold_left: f32 = 0.0,
     /// Most recent gain change before makeup, for UI metering.
     gain_reduction_db: f32 = 0.0,
     /// Which track (and optionally which drum pad) this compressor's
@@ -99,6 +117,24 @@ pub const Compressor = struct {
         return slope * (x * x) / (2.0 * knee_db);
     }
 
+    /// How far the upward stage may lift a signal, the "range" every upward
+    /// compressor bounds itself with. Unbounded, the mirrored formula asks
+    /// for whatever the distance to `gainToDb`'s -120dB floor happens to be:
+    /// an idle OTT sat at +79dB per band, so the moment a track went quiet
+    /// its noise floor was pumped up to near full scale. 24dB matches the
+    /// makeup range and only engages ~30dB below the threshold, well under
+    /// any musical level.
+    pub const max_upward_db: f32 = 24.0;
+
+    /// Upward gain in dB for `over_db` under the threshold (0 when at or
+    /// over it) - the downward formula mirrored around the threshold, so
+    /// one `ratio` describes both directions. Shared by this unit's `.up`
+    /// mode and `MultibandComp`'s OTT style.
+    pub fn upwardBoostDb(over_db: f32, ratio: f32) f32 {
+        if (over_db > 0.0) return 0.0;
+        return @min(-over_db * (1.0 - 1.0 / ratio), max_upward_db);
+    }
+
     pub fn processBlock(self: *Compressor, buf: []Sample) void {
         const frames = buf.len / 2;
         // A non-positive attack_ms/release_ms flips smoothingCoef's exponent
@@ -110,8 +146,13 @@ pub const Compressor = struct {
         const threshold_db = dsp.sanitizeParam(self.threshold_db, -60.0, 0.0, -18.0);
         const makeup_db = dsp.sanitizeParam(self.makeup_db, -24.0, 24.0, 0.0);
         const knee_db = dsp.sanitizeParam(self.knee_db, 0.0, 24.0, 0.0);
+        const hold_ms = dsp.sanitizeParam(self.hold_ms, 0.0, 500.0, 0.0);
+        const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 1.0);
+        const upward = dsp.sanitizeParam(self.mode, 0.0, 1.0, 0.0) >= 0.5;
+        if (!std.math.isFinite(self.hold_left) or self.hold_left < 0.0) self.hold_left = 0.0;
         const attack = dsp.smoothingCoefMs(attack_ms, self.sample_rate);
         const release = dsp.smoothingCoefMs(release_ms, self.sample_rate);
+        const hold_frames = hold_ms * 0.001 * self.sample_rate;
         const makeup = types.dbToGain(makeup_db);
         // Detector buffer must match this block's frame count to be safe to
         // index alongside `buf` - a mismatched length (chain resync landed
@@ -125,13 +166,30 @@ pub const Compressor = struct {
                 @max(@abs(d[i * 2]), @abs(d[i * 2 + 1]))
             else
                 @max(@abs(buf[i * 2]), @abs(buf[i * 2 + 1]));
-            const over_db = envelopeOverDb(&self.env, level, attack, release, threshold_db);
-            const reduction_db = downwardReductionDb(over_db, ratio, knee_db);
+            // Hold freezes the envelope (and so the gain reduction) at its
+            // deepest instead of letting release start the moment the level
+            // dips; a rise re-arms the window.
+            if (level > self.env) {
+                self.hold_left = hold_frames;
+            } else if (self.hold_left > 0.0) {
+                self.hold_left -= 1.0;
+            }
+            const over_db = if (self.hold_left > 0.0 and level <= self.env)
+                types.gainToDb(self.env) - threshold_db
+            else
+                envelopeOverDb(&self.env, level, attack, release, threshold_db);
+            const reduction_db = if (upward)
+                upwardBoostDb(over_db, ratio)
+            else
+                downwardReductionDb(over_db, ratio, knee_db);
             self.gain_reduction_db = reduction_db;
             const gain = types.dbToGain(reduction_db) * makeup;
+            // Parallel blend: the dry copy is the same sample, so the whole
+            // mix collapses into one gain factor per frame.
+            const blended = 1.0 - mix + gain * mix;
 
-            buf[i * 2] *= gain;
-            buf[i * 2 + 1] *= gain;
+            buf[i * 2] *= blended;
+            buf[i * 2 + 1] *= blended;
         }
     }
 
@@ -150,6 +208,7 @@ pub const Compressor = struct {
     pub fn reset(self: *Compressor) void {
         self.env = 0.0;
         self.gain_reduction_db = 0.0;
+        self.hold_left = 0.0;
         self.detector = null;
     }
 };
@@ -172,6 +231,68 @@ test "attenuates loud signals, passes quiet ones" {
     var quiet = [_]Sample{0.01} ** 9600;
     comp.processBlock(&quiet);
     try std.testing.expectApproxEqAbs(@as(Sample, 0.01), quiet[quiet.len - 2], 1e-4);
+}
+
+test "upward mode lifts a quiet signal toward the threshold" {
+    var comp = Compressor.init(48_000);
+    comp.threshold_db = -12.0;
+    comp.ratio = 4.0;
+    comp.attack_ms = 0.1;
+    comp.mode = 1.0;
+
+    // -30dB, well under the threshold: upward pulls it up by
+    // 18 * (1 - 1/4) = 13.5dB, capped well short of max_upward_db.
+    var quiet = [_]Sample{types.dbToGain(-30.0)} ** 9600;
+    comp.processBlock(&quiet);
+    try std.testing.expect(comp.gain_reduction_db > 13.0);
+    try std.testing.expect(@abs(quiet[quiet.len - 2]) > types.dbToGain(-30.0) * 4.0);
+
+    // Over the threshold, upward leaves the signal alone (downward is the
+    // other mode's job).
+    comp.env = 0.0;
+    var loud = [_]Sample{0.9} ** 9600;
+    comp.processBlock(&loud);
+    try std.testing.expectApproxEqAbs(@as(Sample, 0.9), loud[loud.len - 2], 1e-4);
+}
+
+test "mix blends between dry and fully compressed" {
+    var dry = Compressor.init(48_000);
+    dry.threshold_db = -24.0;
+    dry.attack_ms = 0.1;
+    dry.mix = 0.0;
+    var wet = dry;
+    wet.mix = 1.0;
+
+    var buf_dry = [_]Sample{1.0} ** 4096;
+    var buf_wet = [_]Sample{1.0} ** 4096;
+    dry.processBlock(&buf_dry);
+    wet.processBlock(&buf_wet);
+
+    // mix 0 is a bypass; mix 1 is the compressed signal, quieter than it.
+    try std.testing.expectEqual(@as(Sample, 1.0), buf_dry[4000]);
+    try std.testing.expect(buf_wet[4000] < 0.5);
+}
+
+test "hold defers release until the window expires" {
+    var comp = Compressor.init(48_000);
+    comp.threshold_db = -24.0;
+    comp.attack_ms = 0.1;
+    comp.release_ms = 5.0;
+    comp.hold_ms = 100.0; // 4800 frames
+
+    var loud = [_]Sample{1.0} ** 4096;
+    comp.processBlock(&loud);
+    const held = comp.gain_reduction_db;
+    try std.testing.expect(held < -10.0);
+
+    // 1000 frames of silence, inside the hold window: reduction unchanged.
+    var quiet = [_]Sample{0.0} ** 2000;
+    comp.processBlock(&quiet);
+    try std.testing.expectApproxEqAbs(held, comp.gain_reduction_db, 1e-4);
+
+    // Past the window the fast release recovers to no reduction.
+    for (0..20) |_| comp.processBlock(&quiet);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), comp.gain_reduction_db, 1e-3);
 }
 
 test "sidechain detector overrides self-detection, and is consumed after one block" {

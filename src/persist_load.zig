@@ -1065,6 +1065,9 @@ pub fn applyFxChain(
                 if (std.math.isFinite(cs.release_ms)) c.release_ms = cs.release_ms;
                 if (std.math.isFinite(cs.makeup_db)) c.makeup_db = cs.makeup_db;
                 if (std.math.isFinite(cs.knee_db)) c.knee_db = cs.knee_db;
+                if (std.math.isFinite(cs.hold_ms)) c.hold_ms = cs.hold_ms;
+                if (std.math.isFinite(cs.mode)) c.mode = cs.mode;
+                if (std.math.isFinite(cs.mix)) c.mix = cs.mix;
                 c.sidechain_source = if (cs.sidechain_source) |src| .{
                     .track = if (cs.sidechain_is_group)
                         @min(src, engine_mod.max_groups - 1)

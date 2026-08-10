@@ -16,6 +16,7 @@ const rack = @import("../rack.zig");
 const FxPayload = rack.FxPayload;
 const FxKind = rack.FxKind;
 const eq_mod = @import("eq.zig");
+const gate_mod = @import("gate.zig");
 const multiband_comp = @import("multiband_comp.zig");
 const chorus_mod = @import("chorus.zig");
 const limiter_mod = @import("limiter.zig");
@@ -153,6 +154,8 @@ pub const gate_specs = [_]ParamSpec{
     .{ .name = "attack", .field = "attack_ms", .min = 0.1, .max = 50.0, .step_fine = 0.5, .step_coarse = 5.0 },
     .{ .name = "hold", .field = "hold_ms", .min = 0.0, .max = 500.0, .step_fine = 5.0, .step_coarse = 50.0 },
     .{ .name = "release", .field = "release_ms", .min = 5.0, .max = 1000.0, .step_fine = 10.0, .step_coarse = 100.0 },
+    .{ .name = "hyst", .field = "hysteresis_db", .min = 0.0, .max = 40.0, .step_fine = 1.0, .step_coarse = 6.0 },
+    .{ .name = "range", .field = "range_db", .min = gate_mod.mute_range_db, .max = 0.0, .step_fine = 1.0, .step_coarse = 6.0 },
 };
 
 pub const filter_specs = [_]ParamSpec{
@@ -280,7 +283,16 @@ pub const comp_specs = [_]ParamSpec{
     .{ .name = "release", .field = "release_ms", .min = 1.0, .max = 2000.0, .step_fine = 20.0, .step_coarse = 200.0 },
     .{ .name = "makeup", .field = "makeup_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
     .{ .name = "knee", .field = "knee_db", .min = 0.0, .max = 24.0, .step_fine = 1.0, .step_coarse = 3.0 },
+    .{ .name = "hold", .field = "hold_ms", .min = 0.0, .max = 500.0, .step_fine = 5.0, .step_coarse = 50.0 },
+    .{ .name = "mode", .field = "mode", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+    .{ .name = "mix", .field = "mix", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
 };
+
+/// The two UI-only comp rows (sidechain track, sidechain pad) sit directly
+/// after `comp_specs`, so every switch over them keys off these instead of
+/// literals - appending a comp param moves both.
+pub const comp_sidechain_idx = comp_specs.len;
+pub const comp_sidechain_pad_idx = comp_specs.len + 1;
 
 /// Param count for kind `k`, including the two UI-only comp sidechain rows
 /// and excluding CLAP/VST3 (those enumerate dynamically via the plugin's own
@@ -365,8 +377,8 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
             else => mbBandParamName(mbBandField(idx)),
         },
         .comp => switch (idx) {
-            6 => "sidechain",
-            7 => "scpad",
+            comp_sidechain_idx => "sidechain",
+            comp_sidechain_pad_idx => "scpad",
             else => tableName(&comp_specs, idx),
         },
         .gate => tableName(&gate_specs, idx),
@@ -432,7 +444,7 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
             },
         },
         .comp => |*c| switch (idx) {
-            6, 7 => 0.0,
+            comp_sidechain_idx, comp_sidechain_pad_idx => 0.0,
             else => tableGet(c, &comp_specs, idx),
         },
         .gate => |*g| tableGet(g, &gate_specs, idx),
@@ -489,7 +501,7 @@ pub fn paramRange(p: *const FxPayload, idx: usize) [2]f32 {
             },
         },
         .comp => switch (idx) {
-            6, 7 => .{ 0.0, 0.0 },
+            comp_sidechain_idx, comp_sidechain_pad_idx => .{ 0.0, 0.0 },
             else => tableRange(&comp_specs, idx),
         },
         .gate => tableRange(&gate_specs, idx),
@@ -567,7 +579,7 @@ pub fn setParamAbsolute(p: *FxPayload, idx: usize, value: f32) void {
             },
         },
         .comp => |*c| switch (idx) {
-            6, 7 => {},
+            comp_sidechain_idx, comp_sidechain_pad_idx => {},
             else => tableSet(c, &comp_specs, idx, value),
         },
         .gate => |*g| tableSet(g, &gate_specs, idx, value),
@@ -626,7 +638,7 @@ pub fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
             },
         },
         .comp => switch (idx) {
-            6, 7 => 1.0,
+            comp_sidechain_idx, comp_sidechain_pad_idx => 1.0,
             else => tableStep(&comp_specs, idx, coarse),
         },
         .gate => tableStep(&gate_specs, idx, coarse),
@@ -652,8 +664,8 @@ pub fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
 }
 
 test "isAutomatable excludes comp sidechain rows and every clap/vst3 index" {
-    try std.testing.expect(!isAutomatable(.comp, 6));
-    try std.testing.expect(!isAutomatable(.comp, 7));
+    try std.testing.expect(!isAutomatable(.comp, comp_sidechain_idx));
+    try std.testing.expect(!isAutomatable(.comp, comp_sidechain_pad_idx));
     try std.testing.expect(isAutomatable(.comp, 0));
     try std.testing.expect(!isAutomatable(.clap, 0));
     try std.testing.expect(!isAutomatable(.vst3, 0));

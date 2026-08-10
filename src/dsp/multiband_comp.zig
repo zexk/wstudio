@@ -166,14 +166,8 @@ const Crossover = struct {
 /// keeping the param count in line with the rest of the FX chain (a plain
 /// `Compressor` already spends 7 slots; three of these plus the shared
 /// crossover/time controls would blow past that if up/down were independent).
-/// How far the upward stage may lift a band, the "range" every upward
-/// compressor bounds itself with. Unbounded, the mirrored formula asks for
-/// whatever the distance to `gainToDb`'s -120dB floor happens to be: an idle
-/// OTT sat at +79dB per band, so the moment a track went quiet its noise
-/// floor was pumped up to near full scale. 24dB matches the makeup range and
-/// only engages ~30dB below the threshold, well under any musical level.
-const max_upward_db: f32 = 24.0;
-
+/// The upward formula itself (and its lift ceiling) lives on `Compressor`,
+/// which grew an upward mode of its own.
 const BandComp = struct {
     threshold_db: f32 = -18.0,
     ratio: f32 = 4.0,
@@ -194,7 +188,7 @@ const BandComp = struct {
             // Upward (OTT only): push signal below threshold up toward it
             // by the same `ratio` - mirrors the downward formula around the
             // threshold instead of introducing a second ratio param.
-            reduction_db = @min(-over_db * (1.0 - 1.0 / ratio), max_upward_db);
+            reduction_db = Compressor.upwardBoostDb(over_db, ratio);
         }
         return types.dbToGain(reduction_db) * types.dbToGain(makeup_db);
     }
@@ -397,7 +391,7 @@ test "the upward stage cannot lift a silent band without bound" {
     // Silence reads as gainToDb's -120dB floor, a hundred under the default
     // thresholds: unbounded, the mirrored ratio asked for +67dB of boost on
     // whatever noise floor arrived next.
-    for (mb.gain_db) |gain_db| try std.testing.expectApproxEqAbs(max_upward_db, gain_db, 0.01);
+    for (mb.gain_db) |gain_db| try std.testing.expectApproxEqAbs(Compressor.max_upward_db, gain_db, 0.01);
 }
 
 test "mix blends between dry and fully-processed" {

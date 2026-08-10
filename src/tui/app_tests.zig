@@ -8373,9 +8373,9 @@ test "FX chain: A adds an automation lane for the focused unit's focused param" 
     try std.testing.expectEqual(@as(usize, 1), clip.automation.synth_params.items.len);
     try std.testing.expectEqual(comp_unit.instance_id, clip.automation.synth_params.items[0].instance_id);
 
-    // Comp's sidechain row (idx 6) isn't automatable - A is a no-op there.
+    // Comp's sidechain row isn't automatable - A is a no-op there.
     app.view = .track_spectrum;
-    app.fx_param = 6;
+    app.fx_param = ws.dsp.fx_params.comp_sidechain_idx;
     _ = spectrum_ed.handleKey(&app, .{ .char = 'A' });
     try std.testing.expectEqual(@as(usize, 1), clip.automation.synth_params.items.len);
 }
@@ -8514,17 +8514,19 @@ test "compressor's scpad row only shows once the sidechain track is a drum machi
     spectrum_ed.insertFromPicker(&app, .comp);
     const fx = &app.session.racks.items[0].fx;
     const payload = &fx.units.items[0].payload;
+    // Every comp row except scpad, which only appears for a drum-machine source.
+    const comp_rows = ws.dsp.fx_params.paramCount(.comp) - 1;
 
     // No sidechain source picked yet: scpad stays hidden.
-    try std.testing.expectEqual(@as(usize, 7), spectrum_ed.visibleParamCount(&app, .comp, payload));
+    try std.testing.expectEqual(comp_rows, spectrum_ed.visibleParamCount(&app, .comp, payload));
 
     // Sidechain pointed at track 1 (a sampler, not a drum machine): still hidden.
     payload.comp.sidechain_source = .{ .track = 1, .pad = null };
-    try std.testing.expectEqual(@as(usize, 7), spectrum_ed.visibleParamCount(&app, .comp, payload));
+    try std.testing.expectEqual(comp_rows, spectrum_ed.visibleParamCount(&app, .comp, payload));
 
     // Sidechain pointed at track 2 (the drum machine): scpad appears.
     payload.comp.sidechain_source = .{ .track = 2, .pad = null };
-    try std.testing.expectEqual(@as(usize, 8), spectrum_ed.visibleParamCount(&app, .comp, payload));
+    try std.testing.expectEqual(comp_rows + 1, spectrum_ed.visibleParamCount(&app, .comp, payload));
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
@@ -8537,11 +8539,11 @@ test "compressor's scpad row only shows once the sidechain track is a drum machi
     // lingering pad silently zeroes the detector instead of falling back
     // to whole-track sidechain).
     payload.comp.sidechain_source = .{ .track = 2, .pad = 3 };
-    app.fx_param = 6;
+    app.fx_param = ws.dsp.fx_params.comp_sidechain_idx;
     _ = spectrum_ed.handleKey(&app, .{ .char = 'h' }); // track 2 -> track 1
     try std.testing.expectEqual(@as(u16, 1), payload.comp.sidechain_source.?.track);
     try std.testing.expectEqual(@as(?u8, null), payload.comp.sidechain_source.?.pad);
-    try std.testing.expectEqual(@as(usize, 7), spectrum_ed.visibleParamCount(&app, .comp, payload));
+    try std.testing.expectEqual(comp_rows, spectrum_ed.visibleParamCount(&app, .comp, payload));
 
     w = std.Io.Writer.fixed(&buf);
     try tui_mod.draw(&app, &w, .{ .cols = 100, .rows = 30 });

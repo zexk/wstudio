@@ -247,6 +247,8 @@ const delay_specs = fx_p.delay_specs;
 const ott_specs = fx_p.ott_specs;
 const limiter_specs = fx_p.limiter_specs;
 const comp_specs = fx_p.comp_specs;
+const sc_idx = fx_p.comp_sidechain_idx;
+const sc_pad_idx = fx_p.comp_sidechain_pad_idx;
 
 /// Param name at `idx` in `p` - bounds match `paramCount`.
 pub const paramName = fx_p.paramName;
@@ -299,13 +301,13 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
             // lets this slot share the same float-valued get/set/range/step
             // shape every other param here uses instead of a separate enum
             // path.
-            6 => if (c.sidechain_source) |s| (if (s.is_group)
+            sc_idx => if (c.sidechain_source) |s| (if (s.is_group)
                 -(@as(f32, @floatFromInt(s.track)) + 1.0)
             else
                 @as(f32, @floatFromInt(s.track)) + 1.0) else 0.0,
             // Sidechain pad, same 0=none/N=1-based encoding as idx 6 - only
             // meaningful once a track is picked there; see `setParam`.
-            7 => if (c.sidechain_source) |s| (if (s.pad) |pd| @as(f32, @floatFromInt(pd)) + 1.0 else 0.0) else 0.0,
+            sc_pad_idx => if (c.sidechain_source) |s| (if (s.pad) |pd| @as(f32, @floatFromInt(pd)) + 1.0 else 0.0) else 0.0,
             else => fx_p.getParam(p, idx),
         },
         .clap => |plugin| blk: {
@@ -331,8 +333,8 @@ pub fn paramRange(app: *App, p: *const FxPayload, idx: usize) [2]f32 {
         .comp => switch (idx) {
             // Negative half of the range is group buses (see `getParam`'s
             // doc comment for the encoding), positive half is tracks.
-            6 => .{ -@as(f32, @floatFromInt(ws.engine.max_groups)), @floatFromInt(app.session.project.tracks.items.len) },
-            7 => .{ 0.0, @floatFromInt(DrumMachine.max_pads) },
+            sc_idx => .{ -@as(f32, @floatFromInt(ws.engine.max_groups)), @floatFromInt(app.session.project.tracks.items.len) },
+            sc_pad_idx => .{ 0.0, @floatFromInt(DrumMachine.max_pads) },
             else => fx_p.paramRange(p, idx),
         },
         .clap => |plugin| blk: {
@@ -385,7 +387,7 @@ pub fn paramToggleNames(k: FxKind, idx: usize) ?[2][]const u8 {
 /// instead, same reasoning as `paramToggleNames` above for 2-state params.
 pub fn isListParam(k: FxKind, idx: usize) bool {
     return switch (k) {
-        .comp => idx == 6 or idx == 7,
+        .comp => idx == sc_idx or idx == sc_pad_idx,
         else => false,
     };
 }
@@ -398,7 +400,7 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
     switch (p.*) {
         .comp => |*c| {
             switch (idx) {
-                6 => {
+                sc_idx => {
                     const rounded = std.math.clamp(
                         @round(value),
                         -@as(f32, @floatFromInt(ws.engine.max_groups)),
@@ -418,7 +420,7 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
                 // Only meaningful once a TRACK is picked at idx 6 (a group
                 // source has no pad concept) - a no-op otherwise, same as
                 // before a source existed at all.
-                7 => if (c.sidechain_source) |sc| if (!sc.is_group) {
+                sc_pad_idx => if (c.sidechain_source) |sc| if (!sc.is_group) {
                     const rounded = std.math.clamp(@round(value), 0.0, @as(f32, @floatFromInt(DrumMachine.max_pads)));
                     c.sidechain_source = .{
                         .track = sc.track,
@@ -428,7 +430,7 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
                 },
                 else => fx_p.setParamAbsolute(p, idx, value),
             }
-            if (idx == 6) if (c.sidechain_source) |source| {
+            if (idx == sc_idx) if (c.sidechain_source) |source| {
                 const consumer: ws.Session.SidechainConsumer = switch (currentTarget(app)) {
                     .track => .{ .track = app.eq_track },
                     .group => .{ .group = app.eq_group },
@@ -474,7 +476,7 @@ pub fn setParam(app: *App, p: *FxPayload, idx: usize, value: f32) void {
 /// indices.
 fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
     return switch (p.*) {
-        .comp => if (idx == 6 and coarse) 5.0 else fx_p.paramStep(p, idx, coarse),
+        .comp => if (idx == sc_idx and coarse) 5.0 else fx_p.paramStep(p, idx, coarse),
         .clap => |plugin| blk: {
             const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk 0;
             const range = clapRange(info.min_value, info.max_value) orelse break :blk 0;
@@ -1185,7 +1187,7 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
             // Keep the number too, since that is what h/l is cycling
             // through. Negative v is a group bus (see `getParam`'s doc
             // comment for the encoding).
-            6 => if (@abs(v) < 0.5) "none" else if (v < 0.0) blk: {
+            sc_idx => if (@abs(v) < 0.5) "none" else if (v < 0.0) blk: {
                 const group: usize = @intFromFloat(-v - 1.0);
                 if (group >= app.session.groups.len or app.session.groups[group] == null)
                     break :blk std.fmt.bufPrint(buf, "bus {d:.0}", .{-v}) catch "?";
@@ -1202,7 +1204,7 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
             // adding the name users actually recognize from the drum grid.
             // A group source has no pad concept (see `setParam`'s idx-7
             // no-op branch).
-            7 => if (v < 0.5) "-" else blk: {
+            sc_pad_idx => if (v < 0.5) "-" else blk: {
                 const source = p.comp.sidechain_source orelse
                     break :blk std.fmt.bufPrint(buf, "pad {d:.0}", .{v}) catch "?";
                 if (source.is_group) break :blk "-";
