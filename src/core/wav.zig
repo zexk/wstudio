@@ -148,6 +148,7 @@ fn parseAllocMode(allocator: std.mem.Allocator, data: []const u8, downmix: bool)
             const byte_rate = std.mem.readInt(u32, chunk[8..12], .little);
             const block_align = std.mem.readInt(u16, chunk[12..14], .little);
             bits_per_sample = std.mem.readInt(u16, chunk[14..16], .little);
+            if (audio_format == format_extensible) audio_format = try subFormatTag(chunk);
             if (audio_format != 1 and audio_format != 3) return error.UnsupportedFormat;
             const supported_depth = switch (audio_format) {
                 1 => bits_per_sample == 16 or bits_per_sample == 24 or bits_per_sample == 32,
@@ -216,6 +217,28 @@ fn parseAllocMode(allocator: std.mem.Allocator, data: []const u8, downmix: bool)
         .sample_rate = sample_rate,
         .channel_count = if (downmix) 1 else num_channels,
     };
+}
+
+/// WAVE_FORMAT_EXTENSIBLE. Plain PCM or float audio wearing a longer `fmt `
+/// chunk: the real format tag moves into the first two bytes of a SubFormat
+/// GUID, and the tag field itself becomes this sentinel. Commercial sample
+/// packs ship these routinely, so rejecting them rejects ordinary PCM.
+const format_extensible: u16 = 0xFFFE;
+
+/// The 14 bytes every KSDATAFORMAT_SUBTYPE GUID ends with - the whole of
+/// `XXXX0000-0000-0010-8000-00AA00389B71` past the format tag. Checked so an
+/// unrelated GUID can't have its first two bytes read as a format tag.
+const ksdataformat_suffix = [_]u8{
+    0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71,
+};
+
+/// Real format tag out of an extensible `fmt ` chunk's SubFormat GUID.
+fn subFormatTag(chunk: []const u8) ParseError!u16 {
+    // 16 base bytes + cbSize + validBits + channelMask + a 16-byte GUID.
+    if (chunk.len < 40) return error.BadFmt;
+    if (std.mem.readInt(u16, chunk[16..18], .little) < 22) return error.BadFmt;
+    if (!std.mem.eql(u8, chunk[26..40], &ksdataformat_suffix)) return error.UnsupportedFormat;
+    return std.mem.readInt(u16, chunk[24..26], .little);
 }
 
 fn decodeSample(data: []const u8, bits: u16, format: u16) f32 {
@@ -364,6 +387,51 @@ test "rejects invalid IEEE float bit depth" {
     const wav = w.buffered();
     std.mem.writeInt(u16, wav[20..22], 3, .little);
     try std.testing.expectError(error.UnsupportedBitDepth, parseAlloc(std.testing.allocator, wav));
+}
+
+/// Builds a WAVE_FORMAT_EXTENSIBLE file holding one 16-bit mono sample,
+/// with `sub_tag` as the SubFormat GUID's leading format tag.
+fn writeExtensible(w: *std.Io.Writer, sub_tag: u16, guid_suffix: []const u8) !void {
+    try w.writeAll("RIFF");
+    try w.writeInt(u32, 4 + 8 + 40 + 8 + 2, .little);
+    try w.writeAll("WAVEfmt ");
+    try w.writeInt(u32, 40, .little);
+    try w.writeInt(u16, format_extensible, .little);
+    try w.writeInt(u16, 1, .little);
+    try w.writeInt(u32, 48_000, .little);
+    try w.writeInt(u32, 96_000, .little);
+    try w.writeInt(u16, 2, .little);
+    try w.writeInt(u16, 16, .little);
+    try w.writeInt(u16, 22, .little); // cbSize
+    try w.writeInt(u16, 16, .little); // valid bits
+    try w.writeInt(u32, 4, .little); // channel mask
+    try w.writeInt(u16, sub_tag, .little);
+    try w.writeAll(guid_suffix);
+    try w.writeAll("data");
+    try w.writeInt(u32, 2, .little);
+    try w.writeInt(i16, 16384, .little);
+}
+
+test "accepts WAVE_FORMAT_EXTENSIBLE by reading the SubFormat tag" {
+    var raw: [128]u8 = undefined;
+    var w = std.Io.Writer.fixed(&raw);
+    try writeExtensible(&w, 1, &ksdataformat_suffix);
+
+    const result = try parseAlloc(std.testing.allocator, w.buffered());
+    defer std.testing.allocator.free(result.samples);
+    try std.testing.expectEqual(@as(u32, 48_000), result.sample_rate);
+    try std.testing.expectEqual(@as(usize, 1), result.samples.len);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), result.samples[0], 0.0001);
+}
+
+test "rejects an extensible chunk whose GUID is not a KSDATAFORMAT subtype" {
+    var raw: [128]u8 = undefined;
+    var w = std.Io.Writer.fixed(&raw);
+    // Right length, right leading tag, wrong GUID body: without the suffix
+    // check those two bytes would be read as "PCM" out of any GUID at all.
+    try writeExtensible(&w, 1, &[_]u8{0xAB} ** 14);
+
+    try std.testing.expectError(error.UnsupportedFormat, parseAlloc(std.testing.allocator, w.buffered()));
 }
 
 test "rejects non-finite IEEE float samples" {
