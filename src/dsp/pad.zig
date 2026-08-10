@@ -62,14 +62,14 @@ pub const Pad = struct {
     /// Algorithm used when `stretch_ratio` is not 1. Beats uses short grains
     /// for sharp attacks; tones uses long correlation windows for sustain.
     ///
-    /// Tones by default, on measurement rather than intuition: stretching 96
-    /// files across the reference corpus 1.5x and comparing each result's
-    /// average spectrum with its source, tones matched better in *every*
-    /// category including the drum ones (0.944 against beats' 0.836 overall;
-    /// 0.990 against 0.727 on kicks). The attacks beats exists to protect
-    /// came out no more than 0.3dB sharper by crest factor, which is not
-    /// worth the smearing everywhere else. Beats stays for the material where
-    /// its chopped character is the point.
+    /// Tones by default, measured over the reference corpus at 1.5x: it keeps
+    /// 0.944 of the source's average spectrum against beats' 0.848, and holds
+    /// that lead in every category. Beats earns its place on percussive
+    /// material instead, where it reproduces the right *number* of transients
+    /// - 10% count error against tones' 34% on one-shot percussion, 22%
+    /// against 31% on drum loops - because its short grains repeat less of a
+    /// hit. On mixed loops that flips (39% against 28%), which is why tones is
+    /// the default rather than a per-material guess.
     warp_method: WarpMethod = .tones,
     /// Repeat the play region instead of stopping at its end - see
     /// `LoopMode`. `.off` (the default) is the one-shot behaviour every
@@ -741,7 +741,7 @@ fn renderVoiceStretched(
             st.ideal_src += advance / stretch_ratio;
             const nominal_src = st.ideal_src;
             st.prev_src = prev_src;
-            st.cur_src = searchBestAlign(pad.samples, prev_src, nominal_src, search_r, ha, dir, lo, hi);
+            st.cur_src = searchBestAlign(pad.samples, prev_src, nominal_src, search_r, ha, dir, lo, hi, pad.warp_method, sr);
             st.has_prev = true;
             st.out_in_grain = 0;
         }
@@ -815,6 +815,49 @@ fn renderVoiceStretched(
 /// most smoothly from where the outgoing one left off. Falls back to
 /// `nominal_src` unchanged when `search_r` rounds to zero (degenerate sample
 /// rate).
+/// How much louder a millisecond has to be than the one before it to count as
+/// an attack rather than ordinary level movement. 6dB per millisecond: a drum
+/// hit clears it easily, a bowed or blown note never does.
+const transient_energy_ratio: f64 = 4.0;
+
+/// Position of the sharpest attack inside the search window, or null when
+/// nothing in there is one. `beats` puts its grain boundary here so the
+/// attack is copied whole rather than spliced through the middle - which is
+/// the difference between a beats mode and merely short grains.
+///
+/// Millisecond buckets and one pass, because this runs per grain hop on the
+/// audio thread: at the beats hop that is 125 times a second per voice.
+fn findTransient(samples: []const f32, nominal_src: f64, search_r: f64, sr: f64, lo: f64, hi: f64) ?f64 {
+    const bucket = @max(1.0, 0.001 * sr);
+    const first = @max(lo, nominal_src - search_r - bucket);
+    const last = @min(hi - 1.0, nominal_src + search_r);
+    if (last - first < bucket * 2.0) return null;
+
+    var best_ratio: f64 = transient_energy_ratio;
+    var best_at: ?f64 = null;
+    var prev_energy: f64 = -1.0;
+    var at = first;
+    while (at + bucket <= last) : (at += bucket) {
+        var energy: f64 = 0;
+        var j: f64 = 0;
+        while (j < bucket) : (j += 1) {
+            const s: f64 = sampleAt(samples, std.math.clamp(at + j, lo, hi - 1.0));
+            energy += s * s;
+        }
+        if (prev_energy >= 0.0) {
+            const ratio = energy / (prev_energy + 1e-12);
+            // The boundary between the quiet bucket and the loud one is where
+            // the attack starts, so that is where the grain begins.
+            if (ratio > best_ratio and at >= nominal_src - search_r) {
+                best_ratio = ratio;
+                best_at = at;
+            }
+        }
+        prev_energy = energy;
+    }
+    return best_at;
+}
+
 fn searchBestAlign(
     samples: []const f32,
     prev_src: f64,
@@ -824,7 +867,18 @@ fn searchBestAlign(
     dir: f64,
     lo: f64,
     hi: f64,
+    method: WarpMethod,
+    sr: f64,
 ) f64 {
+    // Beats snaps to an attack when the window holds one. Forward playback
+    // only: reversed, the energy step is the tail of a hit rather than its
+    // start, and snapping there would cut the decay instead of protecting
+    // anything.
+    if (method == .beats and dir > 0.0) {
+        if (findTransient(samples, nominal_src, search_r, sr, lo, hi)) |at| {
+            return std.math.clamp(at, lo, hi - 1.0);
+        }
+    }
     const hop_i: usize = @intFromFloat(@max(1.0, @round(hop)));
     const steps: i64 = @intFromFloat(@round(search_r));
     // Long tone windows need half-rate correlation to keep audio-thread cost bounded.
@@ -1101,8 +1155,8 @@ test "renderVoice keeps its cursor when stretch changes during playback" {
 
 test "WSOLA alignment stays inside the trimmed sample region" {
     const samples = [_]f32{0.0} ** 100;
-    try std.testing.expectEqual(@as(f64, 20.0), searchBestAlign(&samples, 30.0, -10.0, 2.0, 10.0, 1.0, 20.0, 80.0));
-    try std.testing.expectEqual(@as(f64, 79.0), searchBestAlign(&samples, 30.0, 100.0, 2.0, 10.0, 1.0, 20.0, 80.0));
+    try std.testing.expectEqual(@as(f64, 20.0), searchBestAlign(&samples, 30.0, -10.0, 2.0, 10.0, 1.0, 20.0, 80.0, .tones, 48_000.0));
+    try std.testing.expectEqual(@as(f64, 79.0), searchBestAlign(&samples, 30.0, 100.0, 2.0, 10.0, 1.0, 20.0, 80.0, .tones, 48_000.0));
 }
 
 test "the per-pad LFO offsets exactly the field mod_dest names; .off changes nothing" {
@@ -1363,4 +1417,26 @@ test "a loop replays the region only while something can end the voice" {
     blocks = 0;
     while (blocks < 60) : (blocks += 1) renderVoice(&stretched, &pad, &buf, 2, 256, 48_000.0);
     try std.testing.expect(stretched.active);
+}
+
+test "beats grains start on an attack instead of splicing through it" {
+    const sr: f64 = 48_000;
+    var samples = [_]f32{0.0} ** 4800;
+    // A hit at frame 2400: silence, then a loud burst.
+    for (samples[2400..2600], 0..) |*s, i| {
+        const d = @as(f32, @floatFromInt(i)) / 200.0;
+        s.* = @exp(-d * 6.0) * @sin(@as(f32, @floatFromInt(i)) * 0.4);
+    }
+
+    // A nominal target 1ms before the hit, with the hit inside the search
+    // window: beats snaps forward onto it, tones follows its correlation.
+    const nominal = 2352.0;
+    const search_r = 0.003 * sr;
+    const snapped = searchBestAlign(&samples, 1000.0, nominal, search_r, 0.016 * sr, 1.0, 0.0, @floatFromInt(samples.len), .beats, sr);
+    try std.testing.expectApproxEqAbs(@as(f64, 2400.0), snapped, 48.0);
+
+    // Nothing to snap to in a window with no attack: the correlation search
+    // decides, as before.
+    const flat = searchBestAlign(&samples, 1000.0, 600.0, search_r, 0.016 * sr, 1.0, 0.0, @floatFromInt(samples.len), .beats, sr);
+    try std.testing.expect(@abs(flat - 600.0) <= search_r);
 }
