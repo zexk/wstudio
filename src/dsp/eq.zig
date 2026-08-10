@@ -460,8 +460,8 @@ pub const ParametricEq = struct {
     /// catch every band's bump without being a per-sample cost (this only
     /// runs when a band's params change, not per block).
     const auto_gain_probe_freqs = [_]f32{
-        25,   32,   40,   50,   63,   80,   100,  125,   160,   200,
-        250,  315,  400,  500,  630,  800,  1000, 1250,  1600,  2000,
+        25,   32,   40,   50,   63,   80,   100,   125,   160,   200,
+        250,  315,  400,  500,  630,  800,  1000,  1250,  1600,  2000,
         2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000,
     };
 

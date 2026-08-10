@@ -45,19 +45,21 @@ pub fn ensureEqAnalyzer(app: anytype, target: spectrum_ed.EqTarget, unit: ?*ws.F
         .group => 0x30000 | @as(u32, app.core.eq_group),
     };
     if (app.eq_analyzer_key == key) return;
-    _ = app.core.session.engine.send(.{ .set_spectrum_active = .{
-        .source = switch (target) {
-            .track => .track,
-            .master => .master,
-            .group => .group,
+    _ = app.core.session.engine.send(.{
+        .set_spectrum_active = .{
+            .source = switch (target) {
+                .track => .track,
+                .master => .master,
+                .group => .group,
+            },
+            .track = if (target == .track) app.core.eq_track else 0,
+            .group = if (target == .group) app.core.eq_group else 0,
+            // See `dsp.Device.ptr`'s doc comment on `FxUnit.device` - matching
+            // on the unit itself is what lets the engine tap pre/post around
+            // exactly this EQ instance.
+            .target = unit,
         },
-        .track = if (target == .track) app.core.eq_track else 0,
-        .group = if (target == .group) app.core.eq_group else 0,
-        // See `dsp.Device.ptr`'s doc comment on `FxUnit.device` - matching
-        // on the unit itself is what lets the engine tap pre/post around
-        // exactly this EQ instance.
-        .target = unit,
-    } });
+    });
     app.eq_analyzer_key = key;
 }
 
