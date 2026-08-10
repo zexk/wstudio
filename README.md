@@ -32,9 +32,12 @@ On Linux, devShell also supplies Odin 2 for CLAP checks and LSP Plugins for
 VST3 checks. Launch either frontend with
 `-u tools/plugin_test_init.lua` to scan only those known plugins.
 
-Without Nix, install Zig 0.16 and ALSA development libraries (Linux only)
-and build the same way; see [CONTRIBUTING.md](CONTRIBUTING.md) for the
-full development setup. Once running: `enter` on a blank track opens the
+Without Nix, install Zig 0.16, libsndfile, speexdsp, Lua 5.4 and, on Linux,
+the ALSA development libraries, then build the same way; see
+[CONTRIBUTING.md](CONTRIBUTING.md) for the full development setup. The Linux
+release tarball links libsndfile dynamically, so a distribution package of it
+(`libsndfile1` on Debian and Ubuntu) has to be present to run it; the Windows
+archive carries its own DLLs. Once running: `enter` on a blank track opens the
 instrument picker, `space` plays/stops, and `:help` lists every command.
 Choosing `Acoustic` starts on the bundled grand piano. Use `:library <name>`
 or press `f` to browse bundled pianos, organ, harp, mallets, and kalimba.

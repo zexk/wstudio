@@ -204,6 +204,12 @@
                 lsp-plugins
               ];
           }
+          // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+            # `zig build -Dtarget=x86_64-macos` on an Apple Silicon runner,
+            # which the release workflow does, is a cross build by
+            # architecture and needs Intel copies of these libraries.
+            WSTUDIO_TARGET_PREFIX = targetPrefix pkgs.pkgsx86_64Darwin;
+          }
           // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
             # `zig build -Dtarget=x86_64-windows-gnu` from this shell, which is
             # what CI does, needs the mingw copies rather than the host ones.
