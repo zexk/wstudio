@@ -106,9 +106,9 @@ pub fn iconFontDir(buf: []u8) ![]const u8 {
     return error.NoFontDir;
 }
 
-/// An 18-glyph subset of "Symbols Nerd Font Mono" (MIT; see
-/// assets/fonts/LICENSE) used for the TUI's icons (tui/icons.zig). Exposed
-/// here - rather than embedded directly in tui/icons.zig - so the
+/// A 22-glyph subset of "Symbols Nerd Font Mono" (MIT; see
+/// assets/fonts/LICENSE) used for the TUI's icons (ui/icons.zig). Exposed
+/// here - rather than embedded directly in ui/icons.zig - so the
 /// `install-font` build tool can reach it too: @embedFile can't cross a
 /// module's root, and tools only import this "wstudio" module, not raw
 /// paths under src/tui/.

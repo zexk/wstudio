@@ -17,15 +17,6 @@ const App = app_mod.App;
 const gl = zopengl.bindings;
 const theme = &gui_style.palette;
 
-const icon_glyph_ranges = [_]zgui.Wchar{
-    0xec1a,  0xec1a,  0xee32,  0xee32,  0xef9d,  0xef9d,
-    0xf005,  0xf005,  0xf025,  0xf025,  0xf04b,  0xf04d,
-    0xf071,  0xf071,  0xf0c7,  0xf0c7,  0xf1de,  0xf1de,
-    0xf0190, 0xf0190, 0xf02d7, 0xf02d7, 0xf0333, 0xf0333,
-    0xf0547, 0xf0547, 0xf075f, 0xf075f, 0xf07da, 0xf07da,
-    0xf0bd1, 0xf0bd1, 0xf0ea2, 0xf0ea2, 0,
-};
-
 /// Keep the window title on the project that is actually open. It used to be
 /// set once, from the command-line path, so it went stale the moment the
 /// project changed - `:e`, `:w <newname>`, `:new`. `last`/`last_len` hold the
@@ -260,13 +251,22 @@ fn configureFonts(size: f32) void {
     text_config.oversample_v = 2;
     const text_font = zgui.io.addFontFromMemoryWithConfig(ws.gui_font_ttf, size, text_config, null);
 
+    // Merged as a second source of the same ImFont: a codepoint the text
+    // font doesn't have (every icon is a Private Use Area one) falls
+    // through to this one. No glyph range list - since ImGui 1.92 the atlas
+    // rasterizes glyphs on demand and `ImFontConfig.GlyphRanges` is only
+    // consulted by the legacy pre-bake path, which the OpenGL3 backend
+    // opts out of with `ImGuiBackendFlags_RendererHasTextures`. The list
+    // that used to sit here was dead weight that still had to be kept in
+    // sync with `ui/icons.zig` by hand, and had already drifted four icons
+    // behind it.
     var icon_config = zgui.FontConfig.init();
     icon_config.font_data_owned_by_atlas = false;
     icon_config.merge_mode = true;
     icon_config.pixel_snap_h = true;
     icon_config.pixel_snap_v = true;
     icon_config.glyph_min_advance_x = size;
-    _ = zgui.io.addFontFromMemoryWithConfig(ws.icon_font_ttf, size, icon_config, &icon_glyph_ranges);
+    _ = zgui.io.addFontFromMemoryWithConfig(ws.icon_font_ttf, size, icon_config, null);
     zgui.io.setDefaultFont(text_font);
 }
 
