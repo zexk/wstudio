@@ -21,7 +21,6 @@ pub fn build(b: *std.Build) void {
     });
     const lua_dep = b.dependency("lua", .{});
     const lua = buildLua(b, lua_dep, target, optimize);
-    const dr_libs_dep = b.dependency("dr_libs", .{});
 
     // The engine as a reusable library module. Frontends import this and
     // never reach into engine internals.
@@ -30,13 +29,14 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    wstudio_mod.addIncludePath(dr_libs_dep.path(""));
-    wstudio_mod.addCSourceFile(.{ .file = b.path("src/vendor/dr_flac.c"), .flags = &.{"-std=c99"} });
-    wstudio_mod.addCSourceFile(.{ .file = b.path("src/vendor/dr_wav.c"), .flags = &.{"-std=c99"} });
-    // Sinc resampling for sample loads (dsp/pad.zig). A system library, like
-    // asound below: nix supplies it through buildInputs, and zig picks the
-    // paths up from NIX_CFLAGS_COMPILE/NIX_LDFLAGS. Statically, so a
-    // downloaded build does not need the user to have installed it.
+    // Sample decoding (core/audio_file.zig) and sinc resampling for sample
+    // loads (dsp/pad.zig). System libraries, like asound below: nix supplies
+    // them through buildInputs, and zig picks the paths up from
+    // NIX_CFLAGS_COMPILE/NIX_LDFLAGS.
+    wstudio_mod.linkSystemLibrary("sndfile", .{});
+    // Static, so a downloaded build does not need the user to have installed
+    // it. libsndfile stays dynamic: static would drag in its whole codec
+    // chain (FLAC, ogg, vorbis, opus, mpg123, lame) by hand.
     wstudio_mod.linkSystemLibrary("speexdsp", .{ .preferred_link_mode = .static });
     // Those nix variables describe the *host*, so a cross-compiled target
     // needs its own prefix pointed at explicitly - flake.nix exports this for
@@ -47,8 +47,8 @@ pub fn build(b: *std.Build) void {
             wstudio_mod.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ prefix, "lib" }) });
         }
     }
-    // dr_flac/dr_wav above need libc on every target, not just the two that
-    // link a system audio API.
+    // Needed on every target for the two C libraries above, not just the two
+    // targets that link a system audio API.
     wstudio_mod.link_libc = true;
     if (target.result.os.tag == .linux) {
         wstudio_mod.linkSystemLibrary("asound", .{});

@@ -4496,7 +4496,7 @@ test "loadWavetable: replaces a slot's table, marks it user-imported, leaves old
     try std.testing.expectEqual(true, synth.osc_b_wt_user);
     try std.testing.expectEqual(@as(usize, 2), synth.osc_b_wt.frame_count);
 
-    try std.testing.expectError(error.NotWav, synth.loadWavetable(.b, "not a wav at all!!"));
+    try std.testing.expectError(error.NotAudioFile, synth.loadWavetable(.b, "not a wav at all!!"));
     try std.testing.expectEqual(@as(usize, 2), synth.osc_b_wt.frame_count);
 }
 

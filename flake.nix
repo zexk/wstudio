@@ -23,16 +23,17 @@
         pkgs.speexdsp.overrideAttrs (old: {
           configureFlags = (old.configureFlags or [ ]) ++ [ "--enable-static" ];
         });
-      # One prefix holding both the headers and the archive, since build.zig
+      audioLibs = pkgs: [
+        (speexdsp pkgs)
+        pkgs.libsndfile
+      ];
+      # One prefix holding both the headers and the libraries, since build.zig
       # points a cross-compile at a single directory.
       targetPrefix =
         pkgs:
         pkgs.symlinkJoin {
           name = "wstudio-target-prefix";
-          paths = [
-            (speexdsp pkgs)
-            (speexdsp pkgs).dev
-          ];
+          paths = audioLibs pkgs ++ map (p: p.dev) (audioLibs pkgs);
         };
       neutralTerminal =
         pkgs:
@@ -58,25 +59,24 @@
           src = self;
           zigDeps = pkgs.zig.fetchDeps {
             inherit (finalAttrs) pname version src;
-            hash = "sha256-TgPyqDa597SHF73XU2QriuWwb8AtWLtimaUBJWjB5/Y=";
+            hash = "sha256-U4HA3J4+mxUbSMWyr6W3JjWa1TthohTYCGJnzZR2qFQ=";
           };
           nativeBuildInputs = [
             pkgs.zig.hook
             pkgs.pkg-config
             pkgs.installShellFiles
           ];
-          buildInputs = [
-            (speexdsp pkgs)
-          ]
-          ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
-            pkgs.alsa-lib
-            pkgs.libGL
-            pkgs.libx11
-            pkgs.libxcursor
-            pkgs.libxi
-            pkgs.libxinerama
-            pkgs.libxrandr
-          ];
+          buildInputs =
+            audioLibs pkgs
+            ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+              pkgs.alsa-lib
+              pkgs.libGL
+              pkgs.libx11
+              pkgs.libxcursor
+              pkgs.libxi
+              pkgs.libxinerama
+              pkgs.libxrandr
+            ];
           postConfigure = ''ln -s ${finalAttrs.zigDeps} "$ZIG_GLOBAL_CACHE_DIR/p"'';
           postInstall = ''
             installManPage docs/wstudio.1
@@ -130,7 +130,7 @@
           src = self;
           zigDeps = pkgs.zig.fetchDeps {
             inherit (finalAttrs) pname version src;
-            hash = "sha256-TgPyqDa597SHF73XU2QriuWwb8AtWLtimaUBJWjB5/Y=";
+            hash = "sha256-U4HA3J4+mxUbSMWyr6W3JjWa1TthohTYCGJnzZR2qFQ=";
           };
           nativeBuildInputs = [ pkgs.zig.hook ];
           SDKROOT = sdk.sdkroot;
@@ -165,8 +165,8 @@
                 zig
                 zls
                 pkg-config
-                (speexdsp pkgs)
               ]
+              ++ audioLibs pkgs
               ++ lib.optionals stdenv.hostPlatform.isLinux [
                 alsa-lib
                 libGL
@@ -183,7 +183,7 @@
           }
           // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
             # `zig build -Dtarget=x86_64-windows-gnu` from this shell, which is
-            # what CI does, needs the mingw speexdsp rather than the host one.
+            # what CI does, needs the mingw copies rather than the host ones.
             WSTUDIO_TARGET_PREFIX = targetPrefix pkgs.pkgsCross.mingwW64;
             CLAP_PATH = "${pkgs.odin2}/lib/clap";
             WSTUDIO_TEST_CLAP_PATH = "${pkgs.odin2}/lib/clap";
@@ -208,7 +208,7 @@
           src = self;
           zigDeps = pkgs.zig.fetchDeps {
             inherit (finalAttrs) pname version src;
-            hash = "sha256-TgPyqDa597SHF73XU2QriuWwb8AtWLtimaUBJWjB5/Y=";
+            hash = "sha256-U4HA3J4+mxUbSMWyr6W3JjWa1TthohTYCGJnzZR2qFQ=";
           };
           nativeBuildInputs = [ pkgs.zig.hook ];
           # Not buildInputs: those set the host's NIX_CFLAGS, and this build

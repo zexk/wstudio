@@ -1,20 +1,19 @@
-//! WAV (RIFF) I/O: write 16- or 24-bit PCM for export, parse WAVs for sample
-//! loading.
+//! WAV (RIFF) writing: 16- or 24-bit PCM for export. Ours because bounce
+//! streams to disk and needs the exact final header up front.
 //!
-//! Writing is ours because bounce streams to disk and needs the exact final
-//! header up front. Reading is dr_wav's: a hand-written parser has to be
-//! strict to be safe, and strict is wrong here - commercial packs ship files
-//! with trailing metadata chunks, stale RIFF sizes, and format tags hidden in
-//! a WAVE_FORMAT_EXTENSIBLE GUID, all of which are ordinary PCM that a user
-//! expects to load. dr_wav also decodes A-law, mu-law and ADPCM for free.
+//! Reading lives in `core/audio_file.zig` and is libsndfile's, so it covers
+//! every format rather than only this one. Its parse functions are re-exported
+//! here, keeping the call sites that only ever load WAVs reading the way they
+//! always did.
 
 const std = @import("std");
 const types = @import("types.zig");
+const audio_file = @import("audio_file.zig");
 
-const c = @cImport({
-    @cDefine("DR_WAV_NO_STDIO", {});
-    @cInclude("dr_wav.h");
-});
+pub const ParseError = audio_file.ParseError;
+pub const ReadResult = audio_file.ReadResult;
+pub const parseAlloc = audio_file.parseAlloc;
+pub const parseInterleavedAlloc = audio_file.parseInterleavedAlloc;
 
 /// Output PCM bit depth for `write`.
 pub const BitDepth = enum(u16) { pcm16 = 16, pcm24 = 24 };
@@ -90,74 +89,6 @@ pub fn write(
     var stream = try StreamWriter.init(w, sample_rate, channel_count, samples.len, bit_depth);
     try stream.writeSamples(samples);
     try stream.finish();
-}
-
-// ---------------------------------------------------------------------------
-// Reader
-
-pub const ParseError = error{
-    NotWav,
-    BadFmt,
-    NoData,
-};
-
-pub const ReadResult = struct {
-    /// Mono f32 samples, regardless of the WAV's channel count.
-    /// Caller must free with the same allocator.
-    samples: []f32,
-    sample_rate: u32,
-    channel_count: u16 = 1,
-};
-
-/// Parse a WAV file from raw bytes, mixing every channel down to mono.
-pub fn parseAlloc(
-    allocator: std.mem.Allocator,
-    data: []const u8,
-) (ParseError || std.mem.Allocator.Error)!ReadResult {
-    return parseAllocMode(allocator, data, true);
-}
-
-pub fn parseInterleavedAlloc(allocator: std.mem.Allocator, data: []const u8) (ParseError || std.mem.Allocator.Error)!ReadResult {
-    return parseAllocMode(allocator, data, false);
-}
-
-fn parseAllocMode(allocator: std.mem.Allocator, data: []const u8, downmix: bool) (ParseError || std.mem.Allocator.Error)!ReadResult {
-    var wav: c.drwav = undefined;
-    if (c.drwav_init_memory(&wav, data.ptr, data.len, null) == 0) return error.NotWav;
-    defer _ = c.drwav_uninit(&wav);
-    if (wav.channels == 0 or wav.sampleRate == 0) return error.BadFmt;
-    if (wav.totalPCMFrameCount == 0) return error.NoData;
-    const channels: usize = wav.channels;
-    if (wav.totalPCMFrameCount > std.math.maxInt(usize) / channels) return error.BadFmt;
-
-    const frames: usize = @intCast(wav.totalPCMFrameCount);
-    // Read interleaved either way: the downmix pass needs every channel, and
-    // when it is off this buffer is already the result.
-    const interleaved = try allocator.alloc(f32, frames * channels);
-    errdefer allocator.free(interleaved);
-    const read: usize = @intCast(c.drwav_read_pcm_frames_f32(&wav, wav.totalPCMFrameCount, interleaved.ptr));
-    if (read == 0) return error.NoData;
-    // A truncated data chunk decodes to fewer frames than the header claimed.
-    const decoded = interleaved[0 .. read * channels];
-    for (decoded) |sample| if (!std.math.isFinite(sample)) return error.BadFmt;
-
-    if (!downmix) {
-        return .{
-            .samples = if (read == frames) interleaved else try allocator.realloc(interleaved, decoded.len),
-            .sample_rate = wav.sampleRate,
-            .channel_count = @intCast(channels),
-        };
-    }
-
-    const mono = try allocator.alloc(f32, read);
-    errdefer allocator.free(mono);
-    for (mono, 0..) |*out, frame| {
-        var sum: f32 = 0;
-        for (0..channels) |channel| sum += decoded[frame * channels + channel];
-        out.* = sum / @as(f32, @floatFromInt(channels));
-    }
-    allocator.free(interleaved);
-    return .{ .samples = mono, .sample_rate = wav.sampleRate, .channel_count = 1 };
 }
 
 /// WAVE_FORMAT_EXTENSIBLE. Plain PCM or float audio wearing a longer `fmt `

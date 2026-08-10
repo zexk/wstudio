@@ -1,12 +1,11 @@
 //! Bounded SFZ reader. It resolves SFZ global/group/region inheritance and
-//! external WAV samples into the same flat sample bank used by SF2 playback.
+//! external samples into the same flat sample bank used by SF2 playback.
 //! Unsupported performance features fail or collapse explicitly instead of
 //! claiming full SFZ compatibility.
 
 const std = @import("std");
 const pad_dsp = @import("pad.zig");
-const flac = @import("../core/flac.zig");
-const wav = @import("../core/wav.zig");
+const audio_file = @import("../core/audio_file.zig");
 const sample_bank = @import("soundfont.zig");
 
 const Region = sample_bank.Region;
@@ -18,7 +17,6 @@ pub const ParseError = error{
     Malformed,
     MissingSample,
     UnsupportedOpcode,
-    UnsupportedSampleFormat,
     InvalidValue,
     InvalidPath,
     SampleTooLarge,
@@ -132,14 +130,9 @@ fn appendRegion(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, sampl
     if (std.fs.path.isAbsolute(path) or std.mem.indexOf(u8, path, "..") != null) return error.InvalidPath;
     const bytes = try dir.readFileAlloc(io, path, allocator, .limited(256 * 1024 * 1024));
     defer allocator.free(bytes);
-    const Raw = struct { samples: []f32, sample_rate: u32 };
-    const raw: Raw = if (std.ascii.endsWithIgnoreCase(path, ".wav")) blk: {
-        const decoded = try wav.parseAlloc(allocator, bytes);
-        break :blk .{ .samples = decoded.samples, .sample_rate = decoded.sample_rate };
-    } else if (std.ascii.endsWithIgnoreCase(path, ".flac")) blk: {
-        const decoded = try flac.parseAlloc(allocator, bytes);
-        break :blk .{ .samples = decoded.samples, .sample_rate = decoded.sample_rate };
-    } else return error.UnsupportedSampleFormat;
+    // Whatever libsndfile makes of the bytes, rather than a branch per
+    // extension: an SFZ pack can point at any of the formats it reads.
+    const raw = try audio_file.parseAlloc(allocator, bytes);
     defer allocator.free(raw.samples);
     const offset: usize = @min(s.offset, raw.samples.len);
     const decoded = try pad_dsp.resample(allocator, raw.samples[offset..], raw.sample_rate, sample_rate);

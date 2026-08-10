@@ -20,10 +20,6 @@
             .url = "https://www.lua.org/ftp/lua-5.4.8.tar.gz",
             .hash = "N-V-__8AAKEzFAAA695b9LXBhUSVK5MAV_VKSm1mEj3Acbze",
         },
-        .dr_libs = .{
-            .url = "https://github.com/mackron/dr_libs/archive/50bb723e6a459dbb781e26cefee4fd9ca6714d6a.tar.gz",
-            .hash = "N-V-__8AAMMUEwCUfVo4P7oAKh1BQxRJ4J1OvUSXB3beJayi",
-        },
     },
     .paths = .{
         "build.zig",
