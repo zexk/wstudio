@@ -299,14 +299,14 @@ pub fn draw(
             const x = grid_x + @as(f32, @floatFromInt(step)) * cell_w;
             const y = grid_y + @as(f32, @floatFromInt(display_row)) * row_h;
             draw_list.addRect(.{ .pmin = .{ x + 1, y + 1 }, .pmax = .{ x + cell_w - 1, y + row_h - 1 }, .col = color(theme.modulation), .thickness = 1.5 });
-            // Pre-cast to the exact type DrumMachine/Slicer's step API wants
-            // (u16/u8 respectively) - shared_step_grid.setStep's `step`
-            // param is `anytype`, so it forwards whatever type it's given
-            // straight into `inst.stepActive`/`toggleStep` with no coercion
-            // of its own, unlike the `instrument.toggleStep(@intCast(step))`
-            // calls elsewhere in this file, which resolve their own target
-            // type directly from the concrete (non-generic) method.
-            const step_t = if (kind == .drum) @as(u16, @intCast(step)) else @as(u8, @intCast(step));
+            // Pre-cast to the u16 both machines' step API takes -
+            // shared_step_grid.setStep's `step` param is `anytype`, so it
+            // forwards whatever type it's given straight into
+            // `inst.stepActive`/`toggleStep` with no coercion of its own,
+            // unlike the `instrument.toggleStep(@intCast(step))` calls
+            // elsewhere in this file, which resolve their own target type
+            // directly from the concrete (non-generic) method.
+            const step_t: u16 = @intCast(step);
 
             // Press starts a paint session: left toggles (remembering the
             // resulting state so a drag repeats it), right always forces the
