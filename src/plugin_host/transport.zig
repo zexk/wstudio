@@ -190,22 +190,26 @@ pub const SharedBlock = extern struct {
 /// audio thread and the reaper/tick threads this module runs on don't have
 /// one and shouldn't need one for a plain clock read, so this calls the
 /// same syscall `Io.Threaded`'s `awake` clock uses directly.
-/// Linux-only, matching this whole subsystem's platform scope.
+///
+/// Through `std.posix.system`, not `std.os.linux`: the sandbox this module
+/// serves is Linux-only, but the module is compiled and unit-tested on every
+/// platform, and raw Linux syscall numbers on macOS return nonsense that made
+/// the `@intCast` below panic.
 pub fn monotonicNs() u64 {
-    var ts: std.os.linux.timespec = undefined;
-    _ = std.os.linux.clock_gettime(.MONOTONIC, &ts);
+    var ts: std.posix.timespec = undefined;
+    if (std.posix.errno(std.posix.system.clock_gettime(.MONOTONIC, &ts)) != .SUCCESS) return 0;
     return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
 }
 
 /// Raw sleep, same rationale as `monotonicNs`: `std.Thread.sleep`/`Io.sleep`
 /// both need an `Io` in this build, which the child's tick loop doesn't
-/// otherwise carry. Linux-only.
+/// otherwise carry.
 pub fn sleepNs(ns: u64) void {
-    const ts: std.os.linux.timespec = .{
+    const ts: std.posix.timespec = .{
         .sec = @intCast(ns / std.time.ns_per_s),
         .nsec = @intCast(ns % std.time.ns_per_s),
     };
-    _ = std.os.linux.nanosleep(&ts, null);
+    _ = std.posix.system.nanosleep(&ts, null);
 }
 
 /// Busy-wait (spin, then yield in short bursts) until `predicate.check()`
