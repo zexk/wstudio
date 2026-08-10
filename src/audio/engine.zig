@@ -2844,7 +2844,12 @@ test "renderTracks routes a compressor's sidechain detector from a single drum p
     defer bass.deinit();
     var comp = testCompressor(-30.0);
 
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    // On the heap through `initInPlace`: this test already holds a synth and
+    // a drum machine as locals, and an `Engine` by value on top of them is
+    // over a megabyte of stack frame that macOS crashed on.
+    const engine = try std.testing.allocator.create(Engine);
+    defer std.testing.allocator.destroy(engine);
+    try Engine.initInPlace(engine, std.testing.allocator, 48_000);
     defer engine.deinit();
     var drum = try testDrumMachine(&engine.transport);
     defer drum.deinit();

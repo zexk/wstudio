@@ -18,6 +18,7 @@
 //! profiling shows idle bridged plugins burning a noticeable core each.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const types = @import("../core/types.zig");
 const device_mod = @import("../dsp/device.zig");
 const transport_mod = @import("../transport.zig");
@@ -191,25 +192,44 @@ pub const SharedBlock = extern struct {
 /// one and shouldn't need one for a plain clock read, so this calls the
 /// same syscall `Io.Threaded`'s `awake` clock uses directly.
 ///
-/// Through `std.posix.system`, not `std.os.linux`: the sandbox this module
-/// serves is Linux-only, but the module is compiled and unit-tested on every
-/// platform, and raw Linux syscall numbers on macOS return nonsense that made
-/// the `@intCast` below panic.
+/// Per OS, not through `std.os.linux`: the sandbox this module serves is
+/// Linux-only, but the module is compiled and unit-tested on every platform.
+/// Raw Linux syscall numbers on macOS returned nonsense that made the
+/// `@intCast` below panic, and Windows has no `clock_gettime` at all.
 pub fn monotonicNs() u64 {
-    var ts: std.posix.timespec = undefined;
-    if (std.posix.errno(std.posix.system.clock_gettime(.MONOTONIC, &ts)) != .SUCCESS) return 0;
-    return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
+    switch (builtin.os.tag) {
+        .windows => {
+            var frequency: u64 = 0;
+            var counter: u64 = 0;
+            if (!std.os.windows.ntdll.RtlQueryPerformanceFrequency(@ptrCast(&frequency)).toBool()) return 0;
+            if (!std.os.windows.ntdll.RtlQueryPerformanceCounter(@ptrCast(&counter)).toBool()) return 0;
+            if (frequency == 0) return 0;
+            return @intCast(@divTrunc(@as(u128, counter) * std.time.ns_per_s, frequency));
+        },
+        else => {
+            var ts: std.posix.timespec = undefined;
+            if (std.posix.errno(std.posix.system.clock_gettime(.MONOTONIC, &ts)) != .SUCCESS) return 0;
+            return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
+        },
+    }
 }
 
 /// Raw sleep, same rationale as `monotonicNs`: `std.Thread.sleep`/`Io.sleep`
 /// both need an `Io` in this build, which the child's tick loop doesn't
 /// otherwise carry.
 pub fn sleepNs(ns: u64) void {
-    const ts: std.posix.timespec = .{
-        .sec = @intCast(ns / std.time.ns_per_s),
-        .nsec = @intCast(ns % std.time.ns_per_s),
-    };
-    _ = std.posix.system.nanosleep(&ts, null);
+    switch (builtin.os.tag) {
+        // Millisecond granularity is all Sleep offers, rounded up so a short
+        // request never becomes a busy spin.
+        .windows => std.os.windows.kernel32.Sleep(@intCast((ns + std.time.ns_per_ms - 1) / std.time.ns_per_ms)),
+        else => {
+            const ts: std.posix.timespec = .{
+                .sec = @intCast(ns / std.time.ns_per_s),
+                .nsec = @intCast(ns % std.time.ns_per_s),
+            };
+            _ = std.posix.system.nanosleep(&ts, null);
+        },
+    }
 }
 
 /// Busy-wait (spin, then yield in short bursts) until `predicate.check()`

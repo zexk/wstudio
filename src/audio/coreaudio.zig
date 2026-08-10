@@ -304,7 +304,9 @@ pub const CoreAudioCapture = struct {
         _: ?*AudioBufferList,
     ) callconv(.c) OSStatus {
         const self: *CoreAudioCapture = @ptrCast(@alignCast(context.?));
-        if (frames > self.buffer.len) return -50;
+        // `buffer` counts samples, not frames, so the interleaved render
+        // below needs `frames * channel_count` of room in it.
+        if (frames * capture_types.channel_count > self.buffer.len) return -50;
 
         var buffers = AudioBufferList{
             .mNumberBuffers = 1,
@@ -320,11 +322,14 @@ pub const CoreAudioCapture = struct {
         var offset: usize = 0;
         while (offset < frames) {
             var block: CaptureBlock = .{};
-            const count = @min(capture_types.chunk_frames, frames - offset);
+            // Annotated, because `@min` against a comptime-known bound
+            // narrows the result to the smallest type holding it - and
+            // `count * channel_count` then overflows that type.
+            const count: usize = @min(capture_types.chunk_frames, frames - offset);
             const sample_count = count * capture_types.channel_count;
             const sample_offset = offset * capture_types.channel_count;
             @memcpy(block.samples[0..sample_count], self.buffer[sample_offset..][0..sample_count]);
-            block.frames = count;
+            block.frames = @intCast(count);
             block.channels = capture_types.channel_count;
             block.start_frame = self.next_frame;
             self.next_frame += block.frames;
