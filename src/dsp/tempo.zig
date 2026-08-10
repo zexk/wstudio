@@ -24,6 +24,15 @@ pub const Result = struct {
 /// while a held tone, whose flux is only the STFT's own frame-to-frame
 /// leakage jitter, scores ~2. Sitting an order of magnitude above that
 /// leaves both sides room.
+///
+/// It gates "is there a pulse", NOT "is this the right pulse" - don't reach
+/// for it when the detector answers confidently and wrongly. Measured over
+/// one 329-file pack, the confidences of its correct answers (min 10.9,
+/// median 58) and its wrong ones (min 10.8, median 46) are the same
+/// distribution, and every higher threshold discards correct answers at the
+/// rate it blocks wrong ones: at 20 it keeps 41/47 right and 25/37 wrong, at
+/// 300 it keeps 6/47 and 3/37. There is no cut worth making. The fix for a
+/// wrong answer is to not ask the question - see `bpmFromName`.
 const min_confidence: f32 = 10.0;
 
 /// Tempo range searched before folding. Wide, because the fold below pulls
