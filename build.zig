@@ -19,8 +19,15 @@ pub fn build(b: *std.Build) void {
     const init_template_mod = b.createModule(.{
         .root_source_file = b.path("examples/init_template.zig"),
     });
-    const lua_dep = b.dependency("lua", .{});
-    const lua = buildLua(b, lua_dep, target, optimize);
+    // Cross-compiling is the one case where a C library cannot come from nix:
+    // nixpkgs refuses to build Lua for mingw, and `make mingw` inside it fails
+    // even when that refusal is overridden. So the host build links nix's Lua
+    // and a cross build falls back to the source drop in build.zig.zon.
+    // Architecture counts, not just the OS: the release workflow builds
+    // x86_64-macos on an Apple Silicon runner, and the host's libraries are
+    // the wrong machine code for it.
+    const cross_compiling = target.result.os.tag != b.graph.host.result.os.tag or
+        target.result.cpu.arch != b.graph.host.result.cpu.arch;
 
     // The engine as a reusable library module. Frontends import this and
     // never reach into engine internals.
@@ -41,7 +48,7 @@ pub fn build(b: *std.Build) void {
     // Those nix variables describe the *host*, so a cross-compiled target
     // needs its own prefix pointed at explicitly - flake.nix exports this for
     // the Windows target the same way it exports SDKROOT for macOS.
-    if (target.result.os.tag != b.graph.host.result.os.tag) {
+    if (cross_compiling) {
         if (b.graph.environ_map.get("WSTUDIO_TARGET_PREFIX")) |prefix| {
             wstudio_mod.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ prefix, "include" }) });
             wstudio_mod.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ prefix, "lib" }) });
@@ -92,14 +99,20 @@ pub fn build(b: *std.Build) void {
         }),
     });
     if (macos_sdk) |sdk| addMacosFrameworkPath(b, exe.root_module, sdk, macos_cross);
-    exe.root_module.addIncludePath(lua_dep.path("src/"));
-    exe.root_module.linkLibrary(lua);
+    // src/config.zig is the only Lua caller, and it lives in this module.
+    exe.root_module.link_libc = true;
+    if (cross_compiling) {
+        const lua_dep = b.dependency("lua", .{});
+        exe.root_module.addIncludePath(lua_dep.path("src/"));
+        exe.root_module.linkLibrary(buildLua(b, lua_dep, target, optimize));
+    } else {
+        exe.root_module.linkSystemLibrary("lua", .{ .preferred_link_mode = .static });
+    }
     if (win32_icon) |icon| exe.root_module.addWin32ResourceFile(icon);
     // The frontend's own module reaches OS-specific code too (the terminal
     // backend, tui/terminal_windows.zig on Windows) via tui/app.zig - not
     // through the wstudio import - so it needs the same linking/macros.
     if (target.result.os.tag == .windows) {
-        exe.root_module.link_libc = true;
         exe.root_module.addCMacro("_FORTIFY_SOURCE", "0");
     }
     b.installArtifact(exe);

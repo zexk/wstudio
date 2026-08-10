@@ -23,17 +23,21 @@
         pkgs.speexdsp.overrideAttrs (old: {
           configureFlags = (old.configureFlags or [ ]) ++ [ "--enable-static" ];
         });
-      audioLibs = pkgs: [
+      # What a cross-build can get from nixpkgs. Lua is missing on purpose:
+      # nixpkgs will not build it for mingw, so build.zig compiles the source
+      # drop from build.zig.zon when cross-compiling.
+      targetLibs = pkgs: [
         (speexdsp pkgs)
         pkgs.libsndfile
       ];
+      cLibs = pkgs: targetLibs pkgs ++ [ pkgs.lua5_4 ];
       # One prefix holding both the headers and the libraries, since build.zig
       # points a cross-compile at a single directory.
       targetPrefix =
         pkgs:
         pkgs.symlinkJoin {
           name = "wstudio-target-prefix";
-          paths = audioLibs pkgs ++ map (p: p.dev) (audioLibs pkgs);
+          paths = targetLibs pkgs ++ map (p: p.dev) (targetLibs pkgs);
         };
       neutralTerminal =
         pkgs:
@@ -67,7 +71,7 @@
             pkgs.installShellFiles
           ];
           buildInputs =
-            audioLibs pkgs
+            cLibs pkgs
             ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
               pkgs.alsa-lib
               pkgs.libGL
@@ -166,7 +170,7 @@
                 zls
                 pkg-config
               ]
-              ++ audioLibs pkgs
+              ++ cLibs pkgs
               ++ lib.optionals stdenv.hostPlatform.isLinux [
                 alsa-lib
                 libGL
