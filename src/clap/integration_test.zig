@@ -44,6 +44,13 @@ fn runScenario(gpa: std.mem.Allocator, io: std.Io, plugin_path: []const u8) !voi
     try std.testing.expect(try plugin.loadState(state));
     try std.testing.expectEqual(@as(f64, 3), plugin.parameterValue(7).?);
 
+    // A hosted plugin's output is untrusted: non-finite samples never leave
+    // the wrapper, or one of them sticks in the next effect's feedback ring
+    // forever. Gain is 3 here, so the finite sample still passes through.
+    samples = .{ std.math.inf(f32), -std.math.inf(f32), std.math.nan(f32), 0.5 };
+    plugin.device().process(&samples);
+    try std.testing.expectEqualSlices(f32, &.{ 0, 0, 0, 1.5 }, &samples);
+
     const mono = try ws.dsp.ClapPlugin.load(gpa, plugin_path, "studio.wstudio.test.mono", 48_000);
     defer mono.deinit();
     mono.setParameter(7, null, 2);

@@ -40,6 +40,23 @@ pub fn gainToDb(gain: f32) f32 {
     return 20.0 * std.math.log10(gain);
 }
 
+/// Replace every NaN/inf in an audio buffer with silence. For output that
+/// crossed a trust boundary (a hosted CLAP/VST3 plugin): a single non-finite
+/// sample entering a built-in effect's feedback ring or IIR state stays there
+/// forever, so the whole chain downstream of the plugin goes silent until the
+/// transport resets it, long after the offending plugin is gone.
+pub fn scrubNonFinite(buf: []Sample) void {
+    for (buf) |*s| {
+        if (!std.math.isFinite(s.*)) s.* = 0.0;
+    }
+}
+
+test "scrubNonFinite silences only the malformed samples" {
+    var buf = [_]Sample{ 0.5, std.math.nan(f32), -0.25, std.math.inf(f32), -std.math.inf(f32) };
+    scrubNonFinite(&buf);
+    try std.testing.expectEqualSlices(Sample, &.{ 0.5, 0.0, -0.25, 0.0, 0.0 }, &buf);
+}
+
 test "frame/time conversion round-trips" {
     try std.testing.expectEqual(@as(u64, 48_000), secondsToFrames(1.0, 48_000));
     try std.testing.expectApproxEqAbs(@as(f64, 0.5), framesToSeconds(22_050, 44_100), 1e-9);

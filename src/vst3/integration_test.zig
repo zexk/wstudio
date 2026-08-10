@@ -63,6 +63,14 @@ fn runScenario(gpa: std.mem.Allocator, io: std.Io, module_path: []const u8, bund
     effect.processBlock(&effect_audio);
     try std.testing.expectApproxEqAbs(@as(f32, 0.2), effect_audio[0], 0.0001);
 
+    // A hosted plugin's output is untrusted: non-finite samples never leave
+    // the wrapper, or one of them sticks in the next effect's feedback ring
+    // forever.
+    effect_audio = .{ std.math.inf(f32), -std.math.inf(f32), std.math.nan(f32), 0.25 };
+    effect.processBlock(&effect_audio);
+    for (effect_audio[0..3]) |s| try std.testing.expectEqual(@as(f32, 0), s);
+    try std.testing.expect(std.math.isFinite(effect_audio[3]));
+
     var fx: ws.Fx = .{};
     defer fx.deinit(gpa);
     const automated = try fx.insertVst3(gpa, 0, bundle_path, "57535445464645435400000000000001", 48_000);

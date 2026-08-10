@@ -494,6 +494,8 @@ pub const ClapPlugin = struct {
                 self.pending_count = 0;
             },
         }
+        // A third-party plugin's output is untrusted - see `scrubNonFinite`.
+        types.scrubNonFinite(buf);
     }
 
     fn pushPending(self: *ClapPlugin, w: wire.WireEvent) void {
