@@ -22,8 +22,10 @@ jobs:
 
       # Here rather than on Linux: the package links nixpkgs' speexdsp, and
       # nixpkgs cannot cross-build that (or much else) for darwin from Linux.
+      # -L, because a failure here otherwise shows only nix's tail of the log,
+      # which is a few hundred lines of asset installs rather than the error.
       - name: Build Nix package
-        run: nix build .#macos
+        run: nix build .#macos -L
 
   health:
     runs-on: ubuntu-latest
@@ -44,4 +46,4 @@ jobs:
         run: nix develop --command zig build -Dtarget=x86_64-windows-gnu
 
       - name: Build Nix packages
-        run: nix build .#default .#windows
+        run: nix build .#default .#windows -L

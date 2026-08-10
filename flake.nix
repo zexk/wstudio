@@ -209,7 +209,10 @@
             inherit (finalAttrs) pname version src;
             hash = "sha256-U4HA3J4+mxUbSMWyr6W3JjWa1TthohTYCGJnzZR2qFQ=";
           };
-          nativeBuildInputs = [ pkgs.zig.hook ];
+          nativeBuildInputs = [
+            pkgs.zig.hook
+            pkgs.pkg-config
+          ];
           buildInputs = cLibs pkgs;
           SDKROOT = sdk.sdkroot;
           postConfigure = ''ln -s ${finalAttrs.zigDeps} "$ZIG_GLOBAL_CACHE_DIR/p"'';

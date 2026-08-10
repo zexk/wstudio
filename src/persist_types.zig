@@ -253,7 +253,7 @@ pub const PadSnap = struct {
     fade_out_s: f32 = 0.0,
     /// Playback duration multiplier, independent of pitch (see `dsp.Pad`).
     stretch_ratio: f32 = 1.0,
-    warp_method: pad_mod.WarpMethod = .beats,
+    warp_method: pad_mod.WarpMethod = .tones,
     /// Bipolar tone filter and gated-playback flag (see `dsp.Pad`).
     filter: f32 = 0.0,
     gate: bool = false,

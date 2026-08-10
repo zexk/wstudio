@@ -61,7 +61,16 @@ pub const Pad = struct {
     stretch_ratio: f32 = 1.0,
     /// Algorithm used when `stretch_ratio` is not 1. Beats uses short grains
     /// for sharp attacks; tones uses long correlation windows for sustain.
-    warp_method: WarpMethod = .beats,
+    ///
+    /// Tones by default, on measurement rather than intuition: stretching 96
+    /// files across the reference corpus 1.5x and comparing each result's
+    /// average spectrum with its source, tones matched better in *every*
+    /// category including the drum ones (0.944 against beats' 0.836 overall;
+    /// 0.990 against 0.727 on kicks). The attacks beats exists to protect
+    /// came out no more than 0.3dB sharper by crest factor, which is not
+    /// worth the smearing everywhere else. Beats stays for the material where
+    /// its chopped character is the point.
+    warp_method: WarpMethod = .tones,
     /// Repeat the play region instead of stopping at its end - see
     /// `LoopMode`. `.off` (the default) is the one-shot behaviour every
     /// existing pad has.
@@ -1182,11 +1191,13 @@ test "adjustParam uses the same bounds as absolute parameter assignment" {
         try testing.expectApproxEqAbs(paramValue(&assigned, id).?, paramValue(&nudged, id).?, 1e-6);
     }
 
+    // Starts on `tones` (the default), so a nudge either way lands on beats
+    // and comes back.
     var method = initial;
     adjustParam(&method, warp_method_id, 1);
-    try testing.expectEqual(WarpMethod.tones, method.warp_method);
-    adjustParam(&method, warp_method_id, -1);
     try testing.expectEqual(WarpMethod.beats, method.warp_method);
+    adjustParam(&method, warp_method_id, -1);
+    try testing.expectEqual(WarpMethod.tones, method.warp_method);
 
     var toggled = initial;
     adjustParam(&toggled, reverse_id, 1);
