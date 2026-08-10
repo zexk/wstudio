@@ -703,6 +703,38 @@ test "slicer grid rows start where the mouse hit-test looks for them" {
     try std.testing.expectEqual(slicer_ed.grid_top, row);
 }
 
+test "slicer grid: a click past the 256th step lands on it instead of panicking" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+    try installSlicerTestClip(&app);
+    commands.run(&app, "slice 8");
+    app.slicerInst().setStepCount(512);
+
+    // Drawing scrolls the step window onto the cursor, so the leftmost
+    // visible column is well past a u8's ceiling - which is exactly what the
+    // hit-test used to narrow the step index to.
+    app.slicer_cursor = .{ 0, 300 };
+    var buf: [64 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try @import("render.zig").drawSlicerGrid(&app, &w, 40, 100, app.session.engine.uiSnapshot());
+    try std.testing.expect(app.slicer_step_scroll > 255);
+
+    // x = gutter + 1 clears the beat separator, landing on the first visible
+    // cell; the click has to toggle that step, not a wrapped-around one.
+    const first_visible: u16 = @intCast(app.slicer_step_scroll);
+    app.handleMouse(.{
+        .x = slicer_ed.gutter + 1,
+        .y = app_mod.content_top + slicer_ed.grid_top,
+        .button = .left,
+        .kind = .press,
+    }, 100, 40, 0);
+    try std.testing.expectEqual(first_visible, app.slicer_cursor[1]);
+    try std.testing.expect(app.slicerInst().stepActive(0, first_visible));
+}
+
 test "slicer grid: navigation and per-slice param nudges stay within bounds" {
     var app = try testApp();
     defer app.deinit();

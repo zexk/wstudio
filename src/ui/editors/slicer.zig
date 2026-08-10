@@ -791,7 +791,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
     switch (ev.kind) {
         .press => {
             app.slicer_cursor[0] = @intCast(slice);
-            const step = step_grid.stepAt(u8, gutter, 3, app.slicer_step_scroll, sl.step_count, sl.steps_per_beat, ev.x) orelse {
+            const step = step_grid.stepAt(u16, gutter, 3, app.slicer_step_scroll, sl.step_count, sl.steps_per_beat, ev.x) orelse {
                 app.slicer_paint_state = null;
                 return;
             };
@@ -806,7 +806,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
         },
         .drag => {
             const state = app.slicer_paint_state orelse return;
-            const step = step_grid.stepAt(u8, gutter, 3, app.slicer_step_scroll, sl.step_count, sl.steps_per_beat, ev.x) orelse return;
+            const step = step_grid.stepAt(u16, gutter, 3, app.slicer_step_scroll, sl.step_count, sl.steps_per_beat, ev.x) orelse return;
             app.slicer_cursor[0] = @intCast(slice);
             app.slicer_cursor[1] = step;
             step_grid.setStep(sl, @intCast(slice), step, state, Slicer.vel_full);
