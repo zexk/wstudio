@@ -73,12 +73,20 @@ pub const PitchShift = struct {
 
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !PitchShift {
         const safe_rate = @max(sample_rate, 1);
+        // The live shifter has its own option enum whose values differ from
+        // the offline one's: `RubberBandOptionWindowShort` is 0x00100000,
+        // which here means *Medium*. Named for what it actually selects.
         const state = c.rubberband_live_new(
             safe_rate,
             2,
-            c.RubberBandOptionWindowShort | c.RubberBandOptionFormantPreserved,
+            c.RubberBandLiveOptionWindowMedium | c.RubberBandLiveOptionFormantPreserved,
         ) orelse return error.OutOfMemory;
         errdefer c.rubberband_live_delete(state);
+        // A fresh live shifter reports a formant scale of 0, not 1, and with
+        // formant preservation on that costs ~35 dB of output. `applied_formant`
+        // starts at 1.0, so without this the neutral default never writes a
+        // scale at all and every shift comes out near-silent.
+        c.rubberband_live_set_formant_scale(state, 1.0);
         const block_size: usize = c.rubberband_live_get_block_size(state);
         if (block_size == 0 or block_size > ring_frames) return error.OutOfMemory;
 
@@ -253,6 +261,32 @@ test "shifting a sine transposes it and keeps its level" {
     const seconds = @as(f32, @floatFromInt(tail.len / 2)) / @as(f32, @floatFromInt(sr));
     const measured_hz = @as(f32, @floatFromInt(crossings)) / (2.0 * seconds);
     try std.testing.expect(measured_hz > 900.0 and measured_hz < 1100.0);
+}
+
+test "a shifted sine keeps its level" {
+    // The transposition check above passes just as well on a signal 35 dB
+    // down, which is what a never-initialized formant scale produced.
+    const sr: u32 = 48_000;
+    var shifter = try PitchShift.init(std.testing.allocator, sr);
+    defer shifter.deinit(std.testing.allocator);
+    shifter.semitones = 12.0;
+
+    const frames = sr * 2;
+    const buf = try std.testing.allocator.alloc(Sample, frames * 2);
+    defer std.testing.allocator.free(buf);
+    for (0..frames) |i| {
+        const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(sr));
+        const v = 0.5 * @sin(2.0 * std.math.pi * 500.0 * t);
+        buf[i * 2] = v;
+        buf[i * 2 + 1] = v;
+    }
+    var at: usize = 0;
+    while (at + 512 <= buf.len) : (at += 512) shifter.processBlock(buf[at..][0..512]);
+
+    var peak: f32 = 0.0;
+    for (buf[buf.len / 2 ..]) |sample| peak = @max(peak, @abs(sample));
+    try std.testing.expect(peak > 0.3);
+    try std.testing.expect(peak < 0.8);
 }
 
 test "an untouched shifter passes audio through unchanged" {
