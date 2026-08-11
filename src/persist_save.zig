@@ -605,7 +605,7 @@ pub fn exportSamples(
                 if (!p.user_sample) continue;
                 const base = try std.fmt.allocPrint(aa, "t{d}p{d}.wav", .{ ti, pi });
                 const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
-                try writeSampleWav(aa, io, path, rel, &dir_ready, sr, p.samples);
+                try writeSampleWav(aa, io, path, rel, &dir_ready, sr, 1, p.samples);
                 rs.content.drum_machine.pads[pi].sample_file = rel;
                 try written.put(aa, base, {});
                 // .name already set by rackToSnap (unconditionally, for every pad).
@@ -613,7 +613,7 @@ pub fn exportSamples(
             .sampler => |*s| if (s.pad.user_sample) {
                 const base = try std.fmt.allocPrint(aa, "t{d}clip.wav", .{ti});
                 const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
-                try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.pad.samples);
+                try writeSampleWav(aa, io, path, rel, &dir_ready, sr, 1, s.pad.samples);
                 rs.content.sampler.pad.sample_file = rel;
                 try written.put(aa, base, {});
                 // .name already set by rackToSnap (unconditionally).
@@ -621,7 +621,7 @@ pub fn exportSamples(
             .slicer => |*sl| if (sl.user_sample) {
                 const base = try std.fmt.allocPrint(aa, "t{d}clip.wav", .{ti});
                 const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
-                try writeSampleWav(aa, io, path, rel, &dir_ready, sr, sl.samples);
+                try writeSampleWav(aa, io, path, rel, &dir_ready, sr, 1, sl.samples);
                 rs.content.slicer.sample_file = rel;
                 try written.put(aa, base, {});
                 // .name already set by rackToSnap (unconditionally).
@@ -631,21 +631,21 @@ pub fn exportSamples(
                 if (s.wt_user) {
                     const base = try std.fmt.allocPrint(aa, "t{d}oscA.wav", .{ti});
                     const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
-                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.wt.frames[0 .. s.wt.frame_count * wavetable_mod.frame_len]);
+                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, 1, s.wt.frames[0 .. s.wt.frame_count * wavetable_mod.frame_len]);
                     rs.content.poly_synth.wt_file = rel;
                     try written.put(aa, base, {});
                 }
                 if (s.osc_b_wt_user) {
                     const base = try std.fmt.allocPrint(aa, "t{d}oscB.wav", .{ti});
                     const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
-                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.osc_b_wt.frames[0 .. s.osc_b_wt.frame_count * wavetable_mod.frame_len]);
+                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, 1, s.osc_b_wt.frames[0 .. s.osc_b_wt.frame_count * wavetable_mod.frame_len]);
                     rs.content.poly_synth.osc_b_wt_file = rel;
                     try written.put(aa, base, {});
                 }
                 if (s.osc_c_wt_user) {
                     const base = try std.fmt.allocPrint(aa, "t{d}oscC.wav", .{ti});
                     const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
-                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, s.osc_c_wt.frames[0 .. s.osc_c_wt.frame_count * wavetable_mod.frame_len]);
+                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, 1, s.osc_c_wt.frames[0 .. s.osc_c_wt.frame_count * wavetable_mod.frame_len]);
                     rs.content.poly_synth.osc_c_wt_file = rel;
                     try written.put(aa, base, {});
                 }
@@ -664,31 +664,13 @@ pub fn exportSamples(
     for (session.project.audio_sources.items, audio_sources) |source, *snap| {
         const base = try std.fmt.allocPrint(aa, "source-{d}.wav", .{source.id});
         const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
-        try writeAudioSourceWav(aa, io, path, rel, &dir_ready, source);
+        try writeSampleWav(aa, io, path, rel, &dir_ready, source.sample_rate, source.channel_count, source.samples);
         snap.file = rel;
         try written.put(aa, base, {});
     }
     try pruneOrphanSamples(aa, io, path, sidecar, &written);
 }
 
-fn writeAudioSourceWav(aa: std.mem.Allocator, io: std.Io, wsj_path: []const u8, rel: []const u8, dir_ready: *bool, source: project_mod.AudioSource) !void {
-    const full = try joinWsjRel(aa, wsj_path, rel);
-    if (!dir_ready.*) {
-        try std.Io.Dir.cwd().createDirPath(io, std.fs.path.dirname(full).?);
-        dir_ready.* = true;
-    }
-    const tmp = try std.fmt.allocPrint(aa, "{s}.tmp", .{full});
-    errdefer std.Io.Dir.cwd().deleteFile(io, tmp) catch {};
-    {
-        const file = try std.Io.Dir.cwd().createFile(io, tmp, .{});
-        defer file.close(io);
-        var buf: [8192]u8 = undefined;
-        var fw = file.writer(io, &buf);
-        try wav.write(&fw.interface, source.sample_rate, source.channel_count, source.samples, .pcm16);
-        try fw.interface.flush();
-    }
-    try std.Io.Dir.cwd().rename(tmp, std.Io.Dir.cwd(), full, io);
-}
 
 /// Delete any `.wav`/`.sf2` in the sample sidecar dir that wasn't written
 /// this save - leftovers from a track delete/reorder that changed which
@@ -719,7 +701,7 @@ pub fn pruneOrphanSamples(
     for (stale.items) |name| dir.deleteFile(io, name) catch {};
 }
 
-/// Write one mono clip as a 16-bit WAV at `rel` (a .wsj-relative path),
+/// Write one clip as a 16-bit WAV at `rel` (a .wsj-relative path),
 /// creating the sidecar directory on first use. Same .tmp + rename dance as
 /// the project file, so a crash never leaves a truncated sample behind.
 pub fn writeSampleWav(
@@ -729,6 +711,7 @@ pub fn writeSampleWav(
     rel: []const u8,
     dir_ready: *bool,
     sample_rate: u32,
+    channel_count: u16,
     samples: []const f32,
 ) !void {
     const full = try joinWsjRel(aa, wsj_path, rel);
@@ -743,7 +726,7 @@ pub fn writeSampleWav(
         defer file.close(io);
         var buf: [8192]u8 = undefined;
         var fw = file.writer(io, &buf);
-        try wav.write(&fw.interface, sample_rate, 1, samples, .pcm16);
+        try wav.write(&fw.interface, sample_rate, channel_count, samples, .pcm16);
         try fw.interface.flush();
     }
     try std.Io.Dir.cwd().rename(tmp, std.Io.Dir.cwd(), full, io);
