@@ -38,7 +38,7 @@ const NativeEditor = struct {
         errdefer window.close();
         const frame = try std.heap.page_allocator.create(Frame);
         errdefer std.heap.page_allocator.destroy(frame);
-        frame.* = .{ .window = window };
+        frame.* = .{ .window = window, .view = view };
         if (view.vtable.set_frame(view, &frame.interface) != 0) return error.GuiFrameFailed;
         errdefer _ = view.vtable.set_frame(view, null);
         if (view.vtable.attached(view, @ptrFromInt(window.handle()), platform_type) != 0) return error.GuiAttachFailed;
@@ -65,6 +65,7 @@ const Frame = struct {
     interface: abi.PlugFrame = .{ .vtable = &vtable },
     run_loop: abi.RunLoop = .{ .vtable = &run_loop_vtable },
     window: *editor_window.Window,
+    view: *abi.PlugView,
     // ponytail: fixed banks avoid allocation in plugin callbacks. Raise only
     // if a real editor exhausts 16 event handlers or timers.
     events: [16]?Event = @splat(null),
@@ -149,6 +150,13 @@ const Frame = struct {
 
     fn service(self: *Frame) bool {
         if (!self.window.service()) return false;
+        if (self.window.takeResize()) |size| if (size.width > 0 and size.height > 0) {
+            var rect: abi.ViewRect = .{ .left = 0, .top = 0, .right = size.width, .bottom = size.height };
+            _ = self.view.vtable.check_size_constraint(self.view, &rect);
+            if (rect.right != size.width or rect.bottom != size.height)
+                self.window.resize(@max(rect.right, 1), @max(rect.bottom, 1));
+            _ = self.view.vtable.on_size(self.view, &rect);
+        };
         if (comptime builtin.os.tag != .linux) return true;
         var poll_fds: [16]std.posix.pollfd = undefined;
         var handlers: [16]*abi.EventHandler = undefined;
@@ -187,7 +195,7 @@ const Frame = struct {
 
 test "plug frame exposes Linux run loop" {
     if (builtin.os.tag != .linux) return;
-    var frame = Frame{ .window = undefined };
+    var frame = Frame{ .window = undefined, .view = undefined };
     var object: ?*anyopaque = null;
     try std.testing.expectEqual(@as(abi.Result, 0), frame.interface.vtable.query_interface(&frame.interface, &abi.run_loop_iid, &object));
     try std.testing.expectEqual(@as(?*anyopaque, @ptrCast(&frame.run_loop)), object);

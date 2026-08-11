@@ -46,6 +46,12 @@ bool wstudio_editor_window_visible(void *raw) {
     return [(__bridge NSWindow *)raw isVisible];
 }
 
+void wstudio_editor_window_size(void *raw, int *width, int *height) {
+    NSRect rect = [(__bridge NSWindow *)raw contentRectForFrameRect:[(__bridge NSWindow *)raw frame]];
+    *width = (int)rect.size.width;
+    *height = (int)rect.size.height;
+}
+
 void wstudio_editor_window_close(void *raw) {
     NSWindow *window = (__bridge NSWindow *)raw;
     [window orderOut:nil];

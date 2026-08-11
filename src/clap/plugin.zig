@@ -1229,6 +1229,15 @@ const Direct = struct {
     pub fn serviceMainThread(self: *Direct) bool {
         const gui_window_open = if (self.gui_window) |*window| window.service() else true;
         if (!gui_window_open) self.destroyGui();
+        if (self.gui_window) |*window| if (window.takeResize()) |size| {
+            if (size.width > 0 and size.height > 0) if (self.guiExtension()) |gui| {
+                var width: u32 = @intCast(size.width);
+                var height: u32 = @intCast(size.height);
+                _ = gui.adjust_size(self.plugin, &width, &height);
+                if (gui.set_size(self.plugin, width, height) and (width != size.width or height != size.height))
+                    window.resize(@intCast(width), @intCast(height));
+            };
+        };
         const resize = self.host_context.gui_resize_requested.swap(0, .acquire);
         if (resize != 0 and self.gui_window != null) {
             const width: u32 = @intCast(resize >> 32);

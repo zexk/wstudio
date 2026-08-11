@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 pub const Api = enum { win32, cocoa, wayland, x11 };
+pub const Size = struct { width: i32, height: i32 };
 
 pub const Window = switch (builtin.os.tag) {
     .linux => X11Window,
@@ -26,18 +27,23 @@ const UnsupportedWindow = struct {
     pub fn service(_: *UnsupportedWindow) bool {
         return true;
     }
+    pub fn takeResize(_: *UnsupportedWindow) ?Size {
+        return null;
+    }
     pub fn close(_: *UnsupportedWindow) void {}
 };
 
 const Win32Window = struct {
     hwnd: *anyopaque,
+    pending_resize: ?Size = null,
 
     pub fn open(width: i32, height: i32, title: [*:0]const u8) !Win32Window {
         var title_w: [512]u16 = undefined;
         const title_len = std.unicode.utf8ToUtf16Le(&title_w, std.mem.span(title)) catch return error.InvalidGuiTitle;
         if (title_len == title_w.len) return error.GuiTitleTooLong;
         title_w[title_len] = 0;
-        const hwnd = CreateWindowExW(0, std.unicode.utf8ToUtf16LeStringLiteral("STATIC"), @ptrCast(title_w[0..title_len :0]), ws_overlapped_window, cw_use_default, cw_use_default, width, height, null, null, null, null) orelse return error.Win32WindowFailed;
+        const size = frameSize(width, height);
+        const hwnd = CreateWindowExW(0, std.unicode.utf8ToUtf16LeStringLiteral("STATIC"), @ptrCast(title_w[0..title_len :0]), ws_overlapped_window, cw_use_default, cw_use_default, size.width, size.height, null, null, null, null) orelse return error.Win32WindowFailed;
         return .{ .hwnd = hwnd };
     }
 
@@ -50,7 +56,8 @@ const Win32Window = struct {
     }
 
     pub fn resize(self: *Win32Window, width: i32, height: i32) void {
-        _ = SetWindowPos(self.hwnd, null, 0, 0, width, height, swp_no_move | swp_no_zorder | swp_no_activate);
+        const size = frameSize(width, height);
+        _ = SetWindowPos(self.hwnd, null, 0, 0, size.width, size.height, swp_no_move | swp_no_zorder | swp_no_activate);
     }
 
     pub fn show(self: *Win32Window) void {
@@ -64,17 +71,32 @@ const Win32Window = struct {
     pub fn service(self: *Win32Window) bool {
         var message: Message = undefined;
         while (PeekMessageW(&message, null, 0, 0, pm_remove) != 0) {
+            if (message.hwnd == self.hwnd and message.message == wm_size)
+                self.pending_resize = .{ .width = @intCast(message.lparam & 0xffff), .height = @intCast(message.lparam >> 16 & 0xffff) };
             _ = TranslateMessage(&message);
             _ = DispatchMessageW(&message);
         }
         return IsWindow(self.hwnd) != 0;
     }
 
+    pub fn takeResize(self: *Win32Window) ?Size {
+        const size = self.pending_resize;
+        self.pending_resize = null;
+        return size;
+    }
+
     pub fn close(self: *Win32Window) void {
         _ = DestroyWindow(self.hwnd);
     }
 
+    fn frameSize(width: i32, height: i32) Size {
+        var rect = Rect{ .left = 0, .top = 0, .right = width, .bottom = height };
+        _ = AdjustWindowRectEx(&rect, ws_overlapped_window, 0, 0);
+        return .{ .width = rect.right - rect.left, .height = rect.bottom - rect.top };
+    }
+
     const Point = extern struct { x: i32, y: i32 };
+    const Rect = extern struct { left: i32, top: i32, right: i32, bottom: i32 };
     const Message = extern struct { hwnd: ?*anyopaque, message: u32, wparam: usize, lparam: isize, time: u32, point: Point, private: u32 };
     const ws_overlapped_window: u32 = 0x00cf0000;
     const cw_use_default: i32 = @bitCast(@as(u32, 0x80000000));
@@ -82,11 +104,13 @@ const Win32Window = struct {
     const swp_no_zorder: u32 = 0x0004;
     const swp_no_activate: u32 = 0x0010;
     const pm_remove: u32 = 0x0001;
+    const wm_size: u32 = 0x0005;
     const sw_hide: i32 = 0;
     const sw_show: i32 = 5;
 
     extern "user32" fn CreateWindowExW(u32, [*:0]const u16, [*:0]const u16, u32, i32, i32, i32, i32, ?*anyopaque, ?*anyopaque, ?*anyopaque, ?*anyopaque) callconv(.winapi) ?*anyopaque;
     extern "user32" fn DestroyWindow(*anyopaque) callconv(.winapi) i32;
+    extern "user32" fn AdjustWindowRectEx(*Rect, u32, i32, u32) callconv(.winapi) i32;
     extern "user32" fn SetWindowPos(*anyopaque, ?*anyopaque, i32, i32, i32, i32, u32) callconv(.winapi) i32;
     extern "user32" fn ShowWindow(*anyopaque, i32) callconv(.winapi) i32;
     extern "user32" fn IsWindow(*anyopaque) callconv(.winapi) i32;
@@ -98,9 +122,12 @@ const Win32Window = struct {
 const CocoaWindow = struct {
     window: *anyopaque,
     visible: bool = false,
+    width: i32,
+    height: i32,
+    pending_resize: ?Size = null,
 
     pub fn open(width: i32, height: i32, title: [*:0]const u8) !CocoaWindow {
-        return .{ .window = wstudio_editor_window_open(width, height, title) orelse return error.CocoaWindowFailed };
+        return .{ .window = wstudio_editor_window_open(width, height, title) orelse return error.CocoaWindowFailed, .width = width, .height = height };
     }
 
     pub fn api(_: *const CocoaWindow) Api {
@@ -127,7 +154,21 @@ const CocoaWindow = struct {
 
     pub fn service(self: *CocoaWindow) bool {
         wstudio_editor_window_service();
+        var width: i32 = 0;
+        var height: i32 = 0;
+        wstudio_editor_window_size(self.window, &width, &height);
+        if (width != self.width or height != self.height) {
+            self.width = width;
+            self.height = height;
+            self.pending_resize = .{ .width = width, .height = height };
+        }
         return !self.visible or wstudio_editor_window_visible(self.window);
+    }
+
+    pub fn takeResize(self: *CocoaWindow) ?Size {
+        const size = self.pending_resize;
+        self.pending_resize = null;
+        return size;
     }
 
     pub fn close(self: *CocoaWindow) void {
@@ -141,6 +182,7 @@ const CocoaWindow = struct {
     extern fn wstudio_editor_window_hide(*anyopaque) void;
     extern fn wstudio_editor_window_service() void;
     extern fn wstudio_editor_window_visible(*anyopaque) bool;
+    extern fn wstudio_editor_window_size(*anyopaque, *i32, *i32) void;
     extern fn wstudio_editor_window_close(*anyopaque) void;
 };
 
@@ -150,6 +192,7 @@ const X11Window = struct {
     display: *anyopaque,
     id: usize,
     delete_atom: usize,
+    pending_resize: ?Size = null,
 
     pub fn open(width: i32, height: i32, title: [*:0]const u8) !X11Window {
         var lib = std.DynLib.open("libX11.so.6") catch return error.X11Unavailable;
@@ -196,8 +239,16 @@ const X11Window = struct {
         while (self.functions.pending(self.display) != 0) {
             _ = self.functions.next_event(self.display, &event);
             if (event.client.type == 33 and event.client.data.l[0] == @as(c_long, @intCast(self.delete_atom))) return false;
+            if (event.configure.type == 22)
+                self.pending_resize = .{ .width = event.configure.width, .height = event.configure.height };
         }
         return true;
+    }
+
+    pub fn takeResize(self: *X11Window) ?Size {
+        const size = self.pending_resize;
+        self.pending_resize = null;
+        return size;
     }
 
     pub fn close(self: *X11Window) void {
@@ -257,7 +308,22 @@ const X11Window = struct {
         format: c_int,
         data: ClientData,
     };
-    const XEvent = extern union { type: c_int, client: ClientMessage, pad: [24]c_long };
+    const ConfigureEvent = extern struct {
+        type: c_int,
+        serial: c_ulong,
+        send_event: c_int,
+        display: *anyopaque,
+        event: c_ulong,
+        window: c_ulong,
+        x: c_int,
+        y: c_int,
+        width: c_int,
+        height: c_int,
+        border_width: c_int,
+        above: c_ulong,
+        override_redirect: c_int,
+    };
+    const XEvent = extern union { type: c_int, client: ClientMessage, configure: ConfigureEvent, pad: [24]c_long };
 };
 
 test "editor window platform selection" {
@@ -272,6 +338,25 @@ test "X11 close request reaches host lifecycle" {
     var window = try Window.open(64, 64, "wstudio GUI test");
     defer window.close();
     var event: X11Window.XEvent = std.mem.zeroes(X11Window.XEvent);
+    event.configure = .{
+        .type = 22,
+        .serial = 0,
+        .send_event = 1,
+        .display = window.display,
+        .event = window.id,
+        .window = window.id,
+        .x = 0,
+        .y = 0,
+        .width = 96,
+        .height = 80,
+        .border_width = 0,
+        .above = 0,
+        .override_redirect = 0,
+    };
+    try std.testing.expect(window.functions.send_event(window.display, window.id, 0, 0, &event) != 0);
+    _ = window.functions.flush(window.display);
+    try std.testing.expect(window.service());
+    try std.testing.expectEqual(Size{ .width = 96, .height = 80 }, window.takeResize().?);
     event.client = .{
         .type = 33,
         .serial = 0,
