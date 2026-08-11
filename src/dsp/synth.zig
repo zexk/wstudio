@@ -1297,10 +1297,33 @@ pub const PolySynth = struct {
     /// already sounding pick up the new params on their next block, same as
     /// a single `adjustParam` nudge. Patch fields without a PolySynth
     /// counterpart are skipped.
+    /// A patch reaches here straight out of `~/.config/wstudio/`'s
+    /// hand-editable preset file, so everything below is sanitized on the way
+    /// in - the same reasoning persist_load's `applyToSynth` documents for the
+    /// project-load path. A raw `lfo_custom_count` is the sharpest edge: the
+    /// audio thread slices `lfo_custom[slot][0..count]` every block.
     pub fn applyPatch(self: *PolySynth, patch: Patch) void {
         inline for (@typeInfo(Patch).@"struct".fields) |f| {
             if (@hasField(PolySynth, f.name)) {
-                @field(self, f.name) = @field(patch, f.name);
+                const v = @field(patch, f.name);
+                if (@typeInfo(@TypeOf(v)) != .float or std.math.isFinite(v)) {
+                    @field(self, f.name) = v;
+                }
+            }
+        }
+        self.applyParamSpecs(&patch);
+        // Only depth: an unknown `dest` still has to survive this, because
+        // migration resolves a legacy patch's FX destinations afterwards
+        // (see persist_load's buildPresetFx). Every reader of `dest` goes
+        // through `modDestIndex(...) orelse`, so an unresolved one modulates
+        // nothing rather than indexing out of range.
+        for (&self.mod_matrix) |*row| row.depth = std.math.clamp(row.depth, -1.0, 1.0);
+        for (&self.lfo_custom, &self.lfo_custom_count) |*points, *count| {
+            count.* = @min(count.*, max_lfo_shape_points);
+            for (points[0..count.*]) |*p| {
+                p.phase = std.math.clamp(p.phase, 0.0, 1.0);
+                p.value = std.math.clamp(p.value, -1.0, 1.0);
+                p.curve = std.math.clamp(p.curve, -1.0, 1.0);
             }
         }
     }
@@ -3626,6 +3649,27 @@ test "applyPatchWithWavetables selects bundled audio while null preserves it" {
     try s.applyPatchWithWavetables(.{});
     try std.testing.expectEqual(BundledWavetable.metallic, s.wt_bundled.?);
     try std.testing.expectEqual(metallic_sample, s.wt.frames[17]);
+}
+
+test "applyPatch sanitizes a hand-edited preset" {
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    const cutoff_before = s.filter_cutoff;
+
+    var patch: PolySynth.Patch = .{};
+    patch.filter_cutoff = std.math.nan(f32);
+    patch.unison = 255;
+    patch.detune_cents = 9999;
+    patch.mod_matrix[0] = .{ .source = .wheel, .dest = 21, .depth = 40 };
+    // The audio thread slices lfo_custom[slot][0..count] every block.
+    patch.lfo_custom_count[0] = 255;
+    s.applyPatch(patch);
+
+    try std.testing.expectEqual(cutoff_before, s.filter_cutoff);
+    try std.testing.expect(s.unison <= 16);
+    try std.testing.expect(@abs(s.detune_cents) <= 100);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), s.mod_matrix[0].depth, 1e-6);
+    try std.testing.expect(s.lfo_custom_count[0] <= max_lfo_shape_points);
 }
 
 test "matrix param ids round-trip through paramValue/setParamAbsolute" {
