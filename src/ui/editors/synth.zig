@@ -132,13 +132,9 @@ fn filterTypeName(ft: anytype) []const u8 {
 
 fn lfoShapeName(shape: anytype) []const u8 {
     return switch (shape) {
-        .sine => "sine",
-        .triangle => "tri",
-        .saw => "saw",
-        .square => "sqr",
+        .drawn => "drawn",
         .sh => "s&h",
         .chaos => "chaos",
-        .custom => "custom",
     };
 }
 
@@ -321,6 +317,12 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         ws.dsp.PolySynth.mod_unipolar_id_base...ws.dsp.PolySynth.mod_unipolar_id_base + ws.dsp.PolySynth.max_mod_rows - 1 => {
             const row = synth.mod_matrix[id - ws.dsp.PolySynth.mod_unipolar_id_base];
             try w.writeAll(if (row.unipolar) "unipolar" else "bipolar");
+        },
+        // Reads back as whichever preset the slot's points still match, so
+        // drawing over a loaded sine shows "drawn" rather than lying.
+        ws.dsp.synth.lfo_wave_id_base...ws.dsp.synth.lfo_wave_id_base + 2 => {
+            const slot = id - ws.dsp.synth.lfo_wave_id_base;
+            try w.writeAll(@tagName(ws.dsp.synth.lfoWaveOf(synth.lfo_custom[slot][0..synth.lfo_custom_count[slot]])));
         },
         // zig fmt: off
         95 => try w.writeAll(lfoShapeName(synth.lfo2_shape)),

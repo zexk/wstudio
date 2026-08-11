@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 51;
+pub const file_version: u32 = 52;
 
 /// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
 /// reasoning as `EqBandKindSnap`.
@@ -162,26 +162,26 @@ pub const SynthSnap = struct {
     fenv_release_s: f32 = 0.3,
     fenv_curve: f32 = 0.0,
     // LFO
-    lfo_shape: synth_mod.LfoShape = .sine,
+    lfo_shape: synth_mod.LfoShape = .drawn,
     lfo_rate_hz: f32 = 1.0,
     lfo_sync: synth_mod.LfoSync = .off,
     lfo_retrig: synth_mod.LfoRetrig = .free,
     lfo_phase_offset: f32 = 0.0,
     lfo_slew_ms: f32 = 0.0,
     // LFO 2 / LFO 3 + macros
-    lfo2_shape: synth_mod.LfoShape = .sine,
+    lfo2_shape: synth_mod.LfoShape = .drawn,
     lfo2_rate_hz: f32 = 1.0,
     lfo2_sync: synth_mod.LfoSync = .off,
     lfo2_retrig: synth_mod.LfoRetrig = .free,
     lfo2_phase_offset: f32 = 0.0,
     lfo2_slew_ms: f32 = 0.0,
-    lfo3_shape: synth_mod.LfoShape = .sine,
+    lfo3_shape: synth_mod.LfoShape = .drawn,
     lfo3_rate_hz: f32 = 1.0,
     lfo3_sync: synth_mod.LfoSync = .off,
     lfo3_retrig: synth_mod.LfoRetrig = .free,
     lfo3_phase_offset: f32 = 0.0,
     lfo3_slew_ms: f32 = 0.0,
-    /// `.custom` shape points. Manual in synthToSnap/applyToSynth:
+    /// Drawn shape points. Manual in synthToSnap/applyToSynth:
     /// `lfo_custom` collides by name with PolySynth's fixed-array field of
     /// the same name (different type - slice vs array), so it's excluded
     /// from the generic reflection copy like mod_matrix; lfo2_custom/

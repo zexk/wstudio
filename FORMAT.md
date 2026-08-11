@@ -19,7 +19,7 @@ alongside the `.wsj` into a sidecar directory, not embedded in the JSON. See
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 48) is the only format version
+`persist.zig`'s `file_version` (currently 52) is the only format version
 this build writes or reads. Loading enforces one rule:
 
 - **A file whose `version` is not exactly `file_version` is hard-rejected**

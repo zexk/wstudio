@@ -181,7 +181,7 @@ fn drawSynthGrid(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize, 
         while (col_rows[col] < placements[si].row0) : (col_rows[col] += 1) try endLine(&writers[col]);
         try render_fns[si](&writers[col], synth, c);
         try endLine(&writers[col]);
-        col_rows[col] += sec.params.len + 2;
+        col_rows[col] += sec.params.len + sec.extra_rows + 2;
     }
 
     var iters: [synth_layout.max_cols]std.mem.SplitIterator(u8, .sequence) = undefined;
@@ -381,15 +381,16 @@ fn secFenv(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fenv_release_s}));
 }
 
-const lfo_shape_names = [_][]const u8{ "sine", "tri", "saw", "sqr", "s&h", "cha", "cus" };
+const lfo_shape_names = [_][]const u8{ "drawn", "s&h", "chaos" };
+const lfo_wave_names = [_][]const u8{ "drawn", "sine", "tri", "saw", "sqr" };
 const lfo_retrig_names = [_][]const u8{ "free", "key", "1shot" };
 
-/// The six ids each LFO slot owns, in the order its rows draw:
-/// shape, rate, sync, retrig, phase offset, slew.
-const lfo_slot_ids = [3][6]u16{
-    .{ 28, 29, 256, 259, 262, 265 },
-    .{ 95, 96, 257, 260, 263, 266 },
-    .{ 97, 98, 258, 261, 264, 267 },
+/// The seven ids each LFO slot owns, in the order its rows draw:
+/// shape, wave preset, rate, sync, retrig, phase offset, slew.
+const lfo_slot_ids = [3][7]u16{
+    .{ 28, 397, 29, 256, 259, 262, 265 },
+    .{ 95, 398, 96, 257, 260, 263, 266 },
+    .{ 97, 399, 98, 258, 261, 264, 267 },
 };
 
 /// A slot's live values, so `secLfoSlot` draws all three from one body.
@@ -424,18 +425,22 @@ fn secLfoSlot(w: *std.Io.Writer, synth: *const PolySynth, c: u16, slot: u8, titl
     try synthSection(w, title, mag);
 
     try enumRow(w, c == ids[0], false, mag, "shape", &lfo_shape_names, @intFromEnum(s.shape));
+    // Loading a wave overwrites the drawn points, so the row is inert (and
+    // dimmed) while the slot is on a shape that doesn't read them.
+    try enumRow(w, c == ids[1], s.shape != .drawn, mag, "wave", &lfo_wave_names,
+        @intFromEnum(ws.dsp.synth.lfoWaveOf(synth.lfo_custom[slot][0..synth.lfo_custom_count[slot]])));
     // The Hz knob is inert while a division is set, so dim it and say so.
-    try barRow(w, c == ids[1], synced, mag, "rate", s.rate, 20.0, if (synced)
+    try barRow(w, c == ids[2], synced, mag, "rate", s.rate, 20.0, if (synced)
         try std.fmt.bufPrint(&buf, "{s} sync", .{s.sync.label()})
     else
         try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{s.rate}));
-    try barRow(w, c == ids[2], false, mag, "sync", @floatFromInt(@intFromEnum(s.sync)), @floatFromInt(@typeInfo(ws.dsp.synth.LfoSync).@"enum".fields.len - 1), s.sync.label());
-    try enumRow(w, c == ids[3], false, mag, "retrig", &lfo_retrig_names, @intFromEnum(s.retrig));
-    try barRow(w, c == ids[4], false, mag, "phase", s.phase_offset, 1.0,
+    try barRow(w, c == ids[3], false, mag, "sync", @floatFromInt(@intFromEnum(s.sync)), @floatFromInt(@typeInfo(ws.dsp.synth.LfoSync).@"enum".fields.len - 1), s.sync.label());
+    try enumRow(w, c == ids[4], false, mag, "retrig", &lfo_retrig_names, @intFromEnum(s.retrig));
+    try barRow(w, c == ids[5], false, mag, "phase", s.phase_offset, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{s.phase_offset}));
-    try barRow(w, c == ids[5], false, mag, "slew", s.slew_ms, 500.0,
+    try barRow(w, c == ids[6], false, mag, "slew", s.slew_ms, 500.0,
         try std.fmt.bufPrint(&buf, "{d:.0} ms", .{s.slew_ms}));
-    if (s.shape == .custom) try secLfoCustom(w, synth, c, slot);
+    try secLfoShapePlot(w, synth, slot, s.shape);
 }
 
 fn secLfo(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
@@ -450,35 +455,26 @@ fn secLfo3(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try secLfoSlot(w, synth, c, 2, "LFO 3");
 }
 
-/// `.custom` shape's breakpoints, shown only while that LFO's shape is
-/// actually `.custom` (same "hidden until relevant" convention as the
-/// filter2/oscillator-B/C on-off sections). `points` bar-row rides the
-/// count id (h/l adds/removes a trailing point, same convention every
-/// other 0..cap bar already uses); each populated point gets a phase/value
-/// row pair addressed by `dsp.synth.lfo_custom_id_base`'s flat id scheme -
-/// see `PolySynth.decodeLfoCustomId`. The GUI's curve widget is the real
-/// drawing surface for this; these rows exist so the shape is still
-/// reachable keyboard-only.
-fn secLfoCustom(w: *std.Io.Writer, synth: *const PolySynth, c: u16, slot: u8) !void {
-    var buf: [40]u8 = undefined;
-    const base: u16 = @as(u16, ws.dsp.synth.lfo_custom_id_base) + @as(u16, slot) * ws.dsp.synth.lfo_custom_ids_per_slot;
-    const count_id: u16 = @intCast(base + ws.dsp.synth.max_lfo_shape_points * 2);
-    const count = synth.lfo_custom_count[slot];
-    try barRow(w, c == count_id, false, mag, "points", @floatFromInt(count), @floatFromInt(ws.dsp.synth.max_lfo_shape_points),
-        try std.fmt.bufPrint(&buf, "{d}", .{count}));
-    for (0..count) |i| {
-        const phase_id: u16 = @intCast(base + i * 2);
-        const value_id: u16 = phase_id + 1;
-        const point = synth.lfo_custom[slot][i];
-        var label_buf: [16]u8 = undefined;
-        const label = std.fmt.bufPrint(&label_buf, "pt{d} phase", .{i}) catch "pt phase";
-        try barRow(w, c == phase_id, false, mag, label, point.phase, 1.0,
-            try std.fmt.bufPrint(&buf, "{d:.2}", .{point.phase}));
-        // Bipolar (-1..1): shifted to 0..2 for the bar fill, same convention
-        // detune_cents/pan etc. already use - the printed value stays raw.
-        try barRow(w, c == value_id, false, mag, "  value", point.value + 1.0, 2.0,
-            try std.fmt.bufPrint(&buf, "{d:.2}", .{point.value}));
+/// One cycle of the slot's drawn shape as a block-glyph sparkline, on the
+/// card's last row (the `extra_rows = 1` its `synth_layout` entry declares).
+/// A read-only picture: the breakpoints and their bends are edited in the
+/// GUI's curve widget, and this is what tells a TUI-only user which of the
+/// eight shape presets is actually loaded and how far it has been drawn away
+/// from. Slots on `.sh`/`.chaos` draw nothing - their motion isn't a cycle.
+fn secLfoShapePlot(w: *std.Io.Writer, synth: *const PolySynth, slot: u8, shape: ws.dsp.synth.LfoShape) !void {
+    const bars = [_][]const u8{ "\u{2581}", "\u{2582}", "\u{2583}", "\u{2584}", "\u{2585}", "\u{2586}", "\u{2587}", "\u{2588}" };
+    try rowHead(w, false, shape != .drawn, "curve");
+    if (shape != .drawn) return endLine(w);
+    try w.writeAll(mag);
+    const columns = 24;
+    for (0..columns) |i| {
+        const phase = @as(f32, @floatFromInt(i)) / @as(f32, columns);
+        const v = synth.lfoValueAt(slot, phase);
+        const level: usize = @intFromFloat(std.math.clamp((v + 1.0) * 0.5, 0.0, 1.0) * @as(f32, bars.len - 1));
+        try w.writeAll(bars[level]);
     }
+    try w.writeAll(rst);
+    try endLine(w);
 }
 
 /// Four macro knobs - pure mod sources (mc1-mc4 on MATRIX rows), no sound

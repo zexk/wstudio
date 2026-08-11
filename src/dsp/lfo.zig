@@ -5,10 +5,10 @@
 
 const std = @import("std");
 
-/// The four shapes derivable from phase alone (no held/integrated state) -
-/// synth.zig's own `LfoShape` adds `sh`/`chaos`/`custom` on top of these for
-/// its mod matrix, which need PolySynth-held state `sample` has no access
-/// to, so it only covers this subset.
+/// The four shapes the modulation FX units offer. PolySynth's own LFOs don't
+/// use these: they draw every waveform out of breakpoints instead (see
+/// `synth.LfoShape`/`synth.lfoWave`), which is worth a point editor in a
+/// synth's mod section and not worth one in a chorus.
 pub const Shape = enum { sine, triangle, saw, square };
 /// Row labels for `Shape`, in declaration order - UI tables index this with
 /// `@intFromEnum(shape)`, same convention as `dsp/pad.zig`'s
@@ -54,7 +54,7 @@ pub const Lfo = struct {
     }
 };
 
-test "sample matches synth.zig's lfoSample at cardinal phases" {
+test "sample holds the textbook values at cardinal phases" {
     const cases = [_]struct { phase: f32, sine: f32, tri: f32, saw: f32, sq: f32 }{
         .{ .phase = 0.0, .sine = 0.0, .tri = -1.0, .saw = -1.0, .sq = 1.0 },
         .{ .phase = 0.25, .sine = 1.0, .tri = 0.0, .saw = -0.5, .sq = 1.0 },

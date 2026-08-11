@@ -986,7 +986,7 @@ pub fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) !void {
     applyLfoCustomSnap(&s.lfo_custom[2], &s.lfo_custom_count[2], ss.lfo3_custom);
 }
 
-/// One `.custom` LFO slot's points from a snap onto the live fixed array +
+/// One drawn LFO slot's points from a snap onto the live fixed array +
 /// count, clamped to the same phase/value ranges `setParamAbsolute` enforces
 /// per-point and sorted into the order playback requires. `null`/empty/
 /// over-capacity all collapse to "however many points fit". A hand-edited file overrunning
@@ -999,6 +999,7 @@ pub fn applyLfoCustomSnap(dst_points: *[synth_mod.max_lfo_shape_points]synth_mod
         d.* = .{
             .phase = finiteClamp(f32, p.phase, 0.0, 1.0, 0.0),
             .value = finiteClamp(f32, p.value, -1.0, 1.0, 0.0),
+            .curve = finiteClamp(f32, p.curve, -1.0, 1.0, 0.0),
         };
     }
     std.mem.sort(synth_mod.LfoShapePoint, dst_points[0..n], {}, struct {

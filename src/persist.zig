@@ -2151,7 +2151,7 @@ test "save/load round-trip persists LFO 2/3, macros, and their matrix sources" {
     const s = &session.racks.items[0].instrument.poly_synth;
     // zig fmt: off
     s.lfo2_shape = .sh;  s.lfo2_rate_hz = 6.5;
-    s.lfo3_shape = .saw; s.lfo3_rate_hz = 0.25;
+    s.lfo3_shape = .chaos; s.lfo3_rate_hz = 0.25;
     s.macro1 = 0.33; s.macro4 = 0.9;
     s.mod_matrix[0] = .{ .source = .lfo2, .dest = 21,                 .depth = 0.5 };
     s.mod_matrix[1] = .{ .source = .mac1, .dest = PolySynth.dest_amp, .depth = -0.3 };
@@ -2164,7 +2164,7 @@ test "save/load round-trip persists LFO 2/3, macros, and their matrix sources" {
     const ls = &loaded.racks.items[0].instrument.poly_synth;
     try testing.expectEqual(synth_mod.LfoShape.sh, ls.lfo2_shape);
     try testing.expectApproxEqAbs(@as(f32, 6.5), ls.lfo2_rate_hz, 1e-6);
-    try testing.expectEqual(synth_mod.LfoShape.saw, ls.lfo3_shape);
+    try testing.expectEqual(synth_mod.LfoShape.chaos, ls.lfo3_shape);
     try testing.expectApproxEqAbs(@as(f32, 0.25), ls.lfo3_rate_hz, 1e-6);
     try testing.expectApproxEqAbs(@as(f32, 0.33), ls.macro1, 1e-6);
     try testing.expectApproxEqAbs(@as(f32, 0.9), ls.macro4, 1e-6);
@@ -2173,7 +2173,7 @@ test "save/load round-trip persists LFO 2/3, macros, and their matrix sources" {
     try testing.expectApproxEqAbs(@as(f32, -0.3), ls.mod_matrix[1].depth, 1e-6);
 }
 
-test "save/load round-trip persists a custom LFO shape's points" {
+test "save/load round-trip persists a drawn LFO shape's points" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -2184,12 +2184,12 @@ test "save/load round-trip persists a custom LFO shape's points" {
     defer session.deinit();
     session.racks.items[0].instrument = .{ .poly_synth = try PolySynth.init(testing.allocator, session.project.sample_rate) };
     const s = &session.racks.items[0].instrument.poly_synth;
-    s.lfo_shape = .custom;
+    s.lfo_shape = .drawn;
     s.lfo_custom[0][0] = .{ .phase = 0.0, .value = -0.6 };
     s.lfo_custom[0][1] = .{ .phase = 0.4, .value = 0.8 };
     s.lfo_custom[0][2] = .{ .phase = 1.0, .value = -0.6 };
     s.lfo_custom_count[0] = 3;
-    s.lfo3_shape = .custom;
+    s.lfo3_shape = .drawn;
     s.lfo_custom[2][0] = .{ .phase = 0.0, .value = 1.0 };
     s.lfo_custom[2][1] = .{ .phase = 1.0, .value = -1.0 };
     s.lfo_custom_count[2] = 2;
@@ -2199,16 +2199,15 @@ test "save/load round-trip persists a custom LFO shape's points" {
     defer loaded.deinit();
 
     const ls = &loaded.racks.items[0].instrument.poly_synth;
-    try testing.expectEqual(synth_mod.LfoShape.custom, ls.lfo_shape);
+    try testing.expectEqual(synth_mod.LfoShape.drawn, ls.lfo_shape);
     try testing.expectEqual(@as(u8, 3), ls.lfo_custom_count[0]);
     try testing.expectApproxEqAbs(@as(f32, 0.4), ls.lfo_custom[0][1].phase, 1e-6);
     try testing.expectApproxEqAbs(@as(f32, 0.8), ls.lfo_custom[0][1].value, 1e-6);
-    try testing.expectEqual(synth_mod.LfoShape.custom, ls.lfo3_shape);
+    try testing.expectEqual(synth_mod.LfoShape.drawn, ls.lfo3_shape);
     try testing.expectEqual(@as(u8, 2), ls.lfo_custom_count[2]);
     try testing.expectApproxEqAbs(@as(f32, -1.0), ls.lfo_custom[2][1].value, 1e-6);
-    // LFO 2 round-trips its untouched flat-zero default.
-    try testing.expectEqual(@as(u8, 2), ls.lfo_custom_count[1]);
-    try testing.expectApproxEqAbs(@as(f32, 0.0), ls.lfo_custom[1][0].value, 1e-6);
+    // LFO 2 round-trips its untouched default sine, bends and all.
+    try testing.expectEqual(synth_mod.LfoWave.sine, synth_mod.lfoWaveOf(ls.lfo_custom[1][0..ls.lfo_custom_count[1]]));
 }
 
 test "a synth preset replaces the whole FX chain and rebinds its mod rows" {

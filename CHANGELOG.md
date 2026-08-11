@@ -34,6 +34,12 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Changed
 
+- Every synth LFO waveform is now one drawn shape. Instead of picking sine,
+  triangle, saw, or square from a list, a slot holds breakpoints whose
+  segments bend, and those four waveforms are presets you load into it with
+  the new `wave` row. Sample & hold and chaos stay their own shapes, since
+  neither is a function of phase. A drawn point's `bend` is a new -1..1
+  control, editable per point; a fresh LFO starts on a sine.
 - The project is now licensed GPL-3.0-or-later instead of MIT. Releases up to
   v1.0.0-beta.9 stay available under MIT. The move opens the door to the GPL
   audio libraries that do this work better than the code here does, starting

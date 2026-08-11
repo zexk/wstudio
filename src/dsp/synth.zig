@@ -26,7 +26,9 @@ const Sample = types.Sample;
 const diodeClip = synth_math.diodeClip;
 const svfBandpass = synth_math.svfBandpass;
 const nextNoise = synth_math.nextNoise;
-const lfoSample = synth_math.lfoSample;
+/// Public because the GUI's curve widget has to draw the same bend the
+/// engine plays - see `LfoShapePoint.curve`.
+pub const bendShape = synth_math.bendShape;
 const cycleEnum = synth_math.cycleEnum;
 const warpedInc = synth_math.warpedInc;
 const polyBlep = synth_math.polyBlep;
@@ -76,32 +78,37 @@ pub const FilterType = enum { lp, hp, bp, notch, ladder, diode, comb, formant };
 /// oscillator mix and their outputs are averaged. Irrelevant (and behaves
 /// identically to filter 1 alone) while `filter2_on` is false.
 pub const FilterRouting = enum { series, parallel };
-/// `sh` is sample & hold: a random level (uniform in [-1, 1)) redrawn each
-/// time the LFO's phase wraps - held state lives on PolySynth (`lfo_sh`),
-/// not derivable from phase alone like the other shapes. `chaos` is a
-/// Lorenz-attractor output (x-axis, normalized), continuously integrated
-/// every block at a rate set by the LFO's own rate knob - held state lives
-/// on PolySynth (`lfo_chaos`), also not derivable from phase alone. `custom`
-/// is a user-drawn breakpoint curve - see `LfoShapePoint`/`PolySynth.
-/// lfo_custom` and `lfoCustomSample`.
-pub const LfoShape   = enum { sine, triangle, saw, square, sh, chaos, custom };
-/// One node of a `.custom` LFO shape: `phase` 0..1 (one full LFO cycle),
-/// `value` -1..1 (matches every other shape's bipolar output range).
-/// `lfoCustomSample` linearly interpolates between consecutive points and
-/// holds the first/last value past either edge, same convention as
+/// How an LFO slot produces its value. `drawn` reads the slot's own
+/// breakpoint curve (`LfoShapePoint`/`PolySynth.lfo_custom`/
+/// `lfoCustomSample`), which covers every plain waveform there is - the
+/// classic sine/triangle/saw/square are point presets you load into it, see
+/// `LfoWave`. The other two can't be drawn because they aren't functions of
+/// phase: `sh` is sample & hold, a random level (uniform in [-1, 1)) redrawn
+/// each time the phase wraps (held on PolySynth as `lfo_sh`), and `chaos` is
+/// a Lorenz-attractor output (x-axis, normalized) integrated every block at
+/// the slot's rate (held as `lfo_chaos`).
+pub const LfoShape   = enum { drawn, sh, chaos };
+/// One node of a drawn LFO shape: `phase` 0..1 (one full LFO cycle), `value`
+/// -1..1 (the bipolar range every mod source shares), `curve` the bend of the
+/// segment *leaving* this point (see `synth_math.bendShape`; ignored on the
+/// last point, which has no segment after it - the same "a node owns the ramp
+/// after it" model `dsp.automation.Curve` uses for song timelines).
+/// `lfoCustomSample` interpolates between consecutive points and holds the
+/// first/last value past either edge, same convention as
 /// `dsp.automation.interpolate` (deliberately not reused directly: that one
-/// is beat/f64-keyed for song timelines, this is phase/f32-keyed for one
-/// LFO cycle, and pulling in the beat concept here would be misleading).
-pub const LfoShapePoint = struct { phase: f32 = 0, value: f32 = 0 };
-/// Capacity of a `.custom` LFO shape - same "small fixed bank, generous for
+/// is beat/f64-keyed for song timelines with a three-way curve enum, this is
+/// phase/f32-keyed for one LFO cycle with a continuous bend, and pulling in
+/// the beat concept here would be misleading).
+pub const LfoShapePoint = struct { phase: f32 = 0, value: f32 = 0, curve: f32 = 0 };
+/// Capacity of a drawn LFO shape - same "small fixed bank, generous for
 /// real use" convention as `PolySynth.max_mod_rows` elsewhere. Points are
-/// edited one field at a time through ids `lfo_custom_id_base`..+50 (see
-/// `PolySynth.adjustParam`/`setParamAbsolute`), the same scheme
-/// `mod_matrix` rows already use, so edits only ever reach the synth
-/// through the audio-thread command queue - never a direct field write
-/// racing `processBlock`.
+/// edited one field at a time through ids `lfo_custom_id_base`..+50 and
+/// `lfo_curve_id_base`..+23 (see `PolySynth.adjustParam`/
+/// `setParamAbsolute`), the same scheme `mod_matrix` rows already use, so
+/// edits only ever reach the synth through the audio-thread command queue -
+/// never a direct field write racing `processBlock`.
 pub const max_lfo_shape_points: u8 = 8;
-/// Flat id space start for `.custom` LFO shape points - see
+/// Flat id space start for drawn LFO shape points - see
 /// `max_lfo_shape_points`'s doc comment. Slot `s` (0/1/2 = LFO 1/2/3)
 /// occupies ids `base + s*17 .. base + s*17 + 15` (point `i`'s phase at
 /// `+i*2`, value at `+i*2+1`) plus one count id at `base + s*17 + 16`.
@@ -110,13 +117,70 @@ pub const max_lfo_shape_points: u8 = 8;
 /// `PolySynth.wt_table_ids`, and 254/255 are `dest_pitch`/`dest_amp`.
 pub const lfo_custom_id_base: u16 = 195;
 pub const lfo_custom_ids_per_slot: u16 = max_lfo_shape_points * 2 + 1;
-const default_lfo_custom_points: [max_lfo_shape_points]LfoShapePoint = blk: {
-    var pts: [max_lfo_shape_points]LfoShapePoint = undefined;
-    pts[0] = .{ .phase = 0, .value = 0 };
-    pts[1] = .{ .phase = 1, .value = 0 };
-    for (pts[2..]) |*p| p.* = .{};
-    break :blk pts;
-};
+/// Per-point segment bends, one id per point per slot (`base + s*8 + i`).
+/// A block of its own above every other id rather than a third field inside
+/// the 195-245 band, for the same reason `mod_unipolar_id_base` sits apart:
+/// widening that band in place would renumber ids saved automation lanes
+/// point at.
+pub const lfo_curve_id_base: u16 = 373;
+/// Loads a `LfoWave` preset into a slot's drawn points - one id per slot,
+/// reading back as whichever preset the points currently match (`.drawn`
+/// once they've been edited away from all of them).
+pub const lfo_wave_id_base: u16 = 397;
+/// The classic waveforms, as point presets for a drawn shape rather than
+/// shapes of their own. `drawn` is the "matches no preset" reading of
+/// `lfoWaveOf`, and loading it is a no-op: hand-drawn points aren't a wave
+/// anyone can recreate from a name.
+pub const LfoWave = enum { drawn, sine, triangle, saw, square };
+/// A preset's points plus how many of them are live, in the layout
+/// `PolySynth.lfo_custom`/`lfo_custom_count` want. Comptime-callable, so
+/// factory patches in `synth_presets.zig` can spell a waveform by name.
+pub const LfoWaveShape = struct { points: [max_lfo_shape_points]LfoShapePoint, count: u8 };
+
+/// Points for one classic waveform. Triangle/saw/square come out exact
+/// (square by stacking two points on the same phase, which the sampler reads
+/// as an instant jump); sine is four bent segments, within ~0.05 of a true
+/// sine everywhere - the closest 8 points and one bend per segment get.
+pub fn lfoWave(wave: LfoWave) LfoWaveShape {
+    // zig fmt: off
+    const spec: []const LfoShapePoint = switch (wave) {
+        .drawn    => &.{},
+        .sine     => &.{ .{ .phase = 0, .value = 0, .curve = -0.25 }, .{ .phase = 0.25, .value = 1, .curve = 0.25 },
+                         .{ .phase = 0.5, .value = 0, .curve = -0.25 }, .{ .phase = 0.75, .value = -1, .curve = 0.25 },
+                         .{ .phase = 1, .value = 0 } },
+        .triangle => &.{ .{ .phase = 0, .value = -1 }, .{ .phase = 0.5, .value = 1 }, .{ .phase = 1, .value = -1 } },
+        .saw      => &.{ .{ .phase = 0, .value = -1 }, .{ .phase = 1, .value = 1 } },
+        .square   => &.{ .{ .phase = 0, .value = 1 }, .{ .phase = 0.5, .value = 1 },
+                         .{ .phase = 0.5, .value = -1 }, .{ .phase = 1, .value = -1 } },
+    };
+    // zig fmt: on
+    var out: LfoWaveShape = .{ .points = [_]LfoShapePoint{.{}} ** max_lfo_shape_points, .count = @intCast(spec.len) };
+    for (spec, out.points[0..spec.len]) |src, *dst| dst.* = src;
+    return out;
+}
+
+/// Which preset `points` currently spells, or `.drawn` when they match none -
+/// the read half of `lfo_wave_id_base`, so the editor can name a freshly
+/// loaded wave without storing (and having to keep honest) a separate field.
+pub fn lfoWaveOf(points: []const LfoShapePoint) LfoWave {
+    for (std.enums.values(LfoWave)) |wave| {
+        if (wave == .drawn) continue;
+        const preset = lfoWave(wave);
+        if (preset.count != points.len) continue;
+        var same = true;
+        for (preset.points[0..preset.count], points) |a, b| {
+            same = same and @abs(a.phase - b.phase) < 1e-4 and
+                @abs(a.value - b.value) < 1e-4 and @abs(a.curve - b.curve) < 1e-4;
+        }
+        if (same) return wave;
+    }
+    return .drawn;
+}
+
+/// A fresh LFO is a plain sine - a drawn shape that started flat would leave
+/// every new mod-matrix row silent with no hint why.
+const default_lfo_custom_points: [max_lfo_shape_points]LfoShapePoint = lfoWave(.sine).points;
+const default_lfo_custom_count: u8 = lfoWave(.sine).count;
 /// An LFO's (or the arp's) rate source. `off` keeps the slot's plain Hz
 /// rate knob; every other variant overrides it with a note division of the
 /// project tempo, read off the attached `Transport`. Names are `n<num>_<den>`
@@ -126,19 +190,44 @@ const default_lfo_custom_points: [max_lfo_shape_points]LfoShapePoint = blk: {
 /// PolySynth in a test, a synth built before the rack heap-allocates) falls
 /// back to its Hz rate rather than freezing.
 pub const LfoSync = enum {
-    off, n4_1, n2_1, n1_1, n1_2d, n1_2, n1_2t, n1_4d, n1_4, n1_4t,
-    n1_8d, n1_8, n1_8t, n1_16d, n1_16, n1_16t, n1_32,
+    off,
+    n4_1,
+    n2_1,
+    n1_1,
+    n1_2d,
+    n1_2,
+    n1_2t,
+    n1_4d,
+    n1_4,
+    n1_4t,
+    n1_8d,
+    n1_8,
+    n1_8t,
+    n1_16d,
+    n1_16,
+    n1_16t,
+    n1_32,
 
     /// Beats (quarter notes) per full LFO cycle / per arp step, or null for
     /// `off`. A dotted division is 1.5x its straight length, a triplet 2/3.
     pub fn beatsPerCycle(self: LfoSync) ?f64 {
         return switch (self) {
             .off => null,
-            .n4_1 => 16.0,   .n2_1 => 8.0,     .n1_1 => 4.0,
-            .n1_2d => 3.0,   .n1_2 => 2.0,     .n1_2t => 4.0 / 3.0,
-            .n1_4d => 1.5,   .n1_4 => 1.0,     .n1_4t => 2.0 / 3.0,
-            .n1_8d => 0.75,  .n1_8 => 0.5,     .n1_8t => 1.0 / 3.0,
-            .n1_16d => 0.375, .n1_16 => 0.25,  .n1_16t => 1.0 / 6.0,
+            .n4_1 => 16.0,
+            .n2_1 => 8.0,
+            .n1_1 => 4.0,
+            .n1_2d => 3.0,
+            .n1_2 => 2.0,
+            .n1_2t => 4.0 / 3.0,
+            .n1_4d => 1.5,
+            .n1_4 => 1.0,
+            .n1_4t => 2.0 / 3.0,
+            .n1_8d => 0.75,
+            .n1_8 => 0.5,
+            .n1_8t => 1.0 / 3.0,
+            .n1_16d => 0.375,
+            .n1_16 => 0.25,
+            .n1_16t => 1.0 / 6.0,
             .n1_32 => 0.125,
         };
     }
@@ -146,11 +235,21 @@ pub const LfoSync = enum {
     pub fn label(self: LfoSync) []const u8 {
         return switch (self) {
             .off => "off",
-            .n4_1 => "4/1",   .n2_1 => "2/1",   .n1_1 => "1/1",
-            .n1_2d => "1/2.", .n1_2 => "1/2",   .n1_2t => "1/2T",
-            .n1_4d => "1/4.", .n1_4 => "1/4",   .n1_4t => "1/4T",
-            .n1_8d => "1/8.", .n1_8 => "1/8",   .n1_8t => "1/8T",
-            .n1_16d => "1/16.", .n1_16 => "1/16", .n1_16t => "1/16T",
+            .n4_1 => "4/1",
+            .n2_1 => "2/1",
+            .n1_1 => "1/1",
+            .n1_2d => "1/2.",
+            .n1_2 => "1/2",
+            .n1_2t => "1/2T",
+            .n1_4d => "1/4.",
+            .n1_4 => "1/4",
+            .n1_4t => "1/4T",
+            .n1_8d => "1/8.",
+            .n1_8 => "1/8",
+            .n1_8t => "1/8T",
+            .n1_16d => "1/16.",
+            .n1_16 => "1/16",
+            .n1_16t => "1/16T",
             .n1_32 => "1/32",
         };
     }
@@ -170,7 +269,23 @@ pub const LfoRetrig = enum { free, key, one_shot };
 /// macro knobs are synth-global; fenv/aenv/velocity/keytrack are per-voice.
 /// Macros are plain 0..1 values fanned out through matrix rows - one knob
 /// (or one automation lane, ids 99-102) moving many destinations at once.
-pub const ModSource  = enum { none, lfo, fenv, aenv, velocity, keytrack, wheel, lfo2, lfo3, mac1, mac2, mac3, mac4, env3, random, alternate,
+pub const ModSource = enum {
+    none,
+    lfo,
+    fenv,
+    aenv,
+    velocity,
+    keytrack,
+    wheel,
+    lfo2,
+    lfo3,
+    mac1,
+    mac2,
+    mac3,
+    mac4,
+    env3,
+    random,
+    alternate,
 
     /// True for the sources that swing through negative values. The
     /// envelopes, velocity, the wheel, and the macros are all already
@@ -183,9 +298,9 @@ pub const ModSource  = enum { none, lfo, fenv, aenv, velocity, keytrack, wheel, 
         };
     }
 };
-pub const VoiceMode  = enum { poly, mono, legato };
-pub const SubShape   = enum { sine, square };
-pub const ModMode    = enum { none, ring, am_a_to_b, am_b_to_a, fm_a_to_b, fm_b_to_a };
+pub const VoiceMode = enum { poly, mono, legato };
+pub const SubShape = enum { sine, square };
+pub const ModMode = enum { none, ring, am_a_to_b, am_b_to_a, fm_a_to_b, fm_b_to_a };
 /// Detune curve across unison voices. `spread`: symmetric, total width =
 /// unison_detune cents (original behaviour). `step`: each voice offset by
 /// a full unison_detune-cents step from its neighbor - a chord/stack-style
@@ -194,7 +309,7 @@ pub const ModMode    = enum { none, ring, am_a_to_b, am_b_to_a, fm_a_to_b, fm_b_
 /// half-integer series (1x, 1.5x, 2x, ...) - a fifths/octaves power-chord
 /// stack. For both, unison_detune is the blend: 0 = all voices at the
 /// fundamental, 100 = exact series.
-pub const UnisonMode  = enum { spread, step, harmonic, ratio };
+pub const UnisonMode = enum { spread, step, harmonic, ratio };
 /// Phase-warp applied to an oscillator's read phase before waveform lookup.
 /// `bend`: pivots the ramp so one half of the cycle races the other (PD-style
 /// asymmetry). `mirror`: folds the back part of the cycle backward instead of
@@ -202,12 +317,12 @@ pub const UnisonMode  = enum { spread, step, harmonic, ratio };
 /// phase by an integer-ish ratio and wraps, giving the classic hard-sync buzz
 /// without a second real oscillator. All three reduce to (near-)identity at
 /// `warp_amount = 0`, so switching the mode alone never surprises the sound.
-pub const WarpMode    = enum { none, bend, mirror, sync };
+pub const WarpMode = enum { none, bend, mirror, sync };
 /// `updown`/`downup` ping-pong across the built sequence without repeating
 /// either endpoint (classic arp behaviour). `played` walks the held-note
 /// press order instead of pitch order. `chord` retriggers every held note
 /// together each step (ignores `arp_octaves` - see PolySynth.arpFireStep).
-pub const ArpMode     = enum { up, down, updown, downup, played, random, chord };
+pub const ArpMode = enum { up, down, updown, downup, played, random, chord };
 // zig fmt: on
 
 /// Factory-preset rack FX kinds.
@@ -338,7 +453,7 @@ pub const PolySynth = struct {
     // ── LFO ─────────────────────────────────────────────────────────────────
     // A pure mod source since the matrix absorbed its routing: shape + rate
     // here, destination/depth live on matrix rows.
-    lfo_shape:  LfoShape  = .sine,
+    lfo_shape:  LfoShape  = .drawn,
     // zig fmt: on
     /// Rate in Hz (0.01–20 Hz). Ignored while `lfo_sync` names a division.
     lfo_rate_hz: f32 = 1.0,
@@ -363,14 +478,14 @@ pub const PolySynth = struct {
     // lives on matrix rows). Independent phases so different rates stay
     // free-running against each other.
     // zig fmt: off
-    lfo2_shape:   LfoShape  = .sine,
+    lfo2_shape:   LfoShape  = .drawn,
     lfo2_rate_hz: f32       = 1.0,
     lfo2_sync:    LfoSync   = .off,
     lfo2_retrig:  LfoRetrig = .free,
     lfo2_phase_offset: f32  = 0.0,
     lfo2_slew_ms: f32       = 0.0,
     lfo2_phase:   f32       = 0.0,
-    lfo3_shape:   LfoShape  = .sine,
+    lfo3_shape:   LfoShape  = .drawn,
     lfo3_rate_hz: f32       = 1.0,
     lfo3_sync:    LfoSync   = .off,
     lfo3_retrig:  LfoRetrig = .free,
@@ -395,15 +510,13 @@ pub const PolySynth = struct {
     /// of the Lorenz system) so it diverges into chaotic motion immediately
     /// instead of numerically sitting still.
     lfo_chaos: [3]ChaosState = .{ .{}, .{}, .{} },
-    /// `.custom` shape's user-drawn waveform per LFO slot - see
-    /// `LfoShapePoint`/`max_lfo_shape_points`. Patch data (persisted, copied
-    /// via toPatch/applyPatch like mod_matrix), unlike lfo_sh/lfo_chaos
-    /// above. Defaults to a flat line at 0 (silent modulation) so switching
-    /// a shape to `.custom` fresh never surprises with unexpected motion.
+    /// The `.drawn` shape's waveform per LFO slot - see `LfoShapePoint`/
+    /// `max_lfo_shape_points`. Patch data (persisted, copied via
+    /// toPatch/applyPatch like mod_matrix), unlike lfo_sh/lfo_chaos above.
     lfo_custom: [3][max_lfo_shape_points]LfoShapePoint = .{ default_lfo_custom_points, default_lfo_custom_points, default_lfo_custom_points },
     /// How many of each slot's `lfo_custom` entries are populated; the rest
     /// are unused padding, never read.
-    lfo_custom_count: [3]u8 = .{ 2, 2, 2 },
+    lfo_custom_count: [3]u8 = .{ default_lfo_custom_count, default_lfo_custom_count, default_lfo_custom_count },
 
     // ── MACRO ───────────────────────────────────────────────────────────────
     // Performance knobs with no sound of their own: only matrix rows give
@@ -1033,27 +1146,27 @@ pub const PolySynth = struct {
         fenv_release_s: f32 = 0.3,
         fenv_curve: f32 = 0.0,
 
-        lfo_shape: LfoShape = .sine,
+        lfo_shape: LfoShape = .drawn,
         lfo_rate_hz: f32 = 1.0,
         lfo_sync: LfoSync = .off,
         lfo_retrig: LfoRetrig = .free,
         lfo_phase_offset: f32 = 0.0,
         lfo_slew_ms: f32 = 0.0,
 
-        lfo2_shape: LfoShape = .sine,
+        lfo2_shape: LfoShape = .drawn,
         lfo2_rate_hz: f32 = 1.0,
         lfo2_sync: LfoSync = .off,
         lfo2_retrig: LfoRetrig = .free,
         lfo2_phase_offset: f32 = 0.0,
         lfo2_slew_ms: f32 = 0.0,
-        lfo3_shape: LfoShape = .sine,
+        lfo3_shape: LfoShape = .drawn,
         lfo3_rate_hz: f32 = 1.0,
         lfo3_sync: LfoSync = .off,
         lfo3_retrig: LfoRetrig = .free,
         lfo3_phase_offset: f32 = 0.0,
         lfo3_slew_ms: f32 = 0.0,
         lfo_custom: [3][max_lfo_shape_points]LfoShapePoint = .{ default_lfo_custom_points, default_lfo_custom_points, default_lfo_custom_points },
-        lfo_custom_count: [3]u8 = .{ 2, 2, 2 },
+        lfo_custom_count: [3]u8 = .{ default_lfo_custom_count, default_lfo_custom_count, default_lfo_custom_count },
 
         macro1: f32 = 0.0,
         macro2: f32 = 0.0,
@@ -2123,24 +2236,23 @@ pub const PolySynth = struct {
     }
 
     /// Block-rate value of the LFO in `slot`: the held random level for
-    /// sample & hold, the normalized Lorenz x-axis for chaos, a pure
-    /// function of phase for every other shape.
+    /// sample & hold, the normalized Lorenz x-axis for chaos, the drawn
+    /// waveform read at `phase` otherwise.
     fn lfoVal(self: *const PolySynth, slot: usize, shape: LfoShape, phase: f32) f32 {
         return switch (shape) {
             .sh => self.lfo_sh[slot],
             .chaos => std.math.clamp(self.lfo_chaos[slot].x / 20.0, -1.0, 1.0),
-            .custom => lfoCustomSample(self.lfo_custom[slot][0..self.lfo_custom_count[slot]], phase),
-            else => lfoSample(shape, phase),
+            .drawn => lfoCustomSample(self.lfo_custom[slot][0..self.lfo_custom_count[slot]], phase),
         };
     }
 
-    /// Linear interpolation across a `.custom` LFO shape's points - see
-    /// `LfoShapePoint`'s doc comment for why this doesn't just call
-    /// `dsp.automation.interpolate`. Never `null` like that function: an
-    /// LFO always has to produce some value, so an empty or corrupt point
-    /// list (unreachable via the editor, only via a hand-edited file) reads
-    /// as silence rather than propagating an optional through the whole
-    /// modulation chain.
+    /// Interpolation across a drawn LFO shape's points, each segment bent by
+    /// the point it leaves - see `LfoShapePoint`'s doc comment for why this
+    /// doesn't just call `dsp.automation.interpolate`. Never `null` like that
+    /// function: an LFO always has to produce some value, so an empty or
+    /// corrupt point list (unreachable via the editor, only via a hand-edited
+    /// file) reads as silence rather than propagating an optional through the
+    /// whole modulation chain.
     fn lfoCustomSample(points: []const LfoShapePoint, phase: f32) f32 {
         if (points.len == 0) return 0;
         if (phase <= points[0].phase) return points[0].value;
@@ -2153,10 +2265,17 @@ pub const PolySynth = struct {
                 const b = points[i];
                 const span = b.phase - a.phase;
                 const t: f32 = if (span <= 0) 1.0 else (phase - a.phase) / span;
-                return a.value + (b.value - a.value) * t;
+                return a.value + (b.value - a.value) * bendShape(t, a.curve);
             }
         }
         return last.value;
+    }
+
+    /// A slot's drawn shape at `phase`, for editor previews - `lfoVal`
+    /// without the held `.sh`/`.chaos` state, so a caller can plot the
+    /// waveform without an audio-thread read.
+    pub fn lfoValueAt(self: *const PolySynth, slot: usize, phase: f32) f32 {
+        return lfoCustomSample(self.lfo_custom[slot][0..self.lfo_custom_count[slot]], phase);
     }
 
     fn setLfoCustomPhase(self: *PolySynth, slot: usize, index: usize, phase: f32) void {
@@ -2181,6 +2300,16 @@ pub const PolySynth = struct {
             }
         }
         self.lfo_custom_count[slot] = new_count;
+    }
+
+    /// Overwrite a slot's drawn points with a classic waveform. `.drawn` is
+    /// the "no preset matches" reading of `lfoWaveOf`, not a wave of its own,
+    /// so loading it leaves whatever the user drew alone.
+    fn loadLfoWave(self: *PolySynth, slot: usize, wave: LfoWave) void {
+        if (wave == .drawn) return;
+        const preset = lfoWave(wave);
+        self.lfo_custom[slot] = preset.points;
+        self.lfo_custom_count[slot] = preset.count;
     }
 
     /// Advance one LFO's phase by a block; a wrap redraws the slot's sample
@@ -2805,11 +2934,32 @@ pub const PolySynth = struct {
                 }
                 return;
             },
+            lfo_curve_id_base...lfo_curve_id_base + 3 * max_lfo_shape_points - 1 => {
+                const pt = self.lfoCurvePoint(id);
+                pt.curve = std.math.clamp(pt.curve + @as(f32, @floatFromInt(steps)) * 0.01, -1.0, 1.0);
+                return;
+            },
+            // Stepping off a hand-drawn shape starts from `.drawn`, so one
+            // press lands on the first real wave rather than skipping it.
+            lfo_wave_id_base...lfo_wave_id_base + 2 => {
+                const slot = id - lfo_wave_id_base;
+                const cur = lfoWaveOf(self.lfo_custom[slot][0..self.lfo_custom_count[slot]]);
+                self.loadLfoWave(slot, cycleEnum(LfoWave, cur, steps));
+                return;
+            },
             else => {},
         }
         inline for (param_specs) |spec| {
             if (@hasField(PolySynth, spec.field) and spec.id == id) return specAdjust(self, spec, steps);
         }
+    }
+
+    /// The drawn point one `lfo_curve_id_base` id addresses - the curve block
+    /// is one id per point per slot, so unlike `decodeLfoCustomId` there is
+    /// no field or count to disambiguate.
+    fn lfoCurvePoint(self: *PolySynth, id: u16) *LfoShapePoint {
+        const rel = id - lfo_curve_id_base;
+        return &self.lfo_custom[rel / max_lfo_shape_points][rel % max_lfo_shape_points];
     }
 
     /// Absolute-value counterpart to `adjustParam`, for automation curves
@@ -2841,10 +2991,10 @@ pub const PolySynth = struct {
                 self.mod_matrix[id - mod_unipolar_id_base].unipolar = value >= 0.5;
                 return;
             },
-            // `.custom` LFO shape points - see decodeLfoCustomId's doc
-            // comment. This is the id range the curve widget's mouse drag/
-            // insert/remove edits actually go through (adjustParam's h/l
-            // nudge above only matters for keyboard-only editing).
+            // Drawn LFO shape points - see decodeLfoCustomId's doc comment.
+            // This is the id range the curve widget's mouse drag/insert/
+            // remove edits actually go through (adjustParam's h/l nudge above
+            // only matters for keyboard-only editing).
             lfo_custom_id_base...lfo_custom_id_base + 3 * lfo_custom_ids_per_slot - 1 => {
                 switch (decodeLfoCustomId(id)) {
                     .count => |c| self.setLfoCustomCount(c.slot, @intCast(std.math.clamp(@as(i32, @intFromFloat(@round(value))), 0, @as(i32, max_lfo_shape_points)))),
@@ -2857,6 +3007,14 @@ pub const PolySynth = struct {
                         }
                     },
                 }
+                return;
+            },
+            lfo_curve_id_base...lfo_curve_id_base + 3 * max_lfo_shape_points - 1 => {
+                self.lfoCurvePoint(id).curve = std.math.clamp(value, -1.0, 1.0);
+                return;
+            },
+            lfo_wave_id_base...lfo_wave_id_base + 2 => {
+                self.loadLfoWave(id - lfo_wave_id_base, enumFromValue(LfoWave, value));
                 return;
             },
             else => {},
@@ -2901,6 +3059,14 @@ pub const PolySynth = struct {
                     .count => |c| @floatFromInt(self.lfo_custom_count[c.slot]),
                     .point => |p| if (p.is_value) self.lfo_custom[p.slot][p.index].value else self.lfo_custom[p.slot][p.index].phase,
                 };
+            },
+            lfo_curve_id_base...lfo_curve_id_base + 3 * max_lfo_shape_points - 1 => {
+                const rel = id - lfo_curve_id_base;
+                return self.lfo_custom[rel / max_lfo_shape_points][rel % max_lfo_shape_points].curve;
+            },
+            lfo_wave_id_base...lfo_wave_id_base + 2 => {
+                const slot = id - lfo_wave_id_base;
+                return @floatFromInt(@intFromEnum(lfoWaveOf(self.lfo_custom[slot][0..self.lfo_custom_count[slot]])));
             },
             wt_table_ids[0]...wt_table_ids[2] => {
                 const slot = wtTableSlot(id) orelse return null;
@@ -3443,9 +3609,8 @@ test "LFO tremolo via matrix: square trough at depth=1 silences the voice" {
     var with_lfo = try PolySynth.init(std.testing.allocator, 48_000);
     defer with_lfo.deinit();
     // zig fmt: off
-    with_lfo.lfo_shape  = .square;
     with_lfo.lfo_rate_hz = 0.0; // frozen
-    with_lfo.lfo_phase  = 0.75; // square trough → lfo_val = -1
+    with_lfo.lfo_phase  = 0.75; // sine trough → lfo_val = -1
     // zig fmt: on
     with_lfo.mod_matrix[0] = .{ .source = .lfo, .dest = PolySynth.dest_amp, .depth = 1.0 };
     with_lfo.noteOn(60, 1.0);
@@ -3579,13 +3744,12 @@ test "warpPhase contains non-finite runtime inputs" {
     }
 }
 
-test "LFO 2 tremolo via matrix: square trough at depth=1 silences the voice" {
+test "LFO 2 tremolo via matrix: trough at depth=1 silences the voice" {
     var s = try PolySynth.init(std.testing.allocator, 48_000);
     defer s.deinit();
     // zig fmt: off
-    s.lfo2_shape   = .square;
     s.lfo2_rate_hz = 0.0;  // frozen
-    s.lfo2_phase   = 0.75; // square trough → -1
+    s.lfo2_phase   = 0.75; // sine trough → -1
     // zig fmt: on
     s.mod_matrix[0] = .{ .source = .lfo2, .dest = PolySynth.dest_amp, .depth = 1.0 };
     s.noteOn(60, 1.0);
@@ -3604,9 +3768,8 @@ test "LFO 2 tremolo via matrix: square trough at depth=1 silences the voice" {
 test "unipolar mod row: folds a bipolar source to 0..1, leaves unipolar ones alone" {
     var s = try PolySynth.init(std.testing.allocator, 48_000);
     defer s.deinit();
-    s.lfo_shape = .square;
     s.lfo_rate_hz = 0.0; // frozen
-    s.lfo_phase = 0.75; // square trough → -1
+    s.lfo_phase = 0.75; // sine trough → -1
     s.mod_matrix[0] = .{ .source = .lfo, .dest = PolySynth.dest_amp, .depth = 1.0 };
 
     // Bipolar: the trough reads -1, so a depth-1 row subtracts a full unit.
@@ -3795,7 +3958,7 @@ test "LFO slew: smoothing lags a square's jump instead of following it" {
     var smoothed = try PolySynth.init(std.testing.allocator, 48_000);
     defer smoothed.deinit();
     for ([_]*PolySynth{ &sharp, &smoothed }) |s| {
-        s.lfo_shape = .square;
+        s.loadLfoWave(0, .square);
         s.lfo_rate_hz = 5.0;
         s.mod_matrix[0] = .{ .source = .lfo, .dest = PolySynth.dest_amp, .depth = 0.5 };
         s.noteOn(60, 1.0);
@@ -3887,7 +4050,7 @@ test "LFO 2/3 + macro params round-trip through paramValue/setParamAbsolute and 
     defer a.deinit();
     // zig fmt: off
     a.lfo2_shape = .sh;  a.lfo2_rate_hz = 6.5;
-    a.lfo3_shape = .saw; a.lfo3_rate_hz = 0.25;
+    a.lfo3_shape = .chaos; a.lfo3_rate_hz = 0.25;
     a.macro1 = 0.1; a.macro2 = 0.4; a.macro3 = 0.7; a.macro4 = 1.0;
     // zig fmt: on
 
@@ -4207,7 +4370,7 @@ test "legato mode: no envelope retrigger on second note" {
 }
 
 test "LFO: all shapes stay finite under filter modulation" {
-    const shapes = [_]LfoShape{ .sine, .triangle, .saw, .square, .chaos, .custom };
+    const shapes = [_]LfoShape{ .drawn, .sh, .chaos };
     for (shapes) |shape| {
         var synth = try PolySynth.init(std.testing.allocator, 48_000);
         defer synth.deinit();
@@ -4248,7 +4411,7 @@ test "LFO: chaos shape evolves and stays bounded" {
     try std.testing.expect(moved);
 }
 
-test "LFO custom shape: interpolates between points and holds the edges" {
+test "LFO drawn shape: interpolates between points and holds the edges" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
     synth.lfo_custom[0][0] = .{ .phase = 0.0, .value = -1.0 };
@@ -4256,24 +4419,72 @@ test "LFO custom shape: interpolates between points and holds the edges" {
     synth.lfo_custom[0][2] = .{ .phase = 1.0, .value = -1.0 };
     synth.lfo_custom_count[0] = 3;
 
-    try std.testing.expectApproxEqAbs(@as(f32, -1.0), synth.lfoVal(0, .custom, 0.0), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), synth.lfoVal(0, .custom, 0.25), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 1.0), synth.lfoVal(0, .custom, 0.5), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, -1.0), synth.lfoVal(0, .custom, 1.0), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -1.0), synth.lfoVal(0, .drawn, 0.0), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), synth.lfoVal(0, .drawn, 0.25), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), synth.lfoVal(0, .drawn, 0.5), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -1.0), synth.lfoVal(0, .drawn, 1.0), 1e-6);
     // Past either edge holds the nearest point's value rather than
     // wrapping or extrapolating.
-    try std.testing.expectApproxEqAbs(@as(f32, -1.0), synth.lfoVal(0, .custom, -0.5), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, -1.0), synth.lfoVal(0, .custom, 1.5), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -1.0), synth.lfoVal(0, .drawn, -0.5), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -1.0), synth.lfoVal(0, .drawn, 1.5), 1e-6);
 }
 
-test "LFO custom shape: empty point list reads as silence" {
+test "LFO drawn shape: empty point list reads as silence" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
     synth.lfo_custom_count[1] = 0;
-    try std.testing.expectApproxEqAbs(@as(f32, 0.0), synth.lfoVal(1, .custom, 0.3), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), synth.lfoVal(1, .drawn, 0.3), 1e-6);
 }
 
-test "LFO custom shape points round-trip through paramValue/setParamAbsolute and Patch" {
+test "LFO wave presets play the waveform they name" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    const steps = 64;
+    for ([_]LfoWave{ .sine, .triangle, .saw, .square }) |wave| {
+        synth.loadLfoWave(0, wave);
+        for (0..steps) |i| {
+            const phase = @as(f32, @floatFromInt(i)) / @as(f32, steps);
+            const got = synth.lfoVal(0, .drawn, phase);
+            const want: f32 = switch (wave) {
+                .sine => @sin(phase * 2.0 * std.math.pi),
+                .triangle => 1.0 - 4.0 * @abs(phase - 0.5),
+                .saw => 2.0 * phase - 1.0,
+                // The stacked pair at 0.5 reads as the still-high point when
+                // sampled exactly on the edge, so the flip lands just after.
+                .square => if (phase <= 0.5) 1.0 else -1.0,
+                .drawn => unreachable,
+            };
+            // Everything but sine is exact; sine is four bent segments, so
+            // it only tracks the real thing to within a twentieth.
+            const tolerance: f32 = if (wave == .sine) 0.05 else 1e-6;
+            try std.testing.expectApproxEqAbs(want, got, tolerance);
+        }
+        try std.testing.expectEqual(wave, lfoWaveOf(synth.lfo_custom[0][0..synth.lfo_custom_count[0]]));
+    }
+    // A point moved off a preset stops claiming to be one.
+    synth.lfo_custom[0][0].value = 0.3;
+    try std.testing.expectEqual(LfoWave.drawn, lfoWaveOf(synth.lfo_custom[0][0..synth.lfo_custom_count[0]]));
+}
+
+test "LFO wave and bend param ids load and nudge the drawn shape" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    const wave_id = lfo_wave_id_base + 1; // LFO 2
+    synth.setParamAbsolute(wave_id, @floatFromInt(@intFromEnum(LfoWave.saw)));
+    try std.testing.expectEqual(@as(u8, 2), synth.lfo_custom_count[1]);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), synth.lfoVal(1, .drawn, 1.0), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, @floatFromInt(@intFromEnum(LfoWave.saw))), synth.paramValue(wave_id).?, 1e-6);
+
+    // Bending the saw's one segment pulls its midpoint off the straight line.
+    const bend_id = lfo_curve_id_base + max_lfo_shape_points; // slot 1, point 0
+    synth.adjustParam(bend_id, 50);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), synth.paramValue(bend_id).?, 1e-6);
+    try std.testing.expect(synth.lfoVal(1, .drawn, 0.5) < -0.1);
+    // ...and reads back as a hand-drawn shape rather than a saw.
+    try std.testing.expectEqual(LfoWave.drawn, lfoWaveOf(synth.lfo_custom[1][0..synth.lfo_custom_count[1]]));
+}
+
+test "LFO drawn shape points round-trip through paramValue/setParamAbsolute and Patch" {
     var a = try PolySynth.init(std.testing.allocator, 48_000);
     defer a.deinit();
     a.lfo_custom[0][0] = .{ .phase = 0.0, .value = -0.5 };
@@ -4286,6 +4497,13 @@ test "LFO custom shape points round-trip through paramValue/setParamAbsolute and
 
     var b = try PolySynth.init(std.testing.allocator, 48_000);
     defer b.deinit();
+    // Counts first: a phase write is clamped between its live neighbors, so
+    // writing points into a slot still holding a longer shape would pin them
+    // against points that are about to be dropped.
+    for (0..3) |slot| {
+        const count_id: u16 = @intCast(lfo_custom_id_base + slot * lfo_custom_ids_per_slot + max_lfo_shape_points * 2);
+        b.setParamAbsolute(count_id, a.paramValue(count_id).?);
+    }
     var id: u16 = lfo_custom_id_base;
     while (id <= lfo_custom_id_base + 3 * lfo_custom_ids_per_slot - 1) : (id += 1) {
         if (a.paramValue(@intCast(id))) |v| b.setParamAbsolute(@intCast(id), v);
@@ -4315,10 +4533,11 @@ test "adjustParam nudges a custom LFO point's phase/value and count" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.05), synth.lfo_custom[0][0].phase, 1e-6);
     synth.adjustParam(value_id, -10);
     try std.testing.expectApproxEqAbs(@as(f32, -0.1), synth.lfo_custom[0][0].value, 1e-6);
-    try std.testing.expectEqual(@as(u8, 2), synth.lfo_custom_count[0]);
+    try std.testing.expectEqual(default_lfo_custom_count, synth.lfo_custom_count[0]);
     synth.adjustParam(count_id, 1);
-    try std.testing.expectEqual(@as(u8, 3), synth.lfo_custom_count[0]);
-    try std.testing.expect(synth.lfo_custom[0][2].phase >= synth.lfo_custom[0][1].phase);
+    try std.testing.expectEqual(default_lfo_custom_count + 1, synth.lfo_custom_count[0]);
+    const added = default_lfo_custom_count;
+    try std.testing.expect(synth.lfo_custom[0][added].phase >= synth.lfo_custom[0][added - 1].phase);
     synth.adjustParam(count_id, 100);
     try std.testing.expectEqual(max_lfo_shape_points, synth.lfo_custom_count[0]);
     synth.adjustParam(count_id, -100);

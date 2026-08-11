@@ -10,11 +10,9 @@
 
 const std = @import("std");
 const types = @import("../core/types.zig");
-const lfo_dsp = @import("lfo.zig");
 const synth = @import("synth.zig");
 const PolySynth = synth.PolySynth;
 const Waveform = synth.Waveform;
-const LfoShape = synth.LfoShape;
 const UnisonMode = synth.UnisonMode;
 const WarpMode = synth.WarpMode;
 const Stage = PolySynth.Stage;
@@ -225,21 +223,20 @@ pub fn nextNoise(state: *u32) f32 {
     return @as(f32, @floatFromInt(i)) * (1.0 / 2147483648.0);
 }
 
-pub fn lfoSample(shape: LfoShape, phase: f32) f32 {
-    return switch (shape) {
-        // zig fmt: off
-        .sine     => lfo_dsp.Lfo.sample(.{ .phase = phase }, .sine),
-        .triangle => lfo_dsp.Lfo.sample(.{ .phase = phase }, .triangle),
-        .saw      => lfo_dsp.Lfo.sample(.{ .phase = phase }, .saw),
-        .square   => lfo_dsp.Lfo.sample(.{ .phase = phase }, .square),
-        // Held/integrated state lives on PolySynth.lfo_sh/lfo_chaos,
-        // user-drawn points on PolySynth.lfo_custom; callers go through
-        // lfoVal, which never reaches here for .sh/.chaos/.custom.
-        .sh       => 0.0,
-        .chaos    => 0.0,
-        .custom   => 0.0,
-        // zig fmt: on
-    };
+/// Scales a drawn LFO segment's -1..1 bend into the exponent of `bendShape`.
+/// Picked so a bend of ±0.25 bows a segment into exactly a quarter of a sine
+/// at its midpoint (2 * ln(sqrt(2) - 1) = -1.76275, times four) - that is what
+/// `synth.lfoWave(.sine)` leans on to rebuild a sine out of four segments.
+pub const lfo_bend_scale: f32 = 7.051;
+
+/// Shapes `t` (0..1 progress across one segment of a drawn LFO shape) by that
+/// segment's `curve`: 0 is a straight ramp, negative bows the value up early
+/// (fast then flat), positive holds it back (flat then fast).
+pub fn bendShape(t: f32, curve: f32) f32 {
+    const c = std.math.clamp(curve, -1.0, 1.0);
+    if (c == 0.0) return t;
+    const k = c * lfo_bend_scale;
+    return (@exp(k * t) - 1.0) / (@exp(k) - 1.0);
 }
 
 /// Wraps `cur` one variant forward (steps > 0) or backward - every
@@ -369,4 +366,22 @@ pub fn oscWave(wf: Waveform, phase: f32, pw: f32, dt: f32) Sample {
         .wavetable => 0.0,
         // zig fmt: on
     };
+}
+
+test "bendShape: straight at 0, monotone, and a quarter sine at ±0.25" {
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), bendShape(0.5, 0.0), 1e-6);
+    for ([_]f32{ -1.0, -0.25, 0.0, 0.4, 1.0 }) |curve| {
+        try std.testing.expectApproxEqAbs(@as(f32, 0.0), bendShape(0.0, curve), 1e-6);
+        try std.testing.expectApproxEqAbs(@as(f32, 1.0), bendShape(1.0, curve), 1e-6);
+        var prev = bendShape(0.0, curve);
+        for (1..21) |i| {
+            const y = bendShape(@as(f32, @floatFromInt(i)) / 20.0, curve);
+            try std.testing.expect(y >= prev);
+            prev = y;
+        }
+    }
+    // What `synth.lfoWave(.sine)` is built on: a -0.25 bend rises like the
+    // first quarter of a sine, +0.25 falls away like the second.
+    try std.testing.expectApproxEqAbs(@sin(std.math.pi * 0.25), bendShape(0.5, -0.25), 1e-4);
+    try std.testing.expectApproxEqAbs(1.0 - @sin(std.math.pi * 0.25), bendShape(0.5, 0.25), 1e-4);
 }

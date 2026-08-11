@@ -348,7 +348,7 @@ fn drawFilterPad(app: anytype, synth: *ws.dsp.PolySynth, cutoff_id: u16) void {
     if (result.activated) app.core.synth_cursor = cutoff_id;
 }
 
-/// Which `.custom` LFO slot (0/1/2) a MOD section's "shape" entry drives -
+/// Which drawn-LFO slot (0/1/2) a MOD section's "shape" entry drives -
 /// see `dsp.synth.lfo_custom_id_base`'s id-layout doc comment. `null` for
 /// every other id (rate, matrix rows, ...), so the extra draw call below is
 /// a no-op for them.
@@ -361,8 +361,8 @@ fn lfoShapeSlot(id: u16) ?usize {
     };
 }
 
-/// `.custom` LFO shape's breakpoint editor - drawn right under that LFO's
-/// shape/rate rows, only while the shape is actually set to `.custom`
+/// The drawn LFO shape's breakpoint editor - drawn right under that LFO's
+/// shape/rate rows, only while the shape is actually set to `.drawn`
 /// (picking any other shape via the +/- cycle above just hides it again).
 /// Reuses widgets.curveEditor exactly like the automation view does (see
 /// that view's own drawCurve for the fuller-chrome version); this one skips
@@ -374,12 +374,14 @@ fn drawLfoCustomCurve(app: anytype, synth: *ws.dsp.PolySynth, slot: usize) void 
         1 => synth.lfo2_shape,
         else => synth.lfo3_shape,
     };
-    if (shape != .custom) return;
+    if (shape != .drawn) return;
 
     const count = synth.lfo_custom_count[slot];
     var curve_buf: [ws.dsp.synth.max_lfo_shape_points]widgets.CurvePoint = undefined;
-    for (synth.lfo_custom[slot][0..count], curve_buf[0..count]) |src, *dst| {
+    var bend_buf: [ws.dsp.synth.max_lfo_shape_points]f32 = undefined;
+    for (synth.lfo_custom[slot][0..count], curve_buf[0..count], bend_buf[0..count]) |src, *dst, *bend| {
         dst.* = .{ .beat = src.phase, .value = src.value };
+        bend.* = src.curve;
     }
 
     var label_buf: [32]u8 = undefined;
@@ -387,13 +389,19 @@ fn drawLfoCustomCurve(app: anytype, synth: *ws.dsp.PolySynth, slot: usize) void 
     const base: u16 = ws.dsp.synth.lfo_custom_id_base + @as(u16, @intCast(slot)) * ws.dsp.synth.lfo_custom_ids_per_slot;
     const base_usize: usize = base;
     const count_id: u16 = base + ws.dsp.synth.max_lfo_shape_points * 2;
+    const bend_base: u16 = ws.dsp.synth.lfo_curve_id_base + @as(u16, @intCast(slot)) * ws.dsp.synth.max_lfo_shape_points;
+    // A cursor parked on a point's bend focuses that same point, so stepping
+    // phase -> value -> bend keeps the ring (and the bend knob below) on it.
     const focused_index: ?usize = if (app.core.synth_cursor >= base and app.core.synth_cursor < count_id)
         (app.core.synth_cursor - base) / 2
+    else if (app.core.synth_cursor >= bend_base and app.core.synth_cursor < bend_base + ws.dsp.synth.max_lfo_shape_points)
+        app.core.synth_cursor - bend_base
     else
         null;
 
     const result = widgets.curveEditor(label, .{
         .points = curve_buf[0..count],
+        .bends = bend_buf[0..count],
         .beat_hi = 1.0,
         .value_lo = -1.0,
         .value_hi = 1.0,
@@ -403,6 +411,30 @@ fn drawLfoCustomCurve(app: anytype, synth: *ws.dsp.PolySynth, slot: usize) void 
         .x_unit_label = "phase",
         .height = 130,
     });
+
+    // The plot's drag axes are phase and value, so the focused point's
+    // segment bend needs a control of its own to be reachable with a mouse.
+    if (focused_index) |i| {
+        if (i + 1 < count) {
+            const bend_id: u16 = @intCast(bend_base + i);
+            var bend = synth.lfo_custom[slot][i].curve;
+            var id_buf: [40]u8 = undefined;
+            const widget_id = std.fmt.bufPrintZ(&id_buf, "##gui-lfo-bend-{d}", .{slot}) catch return;
+            var value_buf: [24]u8 = undefined;
+            const value_text = std.fmt.bufPrint(&value_buf, "{d:.2}", .{bend}) catch "";
+            const bend_result = widgets.knobCell("bend", widget_id, value_text, .{
+                .v = &bend,
+                .min = -1.0,
+                .max = 1.0,
+                .cfmt = "%.2f",
+                .accent = theme.modulation,
+                .focused = app.core.synth_cursor == bend_id,
+                .diameter = 28,
+            });
+            if (bend_result.changed) sendParam(app, bend_id, bend);
+            if (bend_result.activated) app.core.synth_cursor = bend_id;
+        }
+    }
 
     if (result.moved) |m| {
         const phase_id: u16 = @intCast(base_usize + m.index * 2);
@@ -419,10 +451,15 @@ fn drawLfoCustomCurve(app: anytype, synth: *ws.dsp.PolySynth, slot: usize) void 
                 const dst_phase_id: u16 = @intCast(base_usize + i * 2);
                 sendParam(app, dst_phase_id, @floatCast(src.beat));
                 sendParam(app, dst_phase_id + 1, src.value);
+                sendParam(app, @intCast(bend_base + i), bend_buf[i - 1]);
             }
             const new_phase_id: u16 = @intCast(base_usize + k * 2);
             sendParam(app, new_phase_id, @floatCast(ins.beat));
             sendParam(app, new_phase_id + 1, ins.value);
+            // A point dropped into a bent segment splits it; both halves
+            // keeping the old bend is closer to the drawn shape than
+            // straightening either one.
+            sendParam(app, @intCast(bend_base + k), if (k > 0) bend_buf[k - 1] else 0);
             sendParam(app, count_id, @floatFromInt(count + 1));
             app.core.synth_cursor = new_phase_id;
         }
@@ -442,6 +479,7 @@ fn drawLfoCustomCurve(app: anytype, synth: *ws.dsp.PolySynth, slot: usize) void 
                 const dst_phase_id: u16 = @intCast(base_usize + i * 2);
                 sendParam(app, dst_phase_id, @floatCast(src.beat));
                 sendParam(app, dst_phase_id + 1, src.value);
+                sendParam(app, @intCast(bend_base + i), bend_buf[i + 1]);
             }
             sendParam(app, count_id, @floatFromInt(count - 1));
         }
@@ -666,8 +704,8 @@ fn drawOscDisplay(synth: *const ws.dsp.PolySynth, waveform_id: u16, accent: [4]f
 
 /// One cycle of the LFO's shape, at the top of its own card - the LFO
 /// counterpart to `drawOscDisplay`, and the same reason Serum gives each
-/// LFO a curve panel: "sine" versus "s&h" is a picture, not a word. Skipped
-/// for `.custom`, which already draws its real breakpoint editor below
+/// LFO a curve panel: "chaos" versus "s&h" is a picture, not a word. Skipped
+/// for `.drawn`, which already draws its real breakpoint editor below
 /// (see `drawLfoCustomCurve`).
 fn drawLfoDisplay(synth: *const ws.dsp.PolySynth, slot: usize, accent: [4]f32) void {
     const shape = switch (slot) {
@@ -675,7 +713,7 @@ fn drawLfoDisplay(synth: *const ws.dsp.PolySynth, slot: usize, accent: [4]f32) v
         1 => synth.lfo2_shape,
         else => synth.lfo3_shape,
     };
-    if (shape == .custom) return;
+    if (shape == .drawn) return;
 
     const width = zgui.getContentRegionAvail()[0];
     const height: f32 = 56;
@@ -693,10 +731,7 @@ fn drawLfoDisplay(synth: *const ws.dsp.PolySynth, slot: usize, accent: [4]f32) v
     for (0..steps + 1) |i| {
         const phase = @as(f32, @floatFromInt(i)) / @as(f32, steps);
         const sample: f32 = switch (shape) {
-            .sine => @sin(phase * std.math.pi * 2.0),
-            .triangle => 1.0 - 4.0 * @abs(phase - 0.5) + 1.0 - 1.0,
-            .saw => 1.0 - phase * 2.0,
-            .square => if (phase < 0.5) 1.0 else -1.0,
+            .drawn => 0,
             // Deterministic stand-ins: a real sample-and-hold or chaos run
             // would flicker every frame and read as noise, not as shape.
             .sh => switch (@as(usize, @intFromFloat(phase * 8.0)) % 8) {
@@ -710,7 +745,6 @@ fn drawLfoDisplay(synth: *const ws.dsp.PolySynth, slot: usize, accent: [4]f32) v
                 else => 0.2,
             },
             .chaos => @sin(phase * 11.0) * 0.6 + @sin(phase * 27.0) * 0.35,
-            .custom => 0,
         };
         const point = [2]f32{ plot_x + plot_w * phase, mid - (height * 0.5 - 5) * sample };
         if (i > 0) draw_list.addLine(.{ .p1 = prev, .p2 = point, .col = color(accent), .thickness = 1.5 });

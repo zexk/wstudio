@@ -922,6 +922,11 @@ pub const Curve = struct {
     /// passes "phase" since its x-axis is a 0..1 cycle fraction, not a
     /// musical beat position.
     x_unit_label: []const u8 = "beats",
+    /// Continuous per-point segment bends (parallel to `points`), for
+    /// callers whose curve isn't automation's three-way `Curve` enum - the
+    /// LFO shape editor passes `LfoShapePoint.curve`. When set, it replaces
+    /// each point's enum shape for drawing.
+    bends: ?[]const f32 = null,
     /// Defaults to the rest of the content region, like every other widget
     /// here - override to inset the plot within a caller's own chrome
     /// (axis labels, ruler, ...) instead of owning the full width.
@@ -988,6 +993,21 @@ fn drawCurveSegment(draw_list: anytype, a: [2]f32, b: [2]f32, shape: ws.dsp.auto
     }
 }
 
+/// `drawCurveSegment`'s counterpart for a continuous bend (see
+/// `Curve.bends`), chorded the same way `.ease` is so the two look alike.
+fn drawBentSegment(draw_list: anytype, a: [2]f32, b: [2]f32, bend: f32, col: u32) void {
+    if (bend == 0) return draw_list.addLine(.{ .p1 = a, .p2 = b, .col = col, .thickness = 2 });
+    const chords = 16;
+    var from = a;
+    for (1..chords + 1) |i| {
+        const t = @as(f32, @floatFromInt(i)) / @as(f32, chords);
+        const shaped = ws.dsp.synth.bendShape(t, bend);
+        const to = [2]f32{ a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * shaped };
+        draw_list.addLine(.{ .p1 = from, .p2 = to, .col = col, .thickness = 2 });
+        from = to;
+    }
+}
+
 pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
     const theme = &gui_style.palette;
     const width = args.width orelse zgui.getContentRegionAvail()[0];
@@ -1027,11 +1047,17 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
         // point never matters; from there on a segment is shaped by the
         // point it leaves.
         var prev_shape: ws.dsp.automation.Curve = .linear;
-        for (args.points) |p| {
+        var prev_bend: f32 = 0;
+        for (args.points, 0..) |p, i| {
             const cur = curveToScreen(origin, width, height, args.beat_hi, args.value_lo, args.value_hi, p.beat, p.value);
-            drawCurveSegment(draw_list, prev, cur, prev_shape, gui_style.color(args.accent));
+            if (args.bends) |bends| {
+                drawBentSegment(draw_list, prev, cur, prev_bend, gui_style.color(args.accent));
+                prev_bend = if (i < bends.len) bends[i] else 0;
+            } else {
+                drawCurveSegment(draw_list, prev, cur, prev_shape, gui_style.color(args.accent));
+                prev_shape = p.curve;
+            }
             prev = cur;
-            prev_shape = p.curve;
         }
         const last = args.points[args.points.len - 1];
         const last_screen = curveToScreen(origin, width, height, args.beat_hi, args.value_lo, args.value_hi, last.beat, last.value);

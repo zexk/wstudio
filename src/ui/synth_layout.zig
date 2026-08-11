@@ -58,6 +58,12 @@ pub const SectionDef = struct {
     /// Related section group. Bands must be declared in ascending order.
     band: u8,
     params: []const ParamEntry,
+    /// Rows the card draws on top of its title, params, and trailing blank -
+    /// the LFO cards' shape readout. Cursor traversal ignores them (they're
+    /// pictures, not params), but the column packing cannot: a card that
+    /// renders taller than its declared height pushes every card under it
+    /// past the column's row budget, where the renderer clips it away.
+    extra_rows: u8 = 0,
 };
 
 /// One slot entry (source/dest/depth) plus one polarity toggle per matrix
@@ -145,18 +151,18 @@ pub const main_sections = [_]SectionDef{
 };
 
 pub const mod_sections = [_]SectionDef{
-    .{ .title = "LFO 1", .tone = .mod, .band = 0, .params = &.{
-        .{ .id = 28, .label = "shape" }, .{ .id = 29, .label = "rate" },
+    .{ .title = "LFO 1", .tone = .mod, .band = 0, .extra_rows = 1, .params = &.{
+        .{ .id = 28, .label = "shape" }, .{ .id = 397, .label = "wave" }, .{ .id = 29, .label = "rate" },
         .{ .id = 256, .label = "sync" }, .{ .id = 259, .label = "retrig" },
         .{ .id = 262, .label = "phase" }, .{ .id = 265, .label = "slew" },
     } },
-    .{ .title = "LFO 2", .tone = .mod, .band = 0, .params = &.{
-        .{ .id = 95, .label = "shape" }, .{ .id = 96, .label = "rate" },
+    .{ .title = "LFO 2", .tone = .mod, .band = 0, .extra_rows = 1, .params = &.{
+        .{ .id = 95, .label = "shape" }, .{ .id = 398, .label = "wave" }, .{ .id = 96, .label = "rate" },
         .{ .id = 257, .label = "sync" }, .{ .id = 260, .label = "retrig" },
         .{ .id = 263, .label = "phase" }, .{ .id = 266, .label = "slew" },
     } },
-    .{ .title = "LFO 3", .tone = .mod, .band = 0, .params = &.{
-        .{ .id = 97, .label = "shape" }, .{ .id = 98, .label = "rate" },
+    .{ .title = "LFO 3", .tone = .mod, .band = 0, .extra_rows = 1, .params = &.{
+        .{ .id = 97, .label = "shape" }, .{ .id = 399, .label = "wave" }, .{ .id = 98, .label = "rate" },
         .{ .id = 258, .label = "sync" }, .{ .id = 261, .label = "retrig" },
         .{ .id = 264, .label = "phase" }, .{ .id = 267, .label = "slew" },
     } },
@@ -200,7 +206,7 @@ fn packColumns(comptime sections: []const SectionDef, comptime num_cols: usize) 
             if (height < col_h[col]) col = candidate;
         }
         out[i] = .{ .col = col, .row0 = col_h[col] };
-        col_h[col] += sec.params.len + 2;
+        col_h[col] += sec.params.len + sec.extra_rows + 2;
     }
     return out;
 }
@@ -208,7 +214,7 @@ fn packColumns(comptime sections: []const SectionDef, comptime num_cols: usize) 
 fn columnHeights(comptime sections: []const SectionDef, comptime placements: [sections.len]Placement, comptime num_cols: usize) [num_cols]usize {
     var h = [_]usize{0} ** num_cols;
     for (sections, 0..) |sec, i| {
-        const end = placements[i].row0 + sec.params.len + 2;
+        const end = placements[i].row0 + sec.params.len + sec.extra_rows + 2;
         if (end > h[placements[i].col]) h[placements[i].col] = end;
     }
     return h;
@@ -444,7 +450,7 @@ comptime {
             if (sec.band < sections[i - 1].band) @compileError("synth_layout: bands must be declared in ascending order");
         }
     }
-    var seen = [_]bool{false} ** 373;
+    var seen = [_]bool{false} ** 400;
     for (main_sections) |sec| {
         for (sec.params) |p| {
             var f: u8 = 0;
@@ -466,16 +472,18 @@ comptime {
     // Ids owned elsewhere: dead/retired (23, 30-31), FX unit params +
     // their reorder handles (mirrors editors/synth.zig's deadParam/
     // inSubview(.fx)/reorderIdFor - verified against that file's ranges),
-    // and 195-250 / 254-255, the custom-LFO breakpoint block (drawn by its
-    // own curve editor under the shape row, never a cursor-walkable param
-    // row) plus the gap above it left free when param ids widened to u16.
-    // 251-253 are the OSC A/B/C `wt.table` rows, which the sections above
-    // do claim (see PolySynth.wt_table_ids).
+    // and 195-250 / 254-255 / 373-396, the drawn-LFO breakpoint block and
+    // its per-point segment bends (drawn by their own curve editor under
+    // the shape row, never cursor-walkable param rows) plus the gap above
+    // 195 left free when param ids widened to u16. 251-253 are the OSC
+    // A/B/C `wt.table` rows and 397-399 the per-slot LFO wave presets,
+    // which the sections above do claim (see PolySynth.wt_table_ids and
+    // dsp/synth.zig's lfo_wave_id_base).
     const excluded = [_][2]u16{
         .{ 23, 23 },   .{ 30, 31 },   .{ 83, 94 },   .{ 103, 115 },
         .{ 126, 136 }, .{ 137, 143 }, .{ 144, 160 }, .{ 161, 166 },
         .{ 167, 175 }, .{ 176, 180 }, .{ 181, 184 }, .{ 188, 194 },
-        .{ 195, 250 }, .{ 254, 255 },
+        .{ 195, 250 }, .{ 254, 255 }, .{ 373, 396 },
     };
     for (excluded) |range| {
         var id = range[0];
