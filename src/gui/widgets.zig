@@ -567,9 +567,8 @@ pub fn listStepper(label_text: []const u8, id: [:0]const u8, args: ListStepper) 
 }
 
 /// An attack/decay/sustain/release envelope shape you edit by dragging its
-/// own nodes: the attack peak and release tail each move along one axis
-/// (they're durations only), while the decay/sustain corner edits both
-/// values in one gesture. Segment widths use
+/// own nodes, one per parameter. Duration nodes move horizontally; sustain
+/// moves vertically. Segment widths use
 /// sqrt(duration) so a 5s release doesn't swallow a 5ms attack on screen;
 /// this is a visual compromise only, not a to-scale time axis.
 pub const Adsr = struct {
@@ -581,7 +580,7 @@ pub const Adsr = struct {
     decay_range: [2]f32,
     release_range: [2]f32,
     accent: [4]f32,
-    /// 0=attack, 1=decay/sustain, 2=release - which node (if any) the
+    /// 0=attack, 1=decay, 2=sustain, 3=release - which node (if any) the
     /// external cursor is currently parked on, for the focus ring.
     focused_stage: ?u2 = null,
     height: f32 = 90,
@@ -609,9 +608,7 @@ fn adsrStageIs(stage: ?u2, n: u2) bool {
 
 /// Exponent-per-wheel-tick for a duration node's scroll nudge (**ctrl** =
 /// coarser), matched in spirit to the knob's own ctrl-coarse step. Only the
-/// attack/release nodes use this - the decay/sustain corner scrolls neither
-/// axis: a single wheel axis has
-/// no unambiguous mapping onto a two-param drag.
+/// duration nodes use this.
 fn envelopeScrollStep() f32 {
     return if (zgui.isKeyDown(.mod_ctrl)) 0.2 else 0.05;
 }
@@ -662,10 +659,6 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
     draw_list.pathFillConvex(gui_style.color(.{ args.accent[0], args.accent[1], args.accent[2], 0.18 }));
     for (0..points.len - 1) |i| draw_list.addLine(.{ .p1 = points[i], .p2 = points[i + 1], .col = gui_style.color(args.accent), .thickness = 2 });
 
-    // Note-off starts release here. Sustain duration is only a visual spacer,
-    // so this corner is marked but has no drag target of its own.
-    adsrHandle(draw_list, theme, points[3], false, false, args.accent);
-
     var result = AdsrResult{};
 
     // Attack node: horizontal drag only (duration).
@@ -694,13 +687,12 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
         adsrHandle(draw_list, theme, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 0), args.accent);
     }
 
-    // Decay/sustain corner: horizontal drag is decay time, vertical is
-    // sustain level in one gesture.
+    // Decay node: horizontal drag only (duration).
     {
         const p = points[2];
         zgui.setCursorScreenPos(.{ p[0] - adsr_handle_r, p[1] - adsr_handle_r });
         var id_buf: [96]u8 = undefined;
-        const nid = std.fmt.bufPrintZ(&id_buf, "{s}-ds", .{label}) catch label;
+        const nid = std.fmt.bufPrintZ(&id_buf, "{s}-d", .{label}) catch label;
         _ = zgui.invisibleButton(nid, .{ .w = adsr_handle_r * 2, .h = adsr_handle_r * 2 });
         const node_active = zgui.isItemActive();
         const node_hovered = zgui.isItemHovered(.{});
@@ -711,13 +703,40 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
                 args.decay.* = std.math.clamp(args.decay.* * @exp(delta[0] / gui_style.envelope_drag_pixels), args.decay_range[0], args.decay_range[1]);
                 result.changed[1] = true;
             }
+            if (delta[0] != 0) zgui.resetMouseDragDelta(.left);
+        }
+        if (node_hovered and gui_style.wheel_delta != 0) {
+            gui_style.wheel_consumed = true;
+            args.decay.* = std.math.clamp(args.decay.* * @exp(gui_style.wheel_delta * envelopeScrollStep()), args.decay_range[0], args.decay_range[1]);
+            result.changed[1] = true;
+        }
+        adsrHandle(draw_list, theme, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 1), args.accent);
+    }
+
+    // Sustain node: vertical drag only (level).
+    {
+        const p = points[3];
+        zgui.setCursorScreenPos(.{ p[0] - adsr_handle_r, p[1] - adsr_handle_r });
+        var id_buf: [96]u8 = undefined;
+        const nid = std.fmt.bufPrintZ(&id_buf, "{s}-s", .{label}) catch label;
+        _ = zgui.invisibleButton(nid, .{ .w = adsr_handle_r * 2, .h = adsr_handle_r * 2 });
+        const node_active = zgui.isItemActive();
+        const node_hovered = zgui.isItemHovered(.{});
+        if (zgui.isItemActivated()) result.activated_stage = 2;
+        if (node_active) {
+            const delta = zgui.getMouseDragDelta(.left, .{});
             if (delta[1] != 0) {
                 args.sustain.* = std.math.clamp(args.sustain.* - delta[1] / gui_style.envelope_drag_pixels, 0, 1);
                 result.changed[2] = true;
+                zgui.resetMouseDragDelta(.left);
             }
-            if (delta[0] != 0 or delta[1] != 0) zgui.resetMouseDragDelta(.left);
         }
-        adsrHandle(draw_list, theme, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 1), args.accent);
+        if (node_hovered and gui_style.wheel_delta != 0) {
+            gui_style.wheel_consumed = true;
+            args.sustain.* = std.math.clamp(args.sustain.* + gui_style.wheel_delta * 0.01, 0, 1);
+            result.changed[2] = true;
+        }
+        adsrHandle(draw_list, theme, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 2), args.accent);
     }
 
     // Release node: horizontal drag only (duration).
@@ -729,7 +748,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
         _ = zgui.invisibleButton(nid, .{ .w = adsr_handle_r * 2, .h = adsr_handle_r * 2 });
         const node_active = zgui.isItemActive();
         const node_hovered = zgui.isItemHovered(.{});
-        if (zgui.isItemActivated()) result.activated_stage = 2;
+        if (zgui.isItemActivated()) result.activated_stage = 3;
         if (node_active) {
             const delta = zgui.getMouseDragDelta(.left, .{});
             if (delta[0] != 0) {
@@ -743,7 +762,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
             args.release.* = std.math.clamp(args.release.* * @exp(gui_style.wheel_delta * envelopeScrollStep()), args.release_range[0], args.release_range[1]);
             result.changed[3] = true;
         }
-        adsrHandle(draw_list, theme, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 2), args.accent);
+        adsrHandle(draw_list, theme, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 3), args.accent);
     }
 
     zgui.setCursorScreenPos(.{ origin[0], origin[1] + height });

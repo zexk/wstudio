@@ -384,7 +384,7 @@ fn drawEnvelope(app: anytype, synth: *ws.dsp.PolySynth, base_id: u16) void {
     var label_buf: [32]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "adsr##gui-synth-{d}", .{base_id}) catch return;
     const cursor = app.core.synth_cursor;
-    const focused_stage: ?u2 = if (cursor == base_id) 0 else if (cursor == base_id + 1 or cursor == base_id + 2) 1 else if (cursor == base_id + 3) 2 else null;
+    const focused_stage: ?u2 = if (cursor >= base_id and cursor <= base_id + 3) @intCast(cursor - base_id) else null;
 
     const result = widgets.adsrEditor(label, .{
         .attack = &attack,
@@ -404,6 +404,7 @@ fn drawEnvelope(app: anytype, synth: *ws.dsp.PolySynth, base_id: u16) void {
     if (result.activated_stage) |stage| app.core.synth_cursor = switch (stage) {
         0 => base_id,
         1 => base_id + 1,
+        2 => base_id + 2,
         else => base_id + 3,
     };
     zgui.textDisabled("A {d:.3}s  D {d:.3}s  S {d:.2}  R {d:.3}s", .{ attack, decay, sustain, release });

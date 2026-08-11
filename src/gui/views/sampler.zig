@@ -153,7 +153,7 @@ fn drawAmpEnvelope(app: anytype, target: Target) void {
     const r_range = paramRange(target, 6);
 
     const cursor = app.core.sampler_param;
-    const focused_stage: ?u2 = if (cursor == 3) 0 else if (cursor == 4 or cursor == 5) 1 else if (cursor == 6) 2 else null;
+    const focused_stage: ?u2 = if (cursor >= 3 and cursor <= 6) @intCast(cursor - 3) else null;
 
     const result = widgets.adsrEditor("adsr##sampler-target-env", .{
         .attack = &attack,
@@ -173,6 +173,7 @@ fn drawAmpEnvelope(app: anytype, target: Target) void {
     if (result.activated_stage) |stage| app.core.sampler_param = switch (stage) {
         0 => 3,
         1 => 4,
+        2 => 5,
         else => 6,
     };
     zgui.textDisabled("A {d:.3}s  D {d:.3}s  S {d:.2}  R {d:.3}s", .{ attack, decay, sustain, release });
