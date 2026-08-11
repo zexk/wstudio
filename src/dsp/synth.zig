@@ -336,12 +336,6 @@ pub const WarpMode = enum {
     fm_c_to_a,
     fm_c_to_b,
 
-    pub fn isPhaseWarp(self: WarpMode) bool {
-        return switch (self) {
-            .bend, .mirror, .sync => true,
-            else => false,
-        };
-    }
 
     pub fn isFm(self: WarpMode) bool {
         return switch (self) {

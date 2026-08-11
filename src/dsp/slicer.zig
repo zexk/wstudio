@@ -975,11 +975,6 @@ pub const Slicer = struct {
         step_grid_ops.setLaneLen(&self.slice_len, self.step_count, s, len);
     }
 
-    /// Nudge slice `s`'s loop length, treating "follows the pattern" as the
-    /// full length so stepping down from it lands one below.
-    pub fn nudgeSliceLen(self: *Slicer, s: u8, delta: i32) void {
-        step_grid_ops.nudgeLaneLen(&self.slice_len, self.step_count, s, delta);
-    }
 
     /// Wipe one slice's row: no steps at all.
     pub fn clearSlice(self: *Slicer, slice: u8) void {
@@ -1062,20 +1057,6 @@ pub const Slicer = struct {
         return true;
     }
 
-    /// One slice's notes in beat-relative form - what a piano-roll style
-    /// consumer (bounce, MIDI export) wants. Mirrors
-    /// `DrumMachine.copyPadMidi`.
-    pub fn copySliceMidi(self: *const Slicer, slice: u8, out: []Note) u16 {
-        if (slice >= max_slices) return 0;
-        var count: u16 = 0;
-        for (self.midi[slice]) |maybe_note| {
-            const note = maybe_note orelse continue;
-            if (count >= out.len) break;
-            out[count] = note.toPattern(self.steps_per_beat);
-            count += 1;
-        }
-        return count;
-    }
 
     pub fn currentStep(self: *const Slicer) u16 {
         return self.current_step.load(.monotonic);
