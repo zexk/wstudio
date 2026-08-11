@@ -137,10 +137,12 @@ pub const main_sections = [_]SectionDef{
     } },
     .{ .title = "FILTER 1", .tone = .filter, .band = 2, .params = &.{
         .{ .id = 20, .label = "type" }, .{ .id = 21, .label = "cutoff" }, .{ .id = 22, .label = "res" },
+        .{ .id = 249, .label = "drive" },
     } },
     .{ .title = "FILTER 2", .tone = .filter, .band = 2, .params = &.{
         .{ .id = 45, .label = "on/off" }, .{ .id = 46, .label = "type" },
-        .{ .id = 47, .label = "cutoff" }, .{ .id = 48, .label = "res" }, .{ .id = 49, .label = "routing" },
+        .{ .id = 47, .label = "cutoff" }, .{ .id = 48, .label = "res" }, .{ .id = 250, .label = "drive" },
+        .{ .id = 49, .label = "routing" },
     } },
     .{ .title = "ENV 1", .tone = .env, .band = 3, .params = &.{
         .{ .id = 16, .label = "attack" }, .{ .id = 17, .label = "decay" },
@@ -467,7 +469,7 @@ comptime {
     // (0-1, 7-8, 51-52), older params (23, 30-31), FX unit params +
     // their reorder handles (mirrors editors/synth.zig's deadParam/
     // inSubview(.fx)/reorderIdFor - verified against that file's ranges),
-    // and 195-245 / 249-250 / 254-255 / 373-396, the drawn-LFO breakpoint block and
+    // and 195-245 / 254-255 / 373-396, the drawn-LFO breakpoint block and
     // its per-point segment bends (drawn by their own curve editor under
     // the shape row, never cursor-walkable param rows) plus the gap above
     // 195 left free when param ids widened to u16. 251-253 are the OSC
@@ -479,7 +481,7 @@ comptime {
         .{ 51, 52 },   .{ 83, 94 },   .{ 103, 115 }, .{ 126, 136 },
         .{ 137, 143 }, .{ 144, 160 }, .{ 161, 166 }, .{ 167, 175 },
         .{ 176, 180 }, .{ 181, 184 }, .{ 188, 194 }, .{ 195, 245 },
-        .{ 249, 250 }, .{ 254, 255 }, .{ 373, 396 },
+        .{ 254, 255 }, .{ 373, 396 },
     };
     for (excluded) |range| {
         var id = range[0];

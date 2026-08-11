@@ -5139,8 +5139,9 @@ test "synth row navigation skips folded tab siblings" {
     for (0..9) |_| app.handleKey(.{ .char = 'j' }, 0);
     try std.testing.expectEqual(@as(u16, 34), app.synth_cursor);
 
+    // FILTER 1's four rows, then past the folded FILTER 2 to ENV 1.
     app.synth_cursor = 20;
-    for (0..3) |_| app.handleKey(.{ .char = 'j' }, 0);
+    for (0..4) |_| app.handleKey(.{ .char = 'j' }, 0);
     try std.testing.expectEqual(@as(u16, 16), app.synth_cursor);
 
     // ENV 1's five rows, then straight past the folded ENV 2/ENV 3 to VOICE.

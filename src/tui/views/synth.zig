@@ -333,6 +333,8 @@ fn secFilter(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     }
     try barRow(w, c == 22, false, yel, "res", synth.filter_res, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.filter_res}));
+    try barRow(w, c == 249, false, yel, "drive", synth.filter_drive - 1.0, 15.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}x", .{synth.filter_drive}));
 }
 
 fn secFenv(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
@@ -592,6 +594,8 @@ fn secFilter2(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     }
     try barRow(w, c == 48, !on, yel, "res", synth.filter2_res, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.filter2_res}));
+    try barRow(w, c == 250, !on, yel, "drive", synth.filter2_drive - 1.0, 15.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}x", .{synth.filter2_drive}));
 
     const routing_names = [_][]const u8{ "series", "parallel" };
     const routing_idx: usize = switch (synth.filter_routing) { .series => 0, .parallel => 1 };
