@@ -34,7 +34,7 @@ const NativeEditor = struct {
         if (view.vtable.get_size(view, &rect) != 0) return error.GuiSizeFailed;
         const window = try std.heap.page_allocator.create(editor_window.Window);
         errdefer std.heap.page_allocator.destroy(window);
-        window.* = try editor_window.Window.open(@max(rect.right - rect.left, 1), @max(rect.bottom - rect.top, 1), title);
+        window.* = try editor_window.Window.open(@max(rect.right - rect.left, 1), @max(rect.bottom - rect.top, 1), title, view.vtable.can_resize(view) == 0);
         errdefer window.close();
         const frame = try std.heap.page_allocator.create(Frame);
         errdefer std.heap.page_allocator.destroy(frame);

@@ -1196,7 +1196,7 @@ const Direct = struct {
         var width: u32 = 640;
         var height: u32 = 480;
         _ = gui.get_size(self.plugin, &width, &height);
-        var window = try editor_window.Window.open(@intCast(@max(width, 1)), @intCast(@max(height, 1)), self.plugin.desc.name);
+        var window = try editor_window.Window.open(@intCast(@max(width, 1)), @intCast(@max(height, 1)), self.plugin.desc.name, gui.can_resize(self.plugin));
         errdefer window.close();
         const parent: abi.Window = .{
             .api = api,

@@ -1,11 +1,11 @@
 #import <AppKit/AppKit.h>
 #include <stdbool.h>
 
-void *wstudio_editor_window_open(int width, int height, const char *title) {
+void *wstudio_editor_window_open(int width, int height, const char *title, bool resizable) {
     [NSApplication sharedApplication];
     NSWindow *window = [[NSWindow alloc]
         initWithContentRect:NSMakeRect(0, 0, width, height)
-                  styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
+                  styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | (resizable ? NSWindowStyleMaskResizable : 0)
                     backing:NSBackingStoreBuffered
                       defer:NO];
     if (!window) return NULL;

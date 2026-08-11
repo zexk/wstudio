@@ -12,7 +12,7 @@ pub const Window = switch (builtin.os.tag) {
 };
 
 const UnsupportedWindow = struct {
-    pub fn open(_: i32, _: i32, _: [*:0]const u8) !UnsupportedWindow {
+    pub fn open(_: i32, _: i32, _: [*:0]const u8, _: bool) !UnsupportedWindow {
         return error.GuiUnavailable;
     }
     pub fn api(_: *const UnsupportedWindow) Api {
@@ -35,16 +35,18 @@ const UnsupportedWindow = struct {
 
 const Win32Window = struct {
     hwnd: *anyopaque,
+    style: u32,
     pending_resize: ?Size = null,
 
-    pub fn open(width: i32, height: i32, title: [*:0]const u8) !Win32Window {
+    pub fn open(width: i32, height: i32, title: [*:0]const u8, resizable: bool) !Win32Window {
         var title_w: [512]u16 = undefined;
         const title_len = std.unicode.utf8ToUtf16Le(&title_w, std.mem.span(title)) catch return error.InvalidGuiTitle;
         if (title_len == title_w.len) return error.GuiTitleTooLong;
         title_w[title_len] = 0;
-        const size = frameSize(width, height);
-        const hwnd = CreateWindowExW(0, std.unicode.utf8ToUtf16LeStringLiteral("STATIC"), @ptrCast(title_w[0..title_len :0]), ws_overlapped_window, cw_use_default, cw_use_default, size.width, size.height, null, null, null, null) orelse return error.Win32WindowFailed;
-        return .{ .hwnd = hwnd };
+        const style = if (resizable) ws_overlapped_window else ws_fixed_window;
+        const size = frameSize(width, height, style);
+        const hwnd = CreateWindowExW(0, std.unicode.utf8ToUtf16LeStringLiteral("STATIC"), @ptrCast(title_w[0..title_len :0]), style, cw_use_default, cw_use_default, size.width, size.height, null, null, null, null) orelse return error.Win32WindowFailed;
+        return .{ .hwnd = hwnd, .style = style };
     }
 
     pub fn api(_: *const Win32Window) Api {
@@ -56,7 +58,7 @@ const Win32Window = struct {
     }
 
     pub fn resize(self: *Win32Window, width: i32, height: i32) void {
-        const size = frameSize(width, height);
+        const size = frameSize(width, height, self.style);
         _ = SetWindowPos(self.hwnd, null, 0, 0, size.width, size.height, swp_no_move | swp_no_zorder | swp_no_activate);
     }
 
@@ -89,9 +91,9 @@ const Win32Window = struct {
         _ = DestroyWindow(self.hwnd);
     }
 
-    fn frameSize(width: i32, height: i32) Size {
+    fn frameSize(width: i32, height: i32, style: u32) Size {
         var rect = Rect{ .left = 0, .top = 0, .right = width, .bottom = height };
-        _ = AdjustWindowRectEx(&rect, ws_overlapped_window, 0, 0);
+        _ = AdjustWindowRectEx(&rect, style, 0, 0);
         return .{ .width = rect.right - rect.left, .height = rect.bottom - rect.top };
     }
 
@@ -99,6 +101,7 @@ const Win32Window = struct {
     const Rect = extern struct { left: i32, top: i32, right: i32, bottom: i32 };
     const Message = extern struct { hwnd: ?*anyopaque, message: u32, wparam: usize, lparam: isize, time: u32, point: Point, private: u32 };
     const ws_overlapped_window: u32 = 0x00cf0000;
+    const ws_fixed_window: u32 = ws_overlapped_window & ~@as(u32, 0x00050000);
     const cw_use_default: i32 = @bitCast(@as(u32, 0x80000000));
     const swp_no_move: u32 = 0x0002;
     const swp_no_zorder: u32 = 0x0004;
@@ -126,8 +129,8 @@ const CocoaWindow = struct {
     height: i32,
     pending_resize: ?Size = null,
 
-    pub fn open(width: i32, height: i32, title: [*:0]const u8) !CocoaWindow {
-        return .{ .window = wstudio_editor_window_open(width, height, title) orelse return error.CocoaWindowFailed, .width = width, .height = height };
+    pub fn open(width: i32, height: i32, title: [*:0]const u8, resizable: bool) !CocoaWindow {
+        return .{ .window = wstudio_editor_window_open(width, height, title, resizable) orelse return error.CocoaWindowFailed, .width = width, .height = height };
     }
 
     pub fn api(_: *const CocoaWindow) Api {
@@ -175,7 +178,7 @@ const CocoaWindow = struct {
         wstudio_editor_window_close(self.window);
     }
 
-    extern fn wstudio_editor_window_open(i32, i32, [*:0]const u8) ?*anyopaque;
+    extern fn wstudio_editor_window_open(i32, i32, [*:0]const u8, bool) ?*anyopaque;
     extern fn wstudio_editor_window_handle(*anyopaque) *anyopaque;
     extern fn wstudio_editor_window_resize(*anyopaque, i32, i32) void;
     extern fn wstudio_editor_window_show(*anyopaque) void;
@@ -194,7 +197,7 @@ const X11Window = struct {
     delete_atom: usize,
     pending_resize: ?Size = null,
 
-    pub fn open(width: i32, height: i32, title: [*:0]const u8) !X11Window {
+    pub fn open(width: i32, height: i32, title: [*:0]const u8, resizable: bool) !X11Window {
         var lib = std.DynLib.open("libX11.so.6") catch return error.X11Unavailable;
         errdefer lib.close();
         const functions = try Functions.load(&lib);
@@ -207,6 +210,10 @@ const X11Window = struct {
         _ = functions.store_name(display, id, title);
         const delete_atom = functions.intern_atom(display, "WM_DELETE_WINDOW", 0);
         if (delete_atom == 0 or functions.set_wm_protocols(display, id, @constCast(&delete_atom), 1) == 0) return error.X11WindowProtocolFailed;
+        if (!resizable) {
+            var hints: SizeHints = .{ .flags = p_min_size | p_max_size, .min_width = width, .min_height = height, .max_width = width, .max_height = height };
+            functions.set_wm_normal_hints(display, id, &hints);
+        }
         _ = functions.flush(display);
         return .{ .lib = lib, .functions = functions, .display = display, .id = id, .delete_atom = delete_atom };
     }
@@ -274,6 +281,7 @@ const X11Window = struct {
         pending: *const fn (*anyopaque) callconv(.c) c_int,
         next_event: *const fn (*anyopaque, *XEvent) callconv(.c) c_int,
         send_event: *const fn (*anyopaque, usize, c_int, c_long, *XEvent) callconv(.c) c_int,
+        set_wm_normal_hints: *const fn (*anyopaque, usize, *SizeHints) callconv(.c) void,
 
         fn load(lib: *std.DynLib) !Functions {
             return .{
@@ -293,6 +301,7 @@ const X11Window = struct {
                 .pending = lib.lookup(@FieldType(Functions, "pending"), "XPending") orelse return error.X11SymbolMissing,
                 .next_event = lib.lookup(@FieldType(Functions, "next_event"), "XNextEvent") orelse return error.X11SymbolMissing,
                 .send_event = lib.lookup(@FieldType(Functions, "send_event"), "XSendEvent") orelse return error.X11SymbolMissing,
+                .set_wm_normal_hints = lib.lookup(@FieldType(Functions, "set_wm_normal_hints"), "XSetWMNormalHints") orelse return error.X11SymbolMissing,
             };
         }
     };
@@ -323,6 +332,27 @@ const X11Window = struct {
         above: c_ulong,
         override_redirect: c_int,
     };
+    const Aspect = extern struct { x: c_int = 0, y: c_int = 0 };
+    const SizeHints = extern struct {
+        flags: c_long = 0,
+        x: c_int = 0,
+        y: c_int = 0,
+        width: c_int = 0,
+        height: c_int = 0,
+        min_width: c_int = 0,
+        min_height: c_int = 0,
+        max_width: c_int = 0,
+        max_height: c_int = 0,
+        width_inc: c_int = 0,
+        height_inc: c_int = 0,
+        min_aspect: Aspect = .{},
+        max_aspect: Aspect = .{},
+        base_width: c_int = 0,
+        base_height: c_int = 0,
+        win_gravity: c_int = 0,
+    };
+    const p_min_size: c_long = 1 << 4;
+    const p_max_size: c_long = 1 << 5;
     const XEvent = extern union { type: c_int, client: ClientMessage, configure: ConfigureEvent, pad: [24]c_long };
 };
 
@@ -335,7 +365,7 @@ test "editor window platform selection" {
 
 test "X11 close request reaches host lifecycle" {
     if (builtin.os.tag != .linux or std.c.getenv("DISPLAY") == null) return;
-    var window = try Window.open(64, 64, "wstudio GUI test");
+    var window = try Window.open(64, 64, "wstudio GUI test", true);
     defer window.close();
     var event: X11Window.XEvent = std.mem.zeroes(X11Window.XEvent);
     event.configure = .{
