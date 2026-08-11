@@ -136,7 +136,7 @@ fn drawEqGraph(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, sel
         }
         draw_list.addCircleFilled(.{ .p = node, .r = if (selected) 10 else 8, .col = color(if (selected) accent else .{ accent[0], accent[1], accent[2], 0.72 }) });
         draw_list.addCircle(.{ .p = node, .r = if (selected) 12 else 10, .col = color(if (selected) theme.fg0 else accent), .thickness = if (selected) 2 else 1 });
-        draw_list.addText(.{ node[0] - 4, node[1] - 8 }, color(theme.bg0), "{d}", .{i + 1});
+        draw_list.addText(.{ node[0] - 4, node[1] - 8 }, color(style.legibleOn(accent)), "{d}", .{i + 1});
     }
 
     if (hovered and zgui.isMouseClicked(.left)) {
@@ -192,7 +192,7 @@ fn drawEqBandStrip(app: anytype, unit: *ws.FxUnit, selected_band: usize) void {
         const selected = i == selected_band;
         const accent = eqBandColor(i);
         zgui.pushStyleColor4f(.{ .idx = .button, .c = if (selected) accent else theme.bg2 });
-        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (selected) theme.bg0 else accent });
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (selected) style.legibleOn(accent) else accent });
         var freq_buf: [12]u8 = undefined;
         const freq = spectrum_ed.compactHz(&freq_buf, band.freq);
         var label_buf: [48]u8 = undefined;
@@ -337,12 +337,13 @@ fn drawEqSlider(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, in
     }
 }
 
+/// Band identity comes from the theme's six pure hues - the bright tier of the
+/// track rotation (`tracks[10..16]`), the only slots saturated enough to carry
+/// a label and still read as a node on the curve. Eight bands over six hues, so
+/// the second lap is tinted toward the text color to keep 7-8 apart from 1-2.
 fn eqBandColor(index: usize) [4]f32 {
-    const palette = [_][4]f32{
-        style.rgb(0xc57b89), style.rgb(0xc29370), style.rgb(0xb6aa72), style.rgb(0x83ad82),
-        style.rgb(0x72aaa8), style.rgb(0x759bc2), style.rgb(0x967fc0), style.rgb(0xbb7fae),
-    };
-    return palette[index % palette.len];
+    const hue = theme.tracks[10 + index % 6];
+    return if (index % 12 < 6) hue else style.mixColor(hue, theme.fg0, 0.45);
 }
 
 fn eqBandPoint(origin: [2]f32, size: [2]f32, band: anytype) [2]f32 {
@@ -383,6 +384,26 @@ fn combinedResponseDb(eq: *const ws.dsp.eq.ParametricEq, freq: f32) f32 {
     var total_mag: f32 = 1.0;
     for (&eq.bands) |*band| total_mag *= ws.dsp.eq.bandMagnitude(band, freq, eq.sr);
     return 20.0 * std.math.log10(@max(1.0e-6, total_mag));
+}
+
+test "EQ band colors follow the theme and survive the second lap" {
+    // Eight bands over six hues: the tinted second lap is what keeps 7 and 8
+    // from being drawn in band 1 and 2's color on the same curve. Every theme
+    // gets that, but only a theme whose six hues are themselves distinct can
+    // give all eight bands a distinct color - Dracula, for one, uses the same
+    // hex for cyan and blue upstream.
+    for (std.meta.tags(ws.theme_identity.Name)) |name| {
+        style.selectIdentity(ws.theme_identity.get(name).*);
+        for (0..ws.dsp.eq.num_eq_bands - 6) |i| {
+            try std.testing.expect(!std.meta.eql(eqBandColor(i), eqBandColor(i + 6)));
+        }
+    }
+    style.selectIdentity(ws.theme_identity.patina);
+    var seen: [ws.dsp.eq.num_eq_bands][4]f32 = undefined;
+    for (&seen, 0..) |*slot, i| {
+        slot.* = eqBandColor(i);
+        for (seen[0..i]) |prev| try std.testing.expect(!std.meta.eql(prev, slot.*));
+    }
 }
 
 test "EQ pixel mapping round-trips a frequency and a gain" {

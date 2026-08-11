@@ -125,7 +125,7 @@ pub fn selectIdentity(identity: ws.theme_identity.Identity) void {
     palette.fg3 = mixColor(palette.fg3, palette.fg2, 0.32);
 }
 
-fn mixColor(a: [4]f32, b: [4]f32, amount: f32) [4]f32 {
+pub fn mixColor(a: [4]f32, b: [4]f32, amount: f32) [4]f32 {
     return .{
         a[0] + (b[0] - a[0]) * amount,
         a[1] + (b[1] - a[1]) * amount,
