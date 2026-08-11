@@ -10167,3 +10167,53 @@ test "random key sequences never panic in any view" {
         }
     }
 }
+
+test "random mouse events never panic in any view" {
+    const views = [_]AppView{
+        .tracks,         .drum_grid,       .synth_editor,      .sampler_editor,
+        .piano_roll,     .arrangement,     .automation,        .slicer_grid,
+        .help,           .file_browser,    .preset_picker,     .soundfont_editor,
+        .track_spectrum, .master_spectrum, .instrument_picker, .fx_picker,
+    };
+    const kinds = [_]modal_mod.MouseKind{ .press, .release, .drag, .scroll_up, .scroll_down };
+    const buttons = [_]modal_mod.MouseButton{ .left, .middle, .right, .none };
+    const geoms = [_][2]u16{ .{ 80, 24 }, .{ 160, 48 }, .{ 40, 12 }, .{ 240, 70 } };
+
+    var prng = std.Random.DefaultPrng.init(0xB0BA);
+    const rand = prng.random();
+    {
+        for (views) |view| {
+            var app = try testApp();
+            defer app.deinit();
+            switch (view) {
+                .synth_editor => app.synth_track = 0,
+                .piano_roll => app.piano_track = 0,
+                .sampler_editor => app.sampler_target = .{ .sampler = 1 },
+                .drum_grid => app.drum_track = 2,
+                .slicer_grid => {
+                    try app.session.setInstrument(1, .slicer);
+                    app.slicer_track = 1;
+                },
+                .soundfont_editor => {
+                    try app.session.setInstrument(1, .soundfont);
+                    app.soundfont_track = 1;
+                },
+                else => {},
+            }
+            app.view = view;
+            var now: u64 = 0;
+            for (0..4000) |_| {
+                now += 1_000_000;
+                const g = geoms[rand.uintLessThan(usize, geoms.len)];
+                app.handleMouse(.{
+                    .x = rand.uintLessThan(u16, g[0] + 4),
+                    .y = rand.uintLessThan(u16, g[1] + 4),
+                    .button = buttons[rand.uintLessThan(usize, buttons.len)],
+                    .kind = kinds[rand.uintLessThan(usize, kinds.len)],
+                    .ctrl = rand.boolean(),
+                    .shift = rand.boolean(),
+                }, g[0], g[1], now);
+            }
+        }
+    }
+}
