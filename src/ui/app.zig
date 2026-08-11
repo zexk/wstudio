@@ -639,6 +639,8 @@ pub const App = struct {
     /// param-id space across both; only which ids are reachable/rendered
     /// changes with the subview.
     synth_subview: synth_ed.Subview = .main,
+    /// LFO card shown by GUI's grouped LFO tabs. View-only state.
+    synth_lfo_tab: u8 = 0,
     /// `z` in MAIN/MOD isolates the section containing `synth_cursor`.
     /// Editor-local display state, deliberately not persisted with a project.
     synth_section_focus: bool = false,

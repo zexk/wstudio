@@ -34,6 +34,13 @@ pub fn draw(app: anytype) void {
     }
 }
 
+fn lfoSectionForCursor(cursor: u16) ?u8 {
+    for (synth_layout.mod_sections[0..3], 0..) |section, slot| {
+        if (sectionHasParam(section, cursor)) return @intCast(slot);
+    }
+    return null;
+}
+
 /// The editor's one title row: subview tabs, then the track name, then the
 /// section-focus badge - the same line, in the same order, that the TUI's
 /// `drawSynthTitle` emits. There was a 44px card above this printing
@@ -119,13 +126,18 @@ fn drawSections(
     app.core.last_cols = if (columns == 4) 210 else if (columns == 3) 160 else if (columns == 2) 108 else 80;
     const placements = placementsFor(columns);
     const column_w = @max(280, (available_width - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns)));
+    if (comptime std.mem.eql(u8, child_prefix, "synth-mod")) {
+        if (lfoSectionForCursor(app.core.synth_cursor)) |slot| app.core.synth_lfo_tab = slot;
+    }
 
     // `z` isolates the cursor's section. The TUI has drawn only that card
     // since the key shipped; the GUI ignored the flag entirely, so `z` there
     // toggled a state with no visible effect whatsoever.
     if (app.core.synth_section_focus) {
         if (cursorSection(sections, app.core.synth_cursor)) |index| {
-            drawCard(app, synth, sections[index], child_prefix, index, 0);
+            if (comptime std.mem.eql(u8, child_prefix, "synth-mod")) {
+                if (index < 3) drawLfoCard(app, synth, 0) else drawCard(app, synth, sections[index], child_prefix, index, 0);
+            } else drawCard(app, synth, sections[index], child_prefix, index, 0);
             return;
         }
     }
@@ -134,10 +146,48 @@ fn drawSections(
         if (col > 0) zgui.sameLine(.{ .spacing = gap });
         zgui.beginGroup();
         for (sections, placements, 0..) |section, placement, index| {
+            if (comptime std.mem.eql(u8, child_prefix, "synth-mod")) {
+                if (index == 1 or index == 2) continue;
+                if (index == 0) {
+                    if (placement.col == col) drawLfoCard(app, synth, column_w);
+                    continue;
+                }
+            }
             if (placement.col == col) drawCard(app, synth, section, child_prefix, index, column_w);
         }
         zgui.endGroup();
     }
+}
+
+fn drawLfoCard(app: anytype, synth: *ws.dsp.PolySynth, width: f32) void {
+    const slot = @min(app.core.synth_lfo_tab, 2);
+    const section = synth_layout.mod_sections[slot];
+    scroll.noteFocusRow(sectionHasParam(section, app.core.synth_cursor), zgui.getCursorScreenPos()[1], 0);
+    zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.bg2 });
+    if (zgui.beginChild("synth-lfo-tabs", .{
+        .w = width,
+        .h = 0,
+        .child_flags = .{ .border = true, .auto_resize_y = true },
+        .window_flags = .{ .no_scrollbar = true, .no_scroll_with_mouse = true },
+    })) {
+        for (synth_layout.mod_sections[0..3], 0..) |tab, i| {
+            if (i > 0) zgui.sameLine(.{ .spacing = 5 });
+            const active = i == slot;
+            var label_buf: [32]u8 = undefined;
+            const label = std.fmt.bufPrintZ(&label_buf, "{s}##lfo-tab-{d}", .{ tab.title, i }) catch continue;
+            zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) theme.focus else theme.bg1 });
+            zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) theme.bg0 else theme.fg2 });
+            if (zgui.button(label, .{})) {
+                app.core.synth_lfo_tab = @intCast(i);
+                app.core.synth_cursor = tab.params[0].id;
+            }
+            zgui.popStyleColor(.{ .count = 2 });
+        }
+        zgui.spacing();
+        drawSectionBody(app, synth, section);
+    }
+    zgui.endChild();
+    zgui.popStyleColor(.{});
 }
 
 /// Which section owns `cursor`, for `z`'s isolate-one-card mode.
@@ -207,6 +257,12 @@ fn drawSectionCard(app: anytype, synth: *ws.dsp.PolySynth, section: synth_layout
         widgets.sectionTitle(section.title, accent);
     }
 
+    drawSectionBody(app, synth, section);
+}
+
+fn drawSectionBody(app: anytype, synth: *ws.dsp.PolySynth, section: synth_layout.SectionDef) void {
+    const accent = sectionColor(section.tone);
+    const gate = sectionGate(section);
     // A gated-off module still shows its settings, greyed - the same
     // "these are here but doing nothing" cue the TUI's dimmed rows give.
     const gated_off = if (gate) |id| (synth.paramValue(id) orelse 1) < 0.5 else false;

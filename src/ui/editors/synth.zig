@@ -443,6 +443,29 @@ fn cursorLast(app: *App) u16 {
     };
 }
 
+const lfo_tab_ids = [3][7]u16{
+    .{ 28, 397, 29, 256, 259, 262, 265 },
+    .{ 95, 398, 96, 257, 260, 263, 266 },
+    .{ 97, 399, 98, 258, 261, 264, 267 },
+};
+
+fn cycleLfoTab(app: *App, delta: i32) void {
+    if (app.synth_subview != .mod) return;
+    app.synth_lfo_tab = @min(app.synth_lfo_tab, 2);
+    const current: i32 = app.synth_lfo_tab;
+    const next: u8 = @intCast(@mod(current + delta, 3));
+    var field: usize = 0;
+    for (lfo_tab_ids[app.synth_lfo_tab], 0..) |id, i| {
+        if (id == app.synth_cursor) {
+            field = i;
+            break;
+        }
+    }
+    app.synth_lfo_tab = next;
+    app.synth_cursor = lfo_tab_ids[next][field];
+    updateScroll(app);
+}
+
 /// One discrete param edit on some id other than the cursor's, pushed as
 /// its own undo entry (see `sendFxToggle`'s comment for why it flushes
 /// immediately instead of coalescing like a held `h`/`l` run).
@@ -573,6 +596,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // other entry has exactly one field. Safe to bind unconditionally.
             'w' => { shiftField(app, 1); return true; },
             'b' => { shiftField(app, -1); return true; },
+            '[' => { cycleLfoTab(app, -1); return true; },
+            ']' => { cycleLfoTab(app, 1); return true; },
             // Claims 'm' from modal.handle's global mute for this view - the
             // synth editor has no track-mute affordance to lose, and the
             // tracks view still owns muting. See assignModFromCursor.

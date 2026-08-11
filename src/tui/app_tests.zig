@@ -5036,6 +5036,24 @@ test "synth MOD subview draws its sections in table order" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "CUTOFF") != null);
 }
 
+test "synth LFO tabs cycle and preserve selected field" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.handleKey(.enter, 0);
+    app.handleKey(.tab, 0);
+    app.synth_cursor = 29;
+    app.handleKey(.{ .char = ']' }, 0);
+    try std.testing.expectEqual(@as(u8, 1), app.synth_lfo_tab);
+    try std.testing.expectEqual(@as(u16, 96), app.synth_cursor);
+    app.handleKey(.{ .char = '[' }, 0);
+    try std.testing.expectEqual(@as(u8, 0), app.synth_lfo_tab);
+    try std.testing.expectEqual(@as(u16, 29), app.synth_cursor);
+    app.handleKey(.{ .char = '[' }, 0);
+    try std.testing.expectEqual(@as(u8, 2), app.synth_lfo_tab);
+    try std.testing.expectEqual(@as(u16, 98), app.synth_cursor);
+}
+
 test "synth section focus isolates navigation and rendering" {
     var app = try testApp();
     defer app.deinit();
