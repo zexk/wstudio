@@ -317,6 +317,7 @@ startup/preference state only. This is the `vim.o` vs buffer-content line.
 wstudio.keymap.set("n", "gp", function() wstudio.api.play() end)
 wstudio.keymap.set("n", "<space>", ":toggle-play", { view = "tracks", desc = "play/pause" })
 wstudio.keymap.set({ "n", "v" }, "Q", ":q")
+wstudio.keymap.set("n", "<leader>w", ":w", { desc = "save" })  -- leader is space
 wstudio.keymap.del("n", "gp")
 ```
 
@@ -325,6 +326,11 @@ wstudio.keymap.del("n", "gp")
 - `lhs`: a key chord in Neovim notation (`"g"`, `"<c-p>"`, `"<left>"`). A
   small parser maps notation to `modal.Key`; multi-key sequences reuse the
   pending-key mechanism the `g`/`d`/`y` prefixes already use.
+- `<leader>` is space, spelled either way (`"<leader>w"` == `"<space>w"`).
+  The leader is not configurable: any other prefix is already just its own
+  character. Space keeps toggling the transport until a map claims it - a
+  `<leader>w` chord swallows the space that starts it, and a bare
+  `<space>` map replaces the toggle outright.
 - `rhs`: a Lua function, or a string starting with `:` dispatched through
   the command layer. Two forms only, no feed-keys remapping: wstudio
   bindings are actions, not macro expansion, so Neovim's noremap/recursive

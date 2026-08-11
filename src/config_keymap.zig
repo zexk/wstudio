@@ -164,7 +164,11 @@ fn parseKeyName(name: []const u8) LhsError!ws_input.Key {
     if (eq(name, "esc")) return .escape;
     if (eq(name, "tab")) return .tab;
     if (eq(name, "bs") or eq(name, "backspace")) return .backspace;
-    if (eq(name, "space")) return .{ .char = ' ' };
+    // Space doubles as the leader: it only reaches the built-in transport
+    // toggle when no map claims it, so `<leader>x` shadows nothing until
+    // the chord completes. Fixed, not an option - a different leader is
+    // already just its own character in the lhs.
+    if (eq(name, "space") or eq(name, "leader")) return .{ .char = ' ' };
     if (eq(name, "lt")) return .{ .char = '<' };
     if (eq(name, "up")) return .arrow_up;
     if (eq(name, "down")) return .arrow_down;

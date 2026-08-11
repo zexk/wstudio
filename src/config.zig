@@ -1160,6 +1160,14 @@ test "keymap.set parses notation and stores entries" {
     try std.testing.expectEqualStrings("<esc>x<c-r><space>", second.lhsText(&lhs_buf));
 }
 
+test "<leader> is space" {
+    var rt = try Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("wstudio.keymap.set('n', '<leader>w', ':w')");
+    const km = &rt.userKeymaps()[0];
+    try std.testing.expect(keysEqual(km.lhs(), &.{ .{ .char = ' ' }, .{ .char = 'w' } }));
+}
+
 test "keymap.set replaces per (mode, lhs, view) and del removes" {
     var rt = try Runtime.init(.tui);
     defer rt.deinit();

@@ -9201,6 +9201,25 @@ test "Lua keymaps intercept keys, chord, and fall through" {
     try std.testing.expectEqual(@as(usize, 2), app.track_row);
 }
 
+test "a <leader> chord swallows the space that would toggle the transport" {
+    var app = try testApp();
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.tui);
+    defer rt.deinit();
+    try rt.loadString("wstudio.keymap.set('n', '<leader>w', function() whit = true end)");
+    app.lua_runtime = &rt;
+
+    app.handleKey(.{ .char = ' ' }, 0);
+    var block: [512]ws.types.Sample = undefined;
+    app.session.engine.process(&block);
+    try std.testing.expect(!app.session.engine.transport.playing);
+
+    app.handleKey(.{ .char = 'w' }, 0);
+    try rt.loadString("assert(whit == true)");
+    app.session.engine.process(&block);
+    try std.testing.expect(!app.session.engine.transport.playing);
+}
+
 test "Lua keymaps cannot shadow command prompt" {
     var app = try testApp();
     defer app.deinit();
