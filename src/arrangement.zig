@@ -358,26 +358,28 @@ pub const Lane = struct {
 
     /// Remove the clip covering `bar`, if any. Returns true if one was removed.
     pub fn removeAt(self: *Lane, allocator: std.mem.Allocator, bar: u32) bool {
-        var i = self.clips.items.len;
-        while (i > 0) {
-            i -= 1;
-            const c = self.clips.items[i];
-            if (c.covers(bar)) {
-                var removed = self.clips.orderedRemove(i);
-                removed.deinit(allocator);
-                return true;
-            }
+        // Topmost, the same clip `clipAt` names. Walking the list backwards
+        // instead picks the last by *start tick*, which is a different clip
+        // once layers stack - callers check with `clipAt` and delete with
+        // this, so they have to agree.
+        const idx = self.topmostAt(bar) orelse return false;
+        var removed = self.clips.orderedRemove(idx);
+        removed.deinit(allocator);
+        return true;
+    }
+
+    fn topmostAt(self: *const Lane, bar: u32) ?usize {
+        var best: ?usize = null;
+        for (self.clips.items, 0..) |c, i| {
+            if (!c.covers(bar)) continue;
+            if (best == null or c.layer >= self.clips.items[best.?].layer) best = i;
         }
-        return false;
+        return best;
     }
 
     /// Pointer to the clip covering `bar`, or null.
     pub fn clipAt(self: *Lane, bar: u32) ?*Clip {
-        var found: ?*Clip = null;
-        for (self.clips.items) |*c| {
-            if (c.covers(bar) and (found == null or c.layer >= found.?.layer)) found = c;
-        }
-        return found;
+        return &self.clips.items[self.topmostAt(bar) orelse return null];
     }
 
     /// Remove every clip (e.g. when a track's instrument kind changes).
@@ -838,6 +840,26 @@ test "insertTime splits every crossing clip, not just the first" {
     for (lane.clips.items[1..], 0..) |c, prev| {
         try testing.expect(lane.clips.items[prev].start_tick <= c.start_tick);
     }
+}
+
+test "removeAt takes the same clip clipAt reports" {
+    const a = testing.allocator;
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    // Stacked layers with different starts: list order (by start) and layer
+    // order disagree, which is where the two used to pick different clips.
+    var top = Clip.initDrum(0, 100, .{ .step_count = 16 });
+    top.layer = 5;
+    const bottom = Clip.initDrum(50, 100, .{ .step_count = 16 });
+    try lane.place(a, top);
+    try lane.place(a, bottom);
+
+    const reported = lane.clipAt(60).?.*;
+    try testing.expectEqual(@as(u8, 5), reported.layer);
+    try testing.expect(lane.removeAt(a, 60));
+    try testing.expectEqual(@as(usize, 1), lane.clips.items.len);
+    // The survivor must be the one clipAt did *not* name.
+    try testing.expectEqual(@as(u8, 0), lane.clips.items[0].layer);
 }
 
 test "removeTime trims boundaries and closes the gap" {
