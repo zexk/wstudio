@@ -25,6 +25,19 @@ const config_mod = @import("../config.zig");
 
 const Slot = struct { index: u8, hex: u24 };
 
+comptime {
+    // `oscFor` resolves a `TuiTheme` tag to an identity by name. The two enums
+    // are written out separately (TuiTheme carries the extra `.none`), so a
+    // name added to only one of them would be an `orelse unreachable` panic on
+    // the first frame instead of a build error.
+    if (std.meta.tags(config_mod.TuiTheme).len != std.meta.tags(ws.theme_identity.Name).len + 1)
+        @compileError("TuiTheme must be theme_identity.Name plus `none`");
+    for (std.meta.tags(config_mod.TuiTheme)) |tag| {
+        if (tag != .none and std.meta.stringToEnum(ws.theme_identity.Name, @tagName(tag)) == null)
+            @compileError("TuiTheme." ++ @tagName(tag) ++ " has no theme_identity.Name");
+    }
+}
+
 /// ANSI color index -> hex. Track colors and terminal normal/bright slots
 /// share one full 16-color table in the theme identity.
 fn slots(id: *const ws.theme_identity.Identity) [16]Slot {
