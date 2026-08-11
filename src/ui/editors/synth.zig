@@ -468,7 +468,20 @@ fn cycleTab(comptime ids: anytype, tab: *u8, cursor: *u16, delta: i32) bool {
 fn cycleCursorTab(app: *App, delta: i32) void {
     if (cycleTab(lfo_tab_ids, &app.synth_lfo_tab, &app.synth_cursor, delta) or
         cycleTab(env_tab_ids, &app.synth_env_tab, &app.synth_cursor, delta))
-        updateScroll(app);
+        return updateScroll(app);
+
+    const target_tab: u8 = if (app.synth_cursor >= 20 and app.synth_cursor <= 22) 1 else 0;
+    app.synth_cursor = switch (app.synth_cursor) {
+        20 => 46,
+        21 => 47,
+        22 => 48,
+        45, 46 => 20,
+        47 => 21,
+        48, 49 => 22,
+        else => return,
+    };
+    app.synth_filter_tab = target_tab;
+    updateScroll(app);
 }
 
 /// One discrete param edit on some id other than the cursor's, pushed as

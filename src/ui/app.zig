@@ -643,6 +643,8 @@ pub const App = struct {
     synth_lfo_tab: u8 = 0,
     /// Envelope card shown by GUI's grouped envelope tabs. View-only state.
     synth_env_tab: u8 = 0,
+    /// Filter card shown by GUI's grouped filter tabs. View-only state.
+    synth_filter_tab: u8 = 0,
     /// `z` in MAIN/MOD isolates the section containing `synth_cursor`.
     /// Editor-local display state, deliberately not persisted with a project.
     synth_section_focus: bool = false,

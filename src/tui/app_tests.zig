@@ -5064,7 +5064,15 @@ test "synth tabs cycle cursor group and preserve selected field" {
 
     app.synth_cursor = 21;
     app.handleKey(.{ .char = ']' }, 0);
+    try std.testing.expectEqual(@as(u8, 1), app.synth_filter_tab);
+    try std.testing.expectEqual(@as(u16, 47), app.synth_cursor);
+    app.handleKey(.{ .char = '[' }, 0);
+    try std.testing.expectEqual(@as(u8, 0), app.synth_filter_tab);
     try std.testing.expectEqual(@as(u16, 21), app.synth_cursor);
+
+    app.synth_cursor = 2;
+    app.handleKey(.{ .char = ']' }, 0);
+    try std.testing.expectEqual(@as(u16, 2), app.synth_cursor);
 }
 
 test "synth section focus isolates navigation and rendering" {
