@@ -448,22 +448,27 @@ const lfo_tab_ids = [3][7]u16{
     .{ 95, 398, 96, 257, 260, 263, 266 },
     .{ 97, 399, 98, 258, 261, 264, 267 },
 };
+const env_tab_ids = [3][4]u16{
+    .{ 16, 17, 18, 19 },
+    .{ 24, 25, 26, 27 },
+    .{ 122, 123, 124, 125 },
+};
 
-fn cycleLfoTab(app: *App, delta: i32) void {
-    if (app.synth_subview != .mod) return;
-    app.synth_lfo_tab = @min(app.synth_lfo_tab, 2);
-    const current: i32 = app.synth_lfo_tab;
-    const next: u8 = @intCast(@mod(current + delta, 3));
-    var field: usize = 0;
-    for (lfo_tab_ids[app.synth_lfo_tab], 0..) |id, i| {
-        if (id == app.synth_cursor) {
-            field = i;
-            break;
-        }
-    }
-    app.synth_lfo_tab = next;
-    app.synth_cursor = lfo_tab_ids[next][field];
-    updateScroll(app);
+fn cycleTab(comptime ids: anytype, tab: *u8, cursor: *u16, delta: i32) bool {
+    for (ids, 0..) |slot_ids, slot| for (slot_ids, 0..) |id, field| {
+        if (id != cursor.*) continue;
+        const next: usize = @intCast(@mod(@as(i32, @intCast(slot)) + delta, @as(i32, ids.len)));
+        tab.* = @intCast(next);
+        cursor.* = ids[next][field];
+        return true;
+    };
+    return false;
+}
+
+fn cycleCursorTab(app: *App, delta: i32) void {
+    if (cycleTab(lfo_tab_ids, &app.synth_lfo_tab, &app.synth_cursor, delta) or
+        cycleTab(env_tab_ids, &app.synth_env_tab, &app.synth_cursor, delta))
+        updateScroll(app);
 }
 
 /// One discrete param edit on some id other than the cursor's, pushed as
@@ -596,8 +601,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // other entry has exactly one field. Safe to bind unconditionally.
             'w' => { shiftField(app, 1); return true; },
             'b' => { shiftField(app, -1); return true; },
-            '[' => { cycleLfoTab(app, -1); return true; },
-            ']' => { cycleLfoTab(app, 1); return true; },
+            '[' => { cycleCursorTab(app, -1); return true; },
+            ']' => { cycleCursorTab(app, 1); return true; },
             // Claims 'm' from modal.handle's global mute for this view - the
             // synth editor has no track-mute affordance to lose, and the
             // tracks view still owns muting. See assignModFromCursor.

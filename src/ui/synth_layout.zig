@@ -125,13 +125,17 @@ pub const main_sections = [_]SectionDef{
         .{ .id = 45, .label = "on/off" }, .{ .id = 46, .label = "type" },
         .{ .id = 47, .label = "cutoff" }, .{ .id = 48, .label = "res" }, .{ .id = 49, .label = "routing" },
     } },
-    .{ .title = "AMP ENV", .tone = .env, .band = 3, .params = &.{
+    .{ .title = "ENV 1", .tone = .env, .band = 3, .params = &.{
         .{ .id = 16, .label = "attack" }, .{ .id = 17, .label = "decay" },
         .{ .id = 18, .label = "sustain" }, .{ .id = 19, .label = "release" },
     } },
-    .{ .title = "FILTER ENV", .tone = .env, .band = 3, .params = &.{
+    .{ .title = "ENV 2", .tone = .env, .band = 3, .params = &.{
         .{ .id = 24, .label = "f.attack" }, .{ .id = 25, .label = "f.decay" },
         .{ .id = 26, .label = "f.sustain" }, .{ .id = 27, .label = "f.release" },
+    } },
+    .{ .title = "ENV 3", .tone = .env, .band = 3, .params = &.{
+        .{ .id = 122, .label = "attack" }, .{ .id = 123, .label = "decay" },
+        .{ .id = 124, .label = "sustain" }, .{ .id = 125, .label = "release" },
     } },
     .{ .title = "VOICE", .tone = .util, .band = 4, .params = &.{
         .{ .id = 32, .label = "mode" }, .{ .id = 33, .label = "glide" },
@@ -162,10 +166,6 @@ pub const mod_sections = [_]SectionDef{
         .{ .id = 97, .label = "shape" }, .{ .id = 399, .label = "wave" }, .{ .id = 98, .label = "rate" },
         .{ .id = 258, .label = "sync" }, .{ .id = 261, .label = "retrig" },
         .{ .id = 264, .label = "phase" }, .{ .id = 267, .label = "slew" },
-    } },
-    .{ .title = "ENV 3", .tone = .env, .band = 1, .params = &.{
-        .{ .id = 122, .label = "attack" }, .{ .id = 123, .label = "decay" },
-        .{ .id = 124, .label = "sustain" }, .{ .id = 125, .label = "release" },
     } },
     .{ .title = "MACROS", .tone = .util, .band = 1, .params = &.{
         .{ .id = 99, .label = "macro 1" }, .{ .id = 100, .label = "macro 2" },

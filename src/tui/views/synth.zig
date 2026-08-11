@@ -77,8 +77,8 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
 const RenderFn = *const fn (w: *std.Io.Writer, synth: *const PolySynth, c: u16) anyerror!void;
 const main_render_fns = [_]RenderFn{
     secOscA,   secOscB,    secOscC, secSub,  secNoise, secMod,
-    secFilter, secFilter2, secEnv,  secFenv, secVoice, secArp,
-    secOut,
+    secFilter, secFilter2, secEnv,  secFenv, secEnv3,  secVoice,
+    secArp,    secOut,
 };
 comptime {
     if (main_render_fns.len != synth_layout.main_sections.len)
@@ -215,7 +215,7 @@ fn drawSynthGrid(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize, 
 /// `mod_sections`' render functions - the `.mod` counterpart to
 /// `main_render_fns`.
 const mod_render_fns = [_]RenderFn{
-    secLfo, secLfo2, secLfo3, secEnv3, secMacro, secMatrix,
+    secLfo, secLfo2, secLfo3, secMacro, secMatrix,
 };
 comptime {
     if (mod_render_fns.len != synth_layout.mod_sections.len)
@@ -322,7 +322,7 @@ fn secMod(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
 
 fn secEnv(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
-    try synthSection(w, "AMP ENV", grn);
+    try synthSection(w, "ENV 1", grn);
 
     try barRow(w, c == 16, false, grn, "attack", synth.attack_s, 5.0,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.attack_s}));
@@ -357,7 +357,7 @@ fn secFilter(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
 
 fn secFenv(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
-    try synthSection(w, "FILTER ENV", grn);
+    try synthSection(w, "ENV 2", grn);
 
     try barRow(w, c == 24, false, grn, "f.attack", synth.fenv_attack_s, 5.0,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fenv_attack_s}));

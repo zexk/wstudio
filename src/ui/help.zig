@@ -334,7 +334,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("a (in picker)", "audition the highlighted synth preset with C3; esc restores the original sound");
     t.key("/",            "fuzzy-search param names across both subviews, n / N repeat forward / backward");
     t.key(":synth-preset-save", "<name>  save the current params as a reusable preset");
-    t.push(dim ++ "  ARP and ENV 3 sections sit after MACRO in the main subview (j/k reaches them).", .{});
+    t.push(dim ++ "  ARP and ENV 1-3 sections sit in the main subview (j/k reaches them).", .{});
     t.push(dim ++ "  effects live on the track's own FX chain (s), not inside the synth.", .{});
     t.push(dim ++ "  MATRIX rows route a mod source (lfo 1-3/envs/velocity/keytrack/wheel/macros)", .{});
     t.push(dim ++ "  to any automatable param plus PITCH and AMP; depth is bipolar, same-dest", .{});

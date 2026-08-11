@@ -4861,7 +4861,7 @@ test "synth editor jk moves cursor, hl adjusts first parameter" {
     const synth = &app.session.racks.items[0].instrument.poly_synth;
     try std.testing.expect(synth.detune_cents != 0.0);
 
-    // AMP ENV's "attack" (id 16) is the MAIN subview's 43rd nav entry now
+    // ENV 1's "attack" (id 16) is the MAIN subview's 43rd nav entry now
     // that OSC A/B/C, SUB, NOISE, MOD, and FILTER 1/2 all sort ahead of it
     // - see synth_layout.zig's main_sections declaration order.
     for (0..43) |_| app.handleKey(.{ .char = 'j' }, 0);
@@ -5000,7 +5000,7 @@ test "draw renders synth editor without errors" {
     // Tall enough that the whole single-column MAIN body (~76 rows - see
     // synth_layout.zig's main_sections) fits without scrolling, so this
     // stays a simple "did real content render" smoke test rather than a
-    // reflection of exactly where AMP ENV happens to land in the order.
+    // reflection of exactly where ENV 1 happens to land in the order.
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 100 });
@@ -5036,7 +5036,7 @@ test "synth MOD subview draws its sections in table order" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "CUTOFF") != null);
 }
 
-test "synth LFO tabs cycle and preserve selected field" {
+test "synth tabs cycle cursor group and preserve selected field" {
     var app = try testApp();
     defer app.deinit();
 
@@ -5052,6 +5052,19 @@ test "synth LFO tabs cycle and preserve selected field" {
     app.handleKey(.{ .char = '[' }, 0);
     try std.testing.expectEqual(@as(u8, 2), app.synth_lfo_tab);
     try std.testing.expectEqual(@as(u16, 98), app.synth_cursor);
+
+    app.synth_subview = .main;
+    app.synth_cursor = 17;
+    app.handleKey(.{ .char = ']' }, 0);
+    try std.testing.expectEqual(@as(u8, 1), app.synth_env_tab);
+    try std.testing.expectEqual(@as(u16, 25), app.synth_cursor);
+    app.handleKey(.{ .char = ']' }, 0);
+    try std.testing.expectEqual(@as(u8, 2), app.synth_env_tab);
+    try std.testing.expectEqual(@as(u16, 123), app.synth_cursor);
+
+    app.synth_cursor = 21;
+    app.handleKey(.{ .char = ']' }, 0);
+    try std.testing.expectEqual(@as(u16, 21), app.synth_cursor);
 }
 
 test "synth section focus isolates navigation and rendering" {
@@ -5112,7 +5125,7 @@ test "synth editor param nudges coalesce into one undo step, u/U round-trips" {
     var block: [64]types.Sample = undefined;
 
     app.handleKey(.enter, 0); // cursor 2 = synth
-    // 43 j's: land on attack (id 16), the AMP ENV section's first entry -
+    // 43 j's: land on attack (id 16), the ENV 1 section's first entry -
     // see synth_layout.zig's main_sections declaration order.
     for (0..43) |_| app.handleKey(.{ .char = 'j' }, 0); // land on attack (a numeric param)
     try std.testing.expectEqual(@as(u8, 16), app.synth_cursor);
@@ -5147,7 +5160,7 @@ test "param undo restores the exact value even when a nudge hit the clamp" {
     var block: [64]types.Sample = undefined;
 
     app.handleKey(.enter, 0); // cursor 2 = synth
-    // 45 j's: land on sustain (id 18), AMP ENV's 3rd entry (attack, decay,
+    // 45 j's: land on sustain (id 18), ENV 1's 3rd entry (attack, decay,
     // sustain - see synth_layout.zig's main_sections).
     for (0..45) |_| app.handleKey(.{ .char = 'j' }, 0); // sustain (0..1, clamps)
     try std.testing.expectEqual(@as(u8, 18), app.synth_cursor);

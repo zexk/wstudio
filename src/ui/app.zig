@@ -641,6 +641,8 @@ pub const App = struct {
     synth_subview: synth_ed.Subview = .main,
     /// LFO card shown by GUI's grouped LFO tabs. View-only state.
     synth_lfo_tab: u8 = 0,
+    /// Envelope card shown by GUI's grouped envelope tabs. View-only state.
+    synth_env_tab: u8 = 0,
     /// `z` in MAIN/MOD isolates the section containing `synth_cursor`.
     /// Editor-local display state, deliberately not persisted with a project.
     synth_section_focus: bool = false,

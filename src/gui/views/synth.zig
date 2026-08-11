@@ -34,8 +34,8 @@ pub fn draw(app: anytype) void {
     }
 }
 
-fn lfoSectionForCursor(cursor: u16) ?u8 {
-    for (synth_layout.mod_sections[0..3], 0..) |section, slot| {
+fn tabForCursor(sections: []const synth_layout.SectionDef, cursor: u16) ?u8 {
+    for (sections, 0..) |section, slot| {
         if (sectionHasParam(section, cursor)) return @intCast(slot);
     }
     return null;
@@ -127,7 +127,9 @@ fn drawSections(
     const placements = placementsFor(columns);
     const column_w = @max(280, (available_width - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns)));
     if (comptime std.mem.eql(u8, child_prefix, "synth-mod")) {
-        if (lfoSectionForCursor(app.core.synth_cursor)) |slot| app.core.synth_lfo_tab = slot;
+        if (tabForCursor(synth_layout.mod_sections[0..3], app.core.synth_cursor)) |slot| app.core.synth_lfo_tab = slot;
+    } else if (comptime std.mem.eql(u8, child_prefix, "synth-main")) {
+        if (tabForCursor(synth_layout.main_sections[8..11], app.core.synth_cursor)) |slot| app.core.synth_env_tab = slot;
     }
 
     // `z` isolates the cursor's section. The TUI has drawn only that card
@@ -136,7 +138,9 @@ fn drawSections(
     if (app.core.synth_section_focus) {
         if (cursorSection(sections, app.core.synth_cursor)) |index| {
             if (comptime std.mem.eql(u8, child_prefix, "synth-mod")) {
-                if (index < 3) drawLfoCard(app, synth, 0) else drawCard(app, synth, sections[index], child_prefix, index, 0);
+                if (index < 3) drawTabbedCard(app, synth, synth_layout.mod_sections[0..3], &app.core.synth_lfo_tab, "synth-lfo-tabs", 0) else drawCard(app, synth, sections[index], child_prefix, index, 0);
+            } else if (comptime std.mem.eql(u8, child_prefix, "synth-main")) {
+                if (index >= 8 and index < 11) drawTabbedCard(app, synth, synth_layout.main_sections[8..11], &app.core.synth_env_tab, "synth-env-tabs", 0) else drawCard(app, synth, sections[index], child_prefix, index, 0);
             } else drawCard(app, synth, sections[index], child_prefix, index, 0);
             return;
         }
@@ -149,7 +153,13 @@ fn drawSections(
             if (comptime std.mem.eql(u8, child_prefix, "synth-mod")) {
                 if (index == 1 or index == 2) continue;
                 if (index == 0) {
-                    if (placement.col == col) drawLfoCard(app, synth, column_w);
+                    if (placement.col == col) drawTabbedCard(app, synth, synth_layout.mod_sections[0..3], &app.core.synth_lfo_tab, "synth-lfo-tabs", column_w);
+                    continue;
+                }
+            } else if (comptime std.mem.eql(u8, child_prefix, "synth-main")) {
+                if (index == 9 or index == 10) continue;
+                if (index == 8) {
+                    if (placement.col == col) drawTabbedCard(app, synth, synth_layout.main_sections[8..11], &app.core.synth_env_tab, "synth-env-tabs", column_w);
                     continue;
                 }
             }
@@ -159,27 +169,28 @@ fn drawSections(
     }
 }
 
-fn drawLfoCard(app: anytype, synth: *ws.dsp.PolySynth, width: f32) void {
-    const slot = @min(app.core.synth_lfo_tab, 2);
-    const section = synth_layout.mod_sections[slot];
+fn drawTabbedCard(app: anytype, synth: *ws.dsp.PolySynth, sections: []const synth_layout.SectionDef, tab: *u8, child_id: [:0]const u8, width: f32) void {
+    tab.* = @min(tab.*, @as(u8, @intCast(sections.len - 1)));
+    const slot = tab.*;
+    const section = sections[slot];
     scroll.noteFocusRow(sectionHasParam(section, app.core.synth_cursor), zgui.getCursorScreenPos()[1], 0);
     zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.bg2 });
-    if (zgui.beginChild("synth-lfo-tabs", .{
+    if (zgui.beginChild(child_id, .{
         .w = width,
         .h = 0,
         .child_flags = .{ .border = true, .auto_resize_y = true },
         .window_flags = .{ .no_scrollbar = true, .no_scroll_with_mouse = true },
     })) {
-        for (synth_layout.mod_sections[0..3], 0..) |tab, i| {
+        for (sections, 0..) |tab_section, i| {
             if (i > 0) zgui.sameLine(.{ .spacing = 5 });
             const active = i == slot;
             var label_buf: [32]u8 = undefined;
-            const label = std.fmt.bufPrintZ(&label_buf, "{s}##lfo-tab-{d}", .{ tab.title, i }) catch continue;
+            const label = std.fmt.bufPrintZ(&label_buf, "{s}##{s}-{d}", .{ tab_section.title, child_id, i }) catch continue;
             zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) theme.focus else theme.bg1 });
             zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) theme.bg0 else theme.fg2 });
             if (zgui.button(label, .{})) {
-                app.core.synth_lfo_tab = @intCast(i);
-                app.core.synth_cursor = tab.params[0].id;
+                tab.* = @intCast(i);
+                app.core.synth_cursor = tab_section.params[0].id;
             }
             zgui.popStyleColor(.{ .count = 2 });
         }
@@ -303,7 +314,7 @@ fn drawSectionBody(app: anytype, synth: *ws.dsp.PolySynth, section: synth_layout
     zgui.spacing();
 }
 
-// AMP ENV (16-19), FILTER ENV (24-27), and ENV 3 (122-125) each pack
+// ENV 1 (16-19), ENV 2 (24-27), and ENV 3 (122-125) each pack
 // attack/decay/sustain/release at base_id+0..3 - see synth_layout.zig's
 // comment on why engine param ids never move. That fixed layout is what
 // lets one drawEnvelope cover all three instead of three near-identical
