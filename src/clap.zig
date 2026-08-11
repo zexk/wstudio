@@ -3,8 +3,8 @@ pub const scan = @import("clap/scan.zig");
 pub const plugin = @import("clap/plugin.zig");
 pub const ClapPlugin = plugin.ClapPlugin;
 
+const std = @import("std");
+
 test {
-    _ = abi;
-    _ = scan;
-    _ = plugin;
+    std.testing.refAllDecls(@This());
 }

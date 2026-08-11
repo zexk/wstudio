@@ -124,28 +124,5 @@ test "embedded GUI face looks like a valid TrueType font" {
 }
 
 test {
-    _ = midi;
-    _ = midi_file;
-    _ = midi_in;
-    _ = types;
-    _ = ring_buffer;
-    _ = wav;
-    _ = bounce;
-    _ = Transport;
-    _ = Project;
-    _ = engine;
-    _ = backend;
-    _ = audio_host;
-    _ = audio_input;
-    _ = midi_velocity;
-    _ = alsa;
-    _ = pipewire;
-    _ = jack;
-    _ = wasapi;
-    _ = coreaudio;
-    _ = dsp;
-    _ = Session;
-    _ = persist;
-    _ = theory;
-    _ = input;
+    std.testing.refAllDecls(@This());
 }

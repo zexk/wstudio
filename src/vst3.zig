@@ -4,9 +4,8 @@ pub const module = @import("vst3/module.zig");
 pub const plugin = @import("vst3/plugin.zig");
 pub const Vst3Plugin = plugin.Vst3Plugin;
 
+const std = @import("std");
+
 test {
-    _ = abi;
-    _ = scan;
-    _ = module;
-    _ = plugin;
+    std.testing.refAllDecls(@This());
 }
