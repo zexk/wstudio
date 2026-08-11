@@ -276,6 +276,7 @@ const X11Window = struct {
         resize_window: *const fn (*anyopaque, usize, c_uint, c_uint) callconv(.c) c_int,
         destroy_window: *const fn (*anyopaque, usize) callconv(.c) c_int,
         flush: *const fn (*anyopaque) callconv(.c) c_int,
+        sync: *const fn (*anyopaque, c_int) callconv(.c) c_int,
         intern_atom: *const fn (*anyopaque, [*:0]const u8, c_int) callconv(.c) usize,
         set_wm_protocols: *const fn (*anyopaque, usize, *usize, c_int) callconv(.c) c_int,
         pending: *const fn (*anyopaque) callconv(.c) c_int,
@@ -296,6 +297,7 @@ const X11Window = struct {
                 .resize_window = lib.lookup(@FieldType(Functions, "resize_window"), "XResizeWindow") orelse return error.X11SymbolMissing,
                 .destroy_window = lib.lookup(@FieldType(Functions, "destroy_window"), "XDestroyWindow") orelse return error.X11SymbolMissing,
                 .flush = lib.lookup(@FieldType(Functions, "flush"), "XFlush") orelse return error.X11SymbolMissing,
+                .sync = lib.lookup(@FieldType(Functions, "sync"), "XSync") orelse return error.X11SymbolMissing,
                 .intern_atom = lib.lookup(@FieldType(Functions, "intern_atom"), "XInternAtom") orelse return error.X11SymbolMissing,
                 .set_wm_protocols = lib.lookup(@FieldType(Functions, "set_wm_protocols"), "XSetWMProtocols") orelse return error.X11SymbolMissing,
                 .pending = lib.lookup(@FieldType(Functions, "pending"), "XPending") orelse return error.X11SymbolMissing,
@@ -384,7 +386,7 @@ test "X11 close request reaches host lifecycle" {
         .override_redirect = 0,
     };
     try std.testing.expect(window.functions.send_event(window.display, window.id, 0, 0, &event) != 0);
-    _ = window.functions.flush(window.display);
+    _ = window.functions.sync(window.display, 0);
     try std.testing.expect(window.service());
     try std.testing.expectEqual(Size{ .width = 96, .height = 80 }, window.takeResize().?);
     event.client = .{
@@ -398,6 +400,6 @@ test "X11 close request reaches host lifecycle" {
         .data = .{ .l = .{ @intCast(window.delete_atom), 0, 0, 0, 0 } },
     };
     try std.testing.expect(window.functions.send_event(window.display, window.id, 0, 0, &event) != 0);
-    _ = window.functions.flush(window.display);
+    _ = window.functions.sync(window.display, 0);
     try std.testing.expect(!window.service());
 }
