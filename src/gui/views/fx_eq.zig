@@ -386,24 +386,20 @@ fn combinedResponseDb(eq: *const ws.dsp.eq.ParametricEq, freq: f32) f32 {
     return 20.0 * std.math.log10(@max(1.0e-6, total_mag));
 }
 
-test "EQ band colors follow the theme and survive the second lap" {
+test "every EQ band gets a distinct color in every theme" {
     // Eight bands over six hues: the tinted second lap is what keeps 7 and 8
-    // from being drawn in band 1 and 2's color on the same curve. Every theme
-    // gets that, but only a theme whose six hues are themselves distinct can
-    // give all eight bands a distinct color - Dracula, for one, uses the same
-    // hex for cyan and blue upstream.
+    // from being drawn in band 1 and 2's color on the same curve. This also
+    // fails if a theme's six hues are not themselves distinct, which is how
+    // Dracula's blue was caught duplicating its cyan.
     for (std.meta.tags(ws.theme_identity.Name)) |name| {
         style.selectIdentity(ws.theme_identity.get(name).*);
-        for (0..ws.dsp.eq.num_eq_bands - 6) |i| {
-            try std.testing.expect(!std.meta.eql(eqBandColor(i), eqBandColor(i + 6)));
+        var seen: [ws.dsp.eq.num_eq_bands][4]f32 = undefined;
+        for (&seen, 0..) |*slot, i| {
+            slot.* = eqBandColor(i);
+            for (seen[0..i]) |prev| try std.testing.expect(!std.meta.eql(prev, slot.*));
         }
     }
     style.selectIdentity(ws.theme_identity.patina);
-    var seen: [ws.dsp.eq.num_eq_bands][4]f32 = undefined;
-    for (&seen, 0..) |*slot, i| {
-        slot.* = eqBandColor(i);
-        for (seen[0..i]) |prev| try std.testing.expect(!std.meta.eql(prev, slot.*));
-    }
 }
 
 test "EQ pixel mapping round-trips a frequency and a gain" {
