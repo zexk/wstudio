@@ -21,23 +21,14 @@ pub const GuiTheme = theme_identity.Name;
 /// panes sharing that terminal too. Opting into a name is a deliberate
 /// choice, not something a first run should spring on someone who picked
 /// their terminal colors on purpose - see tui/theme.zig.
-pub const TuiTheme = enum {
-    none,
-    patina,
-    patina_light,
-    graphite,
-    graphite_light,
-    umbra,
-    umbra_light,
-    catppuccin_mocha,
-    catppuccin_latte,
-    dracula,
-    gruvbox_dark,
-    gruvbox_light,
-    nord,
-    solarized_dark,
-    solarized_light,
-    tokyonight,
+///
+/// Derived from `theme_identity.Name` rather than written out a second time:
+/// tui/theme.zig resolves a tag here to an identity by ordinal, so a name
+/// present in only one of the two lists would be a first-frame panic.
+pub const TuiTheme = blk: {
+    const identity_names = std.meta.fieldNames(theme_identity.Name);
+    const names = .{"none"} ++ identity_names.*;
+    break :blk @Enum(u8, .exhaustive, &names, &std.simd.iota(u8, names.len));
 };
 
 /// GUI corner style, covering both ImGui's own chrome (windows, child

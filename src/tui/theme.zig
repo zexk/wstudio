@@ -25,19 +25,6 @@ const config_mod = @import("../config.zig");
 
 const Slot = struct { index: u8, hex: u24 };
 
-comptime {
-    // `oscFor` resolves a `TuiTheme` tag to an identity by name. The two enums
-    // are written out separately (TuiTheme carries the extra `.none`), so a
-    // name added to only one of them would be an `orelse unreachable` panic on
-    // the first frame instead of a build error.
-    if (std.meta.tags(config_mod.TuiTheme).len != std.meta.tags(ws.theme_identity.Name).len + 1)
-        @compileError("TuiTheme must be theme_identity.Name plus `none`");
-    for (std.meta.tags(config_mod.TuiTheme)) |tag| {
-        if (tag != .none and std.meta.stringToEnum(ws.theme_identity.Name, @tagName(tag)) == null)
-            @compileError("TuiTheme." ++ @tagName(tag) ++ " has no theme_identity.Name");
-    }
-}
-
 /// ANSI color index -> hex. Track colors and terminal normal/bright slots
 /// share one full 16-color table in the theme identity.
 fn slots(id: *const ws.theme_identity.Identity) [16]Slot {
@@ -61,7 +48,9 @@ pub const reset_osc = "\x1b]104\x07" ++ "\x1b]110\x07" ++ "\x1b]111\x07";
 /// leaves the terminal's own palette untouched entirely.
 pub fn oscFor(theme: config_mod.TuiTheme, overrides: *const ws.theme_identity.Overrides, buf: []u8) []const u8 {
     if (theme == .none) return "";
-    const name = std.meta.stringToEnum(ws.theme_identity.Name, @tagName(theme)).?;
+    // `TuiTheme` is `Name` with `.none` prepended (config_options.zig), so the
+    // ordinals line up one apart.
+    const name: ws.theme_identity.Name = @enumFromInt(@intFromEnum(theme) - 1);
     const resolved = overrides.apply(ws.theme_identity.get(name).*);
     const id = &resolved;
     var w: std.Io.Writer = .fixed(buf);
