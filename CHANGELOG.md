@@ -34,6 +34,11 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Changed
 
+- The help view (`?`) reads as a reference instead of a wall of text. In the
+  GUI it gained a clickable section index down the left, key chips in an
+  aligned column, headings with rules, and a scroll position bar; both
+  frontends show which section you are reading in the header and jump between
+  sections with `{` and `}`.
 - Synth oscillators now use waveform tables for every sound. Sine, triangle,
   saw, and square are frames in bundled `basic` waveform instead of separate
   oscillator modes, so position can morph between them. Separate waveform-mode
