@@ -129,9 +129,9 @@ fn drawSections(
     if (comptime std.mem.eql(u8, child_prefix, "synth-mod")) {
         if (tabForCursor(synth_layout.mod_sections[0..3], app.core.synth_cursor)) |slot| app.core.synth_lfo_tab = slot;
     } else if (comptime std.mem.eql(u8, child_prefix, "synth-main")) {
-        if (tabForCursor(synth_layout.main_sections[0..3], app.core.synth_cursor)) |slot| app.core.synth_osc_tab = slot;
-        if (tabForCursor(synth_layout.main_sections[6..8], app.core.synth_cursor)) |slot| app.core.synth_filter_tab = slot;
-        if (tabForCursor(synth_layout.main_sections[8..11], app.core.synth_cursor)) |slot| app.core.synth_env_tab = slot;
+        if (tabForCursor(synth_layout.main_sections[1..4], app.core.synth_cursor)) |slot| app.core.synth_osc_tab = slot;
+        if (tabForCursor(synth_layout.main_sections[7..9], app.core.synth_cursor)) |slot| app.core.synth_filter_tab = slot;
+        if (tabForCursor(synth_layout.main_sections[9..12], app.core.synth_cursor)) |slot| app.core.synth_env_tab = slot;
     }
 
     // `z` isolates the cursor's section. The TUI has drawn only that card
@@ -142,7 +142,7 @@ fn drawSections(
             if (comptime std.mem.eql(u8, child_prefix, "synth-mod")) {
                 if (index < 3) drawTabbedCard(app, synth, synth_layout.mod_sections[0..3], &app.core.synth_lfo_tab, "synth-lfo-tabs", 0) else drawCard(app, synth, sections[index], child_prefix, index, 0);
             } else if (comptime std.mem.eql(u8, child_prefix, "synth-main")) {
-                if (index < 3) drawTabbedCard(app, synth, synth_layout.main_sections[0..3], &app.core.synth_osc_tab, "synth-osc-tabs", 0) else if (index >= 6 and index < 8) drawTabbedCard(app, synth, synth_layout.main_sections[6..8], &app.core.synth_filter_tab, "synth-filter-tabs", 0) else if (index >= 8 and index < 11) drawTabbedCard(app, synth, synth_layout.main_sections[8..11], &app.core.synth_env_tab, "synth-env-tabs", 0) else drawCard(app, synth, sections[index], child_prefix, index, 0);
+                if (index >= 1 and index < 4) drawTabbedCard(app, synth, synth_layout.main_sections[1..4], &app.core.synth_osc_tab, "synth-osc-tabs", 0) else if (index >= 7 and index < 9) drawTabbedCard(app, synth, synth_layout.main_sections[7..9], &app.core.synth_filter_tab, "synth-filter-tabs", 0) else if (index >= 9 and index < 12) drawTabbedCard(app, synth, synth_layout.main_sections[9..12], &app.core.synth_env_tab, "synth-env-tabs", 0) else drawCard(app, synth, sections[index], child_prefix, index, 0);
             } else drawCard(app, synth, sections[index], child_prefix, index, 0);
             return;
         }
@@ -159,19 +159,19 @@ fn drawSections(
                     continue;
                 }
             } else if (comptime std.mem.eql(u8, child_prefix, "synth-main")) {
-                if (index == 1 or index == 2) continue;
-                if (index == 0) {
-                    if (placement.col == col) drawTabbedCard(app, synth, synth_layout.main_sections[0..3], &app.core.synth_osc_tab, "synth-osc-tabs", column_w);
+                if (index == 2 or index == 3) continue;
+                if (index == 1) {
+                    if (placement.col == col) drawTabbedCard(app, synth, synth_layout.main_sections[1..4], &app.core.synth_osc_tab, "synth-osc-tabs", column_w);
                     continue;
                 }
-                if (index == 7) continue;
-                if (index == 6) {
-                    if (placement.col == col) drawTabbedCard(app, synth, synth_layout.main_sections[6..8], &app.core.synth_filter_tab, "synth-filter-tabs", column_w);
+                if (index == 8) continue;
+                if (index == 7) {
+                    if (placement.col == col) drawTabbedCard(app, synth, synth_layout.main_sections[7..9], &app.core.synth_filter_tab, "synth-filter-tabs", column_w);
                     continue;
                 }
-                if (index == 9 or index == 10) continue;
-                if (index == 8) {
-                    if (placement.col == col) drawTabbedCard(app, synth, synth_layout.main_sections[8..11], &app.core.synth_env_tab, "synth-env-tabs", column_w);
+                if (index == 10 or index == 11) continue;
+                if (index == 9) {
+                    if (placement.col == col) drawTabbedCard(app, synth, synth_layout.main_sections[9..12], &app.core.synth_env_tab, "synth-env-tabs", column_w);
                     continue;
                 }
             }

@@ -15,8 +15,8 @@ const fuzzy = @import("../fuzzy.zig");
 const synth_layout = @import("../synth_layout.zig");
 
 /// The synth editor's two panes, cycled by Tab: oscillator/envelope/
-/// filter/voice params ("main") and modulation sources - the matrix, LFOs,
-/// ENV 3, macros - ("mod"). `App.synth_cursor` stays one flat param-id
+/// filter/voice/macros ("main") and modulation sources - the matrix and
+/// LFOs - ("mod"). `App.synth_cursor` stays one flat param-id
 /// space across both (it IS the PolySynth param id - engine commands and
 /// undo key off it directly) - the subview only changes which ids are
 /// reachable and how they're laid out on screen. Both are driven by
@@ -432,9 +432,9 @@ fn sectionVisible(app: *const App, section: usize) bool {
     if (app.synth_section_focus) return true;
     return switch (app.synth_subview) {
         .main => switch (section) {
-            0...2 => section == app.synth_osc_tab,
-            6...7 => section == 6 + app.synth_filter_tab,
-            8...10 => section == 8 + app.synth_env_tab,
+            1...3 => section == 1 + app.synth_osc_tab,
+            7...8 => section == 7 + app.synth_filter_tab,
+            9...11 => section == 9 + app.synth_env_tab,
             else => true,
         },
         .mod => if (section <= 2) section == app.synth_lfo_tab else true,
@@ -467,7 +467,7 @@ fn cursorLast(app: *App) u16 {
 }
 
 fn jumpVisibleSection(app: *App, forward: bool) void {
-    const order = if (app.synth_subview == .main) activeMainOrder(app) else activeModOrder(app);
+    const order = if (app.synth_subview == .main) mainOrderNow(app) else modOrderNow(app);
     var cursor = app.synth_cursor;
     for (0..order.len) |_| {
         const next = synth_layout.jumpSection(order, cursor, forward);

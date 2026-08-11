@@ -76,9 +76,9 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
 /// order* is table-driven.
 const RenderFn = *const fn (w: *std.Io.Writer, synth: *const PolySynth, c: u16) anyerror!void;
 const main_render_fns = [_]RenderFn{
-    secOscA,   secOscB,    secOscC, secSub,  secNoise, secMod,
-    secFilter, secFilter2, secEnv,  secFenv, secEnv3,  secVoice,
-    secArp,    secOut,
+    secMacro,  secOscA,    secOscB, secOscC, secSub,  secNoise, secMod,
+    secFilter, secFilter2, secEnv,  secFenv, secEnv3, secVoice, secArp,
+    secOut,
 };
 comptime {
     if (main_render_fns.len != synth_layout.main_sections.len)
@@ -215,7 +215,7 @@ fn drawSynthGrid(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize, 
 /// `mod_sections`' render functions - the `.mod` counterpart to
 /// `main_render_fns`.
 const mod_render_fns = [_]RenderFn{
-    secLfo, secLfo2, secLfo3, secMacro, secMatrix,
+    secLfo, secLfo2, secLfo3, secMatrix,
 };
 comptime {
     if (mod_render_fns.len != synth_layout.mod_sections.len)

@@ -87,6 +87,10 @@ const matrix_params = blk: {
 
 // zig fmt: off
 pub const main_sections = [_]SectionDef{
+    .{ .title = "MACROS", .tone = .util, .band = 0, .params = &.{
+        .{ .id = 99, .label = "macro 1" }, .{ .id = 100, .label = "macro 2" },
+        .{ .id = 101, .label = "macro 3" }, .{ .id = 102, .label = "macro 4" },
+    } },
     .{ .title = "OSC A", .tone = .source, .band = 0, .params = &.{
         .{ .id = 2,  .label = "detune" },    .{ .id = 3,  .label = "unison" },
         .{ .id = 4,  .label = "uni.det" },   .{ .id = 5,  .label = "spread" },
@@ -167,15 +171,7 @@ pub const mod_sections = [_]SectionDef{
         .{ .id = 258, .label = "sync" }, .{ .id = 261, .label = "retrig" },
         .{ .id = 264, .label = "phase" }, .{ .id = 267, .label = "slew" },
     } },
-    .{ .title = "MACROS", .tone = .util, .band = 1, .params = &.{
-        .{ .id = 99, .label = "macro 1" }, .{ .id = 100, .label = "macro 2" },
-        .{ .id = 101, .label = "macro 3" }, .{ .id = 102, .label = "macro 4" },
-    } },
-    // Last: the matrix is by far the tallest card here, and at the top of
-    // column 0 it pushed LFO 1 below the fold while LFO 2 and LFO 3 sat at
-    // the top of their own columns. The sources come first, what routes
-    // them comes after - and being third in its band puts it in the column
-    // the other two leave empty.
+    // Sources come first, then the matrix that routes them.
     // Each row is two entries: the packed source/dest/depth triplet, then
     // its polarity toggle. The toggle can't be a fourth field of the
     // triplet - entry fields must be contiguous ids, and 59-82 is packed

@@ -4861,10 +4861,7 @@ test "synth editor jk moves cursor, hl adjusts first parameter" {
     const synth = &app.session.racks.items[0].instrument.poly_synth;
     try std.testing.expect(synth.detune_cents != 0.0);
 
-    // ENV 1's "attack" (id 16) is the MAIN subview's 43rd nav entry now
-    // that OSC A/B/C, SUB, NOISE, MOD, and FILTER 1/2 all sort ahead of it
-    // - see synth_layout.zig's main_sections declaration order.
-    for (0..43) |_| app.handleKey(.{ .char = 'j' }, 0);
+    app.synth_cursor = 16;
     try std.testing.expectEqual(@as(u8, 16), app.synth_cursor);
 
     const old_attack = synth.attack_s;
@@ -5010,7 +5007,7 @@ test "draw renders synth editor without errors" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "sustain") != null);
 }
 
-test "synth MOD subview draws its sections in table order" {
+test "synth MOD subview draws sources before matrix" {
     var app = try testApp();
     defer app.deinit();
 
@@ -5027,10 +5024,9 @@ test "synth MOD subview draws its sections in table order" {
     // reorder of one and not the other draws the wrong card under a title
     // with nothing failing to compile. Sources first, MATRIX last.
     const lfo1 = std.mem.indexOf(u8, frame, "LFO 1") orelse return error.MissingLfo1;
-    const macros = std.mem.indexOf(u8, frame, "MACRO") orelse return error.MissingMacros;
     const matrix = std.mem.indexOf(u8, frame, "MATRIX") orelse return error.MissingMatrix;
-    try std.testing.expect(lfo1 < macros);
-    try std.testing.expect(macros < matrix);
+    try std.testing.expect(lfo1 < matrix);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "MACRO") == null);
     // secMatrix's own body, not just its title: proves the render fn that
     // ran under the MATRIX header is the matrix one.
     try std.testing.expect(std.mem.indexOf(u8, frame, "CUTOFF") != null);
@@ -5101,7 +5097,7 @@ test "synth row navigation skips folded tab siblings" {
 
     app.handleKey(.tab, 0);
     for (0..7) |_| app.handleKey(.{ .char = 'j' }, 0);
-    try std.testing.expectEqual(@as(u16, 99), app.synth_cursor);
+    try std.testing.expectEqual(@as(u16, 59), app.synth_cursor);
 }
 
 test "synth section focus isolates navigation and rendering" {
@@ -5141,14 +5137,11 @@ test "synth editor g/G jump to the first/last parameter" {
     defer app.deinit();
 
     app.handleKey(.enter, 0);
-    // Just a "did we move off the start" sanity check before testing g/G -
-    // 9 j's lands on OSC B's first entry (id 6, on/off).
-    for (0..9) |_| app.handleKey(.{ .char = 'j' }, 0);
-    try std.testing.expectEqual(@as(u8, 6), app.synth_cursor);
+    app.synth_cursor = 6;
 
     app.handleKey(.{ .char = 'g' }, 0);
     app.handleKey(.{ .char = 'g' }, 0);
-    try std.testing.expectEqual(@as(u8, 2), app.synth_cursor);
+    try std.testing.expectEqual(@as(u8, 99), app.synth_cursor);
     app.handleKey(.{ .char = 'g' }, 0);
     app.handleKey(.{ .char = 'G' }, 0);
     // Last id of the "main" subview: OUT's "gain" (id 38) - the last
@@ -5162,9 +5155,7 @@ test "synth editor param nudges coalesce into one undo step, u/U round-trips" {
     var block: [64]types.Sample = undefined;
 
     app.handleKey(.enter, 0); // cursor 2 = synth
-    // 43 j's: land on attack (id 16), the ENV 1 section's first entry -
-    // see synth_layout.zig's main_sections declaration order.
-    for (0..43) |_| app.handleKey(.{ .char = 'j' }, 0); // land on attack (a numeric param)
+    app.synth_cursor = 16;
     try std.testing.expectEqual(@as(u8, 16), app.synth_cursor);
 
     const synth = &app.session.racks.items[0].instrument.poly_synth;
@@ -5197,9 +5188,7 @@ test "param undo restores the exact value even when a nudge hit the clamp" {
     var block: [64]types.Sample = undefined;
 
     app.handleKey(.enter, 0); // cursor 2 = synth
-    // 45 j's: land on sustain (id 18), ENV 1's 3rd entry (attack, decay,
-    // sustain - see synth_layout.zig's main_sections).
-    for (0..45) |_| app.handleKey(.{ .char = 'j' }, 0); // sustain (0..1, clamps)
+    app.synth_cursor = 18;
     try std.testing.expectEqual(@as(u8, 18), app.synth_cursor);
 
     const synth = &app.session.racks.items[0].instrument.poly_synth;
@@ -5228,8 +5217,7 @@ test "param undo round-trips a coalesced toggle batch (any nonzero delta = one f
     var block: [64]types.Sample = undefined;
 
     app.handleKey(.enter, 0);
-    // 9 j's: land on osc_b_on (id 6), OSC B's first entry.
-    for (0..9) |_| app.handleKey(.{ .char = 'j' }, 0); // osc_b_on (a toggle)
+    app.synth_cursor = 6;
     try std.testing.expectEqual(@as(u8, 6), app.synth_cursor);
 
     const synth = &app.session.racks.items[0].instrument.poly_synth;
@@ -5256,8 +5244,7 @@ test "synth editor param nudge flushes as its own step when the cursor moves off
     var block: [64]types.Sample = undefined;
 
     app.handleKey(.enter, 0);
-    // 43 j's: land on attack (id 16) - see synth_layout.zig's main_sections.
-    for (0..43) |_| app.handleKey(.{ .char = 'j' }, 0); // attack
+    app.synth_cursor = 16;
     const synth = &app.session.racks.items[0].instrument.poly_synth;
     app.session.engine.process(&block);
     const attack_before = synth.attack_s;
@@ -8154,20 +8141,20 @@ test "mouse scroll over a synth param row selects and nudges it" {
     app.handleKey(.enter, 0); // opens the synth editor for track 0
     try std.testing.expectEqual(AppView.synth_editor, app.view);
 
-    const old_detune = app.session.racks.items[0].instrument.poly_synth.detune_cents;
+    const old_macro = app.session.racks.items[0].instrument.poly_synth.macro1;
 
-    // OSC A's "detune" (id 2) is MAIN subview's first content row; +1 for
+    // MACROS' first row (id 99) is MAIN subview's first content row; +1 for
     // header row above it, +1 again since this "row" param is 1-based
     // content-row numbering (row 1 == the first line below the title - see
     // editors/synth.zig's paramAtRow). synth_scroll starts at 0, so this
     // small a row is on-screen even at this test's 24-row terminal height.
     const row = app_mod.content_top + 2;
     app.handleMouse(.{ .x = 20, .y = row, .button = .none, .kind = .scroll_up }, 80, 24, 0);
-    try std.testing.expectEqual(@as(u8, 2), app.synth_cursor);
+    try std.testing.expectEqual(@as(u8, 99), app.synth_cursor);
 
     var block: [64]types.Sample = undefined;
     app.session.engine.process(&block);
-    try std.testing.expect(app.session.racks.items[0].instrument.poly_synth.detune_cents > old_detune);
+    try std.testing.expect(app.session.racks.items[0].instrument.poly_synth.macro1 > old_macro);
 }
 
 test "mouse click/drag on a sampler waveform moves the nearer marker" {
