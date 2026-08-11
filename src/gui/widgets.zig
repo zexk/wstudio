@@ -619,6 +619,53 @@ fn adsrHandle(draw_list: zgui.DrawList, theme: *const gui_style.Palette, p: [2]f
     if (focused) draw_list.addCircle(.{ .p = p, .r = adsr_handle_r + 3, .col = gui_style.color(accent), .thickness = 1.5 });
 }
 
+/// One ADSR node: an invisible square hit box over the curve point, plus the
+/// drag and wheel handling behind it. A duration node (`range` non-null)
+/// rides the horizontal axis multiplicatively - its range spans decades, so
+/// an additive drag would be unusable at the short end. The sustain node
+/// (`range` null) is a plain vertical 0..1 level.
+fn adsrNode(
+    draw_list: zgui.DrawList,
+    theme: *const gui_style.Palette,
+    label: [:0]const u8,
+    suffix: []const u8,
+    p: [2]f32,
+    stage: u2,
+    args: Adsr,
+    value: *f32,
+    range: ?[2]f32,
+    result: *AdsrResult,
+) void {
+    zgui.setCursorScreenPos(.{ p[0] - adsr_handle_r, p[1] - adsr_handle_r });
+    var id_buf: [96]u8 = undefined;
+    const nid = std.fmt.bufPrintZ(&id_buf, "{s}-{s}", .{ label, suffix }) catch label;
+    _ = zgui.invisibleButton(nid, .{ .w = adsr_handle_r * 2, .h = adsr_handle_r * 2 });
+    const node_active = zgui.isItemActive();
+    const node_hovered = zgui.isItemHovered(.{});
+    if (zgui.isItemActivated()) result.activated_stage = stage;
+    if (node_active) {
+        const delta = zgui.getMouseDragDelta(.left, .{});
+        const d = if (range == null) delta[1] else delta[0];
+        if (d != 0) {
+            value.* = if (range) |r|
+                std.math.clamp(value.* * @exp(d / gui_style.envelope_drag_pixels), r[0], r[1])
+            else
+                std.math.clamp(value.* - d / gui_style.envelope_drag_pixels, 0, 1);
+            result.changed[stage] = true;
+            zgui.resetMouseDragDelta(.left);
+        }
+    }
+    if (node_hovered and gui_style.wheel_delta != 0) {
+        gui_style.wheel_consumed = true;
+        value.* = if (range) |r|
+            std.math.clamp(value.* * @exp(gui_style.wheel_delta * envelopeScrollStep()), r[0], r[1])
+        else
+            std.math.clamp(value.* + gui_style.wheel_delta * 0.01, 0, 1);
+        result.changed[stage] = true;
+    }
+    adsrHandle(draw_list, theme, p, node_active or node_hovered, adsrStageIs(args.focused_stage, stage), args.accent);
+}
+
 pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
     const theme = &gui_style.palette;
     const width = zgui.getContentRegionAvail()[0];
@@ -686,109 +733,12 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
 
     var result = AdsrResult{};
 
-    // Attack node: horizontal drag only (duration).
-    {
-        const p = points[1];
-        zgui.setCursorScreenPos(.{ p[0] - adsr_handle_r, p[1] - adsr_handle_r });
-        var id_buf: [96]u8 = undefined;
-        const nid = std.fmt.bufPrintZ(&id_buf, "{s}-a", .{label}) catch label;
-        _ = zgui.invisibleButton(nid, .{ .w = adsr_handle_r * 2, .h = adsr_handle_r * 2 });
-        const node_active = zgui.isItemActive();
-        const node_hovered = zgui.isItemHovered(.{});
-        if (zgui.isItemActivated()) result.activated_stage = 0;
-        if (node_active) {
-            const delta = zgui.getMouseDragDelta(.left, .{});
-            if (delta[0] != 0) {
-                args.attack.* = std.math.clamp(args.attack.* * @exp(delta[0] / gui_style.envelope_drag_pixels), args.attack_range[0], args.attack_range[1]);
-                result.changed[0] = true;
-                zgui.resetMouseDragDelta(.left);
-            }
-        }
-        if (node_hovered and gui_style.wheel_delta != 0) {
-            gui_style.wheel_consumed = true;
-            args.attack.* = std.math.clamp(args.attack.* * @exp(gui_style.wheel_delta * envelopeScrollStep()), args.attack_range[0], args.attack_range[1]);
-            result.changed[0] = true;
-        }
-        adsrHandle(draw_list, theme, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 0), args.accent);
-    }
-
-    // Decay node: horizontal drag only (duration).
-    {
-        const p = points[2];
-        zgui.setCursorScreenPos(.{ p[0] - adsr_handle_r, p[1] - adsr_handle_r });
-        var id_buf: [96]u8 = undefined;
-        const nid = std.fmt.bufPrintZ(&id_buf, "{s}-d", .{label}) catch label;
-        _ = zgui.invisibleButton(nid, .{ .w = adsr_handle_r * 2, .h = adsr_handle_r * 2 });
-        const node_active = zgui.isItemActive();
-        const node_hovered = zgui.isItemHovered(.{});
-        if (zgui.isItemActivated()) result.activated_stage = 1;
-        if (node_active) {
-            const delta = zgui.getMouseDragDelta(.left, .{});
-            if (delta[0] != 0) {
-                args.decay.* = std.math.clamp(args.decay.* * @exp(delta[0] / gui_style.envelope_drag_pixels), args.decay_range[0], args.decay_range[1]);
-                result.changed[1] = true;
-            }
-            if (delta[0] != 0) zgui.resetMouseDragDelta(.left);
-        }
-        if (node_hovered and gui_style.wheel_delta != 0) {
-            gui_style.wheel_consumed = true;
-            args.decay.* = std.math.clamp(args.decay.* * @exp(gui_style.wheel_delta * envelopeScrollStep()), args.decay_range[0], args.decay_range[1]);
-            result.changed[1] = true;
-        }
-        adsrHandle(draw_list, theme, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 1), args.accent);
-    }
-
-    // Sustain node: vertical drag only (level).
-    {
-        const p = points[3];
-        zgui.setCursorScreenPos(.{ p[0] - adsr_handle_r, p[1] - adsr_handle_r });
-        var id_buf: [96]u8 = undefined;
-        const nid = std.fmt.bufPrintZ(&id_buf, "{s}-s", .{label}) catch label;
-        _ = zgui.invisibleButton(nid, .{ .w = adsr_handle_r * 2, .h = adsr_handle_r * 2 });
-        const node_active = zgui.isItemActive();
-        const node_hovered = zgui.isItemHovered(.{});
-        if (zgui.isItemActivated()) result.activated_stage = 2;
-        if (node_active) {
-            const delta = zgui.getMouseDragDelta(.left, .{});
-            if (delta[1] != 0) {
-                args.sustain.* = std.math.clamp(args.sustain.* - delta[1] / gui_style.envelope_drag_pixels, 0, 1);
-                result.changed[2] = true;
-                zgui.resetMouseDragDelta(.left);
-            }
-        }
-        if (node_hovered and gui_style.wheel_delta != 0) {
-            gui_style.wheel_consumed = true;
-            args.sustain.* = std.math.clamp(args.sustain.* + gui_style.wheel_delta * 0.01, 0, 1);
-            result.changed[2] = true;
-        }
-        adsrHandle(draw_list, theme, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 2), args.accent);
-    }
-
-    // Release node: horizontal drag only (duration).
-    {
-        const p = points[4];
-        zgui.setCursorScreenPos(.{ p[0] - adsr_handle_r, p[1] - adsr_handle_r });
-        var id_buf: [96]u8 = undefined;
-        const nid = std.fmt.bufPrintZ(&id_buf, "{s}-r", .{label}) catch label;
-        _ = zgui.invisibleButton(nid, .{ .w = adsr_handle_r * 2, .h = adsr_handle_r * 2 });
-        const node_active = zgui.isItemActive();
-        const node_hovered = zgui.isItemHovered(.{});
-        if (zgui.isItemActivated()) result.activated_stage = 3;
-        if (node_active) {
-            const delta = zgui.getMouseDragDelta(.left, .{});
-            if (delta[0] != 0) {
-                args.release.* = std.math.clamp(args.release.* * @exp(delta[0] / gui_style.envelope_drag_pixels), args.release_range[0], args.release_range[1]);
-                result.changed[3] = true;
-                zgui.resetMouseDragDelta(.left);
-            }
-        }
-        if (node_hovered and gui_style.wheel_delta != 0) {
-            gui_style.wheel_consumed = true;
-            args.release.* = std.math.clamp(args.release.* * @exp(gui_style.wheel_delta * envelopeScrollStep()), args.release_range[0], args.release_range[1]);
-            result.changed[3] = true;
-        }
-        adsrHandle(draw_list, theme, p, node_active or node_hovered, adsrStageIs(args.focused_stage, 3), args.accent);
-    }
+    // Duration nodes drag horizontally and scale exponentially; sustain is a
+    // plain vertical 0..1 level - see `adsrNode`.
+    adsrNode(draw_list, theme, label, "a", points[1], 0, args, args.attack, args.attack_range, &result);
+    adsrNode(draw_list, theme, label, "d", points[2], 1, args, args.decay, args.decay_range, &result);
+    adsrNode(draw_list, theme, label, "s", points[3], 2, args, args.sustain, null, &result);
+    adsrNode(draw_list, theme, label, "r", points[4], 3, args, args.release, args.release_range, &result);
 
     zgui.setCursorScreenPos(.{ origin[0], origin[1] + height });
     return result;
