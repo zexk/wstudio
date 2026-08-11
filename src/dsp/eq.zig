@@ -118,7 +118,7 @@ const EqBand = struct {
     /// stage.
     coeffs: Coeffs = .{},
     coeffs2: Coeffs = .{},
-    /// Constant-skirt bandpass at this band's freq/Q, recomputed alongside
+    /// Constant 0dB-peak bandpass at this band's freq/Q, recomputed alongside
     /// `coeffs` - shared by the solo-audition path and the dynamic-EQ
     /// detector, neither of which cares about this band's own kind/gain.
     bp: Coeffs = .{},
@@ -417,7 +417,7 @@ pub const ParametricEq = struct {
     }
 
     /// Replaces the whole chain's output with just the soloed band's
-    /// frequency region (a constant-skirt bandpass at its freq/Q), ignoring
+    /// frequency region (a constant 0dB-peak bandpass at its freq/Q), ignoring
     /// every band's own gain/kind - the point is auditioning what's *there*,
     /// not what the band would do to it.
     fn processSolo(self: *ParametricEq, index: usize, buf: []Sample) void {
