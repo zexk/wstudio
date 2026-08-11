@@ -1186,7 +1186,7 @@ pub const DrumMachine = struct {
     /// `variants` table) from procedural generators. Runs them directly into
     /// fresh pad buffers - nothing is read from disk or the binary's
     /// embedded assets, so extra kit flavours cost no shipped bytes. Marks
-    /// every pad as non-user so it isn't exported to the sample sidecar.
+    /// every pad as non-user so it isn't exported to the audio cache.
     pub fn loadKitVariant(self: *DrumMachine, variant: *const drum_kit.KitVariant) !void {
         self.kit = variant.name;
         for (variant.pads, 0..) |slot, i| {

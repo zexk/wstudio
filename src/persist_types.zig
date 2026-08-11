@@ -47,7 +47,24 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 57;
+pub const file_version: u32 = 58;
+
+/// First four bytes of every .wsj. The file is a container, not bare JSON:
+/// a 12-byte header, the audio cache (user sample blobs, concatenated), then
+/// this `Snapshot` as JSON to EOF. See FORMAT.md for the full layout.
+pub const bundle_magic = "WSJ1".*;
+
+/// magic (4 bytes) + u64 LE offset of the JSON section (8).
+pub const bundle_header_len: u64 = 12;
+
+/// One blob in the audio cache. `name` is the key `PadSnap.sample_file` and
+/// its siblings hold; `offset` and `len` slice the bytes straight out of the
+/// .wsj. Blobs are WAV except a SoundFont's, which is its original .sf2.
+pub const AudioCacheSnap = struct {
+    name: []const u8,
+    offset: u64,
+    len: u64,
+};
 
 /// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
 /// reasoning as `EqBandKindSnap`.
@@ -220,8 +237,8 @@ pub const SynthSnap = struct {
     wt_pos: f32 = 0.0,
     osc_b_wt_pos: f32 = 0.0,
     osc_c_wt_pos: f32 = 0.0,
-    /// Relative path to a `:load-wavetable`-imported table's sidecar WAV,
-    /// empty for the bundled default (mirrors `PadSnap.sample_file`).
+    /// Audio cache key of a `:load-wavetable`-imported table's WAV, empty
+    /// for the bundled default (mirrors `PadSnap.sample_file`).
     wt_file: []const u8 = "",
     osc_b_wt_file: []const u8 = "",
     osc_c_wt_file: []const u8 = "",
@@ -254,8 +271,8 @@ pub const PadSnap = struct {
     gate: bool = false,
     /// Retrigger play mode (see `dsp.Pad.retrig`).
     retrig: bool = false,
-    /// User-loaded audio, exported to project's sample sidecar on
-    /// save. Path relative to the .wsj; empty = shipped/generated audio.
+    /// User-loaded audio, exported to the project's audio cache on save.
+    /// An `AudioCacheSnap.name`; empty = shipped/generated audio.
     sample_file: []const u8 = "",
     /// Display name of user-loaded sample ("" keeps default).
     name: []const u8 = "",
@@ -322,7 +339,7 @@ pub const DrumSnap = struct {
     pad_len: []const u16 = &.{},
     /// Name of the factory kit flavour last applied (`dsp/drum_kit.zig`'s
     /// `variants`), regenerated on load - the generated audio itself is
-    /// never written to sidecar, only user samples are. Unknown names leave
+    /// never cached, only user samples are. Unknown names leave
     /// pads as their `used` flags describe them.
     kit: []const u8 = "",
 };
@@ -631,7 +648,7 @@ pub const SamplerSnap = struct {
 };
 
 /// One shared-clip Slicer instrument. `sample_file`/`name` mirror
-/// `PadSnap`'s own sample-sidecar fields but live at this top level (not per
+/// `PadSnap`'s own audio-cache fields but live at this top level (not per
 /// slice) since every slice shares the ONE clip. `slices` is dense, position
 /// IS the slice index (same convention `DrumSnap.pads` uses) - each entry
 /// reuses `PadSnap` wholesale for its start/end/gain/pan/pitch/ADSR/reverse,
@@ -656,7 +673,7 @@ pub const SlicerSnap = struct {
     slice_len: []const u16 = &.{},
 };
 
-/// A SoundFont (.sf2) player track: the loaded font's sidecar path, the
+/// A SoundFont (.sf2) player track: the loaded font's audio cache key, the
 /// selected preset (by index into the parsed font - see `SoundfontPlayer.
 /// preset_index`'s own doc comment for why an index rather than bank/
 /// program), OUT params, and piano-roll pattern. `sf2_file` empty
@@ -860,4 +877,7 @@ pub const Snapshot = struct {
     /// Learned MIDI CC bindings.
     cc_bindings: []const CcBindingSnap = &.{},
     mix_automation: []const MixAutomationSnap = &.{},
+    /// Directory of the audio cache section. Empty for a project holding no
+    /// user audio at all.
+    audio_cache: []const AudioCacheSnap = &.{},
 };

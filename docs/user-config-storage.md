@@ -57,4 +57,4 @@ A saved drum kit contains pad tuning only: names, gain, pan, pitch, envelopes,
 and choke groups. It carries no sample audio. Applying one layers that tuning
 over the samples already loaded on the pads. Factory kits remain separate
 because their procedural audio is compiled into the application, while user
-sample audio belongs to a project's `.wsj` sidecar.
+sample audio belongs to the project's own `.wsj` audio cache.

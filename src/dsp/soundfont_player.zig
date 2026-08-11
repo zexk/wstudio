@@ -51,7 +51,7 @@ pub const SoundfontPlayer = struct {
     font_lock: std.atomic.Mutex = .unlocked,
     reset_pending: std.atomic.Value(bool) = .init(false),
     font: ?SoundFont = null,
-    /// The original file bytes, kept only so the project sidecar can
+    /// The original file bytes, kept only so the project audio cache can
     /// re-export them unmodified on save - `font` is a simplified,
     /// already-resolved reading of the file (see soundfont.zig's doc
     /// comment), not something the original bytes can be re-derived from.

@@ -48,7 +48,6 @@ const AutomationPoint = automation_mod.AutomationPoint;
 
 const persist_types = @import("persist_types.zig");
 const persist_save = @import("persist_save.zig");
-const joinWsjRel = persist_save.joinWsjRel;
 const file_version = persist_types.file_version;
 const AutomationPointSnap = persist_types.AutomationPointSnap;
 const SynthParamAutomationSnap = persist_types.SynthParamAutomationSnap;
@@ -116,24 +115,66 @@ pub fn applySnapToDevice(device: anytype, snap: anytype) void {
 /// Must be called before the audio backend starts (the backend captures
 /// the engine pointer at init; swapping mid-session is unsafe in v1).
 pub fn load(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Session {
-    const data = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(4 * 1024 * 1024));
+    const data = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(max_project_bytes));
     defer allocator.free(data);
 
-    var parsed = try std.json.parseFromSlice(Snapshot, allocator, data, .{});
+    const json_offset = try bundleJsonOffset(data);
+    var parsed = try std.json.parseFromSlice(Snapshot, allocator, data[@intCast(json_offset)..], .{});
     defer parsed.deinit();
+    const cache: AudioCache = .{ .entries = parsed.value.audio_cache, .file = data, .json_offset = json_offset };
 
     var session = try buildSession(allocator, &parsed.value);
-    restoreSamples(allocator, io, path, &parsed.value, &session);
-    restoreAudioSources(allocator, io, path, &parsed.value, &session);
+    restoreSamples(io, cache, &parsed.value, &session);
+    restoreAudioSources(allocator, cache, &parsed.value, &session);
     if (session.song_mode) session.rebuildSongData();
     return session;
 }
 
-fn restoreAudioSources(allocator: std.mem.Allocator, io: std.Io, path: []const u8, snap: *const Snapshot, session: *Session) void {
+/// Ceiling on a whole .wsj, audio cache included. A full GM SoundFont alone
+/// runs tens to a couple hundred MB, and a sample-heavy project holds several
+/// of those plus its arrangement audio.
+const max_project_bytes = 2 * 1024 * 1024 * 1024;
+
+/// Offset of the JSON section in a .wsj container, or an error if the file
+/// isn't one (an old sidecar-era project, or something else entirely).
+fn bundleJsonOffset(data: []const u8) !u64 {
+    if (data.len < persist_types.bundle_header_len) return error.NotAProjectFile;
+    if (!std.mem.eql(u8, data[0..persist_types.bundle_magic.len], &persist_types.bundle_magic)) return error.NotAProjectFile;
+    const offset = std.mem.readInt(u64, data[persist_types.bundle_magic.len..][0..8], .little);
+    if (offset < persist_types.bundle_header_len or offset > data.len) return error.CorruptProjectFile;
+    return offset;
+}
+
+/// The audio cache section of a loaded .wsj, resolved by key. Sample bytes
+/// are borrowed straight out of the file buffer, so every slice this hands
+/// out dies with it - callers copy what they keep.
+pub const AudioCache = struct {
+    entries: []const persist_types.AudioCacheSnap = &.{},
+    /// The whole file, since entry offsets are absolute.
+    file: []const u8 = &.{},
+    /// Where the blobs stop and the JSON starts.
+    json_offset: u64 = 0,
+
+    /// Bytes for `key`, or null if it names nothing or names an extent
+    /// reaching outside the blob section - a corrupt entry degrades one pad,
+    /// the same way a missing sidecar file used to.
+    pub fn get(self: AudioCache, key: []const u8) ?[]const u8 {
+        if (key.len == 0) return null;
+        for (self.entries) |e| {
+            if (!std.mem.eql(u8, e.name, key)) continue;
+            if (e.offset < persist_types.bundle_header_len or e.len == 0) return null;
+            const end = std.math.add(u64, e.offset, e.len) catch return null;
+            if (end > self.json_offset) return null;
+            return self.file[@intCast(e.offset)..@intCast(end)];
+        }
+        return null;
+    }
+};
+
+fn restoreAudioSources(allocator: std.mem.Allocator, cache: AudioCache, snap: *const Snapshot, session: *Session) void {
     for (snap.audio_sources) |source| {
-        if (source.id == 0 or source.channel_count == 0 or source.channel_count > 2 or source.file.len == 0) continue;
-        const data = readWsjRel(allocator, io, path, source.file) orelse continue;
-        defer allocator.free(data);
+        if (source.id == 0 or source.channel_count == 0 or source.channel_count > 2) continue;
+        const data = cache.get(source.file) orelse continue;
         const parsed = wav.parseInterleavedAlloc(allocator, data) catch continue;
         defer allocator.free(parsed.samples);
         if (parsed.channel_count != source.channel_count) continue;
@@ -141,13 +182,13 @@ fn restoreAudioSources(allocator: std.mem.Allocator, io: std.Io, path: []const u
     }
 }
 
-/// Load the sidecar WAVs referenced by pad snapshots back into the session's
-/// pads. Failures are per-pad and non-fatal: a missing or unreadable sample
-/// file leaves that pad on its shipped/generated audio, params intact.
+/// Load the audio-cache blobs referenced by pad snapshots back into the
+/// session's pads. Failures are per-pad and non-fatal: a missing or
+/// unreadable blob leaves that pad on its shipped/generated audio, params
+/// intact.
 pub fn restoreSamples(
-    allocator: std.mem.Allocator,
     io: std.Io,
-    path: []const u8,
+    cache: AudioCache,
     snap: *const Snapshot,
     session: *Session,
 ) void {
@@ -166,8 +207,7 @@ pub fn restoreSamples(
                         }
                         continue;
                     }
-                    const data = readWsjRel(allocator, io, path, ps.sample_file) orelse continue;
-                    defer allocator.free(data);
+                    const data = cache.get(ps.sample_file) orelse continue;
                     // loadPadWav swaps audio + name under the pad lock and
                     // keeps the params already applied by buildSession, and
                     // materializes the pad if it wasn't already.
@@ -181,8 +221,7 @@ pub fn restoreSamples(
                     if (smp.pad.name.len > 0) s.rename(smp.pad.name);
                     continue;
                 }
-                const data = readWsjRel(allocator, io, path, smp.pad.sample_file) orelse continue;
-                defer allocator.free(data);
+                const data = cache.get(smp.pad.sample_file) orelse continue;
                 // loadWav swaps audio + name under the pad lock and keeps the
                 // params applied by buildSession.
                 s.loadWav(data, sampleName(smp.pad)) catch continue;
@@ -191,8 +230,7 @@ pub fn restoreSamples(
             .slicer => |*sl| {
                 const sls = rs.content.slicer;
                 if (sls.sample_file.len == 0) continue; // empty slicer, nothing to restore
-                const data = readWsjRel(allocator, io, path, sls.sample_file) orelse continue;
-                defer allocator.free(data);
+                const data = cache.get(sls.sample_file) orelse continue;
                 const name = if (sls.name.len > 0) sls.name else std.fs.path.stem(sls.sample_file);
                 // reset_slices=false: buildSession already applied every
                 // slice's saved start/end/etc. from `sls.slices` - this must
@@ -203,24 +241,9 @@ pub fn restoreSamples(
             },
             .poly_synth => |*s| {
                 const ss = rs.content.poly_synth;
-                if (ss.wt_file.len > 0) {
-                    if (readWsjRel(allocator, io, path, ss.wt_file)) |data| {
-                        defer allocator.free(data);
-                        s.loadWavetable(.a, data) catch {};
-                    }
-                }
-                if (ss.osc_b_wt_file.len > 0) {
-                    if (readWsjRel(allocator, io, path, ss.osc_b_wt_file)) |data| {
-                        defer allocator.free(data);
-                        s.loadWavetable(.b, data) catch {};
-                    }
-                }
-                if (ss.osc_c_wt_file.len > 0) {
-                    if (readWsjRel(allocator, io, path, ss.osc_c_wt_file)) |data| {
-                        defer allocator.free(data);
-                        s.loadWavetable(.c, data) catch {};
-                    }
-                }
+                if (cache.get(ss.wt_file)) |data| s.loadWavetable(.a, data) catch {};
+                if (cache.get(ss.osc_b_wt_file)) |data| s.loadWavetable(.b, data) catch {};
+                if (cache.get(ss.osc_c_wt_file)) |data| s.loadWavetable(.c, data) catch {};
             },
             .soundfont, .acoustic => |*sf| {
                 const sfs = switch (rs.content) {
@@ -234,8 +257,7 @@ pub fn restoreSamples(
                     continue;
                 }
                 if (sfs.sf2_file.len == 0) continue; // nothing loaded
-                const data = readWsjRel(allocator, io, path, sfs.sf2_file) orelse continue;
-                defer allocator.free(data);
+                const data = cache.get(sfs.sf2_file) orelse continue;
                 // loadSf2 resets preset_index to 0 - re-apply the saved
                 // selection only after it succeeds.
                 sf.loadSf2(data) catch continue;
@@ -244,17 +266,6 @@ pub fn restoreSamples(
             else => {},
         }
     }
-}
-
-/// Read a sample file stored relative to the .wsj. Null on any error.
-/// 512MiB covers every sidecar kind this reads, including a full GM
-/// SoundFont bank (real-world ones run tens to a couple hundred MB) - every
-/// other sidecar (a WAV clip/pad/wavetable) is far smaller in practice, so
-/// raising the ceiling for soundfonts costs nothing for them.
-pub fn readWsjRel(allocator: std.mem.Allocator, io: std.Io, wsj_path: []const u8, rel: []const u8) ?[]u8 {
-    const full = joinWsjRel(allocator, wsj_path, rel) catch return null;
-    defer allocator.free(full);
-    return std.Io.Dir.cwd().readFileAlloc(io, full, allocator, .limited(512 * 1024 * 1024)) catch null;
 }
 
 /// Display name for a restored sample: the saved name, else the file stem.
@@ -463,7 +474,7 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                 const dmp = &rack.instrument.drum_machine;
                     // Regenerate the kit first: its pads are the audio the
                     // file never carried (only user samples reach the
-                    // sidecar), and the per-pad snapshot below then layers
+                    // cache), and the per-pad snapshot below then layers
                     // this project's params over them. An unknown name -
                     // a kit that no longer exists - just leaves them empty.
                     if (ds.kit.len > 0) {
@@ -617,7 +628,7 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                     sf.pan = finiteClamp(f32, sfs.pan, -1.0, 1.0, 0.0);
                     sf.transpose_semitones = finiteClamp(f32, sfs.transpose_semitones, -24.0, 24.0, 0.0);
                     // preset_index is restored by restoreSamples, after the
-                    // sidecar .sf2 (if any) has actually loaded - loadSf2
+                    // cached .sf2 (if any) has actually loaded - loadSf2
                     // resets it to 0, so setting it here would be wiped.
                     rack.pattern_player.?.length_beats = finiteClamp(f64, sfs.pattern.length_beats, 1.0, std.math.floatMax(f64), 4.0);
                     loadNotes(&rack.pattern_player.?, sfs.pattern.notes);

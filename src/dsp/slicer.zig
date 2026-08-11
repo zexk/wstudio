@@ -183,13 +183,13 @@ pub const Slicer = struct {
     samples: []f32,
     name: [8]u8 = [_]u8{' '} ** 8,
     /// True when the audio was loaded by the user (`:load-slice`) - only
-    /// user audio is exported to the project's sample sidecar on save, same
+    /// user audio is exported to the project's audio cache on save, same
     /// convention `Pad.user_sample` documents.
     user_sample: bool = false,
     /// Tempo and root pitch class the loaded clip's file name declared (see
     /// `tempo.bpmFromName`/`pitch.rootFromName`), 0/null when it declared
     /// neither. `:bpm-sync` trusts these over the analysers. Deliberately
-    /// not saved: the sidecar keeps the audio, not the name it arrived
+    /// not saved: the cache keeps the audio, not the name it arrived
     /// under, and a new snapshot field costs a `file_version` bump that
     /// rejects every existing project (see FORMAT.md).
     clip_bpm: f32 = 0,
@@ -381,7 +381,7 @@ pub const Slicer = struct {
     /// re-chops with `:slice` afterward. `reset_slices = false` is for
     /// restoring a saved project: persist.zig applies each slice's saved
     /// start/end/gain/etc. BEFORE the audio bytes are read back from the
-    /// sample sidecar, so this must only re-point every slice's `.samples`
+    /// audio cache, so this must only re-point every slice's `.samples`
     /// at the fresh buffer without touching `slice_count` or any slice's own
     /// params, or the just-restored slicing would be wiped out from under it.
     pub fn loadWav(self: *Slicer, wav_data: []const u8, name: []const u8, reset_slices: bool) !void {
@@ -975,7 +975,6 @@ pub const Slicer = struct {
         step_grid_ops.setLaneLen(&self.slice_len, self.step_count, s, len);
     }
 
-
     /// Wipe one slice's row: no steps at all.
     pub fn clearSlice(self: *Slicer, slice: u8) void {
         self.clearRow(slice);
@@ -1056,7 +1055,6 @@ pub const Slicer = struct {
         committed = true;
         return true;
     }
-
 
     pub fn currentStep(self: *const Slicer) u16 {
         return self.current_step.load(.monotonic);

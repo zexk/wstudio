@@ -94,14 +94,16 @@ const CcBindingSnap = persist_types.CcBindingSnap;
 const ClipKind = persist_types.ClipKind;
 const ClipSnap = persist_types.ClipSnap;
 const AudioSourceSnap = persist_types.AudioSourceSnap;
+const AudioCacheSnap = persist_types.AudioCacheSnap;
 const LaneSnap = persist_types.LaneSnap;
 const SectionSnap = persist_types.SectionSnap;
 const Snapshot = persist_types.Snapshot;
-/// Serialise `session` as pretty-printed JSON to `path`. Writes to
-/// `<path>.tmp` and renames over the target so a crash mid-write never
-/// corrupts an existing project file. User-loaded sample audio is exported
-/// alongside into the "<stem>_samples" sidecar directory (see
-/// `exportSamples`). Safe to call while the audio thread is running.
+/// Serialise `session` to `path` as a .wsj container: header, audio cache,
+/// then the snapshot as pretty-printed JSON (see `persist_types.bundle_magic`
+/// and `exportSamples`). Writes to `<path>.tmp` and renames over the target
+/// so a crash mid-write never corrupts an existing project file - one
+/// rename covers the project and every user sample it holds.
+/// Safe to call while the audio thread is running.
 pub fn save(
     allocator: std.mem.Allocator,
     session: *const Session,
@@ -196,8 +198,6 @@ pub fn save(
         .sample_rate = source.sample_rate,
         .channel_count = source.channel_count,
     };
-    try exportSamples(aa, session, io, path, racks, audio_sources);
-
     const lanes = try aa.alloc(LaneSnap, session.arrangement.lanes.items.len);
     for (session.arrangement.lanes.items, lanes) |*lane, *ls| {
         const clips = try aa.alloc(ClipSnap, lane.clips.items.len);
@@ -209,31 +209,6 @@ pub fn save(
     const mix_automation = try aa.alloc(MixAutomationSnap, session.mix_automation.items.len);
     for (session.mix_automation.items, mix_automation) |lane, *snap_lane| snap_lane.* = .{ .target = lane.target, .points = try automationToSnap(aa, lane.points) };
 
-    const snap: Snapshot = .{
-        .tempo_bpm = session.project.tempo_bpm,
-        .tempo_points = session.project.tempo_points.items,
-        .scale = session.project.scale,
-        .tuning = session.project.tuning,
-        .beats_per_bar = session.project.beats_per_bar,
-        .meter_denominator = session.project.meter_denominator,
-        .meter_points = session.project.meter_points.items,
-        .loop_enabled = session.project.loop_enabled,
-        .loop_start_bar = session.project.loop_start_bar,
-        .loop_end_bar = session.project.loop_end_bar,
-        .sample_rate = session.project.sample_rate,
-        .tracks = tracks,
-        .racks = racks,
-        .arrangement = lanes,
-        .sections = sections,
-        .audio_sources = audio_sources,
-        .song_mode = session.song_mode,
-        .master_fx_chain = try chainToSnap(aa, &session.master_fx),
-        .groups = groups,
-        .controllers = controller_list.items,
-        .cc_bindings = cc_list.items,
-        .mix_automation = mix_automation,
-    };
-
     const tmp_path = try std.fmt.allocPrint(aa, "{s}.tmp", .{path});
     errdefer std.Io.Dir.cwd().deleteFile(io, tmp_path) catch {};
     {
@@ -241,10 +216,52 @@ pub fn save(
         defer file.close(io);
         var buf: [8192]u8 = undefined;
         var fw = file.writer(io, &buf);
+
+        // Header, then the audio cache, then the JSON. The JSON offset isn't
+        // known until the blobs are down, so it goes in as zeroes and gets
+        // patched in place once it is.
+        var header: [persist_types.bundle_header_len]u8 = @splat(0);
+        header[0..persist_types.bundle_magic.len].* = persist_types.bundle_magic;
+        try fw.interface.writeAll(&header);
+
+        // Fills in every snapshot's cache key as it streams the blobs out.
+        const audio_cache = try exportSamples(aa, session, &fw, racks, audio_sources);
+
+        const snap: Snapshot = .{
+            .tempo_bpm = session.project.tempo_bpm,
+            .tempo_points = session.project.tempo_points.items,
+            .scale = session.project.scale,
+            .tuning = session.project.tuning,
+            .beats_per_bar = session.project.beats_per_bar,
+            .meter_denominator = session.project.meter_denominator,
+            .meter_points = session.project.meter_points.items,
+            .loop_enabled = session.project.loop_enabled,
+            .loop_start_bar = session.project.loop_start_bar,
+            .loop_end_bar = session.project.loop_end_bar,
+            .sample_rate = session.project.sample_rate,
+            .tracks = tracks,
+            .racks = racks,
+            .arrangement = lanes,
+            .sections = sections,
+            .audio_sources = audio_sources,
+            .song_mode = session.song_mode,
+            .master_fx_chain = try chainToSnap(aa, &session.master_fx),
+            .groups = groups,
+            .controllers = controller_list.items,
+            .cc_bindings = cc_list.items,
+            .mix_automation = mix_automation,
+            .audio_cache = audio_cache,
+        };
+
+        const json_offset = fw.logicalPos();
         // Stream straight from snapshot arena. `valueAlloc` duplicated whole
         // project as one more buffer before writing, doubling peak save memory.
         try std.json.Stringify.value(snap, .{ .whitespace = .indent_2 }, &fw.interface);
         try fw.interface.flush();
+
+        var offset_bytes: [8]u8 = undefined;
+        std.mem.writeInt(u64, &offset_bytes, json_offset, .little);
+        try file.writePositionalAll(io, &offset_bytes, persist_types.bundle_magic.len);
     }
     try std.Io.Dir.cwd().rename(tmp_path, std.Io.Dir.cwd(), path, io);
 }
@@ -573,230 +590,108 @@ pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx) ![]FxUnitSnap {
 // zig fmt: on
 
 // ---------------------------------------------------------------------------
-// Sample sidecar - user-loaded audio lives in "<stem>_samples/" next to the
-// .wsj as mono 16-bit WAVs; PadSnap.sample_file holds the .wsj-relative path.
+// Audio cache - user-loaded audio lives inside the .wsj itself, between the
+// header and the JSON: mono 16-bit WAVs, plus a SoundFont's original bytes
+// verbatim. `PadSnap.sample_file` and its siblings hold the cache key.
 // ---------------------------------------------------------------------------
 
-/// Write every user-loaded pad's audio (`Pad.user_sample`) into the sample
-/// sidecar directory and point the matching pad snapshots at the files. The
-/// directory is only created when the session actually holds user samples.
+/// Streams the audio cache section into the open .wsj and records what landed
+/// where, so the JSON written after it can point back into the same file.
+const CacheWriter = struct {
+    fw: *std.Io.File.Writer,
+    entries: std.ArrayListUnmanaged(AudioCacheSnap) = .empty,
+
+    /// Append one clip as a 16-bit WAV. Returns `name` back, so a call site
+    /// can store the key straight into the snapshot field that owns it.
+    fn addWav(
+        self: *CacheWriter,
+        aa: std.mem.Allocator,
+        name: []const u8,
+        sample_rate: u32,
+        channel_count: u16,
+        samples: []const f32,
+    ) ![]const u8 {
+        const start = self.fw.logicalPos();
+        try wav.write(&self.fw.interface, sample_rate, channel_count, samples, .pcm16);
+        try self.entries.append(aa, .{ .name = name, .offset = start, .len = self.fw.logicalPos() - start });
+        return name;
+    }
+
+    /// Append raw bytes verbatim - the SoundFont counterpart to `addWav`. A
+    /// loaded .sf2 can't be losslessly reconstructed from the parsed,
+    /// already-resolved `SoundFont` (see dsp/soundfont.zig's doc comment), so
+    /// the original file bytes are what gets persisted, not a re-encoding.
+    fn addBytes(self: *CacheWriter, aa: std.mem.Allocator, name: []const u8, bytes: []const u8) ![]const u8 {
+        const start = self.fw.logicalPos();
+        try self.fw.interface.writeAll(bytes);
+        try self.entries.append(aa, .{ .name = name, .offset = start, .len = bytes.len });
+        return name;
+    }
+};
+
+/// Write every user-loaded pad's audio (`Pad.user_sample`) into the audio
+/// cache section of the open .wsj, point the matching snapshots at it, and
+/// return the directory `Snapshot.audio_cache` carries. A session holding no
+/// user audio writes no blobs and gets an empty directory.
 /// Control thread only: pad buffers are stable while the audio thread runs
 /// (they are replaced only by other control-thread calls).
 pub fn exportSamples(
     aa: std.mem.Allocator,
     session: *const Session,
-    io: std.Io,
-    path: []const u8,
+    fw: *std.Io.File.Writer,
     racks: []RackSnap,
     audio_sources: []AudioSourceSnap,
-) !void {
-    const sidecar = try std.fmt.allocPrint(aa, "{s}_samples", .{std.fs.path.stem(path)});
+) ![]const AudioCacheSnap {
+    var cache: CacheWriter = .{ .fw = fw };
     const sr = session.project.sample_rate;
-    var dir_ready = false;
-    // Basenames written this save - anything else already in the sidecar
-    // dir is left over from a previous save under different track/pad
-    // indices and gets swept below.
-    var written: std.StringHashMapUnmanaged(void) = .empty;
     for (session.racks.items, racks, 0..) |rack, *rs, ti| {
         switch (rack.instrument) {
             .drum_machine => |*dm| for (0..DrumMachine.max_pads) |pi| {
                 const s = if (dm.pads[pi]) |*sm| sm else continue; // unloaded pad - nothing to export
                 const p = &s.pad;
                 if (!p.user_sample) continue;
-                const base = try std.fmt.allocPrint(aa, "t{d}p{d}.wav", .{ ti, pi });
-                const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
-                try writeSampleWav(aa, io, path, rel, &dir_ready, sr, 1, p.samples);
-                rs.content.drum_machine.pads[pi].sample_file = rel;
-                try written.put(aa, base, {});
+                const key = try std.fmt.allocPrint(aa, "t{d}p{d}.wav", .{ ti, pi });
+                rs.content.drum_machine.pads[pi].sample_file = try cache.addWav(aa, key, sr, 1, p.samples);
                 // .name already set by rackToSnap (unconditionally, for every pad).
             },
             .sampler => |*s| if (s.pad.user_sample) {
-                const base = try std.fmt.allocPrint(aa, "t{d}clip.wav", .{ti});
-                const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
-                try writeSampleWav(aa, io, path, rel, &dir_ready, sr, 1, s.pad.samples);
-                rs.content.sampler.pad.sample_file = rel;
-                try written.put(aa, base, {});
+                const key = try std.fmt.allocPrint(aa, "t{d}clip.wav", .{ti});
+                rs.content.sampler.pad.sample_file = try cache.addWav(aa, key, sr, 1, s.pad.samples);
                 // .name already set by rackToSnap (unconditionally).
             },
             .slicer => |*sl| if (sl.user_sample) {
-                const base = try std.fmt.allocPrint(aa, "t{d}clip.wav", .{ti});
-                const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
-                try writeSampleWav(aa, io, path, rel, &dir_ready, sr, 1, sl.samples);
-                rs.content.slicer.sample_file = rel;
-                try written.put(aa, base, {});
+                const key = try std.fmt.allocPrint(aa, "t{d}clip.wav", .{ti});
+                rs.content.slicer.sample_file = try cache.addWav(aa, key, sr, 1, sl.samples);
                 // .name already set by rackToSnap (unconditionally).
             },
             .poly_synth => |*s| {
                 // zig fmt: off
                 if (s.wt_user) {
-                    const base = try std.fmt.allocPrint(aa, "t{d}oscA.wav", .{ti});
-                    const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
-                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, 1, s.wt.frames[0 .. s.wt.frame_count * wavetable_mod.frame_len]);
-                    rs.content.poly_synth.wt_file = rel;
-                    try written.put(aa, base, {});
+                    const key = try std.fmt.allocPrint(aa, "t{d}oscA.wav", .{ti});
+                    rs.content.poly_synth.wt_file = try cache.addWav(aa, key, sr, 1, s.wt.frames[0 .. s.wt.frame_count * wavetable_mod.frame_len]);
                 }
                 if (s.osc_b_wt_user) {
-                    const base = try std.fmt.allocPrint(aa, "t{d}oscB.wav", .{ti});
-                    const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
-                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, 1, s.osc_b_wt.frames[0 .. s.osc_b_wt.frame_count * wavetable_mod.frame_len]);
-                    rs.content.poly_synth.osc_b_wt_file = rel;
-                    try written.put(aa, base, {});
+                    const key = try std.fmt.allocPrint(aa, "t{d}oscB.wav", .{ti});
+                    rs.content.poly_synth.osc_b_wt_file = try cache.addWav(aa, key, sr, 1, s.osc_b_wt.frames[0 .. s.osc_b_wt.frame_count * wavetable_mod.frame_len]);
                 }
                 if (s.osc_c_wt_user) {
-                    const base = try std.fmt.allocPrint(aa, "t{d}oscC.wav", .{ti});
-                    const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
-                    try writeSampleWav(aa, io, path, rel, &dir_ready, sr, 1, s.osc_c_wt.frames[0 .. s.osc_c_wt.frame_count * wavetable_mod.frame_len]);
-                    rs.content.poly_synth.osc_c_wt_file = rel;
-                    try written.put(aa, base, {});
+                    const key = try std.fmt.allocPrint(aa, "t{d}oscC.wav", .{ti});
+                    rs.content.poly_synth.osc_c_wt_file = try cache.addWav(aa, key, sr, 1, s.osc_c_wt.frames[0 .. s.osc_c_wt.frame_count * wavetable_mod.frame_len]);
                 }
                 // zig fmt: on
             },
             .soundfont => |*sf| if (sf.source_bytes.len > 0) {
-                const base = try std.fmt.allocPrint(aa, "t{d}.sf2", .{ti});
-                const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
-                try writeSampleBytes(aa, io, path, rel, &dir_ready, sf.source_bytes);
-                rs.content.soundfont.sf2_file = rel;
-                try written.put(aa, base, {});
+                const key = try std.fmt.allocPrint(aa, "t{d}.sf2", .{ti});
+                rs.content.soundfont.sf2_file = try cache.addBytes(aa, key, sf.source_bytes);
             },
             else => {},
         }
     }
     for (session.project.audio_sources.items, audio_sources) |source, *snap| {
-        const base = try std.fmt.allocPrint(aa, "source-{d}.wav", .{source.id});
-        const rel = try std.fmt.allocPrint(aa, "{s}/{s}", .{ sidecar, base });
-        try writeSampleWav(aa, io, path, rel, &dir_ready, source.sample_rate, source.channel_count, source.samples);
-        snap.file = rel;
-        try written.put(aa, base, {});
+        const key = try std.fmt.allocPrint(aa, "source-{d}.wav", .{source.id});
+        snap.file = try cache.addWav(aa, key, source.sample_rate, source.channel_count, source.samples);
     }
-    try pruneOrphanSamples(aa, io, path, sidecar, &written);
-}
-
-
-/// Delete any `.wav`/`.sf2` in the sample sidecar dir that wasn't written
-/// this save - leftovers from a track delete/reorder that changed which
-/// index each surviving sample's filename is keyed by. No-op if the sidecar
-/// dir doesn't exist (never had user samples, or `exportSamples` never
-/// created it because this save has none either).
-pub fn pruneOrphanSamples(
-    aa: std.mem.Allocator,
-    io: std.Io,
-    wsj_path: []const u8,
-    sidecar: []const u8,
-    written: *const std.StringHashMapUnmanaged(void),
-) !void {
-    const full_dir = try joinWsjRel(aa, wsj_path, sidecar);
-    var dir = std.Io.Dir.cwd().openDir(io, full_dir, .{ .iterate = true }) catch return;
-    defer dir.close(io);
-
-    var stale: std.ArrayListUnmanaged([]const u8) = .empty;
-    var it = dir.iterate();
-    while (try it.next(io)) |entry| {
-        if (entry.kind != .file) continue;
-        if (!std.ascii.endsWithIgnoreCase(entry.name, ".wav") and !std.ascii.endsWithIgnoreCase(entry.name, ".sf2")) continue;
-        if (written.contains(entry.name)) continue;
-        try stale.append(aa, try aa.dupe(u8, entry.name));
-    }
-    // Delete after the iterator is done - mutating a dir mid-iterate isn't
-    // guaranteed safe.
-    for (stale.items) |name| dir.deleteFile(io, name) catch {};
-}
-
-/// Write one clip as a 16-bit WAV at `rel` (a .wsj-relative path),
-/// creating the sidecar directory on first use. Same .tmp + rename dance as
-/// the project file, so a crash never leaves a truncated sample behind.
-pub fn writeSampleWav(
-    aa: std.mem.Allocator,
-    io: std.Io,
-    wsj_path: []const u8,
-    rel: []const u8,
-    dir_ready: *bool,
-    sample_rate: u32,
-    channel_count: u16,
-    samples: []const f32,
-) !void {
-    const full = try joinWsjRel(aa, wsj_path, rel);
-    if (!dir_ready.*) {
-        try std.Io.Dir.cwd().createDirPath(io, std.fs.path.dirname(full).?);
-        dir_ready.* = true;
-    }
-    const tmp = try std.fmt.allocPrint(aa, "{s}.tmp", .{full});
-    errdefer std.Io.Dir.cwd().deleteFile(io, tmp) catch {};
-    {
-        const file = try std.Io.Dir.cwd().createFile(io, tmp, .{});
-        defer file.close(io);
-        var buf: [8192]u8 = undefined;
-        var fw = file.writer(io, &buf);
-        try wav.write(&fw.interface, sample_rate, channel_count, samples, .pcm16);
-        try fw.interface.flush();
-    }
-    try std.Io.Dir.cwd().rename(tmp, std.Io.Dir.cwd(), full, io);
-}
-
-/// Write raw bytes verbatim at `rel` - the soundfont sidecar's counterpart
-/// to `writeSampleWav`. A loaded .sf2 can't be losslessly reconstructed
-/// from the parsed, already-resolved `SoundFont` (see dsp/soundfont.zig's
-/// doc comment), so the original file bytes are what gets persisted, not a
-/// re-encoding. Same .tmp + rename dance as every other sidecar write.
-pub fn writeSampleBytes(
-    aa: std.mem.Allocator,
-    io: std.Io,
-    wsj_path: []const u8,
-    rel: []const u8,
-    dir_ready: *bool,
-    bytes: []const u8,
-) !void {
-    const full = try joinWsjRel(aa, wsj_path, rel);
-    if (!dir_ready.*) {
-        try std.Io.Dir.cwd().createDirPath(io, std.fs.path.dirname(full).?);
-        dir_ready.* = true;
-    }
-    const tmp = try std.fmt.allocPrint(aa, "{s}.tmp", .{full});
-    errdefer std.Io.Dir.cwd().deleteFile(io, tmp) catch {};
-    {
-        const file = try std.Io.Dir.cwd().createFile(io, tmp, .{});
-        defer file.close(io);
-        var buf: [8192]u8 = undefined;
-        var fw = file.writer(io, &buf);
-        try fw.interface.writeAll(bytes);
-        try fw.interface.flush();
-    }
-    try std.Io.Dir.cwd().rename(tmp, std.Io.Dir.cwd(), full, io);
-}
-
-/// Resolve a path stored relative to the .wsj against the .wsj's directory.
-/// Always returns an owned allocation.
-pub fn joinWsjRel(allocator: std.mem.Allocator, wsj_path: []const u8, rel: []const u8) ![]const u8 {
-    if (!isSafeWsjRel(rel)) return error.UnsafeRelativePath;
-    if (std.fs.path.dirname(wsj_path)) |d|
-        return std.fmt.allocPrint(allocator, "{s}/{s}", .{ d, rel });
-    return allocator.dupe(u8, rel);
-}
-
-pub fn isSafeWsjRel(rel: []const u8) bool {
-    if (rel.len == 0 or rel[0] == '/' or rel[0] == '\\') return false;
-    if (rel.len >= 2 and std.ascii.isAlphabetic(rel[0]) and rel[1] == ':') return false;
-
-    var components = std.mem.tokenizeAny(u8, rel, "/\\");
-    while (components.next()) |component| {
-        if (std.mem.eql(u8, component, "..")) return false;
-    }
-    return true;
-}
-
-test "wsj-relative paths cannot escape the project directory" {
-    const allocator = std.testing.allocator;
-
-    const joined = try joinWsjRel(allocator, "songs/demo.wsj", "demo_samples/kick.wav");
-    defer allocator.free(joined);
-    try std.testing.expectEqualStrings("songs/demo_samples/kick.wav", joined);
-
-    try std.testing.expectError(error.UnsafeRelativePath, joinWsjRel(allocator, "songs/demo.wsj", "../kick.wav"));
-    try std.testing.expectError(error.UnsafeRelativePath, joinWsjRel(allocator, "songs/demo.wsj", "samples/../../kick.wav"));
-    try std.testing.expectError(error.UnsafeRelativePath, joinWsjRel(allocator, "songs/demo.wsj", "samples\\..\\kick.wav"));
-    try std.testing.expectError(error.UnsafeRelativePath, joinWsjRel(allocator, "songs/demo.wsj", "/tmp/kick.wav"));
-    try std.testing.expectError(error.UnsafeRelativePath, joinWsjRel(allocator, "songs/demo.wsj", "\\\\server\\kick.wav"));
-    try std.testing.expectError(error.UnsafeRelativePath, joinWsjRel(allocator, "songs/demo.wsj", "C:\\kick.wav"));
-    try std.testing.expectError(error.UnsafeRelativePath, joinWsjRel(allocator, "songs/demo.wsj", ""));
+    return cache.entries.items;
 }
 
 /// Copy a pattern player's notes into freshly allocated NoteSnaps. Notes are

@@ -1,25 +1,43 @@
 # .wsj project format
 
-A `.wsj` file is pretty-printed JSON: a `Snapshot` of the session (tracks,
-racks/instruments, arrangement, master FX) plus a `version` field. The
-authoritative type definitions live in `src/persist_types.zig`; this doc is the
-human-readable map of that file, not a replacement for it.
+A `.wsj` file is a container holding two sections: the audio cache (every
+user-loaded sample the project uses) and a pretty-printed JSON `Snapshot` of
+the session (tracks, racks/instruments, arrangement, master FX) plus a
+`version` field. One file, nothing beside it. The authoritative type
+definitions live in `src/persist_types.zig`; this doc is the human-readable
+map of that file, not a replacement for it.
+
+## Container layout
+
+```
+offset 0    "WSJ1"                4-byte magic
+offset 4    u64 little-endian     offset of the JSON section
+offset 12   audio cache           sample blobs, concatenated
+json_offset .. EOF                the Snapshot as JSON
+```
+
+The blobs carry no headers of their own. `Snapshot.audio_cache` is the
+directory: one `{ name, offset, len }` per blob, with absolute file offsets,
+so loading slices sample bytes straight out of the file buffer it already
+read. A project holding no user audio has an empty cache and a `json_offset`
+of exactly 12.
+
+Offsets are validated on load: an entry reaching before the header or past
+the start of the JSON is treated as missing rather than trusted. See
+[Audio cache](#audio-cache) below for what goes in it.
 
 ## Saving
 
 `persist.save` writes to `<path>.tmp` and renames it over the target, so a
 crash or power loss mid-write can never corrupt an existing project file:
-the rename is the only step that touches the real path, and it's atomic on
-every platform wstudio targets.
-
-User-loaded sample audio (a drum pad, sampler clip, or arrangement audio
-source loaded from a WAV, as opposed to a generated kit pad) is exported
-alongside the `.wsj` into a sidecar directory, not embedded in the JSON. See
-[Sample sidecar](#sample-sidecar) below.
+the rename is the only step that touches the real path, it's atomic on
+every platform wstudio targets, and it covers the project and every sample
+in it at once. The JSON offset is written as zeroes up front and patched in
+place after the blobs land, since its value isn't known until then.
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 57) is the only format version
+`persist.zig`'s `file_version` (currently 58) is the only format version
 this build writes or reads. Loading enforces one rule:
 
 - **A file whose `version` is not exactly `file_version` is hard-rejected**
@@ -32,6 +50,10 @@ values.
 
 **Bump `file_version` for every schema or semantic change**, including new
 fields and enum members.
+
+Version 58 moves user sample audio from a sidecar directory into the `.wsj`
+itself and wraps the JSON in the container described above. A version-57
+project and its `<stem>_samples/` directory cannot be loaded by this build.
 
 Version 57 adds curvature to sampler edit fades.
 
@@ -64,8 +86,8 @@ nonzero value targets a specific FX unit in the track's chain by its stable
 
 `DrumSnap.kit` names the factory kit flavour the machine was last set to
 (`dsp/drum_kit.zig`'s `variants`). Its pads are generated on load rather
-than stored, so a kit costs a name in the JSON and nothing on disk; only
-user-loaded audio reaches the sidecar. An unknown name loads with whatever
+than stored, so a kit costs a name in the JSON and no audio at all; only
+user-loaded audio reaches the cache. An unknown name loads with whatever
 per-pad `used`
 flags describe, which for a machine left on the blank `init` kit is
 nothing at all.
@@ -82,43 +104,43 @@ linear in beat space until next point. `meter_points` stores beat-positioned
 numerator and denominator changes. Denominators must be powers of two through
 32. Map beats are quarter-note units regardless of active denominator.
 
-## Sample sidecar
+## Audio cache
 
-A pad's audio is either generated from its kit (nothing written to
-disk beyond the params and the kit name) or **user-loaded**, in which case saving exports it
-as a mono 16-bit WAV into `<stem>_samples/` next to the `.wsj` (`<stem>` is
-the project filename without its extension, so `song.wsj` becomes
-`song_samples/`, created lazily, only once a session actually holds a user
-sample). Each file is named by its position: `t<track>p<pad>.wav` for a
-drum pad, `t<track>clip.wav` for a standalone sampler clip, `t<track>oscA.wav`/
-`oscB.wav`/`oscC.wav` for a synth oscillator's imported wavetable (same
-sidecar directory, since it's the same "variable-size audio blob that
-shouldn't live inline in the JSON" problem), and `t<track>.sf2` for a loaded
-SoundFont (the one exception written verbatim rather than as a WAV,
-since it isn't PCM audio). All are written through the
-same `.tmp` + rename dance as the project file itself, so a crash never
-leaves a truncated sample behind.
+A pad's audio is either generated from its kit (nothing stored beyond the
+params and the kit name) or **user-loaded**, in which case saving exports it
+into the audio cache as a mono 16-bit WAV. Each blob is keyed by its
+position: `t<track>p<pad>.wav` for a drum pad, `t<track>clip.wav` for a
+standalone sampler clip, `t<track>oscA.wav`/`oscB.wav`/`oscC.wav` for a synth
+oscillator's imported wavetable (same section, since it's the same
+"variable-size audio blob that shouldn't live inline in the JSON" problem),
+and `t<track>.sf2` for a loaded SoundFont (the one blob written verbatim
+rather than as a WAV, since it isn't PCM audio).
 
 SoundFont snapshots may instead name a bundled `library` id. Bundled SFZ/FLAC
-banks are part of the wstudio installation, so they need no project sidecar.
+banks are part of the wstudio installation, so they need no cached copy.
 
-Arrangement audio sources use `source-<id>.wav` in that same directory.
-Regions store stable source ids plus nondestructive source offsets and lengths.
+Arrangement audio sources use `source-<id>.wav`. Regions store stable source
+ids plus nondestructive source offsets and lengths.
 
-The pad's `sample_file` field stores a path *relative to the `.wsj`*, never
-absolute, so a project directory can be moved or copied as a unit and still
-load correctly.
+The pad's `sample_file` field holds an `audio_cache` key, not a path: nothing
+about a sample's storage depends on where the `.wsj` lives, so a project can
+be moved, copied, or mailed as one file.
 
-Loading is best-effort per pad: a missing or unreadable sample file leaves
-that pad on its shipped/generated audio with every other param (gain, ADSR,
-trim, and the rest) still applied from the snapshot. A stale or deleted
-sidecar file degrades one pad's sound; it never fails the whole project
-load.
+Every save rewrites the whole cache, so a sample that moved between pads or
+belonged to a deleted track simply isn't in the new file. There is no
+orphan-sweeping step and no way to accumulate stale audio. The flip side is
+that a large SoundFont is rewritten on every save.
+
+Loading is best-effort per pad: a missing key, or an entry whose extent falls
+outside the cache section, leaves that pad on its shipped/generated audio
+with every other param (gain, ADSR, trim, and the rest) still applied from
+the snapshot. A corrupt entry degrades one pad's sound; it never fails the
+whole project load.
 
 ## External plugin failures
 
-CLAP and VST3 snapshots use transactional hard failure, unlike sample
-sidecars. Missing binary, missing saved plugin ID or class ID, malformed state,
+CLAP and VST3 snapshots use transactional hard failure, unlike cached
+samples. Missing binary, missing saved plugin ID or class ID, malformed state,
 or rejected state aborts project loading. Frontends build a replacement session
 before touching active session, so failed reload leaves every current track,
 automation target, and history entry unchanged.

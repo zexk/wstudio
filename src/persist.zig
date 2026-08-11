@@ -13,7 +13,7 @@
 //!     chorus, phaser, flanger, tape, frequency shifter, delay, reverb
 //!   - Rack labels
 //!   - User-loaded sample audio (drum pads + sampler clips), exported as mono
-//!     WAVs into the "<stem>_samples" sidecar directory next to the .wsj
+//!     WAVs into the .wsj's own audio cache section
 
 const std = @import("std");
 const Session = @import("session.zig").Session;
@@ -1839,11 +1839,23 @@ test "save/load round-trip persists user-loaded drum pad samples" {
     try testing.expectApproxEqAbs(@as(f32, -0.125), pad.samples[3], wav_eps);
     // Params applied by buildSession survive loadPadWav's sample swap.
     try testing.expectApproxEqAbs(@as(f32, 5.0), pad.pitch_semitones, 1e-4);
-    // Shipped-kit pads stay shipped: no sidecar ref, no flag.
+    // Shipped-kit pads stay shipped: no cache ref, no flag.
     try testing.expect(!ldm.pads[0].?.pad.user_sample);
 }
 
-test "save prunes a sidecar WAV left behind when a sample moves pads" {
+/// Byte offset of a saved project's JSON section. It equals the header
+/// length exactly when the file carries no audio cache at all, so the
+/// difference is the size of every blob the save wrote.
+fn testCacheBytes(path: []const u8) !u64 {
+    const testing = std.testing;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(testing.io, path, testing.allocator, .limited(64 * 1024 * 1024));
+    defer testing.allocator.free(bytes);
+    try testing.expectEqualSlices(u8, &persist_types.bundle_magic, bytes[0..persist_types.bundle_magic.len]);
+    const json_offset = std.mem.readInt(u64, bytes[persist_types.bundle_magic.len..][0..8], .little);
+    return json_offset - persist_types.bundle_header_len;
+}
+
+test "save doesn't accumulate stale audio when a sample moves pads" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -1859,12 +1871,8 @@ test "save prunes a sidecar WAV left behind when a sample moves pads" {
     dm.setPadSamples(3, clip, "usr");
     dm.pads[3].?.pad.user_sample = true;
     try save(testing.allocator, &session, testing.io, wsj_path);
-
-    const sidecar_dir = try std.fmt.allocPrint(testing.allocator, "{s}/{s}_samples", .{ std.fs.path.dirname(wsj_path).?, std.fs.path.stem(wsj_path) });
-    defer testing.allocator.free(sidecar_dir);
-    const old_rel = try std.fmt.allocPrint(testing.allocator, "{s}/t0p3.wav", .{sidecar_dir});
-    defer testing.allocator.free(old_rel);
-    try std.Io.Dir.cwd().access(testing.io, old_rel, .{});
+    const one_sample_bytes = try testCacheBytes(wsj_path);
+    try testing.expect(one_sample_bytes > 0);
 
     // Same audio, now loaded onto pad 5 instead - pad 3 no longer exports.
     const clip2 = try testing.allocator.dupe(f32, &[_]f32{ 0.5, -0.5 });
@@ -1873,11 +1881,48 @@ test "save prunes a sidecar WAV left behind when a sample moves pads" {
     dm.pads[3].?.pad.user_sample = false;
     try save(testing.allocator, &session, testing.io, wsj_path);
 
-    // The stale pad-3 file is gone; pad-5's file exists.
-    try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().access(testing.io, old_rel, .{}));
-    const new_rel = try std.fmt.allocPrint(testing.allocator, "{s}/t0p5.wav", .{sidecar_dir});
-    defer testing.allocator.free(new_rel);
-    try std.Io.Dir.cwd().access(testing.io, new_rel, .{});
+    // The cache is rewritten whole, so the pad-3 blob is simply not in the
+    // new file - one sample's worth of audio, not two.
+    try testing.expectEqual(one_sample_bytes, try testCacheBytes(wsj_path));
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    const ldm = &loaded.racks.items[0].instrument.drum_machine;
+    try testing.expect(ldm.pads[5].?.pad.user_sample);
+    try testing.expect(ldm.pads[3] == null or !ldm.pads[3].?.pad.user_sample);
+}
+
+// The whole point of holding sample audio inside the .wsj: the file is the
+// project, so moving it somewhere else can't strand its audio.
+test "a project's samples survive the file being moved on its own" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try session.setInstrument(0, .drum_machine);
+    const dm = &session.racks.items[0].instrument.drum_machine;
+    const clip = try testing.allocator.dupe(f32, &[_]f32{ 0.5, -0.5, 0.25, -0.25 });
+    dm.setPadSamples(2, clip, "usr");
+    dm.pads[2].?.pad.user_sample = true;
+    try save(testing.allocator, &session, testing.io, wsj_path);
+
+    var moved_buf: [80]u8 = undefined;
+    const moved_dir = try std.fmt.bufPrint(&moved_buf, ".zig-cache/tmp/{s}/elsewhere", .{&tmp.sub_path});
+    try std.Io.Dir.cwd().createDirPath(testing.io, moved_dir);
+    var moved_path_buf: [96]u8 = undefined;
+    const moved_path = try std.fmt.bufPrint(&moved_path_buf, "{s}/renamed.wsj", .{moved_dir});
+    try std.Io.Dir.cwd().rename(wsj_path, std.Io.Dir.cwd(), moved_path, testing.io);
+
+    var loaded = try load(testing.allocator, testing.io, moved_path);
+    defer loaded.deinit();
+    const pad = &loaded.racks.items[0].instrument.drum_machine.pads[2].?.pad;
+    try testing.expect(pad.user_sample);
+    try testing.expectEqual(@as(usize, 4), pad.samples.len);
+    try testing.expectApproxEqAbs(@as(f32, 0.5), pad.samples[0], wav_eps);
+    try testing.expectApproxEqAbs(@as(f32, -0.25), pad.samples[3], wav_eps);
 }
 
 test "save/load round-trip regenerates the kit rather than shipping its audio" {
@@ -1895,10 +1940,8 @@ test "save/load round-trip regenerates the kit rather than shipping its audio" {
     dm.pads[0].?.pad.pitch_semitones = -2.0;
 
     try save(testing.allocator, &session, testing.io, wsj_path);
-    // Generated audio is never user audio, so no sidecar is written for it.
-    var sidecar_buf: [96]u8 = undefined;
-    const sidecar = try std.fmt.bufPrint(&sidecar_buf, ".zig-cache/tmp/{s}/proj_samples", .{&tmp.sub_path});
-    try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().access(testing.io, sidecar, .{}));
+    // Generated audio is never user audio, so none of it reaches the cache.
+    try testing.expectEqual(@as(u64, 0), try testCacheBytes(wsj_path));
 
     var loaded = try load(testing.allocator, testing.io, wsj_path);
     defer loaded.deinit();
@@ -2021,7 +2064,7 @@ test "save/load round-trip persists audio sources and regions" {
     try testing.expectEqual(@as(u64, 2), region.alternate_takes[0].?.source_length_frames);
 }
 
-test "save/load round-trip persists a :load-wavetable-imported table, default state writes no sidecar" {
+test "save/load round-trip persists a :load-wavetable-imported table, default state caches no audio" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -2033,10 +2076,9 @@ test "save/load round-trip persists a :load-wavetable-imported table, default st
     try session.setInstrument(0, .poly_synth);
     const s = &session.racks.items[0].instrument.poly_synth;
 
-    // A synth that never touches wavetables shouldn't produce a sidecar dir.
+    // A synth that never touches wavetables shouldn't cache any audio.
     try save(testing.allocator, &session, testing.io, wsj_path);
-    const sidecar_dir = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj_samples", .{&tmp.sub_path});
-    try testing.expectError(error.FileNotFound, std.Io.Dir.cwd().openDir(testing.io, sidecar_dir, .{}));
+    try testing.expectEqual(@as(u64, 0), try testCacheBytes(wsj_path));
 
     // Emulate :load-wavetable on OSC B.
     var samples: [wavetable_mod.frame_len * 2]f32 = undefined;
@@ -2056,16 +2098,16 @@ test "save/load round-trip persists a :load-wavetable-imported table, default st
     try testing.expectEqual(@as(usize, 2), ls.osc_b_wt.frame_count);
     // Wider tolerance than a single WAV round trip's `wav_eps`: this value
     // passes through pcm16 three times (this test's own synthetic WAV, the
-    // sidecar export, then the sidecar reload), compounding quantization.
+    // cache export, then the cache reload), compounding quantization.
     try testing.expectApproxEqAbs(@as(f32, -1.0), ls.osc_b_wt.frames[0], 1e-3);
     try testing.expectApproxEqAbs(@as(f32, 1.0), ls.osc_b_wt.frames[wavetable_mod.frame_len], 1e-3);
     try testing.expectApproxEqAbs(@as(f32, 0.5), ls.osc_b_wt_pos, 1e-4);
     // OSC A never got a `:load-wavetable` call - still the bundled default,
-    // no sidecar for it.
+    // nothing cached for it.
     try testing.expect(!ls.wt_user);
 }
 
-test "save/load round-trip persists a loaded soundfont, its sidecar .sf2, and the selected preset" {
+test "save/load round-trip persists a loaded soundfont, its cached .sf2, and the selected preset" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -2085,11 +2127,10 @@ test "save/load round-trip persists a loaded soundfont, its sidecar .sf2, and th
     sf.transpose_semitones = -5.0;
 
     try save(testing.allocator, &session, testing.io, wsj_path);
-    var sidecar_path_buf: [64]u8 = undefined;
-    const sidecar_path = try std.fmt.bufPrint(&sidecar_path_buf, ".zig-cache/tmp/{s}/proj_samples/t0.sf2", .{&tmp.sub_path});
-    const sidecar_bytes = try std.Io.Dir.cwd().readFileAlloc(testing.io, sidecar_path, testing.allocator, .limited(1024 * 1024));
-    defer testing.allocator.free(sidecar_bytes);
-    try testing.expectEqualSlices(u8, sf2_bytes, sidecar_bytes);
+    // The .sf2 goes into the cache byte for byte, not re-encoded.
+    const project_bytes = try std.Io.Dir.cwd().readFileAlloc(testing.io, wsj_path, testing.allocator, .limited(64 * 1024 * 1024));
+    defer testing.allocator.free(project_bytes);
+    try testing.expect(std.mem.indexOf(u8, project_bytes, sf2_bytes) != null);
 
     var loaded = try load(testing.allocator, testing.io, wsj_path);
     defer loaded.deinit();
@@ -2101,7 +2142,7 @@ test "save/load round-trip persists a loaded soundfont, its sidecar .sf2, and th
     try testing.expectApproxEqAbs(@as(f32, -5.0), ls.transpose_semitones, 1e-6);
 }
 
-test "save/load round-trip persists bundled acoustic id without a sidecar" {
+test "save/load round-trip persists bundled acoustic id without cached audio" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();

@@ -336,7 +336,6 @@ pub const WarpMode = enum {
     fm_c_to_a,
     fm_c_to_b,
 
-
     pub fn isFm(self: WarpMode) bool {
         return switch (self) {
             .fm_a_to_b, .fm_a_to_c, .fm_b_to_a, .fm_b_to_c, .fm_c_to_a, .fm_c_to_b => true,
@@ -371,7 +370,7 @@ pub const PolySynth = struct {
     wt: Wavetable,
     wt_bundled: ?BundledWavetable = .basic,
     /// True once `wt` holds a `:load-wavetable`-imported table rather than
-    /// the bundled default - gates whether persistence sidecars it (same
+    /// the bundled default - gates whether persistence caches it (same
     /// convention as Sampler's `pad.user_sample`).
     wt_user: bool = false,
     /// OSC A's frame-scan position, 0..1. This one IS a plain `Patch` param.
@@ -979,7 +978,7 @@ pub const PolySynth = struct {
 
     /// Replaces one oscillator's wavetable with `wav_bytes` (a whole WAV
     /// file's contents, reshaped into `wavetable.frame_len`-sample frames)
-    /// and marks it user-imported so persistence sidecars it. Frees the
+    /// and marks it user-imported so persistence caches it. Frees the
     /// slot's previous table only after the new one parses successfully,
     /// so a bad file leaves the old table intact.
     pub fn loadWavetable(self: *PolySynth, slot: OscSlot, wav_bytes: []const u8) !void {

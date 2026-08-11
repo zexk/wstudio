@@ -21,7 +21,7 @@ pub const Pad = struct {
     name: [8]u8 = [_]u8{' '} ** 8,
     /// True when the audio was loaded by the user (`:load-sample`) rather
     /// than shipped/generated - only user audio is exported to the
-    /// project's sample sidecar on save.
+    /// project's audio cache on save.
     user_sample: bool = false,
 
     // ── Sampler params (audio-thread reads; nudged via adjustParam) ──────────

@@ -34,6 +34,12 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Changed
 
+- A project is one file again. User-loaded samples, imported wavetables,
+  recorded audio, and `.sf2` banks now live in an audio cache section inside
+  the `.wsj` itself instead of a `<name>_samples/` directory beside it, so a
+  project can be moved, copied, or sent as a single file, and a save can no
+  longer leave stale sample files behind. Projects saved by earlier builds
+  are not readable (see [FORMAT.md](FORMAT.md)).
 - The help view (`?`) reads as a reference instead of a wall of text. In the
   GUI it gained a clickable section index down the left, key chips in an
   aligned column, headings with rules, and a scroll position bar; both
