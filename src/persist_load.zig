@@ -802,6 +802,7 @@ pub fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.
             .gain_db = finiteClamp(f32, audio.gain_db, -60.0, 24.0, 0.0),
             .fade_in_frames = audio.fade_in_frames,
             .fade_out_frames = audio.fade_out_frames,
+            .fade_curve = audio.fade_curve,
             .stretch_ratio = finiteClamp(f32, audio.stretch_ratio, 0.125, 8.0, 1.0),
             .reverse = audio.reverse,
             .alternate_takes = blk: {

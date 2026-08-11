@@ -8,6 +8,25 @@ const automation_mod = @import("dsp/automation.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
 pub const max_audio_takes: usize = 8;
 
+pub const FadeCurve = enum { linear, equal_power };
+
+pub fn fadeGain(progress: f32, curve: FadeCurve) f32 {
+    const t = std.math.clamp(progress, 0.0, 1.0);
+    return switch (curve) {
+        .linear => t,
+        .equal_power => @sin(t * std.math.pi / 2.0),
+    };
+}
+
+test "equal-power crossfade keeps summed power constant" {
+    for (0..11) |i| {
+        const t: f32 = @as(f32, @floatFromInt(i)) / 10.0;
+        const a = fadeGain(t, .equal_power);
+        const b = fadeGain(1.0 - t, .equal_power);
+        try std.testing.expectApproxEqAbs(@as(f32, 1.0), a * a + b * b, 1e-5);
+    }
+}
+
 /// A clip placed on a track lane. Positions use `time_grid.ticks_per_beat`.
 pub const Clip = struct {
     start_tick: u32,
@@ -127,6 +146,7 @@ pub const Clip = struct {
         gain_db: f32 = 0.0,
         fade_in_frames: u64 = 0,
         fade_out_frames: u64 = 0,
+        fade_curve: FadeCurve = .linear,
         stretch_ratio: f32 = 1.0,
         reverse: bool = false,
         alternate_takes: [max_audio_takes - 1]?Take = @splat(null),

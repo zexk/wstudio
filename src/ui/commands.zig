@@ -91,7 +91,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "section",     .desc = "<name>  add or rename section at arrangement cursor", .run = wrap(commands_mixer.cmdSection) },
     .{ .name = "section-del", .desc = "delete section at arrangement cursor", .run = wrap(commands_mixer.cmdSectionDel) },
     .{ .name = "clip-gain",   .desc = "[<dB>]  audio-region gain at arrangement cursor (-60..24)", .run = wrap(commands_mixer.cmdClipGain) },
-    .{ .name = "clip-fade",   .desc = "[<in-seconds> <out-seconds>]  audio-region edge fades", .run = wrap(commands_mixer.cmdClipFade) },
+    .{ .name = "clip-fade",   .desc = "[<in-seconds> <out-seconds> [linear|equal_power]]  audio-region edge fades", .run = wrap(commands_mixer.cmdClipFade) },
     .{ .name = "clip-stretch", .desc = "[<ratio>]  audio-region time stretch (0.125 to 8)", .run = wrap(commands_mixer.cmdClipStretch) },
     .{ .name = "clip-reverse", .desc = "toggle reversed audio-region playback", .run = wrap(commands_mixer.cmdClipReverse) },
     .{ .name = "clip-slip",   .desc = "<signed-seconds>  move audio inside its region", .run = wrap(commands_mixer.cmdClipSlip) },

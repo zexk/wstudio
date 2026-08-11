@@ -584,9 +584,10 @@ pub fn cmdClipFade(app: *App, args: []const u8) void {
     const arg = std.mem.trim(u8, args, " ");
     if (arg.len == 0) {
         const sr: f64 = @floatFromInt(app.session.project.sample_rate);
-        app.setStatus("clip fades: {d:.3}s in, {d:.3}s out", .{
+        app.setStatus("clip fades: {d:.3}s in, {d:.3}s out, {s}", .{
             @as(f64, @floatFromInt(audio.fade_in_frames)) / sr,
             @as(f64, @floatFromInt(audio.fade_out_frames)) / sr,
+            @tagName(audio.fade_curve),
         });
         return;
     }
@@ -596,9 +597,13 @@ pub fn cmdClipFade(app: *App, args: []const u8) void {
         return;
     };
     const out_s = parseFiniteFloat(f64, it.next() orelse "") catch {
-        app.setStatus("clip-fade: expected <in-seconds> <out-seconds>", .{});
+        app.setStatus("clip-fade: expected <in-seconds> <out-seconds> [linear|equal_power]", .{});
         return;
     };
+    const curve = if (it.next()) |name| std.meta.stringToEnum(ws.arrangement.FadeCurve, name) orelse {
+        app.setStatus("clip-fade: curve must be linear or equal_power", .{});
+        return;
+    } else audio.fade_curve;
     if (it.next() != null or in_s < 0 or out_s < 0 or in_s > 3600 or out_s > 3600) {
         app.setStatus("clip-fade: seconds must be between 0 and 3600", .{});
         return;
@@ -607,9 +612,10 @@ pub fn cmdClipFade(app: *App, args: []const u8) void {
     history.recordLane(app, @intCast(app.cursor));
     audio.fade_in_frames = @intFromFloat(@round(in_s * sr));
     audio.fade_out_frames = @intFromFloat(@round(out_s * sr));
+    audio.fade_curve = curve;
     if (app.session.song_mode) app.session.rebuildSongData();
     app.dirty = true;
-    app.setStatus("clip fades: {d:.3}s in, {d:.3}s out", .{ in_s, out_s });
+    app.setStatus("clip fades: {d:.3}s in, {d:.3}s out, {s}", .{ in_s, out_s, @tagName(curve) });
 }
 
 pub fn cmdClipStretch(app: *App, args: []const u8) void {
@@ -720,6 +726,8 @@ pub fn cmdCrossfade(app: *App, _: []const u8) void {
         selected.content.audio.fade_out_frames = frames;
         peer.content.audio.fade_in_frames = frames;
     }
+    selected.content.audio.fade_curve = .equal_power;
+    peer.content.audio.fade_curve = .equal_power;
     if (app.session.song_mode) app.session.rebuildSongData();
     app.dirty = true;
     app.setStatus("crossfade: {d} frames", .{frames});
@@ -766,9 +774,9 @@ pub fn cmdConsolidate(app: *App, _: []const u8) void {
             sample.* = 0;
             continue;
         }
-        const fade_in = if (audio.fade_in_frames > 0) @min(1.0, @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(audio.fade_in_frames))) else 1.0;
+        const fade_in = if (audio.fade_in_frames > 0) ws.arrangement.fadeGain(@as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(audio.fade_in_frames)), audio.fade_curve) else 1.0;
         const remaining = frame_count - i - 1;
-        const fade_out = if (audio.fade_out_frames > 0) @min(1.0, @as(f32, @floatFromInt(remaining)) / @as(f32, @floatFromInt(audio.fade_out_frames))) else 1.0;
+        const fade_out = if (audio.fade_out_frames > 0) ws.arrangement.fadeGain(@as(f32, @floatFromInt(remaining)) / @as(f32, @floatFromInt(audio.fade_out_frames)), audio.fade_curve) else 1.0;
         var mono: f32 = 0;
         const source_index: usize = @intCast(source_frame * source.channel_count);
         for (0..source.channel_count) |channel| mono += source.samples[source_index + channel];

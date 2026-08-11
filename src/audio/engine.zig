@@ -13,6 +13,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const AutomationCurve = automation_mod.AutomationCurve;
 const meter_mod = @import("../dsp/meter.zig");
 const time_map = @import("../time_map.zig");
+const arrangement = @import("../arrangement.zig");
 
 const Sample = types.Sample;
 const SpectrumAnalyzer = spectrum_mod.SpectrumAnalyzer;
@@ -227,6 +228,7 @@ pub const AudioRegion = struct {
     gain: f32 = 1.0,
     fade_in_frames: u64 = 0,
     fade_out_frames: u64 = 0,
+    fade_curve: arrangement.FadeCurve = .linear,
     stretch_ratio: f32 = 1.0,
     reverse: bool = false,
     samples: []const Sample,
@@ -1926,12 +1928,12 @@ pub const Engine = struct {
                 const dst: usize = @intCast((timeline_frame - block_start) * channels);
                 const src: usize = @intCast(source_frame * region.channel_count);
                 const fade_in = if (region.fade_in_frames > 0)
-                    @min(1.0, @as(f32, @floatFromInt(relative)) / @as(f32, @floatFromInt(region.fade_in_frames)))
+                    arrangement.fadeGain(@as(f32, @floatFromInt(relative)) / @as(f32, @floatFromInt(region.fade_in_frames)), region.fade_curve)
                 else
                     1.0;
                 const remaining = region.end_frame - timeline_frame - 1;
                 const fade_out = if (region.fade_out_frames > 0)
-                    @min(1.0, @as(f32, @floatFromInt(remaining)) / @as(f32, @floatFromInt(region.fade_out_frames)))
+                    arrangement.fadeGain(@as(f32, @floatFromInt(remaining)) / @as(f32, @floatFromInt(region.fade_out_frames)), region.fade_curve)
                 else
                     1.0;
                 const gain = region.gain * @min(fade_in, fade_out);
