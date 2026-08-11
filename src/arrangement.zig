@@ -447,8 +447,17 @@ pub const Lane = struct {
             if (c.endTick() > at and c.endTick() > std.math.maxInt(u32) - width)
                 return error.OutOfRange;
         }
-        for (self.clips.items, 0..) |c, i| {
-            if (c.start_tick >= at or c.endTick() <= at) continue;
+        // Index loop, not `for (items)`: layers let a lane hold overlapping
+        // clips (`place` only evicts an overlap on the same layer), so more
+        // than one can cross `at`, and each split inserts into the list being
+        // walked. Same shape `cutRange` uses for the same reason.
+        var i: usize = 0;
+        while (i < self.clips.items.len) {
+            const c = self.clips.items[i];
+            if (c.start_tick >= at or c.endTick() <= at) {
+                i += 1;
+                continue;
+            }
             var right = try c.dupe(allocator);
             self.clips.ensureUnusedCapacity(allocator, 1) catch |err| {
                 right.deinit(allocator);
@@ -458,7 +467,7 @@ pub const Lane = struct {
             right.length_ticks = c.endTick() - at;
             self.clips.items[i].length_ticks = at - c.start_tick;
             self.clips.insertAssumeCapacity(i + 1, right);
-            break;
+            i += 2; // past the remainder and the piece just inserted
         }
         for (self.clips.items) |*c| {
             if (c.start_tick >= at) c.start_tick += width;
@@ -786,6 +795,34 @@ test "insertTime splits a crossing clip and shifts later clips" {
     try testing.expectEqual(@as(u32, 13), lane.clips.items[2].start_tick);
     try testing.expectEqual(@as(u32, 4), lane.clips.items[0].length_ticks);
     try testing.expectEqual(@as(u32, 4), lane.clips.items[1].length_ticks);
+}
+
+test "insertTime splits every crossing clip, not just the first" {
+    const a = testing.allocator;
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    // Layers are the one case a lane holds overlapping clips: `place` only
+    // evicts an overlap on the *same* layer (see `:crossfade`).
+    const lower = Clip.initDrum(0, 8, .{ .step_count = 16 });
+    var upper = Clip.initDrum(0, 8, .{ .step_count = 16 });
+    upper.layer = 1;
+    try lane.place(a, lower);
+    try lane.place(a, upper);
+    try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
+
+    try lane.insertTime(a, 4, 3);
+
+    // Both clips split at 4: two remainders at 0, two shifted halves at 7.
+    try testing.expectEqual(@as(usize, 4), lane.clips.items.len);
+    var at_zero: usize = 0;
+    var at_seven: usize = 0;
+    for (lane.clips.items) |c| {
+        try testing.expectEqual(@as(u32, 4), c.length_ticks);
+        if (c.start_tick == 0) at_zero += 1;
+        if (c.start_tick == 7) at_seven += 1;
+    }
+    try testing.expectEqual(@as(usize, 2), at_zero);
+    try testing.expectEqual(@as(usize, 2), at_seven);
 }
 
 test "removeTime trims boundaries and closes the gap" {
