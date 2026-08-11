@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const abi = @import("abi.zig");
 
 const instrument_id = abi.uid(0x57535449, 0x4E535452, 0x554D454E, 0x54000001);
@@ -338,7 +339,12 @@ fn viewQuery(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callco
     return -1;
 }
 fn viewPlatform(_: *anyopaque, platform: [*:0]const u8) callconv(abi.abi_callconv) abi.Result {
-    return if (std.mem.eql(u8, std.mem.span(platform), "X11EmbedWindowID")) 0 else 1;
+    const supported = switch (builtin.os.tag) {
+        .windows => "HWND",
+        .macos => "NSView",
+        else => "X11EmbedWindowID",
+    };
+    return if (std.mem.eql(u8, std.mem.span(platform), supported)) 0 else 1;
 }
 fn viewAttached(_: *anyopaque, _: *anyopaque, _: [*:0]const u8) callconv(abi.abi_callconv) abi.Result {
     return 0;
