@@ -355,10 +355,29 @@ pub const Bridge = struct {
         try rpc.send(&self.stdin_writer.interface, kind, false, request);
         const got = try rpc.recv(&self.stdout_reader.interface, &self.rpc_scratch);
         if (got.kind != kind) return error.RpcProtocolError;
-        if (got.failed) return error.RpcCallFailed;
+        if (got.failed) {
+            try rpcFailure(got.payload);
+            unreachable;
+        }
         return got.payload;
     }
 };
+
+fn rpcFailure(payload: []const u8) anyerror!void {
+    if (std.mem.eql(u8, payload, "GuiUnavailable")) return error.GuiUnavailable;
+    if (std.mem.eql(u8, payload, "GuiUnsupported")) return error.GuiUnsupported;
+    if (std.mem.eql(u8, payload, "GuiCreateFailed")) return error.GuiCreateFailed;
+    if (std.mem.eql(u8, payload, "GuiParentFailed")) return error.GuiParentFailed;
+    if (std.mem.eql(u8, payload, "GuiShowFailed")) return error.GuiShowFailed;
+    if (std.mem.eql(u8, payload, "GuiAttachFailed")) return error.GuiAttachFailed;
+    if (std.mem.eql(u8, payload, "GuiFrameFailed")) return error.GuiFrameFailed;
+    if (std.mem.eql(u8, payload, "GuiSizeFailed")) return error.GuiSizeFailed;
+    if (std.mem.eql(u8, payload, "X11Unavailable")) return error.X11Unavailable;
+    if (std.mem.eql(u8, payload, "X11DisplayUnavailable")) return error.X11DisplayUnavailable;
+    if (std.mem.eql(u8, payload, "Win32WindowFailed")) return error.Win32WindowFailed;
+    if (std.mem.eql(u8, payload, "CocoaWindowFailed")) return error.CocoaWindowFailed;
+    return error.RpcCallFailed;
+}
 
 const bridge_exe_name = if (builtin.os.tag == .windows) "wstudio-plugin-bridge.exe" else "wstudio-plugin-bridge";
 
@@ -367,4 +386,9 @@ test "SpawnOptions and Bridge fields compile with the declared layout" {
     // tests wired through build.zig); this just keeps the struct honest
     // under `zig build test`'s module-wide compilation.
     _ = SpawnOptions{ .kind = .clap, .path = "x", .plugin_id = "", .sample_rate = 48_000 };
+}
+
+test "GUI RPC failures preserve child error" {
+    try std.testing.expectError(error.GuiParentFailed, rpcFailure("GuiParentFailed"));
+    try std.testing.expectError(error.RpcCallFailed, rpcFailure("PluginStateLoadFailed"));
 }

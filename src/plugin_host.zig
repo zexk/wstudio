@@ -8,9 +8,11 @@
 pub const transport = @import("plugin_host/transport.zig");
 pub const rpc = @import("plugin_host/rpc.zig");
 pub const bridge = @import("plugin_host/bridge.zig");
+pub const editor_window = @import("plugin_host/editor_window.zig");
 
 test {
     _ = transport;
     _ = rpc;
     _ = bridge;
+    _ = editor_window;
 }

@@ -1,11 +1,16 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const abi = @import("abi.zig");
+const editor_window = @import("../plugin_host/editor_window.zig");
 
-pub const supported = builtin.os.tag == .linux;
-pub const platform_type: [*:0]const u8 = "X11EmbedWindowID";
+pub const supported = builtin.os.tag == .linux or builtin.os.tag == .windows or builtin.os.tag == .macos;
+pub const platform_type: [*:0]const u8 = switch (builtin.os.tag) {
+    .windows => "HWND",
+    .macos => "NSView",
+    else => "X11EmbedWindowID",
+};
 
-pub const Editor = if (supported) LinuxEditor else struct {
+pub const Editor = if (supported) NativeEditor else struct {
     pub fn open(_: *abi.EditController, _: [*:0]const u8) !@This() {
         return error.GuiUnavailable;
     }
@@ -13,32 +18,33 @@ pub const Editor = if (supported) LinuxEditor else struct {
     pub fn service(_: *@This()) void {}
 };
 
-const LinuxEditor = struct {
+const NativeEditor = struct {
     view: *abi.PlugView,
-    window: *X11Window,
+    window: *editor_window.Window,
     frame: *Frame,
 
-    pub fn open(controller: *abi.EditController, title: [*:0]const u8) !LinuxEditor {
+    pub fn open(controller: *abi.EditController, title: [*:0]const u8) !NativeEditor {
         const raw = controller.vtable.create_view(controller, "editor") orelse return error.GuiUnavailable;
         const view: *abi.PlugView = @ptrCast(@alignCast(raw));
         errdefer _ = view.vtable.release(view);
         if (view.vtable.is_platform_type_supported(view, platform_type) != 0) return error.GuiUnavailable;
         var rect: abi.ViewRect = undefined;
         if (view.vtable.get_size(view, &rect) != 0) return error.GuiSizeFailed;
-        const window = try std.heap.page_allocator.create(X11Window);
+        const window = try std.heap.page_allocator.create(editor_window.Window);
         errdefer std.heap.page_allocator.destroy(window);
-        window.* = try X11Window.open(@max(rect.right - rect.left, 1), @max(rect.bottom - rect.top, 1), title);
+        window.* = try editor_window.Window.open(@max(rect.right - rect.left, 1), @max(rect.bottom - rect.top, 1), title);
         errdefer window.close();
         const frame = try std.heap.page_allocator.create(Frame);
         errdefer std.heap.page_allocator.destroy(frame);
         frame.* = .{ .window = window };
         if (view.vtable.set_frame(view, &frame.interface) != 0) return error.GuiFrameFailed;
         errdefer _ = view.vtable.set_frame(view, null);
-        if (view.vtable.attached(view, @ptrFromInt(window.id), platform_type) != 0) return error.GuiAttachFailed;
+        if (view.vtable.attached(view, @ptrFromInt(window.handle()), platform_type) != 0) return error.GuiAttachFailed;
+        window.show();
         return .{ .view = view, .window = window, .frame = frame };
     }
 
-    pub fn close(self: *LinuxEditor) void {
+    pub fn close(self: *NativeEditor) void {
         _ = self.view.vtable.removed(self.view);
         _ = self.view.vtable.set_frame(self.view, null);
         self.frame.deinit();
@@ -48,7 +54,7 @@ const LinuxEditor = struct {
         std.heap.page_allocator.destroy(self.window);
     }
 
-    pub fn service(self: *LinuxEditor) void {
+    pub fn service(self: *NativeEditor) void {
         self.frame.service();
     }
 };
@@ -56,7 +62,7 @@ const LinuxEditor = struct {
 const Frame = struct {
     interface: abi.PlugFrame = .{ .vtable = &vtable },
     run_loop: abi.RunLoop = .{ .vtable = &run_loop_vtable },
-    window: *X11Window,
+    window: *editor_window.Window,
     // ponytail: fixed banks avoid allocation in plugin callbacks. Raise only
     // if a real editor exhausts 16 event handlers or timers.
     events: [16]?Event = @splat(null),
@@ -82,7 +88,7 @@ const Frame = struct {
             object.* = &self.interface;
             return 0;
         }
-        if (std.mem.eql(u8, iid, &abi.run_loop_iid)) {
+        if (builtin.os.tag == .linux and std.mem.eql(u8, iid, &abi.run_loop_iid)) {
             object.* = &self.run_loop;
             return 0;
         }
@@ -140,6 +146,8 @@ const Frame = struct {
     }
 
     fn service(self: *Frame) void {
+        self.window.service();
+        if (comptime builtin.os.tag != .linux) return;
         var poll_fds: [16]std.posix.pollfd = undefined;
         var handlers: [16]*abi.EventHandler = undefined;
         var count: usize = 0;
@@ -174,70 +182,8 @@ const Frame = struct {
     const run_loop_vtable: abi.RunLoopVTable = .{ .query_interface = queryRunLoop, .add_ref = ref, .release = ref, .register_event_handler = registerEvent, .unregister_event_handler = unregisterEvent, .register_timer = registerTimer, .unregister_timer = unregisterTimer };
 };
 
-const X11Window = struct {
-    lib: std.DynLib,
-    api: Api,
-    display: *anyopaque,
-    id: usize,
-
-    fn open(width: i32, height: i32, title: [*:0]const u8) !X11Window {
-        var lib = std.DynLib.open("libX11.so.6") catch return error.X11Unavailable;
-        errdefer lib.close();
-        const api = try Api.load(&lib);
-        const display = api.open_display(null) orelse return error.X11DisplayUnavailable;
-        errdefer _ = api.close_display(display);
-        const screen = api.default_screen(display);
-        const root = api.root_window(display, screen);
-        const id = api.create_simple_window(display, root, 0, 0, @intCast(width), @intCast(height), 0, 0, 0);
-        if (id == 0) return error.X11WindowFailed;
-        _ = api.store_name(display, id, title);
-        _ = api.map_window(display, id);
-        _ = api.flush(display);
-        return .{ .lib = lib, .api = api, .display = display, .id = id };
-    }
-
-    fn resize(self: *X11Window, width: i32, height: i32) void {
-        _ = self.api.resize_window(self.display, self.id, @intCast(width), @intCast(height));
-        _ = self.api.flush(self.display);
-    }
-
-    fn close(self: *X11Window) void {
-        _ = self.api.destroy_window(self.display, self.id);
-        _ = self.api.close_display(self.display);
-        self.lib.close();
-    }
-
-    const Api = struct {
-        open_display: *const fn (?[*:0]const u8) callconv(.c) ?*anyopaque,
-        close_display: *const fn (*anyopaque) callconv(.c) c_int,
-        default_screen: *const fn (*anyopaque) callconv(.c) c_int,
-        root_window: *const fn (*anyopaque, c_int) callconv(.c) usize,
-        create_simple_window: *const fn (*anyopaque, usize, c_int, c_int, c_uint, c_uint, c_uint, usize, usize) callconv(.c) usize,
-        store_name: *const fn (*anyopaque, usize, [*:0]const u8) callconv(.c) c_int,
-        map_window: *const fn (*anyopaque, usize) callconv(.c) c_int,
-        resize_window: *const fn (*anyopaque, usize, c_uint, c_uint) callconv(.c) c_int,
-        destroy_window: *const fn (*anyopaque, usize) callconv(.c) c_int,
-        flush: *const fn (*anyopaque) callconv(.c) c_int,
-
-        fn load(lib: *std.DynLib) !Api {
-            return .{
-                .open_display = lib.lookup(@FieldType(Api, "open_display"), "XOpenDisplay") orelse return error.X11SymbolMissing,
-                .close_display = lib.lookup(@FieldType(Api, "close_display"), "XCloseDisplay") orelse return error.X11SymbolMissing,
-                .default_screen = lib.lookup(@FieldType(Api, "default_screen"), "XDefaultScreen") orelse return error.X11SymbolMissing,
-                .root_window = lib.lookup(@FieldType(Api, "root_window"), "XRootWindow") orelse return error.X11SymbolMissing,
-                .create_simple_window = lib.lookup(@FieldType(Api, "create_simple_window"), "XCreateSimpleWindow") orelse return error.X11SymbolMissing,
-                .store_name = lib.lookup(@FieldType(Api, "store_name"), "XStoreName") orelse return error.X11SymbolMissing,
-                .map_window = lib.lookup(@FieldType(Api, "map_window"), "XMapWindow") orelse return error.X11SymbolMissing,
-                .resize_window = lib.lookup(@FieldType(Api, "resize_window"), "XResizeWindow") orelse return error.X11SymbolMissing,
-                .destroy_window = lib.lookup(@FieldType(Api, "destroy_window"), "XDestroyWindow") orelse return error.X11SymbolMissing,
-                .flush = lib.lookup(@FieldType(Api, "flush"), "XFlush") orelse return error.X11SymbolMissing,
-            };
-        }
-    };
-};
-
 test "plug frame exposes Linux run loop" {
-    if (!supported) return;
+    if (builtin.os.tag != .linux) return;
     var frame = Frame{ .window = undefined };
     var object: ?*anyopaque = null;
     try std.testing.expectEqual(@as(abi.Result, 0), frame.interface.vtable.query_interface(&frame.interface, &abi.run_loop_iid, &object));

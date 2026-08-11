@@ -9,6 +9,7 @@ const dynlib_compat = @import("dynlib_compat.zig");
 const open_entry = @import("open_entry.zig");
 const bridge_mod = @import("../plugin_host/bridge.zig");
 const wire = @import("../plugin_host/transport.zig");
+const editor_window = @import("../plugin_host/editor_window.zig");
 
 const max_events = 256;
 const max_parameters = 256;
@@ -115,6 +116,7 @@ const HostContext = struct {
     gui_show_requested: std.atomic.Value(bool) = .init(false),
     gui_hide_requested: std.atomic.Value(bool) = .init(false),
     gui_closed: std.atomic.Value(u8) = .init(0),
+    gui_resize_requested: std.atomic.Value(u64) = .init(0),
     plugin: ?*const abi.Plugin = null,
     plugin_thread_pool: ?*const abi.PluginThreadPool = null,
     main_thread_id: std.Thread.Id,
@@ -257,8 +259,10 @@ const HostContext = struct {
 
     fn guiResizeHintsChanged(_: *const abi.Host) callconv(.c) void {}
 
-    fn guiRequestResize(_: *const abi.Host, _: u32, _: u32) callconv(.c) bool {
-        return false; // floating windows own their size
+    fn guiRequestResize(host: *const abi.Host, width: u32, height: u32) callconv(.c) bool {
+        if (width == 0 or height == 0) return false;
+        fromHost(host).gui_resize_requested.store(@as(u64, width) << 32 | height, .release);
+        return true;
     }
 
     fn guiRequestShow(host: *const abi.Host) callconv(.c) bool {
@@ -841,6 +845,7 @@ const Direct = struct {
     restart_ready: std.atomic.Value(bool) = .init(false),
     gui_created: bool = false,
     gui_visible: bool = false,
+    gui_window: ?editor_window.Window = null,
 
     fn deinit(self: *Direct) void {
         self.destroyGui();
@@ -1124,11 +1129,17 @@ const Direct = struct {
             try self.createGui();
         } else if (self.gui_visible) {
             const gui = self.guiExtension() orelse return error.GuiUnavailable;
-            if (!gui.hide(self.plugin)) return error.GuiHideFailed;
+            if (self.gui_window) |*window| {
+                _ = gui.hide(self.plugin);
+                window.hide();
+            } else if (!gui.hide(self.plugin)) return error.GuiHideFailed;
             self.gui_visible = false;
         } else {
             const gui = self.guiExtension() orelse return error.GuiUnavailable;
-            if (!gui.show(self.plugin)) return error.GuiShowFailed;
+            if (self.gui_window) |*window| {
+                _ = gui.show(self.plugin);
+                window.show();
+            } else if (!gui.show(self.plugin)) return error.GuiShowFailed;
             self.gui_visible = true;
         }
         return self.gui_visible;
@@ -1159,15 +1170,45 @@ const Direct = struct {
                 }
             }
         }
-        if (!created) return error.FloatingGuiUnsupported;
+        if (!created) try self.createEmbeddedGui(gui);
         self.gui_created = true;
-        gui.suggest_title(self.plugin, self.plugin.desc.name);
-        if (!gui.show(self.plugin)) {
+        if (self.gui_window == null) gui.suggest_title(self.plugin, self.plugin.desc.name);
+        if (self.gui_window) |*window| window.show();
+        if (!gui.show(self.plugin) and self.gui_window == null) {
             gui.destroy(self.plugin);
+            if (self.gui_window) |*window| window.close();
+            self.gui_window = null;
             self.gui_created = false;
             return error.GuiShowFailed;
         }
         self.gui_visible = true;
+    }
+
+    fn createEmbeddedGui(self: *Direct, gui: *const abi.PluginGui) !void {
+        const api = switch (@import("builtin").os.tag) {
+            .windows => abi.window_api_win32,
+            .macos => abi.window_api_cocoa,
+            else => abi.window_api_x11,
+        };
+        if (!gui.is_api_supported(self.plugin, api, false)) return error.GuiUnsupported;
+        if (!gui.create(self.plugin, api, false)) return error.GuiCreateFailed;
+        errdefer gui.destroy(self.plugin);
+        var width: u32 = 640;
+        var height: u32 = 480;
+        _ = gui.get_size(self.plugin, &width, &height);
+        var window = try editor_window.Window.open(@intCast(@max(width, 1)), @intCast(@max(height, 1)), self.plugin.desc.name);
+        errdefer window.close();
+        const parent: abi.Window = .{
+            .api = api,
+            .handle = switch (window.api()) {
+                .win32 => .{ .win32 = @ptrFromInt(window.handle()) },
+                .cocoa => .{ .cocoa = @ptrFromInt(window.handle()) },
+                .wayland => .{ .ptr = @ptrFromInt(window.handle()) },
+                .x11 => .{ .x11 = @intCast(window.handle()) },
+            },
+        };
+        if (!gui.set_parent(self.plugin, &parent)) return error.GuiParentFailed;
+        self.gui_window = window;
     }
 
     fn destroyGui(self: *Direct) void {
@@ -1175,6 +1216,8 @@ const Direct = struct {
         const gui = self.guiExtension() orelse return;
         if (self.gui_visible) _ = gui.hide(self.plugin);
         gui.destroy(self.plugin);
+        if (self.gui_window) |*window| window.close();
+        self.gui_window = null;
         self.gui_created = false;
         self.gui_visible = false;
     }
@@ -1184,6 +1227,14 @@ const Direct = struct {
     /// change notifications only need acknowledging. Returns whether the
     /// plugin marked its opaque state dirty since the previous service.
     pub fn serviceMainThread(self: *Direct) bool {
+        if (self.gui_window) |*window| window.service();
+        const resize = self.host_context.gui_resize_requested.swap(0, .acquire);
+        if (resize != 0 and self.gui_window != null) {
+            const width: u32 = @intCast(resize >> 32);
+            const height: u32 = @truncate(resize);
+            if (self.guiExtension()) |gui| if (gui.set_size(self.plugin, width, height))
+                if (self.gui_window) |*window| window.resize(@intCast(width), @intCast(height));
+        }
         if (self.restart_ready.swap(false, .acquire)) {
             self.plugin.deactivate(self.plugin);
             self.activated = false;
@@ -1211,17 +1262,31 @@ const Direct = struct {
             self.gui_visible = false;
             if (closed == 2 and self.gui_created) {
                 if (self.guiExtension()) |gui| gui.destroy(self.plugin);
+                if (self.gui_window) |*window| window.close();
+                self.gui_window = null;
                 self.gui_created = false;
             }
         }
         if (self.host_context.gui_hide_requested.swap(false, .acquire) and self.gui_created and self.gui_visible) {
-            if (self.guiExtension()) |gui| self.gui_visible = !gui.hide(self.plugin);
+            if (self.guiExtension()) |gui| {
+                if (self.gui_window) |*window| {
+                    _ = gui.hide(self.plugin);
+                    window.hide();
+                    self.gui_visible = false;
+                } else self.gui_visible = !gui.hide(self.plugin);
+            }
         }
         if (self.host_context.gui_show_requested.swap(false, .acquire)) {
             if (!self.gui_created) {
                 self.createGui() catch {};
             } else if (!self.gui_visible) {
-                if (self.guiExtension()) |gui| self.gui_visible = gui.show(self.plugin);
+                if (self.guiExtension()) |gui| {
+                    if (self.gui_window) |*window| {
+                        _ = gui.show(self.plugin);
+                        window.show();
+                        self.gui_visible = true;
+                    } else self.gui_visible = gui.show(self.plugin);
+                }
             }
         }
         return self.host_context.state_dirty.swap(false, .acq_rel);
@@ -1352,4 +1417,13 @@ test "CLAP transport carries musical position loop and play state" {
     try std.testing.expectEqual(@as(u16, 3), event.tsig_num);
     try std.testing.expectEqual(@as(u16, 4), event.tsig_denom);
     try std.testing.expectEqual(@as(i32, 1), event.bar_number);
+}
+
+test "real CLAP GUI smoke when WSTUDIO_TEST_CLAP_GUI is set" {
+    const path_z = std.c.getenv("WSTUDIO_TEST_CLAP_GUI") orelse return;
+    const plugin = try ClapPlugin.load(std.testing.allocator, std.mem.span(path_z), null, 48_000);
+    defer plugin.deinit();
+    try std.testing.expect(try plugin.toggleGui());
+    _ = plugin.serviceMainThread();
+    try std.testing.expect(!try plugin.toggleGui());
 }

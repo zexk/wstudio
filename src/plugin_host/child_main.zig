@@ -254,8 +254,8 @@ fn dispatch(shared: *Shared, req: rpc.Received, writer: *std.Io.Writer) !void {
         .toggle_gui => {
             switch (shared.plugin) {
                 .clap => |p| {
-                    const visible = p.toggleGui() catch {
-                        try rpc.send(writer, req.kind, true, &.{});
+                    const visible = p.toggleGui() catch |err| {
+                        try rpc.send(writer, req.kind, true, @errorName(err));
                         return;
                     };
                     var b: [1]u8 = .{@intFromBool(visible)};
@@ -264,7 +264,7 @@ fn dispatch(shared: *Shared, req: rpc.Received, writer: *std.Io.Writer) !void {
                 .vst3 => |p| {
                     const visible = p.toggleGui() catch |err| {
                         std.log.err("VST3 GUI: {s}, DISPLAY={s}", .{ @errorName(err), if (std.c.getenv("DISPLAY")) |display| std.mem.span(display) else "unset" });
-                        try rpc.send(writer, req.kind, true, &.{});
+                        try rpc.send(writer, req.kind, true, @errorName(err));
                         return;
                     };
                     var b: [1]u8 = .{@intFromBool(visible)};

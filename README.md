@@ -79,8 +79,8 @@ wstudio vst3-scan
 VST3 supports one mono or stereo main output for instruments, and one mono or
 stereo main input and output for effects. Notes, mapped MIDI CC and pitch bend,
 transport, generic parameter editing, opaque component/controller state,
-latency queries, and restart notifications are supported. Native VST3 editor
-windows, multiple buses, sidechains, surround, and sample-accurate parameter
+latency queries, restart notifications, and native editor windows are
+supported. Multiple buses, sidechains, surround, and sample-accurate parameter
 ramps are not supported.
 
 The scan prints `<plugin-id> <name> <path>`. In either frontend, select a
@@ -94,11 +94,11 @@ track and use:
 
 CLAP audio, notes, MIDI, transport, parameters, opaque state, latency, tails,
 logging, main-thread callbacks, parameter flushes, dirty-state notifications,
-and plugin-owned floating GUI windows are supported. Use `:clap-gui` on a CLAP
-instrument or focused effect to toggle its window. Plugin identity and state are
-saved in the `.wsj` project. Embedded plugin GUIs, surround buses, polyphonic
-modulation, plugin-requested restarts, and plugin-requested thread pools are not
-supported yet.
+and native floating or host-windowed GUIs are supported. Use `:clap-gui` on a
+CLAP instrument or focused effect to toggle its window. Plugin identity and
+state are saved in the `.wsj` project. Surround buses, polyphonic modulation,
+plugin-requested restarts, and plugin-requested thread pools are not supported
+yet.
 
 External controller input currently consumes MIDI 1.0 Channel Voice events
 through ALSA sequencer. MIDI 2.0 Universal MIDI Packets, per-note controllers,
