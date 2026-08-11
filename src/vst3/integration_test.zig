@@ -36,9 +36,8 @@ fn runScenario(gpa: std.mem.Allocator, io: std.Io, module_path: []const u8, bund
 
     var effect = try ws.vst3.Vst3Plugin.loadModule(gpa, module_path, bundle_path, "57535445464645435400000000000001", 48_000, false);
     defer effect.deinit();
-    // Editor embedding is Linux-only (`vst3/editor.zig`'s `supported`) and the
-    // test plugin only advertises X11EmbedWindowID, so an editor is reported
-    // there and nowhere else.
+    // Test plugin advertises only X11EmbedWindowID, so it reports an editor
+    // only on Linux even though host also supports Win32 and Cocoa editors.
     try std.testing.expectEqual(builtin.os.tag == .linux, effect.hasGui());
     if (builtin.os.tag == .linux and has_display) {
         try std.testing.expect(try effect.toggleGui());

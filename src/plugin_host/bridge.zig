@@ -369,11 +369,16 @@ fn rpcFailure(payload: []const u8) anyerror!void {
     if (std.mem.eql(u8, payload, "GuiCreateFailed")) return error.GuiCreateFailed;
     if (std.mem.eql(u8, payload, "GuiParentFailed")) return error.GuiParentFailed;
     if (std.mem.eql(u8, payload, "GuiShowFailed")) return error.GuiShowFailed;
+    if (std.mem.eql(u8, payload, "GuiHideFailed")) return error.GuiHideFailed;
     if (std.mem.eql(u8, payload, "GuiAttachFailed")) return error.GuiAttachFailed;
     if (std.mem.eql(u8, payload, "GuiFrameFailed")) return error.GuiFrameFailed;
     if (std.mem.eql(u8, payload, "GuiSizeFailed")) return error.GuiSizeFailed;
+    if (std.mem.eql(u8, payload, "InvalidGuiTitle")) return error.InvalidGuiTitle;
+    if (std.mem.eql(u8, payload, "GuiTitleTooLong")) return error.GuiTitleTooLong;
     if (std.mem.eql(u8, payload, "X11Unavailable")) return error.X11Unavailable;
     if (std.mem.eql(u8, payload, "X11DisplayUnavailable")) return error.X11DisplayUnavailable;
+    if (std.mem.eql(u8, payload, "X11WindowFailed")) return error.X11WindowFailed;
+    if (std.mem.eql(u8, payload, "X11WindowProtocolFailed")) return error.X11WindowProtocolFailed;
     if (std.mem.eql(u8, payload, "Win32WindowFailed")) return error.Win32WindowFailed;
     if (std.mem.eql(u8, payload, "CocoaWindowFailed")) return error.CocoaWindowFailed;
     return error.RpcCallFailed;
@@ -390,5 +395,7 @@ test "SpawnOptions and Bridge fields compile with the declared layout" {
 
 test "GUI RPC failures preserve child error" {
     try std.testing.expectError(error.GuiParentFailed, rpcFailure("GuiParentFailed"));
+    try std.testing.expectError(error.GuiHideFailed, rpcFailure("GuiHideFailed"));
+    try std.testing.expectError(error.X11WindowProtocolFailed, rpcFailure("X11WindowProtocolFailed"));
     try std.testing.expectError(error.RpcCallFailed, rpcFailure("PluginStateLoadFailed"));
 }
