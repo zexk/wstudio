@@ -219,6 +219,7 @@ fn drawTabbedCard(app: anytype, synth: *ws.dsp.PolySynth, sections: []const synt
             }
             zgui.popStyleColor(.{ .count = 2 });
         }
+        zgui.separator();
         zgui.spacing();
         drawSectionBody(app, synth, section);
     }
