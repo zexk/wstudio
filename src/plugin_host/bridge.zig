@@ -157,7 +157,11 @@ pub const Bridge = struct {
             .stdout = .pipe,
             .stderr = .inherit,
         });
-        errdefer _ = child.wait(io) catch {};
+        // `kill`, not `wait`: every failure below leaves a child that is
+        // still running and waiting for RPC, so a bare `wait` would block
+        // forever. `Child.kill` signals and reaps in one call, and no reaper
+        // thread exists yet to race it for the reap.
+        errdefer child.kill(io);
         self.child = child;
         self.stdin_writer = self.child.stdin.?.writer(io, &self.stdin_write_buf);
         self.stdout_reader = self.child.stdout.?.reader(io, &self.stdout_read_buf);
@@ -168,14 +172,8 @@ pub const Bridge = struct {
         // the child, which just ran the same unmodified `.load()` this
         // process would have run itself).
         const deadline = transport.monotonicNs() + spawn_timeout_ns;
-        const ready = self.recvBlocking(.ping, deadline) catch |err| {
-            child.kill(io);
-            return err;
-        };
-        if (ready.failed) {
-            child.kill(io);
-            return error.PluginLoadFailedInChild;
-        }
+        const ready = try self.recvBlocking(.ping, deadline);
+        if (ready.failed) return error.PluginLoadFailedInChild;
         if (ready.payload.len < @sizeOf(transport.Handshake)) return error.RpcProtocolError;
         const hs = std.mem.bytesToValue(transport.Handshake, ready.payload[0..@sizeOf(transport.Handshake)]);
         if (hs.id_len > hs.id.len or hs.name_len > hs.name.len) return error.RpcProtocolError;

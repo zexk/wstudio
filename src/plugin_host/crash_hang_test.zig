@@ -35,6 +35,17 @@ pub fn main(init: std.process.Init) !void {
 
     try testCrash(init.gpa, plugin_path);
     try testHang(init.gpa, plugin_path);
+    try testLoadFailure(init.gpa);
+}
+
+/// A child that reports it could not load the plugin is an ordinary error,
+/// not a crash: `spawn` has to reap that child and return, without tripping
+/// `Child.wait`'s `assert(id != null)` on a child it already reaped.
+fn testLoadFailure(gpa: std.mem.Allocator) !void {
+    try std.testing.expectError(
+        error.PluginLoadFailedInChild,
+        bridge_mod.Bridge.spawn(gpa, .{ .kind = .clap, .path = "/dev/null", .plugin_id = "", .sample_rate = 48_000 }),
+    );
 }
 
 fn testCrash(gpa: std.mem.Allocator, plugin_path: []const u8) !void {
