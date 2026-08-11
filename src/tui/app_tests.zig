@@ -8238,9 +8238,11 @@ test "mouse click/drag on a sampler waveform moves the nearer marker" {
     app.handleMouse(.{ .x = 20, .y = app_mod.content_top + 5, .button = .left, .kind = .release }, 80, 48, 0);
     try std.testing.expect(app.sampler_drag_marker == null);
 
-    // Param rows use same offset: prefix(4) + waveform(13) + section(1).
+    // Param rows sit after prefix(4) + the waveform + SAMPLE's header, and
+    // the waveform takes whatever the param list leaves of the 48-5 body.
+    const wave = @min(sampler_ed.wave_max_rows, (48 - 5) -| (4 + sampler_ed.paramLineCount(true)));
     app.sampler_param = 7;
-    app.handleMouse(.{ .x = 20, .y = app_mod.content_top + 18, .button = .none, .kind = .scroll_up }, 80, 48, 0);
+    app.handleMouse(.{ .x = 20, .y = app_mod.content_top + 4 + wave + 1, .button = .none, .kind = .scroll_up }, 80, 48, 0);
     try std.testing.expectEqual(@as(u8, 0), app.sampler_param);
 }
 
