@@ -1046,6 +1046,41 @@ test "all 20 internal FX defaults keep normal audio audible, finite, and bounded
     }
 }
 
+test "every internal FX stays finite at its parameter extremes" {
+    const allocator = std.testing.allocator;
+    for (internal_fx_kinds) |kind| {
+        const n = fx_params.paramCount(kind);
+        // One param at each end at a time, then everything at once - a
+        // feedback path only runs away when its own param is at the limit,
+        // and some only when a neighbour is too (delay time + feedback).
+        for (0..2 * n + 2) |combo| {
+            var payload = try Fx.initPayload(allocator, kind, 48_000);
+            defer payload.deinit(allocator);
+            for (0..n) |idx| {
+                if (!fx_params.isAutomatable(kind, idx)) continue;
+                const r = fx_params.paramRange(&payload, idx);
+                const end: f32 = if (combo >= 2 * n) (if (combo == 2 * n) r[0] else r[1]) else blk: {
+                    if (idx != combo / 2) continue;
+                    break :blk if (combo % 2 == 0) r[0] else r[1];
+                };
+                fx_params.setParamAbsolute(&payload, idx, end);
+            }
+            // Long enough for a runaway feedback loop to reach infinity.
+            var buf: [512]f32 = undefined;
+            for (0..64) |block| {
+                for (&buf, 0..) |*sample, i| sample.* = 0.5 * @sin(@as(f32, @floatFromInt(block * 256 + i / 2)) * 0.1);
+                payload.device().process(&buf);
+                for (buf) |sample| {
+                    if (!std.math.isFinite(sample)) {
+                        std.debug.print("{s} combo {d} block {d} produced {d}\n", .{ @tagName(kind), combo, block, sample });
+                        return error.NonFiniteOutput;
+                    }
+                }
+            }
+        }
+    }
+}
+
 test "bypassed internal FX leave audio bit-identical" {
     const allocator = std.testing.allocator;
     var fx: Fx = .{};
