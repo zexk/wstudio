@@ -10259,3 +10259,51 @@ test "every wstudio.api function survives hostile Lua arguments" {
         \\end
     );
 }
+
+test "undo restores the project byte for byte" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try redirectHome(&tmp);
+
+    // A save file is the whole of what a project *is*, so saving either side
+    // of `u` turns "did undo put everything back" into a byte comparison.
+    // `restores = false` pins the exclusions docs/undo-redo.md describes -
+    // history covers content editing, not every mutable value - so this fails
+    // if one silently changes in either direction.
+    const cases = [_]struct { keys: []const u8, restores: bool }{
+        .{ .keys = "-", .restores = true }, // track gain
+        .{ .keys = ">", .restores = true }, // track pan
+        .{ .keys = "a", .restores = true }, // add track
+        .{ .keys = "Y", .restores = true }, // duplicate track
+        .{ .keys = "dd", .restores = true }, // delete track
+        .{ .keys = "m", .restores = false }, // mute
+        .{ .keys = "S", .restores = false }, // solo
+        .{ .keys = "[", .restores = false }, // colour
+    };
+
+    for (cases) |case| {
+        var app = try App.init(std.testing.allocator, std.testing.io);
+        defer app.deinit();
+
+        var before_buf: [128]u8 = undefined;
+        var after_buf: [128]u8 = undefined;
+        const before_path = try std.fmt.bufPrint(&before_buf, ".zig-cache/tmp/{s}/before.wsj", .{&tmp.sub_path});
+        const after_path = try std.fmt.bufPrint(&after_buf, ".zig-cache/tmp/{s}/after.wsj", .{&tmp.sub_path});
+
+        try ws.persist.save(std.testing.allocator, &app.session, std.testing.io, before_path);
+        for (case.keys) |k| app.handleKey(.{ .char = k }, 0);
+        app.handleKey(.{ .char = 'u' }, 1);
+        try ws.persist.save(std.testing.allocator, &app.session, std.testing.io, after_path);
+
+        const before = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, before_path, std.testing.allocator, .limited(4 << 20));
+        defer std.testing.allocator.free(before);
+        const after = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, after_path, std.testing.allocator, .limited(4 << 20));
+        defer std.testing.allocator.free(after);
+
+        const restored = std.mem.eql(u8, before, after);
+        if (restored != case.restores) {
+            std.debug.print("undo of \"{s}\": restored={} expected={}\n", .{ case.keys, restored, case.restores });
+            return error.UndoContractChanged;
+        }
+    }
+}

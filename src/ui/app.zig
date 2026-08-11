@@ -4357,8 +4357,10 @@ pub const App = struct {
 
     /// Deep-copy the track under the cursor into a new track appended at the
     /// end (see Session.duplicateTrack) and jump the cursor to it. Appending
-    /// means no existing track's index shifts, so unlike delete this never
-    /// needs to touch history or editor-target indices.
+    /// means no existing track's index shifts, so unlike delete this needs no
+    /// remap of history or editor-target indices - but it is still a track
+    /// appearing out of nowhere, so it takes the same `track_delete` undo
+    /// entry `doTrackAddKind` pushes for `a`.
     pub fn doTrackDup(self: *App, track_idx: usize) void {
         const idx = self.session.duplicateTrack(track_idx) catch |err| {
             if (err == error.TrackLimitReached)
@@ -4367,6 +4369,7 @@ pub const App = struct {
                 self.setStatus("out of memory", .{});
             return;
         };
+        history.push(self, .{ .track_delete = @intCast(idx) });
         self.cursor = idx;
         self.dirty = true;
         self.setStatus("duplicated track {d} -> {d}", .{ track_idx + 1, idx + 1 });
