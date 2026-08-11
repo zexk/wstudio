@@ -404,7 +404,6 @@ test {
     _ = config_mod;
     _ = @import("ui/app.zig");
     _ = @import("tui/tui.zig");
-    _ = @import("tui/render.zig");
     _ = @import("tui/input_decode.zig");
     if (builtin.os.tag == .windows) {
         _ = @import("tui/terminal_windows.zig");

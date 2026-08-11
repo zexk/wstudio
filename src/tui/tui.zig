@@ -1,14 +1,15 @@
 //! TUI frontend entry point: terminal lifecycle, the input/render main
 //! loop, and the per-frame draw pipeline (header, view body, transport,
 //! prompt, status). The frontend-agnostic application core lives in
-//! ui/app.zig; per-view renderers in views/<name>.zig, reached through the
-//! render.zig facade. Named to match gui/gui.zig: `main` belongs to the
-//! program entry point in src/main.zig, not to a frontend.
+//! ui/app.zig; per-view renderers in views/<name>.zig. Named to match
+//! gui/gui.zig: `main` belongs to the program entry point in src/main.zig,
+//! not to a frontend.
 
 const std = @import("std");
 const builtin = @import("builtin");
 const ws = @import("wstudio");
 const modal_mod = ws.input;
+const Transport = ws.Transport;
 const terminal_mod = if (builtin.os.tag == .windows) @import("terminal_windows.zig") else @import("terminal.zig");
 const config_mod = @import("../config.zig");
 const app_mod = @import("../ui/app.zig");
@@ -18,7 +19,21 @@ const commands_load = @import("../ui/commands_load.zig");
 const cmd_mod = @import("../ui/cmd.zig");
 const icons = @import("../ui/icons.zig");
 const spectrum_ed = @import("../ui/editors/fx_editor.zig");
-const render = @import("render.zig");
+const arrangement = @import("views/arrangement.zig");
+const automation = @import("views/automation.zig");
+const browser = @import("views/browser.zig");
+const drum = @import("views/drum.zig");
+const help = @import("views/help.zig");
+const piano = @import("views/piano.zig");
+const picker = @import("views/picker.zig");
+const preset_picker = @import("views/preset_picker.zig");
+const sampler = @import("views/sampler.zig");
+const slicer = @import("views/slicer.zig");
+const soundfont = @import("views/soundfont.zig");
+const spectrum = @import("views/spectrum.zig");
+const status = @import("../ui/status.zig");
+const synth = @import("views/synth.zig");
+const tracks = @import("views/tracks.zig");
 const style = @import("style.zig");
 const tui_theme = @import("theme.zig");
 
@@ -29,6 +44,47 @@ const tui_theme = @import("theme.zig");
 /// instead (btop-style) rather than fighting per-view overflow.
 pub const min_cols: usize = 80;
 pub const min_rows: usize = 14;
+
+/// Writes the header's content only (no trailing newline) - the caller
+/// (app.zig) captures it into a scratch buffer and renders it as a
+/// full-width chrome bar via `style.writeChromeRow`.
+pub fn drawHeader(
+    w: *std.Io.Writer,
+    title: []const u8,
+    transport: *const Transport,
+    audio_label: []const u8,
+    master_gain_db: f32,
+    dirty: bool,
+) !void {
+    const vol_sign: []const u8 = if (master_gain_db >= 0) "+" else "";
+    try w.writeAll(style.bold ++ " ");
+    try w.writeAll(icons.iconOr(icons.logo ++ " ", ""));
+    try w.writeAll("wstudio" ++ style.rst);
+    try w.writeAll(style.dim ++ "  " ++ style.rst);
+    try w.writeAll(title);
+    if (dirty) {
+        try w.writeAll(" " ++ style.yel);
+        try w.writeAll(icons.iconOr(icons.warn, "*"));
+        try w.writeAll(style.rst);
+    }
+    try w.writeAll(style.dim ++ "   ");
+    try w.writeAll(icons.iconOr(icons.tempo, "bpm"));
+    try w.writeAll(" " ++ style.rst);
+    const current_meter = transport.currentMeter();
+    try w.print("{d:.0}", .{transport.currentTempo()});
+    try w.writeAll(style.dim ++ "  " ++ style.rst);
+    try w.print("{d}/{d}", .{
+        current_meter.numerator,
+        current_meter.denominator,
+    });
+    try w.writeAll(style.dim ++ "   ");
+    try w.writeAll(icons.iconOr(icons.master, "mst"));
+    try w.writeAll(" " ++ style.rst);
+    try w.print("{s}{d:.0}dB", .{ vol_sign, master_gain_db });
+    try w.writeAll(style.dim ++ "   " ++ style.rst);
+    try w.writeAll(style.acc);
+    try w.writeAll(audio_label);
+}
 
 pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
     self.last_cols = size.cols;
@@ -68,28 +124,28 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
     // reclaims a row versus the old plain-line-plus-rule layout.
     var header_scratch: [512]u8 = undefined;
     var header_w = std.Io.Writer.fixed(&header_scratch);
-    try render.drawHeader(&header_w, header_title, &self.session.engine.transport, self.audio_label, self.master_gain_db, self.dirty);
+    try drawHeader(&header_w, header_title, &self.session.engine.transport, self.audio_label, self.master_gain_db, self.dirty);
     try style.writeChromeRow(w, header_w.buffered(), size.cols);
 
     // zig fmt: off
     switch (self.view) {
-        .tracks          => try render.drawTracks(self, w, content_rows, size.cols, snap),
-        .drum_grid       => try render.drawDrumGrid(self, w, content_rows, size.cols, snap),
-        .synth_editor    => try render.drawSynthEditor(self, w, content_rows, size.cols, snap),
-        .sampler_editor  => try render.drawSamplerEditor(self, w, content_rows, size.cols, snap),
-        .soundfont_editor => try render.drawSoundfontEditor(self, w, content_rows, size.cols, snap),
-        .piano_roll      => try render.drawPianoRoll(self, w, content_rows, size.cols, snap),
-        .help            => try render.drawHelp(w, content_rows, size.cols, self.allCmds(), self.userKeymapsSlice(), &self.help_scroll, self.help_search_hit),
+        .tracks          => try tracks.drawTracks(self, w, content_rows, size.cols, snap),
+        .drum_grid       => try drum.drawDrumGrid(self, w, content_rows, size.cols, snap),
+        .synth_editor    => try synth.drawSynthEditor(self, w, content_rows, size.cols, snap),
+        .sampler_editor  => try sampler.drawSamplerEditor(self, w, content_rows, size.cols, snap),
+        .soundfont_editor => try soundfont.drawSoundfontEditor(self, w, content_rows, size.cols, snap),
+        .piano_roll      => try piano.drawPianoRoll(self, w, content_rows, size.cols, snap),
+        .help            => try help.drawHelp(w, content_rows, size.cols, self.allCmds(), self.userKeymapsSlice(), &self.help_scroll, self.help_search_hit),
         .track_spectrum, .master_spectrum, .group_spectrum =>
-            try render.drawFxView(self, w, content_rows, size.cols, snap, spectrum_ed.currentTarget(self)),
-        .instrument_picker => try render.drawInstrumentPicker(self, w, content_rows),
-        .fx_picker       => try render.drawFxPicker(self, w, content_rows),
-        .arrangement     => try render.drawArrangement(self, w, content_rows, size.cols, snap),
-        .file_browser    => try render.drawFileBrowser(self, w, content_rows),
-        .automation      => try render.drawAutomation(self, w, content_rows, size.cols, snap),
-        .automation_param_picker => try render.drawAutomationParamPicker(self, w, content_rows),
-        .slicer_grid     => try render.drawSlicerGrid(self, w, content_rows, size.cols, snap),
-        .preset_picker   => try render.drawPresetPicker(self, w, content_rows),
+            try spectrum.drawFxView(self, w, content_rows, size.cols, snap, spectrum_ed.currentTarget(self)),
+        .instrument_picker => try picker.drawInstrumentPicker(self, w, content_rows),
+        .fx_picker       => try picker.drawFxPicker(self, w, content_rows),
+        .arrangement     => try arrangement.drawArrangement(self, w, content_rows, size.cols, snap),
+        .file_browser    => try browser.drawFileBrowser(self, w, content_rows),
+        .automation      => try automation.drawAutomation(self, w, content_rows, size.cols, snap),
+        .automation_param_picker => try automation.drawAutomationParamPicker(self, w, content_rows),
+        .slicer_grid     => try slicer.drawSlicerGrid(self, w, content_rows, size.cols, snap),
+        .preset_picker   => try preset_picker.drawPresetPicker(self, w, content_rows),
     }
     // zig fmt: on
 
@@ -135,9 +191,9 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
     var meter_scratch: [256]u8 = undefined;
     var mw = std.Io.Writer.fixed(&meter_scratch);
     try mw.writeAll("\x1b[2mL\x1b[0m");
-    try render.meter(&mw, snap.peak[0]);
+    try style.meter(&mw, snap.peak[0]);
     try mw.writeAll("\x1b[2m R\x1b[0m");
-    try render.meter(&mw, snap.peak[1]);
+    try style.meter(&mw, snap.peak[1]);
     // Phase correlation (-1 out-of-phase .. +1 in-phase) and short-term
     // LUFS, same always-visible master-bus readout as the L/R peak meters
     // above - see dsp/meter.zig.
@@ -210,23 +266,23 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
         try status_right_w.print(style.red ++ style.bold ++ "rec @{c}" ++ style.rst ++ "  ", .{'a' + reg});
     }
     switch (self.view) {
-        .tracks          => try render.drawTracksStatus(self, &status_w, &status_right_w),
-        .drum_grid       => try render.drawDrumStatus(self, &status_w, &status_right_w),
-        .synth_editor    => try render.drawSynthStatus(self, &status_w, &status_right_w),
-        .sampler_editor  => try render.drawSamplerStatus(self, &status_w, &status_right_w),
-        .soundfont_editor => try render.drawSoundfontStatus(self, &status_w, &status_right_w),
-        .piano_roll      => try render.drawPianoRollStatus(self, &status_w, &status_right_w),
-        .help            => try render.drawHelpStatus(self, &status_w, &status_right_w),
+        .tracks          => try status.drawTracksStatus(self, &status_w, &status_right_w),
+        .drum_grid       => try status.drawDrumStatus(self, &status_w, &status_right_w),
+        .synth_editor    => try status.drawSynthStatus(self, &status_w, &status_right_w),
+        .sampler_editor  => try status.drawSamplerStatus(self, &status_w, &status_right_w),
+        .soundfont_editor => try status.drawSoundfontStatus(self, &status_w, &status_right_w),
+        .piano_roll      => try status.drawPianoRollStatus(self, &status_w, &status_right_w),
+        .help            => try status.drawHelpStatus(self, &status_w, &status_right_w),
         .track_spectrum, .master_spectrum, .group_spectrum =>
-            try render.drawFxStatus(self, &status_w, &status_right_w, spectrum_ed.currentTarget(self)),
-        .instrument_picker => try render.drawPickerStatus(self, &status_w, &status_right_w, "INSTRUMENT", "insert", true),
-        .fx_picker       => try render.drawPickerStatus(self, &status_w, &status_right_w, "EFFECT", "insert", true),
-        .arrangement     => try render.drawArrangementStatus(self, &status_w, &status_right_w),
-        .file_browser    => try render.drawFileBrowserStatus(self, &status_w, &status_right_w),
-        .automation      => try render.drawAutomationStatus(self, &status_w, &status_right_w),
-        .automation_param_picker => try render.drawPickerStatus(self, &status_w, &status_right_w, "PARAM", "pick", true),
-        .slicer_grid     => try render.drawSlicerStatus(self, &status_w, &status_right_w),
-        .preset_picker   => try render.drawPresetPickerStatus(self, &status_w, &status_right_w),
+            try status.drawFxStatus(self, &status_w, &status_right_w, spectrum_ed.currentTarget(self)),
+        .instrument_picker => try status.drawPickerStatus(self, &status_w, &status_right_w, "INSTRUMENT", "insert", true),
+        .fx_picker       => try status.drawPickerStatus(self, &status_w, &status_right_w, "EFFECT", "insert", true),
+        .arrangement     => try status.drawArrangementStatus(self, &status_w, &status_right_w),
+        .file_browser    => try status.drawFileBrowserStatus(self, &status_w, &status_right_w),
+        .automation      => try status.drawAutomationStatus(self, &status_w, &status_right_w),
+        .automation_param_picker => try status.drawPickerStatus(self, &status_w, &status_right_w, "PARAM", "pick", true),
+        .slicer_grid     => try status.drawSlicerStatus(self, &status_w, &status_right_w),
+        .preset_picker   => try status.drawPresetPickerStatus(self, &status_w, &status_right_w),
     }
     try style.writeSplitRow(w, status_w.buffered(), status_right_w.buffered(), size.cols -| 1);
     // Erase from cursor to end of screen so stale content from taller

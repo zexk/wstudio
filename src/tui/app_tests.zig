@@ -715,7 +715,7 @@ test "slicer grid rows start where the mouse hit-test looks for them" {
 
     var buf: [64 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try @import("render.zig").drawSlicerGrid(&app, &w, 40, 100, app.session.engine.uiSnapshot());
+    try @import("views/slicer.zig").drawSlicerGrid(&app, &w, 40, 100, app.session.engine.uiSnapshot());
     const frame = w.buffered();
 
     // The clip's waveform belongs to the slice panel now, not over the grid.
@@ -748,7 +748,7 @@ test "slicer grid: a click past the 256th step lands on it instead of panicking"
     app.slicer_cursor = .{ 0, 300 };
     var buf: [64 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try @import("render.zig").drawSlicerGrid(&app, &w, 40, 100, app.session.engine.uiSnapshot());
+    try @import("views/slicer.zig").drawSlicerGrid(&app, &w, 40, 100, app.session.engine.uiSnapshot());
     try std.testing.expect(app.slicer_step_scroll > 255);
 
     // x = gutter + 1 clears the beat separator, landing on the first visible
