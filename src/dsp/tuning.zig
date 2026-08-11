@@ -95,15 +95,18 @@ pub const Preset = enum {
         return switch (self) {
             .equal => @splat(0),
             // 5-limit just major scale: pure thirds (5/4) and fifths (3/2).
-            .just_major => .{ 0, 11.7, 3.9, 15.6, -13.7, -2.0, -9.8, 2.0, 13.7, -15.9, 17.6, -11.7 },
+            .just_major => .{ 0, 11.7, 3.9, 15.6, -13.7, -2.0, -9.8, 2.0, 13.7, -15.6, 17.6, -11.7 },
             // A chain of pure 3/2 fifths; the wolf lands between G# and Eb.
             .pythagorean => .{ 0, 13.7, 3.9, -5.9, 7.8, -2.0, 11.7, 2.0, 15.6, 5.9, -3.9, 9.8 },
             // Fifths narrowed by a quarter syntonic comma, buying pure
             // major thirds - the Renaissance/early-baroque default.
             .meantone_quarter => .{ 0, -24.0, -6.8, 10.3, -13.7, 3.4, -20.5, -3.4, -27.4, -10.3, 6.8, -17.1 },
             // Circulating: every key playable, each with its own colour.
-            .werckmeister3 => .{ 0, 9.8, 3.9, 5.9, -2.0, 7.8, 11.7, 2.0, 7.8, 0, 3.9, 3.9 },
-            .kirnberger3 => .{ 0, 10.3, 6.8, 6.8, 0.5, 8.3, 12.2, 3.4, 8.3, 3.4, 5.4, 1.0 },
+            // Both are built from narrowed fifths, so every key but the
+            // reference sits flat of 12-TET - same unanchored, root-relative
+            // convention as the three tables above.
+            .werckmeister3 => .{ 0, -9.8, -7.8, -5.9, -9.8, -2.0, -11.7, -3.9, -7.8, -11.7, -3.9, -7.8 },
+            .kirnberger3 => .{ 0, -9.8, -6.8, -5.9, -13.7, -2.0, -9.8, -3.4, -7.8, -10.3, -3.9, -11.7 },
         };
         // zig fmt: on
     }
@@ -168,4 +171,36 @@ test "every preset is a twelve-key table and only equal is a no-op" {
         try testing.expectEqual(p, Preset.parse(@tagName(p)).?);
     }
     try testing.expect(Preset.parse("not-a-tuning") == null);
+}
+
+test "each preset lands its defining intervals on the published cents" {
+    // A wrong table still passes the sanity checks above (root zero, under a
+    // semitone), so pin the intervals each temperament is *chosen* for. The
+    // interval from the root to degree `n` is 100n plus that degree's offset.
+    const pure_third = 386.31; // 5/4
+    const pure_fifth = 701.96; // 3/2
+    const Case = struct { preset: Preset, degree: usize, cents: f32 };
+    for ([_]Case{
+        // Just intonation: pure third, fifth, and major sixth (5/3).
+        .{ .preset = .just_major, .degree = 4, .cents = pure_third },
+        .{ .preset = .just_major, .degree = 7, .cents = pure_fifth },
+        .{ .preset = .just_major, .degree = 9, .cents = 884.36 },
+        // Pythagorean: pure fifths, so a pure 9/8 whole tone and a wide third.
+        .{ .preset = .pythagorean, .degree = 2, .cents = 203.91 },
+        .{ .preset = .pythagorean, .degree = 7, .cents = pure_fifth },
+        .{ .preset = .pythagorean, .degree = 4, .cents = 407.82 }, // 81/64
+        // Quarter-comma meantone buys a pure third with a narrowed fifth.
+        .{ .preset = .meantone_quarter, .degree = 4, .cents = pure_third },
+        .{ .preset = .meantone_quarter, .degree = 7, .cents = 696.58 },
+        // Werckmeister III: fifth narrowed by a quarter Pythagorean comma.
+        .{ .preset = .werckmeister3, .degree = 4, .cents = 390.23 },
+        .{ .preset = .werckmeister3, .degree = 7, .cents = 696.09 },
+        // Kirnberger III's whole point is the pure C-E third.
+        .{ .preset = .kirnberger3, .degree = 4, .cents = pure_third },
+        .{ .preset = .kirnberger3, .degree = 7, .cents = 696.58 },
+    }) |c| {
+        const table = c.preset.table();
+        const interval = 100.0 * @as(f32, @floatFromInt(c.degree)) + table[c.degree] - table[0];
+        try testing.expectApproxEqAbs(c.cents, interval, 0.06);
+    }
 }
