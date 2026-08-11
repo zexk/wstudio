@@ -639,6 +639,8 @@ pub const App = struct {
     /// param-id space across both; only which ids are reachable/rendered
     /// changes with the subview.
     synth_subview: synth_ed.Subview = .main,
+    /// Oscillator card shown by GUI's grouped oscillator tabs. View-only state.
+    synth_osc_tab: u8 = 0,
     /// LFO card shown by GUI's grouped LFO tabs. View-only state.
     synth_lfo_tab: u8 = 0,
     /// Envelope card shown by GUI's grouped envelope tabs. View-only state.

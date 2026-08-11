@@ -453,6 +453,12 @@ const env_tab_ids = [3][4]u16{
     .{ 24, 25, 26, 27 },
     .{ 122, 123, 124, 125 },
 };
+const osc_tab_ids = [3][12]u16{
+    .{ 0, 0, 2, 0, 3, 4, 5, 39, 41, 42, 185, 251 },
+    .{ 6, 9, 10, 11, 12, 13, 0, 40, 43, 44, 186, 252 },
+    .{ 50, 53, 54, 55, 56, 57, 0, 58, 0, 0, 187, 253 },
+};
+const osc_first_ids = [3]u16{ 2, 6, 50 };
 
 fn cycleTab(comptime ids: anytype, tab: *u8, cursor: *u16, delta: i32) bool {
     for (ids, 0..) |slot_ids, slot| for (slot_ids, 0..) |id, field| {
@@ -469,6 +475,14 @@ fn cycleCursorTab(app: *App, delta: i32) void {
     if (cycleTab(lfo_tab_ids, &app.synth_lfo_tab, &app.synth_cursor, delta) or
         cycleTab(env_tab_ids, &app.synth_env_tab, &app.synth_cursor, delta))
         return updateScroll(app);
+
+    for (osc_tab_ids, 0..) |slot_ids, slot| for (slot_ids, 0..) |id, field| {
+        if (id == 0 or id != app.synth_cursor) continue;
+        const next: usize = @intCast(@mod(@as(i32, @intCast(slot)) + delta, 3));
+        app.synth_osc_tab = @intCast(next);
+        app.synth_cursor = if (osc_tab_ids[next][field] != 0) osc_tab_ids[next][field] else osc_first_ids[next];
+        return updateScroll(app);
+    };
 
     const target_tab: u8 = if (app.synth_cursor >= 20 and app.synth_cursor <= 22) 1 else 0;
     app.synth_cursor = switch (app.synth_cursor) {
