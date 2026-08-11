@@ -2631,20 +2631,30 @@ pub const App = struct {
         return out;
     }
 
-    /// `g` in tracks-view visual mode: create a new untitled group from the
-    /// selected rows.
-    fn groupSelectedTracks(self: *App) void {
+    /// How every `doVisual*` below opens: resolve the anchor..cursor range to
+    /// track indices and leave visual mode. Null (with the status line already
+    /// explaining why) when the range holds no tracks - a group header row on
+    /// its own resolves to nothing. The caller owns the returned list.
+    fn takeVisualTrackSelection(self: *App) ?std.ArrayListUnmanaged(u16) {
         const anchor = self.tracks_visual_anchor orelse self.track_row;
         const lo = @min(anchor, self.track_row);
         const hi = @max(anchor, self.track_row);
         self.exitTracksVisual();
 
         var sel = self.resolveVisualTrackIndices(lo, hi);
-        defer sel.deinit(self.allocator);
         if (sel.items.len == 0) {
+            sel.deinit(self.allocator);
             self.setStatus("no tracks selected", .{});
-            return;
+            return null;
         }
+        return sel;
+    }
+
+    /// `g` in tracks-view visual mode: create a new untitled group from the
+    /// selected rows.
+    fn groupSelectedTracks(self: *App) void {
+        var sel = self.takeVisualTrackSelection() orelse return;
+        defer sel.deinit(self.allocator);
 
         const idx = self.session.addGroup("untitled group") catch |err| {
             switch (err) {
@@ -2666,16 +2676,8 @@ pub const App = struct {
     /// GroupState.muted/soloed - a visual selection is an arbitrary row
     /// range, not necessarily a whole bus).
     fn doVisualToggle(self: *App, solo: bool) void {
-        const anchor = self.tracks_visual_anchor orelse self.track_row;
-        const lo = @min(anchor, self.track_row);
-        const hi = @max(anchor, self.track_row);
-        self.exitTracksVisual();
-        var sel = self.resolveVisualTrackIndices(lo, hi);
+        var sel = self.takeVisualTrackSelection() orelse return;
         defer sel.deinit(self.allocator);
-        if (sel.items.len == 0) {
-            self.setStatus("no tracks selected", .{});
-            return;
-        }
 
         var all = true;
         for (sel.items) |t| {
@@ -2699,16 +2701,9 @@ pub const App = struct {
     /// each track keeps riding its own fader, same as pressing the
     /// single-track key on each of them in turn).
     fn doVisualGainStep(self: *App, delta_db: f32) void {
-        const anchor = self.tracks_visual_anchor orelse self.track_row;
-        const lo = @min(anchor, self.track_row);
-        const hi = @max(anchor, self.track_row);
-        self.exitTracksVisual();
-        var sel = self.resolveVisualTrackIndices(lo, hi);
+        var sel = self.takeVisualTrackSelection() orelse return;
         defer sel.deinit(self.allocator);
-        if (sel.items.len == 0) {
-            self.setStatus("no tracks selected", .{});
-            return;
-        }
+
         for (sel.items) |t| {
             const before = self.session.project.tracks.items[t].gain_db;
             self.apiSetTrackGainDb(t, before + delta_db);
@@ -2718,16 +2713,9 @@ pub const App = struct {
     }
 
     fn doVisualPanStep(self: *App, delta: f32) void {
-        const anchor = self.tracks_visual_anchor orelse self.track_row;
-        const lo = @min(anchor, self.track_row);
-        const hi = @max(anchor, self.track_row);
-        self.exitTracksVisual();
-        var sel = self.resolveVisualTrackIndices(lo, hi);
+        var sel = self.takeVisualTrackSelection() orelse return;
         defer sel.deinit(self.allocator);
-        if (sel.items.len == 0) {
-            self.setStatus("no tracks selected", .{});
-            return;
-        }
+
         for (sel.items) |t| {
             const before = self.session.project.tracks.items[t].pan;
             self.apiSetTrackPan(t, before + delta);
@@ -2740,16 +2728,9 @@ pub const App = struct {
     /// color by one step, same relative-not-absolute shape as the gain/pan
     /// steps above.
     fn doVisualColorCycle(self: *App, dir: i32) void {
-        const anchor = self.tracks_visual_anchor orelse self.track_row;
-        const lo = @min(anchor, self.track_row);
-        const hi = @max(anchor, self.track_row);
-        self.exitTracksVisual();
-        var sel = self.resolveVisualTrackIndices(lo, hi);
+        var sel = self.takeVisualTrackSelection() orelse return;
         defer sel.deinit(self.allocator);
-        if (sel.items.len == 0) {
-            self.setStatus("no tracks selected", .{});
-            return;
-        }
+
         const n: i32 = @intCast(ansi.track_palette.len + 1); // +1 for "none"
         for (sel.items) |t| {
             const track = &self.session.project.tracks.items[t];
@@ -2764,16 +2745,9 @@ pub const App = struct {
     /// Reuses `doTrackDup` per track - each duplicate appends at the end, so
     /// unlike delete there's no index-shift ordering to worry about.
     fn doVisualDup(self: *App) void {
-        const anchor = self.tracks_visual_anchor orelse self.track_row;
-        const lo = @min(anchor, self.track_row);
-        const hi = @max(anchor, self.track_row);
-        self.exitTracksVisual();
-        var sel = self.resolveVisualTrackIndices(lo, hi);
+        var sel = self.takeVisualTrackSelection() orelse return;
         defer sel.deinit(self.allocator);
-        if (sel.items.len == 0) {
-            self.setStatus("no tracks selected", .{});
-            return;
-        }
+
         const count = sel.items.len;
         for (sel.items) |t| self.doTrackDup(t);
         self.setStatus("duplicated {d} tracks", .{count});
@@ -2784,16 +2758,9 @@ pub const App = struct {
     /// still apply) - deleting highest index first keeps every remaining
     /// selected index valid, since a delete only shifts indices above it.
     fn deleteVisualSelection(self: *App) void {
-        const anchor = self.tracks_visual_anchor orelse self.track_row;
-        const lo = @min(anchor, self.track_row);
-        const hi = @max(anchor, self.track_row);
-        self.exitTracksVisual();
-        var sel = self.resolveVisualTrackIndices(lo, hi);
+        var sel = self.takeVisualTrackSelection() orelse return;
         defer sel.deinit(self.allocator);
-        if (sel.items.len == 0) {
-            self.setStatus("no tracks selected", .{});
-            return;
-        }
+
         std.mem.sort(u16, sel.items, {}, std.sort.desc(u16));
         const count = sel.items.len;
         for (sel.items) |t| self.doTrackDel(t);
