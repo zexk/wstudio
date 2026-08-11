@@ -10217,3 +10217,45 @@ test "random mouse events never panic in any view" {
         }
     }
 }
+
+test "every wstudio.api function survives hostile Lua arguments" {
+    // A user config is arbitrary Lua, so this boundary takes whatever it is
+    // given. Every registered function is called with no args, one arg, and
+    // every ordered pair drawn from a hostile value set; pcall keeps the
+    // expected Lua-level errors from ending the run, so what is left to fail
+    // on is a crash on the Zig side.
+    var app = try testApp();
+    defer app.deinit();
+    var rt = try @import("../config.zig").Runtime.init(.tui);
+    defer rt.deinit();
+    rt.app = &app;
+    app.lua_runtime = &rt;
+
+    try rt.loadString(
+        \\local vals = { 0, -1, 1, 2, 8, 99999, -99999, 1e308, -1e308, 0/0,
+        \\               "", "x", "!!", "0 0 0", true, false, {} }
+        \\local n = 0
+        \\for name, fn in pairs(wstudio.api) do
+        \\  if type(fn) == "function" then
+        \\    n = n + 1
+        \\    pcall(fn)
+        \\    for i = 1, #vals do
+        \\      pcall(fn, vals[i])
+        \\      for j = 1, #vals do pcall(fn, vals[i], vals[j]) end
+        \\    end
+        \\  end
+        \\end
+        \\assert(n > 10, "wstudio.api enumerated only " .. n .. " functions")
+    );
+
+    try rt.loadString(
+        \\local modes = { "n", "i", "v", "x", "", "nn", 0, {}, true }
+        \\local lhs = { "j", "", "<esc>", "<bogus>", "abcde", "<C-x>", 0, {}, "  " }
+        \\for _, m in ipairs(modes) do
+        \\  for _, l in ipairs(lhs) do
+        \\    pcall(wstudio.keymap.set, m, l, function() end)
+        \\    pcall(wstudio.keymap.del, m, l)
+        \\  end
+        \\end
+    );
+}
