@@ -124,8 +124,8 @@ pub fn curvePointsConst(clip: *const ws.Clip, target: AutomationFocus) []const A
 }
 
 /// The current automation track's own `automatable_params` table - PolySynth,
-/// Sampler, SoundFont, or VST3 params, and empty for any other instrument kind
-/// (drum machine/slicer/CLAP/empty have no shared automation id space,
+/// Sampler, SoundFont, CLAP, or VST3 params, and empty for any other instrument kind
+/// (drum machine/slicer/empty have no shared automation id space,
 /// matching the picker's own gate in `openParamPicker`). `pub` so app.zig's picker key/mouse
 /// handling can resolve the same table without duplicating the instrument
 /// dispatch.

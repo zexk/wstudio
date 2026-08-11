@@ -11,6 +11,7 @@ const bridge_mod = @import("../plugin_host/bridge.zig");
 const wire = @import("../plugin_host/transport.zig");
 
 const max_events = 256;
+const max_parameters = 256;
 const max_thread_pool_workers = 4;
 
 threadlocal var on_audio_thread = false;
@@ -362,6 +363,9 @@ pub const ClapPlugin = struct {
     /// - the parent-process counterpart of `Direct.events`.
     pending_events: [wire.max_events]wire.WireEvent = undefined,
     pending_count: u32 = 0,
+    automatable_params: [max_parameters]device_mod.AutomatableParam = undefined,
+    automatable_names: [max_parameters][256]u8 = undefined,
+    automatable_count: usize = 0,
 
     const Impl = union(enum) {
         direct: Direct,
@@ -399,6 +403,7 @@ pub const ClapPlugin = struct {
             .audio_inputs_count = b.audio_inputs_count,
             .impl = .{ .bridged = b },
         };
+        self.cacheAutomatableParams();
         return self;
     }
 
@@ -475,7 +480,33 @@ pub const ClapPlugin = struct {
             } },
         };
         self.impl.direct.events.bind();
+        self.cacheAutomatableParams();
         return self;
+    }
+
+    fn cacheAutomatableParams(self: *ClapPlugin) void {
+        const count = @min(self.parameterCount(), max_parameters);
+        for (0..count) |index| {
+            const info = self.parameterInfo(@intCast(index)) orelse continue;
+            if (info.flags & (1 << 5) == 0 or !std.math.isFinite(info.min_value) or !std.math.isFinite(info.max_value) or info.min_value >= info.max_value) continue;
+            if (info.min_value < -std.math.floatMax(f32) or info.max_value > std.math.floatMax(f32)) continue;
+            const slot = self.automatable_count;
+            const param_name = std.mem.sliceTo(&info.name, 0);
+            const len = @min(param_name.len, self.automatable_names[slot].len);
+            @memcpy(self.automatable_names[slot][0..len], param_name[0..len]);
+            self.automatable_params[slot] = .{
+                .id = info.id,
+                .label = self.automatable_names[slot][0..len],
+                .section = "CLAP",
+                .range = .{ @floatCast(info.min_value), @floatCast(info.max_value) },
+                .step = @floatCast((info.max_value - info.min_value) / 100.0),
+            };
+            self.automatable_count += 1;
+        }
+    }
+
+    pub fn automationParams(self: *const ClapPlugin) []const device_mod.AutomatableParam {
+        return self.automatable_params[0..self.automatable_count];
     }
 
     pub fn deinit(self: *ClapPlugin) void {

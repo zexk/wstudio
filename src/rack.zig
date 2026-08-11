@@ -88,8 +88,9 @@ pub const Instrument = union(enum) {
             .poly_synth => &PolySynth.automatable_params,
             .sampler => &Sampler.automatable_params,
             .soundfont, .acoustic => &SoundfontPlayer.automatable_params,
+            .clap => |plugin| plugin.automationParams(),
             .vst3 => |plugin| plugin.automationParams(),
-            .drum_machine, .slicer, .clap, .empty => &.{},
+            .drum_machine, .slicer, .empty => &.{},
         };
     }
 };
