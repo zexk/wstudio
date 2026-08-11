@@ -18,35 +18,33 @@ pub const Id = enum {
     kalimba,
 
     pub fn label(self: Id) []const u8 {
-        return switch (self) {
-            .grand => "Grand Piano",
-            .upright => "Upright Piano",
-            .harpsichord => "Italian Harpsichord",
-            .pipe_organ => "Pipe Organ",
-            .concert_harp => "Concert Harp",
-            .glockenspiel => "Glockenspiel",
-            .marimba => "Marimba",
-            .vibraphone => "Vibraphone",
-            .xylophone => "Xylophone",
-            .kalimba => "Kenyan Kalimba",
-        };
+        return specs[@intFromEnum(self)].label;
     }
 
     fn sfzFile(self: Id) []const u8 {
-        return switch (self) {
-            .grand => "Grand Piano, K.sfz",
-            .upright => "Upright Piano, Y.sfz",
-            .harpsichord => "Harpsichord, Italian.sfz",
-            .pipe_organ => "Pipe Organ - Quiet.sfz",
-            .concert_harp => "Concert Harp.sfz",
-            .glockenspiel => "Glockenspiel.sfz",
-            .marimba => "Marimba.sfz",
-            .vibraphone => "Vibraphone - Soft Mallets.sfz",
-            .xylophone => "Xylophone - Medium Mallets.sfz",
-            .kalimba => "Kalimba, Kenya.sfz",
-        };
+        return specs[@intFromEnum(self)].sfz;
     }
 };
+
+/// Display name and on-disk SFZ filename per `Id`, in tag order.
+// zig fmt: off
+const specs = [_]struct { label: []const u8, sfz: []const u8 }{
+    .{ .label = "Grand Piano",         .sfz = "Grand Piano, K.sfz" },
+    .{ .label = "Upright Piano",       .sfz = "Upright Piano, Y.sfz" },
+    .{ .label = "Italian Harpsichord", .sfz = "Harpsichord, Italian.sfz" },
+    .{ .label = "Pipe Organ",          .sfz = "Pipe Organ - Quiet.sfz" },
+    .{ .label = "Concert Harp",        .sfz = "Concert Harp.sfz" },
+    .{ .label = "Glockenspiel",        .sfz = "Glockenspiel.sfz" },
+    .{ .label = "Marimba",             .sfz = "Marimba.sfz" },
+    .{ .label = "Vibraphone",          .sfz = "Vibraphone - Soft Mallets.sfz" },
+    .{ .label = "Xylophone",           .sfz = "Xylophone - Medium Mallets.sfz" },
+    .{ .label = "Kenyan Kalimba",      .sfz = "Kalimba, Kenya.sfz" },
+};
+// zig fmt: on
+
+comptime {
+    if (specs.len != @typeInfo(Id).@"enum".fields.len) @compileError("specs must cover every Id");
+}
 
 pub fn load(allocator: std.mem.Allocator, io: std.Io, id: Id, sample_rate: u32) !SampleBank {
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
