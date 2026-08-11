@@ -12,11 +12,30 @@ commands with `nix develop --command`.
 ```
 zig build run              # launch the TUI
 zig build run -- demo.wsj  # curated four-track demo project
-zig build test             # all tests
+zig build test             # all tests (minutes)
+zig build test -Dtest-filter=tuning   # only tests whose name contains "tuning" (seconds)
 zig build gendemo           # re-write demo.wsj after editing tools/gendemo.zig
 zig build dspcheck -- DIR   # run a real sample library through decode/detect/render/FX
 nix run .#neutral-terminal  # launch Kitty with a clean Nerd Font configuration
 ```
+
+Two ways to run one test while iterating on it:
+
+```
+zig test --test-filter "<name>" src/dsp/tuning.zig   # ~0.5s, but only for a
+                                                     # file that compiles alone
+zig build test -Dtest-filter="<name>"                # ~3s, works for any test
+```
+
+`zig test` on a single file is the fastest, and only works where that file
+imports nothing outside its own directory and no C library - `theory.zig`,
+`time_grid.zig`, `dsp/tuning.zig`, `dsp/lfo.zig`. Anything reaching
+`../core/types.zig`, the `wstudio` module, or sndfile/speex/Rubber Band needs
+the build graph, which is what `-Dtest-filter` goes through: it narrows both
+unit-test binaries by test name and drops the integration executables
+(checkdemo, the CLAP/VST3/crash harnesses), which have no test names to
+filter. Always finish with an unfiltered `zig build test` before committing -
+a filtered run proves nothing about the rest.
 
 `dspcheck` is not part of `zig build test` - it needs a corpus of real audio
 on disk, far too large to ship. Point it at a directory of samples; it fails

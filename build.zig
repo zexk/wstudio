@@ -335,11 +335,19 @@ pub fn build(b: *std.Build) void {
     run_cmd.step.dependOn(&install_plugin_bridge.step);
     run_cmd.setEnvironmentVariable("WSTUDIO_PLUGIN_BRIDGE_EXE", plugin_bridge_path);
 
-    const mod_tests = b.addTest(.{ .root_module = wstudio_mod });
+    // `-Dtest-filter=<substring>` narrows both unit-test binaries to the
+    // tests whose name contains it, and drops the integration executables
+    // (checkdemo, the CLAP/VST3 harnesses) from the `test` step, since they
+    // are whole programs with no test names to filter. A full run is minutes;
+    // this makes iterating on one test seconds. Never set in CI.
+    const test_filter = b.option([]const u8, "test-filter", "Run only tests whose name contains this substring");
+    const test_filters: []const []const u8 = if (test_filter) |f| &.{f} else &.{};
+
+    const mod_tests = b.addTest(.{ .root_module = wstudio_mod, .filters = test_filters });
     const run_mod_tests = b.addRunArtifact(mod_tests);
     run_mod_tests.step.dependOn(&install_plugin_bridge.step);
     run_mod_tests.setEnvironmentVariable("WSTUDIO_PLUGIN_BRIDGE_EXE", plugin_bridge_path);
-    const exe_tests = b.addTest(.{ .root_module = exe.root_module });
+    const exe_tests = b.addTest(.{ .root_module = exe.root_module, .filters = test_filters });
     const run_exe_tests = b.addRunArtifact(exe_tests);
     run_exe_tests.step.dependOn(&install_plugin_bridge.step);
     run_exe_tests.setEnvironmentVariable("WSTUDIO_PLUGIN_BRIDGE_EXE", plugin_bridge_path);
@@ -347,7 +355,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
-    test_step.dependOn(&run_checkdemo.step);
+    if (test_filter == null) test_step.dependOn(&run_checkdemo.step);
 
     const clap_test_plugin = b.addLibrary(.{
         .name = "wstudio-clap-test",
@@ -373,7 +381,7 @@ pub fn build(b: *std.Build) void {
     run_clap_integration_test.addArtifactArg(clap_test_plugin);
     run_clap_integration_test.step.dependOn(&install_plugin_bridge.step);
     run_clap_integration_test.setEnvironmentVariable("WSTUDIO_PLUGIN_BRIDGE_EXE", plugin_bridge_path);
-    test_step.dependOn(&run_clap_integration_test.step);
+    if (test_filter == null) test_step.dependOn(&run_clap_integration_test.step);
 
     // Drives `Bridge` directly against the same CLAP test plugin, killing
     // (SIGKILL) or freezing (SIGSTOP) the child process from outside to
@@ -394,7 +402,7 @@ pub fn build(b: *std.Build) void {
     run_crash_hang_test.addArtifactArg(clap_test_plugin);
     run_crash_hang_test.step.dependOn(&install_plugin_bridge.step);
     run_crash_hang_test.setEnvironmentVariable("WSTUDIO_PLUGIN_BRIDGE_EXE", plugin_bridge_path);
-    test_step.dependOn(&run_crash_hang_test.step);
+    if (test_filter == null) test_step.dependOn(&run_crash_hang_test.step);
 
     const vst3_test_plugin = b.addLibrary(.{
         .name = "wstudio-vst3-test",
@@ -431,7 +439,7 @@ pub fn build(b: *std.Build) void {
     run_vst3_integration_test.addDirectoryArg(wf.getDirectory().path(b, "wstudio-test.vst3"));
     run_vst3_integration_test.step.dependOn(&install_plugin_bridge.step);
     run_vst3_integration_test.setEnvironmentVariable("WSTUDIO_PLUGIN_BRIDGE_EXE", plugin_bridge_path);
-    test_step.dependOn(&run_vst3_integration_test.step);
+    if (test_filter == null) test_step.dependOn(&run_vst3_integration_test.step);
 
     const check_step = b.step("check", "Build wstudio and run all tests");
     check_step.dependOn(&exe.step);
