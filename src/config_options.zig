@@ -28,6 +28,7 @@ pub const TuiTheme = enum {
     graphite,
     graphite_light,
     umbra,
+    umbra_light,
     catppuccin_mocha,
     catppuccin_latte,
     dracula,

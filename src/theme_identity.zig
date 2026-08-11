@@ -155,7 +155,12 @@ pub const graphite_light: Identity = .{
     .tracks = trackColors(0xe1e1e7, 0xb5b5bc, 0x1d1d18, 0xde6870, 0xb6bd5f, 0x65aaa0, 0xd86f61, 0x8b8abd, 0xc787ac),
 };
 
-/// The original violet GUI palette, restored as an optional theme.
+/// The original violet GUI palette, restored as an optional theme. Now kept in
+/// sync with the standalone Umbra scheme's canonical palette (`palette/
+/// umbra.toml` in that repo, the file its terminal/editor/browser ports all
+/// read): surfaces and text are its `backgrounds`/`foregrounds`, focus is
+/// `iris`, modulation is `mauve`, and the track rotation is its `ansi` block
+/// rather than approximations of it.
 pub const umbra: Identity = .{
     .bg0 = 0x0c040f,
     .bg1 = 0x160a19,
@@ -176,8 +181,39 @@ pub const umbra: Identity = .{
     .danger = 0xb97873,
     .rhythm = 0xc1a77b,
     .audio = 0x7cb0af,
-    .blue = 0x7899c1,
-    .tracks = trackColors(0x0c040f, 0x553e5a, 0xd9d1da, 0xb97873, 0xc1a77b, 0x86b978, 0x7cb0af, 0x7899c1, 0xc68fc1),
+    .blue = 0x6ca0be,
+    .tracks = trackColors(0x0c040f, 0x553e5a, 0xd9d1da, 0xb97873, 0xc1a77b, 0x8daf8e, 0x7cb0af, 0x6ca0be, 0xb77e9e),
+};
+
+/// Umbra's light counterpart, from the same upstream palette
+/// (`palette/umbra-light.toml`). Its `bg0` is the lightest tone there - the
+/// void behind everything, mirrored by role rather than by luminance - so the
+/// three lightest tones are reordered here into this file's surface roles,
+/// where `bg1` is the window and `bg0` the canvas recessed behind it. Accents
+/// are the upstream light tier, dark enough to carry text on paper.
+pub const umbra_light: Identity = .{
+    .light = true,
+    .bg0 = 0xefe8f1,
+    .bg1 = 0xf6f1f7,
+    .bg2 = 0xfbf7fc,
+    .bg3 = 0xe5dae8,
+    .bg4 = 0xd4c3d8,
+    .bg5 = 0xbaa4c0,
+    .fg0 = 0x241a28,
+    .fg1 = 0x47394b,
+    .fg2 = 0x665670,
+    .fg3 = 0x82718a,
+    .line = 0xddd0e0,
+    .line_soft = 0xece3ee,
+    .focus = 0x74408a,
+    .focus_soft = 0x8a5c9c,
+    .track_cursor = 0x241a28,
+    .modulation = 0x8e4a88,
+    .danger = 0xa34a44,
+    .rhythm = 0x856428,
+    .audio = 0x2b7370,
+    .blue = 0x2e6b8d,
+    .tracks = trackColors(0xefe8f1, 0xbaa4c0, 0x241a28, 0xa34a44, 0x856428, 0x4d7351, 0x2b7370, 0x2e6b8d, 0x99416a),
 };
 
 /// Adapt an upstream editor palette to wstudio's semantic surface and accent
@@ -238,6 +274,7 @@ pub const Name = enum {
     graphite,
     graphite_light,
     umbra,
+    umbra_light,
     catppuccin_mocha,
     catppuccin_latte,
     dracula,
@@ -328,6 +365,7 @@ pub fn get(name: Name) *const Identity {
         .graphite => &graphite,
         .graphite_light => &graphite_light,
         .umbra => &umbra,
+        .umbra_light => &umbra_light,
         .catppuccin_mocha => &catppuccin_mocha,
         .catppuccin_latte => &catppuccin_latte,
         .dracula => &dracula,

@@ -194,7 +194,7 @@ without a row.
 ### Theming and highlights
 
 One named color identity per built-in theme (`src/theme_identity.zig`: `patina`,
-`patina_light`, `graphite`, `graphite_light`, `umbra`), rendered through two different
+`patina_light`, `graphite`, `graphite_light`, `umbra`, `umbra_light`), rendered through two different
 pipelines - Neovim's `:colorscheme` + highlight-group split, but with the
 "one highlight table, many things read it" idea stretched across frontends
 instead of across syntax groups. wstudio's own `:colorscheme` (below) picks

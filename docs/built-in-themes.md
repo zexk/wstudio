@@ -16,9 +16,14 @@ need to be recreated in `init.lua`. Use a name with `:colorscheme`,
 | `solarized_light` | Solarized | light |
 | `tokyonight` | TokyoNight | night |
 
-The original `patina`, `patina_light`, `graphite`, `graphite_light`, and
-`umbra` themes remain available. The TUI additionally accepts `none`, which
-leaves the terminal palette untouched.
+The original `patina`, `patina_light`, `graphite`, `graphite_light`, `umbra`,
+and `umbra_light` themes remain available. The TUI additionally accepts
+`none`, which leaves the terminal palette untouched.
+
+`umbra` and `umbra_light` track the standalone Umbra colorscheme, whose
+canonical palettes (`palette/umbra.toml` and `palette/umbra-light.toml`) also
+drive its terminal, editor, and browser ports. wstudio reads the same values,
+so a desktop themed with Umbra and wstudio running inside it agree.
 
 These are wstudio adaptations, not official ports or endorsements. Proper
 project names are used to identify palette compatibility. Config names stay
