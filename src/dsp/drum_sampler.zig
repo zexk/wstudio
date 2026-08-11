@@ -1305,19 +1305,25 @@ pub const DrumMachine = struct {
         for (tune, 0..) |t, i| {
             const pad = if (self.pads[i]) |*s| s else continue;
             pad.rename(t.name);
-            pad.pad.gain = t.gain;
-            pad.pad.pan = t.pan;
-            pad.pad.pitch_semitones = t.pitch_semitones;
-            pad.pad.attack_s = t.attack_s;
-            pad.pad.decay_s = t.decay_s;
-            pad.pad.sustain = t.sustain;
-            pad.pad.release_s = t.release_s;
-            pad.pad.env_curve = t.env_curve;
-            pad.pad.fade_in_s = t.fade_in_s;
-            pad.pad.fade_out_s = t.fade_out_s;
-            pad.pad.fade_curve = t.fade_curve;
-            pad.pad.stretch_ratio = t.stretch_ratio;
-            pad.pad.filter = t.filter;
+            // A saved kit is a hand-editable JSON file, so every value goes
+            // through setParamAbsolute's clamp/non-finite guard rather than
+            // landing raw in fields the audio thread reads. Ids are
+            // dsp/pad.zig's shared table.
+            // zig fmt: off
+            pad.setParamAbsolute(7,  t.gain);
+            pad.setParamAbsolute(8,  t.pan);
+            pad.setParamAbsolute(pad_mod.pitch_id, t.pitch_semitones);
+            pad.setParamAbsolute(3,  t.attack_s);
+            pad.setParamAbsolute(4,  t.decay_s);
+            pad.setParamAbsolute(5,  t.sustain);
+            pad.setParamAbsolute(6,  t.release_s);
+            pad.setParamAbsolute(pad_mod.env_curve_id, t.env_curve);
+            pad.setParamAbsolute(10, t.fade_in_s);
+            pad.setParamAbsolute(11, t.fade_out_s);
+            pad.setParamAbsolute(pad_mod.fade_curve_id, t.fade_curve);
+            pad.setParamAbsolute(pad_mod.stretch_id, t.stretch_ratio);
+            pad.setParamAbsolute(13, t.filter);
+            // zig fmt: on
             pad.pad.gate = t.gate;
             self.choke_group[i] = t.choke_group;
         }
@@ -2665,6 +2671,25 @@ test "automation targets one drum pad parameter" {
     dm.handleEvent(.{ .automation_param = .{ .id = id, .value = 0.25 } });
     try std.testing.expectApproxEqAbs(@as(f32, 0.25), dm.pads[2].?.pad.gain, 1e-6);
     try std.testing.expectApproxEqAbs(other_gain, dm.pads[1].?.pad.gain, 1e-6);
+}
+
+test "applying a hand-edited kit clamps its values" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try testMachine(&transport);
+    defer dm.deinit();
+
+    var tune: [8]DrumMachine.PadTune = [_]DrumMachine.PadTune{.{}} ** 8;
+    tune[0] = .{ .name = "kick", .gain = 500, .pan = -9, .pitch_semitones = 99, .stretch_ratio = 0, .release_s = std.math.inf(f32), .env_curve = -8 };
+    dm.applyPadTune(&tune);
+
+    const p = &dm.pads[0].?.pad;
+    try std.testing.expectApproxEqAbs(@as(f32, 2.0), p.gain, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -1.0), p.pan, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 24.0), p.pitch_semitones, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), p.stretch_ratio, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -1.0), p.env_curve, 1e-6);
+    // Non-finite is dropped, not clamped: the previous value survives.
+    try std.testing.expect(std.math.isFinite(p.release_s));
 }
 
 test "region trim shortens the voice" {
