@@ -4848,23 +4848,23 @@ test "synth editor esc returns to tracks" {
     try std.testing.expectEqual(AppView.tracks, app.view);
 }
 
-test "synth editor jk moves cursor, hl adjusts waveform" {
+test "synth editor jk moves cursor, hl adjusts first parameter" {
     var app = try testApp();
     defer app.deinit();
 
     app.handleKey(.enter, 0);
-    try std.testing.expectEqual(@as(u8, 0), app.synth_cursor);
+    try std.testing.expectEqual(@as(u8, 2), app.synth_cursor);
 
     var block: [64]types.Sample = undefined;
     app.handleKey(.{ .char = 'l' }, 0);
     app.session.engine.process(&block);
     const synth = &app.session.racks.items[0].instrument.poly_synth;
-    try std.testing.expect(synth.waveform != .saw);
+    try std.testing.expect(synth.detune_cents != 0.0);
 
-    // AMP ENV's "attack" (id 16) is the MAIN subview's 49th nav entry now
+    // AMP ENV's "attack" (id 16) is the MAIN subview's 43rd nav entry now
     // that OSC A/B/C, SUB, NOISE, MOD, and FILTER 1/2 all sort ahead of it
     // - see synth_layout.zig's main_sections declaration order.
-    for (0..49) |_| app.handleKey(.{ .char = 'j' }, 0);
+    for (0..43) |_| app.handleKey(.{ .char = 'j' }, 0);
     try std.testing.expectEqual(@as(u8, 16), app.synth_cursor);
 
     const old_attack = synth.attack_s;
@@ -4879,9 +4879,8 @@ test "wt.table h/l picks a bundled wavetable, wrapping past both ends" {
     defer app.deinit();
 
     app.handleKey(.enter, 0);
-    // OSC A's 11th entry: waveform, pls.width, detune, unison, uni.det,
-    // spread, uni.mode, warp, warp amt, wt.pos, wt.table.
-    for (0..10) |_| app.handleKey(.{ .char = 'j' }, 0);
+    // OSC A's last entry: waveform table, after position.
+    for (0..8) |_| app.handleKey(.{ .char = 'j' }, 0);
     try std.testing.expectEqual(@as(u8, 251), app.synth_cursor);
 
     const synth = &app.session.racks.items[0].instrument.poly_synth;
@@ -5075,14 +5074,13 @@ test "synth editor g/G jump to the first/last parameter" {
 
     app.handleKey(.enter, 0);
     // Just a "did we move off the start" sanity check before testing g/G -
-    // 11 j's lands on OSC B's first entry (id 6, on/off) now that OSC A's
-    // 11 entries (waveform..wt.table) sort ahead of it.
-    for (0..11) |_| app.handleKey(.{ .char = 'j' }, 0);
+    // 9 j's lands on OSC B's first entry (id 6, on/off).
+    for (0..9) |_| app.handleKey(.{ .char = 'j' }, 0);
     try std.testing.expectEqual(@as(u8, 6), app.synth_cursor);
 
     app.handleKey(.{ .char = 'g' }, 0);
     app.handleKey(.{ .char = 'g' }, 0);
-    try std.testing.expectEqual(@as(u8, 0), app.synth_cursor);
+    try std.testing.expectEqual(@as(u8, 2), app.synth_cursor);
     app.handleKey(.{ .char = 'g' }, 0);
     app.handleKey(.{ .char = 'G' }, 0);
     // Last id of the "main" subview: OUT's "gain" (id 38) - the last
@@ -5095,10 +5093,10 @@ test "synth editor param nudges coalesce into one undo step, u/U round-trips" {
     defer app.deinit();
     var block: [64]types.Sample = undefined;
 
-    app.handleKey(.enter, 0); // cursor 0 = synth
-    // 49 j's: land on attack (id 16), the AMP ENV section's first entry -
+    app.handleKey(.enter, 0); // cursor 2 = synth
+    // 43 j's: land on attack (id 16), the AMP ENV section's first entry -
     // see synth_layout.zig's main_sections declaration order.
-    for (0..49) |_| app.handleKey(.{ .char = 'j' }, 0); // land on attack (a numeric param)
+    for (0..43) |_| app.handleKey(.{ .char = 'j' }, 0); // land on attack (a numeric param)
     try std.testing.expectEqual(@as(u8, 16), app.synth_cursor);
 
     const synth = &app.session.racks.items[0].instrument.poly_synth;
@@ -5130,10 +5128,10 @@ test "param undo restores the exact value even when a nudge hit the clamp" {
     defer app.deinit();
     var block: [64]types.Sample = undefined;
 
-    app.handleKey(.enter, 0); // cursor 0 = synth
-    // 51 j's: land on sustain (id 18), AMP ENV's 3rd entry (attack, decay,
+    app.handleKey(.enter, 0); // cursor 2 = synth
+    // 45 j's: land on sustain (id 18), AMP ENV's 3rd entry (attack, decay,
     // sustain - see synth_layout.zig's main_sections).
-    for (0..51) |_| app.handleKey(.{ .char = 'j' }, 0); // sustain (0..1, clamps)
+    for (0..45) |_| app.handleKey(.{ .char = 'j' }, 0); // sustain (0..1, clamps)
     try std.testing.expectEqual(@as(u8, 18), app.synth_cursor);
 
     const synth = &app.session.racks.items[0].instrument.poly_synth;
@@ -5162,9 +5160,8 @@ test "param undo round-trips a coalesced toggle batch (any nonzero delta = one f
     var block: [64]types.Sample = undefined;
 
     app.handleKey(.enter, 0);
-    // 11 j's: land on osc_b_on (id 6), OSC B's first entry - OSC A's 11
-    // entries (waveform..wt.table) sort ahead of it now.
-    for (0..11) |_| app.handleKey(.{ .char = 'j' }, 0); // osc_b_on (a toggle)
+    // 9 j's: land on osc_b_on (id 6), OSC B's first entry.
+    for (0..9) |_| app.handleKey(.{ .char = 'j' }, 0); // osc_b_on (a toggle)
     try std.testing.expectEqual(@as(u8, 6), app.synth_cursor);
 
     const synth = &app.session.racks.items[0].instrument.poly_synth;
@@ -5191,8 +5188,8 @@ test "synth editor param nudge flushes as its own step when the cursor moves off
     var block: [64]types.Sample = undefined;
 
     app.handleKey(.enter, 0);
-    // 49 j's: land on attack (id 16) - see synth_layout.zig's main_sections.
-    for (0..49) |_| app.handleKey(.{ .char = 'j' }, 0); // attack
+    // 43 j's: land on attack (id 16) - see synth_layout.zig's main_sections.
+    for (0..43) |_| app.handleKey(.{ .char = 'j' }, 0); // attack
     const synth = &app.session.racks.items[0].instrument.poly_synth;
     app.session.engine.process(&block);
     const attack_before = synth.attack_s;
@@ -8091,13 +8088,12 @@ test "mouse scroll over a synth param row selects and nudges it" {
 
     const old_detune = app.session.racks.items[0].instrument.poly_synth.detune_cents;
 
-    // OSC A's "detune" (id 2) is the MAIN subview's 3rd content row (0:wave,
-    // 1:pls.width, 2:detune - see synth_layout.zig's main_sections); +1 for
-    // the header row above it, +1 again since this "row" param is 1-based
+    // OSC A's "detune" (id 2) is MAIN subview's first content row; +1 for
+    // header row above it, +1 again since this "row" param is 1-based
     // content-row numbering (row 1 == the first line below the title - see
     // editors/synth.zig's paramAtRow). synth_scroll starts at 0, so this
     // small a row is on-screen even at this test's 24-row terminal height.
-    const row = app_mod.content_top + 4;
+    const row = app_mod.content_top + 2;
     app.handleMouse(.{ .x = 20, .y = row, .button = .none, .kind = .scroll_up }, 80, 24, 0);
     try std.testing.expectEqual(@as(u8, 2), app.synth_cursor);
 
@@ -8879,7 +8875,7 @@ test "synth preset audition plays C3 and cancel restores the original patch" {
     try std.testing.expectEqual(@as(u7, 48), app.note_offs[0].note);
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "C3") != null);
     const auditioned = app.session.racks.items[0].instrument.poly_synth.toPatch();
-    try std.testing.expect(auditioned.waveform != original.waveform or auditioned.filter_cutoff != original.filter_cutoff);
+    try std.testing.expect(auditioned.wt_pos != original.wt_pos or auditioned.filter_cutoff != original.filter_cutoff);
 
     app.handleKey(.escape, 124);
     try std.testing.expectEqual(AppView.synth_editor, app.view);

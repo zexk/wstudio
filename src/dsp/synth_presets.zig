@@ -14,7 +14,7 @@
 //!
 //! Macro convention (all four default to 0, so every patch sounds stock
 //! until a knob moves): MACRO 1 = brightness (cutoff; the vowel scan on
-//! formant patches), MACRO 2 = timbre motion (FM depth, pulse width, warp,
+//! formant patches), MACRO 2 = timbre motion (FM depth, waveform position, warp,
 //! wavetable pos, resonance), MACRO 3 = space (delay/reverb/chorus/phaser
 //! mix), MACRO 4 = grit (dist/crush mix). Only routes that fit the sound
 //! are wired, but every preset except init carries at least one.
@@ -73,8 +73,8 @@ pub const presets = [_]Preset{
     // warm-pad - HP'd low end, ensemble chorus + hall, macro 1 as a
     // brightness ride, sub-octave sine for body
     .{ .name = "warm-pad", .category = "pad", .tags = &.{ "wstudio", "trance" }, .patch = .{
-        .waveform = .saw, .unison = 6, .unison_detune = 18.0, .unison_spread = 0.7,
-        .osc_c_on = true, .osc_c_waveform = .sine, .osc_c_semi = -12.0, .osc_c_level = 0.35,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 6, .unison_detune = 18.0, .unison_spread = 0.7,
+        .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.0, .osc_c_semi = -12.0, .osc_c_level = 0.35,
         .attack_s = 0.9, .decay_s = 0.6, .sustain = 0.85, .release_s = 1.4, .env_curve = -0.3,
         .filter_type = .lp, .filter_cutoff = 2800.0, .filter_res = 0.12,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 120.0, .filter_routing = .series,
@@ -91,7 +91,7 @@ pub const presets = [_]Preset{
 
     // pluck - ladder filter, velocity + keytrack into cutoff, dotted echo
     .{ .name = "pluck", .category = "pluck", .tags = &.{ "wstudio", "trance" }, .patch = .{
-        .waveform = .triangle, .attack_s = 0.001, .decay_s = 0.18, .sustain = 0.0, .release_s = 0.12, .env_curve = 0.65,
+        .wt_table = .basic, .wt_pos = 0.3333333, .attack_s = 0.001, .decay_s = 0.18, .sustain = 0.0, .release_s = 0.12, .env_curve = 0.65,
         .filter_type = .ladder, .filter_cutoff = 900.0, .filter_res = 0.15,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.15, .fenv_sustain = 0.0, .fenv_release_s = 0.1, .fenv_curve = 0.7,
         .mod_matrix = mods(&.{
@@ -108,7 +108,7 @@ pub const presets = [_]Preset{
     // sub-bass - pure sine kept pure; light drive adds the harmonics small
     // speakers need, keytrack keeps the top of the range from dulling
     .{ .name = "sub-bass", .category = "bass", .tags = &.{ "wstudio", "house" }, .patch = .{
-        .waveform = .sine, .voice_mode = .mono, .glide_s = 0.0,
+        .wt_table = .basic, .wt_pos = 0.0, .voice_mode = .mono, .glide_s = 0.0,
         .attack_s = 0.002, .decay_s = 0.05, .sustain = 1.0, .release_s = 0.15,
         .filter_type = .lp, .filter_cutoff = 500.0, .filter_res = 0.0,
         .sub_level = 0.8, .sub_shape = .sine,
@@ -125,7 +125,7 @@ pub const presets = [_]Preset{
     // acid-bass - diode ladder (the 303-family filter), overdriven, with
     // velocity accent into cutoff like the real box's accent knob
     .{ .name = "acid-bass", .category = "bass", .tags = &.{ "wstudio", "acid" }, .patch = .{
-        .waveform = .saw, .voice_mode = .mono, .glide_s = 0.04,
+        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.04,
         .attack_s = 0.001, .decay_s = 0.25, .sustain = 0.2, .release_s = 0.08,
         .filter_type = .diode, .filter_cutoff = 300.0, .filter_res = 0.75, .filter_drive = 5.5,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.22, .fenv_sustain = 0.0, .fenv_release_s = 0.1, .fenv_curve = 0.6,
@@ -145,9 +145,9 @@ pub const presets = [_]Preset{
     // brass-stab - third osc a sub octave down for weight, velocity opens
     // the filter for played dynamics
     .{ .name = "brass-stab", .category = "stab", .tags = &.{ "wstudio", "house" }, .patch = .{
-        .waveform = .saw, .unison = 2, .unison_detune = 8.0,
-        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_semi = 0.0, .osc_b_detune_cents = 9.0, .osc_b_level = 0.6,
-        .osc_c_on = true, .osc_c_waveform = .saw, .osc_c_semi = -12.0, .osc_c_level = 0.4,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 2, .unison_detune = 8.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 9.0, .osc_b_level = 0.6,
+        .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.6666667, .osc_c_semi = -12.0, .osc_c_level = 0.4,
         .attack_s = 0.02, .decay_s = 0.3, .sustain = 0.6, .release_s = 0.2, .env_curve = 0.35,
         .filter_type = .lp, .filter_cutoff = 700.0, .filter_res = 0.1,
         .fenv_attack_s = 0.015, .fenv_decay_s = 0.35, .fenv_sustain = 0.3, .fenv_release_s = 0.2, .fenv_curve = 0.4,
@@ -164,7 +164,7 @@ pub const presets = [_]Preset{
     // supersaw-lead - HP'd like the JP-8000's stack, macro 1 rides the
     // cutoff, wash of delay + reverb baked in
     .{ .name = "supersaw-lead", .category = "lead", .tags = &.{ "wstudio", "trance" }, .patch = .{
-        .waveform = .saw, .unison = 8, .unison_detune = 22.0, .unison_spread = 0.85,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 8, .unison_detune = 22.0, .unison_spread = 0.85,
         .attack_s = 0.01, .decay_s = 0.2, .sustain = 0.8, .release_s = 0.3,
         .filter_type = .lp, .filter_cutoff = 6500.0, .filter_res = 0.15,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 180.0, .filter_routing = .series,
@@ -182,7 +182,7 @@ pub const presets = [_]Preset{
     // bell-fm - velocity drives FM depth (hard hits ring brighter), plate
     // reverb tail
     .{ .name = "bell-fm", .category = "keys", .tags = &.{ "wstudio", "trance" }, .patch = .{
-        .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_detune_cents = 7.0,
+        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_detune_cents = 7.0,
         .mod_mode = .fm_b_to_a, .mod_amount = 3.5,
         .attack_s = 0.001, .decay_s = 1.2, .sustain = 0.0, .release_s = 1.8, .env_curve = 0.72,
         .filter_type = .lp, .filter_cutoff = 12_000.0, .filter_res = 0.0,
@@ -199,7 +199,7 @@ pub const presets = [_]Preset{
     // wobble-bass - wavetable osc so the LFO scans timbre in step with the
     // filter wobble; ladder filter + drive for the low-end snarl
     .{ .name = "wobble-bass", .category = "bass", .tags = &.{ "wstudio", "dubstep" }, .patch = .{
-        .waveform = .wavetable, .wt_table = .spectral, .wt_pos = 0.55, .voice_mode = .mono, .glide_s = 0.02,
+        .wt_table = .spectral, .wt_pos = 0.55, .voice_mode = .mono, .glide_s = 0.02,
         .sub_level = 0.5,
         .attack_s = 0.005, .decay_s = 0.1, .sustain = 1.0, .release_s = 0.15,
         .filter_type = .ladder, .filter_cutoff = 400.0, .filter_res = 0.3,
@@ -236,7 +236,7 @@ pub const presets = [_]Preset{
     // wind-riser - chaos LFO stirs the bandpass, ENV 3's slow ramp bends
     // pitch upward with the swell, flanger for the jet whoosh
     .{ .name = "wind-riser", .category = "fx", .tags = &.{ "wstudio", "trance" }, .patch = .{
-        .waveform = .triangle, .noise_level = 0.5, .noise_color = 0.35,
+        .wt_table = .basic, .wt_pos = 0.3333333, .noise_level = 0.5, .noise_color = 0.35,
         .attack_s = 2.5, .decay_s = 0.5, .sustain = 0.9, .release_s = 2.0,
         .filter_type = .bp, .filter_cutoff = 1200.0, .filter_res = 0.3,
         .lfo_shape = .chaos, .lfo_rate_hz = 0.5,
@@ -257,7 +257,7 @@ pub const presets = [_]Preset{
     // engine's default fenv timing which is already attack-fast/decay-fast),
     // chorus like the suitcase's stereo vibrato
     .{ .name = "rhodes-keys", .category = "keys", .tags = &.{ "wstudio", "hip-hop" }, .patch = .{
-        .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 14.0, .osc_b_detune_cents = 3.0,
+        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 14.0, .osc_b_detune_cents = 3.0,
         .mod_mode = .fm_b_to_a, .mod_amount = 1.0,
         .attack_s = 0.002, .decay_s = 1.4, .sustain = 0.25, .release_s = 0.9, .env_curve = 0.55,
         .filter_type = .lp, .filter_cutoff = 3800.0, .filter_res = 0.05,
@@ -277,7 +277,7 @@ pub const presets = [_]Preset{
     // upright-bass - finger-thump noise transient, velocity into cutoff,
     // gentle compression to even out the notes
     .{ .name = "upright-bass", .category = "bass", .tags = &.{ "wstudio", "hip-hop" }, .patch = .{
-        .waveform = .triangle, .voice_mode = .mono, .glide_s = 0.0,
+        .wt_table = .basic, .wt_pos = 0.3333333, .voice_mode = .mono, .glide_s = 0.0,
         .noise_level = 0.04, .noise_color = 0.2,
         .attack_s = 0.005, .decay_s = 0.12, .sustain = 0.6, .release_s = 0.25, .env_curve = 0.4,
         .filter_type = .ladder, .filter_cutoff = 650.0, .filter_res = 0.05,
@@ -295,8 +295,8 @@ pub const presets = [_]Preset{
     // dusty-pad - bit-crush dust + tape-wobble pitch drift from LFO 2,
     // HP'd so the haze sits above the bassline
     .{ .name = "dusty-pad", .category = "pad", .tags = &.{ "wstudio", "hip-hop" }, .patch = .{
-        .waveform = .saw, .unison = 4, .unison_detune = 10.0, .unison_spread = 0.5,
-        .osc_b_on = true, .osc_b_waveform = .triangle, .osc_b_level = 0.5,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 4, .unison_detune = 10.0, .unison_spread = 0.5,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.3333333, .osc_b_level = 0.5,
         .noise_level = 0.08, .noise_color = 0.5,
         .attack_s = 1.2, .decay_s = 0.8, .sustain = 0.6, .release_s = 1.6,
         .filter_type = .lp, .filter_cutoff = 1800.0, .filter_res = 0.1,
@@ -319,9 +319,9 @@ pub const presets = [_]Preset{
     // reese-bass - third saw widens the beat pattern, ladder filter, macro 1
     // as the DJ-style cutoff ride, macro 2 blurs the detune wider
     .{ .name = "reese-bass", .category = "bass", .tags = &.{ "wstudio", "dnb" }, .patch = .{
-        .waveform = .saw, .unison = 2, .unison_detune = 16.0, .unison_spread = 0.6,
-        .osc_b_on = true, .osc_b_waveform = .saw, .osc_b_semi = 0.0, .osc_b_detune_cents = 14.0, .osc_b_level = 0.9,
-        .osc_c_on = true, .osc_c_waveform = .saw, .osc_c_semi = 0.0, .osc_c_detune_cents = -11.0, .osc_c_level = 0.7,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 2, .unison_detune = 16.0, .unison_spread = 0.6,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_semi = 0.0, .osc_b_detune_cents = 14.0, .osc_b_level = 0.9,
+        .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.6666667, .osc_c_semi = 0.0, .osc_c_detune_cents = -11.0, .osc_c_level = 0.7,
         .voice_mode = .mono, .glide_s = 0.02,
         .attack_s = 0.006, .decay_s = 0.2, .sustain = 1.0, .release_s = 0.2,
         .filter_type = .ladder, .filter_cutoff = 700.0, .filter_res = 0.2, .filter_drive = 3.0,
@@ -338,8 +338,8 @@ pub const presets = [_]Preset{
     // neuro-bass - wavetable osc with sample&hold timbre flicker, formant
     // filter 2 doing the vowel talk, OTT + drive on top
     .{ .name = "neuro-bass", .category = "bass", .tags = &.{ "wstudio", "neurofunk" }, .patch = .{
-        .waveform = .wavetable, .wt_table = .formant, .wt_pos = 0.65, .voice_mode = .mono, .glide_s = 0.01,
-        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 0.0, .osc_b_detune_cents = 6.0, .osc_b_level = 1.0,
+        .wt_table = .formant, .wt_pos = 0.65, .voice_mode = .mono, .glide_s = 0.01,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 6.0, .osc_b_level = 1.0,
         .mod_mode = .fm_b_to_a, .mod_amount = 4.5,
         .attack_s = 0.004, .decay_s = 0.18, .sustain = 0.9, .release_s = 0.12,
         .filter_type = .ladder, .filter_cutoff = 550.0, .filter_res = 0.45, .filter_drive = 4.0,
@@ -365,7 +365,7 @@ pub const presets = [_]Preset{
     // psy-bass - diode filter squelch, velocity + keytrack accents, a hair
     // of drive for the mid presence
     .{ .name = "psy-bass", .category = "bass", .tags = &.{ "wstudio", "psytrance" }, .patch = .{
-        .waveform = .triangle, .voice_mode = .mono, .glide_s = 0.0,
+        .wt_table = .basic, .wt_pos = 0.3333333, .voice_mode = .mono, .glide_s = 0.0,
         .attack_s = 0.002, .decay_s = 0.11, .sustain = 0.0, .release_s = 0.05,
         .filter_type = .diode, .filter_cutoff = 420.0, .filter_res = 0.15, .filter_drive = 4.5,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.09, .fenv_sustain = 0.0, .fenv_release_s = 0.05, .fenv_curve = 0.7,
@@ -383,7 +383,7 @@ pub const presets = [_]Preset{
 
     // psy-lead - diode squelch + fast triplet-ish echo
     .{ .name = "psy-lead", .category = "lead", .tags = &.{ "wstudio", "psytrance" }, .patch = .{
-        .waveform = .saw, .unison = 3, .unison_detune = 12.0, .unison_spread = 0.5,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_detune = 12.0, .unison_spread = 0.5,
         .voice_mode = .mono, .glide_s = 0.03,
         .attack_s = 0.01, .decay_s = 0.25, .sustain = 0.7, .release_s = 0.2,
         .filter_type = .diode, .filter_cutoff = 1400.0, .filter_res = 0.6, .filter_drive = 3.0,
@@ -402,8 +402,8 @@ pub const presets = [_]Preset{
     // --- Techno / Detroit ---
     // detroit-stab - velocity-sensitive filter hit, short room tail
     .{ .name = "detroit-stab", .category = "stab", .tags = &.{ "wstudio", "techno" }, .patch = .{
-        .waveform = .saw, .unison = 2, .unison_detune = 10.0,
-        .osc_b_on = true, .osc_b_waveform = .saw, .osc_b_semi = 7.0, .osc_b_detune_cents = 6.0, .osc_b_level = 0.7,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 2, .unison_detune = 10.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_semi = 7.0, .osc_b_detune_cents = 6.0, .osc_b_level = 0.7,
         .attack_s = 0.008, .decay_s = 0.4, .sustain = 0.0, .release_s = 0.25, .env_curve = 0.55,
         .filter_type = .lp, .filter_cutoff = 2200.0, .filter_res = 0.2,
         .fenv_attack_s = 0.005, .fenv_decay_s = 0.35, .fenv_sustain = 0.0, .fenv_release_s = 0.2, .fenv_curve = 0.6,
@@ -419,7 +419,7 @@ pub const presets = [_]Preset{
 
     // techno-bass - ladder filter + drive for the warehouse thump
     .{ .name = "techno-bass", .category = "bass", .tags = &.{ "wstudio", "techno" }, .patch = .{
-        .waveform = .saw, .voice_mode = .mono, .glide_s = 0.0,
+        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.0,
         .attack_s = 0.002, .decay_s = 0.14, .sustain = 0.0, .release_s = 0.06,
         .filter_type = .ladder, .filter_cutoff = 380.0, .filter_res = 0.3, .filter_drive = 5.0,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.12, .fenv_sustain = 0.0, .fenv_release_s = 0.05,
@@ -439,9 +439,9 @@ pub const presets = [_]Preset{
     // organ-bass - harmonic-series unison stacks sine drawbars over the
     // square foundation; macro 2 pulls the fifth drawbar in
     .{ .name = "organ-bass", .category = "bass", .tags = &.{ "wstudio", "deep-house" }, .patch = .{
-        .waveform = .square, .voice_mode = .mono, .glide_s = 0.0,
-        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.5,
-        .osc_c_on = true, .osc_c_waveform = .sine, .osc_c_semi = 19.0, .osc_c_level = 0.3,
+        .wt_table = .basic, .wt_pos = 1.0, .voice_mode = .mono, .glide_s = 0.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_level = 0.5,
+        .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.0, .osc_c_semi = 19.0, .osc_c_level = 0.3,
         .attack_s = 0.004, .decay_s = 0.1, .sustain = 0.9, .release_s = 0.1,
         .filter_type = .lp, .filter_cutoff = 900.0, .filter_res = 0.05, .filter_drive = 2.0,
         .sub_level = 0.4, .sub_shape = .sine,
@@ -456,7 +456,7 @@ pub const presets = [_]Preset{
     // disco-bass - velocity accents + bus-style compression for the octave
     // bounce
     .{ .name = "disco-bass", .category = "bass", .tags = &.{ "wstudio", "disco" }, .patch = .{
-        .waveform = .saw, .voice_mode = .mono, .glide_s = 0.02,
+        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.02,
         .attack_s = 0.004, .decay_s = 0.16, .sustain = 0.5, .release_s = 0.12,
         .filter_type = .lp, .filter_cutoff = 800.0, .filter_res = 0.15,
         .fenv_attack_s = 0.002, .fenv_decay_s = 0.14, .fenv_sustain = 0.2, .fenv_release_s = 0.1,
@@ -473,8 +473,8 @@ pub const presets = [_]Preset{
 
     // ladder-bass - finally an actual ladder filter behind the name
     .{ .name = "ladder-bass", .category = "bass", .tags = &.{ "wstudio", "funk" }, .patch = .{
-        .waveform = .saw, .voice_mode = .mono, .glide_s = 0.015,
-        .osc_b_on = true, .osc_b_waveform = .saw, .osc_b_semi = -12.0, .osc_b_level = 0.7,
+        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.015,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_semi = -12.0, .osc_b_level = 0.7,
         .attack_s = 0.003, .decay_s = 0.2, .sustain = 0.7, .release_s = 0.15,
         .filter_type = .ladder, .filter_cutoff = 600.0, .filter_res = 0.35, .filter_drive = 3.5,
         .fenv_attack_s = 0.002, .fenv_decay_s = 0.25, .fenv_sustain = 0.3, .fenv_release_s = 0.15,
@@ -490,7 +490,7 @@ pub const presets = [_]Preset{
     // funk-clav - the classic clav-through-phaser, velocity + keytrack
     // keep the top end percussive
     .{ .name = "funk-clav", .category = "keys", .tags = &.{ "wstudio", "funk" }, .patch = .{
-        .waveform = .square, .pulse_width = 0.35,
+        .wt_table = .basic, .wt_pos = 1.0,
         .attack_s = 0.002, .decay_s = 0.22, .sustain = 0.0, .release_s = 0.12, .env_curve = 0.72,
         .filter_type = .bp, .filter_cutoff = 1600.0, .filter_res = 0.35,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.2, .fenv_sustain = 0.0, .fenv_release_s = 0.1, .fenv_curve = 0.68,
@@ -508,7 +508,7 @@ pub const presets = [_]Preset{
     // --- Dub / reggae ---
     // dub-bass - ladder-rounded, a whisper of drive for warmth
     .{ .name = "dub-bass", .category = "bass", .tags = &.{ "wstudio", "dub" }, .patch = .{
-        .waveform = .sine, .voice_mode = .mono, .glide_s = 0.05,
+        .wt_table = .basic, .wt_pos = 0.0, .voice_mode = .mono, .glide_s = 0.05,
         .attack_s = 0.01, .decay_s = 0.3, .sustain = 0.9, .release_s = 0.3,
         .filter_type = .ladder, .filter_cutoff = 300.0, .filter_res = 0.1, .filter_drive = 2.2,
         .sub_level = 0.7, .sub_shape = .sine,
@@ -525,7 +525,7 @@ pub const presets = [_]Preset{
     // synthwave-lead - ENV 3 kicks a hard-sync sweep on every attack,
     // LFO 2 supplies the vibrato, outrun delay + chorus sheen
     .{ .name = "synthwave-lead", .category = "lead", .tags = &.{ "wstudio", "synthwave" }, .patch = .{
-        .waveform = .saw, .unison = 2, .unison_detune = 12.0, .unison_spread = 0.5,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 2, .unison_detune = 12.0, .unison_spread = 0.5,
         .warp_mode = .sync, .warp_amount = 0.08,
         .attack_s = 0.06, .decay_s = 0.3, .sustain = 0.8, .release_s = 0.4,
         .filter_type = .lp, .filter_cutoff = 4200.0, .filter_res = 0.1,
@@ -546,8 +546,8 @@ pub const presets = [_]Preset{
     // retro-brass - Juno-style chorus is the whole trick, velocity swells
     // the filter like breath pressure
     .{ .name = "retro-brass", .category = "brass", .tags = &.{ "wstudio", "synthwave" }, .patch = .{
-        .waveform = .saw, .unison = 2, .unison_detune = 9.0,
-        .osc_b_on = true, .osc_b_waveform = .saw, .osc_b_semi = 0.0, .osc_b_detune_cents = 8.0, .osc_b_level = 0.8,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 2, .unison_detune = 9.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_semi = 0.0, .osc_b_detune_cents = 8.0, .osc_b_level = 0.8,
         .attack_s = 0.08, .decay_s = 0.4, .sustain = 0.75, .release_s = 0.3, .env_curve = -0.25,
         .filter_type = .lp, .filter_cutoff = 3000.0, .filter_res = 0.12,
         .fenv_attack_s = 0.07, .fenv_decay_s = 0.5, .fenv_sustain = 0.5, .fenv_release_s = 0.3,
@@ -564,10 +564,10 @@ pub const presets = [_]Preset{
         .gain = 0.28,
     } },
 
-    // pwm-strings - real PWM at last: LFO 2 sweeps the pulse width while
-    // the ensemble chorus does the Solina shimmer
+    // pwm-strings keeps its preset name, but LFO 2 now morphs the basic
+    // waveform while the ensemble chorus does the Solina shimmer
     .{ .name = "pwm-strings", .category = "pad", .tags = &.{ "wstudio", "synthwave" }, .patch = .{
-        .waveform = .square, .pulse_width = 0.4, .unison = 4, .unison_detune = 12.0, .unison_spread = 0.6,
+        .wt_table = .basic, .wt_pos = 1.0, .unison = 4, .unison_detune = 12.0, .unison_spread = 0.6,
         .attack_s = 0.5, .decay_s = 0.6, .sustain = 0.8, .release_s = 1.0,
         .filter_type = .lp, .filter_cutoff = 3200.0, .filter_res = 0.08,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 150.0, .filter_routing = .series,
@@ -576,9 +576,9 @@ pub const presets = [_]Preset{
         .lfo2_rate_hz = 0.3, .lfo2_phase_offset = 0.25, .lfo2_slew_ms = 25.0,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = 21,  .depth = 0.05 },
-            .{ .source = .lfo2, .dest = 1,   .depth = 0.25 },
+            .{ .source = .lfo2, .dest = 185,   .depth = -0.25 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac2, .dest = 1,   .depth = 0.3 },
+            .{ .source = .mac2, .dest = 185,   .depth = -0.3 },
             .{ .source = .mac3, .dest = 179, .depth = 0.3 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.8, .fx_chorus_depth_ms = 6.0, .fx_chorus_mix = 0.5,
@@ -588,7 +588,7 @@ pub const presets = [_]Preset{
     // --- Future bass / EDM ---
     // future-chord - OTT is the genre's whole sound; kept wide and bright
     .{ .name = "future-chord", .category = "stab", .tags = &.{ "wstudio", "future-bass" }, .patch = .{
-        .waveform = .saw, .unison = 7, .unison_detune = 20.0, .unison_spread = 0.9,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 7, .unison_detune = 20.0, .unison_spread = 0.9,
         .attack_s = 0.02, .decay_s = 0.3, .sustain = 0.85, .release_s = 0.4, .env_curve = 0.25,
         .filter_type = .lp, .filter_cutoff = 5000.0, .filter_res = 0.12,
         .lfo_rate_hz = 5.0,
@@ -606,7 +606,7 @@ pub const presets = [_]Preset{
     // chip-lead - LFO 2 flickers the duty cycle like NES channel swaps,
     // bit-crush for the console DAC grit
     .{ .name = "chip-lead", .category = "lead", .tags = &.{ "wstudio", "chiptune" }, .patch = .{
-        .waveform = .square, .pulse_width = 0.5, .voice_mode = .mono, .glide_s = 0.0,
+        .wt_table = .basic, .wt_pos = 1.0, .voice_mode = .mono, .glide_s = 0.0,
         .attack_s = 0.001, .decay_s = 0.05, .sustain = 1.0, .release_s = 0.02,
         .filter_type = .lp, .filter_cutoff = 18_000.0, .filter_res = 0.0,
         .lfo_rate_hz = 6.0,
@@ -614,9 +614,9 @@ pub const presets = [_]Preset{
         .lfo_custom = waves(.{ .sine, .square, .sine }), .lfo_custom_count = waveCounts(.{ .sine, .square, .sine }),
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP, .depth = 0.1 },
-            .{ .source = .lfo2, .dest = 1,  .depth = 0.12 },
-            .{ .source = .alternate, .dest = 1, .depth = 0.08 },
-            .{ .source = .mac2, .dest = 1,  .depth = 0.3 },
+            .{ .source = .lfo2, .dest = 185,  .depth = -0.12 },
+            .{ .source = .alternate, .dest = 185, .depth = -0.08 },
+            .{ .source = .mac2, .dest = 185,  .depth = -0.3 },
             .{ .source = .mac4, .dest = 89, .depth = 0.4 },
         }),
         .fx_crush_on = true, .fx_crush_bits = 8.0, .fx_crush_rate = 4.0, .fx_crush_mix = 0.4,
@@ -625,7 +625,7 @@ pub const presets = [_]Preset{
 
     // chip-bass - crushed hard toward the NES triangle's 4-bit staircase
     .{ .name = "chip-bass", .category = "bass", .tags = &.{ "wstudio", "chiptune" }, .patch = .{
-        .waveform = .triangle, .voice_mode = .mono, .glide_s = 0.0,
+        .wt_table = .basic, .wt_pos = 0.3333333, .voice_mode = .mono, .glide_s = 0.0,
         .attack_s = 0.001, .decay_s = 0.08, .sustain = 0.9, .release_s = 0.03,
         .filter_type = .lp, .filter_cutoff = 18_000.0, .filter_res = 0.0,
         .mod_matrix = mods(&.{
@@ -638,12 +638,12 @@ pub const presets = [_]Preset{
     // chip-arp - the built-in arpeggiator does the work now: hold a chord
     // and it rips through two octaves at 12 Hz
     .{ .name = "chip-arp", .category = "pluck", .tags = &.{ "wstudio", "chiptune" }, .patch = .{
-        .waveform = .square, .pulse_width = 0.25, .voice_mode = .mono, .glide_s = 0.0,
+        .wt_table = .basic, .wt_pos = 1.0, .voice_mode = .mono, .glide_s = 0.0,
         .attack_s = 0.001, .decay_s = 0.06, .sustain = 0.0, .release_s = 0.02, .env_curve = 0.8,
         .filter_type = .lp, .filter_cutoff = 18_000.0, .filter_res = 0.0,
         .arp_on = true, .arp_mode = .up, .arp_octaves = 2, .arp_rate_hz = 12.0, .arp_sync = .n1_16, .arp_gate = 0.6,
         .mod_matrix = mods(&.{
-            .{ .source = .mac2, .dest = 1,  .depth = 0.3 },
+            .{ .source = .mac2, .dest = 185,  .depth = -0.3 },
             .{ .source = .mac4, .dest = 89, .depth = 0.4 },
         }),
         .fx_crush_on = true, .fx_crush_bits = 8.0, .fx_crush_rate = 3.0, .fx_crush_mix = 0.3,
@@ -654,8 +654,8 @@ pub const presets = [_]Preset{
     // ambient-drone - dual chaos LFOs: one stirs the filter, one drifts
     // the wavetable morph; big HP'd reverb wash
     .{ .name = "ambient-drone", .category = "pad", .tags = &.{ "wstudio", "ambient" }, .patch = .{
-        .waveform = .wavetable, .wt_table = .analog, .wt_pos = 0.25, .unison = 5, .unison_detune = 14.0, .unison_spread = 0.8,
-        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = -12.0, .osc_b_level = 0.5,
+        .wt_table = .analog, .wt_pos = 0.25, .unison = 5, .unison_detune = 14.0, .unison_spread = 0.8,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = -12.0, .osc_b_level = 0.5,
         .attack_s = 3.0, .decay_s = 1.0, .sustain = 0.85, .release_s = 3.5, .env_curve = -0.5,
         .filter_type = .lp, .filter_cutoff = 1600.0, .filter_res = 0.1,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 80.0, .filter_routing = .series,
@@ -674,7 +674,7 @@ pub const presets = [_]Preset{
 
     // glass-pad - velocity glints the FM depth, chorus + hall around it
     .{ .name = "glass-pad", .category = "pad", .tags = &.{ "wstudio", "ambient" }, .patch = .{
-        .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 19.0, .osc_b_detune_cents = 4.0, .osc_b_level = 0.6,
+        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 19.0, .osc_b_detune_cents = 4.0, .osc_b_level = 0.6,
         .mod_mode = .fm_b_to_a, .mod_amount = 1.2,
         .attack_s = 1.5, .decay_s = 1.5, .sustain = 0.6, .release_s = 2.5,
         .filter_type = .lp, .filter_cutoff = 6000.0, .filter_res = 0.0,
@@ -694,7 +694,7 @@ pub const presets = [_]Preset{
     // --- Trap ---
     // trap-bell - velocity rings the FM brighter, long dark reverb tail
     .{ .name = "trap-bell", .category = "keys", .tags = &.{ "wstudio", "trap" }, .patch = .{
-        .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_detune_cents = 4.0, .osc_b_level = 0.9,
+        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_detune_cents = 4.0, .osc_b_level = 0.9,
         .mod_mode = .fm_b_to_a, .mod_amount = 2.6,
         .voice_mode = .mono, .glide_s = 0.06,
         .attack_s = 0.001, .decay_s = 0.6, .sustain = 0.0, .release_s = 0.5, .env_curve = 0.75,
@@ -712,7 +712,7 @@ pub const presets = [_]Preset{
     // trap-808 - ENV 3 gives the 808 pitch knock (starts ~half an octave
     // sharp and drops in), drive adds the speaker-rattle harmonics
     .{ .name = "trap-808", .category = "bass", .tags = &.{ "wstudio", "trap" }, .patch = .{
-        .waveform = .sine, .voice_mode = .mono, .glide_s = 0.08,
+        .wt_table = .basic, .wt_pos = 0.0, .voice_mode = .mono, .glide_s = 0.08,
         .attack_s = 0.002, .decay_s = 0.8, .sustain = 0.4, .release_s = 0.6,
         .filter_type = .lp, .filter_cutoff = 400.0, .filter_res = 0.0,
         .sub_level = 0.8, .sub_shape = .sine,
@@ -730,9 +730,9 @@ pub const presets = [_]Preset{
     // hoover - ENV 3 does the upward "yoy" pitch scoop the mentasm is
     // known for, third saw an octave down, phaser swirl + grit
     .{ .name = "hoover", .category = "lead", .tags = &.{ "wstudio", "rave" }, .patch = .{
-        .waveform = .saw, .unison = 3, .unison_detune = 16.0, .unison_spread = 0.6,
-        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_pulse_width = 0.35, .osc_b_semi = 0.0, .osc_b_detune_cents = 12.0, .osc_b_level = 0.8,
-        .osc_c_on = true, .osc_c_waveform = .saw, .osc_c_semi = -12.0, .osc_c_level = 0.5,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_detune = 16.0, .unison_spread = 0.6,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 12.0, .osc_b_level = 0.8,
+        .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.6666667, .osc_c_semi = -12.0, .osc_c_level = 0.5,
         .voice_mode = .mono, .glide_s = 0.04,
         .attack_s = 0.02, .decay_s = 0.3, .sustain = 0.8, .release_s = 0.25,
         .filter_type = .lp, .filter_cutoff = 2400.0, .filter_res = 0.25,
@@ -753,7 +753,7 @@ pub const presets = [_]Preset{
     // --- Acid (open lead voicing) ---
     // acid-lead - diode ladder wide open, screamer-pedal drive, tight echo
     .{ .name = "acid-lead", .category = "lead", .tags = &.{ "wstudio", "acid" }, .patch = .{
-        .waveform = .saw, .voice_mode = .mono, .glide_s = 0.05,
+        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.05,
         .attack_s = 0.001, .decay_s = 0.3, .sustain = 0.4, .release_s = 0.1,
         .filter_type = .diode, .filter_cutoff = 800.0, .filter_res = 0.82, .filter_drive = 6.0,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.28, .fenv_sustain = 0.1, .fenv_release_s = 0.1,
@@ -774,8 +774,8 @@ pub const presets = [_]Preset{
     // --- Industrial / EBM ---
     // ebm-bass - chorused like every classic EBM sequence, drive up front
     .{ .name = "ebm-bass", .category = "bass", .tags = &.{ "wstudio", "ebm" }, .patch = .{
-        .waveform = .saw, .unison = 2, .unison_detune = 12.0,
-        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_semi = 0.0, .osc_b_detune_cents = 10.0, .osc_b_level = 0.9,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 2, .unison_detune = 12.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 10.0, .osc_b_level = 0.9,
         .voice_mode = .mono, .glide_s = 0.0,
         .attack_s = 0.002, .decay_s = 0.18, .sustain = 0.7, .release_s = 0.1,
         .filter_type = .lp, .filter_cutoff = 750.0, .filter_res = 0.3, .filter_drive = 3.0,
@@ -796,8 +796,8 @@ pub const presets = [_]Preset{
     // the Hammond's percussion register on the 2nd-harmonic osc; macro 2
     // pulls in the sub drawbar
     .{ .name = "jazz-organ", .category = "keys", .tags = &.{ "wstudio", "jazz" }, .patch = .{
-        .waveform = .sine, .unison = 3, .unison_mode = .harmonic, .unison_detune = 100.0,
-        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.4,
+        .wt_table = .basic, .wt_pos = 0.0, .unison = 3, .unison_mode = .harmonic, .unison_detune = 100.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_level = 0.4,
         .attack_s = 0.004, .decay_s = 0.05, .sustain = 1.0, .release_s = 0.08,
         .filter_type = .lp, .filter_cutoff = 6000.0, .filter_res = 0.0,
         .lfo_rate_hz = 6.5,
@@ -814,7 +814,7 @@ pub const presets = [_]Preset{
 
     // reed-keys - velocity breathes into the FM depth, light chorus
     .{ .name = "reed-keys", .category = "keys", .tags = &.{ "wstudio", "soul" }, .patch = .{
-        .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_detune_cents = 2.0, .osc_b_level = 0.5,
+        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_detune_cents = 2.0, .osc_b_level = 0.5,
         .mod_mode = .fm_b_to_a, .mod_amount = 2.4,
         .attack_s = 0.002, .decay_s = 1.0, .sustain = 0.2, .release_s = 0.6,
         .filter_type = .lp, .filter_cutoff = 3200.0, .filter_res = 0.05,
@@ -830,7 +830,7 @@ pub const presets = [_]Preset{
 
     // mallet - velocity-bright strikes, small room around the bars
     .{ .name = "mallet", .category = "keys", .tags = &.{ "wstudio", "jazz" }, .patch = .{
-        .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 24.0, .osc_b_detune_cents = 2.0, .osc_b_level = 0.5,
+        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 24.0, .osc_b_detune_cents = 2.0, .osc_b_level = 0.5,
         .mod_mode = .fm_b_to_a, .mod_amount = 1.5,
         .attack_s = 0.001, .decay_s = 0.7, .sustain = 0.0, .release_s = 0.4, .env_curve = 0.72,
         .filter_type = .lp, .filter_cutoff = 8000.0, .filter_res = 0.0,
@@ -850,7 +850,7 @@ pub const presets = [_]Preset{
 
     // trance - a rolling offbeat bass to sit under the pads/leads
     .{ .name = "trance-bass", .category = "bass", .tags = &.{ "wstudio", "trance" }, .patch = .{
-        .waveform = .saw, .voice_mode = .mono, .glide_s = 0.0,
+        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.0,
         .attack_s = 0.004, .decay_s = 0.12, .sustain = 0.6, .release_s = 0.08,
         .filter_type = .ladder, .filter_cutoff = 600.0, .filter_res = 0.15, .filter_drive = 2.5,
         .sub_level = 0.4, .sub_shape = .sine,
@@ -867,8 +867,8 @@ pub const presets = [_]Preset{
     // house - the classic stacked-drawbar organ chord stab; harmonic unison
     // supplies the upper drawbars, ENV 3 the key-click percussion
     .{ .name = "house-organ", .category = "stab", .tags = &.{ "wstudio", "house" }, .patch = .{
-        .waveform = .sine, .unison = 3, .unison_mode = .harmonic, .unison_detune = 100.0,
-        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.5,
+        .wt_table = .basic, .wt_pos = 0.0, .unison = 3, .unison_mode = .harmonic, .unison_detune = 100.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_level = 0.5,
         .attack_s = 0.005, .decay_s = 0.15, .sustain = 0.8, .release_s = 0.12,
         .filter_type = .lp, .filter_cutoff = 5000.0, .filter_res = 0.0,
         .env3_attack_s = 0.001, .env3_decay_s = 0.12, .env3_sustain = 0.0, .env3_release_s = 0.08,
@@ -885,8 +885,8 @@ pub const presets = [_]Preset{
     // scanned by the LFO, lowpassed in series to keep it bass; macro 1 is
     // the vowel, not a plain cutoff, on this one
     .{ .name = "growl-bass", .category = "bass", .tags = &.{ "wstudio", "dubstep" }, .patch = .{
-        .waveform = .saw, .voice_mode = .mono, .glide_s = 0.01,
-        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_semi = 0.0, .osc_b_detune_cents = 8.0, .osc_b_level = 0.8,
+        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.01,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 8.0, .osc_b_level = 0.8,
         .mod_mode = .fm_b_to_a, .mod_amount = 3.5,
         .attack_s = 0.004, .decay_s = 0.15, .sustain = 1.0, .release_s = 0.12,
         .filter_type = .formant, .filter_cutoff = 300.0, .filter_res = 0.45,
@@ -924,8 +924,8 @@ pub const presets = [_]Preset{
     // Dre-era patch has zero pitch-LFO on it); two tight-detuned saws stand
     // in for the real patch's +1/-1 cent pair
     .{ .name = "gfunk-lead", .category = "lead", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .patch = .{
-        .waveform = .saw, .detune_cents = -1.0,
-        .osc_b_on = true, .osc_b_waveform = .saw, .osc_b_semi = 0.0, .osc_b_detune_cents = 1.0, .osc_b_level = 0.9,
+        .wt_table = .basic, .wt_pos = 0.6666667, .detune_cents = -1.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_semi = 0.0, .osc_b_detune_cents = 1.0, .osc_b_level = 0.9,
         .voice_mode = .legato, .glide_s = 0.01,
         .attack_s = 0.001, .decay_s = 0.05, .sustain = 1.0, .release_s = 0.02,
         .filter_type = .ladder, .filter_cutoff = 3400.0, .filter_res = 0.15, .filter_drive = 2.0,
@@ -941,8 +941,8 @@ pub const presets = [_]Preset{
 
     // dnb - lush liquid pad to contrast the reese
     .{ .name = "liquid-pad", .category = "pad", .tags = &.{ "wstudio", "dnb" }, .patch = .{
-        .waveform = .saw, .unison = 5, .unison_detune = 12.0, .unison_spread = 0.7,
-        .osc_b_on = true, .osc_b_waveform = .triangle, .osc_b_semi = 0.0, .osc_b_level = 0.5,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 5, .unison_detune = 12.0, .unison_spread = 0.7,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.3333333, .osc_b_semi = 0.0, .osc_b_level = 0.5,
         .attack_s = 0.8, .decay_s = 0.7, .sustain = 0.8, .release_s = 1.3,
         .filter_type = .lp, .filter_cutoff = 3200.0, .filter_res = 0.08,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 120.0, .filter_routing = .series,
@@ -960,8 +960,8 @@ pub const presets = [_]Preset{
     // neurofunk - screechy resonant FM lead; a small upward frequency shift
     // smears the partials inharmonic for the metallic edge
     .{ .name = "neuro-screech", .category = "lead", .tags = &.{ "wstudio", "neurofunk" }, .patch = .{
-        .waveform = .saw, .unison = 2, .unison_detune = 16.0,
-        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_semi = 0.0, .osc_b_detune_cents = 12.0, .osc_b_level = 0.7,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 2, .unison_detune = 16.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 12.0, .osc_b_level = 0.7,
         .mod_mode = .fm_b_to_a, .mod_amount = 2.5,
         .voice_mode = .mono, .glide_s = 0.02,
         .attack_s = 0.005, .decay_s = 0.25, .sustain = 0.6, .release_s = 0.15,
@@ -983,7 +983,7 @@ pub const presets = [_]Preset{
 
     // psytrance - tight resonant off-beat pluck, gallop echo baked in
     .{ .name = "psy-pluck", .category = "pluck", .tags = &.{ "wstudio", "psytrance" }, .patch = .{
-        .waveform = .saw, .voice_mode = .mono, .glide_s = 0.0,
+        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.0,
         .attack_s = 0.001, .decay_s = 0.12, .sustain = 0.0, .release_s = 0.06, .env_curve = 0.78,
         .filter_type = .diode, .filter_cutoff = 1200.0, .filter_res = 0.5, .filter_drive = 3.5,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.11, .fenv_sustain = 0.0, .fenv_release_s = 0.05,
@@ -1000,7 +1000,7 @@ pub const presets = [_]Preset{
 
     // techno - dark hypnotic pluck swimming in dub-techno echo
     .{ .name = "techno-pluck", .category = "pluck", .tags = &.{ "wstudio", "techno" }, .patch = .{
-        .waveform = .square, .pulse_width = 0.5, .voice_mode = .mono, .glide_s = 0.0,
+        .wt_table = .basic, .wt_pos = 1.0, .voice_mode = .mono, .glide_s = 0.0,
         .attack_s = 0.001, .decay_s = 0.14, .sustain = 0.0, .release_s = 0.08, .env_curve = 0.7,
         .filter_type = .lp, .filter_cutoff = 1000.0, .filter_res = 0.3,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.12, .fenv_sustain = 0.0, .fenv_release_s = 0.06,
@@ -1017,8 +1017,8 @@ pub const presets = [_]Preset{
 
     // deep-house - warm electric-piano-ish chord
     .{ .name = "deep-chord", .category = "pad", .tags = &.{ "wstudio", "deep-house" }, .patch = .{
-        .waveform = .triangle, .unison = 2, .unison_detune = 6.0,
-        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_detune_cents = 3.0, .osc_b_level = 0.5,
+        .wt_table = .basic, .wt_pos = 0.3333333, .unison = 2, .unison_detune = 6.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_detune_cents = 3.0, .osc_b_level = 0.5,
         .attack_s = 0.02, .decay_s = 0.5, .sustain = 0.7, .release_s = 0.6,
         .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.08,
         .lfo_rate_hz = 0.4,
@@ -1036,7 +1036,7 @@ pub const presets = [_]Preset{
 
     // disco - Solina-style ensemble strings; the chorus is the ensemble
     .{ .name = "disco-strings", .category = "pad", .tags = &.{ "wstudio", "disco" }, .patch = .{
-        .waveform = .saw, .unison = 6, .unison_detune = 14.0, .unison_spread = 0.7,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 6, .unison_detune = 14.0, .unison_spread = 0.7,
         .attack_s = 0.15, .decay_s = 0.5, .sustain = 0.85, .release_s = 0.7,
         .filter_type = .lp, .filter_cutoff = 4000.0, .filter_res = 0.05,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 200.0, .filter_routing = .series,
@@ -1054,9 +1054,9 @@ pub const presets = [_]Preset{
     // funk - P-funk mono synth lead; ENV 3 snaps a hard-sync sweep on each
     // note for the squelchy attack
     .{ .name = "funk-lead", .category = "lead", .tags = &.{ "wstudio", "funk" }, .patch = .{
-        .waveform = .saw, .voice_mode = .mono, .glide_s = 0.04,
+        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.04,
         .warp_mode = .sync, .warp_amount = 0.1,
-        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_semi = 0.0, .osc_b_detune_cents = 6.0, .osc_b_level = 0.6,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 6.0, .osc_b_level = 0.6,
         .attack_s = 0.008, .decay_s = 0.25, .sustain = 0.7, .release_s = 0.15,
         .filter_type = .ladder, .filter_cutoff = 1800.0, .filter_res = 0.4, .filter_drive = 3.2,
         .fenv_attack_s = 0.005, .fenv_decay_s = 0.3, .fenv_sustain = 0.3, .fenv_release_s = 0.15,
@@ -1076,7 +1076,7 @@ pub const presets = [_]Preset{
 
     // dub - reedy melodica with vibrato, sunk into King Tubby tape echo
     .{ .name = "melodica", .category = "keys", .tags = &.{ "wstudio", "dub", "reggae" }, .patch = .{
-        .waveform = .square, .pulse_width = 0.5, .voice_mode = .mono, .glide_s = 0.0,
+        .wt_table = .basic, .wt_pos = 1.0, .voice_mode = .mono, .glide_s = 0.0,
         .noise_level = 0.05, .noise_color = 0.7,
         .attack_s = 0.03, .decay_s = 0.2, .sustain = 0.7, .release_s = 0.2,
         .filter_type = .lp, .filter_cutoff = 2400.0, .filter_res = 0.1,
@@ -1092,17 +1092,17 @@ pub const presets = [_]Preset{
 
     // synthwave - driving outrun bass; LFO 2 breathes the B-osc duty cycle
     .{ .name = "outrun-bass", .category = "bass", .tags = &.{ "wstudio", "synthwave" }, .patch = .{
-        .waveform = .saw, .voice_mode = .mono, .glide_s = 0.0,
-        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_semi = 0.0, .osc_b_detune_cents = 8.0, .osc_b_level = 0.6,
+        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 8.0, .osc_b_level = 0.6,
         .attack_s = 0.003, .decay_s = 0.18, .sustain = 0.8, .release_s = 0.12,
         .filter_type = .lp, .filter_cutoff = 900.0, .filter_res = 0.15,
         .lfo2_rate_hz = 0.4, .lfo2_sync = .n1_1, .lfo2_retrig = .key,
         .sub_level = 0.5, .sub_shape = .sine,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo2,     .dest = 8,  .depth = 0.15 },
+            .{ .source = .lfo2,     .dest = 186,  .depth = -0.15 },
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
-            .{ .source = .mac2,     .dest = 8,  .depth = 0.2 },
+            .{ .source = .mac2,     .dest = 186,  .depth = -0.2 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.7, .fx_chorus_depth_ms = 3.0, .fx_chorus_mix = 0.3,
         .gain = 0.34,
@@ -1110,8 +1110,8 @@ pub const presets = [_]Preset{
 
     // future-bass - bright detuned pluck to top the supersaw chords
     .{ .name = "future-pluck", .category = "pluck", .tags = &.{ "wstudio", "future-bass" }, .patch = .{
-        .waveform = .triangle, .unison = 2, .unison_detune = 10.0,
-        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.5,
+        .wt_table = .basic, .wt_pos = 0.3333333, .unison = 2, .unison_detune = 10.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_level = 0.5,
         .attack_s = 0.002, .decay_s = 0.3, .sustain = 0.0, .release_s = 0.25, .env_curve = 0.62,
         .filter_type = .lp, .filter_cutoff = 5000.0, .filter_res = 0.1,
         .mod_matrix = mods(&.{
@@ -1124,9 +1124,9 @@ pub const presets = [_]Preset{
         .gain = 0.3,
     } },
 
-    // chiptune - PWM square pad, LFO 2 on the duty cycle, light crush
+    // chiptune - square pad with basic-waveform motion and light crush
     .{ .name = "chip-pad", .category = "pad", .tags = &.{ "wstudio", "chiptune" }, .patch = .{
-        .waveform = .square, .pulse_width = 0.5, .unison = 2, .unison_detune = 8.0,
+        .wt_table = .basic, .wt_pos = 1.0, .unison = 2, .unison_detune = 8.0,
         .attack_s = 0.3, .decay_s = 0.4, .sustain = 0.8, .release_s = 0.5,
         .filter_type = .lp, .filter_cutoff = 18_000.0, .filter_res = 0.0,
         .lfo_rate_hz = 3.0,
@@ -1134,8 +1134,8 @@ pub const presets = [_]Preset{
         .lfo2_rate_hz = 0.5, .lfo2_sync = .n1_2, .lfo2_retrig = .key,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP, .depth = 0.06 },
-            .{ .source = .lfo2, .dest = 1,  .depth = 0.25 },
-            .{ .source = .mac2, .dest = 1,  .depth = 0.3 },
+            .{ .source = .lfo2, .dest = 185,  .depth = -0.25 },
+            .{ .source = .mac2, .dest = 185,  .depth = -0.3 },
             .{ .source = .mac4, .dest = 89, .depth = 0.3 },
         }),
         .fx_crush_on = true, .fx_crush_bits = 8.0, .fx_crush_rate = 3.0, .fx_crush_mix = 0.2,
@@ -1146,7 +1146,7 @@ pub const presets = [_]Preset{
     // parked in the a/e region, slow LFO drifting the vowel, huge hall;
     // macro 1 scans vowels here rather than opening a cutoff
     .{ .name = "choir-pad", .category = "pad", .tags = &.{ "wstudio", "ambient" }, .patch = .{
-        .waveform = .saw, .unison = 4, .unison_detune = 10.0, .unison_spread = 0.6,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 4, .unison_detune = 10.0, .unison_spread = 0.6,
         .noise_level = 0.04, .noise_color = 0.6,
         .attack_s = 1.0, .decay_s = 1.0, .sustain = 0.8, .release_s = 2.0, .env_curve = -0.35,
         .filter_type = .formant, .filter_cutoff = 80.0, .filter_res = 0.3,
@@ -1163,7 +1163,7 @@ pub const presets = [_]Preset{
 
     // trap - detuned saw pluck
     .{ .name = "trap-pluck", .category = "pluck", .tags = &.{ "wstudio", "trap" }, .patch = .{
-        .waveform = .saw, .unison = 2, .unison_detune = 14.0, .unison_spread = 0.5,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 2, .unison_detune = 14.0, .unison_spread = 0.5,
         .attack_s = 0.002, .decay_s = 0.25, .sustain = 0.0, .release_s = 0.2, .env_curve = 0.68,
         .filter_type = .lp, .filter_cutoff = 4000.0, .filter_res = 0.12,
         .mod_matrix = mods(&.{
@@ -1177,9 +1177,9 @@ pub const presets = [_]Preset{
 
     // rave - Mentasm-style detuned hoover stab, sub-octave saw + swirl
     .{ .name = "rave-stab", .category = "stab", .tags = &.{ "wstudio", "rave" }, .patch = .{
-        .waveform = .saw, .unison = 3, .unison_detune = 18.0, .unison_spread = 0.6,
-        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_pulse_width = 0.4, .osc_b_semi = 0.0, .osc_b_detune_cents = 14.0, .osc_b_level = 0.8,
-        .osc_c_on = true, .osc_c_waveform = .saw, .osc_c_semi = -12.0, .osc_c_level = 0.5,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_detune = 18.0, .unison_spread = 0.6,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 14.0, .osc_b_level = 0.8,
+        .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.6666667, .osc_c_semi = -12.0, .osc_c_level = 0.5,
         .attack_s = 0.006, .decay_s = 0.3, .sustain = 0.0, .release_s = 0.2, .env_curve = 0.62,
         .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.25,
         .fenv_attack_s = 0.004, .fenv_decay_s = 0.28, .fenv_sustain = 0.0, .fenv_release_s = 0.15, .fenv_curve = 0.55,
@@ -1197,8 +1197,8 @@ pub const presets = [_]Preset{
     // ebm - ratio-mode unison turns the lead into a fifths power-chord
     // stack, driven and echoed
     .{ .name = "ebm-lead", .category = "lead", .tags = &.{ "wstudio", "ebm" }, .patch = .{
-        .waveform = .saw, .unison = 3, .unison_mode = .ratio, .unison_detune = 100.0,
-        .osc_b_on = true, .osc_b_waveform = .saw, .osc_b_semi = -12.0, .osc_b_level = 0.6,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_mode = .ratio, .unison_detune = 100.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_semi = -12.0, .osc_b_level = 0.6,
         .voice_mode = .mono, .glide_s = 0.02,
         .attack_s = 0.005, .decay_s = 0.2, .sustain = 0.8, .release_s = 0.15,
         .filter_type = .lp, .filter_cutoff = 2000.0, .filter_res = 0.35, .filter_drive = 3.5,
@@ -1217,7 +1217,7 @@ pub const presets = [_]Preset{
 
     // jazz - breathy sine flute; blowing harder (velocity) adds breath noise
     .{ .name = "jazz-flute", .category = "lead", .tags = &.{ "wstudio", "jazz" }, .patch = .{
-        .waveform = .sine, .voice_mode = .mono, .glide_s = 0.02,
+        .wt_table = .basic, .wt_pos = 0.0, .voice_mode = .mono, .glide_s = 0.02,
         .noise_level = 0.06, .noise_color = 0.8,
         .attack_s = 0.05, .decay_s = 0.2, .sustain = 0.8, .release_s = 0.2,
         .filter_type = .lp, .filter_cutoff = 4000.0, .filter_res = 0.05,
@@ -1235,7 +1235,7 @@ pub const presets = [_]Preset{
 
     // soul - Motown horn-section stab, velocity is the section leaning in
     .{ .name = "soul-brass", .category = "brass", .tags = &.{ "wstudio", "soul" }, .patch = .{
-        .waveform = .saw, .unison = 3, .unison_detune = 9.0, .unison_spread = 0.4,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_detune = 9.0, .unison_spread = 0.4,
         .attack_s = 0.02, .decay_s = 0.3, .sustain = 0.6, .release_s = 0.2, .env_curve = 0.32,
         .filter_type = .lp, .filter_cutoff = 3200.0, .filter_res = 0.1,
         .fenv_attack_s = 0.015, .fenv_decay_s = 0.35, .fenv_sustain = 0.3, .fenv_release_s = 0.2, .fenv_curve = 0.38,
@@ -1258,8 +1258,8 @@ pub const presets = [_]Preset{
     // envelope-over-FM-index trick; osc C adds a plain additive body layer
     // under the FM pair
     .{ .name = "fm-epiano", .category = "keys", .tags = &.{ "wstudio", "city-pop" }, .patch = .{
-        .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 19.0, .osc_b_detune_cents = 3.0, .osc_b_level = 0.8,
-        .osc_c_on = true, .osc_c_waveform = .sine, .osc_c_semi = 0.0, .osc_c_level = 0.3,
+        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 19.0, .osc_b_detune_cents = 3.0, .osc_b_level = 0.8,
+        .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.0, .osc_c_semi = 0.0, .osc_c_level = 0.3,
         .mod_mode = .fm_b_to_a, .mod_amount = 0.9,
         .attack_s = 0.001, .decay_s = 1.2, .sustain = 0.15, .release_s = 0.5, .env_curve = 0.58,
         .filter_type = .lp, .filter_cutoff = 6500.0, .filter_res = 0.0,
@@ -1280,8 +1280,8 @@ pub const presets = [_]Preset{
     // city-pop - round funky FM knock bass, velocity-aware like a slapped
     // string, compressed tight
     .{ .name = "citypop-bass", .category = "bass", .tags = &.{ "wstudio", "city-pop" }, .patch = .{
-        .waveform = .sine, .voice_mode = .mono, .glide_s = 0.0,
-        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.9,
+        .wt_table = .basic, .wt_pos = 0.0, .voice_mode = .mono, .glide_s = 0.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_level = 0.9,
         .mod_mode = .fm_b_to_a, .mod_amount = 1.6,
         .attack_s = 0.002, .decay_s = 0.25, .sustain = 0.35, .release_s = 0.1, .env_curve = 0.48,
         .filter_type = .lp, .filter_cutoff = 1100.0, .filter_res = 0.1,
@@ -1298,18 +1298,18 @@ pub const presets = [_]Preset{
         .gain = 0.36,
     } },
 
-    // technopop - piercing pulse lead with fast vibrato (Rydeen-style,
-    // halfway between synth and video game); LFO 2 shimmers the duty cycle
+    // technopop - piercing square lead with fast vibrato (Rydeen-style,
+    // halfway between synth and video game); LFO 2 morphs its waveform
     .{ .name = "technopop-lead", .category = "lead", .tags = &.{ "wstudio", "technopop" }, .patch = .{
-        .waveform = .square, .pulse_width = 0.3, .voice_mode = .mono, .glide_s = 0.0,
+        .wt_table = .basic, .wt_pos = 1.0, .voice_mode = .mono, .glide_s = 0.0,
         .attack_s = 0.003, .decay_s = 0.1, .sustain = 0.85, .release_s = 0.08,
         .filter_type = .lp, .filter_cutoff = 9000.0, .filter_res = 0.05,
         .lfo_rate_hz = 5.8, .lfo_retrig = .key, .lfo_phase_offset = 0.25,
         .lfo2_rate_hz = 0.9,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP,  .depth = 0.15 },
-            .{ .source = .lfo2, .dest = 1,   .depth = 0.12 },
-            .{ .source = .mac2, .dest = 1,   .depth = 0.2 },
+            .{ .source = .lfo2, .dest = 185,   .depth = -0.12 },
+            .{ .source = .mac2, .dest = 185,   .depth = -0.2 },
             .{ .source = .mac3, .dest = 111, .depth = 0.35 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.25, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.25,
@@ -1318,7 +1318,7 @@ pub const presets = [_]Preset{
 
     // technopop - tight sequencer-locked analog bass
     .{ .name = "technopop-bass", .category = "bass", .tags = &.{ "wstudio", "technopop" }, .patch = .{
-        .waveform = .saw, .voice_mode = .mono, .glide_s = 0.0,
+        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.0,
         .attack_s = 0.002, .decay_s = 0.09, .sustain = 0.2, .release_s = 0.05,
         .filter_type = .lp, .filter_cutoff = 750.0, .filter_res = 0.25,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.08, .fenv_sustain = 0.0, .fenv_release_s = 0.04, .fenv_curve = 0.72,
@@ -1337,7 +1337,7 @@ pub const presets = [_]Preset{
     // kawaii future bass - hyper-bright wide supersaw chord, OTT'd to the
     // ceiling like the genre demands
     .{ .name = "kawaii-chord", .category = "stab", .tags = &.{ "wstudio", "kawaii" }, .patch = .{
-        .waveform = .saw, .unison = 7, .unison_detune = 24.0, .unison_spread = 0.9,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 7, .unison_detune = 24.0, .unison_spread = 0.9,
         .attack_s = 0.01, .decay_s = 0.25, .sustain = 0.9, .release_s = 0.3,
         .filter_type = .lp, .filter_cutoff = 7500.0, .filter_res = 0.1,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 150.0, .filter_routing = .series,
@@ -1354,7 +1354,7 @@ pub const presets = [_]Preset{
 
     // kawaii future bass - sparkly bell pluck on top of the chords
     .{ .name = "kawaii-pluck", .category = "pluck", .tags = &.{ "wstudio", "kawaii" }, .patch = .{
-        .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 24.0, .osc_b_detune_cents = 3.0, .osc_b_level = 0.6,
+        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 24.0, .osc_b_detune_cents = 3.0, .osc_b_level = 0.6,
         .mod_mode = .fm_b_to_a, .mod_amount = 2.0,
         .attack_s = 0.001, .decay_s = 0.35, .sustain = 0.0, .release_s = 0.3, .env_curve = 0.72,
         .filter_type = .lp, .filter_cutoff = 10_000.0, .filter_res = 0.0,
@@ -1376,8 +1376,8 @@ pub const presets = [_]Preset{
     // lowpass shelf above 15kHz + a near-fully-wet plate for the source
     // material's own "heavy reverb into a wobbly chorus" recipe
     .{ .name = "vapor-pad", .category = "pad", .tags = &.{ "wstudio", "vaporwave" }, .patch = .{
-        .waveform = .saw, .unison = 3, .unison_detune = 10.0, .unison_spread = 0.6,
-        .osc_b_on = true, .osc_b_waveform = .triangle, .osc_b_semi = 0.0, .osc_b_detune_cents = 9.0, .osc_b_level = 0.7,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_detune = 10.0, .unison_spread = 0.6,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.3333333, .osc_b_semi = 0.0, .osc_b_detune_cents = 9.0, .osc_b_level = 0.7,
         .attack_s = 2.2, .decay_s = 1.0, .sustain = 0.8, .release_s = 2.8, .env_curve = -0.45,
         .filter_type = .lp, .filter_cutoff = 2400.0, .filter_res = 0.08,
         .lfo_rate_hz = 0.8, .lfo_slew_ms = 55.0,
@@ -1398,7 +1398,7 @@ pub const presets = [_]Preset{
     // eurobeat - bright punchy unison lead, HP'd above 150Hz JP-8000-style
     // so it doesn't fight the bass, top end lifted, echo behind
     .{ .name = "eurobeat-lead", .category = "lead", .tags = &.{ "wstudio", "eurobeat" }, .patch = .{
-        .waveform = .saw, .unison = 4, .unison_detune = 14.0, .unison_spread = 0.6,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 4, .unison_detune = 14.0, .unison_spread = 0.6,
         .attack_s = 0.004, .decay_s = 0.15, .sustain = 0.85, .release_s = 0.12,
         .filter_type = .lp, .filter_cutoff = 6000.0, .filter_res = 0.1,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 150.0, .filter_routing = .series,
@@ -1416,8 +1416,8 @@ pub const presets = [_]Preset{
 
     // eurobeat - driving octave-pump bass, compressed to sit dead center
     .{ .name = "eurobeat-bass", .category = "bass", .tags = &.{ "wstudio", "eurobeat" }, .patch = .{
-        .waveform = .saw, .voice_mode = .mono, .glide_s = 0.0,
-        .osc_b_on = true, .osc_b_waveform = .saw, .osc_b_semi = -12.0, .osc_b_level = 0.8,
+        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_semi = -12.0, .osc_b_level = 0.8,
         .attack_s = 0.002, .decay_s = 0.12, .sustain = 0.7, .release_s = 0.06,
         .filter_type = .lp, .filter_cutoff = 1000.0, .filter_res = 0.2, .filter_drive = 2.8,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.1, .fenv_sustain = 0.2, .fenv_release_s = 0.05,
@@ -1436,7 +1436,7 @@ pub const presets = [_]Preset{
     // now, keytracked so the resonance follows the note; macro 2 lengthens
     // the string ring via comb feedback
     .{ .name = "koto-pluck", .category = "pluck", .tags = &.{ "wstudio", "anime" }, .patch = .{
-        .waveform = .triangle,
+        .wt_table = .basic, .wt_pos = 0.3333333,
         .noise_level = 0.1, .noise_color = 0.3,
         .attack_s = 0.001, .decay_s = 0.4, .sustain = 0.0, .release_s = 0.15, .env_curve = 0.76,
         .filter_type = .comb, .filter_cutoff = 800.0, .filter_res = 0.55,
@@ -1454,7 +1454,7 @@ pub const presets = [_]Preset{
 
     // g-funk - the high sine whistle lead riding over everything
     .{ .name = "whistle-lead", .category = "lead", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .patch = .{
-        .waveform = .sine, .voice_mode = .mono, .glide_s = 0.05,
+        .wt_table = .basic, .wt_pos = 0.0, .voice_mode = .mono, .glide_s = 0.05,
         .attack_s = 0.02, .decay_s = 0.2, .sustain = 0.9, .release_s = 0.25,
         .filter_type = .lp, .filter_cutoff = 12_000.0, .filter_res = 0.0,
         .lfo_rate_hz = 5.2, .lfo_retrig = .key, .lfo_phase_offset = 0.25,
@@ -1471,7 +1471,7 @@ pub const presets = [_]Preset{
     // g-funk - the squelchy resonant portamento worm; ladder filter for the
     // Moog squelch, macro 1 is the wah pedal
     .{ .name = "funky-worm", .category = "lead", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .patch = .{
-        .waveform = .triangle, .voice_mode = .mono, .glide_s = 0.1,
+        .wt_table = .basic, .wt_pos = 0.3333333, .voice_mode = .mono, .glide_s = 0.1,
         .attack_s = 0.005, .decay_s = 0.3, .sustain = 0.7, .release_s = 0.15,
         .filter_type = .ladder, .filter_cutoff = 1200.0, .filter_res = 0.55, .filter_drive = 3.0,
         .fenv_attack_s = 0.004, .fenv_decay_s = 0.25, .fenv_sustain = 0.4, .fenv_release_s = 0.12,
@@ -1487,7 +1487,7 @@ pub const presets = [_]Preset{
 
     // g-funk - deep gliding Moog-style low end, now on the actual ladder
     .{ .name = "gfunk-bass", .category = "bass", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .patch = .{
-        .waveform = .saw, .voice_mode = .mono, .glide_s = 0.03,
+        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.03,
         .attack_s = 0.004, .decay_s = 0.3, .sustain = 0.6, .release_s = 0.15,
         .filter_type = .ladder, .filter_cutoff = 480.0, .filter_res = 0.1, .filter_drive = 2.2,
         .sub_level = 0.6, .sub_shape = .sine,
@@ -1502,7 +1502,7 @@ pub const presets = [_]Preset{
 
     // g-funk - dark cinematic string layer, ensemble drift from LFO 2
     .{ .name = "westcoast-strings", .category = "pad", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .patch = .{
-        .waveform = .saw, .unison = 4, .unison_detune = 10.0, .unison_spread = 0.5,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 4, .unison_detune = 10.0, .unison_spread = 0.5,
         .attack_s = 0.05, .decay_s = 0.4, .sustain = 0.6, .release_s = 0.3,
         .filter_type = .lp, .filter_cutoff = 2800.0, .filter_res = 0.1,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 150.0, .filter_routing = .series,
@@ -1522,8 +1522,8 @@ pub const presets = [_]Preset{
     // boom-bap - grimy dark minor keys (the QB dungeon-piano sound), put
     // through the sampler: crushed and darkened
     .{ .name = "grimy-keys", .category = "keys", .tags = &.{ "wstudio", "hip-hop", "boom-bap" }, .patch = .{
-        .waveform = .triangle, .detune_cents = -4.0,
-        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.4,
+        .wt_table = .basic, .wt_pos = 0.3333333, .detune_cents = -4.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_level = 0.4,
         .noise_level = 0.03, .noise_color = 0.4,
         .attack_s = 0.002, .decay_s = 0.9, .sustain = 0.1, .release_s = 0.4, .env_curve = 0.55,
         .filter_type = .lp, .filter_cutoff = 2200.0, .filter_res = 0.05,
@@ -1542,7 +1542,7 @@ pub const presets = [_]Preset{
     // actual measured SP-1200 spec (12-bit, ~26kHz -> downsample 2 at 48k)
     // rather than a generic heavy crush
     .{ .name = "shaolin-bell", .category = "keys", .tags = &.{ "wstudio", "hip-hop", "boom-bap" }, .patch = .{
-        .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 24.0, .osc_b_detune_cents = 18.0, .osc_b_level = 0.7,
+        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 24.0, .osc_b_detune_cents = 18.0, .osc_b_level = 0.7,
         .mod_mode = .fm_b_to_a, .mod_amount = 2.8,
         .attack_s = 0.001, .decay_s = 1.0, .sustain = 0.0, .release_s = 0.8, .env_curve = 0.7,
         .filter_type = .lp, .filter_cutoff = 5000.0, .filter_res = 0.0,
@@ -1560,8 +1560,8 @@ pub const presets = [_]Preset{
     // hip-hop - creepy detuned horror-movie organ (late-90s shock-rap
     // production staple); chaos LFO drifts the pitch just enough to unsettle
     .{ .name = "creep-keys", .category = "keys", .tags = &.{ "wstudio", "hip-hop" }, .patch = .{
-        .waveform = .square, .pulse_width = 0.5, .detune_cents = 5.0,
-        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_semi = 12.0, .osc_b_detune_cents = -8.0, .osc_b_level = 0.5,
+        .wt_table = .basic, .wt_pos = 1.0, .detune_cents = 5.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 12.0, .osc_b_detune_cents = -8.0, .osc_b_level = 0.5,
         .attack_s = 0.01, .decay_s = 0.2, .sustain = 0.9, .release_s = 0.15,
         .filter_type = .lp, .filter_cutoff = 1500.0, .filter_res = 0.1,
         .lfo_rate_hz = 5.0,
@@ -1580,12 +1580,11 @@ pub const presets = [_]Preset{
     // "hoovering" motion is a fast-attack/quick-release PITCH envelope
     // sweeping ~12 semitones, with the filter comparatively static - ENV 3
     // now carries that sweep at max legal depth instead of the filter env
-    // doing the morph; a fast triangle LFO into PW B stands in for the
-    // heavy PWM swirl on the real 3-oscillator patch
+    // doing the morph; a fast triangle LFO morphs OSC B's basic waveform
     .{ .name = "hoover-stab", .category = "stab", .tags = &.{ "wstudio", "hardcore", "gabber" }, .patch = .{
-        .waveform = .saw, .unison = 4, .unison_detune = 28.0, .unison_spread = 0.85,
-        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_pulse_width = 0.35, .osc_b_semi = 0.0, .osc_b_detune_cents = 20.0, .osc_b_level = 0.75,
-        .osc_c_on = true, .osc_c_waveform = .saw, .osc_c_semi = -12.0, .osc_c_level = 0.6,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 4, .unison_detune = 28.0, .unison_spread = 0.85,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 20.0, .osc_b_level = 0.75,
+        .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.6666667, .osc_c_semi = -12.0, .osc_c_level = 0.6,
         .attack_s = 0.008, .decay_s = 0.32, .sustain = 0.15, .release_s = 0.18,
         .filter_type = .lp, .filter_cutoff = 2500.0, .filter_res = 0.4,
         .fenv_attack_s = 0.005, .fenv_decay_s = 0.28, .fenv_sustain = 0.05, .fenv_release_s = 0.15,
@@ -1595,7 +1594,7 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .env3, .dest = dP, .depth = 1.0 },
             .{ .source = .fenv, .dest = 21, .depth = -0.2 },
-            .{ .source = .lfo,  .dest = 8,  .depth = 0.3 },
+            .{ .source = .lfo,  .dest = 186,  .depth = -0.3 },
             .{ .source = .mac1, .dest = 21, .depth = 0.5 },
             .{ .source = .mac4, .dest = 85, .depth = 0.3 },
         }),
@@ -1609,7 +1608,7 @@ pub const presets = [_]Preset{
     // sweeping cutoff a->e->i->o for the "talking" shriek, EQ bump at the
     // 500-1kHz growl band ahead of the clip stage, HP'd clean at the tail
     .{ .name = "screech-lead", .category = "lead", .tags = &.{ "wstudio", "hardstyle", "hardcore" }, .patch = .{
-        .waveform = .saw, .unison = 7, .unison_detune = 32.0, .unison_spread = 0.75,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 7, .unison_detune = 32.0, .unison_spread = 0.75,
         .voice_mode = .mono, .glide_s = 0.03,
         .attack_s = 0.004, .decay_s = 0.2, .sustain = 0.55, .release_s = 0.12,
         .filter_type = .formant, .filter_cutoff = 300.0, .filter_res = 0.55,
@@ -1654,9 +1653,9 @@ pub const presets = [_]Preset{
     // speedcore/terrorcore - FM-driven harsh bass, square carrier torn up by
     // audio-rate sine FM plus mirror-warp foldback; crush + drive finish it
     .{ .name = "distort-bass", .category = "bass", .tags = &.{ "wstudio", "speedcore", "terrorcore" }, .patch = .{
-        .waveform = .square, .voice_mode = .mono, .glide_s = 0.0,
+        .wt_table = .basic, .wt_pos = 1.0, .voice_mode = .mono, .glide_s = 0.0,
         .warp_mode = .mirror, .warp_amount = 0.35,
-        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 0.0, .osc_b_level = 1.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 0.0, .osc_b_level = 1.0,
         .mod_mode = .fm_b_to_a, .mod_amount = 6.5,
         .attack_s = 0.001, .decay_s = 0.08, .sustain = 0.9, .release_s = 0.05,
         .filter_type = .lp, .filter_cutoff = 1600.0, .filter_res = 0.35, .filter_drive = 5.0,
@@ -1675,7 +1674,7 @@ pub const presets = [_]Preset{
     // happy hardcore/j-core - bright FM bell-piano stab for euphoric build
     // hits, OTT'd bright with a short hall
     .{ .name = "happy-piano", .category = "keys", .tags = &.{ "wstudio", "happy-hardcore", "j-core" }, .patch = .{
-        .waveform = .sine, .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_detune_cents = 5.0,
+        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_detune_cents = 5.0,
         .mod_mode = .fm_b_to_a, .mod_amount = 2.2,
         .attack_s = 0.001, .decay_s = 0.5, .sustain = 0.05, .release_s = 0.35, .env_curve = 0.7,
         .filter_type = .lp, .filter_cutoff = 9000.0, .filter_res = 0.05,
@@ -1693,12 +1692,12 @@ pub const presets = [_]Preset{
     // j-core/nerdcore - the arpeggiator now drives the needle-thin square
     // runs itself: hold a chord, it ping-pongs two octaves at 16 Hz
     .{ .name = "square-arp", .category = "pluck", .tags = &.{ "wstudio", "j-core", "nerdcore" }, .patch = .{
-        .waveform = .square, .pulse_width = 0.35,
+        .wt_table = .basic, .wt_pos = 1.0,
         .attack_s = 0.001, .decay_s = 0.07, .sustain = 0.0, .release_s = 0.04, .env_curve = 0.8,
         .filter_type = .lp, .filter_cutoff = 12_000.0, .filter_res = 0.15,
         .arp_on = true, .arp_mode = .updown, .arp_octaves = 2, .arp_rate_hz = 16.0, .arp_sync = .n1_16, .arp_gate = 0.55,
         .mod_matrix = mods(&.{
-            .{ .source = .mac2, .dest = 1,   .depth = 0.2 },
+            .{ .source = .mac2, .dest = 185,   .depth = -0.2 },
             .{ .source = .mac3, .dest = 111, .depth = 0.3 },
             .{ .source = .mac4, .dest = 89,  .depth = 0.3 },
         }),
@@ -1711,9 +1710,9 @@ pub const presets = [_]Preset{
 
     // dnb: a short minor-chord rave hit with velocity bite and wide room
     .{ .name = "dnb-stab", .category = "stab", .tags = &.{ "wstudio", "dnb", "jungle" }, .patch = .{
-        .waveform = .saw, .unison = 3, .unison_detune = 12.0, .unison_spread = 0.55,
-        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_semi = 3.0, .osc_b_level = 0.55,
-        .osc_c_on = true, .osc_c_waveform = .saw, .osc_c_semi = 7.0, .osc_c_level = 0.45,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_detune = 12.0, .unison_spread = 0.55,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 3.0, .osc_b_level = 0.55,
+        .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.6666667, .osc_c_semi = 7.0, .osc_c_level = 0.45,
         .attack_s = 0.003, .decay_s = 0.22, .sustain = 0.05, .release_s = 0.18, .env_curve = 0.58,
         .filter_type = .lp, .filter_cutoff = 2400.0, .filter_res = 0.18,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.18, .fenv_sustain = 0.0, .fenv_release_s = 0.12, .fenv_curve = 0.6,
@@ -1731,7 +1730,7 @@ pub const presets = [_]Preset{
 
     // dnb: airy sampled-choir color for breakdowns and liquid intros
     .{ .name = "jungle-atmos", .category = "pad", .tags = &.{ "wstudio", "dnb", "jungle" }, .patch = .{
-        .waveform = .wavetable, .wt_table = .analog, .wt_pos = 0.7, .unison = 4, .unison_detune = 9.0, .unison_spread = 0.75,
+        .wt_table = .analog, .wt_pos = 0.7, .unison = 4, .unison_detune = 9.0, .unison_spread = 0.75,
         .noise_level = 0.08, .noise_color = 0.65,
         .attack_s = 1.1, .decay_s = 0.8, .sustain = 0.75, .release_s = 2.2,
         .filter_type = .formant, .filter_cutoff = 520.0, .filter_res = 0.18,
@@ -1748,9 +1747,9 @@ pub const presets = [_]Preset{
         .gain = 0.24,
     } },
 
-    // dubstep: narrow pulse lead with formant motion and controlled abrasion
+    // dubstep: square lead with formant motion and controlled abrasion
     .{ .name = "talkbox-lead", .category = "lead", .tags = &.{ "wstudio", "dubstep" }, .patch = .{
-        .waveform = .square, .pulse_width = 0.3, .unison = 3, .unison_detune = 15.0, .voice_mode = .mono, .glide_s = 0.035,
+        .wt_table = .basic, .wt_pos = 1.0, .unison = 3, .unison_detune = 15.0, .voice_mode = .mono, .glide_s = 0.035,
         .attack_s = 0.004, .decay_s = 0.2, .sustain = 0.75, .release_s = 0.1,
         .filter_type = .formant, .filter_cutoff = 420.0, .filter_res = 0.5,
         // .custom, not .triangle: a talkbox's mouth motion is asymmetric
@@ -1774,7 +1773,7 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = 21, .depth = 0.45 },
             .{ .source = .mac1, .dest = 21, .depth = 0.5 },
-            .{ .source = .mac2, .dest = 1,  .depth = 0.25 },
+            .{ .source = .mac2, .dest = 185,  .depth = -0.25 },
             .{ .source = .mac3, .dest = 111, .depth = 0.3 },
             .{ .source = .mac4, .dest = 85, .depth = 0.35 },
         }),
@@ -1785,8 +1784,8 @@ pub const presets = [_]Preset{
 
     // dubstep: dark suspended pad that leaves the sub range clear
     .{ .name = "dubstep-void", .category = "pad", .tags = &.{ "wstudio", "dubstep" }, .patch = .{
-        .waveform = .wavetable, .wt_table = .metallic, .wt_pos = 0.25, .unison = 5, .unison_detune = 20.0, .unison_spread = 0.85,
-        .osc_b_on = true, .osc_b_waveform = .triangle, .osc_b_semi = 7.0, .osc_b_level = 0.35,
+        .wt_table = .metallic, .wt_pos = 0.25, .unison = 5, .unison_detune = 20.0, .unison_spread = 0.85,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.3333333, .osc_b_semi = 7.0, .osc_b_level = 0.35,
         .attack_s = 1.6, .decay_s = 0.8, .sustain = 0.8, .release_s = 2.5,
         .filter_type = .lp, .filter_cutoff = 1800.0, .filter_res = 0.2,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 220.0, .filter_routing = .series,
@@ -1805,7 +1804,7 @@ pub const presets = [_]Preset{
 
     // future bass: elastic mono low end with a bright wavetable snap
     .{ .name = "future-bassline", .category = "bass", .tags = &.{ "wstudio", "future-bass" }, .patch = .{
-        .waveform = .wavetable, .wt_table = .spectral, .wt_pos = 0.42, .voice_mode = .mono, .glide_s = 0.025,
+        .wt_table = .spectral, .wt_pos = 0.42, .voice_mode = .mono, .glide_s = 0.025,
         .sub_level = 0.55, .sub_shape = .sine,
         .attack_s = 0.003, .decay_s = 0.16, .sustain = 0.7, .release_s = 0.1,
         .filter_type = .ladder, .filter_cutoff = 720.0, .filter_res = 0.18, .filter_drive = 2.8,
@@ -1824,7 +1823,7 @@ pub const presets = [_]Preset{
 
     // future bass: breathy vocal bed for wide chords and breakdowns
     .{ .name = "future-vox", .category = "pad", .tags = &.{ "wstudio", "future-bass" }, .patch = .{
-        .waveform = .wavetable, .wt_table = .formant, .wt_pos = 0.62, .unison = 6, .unison_detune = 17.0, .unison_spread = 0.9,
+        .wt_table = .formant, .wt_pos = 0.62, .unison = 6, .unison_detune = 17.0, .unison_spread = 0.9,
         .attack_s = 0.45, .decay_s = 0.5, .sustain = 0.8, .release_s = 1.4,
         .filter_type = .formant, .filter_cutoff = 650.0, .filter_res = 0.3,
         .lfo_rate_hz = 0.3, .lfo_sync = .n2_1, .lfo_slew_ms = 35.0,
@@ -1843,8 +1842,8 @@ pub const presets = [_]Preset{
 
     // deep house: muted chord pluck with a soft filter-envelope knock
     .{ .name = "deep-pluck", .category = "pluck", .tags = &.{ "wstudio", "deep-house" }, .patch = .{
-        .waveform = .triangle, .unison = 2, .unison_detune = 5.0, .unison_spread = 0.35,
-        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.3,
+        .wt_table = .basic, .wt_pos = 0.3333333, .unison = 2, .unison_detune = 5.0, .unison_spread = 0.35,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_level = 0.3,
         .attack_s = 0.002, .decay_s = 0.24, .sustain = 0.0, .release_s = 0.18, .env_curve = 0.66,
         .filter_type = .ladder, .filter_cutoff = 780.0, .filter_res = 0.22, .filter_drive = 2.2,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.2, .fenv_sustain = 0.0, .fenv_release_s = 0.12, .fenv_curve = 0.7,
@@ -1861,15 +1860,15 @@ pub const presets = [_]Preset{
 
     // deep house: smooth mono lead with restrained glide and chorus
     .{ .name = "deep-lead", .category = "lead", .tags = &.{ "wstudio", "deep-house" }, .patch = .{
-        .waveform = .triangle, .voice_mode = .legato, .glide_s = 0.055,
-        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_pulse_width = 0.42, .osc_b_semi = 0.0, .osc_b_level = 0.35,
+        .wt_table = .basic, .wt_pos = 0.3333333, .voice_mode = .legato, .glide_s = 0.055,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_level = 0.35,
         .attack_s = 0.015, .decay_s = 0.25, .sustain = 0.75, .release_s = 0.22,
         .filter_type = .lp, .filter_cutoff = 1900.0, .filter_res = 0.2,
         .lfo_rate_hz = 5.0, .lfo_retrig = .key, .lfo_phase_offset = 0.25,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP,  .depth = 0.035 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.45 },
-            .{ .source = .mac2, .dest = 8,   .depth = 0.22 },
+            .{ .source = .mac2, .dest = 186,   .depth = -0.22 },
             .{ .source = .mac3, .dest = 179, .depth = 0.35 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.55, .fx_chorus_depth_ms = 3.5, .fx_chorus_mix = 0.22,
@@ -1878,9 +1877,9 @@ pub const presets = [_]Preset{
 
     // dub: short minor organ chord made for long feedback-delay throws
     .{ .name = "dub-chord", .category = "stab", .tags = &.{ "wstudio", "dub", "reggae" }, .patch = .{
-        .waveform = .square, .pulse_width = 0.47,
-        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 3.0, .osc_b_level = 0.5,
-        .osc_c_on = true, .osc_c_waveform = .sine, .osc_c_semi = 7.0, .osc_c_level = 0.4,
+        .wt_table = .basic, .wt_pos = 1.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 3.0, .osc_b_level = 0.5,
+        .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.0, .osc_c_semi = 7.0, .osc_c_level = 0.4,
         .attack_s = 0.004, .decay_s = 0.2, .sustain = 0.0, .release_s = 0.16, .env_curve = 0.62,
         .filter_type = .ladder, .filter_cutoff = 1300.0, .filter_res = 0.28, .filter_drive = 2.5,
         .mod_matrix = mods(&.{
@@ -1895,17 +1894,17 @@ pub const presets = [_]Preset{
         .gain = 0.3,
     } },
 
-    // dub: airy bubble organ with pulse motion and spring-like ambience
+    // dub: airy bubble organ with waveform motion and spring-like ambience
     .{ .name = "bubble-organ", .category = "keys", .tags = &.{ "wstudio", "dub", "reggae" }, .patch = .{
-        .waveform = .square, .pulse_width = 0.38,
-        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.45,
+        .wt_table = .basic, .wt_pos = 1.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_level = 0.45,
         .attack_s = 0.003, .decay_s = 0.11, .sustain = 0.35, .release_s = 0.08,
         .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.12,
         .lfo_rate_hz = 0.8, .lfo_sync = .n1_2, .lfo_retrig = .key,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo,  .dest = 1,   .depth = 0.12 },
+            .{ .source = .lfo,  .dest = 185,   .depth = -0.12 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac2, .dest = 1,   .depth = 0.25 },
+            .{ .source = .mac2, .dest = 185,   .depth = -0.25 },
             .{ .source = .mac3, .dest = 115, .depth = 0.4 },
         }),
         .fx_reverb_on = true, .fx_reverb_room = 0.45, .fx_reverb_damp = 0.65, .fx_reverb_mix = 0.2,
@@ -1914,8 +1913,8 @@ pub const presets = [_]Preset{
 
     // soul: warm electric-piano body with velocity-controlled tine bark
     .{ .name = "soul-epiano", .category = "keys", .tags = &.{ "wstudio", "soul", "neo-soul" }, .patch = .{
-        .waveform = .sine,
-        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 14.0, .osc_b_level = 0.7,
+        .wt_table = .basic, .wt_pos = 0.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 14.0, .osc_b_level = 0.7,
         .mod_mode = .fm_b_to_a, .mod_amount = 0.85,
         .attack_s = 0.003, .decay_s = 1.5, .sustain = 0.3, .release_s = 1.0, .env_curve = 0.5,
         .filter_type = .lp, .filter_cutoff = 4200.0, .filter_res = 0.04,
@@ -1934,8 +1933,8 @@ pub const presets = [_]Preset{
 
     // soul: rounded finger bass with a small upper-harmonic layer
     .{ .name = "soul-bass", .category = "bass", .tags = &.{ "wstudio", "soul", "neo-soul" }, .patch = .{
-        .waveform = .triangle, .voice_mode = .mono, .glide_s = 0.012,
-        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_level = 0.2,
+        .wt_table = .basic, .wt_pos = 0.3333333, .voice_mode = .mono, .glide_s = 0.012,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_level = 0.2,
         .sub_level = 0.5, .sub_shape = .sine,
         .attack_s = 0.006, .decay_s = 0.18, .sustain = 0.72, .release_s = 0.16,
         .filter_type = .ladder, .filter_cutoff = 720.0, .filter_res = 0.08, .filter_drive = 2.0,
@@ -1954,8 +1953,8 @@ pub const presets = [_]Preset{
 
     // vaporwave: softened electric keys with tape drift and a long tail
     .{ .name = "vapor-keys", .category = "keys", .tags = &.{ "wstudio", "vaporwave" }, .patch = .{
-        .waveform = .triangle, .detune_cents = -5.0,
-        .osc_b_on = true, .osc_b_waveform = .sine, .osc_b_semi = 12.0, .osc_b_detune_cents = 7.0, .osc_b_level = 0.42,
+        .wt_table = .basic, .wt_pos = 0.3333333, .detune_cents = -5.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_detune_cents = 7.0, .osc_b_level = 0.42,
         .attack_s = 0.008, .decay_s = 1.1, .sustain = 0.18, .release_s = 1.2, .env_curve = 0.48,
         .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.06,
         .mod_matrix = mods(&.{
@@ -1973,8 +1972,8 @@ pub const presets = [_]Preset{
 
     // vaporwave: slow rounded bass with degraded sampler edges
     .{ .name = "vapor-bass", .category = "bass", .tags = &.{ "wstudio", "vaporwave" }, .patch = .{
-        .waveform = .sine, .voice_mode = .mono, .glide_s = 0.04,
-        .osc_b_on = true, .osc_b_waveform = .triangle, .osc_b_semi = 0.0, .osc_b_detune_cents = -7.0, .osc_b_level = 0.35,
+        .wt_table = .basic, .wt_pos = 0.0, .voice_mode = .mono, .glide_s = 0.04,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.3333333, .osc_b_semi = 0.0, .osc_b_detune_cents = -7.0, .osc_b_level = 0.35,
         .sub_level = 0.5, .sub_shape = .sine,
         .attack_s = 0.012, .decay_s = 0.3, .sustain = 0.82, .release_s = 0.3,
         .filter_type = .lp, .filter_cutoff = 650.0, .filter_res = 0.08,
@@ -1992,8 +1991,8 @@ pub const presets = [_]Preset{
 
     // anime: expressive bright lead with portamento and delayed vibrato feel
     .{ .name = "anime-lead", .category = "lead", .tags = &.{ "wstudio", "anime", "j-pop" }, .patch = .{
-        .waveform = .saw, .unison = 3, .unison_detune = 10.0, .unison_spread = 0.5, .voice_mode = .legato, .glide_s = 0.045,
-        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_pulse_width = 0.4, .osc_b_semi = 12.0, .osc_b_level = 0.3,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_detune = 10.0, .unison_spread = 0.5, .voice_mode = .legato, .glide_s = 0.045,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 12.0, .osc_b_level = 0.3,
         .attack_s = 0.008, .decay_s = 0.18, .sustain = 0.82, .release_s = 0.2,
         .filter_type = .lp, .filter_cutoff = 5200.0, .filter_res = 0.14,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 140.0, .filter_routing = .series,
@@ -2001,7 +2000,7 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP,  .depth = 0.06 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.45 },
-            .{ .source = .mac2, .dest = 8,   .depth = 0.2 },
+            .{ .source = .mac2, .dest = 186,   .depth = -0.2 },
             .{ .source = .mac3, .dest = 111, .depth = 0.35 },
             .{ .source = .mac3, .dest = 115, .depth = 0.3 },
         }),
@@ -2012,16 +2011,16 @@ pub const presets = [_]Preset{
 
     // anime: glossy string ensemble for themes and emotional lifts
     .{ .name = "anime-strings", .category = "pad", .tags = &.{ "wstudio", "anime", "j-pop" }, .patch = .{
-        .waveform = .saw, .unison = 5, .unison_detune = 11.0, .unison_spread = 0.78,
-        .osc_b_on = true, .osc_b_waveform = .square, .osc_b_pulse_width = 0.45, .osc_b_semi = 0.0, .osc_b_level = 0.35,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 5, .unison_detune = 11.0, .unison_spread = 0.78,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_level = 0.35,
         .attack_s = 0.55, .decay_s = 0.5, .sustain = 0.85, .release_s = 1.5,
         .filter_type = .lp, .filter_cutoff = 3600.0, .filter_res = 0.08,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 130.0, .filter_routing = .series,
         .lfo2_rate_hz = 0.32, .lfo2_phase_offset = 0.25, .lfo2_slew_ms = 25.0,
         .mod_matrix = mods(&.{
-            .{ .source = .lfo2, .dest = 8,   .depth = 0.16 },
+            .{ .source = .lfo2, .dest = 186,   .depth = -0.16 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.42 },
-            .{ .source = .mac2, .dest = 8,   .depth = 0.2 },
+            .{ .source = .mac2, .dest = 186,   .depth = -0.2 },
             .{ .source = .mac3, .dest = 115, .depth = 0.4 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.45, .fx_chorus_depth_ms = 5.0, .fx_chorus_mix = 0.38,

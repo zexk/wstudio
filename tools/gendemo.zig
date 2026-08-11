@@ -46,12 +46,12 @@ pub fn main(init: std.process.Init) !void {
     try session.project.renameTrack(0, "lead");
     {
         const s = &session.racks.items[0].instrument.poly_synth;
-        s.waveform = .saw;
+        s.wt_pos = 0.6666667;
         s.unison = 7;
         s.unison_detune = 35.0;
         s.unison_spread = 0.7;
         s.osc_b_on = true;
-        s.osc_b_waveform = .saw;
+        s.osc_b_wt_pos = 0.6666667;
         s.osc_b_semi = -12.0;
         s.osc_b_detune_cents = 5.0;
         s.osc_b_level = 0.55;
@@ -81,9 +81,9 @@ pub fn main(init: std.process.Init) !void {
     session.project.tracks.items[1].gain_db = -3.0;
     {
         const s = &session.racks.items[1].instrument.poly_synth;
-        s.waveform = .sine;
+        s.wt_pos = 0.0;
         s.osc_b_on = true;
-        s.osc_b_waveform = .sine;
+        s.osc_b_wt_pos = 0.0;
         s.osc_b_level = 0.0;
         s.mod_mode = .fm_b_to_a;
         s.mod_amount = 2.5;
@@ -117,11 +117,11 @@ pub fn main(init: std.process.Init) !void {
     session.project.tracks.items[2].gain_db = -3.0;
     {
         const s = &session.racks.items[2].instrument.poly_synth;
-        s.waveform = .saw;
+        s.wt_pos = 0.6666667;
         s.voice_mode = .mono;
         s.glide_s = 0.05;
         s.osc_b_on = true;
-        s.osc_b_waveform = .sine;
+        s.osc_b_wt_pos = 0.0;
         s.osc_b_level = 0.0;
         s.mod_mode = .fm_b_to_a;
         s.mod_amount = 3.5;

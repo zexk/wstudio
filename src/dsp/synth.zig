@@ -60,7 +60,6 @@ pub fn enumFromValue(comptime E: type, value: f32) E {
 }
 
 // zig fmt: off
-pub const Waveform   = enum { sine, saw, triangle, square, wavetable };
 /// lp/hp/bp/notch are 2-pole biquads. `ladder` is a Moog-style 4-pole
 /// lowpass (24 dB/oct, tanh-saturated feedback - self-oscillates near full
 /// resonance). `diode` is the same 4-stage cascade but with an asymmetric
@@ -339,9 +338,6 @@ pub const PolySynth = struct {
     allocator: std.mem.Allocator,
 
     // ── OSC ─────────────────────────────────────────────────────────────────
-    waveform: Waveform = .saw,
-    /// Pulse width for square wave (0.01–0.99).
-    pulse_width: f32 = 0.5,
     /// OSC A's `.wavetable` table data. Not part of `Patch` - same as
     /// Sampler's audio clip, table content isn't preset data. No default:
     /// only `init()` constructs a `PolySynth`, and it always sets this.
@@ -368,8 +364,6 @@ pub const PolySynth = struct {
     // ── OSC B ────────────────────────────────────────────────────────────────
     // zig fmt: off
     osc_b_on:           bool     = false,
-    osc_b_waveform:     Waveform = .saw,
-    osc_b_pulse_width:  f32      = 0.5,
     /// Coarse pitch offset in semitones (–24..+24). Integer steps in the editor.
     osc_b_semi:         f32      = 0.0,
     /// Fine pitch offset in cents (–100..+100).
@@ -394,8 +388,6 @@ pub const PolySynth = struct {
     /// same shape as OSC B otherwise. Kept simple deliberately - the mod
     /// matrix and warp are per-A/B-slot features, not per-oscillator ones.
     osc_c_on:           bool     = false,
-    osc_c_waveform:     Waveform = .saw,
-    osc_c_pulse_width:  f32      = 0.5,
     osc_c_semi:         f32      = 0.0,
     osc_c_detune_cents: f32      = 0.0,
     osc_c_level:        f32      = 1.0,
@@ -868,8 +860,6 @@ pub const PolySynth = struct {
         phases:   [max_unison]f32 = [_]f32{0.0} ** max_unison,
         phases_b: [max_unison]f32 = [_]f32{0.0} ** max_unison,
         phases_c: [max_unison]f32 = [_]f32{0.0} ** max_unison,
-        /// Current A/B/C pulse widths, ramped toward each block's targets.
-        pulse_widths: [3]f32 = @splat(0.5),
         /// Current A/B/C wavetable positions, likewise ramped per sample.
         wt_positions: [3]f32 = @splat(0.0),
         /// Current A/B warp amounts, likewise ramped per sample.
@@ -1083,10 +1073,8 @@ pub const PolySynth = struct {
     /// bend, LFO phase). Presets in `synth_presets.zig` are just values of
     /// this type - no audio is rendered or embedded to define one.
     pub const Patch = struct {
-        waveform: Waveform = .saw,
         /// Optional bundled table choice. Null preserves imported/current audio.
         wt_table: ?BundledWavetable = null,
-        pulse_width: f32 = 0.5,
         detune_cents: f32 = 0.0,
         unison: u8 = 1,
         unison_detune: f32 = 15.0,
@@ -1097,9 +1085,7 @@ pub const PolySynth = struct {
         wt_pos: f32 = 0.0,
 
         osc_b_on: bool = false,
-        osc_b_waveform: Waveform = .saw,
         osc_b_wt_table: ?BundledWavetable = null,
-        osc_b_pulse_width: f32 = 0.5,
         osc_b_semi: f32 = 0.0,
         osc_b_detune_cents: f32 = 0.0,
         osc_b_level: f32 = 1.0,
@@ -1111,9 +1097,7 @@ pub const PolySynth = struct {
         osc_b_wt_pos: f32 = 0.0,
 
         osc_c_on: bool = false,
-        osc_c_waveform: Waveform = .saw,
         osc_c_wt_table: ?BundledWavetable = null,
-        osc_c_pulse_width: f32 = 0.5,
         osc_c_semi: f32 = 0.0,
         osc_c_detune_cents: f32 = 0.0,
         osc_c_level: f32 = 1.0,
@@ -1456,7 +1440,6 @@ pub const PolySynth = struct {
             .noise_rand_state = noise_seed,
             .random           = random,
             .alternate        = if (self.mod_alternate) 1.0 else -1.0,
-            .pulse_widths     = .{ self.pulse_width, self.osc_b_pulse_width, self.osc_c_pulse_width },
             .wt_positions     = .{ self.wt_pos, self.osc_b_wt_pos, self.osc_c_wt_pos },
             .warp_amounts     = .{ self.warp_amount, self.osc_b_warp_amount },
             .mod_amount       = self.mod_amount,
@@ -1859,9 +1842,6 @@ pub const PolySynth = struct {
             // Per-voice effective values for params consumed inside the
             // per-sample loop (hoisted once per block).
             // zig fmt: off
-            const pw_a         = eff(&mods, 1,  self.pulse_width);
-            const pw_b         = eff(&mods, 8,  self.osc_b_pulse_width);
-            const pw_c         = eff(&mods, 52, self.osc_c_pulse_width);
             const warp_amt_a   = eff(&mods, 42, self.warp_amount);
             const warp_amt_b   = eff(&mods, 44, self.osc_b_warp_amount);
             const wt_pos_a     = eff(&mods, 185, self.wt_pos);
@@ -1874,10 +1854,6 @@ pub const PolySynth = struct {
             const noise_lvl_v  = eff(&mods, 36, self.noise_level);
             const gain_v       = eff(&mods, 38, self.gain);
             // zig fmt: on
-            const pw_targets = [3]f32{ pw_a, pw_b, pw_c };
-            var pw_steps: [3]f32 = undefined;
-            for (&pw_steps, pw_targets, v.pulse_widths) |*step, target, current|
-                step.* = (target - current) / @as(f32, @floatFromInt(frames));
             const wt_targets = [3]f32{ wt_pos_a, wt_pos_b, wt_pos_c };
             var wt_steps: [3]f32 = undefined;
             for (&wt_steps, wt_targets, v.wt_positions) |*step, target, current|
@@ -1988,7 +1964,7 @@ pub const PolySynth = struct {
                 // FM B→A: render B first so b_mono is ready when A phases advance.
                 if (self.osc_b_on and self.mod_mode == .fm_b_to_a) {
                     for (0..n_b) |ui| {
-                        const samp = self.oscSampleB(v.phases_b[ui], phase_incs_b[ui], v.pulse_widths[1], v.warp_amounts[1], v.wt_positions[1]);
+                        const samp = self.oscSampleB(v.phases_b[ui], phase_incs_b[ui], v.warp_amounts[1], v.wt_positions[1]);
                         b_l += samp * pan_l_b[ui];
                         b_r += samp * pan_r_b[ui];
                         b_mono += samp;
@@ -2007,7 +1983,7 @@ pub const PolySynth = struct {
                         modulatedPhaseInc(phase_incs_a[ui], 1.0 + v.mod_amount * b_mono)
                     else
                         phase_incs_a[ui];
-                    const samp = self.oscSampleA(v.phases[ui], inc, v.pulse_widths[0], v.warp_amounts[0], v.wt_positions[0]);
+                    const samp = self.oscSampleA(v.phases[ui], inc, v.warp_amounts[0], v.wt_positions[0]);
                     a_l += samp * pan_l_a[ui];
                     a_r += samp * pan_r_a[ui];
                     a_mono += samp;
@@ -2024,7 +2000,7 @@ pub const PolySynth = struct {
                             modulatedPhaseInc(phase_incs_b[ui], 1.0 + v.mod_amount * a_mono)
                         else
                             phase_incs_b[ui];
-                        const samp = self.oscSampleB(v.phases_b[ui], inc, v.pulse_widths[1], v.warp_amounts[1], v.wt_positions[1]);
+                        const samp = self.oscSampleB(v.phases_b[ui], inc, v.warp_amounts[1], v.wt_positions[1]);
                         b_l += samp * pan_l_b[ui];
                         b_r += samp * pan_r_b[ui];
                         b_mono += samp;
@@ -2054,10 +2030,7 @@ pub const PolySynth = struct {
                 var c_r: f32 = 0.0;
                 if (self.osc_c_on) {
                     for (0..n_c) |ui| {
-                        const samp = if (self.osc_c_waveform == .wavetable)
-                            wavetable.lookup(self.osc_c_wt, v.wt_positions[2], v.phases_c[ui], phase_incs_c[ui])
-                        else
-                            oscWave(self.osc_c_waveform, v.phases_c[ui], v.pulse_widths[2], phase_incs_c[ui]);
+                        const samp = wavetable.lookup(self.osc_c_wt, v.wt_positions[2], v.phases_c[ui], phase_incs_c[ui]);
                         c_l += samp * pan_l_c[ui];
                         c_r += samp * pan_r_c[ui];
                         v.phases_c[ui] += phase_incs_c[ui];
@@ -2072,8 +2045,8 @@ pub const PolySynth = struct {
                 var sub_out: f32 = 0.0;
                 if (mix_targets[3] > 0.0 or v.mix_gain[3] > 0.0) {
                     // zig fmt: on
-                    const sub_wf: Waveform = if (self.sub_shape == .sine) .sine else .square;
-                    sub_out = oscWave(sub_wf, v.sub_phase, 0.5, sub_phase_inc);
+                    const sub_wave: synth_math.PrimitiveWaveform = if (self.sub_shape == .sine) .sine else .square;
+                    sub_out = oscWave(sub_wave, v.sub_phase, 0.5, sub_phase_inc);
                     v.sub_phase += sub_phase_inc;
                     v.sub_phase -= @floor(v.sub_phase);
                 }
@@ -2134,7 +2107,6 @@ pub const PolySynth = struct {
                 v.last_out_l = out_l;
                 v.last_out_r = out_r;
                 v.steal_fade = @max(v.steal_fade - steal_fade_step, 0.0);
-                for (&v.pulse_widths, pw_steps) |*current, step| current.* += step;
                 for (&v.wt_positions, wt_steps) |*current, step| current.* += step;
                 for (&v.warp_amounts, warp_steps) |*current, step| current.* += step;
                 v.mod_amount += mod_amount_step;
@@ -2574,23 +2546,18 @@ pub const PolySynth = struct {
         }
     }
 
-    /// Warps `phase` then looks up a wavetable frame or classic waveform
-    /// shape - shared body of `oscSampleA`/`oscSampleB`, which differ only
-    /// in which of self's oscillator-A/B fields they read. `pw`/
-    /// `warp_amount`/`wt_pos` are passed in (not read off `self`) so the
-    /// caller can substitute per-voice matrix-modulated values.
-    fn oscSample(waveform: Waveform, wt: Wavetable, warp_mode: WarpMode, phase: f32, inc: f32, pw: f32, warp_amount: f32, wt_pos: f32) Sample {
+    /// Warps `phase`, then reads oscillator's wavetable at current position.
+    fn oscSample(wt: Wavetable, warp_mode: WarpMode, phase: f32, inc: f32, warp_amount: f32, wt_pos: f32) Sample {
         const p = warpPhase(warp_mode, phase, warp_amount);
-        if (waveform == .wavetable) return wavetable.lookup(wt, wt_pos, p, inc);
-        return oscWave(waveform, p, pw, warpedInc(warp_mode, phase, inc, warp_amount, p));
+        return wavetable.lookup(wt, wt_pos, p, warpedInc(warp_mode, phase, inc, warp_amount, p));
     }
 
-    fn oscSampleA(self: *const PolySynth, phase: f32, inc: f32, pw: f32, warp_amount: f32, wt_pos: f32) Sample {
-        return oscSample(self.waveform, self.wt, self.warp_mode, phase, inc, pw, warp_amount, wt_pos);
+    fn oscSampleA(self: *const PolySynth, phase: f32, inc: f32, warp_amount: f32, wt_pos: f32) Sample {
+        return oscSample(self.wt, self.warp_mode, phase, inc, warp_amount, wt_pos);
     }
 
-    fn oscSampleB(self: *const PolySynth, phase: f32, inc: f32, pw: f32, warp_amount: f32, wt_pos: f32) Sample {
-        return oscSample(self.osc_b_waveform, self.osc_b_wt, self.osc_b_warp_mode, phase, inc, pw, warp_amount, wt_pos);
+    fn oscSampleB(self: *const PolySynth, phase: f32, inc: f32, warp_amount: f32, wt_pos: f32) Sample {
+        return oscSample(self.osc_b_wt, self.osc_b_warp_mode, phase, inc, warp_amount, wt_pos);
     }
 
     pub fn resetAll(self: *PolySynth) void {
@@ -2613,13 +2580,13 @@ pub const PolySynth = struct {
             .mod_wheel         => self.mod_wheel = v01,
             .glide_time        => self.glide_s   = v01 * 4.0,
             .gain              => self.gain       = v01,
-            .osc_a_waveform    => self.waveform         = ccWaveform(value),
-            .osc_a_pulse_width => self.pulse_width       = 0.01 + v01 * 0.98,
+            .osc_a_waveform    => self.wt_pos             = v01,
+            .osc_a_pulse_width => {},
             .osc_a_unison      => self.unison            = @intCast(1 + @as(u8, @intFromFloat(@round(v01 * 15.0)))),
             .osc_a_unison_det  => self.unison_detune     = v01 * 100.0,
             .osc_a_spread      => self.unison_spread     = v01,
             .osc_b_on          => self.osc_b_on           = value > 63,
-            .osc_b_waveform    => self.osc_b_waveform     = ccWaveform(value),
+            .osc_b_waveform    => self.osc_b_wt_pos       = v01,
             .osc_b_semi        => self.osc_b_semi         = v01 * 48.0 - 24.0,
             .osc_b_detune      => self.osc_b_detune_cents = v01 * 200.0 - 100.0,
             .osc_b_level       => self.osc_b_level        = v01,
@@ -2766,15 +2733,11 @@ pub const PolySynth = struct {
     /// undo, and automation curves all silently no-op'd on tape params
     /// until this table filled the gap.
     const param_specs = [_]ParamSpec{
-        .{ .id = 0, .field = "waveform", .kind = .cycle, .enum_type = Waveform },
-        .{ .id = 1, .field = "pulse_width", .min = 0.01, .max = 0.99, .step = 0.01 },
         .{ .id = 2, .field = "detune_cents", .min = -100.0, .max = 100.0, .step = 1.0 },
         .{ .id = 3, .field = "unison", .kind = .int_cont, .min = 1, .max = 16 },
         .{ .id = 4, .field = "unison_detune", .min = 0.0, .max = 100.0, .step = 1.0 },
         .{ .id = 5, .field = "unison_spread", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 6, .field = "osc_b_on", .kind = .toggle },
-        .{ .id = 7, .field = "osc_b_waveform", .kind = .cycle, .enum_type = Waveform },
-        .{ .id = 8, .field = "osc_b_pulse_width", .min = 0.01, .max = 0.99, .step = 0.01 },
         .{ .id = 9, .field = "osc_b_semi", .min = -24.0, .max = 24.0, .step = 1.0 },
         .{ .id = 10, .field = "osc_b_detune_cents", .min = -100.0, .max = 100.0, .step = 1.0 },
         .{ .id = 11, .field = "osc_b_level", .min = 0.0, .max = 1.0, .step = 0.01 },
@@ -2824,8 +2787,6 @@ pub const PolySynth = struct {
         .{ .id = 250, .field = "filter2_drive", .min = 1.0, .max = 16.0, .step = 0.1 },
         .{ .id = 49, .field = "filter_routing", .kind = .cycle, .enum_type = FilterRouting },
         .{ .id = 50, .field = "osc_c_on", .kind = .toggle },
-        .{ .id = 51, .field = "osc_c_waveform", .kind = .cycle, .enum_type = Waveform },
-        .{ .id = 52, .field = "osc_c_pulse_width", .min = 0.01, .max = 0.99, .step = 0.01 },
         .{ .id = 53, .field = "osc_c_semi", .min = -24.0, .max = 24.0, .step = 1.0 },
         .{ .id = 54, .field = "osc_c_detune_cents", .min = -100.0, .max = 100.0, .step = 1.0 },
         .{ .id = 55, .field = "osc_c_level", .min = 0.0, .max = 1.0, .step = 0.01 },
@@ -3091,12 +3052,10 @@ pub const PolySynth = struct {
 
     pub const automatable_params = [_]AutomatableParam{
         // zig fmt: off
-        .{ .id = 1,  .label = "PW A",       .section = "OSC A",   .range = .{ 0.01,   0.99 },    .step = 0.01 },
         .{ .id = 2,  .label = "DETUNE A",   .section = "OSC A",   .range = .{ -100.0, 100.0 },   .step = 1.0 },
         .{ .id = 3,  .label = "UNISON A",   .section = "OSC A",   .range = .{ 1.0,    16.0 },    .step = 1.0 },
         .{ .id = 4,  .label = "UNI DET A",  .section = "OSC A",   .range = .{ 0.0,    100.0 },   .step = 1.0 },
         .{ .id = 5,  .label = "UNI SPRD A", .section = "OSC A",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
-        .{ .id = 8,  .label = "PW B",       .section = "OSC B",   .range = .{ 0.01,   0.99 },    .step = 0.01 },
         .{ .id = 9,  .label = "SEMI B",     .section = "OSC B",   .range = .{ -24.0,  24.0 },    .step = 1.0 },
         .{ .id = 10, .label = "DETUNE B",   .section = "OSC B",   .range = .{ -100.0, 100.0 },   .step = 1.0 },
         .{ .id = 11, .label = "LEVEL B",    .section = "OSC B",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
@@ -3129,7 +3088,6 @@ pub const PolySynth = struct {
         .{ .id = 47, .label = "CUTOFF 2",   .section = "FILTER 2",.range = .{ 20.0,   20_000.0 },.step = 100.0 },
         .{ .id = 48, .label = "RESONANCE 2",.section = "FILTER 2",.range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 250,.label = "DRIVE 2",    .section = "FILTER 2",.range = .{ 1.0,    16.0 },    .step = 0.1 },
-        .{ .id = 52, .label = "PW C",       .section = "OSC C",   .range = .{ 0.01,   0.99 },    .step = 0.01 },
         .{ .id = 53, .label = "SEMI C",     .section = "OSC C",   .range = .{ -24.0,  24.0 },    .step = 1.0 },
         .{ .id = 54, .label = "DETUNE C",   .section = "OSC C",   .range = .{ -100.0, 100.0 },   .step = 1.0 },
         .{ .id = 55, .label = "LEVEL C",    .section = "OSC C",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
@@ -3270,11 +3228,6 @@ pub const PolySynth = struct {
         self.pitch_bend_semitones = @as(f32, @floatFromInt(bend)) / 8192.0 * range_semitones;
     }
 
-    fn ccWaveform(value: u7) Waveform {
-        const n = @typeInfo(Waveform).@"enum".fields.len;
-        return @enumFromInt(@min(n - 1, @as(usize, value) * n / 128));
-    }
-
     fn ccCutoff(value: u7) f32 {
         // Logarithmic: 0 → 20 Hz, 127 → 18 000 Hz.
         return 20.0 * std.math.pow(f32, 900.0, @as(f32, @floatFromInt(value)) / 127.0);
@@ -3347,7 +3300,7 @@ test "filter: all types stay finite under resonance" {
 fn expectClosedCutoffAttenuates(filter_type: FilterType) !void {
     var open = try PolySynth.init(std.testing.allocator, 48_000);
     defer open.deinit();
-    open.waveform = .saw;
+    open.wt_pos = 0.6666667;
     open.filter_type = filter_type;
     open.filter_cutoff = 18_000.0;
     open.filter_res = 0.0;
@@ -3355,7 +3308,7 @@ fn expectClosedCutoffAttenuates(filter_type: FilterType) !void {
 
     var closed = try PolySynth.init(std.testing.allocator, 48_000);
     defer closed.deinit();
-    closed.waveform = .saw;
+    closed.wt_pos = 0.6666667;
     closed.filter_type = filter_type;
     closed.filter_cutoff = 200.0;
     closed.filter_res = 0.0;
@@ -3397,7 +3350,7 @@ test "formant filter: vowel scan produces distinct spectral content" {
     // should differ meaningfully across the sweep, not just clamp flat.
     var low = try PolySynth.init(std.testing.allocator, 48_000);
     defer low.deinit();
-    low.waveform = .saw;
+    low.wt_pos = 0.6666667;
     low.filter_type = .formant;
     low.filter_cutoff = 20.0;
     low.filter_res = 0.3;
@@ -3405,7 +3358,7 @@ test "formant filter: vowel scan produces distinct spectral content" {
 
     var high = try PolySynth.init(std.testing.allocator, 48_000);
     defer high.deinit();
-    high.waveform = .saw;
+    high.wt_pos = 0.6666667;
     high.filter_type = .formant;
     high.filter_cutoff = 20_000.0;
     high.filter_res = 0.3;
@@ -3457,13 +3410,13 @@ test "filter envelope modulates cutoff via matrix row: positive depth brightens"
     // After initial attack the envelope-driven one should be louder (more HF content).
     var base_synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer base_synth.deinit();
-    base_synth.waveform = .saw;
+    base_synth.wt_pos = 0.6666667;
     base_synth.filter_cutoff = 500.0;
     base_synth.noteOn(60, 1.0);
 
     var mod_synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer mod_synth.deinit();
-    mod_synth.waveform = .saw;
+    mod_synth.wt_pos = 0.6666667;
     mod_synth.filter_cutoff = 500.0;
     // depth 0.75 = +3 octaves when env2 = 1 → 500 Hz * 8 = 4 kHz
     mod_synth.mod_matrix[0] = .{ .source = .fenv, .dest = 21, .depth = 0.75 };
@@ -3524,51 +3477,28 @@ test "polyphony allocates distinct voices" {
     try std.testing.expectEqual(@as(u32, 3), active);
 }
 
-test "pulse width changes square output" {
-    var wide = try PolySynth.init(std.testing.allocator, 48_000);
-    defer wide.deinit();
-    wide.waveform = .square;
-    wide.pulse_width = 0.5;
-    wide.noteOn(60, 1.0);
-
-    var narrow = try PolySynth.init(std.testing.allocator, 48_000);
-    defer narrow.deinit();
-    narrow.waveform = .square;
-    narrow.pulse_width = 0.1;
-    narrow.noteOn(60, 1.0);
-
-    var buf_wide: [512]Sample = undefined;
-    var buf_narrow: [512]Sample = undefined;
-    for (0..10) |_| {
-        // zig fmt: off
-        @memset(&buf_wide, 0.0);   wide.processBlock(&buf_wide);
-        @memset(&buf_narrow, 0.0); narrow.processBlock(&buf_narrow);
-    }
-    var difference: f32 = 0.0;
-    for (buf_wide, buf_narrow) |w, n| difference += @abs(w - n);
-    try std.testing.expect(difference > 1.0);
-}
-
 test "unison mode: step and spread produce different detune patterns" {
     var spread = try PolySynth.init(std.testing.allocator, 48_000);
     defer spread.deinit();
-    spread.unison       = 4;
+    spread.unison = 4;
     spread.unison_detune = 50.0;
-    spread.unison_mode  = .spread;
+    spread.unison_mode = .spread;
     spread.noteOn(60, 1.0);
 
     var step = try PolySynth.init(std.testing.allocator, 48_000);
     defer step.deinit();
-    step.unison        = 4;
-    step.unison_detune  = 50.0;
-    step.unison_mode   = .step;
+    step.unison = 4;
+    step.unison_detune = 50.0;
+    step.unison_mode = .step;
     step.noteOn(60, 1.0);
 
     var buf_spread: [512]Sample = undefined;
     var buf_step: [512]Sample = undefined;
     for (0..10) |_| {
-        @memset(&buf_spread, 0.0); spread.processBlock(&buf_spread);
-        @memset(&buf_step, 0.0);   step.processBlock(&buf_step);
+        @memset(&buf_spread, 0.0);
+        spread.processBlock(&buf_spread);
+        @memset(&buf_step, 0.0);
+        step.processBlock(&buf_step);
         // zig fmt: on
     }
     var diff: f32 = 0.0;
@@ -3664,12 +3594,12 @@ test "applyPatchWithWavetables selects bundled audio while null preserves it" {
     defer s.deinit();
     const basic_sample = s.wt.frames[17];
 
-    try s.applyPatchWithWavetables(.{ .waveform = .wavetable, .wt_table = .metallic });
+    try s.applyPatchWithWavetables(.{ .wt_table = .metallic });
     try std.testing.expectEqual(BundledWavetable.metallic, s.wt_bundled.?);
     try std.testing.expect(s.wt.frames[17] != basic_sample);
 
     const metallic_sample = s.wt.frames[17];
-    try s.applyPatchWithWavetables(.{ .waveform = .wavetable });
+    try s.applyPatchWithWavetables(.{});
     try std.testing.expectEqual(BundledWavetable.metallic, s.wt_bundled.?);
     try std.testing.expectEqual(metallic_sample, s.wt.frames[17]);
 }
@@ -4676,26 +4606,23 @@ test "matrix parameter IDs preserve legacy rows and address row 32" {
 test "applyParamSpecs ignores non-finite continuous snapshot fields" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
-    const pulse_width = synth.pulse_width;
     const cutoff = synth.filter_cutoff;
     const snap = .{
-        .pulse_width = std.math.nan(f32),
         .filter_cutoff = std.math.inf(f32),
     };
     synth.applyParamSpecs(&snap);
-    try std.testing.expectEqual(pulse_width, synth.pulse_width);
     try std.testing.expectEqual(cutoff, synth.filter_cutoff);
 }
 
-test "applyCC: waveform steps" {
+test "applyCC: waveform controls wavetable position" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
     synth.applyCC(@intFromEnum(midi.CC.osc_a_waveform), 0);
-    try std.testing.expectEqual(Waveform.sine, synth.waveform);
+    try std.testing.expectEqual(@as(f32, 0.0), synth.wt_pos);
     synth.applyCC(@intFromEnum(midi.CC.osc_a_waveform), 32);
-    try std.testing.expectEqual(Waveform.saw, synth.waveform);
+    try std.testing.expectApproxEqAbs(@as(f32, 32.0 / 127.0), synth.wt_pos, 1e-6);
     synth.applyCC(@intFromEnum(midi.CC.osc_a_waveform), 127);
-    try std.testing.expectEqual(Waveform.wavetable, synth.waveform);
+    try std.testing.expectEqual(@as(f32, 1.0), synth.wt_pos);
 }
 
 test "loadWavetable: replaces a slot's table, marks it user-imported, leaves old table intact on parse failure" {
@@ -5000,36 +4927,11 @@ test "stolen voice continues its last sample through a short fade" {
     try std.testing.expect(voice.steal_fade < 1.0);
 }
 
-test "pulse widths ramp to live targets across one block" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
-    defer synth.deinit();
-    synth.waveform = .square;
-    synth.osc_b_on = true;
-    synth.osc_b_waveform = .square;
-    synth.osc_c_on = true;
-    synth.osc_c_waveform = .square;
-    synth.noteOn(60, 1.0);
-
-    synth.pulse_width = 0.1;
-    synth.osc_b_pulse_width = 0.25;
-    synth.osc_c_pulse_width = 0.9;
-    var buf = [_]Sample{0.0} ** 16;
-    synth.processBlock(&buf);
-
-    const widths = synth.voices[synth.newest_voice].pulse_widths;
-    try std.testing.expectApproxEqAbs(@as(f32, 0.1), widths[0], 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.25), widths[1], 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.9), widths[2], 1e-6);
-}
-
 test "wavetable positions ramp to live targets across one block" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
-    synth.waveform = .wavetable;
     synth.osc_b_on = true;
-    synth.osc_b_waveform = .wavetable;
     synth.osc_c_on = true;
-    synth.osc_c_waveform = .wavetable;
     synth.noteOn(60, 1.0);
 
     synth.wt_pos = 0.2;

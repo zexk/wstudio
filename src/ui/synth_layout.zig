@@ -88,29 +88,26 @@ const matrix_params = blk: {
 // zig fmt: off
 pub const main_sections = [_]SectionDef{
     .{ .title = "OSC A", .tone = .source, .band = 0, .params = &.{
-        .{ .id = 0,  .label = "waveform" },  .{ .id = 1,  .label = "pls.width" },
         .{ .id = 2,  .label = "detune" },    .{ .id = 3,  .label = "unison" },
         .{ .id = 4,  .label = "uni.det" },   .{ .id = 5,  .label = "spread" },
         .{ .id = 39, .label = "uni.mode" },  .{ .id = 41, .label = "warp" },
-        .{ .id = 42, .label = "warp amt" },  .{ .id = 185, .label = "wt.pos" },
-        .{ .id = 251, .label = "wt.table" },
+        .{ .id = 42, .label = "warp amt" },  .{ .id = 185, .label = "position" },
+        .{ .id = 251, .label = "waveform" },
     } },
     .{ .title = "OSC B", .tone = .source, .band = 0, .params = &.{
-        .{ .id = 6,  .label = "on/off" },    .{ .id = 7,  .label = "waveform" },
-        .{ .id = 8,  .label = "pls.width" }, .{ .id = 9,  .label = "semi" },
+        .{ .id = 6,  .label = "on/off" },    .{ .id = 9,  .label = "semi" },
         .{ .id = 10, .label = "detune" },    .{ .id = 11, .label = "level" },
         .{ .id = 12, .label = "unison" },    .{ .id = 13, .label = "uni.det" },
         .{ .id = 40, .label = "uni.mode" },  .{ .id = 43, .label = "warp" },
-        .{ .id = 44, .label = "warp amt" },  .{ .id = 186, .label = "wt.pos" },
-        .{ .id = 252, .label = "wt.table" },
+        .{ .id = 44, .label = "warp amt" },  .{ .id = 186, .label = "position" },
+        .{ .id = 252, .label = "waveform" },
     } },
     .{ .title = "OSC C", .tone = .source, .band = 0, .params = &.{
-        .{ .id = 50, .label = "on/off" },    .{ .id = 51, .label = "waveform" },
-        .{ .id = 52, .label = "pls.width" }, .{ .id = 53, .label = "semi" },
+        .{ .id = 50, .label = "on/off" },    .{ .id = 53, .label = "semi" },
         .{ .id = 54, .label = "detune" },    .{ .id = 55, .label = "level" },
         .{ .id = 56, .label = "unison" },    .{ .id = 57, .label = "uni.det" },
-        .{ .id = 58, .label = "uni.mode" },  .{ .id = 187, .label = "wt.pos" },
-        .{ .id = 253, .label = "wt.table" },
+        .{ .id = 58, .label = "uni.mode" },  .{ .id = 187, .label = "position" },
+        .{ .id = 253, .label = "waveform" },
     } },
     .{ .title = "SUB", .tone = .source, .band = 1, .params = &.{
         .{ .id = 34, .label = "level" }, .{ .id = 35, .label = "shape" },
@@ -379,8 +376,9 @@ pub fn indexContaining(order: []const PositionedEntry, id: u16) ?usize {
 /// a multi-field entry (a mod-matrix slot) was focused when possible.
 pub fn moveEntry(order: []const PositionedEntry, cursor: u16, delta: i32) u16 {
     if (order.len == 0) return cursor;
-    const idx = indexContaining(order, cursor) orelse 0;
-    const offset = cursor - order[idx].id;
+    const found = indexContaining(order, cursor);
+    const idx = found orelse 0;
+    const offset = if (found != null) cursor - order[idx].id else 0;
     const next: usize = @intCast(std.math.clamp(@as(i32, @intCast(idx)) + delta, 0, @as(i32, @intCast(order.len - 1))));
     const e = order[next];
     return e.id + @min(offset, e.fields - 1);
@@ -469,7 +467,8 @@ comptime {
             }
         }
     }
-    // Ids owned elsewhere: dead/retired (23, 30-31), FX unit params +
+    // Ids owned elsewhere: dead/retired oscillator shape controls
+    // (0-1, 7-8, 51-52), older params (23, 30-31), FX unit params +
     // their reorder handles (mirrors editors/synth.zig's deadParam/
     // inSubview(.fx)/reorderIdFor - verified against that file's ranges),
     // and 195-250 / 254-255 / 373-396, the drawn-LFO breakpoint block and
@@ -480,10 +479,11 @@ comptime {
     // which the sections above do claim (see PolySynth.wt_table_ids and
     // dsp/synth.zig's lfo_wave_id_base).
     const excluded = [_][2]u16{
-        .{ 23, 23 },   .{ 30, 31 },   .{ 83, 94 },   .{ 103, 115 },
-        .{ 126, 136 }, .{ 137, 143 }, .{ 144, 160 }, .{ 161, 166 },
-        .{ 167, 175 }, .{ 176, 180 }, .{ 181, 184 }, .{ 188, 194 },
-        .{ 195, 250 }, .{ 254, 255 }, .{ 373, 396 },
+        .{ 0, 1 },     .{ 7, 8 },     .{ 23, 23 },   .{ 30, 31 },
+        .{ 51, 52 },   .{ 83, 94 },   .{ 103, 115 }, .{ 126, 136 },
+        .{ 137, 143 }, .{ 144, 160 }, .{ 161, 166 }, .{ 167, 175 },
+        .{ 176, 180 }, .{ 181, 184 }, .{ 188, 194 }, .{ 195, 250 },
+        .{ 254, 255 }, .{ 373, 396 },
     };
     for (excluded) |range| {
         var id = range[0];

@@ -12,7 +12,6 @@ const std = @import("std");
 const types = @import("../core/types.zig");
 const synth = @import("synth.zig");
 const PolySynth = synth.PolySynth;
-const Waveform = synth.Waveform;
 const UnisonMode = synth.UnisonMode;
 const WarpMode = synth.WarpMode;
 const Stage = PolySynth.Stage;
@@ -347,8 +346,10 @@ test "modulatedPhaseInc caps both FM directions" {
     try std.testing.expectEqual(@as(f32, 0.0), modulatedPhaseInc(0.25, std.math.nan(f32)));
 }
 
-/// `dt` sizes polyBLEP correction for saw and square discontinuities.
-pub fn oscWave(wf: Waveform, phase: f32, pw: f32, dt: f32) Sample {
+pub const PrimitiveWaveform = enum { sine, saw, triangle, square };
+
+/// Used only by sub oscillator and DSP tests. Main oscillators use tables.
+pub fn oscWave(wf: PrimitiveWaveform, phase: f32, pw: f32, dt: f32) Sample {
     const step = @abs(dt);
     return switch (wf) {
         // zig fmt: off
@@ -361,9 +362,6 @@ pub fn oscWave(wf: Waveform, phase: f32, pw: f32, dt: f32) Sample {
             const off = phase - pw;
             break :blk naive + polyBlep(phase, step) - polyBlep(off - @floor(off), step);
         },
-        // Callers branch to `wavetable.lookup` before reaching here -
-        // this arm only exists to keep the switch exhaustive.
-        .wavetable => 0.0,
         // zig fmt: on
     };
 }

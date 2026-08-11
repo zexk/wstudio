@@ -176,6 +176,17 @@ test "loadDefault: bundled basic-shapes table has 4 frames" {
     try std.testing.expectEqual(@as(usize, 4), table.frame_count);
 }
 
+test "basic waveform positions provide sine triangle saw and square" {
+    var table = try loadDefault(std.testing.allocator);
+    defer deinit(&table, std.testing.allocator);
+
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), lookup(table, 0.0, 0.25, 0.0), 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), lookup(table, 1.0 / 3.0, 0.5, 0.0), 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), lookup(table, 2.0 / 3.0, 0.75, 0.0), 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), lookup(table, 1.0, 0.25, 0.0), 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, -1.0), lookup(table, 1.0, 0.75, 0.0), 0.001);
+}
+
 test "every bundled wavetable loads as four finite frames" {
     inline for (std.meta.tags(Bundled)) |kind| {
         var table = try loadBundled(std.testing.allocator, kind);

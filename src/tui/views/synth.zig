@@ -229,13 +229,11 @@ comptime {
 // keep their previous per-subview rendering for now (see synth_layout.zig's
 // module doc comment).
 
-const wf_names = [_][]const u8{ "sine", "saw", "tri", "sqr", "wt" };
-
-/// The `wt.table` row. A plain name readout rather than `enumRow`'s inline
+/// The `waveform` row. A plain name readout rather than `enumRow`'s inline
 /// option strip: five bundled names plus "imported" would run well past a
 /// synth column's width (same reason the soundfont view prints its preset).
 fn wtTableRow(w: *std.Io.Writer, is_sel: bool, dimmed: bool, kind: ?ws.dsp.synth.BundledWavetable) !void {
-    try rowHead(w, is_sel, dimmed, "wt.table");
+    try rowHead(w, is_sel, dimmed, "waveform");
     try w.writeByte(' ');
     try rowVal(w, is_sel, dimmed, synth_ed.wtTableName(kind));
     try endLine(w);
@@ -246,12 +244,6 @@ fn secOscA(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try synthSection(w, "OSC A", acc);
 
     // zig fmt: off
-    try enumRow(w, c == 0, false, acc, "waveform", &wf_names, @intFromEnum(synth.waveform));
-
-    // param 1: pulse width (only meaningful for square)
-    try barRow(w, c == 1, synth.waveform != .square, acc, "pls.width", synth.pulse_width, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.pulse_width}));
-
     // params 2–5: detune, unison, uni.det, spread
     try barRow(w, c == 2, false, acc, "detune", synth.detune_cents + 100.0, 200.0,
         try std.fmt.bufPrint(&buf, "{d:.0} ct", .{synth.detune_cents}));
@@ -269,9 +261,9 @@ fn secOscA(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try enumRow(w, c == 41, false, acc, "warp", &warp_mode_names, @intFromEnum(synth.warp_mode));
     try barRow(w, c == 42, synth.warp_mode == .none, acc, "warp amt", synth.warp_amount, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.warp_amount}));
-    try barRow(w, c == 185, synth.waveform != .wavetable, acc, "wt.pos", synth.wt_pos, 1.0,
+    try barRow(w, c == 185, false, acc, "position", synth.wt_pos, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.wt_pos}));
-    try wtTableRow(w, c == 251, synth.waveform != .wavetable, synth.wt_bundled);
+    try wtTableRow(w, c == 251, false, synth.wt_bundled);
 }
 // zig fmt: on
 
@@ -284,10 +276,6 @@ fn secOscB(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try enumRow(w, c == 6, false, acc, "on/off", &on_names, if (b_on) 0 else 1);
 
     // zig fmt: off
-    try enumRow(w, c == 7, !b_on, acc, "waveform", &wf_names, @intFromEnum(synth.osc_b_waveform));
-
-    try barRow(w, c == 8, !b_on, acc, "pls.width", synth.osc_b_pulse_width, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_b_pulse_width}));
     try barRow(w, c == 9, !b_on, acc, "semi", synth.osc_b_semi + 24.0, 48.0,
         try std.fmt.bufPrint(&buf, "{d:.0}", .{synth.osc_b_semi}));
     try barRow(w, c == 10, !b_on, acc, "detune", synth.osc_b_detune_cents + 100.0, 200.0,
@@ -305,9 +293,9 @@ fn secOscB(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try enumRow(w, c == 43, !b_on, acc, "warp", &warp_mode_names, @intFromEnum(synth.osc_b_warp_mode));
     try barRow(w, c == 44, !b_on or synth.osc_b_warp_mode == .none, acc, "warp amt", synth.osc_b_warp_amount, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_b_warp_amount}));
-    try barRow(w, c == 186, !b_on or synth.osc_b_waveform != .wavetable, acc, "wt.pos", synth.osc_b_wt_pos, 1.0,
+    try barRow(w, c == 186, !b_on, acc, "position", synth.osc_b_wt_pos, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_b_wt_pos}));
-    try wtTableRow(w, c == 252, !b_on or synth.osc_b_waveform != .wavetable, synth.osc_b_wt_bundled);
+    try wtTableRow(w, c == 252, !b_on, synth.osc_b_wt_bundled);
 }
 
 fn secMod(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
@@ -621,10 +609,6 @@ fn secOscC(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     const on_names = [_][]const u8{ "on", "off" };
     try enumRow(w, c == 50, false, acc, "on/off", &on_names, if (c_on) 0 else 1);
 
-    try enumRow(w, c == 51, !c_on, acc, "waveform", &wf_names, @intFromEnum(synth.osc_c_waveform));
-
-    try barRow(w, c == 52, !c_on, acc, "pls.width", synth.osc_c_pulse_width, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_c_pulse_width}));
     try barRow(w, c == 53, !c_on, acc, "semi", synth.osc_c_semi + 24.0, 48.0,
         try std.fmt.bufPrint(&buf, "{d:.0}", .{synth.osc_c_semi}));
     try barRow(w, c == 54, !c_on, acc, "detune", synth.osc_c_detune_cents + 100.0, 200.0,
@@ -637,9 +621,9 @@ fn secOscC(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
         try std.fmt.bufPrint(&buf, "{d:.1} ct", .{synth.osc_c_unison_detune}));
 
     try enumRow(w, c == 58, !c_on or synth.osc_c_unison <= 1, acc, "uni.mode", &uni_mode_names, @intFromEnum(synth.osc_c_unison_mode));
-    try barRow(w, c == 187, !c_on or synth.osc_c_waveform != .wavetable, acc, "wt.pos", synth.osc_c_wt_pos, 1.0,
+    try barRow(w, c == 187, !c_on, acc, "position", synth.osc_c_wt_pos, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_c_wt_pos}));
-    try wtTableRow(w, c == 253, !c_on or synth.osc_c_waveform != .wavetable, synth.osc_c_wt_bundled);
+    try wtTableRow(w, c == 253, !c_on, synth.osc_c_wt_bundled);
 }
 
 /// Mod-matrix rows, 3 editor fields each (source / dest / depth). Dest and

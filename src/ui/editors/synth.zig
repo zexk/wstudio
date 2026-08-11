@@ -196,27 +196,11 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         return;
     }
     switch (id) {
-        0 => try w.writeAll(switch (synth.waveform) {
-            .sine => "sine",
-            .saw => "saw",
-            .triangle => "tri",
-            .square => "sqr",
-            .wavetable => "wt",
-        }),
-        1 => try w.print("{d:.2}", .{synth.pulse_width}),
         2 => try w.print("{d:.0} ct", .{synth.detune_cents}),
         3 => try w.print("{d}", .{synth.unison}),
         4 => try w.print("{d:.1} ct", .{synth.unison_detune}),
         5 => try w.print("{d:.2}", .{synth.unison_spread}),
         6 => try w.writeAll(if (synth.osc_b_on) "on" else "off"),
-        7 => try w.writeAll(switch (synth.osc_b_waveform) {
-            .sine => "sine",
-            .saw => "saw",
-            .triangle => "tri",
-            .square => "sqr",
-            .wavetable => "wt",
-        }),
-        8 => try w.print("{d:.2}", .{synth.osc_b_pulse_width}),
         9 => try w.print("{d:.0} st", .{synth.osc_b_semi}),
         10 => try w.print("{d:.0} ct", .{synth.osc_b_detune_cents}),
         11 => try w.print("{d:.2}", .{synth.osc_b_level}),
@@ -300,14 +284,6 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
             .parallel => "parallel",
         }),
         50 => try w.writeAll(if (synth.osc_c_on) "on" else "off"),
-        51 => try w.writeAll(switch (synth.osc_c_waveform) {
-            .sine => "sine",
-            .saw => "saw",
-            .triangle => "tri",
-            .square => "sqr",
-            .wavetable => "wt",
-        }),
-        52 => try w.print("{d:.2}", .{synth.osc_c_pulse_width}),
         53 => try w.print("{d:.0} st", .{synth.osc_c_semi}),
         54 => try w.print("{d:.0} ct", .{synth.osc_c_detune_cents}),
         55 => try w.print("{d:.2}", .{synth.osc_c_level}),

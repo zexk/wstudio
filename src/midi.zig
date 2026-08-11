@@ -193,13 +193,13 @@ pub const CC = enum(u7) {
     mod_wheel         = 1,   // → mod_wheel (0–1), the matrix `.wheel` source
     glide_time        = 5,   // → glide_s (0–4 s)
     gain              = 7,   // → output gain (0–1)
-    osc_a_waveform    = 14,  // 0-31=sine  32-63=saw  64-95=tri  96-127=square
-    osc_a_pulse_width = 15,  // → pulse_width (0.01–0.99)
+    osc_a_waveform    = 14,  // wavetable position
+    osc_a_pulse_width = 15,  // retired
     osc_a_unison      = 16,  // → unison count (1–16)
     osc_a_unison_det  = 17,  // → unison_detune cents (0–100)
     osc_a_spread      = 18,  // → unison_spread (0–1)
     osc_b_on          = 20,  // >63 → on
-    osc_b_waveform    = 21,  // same mapping as osc_a_waveform
+    osc_b_waveform    = 21,  // wavetable position
     osc_b_semi        = 22,  // → osc_b_semi (−24..+24 semitones)
     osc_b_detune      = 23,  // → osc_b_detune_cents (−100..+100)
     osc_b_level       = 24,  // → osc_b_level (0–1)

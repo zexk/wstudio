@@ -628,7 +628,7 @@ pub const App = struct {
     /// by drawHelp, the anchor `n`/`N` continue from); reset on every open.
     help_search_hit: ?usize = null,
     synth_track: u16 = 0,
-    synth_cursor: u16 = 0,
+    synth_cursor: u16 = 2,
     synth_scroll: usize = 0,
     /// Track currently shown in the soundfont_editor view.
     soundfont_track: u16 = 0,
@@ -3153,7 +3153,7 @@ pub const App = struct {
             .empty => self.openInstrumentPicker(cursor, false),
             .poly_synth => {
                 self.synth_track = @intCast(cursor);
-                self.synth_cursor = 0;
+                self.synth_cursor = 2;
                 self.synth_subview = .main;
                 self.synth_section_focus = false;
                 self.view = .synth_editor;

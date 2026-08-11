@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 52;
+pub const file_version: u32 = 53;
 
 /// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
 /// reasoning as `EqBandKindSnap`.
@@ -104,9 +104,7 @@ pub const PatternSnap = struct {
 
 pub const SynthSnap = struct {
     // OSC A
-    waveform: synth_mod.Waveform = .saw,
     wt_bundled: ?synth_mod.BundledWavetable = .basic,
-    pulse_width: f32 = 0.5,
     detune_cents: f32 = 0.0,
     unison: u8 = 1,
     unison_detune: f32 = 15.0,
@@ -116,9 +114,7 @@ pub const SynthSnap = struct {
     warp_amount: f32 = 0.0,
     // OSC B
     osc_b_on: bool = false,
-    osc_b_waveform: synth_mod.Waveform = .saw,
     osc_b_wt_bundled: ?synth_mod.BundledWavetable = .basic,
-    osc_b_pulse_width: f32 = 0.5,
     osc_b_semi: f32 = 0.0,
     osc_b_detune_cents: f32 = 0.0,
     osc_b_level: f32 = 1.0,
@@ -129,9 +125,7 @@ pub const SynthSnap = struct {
     osc_b_warp_amount: f32 = 0.0,
     // OSC C
     osc_c_on: bool = false,
-    osc_c_waveform: synth_mod.Waveform = .saw,
     osc_c_wt_bundled: ?synth_mod.BundledWavetable = .basic,
-    osc_c_pulse_width: f32 = 0.5,
     osc_c_semi: f32 = 0.0,
     osc_c_detune_cents: f32 = 0.0,
     osc_c_level: f32 = 1.0,

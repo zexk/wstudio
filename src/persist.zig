@@ -1757,7 +1757,6 @@ test "buildSession clamps malformed synth params from a hand-edited file" {
                     .filter_cutoff = -500.0,
                     .attack_s = -1.0,
                     .sustain = 5.0,
-                    .pulse_width = 0.0,
                     .warp_amount = -50.0,
                     .osc_b_warp_amount = 50.0,
                     .lfo_rate_hz = 0.0,
@@ -1777,7 +1776,6 @@ test "buildSession clamps malformed synth params from a hand-edited file" {
     try testing.expect(s.filter_cutoff >= 20.0 and s.filter_cutoff <= 20_000.0);
     try testing.expect(s.attack_s >= 0.001);
     try testing.expect(s.sustain <= 1.0);
-    try testing.expect(s.pulse_width >= 0.01);
     try testing.expectEqual(@as(f32, 0.0), s.warp_amount);
     try testing.expectEqual(@as(f32, 1.0), s.osc_b_warp_amount);
     try testing.expect(s.lfo_rate_hz >= 0.01);
@@ -2029,8 +2027,6 @@ test "save/load round-trip persists a :load-wavetable-imported table, default st
     var writer = std.Io.Writer.fixed(&wav_buf);
     try wav.write(&writer, session.project.sample_rate, 1, &samples, .pcm16);
     try s.loadWavetable(.b, writer.buffered());
-    s.waveform = .wavetable;
-    s.osc_b_waveform = .wavetable;
     s.osc_b_wt_pos = 0.5;
 
     try save(testing.allocator, &session, testing.io, wsj_path);

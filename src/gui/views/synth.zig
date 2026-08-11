@@ -214,7 +214,7 @@ fn drawSectionCard(app: anytype, synth: *ws.dsp.PolySynth, section: synth_layout
     defer if (gated_off) zgui.popStyleVar(.{});
 
     for (section.params) |entry| {
-        if (isWaveformParam(entry.id)) drawOscDisplay(synth, entry.id, accent);
+        if (isOscPositionParam(entry.id)) drawOscDisplay(synth, entry.id, accent);
         if (lfoShapeSlot(entry.id)) |slot| drawLfoDisplay(synth, slot, accent);
     }
 
@@ -569,7 +569,7 @@ fn drawSlotStepper(app: anytype, id: u16, display: []const u8, width: f32, accen
 }
 
 /// Draws whichever control `id` deserves: a knob cell for a continuous
-/// quantity (they flow into a grid), a waveform picker, an on/off button,
+/// quantity (they flow into a grid), an on/off button,
 /// or a named stepper for a list-valued param. The value text is always
 /// `synth_ed.paramValueText`'s - the same unit-aware string the status line
 /// prints, so a filter type reads "ladder" and a cutoff reads "1.20 kHz"
@@ -604,11 +604,6 @@ fn drawParam(app: anytype, synth: *ws.dsp.PolySynth, id: u16, label_text: []cons
     if (ws.dsp.PolySynth.isToggleParam(id)) {
         flow.brk();
         drawParamToggle(app, id, label_text, value >= 0.5, accent);
-        return;
-    }
-    if (isWaveformParam(id)) {
-        flow.brk();
-        drawWaveformParam(app, id, label_text, value, accent);
         return;
     }
     // Everything else is a list-valued param, and it flows in the same grid
@@ -654,24 +649,8 @@ fn drawParamToggle(app: anytype, id: u16, label_text: []const u8, active: bool, 
     zgui.popStyleColor(.{ .count = 2 });
 }
 
-/// OSC A/B/C's waveform param ids - the only `param_specs` cycle rows with
-/// an obvious icon per option, so `widgets.waveformPicker` covers just
-/// these three rather than every enum-valued param (filter type, LFO
-/// shape, ... still fall through to the generic -/+ stepper below).
-fn isWaveformParam(id: u16) bool {
-    return id == 0 or id == 7 or id == 51;
-}
-
-fn drawWaveformParam(app: anytype, id: u16, label_text: []const u8, value: f32, accent: [4]f32) void {
-    _ = label_text;
-    const focused = app.core.synth_cursor == id;
-    var label_buf: [32]u8 = undefined;
-    const label = std.fmt.bufPrintZ(&label_buf, "##synth-wave-{d}", .{id}) catch return;
-    const current = ws.dsp.synth.enumFromValue(ws.dsp.synth.Waveform, value);
-    if (widgets.waveformPicker(label, current, accent, focused)) |picked| {
-        app.core.synth_cursor = id;
-        sendParam(app, id, ws.dsp.synth.enumToValue(picked));
-    }
+fn isOscPositionParam(id: u16) bool {
+    return id == 185 or id == 186 or id == 187;
 }
 
 fn nudgeParam(app: anytype, id: u16, key: u8) void {
@@ -680,15 +659,15 @@ fn nudgeParam(app: anytype, id: u16, key: u8) void {
 }
 
 /// The oscillator's own waveform display, at the top of its own card, drawn
-/// from that oscillator's waveform and pulse width. Three cards, three
+/// from that oscillator's table and position. Three cards, three
 /// displays, each showing what that oscillator is actually doing - the
 /// arrangement Serum, Vital and Massive all use, and what a single sketch
 /// in a global header cannot express.
-fn drawOscDisplay(synth: *const ws.dsp.PolySynth, waveform_id: u16, accent: [4]f32) void {
-    const shape: struct { wave: ws.dsp.synth.Waveform, pw: f32, wt: ws.dsp.wavetable.Wavetable, wt_pos: f32 } = switch (waveform_id) {
-        0 => .{ .wave = synth.waveform, .pw = synth.pulse_width, .wt = synth.wt, .wt_pos = synth.wt_pos },
-        7 => .{ .wave = synth.osc_b_waveform, .pw = synth.osc_b_pulse_width, .wt = synth.osc_b_wt, .wt_pos = synth.osc_b_wt_pos },
-        else => .{ .wave = synth.osc_c_waveform, .pw = synth.osc_c_pulse_width, .wt = synth.osc_c_wt, .wt_pos = synth.osc_c_wt_pos },
+fn drawOscDisplay(synth: *const ws.dsp.PolySynth, position_id: u16, accent: [4]f32) void {
+    const shape: struct { wt: ws.dsp.wavetable.Wavetable, wt_pos: f32 } = switch (position_id) {
+        185 => .{ .wt = synth.wt, .wt_pos = synth.wt_pos },
+        186 => .{ .wt = synth.osc_b_wt, .wt_pos = synth.osc_b_wt_pos },
+        else => .{ .wt = synth.osc_c_wt, .wt_pos = synth.osc_c_wt_pos },
     };
     const width = zgui.getContentRegionAvail()[0];
     const height: f32 = 42;
@@ -698,7 +677,7 @@ fn drawOscDisplay(synth: *const ws.dsp.PolySynth, waveform_id: u16, accent: [4]f
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg1), .rounding = gui_style.panel_rounding });
     const mid = origin[1] + height * 0.5;
     draw_list.addLine(.{ .p1 = .{ origin[0], mid }, .p2 = .{ origin[0] + width, mid }, .col = color(theme.bg4), .thickness = 1 });
-    drawOscillatorShape(draw_list, .{ origin[0] + 8, origin[1] + 5 }, .{ width - 16, height - 10 }, shape.wave, shape.pw, shape.wt, shape.wt_pos, accent);
+    drawOscillatorShape(draw_list, .{ origin[0] + 8, origin[1] + 5 }, .{ width - 16, height - 10 }, shape.wt, shape.wt_pos, accent);
     zgui.dummy(.{ .w = 0, .h = 4 });
 }
 
@@ -753,12 +732,8 @@ fn drawLfoDisplay(synth: *const ws.dsp.PolySynth, slot: usize, accent: [4]f32) v
     zgui.dummy(.{ .w = 0, .h = 4 });
 }
 
-/// Two cycles of `waveform`, so a duty-cycle change reads as a change in
-/// shape rather than only in a number. `.wavetable` reads the oscillator's
-/// own table at its current `wt_pos` - a picked table is only worth picking
-/// if you can see which one you picked, and every other mode already shows
-/// its real shape here.
-fn drawOscillatorShape(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, waveform: ws.dsp.synth.Waveform, pulse_width: f32, wt: ws.dsp.wavetable.Wavetable, wt_pos: f32, accent: [4]f32) void {
+/// Two cycles from oscillator's waveform at current position.
+fn drawOscillatorShape(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, wt: ws.dsp.wavetable.Wavetable, wt_pos: f32, accent: [4]f32) void {
     // Denser than the classic shapes strictly need, so a bright wavetable
     // frame draws as its own outline instead of an undersampled scribble.
     const steps = 192;
@@ -766,13 +741,7 @@ fn drawOscillatorShape(draw_list: zgui.DrawList, pos: [2]f32, size: [2]f32, wave
     for (1..steps + 1) |i| {
         const phase = @as(f32, @floatFromInt(i)) / @as(f32, steps) * 2.0;
         const frac = phase - @floor(phase);
-        const sample: f32 = switch (waveform) {
-            .sine => @sin(phase * std.math.pi * 2.0),
-            .saw => frac * 2.0 - 1.0,
-            .wavetable => ws.dsp.wavetable.lookup(wt, wt_pos, frac, 0.0),
-            .triangle => 1.0 - 4.0 * @abs(@round(phase) - phase),
-            .square => if (frac < pulse_width) 1.0 else -1.0,
-        };
+        const sample = ws.dsp.wavetable.lookup(wt, wt_pos, frac, 0.0);
         const point = [2]f32{ pos[0] + size[0] * @as(f32, @floatFromInt(i)) / @as(f32, steps), pos[1] + size[1] * (0.5 - sample * 0.45) };
         if (i > 1) draw_list.addLine(.{ .p1 = prev, .p2 = point, .col = color(accent), .thickness = 1.5 });
         prev = point;

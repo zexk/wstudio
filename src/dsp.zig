@@ -5,7 +5,6 @@ pub const Event = device.Event;
 
 pub const synth = @import("dsp/synth.zig");
 pub const PolySynth = synth.PolySynth;
-pub const Waveform = synth.Waveform;
 pub const wavetable = @import("dsp/wavetable.zig");
 pub const synth_presets = @import("dsp/synth_presets.zig");
 pub const StereoDelay = @import("dsp/delay.zig").StereoDelay;

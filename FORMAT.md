@@ -19,7 +19,7 @@ alongside the `.wsj` into a sidecar directory, not embedded in the JSON. See
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 52) is the only format version
+`persist.zig`'s `file_version` (currently 53) is the only format version
 this build writes or reads. Loading enforces one rule:
 
 - **A file whose `version` is not exactly `file_version` is hard-rejected**
@@ -37,6 +37,11 @@ fields and enum members.
 
 Bundled wavetable identities (`SynthSnap.wt_bundled` and OSC B/C counterparts)
 select `basic` by default.
+
+Version 53 removes oscillator `waveform` and pulse-width fields. Every main
+oscillator now reads its waveform table. Basic sine, triangle, saw, and square
+shapes are frames 0 through 3 of bundled `basic` table and `wt_pos` selects or
+morphs between them.
 
 `SynthParamAutomationSnap.instance_id` selects what a lane automates: 0 (the
 default) targets the clip's track's own instrument, so `param_id` indexes

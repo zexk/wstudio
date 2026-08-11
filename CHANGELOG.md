@@ -34,6 +34,10 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Changed
 
+- Synth oscillators now use waveform tables for every sound. Sine, triangle,
+  saw, and square are frames in bundled `basic` waveform instead of separate
+  oscillator modes, so position can morph between them. Separate waveform-mode
+  and pulse-width controls are gone.
 - Every synth LFO waveform is now one drawn shape. Instead of picking sine,
   triangle, saw, or square from a list, a slot holds breakpoints whose
   segments bend, and those four waveforms are presets you load into it with
