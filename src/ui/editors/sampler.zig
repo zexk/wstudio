@@ -59,6 +59,7 @@ pub const pad_sections = [_]Section{
     .{ .kind = .fade, .title = "FADE", .rows = &.{
         .{ .id = 10, .label = "Fade in",  .gui_format = "%.3f s" },
         .{ .id = 11, .label = "Fade out", .gui_format = "%.3f s" },
+        .{ .id = 22, .label = "Curve", .gui_format = "%.2f" },
     } },
     .{ .kind = .mod, .title = "MOD", .rows = &.{
         .{ .id = 15, .label = "Rate",  .gui_format = "%.2f Hz" },

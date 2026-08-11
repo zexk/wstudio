@@ -914,6 +914,7 @@ pub fn applyPadSnap(p: *Pad, ps: PadSnap) void {
     p.env_curve       = finiteClamp(f32, ps.env_curve, -1.0, 1.0, 0.0);
     p.fade_in_s       = finiteClamp(f32, ps.fade_in_s, 0.0, 5.0, 0.0);
     p.fade_out_s      = finiteClamp(f32, ps.fade_out_s, 0.0, 5.0, 0.0);
+    p.fade_curve      = finiteClamp(f32, ps.fade_curve, -1.0, 1.0, 0.0);
     p.stretch_ratio   = finiteClamp(f32, ps.stretch_ratio, 0.25, 4.0, 1.0);
     p.warp_method     = ps.warp_method;
     p.filter          = finiteClamp(f32, ps.filter, -1.0, 1.0, 0.0);

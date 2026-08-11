@@ -408,7 +408,7 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
 const sampler_param_labels = [_][]const u8{
     "start", "end",      "pitch",    "attack",  "decay",  "sustain", "release", "gain",  "pan",
     "reverse", "fade in", "fade out", "stretch", "filter", "play",    "rate",    "depth", "shape",
-    "dest",  "loop",     "warp",     "curve",    "root",     "voice",
+    "dest",  "loop",     "warp",     "env curve", "fade curve", "root", "voice",
 };
 
 comptime {
@@ -469,6 +469,7 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
         },
         14 => try w.writeAll(ws.dsp.pad.play_mode_names[@intFromEnum(ws.dsp.pad.playMode(pad))]),
         21 => try w.print("{d:.2}", .{pad.env_curve}),
+        22 => try w.print("{d:.2}", .{pad.fade_curve}),
         15 => try w.print("{d:.2} Hz", .{pad.mod_rate_hz}),
         16 => try w.print("{d:.2}", .{pad.mod_depth}),
         17 => try w.writeAll(ws.dsp.lfo.shape_names[@intFromEnum(pad.mod_shape)]),

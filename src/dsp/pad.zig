@@ -46,13 +46,15 @@ pub const Pad = struct {
     release_s: f32 = 0.005,
     /// Shared ADSR segment curvature: -1 fast, 0 linear, +1 slow.
     env_curve: f32 = 0.0,
-    /// Linear gain ramp over the first `fade_in_s` seconds of playback and
+    /// Gain ramp over the first `fade_in_s` seconds of playback and
     /// the last `fade_out_s` before the region end. 0 (the default) = off.
     /// Unlike the ADSR - an instrument-shaping envelope - these are edit
     /// fades: declick a rough sample trim or ease an audio clip in/out.
     /// They multiply on top of the ADSR rather than replacing it.
     fade_in_s: f32 = 0.0,
     fade_out_s: f32 = 0.0,
+    /// Shared edit-fade curvature: -1 fast, 0 linear, +1 slow.
+    fade_curve: f32 = 0.0,
     /// Playback duration multiplier, independent of `pitch_semitones`
     /// (0.25..4.0; 1.0 = today's tied pitch/speed behavior, unchanged).
     /// >1 stretches (plays longer), <1 compresses (plays shorter). A plain
@@ -213,11 +215,11 @@ pub fn emptyPad() *const Pad {
 /// shape/dest at 15-18, loop mode at 19, and warp method at 20. Callers with extra ids of
 /// their own (Sampler's
 /// root_note/mono, ...) dispatch those separately and fall through to these
-/// for 0-20. The *packed* half of the space must stay within `paramId`'s
+/// for 0-22. The *packed* half of the space must stay within `paramId`'s
 /// param field - DrumMachine/Slicer pack the param id into its low 5 bits
-/// (32 slots), which 0-20 fits with room to spare; Sampler's own ids past
+/// (32 slots), which 0-22 fits with room to spare; Sampler's own ids past
 /// this table are never packed.
-pub const param_count: u16 = 22;
+pub const param_count: u16 = 23;
 
 /// Ids of the two enum params in this table, so callers that need to treat
 /// them differently (undo capture, the automation param picker, the UI's
@@ -236,6 +238,7 @@ pub const mod_dest_id: u16 = 18;
 pub const loop_id: u16 = 19;
 pub const warp_method_id: u16 = 20;
 pub const env_curve_id: u16 = 21;
+pub const fade_curve_id: u16 = 22;
 
 pub fn playDurationSeconds(pad: *const Pad, sample_rate: u32) f32 {
     if (sample_rate == 0 or pad.samples.len == 0) return 0;
@@ -268,7 +271,7 @@ test "fade range follows trimmed pitched playback duration" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.05), pad.fade_out_s, 1e-6);
 }
 
-/// Nudge shared pad param `id` (0-14) by `steps` (h/l = ±1, H/L = ±10). Shared
+/// Nudge shared pad param `id` by `steps` (h/l = ±1, H/L = ±10). Shared
 /// by Sampler and Slicer, whose per-slice params were previously hand-copied
 /// switches over the same fields/ranges.
 pub fn adjustParam(pad: *Pad, id: u16, steps: i32) void {
@@ -342,6 +345,7 @@ fn paramStep(id: u16) f32 {
         15 => 0.1,
         16 => 0.02,
         21 => 0.02,
+        22 => 0.02,
         else => 0.0,
     };
 }
@@ -374,6 +378,7 @@ pub fn setParamAbsolute(pad: *Pad, id: u16, value: f32) void {
         19 => pad.loop       = @enumFromInt(@as(u8, @intFromFloat(std.math.clamp(@round(value), 0.0, @as(f32, @typeInfo(LoopMode).@"enum".fields.len - 1))))),
         20 => pad.warp_method = @enumFromInt(@as(u8, @intFromFloat(std.math.clamp(@round(value), 0.0, @as(f32, @typeInfo(WarpMethod).@"enum".fields.len - 1))))),
         21 => pad.env_curve = std.math.clamp(value, -1.0, 1.0),
+        22 => pad.fade_curve = std.math.clamp(value, -1.0, 1.0),
         // zig fmt: on
         else => {},
     }
@@ -418,6 +423,7 @@ pub fn paramValue(pad: *const Pad, id: u16) ?f32 {
         19 => @floatFromInt(@intFromEnum(pad.loop)),
         20 => @floatFromInt(@intFromEnum(pad.warp_method)),
         21 => pad.env_curve,
+        22 => pad.fade_curve,
         // zig fmt: on
         else => null,
     };
@@ -665,8 +671,8 @@ pub fn renderVoice(
         const t_out = voice.played / rate / sample_rate;
         const left_out = (region_len - voice.played) / rate / sample_rate;
         const env = adsrLevel(t_out, pad.attack_s, pad.decay_s, pad.sustain, pad.env_curve) *
-            linearRamp(t_out, pad.fade_in_s) *
-            (if (loop != .off) 1.0 else releaseLevel(left_out, pad.release_s, pad.env_curve) * linearRamp(left_out, pad.fade_out_s));
+            curvedRamp(t_out, pad.fade_in_s, pad.fade_curve) *
+            (if (loop != .off) 1.0 else releaseLevel(left_out, pad.release_s, pad.env_curve) * curvedRamp(left_out, pad.fade_out_s, pad.fade_curve));
 
         const v = filterStep(&voice.filt, fc, s * env) * gate_g;
         buf[i * channels] += v * gl;
@@ -800,8 +806,8 @@ fn renderVoiceStretched(
         const t_out = st.out_played / sr;
         const left_out = remaining_src * stretch_ratio / rate / sr;
         const env = adsrLevel(t_out, pad.attack_s, pad.decay_s, pad.sustain, pad.env_curve) *
-            linearRamp(t_out, pad.fade_in_s) *
-            (if (loop != .off) 1.0 else releaseLevel(left_out, pad.release_s, pad.env_curve) * linearRamp(left_out, pad.fade_out_s));
+            curvedRamp(t_out, pad.fade_in_s, pad.fade_curve) *
+            (if (loop != .off) 1.0 else releaseLevel(left_out, pad.release_s, pad.env_curve) * curvedRamp(left_out, pad.fade_out_s, pad.fade_curve));
 
         const v = filterStep(&voice.filt, fc, s * env) * gate_g;
         buf[i * channels] += v * gl;
@@ -986,16 +992,17 @@ fn releaseLevel(left: f64, duration: f32, curve: f32) f32 {
 /// Linear 0→1 gain ramp over the first `dur` seconds of `t`; 1 past it (or
 /// when the ramp is off, dur = 0). One shape, three uses: the release fade
 /// and the fade-out get remaining output time, the fade-in gets elapsed.
-pub fn linearRamp(t: f64, dur: f32) f32 {
+pub fn curvedRamp(t: f64, dur: f32, curve: f32) f32 {
     const d: f64 = @floatCast(dur);
     if (d <= 0.0 or t >= d) return 1.0;
-    return @floatCast(std.math.clamp(t / d, 0.0, 1.0));
+    return synth_math.bendShape(@floatCast(std.math.clamp(t / d, 0.0, 1.0)), curve);
 }
 
-test "linear ramp reaches full gain over its duration" {
-    try std.testing.expectEqual(@as(f32, 0), linearRamp(0, 0.2));
-    try std.testing.expectApproxEqAbs(@as(f32, 0.5), linearRamp(0.1, 0.2), 1e-6);
-    try std.testing.expectEqual(@as(f32, 1), linearRamp(0.2, 0.2));
+test "curved ramp reaches full gain over its duration" {
+    try std.testing.expectEqual(@as(f32, 0), curvedRamp(0, 0.2, 0));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), curvedRamp(0.1, 0.2, 0), 1e-6);
+    try std.testing.expectEqual(@as(f32, 1), curvedRamp(0.2, 0.2, 0));
+    try std.testing.expect(curvedRamp(0.1, 0.2, -0.5) > 0.5);
 }
 
 test "pad envelope curve bends every timed stage" {

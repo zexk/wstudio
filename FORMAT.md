@@ -19,7 +19,7 @@ alongside the `.wsj` into a sidecar directory, not embedded in the JSON. See
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 56) is the only format version
+`persist.zig`'s `file_version` (currently 57) is the only format version
 this build writes or reads. Loading enforces one rule:
 
 - **A file whose `version` is not exactly `file_version` is hard-rejected**
@@ -32,6 +32,8 @@ values.
 
 **Bump `file_version` for every schema or semantic change**, including new
 fields and enum members.
+
+Version 57 adds curvature to sampler edit fades.
 
 Version 56 adds sampler envelope curvature and linear/equal-power audio clip
 fade curves.

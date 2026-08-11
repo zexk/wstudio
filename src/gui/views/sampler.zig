@@ -519,6 +519,7 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
     const sr_f: f32 = @floatFromInt(@max(sample_rate, 1));
     const fade_in_norm = std.math.clamp((target.value(10) orelse 0) * sr_f / total_f, 0, played_end - start);
     const fade_out_norm = std.math.clamp((target.value(11) orelse 0) * sr_f / total_f, 0, played_end - start);
+    const fade_curve = target.value(ws.dsp.pad.fade_curve_id) orelse 0;
 
     // One bucket per pixel column. A fixed bucket count drew the pane as a
     // comb - 512 one-pixel lines spread over a 1400px pane left two blank
@@ -539,8 +540,8 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
         const in_region = x >= start_x - 0.5 and x <= played_end_x + 0.5;
         const norm = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(count));
         const fade_gain = @min(
-            ws.dsp.pad.linearRamp(@floatCast(norm - start), fade_in_norm),
-            ws.dsp.pad.linearRamp(@floatCast(played_end - norm), fade_out_norm),
+            ws.dsp.pad.curvedRamp(@floatCast(norm - start), fade_in_norm, fade_curve),
+            ws.dsp.pad.curvedRamp(@floatCast(played_end - norm), fade_out_norm, fade_curve),
         );
         const h = @max(1, peak * fade_gain * height / 2 * 0.94);
         const line_color = if (in_region) bandColor(bands[i]) else [4]f32{ theme.fg3[0], theme.fg3[1], theme.fg3[2], 0.55 };
@@ -554,8 +555,8 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
 
     const fade_in_x = origin[0] + (start + fade_in_norm) * width;
     const fade_out_x = origin[0] + (played_end - fade_out_norm) * width;
-    drawFadeLine(draw_list, start_x, fade_in_x, origin[1], mid_y, theme.focus, app.waveform_drag == .fade_in, false);
-    drawFadeLine(draw_list, played_end_x, fade_out_x, origin[1], mid_y, theme.focus, app.waveform_drag == .fade_out, true);
+    drawFadeLine(draw_list, start_x, fade_in_x, origin[1], mid_y, theme.focus, app.waveform_drag == .fade_in, fade_curve);
+    drawFadeLine(draw_list, played_end_x, fade_out_x, origin[1], mid_y, theme.focus, app.waveform_drag == .fade_out, fade_curve);
 
     drawRegionHandle(draw_list, start_x, origin[1], height, theme.focus, app.waveform_drag == .start);
     drawRegionHandle(draw_list, end_x, origin[1], height, theme.rhythm, app.waveform_drag == .end);
@@ -644,11 +645,16 @@ fn drawRegionHandle(draw_list: zgui.DrawList, x: f32, top: f32, height: f32, acc
     draw_list.addTriangleFilled(.{ .p1 = .{ x - 5, top }, .p2 = .{ x + 5, top }, .p3 = .{ x, top + 8 }, .col = style.color(line_color) });
 }
 
-fn drawFadeLine(draw_list: zgui.DrawList, silent_x: f32, full_x: f32, top: f32, mid_y: f32, accent: [4]f32, active: bool, fade_out: bool) void {
+fn drawFadeLine(draw_list: zgui.DrawList, silent_x: f32, full_x: f32, top: f32, mid_y: f32, accent: [4]f32, active: bool, curve: f32) void {
     const full_y = top + 8;
     const line_color = if (active) accent else [4]f32{ accent[0], accent[1], accent[2], 0.85 };
-    const p1: [2]f32 = if (fade_out) .{ full_x, full_y } else .{ silent_x, mid_y };
-    const p2: [2]f32 = if (fade_out) .{ silent_x, mid_y } else .{ full_x, full_y };
-    draw_list.addLine(.{ .p1 = p1, .p2 = p2, .col = style.color(line_color), .thickness = if (active) 2 else 1.5 });
+    var previous = [2]f32{ silent_x, mid_y };
+    for (1..17) |step| {
+        const t = @as(f32, @floatFromInt(step)) / 16.0;
+        const shaped = ws.dsp.synth_math.bendShape(t, curve);
+        const next = [2]f32{ silent_x + (full_x - silent_x) * t, mid_y + (full_y - mid_y) * shaped };
+        draw_list.addLine(.{ .p1 = previous, .p2 = next, .col = style.color(line_color), .thickness = if (active) 2 else 1.5 });
+        previous = next;
+    }
     draw_list.addCircleFilled(.{ .p = .{ full_x, full_y }, .r = if (active) 5 else 4, .col = style.color(line_color) });
 }
