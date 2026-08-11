@@ -49,7 +49,9 @@ pub const SpawnOptions = struct {
 /// How long `Bridge.spawn` waits for the child to finish loading the
 /// plugin and report ready before giving up - plugin init can legitimately
 /// be slow (sample libraries, JIT warmup), so this is generous.
-const spawn_timeout_ns: u64 = 10 * std.time.ns_per_s;
+/// `var` only so crash_hang_test.zig can drop it to zero and prove the
+/// watchdog actually fires; nothing in the app writes it.
+pub var spawn_timeout_ns: u64 = 10 * std.time.ns_per_s;
 /// Per-block deadline for the real-time path: a small multiple of the
 /// largest block the engine can ask for (see core/types.max_block_frames),
 /// so a plugin that's merely slow (not hung) still gets its output heard
@@ -171,8 +173,24 @@ pub const Bridge = struct {
         // selection and either kind's display name both only exist inside
         // the child, which just ran the same unmodified `.load()` this
         // process would have run itself).
-        const deadline = transport.monotonicNs() + spawn_timeout_ns;
-        const ready = try self.recvBlocking(.ping, deadline);
+        // The read below blocks on the pipe with no deadline of its own, so a
+        // plugin that hangs inside its own init (a license check, a deadlock)
+        // would hang this caller forever. The watchdog is what actually
+        // enforces `spawn_timeout_ns`: it SIGKILLs the child at the deadline,
+        // which closes the child's stdout and turns the blocked read into an
+        // error. It only signals, so the errdefer above stays the sole reaper.
+        var handshake_done: std.atomic.Value(bool) = .init(false);
+        const watchdog = try std.Thread.spawn(.{}, spawnWatchdog, .{
+            child.id.?,
+            transport.monotonicNs() + spawn_timeout_ns,
+            &handshake_done,
+        });
+        defer {
+            handshake_done.store(true, .release);
+            watchdog.join();
+        }
+
+        const ready = try self.recvBlocking(.ping);
         if (ready.failed) return error.PluginLoadFailedInChild;
         if (ready.payload.len < @sizeOf(transport.Handshake)) return error.RpcProtocolError;
         const hs = std.mem.bytesToValue(transport.Handshake, ready.payload[0..@sizeOf(transport.Handshake)]);
@@ -185,6 +203,19 @@ pub const Bridge = struct {
 
         self.reaper = try std.Thread.spawn(.{}, reaperMain, .{self});
         return self;
+    }
+
+    /// Sleeps rather than using `transport.waitUntil`: that one spins, which
+    /// is right for the audio path's 40ms deadline and wrong for holding a
+    /// core through a ten-second plugin load.
+    fn spawnWatchdog(pid: std.posix.pid_t, deadline_ns: u64, done: *std.atomic.Value(bool)) void {
+        while (!done.load(.acquire)) {
+            if (transport.monotonicNs() >= deadline_ns) {
+                std.posix.kill(pid, .KILL) catch {};
+                return;
+            }
+            transport.sleepNs(5 * std.time.ns_per_ms);
+        }
     }
 
     fn reaperMain(self: *Bridge) void {
@@ -331,8 +362,7 @@ pub const Bridge = struct {
         return resp.len > 0 and resp[0] != 0;
     }
 
-    fn recvBlocking(self: *Bridge, expect: rpc.Kind, deadline_ns: u64) !rpc.Received {
-        _ = deadline_ns; // recv itself blocks on the pipe; the spawn timeout bounds process startup, not this read
+    fn recvBlocking(self: *Bridge, expect: rpc.Kind) !rpc.Received {
         const got = try rpc.recv(&self.stdout_reader.interface, &self.rpc_scratch);
         if (got.kind != expect) return error.RpcProtocolError;
         return got;

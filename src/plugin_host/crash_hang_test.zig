@@ -36,6 +36,23 @@ pub fn main(init: std.process.Init) !void {
     try testCrash(init.gpa, plugin_path);
     try testHang(init.gpa, plugin_path);
     try testLoadFailure(init.gpa);
+    try testSpawnTimeout(init.gpa, plugin_path);
+}
+
+/// The handshake read blocks on the pipe with no deadline of its own, so
+/// `spawn_timeout_ns` is only real because a watchdog enforces it. With the
+/// deadline already passed, the watchdog kills the child within microseconds
+/// while loading a CLAP plugin takes milliseconds, so `spawn` must come back
+/// with an error instead of blocking on a pipe nobody will ever write to.
+fn testSpawnTimeout(gpa: std.mem.Allocator, plugin_path: []const u8) !void {
+    bridge_mod.spawn_timeout_ns = 0;
+    defer bridge_mod.spawn_timeout_ns = 10 * std.time.ns_per_s;
+
+    const before = transport.monotonicNs();
+    try std.testing.expect(std.meta.isError(
+        bridge_mod.Bridge.spawn(gpa, .{ .kind = .clap, .path = plugin_path, .plugin_id = "", .sample_rate = 48_000 }),
+    ));
+    try std.testing.expect(transport.monotonicNs() - before < assert_bound_ns);
 }
 
 /// A child that reports it could not load the plugin is an ordinary error,
