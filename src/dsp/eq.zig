@@ -381,7 +381,19 @@ pub const ParametricEq = struct {
 
     pub fn setDynEnabled(self: *ParametricEq, index: usize, enabled: bool) void {
         if (index >= num_eq_bands) return;
-        self.bands[index].dyn_enabled = enabled and usesGain(self.bands[index].kind);
+        const band = &self.bands[index];
+        band.dyn_enabled = enabled and usesGain(band.kind);
+        if (!band.dyn_enabled) {
+            // `processBlock` only recomputes coefficients while dynamic is
+            // on, so switching it off has to put the static gain back
+            // itself - otherwise the band stays stuck wherever the detector
+            // last left it, playing a gain the editor no longer shows.
+            // Clearing the detector too, so re-enabling starts from silence
+            // rather than an envelope frozen from minutes ago.
+            band.dyn_env = 0.0;
+            band.dyn_factor = 0.0;
+            band.recompute(self.sr);
+        }
     }
 
     pub fn setDynThreshold(self: *ParametricEq, index: usize, threshold_db: f32) void {
@@ -738,6 +750,37 @@ test "dynamic EQ only applies boost once the band's energy crosses threshold" {
         eq.processBlock(&buf);
     }
     try std.testing.expect(eq.bands[0].dyn_factor > 0.8);
+}
+
+test "switching dynamic off puts the static gain back" {
+    // The detector's boost lives in the band's coefficients, and only the
+    // dynamic path in processBlock ever writes them, so turning dynamic off
+    // used to leave the band stuck at whatever the detector last drove it to.
+    var eq = ParametricEq.init(48_000);
+    eq.setFreq(0, 1000.0);
+    eq.setQ(0, 1.0);
+    eq.setGain(0, 0.0);
+    eq.setDynEnabled(0, true);
+    eq.setDynThreshold(0, -20.0);
+    eq.setDynAmount(0, 18.0);
+    const flat = bandMagnitude(&eq.bands[0], 1000.0, eq.sr);
+
+    var buf: [512]Sample = undefined;
+    var phase: f32 = 0.0;
+    for (0..200) |_| {
+        var i: usize = 0;
+        while (i < buf.len) : (i += 2) {
+            const s = 0.5 * std.math.sin(phase);
+            buf[i] = s;
+            buf[i + 1] = s;
+            phase += 2.0 * std.math.pi * 1000.0 / 48_000.0;
+        }
+        eq.processBlock(&buf);
+    }
+    try std.testing.expect(bandMagnitude(&eq.bands[0], 1000.0, eq.sr) > flat * 4.0);
+
+    eq.setDynEnabled(0, false);
+    try std.testing.expectApproxEqAbs(flat, bandMagnitude(&eq.bands[0], 1000.0, eq.sr), 1e-4);
 }
 
 test "dynamic EQ leaves non-gain kinds alone" {
