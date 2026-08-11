@@ -280,6 +280,11 @@ pub const Scale = struct {
                 if (@as(i32, out.pitches[i]) + 12 > 127) return self;
                 out.pitches[i] += 12;
             }
+            // Re-sort: the raised voices are now the top of the chord, and
+            // `voiced` picks its voices by position (drop2 takes the
+            // second-from-top, open takes every other one), so an unsorted
+            // array there moves the wrong notes.
+            std.mem.sort(u7, out.pitches[0..out.count], {}, std.sort.asc(u7));
             return out;
         }
 
@@ -475,11 +480,11 @@ test "chordAt: sixth/add9 flavor by the scale's mode" {
 test "Chord.inverted: raises the lowest voices, clamps a full rotation, bails at 127" {
     const s = Scale{ .root = 0, .kind = .major };
     const triad = s.chordAt(60, .triad); // C-E-G
-    try std.testing.expectEqualSlices(u7, &.{ 72, 64, 67 }, triad.inverted(1).pitches[0..3]);
-    try std.testing.expectEqualSlices(u7, &.{ 72, 76, 67 }, triad.inverted(2).pitches[0..3]);
+    try std.testing.expectEqualSlices(u7, &.{ 64, 67, 72 }, triad.inverted(1).pitches[0..3]);
+    try std.testing.expectEqualSlices(u7, &.{ 67, 72, 76 }, triad.inverted(2).pitches[0..3]);
     // A triad has only two inversions; more is the same chord an octave up,
     // so it stops at the second rather than transposing the whole shape.
-    try std.testing.expectEqualSlices(u7, &.{ 72, 76, 67 }, triad.inverted(5).pitches[0..3]);
+    try std.testing.expectEqualSlices(u7, &.{ 67, 72, 76 }, triad.inverted(5).pitches[0..3]);
 
     // No room to raise the root: the chord comes back untouched, never with
     // two voices stacked on the same clamped pitch.
@@ -497,6 +502,17 @@ test "Chord.voiced: drop2 drops the 2nd-from-top voice, open spreads alternate v
     // No room to voice further: comes back untouched rather than clamping.
     const high = s.chordAt(120, .triad); // 120-124-127
     try std.testing.expectEqualSlices(u7, high.pitches[0..3], high.voiced(.open).pitches[0..3]);
+}
+
+test "Chord.voiced picks the right voices out of an inverted chord" {
+    // `stampChord` composes these two: inverting used to leave the raised
+    // voices sitting at their old slots, so drop2 dropped whatever landed
+    // at count-2 rather than the actual second-from-top voice.
+    const s = Scale{ .root = 0, .kind = .major };
+    const first_inv = s.chordAt(60, .seventh).inverted(1); // E-G-B-C: 64,67,71,72
+    try std.testing.expectEqualSlices(u7, &.{ 64, 67, 71, 72 }, first_inv.pitches[0..4]);
+    // B is the second-from-top voice, so drop2 is the one that moves.
+    try std.testing.expectEqualSlices(u7, &.{ 64, 67, 59, 72 }, first_inv.voiced(.drop2).pitches[0..4]);
 }
 
 test "ChordQuality.cycle and Voicing.cycle wrap around" {
