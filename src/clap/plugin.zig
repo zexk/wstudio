@@ -1227,7 +1227,8 @@ const Direct = struct {
     /// change notifications only need acknowledging. Returns whether the
     /// plugin marked its opaque state dirty since the previous service.
     pub fn serviceMainThread(self: *Direct) bool {
-        if (self.gui_window) |*window| window.service();
+        const gui_window_open = if (self.gui_window) |*window| window.service() else true;
+        if (!gui_window_open) self.destroyGui();
         const resize = self.host_context.gui_resize_requested.swap(0, .acquire);
         if (resize != 0 and self.gui_window != null) {
             const width: u32 = @intCast(resize >> 32);

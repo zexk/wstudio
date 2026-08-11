@@ -15,7 +15,9 @@ pub const Editor = if (supported) NativeEditor else struct {
         return error.GuiUnavailable;
     }
     pub fn close(_: *@This()) void {}
-    pub fn service(_: *@This()) void {}
+    pub fn service(_: *@This()) bool {
+        return true;
+    }
 };
 
 const NativeEditor = struct {
@@ -54,8 +56,8 @@ const NativeEditor = struct {
         std.heap.page_allocator.destroy(self.window);
     }
 
-    pub fn service(self: *NativeEditor) void {
-        self.frame.service();
+    pub fn service(self: *NativeEditor) bool {
+        return self.frame.service();
     }
 };
 
@@ -145,9 +147,9 @@ const Frame = struct {
         return 1;
     }
 
-    fn service(self: *Frame) void {
-        self.window.service();
-        if (comptime builtin.os.tag != .linux) return;
+    fn service(self: *Frame) bool {
+        if (!self.window.service()) return false;
+        if (comptime builtin.os.tag != .linux) return true;
         var poll_fds: [16]std.posix.pollfd = undefined;
         var handlers: [16]*abi.EventHandler = undefined;
         var count: usize = 0;
@@ -165,6 +167,7 @@ const Frame = struct {
             timer.next_ns = now + timer.interval_ns;
             timer.handler.vtable.on_timer(timer.handler);
         };
+        return true;
     }
 
     fn deinit(self: *Frame) void {

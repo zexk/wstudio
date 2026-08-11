@@ -1113,7 +1113,10 @@ const Direct = struct {
     }
 
     fn serviceMainThread(self: *Direct) bool {
-        if (self.editor) |*editor| editor.service();
+        if (self.editor) |*editor| if (!editor.service()) {
+            editor.close();
+            self.editor = null;
+        };
         if (self.restart_ready.swap(false, .acquire)) {
             _ = self.component.vtable.set_active(self.component, 0);
             var setup: abi.ProcessSetup = .{ .process_mode = 0, .symbolic_sample_size = 0, .max_samples_per_block = types.max_block_frames, .sample_rate = @floatFromInt(self.sample_rate) };

@@ -1,4 +1,5 @@
 #import <AppKit/AppKit.h>
+#include <stdbool.h>
 
 void *wstudio_editor_window_open(int width, int height, const char *title) {
     [NSApplication sharedApplication];
@@ -39,6 +40,10 @@ void wstudio_editor_window_service(void) {
         if (!event) break;
         [NSApp sendEvent:event];
     }
+}
+
+bool wstudio_editor_window_visible(void *raw) {
+    return [(__bridge NSWindow *)raw isVisible];
 }
 
 void wstudio_editor_window_close(void *raw) {
