@@ -472,6 +472,15 @@ pub const Lane = struct {
         for (self.clips.items) |*c| {
             if (c.start_tick >= at) c.start_tick += width;
         }
+        // That pass shifts a subset, which is only a suffix when no two clips
+        // share a start tick - layers break that, so re-sort to keep the
+        // by-start order this lane is documented to hold and `place` walks.
+        std.mem.sort(Clip, self.clips.items, {}, lessThanStart);
+    }
+
+    fn lessThanStart(_: void, a: Clip, b: Clip) bool {
+        if (a.start_tick != b.start_tick) return a.start_tick < b.start_tick;
+        return a.layer < b.layer;
     }
 
     /// Remove `[lo, hi)` and close its gap.
@@ -823,6 +832,12 @@ test "insertTime splits every crossing clip, not just the first" {
     }
     try testing.expectEqual(@as(usize, 2), at_zero);
     try testing.expectEqual(@as(usize, 2), at_seven);
+
+    // The lane is documented as kept sorted by start tick, and `place` walks
+    // it assuming that when it picks an insertion index.
+    for (lane.clips.items[1..], 0..) |c, prev| {
+        try testing.expect(lane.clips.items[prev].start_tick <= c.start_tick);
+    }
 }
 
 test "removeTime trims boundaries and closes the gap" {
