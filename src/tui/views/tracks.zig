@@ -20,6 +20,40 @@ const mag = style.mag;
 const red = style.red;
 const endLine = style.endLine;
 
+/// One-cell ascii mnemonic per instrument kind, for terminals without the
+/// Nerd Font. Every kind gets its own letter: this column is the only thing
+/// naming the kind on a track row, so two kinds sharing one would make them
+/// indistinguishable (which is exactly what `.clap`/`.vst3` did against
+/// `.poly_synth`'s "S" until the test below went in). "X" reads as external
+/// and is the only letter free of the mute/solo/record columns two cells
+/// over.
+fn kindLetter(kind: ws.InstrumentKind) []const u8 {
+    return switch (kind) {
+        // zig fmt: off
+        .empty        => " ",
+        .poly_synth   => "S",
+        .sampler      => "P",
+        .drum_machine => "D",
+        .slicer       => "C",
+        .clap, .vst3  => "X",
+        .soundfont    => "F",
+        .acoustic     => "A",
+        // zig fmt: on
+    };
+}
+
+test "every instrument kind has its own ascii mnemonic" {
+    for (std.meta.tags(ws.InstrumentKind)) |a| {
+        for (std.meta.tags(ws.InstrumentKind)) |b| {
+            if (a == b) continue;
+            // `.clap`/`.vst3` are the one pair that may share: they are both
+            // "a hosted plugin" and the Nerd Font path shares a glyph too.
+            if ((a == .clap and b == .vst3) or (a == .vst3 and b == .clap)) continue;
+            try std.testing.expect(!std.mem.eql(u8, kindLetter(a), kindLetter(b)));
+        }
+    }
+}
+
 /// Row-badge chips for a rack's FX chain, in signal-flow order. Chains can
 /// hold up to nine units but a track row's width is shared with gain/pan and
 /// the keybind hint, so show the first four and fold the rest into "+n".
@@ -107,16 +141,7 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
         .slicer => icons.slicer,
         .clap, .vst3 => icons.plugin,
         .soundfont, .acoustic => icons.soundfont,
-    } else switch (inst_tag) {
-        .empty => " ",
-        .poly_synth => "S",
-        .sampler => "P",
-        .drum_machine => "D",
-        .slicer => "C",
-        .clap, .vst3 => "S",
-        .soundfont => "F",
-        .acoustic => "A",
-    };
+    } else kindLetter(inst_tag);
     try lw.writeAll(kind_icon);
     try lw.writeByte(' ');
     // muted indicator: yellow only when row isn't already faded - icon when
