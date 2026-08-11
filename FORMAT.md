@@ -19,7 +19,7 @@ alongside the `.wsj` into a sidecar directory, not embedded in the JSON. See
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 54) is the only format version
+`persist.zig`'s `file_version` (currently 55) is the only format version
 this build writes or reads. Loading enforces one rule:
 
 - **A file whose `version` is not exactly `file_version` is hard-rejected**
@@ -32,6 +32,10 @@ values.
 
 **Bump `file_version` for every schema or semantic change**, including new
 fields and enum members.
+
+Version 55 makes synth modulation targets rack-aware. A matrix row with
+`fx_instance_id == 0` stores a synth parameter id in `dest`; a nonzero instance
+stores that exact FX unit's local `dsp/fx_params.zig` index instead.
 
 ## Snapshot notes
 

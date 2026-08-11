@@ -587,7 +587,9 @@ fn drawMatrixRow(app: anytype, synth: *ws.dsp.PolySynth, base_id: u16, accent: [
     drawSlotStepper(app, base_id, synth_layout.modSourceName(row.source), unit * 7.6, accent);
     zgui.sameLine(.{ .spacing = 0 });
     zgui.setCursorPosX(dest_x);
-    drawSlotStepper(app, base_id + 1, ws.dsp.PolySynth.modDestLabel(row.dest), unit * 11.4, accent);
+    var target_buf: [80]u8 = undefined;
+    const rack = app.core.session.racks.items[app.core.synth_track];
+    drawSlotStepper(app, base_id + 1, synth_ed.modTargetLabel(rack, row, &target_buf), unit * 11.4, accent);
     zgui.sameLine(.{ .spacing = 0 });
     zgui.setCursorPosX(depth_x);
 

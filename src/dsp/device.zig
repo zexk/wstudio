@@ -76,6 +76,10 @@ pub const Event = union(enum) {
     /// some ids are wired on a given device (see e.g.
     /// PolySynth.setParamAbsolute); unhandled ids are a no-op.
     set_param_abs: struct { id: u16, value: f32 },
+    /// Replace one synth modulation destination atomically. `instance_id`
+    /// zero names a synth parameter; nonzero names one rack FX instance and
+    /// makes `id` that unit's local fx_params index.
+    set_mod_target: struct { row: u8, id: u16, instance_id: u32 },
     /// `instance_id` 0 (the default) targets the track's own instrument,
     /// which owns the whole flat id space `id` indexes - every instrument
     /// device's `handleEvent` already only fires when it recognizes `id`, so

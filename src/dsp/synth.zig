@@ -771,14 +771,14 @@ pub const PolySynth = struct {
         @setEvalBranchQuota(20000);
         var n: usize = 2; // dest_pitch, dest_amp
         for (automatable_params) |p| {
-            if (!isModDestExcluded(p.id)) n += 1;
+            if (!isModDestExcluded(p.id) and !p.modDestOnly()) n += 1;
         }
         return n;
     }
 
-    /// Legal matrix destinations: every `automatable_params` entry not in
-    /// `mod_dest_excluded_ids`, consumed per-voice or once per block by
-    /// `processBlock`'s FX pass, plus the two virtual dests. Derived instead
+    /// Legal instrument destinations: every `automatable_params` entry not in
+    /// `mod_dest_excluded_ids` or owned by rack FX, plus two virtual dests.
+    /// Rack builds runtime FX targets beside this table. Derived instead
     /// of hand-duplicated - the old hand-kept list once let id 187 (WT POS
     /// C) exist in `automatable_params` but never make it into the matrix,
     /// silently unreachable from the mod-dest picker.
@@ -787,7 +787,7 @@ pub const PolySynth = struct {
         var out: [modDestCount()]u16 = undefined;
         var i: usize = 0;
         for (automatable_params) |p| {
-            if (isModDestExcluded(p.id)) continue;
+            if (isModDestExcluded(p.id) or p.modDestOnly()) continue;
             out[i] = p.id;
             i += 1;
         }
@@ -3264,6 +3264,10 @@ pub const PolySynth = struct {
             .set_param  => |e| self.adjustParam(e.id, e.steps),
             // zig fmt: on
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
+            .set_mod_target => |e| if (e.row < max_mod_rows) {
+                self.mod_matrix[e.row].dest = e.id;
+                self.mod_matrix[e.row].fx_instance_id = e.instance_id;
+            },
             .automation_param => |e| if (e.instance_id == 0 and e.id <= std.math.maxInt(u16)) self.setParamAbsolute(@intCast(e.id), e.value),
             .clap_param, .vst3_param, .set_sidechain_buf, .capture_pad => {},
         }
@@ -3657,7 +3661,7 @@ test "adjustParam: matrix dest walks the dest table and wraps" {
 
 test "mod_dest_ids covers every non-excluded automatable param" {
     for (PolySynth.automatable_params) |p| {
-        if (PolySynth.isModDestExcluded(@intCast(p.id))) continue;
+        if (PolySynth.isModDestExcluded(@intCast(p.id)) or p.modDestOnly()) continue;
         try std.testing.expect(PolySynth.modDestIndex(@intCast(p.id)) != null);
     }
 }

@@ -1170,8 +1170,11 @@ fn buildPresetFx(allocator: std.mem.Allocator, patch: *const PolySynth.Patch, s:
         };
         const unit = try fx.insert(allocator, pos, rack_kind, sr);
         for (&s.mod_matrix) |*row| {
-            if (row.fx_instance_id == 0 and fxKindOwnsParam(kind, row.dest))
+            if (row.fx_instance_id != 0) continue;
+            if (legacyFxParamIndex(kind, row.dest)) |idx| {
                 row.fx_instance_id = unit.instance_id;
+                row.dest = idx;
+            }
         }
         pos += 1;
         switch (unit.payload) {
@@ -1289,6 +1292,36 @@ pub fn fxKindOwnsParam(kind: synth_mod.FxUnitKind, id: u16) bool {
         .chorus => id >= 177 and id <= 179,
         .freq_shift => id >= 182 and id <= 183,
         .tape => id >= 189 and id <= 193,
+    };
+}
+
+fn legacyFxParamIndex(kind: synth_mod.FxUnitKind, id: u16) ?u16 {
+    if (!fxKindOwnsParam(kind, id)) return null;
+    return switch (kind) {
+        .dist => id - 84,
+        .crush => id - 87,
+        .flanger => id - 91,
+        .phaser => id - 104,
+        .delay => id - 109,
+        .reverb => id - 113,
+        .gate => switch (id) { 133 => 0, 134 => 1, 135 => 3, else => unreachable },
+        .comp => id - 138,
+        .mb_comp => switch (id) {
+            145...148 => id - 145,
+            150 => 6,
+            151...159 => id - 144,
+            else => unreachable,
+        },
+        .ott => id - 162,
+        .eq => switch (id) {
+            168 => 1, 169 => 3,
+            170 => 10, 171 => 12, 172 => 11,
+            173 => 19, 174 => 21,
+            else => unreachable,
+        },
+        .chorus => id - 177,
+        .freq_shift => id - 182,
+        .tape => id - 189,
     };
 }
 

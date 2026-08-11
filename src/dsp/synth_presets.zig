@@ -2046,7 +2046,8 @@ test "every preset's matrix rows target legal dests at sane depths" {
     for (presets) |p| {
         for (p.patch.mod_matrix) |row| {
             if (row.source == .none) continue;
-            try std.testing.expect(PolySynth.modDestIndex(row.dest) != null);
+            const legacy_fx = if (PolySynth.findAutomatableParam(row.dest)) |param| param.modDestOnly() else false;
+            try std.testing.expect(PolySynth.modDestIndex(row.dest) != null or legacy_fx);
             try std.testing.expect(@abs(row.depth) <= 1.0);
         }
     }

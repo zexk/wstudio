@@ -643,6 +643,23 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             _ = app.session.engine.setTrackParam(p.track, p.id, p.value);
             return .{ .param_nudge = .{ .track = p.track, .id = p.id, .value = displaced } };
         },
+        .mod_target => |m| {
+            if (m.track >= app.session.racks.items.len) return null;
+            const synth = switch (app.session.racks.items[m.track].instrument) {
+                .poly_synth => |*s| s,
+                else => return null,
+            };
+            if (m.row >= synth.mod_matrix.len) return null;
+            const row = synth.mod_matrix[m.row];
+            const displaced: ws.Rack.ModTarget = .{ .instance_id = row.fx_instance_id, .param_id = row.dest };
+            _ = app.session.engine.send(.{ .set_track_mod_target = .{
+                .track = m.track,
+                .row = m.row,
+                .id = m.target.param_id,
+                .instance_id = m.target.instance_id,
+            } });
+            return .{ .mod_target = .{ .track = m.track, .row = m.row, .target = displaced } };
+        },
         .swing => |s| {
             const displaced = swingValue(app, s.track) orelse return null;
             const rack = app.session.racks.items[s.track];

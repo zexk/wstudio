@@ -62,6 +62,12 @@ pub fn fxParamLabel(id: u16) []const u8 {
     };
 }
 
+pub fn modTargetLabel(rack: *const ws.Rack, row: ws.dsp.PolySynth.ModRow, buf: []u8) []const u8 {
+    var w = std.Io.Writer.fixed(buf);
+    rack.writeModTargetLabel(.{ .instance_id = row.fx_instance_id, .param_id = row.dest }, &w) catch {};
+    return w.buffered();
+}
+
 /// `p`'s field-suffixed label for a matrix slot (`fields == 3`) id, e.g.
 /// "1 source"/"1 dest"/"1 depth" - the format `secMatrix` (views/synth.zig)
 /// itself renders.
@@ -217,7 +223,10 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         const row = synth.mod_matrix[addr.row];
         switch (addr.field) {
             0 => try w.writeAll(synth_layout.modSourceName(row.source)),
-            1 => try w.writeAll(ws.dsp.PolySynth.modDestLabel(row.dest)),
+            1 => if (row.fx_instance_id == 0)
+                try w.writeAll(ws.dsp.PolySynth.modDestLabel(row.dest))
+            else
+                try w.print("FX {d}:{d}", .{ row.fx_instance_id, row.dest }),
             2 => try w.print("{s}{d:.2}", .{ @as([]const u8, if (row.depth >= 0.0) "+" else ""), row.depth }),
             else => unreachable,
         }
@@ -559,6 +568,48 @@ fn sendParamSteps(app: *App, id: u16, steps: i32) void {
     } });
 }
 
+fn setModTarget(app: *App, row: u8, target: ws.Rack.ModTarget, record_undo: bool) void {
+    if (app.synth_track >= app.session.racks.items.len) return;
+    const synth = switch (app.session.racks.items[app.synth_track].instrument) {
+        .poly_synth => |*s| s,
+        else => return,
+    };
+    if (row >= synth.mod_matrix.len) return;
+    history.flushParamNudge(app);
+    if (record_undo) {
+        const old = synth.mod_matrix[row];
+        app.history.push(app.allocator, .{ .mod_target = .{
+            .track = app.synth_track,
+            .row = row,
+            .target = .{ .instance_id = old.fx_instance_id, .param_id = old.dest },
+        } });
+    }
+    app.dirty = true;
+    _ = app.session.engine.send(.{ .set_track_mod_target = .{
+        .track = app.synth_track,
+        .row = row,
+        .id = target.param_id,
+        .instance_id = target.instance_id,
+    } });
+}
+
+fn stepModTarget(app: *App, row: u8, steps: i32) void {
+    const rack = app.session.racks.items[app.synth_track];
+    const synth = switch (rack.instrument) {
+        .poly_synth => |*s| s,
+        else => return,
+    };
+    const current: ws.Rack.ModTarget = .{
+        .instance_id = synth.mod_matrix[row].fx_instance_id,
+        .param_id = synth.mod_matrix[row].dest,
+    };
+    const count: i64 = @intCast(rack.modTargetCount());
+    if (count == 0) return;
+    const index: i64 = @intCast(rack.modTargetIndex(current) orelse 0);
+    const next: usize = @intCast(@mod(index + @as(i64, steps), count));
+    setModTarget(app, row, rack.modTargetAt(next).?, true);
+}
+
 /// `m` on any param in any subview: points the first free mod-matrix row
 /// at that param and jumps to the row's source field, so a route is made
 /// from where its destination lives instead of walking `mod_dest_ids` by
@@ -598,9 +649,7 @@ fn assignModFromCursor(app: *App) void {
     };
 
     history.flushParamNudge(app);
-    const cur = Synth.modDestIndex(synth.mod_matrix[row].dest) orelse 0;
-    const steps = @as(i32, @intCast(target)) - @as(i32, @intCast(cur));
-    if (steps != 0) sendParamSteps(app, Synth.matrixParamId(row, 1), steps);
+    setModTarget(app, @intCast(row), .{ .param_id = Synth.mod_dest_ids[target] }, true);
 
     app.synth_subview = .mod;
     app.synth_cursor = Synth.matrixParamId(row, 0);
@@ -773,6 +822,8 @@ fn adjustParam(app: *App, steps: i32) void {
         else => return,
     };
     if (ws.dsp.PolySynth.wtTableSlot(app.synth_cursor)) |slot| return stepWtTable(app, synth, slot, steps);
+    if (ws.dsp.PolySynth.matrixParamAddr(app.synth_cursor)) |addr|
+        if (addr.field == 1) return stepModTarget(app, addr.row, steps);
     app.dirty = true;
     history.noteParamNudge(app, app.synth_track, app.synth_cursor, steps);
     _ = app.session.engine.send(.{ .set_track_param = .{

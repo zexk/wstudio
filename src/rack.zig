@@ -310,59 +310,35 @@ pub const FxUnit = struct {
     }
 
     fn processPayload(self: *FxUnit, buf: []types.Sample) void {
+        const max_params = 256;
+        var modded_idx: [max_params]u16 = undefined;
+        var modded_base: [max_params]f32 = undefined;
+        var modded_count: usize = 0;
+        const count = fx_params.paramCount(self.kind());
+        std.debug.assert(count <= max_params);
+        for (0..count) |idx| {
+            if (!fx_params.isAutomatable(self.kind(), idx)) continue;
+            const amount = self.mod(@intCast(idx));
+            if (amount == 0.0) continue;
+            const range = fx_params.paramRange(&self.payload, idx);
+            modded_idx[modded_count] = @intCast(idx);
+            modded_base[modded_count] = fx_params.getParam(&self.payload, idx);
+            fx_params.setParamAbsolute(
+                &self.payload,
+                idx,
+                modded_base[modded_count] + amount * (range[1] - range[0]),
+            );
+            modded_count += 1;
+        }
+
         switch (self.payload) {
-            .sat => |*v| {
-                const base = v.mix;
-                v.mix = std.math.clamp(base + self.mod(85), 0.0, 1.0);
-                v.processBlock(buf);
-                v.mix = base;
-            },
-            .crush => |*v| {
-                const base = v.mix;
-                v.mix = std.math.clamp(base + self.mod(89), 0.0, 1.0);
-                v.processBlock(buf);
-                v.mix = base;
-            },
-            .flanger => |*v| {
-                const base = v.mix;
-                v.mix = std.math.clamp(base + self.mod(94), 0.0, 1.0);
-                v.processBlock(buf);
-                v.mix = base;
-            },
-            .phaser => |*v| {
-                const base = v.mix;
-                v.mix = std.math.clamp(base + self.mod(107), 0.0, 1.0);
-                v.processBlock(buf);
-                v.mix = base;
-            },
-            .delay => |*v| {
-                const base = v.mix;
-                v.mix = std.math.clamp(base + self.mod(111), 0.0, 1.0);
-                v.processBlock(buf);
-                v.mix = base;
-            },
-            .reverb => |*v| {
-                const base = v.mix;
-                v.mix = std.math.clamp(base + self.mod(115), 0.0, 1.0);
-                v.processBlock(buf);
-                v.mix = base;
-            },
-            .chorus => |*v| {
-                const base = v.mix;
-                v.mix = std.math.clamp(base + self.mod(179), 0.0, 1.0);
-                v.processBlock(buf);
-                v.mix = base;
-            },
-            .freq_shift => |*v| {
-                const base = v.shift_hz;
-                v.shift_hz = std.math.clamp(base + self.mod(182) * 4000.0, -2000.0, 2000.0);
-                v.processBlock(buf);
-                v.shift_hz = base;
-            },
             .clap => |v| v.device().process(buf),
             .vst3 => |v| v.device().process(buf),
             inline else => |*v| v.processBlock(buf),
         }
+
+        for (modded_idx[0..modded_count], modded_base[0..modded_count]) |idx, base|
+            fx_params.setParamAbsolute(&self.payload, idx, base);
     }
 
     fn reset(self: *FxUnit) void {
@@ -774,6 +750,54 @@ pub const Rack = struct {
     /// instrument + a full FX chain.
     pub const chain_cap = Fx.max_units + 2;
 
+    pub const ModTarget = struct {
+        instance_id: u32 = 0,
+        param_id: u16,
+
+        pub fn eql(a: ModTarget, b: ModTarget) bool {
+            return a.instance_id == b.instance_id and a.param_id == b.param_id;
+        }
+    };
+
+    /// Runtime modulation destinations for this rack. Instrument fields lead,
+    /// followed by each existing native FX unit in signal-flow order.
+    pub fn modTargetCount(self: *const Rack) usize {
+        var count: usize = PolySynth.mod_dest_ids.len;
+        for (self.fx.units.items) |unit| {
+            for (0..fx_params.paramCount(unit.kind())) |idx| {
+                if (fx_params.isAutomatable(unit.kind(), idx)) count += 1;
+            }
+        }
+        return count;
+    }
+
+    pub fn modTargetAt(self: *const Rack, wanted: usize) ?ModTarget {
+        if (wanted < PolySynth.mod_dest_ids.len)
+            return .{ .param_id = PolySynth.mod_dest_ids[wanted] };
+        var at = wanted - PolySynth.mod_dest_ids.len;
+        for (self.fx.units.items) |unit| {
+            for (0..fx_params.paramCount(unit.kind())) |idx| {
+                if (!fx_params.isAutomatable(unit.kind(), idx)) continue;
+                if (at == 0) return .{ .instance_id = unit.instance_id, .param_id = @intCast(idx) };
+                at -= 1;
+            }
+        }
+        return null;
+    }
+
+    pub fn modTargetIndex(self: *const Rack, target: ModTarget) ?usize {
+        for (0..self.modTargetCount()) |idx|
+            if (ModTarget.eql(self.modTargetAt(idx).?, target)) return idx;
+        return null;
+    }
+
+    pub fn writeModTargetLabel(self: *const Rack, target: ModTarget, w: *std.Io.Writer) !void {
+        if (target.instance_id == 0) return w.writeAll(PolySynth.modDestLabel(target.param_id));
+        const unit = self.fx.findInstance(target.instance_id) orelse return w.writeAll("missing FX");
+        if (!fx_params.isAutomatable(unit.kind(), target.param_id)) return w.writeAll("missing FX param");
+        try w.print("{s} {d} / {s}", .{ @tagName(unit.kind()), target.instance_id, fx_params.paramName(&unit.payload, target.param_id) });
+    }
+
     /// Fills `buf` with [pattern_player?, instrument, ...fx] in signal-flow
     /// order and returns the used slice. Caller must keep `buf` alive for as
     /// long as the slice is passed to the engine.
@@ -884,11 +908,32 @@ test "rack FX consumes modulation for its stable instance only" {
     sat.device().process(&dry);
     try std.testing.expectApproxEqAbs(@as(f32, 0.1), dry[dry.len - 1], 1e-6);
 
-    bus.add(sat.instance_id, 85, 1.0);
+    bus.add(sat.instance_id, 2, 1.0);
     var wet: [128]types.Sample = @splat(0.1);
     sat.device().process(&wet);
     try std.testing.expect(wet[wet.len - 1] > dry[dry.len - 1]);
     try std.testing.expectEqual(@as(f32, 0.0), sat.payload.sat.mix);
+}
+
+test "rack modulation targets enumerate existing FX instances and fields" {
+    var rack = Rack{
+        .instrument = .{ .poly_synth = try PolySynth.init(std.testing.allocator, 48_000) },
+        .label = "test",
+    };
+    defer rack.deinit(std.testing.allocator);
+    const first = try rack.fx.insert(std.testing.allocator, 0, .sat, 48_000);
+    const second = try rack.fx.insert(std.testing.allocator, 1, .sat, 48_000);
+
+    const synth_count = PolySynth.mod_dest_ids.len;
+    try std.testing.expectEqual(synth_count + 2 * fx_params.sat_specs.len, rack.modTargetCount());
+    try std.testing.expectEqual(
+        Rack.ModTarget{ .instance_id = first.instance_id, .param_id = 0 },
+        rack.modTargetAt(synth_count).?,
+    );
+    try std.testing.expectEqual(
+        Rack.ModTarget{ .instance_id = second.instance_id, .param_id = 0 },
+        rack.modTargetAt(synth_count + fx_params.sat_specs.len).?,
+    );
 }
 
 test "Fx: duplicates allowed, bypass skips, remove frees, cap enforced" {

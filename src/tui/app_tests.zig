@@ -4987,6 +4987,31 @@ test "m points the first free matrix row at the param under the cursor" {
     try std.testing.expectEqual(@as(u16, 21), synth.mod_matrix[0].dest);
 }
 
+test "matrix destination cycles through fields on existing FX instances" {
+    var app = try testApp();
+    defer app.deinit();
+    var block: [64]types.Sample = undefined;
+    const rack = app.session.racks.items[0];
+    const sat = try rack.fx.insert(app.allocator, 0, .sat, 48_000);
+    const synth = &rack.instrument.poly_synth;
+    const row: u8 = 0;
+    synth.mod_matrix[row].dest = ws.dsp.PolySynth.mod_dest_ids[ws.dsp.PolySynth.mod_dest_ids.len - 1];
+
+    app.handleKey(.enter, 0);
+    app.synth_subview = .mod;
+    app.synth_cursor = ws.dsp.PolySynth.matrixParamId(row, 1);
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.session.engine.process(&block);
+
+    try std.testing.expectEqual(sat.instance_id, synth.mod_matrix[row].fx_instance_id);
+    try std.testing.expectEqual(@as(u16, 0), synth.mod_matrix[row].dest);
+
+    app.handleKey(.{ .char = 'u' }, 0);
+    app.session.engine.process(&block);
+    try std.testing.expectEqual(@as(u32, 0), synth.mod_matrix[row].fx_instance_id);
+    try std.testing.expectEqual(ws.dsp.PolySynth.mod_dest_ids[ws.dsp.PolySynth.mod_dest_ids.len - 1], synth.mod_matrix[row].dest);
+}
+
 test "draw renders synth editor without errors" {
     var app = try testApp();
     defer app.deinit();

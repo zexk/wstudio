@@ -64,6 +64,7 @@ pub const Command = union(enum) {
     /// Same route automation's own `Event.set_param_abs` already takes,
     /// just originating from the control-side command queue.
     set_track_param_abs: struct { track: u16, id: u16, value: f32 },
+    set_track_mod_target: struct { track: u16, row: u8, id: u16, instance_id: u32 },
     set_clap_param: struct { track: u16, target: *anyopaque, id: u32, cookie: ?*anyopaque, value: f64 },
     /// Same as `set_clap_param`, for a CLAP unit that could be sitting on
     /// any chain (track, group, or master), not just hosted as a track's
@@ -1401,6 +1402,11 @@ pub const Engine = struct {
             .pitch_bend => |c| self.sendTrackEvent(c.track, .{ .pitch_bend = .{ .bend = c.bend } }),
             .set_track_param => |c| self.sendTrackEvent(c.track, .{ .set_param = .{ .id = c.id, .steps = c.steps } }),
             .set_track_param_abs => |c| self.sendTrackEvent(c.track, .{ .set_param_abs = .{ .id = c.id, .value = c.value } }),
+            .set_track_mod_target => |c| self.sendTrackEvent(c.track, .{ .set_mod_target = .{
+                .row = c.row,
+                .id = c.id,
+                .instance_id = c.instance_id,
+            } }),
             .set_clap_param => |c| self.sendTrackEvent(c.track, .{ .clap_param = .{
                 .target = c.target,
                 .id = c.id,

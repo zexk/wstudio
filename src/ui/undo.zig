@@ -158,6 +158,12 @@ pub const ParamNudgeState = struct {
     value: f32,
 };
 
+pub const ModTargetState = struct {
+    track: u16,
+    row: u8,
+    target: ws.Rack.ModTarget,
+};
+
 pub const SwingState = struct {
     track: u16,
     value: f32,
@@ -265,6 +271,7 @@ pub const Entry = union(enum) {
     lanes: MultiLaneState,
     fx: FxState,
     param_nudge: ParamNudgeState,
+    mod_target: ModTargetState,
     swing: SwingState,
     mixer: MixerState,
     /// A deleted track's full backup; applying re-inserts it (undo of a
@@ -288,6 +295,7 @@ pub const Entry = union(enum) {
             .lanes => |*l| l.deinit(allocator),
             .fx => |*f| f.deinit(allocator),
             .param_nudge => {},
+            .mod_target => {},
             .swing => {},
             .mixer => {},
             .track_insert => |*t| t.deinit(allocator),
@@ -304,6 +312,7 @@ pub const Entry = union(enum) {
             .lane, .lanes => "clip",
             .fx => "fx",
             .param_nudge => "param",
+            .mod_target => "mod target",
             .swing => "swing",
             .mixer => "mixer",
             .track_insert, .track_delete => "track",
@@ -453,6 +462,7 @@ fn retargetStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Alloc
                 if (kept == 0) keep = false;
             },
             .param_nudge => |*p| if (remap.apply(p.track)) |nt| { p.track = nt; } else { keep = false; },
+            .mod_target => |*m| if (remap.apply(m.track)) |nt| { m.track = nt; } else { keep = false; },
             .swing => |*s| if (remap.apply(s.track)) |nt| { s.track = nt; } else { keep = false; },
             .mixer => |*m| switch (m.target) {
                 .track => |t| if (remap.apply(t)) |nt| { m.target = .{ .track = nt }; } else { keep = false; },

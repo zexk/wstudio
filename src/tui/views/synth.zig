@@ -676,7 +676,10 @@ fn secMatrix(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
         } else if (off) {
             try w.writeAll(dim);
         }
-        try w.print("{s: <14}", .{ws.dsp.PolySynth.modDestLabel(row.dest)});
+        if (row.fx_instance_id == 0)
+            try w.print("{s: <14}", .{ws.dsp.PolySynth.modDestLabel(row.dest)})
+        else
+            try w.print("FX {d}:{d}", .{ row.fx_instance_id, row.dest });
         try w.writeAll(rst ++ " ");
 
         const bc = if (sel_dep) bcyn else if (off) dim else mag;
