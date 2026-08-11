@@ -263,7 +263,7 @@ pub fn drawHelpStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !v
         try w.writeAll(dim ++ "  " ++ rst);
         try w.writeAll(app.status_buf[0..app.status_len]);
     }
-    try w.writeAll(dim ++ "  " ++ rst ++ "j/k: scroll  d/u: page  g/G: top/bottom  /: search  n/N: next/prev  ?/esc: close");
+    try w.writeAll(dim ++ "  " ++ rst ++ "j/k: scroll  d/u: page  {/}: section  g/G: top/bottom  /: search  n/N: next/prev  ?/esc: close");
 }
 
 pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, target: spectrum_ed.EqTarget) !void {

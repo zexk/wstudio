@@ -2029,6 +2029,11 @@ pub const App = struct {
                         'u' => self.help_scroll -|= 10,
                         'G' => self.help_scroll = std.math.maxInt(usize),
                         'g' => self.help_scroll = 0,
+                        // Section-at-a-time paging: 500+ lines is a lot of
+                        // j/k, and every other view already spells "move by
+                        // the next structural unit" as { / }.
+                        '}' => self.help_scroll = help.sectionScroll(self.allCmds(), self.userKeymapsSlice(), self.help_scroll, 1),
+                        '{' => self.help_scroll = help.sectionScroll(self.allCmds(), self.userKeymapsSlice(), self.help_scroll, -1),
                         '/' => {
                             self.modal.mode = .search;
                             self.modal.cmd_len = 0;

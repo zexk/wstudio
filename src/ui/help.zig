@@ -82,7 +82,45 @@ pub const HelpText = struct {
         const start = if (i == 0) 0 else self.ends[i - 1];
         return self.buf[start..self.ends[i]];
     }
+
+    /// Index of the section-title line that governs line `i`, walking back
+    /// from it. Both frontends need it: the TUI prints the title in its
+    /// sticky header, the GUI also highlights that section in its nav
+    /// column, and `{`/`}` jumps step between the hits.
+    pub fn sectionLineAt(self: *const HelpText, i: usize) ?usize {
+        if (self.count == 0) return null;
+        var j = @min(i, self.count - 1) +| 1;
+        while (j > 0) {
+            j -= 1;
+            if (isSectionLine(self.line(j))) return j;
+        }
+        // Line 0 is always `section`'s blank spacer, so a query that lands
+        // on it has nothing behind it - report the section it introduces
+        // rather than "none", which every caller would have to special-case.
+        return self.nextSectionLine(i);
+    }
+
+    /// First section-title line strictly after `from`, or null past the last.
+    pub fn nextSectionLine(self: *const HelpText, from: usize) ?usize {
+        var j = from +| 1;
+        while (j < self.count) : (j += 1) {
+            if (isSectionLine(self.line(j))) return j;
+        }
+        return null;
+    }
 };
+
+/// A section title is the only row `section` renders bold; `group` uses
+/// `dim` and `key` uses `acc`, so the prefix classifies a line without the
+/// builders having to carry a parallel tag array.
+pub fn isSectionLine(line: []const u8) bool {
+    return std.mem.startsWith(u8, line, bold);
+}
+
+/// `line` (a section row) without its style prefix and two-space indent.
+pub fn sectionTitle(line: []const u8) []const u8 {
+    return if (isSectionLine(line)) line[bold.len + 2 ..] else line;
+}
 
 pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const config_mod.Keymap) void {
     // The user-keymap section renders LAST (see end of this function) so
@@ -522,6 +560,55 @@ pub fn scrollForSection(section: ?Section, cmds: []const cmd_mod.Def, keymaps: [
     var t = HelpText{};
     buildHelp(&t, cmds, keymaps);
     return if (section) |s| t.section_start.get(s) else 0;
+}
+
+/// Scroll target of the section before / after the one `scroll` sits in -
+/// the help view's `{` / `}`. Lands on the section's blank spacer (the line
+/// `scrollForSection` records), so the title renders one row into the
+/// window instead of flush against the previous section's last key.
+pub fn sectionScroll(cmds: []const cmd_mod.Def, keymaps: []const config_mod.Keymap, scroll: usize, dir: i8) usize {
+    var t = HelpText{};
+    buildHelp(&t, cmds, keymaps);
+    const cur = t.sectionLineAt(scroll +| 1) orelse return 0;
+    if (dir > 0) return (t.nextSectionLine(cur) orelse cur) -| 1;
+    // Backwards from inside a section returns to that section's own top
+    // first, and only steps to the previous one once already parked there -
+    // vim's paragraph motion, and it keeps a long section's title reachable
+    // from its middle in a single press.
+    // Saturating: `G` parks the scroll at maxInt until the next draw clamps
+    // it, so a `{` in between must not overflow here.
+    if (scroll +| 1 > cur) return cur -| 1;
+    return (t.sectionLineAt(cur -| 1) orelse cur) -| 1;
+}
+
+test "help section jumps land on each section's spacer line" {
+    const commands = @import("commands.zig");
+    var t = HelpText{};
+    buildHelp(&t, commands.cmds, &.{});
+    const first = t.sectionLineAt(0).?;
+    const second = t.nextSectionLine(first).?;
+    // From the top: `}` steps to the next section, `{` cannot go past 0.
+    try std.testing.expectEqual(second - 1, sectionScroll(commands.cmds, &.{}, 0, 1));
+    try std.testing.expectEqual(@as(usize, 0), sectionScroll(commands.cmds, &.{}, 0, -1));
+    // Parked inside the second section, `{` returns to its own title first.
+    try std.testing.expectEqual(second - 1, sectionScroll(commands.cmds, &.{}, second + 3, -1));
+    // Parked on it, `{` steps back to the first section.
+    try std.testing.expectEqual(first -| 1, sectionScroll(commands.cmds, &.{}, second - 1, -1));
+    // `G` leaves the scroll at maxInt until the next draw clamps it; both
+    // jumps have to survive that unclamped value.
+    const huge = std.math.maxInt(usize);
+    try std.testing.expect(sectionScroll(commands.cmds, &.{}, huge, -1) < t.count);
+    try std.testing.expect(sectionScroll(commands.cmds, &.{}, huge, 1) < t.count);
+}
+
+test "section rows are the only bold lines, and their titles strip clean" {
+    const commands = @import("commands.zig");
+    var t = HelpText{};
+    buildHelp(&t, commands.cmds, &.{});
+    const first = t.sectionLineAt(0).?;
+    try std.testing.expectEqualStrings("COMMANDS", sectionTitle(t.line(first)));
+    // A key row inside that section reports the section it belongs to.
+    try std.testing.expectEqual(first, t.sectionLineAt(first + 2).?);
 }
 
 pub const Viewport = struct { off: usize, end: usize, max_scroll: usize };

@@ -12,6 +12,7 @@ const icons = @import("../../ui/icons.zig");
 const rst = style.rst;
 const bold = style.bold;
 const dim = style.dim;
+const acc = style.acc;
 const sel = style.sel;
 const endLine = style.endLine;
 
@@ -46,11 +47,16 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cols: usize, cmds: []const cmd_m
     const off = viewport.off;
     const end = viewport.end;
 
-    // Sticky title with a position indicator.
+    // Sticky title with the section being read and a position indicator.
+    // The line one past the top is the anchor: a `{`/`}`/`?` jump parks the
+    // scroll on the blank spacer above a section's title.
     try w.writeAll(bold ++ " ");
     try w.writeAll(icons.iconOr(icons.help ++ " ", ""));
     try w.writeAll("HELP" ++ rst);
-    try w.writeAll(dim ++ "   esc: close   j/k: scroll   /: search");
+    if (t.sectionLineAt(@min(off + 1, t.count -| 1))) |s| {
+        try w.print(acc ++ "  {s}" ++ rst, .{help_model.sectionTitle(t.line(s))});
+    }
+    try w.writeAll(dim ++ "   esc: close   j/k: scroll   {/}: section   /: search");
     if (t.count > visible) {
         try w.print("   {d}–{d}/{d}", .{ off + 1, end, t.count });
         if (off < max_scroll) try w.writeAll("  ↓");
