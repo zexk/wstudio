@@ -8994,6 +8994,29 @@ test "synth preset audition plays C3 and cancel restores the original patch" {
     try std.testing.expect(!app.dirty);
 }
 
+test "undo puts back the sound a synth preset replaced" {
+    var app = try testApp();
+    defer app.deinit();
+    app.synth_track = 0;
+    app.view = .synth_editor;
+    // Something hand-tuned to lose.
+    app.session.racks.items[0].instrument.poly_synth.filter_cutoff = 777.0;
+    const original = app.session.racks.items[0].instrument.poly_synth.toPatch();
+
+    app.handleKey(.{ .char = 'f' }, 0);
+    app.handleKey(.{ .char = 'j' }, 0);
+    // Audition first: undo must restore what the picker opened on, not the
+    // preview that `a` left in the rack.
+    app.handleKey(.{ .char = 'a' }, 1);
+    app.handleKey(.enter, 2);
+    const applied = app.session.racks.items[0].instrument.poly_synth.toPatch();
+    try std.testing.expect(applied.filter_cutoff != original.filter_cutoff);
+
+    app.handleKey(.{ .char = 'u' }, 3);
+    const restored = app.session.racks.items[0].instrument.poly_synth.toPatch();
+    try std.testing.expectApproxEqAbs(original.filter_cutoff, restored.filter_cutoff, 1e-3);
+}
+
 test "f in the drum grid opens the kit picker and enter regenerates the pads" {
     var app = try testApp();
     defer app.deinit();

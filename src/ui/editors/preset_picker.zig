@@ -20,6 +20,7 @@ const App = @import("../app.zig").App;
 const fuzzy = @import("../fuzzy.zig");
 const user_presets = @import("../user_presets.zig");
 const user_drum_kits = @import("../user_drum_kits.zig");
+const history = @import("../history.zig");
 
 pub const Kind = enum {
     synth,
@@ -338,21 +339,29 @@ pub fn openForTrack(app: *App, track: u16) void {
     open(app, kind, track);
 }
 
-pub fn close(app: *App) void {
-    if (app.preset_audition_active) {
-        if (targetSynth(app)) |s| {
-            s.applyPatch(app.preset_audition_original);
-            if (app.preset_audition_original_fx) |fx| {
-                const rack = app.session.racks.items[app.preset_picker_track];
-                const displaced = rack.fx;
-                rack.fx = fx;
-                app.preset_audition_original_fx = null;
-                app.session.syncTrackChain(app.preset_picker_track, rack);
-                app.session.retireFxChain(displaced);
-            }
+/// Put the rack back to what the picker opened on, undoing whatever `a`
+/// auditioned. Escaping the picker is one caller; accepting an entry is the
+/// other, which needs the original back before it snapshots for undo -
+/// otherwise undo would restore the preview instead of the sound the user
+/// came in with.
+fn restoreAudition(app: *App) void {
+    if (!app.preset_audition_active) return;
+    if (targetSynth(app)) |s| {
+        s.applyPatch(app.preset_audition_original);
+        if (app.preset_audition_original_fx) |fx| {
+            const rack = app.session.racks.items[app.preset_picker_track];
+            const displaced = rack.fx;
+            rack.fx = fx;
+            app.preset_audition_original_fx = null;
+            app.session.syncTrackChain(app.preset_picker_track, rack);
+            app.session.retireFxChain(displaced);
         }
-        app.preset_audition_active = false;
     }
+    app.preset_audition_active = false;
+}
+
+pub fn close(app: *App) void {
+    restoreAudition(app);
     app.view = app.preset_picker_return;
 }
 
@@ -603,12 +612,26 @@ pub fn applySelected(app: *App) void {
     switch (chosen.source) {
         .user => |i| switch (app.preset_picker_kind) {
             .synth => {
-                if (!applyUserPreset(app, &app.user_synth_presets.items[i])) return;
+                restoreAudition(app);
+                var backup = history.captureTrackKindSwap(app, app.preset_picker_track) orelse {
+                    app.setStatus("synth preset: out of memory", .{});
+                    return;
+                };
+                if (!applyUserPreset(app, &app.user_synth_presets.items[i])) {
+                    backup.deinit(app.allocator);
+                    return;
+                }
+                history.push(app, backup);
                 app.setStatus("synth preset: {s} (saved)", .{chosen.name});
             },
             .drum => {
                 const dm = targetDrum(app) orelse return;
+                const backup = history.captureTrackKindSwap(app, app.preset_picker_track) orelse {
+                    app.setStatus("drum kit: out of memory", .{});
+                    return;
+                };
                 dm.applyPadTune(&app.user_drum_kits.items[i].pads);
+                history.push(app, backup);
                 app.setStatus("drum kit: {s} (saved)", .{chosen.name});
             },
             // Soundfont entries are never `.user` (see deleteSelected's own
@@ -616,15 +639,30 @@ pub fn applySelected(app: *App) void {
             .soundfont, .acoustic => unreachable,
         },
         .factory => |i| {
-            if (!applySynthPreset(app, ws.dsp.synth_presets.presets[i].patch)) return;
+            restoreAudition(app);
+            var backup = history.captureTrackKindSwap(app, app.preset_picker_track) orelse {
+                app.setStatus("synth preset: out of memory", .{});
+                return;
+            };
+            if (!applySynthPreset(app, ws.dsp.synth_presets.presets[i].patch)) {
+                backup.deinit(app.allocator);
+                return;
+            }
+            history.push(app, backup);
             app.setStatus("synth preset: {s}", .{chosen.name});
         },
         .kit => |i| {
             const dm = targetDrum(app) orelse return;
+            var backup = history.captureTrackKindSwap(app, app.preset_picker_track) orelse {
+                app.setStatus("drum-kit: out of memory", .{});
+                return;
+            };
             dm.loadKitVariant(&ws.dsp.drum_kit.variants[i]) catch |e| {
+                backup.deinit(app.allocator);
                 app.setStatus("drum-kit: {s}", .{@errorName(e)});
                 return;
             };
+            history.push(app, backup);
             app.setStatus("drum kit: {s}", .{chosen.name});
         },
         .soundfont => |i| {

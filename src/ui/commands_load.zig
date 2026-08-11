@@ -147,16 +147,25 @@ pub fn cmdSynthPreset(app: *App, args: []const u8) void {
         return;
     };
     const rack = app.session.racks.items[app.cursor];
+    // Replaces the patch and the whole FX chain - same full-rack backup the
+    // sample load below takes, so an audition can be undone.
+    var backup = history.captureTrackKindSwap(app, app.cursor) orelse {
+        app.setStatus("synth-preset: out of memory", .{});
+        return;
+    };
     const displaced = if (user) |preset|
         user_presets.apply(app.allocator, rack, preset, app.session.project.sample_rate) catch |e| {
+            backup.deinit(app.allocator);
             app.setStatus("synth-preset: {s}", .{@errorName(e)});
             return;
         }
     else
         ws.persist.applySynthPatch(app.allocator, rack, factory.?, app.session.project.sample_rate) catch |e| {
+            backup.deinit(app.allocator);
             app.setStatus("synth-preset: {s}", .{@errorName(e)});
             return;
         };
+    history.push(app, backup);
     app.session.syncTrackChain(@intCast(app.cursor), rack);
     app.session.retireFxChain(displaced);
     app.dirty = true;
@@ -210,12 +219,24 @@ pub fn cmdDrumKit(app: *App, args: []const u8) void {
         app.setStatus("drum kits{s}: {s}", .{ marker, w.buffered() });
         return;
     }
-    const dm = cursorDrumMachine(app) orelse {
+    // Resolve the track, not just the machine: `cursorDrumTrack` falls back
+    // to `drum_track` in the grid view, and the undo backup below has to name
+    // the same one.
+    const kit_track = cursorDrumTrack(app) orelse {
         app.setStatus("drum-kit: select a drum-machine track first", .{});
         return;
     };
+    const dm = &app.session.racks.items[kit_track].instrument.drum_machine;
+    // A kit rewrites all 8 pads' tuning, so it takes the same full-rack
+    // backup a sample load does - otherwise a kit tried "just to hear it"
+    // discards the pads the user tuned by hand, with no way back.
     if (user_drum_kits.find(app.user_drum_kits.items, trimmed)) |kit| {
+        const backup = history.captureTrackKindSwap(app, kit_track) orelse {
+            app.setStatus("drum-kit: out of memory", .{});
+            return;
+        };
         dm.applyPadTune(&kit.pads);
+        history.push(app, backup);
         app.dirty = true;
         app.setStatus("drum kit (saved): {s}", .{trimmed});
         return;
@@ -226,10 +247,16 @@ pub fn cmdDrumKit(app: *App, args: []const u8) void {
         app.setStatus("drum-kit: unknown '{s}' - :drum-kit lists names", .{trimmed});
         return;
     };
+    var backup = history.captureTrackKindSwap(app, kit_track) orelse {
+        app.setStatus("drum-kit: out of memory", .{});
+        return;
+    };
     dm.loadKitVariant(variant) catch |e| {
+        backup.deinit(app.allocator);
         app.setStatus("drum-kit: {s}", .{@errorName(e)});
         return;
     };
+    history.push(app, backup);
     app.dirty = true;
     app.setStatus("drum kit: {s}", .{trimmed});
 }
