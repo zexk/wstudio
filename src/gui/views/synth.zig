@@ -29,9 +29,64 @@ pub fn draw(app: anytype) void {
     drawTabs(app);
     zgui.spacing();
     switch (app.core.synth_subview) {
-        .main => drawSections(app, synth, &synth_layout.main_sections, synth_layout.mainPlacements, "synth-main"),
+        .main => drawMain(app, synth),
         .mod => drawSections(app, synth, &synth_layout.mod_sections, synth_layout.modPlacements, "synth-mod"),
     }
+}
+
+fn drawMain(app: anytype, synth: *ws.dsp.PolySynth) void {
+    const available = zgui.getContentRegionAvail();
+    if (available[0] < 1080 or app.core.synth_section_focus) {
+        drawSections(app, synth, &synth_layout.main_sections, synth_layout.mainPlacements, "synth-main");
+        return;
+    }
+
+    if (tabForCursor(synth_layout.main_sections[1..4], app.core.synth_cursor)) |slot| app.core.synth_osc_tab = slot;
+    if (tabForCursor(synth_layout.main_sections[7..9], app.core.synth_cursor)) |slot| app.core.synth_filter_tab = slot;
+    if (tabForCursor(synth_layout.main_sections[9..12], app.core.synth_cursor)) |slot| app.core.synth_env_tab = slot;
+    app.core.last_cols = 160;
+
+    const gap: f32 = 12;
+    const origin = zgui.getCursorPos();
+    const macro_w: f32 = 280;
+    const content_w = available[0] - macro_w - gap;
+    const column_w = (content_w - gap) / 2;
+    const right_x = origin[0] + macro_w + gap + column_w + gap;
+
+    zgui.setCursorPos(.{ origin[0] + macro_w + gap, origin[1] });
+    drawTabbedCard(app, synth, synth_layout.main_sections[1..4], &app.core.synth_osc_tab, "synth-osc-tabs", column_w);
+    const env_y = zgui.getCursorPosY();
+    zgui.setCursorPos(.{ origin[0] + macro_w + gap, env_y });
+    drawTabbedCard(app, synth, synth_layout.main_sections[9..12], &app.core.synth_env_tab, "synth-env-tabs", column_w);
+    const center_bottom = zgui.getCursorPosY();
+
+    zgui.setCursorPos(.{ right_x, origin[1] });
+    drawTabbedCard(app, synth, synth_layout.main_sections[7..9], &app.core.synth_filter_tab, "synth-filter-tabs", column_w);
+    const pair_y = zgui.getCursorPosY();
+    const pair_w = (column_w - gap) / 2;
+    zgui.setCursorPos(.{ right_x, pair_y });
+    drawCard(app, synth, synth_layout.main_sections[4], "synth-main", 4, pair_w);
+    zgui.sameLine(.{ .spacing = gap });
+    drawCard(app, synth, synth_layout.main_sections[5], "synth-main", 5, pair_w);
+    const mod_y = zgui.getCursorPosY();
+    zgui.setCursorPos(.{ right_x, mod_y });
+    drawCard(app, synth, synth_layout.main_sections[6], "synth-main", 6, column_w);
+    const right_bottom = zgui.getCursorPosY();
+
+    const bottom_y = @max(center_bottom, right_bottom);
+    const utility_w = (content_w - gap * 2) / 3;
+    zgui.setCursorPos(.{ origin[0] + macro_w + gap, bottom_y });
+    drawCard(app, synth, synth_layout.main_sections[13], "synth-main", 13, utility_w);
+    zgui.sameLine(.{ .spacing = gap });
+    drawCard(app, synth, synth_layout.main_sections[12], "synth-main", 12, utility_w);
+    zgui.sameLine(.{ .spacing = gap });
+    drawCard(app, synth, synth_layout.main_sections[14], "synth-main", 14, utility_w);
+    const composition_bottom = zgui.getCursorPosY();
+
+    zgui.setCursorPos(origin);
+    drawCardSized(app, synth, synth_layout.main_sections[0], "synth-main", 0, macro_w, @max(320, composition_bottom - origin[1]));
+    zgui.setCursorPos(.{ origin[0], composition_bottom });
+    zgui.dummy(.{ .w = 0, .h = 0 });
 }
 
 fn tabForCursor(sections: []const synth_layout.SectionDef, cursor: u16) ?u8 {
@@ -236,6 +291,18 @@ fn drawCard(
     index: usize,
     width: f32,
 ) void {
+    drawCardSized(app, synth, section, child_prefix, index, width, 0);
+}
+
+fn drawCardSized(
+    app: anytype,
+    synth: *ws.dsp.PolySynth,
+    section: synth_layout.SectionDef,
+    comptime child_prefix: []const u8,
+    index: usize,
+    width: f32,
+    height: f32,
+) void {
     var child_buf: [48]u8 = undefined;
     const child_id = std.fmt.bufPrintZ(&child_buf, "{s}-{d}", .{ child_prefix, index }) catch return;
     // A card whose child lies entirely outside the scroll viewport is
@@ -248,8 +315,8 @@ fn drawCard(
     zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.bg2 });
     if (zgui.beginChild(child_id, .{
         .w = width,
-        .h = 0,
-        .child_flags = .{ .border = true, .auto_resize_y = true },
+        .h = height,
+        .child_flags = .{ .border = true, .auto_resize_y = height == 0 },
         .window_flags = .{ .no_scrollbar = true, .no_scroll_with_mouse = true },
     })) {
         drawSectionCard(app, synth, section);
@@ -299,6 +366,7 @@ fn drawSectionBody(app: anytype, synth: *ws.dsp.PolySynth, section: synth_layout
 
     var flow = Flow.init();
     for (section.params) |entry| {
+        if (section.params[0].id == 99) flow.brk();
         if (gate != null and entry.id == gate.?) continue;
         // A mod-matrix slot: source, dest and depth are one row, not three.
         if (entry.fields == 3) {
