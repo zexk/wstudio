@@ -662,6 +662,10 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
     draw_list.pathFillConvex(gui_style.color(.{ args.accent[0], args.accent[1], args.accent[2], 0.18 }));
     for (0..points.len - 1) |i| draw_list.addLine(.{ .p1 = points[i], .p2 = points[i + 1], .col = gui_style.color(args.accent), .thickness = 2 });
 
+    // Note-off starts release here. Sustain duration is only a visual spacer,
+    // so this corner is marked but has no drag target of its own.
+    adsrHandle(draw_list, theme, points[3], false, false, args.accent);
+
     var result = AdsrResult{};
 
     // Attack node: horizontal drag only (duration).
