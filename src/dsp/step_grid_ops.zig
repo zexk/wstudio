@@ -5,8 +5,11 @@
 //! one-line methods so the 200-odd call sites (and their pad/slice
 //! vocabulary) are untouched.
 //!
-//! Only grid editing is shared. Triggering and render genuinely diverge
-//! between a drum pad and a slice and are deliberately NOT merged.
+//! Grid editing and step *scheduling* are shared (the two types carry the
+//! same `song_mode`/`swing`/`next_step_k`/`song_clips` state under the same
+//! names, so `scanBlock` takes them as `anytype`). Voice allocation and
+//! render genuinely diverge between a drum pad and a slice and stay in
+//! their own files.
 //!
 //! `midi` is `[]const []?MidiNote` throughout: the outer array is never
 //! reshaped here, only the notes inside it, so the same parameter serves
@@ -206,6 +209,136 @@ pub fn nudgeLaneLen(lane_len: []u16, step_count: u16, lane: u8, delta: i32) void
     if (lane >= lane_len.len) return;
     const cur: i32 = laneSteps(lane_len, lane, step_count);
     setLaneLen(lane_len, step_count, lane, @intCast(std.math.clamp(cur + delta, 1, step_count)));
+}
+
+// ---------------------------------------------------------------------------
+// Step scheduling (audio thread)
+// ---------------------------------------------------------------------------
+
+/// Does `note` fire on this pass? Probability and condition are ANDed,
+/// Elektron-style: a `1:4` note at 70% fires on every fourth pass, and then
+/// only seven times in ten.
+///
+/// `pass` counts completed loops through the lane that owns the note, so a
+/// lane with its own shorter length counts its own repeats rather than the
+/// pattern's. `step_k` is the absolute step, which is what makes the dice
+/// roll vary from one pass to the next.
+pub fn trigFires(note: MidiNote, lane: u8, step_k: u64, pass: u64, fill_on: bool) bool {
+    if (!note.cond.holds(pass, fill_on)) return false;
+    if (note.prob >= 100) return true;
+    if (note.prob == 0) return false;
+    return rollPercent(step_k, lane) < note.prob;
+}
+
+/// A 0-99 roll from the absolute step and the lane. SplitMix64's finalizer
+/// over the two: no state to carry on the audio thread, and replaying the
+/// same stretch of transport gives the same pattern back rather than a
+/// different one every time the UI redraws.
+fn rollPercent(step_k: u64, lane: u8) u8 {
+    var z: u64 = step_k *% 0x9E3779B97F4A7C15 +% (@as(u64, lane) *% 0xBF58476D1CE4E5B9);
+    z = (z ^ (z >> 30)) *% 0xBF58476D1CE4E5B9;
+    z = (z ^ (z >> 27)) *% 0x94D049BB133111EB;
+    z ^= z >> 31;
+    return @intCast(z % 100);
+}
+
+/// Schedules every step that could place a hit inside the next `frames`, then
+/// drains the rolls those steps queued. `self` is a `*DrumMachine` or a
+/// `*Slicer`; only the lane vocabulary differs between them, and that arrives
+/// as `lane_len`/`lane_count`. The caller holds the type's own sample lock.
+pub fn scanBlock(self: anytype, lane_len: []const u16, lane_count: usize, frames: u32) void {
+    const pos_f = @as(f64, @floatFromInt(self.transport.position_frames));
+    const fps = self.transport.framesPerStep(if (self.song_mode) self.song_steps_per_beat else self.steps_per_beat);
+    // Swing: off-beat 16ths (odd step_k) fire late by up to half a step
+    // (75% = hardest shuffle). Even steps stay on the grid, so the boundary
+    // positions remain strictly increasing.
+    const swing_pct = self.swing.load(.monotonic);
+    var step_k = self.next_step_k;
+
+    // Resync on discontinuity (seek, loop, first play after stop).
+    const expected = @as(f64, @floatFromInt(step_k)) * fps;
+    const resync_steps: u8 = if (self.song_mode) @max(2, self.song_steps_per_beat / 2) else 2;
+    if (@abs(expected - pos_f) > fps * @as(f64, @floatFromInt(resync_steps))) {
+        step_k = @intFromFloat(@ceil(pos_f / fps));
+    }
+
+    // "Could" rather than "does": a step's own `micro` can pull a hit up to
+    // half a step ahead of its boundary, so a step whose boundary is still in
+    // the future has to be considered early. The hits themselves are emitted
+    // by `drainRolls` once their real positions land in a block.
+    const max_early = fps * 0.5;
+    while (true) {
+        var fire_pos = @as(f64, @floatFromInt(step_k)) * fps;
+        if (self.song_mode) {
+            const ticks_per_sixteenth = @max(@as(u8, 1), self.song_steps_per_beat / 4);
+            if (step_k % ticks_per_sixteenth == 0 and
+                (step_k / ticks_per_sixteenth) & 1 == 1)
+            {
+                fire_pos += fps * ticks_per_sixteenth *
+                    @as(f64, swing_pct - 50.0) / 50.0;
+            }
+        } else if (step_k & 1 == 1) {
+            fire_pos += fps * @as(f64, swing_pct - 50.0) / 50.0;
+        }
+        if (fire_pos - max_early >= pos_f + @as(f64, @floatFromInt(frames))) break;
+
+        if (self.song_mode) {
+            fireSongStep(self, lane_len, lane_count, step_k, fire_pos, fps);
+        } else {
+            // Each lane wraps at its own length, so rows can run out of phase
+            // with each other; the UI playhead still follows the pattern's
+            // own length.
+            const fill_on = self.fill_on.load(.monotonic);
+            for (0..lane_count) |l| {
+                const len = laneSteps(lane_len, @intCast(l), self.step_count);
+                const idx: u16 = @intCast(step_k % len);
+                const note = self.midi[l][idx] orelse continue;
+                if (!trigFires(note, @intCast(l), step_k, step_k / len, fill_on)) continue;
+                self.scheduleNote(@intCast(l), note, fire_pos, fps);
+            }
+            self.current_step.store(@intCast(step_k % self.step_count), .monotonic);
+        }
+        step_k += 1;
+    }
+
+    self.next_step_k = step_k;
+    // After the step scan, so a roll started by a step in this very block
+    // still gets its tail hits considered here.
+    self.drainRolls(pos_f, frames);
+}
+
+/// Fire lanes for absolute step `step_k` from the song timeline. Past
+/// `song_length_steps` this goes silent instead of wrapping - the arrangement
+/// plays once through, not on a loop.
+fn fireSongStep(self: anytype, lane_len: []const u16, lane_count: usize, step_k: u64, fire_pos: f64, tick_frames: f64) void {
+    if (self.song_length_steps == 0 or step_k >= self.song_length_steps) return;
+    const lk: u32 = @intCast(step_k);
+    for (self.song_clips[0..self.song_clip_count]) |*clip| {
+        if (lk < clip.start_step or lk >= clip.start_step + clip.span_steps) continue;
+        if (clip.step_count == 0) return;
+        const elapsed = lk - clip.start_step;
+        const scaled = elapsed * clip.steps_per_beat;
+        if (scaled % self.song_steps_per_beat != 0) continue;
+        const local: u32 = scaled / self.song_steps_per_beat;
+        const fill_on = self.fill_on.load(.monotonic);
+        // The song timeline ticks finer than the clip's own grid, so a roll
+        // has to be spaced across a *clip* step, not a song tick.
+        const step_frames = tick_frames *
+            @as(f64, @floatFromInt(self.song_steps_per_beat)) /
+            @as(f64, @floatFromInt(@max(clip.steps_per_beat, 1)));
+        for (0..lane_count) |l| {
+            const len = laneSteps(lane_len, @intCast(l), clip.step_count);
+            const idx: u16 = @intCast(local % len);
+            const note = clip.midi[l][idx] orelse continue;
+            if (!trigFires(note, @intCast(l), step_k, local / len, fill_on)) continue;
+            self.scheduleNote(@intCast(l), note, fire_pos, step_frames);
+        }
+        self.current_step.store(@intCast(local % clip.step_count), .monotonic);
+        return; // clips never overlap
+    }
+    // No clip under the playhead: keep the UI step indicator moving through
+    // the gap instead of freezing on the last clip's step.
+    self.current_step.store(@intCast(lk % self.step_count), .monotonic);
 }
 
 test "an empty step reads back its neutral default and ignores every setter" {

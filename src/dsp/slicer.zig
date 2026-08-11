@@ -1180,62 +1180,7 @@ pub const Slicer = struct {
         defer self.sample_lock.unlock();
 
         if (self.transport.playing and self.slice_count > 0) {
-            const pos_f = @as(f64, @floatFromInt(self.transport.position_frames));
-            const fps = self.transport.framesPerStep(if (self.song_mode) self.song_steps_per_beat else self.steps_per_beat);
-            const swing_pct = self.swing.load(.monotonic);
-            var step_k = self.next_step_k;
-
-            const expected = @as(f64, @floatFromInt(step_k)) * fps;
-            const resync_steps: u8 = if (self.song_mode) @max(2, self.song_steps_per_beat / 2) else 2;
-            if (@abs(expected - pos_f) > fps * @as(f64, @floatFromInt(resync_steps))) {
-                step_k = @intFromFloat(@ceil(pos_f / fps));
-            }
-
-            // Every step that could still place a hit inside this block.
-            // "Could" rather than "does": a step's own `micro` can pull a hit
-            // up to half a step ahead of its boundary, so a step whose
-            // boundary is still in the future has to be considered early. The
-            // hits themselves are emitted by `drainRolls`. Same shape as
-            // `DrumMachine.processBlock`'s scan.
-            const max_early = fps * 0.5;
-            while (true) {
-                var fire_pos = @as(f64, @floatFromInt(step_k)) * fps;
-                if (self.song_mode) {
-                    const ticks_per_sixteenth = @max(@as(u8, 1), self.song_steps_per_beat / 4);
-                    if (step_k % ticks_per_sixteenth == 0 and
-                        (step_k / ticks_per_sixteenth) & 1 == 1)
-                    {
-                        fire_pos += fps * ticks_per_sixteenth *
-                            @as(f64, swing_pct - 50.0) / 50.0;
-                    }
-                } else if (step_k & 1 == 1) {
-                    fire_pos += fps * @as(f64, swing_pct - 50.0) / 50.0;
-                }
-                if (fire_pos - max_early >= pos_f + @as(f64, @floatFromInt(frames))) break;
-
-                if (self.song_mode) {
-                    self.fireSongStep(step_k, fire_pos, fps);
-                } else {
-                    // Each slice wraps at its own length (`slice_len`), so
-                    // rows can run out of phase with each other; the UI
-                    // playhead still follows the pattern's own length.
-                    const fill_on = self.fill_on.load(.monotonic);
-                    for (0..self.slice_count) |s| {
-                        const len = self.sliceSteps(@intCast(s), self.step_count);
-                        const idx: u16 = @intCast(step_k % len);
-                        const note = self.midi[s][idx] orelse continue;
-                        if (!trigFires(note, @intCast(s), step_k, step_k / len, fill_on)) continue;
-                        self.scheduleNote(@intCast(s), note, fire_pos, fps);
-                    }
-                    self.current_step.store(@intCast(step_k % self.step_count), .monotonic);
-                }
-                step_k += 1;
-            }
-
-            self.next_step_k = step_k;
-            // After the step scan, so a roll started by a step in this very
-            // block still gets its tail hits considered here.
-            self.drainRolls(pos_f, frames);
+            step_grid_ops.scanBlock(self, &self.slice_len, self.slice_count, frames);
         }
 
         for (self.slices[0..self.slice_count], self.voices[0..self.slice_count]) |*pad, *pool| {
@@ -1254,69 +1199,13 @@ pub const Slicer = struct {
         }
     }
 
-    /// Fire slices for absolute step `step_k` from the song timeline. Past
-    /// `song_length_steps` this goes silent instead of wrapping - the
-    /// arrangement plays once through, not on a loop. Mirrors
-    /// `DrumMachine.fireSongStep`; caller (processBlock) holds sample_lock.
-    fn fireSongStep(self: *Slicer, step_k: u64, fire_pos: f64, tick_frames: f64) void {
-        if (self.song_length_steps == 0 or step_k >= self.song_length_steps) return;
-        const lk: u32 = @intCast(step_k);
-        for (self.song_clips[0..self.song_clip_count]) |*clip| {
-            if (lk < clip.start_step or lk >= clip.start_step + clip.span_steps) continue;
-            if (clip.step_count == 0) return;
-            const elapsed = lk - clip.start_step;
-            const scaled = elapsed * clip.steps_per_beat;
-            if (scaled % self.song_steps_per_beat != 0) continue;
-            const local: u32 = scaled / self.song_steps_per_beat;
-            const fill_on = self.fill_on.load(.monotonic);
-            // The song timeline ticks finer than the clip's own grid, so a
-            // roll has to be spaced across a *clip* step, not a song tick.
-            const step_frames = tick_frames *
-                @as(f64, @floatFromInt(self.song_steps_per_beat)) /
-                @as(f64, @floatFromInt(@max(clip.steps_per_beat, 1)));
-            for (0..self.slice_count) |s| {
-                const len = self.sliceSteps(@intCast(s), clip.step_count);
-                const idx: u16 = @intCast(local % len);
-                const note = clip.midi[s][idx] orelse continue;
-                if (!trigFires(note, @intCast(s), step_k, local / len, fill_on)) continue;
-                self.scheduleNote(@intCast(s), note, fire_pos, step_frames);
-            }
-            self.current_step.store(@intCast(local % clip.step_count), .monotonic);
-            return; // clips never overlap
-        }
-        // No clip under the playhead: keep the UI step indicator moving
-        // through the gap instead of freezing on the last clip's step.
-        self.current_step.store(@intCast(lk % self.step_count), .monotonic);
-    }
-
-    /// Does `note` fire on this pass? Probability and condition are ANDed,
-    /// Elektron-style - see `DrumMachine.trigFires`, which this mirrors (and
-    /// whose `Cond` this shares).
-    fn trigFires(note: MidiNote, slice: u8, step_k: u64, pass: u64, fill_on: bool) bool {
-        if (!note.cond.holds(pass, fill_on)) return false;
-        if (note.prob >= 100) return true;
-        if (note.prob == 0) return false;
-        return rollPercent(step_k, slice) < note.prob;
-    }
-
-    /// A 0-99 roll from the absolute step and the slice - stateless on the
-    /// audio thread, and the same stretch of transport rolls the same way
-    /// twice. See `DrumMachine.rollPercent`.
-    fn rollPercent(step_k: u64, slice: u8) u8 {
-        var z: u64 = step_k *% 0x9E3779B97F4A7C15 +% (@as(u64, slice) *% 0xBF58476D1CE4E5B9);
-        z = (z ^ (z >> 30)) *% 0xBF58476D1CE4E5B9;
-        z = (z ^ (z >> 27)) *% 0x94D049BB133111EB;
-        z ^= z >> 31;
-        return @intCast(z % 100);
-    }
-
     /// Schedule `note` on slice `s`. `step_pos` is its step's absolute
     /// transport position; `micro` shifts the hit off that, and a roll spreads
     /// further hits across the step's own `step_frames`. Nothing is emitted
     /// here - `drainRolls` does that once the hits' real positions land inside
     /// a block, which is what lets a hit sit before its own step boundary or
     /// after the block that scheduled it.
-    fn scheduleNote(self: *Slicer, s: u8, note: MidiNote, step_pos: f64, step_frames: f64) void {
+    pub fn scheduleNote(self: *Slicer, s: u8, note: MidiNote, step_pos: f64, step_frames: f64) void {
         const offset = step_frames * @as(f64, @floatFromInt(note.micro)) / 100.0;
         const hits: u8 = @max(note.retrig, 1);
         const interval = if (hits > 1 and step_frames > 0.0)
@@ -1339,7 +1228,7 @@ pub const Slicer = struct {
 
     /// Emit every scheduled hit landing in `[pos_f, pos_f + frames)` - see
     /// `DrumMachine.drainRolls` for the clamp/drop rules this mirrors.
-    fn drainRolls(self: *Slicer, pos_f: f64, frames: u32) void {
+    pub fn drainRolls(self: *Slicer, pos_f: f64, frames: u32) void {
         const frames_f: f64 = @floatFromInt(frames);
         const block_end = pos_f + frames_f;
         for (&self.rolls, 0..) |*slot, s| {
