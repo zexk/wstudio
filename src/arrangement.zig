@@ -439,6 +439,11 @@ pub const Lane = struct {
             }
             i += 1;
         }
+        // A head trim moves a clip's start forward and a split drops its right
+        // half at `hi`, either of which can overtake a clip that sits later in
+        // the list untouched - reachable only with layers, where two clips can
+        // cover the same tick. Same reasoning as `insertTime`.
+        std.mem.sort(Clip, self.clips.items, {}, lessThanStart);
     }
 
     /// Open an empty span at `at`. A clip crossing the insertion point is
@@ -900,4 +905,24 @@ test "swapLanes ignores invalid indices" {
 
     arrangement.swapLanes(0, 99);
     try testing.expectEqual(@as(usize, 1), arrangement.lanes.items.len);
+}
+
+test "cutRange leaves the lane sorted when layers stack" {
+    const a = testing.allocator;
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    var lower = Clip.initDrum(0, 100, .{ .step_count = 16 });
+    lower.layer = 0;
+    var upper = Clip.initDrum(5, 10, .{ .step_count = 16 });
+    upper.layer = 1;
+    try lane.place(a, lower);
+    try lane.place(a, upper);
+
+    // Splits the layer-0 clip in two while only trimming the layer-1 one,
+    // so the pieces land either side of a clip that never moved.
+    try lane.cutRange(a, 10, 20);
+
+    for (lane.clips.items[1..], 0..) |c, prev| {
+        try testing.expect(lane.clips.items[prev].start_tick <= c.start_tick);
+    }
 }
