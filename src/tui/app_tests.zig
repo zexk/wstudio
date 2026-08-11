@@ -5083,6 +5083,27 @@ test "synth tabs cycle cursor group and preserve selected field" {
     try std.testing.expectEqual(@as(u16, 34), app.synth_cursor);
 }
 
+test "synth row navigation skips folded tab siblings" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.handleKey(.enter, 0);
+    for (0..9) |_| app.handleKey(.{ .char = 'j' }, 0);
+    try std.testing.expectEqual(@as(u16, 34), app.synth_cursor);
+
+    app.synth_cursor = 20;
+    for (0..3) |_| app.handleKey(.{ .char = 'j' }, 0);
+    try std.testing.expectEqual(@as(u16, 16), app.synth_cursor);
+
+    app.synth_cursor = 16;
+    for (0..4) |_| app.handleKey(.{ .char = 'j' }, 0);
+    try std.testing.expectEqual(@as(u16, 32), app.synth_cursor);
+
+    app.handleKey(.tab, 0);
+    for (0..7) |_| app.handleKey(.{ .char = 'j' }, 0);
+    try std.testing.expectEqual(@as(u16, 99), app.synth_cursor);
+}
+
 test "synth section focus isolates navigation and rendering" {
     var app = try testApp();
     defer app.deinit();

@@ -428,19 +428,57 @@ fn activeModOrder(app: *App) []const synth_layout.PositionedEntry {
     return if (app.synth_section_focus) sectionOrder(order, app.synth_cursor) else order;
 }
 
+fn sectionVisible(app: *const App, section: usize) bool {
+    if (app.synth_section_focus) return true;
+    return switch (app.synth_subview) {
+        .main => switch (section) {
+            0...2 => section == app.synth_osc_tab,
+            6...7 => section == 6 + app.synth_filter_tab,
+            8...10 => section == 8 + app.synth_env_tab,
+            else => true,
+        },
+        .mod => if (section <= 2) section == app.synth_lfo_tab else true,
+    };
+}
+
 /// `g`/`G`/Tab's target id for the current subview - both walk their
 /// column-grid visual order (see synth_layout.zig).
 fn cursorFirst(app: *App) u16 {
-    return switch (app.synth_subview) {
+    const order = switch (app.synth_subview) {
         .main => synth_layout.firstEntry(activeMainOrder(app)),
         .mod => synth_layout.firstEntry(activeModOrder(app)),
     };
+    const entries = if (app.synth_subview == .main) activeMainOrder(app) else activeModOrder(app);
+    for (entries) |entry| if (sectionVisible(app, entry.section)) return entry.id;
+    return order;
 }
 fn cursorLast(app: *App) u16 {
-    return switch (app.synth_subview) {
+    const fallback = switch (app.synth_subview) {
         .main => synth_layout.lastEntry(activeMainOrder(app)),
         .mod => synth_layout.lastEntry(activeModOrder(app)),
     };
+    const entries = if (app.synth_subview == .main) activeMainOrder(app) else activeModOrder(app);
+    var i = entries.len;
+    while (i > 0) {
+        i -= 1;
+        if (sectionVisible(app, entries[i].section)) return entries[i].id;
+    }
+    return fallback;
+}
+
+fn jumpVisibleSection(app: *App, forward: bool) void {
+    const order = if (app.synth_subview == .main) activeMainOrder(app) else activeModOrder(app);
+    var cursor = app.synth_cursor;
+    for (0..order.len) |_| {
+        const next = synth_layout.jumpSection(order, cursor, forward);
+        if (next == cursor) return;
+        cursor = next;
+        const index = synth_layout.indexContaining(order, cursor) orelse return;
+        if (sectionVisible(app, order[index].section)) {
+            app.synth_cursor = cursor;
+            return;
+        }
+    }
 }
 
 const lfo_tab_ids = [3][7]u16{
@@ -638,10 +676,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // subview's synth_layout order (synth_layout.jumpSection).
             '}', '{' => {
                 history.flushParamNudge(app);
-                switch (app.synth_subview) {
-                    .main => app.synth_cursor = synth_layout.jumpSection(mainOrderNow(app), app.synth_cursor, c == '}'),
-                    .mod => app.synth_cursor = synth_layout.jumpSection(modOrderNow(app), app.synth_cursor, c == '}'),
-                }
+                jumpVisibleSection(app, c == '}');
                 updateScroll(app);
                 return true;
             },
@@ -661,7 +696,17 @@ fn moveCursor(app: *App, delta: i32) void {
         .main => activeMainOrder(app),
         .mod => activeModOrder(app),
     };
-    app.synth_cursor = synth_layout.moveEntry(order, app.synth_cursor, delta);
+    const direction: i32 = if (delta < 0) -1 else 1;
+    var remaining = @abs(delta);
+    while (remaining > 0) : (remaining -= 1) {
+        for (0..order.len) |_| {
+            const next = synth_layout.moveEntry(order, app.synth_cursor, direction);
+            if (next == app.synth_cursor) break;
+            app.synth_cursor = next;
+            const index = synth_layout.indexContaining(order, next) orelse break;
+            if (sectionVisible(app, order[index].section)) break;
+        }
+    }
     updateScroll(app);
 }
 
