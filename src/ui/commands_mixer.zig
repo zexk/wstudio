@@ -450,39 +450,33 @@ pub fn cmdPan(app: *App, args: []const u8) void {
     // zig fmt: on
 }
 
-/// `:unmute` - clear mute on every track in one shot. `m` only toggles the
-/// cursor track, so this is the fast way back to "everything audible" after
-/// muting several while working. Not undo-tracked, matching `m` itself - a
-/// mixer-style live param.
+/// `:unmute`/`:unsolo` - clear mute/solo on every track in one shot. `m`
+/// and `S` only toggle the cursor track, so these are the fast way back to
+/// "everything audible" / normal monitoring after flagging several while
+/// working. Not undo-tracked, matching `m`/`S` themselves - mixer-style
+/// live params.
 pub fn cmdUnmute(app: *App, _: []const u8) void {
-    var n: usize = 0;
-    for (app.session.project.tracks.items, 0..) |track, i| {
-        if (!track.muted) continue;
-        app.apiSetTrackMuted(i, false);
-        n += 1;
-    }
-    if (n == 0) {
-        app.setStatus("unmute: nothing was muted", .{});
-        return;
-    }
-    app.setStatus("unmuted {d} track{s}", .{ n, if (n == 1) "" else "s" });
+    clearTrackFlag(app, .mute);
 }
 
-/// `:unsolo` - clear solo on every track in one shot, the counterpart to
-/// `:unmute` - the fast way back to normal monitoring after soloing several
-/// tracks to audition them. Not undo-tracked, matching `S` itself.
 pub fn cmdUnsolo(app: *App, _: []const u8) void {
+    clearTrackFlag(app, .solo);
+}
+
+fn clearTrackFlag(app: *App, flag: enum { mute, solo }) void {
     var n: usize = 0;
     for (app.session.project.tracks.items, 0..) |track, i| {
-        if (!track.soloed) continue;
-        app.apiSetTrackSoloed(i, false);
+        if (!(if (flag == .mute) track.muted else track.soloed)) continue;
+        if (flag == .mute) app.apiSetTrackMuted(i, false) else app.apiSetTrackSoloed(i, false);
         n += 1;
     }
+    const name = if (flag == .mute) "mute" else "solo";
+    const past = if (flag == .mute) "muted" else "soloed";
     if (n == 0) {
-        app.setStatus("unsolo: nothing was soloed", .{});
+        app.setStatus("un{s}: nothing was {s}", .{ name, past });
         return;
     }
-    app.setStatus("unsoloed {d} track{s}", .{ n, if (n == 1) "" else "s" });
+    app.setStatus("un{s} {d} track{s}", .{ past, n, if (n == 1) "" else "s" });
 }
 
 pub fn cmdSeek(app: *App, args: []const u8) void {

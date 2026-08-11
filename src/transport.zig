@@ -128,31 +128,27 @@ pub const Transport = struct {
     }
 
     pub fn setTempoPoint(self: *Transport, point: time_map.TempoPoint) void {
-        var index: usize = 0;
-        while (index < self.tempo_point_count and self.tempo_points[index].beat < point.beat) : (index += 1) {}
-        if (index < self.tempo_point_count and self.tempo_points[index].beat == point.beat) {
-            self.tempo_points[index] = point;
-            return;
-        }
-        if (self.tempo_point_count == max_tempo_points) return;
-        var i: usize = self.tempo_point_count;
-        while (i > index) : (i -= 1) self.tempo_points[i] = self.tempo_points[i - 1];
-        self.tempo_points[index] = point;
-        self.tempo_point_count += 1;
+        insertPoint(&self.tempo_points, &self.tempo_point_count, point);
     }
 
     pub fn setMeterPoint(self: *Transport, point: time_map.MeterPoint) void {
+        insertPoint(&self.meter_points, &self.meter_point_count, point);
+    }
+
+    /// Insert `point` into a beat-sorted fixed array, replacing whatever
+    /// already sits on that exact beat. A full array drops the insert.
+    fn insertPoint(points: anytype, count: *u8, point: anytype) void {
         var index: usize = 0;
-        while (index < self.meter_point_count and self.meter_points[index].beat < point.beat) : (index += 1) {}
-        if (index < self.meter_point_count and self.meter_points[index].beat == point.beat) {
-            self.meter_points[index] = point;
+        while (index < count.* and points[index].beat < point.beat) : (index += 1) {}
+        if (index < count.* and points[index].beat == point.beat) {
+            points[index] = point;
             return;
         }
-        if (self.meter_point_count == max_meter_points) return;
-        var i: usize = self.meter_point_count;
-        while (i > index) : (i -= 1) self.meter_points[i] = self.meter_points[i - 1];
-        self.meter_points[index] = point;
-        self.meter_point_count += 1;
+        if (count.* == points.len) return;
+        var i: usize = count.*;
+        while (i > index) : (i -= 1) points[i] = points[i - 1];
+        points[index] = point;
+        count.* += 1;
     }
 
     /// Called once per processed block, after rendering it.

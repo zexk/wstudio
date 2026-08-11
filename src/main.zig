@@ -59,8 +59,8 @@ pub fn main(init: std.process.Init) !void {
             return renderProjectStems(init.gpa, init.io, rest.items[1], if (rest.items.len == 3) rest.items[2] else "stems");
         }
         if (!validArgCount(cmd, rest.items.len)) return unexpectedArg(init.io, rest.items[validArgLimit(cmd)]);
-        if (std.mem.eql(u8, cmd, "clap-scan")) return scanClap(init);
-        if (std.mem.eql(u8, cmd, "vst3-scan")) return scanVst3(init);
+        if (std.mem.eql(u8, cmd, "clap-scan")) return scanPlugins(init, ws.dsp.clap_scan);
+        if (std.mem.eql(u8, cmd, "vst3-scan")) return scanPlugins(init, ws.vst3.scan);
         if (std.mem.eql(u8, cmd, "devices")) return listDevices(init.io);
         if (std.mem.eql(u8, cmd, "--version") or std.mem.eql(u8, cmd, "-v")) return printVersion(init.io);
         if (std.mem.eql(u8, cmd, "--help") or std.mem.eql(u8, cmd, "-h")) return printHelp(init.io);
@@ -201,26 +201,13 @@ fn listDevices(io: std.Io) !void {
     try stdout_writer.interface.flush();
 }
 
-fn scanClap(init: std.process.Init) !void {
-    var paths = try ws.dsp.clap_scan.searchPaths(init.gpa, init.environ_map);
-    defer ws.dsp.clap_scan.freeSearchPaths(init.gpa, &paths);
-    var registry = ws.dsp.clap_scan.Registry.init(init.gpa);
-    defer registry.deinit();
-    try registry.scanPaths(init.io, paths.items);
-
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
-    const stdout = &stdout_writer.interface;
-    for (registry.plugins.items) |plugin| {
-        try stdout.print("{s}\t{s}\t{s}\n", .{ plugin.id, plugin.name, plugin.path });
-    }
-    try stdout.flush();
-}
-
-fn scanVst3(init: std.process.Init) !void {
-    var paths = try ws.vst3.scan.searchPaths(init.gpa, init.environ_map);
-    defer ws.vst3.scan.freeSearchPaths(init.gpa, &paths);
-    var registry = ws.vst3.scan.Registry.init(init.gpa);
+/// `--scan-clap`/`--scan-vst3`: one tab-separated line per plugin found on
+/// the format's own search path. `scan` is dsp.clap_scan or vst3.scan - the
+/// two expose the same searchPaths/Registry surface.
+fn scanPlugins(init: std.process.Init, comptime scan: type) !void {
+    var paths = try scan.searchPaths(init.gpa, init.environ_map);
+    defer scan.freeSearchPaths(init.gpa, &paths);
+    var registry = scan.Registry.init(init.gpa);
     defer registry.deinit();
     try registry.scanPaths(init.io, paths.items);
 
