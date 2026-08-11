@@ -48,6 +48,7 @@ pub const pad_sections = [_]Section{
         .{ .id = 4, .label = "Decay",   .gui_format = "%.3f s" },
         .{ .id = 5, .label = "Sustain", .gui_format = "%.2f" },
         .{ .id = 6, .label = "Release", .gui_format = "%.3f s" },
+        .{ .id = 21, .label = "Curve", .gui_format = "%.2f" },
     } },
     .{ .kind = .output, .title = "OUT", .rows = &.{
         .{ .id = 7, .label = "Gain",    .gui_format = "%.2f" },

@@ -148,6 +148,7 @@ fn drawAmpEnvelope(app: anytype, target: Target) void {
     var decay = target.value(4) orelse return;
     var sustain = target.value(5) orelse return;
     var release = target.value(6) orelse return;
+    const curve = target.value(ws.dsp.pad.env_curve_id) orelse return;
     const a_range = paramRange(target, 3);
     const d_range = paramRange(target, 4);
     const r_range = paramRange(target, 6);
@@ -163,6 +164,7 @@ fn drawAmpEnvelope(app: anytype, target: Target) void {
         .attack_range = a_range,
         .decay_range = d_range,
         .release_range = r_range,
+        .curve = curve,
         .accent = theme.rhythm,
         .focused_stage = focused_stage,
     });

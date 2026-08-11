@@ -910,6 +910,7 @@ pub fn applyPadSnap(p: *Pad, ps: PadSnap) void {
     p.decay_s         = finiteClamp(f32, ps.decay_s, 0.0, 5.0, 0.0);
     p.sustain         = finiteClamp(f32, ps.sustain, 0.0, 1.0, 1.0);
     p.release_s       = finiteClamp(f32, ps.release_s, 0.001, 5.0, 0.005);
+    p.env_curve       = finiteClamp(f32, ps.env_curve, -1.0, 1.0, 0.0);
     p.fade_in_s       = finiteClamp(f32, ps.fade_in_s, 0.0, 5.0, 0.0);
     p.fade_out_s      = finiteClamp(f32, ps.fade_out_s, 0.0, 5.0, 0.0);
     p.stretch_ratio   = finiteClamp(f32, ps.stretch_ratio, 0.25, 4.0, 1.0);

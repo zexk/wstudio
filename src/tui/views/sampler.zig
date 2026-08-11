@@ -175,7 +175,9 @@ pub fn drawSamplerEditor(
         try std.fmt.bufPrint(&buf, "{d:.3}", .{pad.sustain}));
     try barRow(w, c == 6, false, grn, "release", pad.release_s, duration,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{pad.release_s}));
-    written += 4;
+    try barRow(w, c == 21, false, grn, "curve", pad.env_curve + 1.0, 2.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{pad.env_curve}));
+    written += 5;
 
     // ── OUT ──────────────────────────────────────
     try synthSection(w, sampler_ed.pad_sections[2].title, bcyn);

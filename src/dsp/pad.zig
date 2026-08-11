@@ -11,6 +11,7 @@ const wav = @import("../core/wav.zig");
 const speex = @cImport(@cInclude("speex/speex_resampler.h"));
 const lfo_dsp = @import("lfo.zig");
 const dsp = @import("device.zig");
+const synth_math = @import("synth_math.zig");
 const Lfo = lfo_dsp.Lfo;
 
 const Sample = types.Sample;
@@ -43,6 +44,8 @@ pub const Pad = struct {
     decay_s: f32 = 0.0,
     sustain: f32 = 1.0,
     release_s: f32 = 0.005,
+    /// Shared ADSR segment curvature: -1 fast, 0 linear, +1 slow.
+    env_curve: f32 = 0.0,
     /// Linear gain ramp over the first `fade_in_s` seconds of playback and
     /// the last `fade_out_s` before the region end. 0 (the default) = off.
     /// Unlike the ADSR - an instrument-shaping envelope - these are edit
@@ -214,7 +217,7 @@ pub fn emptyPad() *const Pad {
 /// param field - DrumMachine/Slicer pack the param id into its low 5 bits
 /// (32 slots), which 0-20 fits with room to spare; Sampler's own ids past
 /// this table are never packed.
-pub const param_count: u16 = 21;
+pub const param_count: u16 = 22;
 
 /// Ids of the two enum params in this table, so callers that need to treat
 /// them differently (undo capture, the automation param picker, the UI's
@@ -232,6 +235,7 @@ pub const mod_dest_id: u16 = 18;
 /// The loop-mode cycle (see `LoopMode`), named for the same reason.
 pub const loop_id: u16 = 19;
 pub const warp_method_id: u16 = 20;
+pub const env_curve_id: u16 = 21;
 
 pub fn playDurationSeconds(pad: *const Pad, sample_rate: u32) f32 {
     if (sample_rate == 0 or pad.samples.len == 0) return 0;
@@ -337,6 +341,7 @@ fn paramStep(id: u16) f32 {
         13 => 0.02,
         15 => 0.1,
         16 => 0.02,
+        21 => 0.02,
         else => 0.0,
     };
 }
@@ -368,6 +373,7 @@ pub fn setParamAbsolute(pad: *Pad, id: u16, value: f32) void {
         18 => pad.mod_dest   = @enumFromInt(@as(u8, @intFromFloat(std.math.clamp(@round(value), 0.0, @as(f32, @typeInfo(ModDest).@"enum".fields.len - 1))))),
         19 => pad.loop       = @enumFromInt(@as(u8, @intFromFloat(std.math.clamp(@round(value), 0.0, @as(f32, @typeInfo(LoopMode).@"enum".fields.len - 1))))),
         20 => pad.warp_method = @enumFromInt(@as(u8, @intFromFloat(std.math.clamp(@round(value), 0.0, @as(f32, @typeInfo(WarpMethod).@"enum".fields.len - 1))))),
+        21 => pad.env_curve = std.math.clamp(value, -1.0, 1.0),
         // zig fmt: on
         else => {},
     }
@@ -411,6 +417,7 @@ pub fn paramValue(pad: *const Pad, id: u16) ?f32 {
         18 => @floatFromInt(@intFromEnum(pad.mod_dest)),
         19 => @floatFromInt(@intFromEnum(pad.loop)),
         20 => @floatFromInt(@intFromEnum(pad.warp_method)),
+        21 => pad.env_curve,
         // zig fmt: on
         else => null,
     };
@@ -522,12 +529,12 @@ fn filterStep(st: *FilterState, c: FilterCoef, x: f32) f32 {
 /// Gated note-off gain: a linear fade over `release_s` starting at the
 /// note-off, on top of whatever the amp envelope is already doing. Returns 0
 /// once the fade has run out, which the render loops treat as end-of-voice.
-fn gateLevel(release_frames: f64, sr: f64, release_s: f32) f32 {
+fn gateLevel(release_frames: f64, sr: f64, release_s: f32, curve: f32) f32 {
     if (release_frames < 0.0) return 1.0;
     const dur: f64 = @max(@as(f64, @floatCast(release_s)), 0.001);
     const t = release_frames / @max(sr, 1.0);
     if (t >= dur) return 0.0;
-    return @floatCast(1.0 - t / dur);
+    return 1.0 - synth_math.bendShape(@floatCast(t / dur), curve);
 }
 
 const StretchState = struct {
@@ -637,7 +644,7 @@ pub fn renderVoice(
         if (loop == .off and voice.played >= region_len) { voice.active = false; break; }
         // zig fmt: on
         if (gated) releaseAtHold(voice, voice.played / rate);
-        const gate_g = if (gated) gateLevel(voice.release_frames, sample_rate, pad.release_s * voice.art.release_scale) else 1.0;
+        const gate_g = if (gated) gateLevel(voice.release_frames, sample_rate, pad.release_s * voice.art.release_scale, pad.env_curve) else 1.0;
         // zig fmt: off
         if (gate_g <= 0.0) { voice.active = false; break; }
         // zig fmt: on
@@ -657,9 +664,9 @@ pub fn renderVoice(
         // the note-off that actually ends it.
         const t_out = voice.played / rate / sample_rate;
         const left_out = (region_len - voice.played) / rate / sample_rate;
-        const env = adsrLevel(t_out, pad.attack_s, pad.decay_s, pad.sustain) *
+        const env = adsrLevel(t_out, pad.attack_s, pad.decay_s, pad.sustain, pad.env_curve) *
             linearRamp(t_out, pad.fade_in_s) *
-            (if (loop != .off) 1.0 else linearRamp(left_out, pad.release_s) * linearRamp(left_out, pad.fade_out_s));
+            (if (loop != .off) 1.0 else releaseLevel(left_out, pad.release_s, pad.env_curve) * linearRamp(left_out, pad.fade_out_s));
 
         const v = filterStep(&voice.filt, fc, s * env) * gate_g;
         buf[i * channels] += v * gl;
@@ -769,7 +776,7 @@ fn renderVoiceStretched(
             remaining_src = if (pad.reverse) (cur_read - lo) else (hi - cur_read);
         }
         if (gated) releaseAtHold(voice, st.out_played);
-        const gate_g = if (gated) gateLevel(voice.release_frames, sr, pad.release_s * voice.art.release_scale) else 1.0;
+        const gate_g = if (gated) gateLevel(voice.release_frames, sr, pad.release_s * voice.art.release_scale, pad.env_curve) else 1.0;
         if (gate_g <= 0.0) {
             voice.active = false;
             break;
@@ -792,9 +799,9 @@ fn renderVoiceStretched(
         // voice keeps passing straight through.
         const t_out = st.out_played / sr;
         const left_out = remaining_src * stretch_ratio / rate / sr;
-        const env = adsrLevel(t_out, pad.attack_s, pad.decay_s, pad.sustain) *
+        const env = adsrLevel(t_out, pad.attack_s, pad.decay_s, pad.sustain, pad.env_curve) *
             linearRamp(t_out, pad.fade_in_s) *
-            (if (loop != .off) 1.0 else linearRamp(left_out, pad.release_s) * linearRamp(left_out, pad.fade_out_s));
+            (if (loop != .off) 1.0 else releaseLevel(left_out, pad.release_s, pad.env_curve) * linearRamp(left_out, pad.fade_out_s));
 
         const v = filterStep(&voice.filt, fc, s * env) * gate_g;
         buf[i * channels] += v * gl;
@@ -959,14 +966,21 @@ pub fn sampleAt(samples: []const f32, p: f64) f32 {
 
 /// Attack → decay → sustain level at output time `t` seconds. With the default
 /// params (attack≈0, decay 0, sustain 1) this is unity after the first sample.
-fn adsrLevel(t: f64, attack_s: f32, decay_s: f32, sustain: f32) f32 {
+fn adsrLevel(t: f64, attack_s: f32, decay_s: f32, sustain: f32, curve: f32) f32 {
     const a: f64 = @floatCast(attack_s);
     const d: f64 = @floatCast(decay_s);
     const sus: f64 = @floatCast(sustain);
-    if (a > 0.0 and t < a) return @floatCast(t / a);
+    if (a > 0.0 and t < a) return synth_math.bendShape(@floatCast(t / a), curve);
     const td = t - a;
-    if (d > 0.0 and td < d) return @floatCast(1.0 - (1.0 - sus) * (td / d));
+    if (d > 0.0 and td < d) return @floatCast(1.0 - (1.0 - sus) * synth_math.bendShape(@floatCast(td / d), curve));
     return @floatCast(sus);
+}
+
+fn releaseLevel(left: f64, duration: f32, curve: f32) f32 {
+    const d: f64 = @floatCast(duration);
+    if (d <= 0.0 or left >= d) return 1.0;
+    if (left <= 0.0) return 0.0;
+    return 1.0 - synth_math.bendShape(@floatCast(1.0 - left / d), curve);
 }
 
 /// Linear 0→1 gain ramp over the first `dur` seconds of `t`; 1 past it (or
@@ -982,6 +996,12 @@ test "linear ramp reaches full gain over its duration" {
     try std.testing.expectEqual(@as(f32, 0), linearRamp(0, 0.2));
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), linearRamp(0.1, 0.2), 1e-6);
     try std.testing.expectEqual(@as(f32, 1), linearRamp(0.2, 0.2));
+}
+
+test "pad envelope curve bends every timed stage" {
+    try std.testing.expect(adsrLevel(0.25, 1, 1, 0.5, -0.5) > adsrLevel(0.25, 1, 1, 0.5, 0));
+    try std.testing.expect(adsrLevel(1.25, 1, 1, 0.5, -0.5) < adsrLevel(1.25, 1, 1, 0.5, 0));
+    try std.testing.expect(releaseLevel(0.75, 1, -0.5) < releaseLevel(0.75, 1, 0));
 }
 
 // -----------------------------------------------------------------------

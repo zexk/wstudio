@@ -241,6 +241,7 @@ pub const PadSnap = struct {
     decay_s: f32 = 0.0,
     sustain: f32 = 1.0,
     release_s: f32 = 0.005,
+    env_curve: f32 = 0.0,
     /// Edit fades multiplied on top of ADSR (see `dsp.Pad`).
     fade_in_s: f32 = 0.0,
     fade_out_s: f32 = 0.0,
