@@ -1813,7 +1813,14 @@ pub const Engine = struct {
 
         const primary_signal = self.route_scratch[0 .. frames * channels];
         @memcpy(primary_signal, scratch);
-        track.pdc.process(primary_signal, max_route_latency - self.routeLatency(track, primaryTarget(track)));
+        // Saturating: `max_route_latency` was measured at the top of this
+        // block, and a chain's latency can grow between then and here -
+        // `FxUnit.latencyFrames` changes answer the instant the UI thread
+        // flips `bypassed`, which it does without going through the command
+        // queue. A route that momentarily reads longer than the recorded
+        // maximum needs no padding at all, which is what 0 says; a plain
+        // `-` panics on it in a ReleaseSafe build, on the audio thread.
+        track.pdc.process(primary_signal, max_route_latency -| self.routeLatency(track, primaryTarget(track)));
 
         const beat_step = 1.0 / self.transport.framesPerBeat();
         const gains = self.automation_gain[0..frames];
@@ -1874,7 +1881,7 @@ pub const Engine = struct {
                 },
             };
             @memcpy(primary_signal, scratch);
-            track.send_pdc[slot].process(primary_signal, max_route_latency - self.routeLatency(track, snd.target));
+            track.send_pdc[slot].process(primary_signal, max_route_latency -| self.routeLatency(track, snd.target)); // saturating, same reason as the primary route above
             for (0..frames) |i| {
                 const gain_l, const gain_r = if (snd.pre_fader)
                     .{ @as(f32, 1.0), @as(f32, 1.0) }
@@ -2171,6 +2178,41 @@ const TestLatencyDelay = struct {
 
     const device = dsp.deviceOf(@This());
 };
+
+/// Answers one latency the first time it is asked and a bigger one after.
+/// That is the interleaving a bypass toggle produces: the engine reads a
+/// chain's latency once for the graph maximum and again per route, and
+/// `FxUnit.latencyFrames` changes answer the instant the UI thread flips
+/// `bypassed` (which it does directly, not through the command queue).
+const LatencyFlip = struct {
+    reads: *u32,
+    after: u32,
+
+    pub fn processBlock(_: *@This(), _: []Sample) void {}
+    pub fn reset(_: *@This()) void {}
+
+    pub fn latencyFrames(self: *const @This()) u32 {
+        defer self.reads.* += 1;
+        return if (self.reads.* == 0) 0 else self.after;
+    }
+
+    const device = dsp.deviceOf(@This());
+};
+
+test "a route whose latency grows mid-block does not underflow the PDC delta" {
+    var reads: u32 = 0;
+    var flip = LatencyFlip{ .reads = &reads, .after = 64 };
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.trackAt(0).* = .{ .active = true };
+    engine.setTrackChain(0, &.{flip.device()});
+
+    var output: [8]Sample = undefined;
+    engine.process(&output);
+
+    try std.testing.expect(reads >= 2); // both reads really happened
+    for (output) |s| try std.testing.expect(std.math.isFinite(s));
+}
 
 test "engine rejects a zero sample rate" {
     try std.testing.expectError(error.InvalidSampleRate, Engine.init(std.testing.allocator, 0));
