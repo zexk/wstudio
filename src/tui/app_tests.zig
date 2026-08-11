@@ -10072,3 +10072,42 @@ test "cc-learn binds the armed param to the next controller message, not an earl
     try std.testing.expectEqual(@as(u32, 22), app.session.project.cc_bindings[0].?.target.param_id);
     try std.testing.expect(app.session.project.cc_bindings[1] == null);
 }
+
+test "every command survives hostile arguments" {
+    // `testApp` runs on `std.Io.failing`, so nothing here can touch the disk.
+    // Bounce/stems are the exception: that path traps rather than erroring on
+    // a failing Io and would hang the suite (see docs and prior incidents).
+    const denied = [_][]const u8{ "bounce", "stems", "export", "export-midi" };
+    const hostile = [_][]const u8{
+        "",
+        " ",
+        "0",
+        "-1",
+        "99999999999999999999",
+        "1e400",
+        "nan",
+        "-inf",
+        "abc",
+        "!!!",
+        "..",
+        "1 -1 nan",
+        "0 0 0 0 0",
+        "a" ** 400,
+    };
+    for (hostile) |arg| {
+        var app = try testApp();
+        defer app.deinit();
+        // Guard against a vacuous pass if the table ever comes back empty.
+        try std.testing.expect(app.allCmds().len > 50);
+        for (app.allCmds()) |c| {
+            var skip = false;
+            for (denied) |d| {
+                if (std.mem.startsWith(u8, c.name, d)) skip = true;
+            }
+            if (skip) continue;
+            var buf: [512]u8 = undefined;
+            const line = std.fmt.bufPrint(&buf, "{s} {s}", .{ c.name, arg }) catch continue;
+            commands.run(&app, line);
+        }
+    }
+}
