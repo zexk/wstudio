@@ -11,6 +11,7 @@ const std = @import("std");
 const rack = @import("../rack.zig");
 const FxKind = rack.FxKind;
 const eq_mod = @import("eq.zig");
+const fx_params = @import("fx_params.zig");
 
 pub const EffectSpec = struct {
     label: []const u8,
@@ -113,20 +114,8 @@ pub fn eqKindLabel(kind: eq_mod.BandKind) []const u8 {
     return eq_kind_specs[@intFromEnum(kind)].label;
 }
 
-pub const EqKindSpec = struct { label: []const u8, short_label: []const u8, title: []const u8, action_label: [:0]const u8 };
-pub const eq_kind_specs = [_]EqKindSpec{
-    .{ .label = "peak", .short_label = "BELL", .title = "BELL FILTER", .action_label = "BELL" },
-    .{ .label = "lowpass", .short_label = "HC", .title = "HIGH CUT FILTER", .action_label = "HIGH CUT" },
-    .{ .label = "highpass", .short_label = "LC", .title = "LOW CUT FILTER", .action_label = "LOW CUT" },
-    .{ .label = "lowshelf", .short_label = "LS", .title = "LOW SHELF FILTER", .action_label = "LOW SHELF" },
-    .{ .label = "highshelf", .short_label = "HS", .title = "HIGH SHELF FILTER", .action_label = "HIGH SHELF" },
-    .{ .label = "notch", .short_label = "NTCH", .title = "NOTCH FILTER", .action_label = "NOTCH" },
-    .{ .label = "tiltshelf", .short_label = "TILT", .title = "TILT SHELF FILTER", .action_label = "TILT" },
-};
-
-comptime {
-    if (eq_kind_specs.len != std.meta.fields(eq_mod.BandKind).len) @compileError("eq_kind_specs must cover every BandKind");
-}
+pub const EqKindSpec = fx_params.EqKindSpec;
+pub const eq_kind_specs = fx_params.eq_kind_specs;
 
 /// Full-word label for a band's stereo/mid/side target - parallel to
 /// `eqKindLabel`.
