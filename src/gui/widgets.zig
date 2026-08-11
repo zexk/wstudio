@@ -579,6 +579,7 @@ pub const Adsr = struct {
     attack_range: [2]f32,
     decay_range: [2]f32,
     release_range: [2]f32,
+    curve: f32 = 0,
     accent: [4]f32,
     /// 0=attack, 1=decay, 2=sustain, 3=release - which node (if any) the
     /// external cursor is currently parked on, for the focus ring.
@@ -654,10 +655,34 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
 
     draw_list.pathClear();
     draw_list.pathLineTo(.{ points[0][0], origin[1] + height - pad });
-    for (points) |p| draw_list.pathLineTo(p);
+    draw_list.pathLineTo(points[0]);
+    inline for (0..4) |segment| {
+        const steps = if (segment == 2) 1 else 16;
+        for (1..steps + 1) |step| {
+            const t = @as(f32, @floatFromInt(step)) / @as(f32, @floatFromInt(steps));
+            const shaped = if (segment == 2) t else ws.dsp.synth_math.bendShape(t, args.curve);
+            draw_list.pathLineTo(.{
+                points[segment][0] + (points[segment + 1][0] - points[segment][0]) * t,
+                points[segment][1] + (points[segment + 1][1] - points[segment][1]) * shaped,
+            });
+        }
+    }
     draw_list.pathLineTo(.{ points[4][0], origin[1] + height - pad });
     draw_list.pathFillConvex(gui_style.color(.{ args.accent[0], args.accent[1], args.accent[2], 0.18 }));
-    for (0..points.len - 1) |i| draw_list.addLine(.{ .p1 = points[i], .p2 = points[i + 1], .col = gui_style.color(args.accent), .thickness = 2 });
+    inline for (0..4) |segment| {
+        const steps = if (segment == 2) 1 else 16;
+        var prev = points[segment];
+        for (1..steps + 1) |step| {
+            const t = @as(f32, @floatFromInt(step)) / @as(f32, @floatFromInt(steps));
+            const shaped = if (segment == 2) t else ws.dsp.synth_math.bendShape(t, args.curve);
+            const next = [2]f32{
+                points[segment][0] + (points[segment + 1][0] - points[segment][0]) * t,
+                points[segment][1] + (points[segment + 1][1] - points[segment][1]) * shaped,
+            };
+            draw_list.addLine(.{ .p1 = prev, .p2 = next, .col = gui_style.color(args.accent), .thickness = 2 });
+            prev = next;
+        }
+    }
 
     var result = AdsrResult{};
 

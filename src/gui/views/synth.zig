@@ -378,6 +378,12 @@ fn drawEnvelope(app: anytype, synth: *ws.dsp.PolySynth, base_id: u16) void {
     var decay = synth.paramValue(base_id + 1) orelse return;
     var sustain = synth.paramValue(base_id + 2) orelse return;
     var release = synth.paramValue(base_id + 3) orelse return;
+    const curve_id: u16 = switch (base_id) {
+        16 => 246,
+        24 => 247,
+        else => 248,
+    };
+    const curve = synth.paramValue(curve_id) orelse return;
     const a_range = (ws.dsp.PolySynth.findAutomatableParam(base_id) orelse return).range;
     const d_range = (ws.dsp.PolySynth.findAutomatableParam(base_id + 1) orelse return).range;
     const r_range = (ws.dsp.PolySynth.findAutomatableParam(base_id + 3) orelse return).range;
@@ -395,6 +401,7 @@ fn drawEnvelope(app: anytype, synth: *ws.dsp.PolySynth, base_id: u16) void {
         .attack_range = a_range,
         .decay_range = d_range,
         .release_range = r_range,
+        .curve = curve,
         .accent = theme.rhythm,
         .focused_stage = focused_stage,
     });

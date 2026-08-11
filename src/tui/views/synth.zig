@@ -310,6 +310,8 @@ fn secEnv(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
         try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.sustain}));
     try barRow(w, c == 19, false, grn, "release", synth.release_s, 10.0,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.release_s}));
+    try barRow(w, c == 246, false, grn, "curve", synth.env_curve + 1.0, 2.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.env_curve}));
 }
 
 const filter_type_names = [_][]const u8{ "lp", "hp", "bp", "ntch", "ladr", "diod", "comb", "frmt" };
@@ -345,6 +347,8 @@ fn secFenv(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
         try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.fenv_sustain}));
     try barRow(w, c == 27, false, grn, "f.release", synth.fenv_release_s, 10.0,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fenv_release_s}));
+    try barRow(w, c == 247, false, grn, "curve", synth.fenv_curve + 1.0, 2.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.fenv_curve}));
 }
 
 const lfo_shape_names = [_][]const u8{ "drawn", "s&h", "chaos" };
@@ -495,6 +499,8 @@ fn secEnv3(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
         try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.env3_sustain}));
     try barRow(w, c == 125, false, grn, "release", synth.env3_release_s, 10.0,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.env3_release_s}));
+    try barRow(w, c == 248, false, grn, "curve", synth.env3_curve + 1.0, 2.0,
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.env3_curve}));
 }
 
 fn secVoice(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
