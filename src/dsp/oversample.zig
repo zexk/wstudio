@@ -26,10 +26,17 @@ const std = @import("std");
 /// exactly the original Nyquist.
 const taps: usize = 31;
 
-/// Group delay the pair of filters adds, in original-rate frames. Whoever
-/// uses this has to report it so the engine's delay compensation can line
-/// the chain back up.
+/// Group delay the *pair* of filters adds, in original-rate frames: each is
+/// `(taps - 1) / 2` samples at the doubled rate, and the two together come
+/// to that many frames at the original rate. `Stage2x` is what runs both.
+/// Whoever uses this has to report it so the engine's delay compensation can
+/// line the chain back up.
 pub const latency_frames: u32 = (taps - 1) / 2;
+
+/// Group delay of a *single* filter, in original-rate frames - what
+/// `Peak2x` adds, since it only upsamples. Half of `latency_frames`: the
+/// same `(taps - 1) / 2` samples, but at the doubled rate.
+pub const peak_latency_frames: u32 = (taps - 1) / 4;
 
 const coeffs: [taps]f32 = blk: {
     @setEvalBranchQuota(20_000);
@@ -80,10 +87,12 @@ const Fir = struct {
 /// sample can still reconstruct over it in a converter, and that is exactly
 /// the interpolated point this exposes.
 ///
-/// `peak` reports the level of the input frame `latency_frames` back, not of
-/// the frame just pushed: the filter is symmetric, so its answer for a sample
-/// only exists once half the taps have seen past it. Callers must delay their
-/// audio by the same amount or they will clamp late.
+/// `peak` reports the level of the input frame `peak_latency_frames` back,
+/// not of the frame just pushed: the filter is symmetric, so its answer for a
+/// sample only exists once half the taps have seen past it. Callers must
+/// delay their audio by the same amount or they will clamp late - and by
+/// *that* amount, not `latency_frames`, which counts a downsampling filter
+/// this only-upsampling path never runs.
 pub const Peak2x = struct {
     up: [2]Fir = .{ .{}, .{} },
 
@@ -124,6 +133,24 @@ pub const Stage2x = struct {
         return self.down[ch].push(b);
     }
 };
+
+test "Peak2x reports an impulse peak_latency_frames later, not latency_frames" {
+    // Only the upsampling filter runs here, so the delay is half the pair's.
+    // Getting this wrong misaligns a true-peak limiter's clamp against the
+    // audio it is clamping and overstates its reported latency.
+    var p: Peak2x = .{};
+    var loudest: usize = 0;
+    var loudest_v: f32 = 0;
+    for (0..40) |i| {
+        const v = p.peak(0, if (i == 0) 1.0 else 0.0);
+        if (v > loudest_v) {
+            loudest_v = v;
+            loudest = i;
+        }
+    }
+    try std.testing.expectEqual(@as(usize, peak_latency_frames), loudest);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), loudest_v, 1e-4);
+}
 
 test "a signal well under Nyquist survives the round trip" {
     var stage: Stage2x = .{};

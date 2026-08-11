@@ -78,6 +78,18 @@ history lives in [FORMAT.md](FORMAT.md).
   and `cr`/`cR` the voicing. The single-key `C` still stamps an instant 7th
   and seeds the cycle; `o`/`O`/`r`/`R` on the piano roll are free.
 
+### Fixed
+
+- Stamping an inverted chord with a drop2 or open voicing moved the wrong
+  voices: inverting left the raised notes at their old positions, and the
+  voicing picks its notes by position.
+- The Werckmeister III and Kirnberger III temperaments played from wrong
+  offset tables, so neither sounded like the tuning it named. Just
+  intonation's major sixth was 0.3 cents off.
+- The limiter's true-peak mode delayed its audio twice as far as the
+  detector actually looks back, so it clamped early and reported twice the
+  latency it adds (which shifted every other track by that much).
+
 ## v1.0.0-beta.9
 
 ### Added

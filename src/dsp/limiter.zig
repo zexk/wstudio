@@ -33,7 +33,7 @@ pub const max_lookahead_ms: f32 = 20.0;
 
 /// Group delay of the true-peak detector, and so the length of the audio
 /// pre-delay that keeps detection aligned with the frame it describes.
-const tp_frames: usize = oversample.latency_frames;
+const tp_frames: usize = oversample.peak_latency_frames;
 
 pub const Limiter = struct {
     sample_rate: f32,
@@ -48,8 +48,8 @@ pub const Limiter = struct {
     /// the ceiling can still reconstruct over it between them, and that
     /// overshoot is what clips a converter or an encoder downstream. True
     /// peak detects at 2x and catches it, at the cost of a fixed extra
-    /// `oversample.latency_frames` of latency (the detector is symmetric, so
-    /// the audio has to wait for its answer).
+    /// `oversample.peak_latency_frames` of latency (the detector is
+    /// symmetric, so the audio has to wait for its answer).
     true_peak: f32 = 0.0,
     /// Current gain (≤ 1). Recovers toward 1 at `release_ms`, held down to
     /// the lookahead window's minimum required gain.
