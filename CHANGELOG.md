@@ -89,6 +89,14 @@ history lives in [FORMAT.md](FORMAT.md).
 - The limiter's true-peak mode delayed its audio twice as far as the
   detector actually looks back, so it clamped early and reported twice the
   latency it adds (which shifted every other track by that much).
+- Toggling an EQ band from dynamic back to static left it stuck at whatever
+  boost the detector had last driven it to, while the editor showed the base
+  gain.
+- Toggling FX bypass could crash the audio thread, through a delay
+  compensation subtraction that assumed no chain ever reports more latency
+  than the whole graph did a moment earlier.
+- Track rows showed a hosted CLAP/VST3 plugin with the same letter as a
+  wstudio synth on terminals without the Nerd Font.
 
 ## v1.0.0-beta.9
 
