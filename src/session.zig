@@ -1651,10 +1651,8 @@ pub const Session = struct {
 
     /// Flatten one track's clips' gain/pan/synth-param breakpoints (clip-
     /// relative beats) into absolute-song-beat curves and push them to the
-    /// engine. Runs for every instrument kind - a drum/slicer/CLAP/empty
-    /// track's `synth_params` list is simply always empty for
-    /// instrument-targeted (`instance_id == 0`) lanes (the automation editor
-    /// offers those params for poly synth, sampler, and SoundFont only), but
+    /// engine. Runs for every instrument kind. Slicer/empty tracks have no
+    /// instrument-targeted (`instance_id == 0`) lanes, but
     /// FX-unit-targeted lanes (`instance_id != 0`) can exist on any track
     /// kind - slots are keyed by `(instance_id, param_id)`, not `param_id`
     /// alone, so an instrument lane and an FX-unit lane never collide even

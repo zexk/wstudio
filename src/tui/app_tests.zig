@@ -2566,17 +2566,26 @@ test "automation editor: tab only cycles gain/pan until the picker adds a synth 
     _ = automation_ed.handleKey(&app, .tab);
     try std.testing.expectEqual(automation_ed.AutomationFocus.gain, app.automation_focus);
 
-    // Drum track: p refuses (drum params are per-pad/per-step, no single
-    // per-track setParamAbsolute id space to automate) - gain <-> pan only.
+    // Drum track: picker targets current pad and stores its packed pad/param id.
     try app.session.stampClip(2, 0);
+    app.drum_cursor[0] = 2;
     automation_ed.switchTo(&app, 2, 0);
     try std.testing.expectEqual(automation_ed.AutomationFocus.gain, app.automation_focus);
     _ = automation_ed.handleKey(&app, .{ .char = 'p' });
-    try std.testing.expectEqual(AppView.automation, app.view); // picker refused to open
-    _ = automation_ed.handleKey(&app, .tab);
-    try std.testing.expectEqual(automation_ed.AutomationFocus.pan, app.automation_focus);
-    _ = automation_ed.handleKey(&app, .tab);
-    try std.testing.expectEqual(automation_ed.AutomationFocus.gain, app.automation_focus);
+    try std.testing.expectEqual(AppView.automation_param_picker, app.view);
+    const drum_gain_id = ws.dsp.DrumMachine.paramId(2, 7);
+    var drum_gain_idx: u8 = 0;
+    for (automation_ed.instrumentAutomatableParams(&app), 0..) |p, i| {
+        // zig fmt: off
+        if (p.id == drum_gain_id) { drum_gain_idx = @intCast(i); break; }
+        // zig fmt: on
+    }
+    app.automation_param_cursor = drum_gain_idx;
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = .{ .param_id = drum_gain_id } }, app.automation_focus);
+    _ = automation_ed.handleKey(&app, .{ .char = 'j' });
+    const drum_clip = automation_ed.currentClip(&app).?;
+    try std.testing.expectEqual(@as(usize, 1), drum_clip.automation.findSynthParam(0, drum_gain_id).?.len);
 
     // Switching back to the synth clip while focus is .gain still offers the
     // cutoff lane again via tab (it's already on that clip).

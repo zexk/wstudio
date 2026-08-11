@@ -1098,6 +1098,42 @@ pub const DrumMachine = struct {
         return (@as(u16, pad) << 5) | (param & 0x1F);
     }
 
+    const automation_sections = blk: {
+        @setEvalBranchQuota(100_000);
+        var sections: [max_pads][]const u8 = undefined;
+        for (0..max_pads) |pad_idx| sections[pad_idx] = std.fmt.comptimePrint("PAD {d}", .{pad_idx + 1});
+        break :blk sections;
+    };
+
+    pub const automatable_params = blk: {
+        @setEvalBranchQuota(10_000);
+        var params: [max_pads][Sampler.automatable_params.len]dsp.AutomatableParam = undefined;
+        for (0..max_pads) |pad_idx| {
+            for (Sampler.automatable_params, 0..) |param, param_idx| {
+                params[pad_idx][param_idx] = .{
+                    .id = paramId(@intCast(pad_idx), @intCast(param.id)),
+                    .label = param.label,
+                    .section = automation_sections[pad_idx],
+                    .range = param.range,
+                    .step = param.step,
+                };
+            }
+        }
+        break :blk params;
+    };
+
+    pub fn automatableParams(pad: u8) []const dsp.AutomatableParam {
+        if (pad >= max_pads) return &.{};
+        return &automatable_params[pad];
+    }
+
+    pub fn findAutomatableParam(id: u16) ?*const dsp.AutomatableParam {
+        const pad: u8 = @intCast(id >> 5);
+        if (pad >= max_pads) return null;
+        for (&automatable_params[pad]) |*param| if (param.id == id) return param;
+        return null;
+    }
+
     /// Nudge a per-pad sampler param by `steps` (h/l = ±1, H/L = ±10). Runs on
     /// the audio thread via the `set_param` event so it never races the block
     /// reader, mirroring PolySynth.adjustParam. The pad index is the high bits
@@ -1559,7 +1595,8 @@ pub const DrumMachine = struct {
             .set_param => |e| self.adjustParam(e.id, e.steps),
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
             .capture_pad => |e| self.addPadCapture(e.pad, e.buf),
-            .cc, .pitch_bend, .set_mod_target, .automation_param, .clap_param, .vst3_param, .set_sidechain_buf => {},
+            .automation_param => |e| if (e.instance_id == 0 and e.id <= std.math.maxInt(u16)) self.setParamAbsolute(@intCast(e.id), e.value),
+            .cc, .pitch_bend, .set_mod_target, .clap_param, .vst3_param, .set_sidechain_buf => {},
             .all_off  => self.resetAll(),
             // zig fmt: on
         }
@@ -2613,6 +2650,21 @@ test "paramId's widened 5-bit param field round-trips a pad up to the new mod id
     dm.setParamAbsolute(DrumMachine.paramId(0, pad_mod.mod_dest_id), 2.0); // 2 = .gain
     try std.testing.expectEqual(pad_mod.ModDest.gain, dm.pads[0].?.pad.mod_dest);
     try std.testing.expectApproxEqAbs(@as(f32, 2.0), dm.paramValue(DrumMachine.paramId(0, pad_mod.mod_dest_id)).?, 1e-6);
+}
+
+test "automation targets one drum pad parameter" {
+    const id = DrumMachine.paramId(2, 7);
+    const param = DrumMachine.findAutomatableParam(id).?;
+    try std.testing.expectEqualStrings("GAIN", param.label);
+    try std.testing.expectEqualStrings("PAD 3", param.section);
+
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try testMachine(&transport);
+    defer dm.deinit();
+    const other_gain = dm.pads[1].?.pad.gain;
+    dm.handleEvent(.{ .automation_param = .{ .id = id, .value = 0.25 } });
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), dm.pads[2].?.pad.gain, 1e-6);
+    try std.testing.expectApproxEqAbs(other_gain, dm.pads[1].?.pad.gain, 1e-6);
 }
 
 test "region trim shortens the voice" {
