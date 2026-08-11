@@ -67,100 +67,112 @@ pub const Parser = struct {
     /// Returns null when `bytes` is empty, is a partial 2-byte message,
     /// or contains an unrecognised status.
     pub fn feed(self: *Parser, bytes: []const u8) ?Result {
-        var i: usize = 0;
-        var status = self.running_status;
+        // `base` walks forward when a status byte turns up where a data byte
+        // was expected. A loop rather than re-entering `feed`, because one
+        // CoreMIDI packet can be tens of kilobytes and a device emitting a
+        // long run of status bytes would recurse once per byte.
+        var base: usize = 0;
+        restart: while (true) {
+            var i: usize = base;
+            var status = self.running_status;
 
-        if (bytes.len > 0 and bytes[0] & 0x80 != 0) {
-            status = bytes[0];
-            i = 1;
+            if (base < bytes.len and bytes[base] & 0x80 != 0) {
+                status = bytes[base];
+                i = base + 1;
 
-            // System-realtime: single byte, no running-status update.
-            if (realtimeMsg(status)) |msg| return .{ .msg = msg, .consumed = 1 };
-            if (status < 0xF0) {
-                self.running_status = status;
+                // System-realtime: single byte, no running-status update.
+                if (realtimeMsg(status)) |msg| return .{ .msg = msg, .consumed = base + 1 };
+                if (status < 0xF0) {
+                    self.running_status = status;
+                    self.have_d1 = false;
+                } else {
+                    self.running_status = 0;
+                    self.have_d1 = false;
+                    return null; // system-common not implemented
+                }
+            }
+
+            if (status == 0) return null;
+
+            const kind: u4 = @intCast(status >> 4);
+            const ch: Channel = @intCast(status & 0x0F);
+
+            // 1-data-byte messages: program change (0xC), channel pressure (0xD).
+            if (kind == 0xC or kind == 0xD) {
+                if (i >= bytes.len) return null;
+                if (realtimeMsg(bytes[i])) |msg| return .{ .msg = msg, .consumed = i + 1 };
+                if (bytes[i] & 0x80 != 0) {
+                    self.have_d1 = false;
+                    base = i;
+                    continue :restart;
+                }
+                const d: u7 = @intCast(bytes[i] & 0x7F);
+                i += 1;
+                const msg: Msg = if (kind == 0xC)
+                    // zig fmt: off
+                    .{ .program_change   = .{ .ch = ch, .program  = d } }
+                    // zig fmt: on
+                else
+                    .{ .channel_pressure = .{ .ch = ch, .pressure = d } };
+                return .{ .msg = msg, .consumed = i };
+            }
+
+            // 2-data-byte messages.
+            var d1: u7 = undefined;
+            if (self.have_d1) {
+                d1 = self.d1;
                 self.have_d1 = false;
             } else {
-                self.running_status = 0;
-                self.have_d1 = false;
-                return null; // system-common not implemented
+                if (i >= bytes.len) return null;
+                if (realtimeMsg(bytes[i])) |msg| return .{ .msg = msg, .consumed = i + 1 };
+                if (bytes[i] & 0x80 != 0) {
+                    self.have_d1 = false;
+                    base = i;
+                    continue :restart;
+                }
+                d1 = @intCast(bytes[i] & 0x7F);
+                i += 1;
             }
-        }
 
-        if (status == 0) return null;
+            if (i >= bytes.len) {
+                self.d1 = d1;
+                self.have_d1 = true;
+                return null;
+            }
 
-        const kind: u4 = @intCast(status >> 4);
-        const ch: Channel = @intCast(status & 0x0F);
+            if (realtimeMsg(bytes[i])) |msg| {
+                self.d1 = d1;
+                self.have_d1 = true;
+                return .{ .msg = msg, .consumed = i + 1 };
+            }
+            if (bytes[i] & 0x80 != 0) {
+                self.have_d1 = false;
+                base = i;
+                continue :restart;
+            }
 
-        // 1-data-byte messages: program change (0xC), channel pressure (0xD).
-        if (kind == 0xC or kind == 0xD) {
-            if (i >= bytes.len) return null;
-            if (realtimeMsg(bytes[i])) |msg| return .{ .msg = msg, .consumed = i + 1 };
-            if (bytes[i] & 0x80 != 0) return self.restartAtStatus(bytes, i);
-            const d: u7 = @intCast(bytes[i] & 0x7F);
+            const d2: u7 = @intCast(bytes[i] & 0x7F);
             i += 1;
-            const msg: Msg = if (kind == 0xC)
-                // zig fmt: off
-                .{ .program_change   = .{ .ch = ch, .program  = d } }
+
+            const msg: Msg = switch (kind) {
+                0x8 => .{ .note_off = .{ .ch = ch, .note = d1, .velocity = d2 } },
+                0x9 => if (d2 == 0)
+                    // Velocity-0 note-on is a note-off per the MIDI spec.
+                    .{ .note_off = .{ .ch = ch, .note = d1, .velocity = 0 } }
+                else
+                    // zig fmt: off
+                    .{ .note_on  = .{ .ch = ch, .note = d1, .velocity = d2 } },
+                0xA => .{ .poly_aftertouch = .{ .ch = ch, .note = d1, .velocity = d2 } },
+                0xB => .{ .control_change  = .{ .ch = ch, .cc   = d1, .value    = d2 } },
                 // zig fmt: on
-            else
-                .{ .channel_pressure = .{ .ch = ch, .pressure = d } };
+                0xE => blk: {
+                    const raw: u14 = (@as(u14, d2) << 7) | d1;
+                    break :blk .{ .pitch_bend = .{ .ch = ch, .bend = @as(i16, @intCast(raw)) - 0x2000 } };
+                },
+                else => return null,
+            };
             return .{ .msg = msg, .consumed = i };
         }
-
-        // 2-data-byte messages.
-        var d1: u7 = undefined;
-        if (self.have_d1) {
-            d1 = self.d1;
-            self.have_d1 = false;
-        } else {
-            if (i >= bytes.len) return null;
-            if (realtimeMsg(bytes[i])) |msg| return .{ .msg = msg, .consumed = i + 1 };
-            if (bytes[i] & 0x80 != 0) return self.restartAtStatus(bytes, i);
-            d1 = @intCast(bytes[i] & 0x7F);
-            i += 1;
-        }
-
-        if (i >= bytes.len) {
-            self.d1 = d1;
-            self.have_d1 = true;
-            return null;
-        }
-
-        if (realtimeMsg(bytes[i])) |msg| {
-            self.d1 = d1;
-            self.have_d1 = true;
-            return .{ .msg = msg, .consumed = i + 1 };
-        }
-        if (bytes[i] & 0x80 != 0) return self.restartAtStatus(bytes, i);
-
-        const d2: u7 = @intCast(bytes[i] & 0x7F);
-        i += 1;
-
-        const msg: Msg = switch (kind) {
-            0x8 => .{ .note_off = .{ .ch = ch, .note = d1, .velocity = d2 } },
-            0x9 => if (d2 == 0)
-                // Velocity-0 note-on is a note-off per the MIDI spec.
-                .{ .note_off = .{ .ch = ch, .note = d1, .velocity = 0 } }
-            else
-                // zig fmt: off
-                .{ .note_on  = .{ .ch = ch, .note = d1, .velocity = d2 } },
-            0xA => .{ .poly_aftertouch = .{ .ch = ch, .note = d1, .velocity = d2 } },
-            0xB => .{ .control_change  = .{ .ch = ch, .cc   = d1, .value    = d2 } },
-            // zig fmt: on
-            0xE => blk: {
-                const raw: u14 = (@as(u14, d2) << 7) | d1;
-                break :blk .{ .pitch_bend = .{ .ch = ch, .bend = @as(i16, @intCast(raw)) - 0x2000 } };
-            },
-            else => return null,
-        };
-        return .{ .msg = msg, .consumed = i };
-    }
-
-    fn restartAtStatus(self: *Parser, bytes: []const u8, offset: usize) ?Result {
-        self.have_d1 = false;
-        var result = self.feed(bytes[offset..]) orelse return null;
-        result.consumed += offset;
-        return result;
     }
 
     pub fn reset(self: *Parser) void {
@@ -345,6 +357,22 @@ test "parser: new status replaces a channel message missing its first data byte"
     try std.testing.expectEqual(@as(u7, 7), result.msg.control_change.cc);
     try std.testing.expectEqual(@as(u7, 100), result.msg.control_change.value);
     try std.testing.expectEqual(@as(usize, 4), result.consumed);
+}
+
+test "parser: a long run of abandoned statuses does not recurse per byte" {
+    // A max-size CoreMIDI packet (its length field is a UInt16) of status
+    // bytes, each abandoning the last.
+    // This used to re-enter feed() once per byte and overflow the stack.
+    var bytes: [65535]u8 = @splat(0x90);
+    bytes[bytes.len - 3] = 0xB2;
+    bytes[bytes.len - 2] = 7;
+    bytes[bytes.len - 1] = 100;
+
+    var p: Parser = .{};
+    const result = p.feed(&bytes).?;
+    try std.testing.expect(result.msg == .control_change);
+    try std.testing.expectEqual(@as(u7, 7), result.msg.control_change.cc);
+    try std.testing.expectEqual(bytes.len, result.consumed);
 }
 
 test "noteName: spot checks" {
