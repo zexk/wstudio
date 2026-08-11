@@ -65,33 +65,42 @@ pub fn parse(
     var lines = std.mem.splitScalar(u8, text, '\n');
     while (lines.next()) |raw_line| {
         const before_comment = if (std.mem.indexOf(u8, raw_line, "//")) |i| raw_line[0..i] else raw_line;
-        const line = std.mem.trim(u8, before_comment, " \t\r");
-        if (line.len == 0) continue;
-        if (line[0] == '<') {
-            if (current) |r| try appendRegion(allocator, io, sample_dir, target_sample_rate, r, &samples, &regions);
-            current = null;
-            if (std.mem.eql(u8, line, "<global>")) {
-                section = .global;
-                global = .{};
-                group = global;
-            } else if (std.mem.eql(u8, line, "<group>")) {
-                section = .group;
-                group = global;
-            } else if (std.mem.eql(u8, line, "<region>")) {
-                section = .region;
-                current = group;
-            } else return error.UnsupportedOpcode;
-            continue;
-        }
-        const eq = std.mem.indexOfScalar(u8, line, '=') orelse return error.Malformed;
-        const key = std.mem.trim(u8, line[0..eq], " \t");
-        const value = std.mem.trim(u8, line[eq + 1 ..], " \t");
-        if (key.len == 0 or value.len == 0) return error.Malformed;
-        switch (section) {
-            .global => try apply(&global, key, value),
-            .group => try apply(&group, key, value),
-            .region => try apply(&(current orelse return error.Malformed), key, value),
-            .none => return error.Malformed,
+        // A line is a token stream, not one opcode: SFZ packs several
+        // `key=value` pairs per line and writes headers inline before them.
+        var rest = std.mem.trim(u8, before_comment, " \t\r");
+        while (rest.len > 0) {
+            if (rest[0] == '<') {
+                const close = std.mem.indexOfScalar(u8, rest, '>') orelse return error.Malformed;
+                if (current) |r| try appendRegion(allocator, io, sample_dir, target_sample_rate, r, &samples, &regions);
+                current = null;
+                const header = rest[0 .. close + 1];
+                if (std.mem.eql(u8, header, "<global>")) {
+                    section = .global;
+                    global = .{};
+                    group = global;
+                } else if (std.mem.eql(u8, header, "<group>")) {
+                    section = .group;
+                    group = global;
+                } else if (std.mem.eql(u8, header, "<region>")) {
+                    section = .region;
+                    current = group;
+                } else return error.UnsupportedOpcode;
+                rest = std.mem.trimStart(u8, rest[close + 1 ..], " \t");
+                continue;
+            }
+            const eq = std.mem.indexOfScalar(u8, rest, '=') orelse return error.Malformed;
+            const key = std.mem.trim(u8, rest[0..eq], " \t");
+            const after = rest[eq + 1 ..];
+            const end = valueEnd(after);
+            const value = std.mem.trim(u8, after[0..end], " \t");
+            if (key.len == 0 or value.len == 0) return error.Malformed;
+            switch (section) {
+                .global => try apply(&global, key, value),
+                .group => try apply(&group, key, value),
+                .region => try apply(&(current orelse return error.Malformed), key, value),
+                .none => return error.Malformed,
+            }
+            rest = std.mem.trimStart(u8, after[end..], " \t");
         }
     }
     if (current) |r| try appendRegion(allocator, io, sample_dir, target_sample_rate, r, &samples, &regions);
@@ -167,6 +176,21 @@ fn appendRegion(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, sampl
     });
 }
 
+/// Where an opcode's value ends inside `after` (the text past its `=`). A
+/// sample path may contain spaces, so the value runs up to the token that
+/// starts the *next* `key=`, not to the next space.
+fn valueEnd(after: []const u8) usize {
+    var from: usize = 0;
+    while (std.mem.indexOfScalarPos(u8, after, from, '=')) |eq| {
+        var i = eq;
+        while (i > 0 and !std.ascii.isWhitespace(after[i - 1])) i -= 1;
+        // No whitespace ahead of it: that `=` sits inside this value.
+        if (i > 0) return i;
+        from = eq + 1;
+    }
+    return after.len;
+}
+
 fn uint(comptime T: type, value: []const u8) ParseError!T {
     return std.fmt.parseInt(T, value, 10) catch error.InvalidValue;
 }
@@ -200,6 +224,24 @@ test "SFZ global and group inheritance resolve into shared sample bank" {
     try std.testing.expectEqual(@as(u8, 80), r.vel_hi);
     try std.testing.expectApproxEqAbs(@as(f32, 0.4), r.release_s, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.501187), r.attenuation_gain, 1e-5);
+}
+
+test "SFZ reads inline headers and several opcodes per line" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var wav_buf: [128]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&wav_buf);
+    try @import("../core/wav.zig").write(&writer, 48_000, 1, &.{ 0.25, -0.25 }, .pcm16);
+    // A space in the file name: the value must not stop at the first space.
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "grand tone.wav", .data = writer.buffered() });
+    var bank = try parse(std.testing.allocator, std.testing.io, tmp.dir, "<group> ampeg_release=0.4\n<region> sample=grand tone.wav lokey=60 hikey=62 pitch_keycenter=61 // tail\n", "Piano", 48_000);
+    defer bank.deinit();
+    try std.testing.expectEqual(@as(usize, 1), bank.presets[0].regions.len);
+    const r = bank.presets[0].regions[0];
+    try std.testing.expectEqual(@as(u8, 60), r.key_lo);
+    try std.testing.expectEqual(@as(u8, 62), r.key_hi);
+    try std.testing.expectEqual(@as(u8, 61), r.root_key);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.4), r.release_s, 1e-6);
 }
 
 test "SFZ rejects MIDI-domain values above 127" {
