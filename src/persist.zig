@@ -1570,6 +1570,25 @@ test "generic FX snapshot loading ignores non-finite fields" {
     try std.testing.expectEqual(phaser_before.mix, phaser.mix);
 }
 
+test "FX snapshot loading clamps in-range, not just finite" {
+    const testing = std.testing;
+    var fx: Fx = .{};
+    defer fx.deinit(testing.allocator);
+    // A hand-edited file's finite-but-absurd values used to land raw. Filter
+    // `mode` is the sharp one: the FX editor renders it as `@as(u2, ...)`, so
+    // anything past 3 aborted the frontend on the next draw.
+    try applyFxChain(testing.allocator, &fx, &.{
+        .{ .content = .{ .filter = .{ .mode = 9.0, .cutoff_hz = 1e9, .resonance = -5.0 } } },
+        .{ .content = .{ .utility = .{ .gain_db = 500.0 } } },
+    }, 48_000, null);
+
+    const filter = &fx.units.items[0].payload.filter;
+    try testing.expect(filter.mode >= 0.0 and filter.mode <= 2.0);
+    try testing.expect(filter.cutoff_hz <= 20_000.0);
+    try testing.expect(filter.resonance >= 0.1);
+    try testing.expect(fx.units.items[1].payload.utility.gain_db <= 24.0);
+}
+
 test "specialized FX snapshot loading ignores non-finite fields" {
     const testing = std.testing;
     const nan = std.math.nan(f32);

@@ -15,6 +15,7 @@ const time_grid = @import("time_grid.zig");
 const rack_mod = @import("rack.zig");
 const Rack = rack_mod.Rack;
 const Fx = rack_mod.Fx;
+const fx_params = @import("dsp/fx_params.zig");
 const engine_mod = @import("audio/engine.zig");
 const Engine = engine_mod.Engine;
 const Transport = @import("transport.zig").Transport;
@@ -1141,6 +1142,21 @@ pub fn applyFxChain(
                 applySnapToDevice(&@field(unit.payload, @tagName(tag)), snap),
             .clap, .vst3 => {},
         }
+        clampDeviceParams(&unit.payload);
+    }
+}
+
+/// Pull every param back through the clamping setter the editor and
+/// automation use. The arms above only reject non-finite values, so a
+/// hand-edited file's finite-but-absurd one (a filter `mode` of 9, which the
+/// FX editor renders as a `u2`) otherwise reached the frontend and the audio
+/// thread untouched - the same guard `applyPadSnap`/`applyToSynth` give their
+/// own snapshots. Hosted plugins report no params here and are skipped.
+fn clampDeviceParams(payload: *rack_mod.FxPayload) void {
+    const kind = std.meta.activeTag(payload.*);
+    for (0..fx_params.paramCount(kind)) |idx| {
+        if (!fx_params.isAutomatable(kind, idx)) continue;
+        fx_params.setParamAbsolute(payload, idx, fx_params.getParam(payload, idx));
     }
 }
 
