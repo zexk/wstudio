@@ -10111,3 +10111,59 @@ test "every command survives hostile arguments" {
         }
     }
 }
+
+test "random key sequences never panic in any view" {
+    const views = [_]AppView{
+        .tracks,         .drum_grid,       .synth_editor,      .sampler_editor,
+        .piano_roll,     .arrangement,     .automation,        .slicer_grid,
+        .help,           .file_browser,    .preset_picker,     .soundfont_editor,
+        .track_spectrum, .master_spectrum, .instrument_picker, .fx_picker,
+    };
+    // Printable keys the modal layer actually dispatches on, plus the
+    // non-char variants a real terminal can deliver.
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 :/?.,<>[]{}-+=!*#$%\"'";
+    const specials = [_]modal_mod.Key{
+        .escape,   .enter,      .enter_release, .backspace,   .tab,
+        .arrow_up, .arrow_down, .arrow_left,    .arrow_right, .home,
+        .end,      .ctrl_w,     .ctrl_a,        .ctrl_e,      .ctrl_u,
+        .ctrl_k,   .ctrl_p,     .ctrl_n,        .ctrl_r,
+    };
+
+    var prng = std.Random.DefaultPrng.init(0x5eed);
+    const rand = prng.random();
+    for (views) |view| {
+        var app = try testApp();
+        defer app.deinit();
+        // Enter each view legitimately: its companion track field has to name
+        // a rack of the right kind, which is the invariant `App.drumMachine`
+        // and friends document and `exitStaleEditors` maintains. Forcing the
+        // view back on every iteration instead fabricates states the app
+        // prevents, and the panics that follow are the fuzzer's fault.
+        // testApp lays out synth(0), sampler(1), drums(2).
+        switch (view) {
+            .synth_editor => app.synth_track = 0,
+            .piano_roll => app.piano_track = 0,
+            .sampler_editor => app.sampler_target = .{ .sampler = 1 },
+            .drum_grid => app.drum_track = 2,
+            .slicer_grid => {
+                try app.session.setInstrument(1, .slicer);
+                app.slicer_track = 1;
+            },
+            .soundfont_editor => {
+                try app.session.setInstrument(1, .soundfont);
+                app.soundfont_track = 1;
+            },
+            else => {},
+        }
+        app.view = view;
+        var now: u64 = 0;
+        for (0..4000) |_| {
+            now += 1_000_000;
+            if (rand.uintLessThan(u8, 5) == 0) {
+                app.handleKey(specials[rand.uintLessThan(usize, specials.len)], now);
+            } else {
+                app.handleKey(.{ .char = chars[rand.uintLessThan(usize, chars.len)] }, now);
+            }
+        }
+    }
+}
