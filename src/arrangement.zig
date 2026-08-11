@@ -495,6 +495,10 @@ pub const Lane = struct {
         if (hi <= lo) return;
         try self.cutRange(allocator, lo, hi);
         const width = hi - lo;
+        // Needs no re-sort, unlike `cutRange` and `insertTime`: the cut above
+        // leaves every start either below `lo` or at/after `hi`, and shifting
+        // only the second group down by the gap width lands it at/after `lo`.
+        // The two groups keep their order and cannot interleave.
         for (self.clips.items) |*c| {
             if (c.start_tick >= hi) c.start_tick -= width;
         }
