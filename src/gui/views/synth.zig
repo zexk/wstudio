@@ -42,8 +42,9 @@ fn drawMain(app: anytype, synth: *ws.dsp.PolySynth) void {
     }
 
     if (tabForCursor(synth_layout.main_sections[1..4], app.core.synth_cursor)) |slot| app.core.synth_osc_tab = slot;
-    if (tabForCursor(synth_layout.main_sections[6..8], app.core.synth_cursor)) |slot| app.core.synth_filter_tab = slot;
-    if (tabForCursor(synth_layout.main_sections[8..11], app.core.synth_cursor)) |slot| app.core.synth_env_tab = slot;
+    if (tabForCursor(synth_layout.main_sections[6..9], app.core.synth_cursor)) |slot| app.core.synth_lfo_tab = slot;
+    if (tabForCursor(synth_layout.main_sections[9..11], app.core.synth_cursor)) |slot| app.core.synth_filter_tab = slot;
+    if (tabForCursor(synth_layout.main_sections[11..14], app.core.synth_cursor)) |slot| app.core.synth_env_tab = slot;
     app.core.last_cols = 160;
 
     const gap: f32 = 12;
@@ -57,27 +58,30 @@ fn drawMain(app: anytype, synth: *ws.dsp.PolySynth) void {
     drawTabbedCard(app, synth, synth_layout.main_sections[1..4], &app.core.synth_osc_tab, "synth-osc-tabs", column_w);
     const env_y = zgui.getCursorPosY();
     zgui.setCursorPos(.{ origin[0] + macro_w + gap, env_y });
-    drawTabbedCard(app, synth, synth_layout.main_sections[8..11], &app.core.synth_env_tab, "synth-env-tabs", column_w);
+    drawTabbedCard(app, synth, synth_layout.main_sections[11..14], &app.core.synth_env_tab, "synth-env-tabs", column_w);
     const center_bottom = zgui.getCursorPosY();
 
     zgui.setCursorPos(.{ right_x, origin[1] });
-    drawTabbedCard(app, synth, synth_layout.main_sections[6..8], &app.core.synth_filter_tab, "synth-filter-tabs", column_w);
+    drawTabbedCard(app, synth, synth_layout.main_sections[9..11], &app.core.synth_filter_tab, "synth-filter-tabs", column_w);
     const pair_y = zgui.getCursorPosY();
     const pair_w = (column_w - gap) / 2;
     zgui.setCursorPos(.{ right_x, pair_y });
     drawCard(app, synth, synth_layout.main_sections[4], "synth-main", 4, pair_w);
     zgui.sameLine(.{ .spacing = gap });
     drawCard(app, synth, synth_layout.main_sections[5], "synth-main", 5, pair_w);
+    const lfo_y = zgui.getCursorPosY();
+    zgui.setCursorPos(.{ right_x, lfo_y });
+    drawTabbedCard(app, synth, synth_layout.main_sections[6..9], &app.core.synth_lfo_tab, "synth-lfo-tabs", column_w);
     const right_bottom = zgui.getCursorPosY();
 
     const bottom_y = @max(center_bottom, right_bottom);
     const utility_w = (content_w - gap * 2) / 3;
     zgui.setCursorPos(.{ origin[0] + macro_w + gap, bottom_y });
-    drawCard(app, synth, synth_layout.main_sections[12], "synth-main", 12, utility_w);
+    drawCard(app, synth, synth_layout.main_sections[15], "synth-main", 15, utility_w);
     zgui.sameLine(.{ .spacing = gap });
-    drawCard(app, synth, synth_layout.main_sections[11], "synth-main", 11, utility_w);
+    drawCard(app, synth, synth_layout.main_sections[14], "synth-main", 14, utility_w);
     zgui.sameLine(.{ .spacing = gap });
-    drawCard(app, synth, synth_layout.main_sections[13], "synth-main", 13, utility_w);
+    drawCard(app, synth, synth_layout.main_sections[16], "synth-main", 16, utility_w);
     const composition_bottom = zgui.getCursorPosY();
 
     zgui.setCursorPos(origin);
@@ -178,12 +182,11 @@ fn drawSections(
     app.core.last_cols = if (columns == 4) 210 else if (columns == 3) 160 else if (columns == 2) 108 else 80;
     const placements = placementsFor(columns);
     const column_w = @max(280, (available_width - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns)));
-    if (comptime std.mem.eql(u8, child_prefix, "synth-mod")) {
-        if (tabForCursor(synth_layout.mod_sections[0..3], app.core.synth_cursor)) |slot| app.core.synth_lfo_tab = slot;
-    } else if (comptime std.mem.eql(u8, child_prefix, "synth-main")) {
+    if (comptime std.mem.eql(u8, child_prefix, "synth-main")) {
         if (tabForCursor(synth_layout.main_sections[1..4], app.core.synth_cursor)) |slot| app.core.synth_osc_tab = slot;
-        if (tabForCursor(synth_layout.main_sections[7..9], app.core.synth_cursor)) |slot| app.core.synth_filter_tab = slot;
-        if (tabForCursor(synth_layout.main_sections[9..12], app.core.synth_cursor)) |slot| app.core.synth_env_tab = slot;
+        if (tabForCursor(synth_layout.main_sections[6..9], app.core.synth_cursor)) |slot| app.core.synth_lfo_tab = slot;
+        if (tabForCursor(synth_layout.main_sections[9..11], app.core.synth_cursor)) |slot| app.core.synth_filter_tab = slot;
+        if (tabForCursor(synth_layout.main_sections[11..14], app.core.synth_cursor)) |slot| app.core.synth_env_tab = slot;
     }
 
     // `z` isolates the cursor's section. The TUI has drawn only that card
@@ -191,10 +194,8 @@ fn drawSections(
     // toggled a state with no visible effect whatsoever.
     if (app.core.synth_section_focus) {
         if (cursorSection(sections, app.core.synth_cursor)) |index| {
-            if (comptime std.mem.eql(u8, child_prefix, "synth-mod")) {
-                if (index < 3) drawTabbedCard(app, synth, synth_layout.mod_sections[0..3], &app.core.synth_lfo_tab, "synth-lfo-tabs", 0) else drawCard(app, synth, sections[index], child_prefix, index, 0);
-            } else if (comptime std.mem.eql(u8, child_prefix, "synth-main")) {
-                if (index >= 1 and index < 4) drawTabbedCard(app, synth, synth_layout.main_sections[1..4], &app.core.synth_osc_tab, "synth-osc-tabs", 0) else if (index >= 7 and index < 9) drawTabbedCard(app, synth, synth_layout.main_sections[7..9], &app.core.synth_filter_tab, "synth-filter-tabs", 0) else if (index >= 9 and index < 12) drawTabbedCard(app, synth, synth_layout.main_sections[9..12], &app.core.synth_env_tab, "synth-env-tabs", 0) else drawCard(app, synth, sections[index], child_prefix, index, 0);
+            if (comptime std.mem.eql(u8, child_prefix, "synth-main")) {
+                if (index >= 1 and index < 4) drawTabbedCard(app, synth, synth_layout.main_sections[1..4], &app.core.synth_osc_tab, "synth-osc-tabs", 0) else if (index >= 6 and index < 9) drawTabbedCard(app, synth, synth_layout.main_sections[6..9], &app.core.synth_lfo_tab, "synth-lfo-tabs", 0) else if (index >= 9 and index < 11) drawTabbedCard(app, synth, synth_layout.main_sections[9..11], &app.core.synth_filter_tab, "synth-filter-tabs", 0) else if (index >= 11 and index < 14) drawTabbedCard(app, synth, synth_layout.main_sections[11..14], &app.core.synth_env_tab, "synth-env-tabs", 0) else drawCard(app, synth, sections[index], child_prefix, index, 0);
             } else drawCard(app, synth, sections[index], child_prefix, index, 0);
             return;
         }
@@ -204,26 +205,25 @@ fn drawSections(
         if (col > 0) zgui.sameLine(.{ .spacing = gap });
         zgui.beginGroup();
         for (sections, placements, 0..) |section, placement, index| {
-            if (comptime std.mem.eql(u8, child_prefix, "synth-mod")) {
-                if (index == 1 or index == 2) continue;
-                if (index == 0) {
-                    if (placement.col == col) drawTabbedCard(app, synth, synth_layout.mod_sections[0..3], &app.core.synth_lfo_tab, "synth-lfo-tabs", column_w);
-                    continue;
-                }
-            } else if (comptime std.mem.eql(u8, child_prefix, "synth-main")) {
+            if (comptime std.mem.eql(u8, child_prefix, "synth-main")) {
                 if (index == 2 or index == 3) continue;
                 if (index == 1) {
                     if (placement.col == col) drawTabbedCard(app, synth, synth_layout.main_sections[1..4], &app.core.synth_osc_tab, "synth-osc-tabs", column_w);
                     continue;
                 }
-                if (index == 8) continue;
-                if (index == 7) {
-                    if (placement.col == col) drawTabbedCard(app, synth, synth_layout.main_sections[7..9], &app.core.synth_filter_tab, "synth-filter-tabs", column_w);
+                if (index == 7 or index == 8) continue;
+                if (index == 6) {
+                    if (placement.col == col) drawTabbedCard(app, synth, synth_layout.main_sections[6..9], &app.core.synth_lfo_tab, "synth-lfo-tabs", column_w);
                     continue;
                 }
-                if (index == 10 or index == 11) continue;
+                if (index == 10) continue;
                 if (index == 9) {
-                    if (placement.col == col) drawTabbedCard(app, synth, synth_layout.main_sections[9..12], &app.core.synth_env_tab, "synth-env-tabs", column_w);
+                    if (placement.col == col) drawTabbedCard(app, synth, synth_layout.main_sections[9..11], &app.core.synth_filter_tab, "synth-filter-tabs", column_w);
+                    continue;
+                }
+                if (index == 12 or index == 13) continue;
+                if (index == 11) {
+                    if (placement.col == col) drawTabbedCard(app, synth, synth_layout.main_sections[11..14], &app.core.synth_env_tab, "synth-env-tabs", column_w);
                     continue;
                 }
             }

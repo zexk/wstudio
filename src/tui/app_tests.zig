@@ -4994,20 +4994,21 @@ test "draw renders synth editor without errors" {
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.synth_editor, app.view);
 
-    // Tall enough that the whole single-column MAIN body (~76 rows - see
+    // Tall enough that the whole single-column MAIN body fits - see
     // synth_layout.zig's main_sections) fits without scrolling, so this
     // stays a simple "did real content render" smoke test rather than a
     // reflection of exactly where ENV 1 happens to land in the order.
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 100 });
+    try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 140 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "SYNTH") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "attack") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "sustain") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "LFO 1") != null);
 }
 
-test "synth MOD subview draws sources before matrix" {
+test "synth MOD subview contains matrix without LFO cards" {
     var app = try testApp();
     defer app.deinit();
 
@@ -5019,13 +5020,8 @@ test "synth MOD subview draws sources before matrix" {
     var w = std.Io.Writer.fixed(&buf);
     try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 100 });
     const frame = w.buffered();
-    // views/synth.zig's mod_render_fns is index-matched to
-    // synth_layout.mod_sections with only a length check behind it, so a
-    // reorder of one and not the other draws the wrong card under a title
-    // with nothing failing to compile. Sources first, MATRIX last.
-    const lfo1 = std.mem.indexOf(u8, frame, "LFO 1") orelse return error.MissingLfo1;
-    const matrix = std.mem.indexOf(u8, frame, "MATRIX") orelse return error.MissingMatrix;
-    try std.testing.expect(lfo1 < matrix);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "MATRIX") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "LFO 1") == null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "MACRO") == null);
     // secMatrix's own body, not just its title: proves the render fn that
     // ran under the MATRIX header is the matrix one.
@@ -5096,7 +5092,6 @@ test "synth row navigation skips folded tab siblings" {
     try std.testing.expectEqual(@as(u16, 32), app.synth_cursor);
 
     app.handleKey(.tab, 0);
-    for (0..7) |_| app.handleKey(.{ .char = 'j' }, 0);
     try std.testing.expectEqual(@as(u16, 59), app.synth_cursor);
 }
 

@@ -120,6 +120,21 @@ pub const main_sections = [_]SectionDef{
     .{ .title = "NOISE", .tone = .source, .band = 1, .params = &.{
         .{ .id = 36, .label = "level" }, .{ .id = 37, .label = "color" },
     } },
+    .{ .title = "LFO 1", .tone = .mod, .band = 1, .extra_rows = 1, .params = &.{
+        .{ .id = 28, .label = "shape" }, .{ .id = 397, .label = "wave" }, .{ .id = 29, .label = "rate" },
+        .{ .id = 256, .label = "sync" }, .{ .id = 259, .label = "retrig" },
+        .{ .id = 262, .label = "phase" }, .{ .id = 265, .label = "slew" },
+    } },
+    .{ .title = "LFO 2", .tone = .mod, .band = 1, .extra_rows = 1, .params = &.{
+        .{ .id = 95, .label = "shape" }, .{ .id = 398, .label = "wave" }, .{ .id = 96, .label = "rate" },
+        .{ .id = 257, .label = "sync" }, .{ .id = 260, .label = "retrig" },
+        .{ .id = 263, .label = "phase" }, .{ .id = 266, .label = "slew" },
+    } },
+    .{ .title = "LFO 3", .tone = .mod, .band = 1, .extra_rows = 1, .params = &.{
+        .{ .id = 97, .label = "shape" }, .{ .id = 399, .label = "wave" }, .{ .id = 98, .label = "rate" },
+        .{ .id = 258, .label = "sync" }, .{ .id = 261, .label = "retrig" },
+        .{ .id = 264, .label = "phase" }, .{ .id = 267, .label = "slew" },
+    } },
     .{ .title = "FILTER 1", .tone = .filter, .band = 2, .params = &.{
         .{ .id = 20, .label = "type" }, .{ .id = 21, .label = "cutoff" }, .{ .id = 22, .label = "res" },
     } },
@@ -154,22 +169,6 @@ pub const main_sections = [_]SectionDef{
 };
 
 pub const mod_sections = [_]SectionDef{
-    .{ .title = "LFO 1", .tone = .mod, .band = 0, .extra_rows = 1, .params = &.{
-        .{ .id = 28, .label = "shape" }, .{ .id = 397, .label = "wave" }, .{ .id = 29, .label = "rate" },
-        .{ .id = 256, .label = "sync" }, .{ .id = 259, .label = "retrig" },
-        .{ .id = 262, .label = "phase" }, .{ .id = 265, .label = "slew" },
-    } },
-    .{ .title = "LFO 2", .tone = .mod, .band = 0, .extra_rows = 1, .params = &.{
-        .{ .id = 95, .label = "shape" }, .{ .id = 398, .label = "wave" }, .{ .id = 96, .label = "rate" },
-        .{ .id = 257, .label = "sync" }, .{ .id = 260, .label = "retrig" },
-        .{ .id = 263, .label = "phase" }, .{ .id = 266, .label = "slew" },
-    } },
-    .{ .title = "LFO 3", .tone = .mod, .band = 0, .extra_rows = 1, .params = &.{
-        .{ .id = 97, .label = "shape" }, .{ .id = 399, .label = "wave" }, .{ .id = 98, .label = "rate" },
-        .{ .id = 258, .label = "sync" }, .{ .id = 261, .label = "retrig" },
-        .{ .id = 264, .label = "phase" }, .{ .id = 267, .label = "slew" },
-    } },
-    // Sources come first, then the matrix that routes them.
     // Each row is two entries: the packed source/dest/depth triplet, then
     // its polarity toggle. The toggle can't be a fourth field of the
     // triplet - entry fields must be contiguous ids, and 59-82 is packed

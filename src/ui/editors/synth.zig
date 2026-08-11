@@ -441,11 +441,12 @@ fn sectionVisible(app: *const App, section: usize) bool {
     return switch (app.synth_subview) {
         .main => switch (section) {
             1...3 => section == 1 + app.synth_osc_tab,
-            7...8 => section == 7 + app.synth_filter_tab,
-            9...11 => section == 9 + app.synth_env_tab,
+            6...8 => section == 6 + app.synth_lfo_tab,
+            9...10 => section == 9 + app.synth_filter_tab,
+            11...13 => section == 11 + app.synth_env_tab,
             else => true,
         },
-        .mod => if (section <= 2) section == app.synth_lfo_tab else true,
+        .mod => true,
     };
 }
 
