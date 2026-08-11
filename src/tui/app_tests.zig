@@ -2625,6 +2625,28 @@ test "the automation param picker hides the synth's dead FX params" {
     try std.testing.expect(listed > 0);
 }
 
+test "automation picker targets current slicer row" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(2, .slicer);
+    try app.session.stampClip(2, 0);
+    app.slicer_cursor[0] = 1;
+    automation_ed.switchTo(&app, 2, 0);
+    _ = automation_ed.handleKey(&app, .{ .char = 'p' });
+    try std.testing.expectEqual(AppView.automation_param_picker, app.view);
+
+    const pan_id = ws.dsp.Slicer.paramId(1, 8);
+    var pan_idx: u8 = 0;
+    for (automation_ed.instrumentAutomatableParams(&app), 0..) |p, i| {
+        // zig fmt: off
+        if (p.id == pan_id) { pan_idx = @intCast(i); break; }
+        // zig fmt: on
+    }
+    app.automation_param_cursor = pan_idx;
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = .{ .param_id = pan_id } }, app.automation_focus);
+}
+
 test "automation param mouse click during live search selects lane and leaves search mode" {
     var app = try testApp();
     defer app.deinit();

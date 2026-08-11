@@ -124,8 +124,8 @@ pub fn curvePointsConst(clip: *const ws.Clip, target: AutomationFocus) []const A
 }
 
 /// The current automation track's own `automatable_params` table - PolySynth,
-/// Sampler, drum machine, SoundFont, CLAP, or VST3 params, and empty for any other instrument kind
-/// (drum machine uses current pad's packed id space; slicer/empty stay empty,
+/// Sampler, drum machine, slicer, SoundFont, CLAP, or VST3 params, and empty for any other instrument kind
+/// (drum machine and slicer use current row's packed id space; empty stays empty,
 /// matching the picker's own gate in `openParamPicker`). `pub` so app.zig's picker key/mouse
 /// handling can resolve the same table without duplicating the instrument
 /// dispatch.
@@ -133,6 +133,7 @@ pub fn instrumentAutomatableParams(app: *App) []const ws.dsp.device.AutomatableP
     if (app.automation_track >= app.session.racks.items.len) return &.{};
     return switch (app.session.racks.items[app.automation_track].instrument) {
         .drum_machine => ws.dsp.DrumMachine.automatableParams(@intCast(app.drum_cursor[0])),
+        .slicer => ws.dsp.Slicer.automatableParams(@intCast(app.slicer_cursor[0])),
         else => |*instrument| instrument.automatableParams(),
     };
 }
@@ -140,6 +141,8 @@ pub fn instrumentAutomatableParams(app: *App) []const ws.dsp.device.AutomatableP
 pub fn findAutomatableParam(app: *App, id: u32) ?*const ws.dsp.device.AutomatableParam {
     if (app.automation_track < app.session.racks.items.len and app.session.racks.items[app.automation_track].instrument == .drum_machine)
         return if (id <= std.math.maxInt(u16)) ws.dsp.DrumMachine.findAutomatableParam(@intCast(id)) else null;
+    if (app.automation_track < app.session.racks.items.len and app.session.racks.items[app.automation_track].instrument == .slicer)
+        return if (id <= std.math.maxInt(u16)) ws.dsp.Slicer.findAutomatableParam(@intCast(id)) else null;
     for (instrumentAutomatableParams(app)) |*param| if (param.id == id) return param;
     return null;
 }

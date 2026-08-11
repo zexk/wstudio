@@ -662,6 +662,42 @@ pub const Slicer = struct {
         return (@as(u16, slice) << 5) | (param & 0x1F);
     }
 
+    const automation_sections = blk: {
+        @setEvalBranchQuota(100_000);
+        var sections: [max_slices][]const u8 = undefined;
+        for (0..max_slices) |slice_idx| sections[slice_idx] = std.fmt.comptimePrint("SLICE {d}", .{slice_idx + 1});
+        break :blk sections;
+    };
+
+    pub const automatable_params = blk: {
+        @setEvalBranchQuota(10_000);
+        var params: [max_slices][DrumMachine.automatable_params[0].len]dsp.AutomatableParam = undefined;
+        for (0..max_slices) |slice_idx| {
+            for (DrumMachine.automatable_params[0], 0..) |param, param_idx| {
+                params[slice_idx][param_idx] = .{
+                    .id = paramId(@intCast(slice_idx), @intCast(param.id)),
+                    .label = param.label,
+                    .section = automation_sections[slice_idx],
+                    .range = param.range,
+                    .step = param.step,
+                };
+            }
+        }
+        break :blk params;
+    };
+
+    pub fn automatableParams(slice: u8) []const dsp.AutomatableParam {
+        if (slice >= max_slices) return &.{};
+        return &automatable_params[slice];
+    }
+
+    pub fn findAutomatableParam(id: u16) ?*const dsp.AutomatableParam {
+        const slice: u8 = @intCast(id >> 5);
+        if (slice >= max_slices) return null;
+        for (&automatable_params[slice]) |*param| if (param.id == id) return param;
+        return null;
+    }
+
     /// Set slice-encoded param `id` to an absolute value (same clamps as
     /// `adjustParam`'s per-step nudges) - undo's restore half, mirroring
     /// `DrumMachine.setParamAbsolute`.
@@ -1361,7 +1397,8 @@ pub const Slicer = struct {
             },
             .set_param => |e| self.adjustParam(e.id, e.steps),
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
-            .cc, .pitch_bend, .set_mod_target, .automation_param, .clap_param, .vst3_param, .set_sidechain_buf, .capture_pad => {},
+            .automation_param => |e| if (e.instance_id == 0 and e.id <= std.math.maxInt(u16)) self.setParamAbsolute(@intCast(e.id), e.value),
+            .cc, .pitch_bend, .set_mod_target, .clap_param, .vst3_param, .set_sidechain_buf, .capture_pad => {},
             .all_off => self.resetAll(),
         }
     }
@@ -1881,6 +1918,22 @@ test "setParamAbsolute/paramValue roundtrip, null past slice_count" {
     s.setParamAbsolute(Slicer.paramId(1, 9), 1.0);
     try std.testing.expect(s.slices[1].reverse);
     try std.testing.expectEqual(@as(?f32, null), s.paramValue(Slicer.paramId(2, 0)));
+}
+
+test "automation targets one slicer parameter" {
+    const id = Slicer.paramId(1, 8);
+    const param = Slicer.findAutomatableParam(id).?;
+    try std.testing.expectEqualStrings("PAN", param.label);
+    try std.testing.expectEqualStrings("SLICE 2", param.section);
+
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    s.sliceInto(2);
+    const other_pan = s.slices[0].pan;
+    s.handleEvent(.{ .automation_param = .{ .id = id, .value = 0.5 } });
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), s.slices[1].pan, 1e-6);
+    try std.testing.expectApproxEqAbs(other_pan, s.slices[0].pan, 1e-6);
 }
 
 test "cycleStepVel walks the preset ladder; nudge clamps at 1" {
