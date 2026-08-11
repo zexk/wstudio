@@ -436,7 +436,7 @@ pub fn cmdTrackSend(app: *App, args: []const u8) void {
         app.setStatus("track-send: too many arguments", .{});
         return;
     }
-    const level_db = if (level_str == null) -6.0 else std.fmt.parseFloat(f32, level_str.?) catch {
+    const level_db = if (level_str == null) -6.0 else parseFiniteFloat(f32, level_str.?) catch {
         app.setStatus("track-send: bad level '{s}'", .{level_str.?});
         return;
     };

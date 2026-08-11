@@ -3303,6 +3303,11 @@ test "commands reject non-finite numbers, malformed signatures, and overflowing 
     commands.run(&app, "pan 1 nan");
     try std.testing.expectEqual(pan, app.session.project.tracks.items[0].pan);
 
+    // The send level is the one float this family used to parse without the
+    // shared finite check; `nan` came through as a clamped +12dB send.
+    commands.run(&app, "track-send 1 1 master nan");
+    try std.testing.expect(app.session.project.tracks.items[0].sends[0] == null);
+
     const signature = app.session.project.beats_per_bar;
     commands.run(&app, "sig 3/4/4");
     try std.testing.expectEqual(signature, app.session.project.beats_per_bar);
