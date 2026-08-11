@@ -566,82 +566,10 @@ pub fn listStepper(label_text: []const u8, id: [:0]const u8, args: ListStepper) 
     return .{ .changed = changed, .activated = changed };
 }
 
-/// A 2D pad for a correlated pair of params (e.g. filter cutoff+resonance):
-/// click/drag anywhere in the square to set both at once from the cursor's
-/// absolute position, unlike the knob's relative drag (a position in 2D has
-/// no ambiguous "starting angle" the way a 1D rotation does).
-pub const XYPad = struct {
-    x: *f32,
-    y: *f32,
-    x_range: [2]f32,
-    y_range: [2]f32,
-    x_cfmt: [:0]const u8 = "%.2f",
-    y_cfmt: [:0]const u8 = "%.2f",
-    x_logarithmic: bool = false,
-    accent: [4]f32,
-    focused: bool = false,
-    size: f32 = 96,
-    /// Pad width, when it should not be square. 0 keeps it square at
-    /// `size`; a card-wide filter pad reads as that module's display the
-    /// way a synth's filter strip does, where a 96px square in a 440px card
-    /// reads as a stray widget.
-    width: f32 = 0,
-};
-
-pub fn xyPad(label: [:0]const u8, args: XYPad) KnobResult {
-    const theme = &gui_style.palette;
-    const origin = zgui.getCursorScreenPos();
-    const draw_list = zgui.getWindowDrawList();
-    const pad_w = if (args.width > 0) args.width else args.size;
-    scroll.noteFocusRow(args.focused, origin[1], args.size);
-
-    _ = zgui.invisibleButton(label, .{ .w = pad_w, .h = args.size });
-    const active = zgui.isItemActive();
-    const hovered = zgui.isItemHovered(.{});
-    const activated = zgui.isItemActivated();
-    var changed = false;
-
-    if (active) {
-        const mouse = zgui.getMousePos();
-        const tx = std.math.clamp((mouse[0] - origin[0]) / pad_w, 0, 1);
-        const ty = std.math.clamp((mouse[1] - origin[1]) / args.size, 0, 1);
-        const new_x = knobTToValue(args.x_range[0], args.x_range[1], tx, args.x_logarithmic, 1);
-        const new_y = knobTToValue(args.y_range[0], args.y_range[1], 1.0 - ty, false, 1);
-        if (new_x != args.x.* or new_y != args.y.*) changed = true;
-        args.x.* = new_x;
-        args.y.* = new_y;
-    }
-
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + pad_w, origin[1] + args.size }, .col = gui_style.color(theme.bg2), .rounding = gui_style.item_rounding });
-    draw_list.addLine(.{ .p1 = .{ origin[0] + pad_w * 0.5, origin[1] }, .p2 = .{ origin[0] + pad_w * 0.5, origin[1] + args.size }, .col = gui_style.color(theme.line), .thickness = 1 });
-    draw_list.addLine(.{ .p1 = .{ origin[0], origin[1] + args.size * 0.5 }, .p2 = .{ origin[0] + pad_w, origin[1] + args.size * 0.5 }, .col = gui_style.color(theme.line), .thickness = 1 });
-    draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + pad_w, origin[1] + args.size }, .col = gui_style.color(if (args.focused) args.accent else theme.bg4), .rounding = gui_style.item_rounding, .thickness = if (args.focused) 2 else 1 });
-
-    const tx = knobValueToT(args.x_range[0], args.x_range[1], args.x.*, args.x_logarithmic, 1);
-    const ty = 1.0 - knobValueToT(args.y_range[0], args.y_range[1], args.y.*, false, 1);
-    const dot = [2]f32{ origin[0] + tx * pad_w, origin[1] + ty * args.size };
-    const crosshair = [4]f32{ args.accent[0], args.accent[1], args.accent[2], 0.35 };
-    draw_list.addLine(.{ .p1 = .{ origin[0], dot[1] }, .p2 = .{ origin[0] + pad_w, dot[1] }, .col = gui_style.color(crosshair), .thickness = 1 });
-    draw_list.addLine(.{ .p1 = .{ dot[0], origin[1] }, .p2 = .{ dot[0], origin[1] + args.size }, .col = gui_style.color(crosshair), .thickness = 1 });
-    draw_list.addCircleFilled(.{ .p = dot, .r = 6, .col = gui_style.color(if (active or hovered) args.accent else theme.fg1) });
-    if (args.focused) draw_list.addCircle(.{ .p = dot, .r = 9, .col = gui_style.color(args.accent), .thickness = 1.5 });
-
-    if (hovered or active) {
-        var x_buf: [32]u8 = undefined;
-        var y_buf: [32]u8 = undefined;
-        _ = zgui.beginTooltip();
-        zgui.text("{s}  /  {s}", .{ knobFormatValue(&x_buf, args.x_cfmt, args.x.*), knobFormatValue(&y_buf, args.y_cfmt, args.y.*) });
-        zgui.endTooltip();
-    }
-
-    return .{ .changed = changed, .activated = activated };
-}
-
 /// An attack/decay/sustain/release envelope shape you edit by dragging its
 /// own nodes: the attack peak and release tail each move along one axis
-/// (they're durations only), the decay/sustain corner moves on both -
-/// dragging it sideways is decay time, up/down is sustain level, the same
-/// "one gesture, two correlated params" idea as `xyPad`. Segment widths use
+/// (they're durations only), while the decay/sustain corner edits both
+/// values in one gesture. Segment widths use
 /// sqrt(duration) so a 5s release doesn't swallow a 5ms attack on screen;
 /// this is a visual compromise only, not a to-scale time axis.
 pub const Adsr = struct {
@@ -682,7 +610,7 @@ fn adsrStageIs(stage: ?u2, n: u2) bool {
 /// Exponent-per-wheel-tick for a duration node's scroll nudge (**ctrl** =
 /// coarser), matched in spirit to the knob's own ctrl-coarse step. Only the
 /// attack/release nodes use this - the decay/sustain corner scrolls neither
-/// axis, same reasoning as `xyPad` having no scroll: a single wheel axis has
+/// axis: a single wheel axis has
 /// no unambiguous mapping onto a two-param drag.
 fn envelopeScrollStep() f32 {
     return if (zgui.isKeyDown(.mod_ctrl)) 0.2 else 0.05;
@@ -763,7 +691,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
     }
 
     // Decay/sustain corner: horizontal drag is decay time, vertical is
-    // sustain level - one gesture, two params, same idea as `xyPad`.
+    // sustain level in one gesture.
     {
         const p = points[2];
         zgui.setCursorScreenPos(.{ p[0] - adsr_handle_r, p[1] - adsr_handle_r });
@@ -826,8 +754,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
 /// unlike a drag, a wheel tick is unambiguous here since only one of the
 /// two axes is a natural "nudge a little" quantity. Used by the automation
 /// view today; the point/range args carry nothing automation-specific, so
-/// an LFO shape editor can reuse it later the same way `xyPad` serves both
-/// filter cutoff and other correlated pairs.
+/// an LFO shape editor can reuse it later.
 ///
 /// Allocation-free like every other widget here: point count changes
 /// (insert/remove) go through the caller's own storage (e.g.

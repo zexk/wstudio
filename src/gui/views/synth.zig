@@ -1,6 +1,6 @@
 //! Synth editor: title strip, MAIN/MOD/FX tab strip, and the
 //! comptime-table-driven parameter sections drawn as a grid of module
-//! cards - each card a display (waveform, LFO shape, envelope, filter pad)
+//! cards - each card a display (waveform, LFO shape, envelope)
 //! over a wrapped grid of knob and stepper cells, laid out band by band
 //! from synth_layout's placements.
 
@@ -73,7 +73,7 @@ fn setSubview(app: anytype, subview: synth_ed.Subview) void {
 
 /// Wraps a run of `widgets.knobCell`s into rows that fit the card, the way
 /// a synth panel packs a module's knobs into a block instead of a list.
-/// Controls that need the full card width (an ADSR plot, a filter pad, a
+/// Controls that need the full card width (an ADSR plot or a
 /// named stepper) call `brk` first so they start on their own line.
 const Flow = struct {
     const gap: f32 = 6;
@@ -230,19 +230,11 @@ fn drawSectionCard(app: anytype, synth: *ws.dsp.PolySynth, section: synth_layout
         // Polarity toggles are drawn as the last cell of their own matrix
         // row above, not as a standalone param.
         if (isMatrixPolarity(entry.id)) continue;
-        // The ADSR plot and the filter pad are the visual cue and the mouse
-        // surface - they draw above the params they cover, and then those
-        // params still get their own knob cells. A knob is where an exact
-        // value is read, where the keyboard cursor lands, and the one
-        // control shape every other param in the card already uses.
+        // The ADSR plot is the visual cue and mouse surface above the params
+        // it covers. Those params still get their own knob cells.
         if (isEnvelopeBase(entry.id)) {
             flow.brk();
             drawEnvelope(app, synth, entry.id);
-            flow.brk();
-        }
-        if (isFilterCutoff(entry.id)) {
-            flow.brk();
-            drawFilterPad(app, synth, entry.id);
             flow.brk();
         }
         var label_buf: [48]u8 = undefined;
@@ -262,10 +254,6 @@ fn drawSectionCard(app: anytype, synth: *ws.dsp.PolySynth, section: synth_layout
 // knob rows.
 fn isEnvelopeBase(id: u16) bool {
     return id == 16 or id == 24 or id == 122;
-}
-
-fn isFilterCutoff(id: u16) bool {
-    return id == 21 or id == 47;
 }
 
 fn isMatrixPolarity(id: u16) bool {
@@ -314,38 +302,6 @@ fn drawEnvelope(app: anytype, synth: *ws.dsp.PolySynth, base_id: u16) void {
         else => base_id + 3,
     };
     zgui.textDisabled("A {d:.3}s  D {d:.3}s  S {d:.2}  R {d:.3}s", .{ attack, decay, sustain, release });
-}
-
-fn drawFilterPad(app: anytype, synth: *ws.dsp.PolySynth, cutoff_id: u16) void {
-    const res_id = cutoff_id + 1;
-    var cutoff = synth.paramValue(cutoff_id) orelse return;
-    var res = synth.paramValue(res_id) orelse return;
-    const c_range = (ws.dsp.PolySynth.findAutomatableParam(cutoff_id) orelse return).range;
-    const r_range = (ws.dsp.PolySynth.findAutomatableParam(res_id) orelse return).range;
-
-    var label_buf: [32]u8 = undefined;
-    const label = std.fmt.bufPrintZ(&label_buf, "xy##gui-synth-{d}", .{cutoff_id}) catch return;
-    const focused = app.core.synth_cursor == cutoff_id or app.core.synth_cursor == res_id;
-
-    zgui.textDisabled("cutoff / res", .{});
-    const result = widgets.xyPad(label, .{
-        .width = zgui.getContentRegionAvail()[0],
-        .size = 104,
-        .x = &cutoff,
-        .y = &res,
-        .x_range = c_range,
-        .y_range = r_range,
-        .x_cfmt = "%.0f Hz",
-        .y_cfmt = "%.2f",
-        .x_logarithmic = true,
-        .accent = theme.audio,
-        .focused = focused,
-    });
-    if (result.changed) {
-        sendParam(app, cutoff_id, cutoff);
-        sendParam(app, res_id, res);
-    }
-    if (result.activated) app.core.synth_cursor = cutoff_id;
 }
 
 /// Which drawn-LFO slot (0/1/2) a MOD section's "shape" entry drives -
