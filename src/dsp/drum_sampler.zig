@@ -347,7 +347,7 @@ pub const DrumMachine = struct {
     /// Swing percent (see `swing_min`/`swing_max`): where the off-beat 16th
     /// sits within its 8th-note pair. UI writes, audio thread reads.
     swing: std.atomic.Value(f32) = .init(50.0),
-    /// Per-pad choke group (0 = none). See `chokeTrigger`.
+    /// Per-pad choke group (0 = none). See `chokeTriggerTuned`.
     choke_group: [max_pads]u8 = [_]u8{0} ** max_pads,
     /// Name of the last factory kit flavour applied, borrowed from
     /// `drum_kit.variants` (static storage, never freed). Empty on a fresh
@@ -1365,68 +1365,14 @@ pub const DrumMachine = struct {
         self.pad_captures = [_]?PadCapture{null} ** max_pad_captures;
     }
 
-    /// Trigger pad `p` at its own root (no chromatic shift) after clearing any
-    /// voice already in flight - a retrigger always chokes the previous hit,
-    /// the classic drum-machine convention, even though the underlying
-    /// Sampler is itself polyphonic. If `p` belongs to a choke group (nonzero
-    /// `choke_group`), every other pad sharing that group is silenced too
-    /// (e.g. a closed-hat hit cutting an open hat's ring-out). A no-op on an
-    /// unloaded (null) pad - nothing to trigger.
-    /// Schedule `note` on pad `p`. `step_pos` is its step's absolute transport
-    /// position; `micro` shifts the hit off that, and a roll spreads further
-    /// hits across the step's own `step_frames` duration. Nothing is emitted
-    /// here - `drainRolls` does that once the hits' real positions land
-    /// inside a block, which is what lets a hit sit before its own step
-    /// boundary or after the block that scheduled it.
+    /// Schedule `note` on pad `p` - see `step_grid_ops.scheduleNote`.
     pub fn scheduleNote(self: *DrumMachine, p: u8, note: MidiNote, step_pos: f64, step_frames: f64) void {
-        const offset = step_frames * @as(f64, @floatFromInt(note.micro)) / 100.0;
-        const hits: u8 = @max(note.retrig, 1);
-        const interval = if (hits > 1 and step_frames > 0.0)
-            step_frames / @as(f64, @floatFromInt(hits))
-        else
-            0.0;
-        // A gated pad stops where its step does (a roll's hits stop where the
-        // next one starts); a latched one-shot - the kit default - ignores
-        // this and plays its region out. See `pad.Voice.hold_frames`.
-        self.rolls[p] = .{
-            .remaining = hits,
-            .next_pos = step_pos + offset,
-            .interval = interval,
-            .vel = velGain(note.velocity),
-            .tune = note.tune,
-            .hold = if (interval > 0.0) interval else step_frames * @as(f64, @floatFromInt(@max(note.duration_steps, 1))),
-        };
+        step_grid_ops.scheduleNote(self, p, note, step_pos, step_frames);
     }
 
-    /// Emit every scheduled hit landing in `[pos_f, pos_f + frames)`. A hit
-    /// that the block already passed by a hair (a resync, or a `micro` shift
-    /// that put it just behind the playhead) is clamped to the block start
-    /// rather than lost; one further back than a whole block is a seek having
-    /// jumped over it, and is dropped instead of dumped on the boundary.
+    /// Emit the pads' scheduled hits - see `step_grid_ops.drainRolls`.
     pub fn drainRolls(self: *DrumMachine, pos_f: f64, frames: u32) void {
-        const frames_f: f64 = @floatFromInt(frames);
-        const block_end = pos_f + frames_f;
-        for (&self.rolls, 0..) |*slot, p| {
-            const roll = if (slot.*) |*r| r else continue;
-            while (roll.remaining > 0 and roll.next_pos < block_end) {
-                if (roll.next_pos >= pos_f - frames_f) {
-                    const off: u32 = if (roll.next_pos <= pos_f) 0 else @intCast(@min(
-                        @as(u64, @intFromFloat(roll.next_pos - pos_f)),
-                        @as(u64, frames - 1),
-                    ));
-                    self.chokeTrigger(@intCast(p), roll.vel, off, roll.tune, roll.hold);
-                }
-                roll.remaining -= 1;
-                // A single hit has no interval to advance by; bail rather
-                // than spinning on next_pos += 0.
-                if (roll.remaining == 0 or roll.interval <= 0.0) {
-                    roll.remaining = 0;
-                    break;
-                }
-                roll.next_pos += roll.interval;
-            }
-            if (roll.remaining == 0) slot.* = null;
-        }
+        step_grid_ops.drainRolls(self, pos_f, frames);
     }
 
     /// `tune` shifts this one hit by that many semitones, riding on top of
@@ -1434,7 +1380,7 @@ pub const DrumMachine = struct {
     /// `note - root_note`, so a tuned hit is just a different trigger note.
     /// `hold` is how long a gated pad plays before releasing itself, or -1 to
     /// wait for a note-off - see `Sampler.triggerHeld`.
-    fn chokeTrigger(self: *DrumMachine, p: u8, vel: f32, block_start: u32, tune: i8, hold: f64) void {
+    pub fn chokeTriggerTuned(self: *DrumMachine, p: u8, vel: f32, block_start: u32, tune: i8, hold: f64) void {
         const pad = if (self.pads[p]) |*s| s else return;
         const group = self.choke_group[p];
         if (group != 0) {
@@ -1451,7 +1397,7 @@ pub const DrumMachine = struct {
 
     fn triggerPad(self: *DrumMachine, pad_idx: u8, vel: f32) void {
         if (pad_idx >= max_pads) return;
-        self.chokeTrigger(pad_idx, vel, 0, 0, -1.0);
+        self.chokeTriggerTuned(pad_idx, vel, 0, 0, -1.0);
     }
 
     fn releasePad(self: *DrumMachine, pad_idx: u8) void {

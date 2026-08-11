@@ -1199,59 +1199,14 @@ pub const Slicer = struct {
         }
     }
 
-    /// Schedule `note` on slice `s`. `step_pos` is its step's absolute
-    /// transport position; `micro` shifts the hit off that, and a roll spreads
-    /// further hits across the step's own `step_frames`. Nothing is emitted
-    /// here - `drainRolls` does that once the hits' real positions land inside
-    /// a block, which is what lets a hit sit before its own step boundary or
-    /// after the block that scheduled it.
+    /// Schedule `note` on slice `s` - see `step_grid_ops.scheduleNote`.
     pub fn scheduleNote(self: *Slicer, s: u8, note: MidiNote, step_pos: f64, step_frames: f64) void {
-        const offset = step_frames * @as(f64, @floatFromInt(note.micro)) / 100.0;
-        const hits: u8 = @max(note.retrig, 1);
-        const interval = if (hits > 1 and step_frames > 0.0)
-            step_frames / @as(f64, @floatFromInt(hits))
-        else
-            0.0;
-        // A gated slice stops where its step does (a roll's hits stop where
-        // the next one starts) instead of ringing over the steps after it -
-        // the whole point of chopping. A latched one-shot ignores this and
-        // plays its region out; see `pad.Voice.hold_frames`.
-        self.rolls[s] = .{
-            .remaining = hits,
-            .next_pos = step_pos + offset,
-            .interval = interval,
-            .vel = velGain(note.velocity),
-            .tune = note.tune,
-            .hold = if (interval > 0.0) interval else step_frames * @as(f64, @floatFromInt(@max(note.duration_steps, 1))),
-        };
+        step_grid_ops.scheduleNote(self, s, note, step_pos, step_frames);
     }
 
-    /// Emit every scheduled hit landing in `[pos_f, pos_f + frames)` - see
-    /// `DrumMachine.drainRolls` for the clamp/drop rules this mirrors.
+    /// Emit the slices' scheduled hits - see `step_grid_ops.drainRolls`.
     pub fn drainRolls(self: *Slicer, pos_f: f64, frames: u32) void {
-        const frames_f: f64 = @floatFromInt(frames);
-        const block_end = pos_f + frames_f;
-        for (&self.rolls, 0..) |*slot, s| {
-            const roll = if (slot.*) |*r| r else continue;
-            while (roll.remaining > 0 and roll.next_pos < block_end) {
-                if (roll.next_pos >= pos_f - frames_f) {
-                    const off: u32 = if (roll.next_pos <= pos_f) 0 else @intCast(@min(
-                        @as(u64, @intFromFloat(roll.next_pos - pos_f)),
-                        @as(u64, frames - 1),
-                    ));
-                    self.chokeTriggerTuned(@intCast(s), roll.vel, off, roll.tune, roll.hold);
-                }
-                roll.remaining -= 1;
-                // A single hit has no interval to advance by; bail rather than
-                // spinning on next_pos += 0.
-                if (roll.remaining == 0 or roll.interval <= 0.0) {
-                    roll.remaining = 0;
-                    break;
-                }
-                roll.next_pos += roll.interval;
-            }
-            if (roll.remaining == 0) slot.* = null;
-        }
+        step_grid_ops.drainRolls(self, pos_f, frames);
     }
 
     pub fn resetAll(self: *Slicer) void {
