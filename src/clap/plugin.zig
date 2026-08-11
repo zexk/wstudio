@@ -962,7 +962,7 @@ const Direct = struct {
                 if (param.target == @as(*anyopaque, @ptrCast(outer)))
                     self.pushParameter(param.id, param.cookie, param.value, param.sample_offset);
             },
-            .automation_param => |param| if (self.audio_inputs_count == 0) self.pushParameter(param.id, null, param.value, param.sample_offset),
+            .automation_param => |param| if (self.audio_inputs_count == 0 and param.instance_id == 0) self.pushParameter(param.id, null, param.value, param.sample_offset),
             else => {},
         }
     }

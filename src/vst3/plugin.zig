@@ -952,7 +952,7 @@ const Direct = struct {
             .all_off => for (&self.active_notes, 0..) |active, note| if (active) self.pushNote(false, @intCast(note), 0),
             .cc => |cc| self.pushMidiMapping(cc.cc, @as(f64, @floatFromInt(cc.value)) / 127.0),
             .pitch_bend => |bend| self.pushMidiMapping(129, @as(f64, @floatFromInt(@as(i32, bend.bend) + 8192)) / 16383.0),
-            .automation_param => |param| if (self.instrument) self.setParameter(param.id, param.value, param.sample_offset),
+            .automation_param => |param| if (self.instrument and param.instance_id == 0) self.setParameter(param.id, param.value, param.sample_offset),
             .vst3_param => |param| if (param.target == @as(*anyopaque, @ptrCast(outer))) self.setParameter(param.id, param.value, param.sample_offset),
             else => {},
         }
