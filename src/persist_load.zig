@@ -959,7 +959,7 @@ pub fn loadNotes(pp: *PatternPlayer, notes: []const NoteSnap) void {
 /// `applyPadSnap`'s reasoning: a hand-edited or corrupted file could
 /// otherwise smuggle an out-of-range value (e.g. unison 0 or 255, a
 /// negative attack time) straight onto the audio thread. Enum fields
-/// (waveform, filter_type, mod_mode, …) need no clamp - `std.json` already
+/// (filter_type, warp_mode, …) need no clamp - `std.json` already
 /// rejects any value that isn't one of the declared tags at parse time.
 pub fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) !void {
     const clamp = std.math.clamp;

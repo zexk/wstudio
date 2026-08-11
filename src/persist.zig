@@ -1777,7 +1777,7 @@ test "buildSession clamps malformed synth params from a hand-edited file" {
     try testing.expect(s.attack_s >= 0.001);
     try testing.expect(s.sustain <= 1.0);
     try testing.expectEqual(@as(f32, 0.0), s.warp_amount);
-    try testing.expectEqual(@as(f32, 1.0), s.osc_b_warp_amount);
+    try testing.expectEqual(@as(f32, 8.0), s.osc_b_warp_amount);
     try testing.expect(s.lfo_rate_hz >= 0.01);
 
     const pp = &session.racks.items[0].pattern_player.?;

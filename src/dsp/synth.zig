@@ -299,7 +299,6 @@ pub const ModSource = enum {
 };
 pub const VoiceMode = enum { poly, mono, legato };
 pub const SubShape = enum { sine, square };
-pub const ModMode = enum { none, ring, am_a_to_b, am_b_to_a, fm_a_to_b, fm_b_to_a };
 /// Detune curve across unison voices. `spread`: symmetric, total width =
 /// unison_detune cents (original behaviour). `step`: each voice offset by
 /// a full unison_detune-cents step from its neighbor - a chord/stack-style
@@ -316,7 +315,41 @@ pub const UnisonMode = enum { spread, step, harmonic, ratio };
 /// phase by an integer-ish ratio and wraps, giving the classic hard-sync buzz
 /// without a second real oscillator. All three reduce to (near-)identity at
 /// `warp_amount = 0`, so switching the mode alone never surprises the sound.
-pub const WarpMode = enum { none, bend, mirror, sync };
+pub const WarpMode = enum {
+    none,
+    bend,
+    mirror,
+    sync,
+    ring_a_b,
+    ring_a_c,
+    ring_b_c,
+    am_a_to_b,
+    am_a_to_c,
+    am_b_to_a,
+    am_b_to_c,
+    am_c_to_a,
+    am_c_to_b,
+    fm_a_to_b,
+    fm_a_to_c,
+    fm_b_to_a,
+    fm_b_to_c,
+    fm_c_to_a,
+    fm_c_to_b,
+
+    pub fn isPhaseWarp(self: WarpMode) bool {
+        return switch (self) {
+            .bend, .mirror, .sync => true,
+            else => false,
+        };
+    }
+
+    pub fn isFm(self: WarpMode) bool {
+        return switch (self) {
+            .fm_a_to_b, .fm_a_to_c, .fm_b_to_a, .fm_b_to_c, .fm_c_to_a, .fm_c_to_b => true,
+            else => false,
+        };
+    }
+};
 /// `updown`/`downup` ping-pong across the built sequence without repeating
 /// either endpoint (classic arp behaviour). `played` walks the held-note
 /// press order instead of pitch order. `chord` retriggers every held note
@@ -384,9 +417,7 @@ pub const PolySynth = struct {
     // zig fmt: off
 
     // ── OSC C ────────────────────────────────────────────────────────────────
-    /// Plain additive 3rd oscillator: no MOD A<->B or warp participation,
-    /// same shape as OSC B otherwise. Kept simple deliberately - the mod
-    /// matrix and warp are per-A/B-slot features, not per-oscillator ones.
+    /// Third wavetable oscillator, with same warp and cross-mod support as A/B.
     osc_c_on:           bool     = false,
     osc_c_semi:         f32      = 0.0,
     osc_c_detune_cents: f32      = 0.0,
@@ -394,6 +425,8 @@ pub const PolySynth = struct {
     osc_c_unison:       u8       = 1,
     osc_c_unison_detune: f32     = 15.0,
     osc_c_unison_mode:  UnisonMode = .spread,
+    osc_c_warp_mode:    WarpMode = .none,
+    osc_c_warp_amount:  f32 = 0.0,
     // zig fmt: on
     /// OSC C's `.wavetable` table data - see `wt`'s doc comment. Its
     /// position param stays outside the mod matrix, like the rest of OSC C.
@@ -573,11 +606,6 @@ pub const PolySynth = struct {
     noise_level: f32 = 0.0,
     /// Color 0 = dark (heavily LP-filtered), 1 = white (unfiltered).
     noise_color: f32 = 1.0,
-
-    // ── MOD (A←→B) ──────────────────────────────────────────────────────────
-    mod_mode: ModMode = .none,
-    /// FM modes: modulation index β (0..8). AM / ring: depth 0..1.
-    mod_amount: f32 = 0.0,
 
     // ── PITCH BEND ──────────────────────────────────────────────────────────
     /// Applied to all active voices. Set via midi.applyPitchBend.
@@ -863,9 +891,7 @@ pub const PolySynth = struct {
         /// Current A/B/C wavetable positions, likewise ramped per sample.
         wt_positions: [3]f32 = @splat(0.0),
         /// Current A/B warp amounts, likewise ramped per sample.
-        warp_amounts: [2]f32 = @splat(0.0),
-        /// Current A/B modulation depth for FM, AM, and ring modes.
-        mod_amount: f32 = 0.0,
+        warp_amounts: [3]f32 = @splat(0.0),
         /// Current filter input drives, ramped before nonlinear stages.
         filter_drives: [2]f32 = @splat(1.0),
         // Amplitude envelope
@@ -1104,6 +1130,8 @@ pub const PolySynth = struct {
         osc_c_unison: u8 = 1,
         osc_c_unison_detune: f32 = 15.0,
         osc_c_unison_mode: UnisonMode = .spread,
+        osc_c_warp_mode: WarpMode = .none,
+        osc_c_warp_amount: f32 = 0.0,
         osc_c_wt_pos: f32 = 0.0,
 
         attack_s: f32 = 0.005,
@@ -1167,9 +1195,6 @@ pub const PolySynth = struct {
 
         noise_level: f32 = 0.0,
         noise_color: f32 = 1.0,
-
-        mod_mode: ModMode = .none,
-        mod_amount: f32 = 0.0,
 
         gain: f32 = 0.35,
 
@@ -1441,8 +1466,7 @@ pub const PolySynth = struct {
             .random           = random,
             .alternate        = if (self.mod_alternate) 1.0 else -1.0,
             .wt_positions     = .{ self.wt_pos, self.osc_b_wt_pos, self.osc_c_wt_pos },
-            .warp_amounts     = .{ self.warp_amount, self.osc_b_warp_amount },
-            .mod_amount       = self.mod_amount,
+            .warp_amounts     = .{ self.warp_amount, self.osc_b_warp_amount, self.osc_c_warp_amount },
             .filter_drives    = .{ self.filter_drive, self.filter2_drive },
             .filter_types     = .{ self.filter_type, self.filter2_type },
             .steal_tail_l     = if (was_active) prev_out[0] else 0.0,
@@ -1844,10 +1868,10 @@ pub const PolySynth = struct {
             // zig fmt: off
             const warp_amt_a   = eff(&mods, 42, self.warp_amount);
             const warp_amt_b   = eff(&mods, 44, self.osc_b_warp_amount);
+            const warp_amt_c   = eff(&mods, 15, self.osc_c_warp_amount);
             const wt_pos_a     = eff(&mods, 185, self.wt_pos);
             const wt_pos_b     = eff(&mods, 186, self.osc_b_wt_pos);
             const wt_pos_c     = eff(&mods, 187, self.osc_c_wt_pos);
-            const mod_amount_v = eff(&mods, 15, self.mod_amount);
             const b_level      = eff(&mods, 11, self.osc_b_level);
             const c_level      = eff(&mods, 55, self.osc_c_level);
             const sub_level_v  = eff(&mods, 34, self.sub_level);
@@ -1858,8 +1882,8 @@ pub const PolySynth = struct {
             var wt_steps: [3]f32 = undefined;
             for (&wt_steps, wt_targets, v.wt_positions) |*step, target, current|
                 step.* = (target - current) / @as(f32, @floatFromInt(frames));
-            const warp_targets = [2]f32{ warp_amt_a, warp_amt_b };
-            var warp_steps: [2]f32 = undefined;
+            const warp_targets = [3]f32{ warp_amt_a, warp_amt_b, warp_amt_c };
+            var warp_steps: [3]f32 = undefined;
             for (&warp_steps, warp_targets, v.warp_amounts) |*step, target, current|
                 step.* = (target - current) / @as(f32, @floatFromInt(frames));
 
@@ -1915,21 +1939,11 @@ pub const PolySynth = struct {
             const mix_norm = 1.0 / @sqrt(1.0 + b_pow + c_pow
                 + sub_level_v * sub_level_v
                 + noise_lvl_v * noise_lvl_v);
-            // ring_mix_norm: B acts as modulator only, so exclude b_pow. C is
-            // a plain additive voice regardless of mod_mode, so it's included.
-            const ring_mix_norm = 1.0 / @sqrt(1.0 + c_pow
-                + sub_level_v * sub_level_v
-                + noise_lvl_v * noise_lvl_v);
             // zig fmt: on
-            const ring = self.osc_b_on and self.mod_mode == .ring;
-            const mix_targets: [5]f32 = if (ring)
-                .{ scale_a * ring_mix_norm, 0.0, scale_c * c_level * ring_mix_norm, sub_level_v * ring_mix_norm, noise_lvl_v * ring_mix_norm }
-            else
-                .{ scale_a * mix_norm, scale_b * b_level * mix_norm, scale_c * c_level * mix_norm, sub_level_v * mix_norm, noise_lvl_v * mix_norm };
+            const mix_targets = [5]f32{ scale_a * mix_norm, scale_b * b_level * mix_norm, scale_c * c_level * mix_norm, sub_level_v * mix_norm, noise_lvl_v * mix_norm };
             var mix_steps: [5]f32 = undefined;
             for (&mix_steps, mix_targets, v.mix_gain) |*step, target, current| step.* = (target - current) / @as(f32, @floatFromInt(frames));
             const out_step = (gain_v - v.out_gain) / @as(f32, @floatFromInt(frames));
-            const mod_amount_step = (mod_amount_v - v.mod_amount) / @as(f32, @floatFromInt(frames));
             const drive_targets = [2]f32{ drive1_v, drive2_v };
             var drive_steps: [2]f32 = undefined;
             for (&drive_steps, drive_targets, v.filter_drives) |*step, target, current|
@@ -1953,6 +1967,8 @@ pub const PolySynth = struct {
             var pan_r_c: [max_unison]f32 = undefined;
             if (self.osc_c_on) computeUnisonPan(n_c, uni_spread, &pan_l_c, &pan_r_c);
 
+            const warp_modes = [3]WarpMode{ self.warp_mode, self.osc_b_warp_mode, self.osc_c_warp_mode };
+
             for (0..frames) |i| {
                 var a_l: f32 = 0.0;
                 var a_r: f32 = 0.0;
@@ -1960,29 +1976,30 @@ pub const PolySynth = struct {
                 var b_l: f32 = 0.0;
                 var b_r: f32 = 0.0;
                 var b_mono: f32 = 0.0;
+                var c_l: f32 = 0.0;
+                var c_r: f32 = 0.0;
+                var c_mono: f32 = 0.0;
 
-                // FM B→A: render B first so b_mono is ready when A phases advance.
-                if (self.osc_b_on and self.mod_mode == .fm_b_to_a) {
-                    for (0..n_b) |ui| {
-                        const samp = self.oscSampleB(v.phases_b[ui], phase_incs_b[ui], v.warp_amounts[1], v.wt_positions[1]);
-                        b_l += samp * pan_l_b[ui];
-                        b_r += samp * pan_r_b[ui];
-                        b_mono += samp;
-                        v.phases_b[ui] += phase_incs_b[ui];
-                        v.phases_b[ui] -= @floor(v.phases_b[ui]);
-                    }
-                    b_mono /= @as(f32, @floatFromInt(n_b));
+                // Read unmodulated current samples first. Every FM direction then
+                // sees same-sample source data, including mutual and cyclic routes.
+                var source = [3]f32{ 0.0, 0.0, 0.0 };
+                for (0..n_a) |ui| source[0] += self.oscSampleA(v.phases[ui], phase_incs_a[ui], v.warp_amounts[0], v.wt_positions[0]);
+                source[0] /= @as(f32, @floatFromInt(n_a));
+                if (self.osc_b_on) {
+                    for (0..n_b) |ui| source[1] += self.oscSampleB(v.phases_b[ui], phase_incs_b[ui], v.warp_amounts[1], v.wt_positions[1]);
+                    source[1] /= @as(f32, @floatFromInt(n_b));
+                }
+                if (self.osc_c_on) {
+                    for (0..n_c) |ui| source[2] += oscSample(self.osc_c_wt, self.osc_c_warp_mode, v.phases_c[ui], phase_incs_c[ui], v.warp_amounts[2], v.wt_positions[2]);
+                    source[2] /= @as(f32, @floatFromInt(n_c));
                 }
 
-                // OSC A: phase is FM-modulated by b_mono when mod_mode == fm_b_to_a.
-                // The step is computed before the sample, not after, because
-                // polyBLEP needs to know how fast the phase is moving to size
-                // its correction (see `polyBlep`).
+                const fm_a = routeAmount(warp_modes, v.warp_amounts, .fm_b_to_a) * source[1] + routeAmount(warp_modes, v.warp_amounts, .fm_c_to_a) * source[2];
+                const fm_b = routeAmount(warp_modes, v.warp_amounts, .fm_a_to_b) * source[0] + routeAmount(warp_modes, v.warp_amounts, .fm_c_to_b) * source[2];
+                const fm_c = routeAmount(warp_modes, v.warp_amounts, .fm_a_to_c) * source[0] + routeAmount(warp_modes, v.warp_amounts, .fm_b_to_c) * source[1];
+
                 for (0..n_a) |ui| {
-                    const inc: f32 = if (self.mod_mode == .fm_b_to_a)
-                        modulatedPhaseInc(phase_incs_a[ui], 1.0 + v.mod_amount * b_mono)
-                    else
-                        phase_incs_a[ui];
+                    const inc = modulatedPhaseInc(phase_incs_a[ui], 1.0 + fm_a);
                     const samp = self.oscSampleA(v.phases[ui], inc, v.warp_amounts[0], v.wt_positions[0]);
                     a_l += samp * pan_l_a[ui];
                     a_r += samp * pan_r_a[ui];
@@ -1992,14 +2009,9 @@ pub const PolySynth = struct {
                 }
                 a_mono /= @as(f32, @floatFromInt(n_a));
 
-                // OSC B: skip if already rendered above for fm_b_to_a.
-                if (self.osc_b_on and self.mod_mode != .fm_b_to_a) {
+                if (self.osc_b_on) {
                     for (0..n_b) |ui| {
-                        // FM A→B: advance B's phase modulated by a_mono.
-                        const inc: f32 = if (self.mod_mode == .fm_a_to_b)
-                            modulatedPhaseInc(phase_incs_b[ui], 1.0 + v.mod_amount * a_mono)
-                        else
-                            phase_incs_b[ui];
+                        const inc = modulatedPhaseInc(phase_incs_b[ui], 1.0 + fm_b);
                         const samp = self.oscSampleB(v.phases_b[ui], inc, v.warp_amounts[1], v.wt_positions[1]);
                         b_l += samp * pan_l_b[ui];
                         b_r += samp * pan_r_b[ui];
@@ -2010,33 +2022,20 @@ pub const PolySynth = struct {
                     b_mono /= @as(f32, @floatFromInt(n_b));
                 }
 
-                // AM: post-hoc amplitude scaling - (1 + m·mod) / (1 + m) keeps peak = 1.
-                // Clamped to [0,1]: mod_amount up to 8 can drive the formula negative otherwise.
-                if (self.osc_b_on) switch (self.mod_mode) {
-                    .am_a_to_b => {
-                        const g = std.math.clamp((1.0 + v.mod_amount * a_mono) / (1.0 + v.mod_amount), 0.0, 1.0);
-                        // zig fmt: off
-                        b_l *= g; b_r *= g;
-                    },
-                    .am_b_to_a => {
-                        const g = std.math.clamp((1.0 + v.mod_amount * b_mono) / (1.0 + v.mod_amount), 0.0, 1.0);
-                        a_l *= g; a_r *= g;
-                    },
-                    else => {},
-                };
-
-                // OSC C: plain additive voice, no MOD A<->B or warp interaction.
-                var c_l: f32 = 0.0;
-                var c_r: f32 = 0.0;
                 if (self.osc_c_on) {
                     for (0..n_c) |ui| {
-                        const samp = wavetable.lookup(self.osc_c_wt, v.wt_positions[2], v.phases_c[ui], phase_incs_c[ui]);
+                        const inc = modulatedPhaseInc(phase_incs_c[ui], 1.0 + fm_c);
+                        const samp = oscSample(self.osc_c_wt, self.osc_c_warp_mode, v.phases_c[ui], inc, v.warp_amounts[2], v.wt_positions[2]);
                         c_l += samp * pan_l_c[ui];
                         c_r += samp * pan_r_c[ui];
-                        v.phases_c[ui] += phase_incs_c[ui];
+                        c_mono += samp;
+                        v.phases_c[ui] += inc;
                         v.phases_c[ui] -= @floor(v.phases_c[ui]);
                     }
+                    c_mono /= @as(f32, @floatFromInt(n_c));
                 }
+
+                applyAmplitudeWarp(warp_modes, v.warp_amounts, .{ a_mono, b_mono, c_mono }, &a_l, &a_r, &b_l, &b_r, &c_l, &c_r);
 
                 // Sub: always centre (mono → both channels). Routed through
                 // oscWave at a fixed 50% duty so the square sub gets the same
@@ -2059,24 +2058,10 @@ pub const PolySynth = struct {
                     nse_out = v.noise_lp;
                 }
 
-                // Stereo mix.
-                // Ring: dry↔ring crossfade - depth=0 → A unmodulated; depth=1 → A·b_mono.
-                // Formula: (1-d) + d·b_mono stays in [-1,1] for d∈[0,1], b_mono∈[-1,1].
-                // FM/AM/none: standard A + B mix (B contribution already modulated above).
-                const ring_factor: f32 = if (ring) blk: {
-                    const depth = std.math.clamp(v.mod_amount, 0.0, 1.0);
-                    break :blk (1.0 - depth) + depth * b_mono;
-                } else 0.0;
                 for (&v.mix_gain, mix_steps) |*gain, step| gain.* += step;
                 v.out_gain += out_step;
-                const osc_l: f32 = if (ring)
-                    a_l * v.mix_gain[0] * ring_factor + c_l * v.mix_gain[2] + sub_out * v.mix_gain[3] + nse_out * v.mix_gain[4]
-                else
-                    a_l * v.mix_gain[0] + b_l * v.mix_gain[1] + c_l * v.mix_gain[2] + sub_out * v.mix_gain[3] + nse_out * v.mix_gain[4];
-                const osc_r: f32 = if (ring)
-                    a_r * v.mix_gain[0] * ring_factor + c_r * v.mix_gain[2] + sub_out * v.mix_gain[3] + nse_out * v.mix_gain[4]
-                else
-                    a_r * v.mix_gain[0] + b_r * v.mix_gain[1] + c_r * v.mix_gain[2] + sub_out * v.mix_gain[3] + nse_out * v.mix_gain[4];
+                const osc_l = a_l * v.mix_gain[0] + b_l * v.mix_gain[1] + c_l * v.mix_gain[2] + sub_out * v.mix_gain[3] + nse_out * v.mix_gain[4];
+                const osc_r = a_r * v.mix_gain[0] + b_r * v.mix_gain[1] + c_r * v.mix_gain[2] + sub_out * v.mix_gain[3] + nse_out * v.mix_gain[4];
 
                 // Stereo filter: same coefficients, independent L/R histories.
                 // zig fmt: off
@@ -2109,7 +2094,6 @@ pub const PolySynth = struct {
                 v.steal_fade = @max(v.steal_fade - steal_fade_step, 0.0);
                 for (&v.wt_positions, wt_steps) |*current, step| current.* += step;
                 for (&v.warp_amounts, warp_steps) |*current, step| current.* += step;
-                v.mod_amount += mod_amount_step;
                 for (&v.filter_drives, drive_steps) |*current, step| current.* += step;
                 // zig fmt: on
 
@@ -2560,6 +2544,42 @@ pub const PolySynth = struct {
         return oscSample(self.osc_b_wt, self.osc_b_warp_mode, phase, inc, warp_amount, wt_pos);
     }
 
+    fn routeAmount(modes: [3]WarpMode, amounts: [3]f32, route: WarpMode) f32 {
+        var amount: f32 = 0.0;
+        for (modes, amounts) |mode, value| if (mode == route) {
+            amount += value;
+        };
+        return amount;
+    }
+
+    fn ampGain(amount: f32, modulator: f32) f32 {
+        const depth = std.math.clamp(amount, 0.0, 1.0);
+        return std.math.clamp((1.0 + depth * modulator) / (1.0 + depth), 0.0, 1.0);
+    }
+
+    fn ringGain(amount: f32, modulator: f32) f32 {
+        const depth = std.math.clamp(amount, 0.0, 1.0);
+        return (1.0 - depth) + depth * modulator;
+    }
+
+    fn applyAmplitudeWarp(modes: [3]WarpMode, amounts: [3]f32, mono: [3]f32, a_l: *f32, a_r: *f32, b_l: *f32, b_r: *f32, c_l: *f32, c_r: *f32) void {
+        const a_gain = ampGain(routeAmount(modes, amounts, .am_b_to_a), mono[1]) *
+            ampGain(routeAmount(modes, amounts, .am_c_to_a), mono[2]) *
+            ringGain(routeAmount(modes, amounts, .ring_a_b), mono[1]) *
+            ringGain(routeAmount(modes, amounts, .ring_a_c), mono[2]);
+        const b_gain = ampGain(routeAmount(modes, amounts, .am_a_to_b), mono[0]) *
+            ampGain(routeAmount(modes, amounts, .am_c_to_b), mono[2]) *
+            ringGain(routeAmount(modes, amounts, .ring_b_c), mono[2]);
+        const c_gain = ampGain(routeAmount(modes, amounts, .am_a_to_c), mono[0]) *
+            ampGain(routeAmount(modes, amounts, .am_b_to_c), mono[1]);
+        a_l.* *= a_gain;
+        a_r.* *= a_gain;
+        b_l.* *= b_gain;
+        b_r.* *= b_gain;
+        c_l.* *= c_gain;
+        c_r.* *= c_gain;
+    }
+
     pub fn resetAll(self: *PolySynth) void {
         for (&self.voices) |*v| v.* = .{};
         self.held_count = 0;
@@ -2595,7 +2615,7 @@ pub const PolySynth = struct {
             .noise_color       => self.noise_color  = v01,
             .lfo_rate          => self.lfo_rate_hz  = 0.01 * std.math.pow(f32, 2000.0, v01),
             .lfo_depth_cc      => self.mod_wheel    = v01,
-            .mod_amount        => self.mod_amount   = v01 * 8.0,
+            .mod_amount        => self.warp_amount = v01 * 8.0,
             .filter_res        => self.filter_res    = v01,
             .amp_release       => self.release_s     = v01 * 4.0,
             .amp_attack        => self.attack_s      = v01 * 4.0,
@@ -2743,8 +2763,8 @@ pub const PolySynth = struct {
         .{ .id = 11, .field = "osc_b_level", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 12, .field = "osc_b_unison", .kind = .int_cont, .min = 1, .max = 16 },
         .{ .id = 13, .field = "osc_b_unison_detune", .min = 0.0, .max = 100.0, .step = 1.0 },
-        .{ .id = 14, .field = "mod_mode", .kind = .cycle, .enum_type = ModMode },
-        .{ .id = 15, .field = "mod_amount", .min = 0.0, .max = 8.0, .step = 0.05 },
+        .{ .id = 14, .field = "osc_c_warp_mode", .kind = .cycle, .enum_type = WarpMode },
+        .{ .id = 15, .field = "osc_c_warp_amount", .min = 0.0, .max = 8.0, .step = 0.05 },
         .{ .id = 16, .field = "attack_s", .kind = .log, .min = 0.001, .max = 5.0 },
         .{ .id = 17, .field = "decay_s", .kind = .log, .min = 0.001, .max = 5.0 },
         .{ .id = 18, .field = "sustain", .min = 0.0, .max = 1.0, .step = 0.01 },
@@ -2777,9 +2797,9 @@ pub const PolySynth = struct {
         .{ .id = 39, .field = "unison_mode", .kind = .cycle, .enum_type = UnisonMode },
         .{ .id = 40, .field = "osc_b_unison_mode", .kind = .cycle, .enum_type = UnisonMode },
         .{ .id = 41, .field = "warp_mode", .kind = .cycle, .enum_type = WarpMode },
-        .{ .id = 42, .field = "warp_amount", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 42, .field = "warp_amount", .min = 0.0, .max = 8.0, .step = 0.05 },
         .{ .id = 43, .field = "osc_b_warp_mode", .kind = .cycle, .enum_type = WarpMode },
-        .{ .id = 44, .field = "osc_b_warp_amount", .min = 0.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 44, .field = "osc_b_warp_amount", .min = 0.0, .max = 8.0, .step = 0.05 },
         .{ .id = 45, .field = "filter2_on", .kind = .toggle },
         .{ .id = 46, .field = "filter2_type", .kind = .cycle, .enum_type = FilterType },
         .{ .id = 47, .field = "filter2_cutoff", .kind = .log, .min = 20.0, .max = 20_000.0 },
@@ -3061,7 +3081,7 @@ pub const PolySynth = struct {
         .{ .id = 11, .label = "LEVEL B",    .section = "OSC B",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 12, .label = "UNISON B",   .section = "OSC B",   .range = .{ 1.0,    16.0 },    .step = 1.0 },
         .{ .id = 13, .label = "UNI DET B",  .section = "OSC B",   .range = .{ 0.0,    100.0 },   .step = 1.0 },
-        .{ .id = 15, .label = "MOD AMT",    .section = "MOD",     .range = .{ 0.0,    8.0 },     .step = 0.05 },
+        .{ .id = 15, .label = "WARP AMT C", .section = "OSC C",   .range = .{ 0.0,    8.0 },     .step = 0.05 },
         .{ .id = 16, .label = "ATTACK",     .section = "ENV",     .range = .{ 0.001,  5.0 },     .step = 0.01 },
         .{ .id = 17, .label = "DECAY",      .section = "ENV",     .range = .{ 0.001,  5.0 },     .step = 0.01 },
         .{ .id = 18, .label = "SUSTAIN",    .section = "ENV",     .range = .{ 0.0,    1.0 },     .step = 0.01 },
@@ -3083,8 +3103,8 @@ pub const PolySynth = struct {
         .{ .id = 36, .label = "NOISE LVL",  .section = "NOISE",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 37, .label = "NOISE CLR",  .section = "NOISE",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 38, .label = "OUT GAIN",   .section = "OUT",     .range = .{ 0.01,   1.0 },     .step = 0.01 },
-        .{ .id = 42, .label = "WARP AMT A", .section = "OSC A",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
-        .{ .id = 44, .label = "WARP AMT B", .section = "OSC B",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
+        .{ .id = 42, .label = "WARP AMT A", .section = "OSC A",   .range = .{ 0.0,    8.0 },     .step = 0.05 },
+        .{ .id = 44, .label = "WARP AMT B", .section = "OSC B",   .range = .{ 0.0,    8.0 },     .step = 0.05 },
         .{ .id = 47, .label = "CUTOFF 2",   .section = "FILTER 2",.range = .{ 20.0,   20_000.0 },.step = 100.0 },
         .{ .id = 48, .label = "RESONANCE 2",.section = "FILTER 2",.range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 250,.label = "DRIVE 2",    .section = "FILTER 2",.range = .{ 1.0,    16.0 },    .step = 0.1 },
@@ -4663,7 +4683,7 @@ test "paramValue/setParamAbsolute round-trip continuous, enum, and toggle params
     a.sustain = 0.37;
     a.filter_type = .bp;
     a.osc_b_on = true;
-    a.mod_mode = .fm_a_to_b;
+    a.osc_c_warp_mode = .fm_a_to_b;
 
     // Every editor param id survives a value-copy through the pair.
     var b = try PolySynth.init(std.testing.allocator, 48_000);
@@ -4675,7 +4695,7 @@ test "paramValue/setParamAbsolute round-trip continuous, enum, and toggle params
     try std.testing.expectApproxEqAbs(@as(f32, 0.37), b.sustain, 1e-6);
     try std.testing.expectEqual(FilterType.bp, b.filter_type);
     try std.testing.expect(b.osc_b_on);
-    try std.testing.expectEqual(ModMode.fm_a_to_b, b.mod_mode);
+    try std.testing.expectEqual(WarpMode.fm_a_to_b, b.osc_c_warp_mode);
 
     // A non-finite ordinal is ignored; a huge finite one clamps safely.
     const filter_before = b.filter_type;
@@ -4975,17 +4995,51 @@ test "repeated notes receive different noise streams" {
     try std.testing.expect(first_seed != 0 and second_seed != 0);
 }
 
-test "oscillator modulation amount ramps to live target across one block" {
+test "oscillator warp amount ramps to live target across one block" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
     synth.osc_b_on = true;
-    synth.mod_mode = .fm_b_to_a;
+    synth.osc_b_warp_mode = .fm_b_to_a;
     synth.noteOn(60, 1.0);
 
-    synth.mod_amount = 6.0;
+    synth.osc_b_warp_amount = 6.0;
     var buf = [_]Sample{0.0} ** 16;
     synth.processBlock(&buf);
-    try std.testing.expectApproxEqAbs(@as(f32, 6.0), synth.voices[synth.newest_voice].mod_amount, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 6.0), synth.voices[synth.newest_voice].warp_amounts[1], 1e-6);
+}
+
+test "every warp type works from every oscillator slot" {
+    inline for (@typeInfo(WarpMode).@"enum".fields) |field| {
+        const mode: WarpMode = @enumFromInt(field.value);
+        if (comptime mode == .none) continue;
+        for (0..3) |slot| {
+            var synth = try PolySynth.init(std.testing.allocator, 48_000);
+            defer synth.deinit();
+            synth.osc_b_on = true;
+            synth.osc_c_on = true;
+            const amount: f32 = if (mode.isFm()) 8.0 else 1.0;
+            switch (slot) {
+                0 => {
+                    synth.warp_mode = mode;
+                    synth.warp_amount = amount;
+                },
+                1 => {
+                    synth.osc_b_warp_mode = mode;
+                    synth.osc_b_warp_amount = amount;
+                },
+                2 => {
+                    synth.osc_c_warp_mode = mode;
+                    synth.osc_c_warp_amount = amount;
+                },
+                else => unreachable,
+            }
+            synth.noteOn(60, 1.0);
+
+            var buf = [_]Sample{0.0} ** 128;
+            synth.processBlock(&buf);
+            for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
+        }
+    }
 }
 
 test "changing filter models clears incompatible voice state" {

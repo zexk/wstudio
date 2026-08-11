@@ -95,7 +95,7 @@ pub const main_sections = [_]SectionDef{
         .{ .id = 2,  .label = "detune" },    .{ .id = 3,  .label = "unison" },
         .{ .id = 4,  .label = "uni.det" },   .{ .id = 5,  .label = "spread" },
         .{ .id = 39, .label = "uni.mode" },  .{ .id = 41, .label = "warp" },
-        .{ .id = 42, .label = "warp amt" },  .{ .id = 185, .label = "position" },
+        .{ .id = 42, .label = "amount" },    .{ .id = 185, .label = "position" },
         .{ .id = 251, .label = "waveform" },
     } },
     .{ .title = "OSC B", .tone = .source, .band = 0, .params = &.{
@@ -103,14 +103,15 @@ pub const main_sections = [_]SectionDef{
         .{ .id = 10, .label = "detune" },    .{ .id = 11, .label = "level" },
         .{ .id = 12, .label = "unison" },    .{ .id = 13, .label = "uni.det" },
         .{ .id = 40, .label = "uni.mode" },  .{ .id = 43, .label = "warp" },
-        .{ .id = 44, .label = "warp amt" },  .{ .id = 186, .label = "position" },
+        .{ .id = 44, .label = "amount" },    .{ .id = 186, .label = "position" },
         .{ .id = 252, .label = "waveform" },
     } },
     .{ .title = "OSC C", .tone = .source, .band = 0, .params = &.{
         .{ .id = 50, .label = "on/off" },    .{ .id = 53, .label = "semi" },
         .{ .id = 54, .label = "detune" },    .{ .id = 55, .label = "level" },
         .{ .id = 56, .label = "unison" },    .{ .id = 57, .label = "uni.det" },
-        .{ .id = 58, .label = "uni.mode" },  .{ .id = 187, .label = "position" },
+        .{ .id = 58, .label = "uni.mode" },  .{ .id = 14, .label = "warp" },
+        .{ .id = 15, .label = "amount" },    .{ .id = 187, .label = "position" },
         .{ .id = 253, .label = "waveform" },
     } },
     .{ .title = "SUB", .tone = .source, .band = 1, .params = &.{
@@ -118,9 +119,6 @@ pub const main_sections = [_]SectionDef{
     } },
     .{ .title = "NOISE", .tone = .source, .band = 1, .params = &.{
         .{ .id = 36, .label = "level" }, .{ .id = 37, .label = "color" },
-    } },
-    .{ .title = "MOD  (A \u{2194} B)", .tone = .mod, .band = 1, .params = &.{
-        .{ .id = 14, .label = "mode" }, .{ .id = 15, .label = "amount" },
     } },
     .{ .title = "FILTER 1", .tone = .filter, .band = 2, .params = &.{
         .{ .id = 20, .label = "type" }, .{ .id = 21, .label = "cutoff" }, .{ .id = 22, .label = "res" },

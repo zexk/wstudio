@@ -302,6 +302,7 @@ pub fn warpPhase(mode: WarpMode, phase: f32, amount: f32) f32 {
             const warped = p * (1.0 + a * 7.0);
             break :blk warped - @floor(warped);
         },
+        else => p,
     };
 }
 

@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 53;
+pub const file_version: u32 = 54;
 
 /// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
 /// reasoning as `EqBandKindSnap`.
@@ -132,6 +132,8 @@ pub const SynthSnap = struct {
     osc_c_unison: u8 = 1,
     osc_c_unison_detune: f32 = 15.0,
     osc_c_unison_mode: synth_mod.UnisonMode = .spread,
+    osc_c_warp_mode: synth_mod.WarpMode = .none,
+    osc_c_warp_amount: f32 = 0.0,
     // Amp envelope
     attack_s: f32 = 0.005,
     decay_s: f32 = 0.08,
@@ -198,9 +200,6 @@ pub const SynthSnap = struct {
     // Noise
     noise_level: f32 = 0.0,
     noise_color: f32 = 1.0,
-    // Mod
-    mod_mode: synth_mod.ModMode = .none,
-    mod_amount: f32 = 0.0,
     // Output
     gain: f32 = 0.35,
     // Arpeggiator

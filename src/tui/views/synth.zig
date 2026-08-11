@@ -76,9 +76,9 @@ pub fn drawSynthEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
 /// order* is table-driven.
 const RenderFn = *const fn (w: *std.Io.Writer, synth: *const PolySynth, c: u16) anyerror!void;
 const main_render_fns = [_]RenderFn{
-    secMacro,  secOscA,    secOscB, secOscC, secSub,  secNoise, secMod,
-    secFilter, secFilter2, secEnv,  secFenv, secEnv3, secVoice, secArp,
-    secOut,
+    secMacro,  secOscA,    secOscB, secOscC, secSub,  secNoise,
+    secFilter, secFilter2, secEnv,  secFenv, secEnv3, secVoice,
+    secArp,    secOut,
 };
 comptime {
     if (main_render_fns.len != synth_layout.main_sections.len)
@@ -258,8 +258,8 @@ fn secOscA(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     // sections' "osc a" rows - folded into this card so each oscillator's
     // controls live in one place instead of three cross-cutting sections.
     try enumRow(w, c == 39, synth.unison <= 1, acc, "uni.mode", &uni_mode_names, @intFromEnum(synth.unison_mode));
-    try enumRow(w, c == 41, false, acc, "warp", &warp_mode_names, @intFromEnum(synth.warp_mode));
-    try barRow(w, c == 42, synth.warp_mode == .none, acc, "warp amt", synth.warp_amount, 1.0,
+    try warpRow(w, c == 41, false, synth.warp_mode);
+    try barRow(w, c == 42, synth.warp_mode == .none, acc, "amount", synth.warp_amount, warpMax(synth.warp_mode),
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.warp_amount}));
     try barRow(w, c == 185, false, acc, "position", synth.wt_pos, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.wt_pos}));
@@ -290,34 +290,12 @@ fn secOscB(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     // uni.mode/warp/wt.pos - see secOscA's matching rows for why these live
     // here now instead of in standalone UNI MODE/WARP/WAVETABLE sections.
     try enumRow(w, c == 40, !b_on or synth.osc_b_unison <= 1, acc, "uni.mode", &uni_mode_names, @intFromEnum(synth.osc_b_unison_mode));
-    try enumRow(w, c == 43, !b_on, acc, "warp", &warp_mode_names, @intFromEnum(synth.osc_b_warp_mode));
-    try barRow(w, c == 44, !b_on or synth.osc_b_warp_mode == .none, acc, "warp amt", synth.osc_b_warp_amount, 1.0,
+    try warpRow(w, c == 43, !b_on, synth.osc_b_warp_mode);
+    try barRow(w, c == 44, !b_on or synth.osc_b_warp_mode == .none, acc, "amount", synth.osc_b_warp_amount, warpMax(synth.osc_b_warp_mode),
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_b_warp_amount}));
     try barRow(w, c == 186, !b_on, acc, "position", synth.osc_b_wt_pos, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_b_wt_pos}));
     try wtTableRow(w, c == 252, !b_on, synth.osc_b_wt_bundled);
-}
-
-fn secMod(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
-    var buf: [40]u8 = undefined;
-    try synthSection(w, "MOD  (A \u{2194} B)", mag);
-
-    const mod_on = synth.mod_mode != .none;
-    const mod_names = [_][]const u8{ "off", "ring", "AM>B", "AM>A", "FM>B", "FM>A" };
-    const mod_idx: usize = switch (synth.mod_mode) {
-        .none => 0, .ring => 1, .am_a_to_b => 2, .am_b_to_a => 3,
-        .fm_a_to_b => 4, .fm_b_to_a => 5,
-    };
-    try enumRow(w, c == 14, false, mag, "mode", &mod_names, mod_idx);
-
-    {
-        const is_fm = switch (synth.mod_mode) { .fm_a_to_b, .fm_b_to_a => true, else => false };
-        const vs = if (is_fm)
-            try std.fmt.bufPrint(&buf, "\u{03B2}={d:.2}", .{synth.mod_amount})
-        else
-            try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.mod_amount});
-        try barRow(w, c == 15, !mod_on, mag, "amount", synth.mod_amount, 8.0, vs);
-    }
 }
 
 fn secEnv(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
@@ -570,7 +548,22 @@ fn secOut(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
 
 const uni_mode_names = [_][]const u8{ "spread", "step", "harm", "ratio" };
 
-const warp_mode_names = [_][]const u8{ "none", "bend", "mirror", "sync" };
+const warp_mode_names = [_][]const u8{
+    "none", "bend", "mirror", "sync", "ring A-B", "ring A-C", "ring B-C",
+    "AM A>B", "AM A>C", "AM B>A", "AM B>C", "AM C>A", "AM C>B",
+    "FM A>B", "FM A>C", "FM B>A", "FM B>C", "FM C>A", "FM C>B",
+};
+
+fn warpRow(w: *std.Io.Writer, is_sel: bool, dimmed: bool, mode: ws.dsp.synth.WarpMode) !void {
+    try rowHead(w, is_sel, dimmed, "warp");
+    try w.writeByte(' ');
+    try rowVal(w, is_sel, dimmed, warp_mode_names[@intFromEnum(mode)]);
+    try endLine(w);
+}
+
+fn warpMax(mode: ws.dsp.synth.WarpMode) f32 {
+    return if (mode.isFm()) 8.0 else 1.0;
+}
 
 fn secFilter2(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
@@ -599,8 +592,6 @@ fn secFilter2(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try enumRow(w, c == 49, !on, yel, "routing", &routing_names, routing_idx);
 }
 
-/// Plain additive 3rd oscillator - same row shape as OSC B, no mod/warp rows
-/// since OSC C doesn't participate in either (see PolySynth's own doc comment).
 fn secOscC(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "OSC C", acc);
@@ -621,6 +612,9 @@ fn secOscC(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
         try std.fmt.bufPrint(&buf, "{d:.1} ct", .{synth.osc_c_unison_detune}));
 
     try enumRow(w, c == 58, !c_on or synth.osc_c_unison <= 1, acc, "uni.mode", &uni_mode_names, @intFromEnum(synth.osc_c_unison_mode));
+    try warpRow(w, c == 14, !c_on, synth.osc_c_warp_mode);
+    try barRow(w, c == 15, !c_on or synth.osc_c_warp_mode == .none, acc, "amount", synth.osc_c_warp_amount, warpMax(synth.osc_c_warp_mode),
+        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_c_warp_amount}));
     try barRow(w, c == 187, !c_on, acc, "position", synth.osc_c_wt_pos, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_c_wt_pos}));
     try wtTableRow(w, c == 253, !c_on, synth.osc_c_wt_bundled);

@@ -42,8 +42,8 @@ fn drawMain(app: anytype, synth: *ws.dsp.PolySynth) void {
     }
 
     if (tabForCursor(synth_layout.main_sections[1..4], app.core.synth_cursor)) |slot| app.core.synth_osc_tab = slot;
-    if (tabForCursor(synth_layout.main_sections[7..9], app.core.synth_cursor)) |slot| app.core.synth_filter_tab = slot;
-    if (tabForCursor(synth_layout.main_sections[9..12], app.core.synth_cursor)) |slot| app.core.synth_env_tab = slot;
+    if (tabForCursor(synth_layout.main_sections[6..8], app.core.synth_cursor)) |slot| app.core.synth_filter_tab = slot;
+    if (tabForCursor(synth_layout.main_sections[8..11], app.core.synth_cursor)) |slot| app.core.synth_env_tab = slot;
     app.core.last_cols = 160;
 
     const gap: f32 = 12;
@@ -57,30 +57,27 @@ fn drawMain(app: anytype, synth: *ws.dsp.PolySynth) void {
     drawTabbedCard(app, synth, synth_layout.main_sections[1..4], &app.core.synth_osc_tab, "synth-osc-tabs", column_w);
     const env_y = zgui.getCursorPosY();
     zgui.setCursorPos(.{ origin[0] + macro_w + gap, env_y });
-    drawTabbedCard(app, synth, synth_layout.main_sections[9..12], &app.core.synth_env_tab, "synth-env-tabs", column_w);
+    drawTabbedCard(app, synth, synth_layout.main_sections[8..11], &app.core.synth_env_tab, "synth-env-tabs", column_w);
     const center_bottom = zgui.getCursorPosY();
 
     zgui.setCursorPos(.{ right_x, origin[1] });
-    drawTabbedCard(app, synth, synth_layout.main_sections[7..9], &app.core.synth_filter_tab, "synth-filter-tabs", column_w);
+    drawTabbedCard(app, synth, synth_layout.main_sections[6..8], &app.core.synth_filter_tab, "synth-filter-tabs", column_w);
     const pair_y = zgui.getCursorPosY();
     const pair_w = (column_w - gap) / 2;
     zgui.setCursorPos(.{ right_x, pair_y });
     drawCard(app, synth, synth_layout.main_sections[4], "synth-main", 4, pair_w);
     zgui.sameLine(.{ .spacing = gap });
     drawCard(app, synth, synth_layout.main_sections[5], "synth-main", 5, pair_w);
-    const mod_y = zgui.getCursorPosY();
-    zgui.setCursorPos(.{ right_x, mod_y });
-    drawCard(app, synth, synth_layout.main_sections[6], "synth-main", 6, column_w);
     const right_bottom = zgui.getCursorPosY();
 
     const bottom_y = @max(center_bottom, right_bottom);
     const utility_w = (content_w - gap * 2) / 3;
     zgui.setCursorPos(.{ origin[0] + macro_w + gap, bottom_y });
-    drawCard(app, synth, synth_layout.main_sections[13], "synth-main", 13, utility_w);
-    zgui.sameLine(.{ .spacing = gap });
     drawCard(app, synth, synth_layout.main_sections[12], "synth-main", 12, utility_w);
     zgui.sameLine(.{ .spacing = gap });
-    drawCard(app, synth, synth_layout.main_sections[14], "synth-main", 14, utility_w);
+    drawCard(app, synth, synth_layout.main_sections[11], "synth-main", 11, utility_w);
+    zgui.sameLine(.{ .spacing = gap });
+    drawCard(app, synth, synth_layout.main_sections[13], "synth-main", 13, utility_w);
     const composition_bottom = zgui.getCursorPosY();
 
     zgui.setCursorPos(origin);

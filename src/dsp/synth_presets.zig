@@ -183,7 +183,7 @@ pub const presets = [_]Preset{
     // reverb tail
     .{ .name = "bell-fm", .category = "keys", .tags = &.{ "wstudio", "trance" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_detune_cents = 7.0,
-        .mod_mode = .fm_b_to_a, .mod_amount = 3.5,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 3.5,
         .attack_s = 0.001, .decay_s = 1.2, .sustain = 0.0, .release_s = 1.8, .env_curve = 0.72,
         .filter_type = .lp, .filter_cutoff = 12_000.0, .filter_res = 0.0,
         .mod_matrix = mods(&.{
@@ -258,7 +258,7 @@ pub const presets = [_]Preset{
     // chorus like the suitcase's stereo vibrato
     .{ .name = "rhodes-keys", .category = "keys", .tags = &.{ "wstudio", "hip-hop" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 14.0, .osc_b_detune_cents = 3.0,
-        .mod_mode = .fm_b_to_a, .mod_amount = 1.0,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 1.0,
         .attack_s = 0.002, .decay_s = 1.4, .sustain = 0.25, .release_s = 0.9, .env_curve = 0.55,
         .filter_type = .lp, .filter_cutoff = 3800.0, .filter_res = 0.05,
         .mod_matrix = mods(&.{
@@ -340,7 +340,7 @@ pub const presets = [_]Preset{
     .{ .name = "neuro-bass", .category = "bass", .tags = &.{ "wstudio", "neurofunk" }, .patch = .{
         .wt_table = .formant, .wt_pos = 0.65, .voice_mode = .mono, .glide_s = 0.01,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 6.0, .osc_b_level = 1.0,
-        .mod_mode = .fm_b_to_a, .mod_amount = 4.5,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 4.5,
         .attack_s = 0.004, .decay_s = 0.18, .sustain = 0.9, .release_s = 0.12,
         .filter_type = .ladder, .filter_cutoff = 550.0, .filter_res = 0.45, .filter_drive = 4.0,
         .filter2_on = true, .filter2_type = .formant, .filter2_cutoff = 400.0, .filter2_res = 0.4, .filter2_drive = 2.5, .filter_routing = .series,
@@ -675,7 +675,7 @@ pub const presets = [_]Preset{
     // glass-pad - velocity glints the FM depth, chorus + hall around it
     .{ .name = "glass-pad", .category = "pad", .tags = &.{ "wstudio", "ambient" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 19.0, .osc_b_detune_cents = 4.0, .osc_b_level = 0.6,
-        .mod_mode = .fm_b_to_a, .mod_amount = 1.2,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 1.2,
         .attack_s = 1.5, .decay_s = 1.5, .sustain = 0.6, .release_s = 2.5,
         .filter_type = .lp, .filter_cutoff = 6000.0, .filter_res = 0.0,
         .lfo_rate_hz = 0.3,
@@ -695,7 +695,7 @@ pub const presets = [_]Preset{
     // trap-bell - velocity rings the FM brighter, long dark reverb tail
     .{ .name = "trap-bell", .category = "keys", .tags = &.{ "wstudio", "trap" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_detune_cents = 4.0, .osc_b_level = 0.9,
-        .mod_mode = .fm_b_to_a, .mod_amount = 2.6,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 2.6,
         .voice_mode = .mono, .glide_s = 0.06,
         .attack_s = 0.001, .decay_s = 0.6, .sustain = 0.0, .release_s = 0.5, .env_curve = 0.75,
         .filter_type = .lp, .filter_cutoff = 9000.0, .filter_res = 0.0,
@@ -815,7 +815,7 @@ pub const presets = [_]Preset{
     // reed-keys - velocity breathes into the FM depth, light chorus
     .{ .name = "reed-keys", .category = "keys", .tags = &.{ "wstudio", "soul" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_detune_cents = 2.0, .osc_b_level = 0.5,
-        .mod_mode = .fm_b_to_a, .mod_amount = 2.4,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 2.4,
         .attack_s = 0.002, .decay_s = 1.0, .sustain = 0.2, .release_s = 0.6,
         .filter_type = .lp, .filter_cutoff = 3200.0, .filter_res = 0.05,
         .mod_matrix = mods(&.{
@@ -831,7 +831,7 @@ pub const presets = [_]Preset{
     // mallet - velocity-bright strikes, small room around the bars
     .{ .name = "mallet", .category = "keys", .tags = &.{ "wstudio", "jazz" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 24.0, .osc_b_detune_cents = 2.0, .osc_b_level = 0.5,
-        .mod_mode = .fm_b_to_a, .mod_amount = 1.5,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 1.5,
         .attack_s = 0.001, .decay_s = 0.7, .sustain = 0.0, .release_s = 0.4, .env_curve = 0.72,
         .filter_type = .lp, .filter_cutoff = 8000.0, .filter_res = 0.0,
         .lfo_rate_hz = 5.0,
@@ -887,7 +887,7 @@ pub const presets = [_]Preset{
     .{ .name = "growl-bass", .category = "bass", .tags = &.{ "wstudio", "dubstep" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.01,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 8.0, .osc_b_level = 0.8,
-        .mod_mode = .fm_b_to_a, .mod_amount = 3.5,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 3.5,
         .attack_s = 0.004, .decay_s = 0.15, .sustain = 1.0, .release_s = 0.12,
         .filter_type = .formant, .filter_cutoff = 300.0, .filter_res = 0.45,
         .filter2_on = true, .filter2_type = .lp, .filter2_cutoff = 2500.0, .filter2_res = 0.2, .filter_routing = .series,
@@ -962,7 +962,7 @@ pub const presets = [_]Preset{
     .{ .name = "neuro-screech", .category = "lead", .tags = &.{ "wstudio", "neurofunk" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.6666667, .unison = 2, .unison_detune = 16.0,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 12.0, .osc_b_level = 0.7,
-        .mod_mode = .fm_b_to_a, .mod_amount = 2.5,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 2.5,
         .voice_mode = .mono, .glide_s = 0.02,
         .attack_s = 0.005, .decay_s = 0.25, .sustain = 0.6, .release_s = 0.15,
         .filter_type = .diode, .filter_cutoff = 1800.0, .filter_res = 0.6, .filter_drive = 4.5,
@@ -1260,7 +1260,7 @@ pub const presets = [_]Preset{
     .{ .name = "fm-epiano", .category = "keys", .tags = &.{ "wstudio", "city-pop" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 19.0, .osc_b_detune_cents = 3.0, .osc_b_level = 0.8,
         .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.0, .osc_c_semi = 0.0, .osc_c_level = 0.3,
-        .mod_mode = .fm_b_to_a, .mod_amount = 0.9,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 0.9,
         .attack_s = 0.001, .decay_s = 1.2, .sustain = 0.15, .release_s = 0.5, .env_curve = 0.58,
         .filter_type = .lp, .filter_cutoff = 6500.0, .filter_res = 0.0,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.18, .fenv_sustain = 0.0, .fenv_release_s = 0.1, .fenv_curve = 0.7,
@@ -1282,7 +1282,7 @@ pub const presets = [_]Preset{
     .{ .name = "citypop-bass", .category = "bass", .tags = &.{ "wstudio", "city-pop" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.0, .voice_mode = .mono, .glide_s = 0.0,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_level = 0.9,
-        .mod_mode = .fm_b_to_a, .mod_amount = 1.6,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 1.6,
         .attack_s = 0.002, .decay_s = 0.25, .sustain = 0.35, .release_s = 0.1, .env_curve = 0.48,
         .filter_type = .lp, .filter_cutoff = 1100.0, .filter_res = 0.1,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.12, .fenv_sustain = 0.0, .fenv_release_s = 0.06, .fenv_curve = 0.62,
@@ -1355,7 +1355,7 @@ pub const presets = [_]Preset{
     // kawaii future bass - sparkly bell pluck on top of the chords
     .{ .name = "kawaii-pluck", .category = "pluck", .tags = &.{ "wstudio", "kawaii" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 24.0, .osc_b_detune_cents = 3.0, .osc_b_level = 0.6,
-        .mod_mode = .fm_b_to_a, .mod_amount = 2.0,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 2.0,
         .attack_s = 0.001, .decay_s = 0.35, .sustain = 0.0, .release_s = 0.3, .env_curve = 0.72,
         .filter_type = .lp, .filter_cutoff = 10_000.0, .filter_res = 0.0,
         .mod_matrix = mods(&.{
@@ -1543,7 +1543,7 @@ pub const presets = [_]Preset{
     // rather than a generic heavy crush
     .{ .name = "shaolin-bell", .category = "keys", .tags = &.{ "wstudio", "hip-hop", "boom-bap" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 24.0, .osc_b_detune_cents = 18.0, .osc_b_level = 0.7,
-        .mod_mode = .fm_b_to_a, .mod_amount = 2.8,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 2.8,
         .attack_s = 0.001, .decay_s = 1.0, .sustain = 0.0, .release_s = 0.8, .env_curve = 0.7,
         .filter_type = .lp, .filter_cutoff = 5000.0, .filter_res = 0.0,
         .mod_matrix = mods(&.{
@@ -1656,7 +1656,7 @@ pub const presets = [_]Preset{
         .wt_table = .basic, .wt_pos = 1.0, .voice_mode = .mono, .glide_s = 0.0,
         .warp_mode = .mirror, .warp_amount = 0.35,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 0.0, .osc_b_level = 1.0,
-        .mod_mode = .fm_b_to_a, .mod_amount = 6.5,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 6.5,
         .attack_s = 0.001, .decay_s = 0.08, .sustain = 0.9, .release_s = 0.05,
         .filter_type = .lp, .filter_cutoff = 1600.0, .filter_res = 0.35, .filter_drive = 5.0,
         .sub_level = 0.4, .sub_shape = .sine,
@@ -1675,7 +1675,7 @@ pub const presets = [_]Preset{
     // hits, OTT'd bright with a short hall
     .{ .name = "happy-piano", .category = "keys", .tags = &.{ "wstudio", "happy-hardcore", "j-core" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_detune_cents = 5.0,
-        .mod_mode = .fm_b_to_a, .mod_amount = 2.2,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 2.2,
         .attack_s = 0.001, .decay_s = 0.5, .sustain = 0.05, .release_s = 0.35, .env_curve = 0.7,
         .filter_type = .lp, .filter_cutoff = 9000.0, .filter_res = 0.05,
         .mod_matrix = mods(&.{
@@ -1915,7 +1915,7 @@ pub const presets = [_]Preset{
     .{ .name = "soul-epiano", .category = "keys", .tags = &.{ "wstudio", "soul", "neo-soul" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.0,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 14.0, .osc_b_level = 0.7,
-        .mod_mode = .fm_b_to_a, .mod_amount = 0.85,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 0.85,
         .attack_s = 0.003, .decay_s = 1.5, .sustain = 0.3, .release_s = 1.0, .env_curve = 0.5,
         .filter_type = .lp, .filter_cutoff = 4200.0, .filter_res = 0.04,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.16, .fenv_sustain = 0.0, .fenv_release_s = 0.1,

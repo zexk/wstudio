@@ -85,8 +85,8 @@ pub fn main(init: std.process.Init) !void {
         s.osc_b_on = true;
         s.osc_b_wt_pos = 0.0;
         s.osc_b_level = 0.0;
-        s.mod_mode = .fm_b_to_a;
-        s.mod_amount = 2.5;
+        s.osc_b_warp_mode = .fm_b_to_a;
+        s.osc_b_warp_amount = 2.5;
         s.attack_s = 0.003;
         s.decay_s = 1.8;
         s.sustain = 0.0;
@@ -123,8 +123,8 @@ pub fn main(init: std.process.Init) !void {
         s.osc_b_on = true;
         s.osc_b_wt_pos = 0.0;
         s.osc_b_level = 0.0;
-        s.mod_mode = .fm_b_to_a;
-        s.mod_amount = 3.5;
+        s.osc_b_warp_mode = .fm_b_to_a;
+        s.osc_b_warp_amount = 3.5;
         s.sub_level = 0.45;
         s.sub_shape = .sine;
         s.attack_s = 0.006;

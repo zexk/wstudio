@@ -163,6 +163,34 @@ fn uniModeName(mode: anytype) []const u8 {
     };
 }
 
+fn warpModeName(mode: ws.dsp.synth.WarpMode) []const u8 {
+    return switch (mode) {
+        .none => "none",
+        .bend => "bend",
+        .mirror => "mirror",
+        .sync => "sync",
+        .ring_a_b => "ring A-B",
+        .ring_a_c => "ring A-C",
+        .ring_b_c => "ring B-C",
+        .am_a_to_b => "AM A\u{2192}B",
+        .am_a_to_c => "AM A\u{2192}C",
+        .am_b_to_a => "AM B\u{2192}A",
+        .am_b_to_c => "AM B\u{2192}C",
+        .am_c_to_a => "AM C\u{2192}A",
+        .am_c_to_b => "AM C\u{2192}B",
+        .fm_a_to_b => "FM A\u{2192}B",
+        .fm_a_to_c => "FM A\u{2192}C",
+        .fm_b_to_a => "FM B\u{2192}A",
+        .fm_b_to_c => "FM B\u{2192}C",
+        .fm_c_to_a => "FM C\u{2192}A",
+        .fm_c_to_b => "FM C\u{2192}B",
+    };
+}
+
+fn warpAmount(w: *std.Io.Writer, mode: ws.dsp.synth.WarpMode, amount: f32) !void {
+    if (mode.isFm()) try w.print("\u{03b2}={d:.2}", .{amount}) else try w.print("{d:.2}", .{amount});
+}
+
 /// A `wt.table` row's display. "imported" is not a selectable option - it
 /// only reports that `:load-wavetable` put a file in this slot, which no
 /// `h`/`l` step can walk back to.
@@ -206,18 +234,8 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         11 => try w.print("{d:.2}", .{synth.osc_b_level}),
         12 => try w.print("{d}", .{synth.osc_b_unison}),
         13 => try w.print("{d:.1} ct", .{synth.osc_b_unison_detune}),
-        14 => try w.writeAll(switch (synth.mod_mode) {
-            .none => "off",
-            .ring => "ring",
-            .am_a_to_b => "AM A\u{2192}B",
-            .am_b_to_a => "AM B\u{2192}A",
-            .fm_a_to_b => "FM A\u{2192}B",
-            .fm_b_to_a => "FM B\u{2192}A",
-        }),
-        15 => switch (synth.mod_mode) {
-            .fm_a_to_b, .fm_b_to_a => try w.print("\u{03b2}={d:.2}", .{synth.mod_amount}),
-            else => try w.print("{d:.2}", .{synth.mod_amount}),
-        },
+        14 => try w.writeAll(warpModeName(synth.osc_c_warp_mode)),
+        15 => try warpAmount(w, synth.osc_c_warp_mode, synth.osc_c_warp_amount),
         16 => try w.print("{d:.3} s", .{synth.attack_s}),
         17 => try w.print("{d:.3} s", .{synth.decay_s}),
         18 => try w.print("{d:.3}", .{synth.sustain}),
@@ -257,20 +275,10 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         38 => try w.print("{d:.3}", .{synth.gain}),
         39 => try w.writeAll(uniModeName(synth.unison_mode)),
         40 => try w.writeAll(uniModeName(synth.osc_b_unison_mode)),
-        41 => try w.writeAll(switch (synth.warp_mode) {
-            .none => "none",
-            .bend => "bend",
-            .mirror => "mirror",
-            .sync => "sync",
-        }),
-        42 => try w.print("{d:.2}", .{synth.warp_amount}),
-        43 => try w.writeAll(switch (synth.osc_b_warp_mode) {
-            .none => "none",
-            .bend => "bend",
-            .mirror => "mirror",
-            .sync => "sync",
-        }),
-        44 => try w.print("{d:.2}", .{synth.osc_b_warp_amount}),
+        41 => try w.writeAll(warpModeName(synth.warp_mode)),
+        42 => try warpAmount(w, synth.warp_mode, synth.warp_amount),
+        43 => try w.writeAll(warpModeName(synth.osc_b_warp_mode)),
+        44 => try warpAmount(w, synth.osc_b_warp_mode, synth.osc_b_warp_amount),
         45 => try w.writeAll(if (synth.filter2_on) "on" else "off"),
         46 => try w.writeAll(filterTypeName(synth.filter2_type)),
         47 => if (synth.filter2_cutoff >= 1_000.0)
