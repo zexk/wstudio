@@ -1,5 +1,4 @@
-//! Synth editor: title strip, MAIN/MOD/FX tab strip, and the
-//! comptime-table-driven parameter sections drawn as a grid of module
+//! Synth editor parameter sections drawn as a grid of module
 //! cards - each card a display (waveform, LFO shape, envelope)
 //! over a wrapped grid of knob and stepper cells, laid out band by band
 //! from synth_layout's placements.
@@ -26,8 +25,6 @@ pub fn draw(app: anytype) void {
             return;
         },
     };
-    drawTabs(app);
-    zgui.spacing();
     switch (app.core.synth_subview) {
         .main => drawMain(app, synth),
         .mod => drawSections(app, synth, &synth_layout.mod_sections, synth_layout.modPlacements, "synth-mod"),
@@ -97,43 +94,6 @@ fn tabForCursor(sections: []const synth_layout.SectionDef, cursor: u16) ?u8 {
     return null;
 }
 
-/// The editor's one title row: subview tabs, then the track name, then the
-/// section-focus badge - the same line, in the same order, that the TUI's
-/// `drawSynthTitle` emits. There was a 44px card above this printing
-/// "POLYPHONIC SYNTH" over the track name, which said nothing the chrome
-/// breadcrumb and this row did not already say, and had no TUI counterpart
-/// at all.
-fn drawTabs(app: anytype) void {
-    for (synth_ed.subviews, 0..) |tab, i| {
-        if (i > 0) zgui.sameLine(.{ .spacing = 5 });
-        const active = app.core.synth_subview == tab.subview;
-        zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) theme.focus else theme.bg2 });
-        zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) theme.bg0 else theme.fg2 });
-        if (zgui.button(tab.label, .{ .w = 125, .h = 30 })) setSubview(app, tab.subview);
-        zgui.popStyleColor(.{ .count = 2 });
-    }
-    const track = app.core.synth_track;
-    if (track < app.core.session.project.tracks.items.len) {
-        zgui.sameLine(.{ .spacing = 14 });
-        zgui.textColored(theme.focus, "\"{s}\"", .{app.core.session.project.tracks.items[track].name});
-    }
-    if (app.core.synth_section_focus) {
-        zgui.sameLine(.{ .spacing = 12 });
-        zgui.textColored(theme.audio, "FOCUS", .{});
-    }
-}
-
-fn setSubview(app: anytype, subview: synth_ed.Subview) void {
-    app.core.synth_subview = subview;
-    var candidates_buf: [synth_ed.max_search_candidates]synth_ed.SearchCandidate = undefined;
-    for (synth_ed.searchCandidates(&candidates_buf)) |candidate| {
-        if (candidate.subview == subview) {
-            app.core.synth_cursor = candidate.id;
-            break;
-        }
-    }
-}
-
 /// Wraps a run of `widgets.knobCell`s into rows that fit the card, the way
 /// a synth panel packs a module's knobs into a block instead of a list.
 /// Controls that need the full card width (an ADSR plot or a
@@ -173,7 +133,8 @@ fn drawSections(
 ) void {
     const gap: f32 = 12;
     const available_width = zgui.getContentRegionAvail()[0];
-    const columns: usize = if (available_width >= 1500) 4 else if (available_width >= 1080) 3 else if (available_width >= 650) 2 else 1;
+    const width_columns: usize = if (available_width >= 1500) 4 else if (available_width >= 1080) 3 else if (available_width >= 650) 2 else 1;
+    const columns = @min(width_columns, sections.len);
     // Keeps j/k/{/}/g/G in sync with the column grid actually on screen -
     // synth_layout.numCols buckets the same way from a terminal-width
     // number, so this just maps GUI's own column count onto that bucketing
