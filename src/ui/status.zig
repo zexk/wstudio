@@ -330,7 +330,12 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
     try w.writeAll(synth_ed.paramLabel(app.synth_cursor, &label_buf));
     try w.writeAll(dim ++ ": " ++ rst);
     try w.writeAll(acc);
-    try synth_ed.writeParamValue(synth, app.synth_cursor, w);
+    if (ws.dsp.PolySynth.matrixParamAddr(app.synth_cursor)) |addr| {
+        if (addr.field == 1) {
+            var target_buf: [96]u8 = undefined;
+            try w.writeAll(synth_ed.modTargetLabel(rack, synth.mod_matrix[addr.row], &target_buf));
+        } else try synth_ed.writeParamValue(synth, app.synth_cursor, w);
+    } else try synth_ed.writeParamValue(synth, app.synth_cursor, w);
     try w.writeAll(rst);
     if (app.status_len > 0) {
         try w.writeAll(dim ++ "  " ++ rst);
