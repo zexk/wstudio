@@ -1,9 +1,11 @@
-//! MIDI note-on velocity -> gain mapping. Split out from midi_in.zig (Linux/
-//! ALSA-only) so `wstudio.o.default_midi_velocity_curve` has a type that
-//! compiles on every platform, same reason `audio_host.Choice` lives in
-//! host.zig rather than inside a backend-specific file.
+//! MIDI note-on velocity -> gain mapping, plus the engine dispatch the
+//! platform MIDI backends share. Split out from midi_in.zig (Linux/ALSA-only)
+//! so `wstudio.o.default_midi_velocity_curve` has a type that compiles on
+//! every platform, same reason `audio_host.Choice` lives in host.zig rather
+//! than inside a backend-specific file.
 
 const std = @import("std");
+const midi = @import("../midi.zig");
 
 pub const VelocityCurve = enum(u8) { linear, exponential, fixed };
 
@@ -37,5 +39,30 @@ test "fixed always returns full velocity" {
 test "max velocity reaches 1.0 under every curve" {
     inline for (std.meta.tags(VelocityCurve)) |curve| {
         try std.testing.expectEqual(@as(f32, 1.0), apply(curve, 127));
+    }
+}
+
+/// Forward one parsed channel message into the engine on the caller's active
+/// track. Shared by the CoreMIDI and WinMM backends, whose `MidiIn` structs
+/// are identical from here down (the ALSA sequencer backend decodes its own
+/// event type instead and keeps its own version).
+pub fn dispatch(self: anytype, msg: midi.Msg) void {
+    const track = self.active_track.load(.monotonic);
+    switch (msg) {
+        .note_on => |note| {
+            _ = self.engine.sendMidi(.{ .note_on = .{
+                .track = track,
+                .note = note.note,
+                .velocity = apply(self.velocity_curve.load(.monotonic), note.velocity),
+            } });
+            _ = self.note_queue.push(.{ .pitch = note.note, .vel = note.velocity });
+        },
+        .note_off => |note| _ = self.engine.sendMidi(.{ .note_off = .{ .track = track, .note = note.note } }),
+        .control_change => |cc| {
+            if (self.engine.sendMidi(.{ .cc = .{ .track = track, .cc = cc.cc, .value = cc.value } }))
+                self.dirty.store(true, .release);
+        },
+        .pitch_bend => |bend| _ = self.engine.sendMidi(.{ .pitch_bend = .{ .track = track, .bend = bend.bend } }),
+        else => {},
     }
 }
