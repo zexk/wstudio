@@ -74,6 +74,14 @@ pub const key_section: Section = .{ .kind = .key, .title = "KEY", .rows = &.{
 } };
 // zig fmt: on
 
+/// Upper bound on paramOrder's output - derived, so adding a row to the
+/// tables above can never outgrow the caller's stack buffer again.
+pub const max_param_rows = blk: {
+    var n: usize = key_section.rows.len;
+    for (pad_sections) |section| n += section.rows.len;
+    break :blk n;
+};
+
 pub fn paramLineCount(pad_target: bool) usize {
     var count: usize = 0;
     for (pad_sections) |section| count += 1 + section.rows.len;
@@ -286,7 +294,7 @@ fn movePadBank(app: *App, delta: i32) void {
 /// after the rows they draw between (stretch sits in SAMPLE, root/voice in
 /// KEY), so row moves have to walk this list - counting ids straight up
 /// skips the stretch row and lands on the next section instead.
-fn paramOrder(pad_target: bool, count: u8, out: *[24]u8) []const u8 {
+fn paramOrder(pad_target: bool, count: u8, out: *[max_param_rows]u8) []const u8 {
     var n: usize = 0;
     for (pad_sections) |section| {
         for (section.rows) |row| {
@@ -311,7 +319,7 @@ fn paramOrder(pad_target: bool, count: u8, out: *[24]u8) []const u8 {
 /// mirrors the synth editor's equivalent.
 fn moveCursor(app: *App, delta: i32) void {
     if (!targetIsEditable(app)) return;
-    var buf: [24]u8 = undefined;
+    var buf: [max_param_rows]u8 = undefined;
     const order = paramOrder(app.sampler_target != .sampler, paramCount(app), &buf);
     var idx: u8 = 0;
     for (order, 0..) |id, i| {
@@ -323,22 +331,22 @@ fn moveCursor(app: *App, delta: i32) void {
 /// First/last param row the editor draws, for g/G.
 fn edgeParam(app: *App, last: bool) u8 {
     if (!targetIsEditable(app)) return app.sampler_param;
-    var buf: [24]u8 = undefined;
+    var buf: [max_param_rows]u8 = undefined;
     const order = paramOrder(app.sampler_target != .sampler, paramCount(app), &buf);
     return if (last) order[order.len - 1] else order[0];
 }
 
 test "param row order follows the drawn rows, not the raw id space" {
-    var buf: [24]u8 = undefined;
+    var buf: [max_param_rows]u8 = undefined;
     // A drum pad / slice: stretch (id 12) draws inside SAMPLE, so j from
     // pitch has to land on it rather than skipping to the AMP ENV section.
     const pad = paramOrder(true, DrumMachine.pad_param_count, &buf);
-    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 20, 14, 19, 3, 4, 5, 6, 7, 8, 9, 13, 10, 11, 15, 16, 17, 18 }, pad);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 20, 14, 19, 3, 4, 5, 6, 21, 7, 8, 9, 13, 10, 11, 22, 15, 16, 17, 18 }, pad);
 
-    var buf2: [24]u8 = undefined;
+    var buf2: [max_param_rows]u8 = undefined;
     // A standalone Sampler adds the KEY section at the bottom.
     const sampler = paramOrder(false, Sampler.param_count, &buf2);
-    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 20, 14, 19, 3, 4, 5, 6, 7, 8, 9, 13, 10, 11, 15, 16, 17, 18, Sampler.root_note_id, Sampler.mono_id }, sampler);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 20, 14, 19, 3, 4, 5, 6, 21, 7, 8, 9, 13, 10, 11, 22, 15, 16, 17, 18, Sampler.root_note_id, Sampler.mono_id }, sampler);
 }
 
 /// Audition the sampler editor's current target.
