@@ -45,6 +45,7 @@ pub const Transport = struct {
     }
 
     pub fn framesAtBeats(self: *const Transport, beats: f64) u64 {
+        if (std.math.isNan(beats) or beats <= 0) return 0;
         const frames = time_map.secondsAtBeat(self.tempoPoints(), self.tempo_bpm, beats) * @as(f64, @floatFromInt(@max(self.sample_rate, 1)));
         if (!std.math.isFinite(frames) or frames >= @as(f64, @floatFromInt(std.math.maxInt(u64))))
             return std.math.maxInt(u64);
@@ -220,6 +221,8 @@ test "musical time at 120 bpm" {
 
 test "beat conversion saturates extreme lengths" {
     const t: Transport = .{ .sample_rate = 48_000 };
+    try std.testing.expectEqual(@as(u64, 0), t.framesAtBeats(-1));
+    try std.testing.expectEqual(@as(u64, 0), t.framesAtBeats(std.math.nan(f64)));
     try std.testing.expectEqual(@as(u64, 24_000), t.framesAtBeats(1));
     try std.testing.expectEqual(std.math.maxInt(u64), t.framesAtBeats(std.math.floatMax(f64)));
 }
