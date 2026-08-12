@@ -432,9 +432,11 @@ fn drawCommandBar(app: anytype, draw: zgui.DrawList, pos: [2]f32, size: [2]f32) 
                 break;
             }
         }
-        draw.addText(.{ pos[0] + size[0] - 150, text_y }, color(theme.fg3), "TAB complete   ESC close", .{});
+        const hint = "TAB complete   ESC close";
+        draw.addText(.{ pos[0] + size[0] - zgui.calcTextSize(hint, .{})[0] - 13, text_y }, color(theme.fg3), "{s}", .{hint});
     } else {
-        draw.addText(.{ pos[0] + size[0] - 102, text_y }, color(theme.fg3), "ENTER search", .{});
+        const hint = "ENTER search";
+        draw.addText(.{ pos[0] + size[0] - zgui.calcTextSize(hint, .{})[0] - 13, text_y }, color(theme.fg3), "{s}", .{hint});
     }
 
     const before_cursor = input[0..app.core.modal.cmd_cursor];
