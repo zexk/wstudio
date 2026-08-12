@@ -475,7 +475,7 @@ fn auditionSelected(app: *App) void {
 }
 
 /// Click an entry row to select + apply it (headers ignore the click);
-/// scroll moves the selection - same shape as the other pickers' mouse
+/// scroll moves selection, Ctrl ten entries - same shape as other pickers'
 /// handlers. Row math mirrors views/preset_picker.zig's layout: title(1) +
 /// blank(1) preamble, then the display rows offset by the scroll.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
@@ -498,8 +498,8 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
                 .header => if (ri == idx) return,
             };
         },
-        .scroll_up => moveCursor(app, -1),
-        .scroll_down => moveCursor(app, 1),
+        .scroll_up => moveCursor(app, if (ev.ctrl) -10 else -1),
+        .scroll_down => moveCursor(app, if (ev.ctrl) 10 else 1),
         else => {},
     }
 }

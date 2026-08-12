@@ -520,7 +520,8 @@ fn stepAt(app: *App, clip: *const ws.Clip, x: u16) ?u32 {
 /// Row 0 is the title; any row below it (ruler, bar graph, or caret) picks a
 /// column the same way - clicking the ruler works just as well as clicking
 /// the bars. Click moves the cursor there; scroll moves it and nudges the
-/// value (matching the synth editor's scroll convention - ctrl = coarse).
+/// value. **Ctrl** nudges coarsely, **Shift** moves one step, and **Alt**
+/// jumps one beat.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
     const clip = currentClip(app) orelse return;
     if (row == 0) return;
@@ -532,7 +533,12 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
             const step = stepAt(app, clip, ev.x) orelse return;
             app.automation_cursor_step = step;
             const dir: i32 = if (ev.kind == .scroll_up) 1 else -1;
-            nudgeValue(app, clip, dir * (if (ev.ctrl) @as(i32, 10) else 1));
+            if (ev.alt)
+                jumpBar(app, clip, -dir)
+            else if (ev.shift)
+                moveCursor(app, clip, -dir)
+            else
+                nudgeValue(app, clip, dir * (if (ev.ctrl) @as(i32, 10) else 1));
         },
         else => {},
     }

@@ -2269,7 +2269,7 @@ pub const App = struct {
     }
 
     /// Tracks view: click a row to select + open it (same as Enter - a
-    /// group row opens its FX chain); scroll moves the cursor like j/k.
+    /// group row opens its FX chain); scroll moves like j/k, Ctrl ten rows.
     /// Row-level only: track names are unbounded width (`"{s: <8}"` pads
     /// but never truncates), so a mute/solo column click zone can't be
     /// derived reliably from the track index alone.
@@ -2294,8 +2294,10 @@ pub const App = struct {
                     .group => |g| spectrum_ed.switchToGroup(self, g),
                 }
             },
-            .scroll_up => self.applyAction(.{ .move = .{ .dy = -1 } }, self.now_ns),
-            .scroll_down => self.applyAction(.{ .move = .{ .dy = 1 } }, self.now_ns),
+            .scroll_up, .scroll_down => {
+                const dy: i32 = if (ev.kind == .scroll_up) -1 else 1;
+                for (0..if (ev.ctrl) 10 else 1) |_| self.applyAction(.{ .move = .{ .dy = dy } }, self.now_ns);
+            },
             else => {},
         }
     }
@@ -2496,7 +2498,7 @@ pub const App = struct {
 
     // zig fmt: off
     /// Instrument picker: click a row to select + insert it (same as
-    /// enter/space); scroll moves the highlight.
+    /// enter/space); scroll moves the highlight, Ctrl ten entries.
     fn pickerMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
         var buf: [instrument_picker_items.len]InstrumentPickerItem = undefined;
         const internal_count = self.filteredInstrumentPickerItems(&buf).len;
@@ -2512,14 +2514,14 @@ pub const App = struct {
                 if (item == null or item.? >= count) return;
                 self.clickInstrumentPickerItem(item.?, self.now_ns);
             },
-            .scroll_up => { if (self.picker_cursor > 0) self.picker_cursor -= 1; },
-            .scroll_down => { if (self.picker_cursor + 1 < count) self.picker_cursor += 1; },
+            .scroll_up => { self.picker_cursor -|= if (ev.ctrl) 10 else 1; },
+            .scroll_down => { self.picker_cursor = @intCast(modal_mod.clampDelta(self.picker_cursor, if (ev.ctrl) 10 else 1, @intCast(count -| 1))); },
             else => {},
         }
     }
 
     /// File browser: click a row to descend into it or activate it (same as
-    /// enter/l/space); scroll moves the highlight.
+    /// enter/l/space); scroll moves the highlight, Ctrl ten entries.
     fn browserMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
         if (self.browser_bookmark_mode) return; // keyboard-only overlay
         switch (ev.kind) {
@@ -2529,8 +2531,8 @@ pub const App = struct {
                 if (idx >= self.browser_entries.items.len) return;
                 self.clickBrowserItem(idx, self.now_ns);
             },
-            .scroll_up => { if (self.browser_cursor > 0) self.browser_cursor -= 1; },
-            .scroll_down => { if (self.browser_cursor + 1 < self.browser_entries.items.len) self.browser_cursor += 1; },
+            .scroll_up => { self.browser_cursor -|= if (ev.ctrl) 10 else 1; },
+            .scroll_down => { self.browser_cursor = @min(self.browser_cursor +| (if (ev.ctrl) @as(usize, 10) else 1), self.browser_entries.items.len -| 1); },
             else => {},
         }
     }
@@ -2543,11 +2545,11 @@ pub const App = struct {
     }
     // zig fmt: on
 
-    /// Help view: scroll wheel scrolls content (same as j/k). No click behavior.
+    /// Help view: scroll content, Ctrl ten lines. No click behavior.
     fn helpMouse(self: *App, ev: modal_mod.MouseEvent) void {
         switch (ev.kind) {
-            .scroll_up => self.help_scroll -|= 1,
-            .scroll_down => self.help_scroll +|= 1,
+            .scroll_up => self.help_scroll -|= if (ev.ctrl) 10 else 1,
+            .scroll_down => self.help_scroll +|= if (ev.ctrl) 10 else 1,
             else => {},
         }
     }
@@ -3351,7 +3353,7 @@ pub const App = struct {
     }
 
     /// FX picker: click a row to select + insert it (same as enter/space);
-    /// scroll moves the highlight.
+    /// scroll moves the highlight, Ctrl ten entries.
     fn fxPickerMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
         var buf: [spectrum_ed.picker_kinds.len]ws.FxKind = undefined;
         const kinds = spectrum_ed.filteredPickerKinds(self, &buf);
@@ -3367,8 +3369,8 @@ pub const App = struct {
                 if (item == null or item.? >= kinds.len + external_count) return;
                 self.clickFxPickerItem(item.?, self.now_ns);
             },
-            .scroll_up => { if (self.fx_picker_cursor > 0) self.fx_picker_cursor -= 1; },
-            .scroll_down => { if (self.fx_picker_cursor + 1 < kinds.len + external_count) self.fx_picker_cursor += 1; },
+            .scroll_up => { self.fx_picker_cursor -|= if (ev.ctrl) 10 else 1; },
+            .scroll_down => { self.fx_picker_cursor = @intCast(modal_mod.clampDelta(self.fx_picker_cursor, if (ev.ctrl) 10 else 1, @intCast(kinds.len + external_count -| 1))); },
             else => {},
         }
     }
@@ -3409,7 +3411,8 @@ pub const App = struct {
 
     // zig fmt: off
     /// Param picker: click a param row to select + apply it (same as enter/
-    /// space); header rows aren't clickable. Scroll moves the highlight.
+    /// space); header rows aren't clickable. Scroll moves the highlight,
+    /// Ctrl ten entries.
     /// Row math mirrors `views/automation.zig`'s `drawAutomationParamPicker`
     /// exactly (title(1) + blank(1) before the display-row list starts) -
     /// both build the same list via `automation_ed.buildParamDisplayRows`.
@@ -3426,8 +3429,8 @@ pub const App = struct {
                     .param => |i| self.clickAutomationParamPickerItem(i, self.now_ns),
                 }
             },
-            .scroll_up => automation_ed.moveParamCursor(self, -1),
-            .scroll_down => automation_ed.moveParamCursor(self, 1),
+            .scroll_up => automation_ed.moveParamCursor(self, if (ev.ctrl) -10 else -1),
+            .scroll_down => automation_ed.moveParamCursor(self, if (ev.ctrl) 10 else 1),
             else => {},
         }
     }
