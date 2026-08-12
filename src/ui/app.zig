@@ -1255,6 +1255,10 @@ pub const App = struct {
         midi_in.active_track.store(@intCast(self.cursor), .monotonic);
         if (midi_in.dirty.swap(false, .acquire)) self.dirty = true;
         while (midi_in.note_queue.pop()) |recorded| self.recordMidiNote(recorded.pitch, recorded.vel);
+        const dropped = midi_in.dropped_notes.swap(0, .acq_rel);
+        if (dropped != 0) {
+            self.setStatus("MIDI input backlog: {d} note{s} not recorded", .{ dropped, if (dropped == 1) "" else "s" });
+        }
     }
 
     // -----------------------------------------------------------------------

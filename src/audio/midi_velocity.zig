@@ -55,7 +55,8 @@ pub fn dispatch(self: anytype, msg: midi.Msg) void {
                 .note = note.note,
                 .velocity = apply(self.velocity_curve.load(.monotonic), note.velocity),
             } });
-            _ = self.note_queue.push(.{ .pitch = note.note, .vel = note.velocity });
+            if (!self.note_queue.push(.{ .pitch = note.note, .vel = note.velocity }))
+                _ = self.dropped_notes.fetchAdd(1, .monotonic);
         },
         .note_off => |note| _ = self.engine.sendMidi(.{ .note_off = .{ .track = track, .note = note.note } }),
         .control_change => |cc| {

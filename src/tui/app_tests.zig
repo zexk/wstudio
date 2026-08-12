@@ -248,6 +248,25 @@ test "instrument picker / narrows instruments and enter inserts match" {
     try std.testing.expectEqual(ws.InstrumentKind.slicer, std.meta.activeTag(app.session.racks.items[0].instrument));
 }
 
+test "MIDI notes dropped by a full record queue are reported, not lost silently" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    // Same shape `serviceMidiInput` sees from every real backend.
+    var fake = struct {
+        active_track: std.atomic.Value(u16) = .init(0),
+        dirty: std.atomic.Value(bool) = .init(false),
+        dropped_notes: std.atomic.Value(u32) = .init(0),
+        note_queue: ws.ring_buffer.Spsc(struct { pitch: u7, vel: u7 }, 4) = .{},
+    }{};
+    fake.dropped_notes.store(3, .monotonic);
+
+    app.serviceMidiInput(&fake);
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "3 notes") != null);
+    // Cleared on read, so the warning does not repeat every frame.
+    try std.testing.expectEqual(@as(u32, 0), fake.dropped_notes.load(.monotonic));
+}
+
 test "instrument picker orders matches by score, not by table order" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();

@@ -46,6 +46,11 @@ pub const MidiIn = struct {
     active_track: std.atomic.Value(u16) = .init(0),
     velocity_curve: std.atomic.Value(VelocityCurve) = .init(.linear),
     dirty: std.atomic.Value(bool) = .init(false),
+    /// Note-ons lost because the UI thread had not drained `note_queue`.
+    /// Read and cleared by `App.serviceMidiInput`, which warns: the note was
+    /// still auditioned, so silence here would mean a take quietly missing
+    /// notes the player heard.
+    dropped_notes: std.atomic.Value(u32) = .init(0),
     note_queue: Spsc(RecNote, 32) = .{},
     parser: midi.Parser = .{},
 

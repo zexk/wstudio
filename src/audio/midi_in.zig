@@ -34,9 +34,15 @@ pub const MidiIn = struct {
     /// already uses (App.zig's `.note` action handler) - this thread has no
     /// App pointer and doesn't know the current view/mode, so it always
     /// queues and lets the UI thread decide whether a given note actually
-    /// lands in a pattern. A full queue just drops the note (audition
-    /// already went out above; only the recording side is lost).
+    /// lands in a pattern. A full queue drops the note (audition already went
+    /// out above; only the recording side is lost) and counts it in
+    /// `dropped_notes`.
     note_queue: Spsc(RecNote, 32) = .{},
+    /// Note-ons lost because the UI thread had not drained `note_queue`.
+    /// Read and cleared by `App.serviceMidiInput`, which warns: the note was
+    /// still auditioned, so silence here would mean a take quietly missing
+    /// notes the player heard.
+    dropped_notes: std.atomic.Value(u32) = .init(0),
 
     /// One recordable note-on: the raw pitch plus the played velocity, so a
     /// recorded take keeps its dynamics instead of flattening to the default.
@@ -133,7 +139,8 @@ pub const MidiIn = struct {
                     .note     = note,
                     .velocity = midi_velocity.apply(self.velocity_curve.load(.monotonic), vel),
                 } });
-                _ = self.note_queue.push(.{ .pitch = note, .vel = vel });
+                if (!self.note_queue.push(.{ .pitch = note, .vel = vel }))
+                    _ = self.dropped_notes.fetchAdd(1, .monotonic);
             }
         } else if (etype == c.SND_SEQ_EVENT_NOTEOFF) {
             const note: u7 = @intCast(ev.data.note.note & 0x7F);
