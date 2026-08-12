@@ -16,6 +16,7 @@ zig build test             # all tests (minutes)
 zig build test -Dtest-filter=tuning   # only tests whose name contains "tuning" (seconds)
 zig build gendemo           # re-write demo.wsj after editing tools/gendemo.zig
 zig build dspcheck -- DIR   # run a real sample library through decode/detect/render/FX
+zig build bench -Doptimize=ReleaseFast   # audio-callback p50/p99 and deadline use
 nix run .#neutral-terminal  # launch Kitty with a clean Nerd Font configuration
 ```
 

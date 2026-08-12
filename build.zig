@@ -255,6 +255,22 @@ pub fn build(b: *std.Build) void {
     const soak_step = b.step("soak", "Run one-hour simulated playback plus save/load/export soak");
     soak_step.dependOn(&run_soak.step);
 
+    const bench = b.addExecutable(.{
+        .name = "bench",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/bench.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "wstudio", .module = wstudio_mod },
+            },
+        }),
+    });
+    const run_bench = b.addRunArtifact(bench);
+    if (b.args) |args| run_bench.addArgs(args) else run_bench.addArg("demo.wsj");
+    const bench_step = b.step("bench", "Measure audio-callback time (p50/p99/deadline use) across track, send, and buffer-size scaling");
+    bench_step.dependOn(&run_bench.step);
+
     // Not part of `zig build test`: it needs a sample corpus on disk that is
     // far too large to ship, so it stays an on-demand check.
     const dspcheck = b.addExecutable(.{
