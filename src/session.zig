@@ -1552,9 +1552,9 @@ pub const Session = struct {
                         // drum clips, just expressed in beats instead of a
                         // step modulo since melodic content has no fixed grid.
                         const clip_span_beats = time_grid.tickToBeat(c.length_ticks);
-                        if (mel.length_beats <= 0) continue;
+                        if (mel.notes.len == 0 or mel.length_beats <= 0) continue;
                         var rep_start: f64 = 0;
-                        while (rep_start < clip_span_beats) : (rep_start += mel.length_beats) {
+                        while (rep_start < clip_span_beats and n < notes.len) : (rep_start += mel.length_beats) {
                             for (mel.notes) |note| {
                                 if (n >= notes.len) break;
                                 if (note.start_beat >= mel.length_beats) continue;
@@ -2132,6 +2132,20 @@ test "song mode repeats a melodic clip's pattern to fill an edge-resized span" {
     try std.testing.expectApproxEqAbs(@as(f64, 4.0), pp.song_notes[1].start_beat, 1e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 8.0), pp.song_notes[2].start_beat, 1e-9);
     try std.testing.expectApproxEqAbs(@as(f64, 12.0), pp.song_length_beats, 1e-9);
+}
+
+test "song mode stops repeating when melodic note storage fills" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .poly_synth);
+    const pp = &s.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+    pp.length_beats = 1.0;
+    try s.stampClip(0, 0);
+    s.arrangement.lane(0).?.clips.items[0].length_ticks = std.math.maxInt(u32);
+
+    s.setSongMode(true);
+    try std.testing.expectEqual(@as(u16, pattern_mod.max_notes), pp.song_note_count);
 }
 
 test "song mode clips melodic note duration at the arrangement edge" {
