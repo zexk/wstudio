@@ -34,6 +34,14 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Changed
 
+- Pickers and command-name tab completion list fuzzy matches best-first
+  instead of in table order, favouring contiguous runs, word starts, and
+  matches near the front of a short name. The `/` `n` `N` searches still walk
+  the list positionally.
+- Sample analysis (slice detection and tempo detection) runs about twice as
+  fast per frame, and the whole spectral path (analysis plus the spectrum
+  analyser) is more accurate at the quiet end.
+
 - Project files are a fraction of the size. The session inside a `.wsj` is
   now written in a compact binary encoding instead of pretty-printed JSON,
   and then compressed; the bundled demo song went from 151 KB to under 1 KB.
@@ -102,6 +110,9 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Fixed
 
+- Live MIDI notes that arrived faster than the recorder drained them were
+  dropped without a word; the status bar now says how many did not make it
+  into the take.
 - Stamping an inverted chord with a drop2 or open voicing moved the wrong
   voices: inverting left the raised notes at their old positions, and the
   voicing picks its notes by position.
