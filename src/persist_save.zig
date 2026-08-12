@@ -92,7 +92,6 @@ const GroupSnap = persist_types.GroupSnap;
 const ControllerSnap = persist_types.ControllerSnap;
 const ControllerTargetSnap = persist_types.ControllerTargetSnap;
 const CcBindingSnap = persist_types.CcBindingSnap;
-const ClipKind = persist_types.ClipKind;
 const ClipSnap = persist_types.ClipSnap;
 const AudioSourceSnap = persist_types.AudioSourceSnap;
 const AudioCacheSnap = persist_types.AudioCacheSnap;

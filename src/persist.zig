@@ -82,7 +82,6 @@ pub const GateSnap = persist_types.GateSnap;
 pub const SatSnap = persist_types.SatSnap;
 pub const CrushSnap = persist_types.CrushSnap;
 pub const PhaserSnap = persist_types.PhaserSnap;
-pub const FxKind = persist_types.FxKind;
 pub const FxUnitSnap = persist_types.FxUnitSnap;
 pub const RackSnap = persist_types.RackSnap;
 pub const TrackSnap = persist_types.TrackSnap;

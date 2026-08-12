@@ -91,7 +91,6 @@ const RackSnap = persist_types.RackSnap;
 const TrackSnap = persist_types.TrackSnap;
 const SendSnap = persist_types.SendSnap;
 const GroupSnap = persist_types.GroupSnap;
-const ClipKind = persist_types.ClipKind;
 const ClipSnap = persist_types.ClipSnap;
 const LaneSnap = persist_types.LaneSnap;
 const SectionSnap = persist_types.SectionSnap;
