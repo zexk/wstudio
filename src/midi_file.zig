@@ -94,7 +94,8 @@ pub fn writeProject(allocator: std.mem.Allocator, notes: []const Note, midi_even
     var max_track: u16 = 0;
     for (notes) |note| max_track = @max(max_track, note.midi_track);
     for (midi_events) |event| max_track = @max(max_track, event.midi_track);
-    const track_count: u16 = max_track +| 2;
+    if (max_track > std.math.maxInt(u16) - 2) return error.TooManyTracks;
+    const track_count: u16 = max_track + 2;
 
     var out: std.ArrayListUnmanaged(u8) = .empty;
     errdefer out.deinit(allocator);
@@ -635,6 +636,15 @@ test "format-1 export round-trips channels tracks events and tempo map" {
     try std.testing.expectEqual(@as(usize, 2), result.events.len);
     try std.testing.expectEqual(@as(usize, 2), result.tempo_points.len);
     try std.testing.expectApproxEqAbs(@as(f64, 90), result.tempo_points[1].bpm, 0.01);
+}
+
+test "format-1 export rejects source tracks that exceed the header limit" {
+    try std.testing.expectError(error.TooManyTracks, writeProject(std.testing.allocator, &.{.{
+        .pitch = 60,
+        .start_beat = 0,
+        .duration_beat = 1,
+        .midi_track = std.math.maxInt(u16),
+    }}, &.{}, &.{}, 120));
 }
 
 test "parse rejects a zero division field" {
