@@ -184,9 +184,10 @@ pub const Project = struct {
         var meter = time_map.MeterPoint{ .beat = 0, .numerator = @max(self.beats_per_bar, 1), .denominator = @max(self.meter_denominator, 1) };
         for (self.meter_points.items) |point| {
             const length = point.beat - segment_beat;
-            const segment_bars: u64 = @intFromFloat(@ceil(@max(length, 0.0) / meter.quarterBeatsPerBar()));
-            if (@as(u64, target_bar) < bars + segment_bars) return segment_beat + @as(f64, @floatFromInt(@as(u64, target_bar) - bars)) * meter.quarterBeatsPerBar();
-            bars += segment_bars;
+            const bars_f = @ceil(@max(length, 0.0) / meter.quarterBeatsPerBar());
+            const segment_bars: u64 = if (bars_f >= @as(f64, @floatFromInt(std.math.maxInt(u64)))) std.math.maxInt(u64) else @intFromFloat(bars_f);
+            if (@as(u64, target_bar) < bars +| segment_bars) return segment_beat + @as(f64, @floatFromInt(@as(u64, target_bar) - bars)) * meter.quarterBeatsPerBar();
+            bars +|= segment_bars;
             segment_beat = point.beat;
             meter = point;
         }
@@ -448,4 +449,11 @@ test "a bar's length in quarter beats follows the signature's beat unit" {
     try std.testing.expectApproxEqAbs(@as(f64, 3.0), p.quarterBeatsPerBar(), 1e-9);
     // ...and the bar->beat conversion the loop region uses agrees.
     try std.testing.expectApproxEqAbs(@as(f64, 6.0), p.beatAtBar(2), 1e-9);
+}
+
+test "far-future meter point does not overflow bar conversion" {
+    var p = Project.init(std.testing.allocator);
+    defer p.deinit();
+    try p.setMeterPoint(.{ .beat = std.math.floatMax(f64), .numerator = 3, .denominator = 4 });
+    try std.testing.expectEqual(@as(f64, 4), p.beatAtBar(1));
 }
