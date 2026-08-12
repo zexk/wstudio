@@ -55,11 +55,11 @@ pub fn draw(app: anytype) void {
     const gutter_w: f32 = 132;
     const ruler_h: f32 = 30;
     const available = zgui.getContentRegionAvail();
-    const inspector_h: f32 = if (app.arrangement_clip != null) 116 else 82;
+    const inspector_h: f32 = if (app.arrangement_clip != null) 116 else 0;
     const lane_h: f32 = if (track_count == 0)
         58
     else
-        std.math.clamp((available[1] - inspector_h - ruler_h - 12) / @as(f32, @floatFromInt(track_count)), 58, 160);
+        std.math.clamp((available[1] - inspector_h - ruler_h - 12) / @as(f32, @floatFromInt(track_count)), 58, 180);
     const canvas_w = @max(420, available[0]);
     const canvas_h = ruler_h + lane_h * @as(f32, @floatFromInt(track_count));
     const origin = zgui.getCursorScreenPos();
