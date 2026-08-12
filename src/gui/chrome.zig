@@ -56,7 +56,7 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
             readoutWidth(icons.master ++ "  AUDIO", audio_label) + group_gap + level_group_w +
             group_gap + phase_group_w + group_gap + loudness_group_w;
         zgui.sameLine(.{ .spacing = 0 });
-        zgui.setCursorPosX(@max(zgui.getCursorPosX(), zgui.getWindowSize()[0] - right_w - 20));
+        zgui.setCursorPosX(@max(zgui.getCursorPosX() + group_gap, zgui.getWindowSize()[0] - right_w - 20));
 
         drawTransportReadout(icons.save ++ "  PROJECT", project_title, true);
         drawTransportReadout(icons.master ++ "  AUDIO", audio_label, false);
