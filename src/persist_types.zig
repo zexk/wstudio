@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 60;
+pub const file_version: u32 = 61;
 
 /// First four bytes of every .wsj. The file is a container: a 12-byte
 /// header, the audio cache (user sample blobs, concatenated), then this
@@ -60,7 +60,7 @@ pub const bundle_header_len: u64 = 12;
 
 /// One blob in the audio cache. `name` is the key `PadSnap.sample_file` and
 /// its siblings hold; `offset` and `len` slice the bytes straight out of the
-/// .wsj. Blobs are WAV except a SoundFont's, which is its original .sf2.
+/// .wsj. Blobs are FLAC except a SoundFont's, which is its original .sf2.
 pub const AudioCacheSnap = struct {
     name: []const u8,
     offset: u64,

@@ -37,8 +37,9 @@ history lives in [FORMAT.md](FORMAT.md).
 - Project files are a fraction of the size. The session inside a `.wsj` is
   now written in a compact binary encoding instead of pretty-printed JSON,
   and then compressed; the bundled demo song went from 151 KB to under 1 KB.
-  Sample audio is stored as before, so a sample-heavy project is dominated by
-  its audio rather than its session. Projects saved by earlier builds are not
+  User-loaded samples are stored as FLAC rather than 16-bit WAV, which is
+  lossless against what was stored before and roughly halves the audio a
+  sample-heavy project carries. Projects saved by earlier builds are not
   readable (see [FORMAT.md](FORMAT.md)).
 - A project is one file again. User-loaded samples, imported wavetables,
   recorded audio, and `.sf2` banks now live in an audio cache section inside

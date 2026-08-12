@@ -14,7 +14,7 @@
 //!     chorus, phaser, flanger, tape, frequency shifter, delay, reverb
 //!   - Rack labels
 //!   - User-loaded sample audio (drum pads + sampler clips), exported as mono
-//!     WAVs into the .wsj's own audio cache section
+//!     FLAC into the .wsj's own audio cache section
 //!
 //! The snapshot itself is written by `persist_bin.zig`; this file only
 //! builds and consumes the snapshot structs.
@@ -1809,7 +1809,8 @@ test "buildSession clamps malformed synth params from a hand-edited file" {
     try testing.expectApproxEqAbs(PatternPlayer.swing_max, pp.swing.load(.monotonic), 1e-6);
 }
 
-// 16-bit WAV round-trip quantisation error bound.
+// 16-bit round-trip quantisation error bound - the cache stores FLAC now,
+// but at the same depth, so the bound is unchanged.
 const wav_eps: f32 = 1.0 / 32768.0 + 1e-6;
 
 test "save/load round-trip persists user-loaded drum pad samples" {

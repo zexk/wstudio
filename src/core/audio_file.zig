@@ -95,11 +95,118 @@ fn parseAllocMode(
     return .{ .samples = mono, .sample_rate = @intCast(info.samplerate), .channel_count = 1 };
 }
 
+/// Encode mono/interleaved `samples` as a 16-bit FLAC file in memory.
+/// Lossless against the 16-bit WAV this replaced in the project audio cache,
+/// and about half the size. Returns null if this libsndfile cannot write
+/// FLAC at all, which is a build-time thing rather than a bad input - the
+/// caller falls back to WAV rather than failing a save.
+pub fn encodeFlacAlloc(
+    allocator: std.mem.Allocator,
+    samples: []const f32,
+    sample_rate: u32,
+    channel_count: u16,
+) std.mem.Allocator.Error!?[]u8 {
+    var sink: Sink = .{ .allocator = allocator };
+    errdefer sink.bytes.deinit(allocator);
+    var vio = write_virtual_io;
+    var info: c.SF_INFO = std.mem.zeroes(c.SF_INFO);
+    info.samplerate = @intCast(sample_rate);
+    info.channels = @intCast(channel_count);
+    info.format = c.SF_FORMAT_FLAC | c.SF_FORMAT_PCM_16;
+    if (c.sf_format_check(&info) == 0) return null;
+
+    const snd = c.sf_open_virtual(&vio, c.SFM_WRITE, &info, &sink) orelse return null;
+    // Same convention `wav.zig` writes with: full scale is ±1.0.
+    _ = c.sf_command(snd, c.SFC_SET_CLIPPING, null, c.SF_TRUE);
+    const frames: c.sf_count_t = @intCast(samples.len / channel_count);
+    _ = c.sf_writef_float(snd, samples.ptr, frames);
+    const closed = c.sf_close(snd);
+    if (sink.failed) return error.OutOfMemory;
+    if (closed != 0) {
+        sink.bytes.deinit(allocator);
+        return null;
+    }
+    return try sink.bytes.toOwnedSlice(allocator);
+}
+
 /// Where the virtual-IO callbacks below are up to in the caller's bytes.
 const Cursor = struct {
     bytes: []const u8,
     pos: u64 = 0,
 };
+
+/// The growable counterpart to `Cursor`. libsndfile seeks backwards to patch
+/// headers once it knows the frame count, so this has to support writes that
+/// land inside what is already there, not only appends.
+const Sink = struct {
+    allocator: std.mem.Allocator,
+    bytes: std.ArrayListUnmanaged(u8) = .empty,
+    pos: usize = 0,
+    /// An allocation failed inside a C callback, where there is nothing to
+    /// return an error to.
+    failed: bool = false,
+};
+
+const write_virtual_io: c.SF_VIRTUAL_IO = .{
+    .get_filelen = sinkFilelen,
+    .seek = sinkSeek,
+    .read = sinkRead,
+    .write = sinkWrite,
+    .tell = sinkTell,
+};
+
+fn sinkOf(user_data: ?*anyopaque) *Sink {
+    return @ptrCast(@alignCast(user_data.?));
+}
+
+fn sinkFilelen(user_data: ?*anyopaque) callconv(.c) c.sf_count_t {
+    return @intCast(sinkOf(user_data).bytes.items.len);
+}
+
+fn sinkSeek(offset: c.sf_count_t, whence: c_int, user_data: ?*anyopaque) callconv(.c) c.sf_count_t {
+    const sink = sinkOf(user_data);
+    const len: i64 = @intCast(sink.bytes.items.len);
+    const base: i64 = switch (whence) {
+        c.SEEK_SET => 0,
+        c.SEEK_CUR => @intCast(sink.pos),
+        c.SEEK_END => len,
+        else => return -1,
+    };
+    const target = base + offset;
+    if (target < 0 or target > len) return -1;
+    sink.pos = @intCast(target);
+    return target;
+}
+
+fn sinkRead(ptr: ?*anyopaque, count: c.sf_count_t, user_data: ?*anyopaque) callconv(.c) c.sf_count_t {
+    const sink = sinkOf(user_data);
+    if (count <= 0 or ptr == null) return 0;
+    const n = @min(@as(usize, @intCast(count)), sink.bytes.items.len - sink.pos);
+    const dest: [*]u8 = @ptrCast(ptr.?);
+    @memcpy(dest[0..n], sink.bytes.items[sink.pos..][0..n]);
+    sink.pos += n;
+    return @intCast(n);
+}
+
+fn sinkWrite(ptr: ?*const anyopaque, count: c.sf_count_t, user_data: ?*anyopaque) callconv(.c) c.sf_count_t {
+    const sink = sinkOf(user_data);
+    if (count <= 0 or ptr == null) return 0;
+    const n: usize = @intCast(count);
+    if (sink.pos + n > sink.bytes.items.len) {
+        sink.bytes.resize(sink.allocator, sink.pos + n) catch {
+            sink.failed = true;
+            return 0;
+        };
+    }
+    const src: [*]const u8 = @ptrCast(ptr.?);
+    @memcpy(sink.bytes.items[sink.pos..][0..n], src[0..n]);
+    sink.pos += n;
+    return @intCast(n);
+}
+
+fn sinkTell(user_data: ?*anyopaque) callconv(.c) c.sf_count_t {
+    return @intCast(sinkOf(user_data).pos);
+}
 
 const virtual_io: c.SF_VIRTUAL_IO = .{
     .get_filelen = vioFilelen,
@@ -159,6 +266,29 @@ test "decode VCSL FLAC fixture" {
     try std.testing.expectEqual(@as(u32, 44_100), result.sample_rate);
     try std.testing.expect(result.samples.len > 100);
     for (result.samples) |sample| try std.testing.expect(std.math.isFinite(sample));
+}
+
+test "FLAC encode round-trips losslessly and beats 16-bit PCM on size" {
+    const testing = std.testing;
+    const frames = 8000;
+    const samples = try testing.allocator.alloc(f32, frames);
+    defer testing.allocator.free(samples);
+    for (samples, 0..) |*s, i| {
+        const t: f32 = @floatFromInt(i);
+        s.* = 0.7 * @sin(t * 0.02) + 0.1 * @sin(t * 0.31);
+    }
+
+    const encoded = (try encodeFlacAlloc(testing.allocator, samples, 48_000, 1)).?;
+    defer testing.allocator.free(encoded);
+
+    const back = try parseAlloc(testing.allocator, encoded);
+    defer testing.allocator.free(back.samples);
+    try testing.expectEqual(@as(u32, 48_000), back.sample_rate);
+    try testing.expectEqual(samples.len, back.samples.len);
+    // 16-bit quantisation is the only loss; the FLAC layer itself adds none.
+    for (samples, back.samples) |a, b| try testing.expectApproxEqAbs(a, b, 1e-4);
+
+    try testing.expect(encoded.len < frames * 2);
 }
 
 test "declines bytes that are not audio at all" {

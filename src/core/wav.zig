@@ -14,6 +14,7 @@ pub const ParseError = audio_file.ParseError;
 pub const ReadResult = audio_file.ReadResult;
 pub const parseAlloc = audio_file.parseAlloc;
 pub const parseInterleavedAlloc = audio_file.parseInterleavedAlloc;
+pub const encodeFlacAlloc = audio_file.encodeFlacAlloc;
 
 /// Output PCM bit depth for `write`.
 pub const BitDepth = enum(u16) { pcm16 = 16, pcm24 = 24 };

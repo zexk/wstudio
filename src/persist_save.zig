@@ -591,7 +591,7 @@ pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx) ![]FxUnitSnap {
 
 // ---------------------------------------------------------------------------
 // Audio cache - user-loaded audio lives inside the .wsj itself, between the
-// header and the snapshot: mono 16-bit WAVs, plus a SoundFont's own bytes
+// header and the snapshot: mono 16-bit FLAC, plus a SoundFont's own bytes
 // verbatim. `PadSnap.sample_file` and its siblings hold the cache key.
 // ---------------------------------------------------------------------------
 
@@ -601,9 +601,12 @@ const CacheWriter = struct {
     fw: *std.Io.File.Writer,
     entries: std.ArrayListUnmanaged(AudioCacheSnap) = .empty,
 
-    /// Append one clip as a 16-bit WAV. Returns `name` back, so a call site
-    /// can store the key straight into the snapshot field that owns it.
-    fn addWav(
+    /// Append one clip as 16-bit FLAC, or as the 16-bit WAV it used to be if
+    /// this libsndfile can't write FLAC. Either way loading sniffs the bytes,
+    /// so the fallback needs nothing on the other side. Returns `name` back,
+    /// so a call site can store the key straight into the snapshot field
+    /// that owns it.
+    fn addAudio(
         self: *CacheWriter,
         aa: std.mem.Allocator,
         name: []const u8,
@@ -611,13 +614,17 @@ const CacheWriter = struct {
         channel_count: u16,
         samples: []const f32,
     ) ![]const u8 {
+        if (try wav.encodeFlacAlloc(aa, samples, sample_rate, channel_count)) |flac| {
+            defer aa.free(flac);
+            return self.addBytes(aa, name, flac);
+        }
         const start = self.fw.logicalPos();
         try wav.write(&self.fw.interface, sample_rate, channel_count, samples, .pcm16);
         try self.entries.append(aa, .{ .name = name, .offset = start, .len = self.fw.logicalPos() - start });
         return name;
     }
 
-    /// Append raw bytes verbatim - the SoundFont counterpart to `addWav`. A
+    /// Append raw bytes verbatim - the SoundFont counterpart to `addAudio`. A
     /// loaded .sf2 can't be losslessly reconstructed from the parsed,
     /// already-resolved `SoundFont` (see dsp/soundfont.zig's doc comment), so
     /// the original file bytes are what gets persisted, not a re-encoding.
@@ -650,33 +657,33 @@ pub fn exportSamples(
                 const s = if (dm.pads[pi]) |*sm| sm else continue; // unloaded pad - nothing to export
                 const p = &s.pad;
                 if (!p.user_sample) continue;
-                const key = try std.fmt.allocPrint(aa, "t{d}p{d}.wav", .{ ti, pi });
-                rs.content.drum_machine.pads[pi].sample_file = try cache.addWav(aa, key, sr, 1, p.samples);
+                const key = try std.fmt.allocPrint(aa, "t{d}p{d}.flac", .{ ti, pi });
+                rs.content.drum_machine.pads[pi].sample_file = try cache.addAudio(aa, key, sr, 1, p.samples);
                 // .name already set by rackToSnap (unconditionally, for every pad).
             },
             .sampler => |*s| if (s.pad.user_sample) {
-                const key = try std.fmt.allocPrint(aa, "t{d}clip.wav", .{ti});
-                rs.content.sampler.pad.sample_file = try cache.addWav(aa, key, sr, 1, s.pad.samples);
+                const key = try std.fmt.allocPrint(aa, "t{d}clip.flac", .{ti});
+                rs.content.sampler.pad.sample_file = try cache.addAudio(aa, key, sr, 1, s.pad.samples);
                 // .name already set by rackToSnap (unconditionally).
             },
             .slicer => |*sl| if (sl.user_sample) {
-                const key = try std.fmt.allocPrint(aa, "t{d}clip.wav", .{ti});
-                rs.content.slicer.sample_file = try cache.addWav(aa, key, sr, 1, sl.samples);
+                const key = try std.fmt.allocPrint(aa, "t{d}clip.flac", .{ti});
+                rs.content.slicer.sample_file = try cache.addAudio(aa, key, sr, 1, sl.samples);
                 // .name already set by rackToSnap (unconditionally).
             },
             .poly_synth => |*s| {
                 // zig fmt: off
                 if (s.wt_user) {
-                    const key = try std.fmt.allocPrint(aa, "t{d}oscA.wav", .{ti});
-                    rs.content.poly_synth.wt_file = try cache.addWav(aa, key, sr, 1, s.wt.frames[0 .. s.wt.frame_count * wavetable_mod.frame_len]);
+                    const key = try std.fmt.allocPrint(aa, "t{d}oscA.flac", .{ti});
+                    rs.content.poly_synth.wt_file = try cache.addAudio(aa, key, sr, 1, s.wt.frames[0 .. s.wt.frame_count * wavetable_mod.frame_len]);
                 }
                 if (s.osc_b_wt_user) {
-                    const key = try std.fmt.allocPrint(aa, "t{d}oscB.wav", .{ti});
-                    rs.content.poly_synth.osc_b_wt_file = try cache.addWav(aa, key, sr, 1, s.osc_b_wt.frames[0 .. s.osc_b_wt.frame_count * wavetable_mod.frame_len]);
+                    const key = try std.fmt.allocPrint(aa, "t{d}oscB.flac", .{ti});
+                    rs.content.poly_synth.osc_b_wt_file = try cache.addAudio(aa, key, sr, 1, s.osc_b_wt.frames[0 .. s.osc_b_wt.frame_count * wavetable_mod.frame_len]);
                 }
                 if (s.osc_c_wt_user) {
-                    const key = try std.fmt.allocPrint(aa, "t{d}oscC.wav", .{ti});
-                    rs.content.poly_synth.osc_c_wt_file = try cache.addWav(aa, key, sr, 1, s.osc_c_wt.frames[0 .. s.osc_c_wt.frame_count * wavetable_mod.frame_len]);
+                    const key = try std.fmt.allocPrint(aa, "t{d}oscC.flac", .{ti});
+                    rs.content.poly_synth.osc_c_wt_file = try cache.addAudio(aa, key, sr, 1, s.osc_c_wt.frames[0 .. s.osc_c_wt.frame_count * wavetable_mod.frame_len]);
                 }
                 // zig fmt: on
             },
@@ -688,8 +695,8 @@ pub fn exportSamples(
         }
     }
     for (session.project.audio_sources.items, audio_sources) |source, *snap| {
-        const key = try std.fmt.allocPrint(aa, "source-{d}.wav", .{source.id});
-        snap.file = try cache.addWav(aa, key, source.sample_rate, source.channel_count, source.samples);
+        const key = try std.fmt.allocPrint(aa, "source-{d}.flac", .{source.id});
+        snap.file = try cache.addAudio(aa, key, source.sample_rate, source.channel_count, source.samples);
     }
     return cache.entries.items;
 }

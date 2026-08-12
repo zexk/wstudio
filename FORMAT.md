@@ -60,10 +60,9 @@ inflated size, so a small file cannot ask for an unbounded allocation, and
 verifies the zlib adler32 by hand, since Zig's inflate parses that footer
 without comparing it.
 
-The audio cache is deliberately left uncompressed. Its blobs are already
-PCM or a SoundFont's own bytes, they compress poorly, and loading slices
-them straight out of the file buffer - compressing them would trade that
-zero-copy read for a few percent on files that can run to hundreds of MB.
+The audio cache is not deflated on top of this. Its blobs are FLAC or a
+SoundFont's own bytes, both already compressed, and loading slices them
+straight out of the file buffer.
 
 ## Saving
 
@@ -76,7 +75,7 @@ in place after the blobs land, since its value isn't known until then.
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 60) is the only format version
+`persist.zig`'s `file_version` (currently 61) is the only format version
 this build writes or reads. Loading enforces one rule:
 
 - **A file whose `version` is not exactly `file_version` is hard-rejected**
@@ -89,6 +88,9 @@ because they protect against corrupt and hand-edited values.
 
 **Bump `file_version` for every schema or semantic change**, including new
 fields and enum members.
+
+Version 61 stores cached audio as FLAC instead of 16-bit WAV. Lossless
+against what version 60 stored, and roughly half the bytes.
 
 Version 60 deflates the snapshot section. `demo.wsj` went from 13 KB to
 754 bytes.
@@ -155,14 +157,19 @@ numerator and denominator changes. Denominators must be powers of two through
 
 A pad's audio is either generated from its kit (nothing stored beyond the
 params and the kit name) or **user-loaded**, in which case saving exports it
-into the audio cache as a mono 16-bit WAV. Each blob is keyed by its
-position: `t<track>p<pad>.wav` for a drum pad, `t<track>clip.wav` for a
-standalone sampler clip, `t<track>oscA.wav`/`oscB.wav`/`oscC.wav` for a synth
-oscillator's imported wavetable (same section, since it's the same
+into the audio cache as mono 16-bit FLAC. Each blob is keyed by its
+position: `t<track>p<pad>.flac` for a drum pad, `t<track>clip.flac` for a
+standalone sampler clip, `t<track>oscA.flac`/`oscB.flac`/`oscC.flac` for a
+synth oscillator's imported wavetable (same section, since it's the same
 "variable-size audio blob that shouldn't live inline in the snapshot"
 problem),
 and `t<track>.sf2` for a loaded SoundFont (the one blob written verbatim
-rather than as a WAV, since it isn't PCM audio).
+rather than re-encoded, since it isn't a bare PCM stream).
+
+A key is a name, not a promise about the bytes: loading identifies each blob
+from its own contents, so any format libsndfile decodes works. Saving falls
+back to the 16-bit WAV it used through version 60 if the libsndfile it was
+built against can't write FLAC, rather than failing the save.
 
 SoundFont snapshots may instead name a bundled `library` id. Bundled SFZ/FLAC
 banks are part of the wstudio installation, so they need no cached copy.
