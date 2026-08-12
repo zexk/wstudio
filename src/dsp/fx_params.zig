@@ -540,6 +540,7 @@ pub fn paramRange(p: *const FxPayload, idx: usize) [2]f32 {
 /// through `isAutomatable`-gated callers; see ui/editors/fx_editor.zig for
 /// the UI paths that do handle them).
 pub fn setParamAbsolute(p: *FxPayload, idx: usize, value: f32) void {
+    if (!std.math.isFinite(value) or !isAutomatable(std.meta.activeTag(p.*), idx)) return;
     switch (p.*) {
         .eq => |*e| {
             const bf = eqBandField(idx);
@@ -690,4 +691,25 @@ test "getParam/setParamAbsolute round-trip an eq band field" {
     var payload: FxPayload = .{ .eq = eq_mod.ParametricEq.init(48_000) };
     setParamAbsolute(&payload, eq_field_freq, 5000.0);
     try std.testing.expectApproxEqAbs(@as(f32, 5000.0), getParam(&payload, eq_field_freq), 1e-3);
+}
+
+test "setParamAbsolute ignores non-finite values" {
+    var table_payload: FxPayload = .{ .sat = .{} };
+    const drive = getParam(&table_payload, 0);
+    setParamAbsolute(&table_payload, 0, std.math.nan(f32));
+    setParamAbsolute(&table_payload, 0, std.math.inf(f32));
+    try std.testing.expectEqual(drive, getParam(&table_payload, 0));
+
+    var eq_payload: FxPayload = .{ .eq = eq_mod.ParametricEq.init(48_000) };
+    const kind = getParam(&eq_payload, eq_field_kind);
+    setParamAbsolute(&eq_payload, eq_field_kind, std.math.nan(f32));
+    try std.testing.expectEqual(kind, getParam(&eq_payload, eq_field_kind));
+}
+
+test "setParamAbsolute ignores invalid parameter ids" {
+    var eq_payload: FxPayload = .{ .eq = eq_mod.ParametricEq.init(48_000) };
+    setParamAbsolute(&eq_payload, std.math.maxInt(usize), 1.0);
+
+    var mb_payload: FxPayload = .{ .mb_comp = .{} };
+    setParamAbsolute(&mb_payload, std.math.maxInt(usize), 1.0);
 }
