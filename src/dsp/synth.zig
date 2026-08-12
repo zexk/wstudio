@@ -1985,6 +1985,19 @@ pub const PolySynth = struct {
 
             const warp_modes = [3]WarpMode{ self.warp_mode, self.osc_b_warp_mode, self.osc_c_warp_mode };
 
+            // With no FM route in the patch every `fm_*` below is zero, so the
+            // modulated increment collapses to the base one (already
+            // Nyquist-capped, which makes `modulatedPhaseInc` by 1.0 the
+            // identity) and the render pass resamples exactly what the source
+            // pass sampled. Skipping the source pass then halves the
+            // oscillator work for every non-FM patch, which is most of them.
+            // Keyed off the modes, not the depths: `warp_amounts` ramps per
+            // frame at the bottom of this loop, so a depth read out here would
+            // go stale, while the modes hold for the whole block.
+            const fm_active = for (warp_modes) |mode| {
+                if (mode.isFm()) break true;
+            } else false;
+
             for (0..frames) |i| {
                 var a_l: f32 = 0.0;
                 var a_r: f32 = 0.0;
@@ -1999,15 +2012,17 @@ pub const PolySynth = struct {
                 // Read unmodulated current samples first. Every FM direction then
                 // sees same-sample source data, including mutual and cyclic routes.
                 var source = [3]f32{ 0.0, 0.0, 0.0 };
-                for (0..n_a) |ui| source[0] += self.oscSampleA(v.phases[ui], phase_incs_a[ui], v.warp_amounts[0], v.wt_positions[0]);
-                source[0] /= @as(f32, @floatFromInt(n_a));
-                if (self.osc_b_on) {
-                    for (0..n_b) |ui| source[1] += self.oscSampleB(v.phases_b[ui], phase_incs_b[ui], v.warp_amounts[1], v.wt_positions[1]);
-                    source[1] /= @as(f32, @floatFromInt(n_b));
-                }
-                if (self.osc_c_on) {
-                    for (0..n_c) |ui| source[2] += oscSample(self.osc_c_wt, self.osc_c_warp_mode, v.phases_c[ui], phase_incs_c[ui], v.warp_amounts[2], v.wt_positions[2]);
-                    source[2] /= @as(f32, @floatFromInt(n_c));
+                if (fm_active) {
+                    for (0..n_a) |ui| source[0] += self.oscSampleA(v.phases[ui], phase_incs_a[ui], v.warp_amounts[0], v.wt_positions[0]);
+                    source[0] /= @as(f32, @floatFromInt(n_a));
+                    if (self.osc_b_on) {
+                        for (0..n_b) |ui| source[1] += self.oscSampleB(v.phases_b[ui], phase_incs_b[ui], v.warp_amounts[1], v.wt_positions[1]);
+                        source[1] /= @as(f32, @floatFromInt(n_b));
+                    }
+                    if (self.osc_c_on) {
+                        for (0..n_c) |ui| source[2] += oscSample(self.osc_c_wt, self.osc_c_warp_mode, v.phases_c[ui], phase_incs_c[ui], v.warp_amounts[2], v.wt_positions[2]);
+                        source[2] /= @as(f32, @floatFromInt(n_c));
+                    }
                 }
 
                 const fm_a = routeAmount(warp_modes, v.warp_amounts, .fm_b_to_a) * source[1] + routeAmount(warp_modes, v.warp_amounts, .fm_c_to_a) * source[2];
@@ -5047,6 +5062,30 @@ test "oscillator warp amount ramps to live target across one block" {
     var buf = [_]Sample{0.0} ** 16;
     synth.processBlock(&buf);
     try std.testing.expectApproxEqAbs(@as(f32, 6.0), synth.voices[synth.newest_voice].warp_amounts[1], 1e-6);
+}
+
+test "FM route still modulates once the no-FM source pass is skipped" {
+    // The source pass exists only to feed FM. It is skipped when no
+    // oscillator carries an FM mode, so the guard has to stay true for a
+    // patch that does - otherwise FM silently renders as its carrier.
+    var carrier: [256]Sample = undefined;
+    var modulated: [256]Sample = undefined;
+    for ([2]bool{ false, true }, [2]*[256]Sample{ &carrier, &modulated }) |fm_on, out| {
+        var synth = try PolySynth.init(std.testing.allocator, 48_000);
+        defer synth.deinit();
+        synth.osc_b_on = true;
+        if (fm_on) {
+            synth.osc_b_warp_mode = .fm_b_to_a;
+            synth.osc_b_warp_amount = 8.0;
+        }
+        synth.noteOn(60, 1.0);
+        @memset(out, 0.0);
+        synth.processBlock(out);
+    }
+
+    var diff: f32 = 0.0;
+    for (carrier, modulated) |dry, wet| diff = @max(diff, @abs(dry - wet));
+    try std.testing.expect(diff > 0.01);
 }
 
 test "every warp type works from every oscillator slot" {
