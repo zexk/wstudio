@@ -1266,7 +1266,13 @@ pub const DrumMachine = struct {
         const channels = 2;
         const frames: u32 = @intCast(buf.len / channels);
 
-        while (!self.pad_lock.tryLock()) std.atomic.spinLoopHint();
+        // Pattern, variant and song-clip swaps hold `pad_lock` on the control
+        // thread while they allocate and free. Spinning here made callback
+        // latency unbounded during an edit or a load; skipping one render
+        // block is what Sampler and Slicer already do. `scanBlock` derives
+        // its step position from `transport.position_frames` and resyncs, so
+        // a skipped block costs that window's hits, not the grid's timing.
+        if (!self.pad_lock.tryLock()) return;
         defer self.pad_lock.unlock();
 
         if (self.transport.playing) {
@@ -1849,6 +1855,18 @@ test "step velocity: cycles presets, nudges, toggling resets, shrink masks" {
     dm.setStepCount(16);
     dm.setStepCount(32);
     try std.testing.expectEqual(@as(u8, 127), dm.stepVel(0, 20));
+}
+
+test "processBlock skips pad-lock contention" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try testMachine(&transport);
+    defer dm.deinit();
+
+    try std.testing.expect(dm.pad_lock.tryLock());
+    defer dm.pad_lock.unlock();
+    var buf = [_]Sample{ 1, 1 };
+    dm.processBlock(&buf);
+    try std.testing.expectEqualSlices(Sample, &.{ 1, 1 }, &buf);
 }
 
 test "voice velocity scales the rendered level" {
