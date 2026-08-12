@@ -62,7 +62,7 @@ pub const spectrum_band_count: usize = 80;
 /// The insertable kinds in picker display order (signal-flow-ish: dynamics,
 /// tone, character, modulation, time).
 pub const picker_kinds = [_]FxKind{
-    .gate, .comp, .mb_comp, .ott, .limiter, .transient_shaper, .eq, .filter, .utility, .stereo_width, .auto_pan, .sat, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .pitch_shift, .delay, .reverb,
+    .gate, .comp, .expander, .mb_comp, .ott, .limiter, .clipper, .transient_shaper, .eq, .filter, .utility, .stereo_width, .auto_pan, .sat, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .pitch_shift, .delay, .reverb,
 };
 
 comptime {
@@ -1319,6 +1319,22 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
             std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100}) catch "?"
         else
             std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+        .expander => switch (idx) {
+            1 => std.fmt.bufPrint(buf, "{d:.1}:1", .{v}) catch "?",
+            2, 3 => std.fmt.bufPrint(buf, "{d:.1}ms", .{v}) catch "?",
+            6 => if (v < 0.5) "peak" else "rms",
+            7, 8 => if (v < 20.0) "off" else std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+        },
+        .clipper => switch (idx) {
+            2 => switch (@as(u3, @intFromFloat(@max(v, 0.0)))) {
+                1 => "soft",
+                2 => "medium",
+                else => "hard",
+            },
+            3 => if (v < 0.5) "off" else "on",
+            else => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+        },
         .sat => switch (idx) {
             0, 1 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
             else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",

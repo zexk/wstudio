@@ -75,7 +75,7 @@ in place after the blobs land, since its value isn't known until then.
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 64) is the only format version
+`persist.zig`'s `file_version` (currently 65) is the only format version
 this build writes or reads. Loading enforces one rule:
 
 - **A file whose `version` is not exactly `file_version` is hard-rejected**
@@ -88,6 +88,8 @@ because they protect against corrupt and hand-edited values.
 
 **Bump `file_version` for every schema or semantic change**, including new
 fields and enum members.
+
+Version 65 adds two rack units, the expander and the clipper.
 
 Version 64 gives the gate the compressor's detector shaping (`sc_mode`,
 `sc_hpf_hz`, `sc_lpf_hz`).

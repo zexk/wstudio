@@ -1074,6 +1074,7 @@ pub fn applyFxChain(
             else => |_, saved_kind| blk: {
                 const kind: rack_mod.FxKind = switch (saved_kind) {
                     .gate => .gate, .comp => .comp, .mb_comp => .mb_comp, .ott => .ott, .limiter => .limiter, .transient_shaper => .transient_shaper,
+                    .expander => .expander, .clipper => .clipper,
                     .eq => .eq, .filter => .filter, .utility => .utility, .stereo_width => .stereo_width, .auto_pan => .auto_pan, .sat => .sat, .crush => .crush, .chorus => .chorus,
                     .phaser => .phaser, .flanger => .flanger, .tape => .tape,
                     .freq_shift => .freq_shift, .pitch_shift => .pitch_shift, .delay => .delay, .reverb => .reverb,
@@ -1167,7 +1168,7 @@ pub fn applyFxChain(
                 if (es.bypass) unit.setBypassed(true);
             },
             inline .filter, .limiter, .utility, .stereo_width, .auto_pan,
-            .transient_shaper, .gate, .sat, .crush, .chorus, .phaser,
+            .transient_shaper, .gate, .sat, .crush, .chorus, .phaser, .expander, .clipper,
             .flanger, .tape, .freq_shift, .pitch_shift => |snap, tag|
                 applySnapToDevice(&@field(unit.payload, @tagName(tag)), snap),
             .clap, .vst3 => {},
@@ -1320,7 +1321,7 @@ fn buildPresetFx(allocator: std.mem.Allocator, patch: *const PolySynth.Patch, s:
                 v.damp = patch.fx_reverb_damp;
                 v.mix = patch.fx_reverb_mix;
             },
-            .filter, .limiter, .utility, .stereo_width, .auto_pan, .transient_shaper, .pitch_shift, .clap, .vst3 => unreachable,
+            .filter, .limiter, .utility, .stereo_width, .auto_pan, .transient_shaper, .pitch_shift, .expander, .clipper, .clap, .vst3 => unreachable,
         }
     }
 }

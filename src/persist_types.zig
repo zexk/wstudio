@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 64;
+pub const file_version: u32 = 65;
 
 /// First four bytes of every .wsj. The file is a container: a 12-byte
 /// header, the audio cache (user sample blobs, concatenated), then this
@@ -475,6 +475,31 @@ pub const EqSnap = struct {
     analog: bool = false,
 };
 
+pub const ExpanderSnap = struct {
+    threshold_db: f32 = -40.0,
+    ratio: f32 = 2.0,
+    attack_ms: f32 = 5.0,
+    release_ms: f32 = 150.0,
+    knee_db: f32 = 6.0,
+    /// How far the expander may attenuate; bounds the curve.
+    range_db: f32 = -40.0,
+    /// Detector: 0 = peak, 1 = RMS.
+    sc_mode: f32 = 0.0,
+    /// Detector high-pass / low-pass in Hz; 0 = off.
+    sc_hpf_hz: f32 = 0.0,
+    sc_lpf_hz: f32 = 0.0,
+};
+
+pub const ClipperSnap = struct {
+    drive_db: f32 = 0.0,
+    ceiling_db: f32 = -0.3,
+    /// 0 = hard, 1 = soft, 2 = medium.
+    shape: f32 = 0.0,
+    /// Overdrive protection: 0 = off, 1 = on.
+    odp: f32 = 0.0,
+    odp_knee_db: f32 = 6.0,
+};
+
 pub const GateSnap = struct {
     threshold_db: f32 = -50.0,
     attack_ms: f32 = 1.0,
@@ -609,6 +634,8 @@ pub const Vst3Snap = struct {
 
 pub const FxContentSnap = union(enum) {
     comp: CompSnap,
+    expander: ExpanderSnap,
+    clipper: ClipperSnap,
     mb_comp: MultibandCompSnap,
     ott: OttSnap,
     delay: DelaySnap,

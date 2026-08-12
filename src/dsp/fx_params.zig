@@ -20,6 +20,8 @@ const gate_mod = @import("gate.zig");
 const multiband_comp = @import("multiband_comp.zig");
 const chorus_mod = @import("chorus.zig");
 const limiter_mod = @import("limiter.zig");
+const expander_mod = @import("expander.zig");
+const clipper_mod = @import("clipper.zig");
 const saturator_mod = @import("saturator.zig");
 const pitch_shift_mod = @import("pitch_shift.zig");
 
@@ -270,6 +272,26 @@ pub const ott_specs = [_]ParamSpec{
     .{ .name = "out", .field = "gain_out_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
 };
 
+pub const expander_specs = [_]ParamSpec{
+    .{ .name = "thresh", .field = "threshold_db", .min = -80.0, .max = 0.0, .step_fine = 1.0, .step_coarse = 6.0 },
+    .{ .name = "ratio", .field = "ratio", .min = 1.0, .max = 20.0, .step_fine = 0.1, .step_coarse = 1.0 },
+    .{ .name = "attack", .field = "attack_ms", .min = 0.1, .max = 500.0, .step_fine = 1.0, .step_coarse = 10.0 },
+    .{ .name = "release", .field = "release_ms", .min = 1.0, .max = 2000.0, .step_fine = 10.0, .step_coarse = 100.0 },
+    .{ .name = "knee", .field = "knee_db", .min = 0.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
+    .{ .name = "range", .field = "range_db", .min = expander_mod.max_reduction_db, .max = 0.0, .step_fine = 1.0, .step_coarse = 6.0 },
+    .{ .name = "sc mode", .field = "sc_mode", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+    .{ .name = "sc hpf", .field = "sc_hpf_hz", .min = 0.0, .max = 2000.0, .step_fine = 20.0, .step_coarse = 200.0 },
+    .{ .name = "sc lpf", .field = "sc_lpf_hz", .min = 0.0, .max = 20000.0, .step_fine = 100.0, .step_coarse = 1000.0 },
+};
+
+pub const clipper_specs = [_]ParamSpec{
+    .{ .name = "drive", .field = "drive_db", .min = 0.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
+    .{ .name = "ceiling", .field = "ceiling_db", .min = -24.0, .max = 0.0, .step_fine = 0.1, .step_coarse = 1.0 },
+    .{ .name = "shape", .field = "shape", .min = 0.0, .max = clipper_mod.max_shape, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+    .{ .name = "odp", .field = "odp", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+    .{ .name = "odp knee", .field = "odp_knee_db", .min = 0.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
+};
+
 pub const limiter_specs = [_]ParamSpec{
     .{ .name = "ceiling", .field = "ceiling", .min = 0.25, .max = 1.0, .step_fine = 0.005, .step_coarse = 0.05 },
     .{ .name = "release", .field = "release_ms", .min = 1.0, .max = 1000.0, .step_fine = 10.0, .step_coarse = 100.0 },
@@ -330,6 +352,8 @@ pub fn paramCount(k: FxKind) usize {
         .delay => delay_specs.len,
         .ott => ott_specs.len,
         .limiter => limiter_specs.len,
+        .expander => expander_specs.len,
+        .clipper => clipper_specs.len,
         .transient_shaper => transient_shaper_specs.len,
         .clap => 0,
         .vst3 => 0,
@@ -410,6 +434,8 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
         .delay => tableName(&delay_specs, idx),
         .ott => tableName(&ott_specs, idx),
         .limiter => tableName(&limiter_specs, idx),
+        .expander => tableName(&expander_specs, idx),
+        .clipper => tableName(&clipper_specs, idx),
         .clap => "param",
         .vst3 => "param",
     };
@@ -476,6 +502,8 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
         .delay => |*d| tableGet(d, &delay_specs, idx),
         .ott => |*o| tableGet(o, &ott_specs, idx),
         .limiter => |*l| tableGet(l, &limiter_specs, idx),
+        .expander => |*e| tableGet(e, &expander_specs, idx),
+        .clipper => |*c| tableGet(c, &clipper_specs, idx),
         .clap, .vst3 => 0.0,
     };
 }
@@ -533,6 +561,8 @@ pub fn paramRange(p: *const FxPayload, idx: usize) [2]f32 {
         .delay => tableRange(&delay_specs, idx),
         .ott => tableRange(&ott_specs, idx),
         .limiter => tableRange(&limiter_specs, idx),
+        .expander => tableRange(&expander_specs, idx),
+        .clipper => tableRange(&clipper_specs, idx),
         .clap => |plugin| blk: {
             const info = plugin.parameterInfo(@intCast(idx)) orelse break :blk .{ 0.0, 1.0 };
             break :blk .{ @floatCast(info.min_value), @floatCast(info.max_value) };
@@ -612,6 +642,8 @@ pub fn setParamAbsolute(p: *FxPayload, idx: usize, value: f32) void {
         .delay => |*d| tableSet(d, &delay_specs, idx, value),
         .ott => |*o| tableSet(o, &ott_specs, idx, value),
         .limiter => |*l| tableSet(l, &limiter_specs, idx, value),
+        .expander => |*e| tableSet(e, &expander_specs, idx, value),
+        .clipper => |*c| tableSet(c, &clipper_specs, idx, value),
         .clap, .vst3 => {},
     }
 }
@@ -671,6 +703,8 @@ pub fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
         .delay => tableStep(&delay_specs, idx, coarse),
         .ott => tableStep(&ott_specs, idx, coarse),
         .limiter => tableStep(&limiter_specs, idx, coarse),
+        .expander => tableStep(&expander_specs, idx, coarse),
+        .clipper => tableStep(&clipper_specs, idx, coarse),
         .clap, .vst3 => if (coarse) @as(f32, 0.1) else 0.01,
     };
 }

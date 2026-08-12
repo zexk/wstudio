@@ -342,7 +342,10 @@ fn normalizedParam(app: anytype, unit: *ws.FxUnit, index: usize) f32 {
 fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
     return switch (kind) {
         .gate => if (t < amount * 0.8) 0.08 else t,
-        .comp, .mb_comp, .ott, .limiter, .transient_shaper => if (t < amount) t else amount + (t - amount) * (0.2 + shape * 0.45),
+        .comp, .mb_comp, .ott, .limiter, .transient_shaper, .clipper => if (t < amount) t else amount + (t - amount) * (0.2 + shape * 0.45),
+        // An expander does the opposite: what is under the threshold is
+        // pushed further down, and what is over it passes.
+        .expander => if (t >= amount) t else t * (0.15 + 0.35 * shape),
         .sat => 0.5 + 0.5 * std.math.tanh((t * 2.0 - 1.0) * std.math.pow(f32, 10.0, amount * 1.8)) / std.math.tanh(std.math.pow(f32, 10.0, amount * 1.8)),
         .crush => @round(t * std.math.pow(f32, 2.0, amount * 15.0)) / std.math.pow(f32, 2.0, amount * 15.0),
         // An LFO offset swings about a centre - it does not climb. The old
