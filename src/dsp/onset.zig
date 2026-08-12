@@ -42,15 +42,14 @@ pub fn envelope(alloc: std.mem.Allocator, samples: []const f32, sample_rate: u32
 
     const bins: usize = frame / 2;
     var re: [frame]f32 = undefined;
-    var im: [frame]f32 = undefined;
+    var im: [bins]f32 = undefined;
     var cur: [bins]f32 = undefined;
     var prev = [_]f32{0} ** bins;
 
     for (0..frames) |t| {
         @memcpy(re[0..], samples[t * hop ..][0..frame]);
-        @memset(im[0..], 0);
         fft_mod.hannWindow(re[0..]);
-        fft_mod.fft(frame, re[0..], im[0..]);
+        fft_mod.realFft(frame, re[0..], im[0..]);
         // Log magnitude, so a quiet hit in a quiet bar counts as much as a
         // loud one in a loud bar - the flux is about change, not level.
         for (0..bins) |b| cur[b] = @log(1.0 + fft_mod.magnitude(re[b], im[b]));

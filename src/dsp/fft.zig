@@ -65,6 +65,76 @@ pub fn fft(n: usize, real: []f32, imag: []f32) void {
     }
 }
 
+/// Half-spectrum of a real signal, for callers that hand `fft` an all-zero
+/// imaginary half and then only read bins below Nyquist - which is every
+/// analysis path here. A real signal's spectrum is conjugate-symmetric, so a
+/// full-length complex transform computes the upper half twice: pack the even
+/// samples as the real part and the odd ones as the imaginary part, transform
+/// at half the length, then untangle the two (Sorensen 1987).
+///
+/// `real[0..n)` is the input. On return `real[0..n/2)` / `imag[0..n/2)` hold
+/// bins 0 to n/2-1 of the length-`n` transform, DC through the bin below
+/// Nyquist; the Nyquist bin itself is not produced, and the rest of both
+/// buffers is scratch.
+pub fn realFft(n: usize, real: []f32, imag: []f32) void {
+    std.debug.assert(std.math.isPowerOfTwo(n));
+    std.debug.assert(n >= 4);
+    std.debug.assert(real.len >= n);
+    const m = n / 2;
+    std.debug.assert(imag.len >= m);
+
+    // Deinterleave in place: entry k reads samples 2k and 2k+1, both at or
+    // above the slot k it then writes, so nothing is clobbered before use.
+    for (0..m) |k| {
+        const even = real[2 * k];
+        const odd = real[2 * k + 1];
+        real[k] = even;
+        imag[k] = odd;
+    }
+
+    fft(m, real[0..m], imag[0..m]);
+
+    // Bins k and m-k come out of the same conjugate pair, so walk to the
+    // midpoint and write both ends per step. The recombination twiddle
+    // e^(-i*pi*k/m) advances by a fixed rotation, carried in f64 for the same
+    // reason `fft`'s is; bin m-k's twiddle is -conj of bin k's, so the pair
+    // shares one rotation. Both ends coincide at k = 0 and k = m/2, where the
+    // identity does not hold and the first write is the correct one.
+    const step_re = std.math.cos(-std.math.pi / @as(f64, @floatFromInt(m)));
+    const step_im = std.math.sin(-std.math.pi / @as(f64, @floatFromInt(m)));
+    var wr: f64 = 1.0;
+    var wi: f64 = 0.0;
+
+    var k: usize = 0;
+    while (k <= m / 2) : (k += 1) {
+        const j = (m - k) % m;
+        const zr_k = real[k];
+        const zi_k = imag[k];
+        const zr_j = real[j];
+        const zi_j = imag[j];
+
+        // Even-sample spectrum (er, ei) and odd-sample spectrum (di, -dr),
+        // recovered from the conjugate pair.
+        const er = 0.5 * (zr_k + zr_j);
+        const ei = 0.5 * (zi_k - zi_j);
+        const dr = 0.5 * (zr_k - zr_j);
+        const di = 0.5 * (zi_k + zi_j);
+
+        const w_re: f32 = @floatCast(wr);
+        const w_im: f32 = @floatCast(wi);
+        real[k] = er + w_re * di + w_im * dr;
+        imag[k] = ei - w_re * dr + w_im * di;
+        if (j != k) {
+            real[j] = er - w_re * di - w_im * dr;
+            imag[j] = -ei - w_re * dr + w_im * di;
+        }
+
+        const next_re = wr * step_re - wi * step_im;
+        wi = wr * step_im + wi * step_re;
+        wr = next_re;
+    }
+}
+
 pub fn hannWindow(buf: []f32) void {
     const n = buf.len;
     if (n == 0) return;
@@ -190,6 +260,30 @@ test "1024-point transform tracks the reference DFT across every bin" {
     // recurrence and 2.5e-6 with an f32 one, so this bound is a tripwire on
     // the recurrence, not just a sanity check on the butterflies.
     try std.testing.expect(worst / peak < 2.0e-7);
+}
+
+test "realFft matches the full complex transform below Nyquist" {
+    var rng = std.Random.DefaultPrng.init(7);
+    inline for (.{ 4, 16, 1024 }) |N| {
+        var samples: [N]f32 = undefined;
+        for (&samples, 0..) |*s, i| {
+            const t = @as(f32, @floatFromInt(i));
+            s.* = @sin(0.37 * t) + 0.4 * @cos(1.7 * t) + 0.3 * (rng.random().float(f32) * 2.0 - 1.0);
+        }
+
+        var full_re = samples;
+        var full_im = [_]f32{0} ** N;
+        fft(N, &full_re, &full_im);
+
+        var half_re = samples;
+        var half_im = [_]f32{0} ** N;
+        realFft(N, &half_re, &half_im);
+
+        for (0..N / 2) |bin| {
+            try std.testing.expectApproxEqAbs(full_re[bin], half_re[bin], 1e-3);
+            try std.testing.expectApproxEqAbs(full_im[bin], half_im[bin], 1e-3);
+        }
+    }
 }
 
 test "fft with runtime N" {
