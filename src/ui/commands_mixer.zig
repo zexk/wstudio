@@ -124,7 +124,9 @@ pub fn computeBounceRange(app: *App) ws.bounce.Range {
 
 /// Render the live session (patterns + synth params + drum grid) offline to
 /// a PCM WAV (`wstudio.o.bounce_bit_depth`, overridden by a trailing
-/// `16`/`24` argument). Length = the longest loop plus
+/// `16`/`24` argument), or to FLAC/Ogg Vorbis when the path ends in `.flac`
+/// or `.ogg` - the extension is the only place the format is chosen, since
+/// the file name already says it. Length = the longest loop plus
 /// `wstudio.o.bounce_tail_seconds` for reverb and release. The realtime
 /// backend is parked for the duration so the UI thread can drive the engine
 /// without racing the audio thread.

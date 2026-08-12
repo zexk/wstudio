@@ -95,6 +95,104 @@ fn parseAllocMode(
     return .{ .samples = mono, .sample_rate = @intCast(info.samplerate), .channel_count = 1 };
 }
 
+/// Compressed formats this module can write. WAV stays `core/wav.zig`'s job:
+/// it streams a header of known size straight to disk and needs no encoder
+/// state, while these do.
+pub const Encoding = enum {
+    flac,
+    ogg_vorbis,
+
+    /// What a bounce path's extension asks for, or null for anything else -
+    /// which means WAV, the default and the only format with a plain
+    /// streaming writer.
+    pub fn fromPath(path: []const u8) ?Encoding {
+        if (std.ascii.endsWithIgnoreCase(path, ".flac")) return .flac;
+        if (std.ascii.endsWithIgnoreCase(path, ".ogg")) return .ogg_vorbis;
+        return null;
+    }
+};
+
+/// Streams samples into libsndfile and holds the encoded file until `finish`.
+/// What accumulates here is the *encoded* bitstream, not the raw audio, so a
+/// long render costs the size of the output file rather than the size of the
+/// render - the reason this does not need the seekable on-disk target
+/// libsndfile would otherwise want (it seeks backwards to patch headers once
+/// it knows the frame count, which `Sink` supports and a plain
+/// `std.Io.Writer` does not).
+pub const Encoder = struct {
+    sink: Sink,
+    snd: ?*c.SNDFILE = null,
+    channel_count: u16 = 0,
+
+    /// libsndfile cannot write this format - a build-time property of the
+    /// library rather than anything about the input, so callers that have a
+    /// WAV path available should fall back rather than fail.
+    pub const Error = error{UnsupportedEncoding} || std.mem.Allocator.Error;
+
+    /// Initialized in place because libsndfile keeps the `Sink` pointer for
+    /// the lifetime of the handle: an encoder returned by value would hand it
+    /// a dangling one. `bits_per_sample` is ignored by the lossy encodings.
+    pub fn init(
+        self: *Encoder,
+        allocator: std.mem.Allocator,
+        encoding: Encoding,
+        sample_rate: u32,
+        channel_count: u16,
+        bits_per_sample: u16,
+    ) Error!void {
+        self.* = .{ .sink = .{ .allocator = allocator } };
+        var info: c.SF_INFO = std.mem.zeroes(c.SF_INFO);
+        info.samplerate = @intCast(sample_rate);
+        info.channels = @intCast(channel_count);
+        info.format = switch (encoding) {
+            .flac => c.SF_FORMAT_FLAC | @as(c_int, switch (bits_per_sample) {
+                24 => c.SF_FORMAT_PCM_24,
+                else => c.SF_FORMAT_PCM_16,
+            }),
+            .ogg_vorbis => c.SF_FORMAT_OGG | c.SF_FORMAT_VORBIS,
+        };
+        if (c.sf_format_check(&info) == 0) return error.UnsupportedEncoding;
+
+        var vio = write_virtual_io;
+        self.snd = c.sf_open_virtual(&vio, c.SFM_WRITE, &info, &self.sink) orelse
+            return error.UnsupportedEncoding;
+        // Same convention `wav.zig` writes with: full scale is ±1.0.
+        _ = c.sf_command(self.snd, c.SFC_SET_CLIPPING, null, c.SF_TRUE);
+        self.channel_count = channel_count;
+    }
+
+    /// Interleaved, and a whole number of frames.
+    pub fn writeSamples(self: *Encoder, samples: []const f32) Error!void {
+        const snd = self.snd orelse return error.UnsupportedEncoding;
+        const frames: c.sf_count_t = @intCast(samples.len / self.channel_count);
+        _ = c.sf_writef_float(snd, samples.ptr, frames);
+        if (self.sink.failed) return error.OutOfMemory;
+    }
+
+    /// Closes the encoder and hands over the finished file. Callers own the
+    /// bytes afterwards; the encoder is spent either way.
+    pub fn finish(self: *Encoder, allocator: std.mem.Allocator) Error![]u8 {
+        const snd = self.snd orelse return error.UnsupportedEncoding;
+        self.snd = null;
+        const closed = c.sf_close(snd);
+        // Left `.empty` on every failure path so a caller's `errdefer
+        // deinit` cannot free the same bytes twice.
+        if (self.sink.failed or closed != 0) {
+            self.sink.bytes.deinit(allocator);
+            self.sink.bytes = .empty;
+            return if (self.sink.failed) error.OutOfMemory else error.UnsupportedEncoding;
+        }
+        return try self.sink.bytes.toOwnedSlice(allocator);
+    }
+
+    /// Only for abandoning an encoder that never reached `finish`.
+    pub fn deinit(self: *Encoder, allocator: std.mem.Allocator) void {
+        if (self.snd) |snd| _ = c.sf_close(snd);
+        self.snd = null;
+        self.sink.bytes.deinit(allocator);
+    }
+};
+
 /// Encode mono/interleaved `samples` as a 16-bit FLAC file in memory.
 /// Lossless against the 16-bit WAV this replaced in the project audio cache,
 /// and about half the size. Returns null if this libsndfile cannot write
@@ -106,27 +204,20 @@ pub fn encodeFlacAlloc(
     sample_rate: u32,
     channel_count: u16,
 ) std.mem.Allocator.Error!?[]u8 {
-    var sink: Sink = .{ .allocator = allocator };
-    errdefer sink.bytes.deinit(allocator);
-    var vio = write_virtual_io;
-    var info: c.SF_INFO = std.mem.zeroes(c.SF_INFO);
-    info.samplerate = @intCast(sample_rate);
-    info.channels = @intCast(channel_count);
-    info.format = c.SF_FORMAT_FLAC | c.SF_FORMAT_PCM_16;
-    if (c.sf_format_check(&info) == 0) return null;
-
-    const snd = c.sf_open_virtual(&vio, c.SFM_WRITE, &info, &sink) orelse return null;
-    // Same convention `wav.zig` writes with: full scale is ±1.0.
-    _ = c.sf_command(snd, c.SFC_SET_CLIPPING, null, c.SF_TRUE);
-    const frames: c.sf_count_t = @intCast(samples.len / channel_count);
-    _ = c.sf_writef_float(snd, samples.ptr, frames);
-    const closed = c.sf_close(snd);
-    if (sink.failed) return error.OutOfMemory;
-    if (closed != 0) {
-        sink.bytes.deinit(allocator);
-        return null;
-    }
-    return try sink.bytes.toOwnedSlice(allocator);
+    var encoder: Encoder = undefined;
+    encoder.init(allocator, .flac, sample_rate, channel_count, 16) catch |err| switch (err) {
+        error.UnsupportedEncoding => return null,
+        else => |e| return e,
+    };
+    errdefer encoder.deinit(allocator);
+    encoder.writeSamples(samples) catch |err| switch (err) {
+        error.UnsupportedEncoding => return null,
+        else => |e| return e,
+    };
+    return encoder.finish(allocator) catch |err| switch (err) {
+        error.UnsupportedEncoding => null,
+        else => |e| e,
+    };
 }
 
 /// Where the virtual-IO callbacks below are up to in the caller's bytes.

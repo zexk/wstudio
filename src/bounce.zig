@@ -6,6 +6,7 @@ const engine_mod = @import("audio/engine.zig");
 const dsp = @import("dsp/device.zig");
 const time_grid = @import("time_grid.zig");
 const wav = @import("core/wav.zig");
+const audio_file = @import("core/audio_file.zig");
 const Session = @import("session.zig").Session;
 
 pub const Range = struct {
@@ -107,33 +108,54 @@ pub fn render(session: *Session, buffer: []types.Sample, start_frame: u64) void 
     if (was_playing) engine.transport.play() else engine.transport.stop();
 }
 
-/// Render directly to PCM WAV using one fixed audio block of memory.
-pub fn writeWav(session: *Session, writer: *std.Io.Writer, bounce_range: Range, bit_depth: wav.BitDepth) wav.WriteError!void {
-    const engine = session.engine;
-    const was_playing = engine.transport.playing;
-    const saved_pos = engine.transport.position_frames;
-    const was_looping = engine.transport.loop_enabled;
-    defer {
+/// Render into `encoder`, which owns the output format. Same transport
+/// handling and same tail rule as `writeWav` - see its comments.
+pub fn writeEncoded(
+    session: *Session,
+    encoder: *audio_file.Encoder,
+    bounce_range: Range,
+) audio_file.Encoder.Error!void {
+    var run = RenderRun.begin(session, bounce_range);
+    defer run.finish();
+
+    var block: [types.default_block_frames * engine_mod.channels]types.Sample = undefined;
+    while (run.next(&block)) |samples| try encoder.writeSamples(samples);
+}
+
+/// One offline render in progress: the transport state to put back, and how
+/// far through the range we are. Shared by every `write*` below so the tail
+/// rule and the restore live in one place.
+const RenderRun = struct {
+    session: *Session,
+    was_playing: bool,
+    saved_pos: u64,
+    was_looping: bool,
+    frames_left: u64,
+    frames_rendered: u64 = 0,
+    content_frames: u64,
+
+    fn begin(session: *Session, bounce_range: Range) RenderRun {
+        const engine = session.engine;
+        const run: RenderRun = .{
+            .session = session,
+            .was_playing = engine.transport.playing,
+            .saved_pos = engine.transport.position_frames,
+            .was_looping = engine.transport.loop_enabled,
+            .frames_left = bounce_range.total_frames,
+            .content_frames = bounce_range.content_frames,
+        };
+        engine.transport.loop_enabled = false;
         resetDevices(session);
         engine.limiter.reset();
-        engine.transport.seekFrames(saved_pos);
-        engine.transport.loop_enabled = was_looping;
-        if (was_playing) engine.transport.play() else engine.transport.stop();
+        engine.transport.seekFrames(bounce_range.start_frame);
+        engine.transport.play();
+        return run;
     }
 
-    engine.transport.loop_enabled = false;
-    resetDevices(session);
-    engine.limiter.reset();
-    engine.transport.seekFrames(bounce_range.start_frame);
-    engine.transport.play();
-
-    const frame_count = std.math.cast(usize, bounce_range.total_frames) orelse return error.FileTooLarge;
-    const sample_count = std.math.mul(usize, frame_count, engine_mod.channels) catch return error.FileTooLarge;
-    var wav_writer = try wav.StreamWriter.init(writer, session.project.sample_rate, engine_mod.channels, sample_count, bit_depth);
-    var block: [types.default_block_frames * engine_mod.channels]types.Sample = undefined;
-    var frames_left = bounce_range.total_frames;
-    var frames_rendered: u64 = 0;
-    while (frames_left > 0) {
+    /// Renders the next block into `block`, or null once the range is done.
+    fn next(self: *RenderRun, block: []types.Sample) ?[]types.Sample {
+        if (self.frames_left == 0) return null;
+        const engine = self.session.engine;
         // Once content ends, stop the transport instead of letting it keep
         // rolling through the tail: `PatternPlayer.processBlock` fires new
         // notes purely off transport position with no idea "tail" means
@@ -143,18 +165,42 @@ pub fn writeWav(session: *Session, writer: *std.Io.Writer, bounce_range: Range, 
         // sounding note its note-off (release stage, not an abrupt cut) and
         // freezes position so nothing new fires, while FX/envelope tails
         // still ring out normally since processing continues either way.
-        if (frames_rendered >= bounce_range.content_frames) engine.transport.stop();
-        const frames: usize = @intCast(@min(frames_left, types.default_block_frames));
+        if (self.frames_rendered >= self.content_frames) engine.transport.stop();
+        const frames: usize = @intCast(@min(self.frames_left, types.default_block_frames));
         const samples = block[0 .. frames * engine_mod.channels];
         engine.process(samples);
-        try wav_writer.writeSamples(samples);
-        frames_left -= frames;
-        frames_rendered += frames;
+        self.frames_left -= frames;
+        self.frames_rendered += frames;
+        return samples;
     }
+
+    fn finish(self: *RenderRun) void {
+        const engine = self.session.engine;
+        resetDevices(self.session);
+        engine.limiter.reset();
+        engine.transport.seekFrames(self.saved_pos);
+        engine.transport.loop_enabled = self.was_looping;
+        if (self.was_playing) engine.transport.play() else engine.transport.stop();
+    }
+};
+
+/// Render directly to PCM WAV using one fixed audio block of memory.
+pub fn writeWav(session: *Session, writer: *std.Io.Writer, bounce_range: Range, bit_depth: wav.BitDepth) wav.WriteError!void {
+    const frame_count = std.math.cast(usize, bounce_range.total_frames) orelse return error.FileTooLarge;
+    const sample_count = std.math.mul(usize, frame_count, engine_mod.channels) catch return error.FileTooLarge;
+
+    var run = RenderRun.begin(session, bounce_range);
+    defer run.finish();
+
+    var wav_writer = try wav.StreamWriter.init(writer, session.project.sample_rate, engine_mod.channels, sample_count, bit_depth);
+    var block: [types.default_block_frames * engine_mod.channels]types.Sample = undefined;
+    while (run.next(&block)) |samples| try wav_writer.writeSamples(samples);
     try wav_writer.finish();
 }
 
 /// Stream to sibling temporary file, then replace destination atomically.
+/// The path's extension picks the format: `.flac` and `.ogg` go through
+/// libsndfile, anything else is a PCM WAV.
 pub fn writeFile(
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -167,12 +213,29 @@ pub fn writeFile(
     defer allocator.free(tmp_path);
     errdefer std.Io.Dir.cwd().deleteFile(io, tmp_path) catch {};
 
+    // Encoded formats are produced whole before anything is written, since
+    // libsndfile patches its headers by seeking backwards; the encoder holds
+    // the compressed bitstream, not the render, so the cost is the size of
+    // the output file.
+    const encoded: ?[]u8 = if (audio_file.Encoding.fromPath(path)) |encoding| blk: {
+        var encoder: audio_file.Encoder = undefined;
+        try encoder.init(allocator, encoding, session.project.sample_rate, engine_mod.channels, @intFromEnum(bit_depth));
+        errdefer encoder.deinit(allocator);
+        try writeEncoded(session, &encoder, bounce_range);
+        break :blk try encoder.finish(allocator);
+    } else null;
+    defer if (encoded) |bytes| allocator.free(bytes);
+
     {
         const file = try std.Io.Dir.cwd().createFile(io, tmp_path, .{});
         defer file.close(io);
         var file_buffer: [8192]u8 = undefined;
         var file_writer = file.writer(io, &file_buffer);
-        try writeWav(session, &file_writer.interface, bounce_range, bit_depth);
+        if (encoded) |bytes| {
+            try file_writer.interface.writeAll(bytes);
+        } else {
+            try writeWav(session, &file_writer.interface, bounce_range, bit_depth);
+        }
         try file_writer.interface.flush();
     }
     try std.Io.Dir.cwd().rename(tmp_path, std.Io.Dir.cwd(), path, io);
@@ -239,6 +302,46 @@ test "writeWav's decay tail stays silent instead of firing the loop's next repea
     var repeat_peak: f32 = 0.0;
     for (parsed.samples[bounce_range.content_frames..][0..2_000]) |s| repeat_peak = @max(repeat_peak, @abs(s));
     try std.testing.expectEqual(@as(f32, 0.0), repeat_peak);
+}
+
+test "encoded bounce round-trips through libsndfile with the same audio" {
+    var session = try Session.initDefaultWithSampleRate(std.testing.allocator, 48_000);
+    defer session.deinit();
+    try session.setInstrument(0, .poly_synth);
+    session.racks.items[0].pattern_player.?.addNote(
+        .{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 },
+    );
+    const bounce_range = range(&session, 0.0);
+
+    var encoder: audio_file.Encoder = undefined;
+    encoder.init(std.testing.allocator, .flac, 48_000, engine_mod.channels, 16) catch |err| switch (err) {
+        // A libsndfile built without FLAC cannot be made to write one; the
+        // WAV path is unaffected and still covered above.
+        error.UnsupportedEncoding => return,
+        else => |e| return e,
+    };
+    errdefer encoder.deinit(std.testing.allocator);
+    try writeEncoded(&session, &encoder, bounce_range);
+    const bytes = try encoder.finish(std.testing.allocator);
+    defer std.testing.allocator.free(bytes);
+
+    const decoded = try audio_file.parseInterleavedAlloc(std.testing.allocator, bytes);
+    defer std.testing.allocator.free(decoded.samples);
+    try std.testing.expectEqual(@as(u32, 48_000), decoded.sample_rate);
+    try std.testing.expectEqual(engine_mod.channels, decoded.channel_count);
+    try std.testing.expectEqual(bounce_range.total_frames * engine_mod.channels, decoded.samples.len);
+
+    var peak: f32 = 0.0;
+    for (decoded.samples) |s| peak = @max(peak, @abs(s));
+    try std.testing.expect(peak > 0.01); // the note survived the encoder
+}
+
+test "the output extension picks the encoding" {
+    try std.testing.expectEqual(audio_file.Encoding.flac, audio_file.Encoding.fromPath("mix.flac").?);
+    try std.testing.expectEqual(audio_file.Encoding.flac, audio_file.Encoding.fromPath("MIX.FLAC").?);
+    try std.testing.expectEqual(audio_file.Encoding.ogg_vorbis, audio_file.Encoding.fromPath("mix.ogg").?);
+    try std.testing.expectEqual(@as(?audio_file.Encoding, null), audio_file.Encoding.fromPath("mix.wav"));
+    try std.testing.expectEqual(@as(?audio_file.Encoding, null), audio_file.Encoding.fromPath("flac"));
 }
 
 test "contentBeats includes drum resolution and slicer length" {
