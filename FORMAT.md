@@ -75,7 +75,7 @@ in place after the blobs land, since its value isn't known until then.
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 62) is the only format version
+`persist.zig`'s `file_version` (currently 63) is the only format version
 this build writes or reads. Loading enforces one rule:
 
 - **A file whose `version` is not exactly `file_version` is hard-rejected**
@@ -88,6 +88,9 @@ because they protect against corrupt and hand-edited values.
 
 **Bump `file_version` for every schema or semantic change**, including new
 fields and enum members.
+
+Version 63 adds the limiter's automatic level regulation (`alr`, its knee
+and its release).
 
 Version 62 adds the EQ's `analog` flag, which designs its peaking bands by
 matched Z-transform instead of the RBJ cookbook.

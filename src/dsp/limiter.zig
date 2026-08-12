@@ -22,6 +22,7 @@ const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
 const oversample = @import("oversample.zig");
+const Compressor = @import("compressor.zig").Compressor;
 
 const Sample = types.Sample;
 
@@ -51,6 +52,21 @@ pub const Limiter = struct {
     /// `oversample.peak_latency_frames` of latency (the detector is
     /// symmetric, so the audio has to wait for its answer).
     true_peak: f32 = 0.0,
+    /// Automatic level regulation: 0 = off, 1 = on. A soft compressor ahead
+    /// of the brickwall, working over the `alr_knee_db` below the ceiling so
+    /// the loud stretches arrive already close to it. The brickwall then
+    /// catches individual peaks instead of riding a whole chorus down, which
+    /// is the audible difference between "limited" and "pumping".
+    alr: f32 = 0.0,
+    /// How far below the ceiling the regulator starts working. Wider means
+    /// gentler and earlier.
+    alr_knee_db: f32 = 6.0,
+    /// Recovery time for the regulator. Deliberately far slower than
+    /// `release_ms`: this stage is meant to move with the arrangement, and a
+    /// fast one would just be a second limiter.
+    alr_release_ms: f32 = 300.0,
+    /// Regulator envelope, in linear peak.
+    alr_env: f32 = 0.0,
     /// Current gain (≤ 1). Recovers toward 1 at `release_ms`, held down to
     /// the lookahead window's minimum required gain.
     gain: f32 = 1.0,
@@ -107,6 +123,7 @@ pub const Limiter = struct {
 
     pub fn reset(self: *Limiter) void {
         self.gain = 1.0;
+        self.alr_env = 0.0;
         @memset(self.delay[0], 0.0);
         @memset(self.delay[1], 0.0);
         @memset(self.target, 1.0);
@@ -135,6 +152,16 @@ pub const Limiter = struct {
         const true_peak = dsp.sanitizeParam(self.true_peak, 0.0, 1.0, 0.0) >= 0.5;
         const cap = self.delay[0].len;
 
+        const alr_on = dsp.sanitizeParam(self.alr, 0.0, 1.0, 0.0) >= 0.5;
+        const alr_knee_db = dsp.sanitizeParam(self.alr_knee_db, 0.0, 24.0, 6.0);
+        const alr_release_ms = dsp.sanitizeParam(self.alr_release_ms, 10.0, 2000.0, 300.0);
+        // Threshold sits a knee below the ceiling, so the regulator is
+        // already at work by the time the brickwall would be.
+        const alr_threshold_db = types.gainToDb(ceiling) - alr_knee_db;
+        const alr_attack = dsp.smoothingCoefMs(10.0, self.sample_rate);
+        const alr_release = dsp.smoothingCoefMs(alr_release_ms, self.sample_rate);
+        if (!std.math.isFinite(self.alr_env) or self.alr_env < 0.0) self.alr_env = 0.0;
+
         var i: usize = 0;
         while (i + 1 < buf.len) : (i += 2) {
             // External plugins are allowed upstream. Contain malformed
@@ -161,7 +188,26 @@ pub const Limiter = struct {
                 r = dr;
                 break :blk detected;
             };
-            const target_gain: f32 = if (level > ceiling) ceiling / level else 1.0;
+            // Regulate before the brickwall reads its level, so what lands
+            // in the lookahead ring is already the pre-conditioned signal.
+            var regulated = level;
+            if (alr_on) {
+                const over_db = Compressor.envelopeOverDb(
+                    &self.alr_env,
+                    level,
+                    alr_attack,
+                    alr_release,
+                    alr_threshold_db,
+                );
+                // Ratio 4 with the full knee width: firm enough to take the
+                // brickwall out of continuous duty, gentle enough that the
+                // regulator itself stays inaudible on programme material.
+                const alr_gain = types.dbToGain(Compressor.downwardReductionDb(over_db, 4.0, alr_knee_db));
+                l *= alr_gain;
+                r *= alr_gain;
+                regulated = level * alr_gain;
+            }
+            const target_gain: f32 = if (regulated > ceiling) ceiling / regulated else 1.0;
 
             const write_idx = self.frame_counter % cap;
             self.delay[0][write_idx] = l;
@@ -345,6 +391,68 @@ test "gain recovers toward unity after a transient" {
     }
     try std.testing.expect(lim.gain > 0.99);
     try std.testing.expect(lim.gain > reduced);
+}
+
+test "ALR takes the brickwall out of continuous duty" {
+    // The point of the regulator: on a sustained loud passage the brickwall
+    // should end up doing almost nothing, because the stage in front of it
+    // has already brought the level down. Both limiters still respect the
+    // ceiling - that is the next test's job to keep honest.
+    const tone = struct {
+        fn fill(buf: []Sample, amp: f32, phase: *f32) void {
+            var i: usize = 0;
+            while (i + 1 < buf.len) : (i += 2) {
+                const v = amp * @sin(phase.*);
+                phase.* += 2.0 * std.math.pi * 220.0 / 48_000.0;
+                buf[i] = v;
+                buf[i + 1] = v;
+            }
+        }
+    }.fill;
+
+    var plain = try Limiter.init(std.testing.allocator, 48_000);
+    defer plain.deinit(std.testing.allocator);
+    var regulated = try Limiter.init(std.testing.allocator, 48_000);
+    defer regulated.deinit(std.testing.allocator);
+    regulated.alr = 1.0;
+
+    var buf: [512]Sample = undefined;
+    var phase_a: f32 = 0.0;
+    var phase_b: f32 = 0.0;
+    var peak_out: f32 = 0.0;
+    // ~2.5s, well past the 300 ms regulator release.
+    for (0..240) |blk| {
+        tone(&buf, 2.0, &phase_a);
+        plain.processBlock(&buf);
+        tone(&buf, 2.0, &phase_b);
+        regulated.processBlock(&buf);
+        if (blk > 120) for (buf) |s| {
+            peak_out = @max(peak_out, @abs(s));
+        };
+    }
+
+    // The brickwall's own gain is what "working hard" means here.
+    try std.testing.expect(plain.gain < 0.6);
+    try std.testing.expect(regulated.gain > plain.gain * 1.5);
+    // And the ceiling still holds on the regulated path.
+    try std.testing.expect(peak_out <= regulated.ceiling + 1e-4);
+}
+
+test "ALR off is byte-identical to the limiter without it" {
+    var plain = try Limiter.init(std.testing.allocator, 48_000);
+    defer plain.deinit(std.testing.allocator);
+    var off = try Limiter.init(std.testing.allocator, 48_000);
+    defer off.deinit(std.testing.allocator);
+    off.alr = 0.0;
+    off.alr_knee_db = 24.0; // set, but inert while the stage is off
+
+    var a: [512]Sample = undefined;
+    var b: [512]Sample = undefined;
+    for (&a, 0..) |*s, i| s.* = 1.6 * @sin(@as(f32, @floatFromInt(i)) * 0.05);
+    @memcpy(&b, &a);
+    plain.processBlock(&a);
+    off.processBlock(&b);
+    try std.testing.expectEqualSlices(Sample, &a, &b);
 }
 
 test "zero lookahead is byte-identical to the old zero-latency limiter" {

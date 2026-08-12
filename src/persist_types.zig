@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 62;
+pub const file_version: u32 = 63;
 
 /// First four bytes of every .wsj. The file is a container: a 12-byte
 /// header, the audio cache (user sample blobs, concatenated), then this
@@ -554,6 +554,10 @@ pub const LimiterSnap = struct {
     lookahead_ms: f32 = 0.0,
     /// 0 = sample peak, 1 = true peak (2x inter-sample detection).
     true_peak: f32 = 0.0,
+    /// 0 = brickwall only, 1 = soft regulator ahead of it.
+    alr: f32 = 0.0,
+    alr_knee_db: f32 = 6.0,
+    alr_release_ms: f32 = 300.0,
 };
 
 pub const UtilitySnap = struct {

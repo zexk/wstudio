@@ -272,6 +272,9 @@ pub const limiter_specs = [_]ParamSpec{
     .{ .name = "release", .field = "release_ms", .min = 1.0, .max = 1000.0, .step_fine = 10.0, .step_coarse = 100.0 },
     .{ .name = "lookahead", .field = "lookahead_ms", .min = 0.0, .max = limiter_mod.max_lookahead_ms, .step_fine = 1.0, .step_coarse = 5.0 },
     .{ .name = "true peak", .field = "true_peak", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+    .{ .name = "alr", .field = "alr", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+    .{ .name = "alr knee", .field = "alr_knee_db", .min = 0.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
+    .{ .name = "alr rel", .field = "alr_release_ms", .min = 10.0, .max = 2000.0, .step_fine = 10.0, .step_coarse = 100.0 },
 };
 
 /// `comp`'s first 6 params only - idx 6/7 are the sidechain track/pad
