@@ -3701,7 +3701,23 @@ pub const App = struct {
             buf[n] = item;
             n += 1;
         }
+        // Best match first, so the cursor already sits on what was typed for
+        // rather than on whichever entry the table declares first. Stable, so
+        // an empty filter leaves the table's own curated order alone.
+        if (filter.len > 0) std.sort.insertion(InstrumentPickerItem, buf[0..n], filter, pickerItemRanksBefore);
         return buf[0..n];
+    }
+
+    /// A label match outranks a description match at any score: the label is
+    /// what the user is looking at while they type.
+    fn pickerItemRanksBefore(filter: []const u8, a: InstrumentPickerItem, b: InstrumentPickerItem) bool {
+        return pickerItemScore(filter, a) > pickerItemScore(filter, b);
+    }
+
+    fn pickerItemScore(filter: []const u8, item: InstrumentPickerItem) i32 {
+        if (fuzzy.score(filter, item.label)) |s| return s;
+        if (fuzzy.score(filter, item.description)) |s| return s - 1000;
+        return std.math.minInt(i32);
     }
 
     pub fn filteredInstrumentPluginCount(self: *App) usize {

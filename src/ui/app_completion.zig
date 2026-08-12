@@ -178,6 +178,19 @@ pub fn completeArgument(self: *App, buf: []const u8, name_end: usize) void {
     }
 }
 
+/// Sort context for the fuzzy fallback below: ranks candidate indices by how
+/// well the value they point at scores against the stem.
+const Ranker = struct {
+    stem: []const u8,
+    values: []const []const u8,
+
+    fn before(self: Ranker, a: usize, b: usize) bool {
+        const sa = fuzzy.score(self.stem, self.values[a]) orelse std.math.minInt(i32);
+        const sb = fuzzy.score(self.stem, self.values[b]) orelse std.math.minInt(i32);
+        return sa > sb;
+    }
+};
+
 /// Shared by `completeCommand`/`completeArgument`. `current_text` is
 /// whatever `values`-completable text is in cmd_buf right now (may
 /// already be a candidate from a previous cycle step, not necessarily
@@ -226,6 +239,14 @@ pub fn cycleCompletion(self: *App, insert_at: usize, current_text: []const u8, s
         match_count += 1;
     }
     if (match_count == 0) return;
+
+    // The prefix path is already ordered by the command table; the fuzzy
+    // fallback is not, so tab would otherwise walk table order and hand back
+    // the loosest match first. Deterministic for a given stem, so cycling
+    // with repeated tabs still visits each candidate once.
+    if (source == .command_name and !has_prefix) {
+        std.sort.insertion(usize, match_idx[0..@min(match_count, match_idx.len)], Ranker{ .stem = stem, .values = values }, Ranker.before);
+    }
 
     if (match_count == 1) {
         self.tab_cycle = null;

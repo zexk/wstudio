@@ -248,6 +248,23 @@ test "instrument picker / narrows instruments and enter inserts match" {
     try std.testing.expectEqual(ws.InstrumentKind.slicer, std.meta.activeTag(app.session.racks.items[0].instrument));
 }
 
+test "instrument picker orders matches by score, not by table order" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    app.handleKey(.enter, 0);
+    // "sl" hits Slicer as a contiguous prefix and Sampler as scattered
+    // letters, and Sampler is the earlier row in the table.
+    for ("/sl") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+
+    var buf: [app_mod.instrument_picker_items.len]app_mod.InstrumentPickerItem = undefined;
+    const items = app.filteredInstrumentPickerItems(&buf);
+    try std.testing.expect(items.len >= 2);
+    try std.testing.expectEqual(ws.InstrumentKind.slicer, items[0].kind);
+    try std.testing.expectEqual(ws.InstrumentKind.sampler, items[1].kind);
+}
+
 test "instrument picker click during live search submits then inserts clicked match" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
