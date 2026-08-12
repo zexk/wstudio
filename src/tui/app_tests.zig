@@ -781,7 +781,7 @@ test "slicer grid: a click past the 256th step lands on it instead of panicking"
     // Drawing scrolls the step window onto the cursor, so the leftmost
     // visible column is well past a u8's ceiling - which is exactly what the
     // hit-test used to narrow the step index to.
-    app.slicer_cursor = .{ 0, 300 };
+    app.slicer_cursor = .{ 0, 500 };
     var buf: [64 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try @import("views/slicer.zig").drawSlicerGrid(&app, &w, 40, 100, app.session.engine.uiSnapshot());
@@ -958,7 +958,7 @@ test "slicer grid: advancing entry, pattern double, and source-order sequence" {
     app.modal.count = 3;
     _ = slicer_ed.handleKey(&app, .{ .char = 'n' });
     try std.testing.expect(app.slicerInst().stepActive(2, 1));
-    try std.testing.expectEqual(@as(u8, 4), app.slicer_cursor[1]);
+    try std.testing.expectEqual(@as(u16, 7), app.slicer_cursor[1]);
 
     app.slicerInst().setStepVel(2, 1, 63);
     _ = slicer_ed.handleKey(&app, .{ .char = 'E' });
@@ -1277,7 +1277,7 @@ test "drum grid advancing entry and pattern double preserve velocity" {
     app.modal.count = 4;
     _ = drum_ed.handleKey(&app, .{ .char = 'n' });
     try std.testing.expect(app.drumMachine().stepActive(1, 0));
-    try std.testing.expectEqual(@as(u8, 4), app.drum_cursor[1]);
+    try std.testing.expectEqual(@as(u16, 7), app.drum_cursor[1]);
 
     app.drumMachine().setStepVel(1, 0, 95);
     _ = drum_ed.handleKey(&app, .{ .char = 'E' });
@@ -2779,19 +2779,19 @@ test "drum grid visual-line mode selects a step range across pads for y/d/P" {
     app.drum_track = 2;
     const dm = app.drumMachine();
     for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
-    dm.setStepCount(16);
+    dm.setStepCount(64);
     dm.toggleStep(0, 0);
     dm.setStepVel(0, 0, 31);
     dm.toggleStep(1, 2);
-    dm.toggleStep(3, 14); // outside both the selection and the paste target below
+    dm.toggleStep(3, 40); // outside both selection and paste target
 
     app.drum_cursor = .{ 0, 0 };
     app.handleKey(.{ .char = 'V' }, 0);
     try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
-    for ("3l") |c| app.handleKey(.{ .char = c }, 0); // extend to step 3
+    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.{ .char = 'y' }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
-    try std.testing.expectEqual(@as(u16, 4), app.drum_range_clip.?.width);
+    try std.testing.expectEqual(@as(u16, 25), app.drum_range_clip.?.width);
 
     // Paste at step 8 (all pads): P is a visual-mode action, so re-enter
     // visual first (V establishes the cursor as the paste point).
@@ -2804,7 +2804,7 @@ test "drum grid visual-line mode selects a step range across pads for y/d/P" {
     try std.testing.expect(dm.stepActive(1, 10));
     // Untouched original steps and the step outside the paste range survive.
     try std.testing.expect(dm.stepActive(0, 0));
-    try std.testing.expect(dm.stepActive(3, 14));
+    try std.testing.expect(dm.stepActive(3, 40));
 
     // Select again and clear it.
     app.drum_cursor = .{ 0, 0 };
@@ -2899,7 +2899,7 @@ test "drum grid visual mode yank/paste carries a range wider than the old 64-ste
     app.handleKey(.{ .char = 'v' }, 0);
     for ("99l") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.{ .char = 'y' }, 0);
-    try std.testing.expectEqual(@as(u16, 100), app.drum_range_clip.?.width);
+    try std.testing.expectEqual(@as(u16, 200), app.drum_range_clip.?.width);
 
     // Paste at step 50 - step 90's offset (50) lands at step 140.
     app.drum_cursor[1] = 50;
@@ -2917,28 +2917,28 @@ test "drum grid visual mode: w/b extend the selection by beat, matching normal-m
     app.drum_track = 2;
     const dm = app.drumMachine();
     for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
-    dm.setStepCount(16);
+    dm.setStepCount(64);
     dm.toggleStep(0, 0);
-    dm.toggleStep(0, 4); // last step of the first 4-step bar `w` should reach
-    dm.toggleStep(0, 8); // outside the w-extended range
+    dm.toggleStep(0, 32);
+    dm.toggleStep(0, 40); // outside the w-extended range
 
     app.drum_cursor = .{ 0, 0 };
     app.handleKey(.{ .char = 'v' }, 0);
-    app.handleKey(.{ .char = 'w' }, 0); // extend one bar forward (0 -> 4)
+    app.handleKey(.{ .char = 'w' }, 0);
     try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
-    try std.testing.expectEqual(@as(u8, 4), app.drum_cursor[1]);
+    try std.testing.expectEqual(@as(u16, 32), app.drum_cursor[1]);
     app.handleKey(.{ .char = 'd' }, 0);
     try std.testing.expect(!dm.stepActive(0, 0));
-    try std.testing.expect(!dm.stepActive(0, 4));
-    try std.testing.expect(dm.stepActive(0, 8)); // untouched, outside the range
+    try std.testing.expect(!dm.stepActive(0, 32));
+    try std.testing.expect(dm.stepActive(0, 40)); // untouched, outside the range
 
-    // b moves the extended selection back a bar (from step 8, lands on 4).
-    app.drum_cursor = .{ 0, 8 };
+    // b moves the extended selection back one beat.
+    app.drum_cursor = .{ 0, 40 };
     app.handleKey(.{ .char = 'v' }, 0);
     app.handleKey(.{ .char = 'b' }, 0);
-    try std.testing.expectEqual(@as(u8, 4), app.drum_cursor[1]);
+    try std.testing.expectEqual(@as(u16, 0), app.drum_cursor[1]);
     app.handleKey(.{ .char = 'd' }, 0);
-    try std.testing.expect(!dm.stepActive(0, 8));
+    try std.testing.expect(!dm.stepActive(0, 40));
 }
 
 test "drum grid visual mode: J/K jump a pad bank, matching normal-mode movePad" {
@@ -2995,22 +2995,22 @@ test "drum grid operator+motion: d3l / y3l act on a range without entering visua
     app.drum_track = 2;
     const dm = app.drumMachine();
     for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
-    dm.setStepCount(16);
+    dm.setStepCount(32);
     dm.toggleStep(0, 0);
     dm.toggleStep(1, 2);
-    dm.toggleStep(3, 14); // outside the range below
+    dm.toggleStep(3, 30); // outside the range below
 
     app.drum_cursor = .{ 0, 0 };
-    for ("y3l") |c| app.handleKey(.{ .char = c }, 0); // y + motion: yank steps 0-3
+    for ("y3l") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
-    try std.testing.expectEqual(@as(u16, 4), app.drum_range_clip.?.width);
-    try std.testing.expectEqual(@as(u8, 3), app.drum_cursor[1]); // cursor follows the motion
+    try std.testing.expectEqual(@as(u16, 25), app.drum_range_clip.?.width);
+    try std.testing.expectEqual(@as(u16, 24), app.drum_cursor[1]); // cursor follows the motion
 
     app.drum_cursor = .{ 0, 0 };
-    for ("d3l") |c| app.handleKey(.{ .char = c }, 0); // d + motion: clear steps 0-3
+    for ("d3l") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expect(!dm.stepActive(0, 0));
     try std.testing.expect(!dm.stepActive(1, 2));
-    try std.testing.expect(dm.stepActive(3, 14)); // untouched, outside the range
+    try std.testing.expect(dm.stepActive(3, 30)); // untouched, outside the range
 
     // yy stays the whole-pattern yank (the cross-track copy vehicle); dd is
     // vim's line-delete where a "line" is the cursor pad's row - other
@@ -3021,10 +3021,10 @@ test "drum grid operator+motion: d3l / y3l act on a range without entering visua
     app.drum_cursor = .{ 2, 0 };
     for ("dd") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expect(!dm.stepActive(2, 5));
-    try std.testing.expect(dm.stepActive(3, 14)); // other pad untouched
+    try std.testing.expect(dm.stepActive(3, 30)); // other pad untouched
     app.drum_cursor = .{ 3, 0 };
     for ("dd") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expect(!dm.stepActive(3, 14));
+    try std.testing.expect(!dm.stepActive(3, 30));
 }
 
 test "drum grid char/word tiers: x clears just this cell, w/b jump by beat" {
@@ -3034,32 +3034,31 @@ test "drum grid char/word tiers: x clears just this cell, w/b jump by beat" {
     app.drum_track = 2;
     const dm = app.drumMachine();
     for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
-    dm.setStepCount(32);
-    dm.toggleStep(0, 5); // outside the first beat (steps 0-3)
-    dm.toggleStep(2, 5);
+    dm.setStepCount(64);
+    dm.toggleStep(0, 40); // outside first canonical 32-tick beat
+    dm.toggleStep(2, 40);
     dm.toggleStep(2, 2); // inside the first beat
-    dm.toggleStep(1, 20); // far away, untouched by anything below
+    dm.toggleStep(1, 50); // far away, untouched by anything below
 
     // x: instant single-cell clear, no operator arming needed.
-    app.drum_cursor = .{ 0, 5 };
+    app.drum_cursor = .{ 0, 40 };
     app.handleKey(.{ .char = 'x' }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
-    try std.testing.expect(!dm.stepActive(0, 5));
-    try std.testing.expect(dm.stepActive(2, 5)); // a different pad's step at the same column survives
+    try std.testing.expect(!dm.stepActive(0, 40));
+    try std.testing.expect(dm.stepActive(2, 40)); // a different pad's step at the same column survives
 
-    // w: jump forward to the next beat boundary (step 4); b: back to 0.
+    // w: jump forward to next beat boundary; b: back to 0.
     app.drum_cursor = .{ 0, 0 };
     app.handleKey(.{ .char = 'w' }, 0);
-    try std.testing.expectEqual(@as(u8, 4), app.drum_cursor[1]);
+    try std.testing.expectEqual(@as(u16, 32), app.drum_cursor[1]);
     app.handleKey(.{ .char = 'b' }, 0);
     try std.testing.expectEqual(@as(u8, 0), app.drum_cursor[1]);
 
-    // dw: clear exactly the current beat (steps 0-3), leaving steps
-    // outside it (5, 20) untouched.
+    // dw: clear exactly current beat, leaving later steps untouched.
     for ("dw") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expect(!dm.stepActive(2, 2));
-    try std.testing.expect(dm.stepActive(2, 5));
-    try std.testing.expect(dm.stepActive(1, 20));
+    try std.testing.expect(dm.stepActive(2, 40));
+    try std.testing.expect(dm.stepActive(1, 50));
 }
 
 test "paste with an empty clipboard is a no-op" {
@@ -5595,7 +5594,7 @@ test "drum grid insert mode previews without recording while the transport is st
     // the whole pad's row stayed empty rather than a single step, so the
     // test doesn't depend on where a stopped transport's playhead sits.
     const dm = &app.session.racks.items[2].instrument.drum_machine;
-    var s: u8 = 0;
+    var s: u16 = 0;
     while (s < dm.step_count) : (s += 1) try std.testing.expect(!dm.stepActive(60, s));
 }
 
@@ -5693,15 +5692,15 @@ test "count prefixes multiply editor motions and die with the next key" {
     app.view = .drum_grid;
     app.drum_track = 2;
     for ("4l") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expectEqual(@as(u8, 4), app.drum_cursor[1]);
+    try std.testing.expectEqual(@as(u16, 32), app.drum_cursor[1]);
     for ("99l") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expectEqual(@as(u8, 31), app.drum_cursor[1]); // 32 steps
+    try std.testing.expectEqual(@as(u16, 255), app.drum_cursor[1]);
 
     // An unused count is discarded by the handled key it preceded ('p'
     // previews, no count) - the following motion moves 1, not 5.
     for ("5p") |c| app.handleKey(.{ .char = c }, 0);
     for ("h") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expectEqual(@as(u8, 30), app.drum_cursor[1]);
+    try std.testing.expectEqual(@as(u16, 247), app.drum_cursor[1]);
 
     // Arrangement: 3l = three bars.
     app.view = .arrangement;
@@ -7964,23 +7963,23 @@ test "mouse click toggles a drum step and drag paints a run of them" {
     app.drum_track = 2;
     app.view = .drum_grid;
 
-    // The drum grid ships empty; pad 0 has steps 1-3 inactive.
-    try std.testing.expect(!app.drumMachine().stepActive(0, 1));
-    try std.testing.expect(!app.drumMachine().stepActive(0, 2));
-    try std.testing.expect(!app.drumMachine().stepActive(0, 3));
+    // Default 1/16 grid visits canonical ticks 8, 16, and 24.
+    try std.testing.expect(!app.drumMachine().stepActive(0, 8));
+    try std.testing.expect(!app.drumMachine().stepActive(0, 16));
+    try std.testing.expect(!app.drumMachine().stepActive(0, 24));
 
     // row 0 = title, row 1 = bar ruler, row 2 = pad 0. Cell columns (10-char
     // gutter, 1-char "│" every beat, 3-char cells): step1 x in [14,17),
     // step2 x in [17,20), step3 x in [20,23) - see editors/drum.zig's stepAt.
     const row = app_mod.content_top + 2;
     app.handleMouse(.{ .x = 15, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
-    try std.testing.expect(app.drumMachine().stepActive(0, 1));
+    try std.testing.expect(app.drumMachine().stepActive(0, 8));
 
     app.handleMouse(.{ .x = 18, .y = row, .button = .left, .kind = .drag }, 80, 24, 0);
-    try std.testing.expect(app.drumMachine().stepActive(0, 2));
+    try std.testing.expect(app.drumMachine().stepActive(0, 16));
 
     app.handleMouse(.{ .x = 21, .y = row, .button = .left, .kind = .drag }, 80, 24, 0);
-    try std.testing.expect(app.drumMachine().stepActive(0, 3));
+    try std.testing.expect(app.drumMachine().stepActive(0, 24));
 
     app.handleMouse(.{ .x = 21, .y = row, .button = .left, .kind = .release }, 80, 24, 0);
     try std.testing.expect(app.drum_paint_state == null);
@@ -8188,17 +8187,17 @@ test "right-click always erases a drum step, and a right-drag erases a run of th
     app.view = .drum_grid;
 
     const dm = app.drumMachine();
-    dm.toggleStep(0, 1); // step 1 starts ON, so a plain toggle would turn it back on
-    try std.testing.expect(dm.stepActive(0, 1));
-    try std.testing.expect(!dm.stepActive(0, 2));
+    dm.toggleStep(0, 8); // first visible grid step starts ON
+    try std.testing.expect(dm.stepActive(0, 8));
+    try std.testing.expect(!dm.stepActive(0, 16));
 
     // Same cell geometry as the left-click paint test above.
     const row = app_mod.content_top + 2;
     app.handleMouse(.{ .x = 15, .y = row, .button = .right, .kind = .press }, 80, 24, 0);
-    try std.testing.expect(!dm.stepActive(0, 1));
+    try std.testing.expect(!dm.stepActive(0, 8));
 
     app.handleMouse(.{ .x = 18, .y = row, .button = .right, .kind = .drag }, 80, 24, 0);
-    try std.testing.expect(!dm.stepActive(0, 2)); // was already off, stays off
+    try std.testing.expect(!dm.stepActive(0, 16)); // was already off, stays off
 
     app.handleMouse(.{ .x = 18, .y = row, .button = .right, .kind = .release }, 80, 24, 0);
     try std.testing.expect(app.drum_paint_state == null);
@@ -9575,7 +9574,7 @@ test "wstudio.api reads and replaces drum grid content" {
     app.lua_runtime = &rt;
     const dm = &app.session.racks.items[2].instrument.drum_machine;
 
-    try rt.loadString("p = wstudio.api.pattern_get(3); assert(p.kind == 'drum' and p.steps_per_beat == 4 and p.step_count == 32 and p.length_beats == 8.0)");
+    try rt.loadString("p = wstudio.api.pattern_get(3); assert(p.kind == 'drum' and p.steps_per_beat == 32 and p.step_count == 256 and p.length_beats == 8.0)");
     try rt.loadString("assert(#wstudio.api.steps_get(3) == 0)");
 
     try rt.loadString(
@@ -9606,13 +9605,13 @@ test "wstudio.api reads and replaces drum grid content" {
     try std.testing.expect(dm.stepActive(0, 0) and dm.stepActive(1, 4));
 
     // A bad entry anywhere in the list leaves the grid untouched.
-    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.steps_set(3, { { pad = 1, step = 1 }, { pad = 1, step = 99 } })"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.steps_set(3, { { pad = 1, step = 1 }, { pad = 1, step = 999 } })"));
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.steps_set(3, { { pad = 1, step = 1, cond = 'nope' } })"));
     try std.testing.expect(dm.stepActive(1, 4));
 
     // pattern_set resizes the grid; length_beats resolves to a step count.
     try rt.loadString("wstudio.api.pattern_set(3, { step_count = 64 }); assert(wstudio.api.pattern_get(3).step_count == 64)");
-    try rt.loadString("wstudio.api.pattern_set(3, { length_beats = 2 }); assert(wstudio.api.pattern_get(3).step_count == 8)");
+    try rt.loadString("wstudio.api.pattern_set(3, { length_beats = 2 }); assert(wstudio.api.pattern_get(3).step_count == 64)");
 }
 
 test "wstudio.api builds and tunes FX chains" {
@@ -9869,10 +9868,10 @@ test "applyUserConfig plumbs the round-6 options" {
     // built, not to instruments that already exist.
     try std.testing.expectEqual(@as(u16, 64), app.session.defaults.drum_steps);
     try app.session.setInstrument(0, .drum_machine);
-    try std.testing.expectEqual(@as(u16, 64), app.session.racks.items[0].instrument.drum_machine.step_count);
+    try std.testing.expectEqual(@as(u16, 512), app.session.racks.items[0].instrument.drum_machine.step_count);
     try std.testing.expectApproxEqAbs(@as(f32, 62), app.session.racks.items[0].instrument.drum_machine.swing.load(.monotonic), 1e-6);
     try app.session.setInstrument(0, .slicer);
-    try std.testing.expectEqual(@as(u8, 32), app.session.racks.items[0].instrument.slicer.step_count);
+    try std.testing.expectEqual(@as(u16, 256), app.session.racks.items[0].instrument.slicer.step_count);
     try app.session.setInstrument(0, .poly_synth);
     try std.testing.expectEqual(@as(f64, 8), app.session.racks.items[0].pattern_player.?.length_beats);
     try std.testing.expectApproxEqAbs(@as(f32, 62), app.session.racks.items[0].pattern_player.?.swing.load(.monotonic), 1e-6);

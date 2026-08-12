@@ -251,7 +251,7 @@ test "buildSession: constructs valid Session from snapshot" {
     try testing.expectApproxEqAbs(@as(f64, 8.0), pp.length_beats, 1e-9);
 
     const dm = &session.racks.items[1].instrument.drum_machine;
-    try testing.expect(dm.stepActive(0, 5));
+    try testing.expect(dm.stepActive(0, 40));
     try testing.expect(!dm.stepActive(0, 0));
     try testing.expectApproxEqAbs(@as(f32, 7.0), dm.pads[0].?.pad.pitch_semitones, 1e-4);
     try testing.expect(dm.pads[0].?.pad.reverse);
@@ -1242,7 +1242,7 @@ test "clip load clamps invalid loop, step, and velocity values" {
         .content = .{ .drum = .{ .pattern = .{ .step_count = 0, .notes = &.{.{ .pad = 0, .step = 0, .velocity = 127 }} } } },
     });
     defer drum.deinit(testing.allocator);
-    try testing.expectEqual(@as(u16, 1), drum.content.drum.step_count);
+    try testing.expectEqual(@as(u16, 8), drum.content.drum.step_count);
     try testing.expectEqual(DrumMachine.vel_full, drum.content.drum.midi[0][0].?.velocity);
 }
 
@@ -1296,10 +1296,10 @@ test "buildSession: drum variant bank round-trips; v2 files get one variant" {
     const dm = &session.racks.items[0].instrument.drum_machine;
     try testing.expectEqual(@as(u8, 2), dm.variant_count);
     try testing.expectEqual(@as(u8, 1), dm.variant);
-    try testing.expectEqual(@as(u16, 32), dm.step_count);
-    try testing.expect(dm.stepActive(2, 31)); // live = variant B
+    try testing.expectEqual(@as(u16, 256), dm.step_count);
+    try testing.expect(dm.stepActive(2, 248)); // live = variant B
     dm.selectVariant(0);
-    try testing.expectEqual(@as(u16, 16), dm.step_count);
+    try testing.expectEqual(@as(u16, 128), dm.step_count);
     try testing.expect(dm.stepActive(0, 0));
     try testing.expect(!dm.stepActive(0, 20)); // stray bit was masked
 
@@ -1354,8 +1354,8 @@ test "buildSession: a 64-step pattern round-trips bit 63 without truncation" {
     defer session.deinit();
 
     const dm = &session.racks.items[0].instrument.drum_machine;
-    try testing.expectEqual(@as(u16, 64), dm.step_count);
-    try testing.expect(dm.stepActive(0, 63));
+    try testing.expectEqual(@as(u16, 512), dm.step_count);
+    try testing.expect(dm.stepActive(0, 504));
 }
 
 test "buildSession: groups round-trip name, FX chain, and track membership" {

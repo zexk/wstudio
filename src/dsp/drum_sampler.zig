@@ -685,68 +685,6 @@ pub const DrumMachine = struct {
         step_grid_ops.toggleStep(&self.midi, self.step_count, pad, step);
     }
 
-    /// Change the native grid without moving hits in musical time: every
-    /// note's step (and duration) is rescaled from the old grid to the new
-    /// one. Returns false - leaving the pattern untouched - when refining
-    /// would exceed `max_steps`, OR when coarsening would round two hits
-    /// onto the same new step or push one past the new grid's end. Losing a
-    /// hit silently on zoom was the actual bug here (two colliding notes
-    /// used to fold into one, keeping only the louder velocity and
-    /// discarding the other's pitch/duration outright); refusing the whole
-    /// resize is the only way to change resolution without ever discarding
-    /// a hit invisibly - the caller reports it so the user can move/delete
-    /// the conflicting note first.
-    pub fn setStepsPerBeatPreservingTime(self: *DrumMachine, new_spb: u8) bool {
-        if (new_spb == self.steps_per_beat) return true;
-        if (new_spb < 1 or new_spb > 32) return false;
-        const old_spb = self.steps_per_beat;
-        const new_count_u32: u32 = @intCast(@divTrunc(@as(u32, self.step_count) * new_spb, old_spb));
-        if (new_count_u32 < 1 or new_count_u32 > max_steps) return false;
-        const new_count: u16 = @intCast(new_count_u32);
-
-        var next = allocMidi(self.allocator, new_count) catch return false;
-        var committed = false;
-        defer if (!committed) freeMidi(self.allocator, &next);
-
-        for (0..max_pads) |pad| {
-            for (self.midi[pad]) |maybe_note| {
-                const note = maybe_note orelse continue;
-                const mapped_u32: u32 = @intCast(@divTrunc(@as(u32, note.step) * new_spb + old_spb / 2, old_spb));
-                if (mapped_u32 >= new_count) return false;
-                const mapped: u16 = @intCast(mapped_u32);
-                if (next[pad][mapped] != null) return false;
-                const dur_u32: u32 = @intCast(@divTrunc(@as(u32, note.duration_steps) * new_spb + old_spb / 2, old_spb));
-                const dur: u16 = @intCast(std.math.clamp(dur_u32, 1, max_steps));
-                next[pad][mapped] = .{
-                    .pitch = note.pitch,
-                    .step = mapped,
-                    .duration_steps = dur,
-                    .velocity = note.velocity,
-                };
-            }
-        }
-
-        // A pad's own loop length is in steps, so it has to be rescaled with
-        // them or the row's musical length changes under the user: a 7-of-16
-        // hat is a bar and three quarters, and must stay that after a zoom.
-        var lens = self.pad_len;
-        for (&lens) |*len| {
-            if (len.* == 0) continue;
-            const scaled: u32 = @divTrunc(@as(u32, len.*) * new_spb + old_spb / 2, old_spb);
-            len.* = if (scaled == 0 or scaled >= new_count) 0 else @intCast(scaled);
-        }
-
-        while (!self.pad_lock.tryLock()) std.atomic.spinLoopHint();
-        freeMidi(self.allocator, &self.midi);
-        self.midi = next;
-        self.step_count = new_count;
-        self.steps_per_beat = new_spb;
-        self.pad_len = lens;
-        self.pad_lock.unlock();
-        committed = true;
-        return true;
-    }
-
     // Step editing is `step_grid_ops.zig`'s, shared with the Slicer's identical
     // grid; only the pad vocabulary is ours. See that file for the bodies.
     pub fn stepActive(self: *const DrumMachine, pad: u8, step: u16) bool {
@@ -1584,7 +1522,7 @@ test "pad grid stores canonical MIDI notes" {
 
     var notes: [64]Note = undefined;
     try std.testing.expectEqual(@as(u16, 1), dm.copyPadMidi(3, &notes));
-    try std.testing.expectApproxEqAbs(@as(f64, 1.75), notes[0].start_beat, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 7.0) / @as(f64, @floatFromInt(DrumMachine.ticks_per_beat)), notes[0].start_beat, 1e-9);
     try std.testing.expectApproxEqAbs(@as(f32, 95.0 / 127.0), notes[0].velocity, 1e-6);
 }
 
@@ -1832,6 +1770,8 @@ test "song mode swing follows the clip's sixteenth-note grid" {
         try std.testing.expect(peak < 0.01);
         transport.advance(256);
     }
+    try std.testing.expect(dm.rolls[0] != null);
+    try std.testing.expectApproxEqAbs(@as(f64, 9000), dm.rolls[0].?.next_pos, 1e-9);
 
     @memset(&buf, 0.0);
     dm.processBlock(&buf);
@@ -1972,38 +1912,6 @@ test "cycleChokeGroup wraps through none..max" {
     try std.testing.expectEqual(@as(u8, 0), dm.choke_group[0]);
 }
 
-test "swing delays the off-beat step" {
-    var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
-    var dm = try testMachine(&transport);
-    defer dm.deinit();
-
-    // Only pad 0 on step 1 (an off-beat 16th). At 120bpm a step is 6000
-    // frames; swing 75% pushes step 1's hit from 6000 to 9000.
-    for (0..DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
-    dm.toggleStep(0, 1);
-    dm.adjustSwing(100.0); // clamps at swing_max = 75
-    try std.testing.expectApproxEqAbs(DrumMachine.swing_max, dm.swing.load(.monotonic), 1e-6);
-
-    transport.play();
-    var buf: [512]Sample = undefined; // 256 frames
-
-    // Silent through the straight boundary (6000) up to just before 9000.
-    while (transport.position_frames < 8960) {
-        @memset(&buf, 0.0);
-        dm.processBlock(&buf);
-        var peak: f32 = 0;
-        for (buf) |s| peak = @max(peak, @abs(s));
-        try std.testing.expect(peak < 0.01);
-        transport.advance(256);
-    }
-    // The block covering frame 9000 fires the swung step.
-    @memset(&buf, 0.0);
-    dm.processBlock(&buf);
-    var peak: f32 = 0;
-    for (buf) |s| peak = @max(peak, @abs(s));
-    try std.testing.expect(peak > 0.01);
-}
-
 test "variants keep per-step velocity" {
     var transport: Transport = .{ .sample_rate = 48_000 };
     var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
@@ -2079,7 +1987,7 @@ test "variants: step count is per-variant" {
     try std.testing.expect(dm.addVariant());
     dm.setStepCount(24);
     dm.selectVariant(0);
-    try std.testing.expectEqual(@as(u16, 32), dm.step_count); // default, untouched
+    try std.testing.expectEqual(@as(u16, DrumMachine.ticks_per_beat) * 8, dm.step_count); // default, untouched
     dm.selectVariant(1);
     try std.testing.expectEqual(@as(u16, 24), dm.step_count);
 }
@@ -2160,9 +2068,9 @@ test "step count grows well past the old 64-step ceiling and the sequencer fires
     dm.setStepVel(0, last, 31);
     try std.testing.expectEqual(@as(u8, 31), dm.stepVel(0, last));
 
-    // Step `last` fires at 6000 * last frames (120bpm, 16th = 6000 frames).
+    // At 120 BPM, one canonical tick is 750 frames.
     transport.play();
-    transport.seekFrames(6000 * @as(u64, last) - 50);
+    transport.seekFrames(750 * @as(u64, last) - 50);
     var buf: [512]Sample = undefined; // 256 frames
     dm.resetAll();
     @memset(&buf, 0.0);
@@ -2170,25 +2078,6 @@ test "step count grows well past the old 64-step ceiling and the sequencer fires
     var peak: f32 = 0;
     for (buf) |s| peak = @max(peak, @abs(s));
     try std.testing.expect(peak > 0.01);
-}
-
-test "grid resolution preserves hit times through 1/128" {
-    var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
-    defer dm.deinit();
-    dm.setStepCount(8);
-    dm.toggleStep(0, 1);
-    dm.setStepVel(0, 1, 95);
-
-    try std.testing.expect(dm.setStepsPerBeatPreservingTime(32));
-    try std.testing.expectEqual(@as(u16, 64), dm.step_count);
-    try std.testing.expect(dm.stepActive(0, 8));
-    try std.testing.expectEqual(@as(u8, 95), dm.stepVel(0, 8));
-    try std.testing.expect(!dm.stepActive(0, 1));
-
-    try std.testing.expect(dm.setStepsPerBeatPreservingTime(4));
-    try std.testing.expectEqual(@as(u16, 8), dm.step_count);
-    try std.testing.expect(dm.stepActive(0, 1));
 }
 
 test "per-step tune clamps to the pad pitch range and only touches live steps" {
@@ -2247,20 +2136,6 @@ test "a pad's own loop length wraps that row early and drifts against the rest" 
     dm.nudgePadLen(0, -1);
     try std.testing.expectEqual(@as(u16, 15), dm.padSteps(0, 16));
     dm.nudgePadLen(0, 99);
-    try std.testing.expectEqual(@as(u16, 0), dm.pad_len[0]);
-
-    // A grid change preserves musical time, so the loop length rides along
-    // with the steps - 7 of 16 is a bar and three quarters at every zoom.
-    dm.setPadLen(0, 7);
-    try std.testing.expect(dm.setStepsPerBeatPreservingTime(8));
-    try std.testing.expectEqual(@as(u16, 32), dm.step_count);
-    try std.testing.expectEqual(@as(u16, 14), dm.padSteps(0, 32));
-    try std.testing.expect(dm.setStepsPerBeatPreservingTime(4));
-    try std.testing.expectEqual(@as(u16, 7), dm.padSteps(0, 16));
-    // Coarsening a row that ends up at the pattern's own length drops the
-    // override rather than storing a redundant one.
-    dm.setPadLen(0, 15);
-    try std.testing.expect(dm.setStepsPerBeatPreservingTime(2));
     try std.testing.expectEqual(@as(u16, 0), dm.pad_len[0]);
 }
 

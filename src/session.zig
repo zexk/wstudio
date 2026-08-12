@@ -302,7 +302,7 @@ pub const Session = struct {
             .slicer => {
                 const slicer = try Slicer.init(self.allocator, sr, &self.engine.transport);
                 rack.instrument = .{ .slicer = slicer };
-                rack.instrument.slicer.setStepCount(self.defaults.slicer_steps *| (DrumMachine.ticks_per_beat / 4));
+                rack.instrument.slicer.setStepCount(@as(u16, self.defaults.slicer_steps) * (DrumMachine.ticks_per_beat / 4));
                 rack.instrument.slicer.setSwing(self.defaults.swing);
                 rack.label = "slicer";
             },
@@ -2207,7 +2207,6 @@ test "song mode preserves fine-grid slicer clip timing" {
     const sl = &s.racks.items[0].instrument.slicer;
     sl.slice_count = 1;
     sl.toggleStep(0, 0);
-    try std.testing.expect(sl.setStepsPerBeatPreservingTime(8));
     try std.testing.expectEqual(@as(u32, 128), s.stampLengthTicks(0));
 
     // One arrangement tick is a 1/128 note. The old slicer flattening divided
@@ -2235,7 +2234,7 @@ test "split drum track creates sampler MIDI tracks and arrangement clips" {
     try std.testing.expectEqual(@as(usize, 16), s.racks.items.len);
     try std.testing.expect(s.racks.items[0].instrument == .sampler);
     const pp = &s.racks.items[0].pattern_player.?;
-    const hit = pp.noteAt(pp.notes[0].pitch, 0.25).?;
+    const hit = pp.noteAt(pp.notes[0].pitch, 1.0 / @as(f64, @floatFromInt(DrumMachine.ticks_per_beat))).?;
     try std.testing.expectApproxEqAbs(@as(f32, 95.0 / 127.0), hit.velocity, 1e-6);
     const clip = s.arrangement.lane(0).?.clips.items[0];
     try std.testing.expectEqual(@as(u32, 128), clip.start_tick);

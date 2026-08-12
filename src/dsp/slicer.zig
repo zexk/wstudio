@@ -1004,57 +1004,6 @@ pub const Slicer = struct {
         self.sample_lock.unlock();
     }
 
-    /// Change the native grid without moving hits in musical time - refuses
-    /// (leaving the pattern untouched) rather than ever dropping a hit. See
-    /// `DrumMachine.setStepsPerBeatPreservingTime`, which this mirrors.
-    pub fn setStepsPerBeatPreservingTime(self: *Slicer, new_spb: u8) bool {
-        if (new_spb == self.steps_per_beat) return true;
-        if (new_spb < 1 or new_spb > 32) return false;
-        const old_spb = self.steps_per_beat;
-        const new_count_u32: u32 = @intCast(@divTrunc(@as(u32, self.step_count) * new_spb, old_spb));
-        if (new_count_u32 < 1 or new_count_u32 > max_steps) return false;
-        const new_count: u16 = @intCast(new_count_u32);
-
-        var next = allocMidi(self.allocator, new_count) catch return false;
-        var committed = false;
-        defer if (!committed) freeMidi(self.allocator, &next);
-
-        for (0..max_slices) |slice| {
-            for (self.midi[slice]) |maybe_note| {
-                const note = maybe_note orelse continue;
-                const mapped_u32: u32 = @intCast(@divTrunc(@as(u32, note.step) * new_spb + old_spb / 2, old_spb));
-                if (mapped_u32 >= new_count) return false;
-                const mapped: u16 = @intCast(mapped_u32);
-                if (next[slice][mapped] != null) return false;
-                const dur_u32: u32 = @intCast(@divTrunc(@as(u32, note.duration_steps) * new_spb + old_spb / 2, old_spb));
-                var moved = note;
-                moved.step = mapped;
-                moved.duration_steps = @intCast(std.math.clamp(dur_u32, 1, max_steps));
-                next[slice][mapped] = moved;
-            }
-        }
-
-        // Rescaled with the steps, same as `DrumMachine.pad_len`: a slice's
-        // own loop length is in steps, and the row's musical length has to
-        // survive the zoom.
-        var lens = self.slice_len;
-        for (&lens) |*len| {
-            if (len.* == 0) continue;
-            const scaled: u32 = @divTrunc(@as(u32, len.*) * new_spb + old_spb / 2, old_spb);
-            len.* = if (scaled == 0 or scaled >= new_count) 0 else @intCast(scaled);
-        }
-
-        while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
-        freeMidi(self.allocator, &self.midi);
-        self.midi = next;
-        self.step_count = new_count;
-        self.steps_per_beat = new_spb;
-        self.slice_len = lens;
-        self.sample_lock.unlock();
-        committed = true;
-        return true;
-    }
-
     pub fn currentStep(self: *const Slicer) u16 {
         return self.current_step.load(.monotonic);
     }

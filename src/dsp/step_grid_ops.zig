@@ -269,17 +269,8 @@ pub fn scanBlock(self: anytype, lane_len: []const u16, lane_count: usize, frames
     const max_early = fps * 0.5;
     while (true) {
         var fire_pos = @as(f64, @floatFromInt(step_k)) * fps;
-        if (self.song_mode) {
-            const ticks_per_sixteenth = @max(@as(u8, 1), self.song_steps_per_beat / 4);
-            if (step_k % ticks_per_sixteenth == 0 and
-                (step_k / ticks_per_sixteenth) & 1 == 1)
-            {
-                fire_pos += fps * ticks_per_sixteenth *
-                    @as(f64, swing_pct - 50.0) / 50.0;
-            }
-        } else if (step_k & 1 == 1) {
-            fire_pos += fps * @as(f64, swing_pct - 50.0) / 50.0;
-        }
+        const steps_per_beat = if (self.song_mode) self.song_steps_per_beat else self.steps_per_beat;
+        fire_pos += swingDelay(step_k, fps, steps_per_beat, swing_pct);
         if (fire_pos - max_early >= pos_f + @as(f64, @floatFromInt(frames))) break;
 
         if (self.song_mode) {
@@ -305,6 +296,17 @@ pub fn scanBlock(self: anytype, lane_len: []const u16, lane_count: usize, frames
     // After the step scan, so a roll started by a step in this very block
     // still gets its tail hits considered here.
     self.drainRolls(pos_f, frames);
+}
+
+fn swingDelay(step: u64, frames_per_tick: f64, steps_per_beat: u8, percent: f32) f64 {
+    const ticks_per_sixteenth = @max(@as(u8, 1), steps_per_beat / 4);
+    if (step % ticks_per_sixteenth != 0 or (step / ticks_per_sixteenth) & 1 == 0) return 0;
+    return frames_per_tick * ticks_per_sixteenth * @as(f64, percent - 50.0) / 50.0;
+}
+
+test "swing delays off-beat sixteenths at canonical tick resolution" {
+    try std.testing.expectApproxEqAbs(@as(f64, 3000), swingDelay(8, 750, 32, 75), 1e-9);
+    try std.testing.expectEqual(@as(f64, 0), swingDelay(1, 750, 32, 75));
 }
 
 /// Fire lanes for absolute step `step_k` from the song timeline. Past
