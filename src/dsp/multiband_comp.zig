@@ -10,6 +10,7 @@ const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
 const Compressor = @import("compressor.zig").Compressor;
+const crossover = @import("crossover.zig");
 
 const Sample = types.Sample;
 
@@ -19,145 +20,6 @@ pub const mid: usize = 1;
 pub const high: usize = 2;
 
 pub const Style = enum(u8) { classic, ott };
-
-/// One RBJ-cookbook lowpass/highpass biquad stage, fixed at Butterworth Q
-/// (1/sqrt(2)) - run twice in series (see `LrFilter`) for a 24dB/oct
-/// Linkwitz-Riley crossover slope. Deliberately its own tiny copy of the
-/// coefficient math `dsp/eq.zig`'s `EqBand` already has (that type isn't
-/// exported, and duplicating ~15 lines here is cheaper than exposing an EQ
-/// internal to a module with different needs - same call the project made
-/// for `dsp/slicer.zig` vs `DrumMachine`'s step sequencer).
-const Biquad = struct {
-    b0: f32 = 1.0,
-    b1: f32 = 0.0,
-    b2: f32 = 0.0,
-    a1: f32 = 0.0,
-    a2: f32 = 0.0,
-    x1: f32 = 0.0,
-    x2: f32 = 0.0,
-    y1: f32 = 0.0,
-    y2: f32 = 0.0,
-
-    const q: f32 = 0.70710678;
-
-    // RBJ cookbook LP/HP - identical denominators, the numerator flips
-    // sign with the passband.
-    fn set(self: *Biquad, sr: f32, freq: f32, kind: enum { lowpass, highpass }) void {
-        const w0 = 2.0 * std.math.pi * freq / sr;
-        const cos_w0 = std.math.cos(w0);
-        const alpha = std.math.sin(w0) / (2.0 * q);
-        const b0r = switch (kind) {
-            .lowpass => (1.0 - cos_w0) / 2.0,
-            .highpass => (1.0 + cos_w0) / 2.0,
-        };
-        const b1r = switch (kind) {
-            .lowpass => 1.0 - cos_w0,
-            .highpass => -(1.0 + cos_w0),
-        };
-        const a0r = 1.0 + alpha;
-        const a1r = -2.0 * cos_w0;
-        const a2r = 1.0 - alpha;
-        const inv = 1.0 / a0r;
-        self.b0 = b0r * inv;
-        self.b1 = b1r * inv;
-        self.b2 = b0r * inv;
-        self.a1 = a1r * inv;
-        self.a2 = a2r * inv;
-    }
-
-    fn process(self: *Biquad, x: f32) f32 {
-        // zig fmt: off
-        const y = self.b0 * x + self.b1 * self.x1 + self.b2 * self.x2
-            - self.a1 * self.y1 - self.a2 * self.y2;
-            // zig fmt: on
-        self.x2 = self.x1;
-        self.x1 = x;
-        self.y2 = self.y1;
-        self.y1 = y;
-        return y;
-    }
-
-    fn reset(self: *Biquad) void {
-        self.x1 = 0.0;
-        self.x2 = 0.0;
-        self.y1 = 0.0;
-        self.y2 = 0.0;
-    }
-};
-
-/// Two cascaded Butterworth stages = one Linkwitz-Riley 4th-order filter.
-const LrFilter = struct {
-    stage: [2]Biquad = .{ .{}, .{} },
-
-    fn setLowpass(self: *LrFilter, sr: f32, freq: f32) void {
-        self.stage[0].set(sr, freq, .lowpass);
-        self.stage[1].set(sr, freq, .lowpass);
-    }
-
-    fn setHighpass(self: *LrFilter, sr: f32, freq: f32) void {
-        self.stage[0].set(sr, freq, .highpass);
-        self.stage[1].set(sr, freq, .highpass);
-    }
-
-    fn process(self: *LrFilter, x: f32) f32 {
-        return self.stage[1].process(self.stage[0].process(x));
-    }
-
-    fn reset(self: *LrFilter) void {
-        self.stage[0].reset();
-        self.stage[1].reset();
-    }
-};
-
-/// Splits one channel into [low, mid, high] via two cascaded LR4 crossover
-/// points: first low/high1 at `xover_lo`, then high1 splits again into
-/// mid/high at `xover_hi`. Summing the three bands with no per-band gain
-/// change reconstructs the input (Linkwitz-Riley's defining property) -
-/// exactly the topology a per-band gain (the compressor) is meant to perturb.
-const Crossover = struct {
-    lo_lp: LrFilter = .{},
-    lo_hp: LrFilter = .{},
-    hi_lp: LrFilter = .{},
-    hi_hp: LrFilter = .{},
-    /// Phase compensation for the low band. An LR4 pair sums to an allpass,
-    /// not to unity, so the second crossover leaves its allpass phase on
-    /// everything that went through it - the mid and high bands - while the
-    /// low band, which branched off before it, does not carry that phase.
-    /// The two then arrive at the sum out of step and partially cancel around
-    /// `xover_lo`: measured -7 dB at the crossover with the points a third of
-    /// an octave apart. Running the low band through the same allpass (built
-    /// as that crossover's own LP+HP sum, from the filters this type already
-    /// has) puts all three bands back on one phase.
-    ap_lp: LrFilter = .{},
-    ap_hp: LrFilter = .{},
-
-    fn setFreqs(self: *Crossover, sr: f32, xover_lo: f32, xover_hi: f32) void {
-        self.lo_lp.setLowpass(sr, xover_lo);
-        self.lo_hp.setHighpass(sr, xover_lo);
-        self.hi_lp.setLowpass(sr, xover_hi);
-        self.hi_hp.setHighpass(sr, xover_hi);
-        self.ap_lp.setLowpass(sr, xover_hi);
-        self.ap_hp.setHighpass(sr, xover_hi);
-    }
-
-    fn split(self: *Crossover, x: f32) [num_bands]f32 {
-        const lo_raw = self.lo_lp.process(x);
-        const low_band = self.ap_lp.process(lo_raw) + self.ap_hp.process(lo_raw);
-        const high1 = self.lo_hp.process(x);
-        const mid_band = self.hi_lp.process(high1);
-        const high_band = self.hi_hp.process(high1);
-        return .{ low_band, mid_band, high_band };
-    }
-
-    fn reset(self: *Crossover) void {
-        self.lo_lp.reset();
-        self.lo_hp.reset();
-        self.hi_lp.reset();
-        self.hi_hp.reset();
-        self.ap_lp.reset();
-        self.ap_hp.reset();
-    }
-};
 
 /// One band's compressor: same feed-forward peak-envelope/dB-domain gain
 /// computer as `Compressor`, plus (in `.ott` style) a mirrored upward stage
@@ -220,7 +82,7 @@ pub const MultibandComp = struct {
     gain_db: [num_bands]f32 = .{ 0.0, 0.0, 0.0 },
     /// Per-channel crossover networks (L, R) - the split must not smear
     /// stereo state the way a single shared filter would.
-    crossover: [2]Crossover = .{ .{}, .{} },
+    crossover: [2]crossover.Splitter(num_bands) = .{ .{}, .{} },
 
     pub fn init(sample_rate: u32) MultibandComp {
         var self: MultibandComp = .{ .sample_rate = @floatFromInt(@max(sample_rate, 1)) };
@@ -229,7 +91,7 @@ pub const MultibandComp = struct {
     }
 
     fn recomputeCrossover(self: *MultibandComp) void {
-        for (&self.crossover) |*cx| cx.setFreqs(self.sample_rate, self.xover_lo_hz, self.xover_hi_hz);
+        for (&self.crossover) |*cx| cx.setFreqs(self.sample_rate, .{ self.xover_lo_hz, self.xover_hi_hz });
     }
 
     /// Clamped setters keep the two crossover points from crossing (a
@@ -495,8 +357,10 @@ test "reset clears crossover filter state and band envelopes" {
 
     mb.device().reset();
     for (&mb.bands) |b| try std.testing.expectEqual(@as(f32, 0.0), b.env);
-    for (&mb.crossover) |cx| {
-        try std.testing.expectEqual(@as(f32, 0.0), cx.lo_lp.stage[0].y1);
+    // A cleared splitter passes its first sample straight through the
+    // lowpass leg's numerator, with no history behind it.
+    for (&mb.crossover) |*cx| {
+        try std.testing.expectEqual(@as(f32, 0.0), cx.split(0.0)[low]);
     }
 }
 

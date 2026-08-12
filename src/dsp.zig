@@ -11,6 +11,7 @@ pub const synth_presets = @import("dsp/synth_presets.zig");
 pub const StereoDelay = @import("dsp/delay.zig").StereoDelay;
 pub const Reverb = @import("dsp/reverb.zig").Reverb;
 pub const Compressor = @import("dsp/compressor.zig").Compressor;
+pub const crossover = @import("dsp/crossover.zig");
 pub const multiband_comp = @import("dsp/multiband_comp.zig");
 pub const MultibandComp = multiband_comp.MultibandComp;
 pub const Ott = @import("dsp/ott.zig").Ott;
