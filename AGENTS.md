@@ -34,8 +34,26 @@ imports nothing outside its own directory and no C library - `theory.zig`,
 the build graph, which is what `-Dtest-filter` goes through: it narrows both
 unit-test binaries by test name and drops the integration executables
 (checkdemo, the CLAP/VST3/crash harnesses), which have no test names to
-filter. Always finish with an unfiltered `zig build test` before committing -
-a filtered run proves nothing about the rest.
+filter.
+
+### How much to run, and when
+
+Iteration time is the budget. Run the narrowest thing that can fail:
+
+| While | Run |
+| --- | --- |
+| Editing one unit | `zig test --test-filter` on the file, else `-Dtest-filter` |
+| Change is working, before the commit | `-Dtest-filter` over the whole touched area (the module name, the FX kind, the format tag) |
+| End of the task, before handing back | one unfiltered `zig build test` |
+| Task touched playback, save/load, or export lifetimes | `zig build soak` as well |
+
+A filtered run proves nothing about the rest, so the unfiltered suite is
+still mandatory - once per task, not once per commit. It costs minutes, and
+paying that between every intermediate commit of a multi-commit task buys
+nothing the final run doesn't. `zig build soak` renders an hour of simulated
+playback plus save/load/export as fast as the CPU allows; it is not a routine
+gate, only run it when the change could leak, drift, or corrupt state over
+time.
 
 `dspcheck` is not part of `zig build test` - it needs a corpus of real audio
 on disk, far too large to ship. Point it at a directory of samples; it fails
@@ -46,6 +64,23 @@ the BPM and key in the file names. See `tools/dspcheck.zig`.
 it's a separate build target. Before any interactive/tmux verification
 pass, run plain `zig build` first, or a passing test suite can mask a
 stale binary that looks like a real behavioral bug.
+
+## Keep `.zig-cache` from eating the disk
+
+Every distinct build configuration (filtered test binary, `-Dtarget` cross
+build, plugin harness) leaves its own multi-hundred-MB directory under
+`.zig-cache/o/`, and zig never evicts them. Two days of iteration reached
+42 GB and 72 separate `wstudio` binaries. Prune at the end of a session:
+
+```
+find .zig-cache/o -mindepth 1 -maxdepth 1 -type d -mtime +0 -exec rm -rf {} +
+```
+
+That drops everything untouched for 24h and keeps the current build hot, so
+the next `zig build` is incremental, not a from-scratch rebuild. A missing
+entry is only ever a cache miss, so this is safe at any time; `rm -rf
+.zig-cache` also works but costs a full rebuild. Do not let more than one
+generation of `wstudio` binaries accumulate.
 
 For visual verification of TUI changes, follow
 [`docs/tui-screenshots.md`](docs/tui-screenshots.md). It drives a dedicated
