@@ -44,18 +44,21 @@ fn drawMain(app: anytype, synth: *ws.dsp.PolySynth) void {
     if (tabForCursor(synth_layout.main_sections[11..14], app.core.synth_cursor)) |slot| app.core.synth_env_tab = slot;
     app.core.last_cols = 160;
 
-    const gap: f32 = 12;
+    const gap: f32 = 6;
     const origin = zgui.getCursorPos();
     const macro_w: f32 = 280;
     const content_w = available[0] - macro_w - gap;
     const column_w = (content_w - gap) / 2;
+    const center_x = origin[0] + macro_w + gap;
     const right_x = origin[0] + macro_w + gap + column_w + gap;
 
-    zgui.setCursorPos(.{ origin[0] + macro_w + gap, origin[1] });
+    zgui.setCursorPos(.{ center_x, origin[1] });
     drawTabbedCard(app, synth, synth_layout.main_sections[1..4], &app.core.synth_osc_tab, "synth-osc-tabs", column_w);
     const env_y = zgui.getCursorPosY();
-    zgui.setCursorPos(.{ origin[0] + macro_w + gap, env_y });
+    zgui.setCursorPos(.{ center_x, env_y });
     drawTabbedCard(app, synth, synth_layout.main_sections[11..14], &app.core.synth_env_tab, "synth-env-tabs", column_w);
+    zgui.setCursorPosX(center_x);
+    drawCard(app, synth, synth_layout.main_sections[16], "synth-main", 16, column_w);
     const center_bottom = zgui.getCursorPosY();
 
     zgui.setCursorPos(.{ right_x, origin[1] });
@@ -74,15 +77,11 @@ fn drawMain(app: anytype, synth: *ws.dsp.PolySynth) void {
     zgui.setCursorPos(origin);
     drawCard(app, synth, synth_layout.main_sections[0], "synth-main", 0, macro_w);
     drawCard(app, synth, synth_layout.main_sections[15], "synth-main", 15, macro_w);
+    zgui.setCursorPosX(origin[0]);
+    drawCard(app, synth, synth_layout.main_sections[14], "synth-main", 14, macro_w);
     const left_bottom = zgui.getCursorPosY();
 
-    const bottom_y = @max(center_bottom, right_bottom);
-    const utility_w = (content_w - gap) / 2;
-    zgui.setCursorPos(.{ origin[0] + macro_w + gap, bottom_y });
-    drawCard(app, synth, synth_layout.main_sections[14], "synth-main", 14, utility_w);
-    zgui.sameLine(.{ .spacing = gap });
-    drawCard(app, synth, synth_layout.main_sections[16], "synth-main", 16, utility_w);
-    const composition_bottom = @max(left_bottom, zgui.getCursorPosY());
+    const composition_bottom = @max(left_bottom, @max(center_bottom, right_bottom));
     zgui.setCursorPos(.{ origin[0], composition_bottom });
     zgui.dummy(.{ .w = 0, .h = 0 });
 }
