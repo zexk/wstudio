@@ -30,7 +30,7 @@ fn segmentSeconds(start_bpm: f64, end_bpm: f64, total_beats: f64, elapsed_beats:
 }
 
 pub fn secondsAtBeat(points: []const TempoPoint, default_bpm: f64, target_beat: f64) f64 {
-    const target = @max(target_beat, 0.0);
+    const target = if (std.math.isNan(target_beat) or target_beat <= 0) 0 else target_beat;
     var beat: f64 = 0;
     var bpm = safeTempo(default_bpm);
     var seconds: f64 = 0;
@@ -52,7 +52,7 @@ pub fn secondsAtBeat(points: []const TempoPoint, default_bpm: f64, target_beat: 
 }
 
 pub fn beatAtSeconds(points: []const TempoPoint, default_bpm: f64, target_seconds: f64) f64 {
-    const target = @max(target_seconds, 0.0);
+    const target = if (std.math.isNan(target_seconds) or target_seconds <= 0) 0 else target_seconds;
     var beat: f64 = 0;
     var bpm = safeTempo(default_bpm);
     var seconds: f64 = 0;
@@ -112,6 +112,13 @@ test "tempo changes and ramps round-trip beat and seconds" {
     try std.testing.expectApproxEqAbs(@as(f64, 2), secondsAtBeat(&points, 120, 4), 1e-9);
     const seconds = secondsAtBeat(&points, 120, 7);
     try std.testing.expectApproxEqAbs(@as(f64, 7), beatAtSeconds(&points, 120, seconds), 1e-9);
+}
+
+test "invalid positions clamp to the timeline start" {
+    try std.testing.expectEqual(@as(f64, 0), secondsAtBeat(&.{}, 120, std.math.nan(f64)));
+    try std.testing.expectEqual(@as(f64, 0), secondsAtBeat(&.{}, 120, -1));
+    try std.testing.expectEqual(@as(f64, 0), beatAtSeconds(&.{}, 120, std.math.nan(f64)));
+    try std.testing.expectEqual(@as(f64, 0), beatAtSeconds(&.{}, 120, -1));
 }
 
 test "meter denominator changes quarter-note bar length" {
