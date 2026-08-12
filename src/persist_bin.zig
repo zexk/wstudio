@@ -143,6 +143,8 @@ const Cursor = struct {
         while (true) {
             const b = try c.byte();
             const chunk: Acc = @intCast(b & 0x7f);
+            if (shift == 63 and (if (signed) chunk != 0 and chunk != 0x7f else chunk > 1))
+                return error.CorruptProjectFile;
             acc |= std.math.shl(Acc, chunk, shift);
             if (b & 0x80 == 0) {
                 if (signed and shift < 63 and b & 0x40 != 0) acc |= std.math.shl(Acc, @as(Acc, -1), shift + 7);
@@ -158,7 +160,11 @@ const Cursor = struct {
 fn decodeValue(comptime T: type, arena: std.mem.Allocator, c: *Cursor) DecodeError!T {
     switch (@typeInfo(T)) {
         .void => return {},
-        .bool => return try c.byte() != 0,
+        .bool => {
+            const value = try c.byte();
+            if (value > 1) return error.CorruptProjectFile;
+            return value == 1;
+        },
         .int => return c.leb(T),
         .float => |info| {
             const Bits = std.meta.Int(.unsigned, info.bits);
@@ -170,7 +176,9 @@ fn decodeValue(comptime T: type, arena: std.mem.Allocator, c: *Cursor) DecodeErr
             return std.enums.fromInt(T, tag) orelse error.CorruptProjectFile;
         },
         .optional => |info| {
-            if (try c.byte() == 0) return null;
+            const present = try c.byte();
+            if (present > 1) return error.CorruptProjectFile;
+            if (present == 0) return null;
             return try decodeValue(info.child, arena, c);
         },
         .@"struct" => |info| {
@@ -317,4 +325,8 @@ test "a truncated, over-long, or out-of-range file is rejected, not trusted" {
 
     // A value too wide for the field it lands in.
     try testing.expectError(error.CorruptProjectFile, decode(u8, aa, &.{ 0x80, 0x04 }));
+    try testing.expectError(error.CorruptProjectFile, decode(u64, aa, &([_]u8{0x80} ** 9 ++ .{0x02})));
+    try testing.expectError(error.CorruptProjectFile, decode(i64, aa, &([_]u8{0x80} ** 9 ++ .{0x01})));
+    try testing.expectError(error.CorruptProjectFile, decode(bool, aa, &.{2}));
+    try testing.expectError(error.CorruptProjectFile, decode(?u8, aa, &.{ 2, 0 }));
 }
