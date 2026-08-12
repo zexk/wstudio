@@ -256,7 +256,7 @@ pub fn save(
         const snap_offset = fw.logicalPos();
         // Streams straight from the snapshot arena - no second copy of the
         // whole project buffered up before it hits the file.
-        try persist_bin.encode(&fw.interface, snap);
+        try persist_bin.encodeCompressed(aa, &fw.interface, snap);
         try fw.interface.flush();
 
         var offset_bytes: [8]u8 = undefined;

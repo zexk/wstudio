@@ -121,7 +121,7 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Session
     const snap_offset = try bundleSnapOffset(data);
     var arena: std.heap.ArenaAllocator = .init(allocator);
     defer arena.deinit();
-    const snap = try persist_bin.decode(Snapshot, arena.allocator(), data[@intCast(snap_offset)..]);
+    const snap = try persist_bin.decodeCompressed(Snapshot, arena.allocator(), data[@intCast(snap_offset)..]);
     const cache: AudioCache = .{ .entries = snap.audio_cache, .file = data, .snap_offset = snap_offset };
 
     var session = try buildSession(allocator, &snap);

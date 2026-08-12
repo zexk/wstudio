@@ -1,11 +1,12 @@
 # .wsj project format
 
 A `.wsj` file is a container holding two sections: the audio cache (every
-user-loaded sample the project uses) and a binary `Snapshot` of the session
-(tracks, racks/instruments, arrangement, master FX) plus a `version` field.
-One file, nothing beside it. The authoritative type definitions live in
-`src/persist_types.zig` and the encoding in `src/persist_bin.zig`; this doc
-is the human-readable map of that file, not a replacement for it.
+user-loaded sample the project uses) and a compressed binary `Snapshot` of
+the session (tracks, racks/instruments, arrangement, master FX) plus a
+`version` field. One file, nothing beside it. The authoritative type
+definitions live in `src/persist_types.zig` and the encoding in
+`src/persist_bin.zig`; this doc is the human-readable map of that file, not
+a replacement for it.
 
 ## Container layout
 
@@ -13,7 +14,7 @@ is the human-readable map of that file, not a replacement for it.
 offset 0    "WSJ1"                4-byte magic
 offset 4    u64 little-endian     offset of the snapshot section
 offset 12   audio cache           sample blobs, concatenated
-snap_offset .. EOF                the Snapshot, binary-encoded
+snap_offset .. EOF                the Snapshot, encoded then deflated
 ```
 
 The blobs carry no headers of their own. `Snapshot.audio_cache` is the
@@ -50,6 +51,20 @@ on load: an unknown tag or a length reaching past the end of the file is
 `error.CorruptProjectFile`, never a partial read or an allocation sized by a
 hostile file.
 
+That byte stream is then deflated (zlib container, level 9) and it is the
+compressed form that lands in the file. A snapshot is enormously
+repetitive - runs of defaulted fields, near-identical notes and FX params -
+so this is worth far more than any cleverness in the encoding itself: the
+demo project is 13 KB encoded and 0.75 KB compressed. Loading caps the
+inflated size, so a small file cannot ask for an unbounded allocation, and
+verifies the zlib adler32 by hand, since Zig's inflate parses that footer
+without comparing it.
+
+The audio cache is deliberately left uncompressed. Its blobs are already
+PCM or a SoundFont's own bytes, they compress poorly, and loading slices
+them straight out of the file buffer - compressing them would trade that
+zero-copy read for a few percent on files that can run to hundreds of MB.
+
 ## Saving
 
 `persist.save` writes to `<path>.tmp` and renames it over the target, so a
@@ -61,7 +76,7 @@ in place after the blobs land, since its value isn't known until then.
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 59) is the only format version
+`persist.zig`'s `file_version` (currently 60) is the only format version
 this build writes or reads. Loading enforces one rule:
 
 - **A file whose `version` is not exactly `file_version` is hard-rejected**
@@ -74,6 +89,9 @@ because they protect against corrupt and hand-edited values.
 
 **Bump `file_version` for every schema or semantic change**, including new
 fields and enum members.
+
+Version 60 deflates the snapshot section. `demo.wsj` went from 13 KB to
+754 bytes.
 
 Version 59 replaces the pretty-printed JSON snapshot with the binary
 encoding described above. The container, the audio cache, and the snapshot

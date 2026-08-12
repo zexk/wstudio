@@ -70,6 +70,45 @@ pub fn encode(w: *std.Io.Writer, value: anytype) std.Io.Writer.Error!void {
     }
 }
 
+/// `encode` through zlib-wrapped deflate, which is what actually goes in the
+/// file. The snapshot is enormously repetitive - long runs of defaulted
+/// fields and near-identical notes, clips, and FX params - so this is worth
+/// far more than any cleverness in the encoding itself: the demo project's
+/// snapshot is 13 KB encoded and 0.8 KB compressed.
+///
+/// zlib rather than raw deflate for the adler32 in its 6-byte overhead: it
+/// catches bit rot that lands inside a float, which the structure alone
+/// cannot notice. `decodeCompressed` has to check that itself - this Zig's
+/// inflate parses the zlib footer but never compares it.
+pub fn encodeCompressed(gpa: std.mem.Allocator, out: *std.Io.Writer, value: anytype) !void {
+    const window = try gpa.alloc(u8, std.compress.flate.max_window_len);
+    defer gpa.free(window);
+    var compress = try std.compress.flate.Compress.init(out, window, .zlib, .best);
+    try encode(&compress.writer, value);
+    try compress.finish();
+}
+
+/// Inverse of `encodeCompressed`. Everything but running out of memory is
+/// `error.CorruptProjectFile`, including a file that inflates past
+/// `max_decompressed_bytes` - the size a project claims to be is the file's
+/// word, so it caps the allocation rather than driving it.
+pub fn decodeCompressed(comptime T: type, arena: std.mem.Allocator, bytes: []const u8) DecodeError!T {
+    const window = try arena.alloc(u8, std.compress.flate.max_window_len);
+    var input: std.Io.Reader = .fixed(bytes);
+    var decompress: std.compress.flate.Decompress = .init(&input, .zlib, window);
+    const plain = decompress.reader.allocRemaining(arena, .limited(max_decompressed_bytes)) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.CorruptProjectFile,
+    };
+    if (std.hash.Adler32.hash(plain) != decompress.container_metadata.zlib.adler) return error.CorruptProjectFile;
+    return decode(T, arena, plain);
+}
+
+/// Ceiling on an inflated snapshot. Generous next to a real project (a
+/// hundred thousand notes and their automation is a few MB) and far below
+/// what a deflate bomb would like to hand us.
+const max_decompressed_bytes = 256 * 1024 * 1024;
+
 /// Read a `T` out of `bytes`, allocating every slice from `arena`. Trailing
 /// bytes are ignored; anything else that doesn't line up is
 /// `error.CorruptProjectFile`.
@@ -229,6 +268,30 @@ test "round-trips every shape the snapshot graph is made of" {
 
     // Positional, so it beats JSON on size by a wide margin.
     try testing.expect(buf.written().len < 80);
+}
+
+test "compression round-trips, and pays for itself on repetitive data" {
+    const testing = std.testing;
+    const Row = struct { a: f32, b: u32, c: bool };
+    const rows = try testing.allocator.alloc(Row, 2000);
+    defer testing.allocator.free(rows);
+    // What a real snapshot looks like: mostly defaults, a little variation.
+    for (rows, 0..) |*row, i| row.* = .{ .a = if (i % 97 == 0) 0.5 else 0, .b = 0, .c = false };
+
+    var buf: std.Io.Writer.Allocating = try .initCapacity(testing.allocator, 64);
+    defer buf.deinit();
+    try encodeCompressed(testing.allocator, &buf.writer, @as([]const Row, rows));
+
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const out = try decodeCompressed([]const Row, arena.allocator(), buf.written());
+
+    try testing.expectEqual(rows.len, out.len);
+    for (rows, out) |in_row, out_row| try testing.expectEqual(in_row.a, out_row.a);
+
+    // 2000 rows is 12 KB flat; anything near that means compression isn't
+    // running at all.
+    try testing.expect(buf.written().len < 1024);
 }
 
 test "a truncated, over-long, or out-of-range file is rejected, not trusted" {

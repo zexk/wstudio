@@ -2492,6 +2492,20 @@ test "a loaded project renders sample-identical to the session that saved it" {
     }
 }
 
+/// Write a .wsj holding `snap` and no audio at all, the way `save` would.
+/// Lets a test hand `load` a file it could never produce itself.
+fn writeSnapshotFile(path: []const u8, snap: Snapshot) !void {
+    const testing = std.testing;
+    var buf: std.Io.Writer.Allocating = try .initCapacity(testing.allocator, 64);
+    defer buf.deinit();
+    var header: [persist_types.bundle_header_len]u8 = @splat(0);
+    header[0..persist_types.bundle_magic.len].* = persist_types.bundle_magic;
+    std.mem.writeInt(u64, header[persist_types.bundle_magic.len..][0..8], persist_types.bundle_header_len, .little);
+    try buf.writer.writeAll(&header);
+    try persist_bin.encodeCompressed(testing.allocator, &buf.writer, snap);
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = path, .data = buf.written() });
+}
+
 test "a file from another format version is refused, not half-read" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
@@ -2499,24 +2513,17 @@ test "a file from another format version is refused, not half-read" {
     var path_buf: [64]u8 = undefined;
     const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/old.wsj", .{&tmp.sub_path});
 
-    var session = try Session.initDefault(testing.allocator);
-    defer session.deinit();
-    try save(testing.allocator, &session, testing.io, wsj_path);
-
-    // `version` is the snapshot's first field, so it sits right after the
-    // header in a project holding no audio - bump it and the file is from a
-    // build this one can't read.
-    const bytes = try std.Io.Dir.cwd().readFileAlloc(testing.io, wsj_path, testing.allocator, .limited(1 << 20));
-    defer testing.allocator.free(bytes);
-    const offset = std.mem.readInt(u64, bytes[persist_types.bundle_magic.len..][0..8], .little);
-    try testing.expectEqual(@as(u8, file_version), bytes[@intCast(offset)]); // one LEB byte while < 128
-    bytes[@intCast(offset)] = file_version + 1;
-    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = wsj_path, .data = bytes });
+    var snap: Snapshot = .{
+        .tracks = &.{.{ .name = "lead" }},
+        .racks = &.{.{ .label = "lead", .content = .empty }},
+    };
+    snap.version = file_version + 1;
+    try writeSnapshotFile(wsj_path, snap);
 
     try testing.expectError(error.UnsupportedVersion, load(testing.allocator, testing.io, wsj_path));
 }
 
-test "a truncated project file is refused" {
+test "a truncated or bit-rotted project file is refused" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -2530,7 +2537,12 @@ test "a truncated project file is refused" {
     const bytes = try std.Io.Dir.cwd().readFileAlloc(testing.io, wsj_path, testing.allocator, .limited(1 << 20));
     defer testing.allocator.free(bytes);
     try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = wsj_path, .data = bytes[0 .. bytes.len / 2] });
+    try testing.expectError(error.CorruptProjectFile, load(testing.allocator, testing.io, wsj_path));
 
+    // One flipped bit in the middle of the stream. Whether inflate itself
+    // trips or the adler32 does, it never reaches a session.
+    bytes[bytes.len / 2] ^= 0x40;
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = wsj_path, .data = bytes });
     try testing.expectError(error.CorruptProjectFile, load(testing.allocator, testing.io, wsj_path));
 }
 

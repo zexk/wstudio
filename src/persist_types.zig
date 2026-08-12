@@ -47,11 +47,11 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 59;
+pub const file_version: u32 = 60;
 
 /// First four bytes of every .wsj. The file is a container: a 12-byte
 /// header, the audio cache (user sample blobs, concatenated), then this
-/// `Snapshot` in the dense binary encoding of `persist_bin.zig` to EOF.
+/// `Snapshot` binary-encoded and deflated by `persist_bin.zig` to EOF.
 /// See FORMAT.md for the full layout.
 pub const bundle_magic = "WSJ1".*;
 
