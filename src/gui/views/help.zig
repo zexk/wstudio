@@ -51,7 +51,7 @@ pub fn draw(app: anytype) void {
     // positions for one view, and `j` snapping back to the other one.
     if (style.wheel_delta != 0) {
         style.wheel_consumed = true;
-        const step: isize = if (zgui.isKeyDown(.mod_ctrl)) 10 else 3;
+        const step: isize = if (style.modDown()) 10 else 3;
         const delta: isize = if (style.wheel_delta > 0) -step else step;
         const next = @as(isize, @intCast(app.core.help_scroll)) + delta;
         app.core.help_scroll = @intCast(std.math.clamp(next, 0, @as(isize, @intCast(viewport.max_scroll))));

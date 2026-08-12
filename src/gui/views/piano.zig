@@ -422,8 +422,8 @@ pub fn draw(app: anytype) void {
         }
     }
 
-    // Scroll wheel over the roll: pitch by semitone, ctrl for an octave
-    // (the GUI's ctrl-is-coarse scroll convention), shift for FL's
+    // Scroll wheel over the roll: pitch by semitone, Mod for an octave
+    // (the GUI's Mod-is-coarse scroll convention), shift for FL's
     // horizontal scroll. Routed through the keys so audition and the shared
     // cursor-follow scrolling come along.
     if (hovered and gui_style.wheel_delta != 0) {
@@ -438,7 +438,7 @@ pub fn draw(app: anytype) void {
             break :blk if (up) ';' else '\'';
         } else if (zgui.isKeyDown(.mod_shift))
             (if (up) 'h' else 'l')
-        else if (zgui.isKeyDown(.mod_ctrl))
+        else if (gui_style.modDown())
             (if (up) 'K' else 'J')
         else
             (if (up) 'k' else 'j');

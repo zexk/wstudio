@@ -166,7 +166,7 @@ pub fn openLoadCommand(app: anytype) void {
 
 /// A rotary control: drag vertically to change the value, double-click to
 /// type an exact one, or scroll while hovered to nudge it a fixed step
-/// (**ctrl**+scroll = a coarser step) - the same ctrl-for-coarse convention
+/// (**Mod**+scroll = a coarser step) - the same Mod-for-coarse convention
 /// the TUI's param-row scroll handlers already use. Angle sweep and drag
 /// mapping follow the usual three-quarter-turn knob convention (135deg
 /// through the top to 405deg).
@@ -297,7 +297,7 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
     }
     if (hovered and gui_style.wheel_delta != 0) {
         gui_style.wheel_consumed = true;
-        const step: f32 = if (zgui.isKeyDown(.mod_ctrl)) 0.05 else 0.005;
+        const step: f32 = if (gui_style.modDown()) 0.05 else 0.005;
         const t0 = knobValueToT(args.min, args.max, args.v.*, args.logarithmic, args.skew);
         const t1 = std.math.clamp(t0 + gui_style.wheel_delta * step, 0, 1);
         const next = knobTToValue(args.min, args.max, t1, args.logarithmic, args.skew);
@@ -505,7 +505,7 @@ pub fn stepperCell(label_text: []const u8, id: [:0]const u8, display: []const u8
 /// "which one of these". Prev/next buttons plus the resolved name (not the
 /// raw number a knob would show) read as picking an item instead. Scrolling
 /// while hovered also steps it, one entry per tick - unlike the knob, there's
-/// no ctrl-coarse variant, since "10 items at once" isn't a meaningful step
+/// no Mod-coarse variant, since "10 items at once" isn't a meaningful step
 /// for a short discrete list.
 pub const ListStepper = struct {
     v: *f32,
@@ -607,11 +607,11 @@ fn adsrStageIs(stage: ?u2, n: u2) bool {
     return stage != null and stage.? == n;
 }
 
-/// Exponent-per-wheel-tick for a duration node's scroll nudge (**ctrl** =
-/// coarser), matched in spirit to the knob's own ctrl-coarse step. Only the
+/// Exponent-per-wheel-tick for a duration node's scroll nudge (**Mod** =
+/// coarser), matched in spirit to the knob's own Mod-coarse step. Only the
 /// duration nodes use this.
 fn envelopeScrollStep() f32 {
-    return if (zgui.isKeyDown(.mod_ctrl)) 0.2 else 0.05;
+    return if (gui_style.modDown()) 0.2 else 0.05;
 }
 
 fn adsrHandle(draw_list: zgui.DrawList, theme: *const gui_style.Palette, p: [2]f32, lit: bool, focused: bool, accent: [4]f32) void {
@@ -748,7 +748,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
 /// number of points instead of 3 fixed-role ones, both axes draggable
 /// instead of duration-only, and points can be created and removed instead
 /// of just repositioned. Scrolling while hovering an existing point nudges
-/// just its value (**ctrl** = coarser) and leaves its beat position alone -
+/// just its value (**Mod** = coarser) and leaves its beat position alone -
 /// unlike a drag, a wheel tick is unambiguous here since only one of the
 /// two axes is a natural "nudge a little" quantity. Used by the automation
 /// view today; the point/range args carry nothing automation-specific, so
@@ -948,7 +948,7 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
         }
         if (node_hovered and result.moved == null and gui_style.wheel_delta != 0) {
             gui_style.wheel_consumed = true;
-            const step_frac: f32 = if (zgui.isKeyDown(.mod_ctrl)) 0.05 else 0.005;
+            const step_frac: f32 = if (gui_style.modDown()) 0.05 else 0.005;
             const step: f32 = step_frac * (args.value_hi - args.value_lo);
             const new_value = std.math.clamp(p.value + gui_style.wheel_delta * step, args.value_lo, args.value_hi);
             if (new_value != p.value) result.moved = .{ .index = i, .beat = p.beat, .value = new_value };

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const zgui = @import("zgui");
 const ws = @import("wstudio");
 const config_mod = @import("../config.zig");
@@ -102,6 +103,12 @@ pub var meter_decay_db_per_s: f32 = 24.0;
 pub var wheel_delta: f32 = 0;
 pub var wheel_x_delta: f32 = 0;
 pub var wheel_consumed: bool = false;
+
+/// Platform shortcut modifier for mouse gestures: Command on macOS, Ctrl
+/// elsewhere. Keyboard modal chords stay literal Ctrl bindings.
+pub fn modDown() bool {
+    return zgui.isKeyDown(if (builtin.os.tag == .macos) .mod_super else .mod_ctrl);
+}
 
 test "every theme exposes full base16 track rotation" {
     for (std.meta.tags(ws.theme_identity.Name)) |name| {
