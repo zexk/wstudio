@@ -17,8 +17,8 @@
 //! `dsp/drum_sampler.zig` moved to, and for the same reason: the old `u64`
 //! bitmask plus parallel `vel` array is exactly why steps were once
 //! hard-capped at 64 (one word's bit width, not a chosen musical limit).
-//! `step_count`/`steps_per_beat` now set the pattern's length and the grid's
-//! zoom, and growing either just grows the per-slice slices. The note type
+//! Pattern positions use fixed 32 ticks per beat; editor grid division only
+//! changes navigation and rendering stride. The note type
 //! itself (`MidiNote`, and the `Cond` trig conditions with it) is
 //! DrumMachine's, imported rather than re-declared, so a step means exactly
 //! the same thing in both grids and the shared editors/renderers can treat
@@ -148,9 +148,9 @@ pub const Slicer = struct {
     /// slice instead of pad.
     pub const Variant = struct {
         midi: [max_slices][]?MidiNote = [_][]?MidiNote{&.{}} ** max_slices,
-        step_count: u16 = 16,
-        /// Number of sequencer steps in one quarter-note beat.
-        steps_per_beat: u8 = 4,
+        step_count: u16 = DrumMachine.ticks_per_beat * 4,
+        /// Canonical musical ticks in one quarter-note beat.
+        steps_per_beat: u8 = DrumMachine.ticks_per_beat,
     };
 
     /// A slicer clip flattened onto the arrangement's step timeline - same
@@ -163,7 +163,7 @@ pub const Slicer = struct {
         start_step: u32,
         span_steps: u32,
         step_count: u16,
-        steps_per_beat: u8 = 4,
+        steps_per_beat: u8 = DrumMachine.ticks_per_beat,
         midi: [max_slices][]?MidiNote,
     };
 
@@ -218,10 +218,9 @@ pub const Slicer = struct {
     /// Cached row length of every entry in `midi` - control thread writes,
     /// audio thread reads (plain field, no atomics, same convention as
     /// `choke_group`).
-    step_count: u16 = 16,
-    /// Native timing resolution of the active pattern. Four is 1/16 notes;
-    /// 32 is 1/128 notes.
-    steps_per_beat: u8 = 4,
+    step_count: u16 = DrumMachine.ticks_per_beat * 4,
+    /// Canonical timing resolution. Always `DrumMachine.ticks_per_beat`.
+    steps_per_beat: u8 = DrumMachine.ticks_per_beat,
     swing: std.atomic.Value(f32) = .init(50.0),
 
     // ── Pattern variants (control thread only) ──────────────────────────────
@@ -265,7 +264,7 @@ pub const Slicer = struct {
     /// Resolution of the absolute song timeline. Live slicer patterns stay at
     /// four steps per beat; arrangement clips use 32 so every editor grid
     /// position remains exact.
-    song_steps_per_beat: u8 = 4,
+    song_steps_per_beat: u8 = DrumMachine.ticks_per_beat,
 
     // Audio-thread-only state:
     next_step_k: u64 = 0,
@@ -276,7 +275,7 @@ pub const Slicer = struct {
         errdefer allocator.free(samples);
         const song_clips = try allocator.alloc(SongClip, max_song_clips);
         errdefer allocator.free(song_clips);
-        const default_step_count: u16 = 16;
+        const default_step_count: u16 = DrumMachine.ticks_per_beat * 4;
         var midi = try allocMidi(allocator, default_step_count);
         errdefer freeMidi(allocator, &midi);
         var self: Slicer = .{

@@ -37,6 +37,7 @@ pub fn draw(app: anytype) void {
         slicer,
         slicer.slice_count,
         slicer.step_count,
+        app.core.slicer_grid.ticks(),
         play_step,
         &app.core.slicer_cursor,
         if (app.core.modal.mode == .visual) app.core.slicer_visual_anchor else null,

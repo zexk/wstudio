@@ -491,12 +491,13 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                     const count: u8 = @intCast(@min(ds.variants.len, DrumMachine.max_variants));
                     dmp.variant_count = 0;
                     for (ds.variants[0..count], dmp.variants[0..count]) |vs, *slot| {
-                        const sc = std.math.clamp(vs.step_count, 1, DrumMachine.max_steps);
+                        const source_spb = std.math.clamp(vs.steps_per_beat, 1, 32);
+                        const sc = normalizedStepCount(vs.step_count, source_spb);
                         slot.step_count = sc;
-                        slot.steps_per_beat = std.math.clamp(vs.steps_per_beat, 1, 32);
+                        slot.steps_per_beat = DrumMachine.ticks_per_beat;
                         slot.midi = try DrumMachine.allocMidi(allocator, sc);
                         dmp.variant_count += 1;
-                        applyNoteSnap(&slot.midi, sc, vs.notes);
+                        applyNoteSnap(&slot.midi, sc, source_spb, vs.notes);
                     }
                     dmp.variant = @min(ds.variant, count - 1);
                     // The live pattern mirrors the active variant; the
@@ -525,7 +526,8 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                     for (&dmp.pad_len) |*l| l.* = 0;
                     for (ds.pad_len, 0..) |l, pad| {
                         if (pad >= DrumMachine.max_pads) break;
-                        dmp.setPadLen(@intCast(pad), l);
+                        const source_spb = std.math.clamp(ds.variants[dmp.variant].steps_per_beat, 1, 32);
+                        dmp.setPadLen(@intCast(pad), scaleStep(l, source_spb));
                     }
                     // Only materialize a pad the file actually marked `used`
                     // (see PadSnap's doc comment) - an omitted entry or an
@@ -562,12 +564,13 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                     const vcount: u8 = @intCast(@min(sls.variants.len, Slicer.max_variants));
                     sl.variant_count = 0;
                     for (sls.variants[0..vcount], sl.variants[0..vcount]) |vs, *slot| {
-                        const sc = std.math.clamp(vs.step_count, 1, Slicer.max_steps);
+                        const source_spb = std.math.clamp(vs.steps_per_beat, 1, 32);
+                        const sc = normalizedStepCount(vs.step_count, source_spb);
                         slot.step_count = sc;
-                        slot.steps_per_beat = std.math.clamp(vs.steps_per_beat, 1, 32);
+                        slot.steps_per_beat = DrumMachine.ticks_per_beat;
                         slot.midi = try Slicer.allocMidi(allocator, sc);
                         sl.variant_count += 1;
-                        applyNoteSnap(&slot.midi, sc, vs.notes);
+                        applyNoteSnap(&slot.midi, sc, source_spb, vs.notes);
                     }
                     sl.variant = @min(sls.variant, vcount - 1);
                     const active = &sl.variants[sl.variant];
@@ -587,7 +590,8 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
                     for (&sl.slice_len) |*l| l.* = 0;
                     for (sls.slice_len, 0..) |l, i| {
                         if (i >= Slicer.max_slices) break;
-                        sl.setSliceLen(@intCast(i), l);
+                        const source_spb = std.math.clamp(sls.variants[sl.variant].steps_per_beat, 1, 32);
+                        sl.setSliceLen(@intCast(i), scaleStep(l, source_spb));
                     }
                     sl.setSwing(sls.swing);
             },
@@ -756,14 +760,26 @@ pub fn loadVst3State(allocator: std.mem.Allocator, plugin: *rack_mod.Vst3Plugin,
 /// Apply a sparse note list into a freshly `allocMidi`'d array (already
 /// sized to `step_count`) - out-of-range pad/step entries (a hand-edited or
 /// truncated file) are silently dropped rather than erroring the load.
-pub fn applyNoteSnap(midi: *[DrumMachine.max_pads][]?DrumMachine.MidiNote, step_count: u16, notes: []const DrumNoteSnap) void {
+fn scaleStep(step: u16, source_spb: u8) u16 {
+    return @intCast(@min(
+        @as(u32, step) * DrumMachine.ticks_per_beat / @max(source_spb, 1),
+        DrumMachine.max_steps,
+    ));
+}
+
+fn normalizedStepCount(step_count: u16, source_spb: u8) u16 {
+    return std.math.clamp(scaleStep(@max(step_count, 1), source_spb), 1, DrumMachine.max_steps);
+}
+
+pub fn applyNoteSnap(midi: *[DrumMachine.max_pads][]?DrumMachine.MidiNote, step_count: u16, source_spb: u8, notes: []const DrumNoteSnap) void {
     for (notes) |n| {
         const pad = n.pad;
-        if (pad >= DrumMachine.max_pads or n.step >= step_count) continue;
-        midi[pad][n.step] = .{
+        const step = scaleStep(n.step, source_spb);
+        if (pad >= DrumMachine.max_pads or step >= step_count) continue;
+        midi[pad][step] = .{
             .pitch = @intCast(pad),
-            .step = n.step,
-            .duration_steps = @max(1, n.duration_steps),
+            .step = step,
+            .duration_steps = @max(1, scaleStep(n.duration_steps, source_spb)),
             .velocity = @min(n.velocity, DrumMachine.vel_full),
             .tune = @intCast(std.math.clamp(@as(i16, n.tune), -24, 24)),
             .prob = @min(n.prob, 100),
@@ -799,13 +815,14 @@ pub fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.
             );
         },
         .drum => |snap| blk2: {
+            const source_spb = std.math.clamp(snap.pattern.steps_per_beat, 1, 32);
             var d: ws_arrangement.Clip.Drum = .{
-                .step_count = std.math.clamp(snap.pattern.step_count, 1, DrumMachine.max_steps),
-                .steps_per_beat = std.math.clamp(snap.pattern.steps_per_beat, 1, 32),
+                .step_count = normalizedStepCount(snap.pattern.step_count, source_spb),
+                .steps_per_beat = DrumMachine.ticks_per_beat,
                 .variant = @min(snap.variant, DrumMachine.max_variants - 1),
             };
             d.midi = try DrumMachine.allocMidi(allocator, d.step_count);
-            applyNoteSnap(&d.midi, d.step_count, snap.pattern.notes);
+            applyNoteSnap(&d.midi, d.step_count, source_spb, snap.pattern.notes);
             break :blk2 ws_arrangement.Clip.initDrum(start_tick, length_ticks, d);
         },
         .audio => |audio| ws_arrangement.Clip.initAudio(start_tick, length_ticks, .{

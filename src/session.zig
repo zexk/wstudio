@@ -295,14 +295,14 @@ pub const Session = struct {
             .drum_machine => {
                 const drum_machine = try DrumMachine.init(self.allocator, sr, &self.engine.transport);
                 rack.instrument = .{ .drum_machine = drum_machine };
-                rack.instrument.drum_machine.setStepCount(self.defaults.drum_steps);
+                rack.instrument.drum_machine.setStepCount(self.defaults.drum_steps *| (DrumMachine.ticks_per_beat / 4));
                 rack.instrument.drum_machine.swing.store(self.defaults.swing, .monotonic);
                 rack.label = "drums";
             },
             .slicer => {
                 const slicer = try Slicer.init(self.allocator, sr, &self.engine.transport);
                 rack.instrument = .{ .slicer = slicer };
-                rack.instrument.slicer.setStepCount(self.defaults.slicer_steps);
+                rack.instrument.slicer.setStepCount(self.defaults.slicer_steps *| (DrumMachine.ticks_per_beat / 4));
                 rack.instrument.slicer.setSwing(self.defaults.swing);
                 rack.label = "slicer";
             },

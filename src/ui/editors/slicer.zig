@@ -453,31 +453,12 @@ fn setSliceLoop(app: *App) void {
         app.setStatus("slice {d}: loops over {d} of {d} steps", .{ slice + 1, sl.slice_len[slice], sl.step_count });
 }
 
-/// `z`/`Z`: change the pattern's native grid without moving a hit in musical
-/// time - the drum grid's own zoom, refusal semantics included (the resize
-/// is refused outright rather than ever rounding two hits onto one step).
+/// `z`/`Z`: change editing grid without touching stored hit positions.
 fn zoom(app: *App, delta: i8) void {
     const next = if (delta > 0) app.slicer_grid.finer() else app.slicer_grid.coarser();
     if (next == app.slicer_grid) return;
-    const spb = next.denominator() / 4;
-    const sl = app.slicerInst();
-    const new_count = @as(u32, sl.step_count) * spb / sl.steps_per_beat;
-    if (new_count == 0 or new_count > Slicer.max_steps) {
-        app.setStatus("grid {s} would exceed the step ceiling - shorten the pattern first", .{next.label()});
-        return;
-    }
-    // Captured before the mutation but only pushed once it lands - a refused
-    // resize must not leave a no-op undo entry behind.
-    var entry = history.captureSlicer(app, app.slicer_track);
-    if (!sl.setStepsPerBeatPreservingTime(spb)) {
-        if (entry) |*e| e.deinit(app.allocator);
-        app.setStatus("grid {s} would collide two hits onto one step - move or delete one first", .{next.label()});
-        return;
-    }
-    history.push(app, entry);
     app.slicer_grid = next;
-    if (app.slicer_cursor[1] >= sl.step_count) app.slicer_cursor[1] = sl.step_count -| 1;
-    app.setStatus("grid: {s} ({d} steps)", .{ app.slicer_grid.label(), sl.step_count });
+    app.setStatus("grid: {s}", .{app.slicer_grid.label()});
 }
 
 /// Cycle the active pattern variant, keeping the step cursor inside the
@@ -526,7 +507,7 @@ pub fn recordNote(app: *App, pitch: u7, vel: u8) void {
 
 /// Move the step cursor by `delta` steps, clamped to the pattern length.
 fn moveStep(app: *App, delta: i32) void {
-    step_grid.moveClamped(&app.slicer_cursor[1], delta, app.slicerInst().step_count);
+    step_grid.moveClamped(&app.slicer_cursor[1], delta * @as(i32, @intCast(app.slicer_grid.ticks())), app.slicerInst().step_count);
 }
 
 /// Move the slice cursor by `delta` rows, clamped to the slice count.
@@ -791,7 +772,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
     switch (ev.kind) {
         .press => {
             app.slicer_cursor[0] = @intCast(slice);
-            const step = step_grid.stepAt(u16, gutter, 3, app.slicer_step_scroll, sl.step_count, sl.steps_per_beat, ev.x) orelse {
+            const step = step_grid.stepAt(u16, gutter, 3, app.slicer_step_scroll, sl.step_count, sl.steps_per_beat, app.slicer_grid.ticks(), ev.x) orelse {
                 app.slicer_paint_state = null;
                 return;
             };
@@ -806,7 +787,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
         },
         .drag => {
             const state = app.slicer_paint_state orelse return;
-            const step = step_grid.stepAt(u16, gutter, 3, app.slicer_step_scroll, sl.step_count, sl.steps_per_beat, ev.x) orelse return;
+            const step = step_grid.stepAt(u16, gutter, 3, app.slicer_step_scroll, sl.step_count, sl.steps_per_beat, app.slicer_grid.ticks(), ev.x) orelse return;
             app.slicer_cursor[0] = @intCast(slice);
             app.slicer_cursor[1] = step;
             step_grid.setStep(sl, @intCast(slice), step, state, Slicer.vel_full);

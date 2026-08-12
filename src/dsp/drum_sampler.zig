@@ -15,10 +15,9 @@
 //! both the audio thread's firing loop and the UI. There used to also be a
 //! `u64` bitmask (`pattern`) and a parallel `vel` array; that bitmask is
 //! exactly why steps were once hard-capped at 64 (a single word's bit
-//! width, not a chosen limit). `step_count`/`steps_per_beat` set the
-//! pattern's length and the grid's zoom; growing either just grows the
-//! per-pad slices - steps are a visual/editing guide over the note data,
-//! not a storage wall. The sequencer fires on step boundaries derived
+//! width, not a chosen limit). Pattern positions use fixed 32 ticks per beat;
+//! editor grid division only changes navigation and rendering stride. The
+//! sequencer fires on tick boundaries derived
 //! from the transport, using a monotonic step counter to avoid the
 //! double-fire and float-truncation bugs that arise from recomputing the
 //! boundary position every block; MPC-style swing (50–75%) delays each
@@ -42,8 +41,8 @@
 //! would blow up `@sizeOf(DrumMachine)` across the 8-slot variant bank into
 //! multi-MB territory - exactly the failure mode already hit once before
 //! (see the `song_clips` field's doc comment) where `init`/`dupe` returning
-//! large structs by value segfaulted the test suite. Resizes (setStepCount,
-//! setStepsPerBeatPreservingTime, variant switches) take `pad_lock` (already
+//! large structs by value segfaulted the test suite. Resizes and variant
+//! switches take `pad_lock` (already
 //! used for `song_clips`) around the swap so the audio thread never
 //! observes a torn slice header; per-cell writes (toggleStep, setStepVel)
 //! stay lock-free, same tolerated convention as `choke_group`.
@@ -68,6 +67,8 @@ pub const DrumMachine = struct {
     /// grid (32 steps/beat) - too short to call "not a limit". u16 spans
     /// ~512 bars at that same zoom, which is.
     pub const max_steps: u16 = std.math.maxInt(u16);
+    /// Canonical pattern resolution. Editor grids only choose cursor stride.
+    pub const ticks_per_beat: u8 = 32;
     /// Max pattern variants (A..H) one machine can hold.
     pub const max_variants: u8 = 8;
     /// Max choke groups a pad can belong to (0 = no group, ungated).
@@ -85,8 +86,8 @@ pub const DrumMachine = struct {
     /// default.
     pub const vel_full: u8 = 127;
 
-    /// Compact canonical note for the drum grid. Timing is integral in the
-    /// pattern's native grid, so 1/128 notes remain exact and cheap to store.
+    /// Compact canonical note for the drum grid. Timing uses fixed 1/128-note
+    /// ticks, so off-grid positions remain exact across editor grid changes.
     /// Elektron's trig conditions, folded into one slot instead of the
     /// Digitakt II's three: the hardware has an encoder to scroll a long
     /// list, a keyboard has one key to cycle it, so the list stays short and
@@ -265,9 +266,9 @@ pub const DrumMachine = struct {
     /// file's top doc comment.
     pub const Variant = struct {
         midi: [max_pads][]?MidiNote = [_][]?MidiNote{&.{}} ** max_pads,
-        step_count: u16 = 16,
-        /// Number of sequencer steps in one quarter-note beat.
-        steps_per_beat: u8 = 4,
+        step_count: u16 = ticks_per_beat * 4,
+        /// Canonical musical ticks in one quarter-note beat.
+        steps_per_beat: u8 = ticks_per_beat,
     };
 
     /// A drum clip flattened onto the arrangement's step timeline. No
@@ -280,7 +281,7 @@ pub const DrumMachine = struct {
         start_step: u32,
         span_steps: u32,
         step_count: u16,
-        steps_per_beat: u8 = 4,
+        steps_per_beat: u8 = ticks_per_beat,
         midi: [max_pads][]?MidiNote,
     };
     /// Number of editable params per pad (see `adjustParam`) - `pad.zig`'s
@@ -341,9 +342,8 @@ pub const DrumMachine = struct {
     /// audio thread reads (plain field, no atomics - same convention as
     /// `choke_group`).
     step_count: u16,
-    /// Native timing resolution of the active pattern. Four is 1/16 notes;
-    /// 32 is 1/128 notes.
-    steps_per_beat: u8 = 4,
+    /// Canonical timing resolution. Always `ticks_per_beat` in live data.
+    steps_per_beat: u8 = ticks_per_beat,
     /// Swing percent (see `swing_min`/`swing_max`): where the off-beat 16th
     /// sits within its 8th-note pair. UI writes, audio thread reads.
     swing: std.atomic.Value(f32) = .init(50.0),
@@ -411,7 +411,7 @@ pub const DrumMachine = struct {
     song_clip_count: u16 = 0,
     /// Whole-arrangement length in steps; the song loops at this boundary.
     song_length_steps: u32 = 0,
-    song_steps_per_beat: u8 = 4,
+    song_steps_per_beat: u8 = ticks_per_beat,
 
     // Audio-thread-only state:
     /// Monotonic counter of steps that have fired. Resynced on seek.
@@ -431,7 +431,7 @@ pub const DrumMachine = struct {
     ) !DrumMachine {
         const song_clips = try allocator.alloc(SongClip, max_song_clips);
         errdefer allocator.free(song_clips);
-        const default_step_count: u16 = 32; // default 2 bars; user can grow the pattern with +/E, no more wall
+        const default_step_count: u16 = @as(u16, ticks_per_beat) * 8; // default 2 bars
         var midi = try allocMidi(allocator, default_step_count);
         errdefer freeMidi(allocator, &midi);
 

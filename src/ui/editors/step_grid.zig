@@ -210,11 +210,11 @@ pub fn operatorBarBackward(cursor: anytype, n: i32, step_count: anytype, bar_len
 /// gutter or past the last visible step. Replays the exact column math the
 /// views' render loop uses (starting from `scroll`, then its separators and
 /// cells) rather than deriving a closed form.
-pub fn stepAt(comptime T: type, gutter: usize, cell_width: usize, scroll: u32, step_count: anytype, steps_per_beat: u8, x: usize) ?T {
+pub fn stepAt(comptime T: type, gutter: usize, cell_width: usize, scroll: u32, step_count: anytype, steps_per_beat: u8, stride: u32, x: usize) ?T {
     if (x < gutter) return null;
     var col = gutter;
     var s: u32 = scroll;
-    while (s < step_count) : (s += 1) {
+    while (s < step_count) : (s += @max(stride, 1)) {
         if (s % @max(steps_per_beat, 1) == 0) col += 1;
         if (x < col + cell_width) return if (x < col) null else @intCast(s); // `x < col`: landed on the separator itself
         col += cell_width;
@@ -223,11 +223,11 @@ pub fn stepAt(comptime T: type, gutter: usize, cell_width: usize, scroll: u32, s
 }
 
 test "stepAt follows beat separators at the live grid resolution" {
-    try std.testing.expectEqual(@as(?u16, null), stepAt(u16, 10, 3, 0, 12, 3, 10));
-    try std.testing.expectEqual(@as(?u16, 0), stepAt(u16, 10, 3, 0, 12, 3, 11));
-    try std.testing.expectEqual(@as(?u16, 2), stepAt(u16, 10, 3, 0, 12, 3, 17));
-    try std.testing.expectEqual(@as(?u16, null), stepAt(u16, 10, 3, 0, 12, 3, 20));
-    try std.testing.expectEqual(@as(?u16, 3), stepAt(u16, 10, 3, 0, 12, 3, 21));
+    try std.testing.expectEqual(@as(?u16, null), stepAt(u16, 10, 3, 0, 12, 3, 1, 10));
+    try std.testing.expectEqual(@as(?u16, 0), stepAt(u16, 10, 3, 0, 12, 3, 1, 11));
+    try std.testing.expectEqual(@as(?u16, 2), stepAt(u16, 10, 3, 0, 12, 3, 1, 17));
+    try std.testing.expectEqual(@as(?u16, null), stepAt(u16, 10, 3, 0, 12, 3, 1, 20));
+    try std.testing.expectEqual(@as(?u16, 3), stepAt(u16, 10, 3, 0, 12, 3, 1, 21));
 }
 
 /// Arms `op` ('d' or 'y') as a pending operator (see the operator-pending

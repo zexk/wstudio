@@ -411,7 +411,7 @@ fn stampNudgeVel(app: *App, delta: i32) void {
 
 /// Move the step cursor by `delta` steps, clamped to the pattern length.
 fn moveStep(app: *App, delta: i32) void {
-    step_grid.moveClamped(&app.drum_cursor[1], delta, app.drumMachine().step_count);
+    step_grid.moveClamped(&app.drum_cursor[1], delta * @as(i32, @intCast(app.drum_grid.ticks())), app.drumMachine().step_count);
 }
 
 /// Move the pad cursor by `delta` rows, clamped to the pad count.
@@ -444,26 +444,8 @@ fn doublePattern(app: *App) void {
 fn zoom(app: *App, delta: i8) void {
     const next = if (delta > 0) app.drum_grid.finer() else app.drum_grid.coarser();
     if (next == app.drum_grid) return;
-    const spb = next.denominator() / 4;
-    const dm = app.drumMachine();
-    const new_count = @as(u32, dm.step_count) * spb / dm.steps_per_beat;
-    if (new_count == 0 or new_count > DrumMachine.max_steps) {
-        app.setStatus("grid {s} would exceed the step ceiling - shorten the pattern first", .{next.label()});
-        return;
-    }
-    // Capture before mutating (undo needs the pre-change state) but only
-    // push it once the resize actually lands - `setStepsPerBeatPreservingTime`
-    // refuses in place rather than dropping a hit, and a refusal shouldn't
-    // leave a no-op undo entry behind.
-    var entry = history.captureDrum(app, app.drum_track);
-    if (!dm.setStepsPerBeatPreservingTime(spb)) {
-        if (entry) |*e| e.deinit(app.allocator);
-        app.setStatus("grid {s} would collide two hits onto one step - move or delete one first", .{next.label()});
-        return;
-    }
-    history.push(app, entry);
     app.drum_grid = next;
-    app.setStatus("grid: {s} ({d} steps)", .{ app.drum_grid.label(), dm.step_count });
+    app.setStatus("grid: {s}", .{app.drum_grid.label()});
 }
 
 /// w/b: jump the step cursor `delta` beats forward/back.
@@ -842,7 +824,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
             app.drum_stamp = false;
             app.drum_cursor[0] = @intCast(pad);
             const dm = app.drumMachine();
-            const step = step_grid.stepAt(u16, gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, dm.steps_per_beat, ev.x) orelse {
+            const step = step_grid.stepAt(u16, gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, dm.steps_per_beat, app.drum_grid.ticks(), ev.x) orelse {
                 app.drum_paint_state = null;
                 return;
             };
@@ -858,7 +840,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
         .drag => {
             const state = app.drum_paint_state orelse return;
             const dm = app.drumMachine();
-            const step = step_grid.stepAt(u16, gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, dm.steps_per_beat, ev.x) orelse return;
+            const step = step_grid.stepAt(u16, gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, dm.steps_per_beat, app.drum_grid.ticks(), ev.x) orelse return;
             app.drum_cursor[0] = @intCast(pad);
             app.drum_cursor[1] = step;
             step_grid.setStep(dm, @intCast(pad), step, state, DrumMachine.vel_full);

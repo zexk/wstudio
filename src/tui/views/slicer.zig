@@ -60,12 +60,13 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
     const track_name = app.session.project.tracks.items[app.slicer_track].name;
 
     const spb: u32 = @max(sl.steps_per_beat, 1);
+    const stride: u32 = app.slicer_grid.ticks();
     const bar_units = spb * @as(u32, @max(app.session.project.beats_per_bar, 1)) * 4;
     const meter_denominator: u32 = @max(app.session.project.meter_denominator, 1);
-    const visible = visibleSteps(cols, spb);
+    const visible = visibleSteps(cols, @max(1, spb / stride));
     const cur_step_u32: u32 = cur_step;
     if (cur_step_u32 < app.slicer_step_scroll) app.slicer_step_scroll = cur_step_u32;
-    if (cur_step_u32 >= app.slicer_step_scroll + visible) app.slicer_step_scroll = cur_step_u32 - visible + 1;
+    if (cur_step_u32 >= app.slicer_step_scroll + visible * stride) app.slicer_step_scroll = cur_step_u32 - (visible - 1) * stride;
     const scroll = app.slicer_step_scroll;
 
     // MPC-style slice banking, same shape the drum grid uses for its pads.
@@ -126,8 +127,8 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
     // Bar ruler. Labels stay within their cell even for very long patterns.
     try w.writeAll(dim ++ "          ");
     var col: u32 = 0;
-    while (col < visible and scroll + col < step_count_u32) : (col += 1) {
-        const s = scroll + col;
+    while (col < visible and scroll + col * stride < step_count_u32) : (col += 1) {
+        const s = scroll + col * stride;
         if (s % spb == 0) try w.writeAll("│");
         const position_units = s * meter_denominator;
         const on_bar = position_units % bar_units == 0;
@@ -153,10 +154,17 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
         try w.writeAll(rst);
         const slice_len = sl.sliceSteps(@intCast(sIdx), sl.step_count);
         col = 0;
-        while (col < visible and scroll + col < step_count_u32) : (col += 1) {
-            const s = scroll + col;
+        while (col < visible and scroll + col * stride < step_count_u32) : (col += 1) {
+            const s = scroll + col * stride;
             if (s % spb == 0) try w.writeAll(dim ++ "│" ++ rst);
-            const active = sl.stepActive(@intCast(sIdx), @intCast(s));
+            var note_step = s;
+            var active = false;
+            while (note_step < @min(s + stride, step_count_u32)) : (note_step += 1) {
+                if (sl.stepActive(@intCast(sIdx), @intCast(note_step))) {
+                    active = true;
+                    break;
+                }
+            }
             const is_cursor = (sIdx == cur_slice and s == cur_step_u32);
             const is_play = is_playing and (s == playing_step);
             const in_sel = visual_active and s >= sel_lo and s <= sel_hi and sIdx >= sel_rows.lo and sIdx <= sel_rows.hi;
@@ -168,8 +176,8 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
             // Glyph tracks the step's velocity, brackets the parameter locks -
             // same five bands and same bracket set as the drum grid
             // (editors/step_grid.zig).
-            const glyph: u8 = if (!active) ' ' else step_grid.velocityBand(sl.stepVel(@intCast(sIdx), @intCast(s))).glyph();
-            const brackets = step_grid.stepBrackets(sl, @intCast(sIdx), @intCast(s), active and !out_of_loop);
+            const glyph: u8 = if (!active) ' ' else step_grid.velocityBand(sl.stepVel(@intCast(sIdx), @intCast(note_step))).glyph();
+            const brackets = step_grid.stepBrackets(sl, @intCast(sIdx), @intCast(note_step), active and !out_of_loop);
             try w.print("{c}{c}{c}", .{ brackets[0], glyph, brackets[1] });
             try w.writeAll(rst);
         }

@@ -31,6 +31,7 @@ pub fn draw(app: anytype) void {
         drum,
         drum.pads.len,
         drum.step_count,
+        app.core.drum_grid.ticks(),
         play_step,
         &app.core.drum_cursor,
         if (app.core.modal.mode == .visual) app.core.drum_visual_anchor else null,

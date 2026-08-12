@@ -143,7 +143,8 @@ nothing at all.
 
 Drum patterns and drum arrangement clips optionally store `steps_per_beat`.
 Its default is 4 (a 1/16-note grid); values through 32 give grids as fine as
-1/128 notes.
+1/128 notes. Loading normalizes every value to 32 ticks per beat in memory;
+editor grid changes never rewrite note positions or pattern lengths.
 
 ## Tempo and meter maps
 

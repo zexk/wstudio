@@ -308,15 +308,18 @@ pub const ApiPatternUpdate = struct {
     steps_per_beat: ?u8 = null,
 };
 
-/// A melodic track only has a loop length; a drum track's length is its
-/// grid, so `length_beats` there resolves to a step count at the current
-/// (or requested) resolution rather than being a separate field.
+/// A melodic track only has a loop length. Drum data uses 32 musical ticks
+/// per beat; `steps_per_beat` remains accepted as input-unit metadata for
+/// callers sending a `step_count` from another grid.
 pub fn apiSetPattern(self: *App, idx: usize, update: ApiPatternUpdate) ApiPatternError!void {
     switch (self.session.racks.items[idx].instrument) {
         .drum_machine => {
             const dm = try self.apiDrumEdit(idx);
-            if (update.steps_per_beat) |spb| _ = dm.setStepsPerBeatPreservingTime(spb);
-            if (update.step_count) |n| dm.setStepCount(n);
+            const source_spb = std.math.clamp(update.steps_per_beat orelse DrumMachine.ticks_per_beat, 1, 32);
+            if (update.step_count) |n| dm.setStepCount(@intCast(@min(
+                @as(u32, n) * DrumMachine.ticks_per_beat / source_spb,
+                DrumMachine.max_steps,
+            )));
             if (update.length_beats) |beats| {
                 const steps = beats * @as(f64, @floatFromInt(dm.steps_per_beat));
                 dm.setStepCount(@max(pattern_mod.clampStep(steps), 1));

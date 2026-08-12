@@ -19,6 +19,7 @@ pub fn draw(
     instrument: anytype,
     total_rows: usize,
     step_count_raw: anytype,
+    stride_raw: anytype,
     play_step: ?usize,
     cursor: anytype,
     visual_anchor: anytype,
@@ -31,7 +32,9 @@ pub fn draw(
     /// `App`). Null between drags.
     paint_state: *?bool,
 ) void {
-    const step_count: usize = @max(1, step_count_raw);
+    const stride: usize = @max(1, stride_raw);
+    const storage_step_count: usize = @max(1, step_count_raw);
+    const step_count: usize = @max(1, (storage_step_count + stride - 1) / stride);
     const cursor_row = @min(@as(usize, cursor[0]), total_rows -| 1);
     const gutter_w: f32 = 132;
     const ruler_h: f32 = 27;
@@ -62,10 +65,10 @@ pub fn draw(
     const grid_y = origin[1] + ruler_h;
     const grid_w = canvas_w - gutter_w;
     const cell_w = grid_w / @as(f32, @floatFromInt(step_count));
-    const steps_per_beat: usize = @max(instrument.steps_per_beat, 1);
+    const steps_per_beat: usize = @max(@as(usize, instrument.steps_per_beat) / stride, 1);
     const bar_units = steps_per_beat * @as(usize, @max(app.core.session.project.beats_per_bar, 1)) * 4;
     const meter_denominator: usize = @max(app.core.session.project.meter_denominator, 1);
-    const cursor_step = @min(@as(usize, cursor[1]), step_count - 1);
+    const cursor_step = @min(@as(usize, cursor[1]) / stride, step_count - 1);
     const accent = if (kind == .drum) theme.rhythm else theme.audio;
     const vel_full = @TypeOf(instrument.*).vel_full;
 
@@ -123,7 +126,7 @@ pub fn draw(
     }
 
     if (visual_anchor) |anchor_raw| {
-        const anchor = @min(@as(usize, anchor_raw), step_count - 1);
+        const anchor = @min(@as(usize, anchor_raw) / stride, step_count - 1);
         const lo = @min(anchor, cursor_step);
         const hi = @max(anchor, cursor_step);
         const x1 = grid_x + @as(f32, @floatFromInt(lo)) * cell_w;
@@ -160,20 +163,22 @@ pub fn draw(
     }
 
     if (play_step) |step| {
-        const x = grid_x + @as(f32, @floatFromInt(step % step_count)) * cell_w;
+        const x = grid_x + @as(f32, @floatFromInt(step / stride % step_count)) * cell_w;
         draw_list.addRectFilled(.{ .pmin = .{ x, origin[1] }, .pmax = .{ x + cell_w, grid_y }, .col = color(.{ theme.danger[0], theme.danger[1], theme.danger[2], 0.28 }) });
         draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(theme.danger), .thickness = 2 });
         draw_list.addTriangleFilled(.{ .p1 = .{ x - 4, grid_y - 7 }, .p2 = .{ x + 4, grid_y - 7 }, .p3 = .{ x, grid_y - 2 }, .col = color(theme.danger) });
     }
 
     for (row_start..row_end, 0..) |row, display_row| {
-        for (0..step_count) |step| {
-            if (!instrument.stepActive(@intCast(row), @intCast(step))) continue;
-            const vel = instrument.stepVel(@intCast(row), @intCast(step));
+        for (0..storage_step_count) |step| {
+            const tick: u16 = @intCast(step);
+            if (!instrument.stepActive(@intCast(row), tick)) continue;
+            const vel = instrument.stepVel(@intCast(row), tick);
             const velocity = @as(f32, @floatFromInt(vel)) / 127.0;
-            const x = grid_x + @as(f32, @floatFromInt(step)) * cell_w;
+            const tick_w = cell_w / @as(f32, @floatFromInt(stride));
+            const x = grid_x + @as(f32, @floatFromInt(step)) * tick_w;
             const y = grid_y + @as(f32, @floatFromInt(display_row)) * row_h;
-            const inset = @min(3, cell_w * 0.15);
+            const inset = @min(3, tick_w * 0.15);
             const height = 8 + velocity * (row_h - 13);
             // Top of the same five bands the TUI grids print a glyph for,
             // so an "accented" hit means the same velocity in both.
@@ -187,10 +192,10 @@ pub fn draw(
             // A timing shift slides the whole hit within its cell, so the
             // grid shows the feel rather than just flagging it. Capped at
             // half a cell either way, matching setStepMicro's own clamp.
-            const micro_px: f32 = cell_w * @as(f32, @floatFromInt(instrument.stepMicro(@intCast(row), @intCast(step)))) / 100.0;
+            const micro_px: f32 = tick_w * @as(f32, @floatFromInt(instrument.stepMicro(@intCast(row), tick))) / 100.0;
             const pmin = [2]f32{ x + inset + micro_px, y + row_h - height - 3 };
-            const pmax = [2]f32{ x + cell_w - inset + micro_px, y + row_h - 3 };
-            draw_list.addRectFilled(.{ .pmin = pmin, .pmax = pmax, .col = color(.{ hit_color[0], hit_color[1], hit_color[2], 0.62 + velocity * 0.38 }), .rounding = @min(3, cell_w * 0.12) });
+            const pmax = [2]f32{ x + tick_w - inset + micro_px, y + row_h - 3 };
+            draw_list.addRectFilled(.{ .pmin = pmin, .pmax = pmax, .col = color(.{ hit_color[0], hit_color[1], hit_color[2], 0.62 + velocity * 0.38 }), .rounding = @min(3, tick_w * 0.12) });
             draw_list.addLine(.{ .p1 = .{ pmin[0] + 1, pmin[1] + 1 }, .p2 = .{ pmax[0] - 1, pmin[1] + 1 }, .col = color(.{ theme.fg0[0], theme.fg0[1], theme.fg0[2], 0.38 }), .thickness = 1 });
             if (accented) {
                 draw_list.addTriangleFilled(.{
@@ -203,8 +208,8 @@ pub fn draw(
             // A conditional step (chance or a trig condition) gets a dot in
             // its top-left, opposite the accent triangle so a step can show
             // both. Which condition is on the status line.
-            if (instrument.stepProb(@intCast(row), @intCast(step)) != 100 or
-                instrument.stepCond(@intCast(row), @intCast(step)) != .always)
+            if (instrument.stepProb(@intCast(row), tick) != 100 or
+                instrument.stepCond(@intCast(row), tick) != .always)
             {
                 draw_list.addCircleFilled(.{
                     .p = .{ pmin[0] + 4, pmin[1] + 4 },
@@ -214,7 +219,7 @@ pub fn draw(
             }
             // A roll draws its hits as ticks along the top edge, so the
             // count reads without selecting the step.
-            const hits = instrument.stepRetrig(@intCast(row), @intCast(step));
+            const hits = instrument.stepRetrig(@intCast(row), tick);
             if (hits >= 2) {
                 const span = pmax[0] - pmin[0];
                 for (0..@min(hits, 8)) |h| {
@@ -230,7 +235,7 @@ pub fn draw(
             // A tuned step gets a bar along its bottom edge, above or below
             // the hit's own baseline depending on the direction - the TUI's
             // paren brackets can only say "tuned", this says which way.
-            const semis = instrument.stepTune(@intCast(row), @intCast(step));
+            const semis = instrument.stepTune(@intCast(row), tick);
             if (semis != 0) {
                 const mark_y = if (semis > 0) pmin[1] - 3 else pmax[1] + 1;
                 draw_list.addRectFilled(.{
@@ -248,9 +253,9 @@ pub fn draw(
     // each machine names its own accessor for its own row).
     for (row_start..row_end, 0..) |row, display_row| {
         const len = if (kind == .drum)
-            instrument.padSteps(@intCast(row), @intCast(step_count))
+            instrument.padSteps(@intCast(row), @intCast(step_count * stride)) / stride
         else
-            instrument.sliceSteps(@intCast(row), @intCast(step_count));
+            instrument.sliceSteps(@intCast(row), @intCast(step_count * stride)) / stride;
         if (len >= step_count) continue;
         const x = grid_x + @as(f32, @floatFromInt(len)) * cell_w;
         const y = grid_y + @as(f32, @floatFromInt(display_row)) * row_h;
@@ -306,7 +311,7 @@ pub fn draw(
             // unlike the `instrument.toggleStep(@intCast(step))` calls
             // elsewhere in this file, which resolve their own target type
             // directly from the concrete (non-generic) method.
-            const step_t: u16 = @intCast(step);
+            const step_t: u16 = @intCast(step * stride);
 
             // Press starts a paint session: left toggles (remembering the
             // resulting state so a drag repeats it), right always forces the
@@ -315,7 +320,7 @@ pub fn draw(
             // Continuing to hold - press or drag - keeps applying that same
             // state to whatever cell the mouse enters next.
             if (activated) {
-                cursor.* = .{ @intCast(row), @intCast(step) };
+                cursor.* = .{ @intCast(row), step_t };
                 if (kind == .drum)
                     history.recordDrum(&app.core, app.core.drum_track)
                 else
@@ -328,7 +333,7 @@ pub fn draw(
                 paint_state.* = instrument.stepActive(@intCast(row), step_t);
             } else if (active) {
                 if (paint_state.*) |state| {
-                    cursor.* = .{ @intCast(row), @intCast(step) };
+                    cursor.* = .{ @intCast(row), step_t };
                     shared_step_grid.setStep(instrument, @intCast(row), step_t, state, vel_full);
                 }
             }

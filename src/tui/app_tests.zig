@@ -921,21 +921,20 @@ test "slicer grid: parameter locks, per-slice loop, and grid zoom" {
     history.doRedo(&app);
     try std.testing.expectEqual(@as(u16, 5), sl.slice_len[0]);
 
-    // zg halves the grid: same music, twice the steps, and the hit and the
-    // row's own loop length both move with it.
+    // Grid zoom changes navigation only. Stored timing remains untouched.
     const steps_before = sl.step_count;
     _ = slicer_ed.handleKey(&app, .{ .char = 'z' });
     _ = slicer_ed.handleKey(&app, .{ .char = 'g' });
-    try std.testing.expectEqual(@as(u8, 8), sl.steps_per_beat);
-    try std.testing.expectEqual(steps_before * 2, sl.step_count);
+    try std.testing.expectEqual(@as(u8, 32), sl.steps_per_beat);
+    try std.testing.expectEqual(steps_before, sl.step_count);
     const info = app.apiPatternInfo(0);
-    try std.testing.expectEqual(@as(?u8, 8), info.steps_per_beat);
+    try std.testing.expectEqual(@as(?u8, 32), info.steps_per_beat);
     try std.testing.expectEqual(@as(f64, 4.0), info.length_beats);
-    try std.testing.expect(sl.stepActive(0, 8));
-    try std.testing.expectEqual(@as(u16, 10), sl.sliceSteps(0, sl.step_count));
+    try std.testing.expect(sl.stepActive(0, 4));
+    try std.testing.expectEqual(@as(u16, 5), sl.sliceSteps(0, sl.step_count));
     _ = slicer_ed.handleKey(&app, .{ .char = 'z' });
     _ = slicer_ed.handleKey(&app, .{ .char = 'G' });
-    try std.testing.expectEqual(@as(u8, 4), sl.steps_per_beat);
+    try std.testing.expectEqual(@as(u8, 32), sl.steps_per_beat);
     try std.testing.expectEqual(steps_before, sl.step_count);
     try std.testing.expect(sl.stepActive(0, 4));
     try std.testing.expectEqual(@as(u16, 5), sl.sliceSteps(0, sl.step_count));
@@ -1308,7 +1307,7 @@ test "z and Z select drum grid subdivisions" {
     try std.testing.expectEqual(ws.time_grid.Division.thirty_second, app.drum_grid);
 }
 
-test "drum grid +/- resize the loop by a beat at the current resolution" {
+test "drum grid +/- resize the loop by musical beats" {
     var app = try testApp();
     defer app.deinit();
     app.drum_track = 2;
@@ -1318,13 +1317,13 @@ test "drum grid +/- resize the loop by a beat at the current resolution" {
     const start = dm.step_count;
 
     app.handleKey(.{ .char = '+' }, 0);
-    try std.testing.expectEqual(start + 4, dm.step_count);
+    try std.testing.expectEqual(start + dm.steps_per_beat, dm.step_count);
     app.handleKey(.{ .char = '-' }, 0);
     try std.testing.expectEqual(start, dm.step_count);
 
     // A count prefix scales the resize by whole beats too.
     for ("2+") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expectEqual(start + 8, dm.step_count);
+    try std.testing.expectEqual(start + 2 * @as(u16, dm.steps_per_beat), dm.step_count);
 
     dm.setStepCount(start);
     app.handleKey(.{ .char = 'z' }, 0);
@@ -1334,7 +1333,7 @@ test "drum grid +/- resize the loop by a beat at the current resolution" {
     try std.testing.expectEqual(zoomed + dm.steps_per_beat, dm.step_count);
 }
 
-test "slicer grid +/- resize the loop by a beat at the current resolution" {
+test "slicer grid +/- resize the loop by musical beats" {
     var app = try testApp();
     defer app.deinit();
     try app.session.setInstrument(0, .slicer);
@@ -1345,13 +1344,13 @@ test "slicer grid +/- resize the loop by a beat at the current resolution" {
     const start = sl.step_count;
 
     app.handleKey(.{ .char = '+' }, 0);
-    try std.testing.expectEqual(start + 4, sl.step_count);
+    try std.testing.expectEqual(start + sl.steps_per_beat, sl.step_count);
     app.handleKey(.{ .char = '-' }, 0);
     try std.testing.expectEqual(start, sl.step_count);
 
     // A count prefix scales the resize by whole beats too.
     for ("2+") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expectEqual(start + 8, sl.step_count);
+    try std.testing.expectEqual(start + 2 * @as(u16, sl.steps_per_beat), sl.step_count);
 
     sl.setStepCount(start);
     app.handleKey(.{ .char = 'z' }, 0);
@@ -1361,7 +1360,7 @@ test "slicer grid +/- resize the loop by a beat at the current resolution" {
     try std.testing.expectEqual(zoomed + sl.steps_per_beat, sl.step_count);
 }
 
-test "drum grid m/M set a pad's own loop length, undoably, and rescale on zoom" {
+test "drum grid m/M set a pad's own loop length and grid zoom leaves it untouched" {
     var app = try testApp();
     defer app.deinit();
     app.drum_track = 2;
@@ -1378,20 +1377,19 @@ test "drum grid m/M set a pad's own loop length, undoably, and rescale on zoom" 
     history.doRedo(&app);
     try std.testing.expectEqual(steps - 1, dm.pad_len[0]);
 
-    // A grid change preserves musical time, loop length included.
+    // Grid change touches view state only.
     app.handleKey(.{ .char = 'z' }, 0);
     app.handleKey(.{ .char = 'g' }, 0);
-    try std.testing.expectEqual((steps - 1) * 2, dm.pad_len[0]);
+    try std.testing.expectEqual(steps - 1, dm.pad_len[0]);
 }
 
-test "drum grid Z refuses to coarsen the grid when it would collide two hits" {
+test "drum grid Z preserves adjacent off-grid hits" {
     var app = try testApp();
     defer app.deinit();
     app.drum_track = 2;
     const dm = app.drumMachine();
 
-    // Adjacent steps 1 and 2 (sixteenth-note grid) both round onto new
-    // step 1 when halving resolution to eighth notes.
+    // Adjacent ticks remain distinct under a coarser editing grid.
     step_grid.setStep(dm, 0, 1, true, ws.dsp.DrumMachine.vel_full);
     step_grid.setStep(dm, 0, 2, true, ws.dsp.DrumMachine.vel_full);
     const before_count = app.history.undo_stack.items.len;
@@ -1399,11 +1397,11 @@ test "drum grid Z refuses to coarsen the grid when it would collide two hits" {
     _ = drum_ed.handleKey(&app, .{ .char = 'z' });
     _ = drum_ed.handleKey(&app, .{ .char = 'G' });
 
-    try std.testing.expectEqual(ws.time_grid.Division.sixteenth, app.drum_grid);
+    try std.testing.expectEqual(ws.time_grid.Division.eighth, app.drum_grid);
     try std.testing.expect(dm.stepActive(0, 1));
     try std.testing.expect(dm.stepActive(0, 2));
     try std.testing.expectEqual(before_count, app.history.undo_stack.items.len);
-    try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "grid 1/8 would collide");
+    try std.testing.expectEqualStrings("grid: 1/8", app.status_buf[0..app.status_len]);
 }
 
 test "drum grid g jumps the step cursor to the pattern start" {
