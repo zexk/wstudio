@@ -1,30 +1,54 @@
 # .wsj project format
 
 A `.wsj` file is a container holding two sections: the audio cache (every
-user-loaded sample the project uses) and a pretty-printed JSON `Snapshot` of
-the session (tracks, racks/instruments, arrangement, master FX) plus a
-`version` field. One file, nothing beside it. The authoritative type
-definitions live in `src/persist_types.zig`; this doc is the human-readable
-map of that file, not a replacement for it.
+user-loaded sample the project uses) and a binary `Snapshot` of the session
+(tracks, racks/instruments, arrangement, master FX) plus a `version` field.
+One file, nothing beside it. The authoritative type definitions live in
+`src/persist_types.zig` and the encoding in `src/persist_bin.zig`; this doc
+is the human-readable map of that file, not a replacement for it.
 
 ## Container layout
 
 ```
 offset 0    "WSJ1"                4-byte magic
-offset 4    u64 little-endian     offset of the JSON section
+offset 4    u64 little-endian     offset of the snapshot section
 offset 12   audio cache           sample blobs, concatenated
-json_offset .. EOF                the Snapshot as JSON
+snap_offset .. EOF                the Snapshot, binary-encoded
 ```
 
 The blobs carry no headers of their own. `Snapshot.audio_cache` is the
 directory: one `{ name, offset, len }` per blob, with absolute file offsets,
 so loading slices sample bytes straight out of the file buffer it already
-read. A project holding no user audio has an empty cache and a `json_offset`
+read. A project holding no user audio has an empty cache and a `snap_offset`
 of exactly 12.
 
 Offsets are validated on load: an entry reaching before the header or past
-the start of the JSON is treated as missing rather than trusted. See
+the start of the snapshot is treated as missing rather than trusted. See
 [Audio cache](#audio-cache) below for what goes in it.
+
+## Snapshot encoding
+
+`src/persist_bin.zig` walks the snapshot types by comptime reflection and
+writes them positionally:
+
+```
+bool        one byte, 0 or 1
+int         LEB128, signed for signed types
+float       raw IEEE bits, little-endian, 4 or 8 bytes
+enum        its tag number
+optional    one presence byte, then the payload when present
+struct      every field in declaration order, nothing else
+union(enum) the tag number, then the active payload
+array       every element, no length (the type carries it)
+slice       LEB128 length, then the elements ([]u8 verbatim)
+```
+
+Field names never reach the file, so adding, removing, or reordering any
+snapshot field changes the format, as does reordering any enum the snapshot
+holds. All of it is a `file_version` bump. Enum tags and lengths are checked
+on load: an unknown tag or a length reaching past the end of the file is
+`error.CorruptProjectFile`, never a partial read or an allocation sized by a
+hostile file.
 
 ## Saving
 
@@ -32,24 +56,29 @@ the start of the JSON is treated as missing rather than trusted. See
 crash or power loss mid-write can never corrupt an existing project file:
 the rename is the only step that touches the real path, it's atomic on
 every platform wstudio targets, and it covers the project and every sample
-in it at once. The JSON offset is written as zeroes up front and patched in
-place after the blobs land, since its value isn't known until then.
+in it at once. The snapshot offset is written as zeroes up front and patched
+in place after the blobs land, since its value isn't known until then.
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 58) is the only format version
+`persist.zig`'s `file_version` (currently 59) is the only format version
 this build writes or reads. Loading enforces one rule:
 
 - **A file whose `version` is not exactly `file_version` is hard-rejected**
   (`error.UnsupportedVersion`). No migration paths exist.
 
-Current-version JSON uses a strict schema. Unknown fields and enum names fail
-parsing instead of silently dropping sound or changing behavior. Numeric clamps
-and bounds checks remain because they protect against corrupt and hand-edited
-values.
+The encoding is positional, so there is no such thing as an unknown field to
+skip: anything that doesn't line up fails the load instead of silently
+dropping sound or changing behavior. Numeric clamps and bounds checks remain
+because they protect against corrupt and hand-edited values.
 
 **Bump `file_version` for every schema or semantic change**, including new
 fields and enum members.
+
+Version 59 replaces the pretty-printed JSON snapshot with the binary
+encoding described above. The container, the audio cache, and the snapshot
+types are unchanged; only the bytes after `snap_offset` are different. The
+curated `demo.wsj` went from 151 KB to 13 KB.
 
 Version 58 moves user sample audio from a sidecar directory into the `.wsj`
 itself and wraps the JSON in the container described above. A version-57
@@ -86,7 +115,7 @@ nonzero value targets a specific FX unit in the track's chain by its stable
 
 `DrumSnap.kit` names the factory kit flavour the machine was last set to
 (`dsp/drum_kit.zig`'s `variants`). Its pads are generated on load rather
-than stored, so a kit costs a name in the JSON and no audio at all; only
+than stored, so a kit costs a name in the snapshot and no audio at all; only
 user-loaded audio reaches the cache. An unknown name loads with whatever
 per-pad `used`
 flags describe, which for a machine left on the blank `init` kit is
@@ -112,7 +141,8 @@ into the audio cache as a mono 16-bit WAV. Each blob is keyed by its
 position: `t<track>p<pad>.wav` for a drum pad, `t<track>clip.wav` for a
 standalone sampler clip, `t<track>oscA.wav`/`oscB.wav`/`oscC.wav` for a synth
 oscillator's imported wavetable (same section, since it's the same
-"variable-size audio blob that shouldn't live inline in the JSON" problem),
+"variable-size audio blob that shouldn't live inline in the snapshot"
+problem),
 and `t<track>.sf2` for a loaded SoundFont (the one blob written verbatim
 rather than as a WAV, since it isn't PCM audio).
 

@@ -1,7 +1,8 @@
 //! Project save / load.
 //!
-//! Serialises the live Session to a JSON file (*.wsj).  The snapshot types are
-//! pure data - no pointers, no atomics, no heap slices matching the live structs.
+//! Serialises the live Session into a *.wsj container (see FORMAT.md). The
+//! snapshot types are pure data - no pointers, no atomics, no heap slices
+//! matching the live structs.
 //!
 //! Round-trip guarantees:
 //!   - All 38 PolySynth params + piano-roll notes + loop length
@@ -14,6 +15,9 @@
 //!   - Rack labels
 //!   - User-loaded sample audio (drum pads + sampler clips), exported as mono
 //!     WAVs into the .wsj's own audio cache section
+//!
+//! The snapshot itself is written by `persist_bin.zig`; this file only
+//! builds and consumes the snapshot structs.
 
 const std = @import("std");
 const Session = @import("session.zig").Session;
@@ -59,6 +63,7 @@ const tuning_mod = @import("dsp/tuning.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
 
 const persist_types = @import("persist_types.zig");
+const persist_bin = @import("persist_bin.zig");
 const persist_save = @import("persist_save.zig");
 const persist_load = @import("persist_load.zig");
 
@@ -103,7 +108,7 @@ pub const applySynthPatch = persist_load.applySynthPatch;
 // Tests - in-memory round-trip (no file I/O; std.Io not needed)
 // ---------------------------------------------------------------------------
 
-test "snapshot types: JSON round-trip preserves synth params, notes, drum pattern, tempo" {
+test "snapshot types: encode/decode round-trip preserves synth params, notes, drum pattern, tempo" {
     const testing = std.testing;
     const aa = testing.allocator;
 
@@ -144,12 +149,14 @@ test "snapshot types: JSON round-trip preserves synth params, notes, drum patter
         },
     };
 
-    const json = try std.json.Stringify.valueAlloc(aa, snap_in, .{ .whitespace = .indent_2 });
-    defer aa.free(json);
+    var buf: std.Io.Writer.Allocating = .init(aa);
+    defer buf.deinit();
+    try persist_bin.encode(&buf.writer, snap_in);
 
-    var parsed = try std.json.parseFromSlice(Snapshot, aa, json, .{});
-    defer parsed.deinit();
-    const snap_out = &parsed.value;
+    var arena: std.heap.ArenaAllocator = .init(aa);
+    defer arena.deinit();
+    const decoded = try persist_bin.decode(Snapshot, arena.allocator(), buf.written());
+    const snap_out = &decoded;
 
     try testing.expectApproxEqAbs(@as(f64, 140.0), snap_out.tempo_bpm, 0.001);
     try testing.expectEqual(@as(f64, 8), snap_out.tempo_points[0].beat);
@@ -502,8 +509,8 @@ test "save/load round-trip persists an FX-unit-targeted automation lane (instanc
     const loaded_points = loaded_clip.automation.findSynthParam(loaded_unit.instance_id, 2).?;
     try testing.expectEqual(@as(usize, 2), loaded_points.len);
     try testing.expectApproxEqAbs(@as(f32, 0.4), loaded_points[0].value, 1e-6);
-    // Through real JSON, not just the snapshot structs: the segment shape
-    // is what `AutomationCurveSnap.jsonParse` has to read back.
+    // Through a real file, not just the snapshot structs: the segment shape
+    // is what the encoding has to carry.
     try testing.expectEqual(automation_mod.Curve.hold, loaded_points[0].curve);
     try testing.expectEqual(automation_mod.Curve.linear, loaded_points[1].curve);
 }
@@ -1843,7 +1850,7 @@ test "save/load round-trip persists user-loaded drum pad samples" {
     try testing.expect(!ldm.pads[0].?.pad.user_sample);
 }
 
-/// Byte offset of a saved project's JSON section. It equals the header
+/// Byte offset of a saved project's snapshot section. It equals the header
 /// length exactly when the file carries no audio cache at all, so the
 /// difference is the size of every blob the save wrote.
 fn testCacheBytes(path: []const u8) !u64 {
@@ -1851,8 +1858,8 @@ fn testCacheBytes(path: []const u8) !u64 {
     const bytes = try std.Io.Dir.cwd().readFileAlloc(testing.io, path, testing.allocator, .limited(64 * 1024 * 1024));
     defer testing.allocator.free(bytes);
     try testing.expectEqualSlices(u8, &persist_types.bundle_magic, bytes[0..persist_types.bundle_magic.len]);
-    const json_offset = std.mem.readInt(u64, bytes[persist_types.bundle_magic.len..][0..8], .little);
-    return json_offset - persist_types.bundle_header_len;
+    const snap_offset = std.mem.readInt(u64, bytes[persist_types.bundle_magic.len..][0..8], .little);
+    return snap_offset - persist_types.bundle_header_len;
 }
 
 test "save doesn't accumulate stale audio when a sample moves pads" {
@@ -2486,17 +2493,46 @@ test "a loaded project renders sample-identical to the session that saved it" {
     }
 }
 
-test "strict snapshot parsing rejects unknown kinds and fields" {
+test "a file from another format version is refused, not half-read" {
     const testing = std.testing;
-    const unknown_kind = std.fmt.comptimePrint(
-        \\{{"version":{d},"racks":[{{"content":{{"granular_resynth":{{}}}}}}]}}
-    , .{file_version});
-    const unknown_field = std.fmt.comptimePrint(
-        \\{{"version":{d},"future_feature":true}}
-    , .{file_version});
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/old.wsj", .{&tmp.sub_path});
 
-    try testing.expectError(error.UnknownField, std.json.parseFromSlice(Snapshot, testing.allocator, unknown_kind, .{}));
-    try testing.expectError(error.UnknownField, std.json.parseFromSlice(Snapshot, testing.allocator, unknown_field, .{}));
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try save(testing.allocator, &session, testing.io, wsj_path);
+
+    // `version` is the snapshot's first field, so it sits right after the
+    // header in a project holding no audio - bump it and the file is from a
+    // build this one can't read.
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(testing.io, wsj_path, testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+    const offset = std.mem.readInt(u64, bytes[persist_types.bundle_magic.len..][0..8], .little);
+    try testing.expectEqual(@as(u8, file_version), bytes[@intCast(offset)]); // one LEB byte while < 128
+    bytes[@intCast(offset)] = file_version + 1;
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = wsj_path, .data = bytes });
+
+    try testing.expectError(error.UnsupportedVersion, load(testing.allocator, testing.io, wsj_path));
+}
+
+test "a truncated project file is refused" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/cut.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try save(testing.allocator, &session, testing.io, wsj_path);
+
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(testing.io, wsj_path, testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = wsj_path, .data = bytes[0 .. bytes.len / 2] });
+
+    try testing.expectError(error.CorruptProjectFile, load(testing.allocator, testing.io, wsj_path));
 }
 
 test "save/load round-trip persists a pitch shifter, and its heap buffers survive dupe" {
@@ -2525,7 +2561,7 @@ test "save/load round-trip persists a pitch shifter, and its heap buffers surviv
     try testing.expectApproxEqAbs(@as(f32, 12.0), p.cents, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 5.0), p.formant, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 0.4), p.mix, 1e-4);
-    // Loaded from JSON, so the buffers are freshly allocated, not aliased from
+    // Loaded from a file, so the buffers are freshly allocated, not aliased from
     // the saved session - the same rule chorus/delay/reverb follow.
     try testing.expect(p.pending[0].ptr != unit.payload.pitch_shift.pending[0].ptr);
 

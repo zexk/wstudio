@@ -47,14 +47,15 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 58;
+pub const file_version: u32 = 59;
 
-/// First four bytes of every .wsj. The file is a container, not bare JSON:
-/// a 12-byte header, the audio cache (user sample blobs, concatenated), then
-/// this `Snapshot` as JSON to EOF. See FORMAT.md for the full layout.
+/// First four bytes of every .wsj. The file is a container: a 12-byte
+/// header, the audio cache (user sample blobs, concatenated), then this
+/// `Snapshot` in the dense binary encoding of `persist_bin.zig` to EOF.
+/// See FORMAT.md for the full layout.
 pub const bundle_magic = "WSJ1".*;
 
-/// magic (4 bytes) + u64 LE offset of the JSON section (8).
+/// magic (4 bytes) + u64 LE offset of the snapshot section (8).
 pub const bundle_header_len: u64 = 12;
 
 /// One blob in the audio cache. `name` is the key `PadSnap.sample_file` and
@@ -66,8 +67,8 @@ pub const AudioCacheSnap = struct {
     len: u64,
 };
 
-/// Mirrors `automation_mod.Curve` as a plain string enum, same JSON-stability
-/// reasoning as `EqBandKindSnap`.
+/// Mirrors `automation_mod.Curve`, same wire-stability reasoning as
+/// `EqBandKindSnap`.
 pub const AutomationCurveSnap = enum {
     linear,
     hold,
@@ -96,7 +97,7 @@ pub const SynthParamAutomationSnap = struct {
 };
 
 // ---------------------------------------------------------------------------
-// Snapshot types - plain data, JSON-serialisable
+// Snapshot types - plain data, encodable by `persist_bin.zig`
 // ---------------------------------------------------------------------------
 
 /// Per-note expression (`dsp.Articulation`) stored flat with neutral defaults.
@@ -419,9 +420,10 @@ pub const ReverbSnap = struct {
     low_cut_hz: f32 = 0.0,
 };
 
-/// Mirrors `eq_mod.BandKind` as a plain string enum for JSON stability
-/// (numeric enum tags would silently shift meaning if the DSP-side enum's
-/// member order ever changes).
+/// Mirrors `eq_mod.BandKind`. Every enum goes to the file as its tag
+/// number, so member order here IS the format; the mirror is what lets the
+/// DSP-side enum be reordered without silently changing what saved files
+/// mean (the two are converted by name, member for member).
 pub const EqBandKindSnap = enum {
     peak,
     lowpass,
@@ -432,8 +434,8 @@ pub const EqBandKindSnap = enum {
     tiltshelf,
 };
 
-/// Mirrors `eq_mod.StereoMode` as a plain string enum, same JSON-stability
-/// reasoning as `EqBandKindSnap`.
+/// Mirrors `eq_mod.StereoMode`, same wire-stability reasoning as
+/// `EqBandKindSnap`.
 pub const EqStereoModeSnap = enum { stereo, mid, side };
 
 pub const EqBandSnap = struct {
@@ -461,9 +463,10 @@ const default_eq_bands: [eq_mod.num_eq_bands]EqBandSnap = blk: {
 };
 
 pub const EqSnap = struct {
-    /// Fully-parametric bands (freq/Q/gain all adjustable). std.json needs an
-    /// exact length match to parse a fixed array, so the file's array is
-    /// always exactly `eq_mod.num_eq_bands` long.
+    /// Fully-parametric bands (freq/Q/gain all adjustable). A fixed array
+    /// carries no length on the wire, so the file's band count is whatever
+    /// `eq_mod.num_eq_bands` was at save time - changing it is a format
+    /// change like any other snapshot field.
     bands: [eq_mod.num_eq_bands]EqBandSnap = default_eq_bands,
     bypass: bool = false,
     auto_gain: bool = false,
@@ -713,8 +716,8 @@ pub const TrackSnap = struct {
 
 /// One track's aux-send slot. Mirrors `project.SendSlot`. Flat bool+index
 /// pair rather than a tagged union (same convention `CompSnap`'s
-/// `sidechain_source`/`sidechain_is_group` pair uses) - trivial JSON
-/// round-trip, no tag-string handling.
+/// `sidechain_source`/`sidechain_is_group` pair uses) - one less union tag
+/// in the format for no gain.
 pub const SendSnap = struct {
     slot: u8,
     is_group: bool = false,

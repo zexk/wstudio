@@ -1,5 +1,5 @@
-//! Project save path: serialize a live Session to JSON. Split out of
-//! persist.zig.
+//! Project save path: serialize a live Session into a .wsj container.
+//! Split out of persist.zig.
 
 const std = @import("std");
 const Session = @import("session.zig").Session;
@@ -44,6 +44,7 @@ const automation_mod = @import("dsp/automation.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
 
 const persist_types = @import("persist_types.zig");
+const persist_bin = @import("persist_bin.zig");
 const file_version = persist_types.file_version;
 const AutomationPointSnap = persist_types.AutomationPointSnap;
 const SynthParamAutomationSnap = persist_types.SynthParamAutomationSnap;
@@ -99,7 +100,7 @@ const LaneSnap = persist_types.LaneSnap;
 const SectionSnap = persist_types.SectionSnap;
 const Snapshot = persist_types.Snapshot;
 /// Serialise `session` to `path` as a .wsj container: header, audio cache,
-/// then the snapshot as pretty-printed JSON (see `persist_types.bundle_magic`
+/// then the binary snapshot (see `persist_types.bundle_magic`
 /// and `exportSamples`). Writes to `<path>.tmp` and renames over the target
 /// so a crash mid-write never corrupts an existing project file - one
 /// rename covers the project and every user sample it holds.
@@ -217,9 +218,9 @@ pub fn save(
         var buf: [8192]u8 = undefined;
         var fw = file.writer(io, &buf);
 
-        // Header, then the audio cache, then the JSON. The JSON offset isn't
-        // known until the blobs are down, so it goes in as zeroes and gets
-        // patched in place once it is.
+        // Header, then the audio cache, then the snapshot. The snapshot
+        // offset isn't known until the blobs are down, so it goes in as
+        // zeroes and gets patched in place once it is.
         var header: [persist_types.bundle_header_len]u8 = @splat(0);
         header[0..persist_types.bundle_magic.len].* = persist_types.bundle_magic;
         try fw.interface.writeAll(&header);
@@ -253,14 +254,14 @@ pub fn save(
             .audio_cache = audio_cache,
         };
 
-        const json_offset = fw.logicalPos();
-        // Stream straight from snapshot arena. `valueAlloc` duplicated whole
-        // project as one more buffer before writing, doubling peak save memory.
-        try std.json.Stringify.value(snap, .{ .whitespace = .indent_2 }, &fw.interface);
+        const snap_offset = fw.logicalPos();
+        // Streams straight from the snapshot arena - no second copy of the
+        // whole project buffered up before it hits the file.
+        try persist_bin.encode(&fw.interface, snap);
         try fw.interface.flush();
 
         var offset_bytes: [8]u8 = undefined;
-        std.mem.writeInt(u64, &offset_bytes, json_offset, .little);
+        std.mem.writeInt(u64, &offset_bytes, snap_offset, .little);
         try file.writePositionalAll(io, &offset_bytes, persist_types.bundle_magic.len);
     }
     try std.Io.Dir.cwd().rename(tmp_path, std.Io.Dir.cwd(), path, io);
@@ -346,8 +347,8 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
                 .kit = dm.kit,
             };
             // Dense, always DrumMachine.max_pads entries - position IS the
-            // pad index everywhere below, same "slice for JSON-length
-            // safety, but positionally dense" shape VariantSnap's own doc
+            // pad index everywhere below, same "slice so a truncated file
+            // still loads, but positionally dense" shape VariantSnap's own doc
             // comment explains.
             const choke = try aa.alloc(u8, DrumMachine.max_pads);
             @memcpy(choke, &dm.choke_group);
@@ -591,12 +592,12 @@ pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx) ![]FxUnitSnap {
 
 // ---------------------------------------------------------------------------
 // Audio cache - user-loaded audio lives inside the .wsj itself, between the
-// header and the JSON: mono 16-bit WAVs, plus a SoundFont's original bytes
+// header and the snapshot: mono 16-bit WAVs, plus a SoundFont's own bytes
 // verbatim. `PadSnap.sample_file` and its siblings hold the cache key.
 // ---------------------------------------------------------------------------
 
 /// Streams the audio cache section into the open .wsj and records what landed
-/// where, so the JSON written after it can point back into the same file.
+/// where, so the snapshot written after it points back into the same file.
 const CacheWriter = struct {
     fw: *std.Io.File.Writer,
     entries: std.ArrayListUnmanaged(AudioCacheSnap) = .empty,

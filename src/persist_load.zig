@@ -1,4 +1,4 @@
-//! Project load path: parse JSON into a live Session. Split out of
+//! Project load path: decode a .wsj into a live Session. Split out of
 //! persist.zig.
 
 const std = @import("std");
@@ -47,6 +47,7 @@ const automation_mod = @import("dsp/automation.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
 
 const persist_types = @import("persist_types.zig");
+const persist_bin = @import("persist_bin.zig");
 const persist_save = @import("persist_save.zig");
 const file_version = persist_types.file_version;
 const AutomationPointSnap = persist_types.AutomationPointSnap;
@@ -118,14 +119,15 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Session
     const data = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(max_project_bytes));
     defer allocator.free(data);
 
-    const json_offset = try bundleJsonOffset(data);
-    var parsed = try std.json.parseFromSlice(Snapshot, allocator, data[@intCast(json_offset)..], .{});
-    defer parsed.deinit();
-    const cache: AudioCache = .{ .entries = parsed.value.audio_cache, .file = data, .json_offset = json_offset };
+    const snap_offset = try bundleSnapOffset(data);
+    var arena: std.heap.ArenaAllocator = .init(allocator);
+    defer arena.deinit();
+    const snap = try persist_bin.decode(Snapshot, arena.allocator(), data[@intCast(snap_offset)..]);
+    const cache: AudioCache = .{ .entries = snap.audio_cache, .file = data, .snap_offset = snap_offset };
 
-    var session = try buildSession(allocator, &parsed.value);
-    restoreSamples(io, cache, &parsed.value, &session);
-    restoreAudioSources(allocator, cache, &parsed.value, &session);
+    var session = try buildSession(allocator, &snap);
+    restoreSamples(io, cache, &snap, &session);
+    restoreAudioSources(allocator, cache, &snap, &session);
     if (session.song_mode) session.rebuildSongData();
     return session;
 }
@@ -135,9 +137,9 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Session
 /// of those plus its arrangement audio.
 const max_project_bytes = 2 * 1024 * 1024 * 1024;
 
-/// Offset of the JSON section in a .wsj container, or an error if the file
-/// isn't one (an old sidecar-era project, or something else entirely).
-fn bundleJsonOffset(data: []const u8) !u64 {
+/// Offset of the snapshot section in a .wsj container, or an error if the
+/// file isn't one (an old sidecar-era project, or something else entirely).
+fn bundleSnapOffset(data: []const u8) !u64 {
     if (data.len < persist_types.bundle_header_len) return error.NotAProjectFile;
     if (!std.mem.eql(u8, data[0..persist_types.bundle_magic.len], &persist_types.bundle_magic)) return error.NotAProjectFile;
     const offset = std.mem.readInt(u64, data[persist_types.bundle_magic.len..][0..8], .little);
@@ -152,8 +154,8 @@ pub const AudioCache = struct {
     entries: []const persist_types.AudioCacheSnap = &.{},
     /// The whole file, since entry offsets are absolute.
     file: []const u8 = &.{},
-    /// Where the blobs stop and the JSON starts.
-    json_offset: u64 = 0,
+    /// Where the blobs stop and the snapshot starts.
+    snap_offset: u64 = 0,
 
     /// Bytes for `key`, or null if it names nothing or names an extent
     /// reaching outside the blob section - a corrupt entry degrades one pad,
@@ -164,7 +166,7 @@ pub const AudioCache = struct {
             if (!std.mem.eql(u8, e.name, key)) continue;
             if (e.offset < persist_types.bundle_header_len or e.len == 0) return null;
             const end = std.math.add(u64, e.offset, e.len) catch return null;
-            if (end > self.json_offset) return null;
+            if (end > self.snap_offset) return null;
             return self.file[@intCast(e.offset)..@intCast(end)];
         }
         return null;
@@ -974,8 +976,8 @@ pub fn loadNotes(pp: *PatternPlayer, notes: []const NoteSnap) void {
 /// `applyPadSnap`'s reasoning: a hand-edited or corrupted file could
 /// otherwise smuggle an out-of-range value (e.g. unison 0 or 255, a
 /// negative attack time) straight onto the audio thread. Enum fields
-/// (filter_type, warp_mode, …) need no clamp - `std.json` already
-/// rejects any value that isn't one of the declared tags at parse time.
+/// (filter_type, warp_mode, …) need no clamp - decoding already rejects
+/// any tag that isn't one of the declared ones.
 pub fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) !void {
     const clamp = std.math.clamp;
     try s.selectBundledWavetables(ss.wt_bundled, ss.osc_b_wt_bundled, ss.osc_c_wt_bundled);

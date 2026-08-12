@@ -34,6 +34,10 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Changed
 
+- Project files are around a tenth of the size. The session inside a `.wsj`
+  is now written in a compact binary encoding instead of pretty-printed
+  JSON; the bundled demo song went from 151 KB to 13 KB. Projects saved by
+  earlier builds are not readable (see [FORMAT.md](FORMAT.md)).
 - A project is one file again. User-loaded samples, imported wavetables,
   recorded audio, and `.sf2` banks now live in an audio cache section inside
   the `.wsj` itself instead of a `<name>_samples/` directory beside it, so a
