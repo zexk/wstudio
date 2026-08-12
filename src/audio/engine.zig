@@ -832,7 +832,7 @@ pub const Engine = struct {
             if (@abs(@as(f64, @floatFromInt(beat_k)) - current_beat) > 2.0) beat_k = @intFromFloat(@ceil(current_beat));
             while (true) : (beat_k += 1) {
                 const boundary = self.transport.framesAtBeats(@floatFromInt(beat_k));
-                if (boundary >= position + frames) break;
+                if (boundary >= position +| frames) break;
                 const fire_frame: u32 = if (boundary <= position) 0 else @intCast(boundary - position);
                 self.metronome.trigger(self.transport.barBeatAtFrames(boundary).beat == 0, fire_frame);
             }
@@ -1913,11 +1913,12 @@ pub const Engine = struct {
 
     fn renderAudioLane(self: *Engine, lane: *const AudioLane, out: []Sample, frames: u32) void {
         const block_start = self.transport.position_frames;
+        const block_end = block_start +| frames;
         const engine_rate = @as(u64, self.transport.sample_rate);
         for (lane.regions) |region| {
-            if (region.end_frame <= block_start or region.start_frame >= block_start + frames) continue;
+            if (region.end_frame <= block_start or region.start_frame >= block_end) continue;
             const first = @max(block_start, region.start_frame);
-            const last = @min(block_start + frames, region.end_frame);
+            const last = @min(block_end, region.end_frame);
             const source_frames = region.samples.len / @max(region.channel_count, 1);
             for (first..last) |timeline_frame| {
                 const relative = timeline_frame - region.start_frame;
@@ -2325,6 +2326,27 @@ test "audio region renders source trim on its timeline" {
     }
 }
 
+test "audio region handles final transport block" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.trackAt(0).* = .{ .active = true };
+    const source = [_]Sample{1};
+    engine.setTrackAudioRegions(0, &.{.{
+        .start_frame = std.math.maxInt(u64) - 1,
+        .end_frame = std.math.maxInt(u64),
+        .source_start_frame = 0,
+        .source_length_frames = 1,
+        .source_sample_rate = 48_000,
+        .channel_count = 1,
+        .samples = &source,
+    }});
+    engine.transport.position_frames = std.math.maxInt(u64) - 1;
+
+    var output: [4]Sample = undefined;
+    engine.process(&output);
+    try std.testing.expectEqual(std.math.maxInt(u64) - 1, engine.transport.position_frames);
+}
+
 test "audio region applies gain and linear edge fades" {
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
@@ -2587,6 +2609,18 @@ test "metronome tolerates an invalid zero-beat time signature" {
     _ = engine.send(.{ .record = 1 });
     engine.process(&block);
     try std.testing.expect(engine.pre_roll_frames_remaining > 0);
+}
+
+test "metronome handles final transport frame" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.metronome_enabled = true;
+    engine.transport.position_frames = std.math.maxInt(u64);
+    engine.transport.play();
+
+    var block: [2]Sample = undefined;
+    engine.process(&block);
+    try std.testing.expectEqual(std.math.maxInt(u64), engine.transport.position_frames);
 }
 
 test "record count-in clicks immediately, keeps the transport stopped, then starts on the beat" {
