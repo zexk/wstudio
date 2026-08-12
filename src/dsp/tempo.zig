@@ -232,11 +232,17 @@ test "bpmFromName reads the sample-pack convention and declines the rest" {
 /// half speed - when the two are an octave apart they are the same pulse,
 /// and the smallest stretch that lines them up is the one wanted.
 pub fn stretchToTempo(clip_bpm: f32, project_bpm: f32) f32 {
-    if (!(clip_bpm > 0.0) or !(project_bpm > 0.0)) return 1.0;
+    if (!std.math.isFinite(clip_bpm) or !std.math.isFinite(project_bpm) or clip_bpm <= 0.0 or project_bpm <= 0.0) return 1.0;
     var ratio = clip_bpm / project_bpm;
     while (ratio > std.math.sqrt2) ratio /= 2.0;
     while (ratio < 1.0 / std.math.sqrt2) ratio *= 2.0;
     return std.math.clamp(ratio, 0.25, 4.0);
+}
+
+test "stretchToTempo rejects non-finite tempos" {
+    try std.testing.expectEqual(@as(f32, 1.0), stretchToTempo(std.math.inf(f32), 120));
+    try std.testing.expectEqual(@as(f32, 1.0), stretchToTempo(120, std.math.inf(f32)));
+    try std.testing.expectEqual(@as(f32, 1.0), stretchToTempo(std.math.nan(f32), 120));
 }
 
 test "detect finds the pulse of a steady click track and folds it home" {
