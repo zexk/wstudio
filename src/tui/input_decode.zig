@@ -88,6 +88,7 @@ fn parseSgrMouse(params: []const u8, is_press: bool) ?Key {
     const is_motion = cb & 0x20 != 0;
     const btn_bits = cb & 0x3;
     const ctrl = cb & 0x10 != 0;
+    const alt = cb & 0x8 != 0;
     const shift = cb & 0x4 != 0;
 
     // SGR reserves wheel button codes 2 and 3 for horizontal scrolling,
@@ -115,6 +116,7 @@ fn parseSgrMouse(params: []const u8, is_press: bool) ?Key {
         .button = button,
         .kind = kind,
         .ctrl = ctrl,
+        .alt = alt,
         .shift = shift,
     } };
 }
@@ -527,9 +529,11 @@ test "decode SGR mouse wheel and modifiers" {
     n = decode("\x1b[<65;1;1M", &keys);
     try std.testing.expectEqual(modal_mod.MouseKind.scroll_down, keys[0].mouse.kind);
 
-    // ctrl+left press (Cb bit 0x10) and shift+left press (Cb bit 0x4)
+    // ctrl, alt, and shift modifier bits
     n = decode("\x1b[<16;1;1M", &keys);
     try std.testing.expect(keys[0].mouse.ctrl);
+    n = decode("\x1b[<8;1;1M", &keys);
+    try std.testing.expect(keys[0].mouse.alt);
     n = decode("\x1b[<4;1;1M", &keys);
     try std.testing.expect(keys[0].mouse.shift);
 }

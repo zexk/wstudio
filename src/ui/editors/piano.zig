@@ -1510,8 +1510,8 @@ fn stepAt(scroll_step: u16, x: usize, cw: usize) ?u16 {
 /// pointer and holding it sweeps an erase brush across the roll, the whole
 /// sweep one undo entry. A click in the key gutter previews the pitch.
 /// Scroll moves the pitch cursor, **ctrl**+scroll an octave at a time,
-/// **shift**+scroll the step cursor - the same three the GUI roll's wheel
-/// drives.
+/// **shift**+scroll the step cursor, and **alt**+scroll micro-nudges the
+/// current note. Same modifier set as GUI roll.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
     _ = cols; // column count is derived from scroll + cell width, not terminal-width-dependent
     const pp = currentPatternPlayer(app) orelse return;
@@ -1519,8 +1519,8 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
 
     // zig fmt: off
     switch (ev.kind) {
-        .scroll_up   => { if (ev.shift) moveStep(app, max_step, -1) else movePitch(app, if (ev.ctrl) 12 else 1); return; },
-        .scroll_down => { if (ev.shift) moveStep(app, max_step,  1) else movePitch(app, if (ev.ctrl) -12 else -1); return; },
+        .scroll_up   => { if (ev.alt) nudgeNoteMicro(app, -app.takeCount()) else if (ev.shift) moveStep(app, max_step, -1) else movePitch(app, if (ev.ctrl) 12 else 1); return; },
+        .scroll_down => { if (ev.alt) nudgeNoteMicro(app,  app.takeCount()) else if (ev.shift) moveStep(app, max_step,  1) else movePitch(app, if (ev.ctrl) -12 else -1); return; },
         else => {},
     }
     // zig fmt: on

@@ -752,13 +752,18 @@ fn repeatLastEdit(app: *App) void {
 /// forces the cell off instead of toggling - see drum.zig's `handleMouse`
 /// doc comment for why a right-drag beats a left-drag for erasing a run of
 /// steps. Scroll moves the step cursor, or - over the gutter - the slice
-/// cursor.
+/// cursor. **Ctrl**+scroll over grid jumps by beat, matching `w`/`b`.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
     const sl = app.slicerInst();
     switch (ev.kind) {
         .scroll_up, .scroll_down => {
             const delta: i32 = if (ev.kind == .scroll_up) -1 else 1;
-            if (ev.x < gutter) moveSlice(app, delta) else moveStep(app, delta);
+            if (ev.x < gutter)
+                moveSlice(app, delta)
+            else if (ev.ctrl)
+                jumpBar(app, delta)
+            else
+                moveStep(app, delta);
             return;
         },
         else => {},

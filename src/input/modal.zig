@@ -87,6 +87,7 @@ pub const MouseEvent = struct {
     button: MouseButton,
     kind: MouseKind,
     ctrl: bool = false,
+    alt: bool = false,
     shift: bool = false,
 };
 

@@ -1129,7 +1129,7 @@ fn barAt(scroll_bar: u32, x: usize, cw: usize) ?u32 {
 /// covers the clicked bar instead (reusing `deleteClip`, same as `x`) - no
 /// drag tracking starts for it. Scroll moves the bar cursor, or - over the
 /// lane-name gutter - the lane cursor, regardless of which row the mouse
-/// sits on.
+/// sits on. **Ctrl**+scroll over timeline jumps whole bars, matching `w`/`b`.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
     _ = cols; // column count is derived from scroll + cell width, not terminal-width-dependent
     const lane_count = app.session.project.tracks.items.len;
@@ -1137,8 +1137,8 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
 
     switch (ev.kind) {
         // zig fmt: off
-        .scroll_up => { if (ev.x < gutter) moveLane(app, lane_count, -1) else moveBar(app, -1); return; },
-        .scroll_down => { if (ev.x < gutter) moveLane(app, lane_count, 1) else moveBar(app, 1); return; },
+        .scroll_up => { if (ev.x < gutter) moveLane(app, lane_count, -1) else if (ev.ctrl) jumpBar(app, -1) else moveBar(app, -1); return; },
+        .scroll_down => { if (ev.x < gutter) moveLane(app, lane_count, 1) else if (ev.ctrl) jumpBar(app, 1) else moveBar(app, 1); return; },
         // zig fmt: on
         else => {},
     }

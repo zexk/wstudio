@@ -788,12 +788,18 @@ fn cycleVariant(app: *App, delta: i32) void {
 /// regardless of each cell's starting state - unlike a left-drag, whose
 /// paint state depends on whatever the first cell under the cursor happened
 /// to be. Scroll moves the step cursor, or - over the gutter - the pad
-/// cursor, regardless of which row the mouse sits on.
+/// cursor, regardless of which row the mouse sits on. **Ctrl**+scroll over
+/// grid jumps by beat, matching `w`/`b`.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: usize) void {
     switch (ev.kind) {
         .scroll_up, .scroll_down => {
             const delta: i32 = if (ev.kind == .scroll_up) -1 else 1;
-            if (ev.x < gutter) movePad(app, delta) else moveStep(app, delta);
+            if (ev.x < gutter)
+                movePad(app, delta)
+            else if (ev.ctrl)
+                jumpBar(app, delta)
+            else
+                moveStep(app, delta);
             return;
         },
         else => {},
