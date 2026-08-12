@@ -1162,6 +1162,7 @@ pub fn applyFxChain(
                     e.setDynEnabled(i, b.dyn_enabled);
                 }
                 e.setAutoGain(es.auto_gain);
+                e.setAnalog(es.analog);
                 // The EQ-only bypass maps onto the slot's generic one.
                 if (es.bypass) unit.setBypassed(true);
             },

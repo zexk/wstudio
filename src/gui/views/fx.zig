@@ -153,6 +153,8 @@ fn drawEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void
         const eq = &unit.payload.eq;
         if (zgui.button(if (eq.auto_gain) "auto gain: on" else "auto gain: off", .{})) spectrum_ed.toggleAutoGain(&app.core, target);
         zgui.sameLine(.{ .spacing = 5 });
+        if (zgui.button(if (eq.analog) "bells: analog" else "bells: digital", .{})) spectrum_ed.toggleAnalog(&app.core, target);
+        zgui.sameLine(.{ .spacing = 5 });
         if (zgui.button(if (app.core.eq_spectrum_pre) "pre-EQ" else "post-EQ", .{})) spectrum_ed.toggleSpectrumPre(&app.core, target);
         zgui.sameLine(.{ .spacing = 5 });
         if (app.core.eq_spectrum_frozen) zgui.pushStyleColor4f(.{ .idx = .button, .c = theme.rhythm });

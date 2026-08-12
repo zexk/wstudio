@@ -221,9 +221,10 @@ pub fn drawFxView(
         // depending which stage it's in, so the hint has to match.
         if (focused != null and focused.?.kind() == .eq) {
             if (app.eq_band_select) try w.writeAll("h/l:band  enter:edit") else try w.writeAll("j/k:field  h/l:adjust  esc:back");
-            try w.writeAll("  g:gain  p:pre/post  f:freeze");
+            try w.writeAll("  g:gain  z:analog  p:pre/post  f:freeze");
             const e = &focused.?.payload.eq;
             if (e.auto_gain) try w.writeAll("  " ++ grn ++ "auto" ++ dim);
+            if (e.analog) try w.writeAll("  " ++ grn ++ "analog" ++ dim);
             try w.writeAll(if (app.eq_spectrum_pre) "  " ++ bcyn ++ "pre" ++ dim else "");
             if (app.eq_spectrum_frozen) try w.writeAll("  " ++ yel ++ "frozen" ++ dim);
         } else {

@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 61;
+pub const file_version: u32 = 62;
 
 /// First four bytes of every .wsj. The file is a container: a 12-byte
 /// header, the audio cache (user sample blobs, concatenated), then this
@@ -470,6 +470,9 @@ pub const EqSnap = struct {
     bands: [eq_mod.num_eq_bands]EqBandSnap = default_eq_bands,
     bypass: bool = false,
     auto_gain: bool = false,
+    /// Peaking bands designed by matched Z-transform instead of the RBJ
+    /// cookbook - see `eq.matchedPeakCoeffs`.
+    analog: bool = false,
 };
 
 pub const GateSnap = struct {

@@ -99,6 +99,9 @@ const EqBand = struct {
     /// `ParametricEq.processSolo`) - exclusive, enforced by `setSolo`.
     solo: bool = false,
     stereo_mode: StereoMode = .stereo,
+    /// Mirrored from `ParametricEq.analog` on every edit, so `recompute` can
+    /// stay a band-local call. Not saved per band - the EQ-level flag is.
+    analog: bool = false,
     /// Dynamic EQ: above `dyn_threshold_db`, the applied gain moves from
     /// `gain_db` toward `gain_db + dyn_amount_db` (attack/release smoothed,
     /// see `dyn_attack_ms`/`dyn_release_ms`). Only meaningful for the
@@ -135,7 +138,9 @@ const EqBand = struct {
         const sin_w0 = std.math.sin(w0);
         const alpha = sin_w0 / (2.0 * band.q);
 
-        if (band.kind == .tiltshelf) {
+        if (band.analog and band.kind == .peak) {
+            band.coeffs = matchedPeakCoeffs(gain_db_for_calc, band.q, w0);
+        } else if (band.kind == .tiltshelf) {
             band.coeffs = shelfCoeffs(.lowshelf, -gain_db_for_calc / 2.0, cos_w0, sin_w0, band.q);
             band.coeffs2 = shelfCoeffs(.highshelf, gain_db_for_calc / 2.0, cos_w0, sin_w0, band.q);
         } else {
@@ -215,6 +220,76 @@ const EqBand = struct {
         band.dyn_factor = 0.0;
     }
 };
+
+/// One conjugate (or real) root pair of the analog prototype, mapped to z by
+/// `z = e^(sT)` and written as the `1 + c1·z⁻¹ + c2·z⁻²` it factors into.
+/// `w0` is ω0·T, so every exponent below is already in sample time.
+fn matchedRoots(w0: f32, damping: f32) struct { c1: f32, c2: f32 } {
+    if (damping < 1.0) {
+        const decay = @exp(-damping * w0);
+        const angle = w0 * @sqrt(1.0 - damping * damping);
+        return .{ .c1 = -2.0 * decay * std.math.cos(angle), .c2 = decay * decay };
+    }
+    // Overdamped: two real roots rather than a conjugate pair.
+    const spread = @sqrt(damping * damping - 1.0);
+    const r1 = @exp(-w0 * (damping + spread));
+    const r2 = @exp(-w0 * (damping - spread));
+    return .{ .c1 = -(r1 + r2), .c2 = r1 * r2 };
+}
+
+/// Peaking bell designed by mapping the analog prototype's poles and zeros
+/// straight onto the unit circle (matched Z-transform) instead of running it
+/// through the bilinear transform the RBJ cookbook uses.
+///
+/// The bilinear transform squeezes the whole analog frequency axis into
+/// 0..Nyquist, so a bell near the top of the range comes out narrower and
+/// steeper than the one that was drawn - "cramping". It is inaudible at 1 kHz
+/// and obvious at 16 kHz, which is where an air band lives. Matched-Z has the
+/// opposite trade: it reproduces the analog shape but says nothing about what
+/// happens above Nyquist, which is why only `.peak` uses it here. The filter
+/// kinds (`.lowpass`/`.highpass`/`.notch`) depend on the bilinear transform's
+/// exact zero at Nyquist for their stopband, and the shelves would each need
+/// their own prototype factored the same way; both keep the cookbook.
+///
+/// The analog prototype, with A = 10^(gain/40), so |H(jω0)| = A²:
+///
+///     H(s) = (s² + (A·ω0/Q)·s + ω0²) / (s² + (ω0/(A·Q))·s + ω0²)
+fn matchedPeakCoeffs(gain_db: f32, q: f32, w0: f32) Coeffs {
+    const target = std.math.pow(f32, 10.0, gain_db / 20.0);
+    var a = std.math.pow(f32, 10.0, gain_db / 40.0);
+    var result = matchedPeakFor(a, q, w0);
+    // Mapping the roots keeps the shape but not the centre level: near
+    // Nyquist the response picks up enough of the prototype's mirror image
+    // to overshoot by more than a dB, so a +12 knob would hand back +13.5.
+    // Solving for the A that lands the centre where it was asked for costs a
+    // handful of iterations at coefficient-recompute rate (never per sample),
+    // and |H(ω0)| ≈ A² makes each one very nearly exact.
+    for (0..6) |_| {
+        const actual = coeffsMagnitudeAt(result, w0);
+        if (!std.math.isFinite(actual) or actual <= 1e-9) break;
+        if (@abs(actual - target) <= target * 1e-4) break;
+        a *= @sqrt(target / actual);
+        result = matchedPeakFor(a, q, w0);
+    }
+    return result;
+}
+
+fn matchedPeakFor(a: f32, q: f32, w0: f32) Coeffs {
+    const zero = matchedRoots(w0, a / (2.0 * q));
+    const pole = matchedRoots(w0, 1.0 / (2.0 * a * q));
+    // The mapping preserves shape, not level, so normalize the numerator to
+    // the analog prototype's unity DC gain.
+    const dc_num = 1.0 + zero.c1 + zero.c2;
+    const dc_den = 1.0 + pole.c1 + pole.c2;
+    const scale = if (@abs(dc_num) > 1e-12) dc_den / dc_num else 1.0;
+    return .{
+        .b0 = scale,
+        .b1 = scale * zero.c1,
+        .b2 = scale * zero.c2,
+        .a1 = pole.c1,
+        .a2 = pole.c2,
+    };
+}
 
 /// RBJ-cookbook peak/notch/lowpass/highpass coefficients for `kind` at the
 /// given angle - shared by `EqBand.recomputeWithGain` and (for shelves)
@@ -313,6 +388,12 @@ pub const ParametricEq = struct {
     /// for - a known, documented simplification, not a bug).
     auto_gain: bool = false,
     auto_gain_db: f32 = 0.0,
+    /// Design the peaking bands by matched Z-transform rather than the RBJ
+    /// cookbook's bilinear one, so a bell in the top octave keeps the shape
+    /// it was drawn with - see `matchedPeakCoeffs`. Off by default: it only
+    /// changes bands that are both `.peak` and high enough for cramping to
+    /// matter, and an existing project should sound the way it was mixed.
+    analog: bool = false,
 
     pub fn init(sample_rate: u32) ParametricEq {
         var self: ParametricEq = .{
@@ -324,6 +405,18 @@ pub const ParametricEq = struct {
             b.recompute(self.sr);
         }
         return self;
+    }
+
+    /// Switches every band's design at once - `analog` is one EQ-wide choice
+    /// rather than a per-band one, the way an EQ's "analog/digital" mode
+    /// normally is.
+    pub fn setAnalog(self: *ParametricEq, on: bool) void {
+        self.analog = on;
+        for (&self.bands) |*b| {
+            b.analog = on;
+            b.recompute(self.sr);
+        }
+        self.recomputeAutoGain();
     }
 
     pub fn setGain(self: *ParametricEq, index: usize, gain_db: f32) void {
@@ -500,7 +593,10 @@ pub const ParametricEq = struct {
 };
 
 fn coeffsMagnitude(c: Coeffs, freq: f32, sample_rate: f32) f32 {
-    const omega = 2.0 * std.math.pi * freq / sample_rate;
+    return coeffsMagnitudeAt(c, 2.0 * std.math.pi * freq / sample_rate);
+}
+
+fn coeffsMagnitudeAt(c: Coeffs, omega: f32) f32 {
     const z1_re = std.math.cos(omega);
     const z1_im = -std.math.sin(omega);
     const z2_re = std.math.cos(2.0 * omega);
@@ -525,6 +621,74 @@ pub fn bandMagnitude(band: *const EqBand, freq: f32, sample_rate: f32) f32 {
     const m1 = coeffsMagnitude(band.coeffs, freq, sample_rate);
     const n = band.stages();
     return std.math.pow(f32, m1, @floatFromInt(n));
+}
+
+test "analog mode tracks the analog bell where the cookbook one cramps" {
+    // A 16 kHz bell at 48 kHz: close enough to Nyquist that the bilinear
+    // transform's frequency squeeze is the whole story. Measured against the
+    // analog prototype both designs come from, in the skirt above the centre
+    // where cramping shows up rather than at the centre, where the cookbook
+    // is exact by construction.
+    const f0: f32 = 16_000.0;
+    const gain_db: f32 = 12.0;
+    const q: f32 = 1.0;
+    const sr: f32 = 48_000.0;
+
+    // |H(jw)| of (s² + (A·w0/Q)s + w0²) / (s² + (w0/(A·Q))s + w0²).
+    const analogMagnitude = struct {
+        fn at(w: f32) f32 {
+            const a = std.math.pow(f32, 10.0, gain_db / 40.0);
+            const w0 = 2.0 * std.math.pi * f0;
+            const real = w0 * w0 - w * w;
+            const num_imag = a * w0 * w / q;
+            const den_imag = w0 * w / (a * q);
+            return @sqrt(real * real + num_imag * num_imag) /
+                @sqrt(real * real + den_imag * den_imag);
+        }
+    }.at;
+
+    var cookbook = ParametricEq.init(48_000);
+    cookbook.setType(0, .peak, 1);
+    cookbook.setFreq(0, f0);
+    cookbook.setQ(0, q);
+    cookbook.setGain(0, gain_db);
+
+    var analog = ParametricEq.init(48_000);
+    analog.setAnalog(true);
+    analog.setType(0, .peak, 1);
+    analog.setFreq(0, f0);
+    analog.setQ(0, q);
+    analog.setGain(0, gain_db);
+
+    // 20 kHz: inside the bell's upper skirt, and where the squeeze bites.
+    const probe: f32 = 20_000.0;
+    const want = analogMagnitude(2.0 * std.math.pi * probe);
+    const cookbook_err = @abs(bandMagnitude(&cookbook.bands[0], probe, sr) - want);
+    const analog_err = @abs(bandMagnitude(&analog.bands[0], probe, sr) - want);
+    try std.testing.expect(analog_err < cookbook_err);
+
+    // Still a bell, not a shelf: unity well below the corner either way.
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), bandMagnitude(&analog.bands[0], 100.0, sr), 0.05);
+    // And still exactly the boost it was asked for at the centre, which is
+    // what the solve in `matchedPeakCoeffs` is for.
+    try std.testing.expectApproxEqAbs(
+        types.dbToGain(gain_db),
+        bandMagnitude(&analog.bands[0], f0, sr),
+        0.01,
+    );
+}
+
+test "analog mode leaves the non-peak kinds on the cookbook design" {
+    var plain = ParametricEq.init(48_000);
+    var analog = ParametricEq.init(48_000);
+    analog.setAnalog(true);
+    for ([_]BandKind{ .lowpass, .highpass, .notch, .lowshelf, .highshelf, .tiltshelf }) |kind| {
+        plain.setType(0, kind, 1);
+        analog.setType(0, kind, 1);
+        plain.setGain(0, 6.0);
+        analog.setGain(0, 6.0);
+        try std.testing.expectEqual(plain.bands[0].coeffs, analog.bands[0].coeffs);
+    }
 }
 
 test "parameter setters ignore non-finite values" {

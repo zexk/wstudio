@@ -791,6 +791,17 @@ pub fn toggleAutoGain(app: *App, target: EqTarget) void {
     app.setStatus("auto gain {s}", .{if (e.auto_gain) "on" else "off"});
 }
 
+/// Unit-level filter-design switch, same shape as `toggleAutoGain` - see
+/// `ParametricEq.setAnalog`.
+pub fn toggleAnalog(app: *App, target: EqTarget) void {
+    const u = focusedEq(app, target) orelse return;
+    const e = &u.payload.eq;
+    history.recordFx(app, target);
+    e.setAnalog(!e.analog);
+    app.dirty = true;
+    app.setStatus("analog bells {s}", .{if (e.analog) "on" else "off"});
+}
+
 /// Flips which side of the focused EQ the analyzer taps - see
 /// `Engine.set_spectrum_pre`. Not undo-tracked (a view preference, not
 /// session data, same as freeze below).
@@ -953,6 +964,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             '>' => { moveFocused(app, target, 1); return true; },
             'b' => { toggleBypass(app, target); return true; },
             'g' => { toggleAutoGain(app, target); return true; },
+            'z' => { toggleAnalog(app, target); return true; },
             'p' => { toggleSpectrumPre(app, target); return true; },
             'f' => { toggleSpectrumFreeze(app, target); return true; },
             // -/+ ride the group's bus fader from inside its chain view

@@ -578,7 +578,7 @@ pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx) ![]FxUnitSnap {
                     .dyn_threshold_db = b.dyn_threshold_db,
                     .dyn_amount_db = b.dyn_amount_db,
                 };
-                break :blk .{ .content = .{ .eq = .{ .bands = bands, .auto_gain = e.auto_gain } } };
+                break :blk .{ .content = .{ .eq = .{ .bands = bands, .auto_gain = e.auto_gain, .analog = e.analog } } };
             },
             inline else => |device, tag| .{ .content = @unionInit(persist_types.FxContentSnap, @tagName(tag), if (tag == .clap) try clapToSnap(aa, device) else if (tag == .vst3) try vst3ToSnap(aa, device) else snapFromDevice(@FieldType(persist_types.FxContentSnap, @tagName(tag)), device)) },
         };
