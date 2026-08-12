@@ -35,18 +35,24 @@ pub fn fft(n: usize, real: []f32, imag: []f32) void {
     var len: usize = 2;
     while (len <= n) : (len <<= 1) {
         const half = len >> 1;
-        const w_re = std.math.cos(std.math.pi / @as(f32, @floatFromInt(half)));
-        const w_im = -std.math.sin(std.math.pi / @as(f32, @floatFromInt(half)));
+        // The twiddle advances by repeated complex multiply, up to `half`
+        // steps in the last stage, so its own rounding error compounds along
+        // the way. Carrying the rotation in f64 keeps that accumulation far
+        // below the f32 the samples are stored in; in f32 it is visible.
+        const w_re = std.math.cos(std.math.pi / @as(f64, @floatFromInt(half)));
+        const w_im = -std.math.sin(std.math.pi / @as(f64, @floatFromInt(half)));
 
         var ii: usize = 0;
         while (ii < n) : (ii += len) {
-            var wr: f32 = 1.0;
-            var wi: f32 = 0.0;
+            var wr: f64 = 1.0;
+            var wi: f64 = 0.0;
             var j: usize = 0;
             while (j < half) : (j += 1) {
                 const k = ii + j;
-                const tr = wr * real[k + half] - wi * imag[k + half];
-                const ti = wr * imag[k + half] + wi * real[k + half];
+                const wr32: f32 = @floatCast(wr);
+                const wi32: f32 = @floatCast(wi);
+                const tr = wr32 * real[k + half] - wi32 * imag[k + half];
+                const ti = wr32 * imag[k + half] + wi32 * real[k + half];
                 real[k + half] = real[k] - tr;
                 imag[k + half] = imag[k] - ti;
                 real[k] += tr;
@@ -140,6 +146,50 @@ test "bitReverse round-trip" {
         const j = bitReverse(bitReverse(i, N), N);
         try std.testing.expectEqual(i, j);
     }
+}
+
+/// Naive O(n^2) DFT in f64, for tests only: the yardstick the fast path is
+/// held against.
+fn referenceDft(samples: []const f32, bin: usize) struct { re: f64, im: f64 } {
+    const n = samples.len;
+    var re: f64 = 0;
+    var im: f64 = 0;
+    for (samples, 0..) |s, i| {
+        const angle = -2.0 * std.math.pi * @as(f64, @floatFromInt(bin)) *
+            @as(f64, @floatFromInt(i)) / @as(f64, @floatFromInt(n));
+        re += @as(f64, s) * std.math.cos(angle);
+        im += @as(f64, s) * std.math.sin(angle);
+    }
+    return .{ .re = re, .im = im };
+}
+
+test "1024-point transform tracks the reference DFT across every bin" {
+    const N: usize = 1024;
+    var real: [N]f32 = undefined;
+    var imag = [_]f32{0} ** N;
+
+    // Broadband, so every bin carries something and a twiddle that has
+    // drifted shows up wherever the drift is worst, not just at a peak.
+    var rng = std.Random.DefaultPrng.init(11);
+    for (&real, 0..) |*s, i| {
+        const t = @as(f32, @floatFromInt(i));
+        s.* = @sin(0.11 * t) + 0.5 * @sin(0.93 * t + 1.0) + 0.2 * (rng.random().float(f32) * 2.0 - 1.0);
+    }
+    const input = real;
+    fft(N, &real, &imag);
+
+    var peak: f64 = 0;
+    var worst: f64 = 0;
+    for (0..N / 2) |bin| {
+        const want = referenceDft(&input, bin);
+        const want_mag = std.math.hypot(want.re, want.im);
+        peak = @max(peak, want_mag);
+        worst = @max(worst, std.math.hypot(@as(f64, real[bin]) - want.re, @as(f64, imag[bin]) - want.im));
+    }
+    // Relative to the loudest bin. Measures 4.5e-8 with the f64 twiddle
+    // recurrence and 2.5e-6 with an f32 one, so this bound is a tripwire on
+    // the recurrence, not just a sanity check on the butterflies.
+    try std.testing.expect(worst / peak < 2.0e-7);
 }
 
 test "fft with runtime N" {
