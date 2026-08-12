@@ -118,9 +118,10 @@ pub const Transport = struct {
         var bars: u64 = 0;
         var meter = time_map.MeterPoint{ .beat = 0, .numerator = @max(self.time_signature.beats_per_bar, 1), .denominator = @max(self.time_signature.beat_unit, 1) };
         for (self.meterPoints()) |point| {
-            const segment_bars: u64 = @intFromFloat(@ceil(@max(point.beat - segment_beat, 0.0) / meter.quarterBeatsPerBar()));
-            if (target_bar < bars + segment_bars) return segment_beat + @as(f64, @floatFromInt(target_bar - bars)) * meter.quarterBeatsPerBar();
-            bars += segment_bars;
+            const bars_f = @ceil(@max(point.beat - segment_beat, 0.0) / meter.quarterBeatsPerBar());
+            const segment_bars: u64 = if (bars_f >= @as(f64, @floatFromInt(std.math.maxInt(u64)))) std.math.maxInt(u64) else @intFromFloat(bars_f);
+            if (target_bar < bars +| segment_bars) return segment_beat + @as(f64, @floatFromInt(target_bar - bars)) * meter.quarterBeatsPerBar();
+            bars +|= segment_bars;
             segment_beat = point.beat;
             meter = point;
         }
@@ -255,4 +256,10 @@ test "advance saturates at the frame counter limit" {
     t.position_frames = std.math.maxInt(u64) - 10;
     t.advance(256);
     try std.testing.expectEqual(std.math.maxInt(u64), t.position_frames);
+}
+
+test "far-future meter point does not overflow bar conversion" {
+    var t: Transport = .{ .sample_rate = 48_000 };
+    t.setMeterPoint(.{ .beat = std.math.floatMax(f64), .numerator = 3, .denominator = 4 });
+    try std.testing.expectEqual(@as(f64, 4), t.beatAtBar(1));
 }
