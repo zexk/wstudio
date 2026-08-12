@@ -52,13 +52,19 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
             std.fs.path.basename(path)
         else
             app.core.session.project.name;
-        const right_w = readoutWidth(icons.save ++ "  PROJECT", project_title) + group_gap +
-            readoutWidth(icons.master ++ "  AUDIO", audio_label) + group_gap + level_group_w +
+        const right_fixed_w = group_gap + readoutWidth(icons.master ++ "  AUDIO", audio_label) + group_gap + level_group_w +
             group_gap + phase_group_w + group_gap + loudness_group_w;
         zgui.sameLine(.{ .spacing = 0 });
-        zgui.setCursorPosX(@max(zgui.getCursorPosX() + group_gap, zgui.getWindowSize()[0] - right_w - 20));
+        const left_end = zgui.getCursorPosX() + group_gap;
+        const project_w = @max(readoutWidth(icons.save ++ "  PROJECT", ""), zgui.getWindowSize()[0] - 20 - left_end - right_fixed_w);
+        const glyph_w = @max(1, zgui.calcTextSize("M", .{})[0]);
+        const project_chars: usize = @intFromFloat(@max(1, @floor(project_w / glyph_w)));
+        var project_buf: [256]u8 = undefined;
+        const fitted_project_title = ellipsizeUtf8(project_title, project_chars, &project_buf);
+        const right_w = readoutWidth(icons.save ++ "  PROJECT", fitted_project_title) + right_fixed_w;
+        zgui.setCursorPosX(@max(left_end, zgui.getWindowSize()[0] - right_w - 20));
 
-        drawTransportReadout(icons.save ++ "  PROJECT", project_title, true);
+        drawTransportReadout(icons.save ++ "  PROJECT", fitted_project_title, true);
         drawTransportReadout(icons.master ++ "  AUDIO", audio_label, false);
         drawLevelMeters(app, snap);
         drawPhaseMeter(snap.correlation);
@@ -174,6 +180,32 @@ fn drawTransportReadout(label: []const u8, value: []const u8, first: bool) void 
 /// the session/system readout cluster ahead of actually drawing it.
 fn readoutWidth(label: []const u8, value: []const u8) f32 {
     return @max(zgui.calcTextSize(label, .{})[0], zgui.calcTextSize(value, .{})[0]);
+}
+
+fn ellipsizeUtf8(text: []const u8, max_codepoints: usize, scratch: []u8) []const u8 {
+    var count_it = std.unicode.Utf8Iterator{ .bytes = text, .i = 0 };
+    var count: usize = 0;
+    while (count_it.nextCodepointSlice() != null) count += 1;
+    if (count <= max_codepoints) return text;
+    if (max_codepoints == 0 or scratch.len < 3) return "";
+
+    var it = std.unicode.Utf8Iterator{ .bytes = text, .i = 0 };
+    var len: usize = 0;
+    for (0..max_codepoints - 1) |_| {
+        const codepoint = it.nextCodepointSlice() orelse break;
+        if (len + codepoint.len + 3 > scratch.len) break;
+        @memcpy(scratch[len..][0..codepoint.len], codepoint);
+        len += codepoint.len;
+    }
+    @memcpy(scratch[len..][0..3], "…");
+    return scratch[0 .. len + 3];
+}
+
+test "transport ellipsis keeps UTF-8 boundaries" {
+    var buf: [32]u8 = undefined;
+    try std.testing.expectEqualStrings("demo.wsj", ellipsizeUtf8("demo.wsj", 8, &buf));
+    try std.testing.expectEqualStrings("dé…", ellipsizeUtf8("démo.wsj", 3, &buf));
+    try std.testing.expectEqualStrings("…", ellipsizeUtf8("demo.wsj", 1, &buf));
 }
 
 /// `drawLevelMeters`'s on-screen width: the fixed meter-bar width
