@@ -429,7 +429,14 @@ pub fn draw(app: anytype) void {
     if (hovered and gui_style.wheel_delta != 0) {
         gui_style.wheel_consumed = true;
         const up = gui_style.wheel_delta > 0;
-        const key: u8 = if (zgui.isKeyDown(.mod_shift))
+        const key: u8 = if (zgui.isKeyDown(.mod_alt)) blk: {
+            const pointer_beat = @as(f64, @floatCast((mouse[0] - grid_x) / beat_w));
+            if (mouse[0] >= grid_x) if (pp.noteCovering(pointer_pitch, pointer_beat)) |note| {
+                app.core.piano_cursor_pitch = note.pitch;
+                app.core.piano_cursor_step = ws.dsp.pattern.clampStep(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
+            };
+            break :blk if (up) ';' else '\'';
+        } else if (zgui.isKeyDown(.mod_shift))
             (if (up) 'h' else 'l')
         else if (zgui.isKeyDown(.mod_ctrl))
             (if (up) 'K' else 'J')

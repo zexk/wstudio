@@ -169,6 +169,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("drag",         "paint drum steps, move a piano note or arrangement clip, drag a sampler marker");
     t.key("drag (GUI)",   "piano note edges resize it - right edge sets the length, left edge moves the start");
     t.key("shift+scroll", "piano roll only: move the step cursor instead of pitch");
+    t.key("alt+scroll",   "micro-nudge piano or step-grid note under pointer earlier / later");
     t.key("shift+drag",   "bypass wstudio - your terminal's native text selection (for copy/paste)");
 
     t.taggedSection(.tracks, "TRACKS");
@@ -397,6 +398,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("(insert) esc", "back to normal - while playing, notes recorded at the playhead");
     t.group("EDIT AND SHAPE");
     t.key("< / >",        "decrease / increase the selected field on the note at cursor (count-scaled)");
+    t.key("; / '",        "micro-nudge note onset earlier / later by 1/128 note (count-scaled)");
     t.key("f / F",        "cycle what </> and the GUI lane edit: velocity, pan, fine tuning, release");
     t.key("e",            "open synth editor for this track");
     t.key("s",            "FX chain for this track");

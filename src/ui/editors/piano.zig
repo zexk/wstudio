@@ -47,7 +47,15 @@ fn currentPatternPlayer(app: *App) ?*pattern_mod.PatternPlayer {
 /// actions should target the visible note body, not require finding its left
 /// edge first.
 fn noteAtCursor(app: *App, pp: *pattern_mod.PatternPlayer) ?*pattern_mod.Note {
-    const note = pp.noteCovering(app.piano_cursor_pitch, stepToBeat(app, app.piano_cursor_step)) orelse return null;
+    const cursor_beat = stepToBeat(app, app.piano_cursor_step);
+    const note = pp.noteCovering(app.piano_cursor_pitch, cursor_beat) orelse blk: {
+        for (pp.notes[0..pp.note_count]) |*candidate| {
+            if (candidate.pitch == app.piano_cursor_pitch and
+                pattern_mod.clampStep(@round(candidate.start_beat * stepsPerBeatF(app))) == app.piano_cursor_step)
+                break :blk candidate.*;
+        }
+        return null;
+    };
     app.piano_cursor_step = pattern_mod.clampStep(@round(note.start_beat * stepsPerBeatF(app)));
     return pp.noteAt(note.pitch, note.start_beat);
 }
@@ -318,6 +326,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // which one - see NoteField and `app.piano_note_field`.
             '<' => { nudgeSelected(app, -1); return true; },
             '>' => { nudgeSelected(app, 1); return true; },
+            ';' => { nudgeNoteMicro(app, -app.takeCount()); return true; },
+            '\'' => { nudgeNoteMicro(app, app.takeCount()); return true; },
             'f' => { cycleNoteField(app, 1); return true; },
             'F' => { cycleNoteField(app, -1); return true; },
             '.' => { repeatLastEdit(app, pp, max_step); return true; },
@@ -420,6 +430,31 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         },
         else => return false,
     }
+}
+
+/// Move note onset by fixed 1/128-note ticks, independent of visible grid.
+fn nudgeNoteMicro(app: *App, ticks: i32) void {
+    const pp = currentPatternPlayer(app) orelse return;
+    const note = noteAtCursor(app, pp) orelse {
+        app.setStatus("no note under cursor", .{});
+        return;
+    };
+    const tick_beat = 1.0 / @as(f64, ws.time_grid.ticks_per_beat);
+    const wanted = std.math.clamp(note.start_beat + @as(f64, @floatFromInt(ticks)) * tick_beat, 0.0, @max(0.0, pp.length_beats - tick_beat));
+    if (@abs(wanted - note.start_beat) < 1e-9) return;
+    if (pp.noteAt(note.pitch, wanted) != null) {
+        app.setStatus("note already at target", .{});
+        return;
+    }
+    const moved = note.*;
+    history.push(app, history.captureMelodic(app, app.piano_track));
+    pp.removeNote(moved.pitch, moved.start_beat);
+    var replacement = moved;
+    replacement.start_beat = wanted;
+    if (!pp.tryAddNote(replacement)) return;
+    app.piano_cursor_step = pattern_mod.clampStep(@round(wanted * stepsPerBeatF(app)));
+    app.setStatus("note offset: {d:.3} beats", .{wanted - stepToBeat(app, app.piano_cursor_step)});
+    syncLinkedClip(app);
 }
 // zig fmt: on
 

@@ -1834,6 +1834,22 @@ test "piano roll f cycles which per-note field </> edits" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.2), pp.noteAt(60, 0.0).?.art.pan, 1e-4);
 }
 
+test "piano roll micro-nudge moves onset independently of grid" {
+    var app = try testApp();
+    defer app.deinit();
+    app.piano_track = 0;
+    app.view = .piano_roll;
+    app.piano_cursor_pitch = 60;
+    app.piano_cursor_step = 4;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.setNotes(&.{.{ .pitch = 60, .start_beat = 1, .duration_beat = 0.5 }}, 4);
+
+    _ = piano_ed.handleKey(&app, .{ .char = '\'' });
+    try std.testing.expect(pp.noteAt(60, 1 + 1.0 / @as(f64, ws.time_grid.ticks_per_beat)) != null);
+    _ = piano_ed.handleKey(&app, .{ .char = ';' });
+    try std.testing.expect(pp.noteAt(60, 1) != null);
+}
+
 test "piano roll :audition previews the pitch under the cursor on every j/k move" {
     var app = try testApp();
     defer app.deinit();

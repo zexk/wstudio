@@ -313,6 +313,16 @@ pub fn draw(
             // directly from the concrete (non-generic) method.
             const step_t: u16 = @intCast(step * stride);
 
+            const fine_step: u16 = @intCast(@min(
+                storage_step_count - 1,
+                @as(usize, @intFromFloat((mouse[0] - grid_x) / (cell_w / @as(f32, @floatFromInt(stride))))),
+            ));
+            if (style.wheel_delta != 0 and zgui.isKeyDown(.mod_alt) and instrument.stepActive(@intCast(row), fine_step)) {
+                style.wheel_consumed = true;
+                cursor.* = .{ @intCast(row), fine_step };
+                app.core.handleKey(.{ .char = if (style.wheel_delta > 0) ';' else '\'' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+            }
+
             // Press starts a paint session: left toggles (remembering the
             // resulting state so a drag repeats it), right always forces the
             // cell off - see editors/drum.zig's handleMouse doc comment for
