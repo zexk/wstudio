@@ -107,8 +107,16 @@ pub fn writeProject(allocator: std.mem.Allocator, notes: []const Note, midi_even
 
     var tempo_track: std.ArrayListUnmanaged(u8) = .empty;
     defer tempo_track.deinit(allocator);
-    try appendTempo(allocator, &tempo_track, 0, tempo_bpm);
+    var initial_tempo = tempo_bpm;
     var previous_tick: u64 = 0;
+    for (tempo_points) |point| {
+        const tick = beatToTick(point.beat);
+        if (tick < previous_tick) return error.UnsortedTempoPoints;
+        if (tick == 0) initial_tempo = point.bpm;
+        previous_tick = tick;
+    }
+    try appendTempo(allocator, &tempo_track, 0, initial_tempo);
+    previous_tick = 0;
     for (tempo_points) |point| {
         const tick = beatToTick(point.beat);
         if (tick == 0) continue;
@@ -125,8 +133,9 @@ pub fn writeProject(allocator: std.mem.Allocator, notes: []const Note, midi_even
         for (notes) |note| {
             if (note.midi_track != midi_track) continue;
             const tick = beatToTick(note.start_beat);
-            const velocity: u7 = @intFromFloat(std.math.clamp(note.velocity, 0.0, 1.0) * 127.0);
-            try events.append(allocator, .{ .tick = tick, .order = 1, .bytes = .{ 0x90 | @as(u8, note.channel), note.pitch, @max(velocity, 1) }, .len = 3 });
+            const velocity = if (std.math.isFinite(note.velocity)) note.velocity else 1.0;
+            const velocity7: u7 = @intFromFloat(std.math.clamp(velocity, 0.0, 1.0) * 127.0);
+            try events.append(allocator, .{ .tick = tick, .order = 1, .bytes = .{ 0x90 | @as(u8, note.channel), note.pitch, @max(velocity7, 1) }, .len = 3 });
             try events.append(allocator, .{ .tick = tick +| @max(1, beatToTick(note.duration_beat)), .order = 0, .bytes = .{ 0x80 | @as(u8, note.channel), note.pitch, 0 }, .len = 3 });
         }
         for (midi_events) |event| {
@@ -645,6 +654,34 @@ test "format-1 export rejects source tracks that exceed the header limit" {
         .duration_beat = 1,
         .midi_track = std.math.maxInt(u16),
     }}, &.{}, &.{}, 120));
+}
+
+test "format-1 export rejects unsorted tempo points" {
+    try std.testing.expectError(error.UnsortedTempoPoints, writeProject(std.testing.allocator, &.{}, &.{}, &.{
+        .{ .beat = 2, .bpm = 90 },
+        .{ .beat = 1, .bpm = 100 },
+    }, 120));
+}
+
+test "format-1 export preserves a tempo point at beat zero" {
+    const bytes = try writeProject(std.testing.allocator, &.{}, &.{}, &.{.{ .beat = 0, .bpm = 90 }}, 120);
+    defer std.testing.allocator.free(bytes);
+    const result = try parse(std.testing.allocator, bytes);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectApproxEqAbs(@as(f64, 90), result.tempo_bpm, 0.01);
+}
+
+test "format-1 export sanitizes non-finite note velocity" {
+    const bytes = try writeProject(std.testing.allocator, &.{.{
+        .pitch = 60,
+        .start_beat = 0,
+        .duration_beat = 1,
+        .velocity = std.math.nan(f32),
+    }}, &.{}, &.{}, 120);
+    defer std.testing.allocator.free(bytes);
+    const result = try parse(std.testing.allocator, bytes);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expectApproxEqAbs(@as(f32, 1), result.notes[0].velocity, 1e-6);
 }
 
 test "parse rejects a zero division field" {
