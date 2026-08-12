@@ -157,6 +157,9 @@ pub const gate_specs = [_]ParamSpec{
     .{ .name = "release", .field = "release_ms", .min = 5.0, .max = 1000.0, .step_fine = 10.0, .step_coarse = 100.0 },
     .{ .name = "hyst", .field = "hysteresis_db", .min = 0.0, .max = 40.0, .step_fine = 1.0, .step_coarse = 6.0 },
     .{ .name = "range", .field = "range_db", .min = gate_mod.mute_range_db, .max = 0.0, .step_fine = 1.0, .step_coarse = 6.0 },
+    .{ .name = "sc mode", .field = "sc_mode", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+    .{ .name = "sc hpf", .field = "sc_hpf_hz", .min = 0.0, .max = 2000.0, .step_fine = 20.0, .step_coarse = 200.0 },
+    .{ .name = "sc lpf", .field = "sc_lpf_hz", .min = 0.0, .max = 20000.0, .step_fine = 100.0, .step_coarse = 1000.0 },
 };
 
 pub const filter_specs = [_]ParamSpec{

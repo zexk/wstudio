@@ -24,6 +24,7 @@
 const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
+const detector = @import("detector.zig");
 
 const Sample = types.Sample;
 
@@ -46,6 +47,16 @@ pub const Gate = struct {
     /// Gain a shut gate falls to, in dB. `mute_range_db` (the minimum) is
     /// exact silence, which is the default and the old behaviour.
     range_db: f32 = mute_range_db,
+    /// Detector shaping, the same three controls the compressor has - see
+    /// `dsp/detector.zig`. 0 = peak, 1 = RMS. The high-pass is what stops a
+    /// bass-heavy source from holding a gate open through everything, which
+    /// on a drum bus is the difference between gating the snare and gating
+    /// nothing at all.
+    sc_mode: f32 = 0.0,
+    sc_hpf_hz: f32 = 0.0,
+    sc_lpf_hz: f32 = 0.0,
+    /// Detector filter/RMS state.
+    det_state: detector.Detector = .{},
     /// Detector state: stereo peak with a fixed ~50ms decay.
     env: f32 = 0.0,
     /// Current gain: `range` shut ... 1 open. Starts shut so a track that
@@ -83,9 +94,20 @@ pub const Gate = struct {
         const attack      = dsp.smoothingCoefMs(attack_ms, self.sample_rate);
         const release     = dsp.smoothingCoefMs(release_ms, self.sample_rate);
         const hold_frames = hold_ms * 0.001 * self.sample_rate;
+        // zig fmt: on
+        // Left at its defaults this is the same stereo peak the gate always
+        // read, bit for bit.
+        const shaping = detector.shapingFor(
+            dsp.sanitizeParam(self.sc_hpf_hz, 0.0, 2000.0, 0.0),
+            dsp.sanitizeParam(self.sc_lpf_hz, 0.0, 20_000.0, 0.0),
+            dsp.sanitizeParam(self.sc_mode, 0.0, 1.0, 0.0) >= 0.5,
+            self.sample_rate,
+        );
+        if (!shaping.active()) self.det_state.reset();
+        // zig fmt: off
         var i: usize = 0;
         while (i + 1 < buf.len) : (i += 2) {
-            const peak = @max(@abs(buf[i]), @abs(buf[i + 1]));
+            const peak = self.det_state.level(shaping, buf[i], buf[i + 1]);
             self.env = @max(peak, self.env * det_decay);
             // Latch: an open gate holds open until the level drops under the
             // lower close threshold, so nothing can sit on the boundary and
@@ -113,6 +135,7 @@ pub const Gate = struct {
     /// the struct default and desync it from the real session rate.
     pub fn reset(self: *Gate) void {
         self.env = 0.0;
+        self.det_state.reset();
         self.gain = 0.0;
         self.hold_left = 0.0;
         self.open = false;
@@ -209,6 +232,31 @@ test "range attenuates instead of muting a shut gate" {
     // Shut, but at -12dB rather than silent.
     try std.testing.expectApproxEqAbs(types.dbToGain(-12.0), gate.gain, 1e-3);
     try std.testing.expect(@abs(buf[4000]) > 0.0);
+}
+
+test "the detector high-pass stops bass from holding the gate open" {
+    // A kick under a gated snare: loud low content that should not count as
+    // "signal" once the detector is told to ignore it.
+    var plain = Gate.init(48_000);
+    plain.threshold_db = -20.0;
+    var filtered = Gate.init(48_000);
+    filtered.threshold_db = -20.0;
+    filtered.sc_hpf_hz = 500.0;
+
+    var buf: [4096]Sample = undefined;
+    for (0..20) |blk| {
+        for (0..buf.len / 2) |f| {
+            const n: f32 = @floatFromInt(blk * (buf.len / 2) + f);
+            const v = 0.9 * @sin(2.0 * std.math.pi * 50.0 * n / 48_000.0);
+            buf[f * 2] = v;
+            buf[f * 2 + 1] = v;
+        }
+        var copy = buf;
+        plain.processBlock(&buf);
+        filtered.processBlock(&copy);
+    }
+    try std.testing.expect(plain.open);
+    try std.testing.expect(!filtered.open);
 }
 
 test "invalid parameters cannot trap or poison output" {

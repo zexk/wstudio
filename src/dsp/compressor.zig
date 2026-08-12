@@ -4,26 +4,9 @@
 const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
+const detector = @import("detector.zig");
 
 const Sample = types.Sample;
-
-/// A detector filter under this reads as "off" - a 10Hz highpass does
-/// nothing a compressor can hear, and the zero value has to mean off so the
-/// unshaped path stays the default.
-const min_sc_filter_hz: f32 = 20.0;
-
-/// RMS averaging window. ponytail: fixed, where LSP exposes it as
-/// "reactivity" - attack/release already own how fast the compressor moves,
-/// and a second timing axis is a knob most users would leave alone. Promote
-/// it to a param if material turns up that needs a slower average.
-const rms_window_ms: f32 = 10.0;
-
-/// One-pole smoothing coefficient for a cutoff in Hz (0 when the cutoff is
-/// unset, which leaves the filter state frozen and the signal untouched).
-fn onePoleCoef(hz: f32, sample_rate: f32) f32 {
-    if (hz <= 0.0 or sample_rate <= 0.0) return 0.0;
-    return 1.0 - @exp(-2.0 * std.math.pi * hz / sample_rate);
-}
 
 pub const Compressor = struct {
     /// Which track (and, optionally, which drum pad within it) this
@@ -94,11 +77,9 @@ pub const Compressor = struct {
     sc_lpf_hz: f32 = 0.0,
     /// Envelope follower state (linear peak).
     env: f32 = 0.0,
-    /// Detector filter/RMS state - one set, since the detector collapses to
-    /// mono before shaping.
-    sc_lp: f32 = 0.0,
-    sc_hp: f32 = 0.0,
-    sc_ms: f32 = 0.0,
+    /// Detector filter/RMS state, shared with every other dynamics unit -
+    /// see `dsp/detector.zig`.
+    det_state: detector.Detector = .{},
     /// Frames left in the current hold window, counted down one per frame.
     hold_left: f32 = 0.0,
     /// Most recent gain change before makeup, for UI metering.
@@ -198,44 +179,20 @@ pub const Compressor = struct {
         const det = if (self.detector) |d| (if (d.len == buf.len) d else null) else null;
         self.detector = null;
 
-        // Detector shaping. Left at defaults every branch below is skipped
-        // and the level is the same stereo peak it always was, bit for bit.
-        const sc_hpf_hz = dsp.sanitizeParam(self.sc_hpf_hz, 0.0, 2000.0, 0.0);
-        const sc_lpf_hz = dsp.sanitizeParam(self.sc_lpf_hz, 0.0, 20_000.0, 0.0);
-        const rms = dsp.sanitizeParam(self.sc_mode, 0.0, 1.0, 0.0) >= 0.5;
-        const hp_on = sc_hpf_hz >= min_sc_filter_hz;
-        const lp_on = sc_lpf_hz >= min_sc_filter_hz and sc_lpf_hz < 20_000.0;
-        const shaping = hp_on or lp_on or rms;
-        // One-pole coefficients; the highpass is the same lowpass subtracted
-        // from the signal, which is all a detector filter needs to be.
-        const hp_a = onePoleCoef(sc_hpf_hz, self.sample_rate);
-        const lp_a = onePoleCoef(sc_lpf_hz, self.sample_rate);
-        const rms_a = 1.0 - dsp.smoothingCoefMs(rms_window_ms, self.sample_rate);
-        if (!shaping) {
-            self.sc_lp = 0.0;
-            self.sc_hp = 0.0;
-            self.sc_ms = 0.0;
-        }
+        // Detector shaping. Left at defaults every branch is skipped and the
+        // level is the same stereo peak it always was, bit for bit.
+        const shaping = detector.shapingFor(
+            dsp.sanitizeParam(self.sc_hpf_hz, 0.0, 2000.0, 0.0),
+            dsp.sanitizeParam(self.sc_lpf_hz, 0.0, 20_000.0, 0.0),
+            dsp.sanitizeParam(self.sc_mode, 0.0, 1.0, 0.0) >= 0.5,
+            self.sample_rate,
+        );
+        if (!shaping.active()) self.det_state.reset();
 
         for (0..frames) |i| {
             const dl = if (det) |d| d[i * 2] else buf[i * 2];
             const dr = if (det) |d| d[i * 2 + 1] else buf[i * 2 + 1];
-            const level = if (!shaping) @max(@abs(dl), @abs(dr)) else blk: {
-                // Filtering a rectified level is meaningless, so the shaped
-                // path sums to mono and filters the waveform, then rectifies.
-                var x = (dl + dr) * 0.5;
-                if (lp_on) {
-                    self.sc_lp += lp_a * (x - self.sc_lp);
-                    x = self.sc_lp;
-                }
-                if (hp_on) {
-                    self.sc_hp += hp_a * (x - self.sc_hp);
-                    x -= self.sc_hp;
-                }
-                if (!rms) break :blk @abs(x);
-                self.sc_ms += rms_a * (x * x - self.sc_ms);
-                break :blk @sqrt(@max(self.sc_ms, 0.0));
-            };
+            const level = self.det_state.level(shaping, dl, dr);
             // Hold freezes the envelope (and so the gain reduction) at its
             // deepest instead of letting release start the moment the level
             // dips; a rise re-arms the window.
@@ -279,9 +236,7 @@ pub const Compressor = struct {
         self.env = 0.0;
         self.gain_reduction_db = 0.0;
         self.hold_left = 0.0;
-        self.sc_lp = 0.0;
-        self.sc_hp = 0.0;
-        self.sc_ms = 0.0;
+        self.det_state.reset();
         self.detector = null;
     }
 };

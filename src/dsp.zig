@@ -22,6 +22,7 @@ pub const Utility = @import("dsp/utility.zig").Utility;
 pub const StereoWidth = @import("dsp/stereo_width.zig").StereoWidth;
 pub const AutoPan = @import("dsp/auto_pan.zig").AutoPan;
 pub const TransientShaper = @import("dsp/transient_shaper.zig").TransientShaper;
+pub const detector = @import("dsp/detector.zig");
 pub const Gate = @import("dsp/gate.zig").Gate;
 pub const gate = @import("dsp/gate.zig");
 pub const Saturator = @import("dsp/saturator.zig").Saturator;
