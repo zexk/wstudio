@@ -685,6 +685,7 @@ pub const PatternPlayer = struct {
 
         const frames: u64 = @intCast(buf.len / 2);
         const pos = self.transport.position_frames;
+        const end_pos = pos +| frames;
 
         for (&self.pending_note_off, 0..) |*pending, word| {
             var bits = pending.swap(0, .acq_rel);
@@ -700,7 +701,7 @@ pub const PatternPlayer = struct {
         // Resync on seek or first play (same technique as DrumMachine).
         if (self.last_pos_frames != 0 and pos != self.last_pos_frames)
             self.releaseSounding();
-        self.last_pos_frames = pos + frames;
+        self.last_pos_frames = end_pos;
 
         // In song mode the arrangement's flattened clips drive playback and the
         // loop length is the whole song; otherwise the live one-bar-ish loop.
@@ -712,7 +713,7 @@ pub const PatternPlayer = struct {
         }
 
         const start_beat = self.transport.beatsAtFrames(pos);
-        const end_beat = self.transport.beatsAtFrames(pos + frames);
+        const end_beat = self.transport.beatsAtFrames(end_pos);
 
         if (self.song_mode and start_beat >= loop) {
             // Past the end of the arrangement: silence anything left
@@ -1418,6 +1419,18 @@ test "PatternPlayer sequences note against transport" {
     for (scratch) |s| if (@abs(s) > 1e-4) { has_signal = true; break; };
     // zig fmt: on
     try std.testing.expect(has_signal);
+}
+
+test "PatternPlayer handles final transport frame" {
+    var transport: Transport = .{ .sample_rate = 48_000, .position_frames = std.math.maxInt(u64), .playing = true };
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
+
+    var buf = [_]types.Sample{0.0} ** 2;
+    pp.processBlock(&buf);
+    try std.testing.expectEqual(std.math.maxInt(u64), pp.last_pos_frames);
 }
 
 test "clearing the active pattern releases sounding notes" {
