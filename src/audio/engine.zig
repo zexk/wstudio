@@ -248,6 +248,17 @@ const TrackDelay = struct {
     samples: std.atomic.Value(?*PdcBuffer) = .init(null),
     write_frame: usize = 0,
 
+    /// Whether `process` would do anything at all. Storage is allocated only
+    /// when some track in the project reports latency, so on a project with
+    /// no compensated route this is false for every track and the callers can
+    /// skip the buffer copy that exists solely to feed `process`. Not the same
+    /// question as "is the delay zero": a zero-delay route with storage still
+    /// has to run, or the ring goes stale and replays old audio the moment the
+    /// delay becomes non-zero.
+    fn active(self: *const TrackDelay) bool {
+        return self.samples.load(.acquire) != null;
+    }
+
     fn process(self: *TrackDelay, buf: []Sample, delay_frames: usize) void {
         const storage = self.samples.load(.acquire) orelse return;
         const frame_capacity = max_pdc_frames + 1;
@@ -1819,8 +1830,13 @@ pub const Engine = struct {
         const group_soloed = if (track.group) |gidx| gidx < max_groups and self.groups[gidx].active and self.groups[gidx].soloed else false;
         if (track.muted or (any_solo and !track.soloed and !group_soloed)) return;
 
-        const primary_signal = self.route_scratch[0 .. frames * channels];
-        @memcpy(primary_signal, scratch);
+        // The copy into `route_scratch` exists only so the PDC can rewrite
+        // the route in place while `scratch` stays pristine for the sends
+        // below (and it is `scratch`, not the delayed signal, that a send
+        // taps). With no compensated route in the project the PDC is inert,
+        // so the copy is a whole block of memory traffic buying nothing -
+        // route `scratch` directly instead.
+        //
         // Saturating: `max_route_latency` was measured at the top of this
         // block, and a chain's latency can grow between then and here -
         // `FxUnit.latencyFrames` changes answer the instant the UI thread
@@ -1828,7 +1844,12 @@ pub const Engine = struct {
         // queue. A route that momentarily reads longer than the recorded
         // maximum needs no padding at all, which is what 0 says; a plain
         // `-` panics on it in a ReleaseSafe build, on the audio thread.
-        track.pdc.process(primary_signal, max_route_latency -| self.routeLatency(track, primaryTarget(track)));
+        const primary_signal: []const Sample = if (track.pdc.active()) blk: {
+            const delayed = self.route_scratch[0 .. frames * channels];
+            @memcpy(delayed, scratch);
+            track.pdc.process(delayed, max_route_latency -| self.routeLatency(track, primaryTarget(track)));
+            break :blk delayed;
+        } else scratch;
 
         const beat_step = 1.0 / self.transport.framesPerBeat();
         const gains = self.automation_gain[0..frames];
@@ -1854,18 +1875,35 @@ pub const Engine = struct {
             }
             break :blk out;
         };
-        for (0..frames) |i| {
-            const gain_l, const gain_r = if (automated) blk: {
+        // Gain, pan, mix, and peak in one pass. The automated and unautomated
+        // forms are separate loops rather than one loop with the test inside:
+        // every track pays this per frame, and the unautomated case (the
+        // common one - a static fader) is then a flat multiply-accumulate the
+        // backend can vectorize, with the peak kept in registers instead of
+        // read back out of `track_peak` on every frame.
+        var peak_l = self.track_peak[ti][0];
+        var peak_r = self.track_peak[ti][1];
+        if (automated) {
+            for (0..frames) |i| {
                 const angle = (pans[i] + 1.0) * std.math.pi / 4.0;
-                break :blk .{ gains[i] * @cos(angle), gains[i] * @sin(angle) };
-            } else .{ base_gain_l, base_gain_r };
-            const left = primary_signal[i * channels] * gain_l;
-            const right = primary_signal[i * channels + 1] * gain_r;
-            dest[i * channels] += left;
-            dest[i * channels + 1] += right;
-            self.track_peak[ti][0] = @max(self.track_peak[ti][0], @abs(left));
-            self.track_peak[ti][1] = @max(self.track_peak[ti][1], @abs(right));
+                const left = primary_signal[i * channels] * (gains[i] * @cos(angle));
+                const right = primary_signal[i * channels + 1] * (gains[i] * @sin(angle));
+                dest[i * channels] += left;
+                dest[i * channels + 1] += right;
+                peak_l = @max(peak_l, @abs(left));
+                peak_r = @max(peak_r, @abs(right));
+            }
+        } else {
+            for (0..frames) |i| {
+                const left = primary_signal[i * channels] * base_gain_l;
+                const right = primary_signal[i * channels + 1] * base_gain_r;
+                dest[i * channels] += left;
+                dest[i * channels + 1] += right;
+                peak_l = @max(peak_l, @abs(left));
+                peak_r = @max(peak_r, @abs(right));
+            }
         }
+        self.track_peak[ti] = .{ peak_l, peak_r };
 
         // Aux sends: the same gain/pan'd signal, tapped in parallel into
         // zero or more OTHER destinations at an independent level - `dest`
@@ -1888,8 +1926,29 @@ pub const Engine = struct {
                     break :blk self.group_scratch[gidx][0 .. frames * channels];
                 },
             };
-            @memcpy(primary_signal, scratch);
-            track.send_pdc[slot].process(primary_signal, max_route_latency -| self.routeLatency(track, snd.target)); // saturating, same reason as the primary route above
+            // Same deal as the primary route: the copy is only there to give
+            // this slot's PDC something to rewrite, so skip both when the PDC
+            // is inert and tap `scratch` where it lies.
+            const send_signal: []const Sample = if (track.send_pdc[slot].active()) blk: {
+                const delayed = self.route_scratch[0 .. frames * channels];
+                @memcpy(delayed, scratch);
+                track.send_pdc[slot].process(delayed, max_route_latency -| self.routeLatency(track, snd.target)); // saturating, same reason as the primary route above
+                break :blk delayed;
+            } else scratch;
+            if (!automated and !send_automated) {
+                // Static fader, static send level: one constant per channel,
+                // hoisted out the same way the primary route's is. Left as
+                // two multiplies in the original order rather than folding
+                // `snd.level` into the constant - folding reassociates the
+                // arithmetic and the output stops being bit-identical.
+                const gain_l: f32 = if (snd.pre_fader) 1.0 else base_gain_l;
+                const gain_r: f32 = if (snd.pre_fader) 1.0 else base_gain_r;
+                for (0..frames) |i| {
+                    send_dest[i * channels] += send_signal[i * channels] * gain_l * snd.level;
+                    send_dest[i * channels + 1] += send_signal[i * channels + 1] * gain_r * snd.level;
+                }
+                continue;
+            }
             for (0..frames) |i| {
                 const gain_l, const gain_r = if (snd.pre_fader)
                     .{ @as(f32, 1.0), @as(f32, 1.0) }
@@ -1898,8 +1957,8 @@ pub const Engine = struct {
                     break :blk .{ gains[i] * @cos(angle), gains[i] * @sin(angle) };
                 } else .{ base_gain_l, base_gain_r };
                 const send_level = if (send_automated) send_levels[i] else snd.level;
-                send_dest[i * channels] += primary_signal[i * channels] * gain_l * send_level;
-                send_dest[i * channels + 1] += primary_signal[i * channels + 1] * gain_r * send_level;
+                send_dest[i * channels] += send_signal[i * channels] * gain_l * send_level;
+                send_dest[i * channels + 1] += send_signal[i * channels + 1] * gain_r * send_level;
             }
         }
 
