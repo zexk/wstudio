@@ -66,7 +66,11 @@ pub fn draw(app: anytype) void {
         for (@intCast(clipper.DisplayStart)..@intCast(clipper.DisplayEnd)) |i| {
             const entry = app.core.browser_entries.items[i];
             const in_visual = anchor != null and i >= sel_lo and i <= sel_hi and !entry.is_dir;
-            if (drawEntry(entry.name, entry.is_dir, app.core.browser_cursor == i, in_visual, i, pattern)) {
+            const clicked = drawEntry(entry.name, entry.is_dir, app.core.browser_cursor == i, in_visual, i, pattern);
+            var path_buf: [4096]u8 = undefined;
+            const path = std.fmt.bufPrint(&path_buf, "{s}{c}{s}", .{ app.core.browser_dir, std.fs.path.sep, entry.name }) catch entry.name;
+            widgets.copyContext(path);
+            if (clicked) {
                 app.core.clickBrowserItem(i, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
                 return;
             }
@@ -87,7 +91,10 @@ fn drawRecentProjects(app: anytype) void {
     if (app.core.recent_projects.items.len > 0) clipper.includeItemsByIndex(@intCast(app.core.recent_project_cursor), @intCast(app.core.recent_project_cursor + 1));
     while (clipper.step()) {
         for (@intCast(clipper.DisplayStart)..@intCast(clipper.DisplayEnd)) |i| {
-            if (drawEntry(app.core.recent_projects.items[i], false, app.core.recent_project_cursor == i, false, i, "")) {
+            const path = app.core.recent_projects.items[i];
+            const clicked = drawEntry(path, false, app.core.recent_project_cursor == i, false, i, "");
+            widgets.copyContext(path);
+            if (clicked) {
                 app.core.recent_project_cursor = i;
                 app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
                 return;
@@ -108,7 +115,9 @@ fn drawBookmarks(app: anytype) void {
     while (clipper.step()) {
         for (@intCast(clipper.DisplayStart)..@intCast(clipper.DisplayEnd)) |i| {
             const bookmark = app.core.bookmarks.items[i];
-            if (drawEntry(bookmark.path, bookmark.is_dir, app.core.bookmark_cursor == i, false, i, "")) {
+            const clicked = drawEntry(bookmark.path, bookmark.is_dir, app.core.bookmark_cursor == i, false, i, "");
+            widgets.copyContext(bookmark.path);
+            if (clicked) {
                 app.core.bookmark_cursor = i;
                 app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
                 return;

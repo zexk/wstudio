@@ -137,7 +137,9 @@ pub fn drawInstrument(app: anytype) void {
             const format = ws.plugin_catalog.formatLabel(plugin.format);
             const desc = std.fmt.bufPrint(&desc_buf, "{s}  |  {s}", .{ format, plugin.vendor }) catch format;
             const ordinal = items.len + external_i;
-            if (drawCard(id, plugin.name, desc, theme.focus, app.core.picker_cursor == ordinal, width, filter)) {
+            const clicked = drawCard(id, plugin.name, desc, theme.focus, app.core.picker_cursor == ordinal, width, filter);
+            widgets.copyContext(plugin.name);
+            if (clicked) {
                 selectInstrument(app, ordinal, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
                 return;
             }
@@ -194,7 +196,9 @@ pub fn drawFx(app: anytype) void {
             const format = ws.plugin_catalog.formatLabel(plugin.format);
             const desc = std.fmt.bufPrint(&desc_buf, "{s}  |  {s}", .{ format, plugin.vendor }) catch format;
             const ordinal = count + external_i;
-            if (drawCard(id, plugin.name, desc, theme.focus, app.core.fx_picker_cursor == ordinal, width, filter)) {
+            const clicked = drawCard(id, plugin.name, desc, theme.focus, app.core.fx_picker_cursor == ordinal, width, filter);
+            widgets.copyContext(plugin.name);
+            if (clicked) {
                 app.core.clickFxPickerItem(ordinal, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
                 return;
             }
@@ -302,7 +306,9 @@ pub fn drawPreset(app: anytype) void {
                 std.fmt.bufPrint(&desc_buf, "prog {d}", .{program}) catch entry.author
             else
                 entry.author;
-            if (drawCard(id, entry.name, desc, kind_accent, selected, overlayWidth(), filter)) {
+            const clicked = drawCard(id, entry.name, desc, kind_accent, selected, overlayWidth(), filter);
+            widgets.copyContext(entry.name);
+            if (clicked) {
                 app.core.clickPresetPickerItem(ordinal, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             }
             ordinal += 1;

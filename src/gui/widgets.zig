@@ -104,6 +104,15 @@ pub fn hoverHelp(tooltip: []const u8) void {
     itemTooltip(tooltip);
 }
 
+pub fn copyContext(text: []const u8) void {
+    if (!zgui.beginPopupContextItem()) return;
+    if (zgui.menuItem("Copy", .{})) {
+        var buf: [4096]u8 = undefined;
+        if (std.fmt.bufPrintZ(&buf, "{s}", .{text})) |value| zgui.setClipboardText(value) else |_| {}
+    }
+    zgui.endPopup();
+}
+
 /// A section header used inside a bordered/tinted card column: a small
 /// accent chip (matching the header overview panels' accent bars) plus the
 /// label, then a separator and a bit of breathing room before the params.
@@ -368,6 +377,16 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
     if (hovered or active) zgui.setMouseCursor(.resize_ns);
     const activated = zgui.isItemActivated();
     var changed = false;
+
+    if (zgui.beginPopupContextItem()) {
+        if (zgui.menuItem("Copy value", .{})) {
+            var value_buf: [32]u8 = undefined;
+            var clipboard_buf: [32]u8 = undefined;
+            const display = args.display orelse knobFormatValue(&value_buf, args.cfmt, args.v.*);
+            if (std.fmt.bufPrintZ(&clipboard_buf, "{s}", .{display})) |value| zgui.setClipboardText(value) else |_| {}
+        }
+        zgui.endPopup();
+    }
 
     if (active) {
         const delta = zgui.getMouseDragDelta(.left, .{});
