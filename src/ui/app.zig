@@ -881,6 +881,9 @@ pub const App = struct {
     /// `moveClip`. Null when no drag is active. See editors/arrangement.zig's
     /// handleMouse.
     arr_drag_bar: ?u32 = null,
+    arr_drag_resize: bool = false,
+    arr_drag_clone: bool = false,
+    arr_drag_clone_done: bool = false,
     /// In-progress sampler-waveform marker drag. Null when no drag is
     /// active. See editors/sampler.zig's handleMouse.
     sampler_drag_marker: ?SamplerMarker = null,

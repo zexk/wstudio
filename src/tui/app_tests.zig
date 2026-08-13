@@ -8220,6 +8220,31 @@ test "mouse drag moves an arrangement clip" {
     try std.testing.expect(app.arr_drag_bar == null);
 }
 
+test "arrangement modifier drags clone and resize clips" {
+    var app = try testApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try app.session.stampClip(0, 0);
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_scroll_bar = 0;
+    const lane = app.session.arrangement.lane(0).?;
+    const row = app_mod.content_top + 2;
+
+    app.handleMouse(.{ .x = 14, .y = row, .button = .left, .kind = .press, .shift = true }, 80, 24, 0);
+    app.handleMouse(.{ .x = 22, .y = row, .button = .left, .kind = .drag, .shift = true }, 80, 24, 0);
+    app.handleMouse(.{ .x = 22, .y = row, .button = .left, .kind = .release, .shift = true }, 80, 24, 0);
+    try std.testing.expect(lane.clipAt(0) != null);
+    try std.testing.expect(lane.clipAt(64) != null);
+
+    const old_len = lane.clipAt(64).?.length_ticks;
+    app.handleMouse(.{ .x = 22, .y = row, .button = .left, .kind = .press, .ctrl = true }, 80, 24, 0);
+    app.handleMouse(.{ .x = 26, .y = row, .button = .left, .kind = .drag, .ctrl = true }, 80, 24, 0);
+    app.handleMouse(.{ .x = 26, .y = row, .button = .left, .kind = .release, .ctrl = true }, 80, 24, 0);
+    try std.testing.expectEqual(old_len + app.arr_grid.ticks(), lane.clipAt(64).?.length_ticks);
+}
+
 test "right-click always erases a drum step, and a right-drag erases a run of them" {
     var app = try testApp();
     defer app.deinit();

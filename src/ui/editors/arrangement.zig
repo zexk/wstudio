@@ -1130,7 +1130,8 @@ fn barAt(scroll_bar: u32, x: usize, cw: usize) ?u32 {
 /// drag tracking starts for it. Scroll moves the bar cursor, or - over the
 /// lane-name gutter - the lane cursor, regardless of which row the mouse
 /// sits on. **Shift**+scroll moves lanes from anywhere; **Ctrl**+scroll over
-/// timeline jumps whole bars.
+/// timeline jumps whole bars. **Shift**+drag leaves a clone at the source;
+/// **Ctrl**+drag resizes the clip's right edge instead of moving it.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
     _ = cols; // column count is derived from scroll + cell width, not terminal-width-dependent
     const lane_count = app.session.project.tracks.items.len;
@@ -1164,19 +1165,47 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
             else
                 false;
             app.arr_drag_bar = if (has_clip) app.arr_cursor_bar else null;
+            app.arr_drag_resize = has_clip and ev.ctrl;
+            app.arr_drag_clone = has_clip and ev.shift and !ev.ctrl;
+            app.arr_drag_clone_done = false;
         },
         .drag => {
             const last = app.arr_drag_bar orelse return;
             const new_bar = barAt(app.arr_scroll_bar, ev.x, cw) orelse return;
             if (new_bar == last) return;
-            // moveClip looks up the clip at the CURRENT cursor bar and
-            // leaves the cursor on wherever it lands.
             app.arr_cursor_bar = last;
             const delta: i32 = @as(i32, @intCast(new_bar)) - @as(i32, @intCast(last));
-            moveClip(app, delta);
-            app.arr_drag_bar = app.arr_cursor_bar;
+            if (app.arr_drag_resize) {
+                resizeClip(app, delta);
+                app.arr_drag_bar = new_bar;
+            } else if (app.arr_drag_clone and !app.arr_drag_clone_done) {
+                const lane_ptr = app.session.arrangement.lane(lane) orelse return;
+                const source_tick = cursorTick(app);
+                var clone = (lane_ptr.clipAt(source_tick) orelse return).dupe(app.allocator) catch {
+                    app.setStatus("clone failed (out of memory)", .{});
+                    return;
+                };
+                moveClip(app, delta);
+                clone.start_tick = source_tick;
+                lane_ptr.place(app.allocator, clone) catch {
+                    clone.deinit(app.allocator);
+                    app.setStatus("clone failed (out of memory)", .{});
+                    return;
+                };
+                app.arr_drag_clone_done = true;
+                app.arr_drag_bar = app.arr_cursor_bar;
+                if (app.session.song_mode) app.session.rebuildSongData();
+            } else {
+                moveClip(app, delta);
+                app.arr_drag_bar = app.arr_cursor_bar;
+            }
         },
-        .release => app.arr_drag_bar = null,
+        .release => {
+            app.arr_drag_bar = null;
+            app.arr_drag_resize = false;
+            app.arr_drag_clone = false;
+            app.arr_drag_clone_done = false;
+        },
         else => {},
     }
 }
