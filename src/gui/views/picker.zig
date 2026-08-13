@@ -127,7 +127,8 @@ pub fn drawInstrument(app: anytype) void {
     var clipper = zgui.ListClipper.init();
     clipper.begin(@intCast(external_count), card_pitch);
     defer clipper.end();
-    if (app.core.picker_cursor >= items.len) clipper.includeItemsByIndex(@intCast(app.core.picker_cursor - items.len), @intCast(app.core.picker_cursor - items.len + 1));
+    if (app.core.picker_cursor >= items.len and app.core.picker_cursor < items.len + external_count)
+        clipper.includeItemsByIndex(@intCast(app.core.picker_cursor - items.len), @intCast(app.core.picker_cursor - items.len + 1));
     while (clipper.step()) {
         for (@intCast(clipper.DisplayStart)..@intCast(clipper.DisplayEnd)) |external_i| {
             const plugin = app.core.filteredInstrumentPluginAt(external_i).?;
@@ -186,7 +187,8 @@ pub fn drawFx(app: anytype) void {
     var clipper = zgui.ListClipper.init();
     clipper.begin(@intCast(external_count), card_pitch);
     defer clipper.end();
-    if (app.core.fx_picker_cursor >= count) clipper.includeItemsByIndex(@intCast(app.core.fx_picker_cursor - count), @intCast(app.core.fx_picker_cursor - count + 1));
+    if (app.core.fx_picker_cursor >= count and app.core.fx_picker_cursor < total_count)
+        clipper.includeItemsByIndex(@intCast(app.core.fx_picker_cursor - count), @intCast(app.core.fx_picker_cursor - count + 1));
     while (clipper.step()) {
         for (@intCast(clipper.DisplayStart)..@intCast(clipper.DisplayEnd)) |external_i| {
             const plugin = spectrum_ed.externalPickerAt(&app.core, external_i).?;
