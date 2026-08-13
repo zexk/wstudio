@@ -51,7 +51,7 @@ fn testApp() !App {
     try app.session.setInstrument(2, .drum_machine);
     // A fresh drum machine is the blank "init" kit; most tests here poke at
     // real pads (names, params, waveforms), so stock it like a user would.
-    try app.session.racks.items[2].instrument.drum_machine.loadKitVariant(ws.dsp.drum_kit.byName("default").?);
+    try app.session.racks.items[2].instrument.drum_machine.loadKitVariant(ws.dsp.drum_kit.byName("digital").?);
     return app;
 }
 

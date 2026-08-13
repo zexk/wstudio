@@ -691,7 +691,7 @@ test "save/load round-trip persists pad modes across sampler, drum, and slicer" 
     }
     {
         const dm = &session.racks.items[1].instrument.drum_machine;
-        try dm.loadKitVariant(drum_kit.byName("default").?);
+        try dm.loadKitVariant(drum_kit.byName("digital").?);
         dm.pads[0].?.pad.mod_rate_hz = 3.25;
         dm.pads[0].?.pad.mod_depth = 0.4;
         dm.pads[0].?.pad.mod_shape = .triangle;
@@ -1825,7 +1825,7 @@ test "save/load round-trip persists user-loaded drum pad samples" {
     try session.setInstrument(0, .drum_machine);
     const dm = &session.racks.items[0].instrument.drum_machine;
 
-    try dm.loadKitVariant(drum_kit.byName("default").?); // fresh machines are blank
+    try dm.loadKitVariant(drum_kit.byName("digital").?); // fresh machines are blank
 
     // Emulate :load-sample - user audio on pad 3, with a tweaked param.
     const clip = try testing.allocator.dupe(f32, &[_]f32{ 0.5, -0.5, 0.25, -0.125 });
@@ -1979,7 +1979,7 @@ test "save/load round-trip persists a pad rename with no sample change" {
     defer session.deinit();
     try session.setInstrument(0, .drum_machine);
     const dm = &session.racks.items[0].instrument.drum_machine;
-    try dm.loadKitVariant(drum_kit.byName("default").?); // fresh machines are blank
+    try dm.loadKitVariant(drum_kit.byName("digital").?); // fresh machines are blank
 
     // A plain :rename - no new sample, still the generated kick sample.
     dm.pads[0].?.rename("808");
@@ -2450,7 +2450,7 @@ test "a loaded project renders sample-identical to the session that saved it" {
         fn drums(s: *Session) !void {
             try s.setInstrument(0, .drum_machine);
             const dm = &s.racks.items[0].instrument.drum_machine;
-            try dm.loadKitVariant(drum_kit.byName("default").?);
+            try dm.loadKitVariant(drum_kit.byName("digital").?);
             dm.toggleStep(0, 0);
             dm.toggleStep(1, 4);
             dm.setStepVel(1, 4, 77);

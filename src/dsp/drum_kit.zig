@@ -449,7 +449,7 @@ pub const variants = [_]KitVariant{
     // own samples. What a fresh drum machine starts on, mirroring the synth's
     // own "init" preset (see dsp/synth_presets.zig).
     .{ .name = "init", .category = "utility", .tags = &.{"wstudio"}, .pads = [_]VariantSlot{.{}} ** 16 },
-    .{ .name = "default", .category = "digital", .tags = &.{ "wstudio", "house" }, .pads = .{
+    .{ .name = "digital", .category = "digital", .tags = &.{ "wstudio", "house" }, .pads = .{
         .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{} }, .gain = 1.00 },
         .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{} }, .gain = 0.90, .tune = alt_kick },
         .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{} }, .gain = 0.85 },
@@ -1500,14 +1500,19 @@ pub const variants = [_]KitVariant{
 
 /// Look a factory kit up by name, or null if there is no such flavour.
 pub fn byName(name: []const u8) ?*const KitVariant {
+    const current_name = if (std.mem.eql(u8, name, "default")) "digital" else name;
     for (&variants) |*v| {
-        if (std.mem.eql(u8, v.name, name)) return v;
+        if (std.mem.eql(u8, v.name, current_name)) return v;
     }
     return null;
 }
 
 // ---------------------------------------------------------------------------
 // Tests
+
+test "default drum kit name remains a load alias for digital" {
+    try std.testing.expectEqualStrings("digital", byName("default").?.name);
+}
 
 test "pads sharing a generator are tuned into different drums" {
     for (variants) |variant| {

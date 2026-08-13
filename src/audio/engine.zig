@@ -2175,7 +2175,7 @@ test "input monitor duplicates mono capture into stereo output" {
 fn testDrumMachine(transport: *const Transport) !DrumMachine {
     var dm = try DrumMachine.init(std.testing.allocator, 48_000, transport);
     errdefer dm.deinit();
-    try dm.loadKitVariant(drum_kit.byName("default").?);
+    try dm.loadKitVariant(drum_kit.byName("digital").?);
     return dm;
 }
 

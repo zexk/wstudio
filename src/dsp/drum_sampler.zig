@@ -449,7 +449,7 @@ pub const DrumMachine = struct {
         };
         // Every pad starts null - the "init" kit's blank slate (see
         // dsp/drum_kit.zig's `variants`). A fresh machine loads no audio at
-        // all; `:drum-kit default` (or any other flavour) fills the 16 kit
+        // all; `:drum-kit digital` (or any other flavour) fills the 16 kit
         // pads on demand, generating them procedurally.
         for (&self.pads) |*p| p.* = null; // lazily materialized - see the field's doc comment
 
@@ -1396,13 +1396,13 @@ pub const DrumMachine = struct {
 // -----------------------------------------------------------------------
 // Tests
 
-/// A machine with the "default" kit flavour on pads 0-15. A fresh `init` is
+/// A machine with the "digital" kit flavour on pads 0-15. A fresh `init` is
 /// the blank "init" kit (no audio anywhere), so any test that renders or
 /// tweaks a pad loads a kit first, exactly as the user would.
 fn testMachine(transport: *const Transport) !DrumMachine {
     var dm = try DrumMachine.init(std.testing.allocator, 48_000, transport);
     errdefer dm.deinit();
-    try dm.loadKitVariant(drum_kit.byName("default").?);
+    try dm.loadKitVariant(drum_kit.byName("digital").?);
     return dm;
 }
 
@@ -1414,7 +1414,7 @@ test "a fresh machine is blank; a kit flavour fills pads 0-15, init empties them
     // Blank slate: nothing materialized at all.
     for (0..DrumMachine.max_pads) |p| try std.testing.expect(dm.pads[p] == null);
 
-    try dm.loadKitVariant(drum_kit.byName("default").?);
+    try dm.loadKitVariant(drum_kit.byName("digital").?);
     // All 16 kit pads should generate and have samples + their default gain.
     for (0..16) |p| {
         try std.testing.expect(dm.pads[p].?.pad.samples.len > 0);
