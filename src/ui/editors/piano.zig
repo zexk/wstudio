@@ -535,7 +535,7 @@ fn repeatLastEdit(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16) void
         .piano_resize => |v| resizeOrLen(app, v.delta),
         .piano_drag => |v| repeatDrag(app, pp, max_step, v.dstep, v.dpitch),
         .piano_range_delete => |v| {
-            const hi: u16 = @min(if (max_step > 0) max_step - 1 else 0, app.piano_cursor_step + v.width - 1);
+            const hi: u16 = @min(max_step -| 1, app.piano_cursor_step +| (v.width -| 1));
             app.piano_visual_anchor = hi;
             deleteSelection(app, pp);
         },
