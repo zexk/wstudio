@@ -2730,6 +2730,29 @@ test "automation param mouse click during live search selects lane and leaves se
     try std.testing.expectEqual(automation_ed.AutomationFocus{ .synth_param = .{ .param_id = 21 } }, app.automation_focus);
 }
 
+test "automation mouse drag paints and right-drag erases points" {
+    var app = try testApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try app.session.stampClip(0, 0);
+    app.automation_track = 0;
+    app.automation_clip = .{ .track = 0, .start_bar = 0 };
+    app.view = .automation;
+
+    const y = app_mod.content_top + 3;
+    app.handleMouse(.{ .x = 3, .y = y, .button = .left, .kind = .press }, 80, 24, 0);
+    app.handleMouse(.{ .x = 4, .y = y + 1, .button = .left, .kind = .drag }, 80, 24, 0);
+    app.handleMouse(.{ .x = 4, .y = y + 1, .button = .left, .kind = .release }, 80, 24, 0);
+    const clip = app.session.arrangement.lane(0).?.clipAt(0).?;
+    try std.testing.expectEqual(@as(usize, 2), clip.automation.gain.len);
+
+    app.handleMouse(.{ .x = 3, .y = y, .button = .right, .kind = .press }, 80, 24, 0);
+    app.handleMouse(.{ .x = 4, .y = y + 1, .button = .right, .kind = .drag }, 80, 24, 0);
+    app.handleMouse(.{ .x = 4, .y = y + 1, .button = .right, .kind = .release }, 80, 24, 0);
+    try std.testing.expectEqual(@as(usize, 0), clip.automation.gain.len);
+}
+
 test "visual mode escape cancels the selection without editing" {
     var app = try testApp();
     defer app.deinit();

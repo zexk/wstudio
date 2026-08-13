@@ -887,6 +887,8 @@ pub const App = struct {
     /// In-progress sampler-waveform marker drag. Null when no drag is
     /// active. See editors/sampler.zig's handleMouse.
     sampler_drag_marker: ?SamplerMarker = null,
+    automation_mouse_edit: bool = false,
+    automation_mouse_erase: bool = false,
     /// The arrangement clip the piano roll is editing, or null when it edits
     /// the track's live pattern (see `ClipLink`). Set by `e` on a clip in the
     /// arrangement; cleared when the roll opens on a live pattern instead.
@@ -2270,7 +2272,7 @@ pub const App = struct {
             .fx_picker => self.fxPickerMouse(ev, row),
             .file_browser => self.browserMouse(ev, row),
             .help => self.helpMouse(ev),
-            .automation => automation_ed.handleMouse(self, ev, row),
+            .automation => automation_ed.handleMouse(self, ev, row, view_rows),
             .automation_param_picker => self.automationParamPickerMouse(ev, row),
             .preset_picker => preset_ed.handleMouse(self, ev, row),
             .slicer_grid => slicer_ed.handleMouse(self, ev, row),

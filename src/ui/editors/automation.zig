@@ -517,17 +517,33 @@ fn stepAt(app: *App, clip: *const ws.Clip, x: u16) ?u32 {
     return step;
 }
 
-/// Row 0 is the title; any row below it (ruler, bar graph, or caret) picks a
-/// column the same way - clicking the ruler works just as well as clicking
-/// the bars. Click moves the cursor there; scroll moves it and nudges the
-/// value. **Ctrl** nudges coarsely, **Shift** moves one step, and **Alt**
-/// jumps one beat.
-pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
+/// Click or drag in the graph to paint points. Right-drag erases explicit
+/// points. Ruler/caret clicks only move the cursor. Scroll moves it and
+/// nudges the value; **Ctrl** nudges coarsely, **Shift** moves one step, and
+/// **Alt** jumps one beat.
+pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: usize) void {
     const clip = currentClip(app) orelse return;
     if (row == 0) return;
+    const graph_rows: usize = @max(1, @min(18, view_rows -| 7));
+    const in_graph = row >= 2 and row < 2 + graph_rows;
     switch (ev.kind) {
         .press => {
-            if (stepAt(app, clip, ev.x)) |step| app.automation_cursor_step = step;
+            const step = stepAt(app, clip, ev.x) orelse return;
+            app.automation_cursor_step = step;
+            if (!in_graph) return;
+            history.recordLane(app, app.automation_track);
+            app.automation_mouse_edit = true;
+            app.automation_mouse_erase = ev.button == .right;
+            paintMouse(app, clip, row, graph_rows);
+        },
+        .drag => if (app.automation_mouse_edit) {
+            const step = stepAt(app, clip, ev.x) orelse return;
+            app.automation_cursor_step = step;
+            paintMouse(app, clip, row, graph_rows);
+        },
+        .release => {
+            app.automation_mouse_edit = false;
+            app.automation_mouse_erase = false;
         },
         .scroll_up, .scroll_down => {
             const step = stepAt(app, clip, ev.x) orelse return;
@@ -540,8 +556,23 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
             else
                 nudgeValue(app, clip, dir * (if (ev.ctrl) @as(i32, 10) else 1));
         },
-        else => {},
     }
+}
+
+fn paintMouse(app: *App, clip: *ws.Clip, row: usize, graph_rows: usize) void {
+    if (row < 2 or row >= 2 + graph_rows) return;
+    const beat = @as(f64, @floatFromInt(app.automation_cursor_step)) * 0.25;
+    const points = curvePoints(app, clip, app.automation_focus) catch return;
+    if (app.automation_mouse_erase) {
+        _ = automation_mod.removePoint(app.allocator, points, beat) catch return;
+    } else {
+        const range = curveRange(app, app.automation_focus);
+        const norm = @as(f32, @floatFromInt(2 + graph_rows - row)) / @as(f32, @floatFromInt(graph_rows));
+        const value = range[0] + (range[1] - range[0]) * norm;
+        automation_mod.setPoint(app.allocator, points, beat, value) catch return;
+    }
+    app.dirty = true;
+    if (app.session.song_mode) app.session.rebuildSongData();
 }
 
 fn moveCursor(app: *App, clip: *const ws.Clip, delta: i32) void {
