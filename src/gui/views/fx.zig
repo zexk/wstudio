@@ -82,11 +82,12 @@ fn drawSignalChain(app: anytype, target: spectrum_ed.EqTarget, fx: *ws.Fx) void 
     // Room for a four-character strip label (COMP, VERB) plus the bypass dot
     // at the far edge - at 58 the two touched.
     const slot_w: f32 = 68;
+    var slot_action: ?SlotAction = null;
     for (fx.units.items, 0..) |unit, i| {
         zgui.sameLine(.{ .spacing = gap });
         zgui.textDisabled(">", .{});
         zgui.sameLine(.{ .spacing = gap });
-        drawSlot(app, target, unit, i, slot_w);
+        slot_action = drawSlot(app, target, unit, i, slot_w) orelse slot_action;
     }
     if (fx.units.items.len < ws.Fx.max_units) {
         zgui.sameLine(.{ .spacing = gap });
@@ -99,6 +100,14 @@ fn drawSignalChain(app: anytype, target: spectrum_ed.EqTarget, fx: *ws.Fx) void 
     }
     zgui.sameLine(.{ .spacing = gap });
     zgui.textDisabled("> OUT", .{});
+
+    if (slot_action) |action| {
+        spectrum_ed.setFocus(&app.core, target, action.index);
+        switch (action.kind) {
+            .bypass => spectrum_ed.toggleBypass(&app.core, target),
+            .remove => spectrum_ed.removeFocused(&app.core, target),
+        }
+    }
 
     widgets.hoverHelp("a insert  tab select slot  b bypass");
     if (spectrum_ed.focusedUnit(&app.core, fx)) |unit| {
@@ -115,10 +124,12 @@ fn drawSignalChain(app: anytype, target: spectrum_ed.EqTarget, fx: *ws.Fx) void 
     }
 }
 
-fn drawSlot(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize, width: f32) void {
+const SlotAction = struct { index: usize, kind: enum { bypass, remove } };
+
+fn drawSlot(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize, width: f32) ?SlotAction {
     const origin = zgui.getCursorScreenPos();
     var id_buf: [32]u8 = undefined;
-    const id = std.fmt.bufPrintZ(&id_buf, "fx-slot-{d}", .{index}) catch return;
+    const id = std.fmt.bufPrintZ(&id_buf, "fx-slot-{d}", .{index}) catch return null;
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = 36 });
     const hovered = zgui.isItemHovered(.{});
     const selected = app.core.fx_focus == index;
@@ -129,6 +140,12 @@ fn drawSlot(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index:
     draw_list.addText(.{ origin[0] + 8, origin[1] + 9 }, color(if (unit.bypassed) theme.fg3 else theme.fg0), "{s}", .{spectrum_ed.stripLabel(unit.kind())});
     widgets.accentMark(draw_list, .{ origin[0] + width - 7, origin[1] + 9 }, .{ origin[0] + width - 4, origin[1] + 27 }, accent);
     if (clicked and !selected) spectrum_ed.setFocus(&app.core, target, index);
+    var action: ?SlotAction = null;
+    if (zgui.beginPopupContextItem()) {
+        if (zgui.menuItem(if (unit.bypassed) "Enable" else "Bypass", .{ .shortcut = "b", .selected = unit.bypassed })) action = .{ .index = index, .kind = .bypass };
+        if (zgui.menuItem("Remove", .{ .shortcut = "x" })) action = .{ .index = index, .kind = .remove };
+        zgui.endPopup();
+    }
     if (zgui.beginDragDropSource(.{})) {
         _ = zgui.setDragDropPayload("WSTUDIO_FX_SLOT", std.mem.asBytes(&index), .once);
         zgui.text("Move {s}", .{spectrum_ed.stripLabel(unit.kind())});
@@ -145,6 +162,7 @@ fn drawSlot(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index:
         }
         zgui.endDragDropTarget();
     }
+    return action;
 }
 
 const kindAccent = style.fxKindAccent;

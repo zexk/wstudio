@@ -1078,6 +1078,10 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
         const node_active = zgui.isItemActive();
         const node_hovered = zgui.isItemHovered(.{});
         if (node_active or node_hovered) zgui.setMouseCursor(.resize_all);
+        if (zgui.beginPopupContextItem()) {
+            if (zgui.menuItem("Delete point", .{})) result.removed = p.beat;
+            zgui.endPopup();
+        }
         if (zgui.isItemActivated()) result.activated_index = i;
         if (node_hovered and zgui.isMouseDoubleClicked(.left)) result.removed = p.beat;
         if (node_active and result.removed == null) {

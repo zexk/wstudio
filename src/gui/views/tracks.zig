@@ -309,6 +309,12 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     const id = std.fmt.bufPrintZ(&id_buf, "mixer-row-{d}", .{track_index}) catch return;
     const accent = trackColor(track.color);
     const chrome = drawRowChrome(app, id, display_row, trackRowInVisual(&app.core, display_row), height);
+    if (zgui.beginPopupContextItem()) {
+        if (zgui.menuItem("Solo", .{ .selected = track.soloed })) app.core.apiSetTrackSoloed(track_index, !track.soloed);
+        if (zgui.menuItem("Mute", .{ .shortcut = "m", .selected = track.muted })) app.core.apiSetTrackMuted(track_index, !track.muted);
+        if (zgui.menuItem("Record arm", .{ .shortcut = "r", .selected = app.core.session.isArmed(track_index) })) app.core.apiSetTrackArmed(track_index, !app.core.session.isArmed(track_index));
+        zgui.endPopup();
+    }
     const draw_list = chrome.draw;
     const origin = chrome.origin;
     const width = chrome.width;
