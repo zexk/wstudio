@@ -35,6 +35,8 @@ pub const Reverb = struct {
     /// One-pole highpass on the wet tail, 0 = off. Freeverb's undamped
     /// comb feedback lets low-end build up into "mud"; this clears it.
     low_cut_hz: f32 = 0.0,
+    /// Adds a sparse room impulse ahead of the algorithmic tail.
+    impulse: f32 = 0.0,
     /// Shared write position for every channel's predelay line - same
     /// single-index-drives-both-lines shape as Chorus.index.
     predelay_idx: usize = 0,
@@ -142,6 +144,7 @@ pub const Reverb = struct {
         const predelay_ms = dsp.sanitizeParam(self.predelay_ms, 0.0, max_predelay_ms, 0.0);
         const width = dsp.sanitizeParam(self.width, 0.0, 1.0, 1.0);
         const low_cut_hz = dsp.sanitizeParam(self.low_cut_hz, 0.0, 500.0, 0.0);
+        const impulse = dsp.sanitizeParam(self.impulse, 0.0, 1.0, 0.0) >= 0.5;
         const sr_f = @as(f32, @floatFromInt(self.sample_rate));
         const predelay_frames = predelay_ms * 0.001 * sr_f;
         // One-pole highpass: alpha = 1 at low_cut_hz = 0 makes the recurrence
@@ -176,6 +179,16 @@ pub const Reverb = struct {
                     ap.buf[ap.idx] = w + y * 0.5;
                     ap.idx = (ap.idx + 1) % ap.buf.len;
                     w = y - w;
+                }
+
+                if (impulse) {
+                    const tap_ms = [6]f32{ 7.0, 13.0, 23.0, 37.0, 59.0, 83.0 };
+                    const tap_gain = [6]f32{ 0.36, -0.25, 0.2, -0.15, 0.11, -0.08 };
+                    for (tap_ms, tap_gain, 0..) |ms, gain, tap| {
+                        const stereo_offset: f32 = @floatFromInt(ch_i * (tap + 1));
+                        const delay = @min(predelay_frames + ms * 0.001 * sr_f + stereo_offset, @as(f32, @floatFromInt(ch.predelay.len - 2)));
+                        w += delay_line.readInterp(ch.predelay, self.predelay_idx, delay) * gain;
+                    }
                 }
 
                 const hp_out = hp_alpha * (ch.hp_y1 + w - ch.hp_x1);
@@ -258,6 +271,20 @@ test "predelay pushes the tail's onset later" {
     var post_energy: f32 = 0.0;
     for (buf[2200 * 2 ..]) |s| post_energy += s * s;
     try std.testing.expect(post_energy > 0.0); // tail has arrived
+}
+
+test "impulse mode adds early reflections before the algorithmic tail" {
+    var reverb = try Reverb.init(std.testing.allocator, 48_000);
+    defer reverb.deinit(std.testing.allocator);
+    reverb.mix = 1;
+    reverb.impulse = 1;
+    var buf = [_]Sample{0} ** (1000 * 2);
+    buf[0] = 1;
+    buf[1] = 1;
+    reverb.processBlock(&buf);
+    var peak: f32 = 0;
+    for (buf[500..]) |sample| peak = @max(peak, @abs(sample));
+    try std.testing.expect(peak > 0.1);
 }
 
 test "width 0 collapses both channels to the same mono tail" {

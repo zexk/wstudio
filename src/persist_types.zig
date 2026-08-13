@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 71;
+pub const file_version: u32 = 72;
 
 /// First four bytes of every .wsj. The file is a container: a 12-byte
 /// header, the audio cache (user sample blobs, concatenated), then this
@@ -424,6 +424,7 @@ pub const ReverbSnap = struct {
     predelay_ms: f32 = 0.0,
     width: f32 = 1.0,
     low_cut_hz: f32 = 0.0,
+    impulse: f32 = 0.0,
 };
 
 /// Mirrors `eq_mod.BandKind`. Every enum goes to the file as its tag

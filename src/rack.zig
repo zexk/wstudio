@@ -201,6 +201,10 @@ pub const FxPayload = union(enum) {
                 nr.mix = r.mix;
                 nr.room = r.room;
                 nr.damp = r.damp;
+                nr.predelay_ms = r.predelay_ms;
+                nr.width = r.width;
+                nr.low_cut_hz = r.low_cut_hz;
+                nr.impulse = r.impulse;
                 return .{ .reverb = nr };
             },
             .limiter => |l| {

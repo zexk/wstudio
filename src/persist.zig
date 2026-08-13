@@ -876,6 +876,7 @@ test "save/load round-trip persists master FX" {
         utility.autogain_target_lufs = -16;
     }
     (try session.master_fx.insert(alloc, 7, .crossover, sr)).payload.crossover.low_gain_db = -9;
+    (try session.master_fx.insert(alloc, 8, .reverb, sr)).payload.reverb.impulse = 1;
     session.syncMasterChain();
 
     try save(testing.allocator, &session, testing.io, wsj_path);
@@ -883,7 +884,7 @@ test "save/load round-trip persists master FX" {
     defer loaded.deinit();
 
     const units = loaded.master_fx.units.items;
-    try testing.expectEqual(@as(usize, 8), units.len);
+    try testing.expectEqual(@as(usize, 9), units.len);
     try testing.expectApproxEqAbs(@as(f32, 18.0), units[0].payload.sat.drive_db, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, -42.0), units[1].payload.gate.threshold_db, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 6.0), units[2].payload.crush.bits, 1e-4);
@@ -899,9 +900,10 @@ test "save/load round-trip persists master FX" {
     try testing.expectEqual(@as(f32, 1), units[6].payload.utility.autogain_on);
     try testing.expectEqual(@as(f32, -16), units[6].payload.utility.autogain_target_lufs);
     try testing.expectEqual(@as(f32, -9), units[7].payload.crossover.low_gain_db);
+    try testing.expectEqual(@as(f32, 1), units[8].payload.reverb.impulse);
     // The bypassed crusher is still in the live chain; it fades itself out
     // rather than leaving the device list.
-    try testing.expectEqual(@as(usize, 8), loaded.engine.master_chain.slice().len);
+    try testing.expectEqual(@as(usize, 9), loaded.engine.master_chain.slice().len);
 }
 
 test "save/load round-trip persists a multiband compressor's crossover, style, and per-band params" {

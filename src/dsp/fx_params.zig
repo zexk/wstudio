@@ -274,6 +274,7 @@ pub const reverb_specs = [_]ParamSpec{
     .{ .name = "predelay", .field = "predelay_ms", .min = 0.0, .max = 250.0, .step_fine = 5.0, .step_coarse = 25.0 },
     .{ .name = "width", .field = "width", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
     .{ .name = "low cut", .field = "low_cut_hz", .min = 0.0, .max = 500.0, .step_fine = 10.0, .step_coarse = 50.0 },
+    .{ .name = "impulse", .field = "impulse", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
 };
 
 pub const delay_specs = [_]ParamSpec{
