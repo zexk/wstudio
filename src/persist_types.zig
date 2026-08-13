@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 65;
+pub const file_version: u32 = 66;
 
 /// First four bytes of every .wsj. The file is a container: a 12-byte
 /// header, the audio cache (user sample blobs, concatenated), then this
@@ -440,6 +440,7 @@ pub const EqStereoModeSnap = enum { stereo, mid, side };
 
 pub const EqBandSnap = struct {
     freq: f32,
+    enabled: bool = true,
     q: f32 = 0.7,
     gain_db: f32 = 0.0,
     /// Band response type.

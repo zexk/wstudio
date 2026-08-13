@@ -563,7 +563,7 @@ pub fn chainToSnap(aa: std.mem.Allocator, fx: *const Fx) ![]FxUnitSnap {
             .eq => |e| blk: {
                 var bands: [eq_mod.num_eq_bands]EqBandSnap = undefined;
                 for (&e.bands, 0..) |*b, i| bands[i] = .{
-                    .freq = b.freq, .q = b.q, .gain_db = b.gain_db,
+                    .freq = b.freq, .enabled = b.enabled, .q = b.q, .gain_db = b.gain_db,
                     .kind = switch (b.kind) {
                         .peak => .peak, .lowpass => .lowpass, .highpass => .highpass,
                         .lowshelf => .lowshelf, .highshelf => .highshelf,

@@ -2347,7 +2347,7 @@ test "save/load round-trip persists an EQ band's lowpass/highpass type and slope
     try testing.expectEqual(eq_mod.BandKind.peak, eq.bands[2].kind);
 }
 
-test "save/load round-trip persists solo/stereo-mode/dynamic-EQ/auto-gain" {
+test "save/load round-trip persists enabled/solo/stereo-mode/dynamic-EQ/auto-gain" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -2360,6 +2360,7 @@ test "save/load round-trip persists solo/stereo-mode/dynamic-EQ/auto-gain" {
     var e = &unit.payload.eq;
     e.setType(0, .tiltshelf, 1);
     e.setType(1, .notch, 2);
+    e.setEnabled(0, false);
     e.setSolo(2, true);
     e.setStereoMode(3, .mid);
     e.setDynEnabled(4, true);
@@ -2371,6 +2372,7 @@ test "save/load round-trip persists solo/stereo-mode/dynamic-EQ/auto-gain" {
     var loaded = try load(testing.allocator, testing.io, wsj_path);
     defer loaded.deinit();
     e = &loaded.racks.items[0].fx.units.items[0].payload.eq;
+    try testing.expect(!e.bands[0].enabled);
     try testing.expectEqual(eq_mod.BandKind.tiltshelf, e.bands[0].kind);
     try testing.expectEqual(eq_mod.BandKind.notch, e.bands[1].kind);
     try testing.expectEqual(@as(u8, 2), e.bands[1].slope);

@@ -126,7 +126,7 @@ fn drawEqGraph(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, sel
 
     for (unit.payload.eq.bands, 0..) |band, i| {
         const node = eqBandPoint(origin, .{ width, height }, band);
-        const accent = eqBandColor(i);
+        const accent = if (band.enabled) eqBandColor(i) else theme.fg3;
         const selected = i == selected_band;
         // Collision detection (two engaged bands within an octave, see
         // `spectrum_ed.bandCollides`): a warning ring around both, same
@@ -212,6 +212,16 @@ fn drawEqBandControls(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUn
     zgui.textColored(accent, "BAND {d}", .{band_index + 1});
     zgui.sameLine(.{});
     zgui.textDisabled("{s}", .{spectrum_ed.eq_kind_specs[@intFromEnum(band.kind)].title});
+    zgui.sameLine(.{ .spacing = 16 });
+    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (band.enabled) accent else theme.bg2 });
+    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (band.enabled) theme.bg0 else theme.fg2 });
+    if (zgui.button(if (band.enabled) "ON##eq-band-enabled" else "OFF##eq-band-enabled", .{})) {
+        history.recordFx(&app.core, target);
+        unit.payload.eq.setEnabled(band_index, !band.enabled);
+        app.core.dirty = true;
+        fx_view.syncChain(app, target);
+    }
+    zgui.popStyleColor(.{ .count = 2 });
     zgui.separator();
 
     const kind_idx = band_index * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_kind;
@@ -383,7 +393,9 @@ fn eqYDb(origin_y: f32, height: f32, y: f32) f32 {
 /// different coefficient sets multiplied together).
 fn combinedResponseDb(eq: *const ws.dsp.eq.ParametricEq, freq: f32) f32 {
     var total_mag: f32 = 1.0;
-    for (&eq.bands) |*band| total_mag *= ws.dsp.eq.bandMagnitude(band, freq, eq.sr);
+    for (&eq.bands) |*band| if (band.enabled) {
+        total_mag *= ws.dsp.eq.bandMagnitude(band, freq, eq.sr);
+    };
     return 20.0 * std.math.log10(@max(1.0e-6, total_mag));
 }
 

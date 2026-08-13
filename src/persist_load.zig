@@ -1146,6 +1146,7 @@ pub fn applyFxChain(
             .eq => |es| {
                 const e = &unit.payload.eq;
                 for (es.bands, 0..) |b, i| {
+                    e.setEnabled(i, b.enabled);
                     e.setFreq(i, b.freq);
                     e.setQ(i, b.q);
                     e.setGain(i, b.gain_db);

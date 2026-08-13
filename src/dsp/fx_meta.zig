@@ -102,9 +102,10 @@ pub fn badgeLabel3(k: FxKind) []const u8 {
 /// same pairs the same way.
 pub fn bandCollides(e: *const eq_mod.ParametricEq, i: usize) bool {
     const a = &e.bands[i];
+    if (!a.enabled) return false;
     if (eq_mod.usesGain(a.kind) and @abs(a.gain_db) < 1.0) return false;
     for (&e.bands, 0..) |*b, j| {
-        if (j == i) continue;
+        if (j == i or !b.enabled) continue;
         if (eq_mod.usesGain(b.kind) and @abs(b.gain_db) < 1.0) continue;
         if (@abs(std.math.log2(a.freq / b.freq)) < 1.0) return true;
     }

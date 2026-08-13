@@ -88,6 +88,7 @@ fn biquadStep(c: Coeffs, st: *BiquadState, x: f32) f32 {
 
 const EqBand = struct {
     freq: f32,
+    enabled: bool = true,
     gain_db: f32 = 0.0,
     q: f32 = 0.7,
     kind: BandKind = .peak,
@@ -426,6 +427,13 @@ pub const ParametricEq = struct {
         self.recomputeAutoGain();
     }
 
+    pub fn setEnabled(self: *ParametricEq, index: usize, enabled: bool) void {
+        if (index >= num_eq_bands) return;
+        self.bands[index].enabled = enabled;
+        self.bands[index].reset();
+        self.recomputeAutoGain();
+    }
+
     pub fn setFreq(self: *ParametricEq, index: usize, freq_hz: f32) void {
         if (index >= num_eq_bands or !std.math.isFinite(freq_hz)) return;
         self.bands[index].freq = std.math.clamp(freq_hz, freq_min, freq_max);
@@ -505,7 +513,7 @@ pub const ParametricEq = struct {
     }
 
     fn anySolo(self: *const ParametricEq) ?usize {
-        for (&self.bands, 0..) |*b, i| if (b.solo) return i;
+        for (&self.bands, 0..) |*b, i| if (b.enabled and b.solo) return i;
         return null;
     }
 
@@ -530,6 +538,7 @@ pub const ParametricEq = struct {
             return;
         }
         for (&self.bands) |*band| {
+            if (!band.enabled) continue;
             if (band.dyn_enabled and usesGain(band.kind)) {
                 band.updateDynamicEnvelope(self.sr, buf);
                 band.recomputeWithGain(self.sr, band.gain_db + band.dyn_amount_db * band.dyn_factor);
@@ -578,7 +587,9 @@ pub const ParametricEq = struct {
         var sum_db: f32 = 0.0;
         for (auto_gain_probe_freqs) |f| {
             var mag: f32 = 1.0;
-            for (&self.bands) |*b| mag *= bandMagnitude(b, f, self.sr);
+            for (&self.bands) |*b| if (b.enabled) {
+                mag *= bandMagnitude(b, f, self.sr);
+            };
             sum_db += types.gainToDb(mag);
         }
         const avg = sum_db / @as(f32, @floatFromInt(auto_gain_probe_freqs.len));
@@ -984,4 +995,16 @@ test "auto gain compensates a broadband boost toward unity average" {
 
     eq.setAutoGain(false);
     try std.testing.expectEqual(@as(f32, 0.0), eq.auto_gain_db);
+}
+
+test "disabled EQ bands leave audio unchanged" {
+    var eq = ParametricEq.init(48_000);
+    eq.setType(0, .lowpass, 4);
+    eq.setFreq(0, 200.0);
+    for (0..num_eq_bands) |i| eq.setEnabled(i, false);
+
+    var buf = [_]Sample{ 0.25, -0.5, 0.75, -1.0 };
+    const input = buf;
+    eq.processBlock(&buf);
+    try std.testing.expectEqualSlices(Sample, &input, &buf);
 }
