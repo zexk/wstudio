@@ -259,7 +259,7 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
             try w.print("{d:.2} kHz", .{synth.filter_cutoff / 1_000.0})
         else
             try w.print("{d:.0} Hz", .{synth.filter_cutoff}),
-        22 => try w.print("{d:.3}", .{synth.filter_res}),
+        22 => try w.print("{d:.0}%", .{synth.filter_res * 100.0}),
         249 => try w.print("{d:.1}x", .{synth.filter_drive}),
         24 => try writeTime(w, synth.fenv_attack_s),
         25 => try writeTime(w, synth.fenv_decay_s),
@@ -298,7 +298,7 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
             try w.print("{d:.2} kHz", .{synth.filter2_cutoff / 1_000.0})
         else
             try w.print("{d:.0} Hz", .{synth.filter2_cutoff}),
-        48 => try w.print("{d:.3}", .{synth.filter2_res}),
+        48 => try w.print("{d:.0}%", .{synth.filter2_res * 100.0}),
         250 => try w.print("{d:.1}x", .{synth.filter2_drive}),
         49 => try w.writeAll(switch (synth.filter_routing) {
             .series => "series",
@@ -402,6 +402,8 @@ test "param value text covers envelope curves and filter drives" {
     try std.testing.expectEqualStrings("38%", paramValueText(&synth, 11, &buf));
     synth.unison_spread = 0.8;
     try std.testing.expectEqualStrings("80%", paramValueText(&synth, 5, &buf));
+    synth.filter_res = 0.625;
+    try std.testing.expectEqualStrings("63%", paramValueText(&synth, 22, &buf));
 }
 
 pub fn searchCandidates(buf: []SearchCandidate) []const SearchCandidate {
