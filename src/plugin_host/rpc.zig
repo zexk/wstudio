@@ -45,7 +45,7 @@ pub const Kind = enum(u32) {
 };
 
 pub const Header = extern struct {
-    kind: Kind,
+    kind: u32,
     len: u32,
     /// Nonzero on a response that failed (the RPC call itself succeeded,
     /// the plugin-side operation didn't) - callers translate to a Zig
@@ -63,12 +63,12 @@ pub fn requestMinPayload(kind: Kind) usize {
     };
 }
 
-pub const Error = error{ RpcClosed, RpcPayloadTooLarge } || std.Io.Writer.Error || std.Io.Reader.Error;
+pub const Error = error{ RpcClosed, RpcPayloadTooLarge, RpcProtocolError } || std.Io.Writer.Error || std.Io.Reader.Error;
 
 /// Writes one frame. `payload` may be empty.
 pub fn send(w: *std.Io.Writer, kind: Kind, failed: bool, payload: []const u8) Error!void {
     if (payload.len > max_payload) return error.RpcPayloadTooLarge;
-    const header: Header = .{ .kind = kind, .len = @intCast(payload.len), .failed = @intFromBool(failed) };
+    const header: Header = .{ .kind = @intFromEnum(kind), .len = @intCast(payload.len), .failed = @intFromBool(failed) };
     try w.writeAll(std.mem.asBytes(&header));
     if (payload.len > 0) try w.writeAll(payload);
     try w.flush();
@@ -86,19 +86,27 @@ pub fn recv(r: *std.Io.Reader, scratch: []u8) Error!Received {
         else => |e| return e,
     };
     const header = std.mem.bytesToValue(Header, &header_bytes);
+    const kind = std.enums.fromInt(Kind, header.kind) orelse return error.RpcProtocolError;
     if (header.len > max_payload or header.len > scratch.len) return error.RpcPayloadTooLarge;
     const payload = scratch[0..header.len];
     if (header.len > 0) try r.readSliceAll(payload);
-    return .{ .kind = header.kind, .failed = header.failed != 0, .payload = payload };
+    return .{ .kind = kind, .failed = header.failed != 0, .payload = payload };
 }
 
 test "Header round-trips through raw bytes" {
-    const h: Header = .{ .kind = .parameter_info, .len = 42, .failed = 1 };
+    const h: Header = .{ .kind = @intFromEnum(Kind.parameter_info), .len = 42, .failed = 1 };
     const bytes = std.mem.asBytes(&h);
     const back = std.mem.bytesToValue(Header, bytes[0..@sizeOf(Header)]);
-    try std.testing.expectEqual(Kind.parameter_info, back.kind);
+    try std.testing.expectEqual(@intFromEnum(Kind.parameter_info), back.kind);
     try std.testing.expectEqual(@as(u32, 42), back.len);
     try std.testing.expectEqual(@as(u32, 1), back.failed);
+}
+
+test "recv rejects an invalid request kind" {
+    const header: Header = .{ .kind = std.math.maxInt(u32), .len = 0 };
+    var reader = std.Io.Reader.fixed(std.mem.asBytes(&header));
+    var scratch: [1]u8 = undefined;
+    try std.testing.expectError(error.RpcProtocolError, recv(&reader, &scratch));
 }
 
 test "send then recv round-trips a payload over an in-memory pipe-like buffer" {
