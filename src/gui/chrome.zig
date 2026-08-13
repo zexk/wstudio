@@ -148,7 +148,7 @@ fn drawPhaseMeter(correlation: f32) void {
     zgui.dummy(.{ .w = phase_bar_w, .h = 8 });
     var corr_buf: [8]u8 = undefined;
     const corr_text = std.fmt.bufPrint(&corr_buf, "{s}{d:.2}", .{ if (correlation >= 0.0) "+" else "", correlation }) catch "?";
-    zgui.textColored(meters.correlationColor(correlation), "{s}", .{corr_text});
+    widgets.coloredValue(meters.correlationColor(correlation), "{s}", .{corr_text});
     zgui.endGroup();
 }
 
@@ -164,11 +164,11 @@ fn drawLoudnessReadout(snap: anytype) void {
     var int_buf: [16]u8 = undefined;
     zgui.textColored(theme.fg3, "S", .{});
     zgui.sameLine(.{ .spacing = 4 });
-    zgui.textColored(theme.fg0, "{s}", .{lufsText(snap.lufs_short_term, &short_buf)});
+    widgets.coloredValue(theme.fg0, "{s}", .{lufsText(snap.lufs_short_term, &short_buf)});
     zgui.sameLine(.{ .spacing = 10 });
     zgui.textColored(theme.fg3, "I", .{});
     zgui.sameLine(.{ .spacing = 4 });
-    zgui.textColored(theme.fg0, "{s}", .{lufsText(snap.lufs_integrated, &int_buf)});
+    widgets.coloredValue(theme.fg0, "{s}", .{lufsText(snap.lufs_integrated, &int_buf)});
     zgui.endGroup();
 }
 

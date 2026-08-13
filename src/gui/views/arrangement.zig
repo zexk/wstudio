@@ -447,7 +447,7 @@ fn drawArrangementInspector(app: anytype) void {
         const clip = app.core.session.arrangement.lanes.items[selection.track].clips.items[selection.clip];
         widgets.coloredTitle(theme.focus, icons.arrangement ++ "  CLIP", .{});
         zgui.separator();
-        zgui.text("Track {d:0>2}", .{selection.track + 1});
+        widgets.valueText("Track {d:0>2}", .{selection.track + 1});
         zgui.sameLine(.{ .spacing = 24 });
         zgui.textDisabled("start  {d:.2} beats", .{@as(f32, @floatFromInt(clip.start_tick)) / ws.time_grid.ticks_per_beat});
         zgui.sameLine(.{ .spacing = 24 });

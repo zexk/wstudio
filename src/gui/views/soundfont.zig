@@ -84,7 +84,7 @@ fn drawPresetRow(app: anytype, track: u16, sf: *ws.dsp.SoundfontPlayer) void {
     const idx = sf.preset_index;
     const focused = app.core.soundfont_param == 3;
     zgui.pushStyleColor4f(.{ .idx = .text, .c = if (focused) theme.focus else theme.fg2 });
-    zgui.text("{s}  ({d}/{d})", .{ sf.presetName(), idx + 1, count });
+    widgets.valueText("{s}  ({d}/{d})", .{ sf.presetName(), idx + 1, count });
     zgui.popStyleColor(.{ .count = 1 });
     if (sf.presetBankProgram()) |bp| {
         zgui.textDisabled("bank {d}  prog {d}", .{ bp.bank, bp.program });

@@ -400,7 +400,7 @@ fn drawPadHeader(app: anytype, track: u16, kind: PadTargetKind, index: u8) void 
             const drum = &app.core.session.racks.items[track].instrument.drum_machine;
             zgui.textDisabled("pad {d}/{d}", .{ index + 1, ws.dsp.DrumMachine.max_pads });
             zgui.sameLine(.{});
-            zgui.textColored(theme.rhythm, "\"{s}\"", .{drum.padName(index)});
+            widgets.coloredValue(theme.rhythm, "\"{s}\"", .{drum.padName(index)});
         },
         .slice => {
             const slicer = &app.core.session.racks.items[track].instrument.slicer;
@@ -409,7 +409,7 @@ fn drawPadHeader(app: anytype, track: u16, kind: PadTargetKind, index: u8) void 
             else
                 zgui.textDisabled("slice {d}/{d}", .{ index + 1, slicer.slice_count });
             zgui.sameLine(.{});
-            zgui.textColored(theme.audio, "\"{s}\"", .{slicer.clipName()});
+            widgets.coloredValue(theme.audio, "\"{s}\"", .{slicer.clipName()});
         },
     }
 }
@@ -423,7 +423,7 @@ fn drawHeader(app: anytype, sampler: *const ws.dsp.Sampler) void {
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[track].name});
     zgui.sameLine(.{});
-    zgui.textColored(theme.focus, "\"{s}\"", .{sampler.clipName()});
+    widgets.coloredValue(theme.focus, "\"{s}\"", .{sampler.clipName()});
 }
 
 // Slider bounds come from the dsp-side spec table so they can never drift

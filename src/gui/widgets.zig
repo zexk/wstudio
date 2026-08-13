@@ -67,6 +67,18 @@ pub fn coloredTitle(col: [4]f32, comptime fmt: []const u8, args: anytype) void {
     gui_style.popFont();
 }
 
+pub fn valueText(comptime fmt: []const u8, args: anytype) void {
+    gui_style.pushFont(.heading);
+    zgui.text(fmt, args);
+    gui_style.popFont();
+}
+
+pub fn coloredValue(col: [4]f32, comptime fmt: []const u8, args: anytype) void {
+    gui_style.pushFont(.heading);
+    zgui.textColored(col, fmt, args);
+    gui_style.popFont();
+}
+
 /// Compact replacement for persistent shortcut prose. Meaning stays
 /// available to mouse users while keyboard users already have status/help.
 pub fn hoverHelp(tooltip: []const u8) void {
