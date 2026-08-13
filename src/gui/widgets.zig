@@ -38,6 +38,15 @@ pub fn iconButton(label: [:0]const u8, tooltip: []const u8) bool {
     return clicked;
 }
 
+pub fn activeIconButton(label: [:0]const u8, tooltip: []const u8, active: bool, accent: [4]f32) bool {
+    if (active) {
+        zgui.pushStyleColor4f(.{ .idx = .button, .c = accent });
+        zgui.pushStyleColor4f(.{ .idx = .text, .c = gui_style.palette.bg0 });
+    }
+    defer if (active) zgui.popStyleColor(.{ .count = 2 });
+    return iconButton(label, tooltip);
+}
+
 fn tooltipContents(text: []const u8) void {
     if (std.mem.indexOf(u8, text, "  ")) |split| {
         zgui.textUnformatted(text[0..split]);

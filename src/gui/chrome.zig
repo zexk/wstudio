@@ -89,11 +89,12 @@ fn drawTransportControls(app: anytype, snap: ws.engine.UiSnapshot) void {
     // The action, not the key: space is remappable (and is the leader
     // prefix), so synthesizing it here would hand the click to a user
     // keymap - or leave a chord half-typed - instead of the transport.
-    if (widgets.iconButton(if (snap.playing or snap.pre_rolling) icons.stop ++ "##transport-stop" else icons.play ++ "##transport-play", if (snap.playing or snap.pre_rolling) "Stop  Space" else "Play  Space")) {
+    if (widgets.activeIconButton(if (snap.playing or snap.pre_rolling) icons.stop ++ "##transport-stop" else icons.play ++ "##transport-play", if (snap.playing or snap.pre_rolling) "Stop  Space" else "Play  Space", snap.playing, theme.audio)) {
         app.core.applyAction(.toggle_play, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
     }
     zgui.sameLine(.{ .spacing = 5 });
-    if (widgets.iconButton(icons.record ++ "##transport-record", "Record  Space") and !snap.playing and !snap.pre_rolling) {
+    const recording = snap.pre_rolling or app.core.recording_pending_len > 0 or app.core.recording_active_len > 0;
+    if (widgets.activeIconButton(icons.record ++ "##transport-record", if (recording) "Recording" else "Record  Space", recording, theme.danger) and !snap.playing and !snap.pre_rolling) {
         if (!hasArmedAudioTarget(&app.core) and app.core.modal.mode == .normal and
             (app.core.view == .piano_roll or app.core.view == .drum_grid or app.core.view == .slicer_grid))
             app.core.handleKey(.{ .char = 'i' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);

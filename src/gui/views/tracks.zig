@@ -572,6 +572,7 @@ fn drawTrackBadgeToggle(draw_list: zgui.DrawList, id: [:0]const u8, x: f32, y: f
     _ = zgui.invisibleButton(id, .{ .w = badge_w, .h = badge_h });
     const activated = zgui.isItemActivated();
     const hovered = zgui.isItemHovered(.{});
+    if (hovered) zgui.setMouseCursor(.hand);
     const bg = if (active) active_bg else if (hovered) theme.bg4 else theme.bg2;
     const fg = if (active) legibleOn(active_bg) else if (hovered) theme.fg1 else theme.fg3;
     draw_list.addRectFilled(.{ .pmin = .{ x, y }, .pmax = .{ x + badge_w, y + badge_h }, .col = color(bg), .rounding = gui_style.item_rounding });

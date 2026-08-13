@@ -139,7 +139,7 @@ fn drawEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void
     zgui.sameLine(.{});
     zgui.textDisabled("unit {d}  {s} {s}", .{ app.core.fx_focus + 1, if (unit.bypassed) "\u{25CB}" else "\u{25CF}", if (unit.bypassed) "BYPASSED" else "ACTIVE" });
     zgui.sameLine(.{ .spacing = 18 });
-    if (widgets.iconButton(icons.mute ++ "##fx-bypass", if (unit.bypassed) "Enable  b" else "Bypass  b")) spectrum_ed.toggleBypass(&app.core, target);
+    if (widgets.activeIconButton(icons.mute ++ "##fx-bypass", if (unit.bypassed) "Enable  b" else "Bypass  b", unit.bypassed, theme.danger)) spectrum_ed.toggleBypass(&app.core, target);
     zgui.sameLine(.{ .spacing = 5 });
     if (widgets.iconButton(icons.left ++ "##fx-left", "Move left  h")) spectrum_ed.moveFocused(&app.core, target, -1);
     zgui.sameLine(.{ .spacing = 5 });
