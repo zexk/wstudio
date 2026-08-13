@@ -1604,6 +1604,7 @@ pub const PolySynth = struct {
                 v.stage  = .release;
                 // zig fmt: on
                 v.stage2 = .release;
+                v.stage3 = .release;
             }
         }
     }
@@ -4952,6 +4953,19 @@ test "arp gate closes the voice partway through a step" {
     synth.processBlock(&buf);
 
     try std.testing.expectEqual(.release, synth.voices[idx].stage);
+}
+
+test "arp gate releases every envelope" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.arp_on = true;
+    synth.noteOn(60, 1.0);
+
+    synth.arpReleaseActive();
+
+    try std.testing.expectEqual(PolySynth.Stage.release, synth.voices[0].stage);
+    try std.testing.expectEqual(PolySynth.Stage.release, synth.voices[0].stage2);
+    try std.testing.expectEqual(PolySynth.Stage.release, synth.voices[0].stage3);
 }
 
 test "arp hold keeps cycling the last chord after every key releases" {
