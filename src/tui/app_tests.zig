@@ -7958,6 +7958,23 @@ test "mouse scroll in tracks view moves the cursor like j/k" {
     try std.testing.expectEqual(@as(usize, 0), app.cursor);
 }
 
+test "tracks modifier clicks toggle mute solo and arm without opening" {
+    var app = try testApp();
+    defer app.deinit();
+    var buf: [8 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
+    const row = app_mod.content_top + 1;
+
+    app.handleMouse(.{ .x = 5, .y = row, .button = .left, .kind = .press, .shift = true }, 80, 24, 0);
+    try std.testing.expect(app.session.project.tracks.items[0].muted);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+    app.handleMouse(.{ .x = 5, .y = row, .button = .left, .kind = .press, .ctrl = true }, 80, 24, 0);
+    try std.testing.expect(app.session.project.tracks.items[0].soloed);
+    app.handleMouse(.{ .x = 5, .y = row, .button = .left, .kind = .press, .alt = true }, 80, 24, 0);
+    try std.testing.expect(app.session.isArmed(0));
+}
+
 test "tracks view scrolls to keep the cursor visible with many tracks" {
     var app = try testApp();
     defer app.deinit();

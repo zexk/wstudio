@@ -2282,8 +2282,9 @@ pub const App = struct {
         }
     }
 
-    /// Tracks view: click a row to select + open it (same as Enter - a
-    /// group row opens its FX chain); scroll moves like j/k, Ctrl ten rows.
+    /// Tracks view: click selects + opens. Shift toggles mute, Ctrl solo,
+    /// Alt record-arm, and right-click folds the row's group. Scroll moves
+    /// like j/k, Ctrl ten rows.
     /// Row-level only: track names are unbounded width (`"{s: <8}"` pads
     /// but never truncates), so a mute/solo column click zone can't be
     /// derived reliably from the track index alone.
@@ -2304,8 +2305,30 @@ pub const App = struct {
                 if (ri >= self.track_rows_len) return;
                 self.setTrackRow(ri);
                 switch (self.track_rows_buf[ri]) {
-                    .track => |t| self.openTrack(t),
-                    .group => |g| spectrum_ed.switchToGroup(self, g),
+                    .track => |t| {
+                        if (ev.button == .right) {
+                            if (self.session.project.tracks.items[t].group) |g| self.doGroupFoldToggle(g);
+                        } else if (ev.alt) {
+                            self.doTrackArmToggle(t);
+                        } else if (ev.ctrl) {
+                            self.applyAction(.toggle_solo, self.now_ns);
+                        } else if (ev.shift) {
+                            self.applyAction(.toggle_mute, self.now_ns);
+                        } else {
+                            self.openTrack(t);
+                        }
+                    },
+                    .group => |g| {
+                        if (ev.button == .right) {
+                            self.doGroupFoldToggle(g);
+                        } else if (ev.ctrl) {
+                            self.doGroupSolo(g);
+                        } else if (ev.shift) {
+                            self.doGroupMute(g);
+                        } else {
+                            spectrum_ed.switchToGroup(self, g);
+                        }
+                    },
                 }
             },
             .scroll_up, .scroll_down => {
