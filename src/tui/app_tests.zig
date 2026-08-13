@@ -8685,6 +8685,28 @@ test "FX chain: </> reorder and b bypass reach the engine chain" {
     try std.testing.expectEqual(@as(usize, 2), app.session.engine.master_chain.slice().len);
 }
 
+test "FX chain: y/P copies a unit across tracks with independent settings" {
+    var app = try testApp();
+    defer app.deinit();
+    const sr = app.session.project.sample_rate;
+    const source = try app.session.racks.items[0].fx.insert(app.session.allocator, 0, .delay, sr);
+    source.payload.delay.feedback = 0.73;
+    source.setBypassed(true);
+
+    spectrum_ed.switchToTrack(&app, 0);
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'y' });
+    spectrum_ed.switchToTrack(&app, 1);
+    _ = spectrum_ed.handleKey(&app, .{ .char = 'P' });
+
+    const pasted = app.session.racks.items[1].fx.units.items[0];
+    try std.testing.expectEqual(ws.FxKind.delay, pasted.kind());
+    try std.testing.expectApproxEqAbs(@as(f32, 0.73), pasted.payload.delay.feedback, 0.0001);
+    try std.testing.expect(pasted.bypassed);
+    try std.testing.expect(pasted.instance_id != 0);
+    pasted.payload.delay.feedback = 0.2;
+    try std.testing.expectApproxEqAbs(@as(f32, 0.73), source.payload.delay.feedback, 0.0001);
+}
+
 test "FX chain: param nudges coalesce into one undo step, u right after nudging still undoes it" {
     var app = try testApp();
     defer app.deinit();

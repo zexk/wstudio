@@ -490,6 +490,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("a",            "insert an effect after the focused slot (opens the FX picker); / filters it by name, g/G jumps first/last");
     t.key("A",            "add an automation lane for the selected effect parameter");
     t.key("x",            "remove the focused unit");
+    t.key("y / P",        "yank / paste the focused unit (works across track, group, and master chains)");
     t.key("< / >",        "move the focused unit one slot left / right along the chain");
     t.key("b",            "bypass toggle: the unit keeps its settings but the audio skips it");
     t.key("tab / ] / [",  "walk slot focus along the chain (an EQ unit's editor doubles as the spectrum analyzer)");

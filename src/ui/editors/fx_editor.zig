@@ -757,6 +757,48 @@ pub fn removeFocused(app: *App, target: EqTarget) void {
     app.setStatus("{s} removed", .{label});
 }
 
+fn yankFocused(app: *App, target: EqTarget) void {
+    const fx = fxPtr(app, target) orelse return;
+    const source = focusedUnit(app, fx) orelse return;
+    const copy = app.allocator.create(FxUnit) catch {
+        app.setStatus("yank failed (out of memory)", .{});
+        return;
+    };
+    copy.* = .{ .payload = source.payload.dupe(app.allocator, app.session.project.sample_rate) catch {
+        app.allocator.destroy(copy);
+        app.setStatus("yank failed", .{});
+        return;
+    }, .instance_id = 0 };
+    copy.setBypassed(source.bypassed);
+    if (app.fx_clip) |old| {
+        old.payload.deinit(app.allocator);
+        app.allocator.destroy(old);
+    }
+    app.fx_clip = copy;
+    app.setStatus("{s} yanked", .{unitLabel(copy.kind())});
+}
+
+fn pasteFx(app: *App, target: EqTarget) void {
+    const source = app.fx_clip orelse {
+        app.setStatus("nothing yanked - y copies an FX unit", .{});
+        return;
+    };
+    const fx = fxPtr(app, target) orelse return;
+    const pos = if (fx.units.items.len == 0) 0 else @min(app.fx_focus + 1, fx.units.items.len);
+    history.flushFxNudge(app);
+    const before = history.captureFx(app, target);
+    _ = fx.insertDupe(app.session.allocator, pos, source, app.session.project.sample_rate) catch |err| {
+        history.pushFxIfOk(app, before, false);
+        app.setStatus("paste failed: {s}", .{@errorName(err)});
+        return;
+    };
+    history.pushFxIfOk(app, before, true);
+    setFocus(app, target, pos);
+    app.dirty = true;
+    syncChain(app, target);
+    app.setStatus("{s} pasted", .{unitLabel(source.kind())});
+}
+
 /// Move the focused unit one slot along the chain; focus follows it.
 pub fn moveFocused(app: *App, target: EqTarget, dir: i2) void {
     const fx = fxPtr(app, target) orelse return;
@@ -977,6 +1019,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             },
             'a' => { openPicker(app, target); return true; },
             'A' => { addFocusedFxParamLane(app, target); return true; },
+            'y' => { yankFocused(app, target); return true; },
+            'P' => { pasteFx(app, target); return true; },
             'x' => { removeFocused(app, target); return true; },
             '<' => { moveFocused(app, target, -1); return true; },
             '>' => { moveFocused(app, target, 1); return true; },

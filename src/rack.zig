@@ -532,6 +532,18 @@ pub const Fx = struct {
         return unit;
     }
 
+    /// Insert a settings-only copy with a fresh instance id.
+    pub fn insertDupe(self: *Fx, allocator: std.mem.Allocator, pos: usize, source: *const FxUnit, sr: u32) !*FxUnit {
+        if (self.units.items.len >= max_units) return error.ChainFull;
+        const unit = try allocator.create(FxUnit);
+        errdefer allocator.destroy(unit);
+        unit.* = .{ .payload = try source.payload.dupe(allocator, sr), .instance_id = self.allocInstanceId() };
+        errdefer unit.payload.deinit(allocator);
+        unit.setBypassed(source.bypassed);
+        try self.units.insert(allocator, @min(pos, self.units.items.len), unit);
+        return unit;
+    }
+
     pub fn insertClap(
         self: *Fx,
         allocator: std.mem.Allocator,

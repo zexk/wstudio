@@ -215,7 +215,7 @@ pub fn drawFxView(
     const focused = spectrum_ed.focusedUnit(app, chain);
 
     if (!compact) {
-        try w.writeAll(dim ++ "  tab/[/]:slot  a:insert  x:remove  </>:move  b:bypass  ");
+        try w.writeAll(dim ++ "  tab/[/]:slot  a:insert  x:remove  y/P:copy  </>:move  b:bypass  ");
         // EQ gets its own two-stage scheme (see editors/fx_editor.zig's
         // eq_band_select doc comment) - h/l means something different
         // depending which stage it's in, so the hint has to match.

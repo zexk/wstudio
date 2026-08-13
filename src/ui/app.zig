@@ -770,6 +770,8 @@ pub const App = struct {
     /// between tracks. Whole-pattern granularity; one slot per editor kind.
     piano_clip: ?PianoClip = null,
     drum_clip: ?DrumMachine.Variant = null,
+    /// FX unit clipboard, app-wide so units can move between chains.
+    fx_clip: ?*ws.FxUnit = null,
     /// Visual-mode anchors: set to the cursor position when `v` or `V` is
     /// pressed, null outside visual mode. The selection is
     /// [min(anchor,cursor), max(anchor,cursor)] on the view's time axis
@@ -1147,6 +1149,10 @@ pub const App = struct {
         if (self.drum_range_clip) |*c| c.deinit(self.allocator);
         if (self.slicer_range_clip) |*c| c.deinit(self.allocator);
         if (self.drum_clip) |*c| DrumMachine.freeMidi(self.allocator, &c.midi);
+        if (self.fx_clip) |unit| {
+            unit.payload.deinit(self.allocator);
+            self.allocator.destroy(unit);
+        }
         if (self.pending_fx_nudge) |*p| p.deinit(self.allocator);
         self.freeBrowserEntries();
         self.browser_entries.deinit(self.allocator);
