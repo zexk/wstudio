@@ -26,6 +26,7 @@ const scroll = @import("scroll.zig");
 const zgui = @import("zgui");
 
 pub const App = struct {
+    pub const PluginScanPhase = enum { idle, clap, vst3, finish };
     pub const TrackMixerField = enum { gain, pan };
     const TrackMixerEdit = struct { track: u16, field: TrackMixerField, before: f32 };
 
@@ -48,6 +49,7 @@ pub const App = struct {
     /// Which view the one shared workspace window last drew - see
     /// `drawWorkspace`, which resets the scroll when this changes.
     last_workspace_view: app_mod.AppView = .tracks,
+    plugin_scan_phase: PluginScanPhase = .idle,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io, init_path: ?[]const u8, user_config: config_mod.Config) !App {
         return .{ .core = try app_mod.App.initConfigured(allocator, io, init_path, user_config) };
@@ -55,6 +57,38 @@ pub const App = struct {
 
     pub fn deinit(self: *App) void {
         self.core.deinit();
+    }
+
+    pub fn startPluginScan(self: *App) void {
+        if (self.plugin_scan_phase != .idle) return;
+        const environ = self.core.environ orelse {
+            self.core.setStatus("plugin scan unavailable", .{});
+            return;
+        };
+        self.core.beginExternalPluginScan(environ);
+        self.plugin_scan_phase = .clap;
+    }
+
+    pub fn tickPluginScan(self: *App) void {
+        const environ = self.core.environ orelse return;
+        self.plugin_scan_phase = switch (self.plugin_scan_phase) {
+            .idle => .idle,
+            .clap => if (self.core.scanExternalPluginFormat(environ, .clap)) .vst3 else .idle,
+            .vst3 => if (self.core.scanExternalPluginFormat(environ, .vst3)) .finish else .idle,
+            .finish => blk: {
+                self.core.finishExternalPluginScan(true);
+                break :blk .idle;
+            },
+        };
+    }
+
+    pub fn pluginScanProgress(self: *const App) ?struct { fraction: f32, label: [:0]const u8 } {
+        return switch (self.plugin_scan_phase) {
+            .idle => null,
+            .clap => .{ .fraction = 0, .label = "CLAP" },
+            .vst3 => .{ .fraction = 0.5, .label = "VST3" },
+            .finish => .{ .fraction = 0.9, .label = "Finalizing" },
+        };
     }
 
     pub fn draw(self: *App, audio_label: []const u8) void {
@@ -406,6 +440,16 @@ test "GUI picker cards select and escape dismisses" {
     picker_view.selectInstrument(&app, 1, 0);
     try std.testing.expectEqual(ws.InstrumentKind.sampler, std.meta.activeTag(app.core.session.racks.items[0].instrument));
     try std.testing.expectEqual(app_mod.AppView.sampler_editor, app.core.view);
+}
+
+test "GUI plugin scan reports real phase progress" {
+    var app: App = .{ .core = try app_mod.App.init(std.testing.allocator, std.Io.failing) };
+    defer app.deinit();
+    try std.testing.expectEqual(@as(?@TypeOf(app.pluginScanProgress().?), null), app.pluginScanProgress());
+    app.plugin_scan_phase = .vst3;
+    const progress = app.pluginScanProgress().?;
+    try std.testing.expectEqual(@as(f32, 0.5), progress.fraction);
+    try std.testing.expectEqualStrings("VST3", progress.label);
 }
 
 // Zig only analyzes tests in files the test root references explicitly, so a

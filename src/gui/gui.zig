@@ -244,6 +244,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
             app.core.serviceMidiInput(&midi_in);
         }
         drawFrame();
+        app.tickPluginScan();
     }
 
     // The main loop broke on quit/window close: the session is still alive.

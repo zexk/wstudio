@@ -51,20 +51,36 @@ pub const Catalog = struct {
     }
 
     pub fn scan(self: *Catalog, io: std.Io, clap_paths: []const []const u8, vst3_paths: []const []const u8) !void {
+        self.beginScan();
+        try self.scanClap(io, clap_paths);
+        try self.scanVst3(io, vst3_paths);
+        self.finishScan();
+    }
+
+    pub fn beginScan(self: *Catalog) void {
         self.clear();
+    }
+
+    pub fn scanClap(self: *Catalog, io: std.Io, paths: []const []const u8) !void {
         var registry = clap_scan.Registry.init(self.allocator);
         defer registry.deinit();
-        try registry.scanPaths(io, clap_paths);
+        try registry.scanPaths(io, paths);
         for (registry.plugins.items) |plugin| {
             if (hasFeature(plugin.features.items, "instrument"))
                 try self.appendClap(plugin, .instrument);
             if (hasFeature(plugin.features.items, "audio-effect"))
                 try self.appendClap(plugin, .effect);
         }
+    }
+
+    pub fn scanVst3(self: *Catalog, io: std.Io, paths: []const []const u8) !void {
         var vst3 = vst3_scan.Registry.init(self.allocator);
         defer vst3.deinit();
-        try vst3.scanPaths(io, vst3_paths);
+        try vst3.scanPaths(io, paths);
         for (vst3.plugins.items) |plugin| try self.appendVst3(plugin);
+    }
+
+    pub fn finishScan(self: *Catalog) void {
         std.mem.sort(Plugin, self.plugins.items, {}, lessThan);
         self.scanned = true;
     }
