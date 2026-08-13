@@ -106,17 +106,17 @@ fn drawSharedSections(app: anytype, target: Target) void {
             for (section.rows) |row| {
                 const toggle_accent = if (target == .pad) theme.modulation else theme.focus;
                 if (row.id == ws.dsp.pad.reverse_id)
-                    drawEnum(app, target, row.id, &.{ "FORWARD", "REVERSE" }, toggle_accent)
+                    drawListParam(app, target, row, &.{ "FORWARD", "REVERSE" }, toggle_accent)
                 else if (row.id == ws.dsp.pad.gate_id)
-                    drawEnum(app, target, row.id, &.{ "ONE-SHOT", "GATE", "RETRIGGER" }, toggle_accent)
+                    drawListParam(app, target, row, &.{ "ONE-SHOT", "GATE", "RETRIGGER" }, toggle_accent)
                 else if (row.id == ws.dsp.pad.loop_id)
-                    drawEnum(app, target, row.id, &.{ "OFF", "FORWARD", "PING-PONG" }, toggle_accent)
+                    drawListParam(app, target, row, &.{ "OFF", "FORWARD", "PING-PONG" }, toggle_accent)
                 else if (row.id == ws.dsp.pad.warp_method_id)
-                    drawEnum(app, target, row.id, &.{ "BEATS", "TONES" }, toggle_accent)
+                    drawListParam(app, target, row, &.{ "BEATS", "TONES" }, toggle_accent)
                 else if (row.id == ws.dsp.pad.mod_shape_id)
-                    drawEnum(app, target, row.id, &.{ "SINE", "TRIANGLE", "SAW", "SQUARE" }, toggle_accent)
+                    drawListParam(app, target, row, &.{ "SINE", "TRIANGLE", "SAW", "SQUARE" }, toggle_accent)
                 else if (row.id == ws.dsp.pad.mod_dest_id)
-                    drawEnum(app, target, row.id, &.{ "OFF", "PITCH", "GAIN", "PAN", "FILTER" }, toggle_accent)
+                    drawListParam(app, target, row, &.{ "OFF", "PITCH", "GAIN", "PAN", "FILTER" }, toggle_accent)
                 else
                     drawParam(app, target, row.id, row.label, row.gui_format);
             }
@@ -229,7 +229,7 @@ fn drawStandalone(app: anytype) void {
     drawSharedSections(app, target);
     widgets.sectionTitle(sampler_ed.key_section.title, theme.rhythm);
     drawParam(app, target, sampler_ed.key_section.rows[0].id, sampler_ed.key_section.rows[0].label, sampler_ed.key_section.rows[0].gui_format);
-    drawEnum(app, target, sampler_ed.key_section.rows[1].id, &.{ "POLY", "MONO" }, theme.focus);
+    drawListParam(app, target, sampler_ed.key_section.rows[1], &.{ "POLY", "MONO" }, theme.focus);
     pane_fit.settle(below_top, 0);
 }
 
@@ -463,22 +463,23 @@ fn drawParam(app: anytype, target: Target, id: u8, label_text: []const u8, forma
     if (result.activated) app.core.sampler_param = id;
 }
 
-/// One button per enum pad param, cycling forward through `labels` on click.
-/// `labels[0]` is the neutral/off state (drawn unaccented); everything past
-/// it lights up, which covers both the reverse toggle and the three-way play
-/// mode without a second widget.
-fn drawEnum(app: anytype, target: Target, id: u8, labels: []const [:0]const u8, active_color: [4]f32) void {
-    const value = target.value(id) orelse return;
+fn drawListParam(app: anytype, target: Target, row: sampler_ed.ParamRow, labels: []const [:0]const u8, accent: [4]f32) void {
+    var value = target.value(row.id) orelse return;
     const idx: usize = @min(@as(usize, @intFromFloat(@max(@round(value), 0))), labels.len - 1);
-    const active = idx != 0;
-    const focused = app.core.sampler_param == id;
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) active_color else if (focused) theme.bg4 else theme.bg2 });
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) theme.bg0 else if (focused) theme.focus else theme.fg2 });
-    if (zgui.button(labels[idx], .{ .w = 106, .h = 32 })) {
-        app.core.sampler_param = id;
-        setPadParam(app, target, id, @floatFromInt((idx + 1) % labels.len));
+    var id_buf: [48]u8 = undefined;
+    const id = std.fmt.bufPrintZ(&id_buf, "##sampler-list-{d}", .{row.id}) catch return;
+    const result = widgets.listStepper(row.label, id, .{
+        .v = &value,
+        .min = 0,
+        .max = @floatFromInt(labels.len - 1),
+        .display = labels[idx],
+        .accent = accent,
+        .focused = app.core.sampler_param == row.id,
+    });
+    if (result.changed) {
+        app.core.sampler_param = row.id;
+        setPadParam(app, target, row.id, value);
     }
-    zgui.popStyleColor(.{ .count = 2 });
 }
 
 /// Waveform tint per frequency band, the GUI half of views/slicer.zig's and
