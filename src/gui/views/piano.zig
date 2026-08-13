@@ -80,7 +80,7 @@ fn previewNote(source: ws.dsp.pattern.Note, edit: ?MouseEdit, steps_per_beat: us
         },
         .resize => note.duration_beat = @as(f64, @floatFromInt(active.duration_steps)) / @as(f64, @floatFromInt(steps_per_beat)),
         .resize_left => {
-            const end = active.source_step + active.duration_steps;
+            const end = @as(u32, active.source_step) + active.duration_steps;
             note.start_beat = @as(f64, @floatFromInt(active.target_step)) / @as(f64, @floatFromInt(steps_per_beat));
             note.duration_beat = @as(f64, @floatFromInt(end - active.target_step)) / @as(f64, @floatFromInt(steps_per_beat));
         },
@@ -100,7 +100,7 @@ fn updateMouseEdit(edit: *MouseEdit, pointer_pitch: u7, pointer_step: usize) voi
         },
         .resize => edit.duration_steps = @intCast(@max(1, pointer_step + 1 -| edit.source_step)),
         // The end is fixed, so the start can never reach or pass it.
-        .resize_left => edit.target_step = @intCast(@min(pointer_step, @as(usize, edit.source_step + edit.duration_steps) - 1)),
+        .resize_left => edit.target_step = @intCast(@min(pointer_step, @as(usize, edit.source_step) + edit.duration_steps - 1)),
     }
 }
 
@@ -128,6 +128,11 @@ test "mouse note edits preview before commit" {
     var edit = left;
     updateMouseEdit(&edit, 60, 99);
     try std.testing.expectEqual(@as(u16, 5), edit.target_step);
+
+    var long: MouseEdit = .{ .kind = .resize_left, .source_pitch = 60, .source_step = std.math.maxInt(u16), .target_pitch = 60, .target_step = 0, .duration_steps = std.math.maxInt(u16) };
+    updateMouseEdit(&long, 60, std.math.maxInt(u16));
+    const long_note: ws.dsp.pattern.Note = .{ .pitch = 60, .start_beat = std.math.maxInt(u16), .duration_beat = std.math.maxInt(u16) };
+    try std.testing.expectEqual(@as(f64, std.math.maxInt(u16)), previewNote(long_note, long, 1).duration_beat);
 }
 
 test "a pen keeps the default length until the pointer leaves its cell" {
