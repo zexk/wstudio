@@ -14,8 +14,8 @@
 //! directly into the mmapped buffer, chunked to the engine's max block.
 
 const std = @import("std");
-const types = @import("../core/types.zig");
-const backend_mod = @import("backend.zig");
+const types = @import("../../core/types.zig");
+const backend_mod = @import("../backend.zig");
 
 // Opaque libpipewire handles.
 const ThreadLoop = opaque {};

@@ -2,9 +2,9 @@
 //! configured source, and pushes note, CC, and pitch-bend commands.
 
 const std = @import("std");
-const Engine = @import("engine.zig").Engine;
-const Spsc = @import("../core/ring_buffer.zig").Spsc;
-const midi_velocity = @import("midi_velocity.zig");
+const Engine = @import("../engine.zig").Engine;
+const Spsc = @import("../../core/ring_buffer.zig").Spsc;
+const midi_velocity = @import("velocity.zig");
 const VelocityCurve = midi_velocity.VelocityCurve;
 
 const c = @cImport(@cInclude("alsa/asoundlib.h"));

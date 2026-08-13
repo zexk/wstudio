@@ -39,38 +39,38 @@ pub const AudioHost = audio_host.AudioHost;
 pub const audio_input = @import("audio/capture.zig");
 pub const AudioInput = audio_input.AudioInput;
 pub const device_list = switch (@import("builtin").os.tag) {
-    .linux => @import("audio/device_list_linux.zig"),
-    .windows => @import("audio/device_list_windows.zig"),
-    .macos => @import("audio/device_list_macos.zig"),
+    .linux => @import("audio/devices/linux.zig"),
+    .windows => @import("audio/devices/windows.zig"),
+    .macos => @import("audio/devices/macos.zig"),
     else => struct {
         pub fn write(_: *std.Io.Writer) !void {}
     },
 };
-pub const midi_velocity = @import("audio/midi_velocity.zig");
+pub const midi_velocity = @import("audio/midi/velocity.zig");
 pub const alsa = if (@import("builtin").os.tag == .linux)
-    @import("audio/alsa.zig")
+    @import("audio/backends/alsa.zig")
 else
     struct {};
 pub const pipewire = if (@import("builtin").os.tag == .linux)
-    @import("audio/pipewire.zig")
+    @import("audio/backends/pipewire.zig")
 else
     struct {};
 pub const jack = if (@import("builtin").os.tag == .linux)
-    @import("audio/jack.zig")
+    @import("audio/backends/jack.zig")
 else
     struct {};
 pub const wasapi = if (@import("builtin").os.tag == .windows)
-    @import("audio/wasapi.zig")
+    @import("audio/backends/wasapi.zig")
 else
     struct {};
 pub const coreaudio = if (@import("builtin").os.tag == .macos)
-    @import("audio/coreaudio.zig")
+    @import("audio/backends/coreaudio.zig")
 else
     struct {};
 pub const midi_in = switch (@import("builtin").os.tag) {
-    .linux => @import("audio/midi_in.zig"),
-    .macos => @import("audio/midi_in_coreaudio.zig"),
-    .windows => @import("audio/midi_in_windows.zig"),
+    .linux => @import("audio/midi/linux.zig"),
+    .macos => @import("audio/midi/macos.zig"),
+    .windows => @import("audio/midi/windows.zig"),
     else => struct {},
 };
 

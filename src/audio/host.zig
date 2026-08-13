@@ -19,11 +19,11 @@ const has_linux_backends = builtin.os.tag == .linux;
 const has_wasapi = builtin.os.tag == .windows;
 const has_coreaudio = builtin.os.tag == .macos;
 
-const PipewireBackend = if (has_linux_backends) @import("pipewire.zig").PipewireBackend else void;
-const JackBackend = if (has_linux_backends) @import("jack.zig").JackBackend else void;
-const AlsaBackend = if (has_linux_backends) @import("alsa.zig").AlsaBackend else void;
-const WasapiBackend = if (has_wasapi) @import("wasapi.zig").WasapiBackend else void;
-const CoreAudioBackend = if (has_coreaudio) @import("coreaudio.zig").CoreAudioBackend else void;
+const PipewireBackend = if (has_linux_backends) @import("backends/pipewire.zig").PipewireBackend else void;
+const JackBackend = if (has_linux_backends) @import("backends/jack.zig").JackBackend else void;
+const AlsaBackend = if (has_linux_backends) @import("backends/alsa.zig").AlsaBackend else void;
+const WasapiBackend = if (has_wasapi) @import("backends/wasapi.zig").WasapiBackend else void;
+const CoreAudioBackend = if (has_coreaudio) @import("backends/coreaudio.zig").CoreAudioBackend else void;
 
 /// The user-facing `audio_backend` option (see docs/lua-api.md). The
 /// Linux names are ignored on Windows, where anything but `none` means

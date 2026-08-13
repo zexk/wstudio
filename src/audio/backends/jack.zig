@@ -13,8 +13,8 @@
 //! the host then falls back to ALSA, which can.
 
 const std = @import("std");
-const types = @import("../core/types.zig");
-const backend_mod = @import("backend.zig");
+const types = @import("../../core/types.zig");
+const backend_mod = @import("../backend.zig");
 
 // jack/types.h (libjack2 1.9.22)
 const Client = opaque {};

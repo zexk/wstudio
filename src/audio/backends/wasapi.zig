@@ -1,12 +1,12 @@
 //! WASAPI playback backend (Windows). Shared-mode, event-driven render on
-//! a dedicated thread - the Windows analogue of alsa.zig's blocking
+//! a dedicated thread - the Windows analogue of audio/backends/alsa.zig's blocking
 //! snd_pcm_writei loop, just paced by an auto-reset event instead of the
 //! write call itself.
 
 const std = @import("std");
-const types = @import("../core/types.zig");
-const backend_mod = @import("backend.zig");
-const capture_types = @import("capture_types.zig");
+const types = @import("../../core/types.zig");
+const backend_mod = @import("../backend.zig");
+const capture_types = @import("../capture_types.zig");
 const CaptureBlock = capture_types.CaptureBlock;
 
 const c = @cImport({
@@ -107,7 +107,7 @@ pub const WasapiBackend = struct {
         // the device mix format; AUTOCONVERTPCM has the audio engine resample
         // instead of rejecting it - a plain 44.1kHz output device would
         // otherwise fail Initialize and drop the whole app to the silent
-        // NullBackend. Same job as the soft_resample flag in alsa.zig.
+        // NullBackend. Same job as the soft_resample flag in audio/backends/alsa.zig.
         if (!ok(c.IAudioClient_Initialize(
             client,
             c.AUDCLNT_SHAREMODE_SHARED,
@@ -213,7 +213,7 @@ pub const WasapiBackend = struct {
 };
 
 /// WASAPI capture client (Windows), fully independent of `WasapiBackend`/
-/// output - same rationale as `alsa.zig`'s `AlsaCapture`. Opened only for
+/// output - same rationale as `audio/backends/alsa.zig`'s `AlsaCapture`. Opened only for
 /// the duration of a record pass, not the app's whole lifetime.
 pub const WasapiCapture = struct {
     client: ?*c.IAudioClient = null,

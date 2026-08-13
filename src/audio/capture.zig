@@ -8,7 +8,7 @@
 //!
 //! This keeps capture off `Engine`/`backend.zig`/the ~100+ existing
 //! `engine.process` call sites entirely: on Linux it's a plain ALSA
-//! capture PCM (`alsa.zig`'s `AlsaCapture`), independent of whichever
+//! capture PCM (`audio/backends/alsa.zig`'s `AlsaCapture`), independent of whichever
 //! backend (PipeWire/JACK/ALSA) `host.zig` picked for output - ALSA's
 //! "default" device is served by PipeWire (or shareable via dsnoop) on
 //! virtually every desktop setup. A pure-JACK box with no such sharing is
@@ -27,9 +27,9 @@ const has_alsa = builtin.os.tag == .linux;
 const has_wasapi = builtin.os.tag == .windows;
 const has_coreaudio = builtin.os.tag == .macos;
 
-const AlsaCapture = if (has_alsa) @import("alsa.zig").AlsaCapture else void;
-const WasapiCapture = if (has_wasapi) @import("wasapi.zig").WasapiCapture else void;
-const CoreAudioCapture = if (has_coreaudio) @import("coreaudio.zig").CoreAudioCapture else void;
+const AlsaCapture = if (has_alsa) @import("backends/alsa.zig").AlsaCapture else void;
+const WasapiCapture = if (has_wasapi) @import("backends/wasapi.zig").WasapiCapture else void;
+const CoreAudioCapture = if (has_coreaudio) @import("backends/coreaudio.zig").CoreAudioCapture else void;
 
 pub const Active = enum { none, alsa, wasapi, coreaudio };
 

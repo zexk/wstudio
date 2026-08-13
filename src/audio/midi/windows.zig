@@ -2,10 +2,10 @@
 //! packed short messages into the engine from the system callback.
 
 const std = @import("std");
-const Engine = @import("engine.zig").Engine;
-const midi = @import("../midi.zig");
-const Spsc = @import("../core/ring_buffer.zig").Spsc;
-const midi_velocity = @import("midi_velocity.zig");
+const Engine = @import("../engine.zig").Engine;
+const midi = @import("../../midi.zig");
+const Spsc = @import("../../core/ring_buffer.zig").Spsc;
+const midi_velocity = @import("velocity.zig");
 const VelocityCurve = midi_velocity.VelocityCurve;
 
 const c = @cImport({

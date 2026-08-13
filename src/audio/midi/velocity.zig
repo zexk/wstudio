@@ -1,11 +1,11 @@
 //! MIDI note-on velocity -> gain mapping, plus the engine dispatch the
-//! platform MIDI backends share. Split out from midi_in.zig (Linux/ALSA-only)
+//! platform MIDI backends share. Split out from audio/midi/linux.zig (Linux/ALSA-only)
 //! so `wstudio.o.default_midi_velocity_curve` has a type that compiles on
 //! every platform, same reason `audio_host.Choice` lives in host.zig rather
 //! than inside a backend-specific file.
 
 const std = @import("std");
-const midi = @import("../midi.zig");
+const midi = @import("../../midi.zig");
 
 pub const VelocityCurve = enum(u8) { linear, exponential, fixed };
 

@@ -4,9 +4,9 @@
 //! paces the render thread off the device clock - no sleeping.
 
 const std = @import("std");
-const types = @import("../core/types.zig");
-const backend_mod = @import("backend.zig");
-const capture_types = @import("capture_types.zig");
+const types = @import("../../core/types.zig");
+const backend_mod = @import("../backend.zig");
+const capture_types = @import("../capture_types.zig");
 const CaptureBlock = capture_types.CaptureBlock;
 
 const c = @cImport(@cInclude("alsa/asoundlib.h"));
