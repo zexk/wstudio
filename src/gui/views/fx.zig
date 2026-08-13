@@ -78,7 +78,9 @@ fn targetAccent(target: spectrum_ed.EqTarget) [4]f32 {
 fn drawSignalChain(app: anytype, target: spectrum_ed.EqTarget, fx: *ws.Fx) void {
     zgui.textDisabled("IN", .{});
     const gap: f32 = 4;
-    const slot_w: f32 = 58;
+    // Room for a four-character strip label (COMP, VERB) plus the bypass dot
+    // at the far edge - at 58 the two touched.
+    const slot_w: f32 = 68;
     for (fx.units.items, 0..) |unit, i| {
         zgui.sameLine(.{ .spacing = gap });
         zgui.textDisabled(">", .{});
