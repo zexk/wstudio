@@ -389,8 +389,10 @@ pub const Session = struct {
 
     /// True for kinds whose live pattern is a `PatternPlayer` of pitched
     /// `Note`s (see `newInstrumentRack`) - poly_synth/sampler/soundfont share
-    /// one identical note representation, and clap does too (once loaded)
-    /// even though this command can't build a fresh one from a bare kind.
+    /// one identical note representation, and clap/vst3 do too - those two
+    /// arrive through `setClapInstrument`/`setVst3Instrument`, which have the
+    /// path and id `changeInstrumentKind` cannot build one from, and migrate
+    /// through here just the same.
     fn isMelodicKind(kind: InstrumentKind) bool {
         return switch (kind) {
             .poly_synth, .sampler, .clap, .vst3, .soundfont, .acoustic => true,
@@ -467,9 +469,9 @@ pub const Session = struct {
     /// Migrate `track_idx`'s live pattern (and, for the drum case, its
     /// arrangement clips) from `old_rack`/`old_kind` into `new_rack`, whose
     /// instrument is already built as `new_kind`. Returns whether anything
-    /// was actually preserved - `changeInstrumentKind` falls back to
-    /// clearing the lane when this is false, same as `setInstrument` always
-    /// does. Melodic-to-melodic kinds share one Note representation, so
+    /// was actually preserved - `changeInstrumentKind`,
+    /// `setClapInstrument` and `setVst3Instrument` all fall back to clearing
+    /// the lane when this is false, same as `setInstrument` always does. Melodic-to-melodic kinds share one Note representation, so
     /// clips need no rewrite there - only the live pattern is copied. A
     /// melodic destination coming FROM a drum machine flattens its per-pad
     /// MIDI (see `flattenDrumMidi`); every other pairing (slicer on either
@@ -602,9 +604,14 @@ pub const Session = struct {
             .pattern_player = null,
         };
         rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &self.engine.transport);
-        try self.retired_racks.append(self.allocator, self.racks.items[track_idx]);
+        try self.retired_racks.ensureUnusedCapacity(self.allocator, 1);
+        const old_rack = self.racks.items[track_idx];
+        const preserved = try self.migrateInstrumentData(track_idx, old_rack, rack, std.meta.activeTag(old_rack.instrument), .clap);
+        self.retired_racks.appendAssumeCapacity(old_rack);
         _ = self.engine.send(.all_notes_off);
-        if (self.arrangement.lane(track_idx)) |lane| lane.clear(self.allocator);
+        if (!preserved) {
+            if (self.arrangement.lane(track_idx)) |lane| lane.clear(self.allocator);
+        }
         self.racks.items[track_idx] = rack;
         self.adoptRack(track_idx, rack);
     }
@@ -621,9 +628,14 @@ pub const Session = struct {
         errdefer self.allocator.destroy(rack);
         rack.* = .{ .instrument = .{ .vst3 = plugin }, .label = label, .owned_label = true, .pattern_player = null };
         rack.pattern_player = PatternPlayer.init(rack.instrument.device().?, &self.engine.transport);
-        try self.retired_racks.append(self.allocator, self.racks.items[track_idx]);
+        try self.retired_racks.ensureUnusedCapacity(self.allocator, 1);
+        const old_rack = self.racks.items[track_idx];
+        const preserved = try self.migrateInstrumentData(track_idx, old_rack, rack, std.meta.activeTag(old_rack.instrument), .vst3);
+        self.retired_racks.appendAssumeCapacity(old_rack);
         _ = self.engine.send(.all_notes_off);
-        if (self.arrangement.lane(track_idx)) |lane| lane.clear(self.allocator);
+        if (!preserved) {
+            if (self.arrangement.lane(track_idx)) |lane| lane.clear(self.allocator);
+        }
         self.racks.items[track_idx] = rack;
         self.adoptRack(track_idx, rack);
     }

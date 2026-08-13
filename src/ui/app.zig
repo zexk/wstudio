@@ -3232,11 +3232,7 @@ pub const App = struct {
             }
             history.push(self, backup);
             self.dirty = true;
-            // CLAP instruments always go through `setClapInstrument`, which
-            // (like `setInstrument`) has no note-preserving counterpart - see
-            // `Session.changeInstrumentKind`'s doc comment on why a bare
-            // kind-to-CLAP swap can't be built without a path/id.
-            self.setStatus("{s}  {s}  {s}", .{ plugin.name, ws.plugin_catalog.formatLabel(plugin.format), if (self.picker_replace) "(notes cleared)" else "inserted" });
+            self.setStatus("{s}  {s}  {s}", .{ plugin.name, ws.plugin_catalog.formatLabel(plugin.format), if (self.picker_replace) "replaced" else "inserted" });
             self.view = .tracks;
             self.openTrack(self.cursor);
             return;

@@ -70,6 +70,28 @@ fn runScenario(gpa: std.mem.Allocator, io: std.Io, plugin_path: []const u8) !voi
     automated.device().process(&automated_audio);
     try std.testing.expectEqual(@as(f64, 2), automated.payload.clap.parameterValue(7).?);
 
+    {
+        // Loading a plugin instrument onto a track that already has music on
+        // it keeps that music: clap counts as a melodic kind, so the swap
+        // migrates like any other melodic-to-melodic one. It used to clear
+        // both the live pattern and the arrangement lane, which is how a
+        // hosted synth ended up silent in every render of the project.
+        var session = try ws.Session.initDefault(gpa);
+        defer session.deinit();
+        try session.setInstrument(0, .poly_synth);
+        session.racks.items[0].pattern_player.?.addNote(.{ .pitch = 64, .start_beat = 1.0, .duration_beat = 0.5 });
+        const lane = session.arrangement.lane(0).?;
+        const notes = [_]ws.dsp.pattern.Note{.{ .pitch = 64, .start_beat = 1.0, .duration_beat = 0.5 }};
+        try lane.place(gpa, try ws.arrangement.Clip.initMelodic(gpa, 0, 4 * ws.time_grid.ticks_per_beat, &notes, 4.0));
+
+        try session.setClapInstrument(0, plugin_path, "studio.wstudio.test.instrument");
+
+        const pp = &session.racks.items[0].pattern_player.?;
+        try std.testing.expectEqual(@as(usize, 1), pp.note_count);
+        try std.testing.expectEqual(@as(u7, 64), pp.notes[0].pitch);
+        try std.testing.expectEqual(@as(usize, 1), session.arrangement.lane(0).?.clips.items.len);
+    }
+
     const project_path = ".zig-cache/clap-integration.wsj";
     {
         var session = try ws.Session.initDefault(gpa);
