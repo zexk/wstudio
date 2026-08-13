@@ -5257,9 +5257,9 @@ test "synth row navigation skips folded tab siblings" {
     for (0..4) |_| app.handleKey(.{ .char = 'j' }, 0);
     try std.testing.expectEqual(@as(u16, 16), app.synth_cursor);
 
-    // ENV 1's five rows, then straight past the folded ENV 2/ENV 3 to VOICE.
+    // ENV 1's four rows, then straight past the folded ENV 2/ENV 3 to VOICE.
     app.synth_cursor = 16;
-    for (0..5) |_| app.handleKey(.{ .char = 'j' }, 0);
+    for (0..4) |_| app.handleKey(.{ .char = 'j' }, 0);
     try std.testing.expectEqual(@as(u16, 32), app.synth_cursor);
 
     app.handleKey(.tab, 0);
@@ -8394,6 +8394,23 @@ test "middle-click resets a synth parameter to default" {
     var block: [64]types.Sample = undefined;
     app.session.engine.process(&block);
     try std.testing.expectEqual(@as(f32, 0.0), synth.macro1);
+    try std.testing.expect(app.dirty);
+}
+
+test "r resets selected synth parameter to default" {
+    var app = try testApp();
+    defer app.deinit();
+    app.handleKey(.enter, 0);
+    const synth = &app.session.racks.items[0].instrument.poly_synth;
+    synth.macro1 = 0.25;
+    app.synth_cursor = 99;
+
+    app.handleKey(.{ .char = 'r' }, 0);
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block);
+
+    try std.testing.expectEqual(@as(f32, 0.0), synth.macro1);
+    try std.testing.expect(app.dirty);
 }
 
 test "mouse click/drag on a sampler waveform moves the nearer marker" {

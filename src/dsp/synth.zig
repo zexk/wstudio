@@ -608,6 +608,8 @@ pub const PolySynth = struct {
     /// Applied to all active voices. Set via midi.applyPitchBend.
     /// Range controlled by the caller (default ±2 semitones at ±1.0).
     pitch_bend_semitones: f32 = 0.0,
+    /// Lagged bend consumed by voices, keeping MIDI steps out of pitch.
+    pitch_bend_smooth: f32 = 0.0,
 
     // ── OUT ─────────────────────────────────────────────────────────────────
     gain: f32 = 0.35,
@@ -1883,7 +1885,7 @@ pub const PolySynth = struct {
             // both are fixed cent offsets, so they simply add.
             const base_freq = std.math.pow(f32, 2.0,
                 v.glide_log + (eff(&mods, 2, self.detune_cents) + v.art.fine_cents) / 1200.0 + mods.amt(dest_pitch) +
-                self.pitch_bend_semitones / 12.0);
+                self.pitch_bend_smooth / 12.0);
 
             // Amp: virtual dest is a gain factor about unity (tremolo when
             // fed by the LFO, swells from envelopes/wheel).
@@ -2239,6 +2241,8 @@ pub const PolySynth = struct {
         const coef = dsp.smoothingCoefMs(5.0, blocks_per_s);
         for (&self.controller_smooth, targets) |*current, target|
             current.* = target + (current.* - target) * coef;
+        self.pitch_bend_smooth = self.pitch_bend_semitones +
+            (self.pitch_bend_smooth - self.pitch_bend_semitones) * coef;
     }
 
     /// Block-rate value of the LFO in `slot`: the held random level for
@@ -2640,6 +2644,8 @@ pub const PolySynth = struct {
         self.arp_was_on = false;
         self.arp_rand = 0x2545F491;
         self.controller_smooth = @splat(0.0);
+        self.pitch_bend_semitones = 0.0;
+        self.pitch_bend_smooth = 0.0;
         self.fx_mod_bus.clear();
         // Everything else that runs free between notes: the per-trigger
         // randomness and the synth-global LFOs, back to where a fresh synth
@@ -4779,6 +4785,18 @@ test "applyPitchBend: range at ±2 semitones" {
     try std.testing.expect(synth.pitch_bend_semitones < -1.9);
     synth.applyPitchBend(0, 2.0);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), synth.pitch_bend_semitones, 1e-4);
+}
+
+test "pitch bend smooths MIDI steps before voice rendering" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.applyPitchBend(8191, 2.0);
+
+    synth.smoothControllers(128);
+    try std.testing.expect(synth.pitch_bend_smooth > 0.0);
+    try std.testing.expect(synth.pitch_bend_smooth < synth.pitch_bend_semitones);
+    for (0..20) |_| synth.smoothControllers(128);
+    try std.testing.expect(synth.pitch_bend_smooth > 1.9);
 }
 
 test "paramValue/setParamAbsolute round-trip continuous, enum, and toggle params" {

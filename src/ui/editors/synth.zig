@@ -716,6 +716,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'l' => { adjustParam(app, app.takeCount()); return true; },
             'H' => { adjustModifiedParam(app, -app.takeCount()); return true; },
             'L' => { adjustModifiedParam(app, app.takeCount()); return true; },
+            'r' => { resetParam(app); return true; },
             // g/G are a two-key pair (gg = first param, gG = last): 'g'
             // arms the prefix, the follow-up key drains it above.
             'g' => { _ = app.armPrefix('g'); return true; },
@@ -931,7 +932,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
             history.flushParamNudge(app);
             app.synth_cursor = p;
             updateScroll(app);
-            if (ev.button == .middle) resetMouseParam(app);
+            if (ev.button == .middle) resetParam(app);
         },
         .scroll_up, .scroll_down => {
             const p = paramAtRow(app, body_row, ev.x, cols) orelse return;
@@ -944,10 +945,11 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
     }
 }
 
-fn resetMouseParam(app: *App) void {
+fn resetParam(app: *App) void {
     var fresh = ws.dsp.PolySynth.init(app.allocator, app.session.project.sample_rate) catch return;
     defer fresh.deinit();
     const value = fresh.paramValue(app.synth_cursor) orelse return;
     history.recordParamSet(app, app.synth_track, app.synth_cursor);
     _ = app.session.engine.send(.{ .set_track_param_abs = .{ .track = app.synth_track, .id = app.synth_cursor, .value = value } });
+    app.dirty = true;
 }
