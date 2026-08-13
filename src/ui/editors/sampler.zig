@@ -48,7 +48,6 @@ pub const pad_sections = [_]Section{
         .{ .id = 4, .label = "Decay",   .gui_format = "%.3f s" },
         .{ .id = 5, .label = "Sustain", .gui_format = "%.2f" },
         .{ .id = 6, .label = "Release", .gui_format = "%.3f s" },
-        .{ .id = 21, .label = "Curve", .gui_format = "%.2f" },
     } },
     .{ .kind = .output, .title = "OUT", .rows = &.{
         .{ .id = 7, .label = "Gain",    .gui_format = "%.2f" },
@@ -59,7 +58,6 @@ pub const pad_sections = [_]Section{
     .{ .kind = .fade, .title = "FADE", .rows = &.{
         .{ .id = 10, .label = "Fade in",  .gui_format = "%.3f s" },
         .{ .id = 11, .label = "Fade out", .gui_format = "%.3f s" },
-        .{ .id = 22, .label = "Curve", .gui_format = "%.2f" },
     } },
     .{ .kind = .mod, .title = "MOD", .rows = &.{
         .{ .id = 15, .label = "Rate",  .gui_format = "%.2f Hz" },
@@ -116,7 +114,8 @@ test "sampler targets map local params onto engine ids" {
 }
 
 // zig fmt: off
-/// Sampler editor: j/k pick a param row, h/l/H/L nudge it. For a drum pad
+/// Sampler editor: j/k pick a param row, h/l nudge it, H/L curve envelope
+/// and fade durations (coarse-nudge other params). For a drum pad
 /// or a slice, 1–8 jump to that slot within the current bank (shared
 /// `drum_cursor[0]`/`slicer_cursor[0]`, see movePadBank's doc comment).
 /// esc/e return to whichever view opened this one (`app.sampler_return`):
@@ -196,8 +195,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'k' => { moveCursor(app, -app.takeCount()); return true; },
             'h' => { adjustParam(app, -app.takeCount()); return true; },
             'l' => { adjustParam(app, app.takeCount()); return true; },
-            'H' => { adjustParam(app, -10 * app.takeCount()); return true; },
-            'L' => { adjustParam(app, 10 * app.takeCount()); return true; },
+            'H' => { adjustModifiedParam(app, -app.takeCount()); return true; },
+            'L' => { adjustModifiedParam(app, app.takeCount()); return true; },
             // g/G are a two-key pair (gg = first param, gG = last): 'g'
             // arms the prefix, the follow-up key drains it above.
             'g' => { _ = app.armPrefix('g'); return true; },
@@ -341,12 +340,37 @@ test "param row order follows the drawn rows, not the raw id space" {
     // A drum pad / slice: stretch (id 12) draws inside SAMPLE, so j from
     // pitch has to land on it rather than skipping to the AMP ENV section.
     const pad = paramOrder(true, DrumMachine.pad_param_count, &buf);
-    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 20, 14, 19, 3, 4, 5, 6, 21, 7, 8, 9, 13, 10, 11, 22, 15, 16, 17, 18 }, pad);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 20, 14, 19, 3, 4, 5, 6, 7, 8, 9, 13, 10, 11, 15, 16, 17, 18 }, pad);
 
     var buf2: [max_param_rows]u8 = undefined;
     // A standalone Sampler adds the KEY section at the bottom.
     const sampler = paramOrder(false, Sampler.param_count, &buf2);
-    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 20, 14, 19, 3, 4, 5, 6, 21, 7, 8, 9, 13, 10, 11, 22, 15, 16, 17, 18, Sampler.root_note_id, Sampler.mono_id }, sampler);
+    try std.testing.expectEqualSlices(u8, &.{ 0, 1, 2, 12, 20, 14, 19, 3, 4, 5, 6, 7, 8, 9, 13, 10, 11, 15, 16, 17, 18, Sampler.root_note_id, Sampler.mono_id }, sampler);
+}
+
+pub fn curveParam(id: u8) ?u8 {
+    return switch (id) {
+        3, 4, 6 => ws.dsp.pad.env_curve_id,
+        10, 11 => ws.dsp.pad.fade_curve_id,
+        else => null,
+    };
+}
+
+test "modified sampler params select envelope and fade curves" {
+    try std.testing.expectEqual(ws.dsp.pad.env_curve_id, curveParam(3).?);
+    try std.testing.expectEqual(ws.dsp.pad.env_curve_id, curveParam(6).?);
+    try std.testing.expectEqual(ws.dsp.pad.fade_curve_id, curveParam(10).?);
+    try std.testing.expect(curveParam(5) == null);
+}
+
+fn adjustModifiedParam(app: *App, steps: i32) void {
+    const original = app.sampler_param;
+    app.sampler_param = curveParam(original) orelse {
+        adjustParam(app, steps * 10);
+        return;
+    };
+    adjustParam(app, steps);
+    app.sampler_param = original;
 }
 
 /// Audition the sampler editor's current target.
@@ -517,7 +541,8 @@ fn startWaveformDrag(app: *App, x: usize, cols: u16) void {
 /// Click a param row to select it (like j/k landing there); click inside the
 /// waveform panel to grab and move the nearer start/end marker, continuing
 /// to follow the mouse while the button stays held. Scroll over a param row
-/// nudges it via `adjustParam` (**ctrl**+scroll = coarse, matching H/L).
+/// nudges it via `adjustParam` (**ctrl**+scroll curves envelope/fade time
+/// params and coarse-nudges everything else, matching H/L).
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, view_rows: usize) void {
     if (!targetIsEditable(app)) {
         app.sampler_drag_marker = null;
@@ -545,7 +570,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
         .scroll_up, .scroll_down => {
             if (paramAtRow(app, row, view_rows)) |p| app.sampler_param = p else return;
             const dir: i32 = if (ev.kind == .scroll_up) 1 else -1;
-            adjustParam(app, dir * (if (ev.ctrl) @as(i32, 10) else 1));
+            if (ev.ctrl) adjustModifiedParam(app, dir) else adjustParam(app, dir);
         },
     }
 }

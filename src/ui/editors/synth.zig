@@ -709,8 +709,8 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'k' => { moveCursor(app, -app.takeCount()); return true; },
             'h' => { adjustParam(app, -app.takeCount()); return true; },
             'l' => { adjustParam(app, app.takeCount()); return true; },
-            'H' => { adjustParam(app, -10 * app.takeCount()); return true; },
-            'L' => { adjustParam(app, 10 * app.takeCount()); return true; },
+            'H' => { adjustModifiedParam(app, -app.takeCount()); return true; },
+            'L' => { adjustModifiedParam(app, app.takeCount()); return true; },
             // g/G are a two-key pair (gg = first param, gG = last): 'g'
             // arms the prefix, the follow-up key drains it above.
             'g' => { _ = app.armPrefix('g'); return true; },
@@ -832,6 +832,32 @@ fn adjustParam(app: *App, steps: i32) void {
         .steps = steps,
     } });
 }
+
+pub fn curveParam(id: u16) ?u16 {
+    return switch (id) {
+        16, 17, 19 => 246,
+        24, 25, 27 => 247,
+        122, 123, 125 => 248,
+        else => null,
+    };
+}
+
+test "modified synth envelope params select their shared curves" {
+    try std.testing.expectEqual(@as(u16, 246), curveParam(16).?);
+    try std.testing.expectEqual(@as(u16, 247), curveParam(27).?);
+    try std.testing.expectEqual(@as(u16, 248), curveParam(123).?);
+    try std.testing.expect(curveParam(18) == null);
+}
+
+fn adjustModifiedParam(app: *App, steps: i32) void {
+    const original = app.synth_cursor;
+    app.synth_cursor = curveParam(original) orelse {
+        adjustParam(app, steps * 10);
+        return;
+    };
+    adjustParam(app, steps);
+    app.synth_cursor = original;
+}
 // zig fmt: on
 
 /// `wt.table`'s `h`/`l`, applied here on the control thread rather than over
@@ -890,7 +916,8 @@ fn paramAtRow(app: *App, row: usize, x: usize, cols: u16) ?u16 {
 
 /// Click a param row to select it. Scroll over a param row nudges it via
 /// the existing `adjustParam` (same step `h`/`l` use); **ctrl**+scroll is
-/// the coarse step (matches `H`/`L`).
+/// the envelope curve on attack/decay/release and the coarse step elsewhere
+/// (matches `H`/`L`).
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) void {
     const body_row = row;
     switch (ev.kind) {
@@ -905,7 +932,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
             app.synth_cursor = p;
             updateScroll(app);
             const dir: i32 = if (ev.kind == .scroll_up) 1 else -1;
-            adjustParam(app, dir * (if (ev.ctrl) @as(i32, 10) else 1));
+            if (ev.ctrl) adjustModifiedParam(app, dir) else adjustParam(app, dir);
         },
         else => {},
     }

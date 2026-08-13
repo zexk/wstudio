@@ -147,17 +147,14 @@ pub const main_sections = [_]SectionDef{
     .{ .title = "ENV 1", .tone = .env, .band = 3, .params = &.{
         .{ .id = 16, .label = "attack" }, .{ .id = 17, .label = "decay" },
         .{ .id = 18, .label = "sustain" }, .{ .id = 19, .label = "release" },
-        .{ .id = 246, .label = "curve" },
     } },
     .{ .title = "ENV 2", .tone = .env, .band = 3, .params = &.{
         .{ .id = 24, .label = "f.attack" }, .{ .id = 25, .label = "f.decay" },
         .{ .id = 26, .label = "f.sustain" }, .{ .id = 27, .label = "f.release" },
-        .{ .id = 247, .label = "curve" },
     } },
     .{ .title = "ENV 3", .tone = .env, .band = 3, .params = &.{
         .{ .id = 122, .label = "attack" }, .{ .id = 123, .label = "decay" },
         .{ .id = 124, .label = "sustain" }, .{ .id = 125, .label = "release" },
-        .{ .id = 248, .label = "curve" },
     } },
     .{ .title = "VOICE", .tone = .util, .band = 4, .params = &.{
         .{ .id = 32, .label = "mode" }, .{ .id = 33, .label = "glide" },
@@ -469,7 +466,7 @@ comptime {
     // (0-1, 7-8, 51-52), older params (23, 30-31), FX unit params +
     // their reorder handles (mirrors editors/synth.zig's deadParam/
     // inSubview(.fx)/reorderIdFor - verified against that file's ranges),
-    // and 195-245 / 254-255 / 373-396, the drawn-LFO breakpoint block and
+    // and 195-248 / 254-255 / 373-396, the drawn-LFO breakpoint block and
     // its per-point segment bends (drawn by their own curve editor under
     // the shape row, never cursor-walkable param rows) plus the gap above
     // 195 left free when param ids widened to u16. 251-253 are the OSC
@@ -480,7 +477,7 @@ comptime {
         .{ 0, 1 },     .{ 7, 8 },     .{ 23, 23 },   .{ 30, 31 },
         .{ 51, 52 },   .{ 83, 94 },   .{ 103, 115 }, .{ 126, 136 },
         .{ 137, 143 }, .{ 144, 160 }, .{ 161, 166 }, .{ 167, 175 },
-        .{ 176, 180 }, .{ 181, 184 }, .{ 188, 194 }, .{ 195, 245 },
+        .{ 176, 180 }, .{ 181, 184 }, .{ 188, 194 }, .{ 195, 248 },
         .{ 254, 255 }, .{ 373, 396 },
     };
     for (excluded) |range| {

@@ -148,7 +148,7 @@ fn drawAmpEnvelope(app: anytype, target: Target) void {
     var decay = target.value(4) orelse return;
     var sustain = target.value(5) orelse return;
     var release = target.value(6) orelse return;
-    const curve = target.value(ws.dsp.pad.env_curve_id) orelse return;
+    var curve = target.value(ws.dsp.pad.env_curve_id) orelse return;
     const a_range = paramRange(target, 3);
     const d_range = paramRange(target, 4);
     const r_range = paramRange(target, 6);
@@ -164,7 +164,7 @@ fn drawAmpEnvelope(app: anytype, target: Target) void {
         .attack_range = a_range,
         .decay_range = d_range,
         .release_range = r_range,
-        .curve = curve,
+        .curve = &curve,
         .accent = theme.rhythm,
         .focused_stage = focused_stage,
     });
@@ -172,6 +172,7 @@ fn drawAmpEnvelope(app: anytype, target: Target) void {
     if (result.changed[1]) setPadParam(app, target, 4, decay);
     if (result.changed[2]) setPadParam(app, target, 5, sustain);
     if (result.changed[3]) setPadParam(app, target, 6, release);
+    if (result.curve_changed) setPadParam(app, target, ws.dsp.pad.env_curve_id, curve);
     if (result.activated_stage) |stage| app.core.sampler_param = switch (stage) {
         0 => 3,
         1 => 4,
@@ -439,6 +440,8 @@ fn paramRange(target: Target, id: u8) [2]f32 {
 
 fn drawParam(app: anytype, target: Target, id: u8, label_text: []const u8, format: [:0]const u8) void {
     var value = target.value(id) orelse return;
+    const curve_id = sampler_ed.curveParam(id);
+    var curve = if (curve_id) |cid| target.value(cid) orelse 0 else 0;
     const range = paramRange(target, id);
     var label_buf: [64]u8 = undefined;
     const label = std.fmt.bufPrintZ(&label_buf, "{s}##sampler-target-{d}", .{ label_text, id }) catch return;
@@ -446,6 +449,7 @@ fn drawParam(app: anytype, target: Target, id: u8, label_text: []const u8, forma
     const is_time = id == 3 or id == 4 or id == 6 or id == 10 or id == 11;
     const result = widgets.paramKnob(label_text, label, .{
         .v = &value,
+        .modifier_v = if (curve_id != null) &curve else null,
         .min = range[0],
         .max = range[1],
         .cfmt = format,
@@ -455,6 +459,7 @@ fn drawParam(app: anytype, target: Target, id: u8, label_text: []const u8, forma
         .skew = if (is_time and range[0] == 0) 3 else 1,
     });
     if (result.changed) setPadParam(app, target, id, value);
+    if (result.modifier_changed) setPadParam(app, target, curve_id.?, curve);
     if (result.activated) app.core.sampler_param = id;
 }
 

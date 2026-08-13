@@ -175,9 +175,7 @@ pub fn drawSamplerEditor(
         try std.fmt.bufPrint(&buf, "{d:.3}", .{pad.sustain}));
     try barRow(w, c == 6, false, grn, "release", pad.release_s, duration,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{pad.release_s}));
-    try barRow(w, c == 21, false, grn, "curve", pad.env_curve + 1.0, 2.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{pad.env_curve}));
-    written += 5;
+    written += 4;
 
     // ── OUT ──────────────────────────────────────
     try synthSection(w, sampler_ed.pad_sections[2].title, bcyn);
@@ -209,9 +207,7 @@ pub fn drawSamplerEditor(
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{pad.fade_in_s}));
     try barRow(w, c == 11, false, acc, "fade out", pad.fade_out_s, duration,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{pad.fade_out_s}));
-    try barRow(w, c == 22, false, acc, "curve", pad.fade_curve + 1.0, 2.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{pad.fade_curve}));
-    written += 3;
+    written += 2;
 
     // ── MOD: per-pad LFO offsetting one of pitch/gain/pan/filter ─────────────
     try synthSection(w, sampler_ed.pad_sections[4].title, bcyn);

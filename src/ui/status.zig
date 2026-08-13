@@ -14,6 +14,7 @@ const ansi = @import("ansi.zig");
 const format = @import("format.zig");
 const icons = @import("icons.zig");
 const spectrum_ed = @import("editors/fx_editor.zig");
+const sampler_ed = @import("editors/sampler.zig");
 const synth_ed = @import("editors/synth.zig");
 const synth_layout = @import("synth_layout.zig");
 const automation_ed = @import("editors/automation.zig");
@@ -336,6 +337,10 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
             try w.writeAll(synth_ed.modTargetLabel(rack, synth.mod_matrix[addr.row], &target_buf));
         } else try synth_ed.writeParamValue(synth, app.synth_cursor, w);
     } else try synth_ed.writeParamValue(synth, app.synth_cursor, w);
+    if (synth_ed.curveParam(app.synth_cursor)) |id| {
+        try w.writeAll(dim ++ "  curve " ++ rst ++ acc);
+        try w.print("{d:.2}", .{synth.paramValue(id) orelse 0});
+    }
     try w.writeAll(rst);
     if (app.status_len > 0) {
         try w.writeAll(dim ++ "  " ++ rst);
@@ -483,6 +488,10 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
         },
         Sampler.mono_id => try w.writeAll(if (app.editingSampler()) |s| (if (s.mono) "mono" else "poly") else "poly"),
         else => {},
+    }
+    if (sampler_ed.curveParam(app.sampler_param)) |id| {
+        try w.writeAll(dim ++ "  curve " ++ rst ++ acc);
+        try w.print("{d:.2}", .{ws.dsp.pad.paramValue(pad, id) orelse 0});
     }
     try w.writeAll(rst);
     if (app.status_len > 0) {

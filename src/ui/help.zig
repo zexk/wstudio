@@ -166,7 +166,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
 
     t.section("MOUSE  (additive - every gesture below has a keyboard equivalent)");
     t.key("click",        "select / activate - same as enter (tracks, drum steps, piano notes, list rows)");
-    t.key("scroll",       "move the cursor - pitch in the piano roll, value in synth/sampler/FX (ctrl: coarse)");
+    t.key("scroll",       "move the cursor - pitch in piano roll, value in synth/sampler/FX (ctrl: curve on ENV/fade params, coarse elsewhere)");
     t.key("drag",         "paint drum steps, move a piano note or arrangement clip, drag a sampler marker");
     t.key("drag (GUI)",   "piano note edges resize it - right edge sets the length, left edge moves the start");
     t.key("shift+scroll", "piano roll only: move the step cursor instead of pitch");
@@ -328,7 +328,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("j / k",        "select parameter");
     t.key("gg / gG",       "jump to first / last parameter");
     t.key("h / l",        "adjust value (fine)");
-    t.key("H / L",        "adjust value (coarse ×10)");
+    t.key("H / L",        "adjust curve on attack/decay/release/fade params; coarse ×10 elsewhere");
     t.key("1–8",          "switch to pad/slice 1–8 within the current bank of 8");
     t.key("J / K",        "jump a whole bank of 8 pads/slices (same slot, next/prev bank)");
     t.key("a",            "audition current pad/slice");
@@ -365,7 +365,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("gg / gG",       "jump to first / last parameter (within the current subview)");
     t.key("{ / }",        "prev / next section (within the current subview)");
     t.key("h / l",        "adjust value (fine)");
-    t.key("H / L",        "adjust value (coarse ×10)");
+    t.key("H / L",        "adjust curve on attack/decay/release params; coarse ×10 elsewhere");
     t.key("m",            "modulate the param under the cursor - points the first free MATRIX row at it and jumps there");
     t.key("w / b",        "move between fields inside a mod-matrix row (source / destination / depth)");
     t.key("p",            "open piano roll for this track");

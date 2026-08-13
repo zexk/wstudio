@@ -166,12 +166,14 @@ pub fn openLoadCommand(app: anytype) void {
 
 /// A rotary control: drag vertically to change the value, double-click to
 /// type an exact one, or scroll while hovered to nudge it a fixed step
-/// (**Mod**+scroll = a coarser step) - the same Mod-for-coarse convention
-/// the TUI's param-row scroll handlers already use. Angle sweep and drag
-/// mapping follow the usual three-quarter-turn knob convention (135deg
-/// through the top to 405deg).
+/// (**Mod**+scroll = a secondary value when supplied, otherwise a coarser
+/// step) - the same convention the TUI's param rows use. Angle sweep and
+/// drag mapping follow the usual three-quarter-turn knob convention
+/// (135deg through the top to 405deg).
 pub const Knob = struct {
     v: *f32,
+    /// Secondary value changed by Mod+scroll instead of the dial value.
+    modifier_v: ?*f32 = null,
     min: f32,
     max: f32,
     cfmt: [:0]const u8 = "%.3f",
@@ -192,6 +194,7 @@ pub const Knob = struct {
 
 pub const KnobResult = struct {
     changed: bool = false,
+    modifier_changed: bool = false,
     /// Mirrors `zgui.isItemActivated()` for the drag surface - callers
     /// building a UI cursor from clicks should check this instead, since
     /// `paramKnob` draws label/value text after the dial and would shift
@@ -295,15 +298,25 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
             zgui.resetMouseDragDelta(.left);
         }
     }
+    var modifier_changed = false;
     if (hovered and gui_style.wheel_delta != 0) {
         gui_style.wheel_consumed = true;
-        const step: f32 = if (gui_style.modDown()) 0.05 else 0.005;
-        const t0 = knobValueToT(args.min, args.max, args.v.*, args.logarithmic, args.skew);
-        const t1 = std.math.clamp(t0 + gui_style.wheel_delta * step, 0, 1);
-        const next = knobTToValue(args.min, args.max, t1, args.logarithmic, args.skew);
-        if (next != args.v.*) {
-            args.v.* = next;
-            changed = true;
+        if (gui_style.modDown() and args.modifier_v != null) {
+            const v = args.modifier_v.?;
+            const next = std.math.clamp(v.* + gui_style.wheel_delta * 0.05, -1, 1);
+            if (next != v.*) {
+                v.* = next;
+                modifier_changed = true;
+            }
+        } else {
+            const step: f32 = if (gui_style.modDown()) 0.05 else 0.005;
+            const t0 = knobValueToT(args.min, args.max, args.v.*, args.logarithmic, args.skew);
+            const t1 = std.math.clamp(t0 + gui_style.wheel_delta * step, 0, 1);
+            const next = knobTToValue(args.min, args.max, t1, args.logarithmic, args.skew);
+            if (next != args.v.*) {
+                args.v.* = next;
+                changed = true;
+            }
         }
     }
 
@@ -353,10 +366,11 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
         var value_buf: [32]u8 = undefined;
         _ = zgui.beginTooltip();
         zgui.textUnformatted(args.display orelse knobFormatValue(&value_buf, args.cfmt, args.v.*));
+        if (args.modifier_v) |v| zgui.textDisabled("Mod+scroll: curve {d:.2}", .{v.*});
         zgui.endTooltip();
     }
 
-    return .{ .changed = changed, .activated = activated, .hot = hovered or active };
+    return .{ .changed = changed, .modifier_changed = modifier_changed, .activated = activated, .hot = hovered or active };
 }
 
 /// A knob plus its label and live value, laid out as a single row - the
@@ -419,8 +433,13 @@ pub fn knobCell(label_text: []const u8, id: [:0]const u8, value_text: []const u8
     dial.tooltip = false;
     const result = knob(id, dial);
     const show_value = result.hot or args.focused;
+    var curve_buf: [24]u8 = undefined;
+    const shown = if (result.hot and gui_style.modDown() and args.modifier_v != null)
+        std.fmt.bufPrint(&curve_buf, "curve {d:.2}", .{args.modifier_v.?.*}) catch value_text
+    else
+        value_text;
     cellText(
-        if (show_value) value_text else label_text,
+        if (show_value) shown else label_text,
         if (show_value) args.accent else theme.fg1,
         cell_w,
     );
@@ -579,7 +598,7 @@ pub const Adsr = struct {
     attack_range: [2]f32,
     decay_range: [2]f32,
     release_range: [2]f32,
-    curve: f32 = 0,
+    curve: *f32,
     accent: [4]f32,
     /// 0=attack, 1=decay, 2=sustain, 3=release - which node (if any) the
     /// external cursor is currently parked on, for the focus ring.
@@ -590,6 +609,7 @@ pub const Adsr = struct {
 pub const AdsrResult = struct {
     /// attack, decay, sustain, release
     changed: [4]bool = .{ false, false, false, false },
+    curve_changed: bool = false,
     activated_stage: ?u2 = null,
 };
 
@@ -657,11 +677,16 @@ fn adsrNode(
     }
     if (node_hovered and gui_style.wheel_delta != 0) {
         gui_style.wheel_consumed = true;
-        value.* = if (range) |r|
-            std.math.clamp(value.* * @exp(gui_style.wheel_delta * envelopeScrollStep()), r[0], r[1])
-        else
-            std.math.clamp(value.* + gui_style.wheel_delta * 0.01, 0, 1);
-        result.changed[stage] = true;
+        if (gui_style.modDown() and range != null) {
+            args.curve.* = std.math.clamp(args.curve.* + gui_style.wheel_delta * 0.05, -1, 1);
+            result.curve_changed = true;
+        } else {
+            value.* = if (range) |r|
+                std.math.clamp(value.* * @exp(gui_style.wheel_delta * envelopeScrollStep()), r[0], r[1])
+            else
+                std.math.clamp(value.* + gui_style.wheel_delta * 0.01, 0, 1);
+            result.changed[stage] = true;
+        }
     }
     adsrHandle(draw_list, theme, p, node_active or node_hovered, adsrStageIs(args.focused_stage, stage), args.accent);
 }
@@ -707,7 +732,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
         const steps = if (segment == 2) 1 else 16;
         for (1..steps + 1) |step| {
             const t = @as(f32, @floatFromInt(step)) / @as(f32, @floatFromInt(steps));
-            const shaped = if (segment == 2) t else ws.dsp.synth_math.bendShape(t, args.curve);
+            const shaped = if (segment == 2) t else ws.dsp.synth_math.bendShape(t, args.curve.*);
             draw_list.pathLineTo(.{
                 points[segment][0] + (points[segment + 1][0] - points[segment][0]) * t,
                 points[segment][1] + (points[segment + 1][1] - points[segment][1]) * shaped,
@@ -721,7 +746,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
         var prev = points[segment];
         for (1..steps + 1) |step| {
             const t = @as(f32, @floatFromInt(step)) / @as(f32, @floatFromInt(steps));
-            const shaped = if (segment == 2) t else ws.dsp.synth_math.bendShape(t, args.curve);
+            const shaped = if (segment == 2) t else ws.dsp.synth_math.bendShape(t, args.curve.*);
             const next = [2]f32{
                 points[segment][0] + (points[segment + 1][0] - points[segment][0]) * t,
                 points[segment][1] + (points[segment + 1][1] - points[segment][1]) * shaped,

@@ -3536,6 +3536,30 @@ test "draw renders drum machine control panel without overflowing" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "j/k: param") != null);
 }
 
+test "sampler envelope and fade modified nudges change curves" {
+    var app = try testApp();
+    defer app.deinit();
+    var block: [64]types.Sample = undefined;
+
+    app.drum_track = 2;
+    app.sampler_target = .{ .drum = 2 };
+    app.drum_cursor = .{ 0, 0 };
+    app.view = .sampler_editor;
+    const pad = &app.drumMachine().pads[0].?.pad;
+
+    app.sampler_param = 3;
+    _ = sampler_ed.handleKey(&app, .{ .char = 'L' });
+    app.session.engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.02), pad.env_curve, 1e-6);
+    try std.testing.expectEqual(@as(u8, 3), app.sampler_param);
+
+    app.sampler_param = 10;
+    _ = sampler_ed.handleKey(&app, .{ .char = 'H' });
+    app.session.engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, -0.02), pad.fade_curve, 1e-6);
+    try std.testing.expectEqual(@as(u8, 10), app.sampler_param);
+}
+
 test "draw renders slicer control panel without overflowing" {
     var app = try testApp();
     defer app.deinit();
@@ -4948,6 +4972,23 @@ test "synth editor jk moves cursor, hl adjusts first parameter" {
     app.handleKey(.{ .char = 'l' }, 0);
     app.session.engine.process(&block);
     try std.testing.expect(synth.attack_s > old_attack);
+}
+
+test "synth envelope modified nudge changes curve, not duration" {
+    var app = try testApp();
+    defer app.deinit();
+    var block: [64]types.Sample = undefined;
+
+    app.handleKey(.enter, 0);
+    app.synth_cursor = 16;
+    const synth = &app.session.racks.items[0].instrument.poly_synth;
+    const attack = synth.attack_s;
+
+    app.handleKey(.{ .char = 'L' }, 0);
+    app.session.engine.process(&block);
+    try std.testing.expectEqual(attack, synth.attack_s);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.01), synth.env_curve, 1e-6);
+    try std.testing.expectEqual(@as(u16, 16), app.synth_cursor);
 }
 
 test "wt.table h/l picks a bundled wavetable, wrapping past both ends" {

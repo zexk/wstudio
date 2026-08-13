@@ -382,7 +382,7 @@ fn drawEnvelope(app: anytype, synth: *ws.dsp.PolySynth, base_id: u16) void {
         24 => 247,
         else => 248,
     };
-    const curve = synth.paramValue(curve_id) orelse return;
+    var curve = synth.paramValue(curve_id) orelse return;
     const a_range = (ws.dsp.PolySynth.findAutomatableParam(base_id) orelse return).range;
     const d_range = (ws.dsp.PolySynth.findAutomatableParam(base_id + 1) orelse return).range;
     const r_range = (ws.dsp.PolySynth.findAutomatableParam(base_id + 3) orelse return).range;
@@ -400,7 +400,7 @@ fn drawEnvelope(app: anytype, synth: *ws.dsp.PolySynth, base_id: u16) void {
         .attack_range = a_range,
         .decay_range = d_range,
         .release_range = r_range,
-        .curve = curve,
+        .curve = &curve,
         .accent = theme.rhythm,
         .focused_stage = focused_stage,
     });
@@ -408,6 +408,7 @@ fn drawEnvelope(app: anytype, synth: *ws.dsp.PolySynth, base_id: u16) void {
     if (result.changed[1]) sendParam(app, base_id + 1, decay);
     if (result.changed[2]) sendParam(app, base_id + 2, sustain);
     if (result.changed[3]) sendParam(app, base_id + 3, release);
+    if (result.curve_changed) sendParam(app, curve_id, curve);
     if (result.activated_stage) |stage| app.core.synth_cursor = switch (stage) {
         0 => base_id,
         1 => base_id + 1,
@@ -654,10 +655,13 @@ fn drawParam(app: anytype, synth: *ws.dsp.PolySynth, id: u16, label_text: []cons
     if (ws.dsp.PolySynth.findAutomatableParam(id)) |param| {
         flow.cell();
         var edited = value;
+        const curve_id = synth_ed.curveParam(id);
+        var curve = if (curve_id) |cid| synth.paramValue(cid) orelse 0 else 0;
         var id_buf: [40]u8 = undefined;
         const widget_id = std.fmt.bufPrintZ(&id_buf, "##gui-synth-{d}", .{id}) catch return;
         const result = widgets.knobCell(label_text, widget_id, value_text, .{
             .v = &edited,
+            .modifier_v = if (curve_id != null) &curve else null,
             .min = param.range[0],
             .max = param.range[1],
             .cfmt = "%.3f",
@@ -668,6 +672,7 @@ fn drawParam(app: anytype, synth: *ws.dsp.PolySynth, id: u16, label_text: []cons
             .skew = if (zeroSkewParam(id)) 3 else 1,
         });
         if (result.changed) sendParam(app, id, edited);
+        if (result.modifier_changed) sendParam(app, curve_id.?, curve);
         if (result.activated) app.core.synth_cursor = id;
         return;
     }
