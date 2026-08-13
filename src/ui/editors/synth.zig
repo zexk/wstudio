@@ -343,7 +343,7 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         118 => try w.print("{d}",          .{synth.arp_octaves}),
         119 => try writeRate(w, synth.arp_sync, synth.arp_rate_hz, "{d:.1} Hz"),
         268 => try w.writeAll(synth.arp_sync.label()),
-        120 => try w.print("{d:.2}",       .{synth.arp_gate}),
+        120 => try w.print("{d:.0}%", .{synth.arp_gate * 100.0}),
         121 => try w.writeAll(if (synth.arp_hold) "on" else "off"),
         122 => try writeTime(w, synth.env3_attack_s),
         123 => try writeTime(w, synth.env3_decay_s),
@@ -391,6 +391,8 @@ test "param value text covers envelope curves and filter drives" {
     try std.testing.expectEqualStrings("63%", paramValueText(&synth, 185, &buf));
     synth.macro1 = 0.42;
     try std.testing.expectEqualStrings("42%", paramValueText(&synth, 99, &buf));
+    synth.arp_gate = 0.75;
+    try std.testing.expectEqualStrings("75%", paramValueText(&synth, 120, &buf));
 }
 
 pub fn searchCandidates(buf: []SearchCandidate) []const SearchCandidate {

@@ -479,7 +479,7 @@ fn secArp(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
         try std.fmt.bufPrint(&buf, "{d:.1} Hz", .{synth.arp_rate_hz}));
     try choiceRow(w, c == 268, !on, bcyn, "sync", synth.arp_sync.label());
     try barRow(w, c == 120, !on, bcyn, "gate", synth.arp_gate, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.arp_gate}));
+        synth_ed.paramValueText(synth, 120, &buf));
     try toggleRow(w, c == 121, !on, bcyn, "hold", synth.arp_hold);
 }
 
