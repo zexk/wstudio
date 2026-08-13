@@ -112,12 +112,12 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
     written += 1;
 
     if (slice_count == 0) {
-        try w.writeAll(dim ++ "  no slices yet - :chop finds the transients, :slice <n> equal-divides" ++ rst);
+        try w.writeAll(dim ++ "  NO SLICES  :chop transients  :slice <n> equal parts" ++ rst);
         try endLine(w);
         if (sl.samples.len == 0)
-            try w.writeAll(acc ++ "  enter" ++ rst ++ dim ++ " / " ++ rst ++ acc ++ ":load" ++ rst ++ dim ++ "  open the clip browser" ++ rst)
+            try w.writeAll(acc ++ "  enter" ++ rst ++ dim ++ " / " ++ rst ++ acc ++ ":load" ++ rst ++ dim ++ "  browse audio" ++ rst)
         else
-            try w.writeAll(dim ++ "  (:load [file.wav] loads your own clip)" ++ rst);
+            try w.writeAll(dim ++ "  :load [file.wav] loads a clip" ++ rst);
         try endLine(w);
         written += 2;
         for (written..@max(written, rows -| 4)) |_| try endLine(w);

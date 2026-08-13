@@ -3615,7 +3615,7 @@ test "draw renders slicer control panel without overflowing" {
     try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 30 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "SLICER") != null);
-    try std.testing.expect(std.mem.indexOf(u8, frame, "No audio loaded for this slicer.") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "NO AUDIO") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "SLICE MAP") == null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "enter load") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "slice 1/0") == null);
@@ -3626,7 +3626,7 @@ test "draw renders slicer control panel without overflowing" {
     w = std.Io.Writer.fixed(&buf);
     try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 30 });
     const unchopped = w.buffered();
-    try std.testing.expect(std.mem.indexOf(u8, unchopped, "Audio loaded, but no slices exist.") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unchopped, "AUDIO LOADED, NO SLICES") != null);
     try std.testing.expect(std.mem.indexOf(u8, unchopped, "enter chop") != null);
 
     sl.sliceInto(3);

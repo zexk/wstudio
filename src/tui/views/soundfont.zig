@@ -58,13 +58,13 @@ pub fn drawSoundfontEditor(
         try synthSection(w, if (is_acoustic) "BANK" else "FONT", acc);
         written += 1;
         try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(if (is_acoustic) dim ++ "No bank loaded." ++ rst else dim ++ "No SoundFont loaded." ++ rst);
+        try w.writeAll(if (is_acoustic) dim ++ "NO BANK LOADED" ++ rst else dim ++ "NO SOUNDFONT LOADED" ++ rst);
         try endLine(w);
         written += 1;
         if (is_acoustic) {
-            try w.writeAll(acc ++ "  f" ++ rst ++ dim ++ "  browse the bundled banks" ++ rst);
+            try w.writeAll(acc ++ "  f" ++ rst ++ dim ++ "  browse banks" ++ rst);
         } else {
-            try w.writeAll(acc ++ "  enter" ++ rst ++ dim ++ " / " ++ rst ++ acc ++ ":load" ++ rst ++ dim ++ "  open the .sf2 browser" ++ rst);
+            try w.writeAll(acc ++ "  enter" ++ rst ++ dim ++ " / " ++ rst ++ acc ++ ":load" ++ rst ++ dim ++ "  browse .sf2 files" ++ rst);
         }
         try endLine(w);
         written += 1;

@@ -115,14 +115,14 @@ pub fn drawSamplerEditor(
         try synthSection(w, "SAMPLE", acc);
         written += 1;
         try w.writeAll(dim);
-        try w.writeAll(if (is_drum) "  This pad has no sample." else if (app.slicerInst().hasAudio()) "  Audio loaded, but no slices exist." else "  No audio loaded for this slicer.");
+        try w.writeAll(if (is_drum) "  NO SAMPLE" else if (app.slicerInst().hasAudio()) "  AUDIO LOADED, NO SLICES" else "  NO AUDIO");
         try w.writeAll(rst);
         try endLine(w);
         written += 1;
         if (is_slice and app.slicerInst().hasAudio())
-            try w.writeAll(acc ++ "  enter" ++ rst ++ dim ++ "  open the slice grid to chop" ++ rst)
+            try w.writeAll(acc ++ "  enter" ++ rst ++ dim ++ "  chop audio" ++ rst)
         else
-            try w.writeAll(acc ++ "  enter" ++ rst ++ dim ++ " / " ++ rst ++ acc ++ ":load" ++ rst ++ dim ++ "  open the sample browser" ++ rst);
+            try w.writeAll(acc ++ "  enter" ++ rst ++ dim ++ " / " ++ rst ++ acc ++ ":load" ++ rst ++ dim ++ "  browse samples" ++ rst);
         try endLine(w);
         written += 1;
         while (written < body) : (written += 1) try endLine(w);

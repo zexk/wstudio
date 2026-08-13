@@ -31,7 +31,7 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
     try w.writeAll(rst);
     try endLine(w);
     if (app.picker_replace) {
-        try w.writeAll(dim ++ " > select  " ++ rst ++ "j/k move  enter swap (keeps notes when possible)  esc close");
+        try w.writeAll(dim ++ " > select  " ++ rst ++ "j/k move  enter swap (keeps compatible notes)  esc close");
     } else {
         try w.writeAll(dim ++ " > select  " ++ rst ++ "j/k move  enter choose  esc close");
     }
@@ -155,4 +155,3 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     const used = 5 + @max(total_count, 1);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
-
