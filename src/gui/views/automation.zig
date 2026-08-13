@@ -286,7 +286,9 @@ fn curvePoint(origin: [2]f32, size: [2]f32, beat: f32, value: f32, length_beats:
 /// curve's readout badge, and setting/deleting a point is the click and
 /// double-click right there, so there is no second editor panel.
 fn drawEditor(points: []const ws.dsp.automation.AutomationPoint) void {
-    zgui.textDisabled("{d} points   click add   double-click delete", .{points.len});
+    zgui.textDisabled("{d} points", .{points.len});
+    zgui.sameLine(.{});
+    widgets.hoverHelp("Click to add; double-click to delete");
 }
 
 fn setPointAt(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, beat: f64, value: f32) void {
@@ -302,9 +304,9 @@ pub fn recordAutomationGesture(app: anytype) void {
 }
 
 pub fn drawParamPicker(app: anytype) void {
-    zgui.textColored(theme.focus, "AUTOMATION PARAMETER", .{});
+    widgets.coloredTitle(theme.focus, "AUTOMATION PARAMETER", .{});
     zgui.sameLine(.{});
-    zgui.textDisabled("ENTER ADD   / FILTER   ESC BACK", .{});
+    widgets.hoverHelp("Enter add  / filter  Esc back");
     zgui.separator();
     const params = automation_ed.instrumentAutomatableParams(&app.core);
     var buf: [automation_ed.max_param_display_rows]automation_ed.ParamDisplayRow = undefined;

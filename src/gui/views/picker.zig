@@ -1,6 +1,7 @@
 const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
+const widgets = @import("../widgets.zig");
 const spectrum_ed = @import("../../ui/editors/fx_editor.zig");
 const preset_ed = @import("../../ui/editors/preset_picker.zig");
 const fuzzy = @import("../../ui/fuzzy.zig");
@@ -85,11 +86,11 @@ pub fn dismiss(app: anytype, now_ns: i96) void {
 
 pub fn drawInstrument(app: anytype) void {
     if (app.core.picker_replace) {
-        zgui.textColored(theme.focus, "REPLACE INSTRUMENT", .{});
+        widgets.coloredTitle(theme.focus, "REPLACE INSTRUMENT", .{});
         zgui.sameLine(.{});
         zgui.textDisabled("Swaps notes over when the old and new kinds are compatible", .{});
     } else {
-        zgui.textColored(theme.focus, "ADD INSTRUMENT", .{});
+        widgets.coloredTitle(theme.focus, "ADD INSTRUMENT", .{});
         zgui.sameLine(.{});
         zgui.textDisabled("Choose the track's sound source", .{});
     }
@@ -138,7 +139,7 @@ pub fn drawInstrument(app: anytype) void {
 }
 
 pub fn drawFx(app: anytype) void {
-    zgui.textColored(theme.modulation, "ADD EFFECT", .{});
+    widgets.coloredTitle(theme.modulation, "ADD EFFECT", .{});
     zgui.sameLine(.{});
     zgui.textDisabled("Inserted after the focused unit", .{});
     zgui.separator();
@@ -252,7 +253,7 @@ pub fn drawPreset(app: anytype) void {
         .drum => theme.rhythm,
         .soundfont, .acoustic => theme.audio,
     };
-    zgui.textColored(kind_accent, "{s}", .{app.core.preset_picker_kind.label()});
+    widgets.coloredTitle(kind_accent, "{s}", .{app.core.preset_picker_kind.label()});
     zgui.sameLine(.{});
     zgui.textDisabled("{d} matches for track {d:0>2}", .{ count, app.core.preset_picker_track + 1 });
     const filter = preset_ed.activeFilter(&app.core);
@@ -261,10 +262,10 @@ pub fn drawPreset(app: anytype) void {
         zgui.textColored(theme.audio, "filter: {s}", .{filter});
     }
     zgui.separator();
-    if (app.core.preset_picker_kind == .drum)
-        zgui.textDisabled("/ filter   j/k move   enter choose   esc close   [ ] category", .{})
+    widgets.hoverHelp(if (app.core.preset_picker_kind == .drum)
+        "/ filter  j/k move  enter choose  esc close  [ ] category"
     else
-        zgui.textDisabled("/ filter   j/k move   enter choose   esc close   [ ] category   a audition", .{});
+        "/ filter  j/k move  enter choose  esc close  [ ] category  a audition");
     zgui.spacing();
     var ordinal: usize = 0;
     for (rows, 0..) |row, row_index| switch (row) {

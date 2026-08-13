@@ -70,7 +70,7 @@ pub fn draw(app: anytype) void {
 }
 
 fn drawHeader(app: anytype, track: u16, sf: *const ws.dsp.SoundfontPlayer) void {
-    zgui.textDisabled(icons.soundfont ++ "  {s}", .{app.core.editingSoundfontLabel()});
+    widgets.viewTitle(icons.soundfont ++ "  {s}", .{app.core.editingSoundfontLabel()});
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[track].name});
     if (sf.presetCount() > 0) {

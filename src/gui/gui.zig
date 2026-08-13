@@ -245,6 +245,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
 }
 
 fn configureFonts(size: f32) void {
+    gui_style.font_size = size;
     var text_config = zgui.FontConfig.init();
     text_config.font_data_owned_by_atlas = false;
     text_config.oversample_h = 2;

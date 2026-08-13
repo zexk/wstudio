@@ -389,8 +389,8 @@ fn drawPadEmptyState(app: anytype, title: []const u8, explanation: []const u8) v
 
 fn drawPadHeader(app: anytype, track: u16, kind: PadTargetKind, index: u8) void {
     switch (kind) {
-        .drum => zgui.textDisabled(icons.drum ++ "  DRUM MACHINE", .{}),
-        .slice => zgui.textDisabled(icons.slicer ++ "  SLICER", .{}),
+        .drum => widgets.viewTitle(icons.drum ++ "  DRUM MACHINE", .{}),
+        .slice => widgets.viewTitle(icons.slicer ++ "  SLICER", .{}),
     }
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[track].name});
@@ -419,7 +419,7 @@ fn drawHeader(app: anytype, sampler: *const ws.dsp.Sampler) void {
         .sampler => |t| t,
         else => return,
     };
-    zgui.textDisabled(icons.sampler ++ "  SAMPLER", .{});
+    widgets.viewTitle(icons.sampler ++ "  SAMPLER", .{});
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[track].name});
     zgui.sameLine(.{});
@@ -607,7 +607,9 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
         zgui.setMouseCursor(.resize_ew);
     }
 
-    zgui.textDisabled("drag markers to trim, fade dots to shape fades   region {d:.1}-{d:.1}% of {d} samples", .{ start * 100, end * 100, samples.len });
+    zgui.textDisabled("region {d:.1}-{d:.1}% of {d} samples", .{ start * 100, end * 100, samples.len });
+    zgui.sameLine(.{});
+    widgets.hoverHelp("Drag markers to trim; drag fade dots to shape fades");
 }
 
 fn drawSliceBoundaries(app: anytype, target: Target, draw_list: zgui.DrawList, origin: [2]f32, width: f32, height: f32) void {

@@ -222,7 +222,8 @@
 -- Range 20-120. Smaller zooms in on the loud end.
 -- wstudio.o.tui_spectrum_db_range = 70
 
--- [gui] Font size, in pixels. Range 8-40.
+-- [gui] Global type scale, expressed as body-text pixels. Captions, headings,
+-- and display titles scale with it. Range 8-40.
 -- wstudio.o.gui_font_size = 15
 
 -- [gui] Vertical sync. false trades tearing for lower input latency.

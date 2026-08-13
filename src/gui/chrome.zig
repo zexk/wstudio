@@ -83,7 +83,9 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
 
 fn drawTransportControls(app: anytype, snap: ws.engine.UiSnapshot) void {
     zgui.beginGroup();
+    gui_style.pushFont(.caption);
     zgui.textColored(theme.fg3, icons.logo ++ "  TRANSPORT", .{});
+    gui_style.popFont();
     // The action, not the key: space is remappable (and is the leader
     // prefix), so synthesizing it here would hand the click to a user
     // keymap - or leave a chord half-typed - instead of the transport.
@@ -178,8 +180,12 @@ fn lufsText(value: f32, scratch: *[16]u8) []const u8 {
 fn drawTransportReadout(label: []const u8, value: []const u8, first: bool) void {
     if (!first) zgui.sameLine(.{ .spacing = group_gap });
     zgui.beginGroup();
+    gui_style.pushFont(.caption);
     zgui.textColored(theme.fg3, "{s}", .{label});
+    gui_style.popFont();
+    gui_style.pushFont(.heading);
     zgui.textColored(theme.fg0, "{s}", .{value});
+    gui_style.popFont();
     zgui.endGroup();
 }
 
@@ -187,7 +193,13 @@ fn drawTransportReadout(label: []const u8, value: []const u8, first: bool) void 
 /// stacked lines, same as ImGui's own group sizing. Used to right-align
 /// the session/system readout cluster ahead of actually drawing it.
 fn readoutWidth(label: []const u8, value: []const u8) f32 {
-    return @max(zgui.calcTextSize(label, .{})[0], zgui.calcTextSize(value, .{})[0]);
+    gui_style.pushFont(.caption);
+    const label_width = zgui.calcTextSize(label, .{})[0];
+    gui_style.popFont();
+    gui_style.pushFont(.heading);
+    const value_width = zgui.calcTextSize(value, .{})[0];
+    gui_style.popFont();
+    return @max(label_width, value_width);
 }
 
 fn ellipsizeUtf8(text: []const u8, max_codepoints: usize, scratch: []u8) []const u8 {

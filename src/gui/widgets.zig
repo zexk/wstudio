@@ -2,6 +2,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
 const format = @import("../ui/format.zig");
+const icons = @import("../ui/icons.zig");
 const gui_style = @import("style.zig");
 const scroll = @import("scroll.zig");
 
@@ -40,6 +41,28 @@ pub fn iconButton(label: [:0]const u8, tooltip: []const u8) bool {
     return clicked;
 }
 
+pub fn viewTitle(comptime fmt: []const u8, args: anytype) void {
+    gui_style.pushFont(.display);
+    zgui.textDisabled(fmt, args);
+    gui_style.popFont();
+}
+
+pub fn coloredTitle(col: [4]f32, comptime fmt: []const u8, args: anytype) void {
+    gui_style.pushFont(.display);
+    zgui.textColored(col, fmt, args);
+    gui_style.popFont();
+}
+
+/// Compact replacement for persistent shortcut prose. Meaning stays
+/// available to mouse users while keyboard users already have status/help.
+pub fn hoverHelp(tooltip: []const u8) void {
+    zgui.textDisabled(icons.help, .{});
+    if (!zgui.isItemHovered(.{})) return;
+    _ = zgui.beginTooltip();
+    zgui.textUnformatted(tooltip);
+    zgui.endTooltip();
+}
+
 /// A section header used inside a bordered/tinted card column: a small
 /// accent chip (matching the header overview panels' accent bars) plus the
 /// label, then a separator and a bit of breathing room before the params.
@@ -68,7 +91,9 @@ pub fn sectionTitleGate(label: []const u8, accent: [4]f32, gate: ?SectionGate) b
     const avail = zgui.getContentRegionAvail()[0];
     draw_list.addRectFilled(.{ .pmin = .{ pos[0], pos[1] + 1 }, .pmax = .{ pos[0] + 3, pos[1] + 15 }, .col = gui_style.color(accent), .rounding = gui_style.item_rounding });
     zgui.indent(.{ .indent_w = 10 });
+    gui_style.pushFont(.heading);
     zgui.textColored(accent, "{s}", .{label});
+    gui_style.popFont();
     zgui.unindent(.{ .indent_w = 10 });
 
     var clicked = false;
@@ -149,9 +174,13 @@ pub fn emptyState(args: EmptyState) bool {
     var clicked = false;
     zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.bg2 });
     if (zgui.beginChild(args.id, .{ .w = width, .h = 122, .child_flags = .{ .border = true } })) {
+        gui_style.pushFont(.heading);
         zgui.textColored(args.accent, "{s}", .{args.title});
+        gui_style.popFont();
         zgui.separator();
+        gui_style.pushFont(.caption);
         zgui.textDisabled("{s}", .{args.explanation});
+        gui_style.popFont();
         zgui.spacing();
         zgui.pushStyleColor4f(.{ .idx = .button, .c = theme.focus_soft });
         clicked = zgui.button(args.action, .{ .h = 32 });

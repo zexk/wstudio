@@ -193,7 +193,7 @@ fn mixerDrag(args: MixerDrag) MixerDragResult {
 
 pub fn draw(app: anytype) void {
     app.core.tracksRowSync();
-    zgui.textDisabled(icons.logo ++ "  MIXER", .{});
+    widgets.viewTitle(icons.logo ++ "  MIXER", .{});
     zgui.sameLine(.{});
     zgui.textColored(if (app.core.session.song_mode) theme.audio else theme.fg3, "{s}", .{if (app.core.session.song_mode) "SONG" else "PATTERN"});
     zgui.sameLine(.{ .spacing = 12 });

@@ -1,6 +1,7 @@
 const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
+const icons = @import("../../ui/icons.zig");
 const spectrum_ed = @import("../../ui/editors/fx_editor.zig");
 const history = @import("../../ui/history.zig");
 const style = @import("../style.zig");
@@ -42,7 +43,7 @@ pub fn draw(app: anytype) void {
 }
 
 fn drawTitle(app: anytype, target: spectrum_ed.EqTarget) void {
-    zgui.textColored(targetAccent(target), "SPECTRUM / FX CHAIN", .{});
+    widgets.coloredTitle(targetAccent(target), "SPECTRUM / FX CHAIN", .{});
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{targetName(app, target)});
     if (target == .group and app.core.eq_group < ws.engine.max_groups) {
@@ -99,17 +100,17 @@ fn drawSignalChain(app: anytype, target: spectrum_ed.EqTarget, fx: *ws.Fx) void 
     zgui.sameLine(.{ .spacing = gap });
     zgui.textDisabled("> OUT", .{});
 
-    zgui.textDisabled("a insert   tab select slot   b bypass", .{});
+    widgets.hoverHelp("a insert  tab select slot  b bypass");
     if (spectrum_ed.focusedUnit(&app.core, fx)) |unit| {
         zgui.sameLine(.{});
         if (unit.kind() == .eq) {
             if (app.core.eq_band_select) {
-                zgui.textDisabled("h/l band   enter edit", .{});
+                widgets.hoverHelp("h/l band  enter edit");
             } else {
-                zgui.textDisabled("j/k field   h/l adjust", .{});
+                widgets.hoverHelp("j/k field  h/l adjust");
             }
         } else {
-            zgui.textDisabled("j/k parameter   h/l adjust", .{});
+            widgets.hoverHelp("j/k parameter  h/l adjust");
         }
     }
 }
@@ -138,14 +139,14 @@ fn drawEditor(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit) void
     zgui.sameLine(.{});
     zgui.textDisabled("unit {d}  {s} {s}", .{ app.core.fx_focus + 1, if (unit.bypassed) "\u{25CB}" else "\u{25CF}", if (unit.bypassed) "BYPASSED" else "ACTIVE" });
     zgui.sameLine(.{ .spacing = 18 });
-    if (zgui.button(if (unit.bypassed) "enable" else "bypass", .{})) spectrum_ed.toggleBypass(&app.core, target);
+    if (widgets.iconButton(icons.mute ++ "##fx-bypass", if (unit.bypassed) "Enable  b" else "Bypass  b")) spectrum_ed.toggleBypass(&app.core, target);
     zgui.sameLine(.{ .spacing = 5 });
-    if (zgui.button("<##fx-left", .{})) spectrum_ed.moveFocused(&app.core, target, -1);
+    if (widgets.iconButton(icons.left ++ "##fx-left", "Move left  h")) spectrum_ed.moveFocused(&app.core, target, -1);
     zgui.sameLine(.{ .spacing = 5 });
-    if (zgui.button(">##fx-right", .{})) spectrum_ed.moveFocused(&app.core, target, 1);
+    if (widgets.iconButton(icons.right ++ "##fx-right", "Move right  l")) spectrum_ed.moveFocused(&app.core, target, 1);
     zgui.sameLine(.{ .spacing = 5 });
     zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = theme.danger });
-    const removed = zgui.button("remove", .{});
+    const removed = widgets.iconButton(icons.close ++ "##fx-remove", "Remove  x");
     if (removed) spectrum_ed.removeFocused(&app.core, target);
     zgui.popStyleColor(.{});
     if (removed) return;

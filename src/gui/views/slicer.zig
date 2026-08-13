@@ -63,7 +63,7 @@ fn drawEmptyState(app: anytype) void {
 }
 
 fn drawHeader(app: anytype, slicer: *const ws.dsp.Slicer) void {
-    zgui.textDisabled(icons.slicer ++ "  SLICER", .{});
+    widgets.viewTitle(icons.slicer ++ "  SLICER", .{});
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[app.core.slicer_track].name});
     zgui.sameLine(.{});

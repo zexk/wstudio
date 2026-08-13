@@ -41,7 +41,7 @@ pub fn draw(app: anytype) void {
 }
 
 fn drawTitle(app: anytype, drum: *const ws.dsp.DrumMachine) void {
-    zgui.textDisabled(icons.drum ++ "  DRUMS", .{});
+    widgets.viewTitle(icons.drum ++ "  DRUMS", .{});
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[app.core.drum_track].name});
     zgui.sameLine(.{});

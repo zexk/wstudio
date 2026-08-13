@@ -27,7 +27,7 @@ pub fn draw(app: anytype) void {
     if (app.arrangement_clip) |selection| {
         if (!clipSelectionValid(&app.core.session.arrangement, selection)) app.arrangement_clip = null;
     }
-    zgui.textDisabled(icons.arrangement ++ "  ARRANGEMENT", .{});
+    widgets.viewTitle(icons.arrangement ++ "  ARRANGEMENT", .{});
     zgui.sameLine(.{});
     zgui.textColored(if (app.core.session.song_mode) theme.audio else theme.fg3, "{s}", .{if (app.core.session.song_mode) "SONG" else "PATTERN"});
     zgui.sameLine(.{});
@@ -445,7 +445,7 @@ fn drawArrangementInspector(app: anytype) void {
     var action: ?u8 = null;
     if (zgui.beginChild("arrangement-inspector", .{ .w = 0, .h = 108, .child_flags = .{ .border = true } })) {
         const clip = app.core.session.arrangement.lanes.items[selection.track].clips.items[selection.clip];
-        zgui.textColored(theme.focus, icons.arrangement ++ "  CLIP", .{});
+        widgets.coloredTitle(theme.focus, icons.arrangement ++ "  CLIP", .{});
         zgui.separator();
         zgui.text("Track {d:0>2}", .{selection.track + 1});
         zgui.sameLine(.{ .spacing = 24 });

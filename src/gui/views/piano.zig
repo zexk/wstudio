@@ -222,7 +222,7 @@ pub fn draw(app: anytype) void {
         return;
     };
     const track_name = app.core.session.project.tracks.items[app.core.piano_track].name;
-    zgui.textDisabled(icons.synth ++ "  PIANO ROLL", .{});
+    widgets.viewTitle(icons.synth ++ "  PIANO ROLL", .{});
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{track_name});
     if (app.core.piano_clip_link) |link| {

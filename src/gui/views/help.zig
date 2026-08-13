@@ -14,6 +14,7 @@
 const std = @import("std");
 const zgui = @import("zgui");
 const help_model = @import("../../ui/help.zig");
+const widgets = @import("../widgets.zig");
 const ansi = @import("../../ui/ansi.zig");
 const style = @import("../style.zig");
 const icons = @import("../../ui/icons.zig");
@@ -72,14 +73,13 @@ pub fn draw(app: anytype) void {
 }
 
 fn drawHeader(t: *const help_model.HelpText, viewport: help_model.Viewport, current_section: ?usize) void {
-    zgui.textColored(theme.modulation, icons.help ++ "  HELP", .{});
+    widgets.coloredTitle(theme.modulation, icons.help ++ "  HELP", .{});
     if (current_section) |s| {
         zgui.sameLine(.{ .spacing = 10 });
         zgui.textColored(theme.audio, "{s}", .{shortTitle(help_model.sectionTitle(t.line(s)))});
     }
     zgui.sameLine(.{ .spacing = 16 });
-    // `{{`/`}}` are the literal braces of the section-jump keys.
-    zgui.textDisabled("j/k scroll   d/u page   {{ }} section   / search   esc close", .{});
+    widgets.hoverHelp("j/k scroll  d/u page  { } section  / search  esc close");
     zgui.sameLine(.{ .spacing = 16 });
     zgui.textDisabled("{d}-{d}/{d}", .{ viewport.off + 1, viewport.end, t.count });
     zgui.separator();

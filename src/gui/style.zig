@@ -79,6 +79,25 @@ const patina_colors: Palette = fromIdentity(ws.theme_identity.patina);
 /// re-skins the whole GUI. Mutated once, before the first frame.
 pub var palette: Palette = patina_colors;
 
+/// Semantic type sizes. `gui_font_size` remains the one user setting; ImGui
+/// rasterizes this font at each requested size from that shared base.
+pub const FontRole = enum { caption, body, heading, display };
+pub var font_size: f32 = 15;
+
+pub fn pushFont(role: FontRole) void {
+    const scale: f32 = switch (role) {
+        .caption => 0.8,
+        .body => 1.0,
+        .heading => 1.2,
+        .display => 1.4,
+    };
+    zgui.pushFont(null, font_size * scale);
+}
+
+pub fn popFont() void {
+    zgui.popFont();
+}
+
 /// Vertical pixels of mouse travel to sweep a knob/envelope-node drag across
 /// its full range - `wstudio.o.gui_knob_drag_pixels`/`gui_envelope_drag_pixels`.
 /// Live-settable (unlike `palette`, which only changes on `:colorscheme`),

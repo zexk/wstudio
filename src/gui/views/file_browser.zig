@@ -9,30 +9,31 @@ const zgui = @import("zgui");
 const picker = @import("picker.zig");
 const style = @import("../style.zig");
 const scroll = @import("../scroll.zig");
+const widgets = @import("../widgets.zig");
 
 const theme = &style.palette;
 const color = style.color;
 
 pub fn draw(app: anytype) void {
     if (app.core.browser_recent_mode) {
-        zgui.textColored(theme.audio, "RECENT PROJECTS", .{});
+        widgets.coloredTitle(theme.audio, "RECENT PROJECTS", .{});
         zgui.separator();
-        zgui.textDisabled("j/k move   enter open   esc close", .{});
+        widgets.hoverHelp("j/k move  enter open  esc close");
         zgui.spacing();
         drawRecentProjects(app);
         return;
     }
     if (app.core.browser_bookmark_mode) {
-        zgui.textColored(theme.audio, "BOOKMARKS", .{});
+        widgets.coloredTitle(theme.audio, "BOOKMARKS", .{});
         zgui.separator();
-        zgui.textDisabled("j/k move   enter open   d delete   esc close", .{});
+        widgets.hoverHelp("j/k move  enter open  d delete  esc close");
         zgui.spacing();
         drawBookmarks(app);
         return;
     }
 
     var purpose_buf: [64]u8 = undefined;
-    zgui.textColored(theme.audio, "BROWSE", .{});
+    widgets.coloredTitle(theme.audio, "BROWSE", .{});
     zgui.sameLine(.{});
     zgui.textDisabled("{s}", .{app.core.browser_purpose.displayLabel(&purpose_buf)});
     const pattern = app.core.searchPattern();
@@ -42,7 +43,7 @@ pub fn draw(app: anytype) void {
     }
     zgui.textDisabled("{s}", .{app.core.browser_dir});
     zgui.separator();
-    zgui.textDisabled("{s}", .{browserHints(app.core.browser_purpose)});
+    widgets.hoverHelp(browserHints(app.core.browser_purpose));
     zgui.spacing();
 
     if (app.core.browser_entries.items.len == 0) {
