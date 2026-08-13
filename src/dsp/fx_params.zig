@@ -187,6 +187,17 @@ pub const utility_specs = [_]ParamSpec{
     .{ .name = "target", .field = "autogain_target_lufs", .min = -36.0, .max = -6.0, .step_fine = 1.0, .step_coarse = 3.0 },
 };
 
+pub const crossover_specs = [_]ParamSpec{
+    .{ .name = "xover-lo", .field = "xover_lo_hz", .setter = "setXoverLo", .min = 20.0, .max = 20000.0, .step_fine = 10.0, .step_coarse = 100.0 },
+    .{ .name = "xover-hi", .field = "xover_hi_hz", .setter = "setXoverHi", .min = 20.0, .max = 20000.0, .step_fine = 10.0, .step_coarse = 100.0 },
+    .{ .name = "low gain", .field = "low_gain_db", .min = -60.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
+    .{ .name = "mid gain", .field = "mid_gain_db", .min = -60.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
+    .{ .name = "high gain", .field = "high_gain_db", .min = -60.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
+    .{ .name = "low solo", .field = "low_solo", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+    .{ .name = "mid solo", .field = "mid_solo", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+    .{ .name = "high solo", .field = "high_solo", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+};
+
 pub const stereo_width_specs = [_]ParamSpec{
     .{ .name = "width", .field = "width", .min = 0.0, .max = 2.0, .step_fine = 0.05, .step_coarse = 0.25 },
     .{ .name = "output", .field = "output_db", .min = -24.0, .max = 12.0, .step_fine = 0.5, .step_coarse = 3.0 },
@@ -345,6 +356,7 @@ pub fn paramCount(k: FxKind) usize {
         .gate => gate_specs.len,
         .filter => filter_specs.len,
         .utility => utility_specs.len,
+        .crossover => crossover_specs.len,
         .stereo_width => stereo_width_specs.len,
         .auto_pan => auto_pan_specs.len,
         .sat => sat_specs.len,
@@ -426,6 +438,7 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
         .gate => tableName(&gate_specs, idx),
         .filter => tableName(&filter_specs, idx),
         .utility => tableName(&utility_specs, idx),
+        .crossover => tableName(&crossover_specs, idx),
         .stereo_width => tableName(&stereo_width_specs, idx),
         .auto_pan => tableName(&auto_pan_specs, idx),
         .transient_shaper => tableName(&transient_shaper_specs, idx),
@@ -494,6 +507,7 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
         .gate => |*g| tableGet(g, &gate_specs, idx),
         .filter => |*f| tableGet(f, &filter_specs, idx),
         .utility => |*u| tableGet(u, &utility_specs, idx),
+        .crossover => |*c| tableGet(c, &crossover_specs, idx),
         .stereo_width => |*w| tableGet(w, &stereo_width_specs, idx),
         .auto_pan => |*a| tableGet(a, &auto_pan_specs, idx),
         .transient_shaper => |*t| tableGet(t, &transient_shaper_specs, idx),
@@ -553,6 +567,7 @@ pub fn paramRange(p: *const FxPayload, idx: usize) [2]f32 {
         .gate => tableRange(&gate_specs, idx),
         .filter => tableRange(&filter_specs, idx),
         .utility => tableRange(&utility_specs, idx),
+        .crossover => tableRange(&crossover_specs, idx),
         .stereo_width => tableRange(&stereo_width_specs, idx),
         .auto_pan => tableRange(&auto_pan_specs, idx),
         .transient_shaper => tableRange(&transient_shaper_specs, idx),
@@ -634,6 +649,7 @@ pub fn setParamAbsolute(p: *FxPayload, idx: usize, value: f32) void {
         .gate => |*g| tableSet(g, &gate_specs, idx, value),
         .filter => |*f| tableSet(f, &filter_specs, idx, value),
         .utility => |*u| tableSet(u, &utility_specs, idx, value),
+        .crossover => |*c| tableSet(c, &crossover_specs, idx, value),
         .stereo_width => |*w| tableSet(w, &stereo_width_specs, idx, value),
         .auto_pan => |*a| tableSet(a, &auto_pan_specs, idx, value),
         .transient_shaper => |*t| tableSet(t, &transient_shaper_specs, idx, value),
@@ -695,6 +711,7 @@ pub fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
         .gate => tableStep(&gate_specs, idx, coarse),
         .filter => tableStep(&filter_specs, idx, coarse),
         .utility => tableStep(&utility_specs, idx, coarse),
+        .crossover => tableStep(&crossover_specs, idx, coarse),
         .stereo_width => tableStep(&stereo_width_specs, idx, coarse),
         .auto_pan => tableStep(&auto_pan_specs, idx, coarse),
         .transient_shaper => tableStep(&transient_shaper_specs, idx, coarse),

@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 70;
+pub const file_version: u32 = 71;
 
 /// First four bytes of every .wsj. The file is a container: a 12-byte
 /// header, the audio cache (user sample blobs, concatenated), then this
@@ -611,6 +611,17 @@ pub const UtilitySnap = struct {
     autogain_target_lufs: f32 = -18,
 };
 
+pub const CrossoverSnap = struct {
+    xover_lo_hz: f32 = 200,
+    xover_hi_hz: f32 = 2000,
+    low_gain_db: f32 = 0,
+    mid_gain_db: f32 = 0,
+    high_gain_db: f32 = 0,
+    low_solo: f32 = 0,
+    mid_solo: f32 = 0,
+    high_solo: f32 = 0,
+};
+
 pub const StereoWidthSnap = struct {
     width: f32 = 1,
     output_db: f32 = 0,
@@ -649,6 +660,7 @@ pub const FxContentSnap = union(enum) {
     comp: CompSnap,
     expander: ExpanderSnap,
     clipper: ClipperSnap,
+    crossover: CrossoverSnap,
     mb_comp: MultibandCompSnap,
     ott: OttSnap,
     delay: DelaySnap,

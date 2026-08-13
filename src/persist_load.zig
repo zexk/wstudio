@@ -1074,7 +1074,7 @@ pub fn applyFxChain(
             else => |_, saved_kind| blk: {
                 const kind: rack_mod.FxKind = switch (saved_kind) {
                     .gate => .gate, .comp => .comp, .mb_comp => .mb_comp, .ott => .ott, .limiter => .limiter, .transient_shaper => .transient_shaper,
-                    .expander => .expander, .clipper => .clipper,
+                    .expander => .expander, .clipper => .clipper, .crossover => .crossover,
                     .eq => .eq, .filter => .filter, .utility => .utility, .stereo_width => .stereo_width, .auto_pan => .auto_pan, .sat => .sat, .crush => .crush, .chorus => .chorus,
                     .phaser => .phaser, .flanger => .flanger, .tape => .tape,
                     .freq_shift => .freq_shift, .pitch_shift => .pitch_shift, .delay => .delay, .reverb => .reverb,
@@ -1167,6 +1167,16 @@ pub fn applyFxChain(
                 e.setAnalog(es.analog);
                 // The EQ-only bypass maps onto the slot's generic one.
                 if (es.bypass) unit.setBypassed(true);
+            },
+            .crossover => |snap| {
+                const effect = &unit.payload.crossover;
+                effect.setXovers(snap.xover_lo_hz, snap.xover_hi_hz);
+                effect.low_gain_db = snap.low_gain_db;
+                effect.mid_gain_db = snap.mid_gain_db;
+                effect.high_gain_db = snap.high_gain_db;
+                effect.low_solo = snap.low_solo;
+                effect.mid_solo = snap.mid_solo;
+                effect.high_solo = snap.high_solo;
             },
             inline .filter, .limiter, .utility, .stereo_width, .auto_pan,
             .transient_shaper, .gate, .sat, .crush, .chorus, .phaser, .expander, .clipper,
@@ -1322,7 +1332,7 @@ fn buildPresetFx(allocator: std.mem.Allocator, patch: *const PolySynth.Patch, s:
                 v.damp = patch.fx_reverb_damp;
                 v.mix = patch.fx_reverb_mix;
             },
-            .filter, .limiter, .utility, .stereo_width, .auto_pan, .transient_shaper, .pitch_shift, .expander, .clipper, .clap, .vst3 => unreachable,
+            .filter, .limiter, .crossover, .utility, .stereo_width, .auto_pan, .transient_shaper, .pitch_shift, .expander, .clipper, .clap, .vst3 => unreachable,
         }
     }
 }

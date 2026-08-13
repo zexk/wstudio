@@ -62,7 +62,7 @@ pub const spectrum_band_count: usize = 80;
 /// The insertable kinds in picker display order (signal-flow-ish: dynamics,
 /// tone, character, modulation, time).
 pub const picker_kinds = [_]FxKind{
-    .gate, .comp, .expander, .mb_comp, .ott, .limiter, .clipper, .transient_shaper, .eq, .filter, .utility, .stereo_width, .auto_pan, .sat, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .pitch_shift, .delay, .reverb,
+    .gate, .comp, .expander, .mb_comp, .ott, .limiter, .clipper, .transient_shaper, .eq, .filter, .crossover, .utility, .stereo_width, .auto_pan, .sat, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .pitch_shift, .delay, .reverb,
 };
 
 comptime {

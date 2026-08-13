@@ -29,6 +29,7 @@ const AutoPan = @import("dsp/auto_pan.zig").AutoPan;
 const TransientShaper = @import("dsp/transient_shaper.zig").TransientShaper;
 const Expander = @import("dsp/expander.zig").Expander;
 const Clipper = @import("dsp/clipper.zig").Clipper;
+const CrossoverFx = @import("dsp/crossover_fx.zig").CrossoverFx;
 pub const ClapPlugin = @import("clap/plugin.zig").ClapPlugin;
 pub const Vst3Plugin = @import("vst3/plugin.zig").Vst3Plugin;
 const PatternPlayer = @import("dsp/pattern.zig").PatternPlayer;
@@ -123,6 +124,7 @@ pub const FxPayload = union(enum) {
     limiter: Limiter,
     expander: Expander,
     clipper: Clipper,
+    crossover: CrossoverFx,
     transient_shaper: TransientShaper,
     eq: ParametricEq,
     filter: Filter,
@@ -516,6 +518,7 @@ pub const Fx = struct {
             .limiter => .{ .limiter = try Limiter.init(allocator, sr) },
             .expander => .{ .expander = Expander.init(sr) },
             .clipper => .{ .clipper = Clipper.init(sr) },
+            .crossover => .{ .crossover = CrossoverFx.init(sr) },
             .sat     => .{ .sat = .{} },
             .crush   => .{ .crush = .{} },
             .chorus  => .{ .chorus = try Chorus.init(allocator, sr) },
@@ -1042,8 +1045,8 @@ test "Fx.dupe deep-copies params and heap buffers independently (used by undo's 
 }
 
 const internal_fx_kinds = [_]FxKind{
-    .gate,     .comp,    .mb_comp, .ott,    .limiter, .transient_shaper, .eq,         .filter,      .utility, .stereo_width, .auto_pan, .sat, .crush,
-    .expander, .clipper, .chorus,  .phaser, .flanger, .tape,             .freq_shift, .pitch_shift, .delay,   .reverb,
+    .gate,     .comp,    .mb_comp, .ott,    .limiter, .transient_shaper, .eq,         .filter,      .crossover, .utility, .stereo_width, .auto_pan, .sat, .crush,
+    .expander, .clipper, .chorus,  .phaser, .flanger, .tape,             .freq_shift, .pitch_shift, .delay,     .reverb,
 };
 
 test "every FX payload stays finite when constructed with zero sample rate" {
