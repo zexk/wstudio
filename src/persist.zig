@@ -872,6 +872,8 @@ test "save/load round-trip persists master FX" {
         utility.noise_on = 1;
         utility.noise_color = 3;
         utility.noise_db = -30;
+        utility.autogain_on = 1;
+        utility.autogain_target_lufs = -16;
     }
     session.syncMasterChain();
 
@@ -893,6 +895,8 @@ test "save/load round-trip persists master FX" {
     try testing.expectEqual(@as(f32, 1), units[6].payload.utility.noise_on);
     try testing.expectEqual(@as(f32, 3), units[6].payload.utility.noise_color);
     try testing.expectEqual(@as(f32, -30), units[6].payload.utility.noise_db);
+    try testing.expectEqual(@as(f32, 1), units[6].payload.utility.autogain_on);
+    try testing.expectEqual(@as(f32, -16), units[6].payload.utility.autogain_target_lufs);
     // The bypassed crusher is still in the live chain; it fades itself out
     // rather than leaving the device list.
     try testing.expectEqual(@as(usize, 7), loaded.engine.master_chain.slice().len);

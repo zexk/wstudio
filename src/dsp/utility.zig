@@ -3,6 +3,7 @@
 const std = @import("std");
 const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
+const LoudnessMeter = @import("meter.zig").LoudnessMeter;
 
 pub const Utility = struct {
     pub const max_delay_frames: usize = 4096;
@@ -18,6 +19,8 @@ pub const Utility = struct {
     /// 0 white, 1 pink, 2 brown, 3 blue, 4 violet.
     noise_color: f32 = 0,
     noise_db: f32 = -18,
+    autogain_on: f32 = 0,
+    autogain_target_lufs: f32 = -18,
     delay_line_l: []types.Sample,
     delay_line_r: []types.Sample,
     write_pos: usize = 0,
@@ -25,16 +28,24 @@ pub const Utility = struct {
     noise_low: f32 = 0,
     noise_prev: f32 = 0,
     noise_diff_prev: f32 = 0,
+    loudness: LoudnessMeter,
+    autogain_db: f32 = 0,
+    sample_rate: u32,
 
     pub const device = dsp.deviceOf(@This());
 
-    pub fn init(allocator: std.mem.Allocator) !Utility {
+    pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !Utility {
         const left = try allocator.alloc(types.Sample, max_delay_frames + 1);
         errdefer allocator.free(left);
         const right = try allocator.alloc(types.Sample, max_delay_frames + 1);
         @memset(left, 0);
         @memset(right, 0);
-        return .{ .delay_line_l = left, .delay_line_r = right };
+        return .{
+            .delay_line_l = left,
+            .delay_line_r = right,
+            .loudness = LoudnessMeter.init(sample_rate),
+            .sample_rate = sample_rate,
+        };
     }
 
     pub fn deinit(self: *Utility, allocator: std.mem.Allocator) void {
@@ -52,6 +63,8 @@ pub const Utility = struct {
         self.noise_low = 0;
         self.noise_prev = 0;
         self.noise_diff_prev = 0;
+        self.loudness = LoudnessMeter.init(self.sample_rate);
+        self.autogain_db = 0;
     }
 
     fn noiseSample(self: *Utility, color: u3) f32 {
@@ -76,7 +89,21 @@ pub const Utility = struct {
     }
 
     pub fn processBlock(self: *Utility, buf: []types.Sample) void {
-        const gain = types.dbToGain(dsp.sanitizeParam(self.gain_db, -24, 24, 0));
+        const autogain_on = dsp.sanitizeParam(self.autogain_on, 0, 1, 0) >= 0.5;
+        if (autogain_on) {
+            self.loudness.push(buf);
+            const measured = self.loudness.shortTerm();
+            if (measured > LoudnessMeter.floor_lufs) {
+                const wanted = std.math.clamp(dsp.sanitizeParam(self.autogain_target_lufs, -36, -6, -18) - measured, -24.0, 24.0);
+                const seconds = @as(f32, @floatFromInt(buf.len / 2)) / @as(f32, @floatFromInt(@max(self.sample_rate, 1)));
+                const rate: f32 = if (wanted < self.autogain_db) 24.0 else 3.0;
+                const step = rate * seconds;
+                self.autogain_db += std.math.clamp(wanted - self.autogain_db, -step, step);
+            }
+        } else {
+            self.autogain_db = 0;
+        }
+        const gain = types.dbToGain(dsp.sanitizeParam(self.gain_db, -24, 24, 0) + self.autogain_db);
         const polarity: f32 = if (dsp.sanitizeParam(self.invert, 0, 1, 0) >= 0.5) -1 else 1;
         const mono = dsp.sanitizeParam(self.mono, 0, 1, 0) >= 0.5;
         const channel: u2 = @intFromFloat(@round(dsp.sanitizeParam(self.channel, 0, 2, 0)));
@@ -115,7 +142,7 @@ pub const Utility = struct {
 };
 
 test "utility channel operations and gain compose" {
-    var utility = try Utility.init(std.testing.allocator);
+    var utility = try Utility.init(std.testing.allocator, 48_000);
     defer utility.deinit(std.testing.allocator);
     utility.gain_db = 6.0206;
     utility.invert = 1;
@@ -126,14 +153,14 @@ test "utility channel operations and gain compose" {
     try std.testing.expectApproxEqAbs(@as(f32, -0.5), buf[1], 1e-4);
 
     utility.deinit(std.testing.allocator);
-    utility = try Utility.init(std.testing.allocator);
+    utility = try Utility.init(std.testing.allocator, 48_000);
     utility.mono = 1;
     buf = .{ 0.25, -0.5 };
     utility.processBlock(&buf);
     try std.testing.expectApproxEqAbs(buf[0], buf[1], 1e-6);
 
     utility.deinit(std.testing.allocator);
-    utility = try Utility.init(std.testing.allocator);
+    utility = try Utility.init(std.testing.allocator, 48_000);
     utility.channel = 1;
     buf = .{ 0.25, -0.5 };
     utility.processBlock(&buf);
@@ -141,7 +168,7 @@ test "utility channel operations and gain compose" {
 }
 
 test "utility stays finite under hostile input" {
-    var utility = try Utility.init(std.testing.allocator);
+    var utility = try Utility.init(std.testing.allocator, 48_000);
     defer utility.deinit(std.testing.allocator);
     utility.gain_db = std.math.nan(f32);
     utility.invert = std.math.inf(f32);
@@ -154,7 +181,7 @@ test "utility stays finite under hostile input" {
 }
 
 test "utility delays by exact sample frames" {
-    var utility = try Utility.init(std.testing.allocator);
+    var utility = try Utility.init(std.testing.allocator, 48_000);
     defer utility.deinit(std.testing.allocator);
     utility.delay_frames = 2;
     var buf = [_]types.Sample{ 1, -1, 2, -2, 3, -3, 4, -4 };
@@ -163,7 +190,7 @@ test "utility delays by exact sample frames" {
 }
 
 test "utility generates deterministic colored noise" {
-    var utility = try Utility.init(std.testing.allocator);
+    var utility = try Utility.init(std.testing.allocator, 48_000);
     defer utility.deinit(std.testing.allocator);
     utility.noise_on = 1;
     utility.noise_color = 2;
@@ -176,4 +203,26 @@ test "utility generates deterministic colored noise" {
     var second = [_]types.Sample{0} ** 16;
     utility.processBlock(&second);
     try std.testing.expectEqualSlices(types.Sample, &first, &second);
+}
+
+test "utility autogain moves sustained audio toward target" {
+    const sr = 48_000;
+    var utility = try Utility.init(std.testing.allocator, sr);
+    defer utility.deinit(std.testing.allocator);
+    utility.autogain_on = 1;
+    utility.autogain_target_lufs = -18;
+    var buf: [960]types.Sample = undefined;
+    var phase: f32 = 0;
+    for (0..500) |_| {
+        var i: usize = 0;
+        while (i < buf.len) : (i += 2) {
+            const sample = 0.01 * @sin(phase);
+            buf[i] = sample;
+            buf[i + 1] = sample;
+            phase += 2.0 * std.math.pi * 1000.0 / @as(f32, sr);
+        }
+        utility.processBlock(&buf);
+    }
+    try std.testing.expect(utility.autogain_db > 10);
+    try std.testing.expect(utility.autogain_db <= 24);
 }

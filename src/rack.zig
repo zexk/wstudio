@@ -209,7 +209,7 @@ pub const FxPayload = union(enum) {
                 return .{ .limiter = nl };
             },
             .utility => |u| {
-                var nu = try Utility.init(allocator);
+                var nu = try Utility.init(allocator, sr);
                 nu.gain_db = u.gain_db;
                 nu.invert = u.invert;
                 nu.mono = u.mono;
@@ -219,6 +219,8 @@ pub const FxPayload = union(enum) {
                 nu.noise_on = u.noise_on;
                 nu.noise_color = u.noise_color;
                 nu.noise_db = u.noise_db;
+                nu.autogain_on = u.autogain_on;
+                nu.autogain_target_lufs = u.autogain_target_lufs;
                 return .{ .utility = nu };
             },
             .clap => |plugin| {
@@ -507,7 +509,7 @@ pub const Fx = struct {
             },
             .eq      => .{ .eq = ParametricEq.init(sr) },
             .filter  => .{ .filter = Filter.init(sr) },
-            .utility => .{ .utility = try Utility.init(allocator) },
+            .utility => .{ .utility = try Utility.init(allocator, sr) },
             .stereo_width => .{ .stereo_width = .{} },
             .auto_pan => .{ .auto_pan = AutoPan.init(sr) },
             .transient_shaper => .{ .transient_shaper = TransientShaper.init(sr) },

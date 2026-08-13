@@ -183,6 +183,8 @@ pub const utility_specs = [_]ParamSpec{
     .{ .name = "noise", .field = "noise_on", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
     .{ .name = "color", .field = "noise_color", .min = 0.0, .max = 4.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
     .{ .name = "noise dB", .field = "noise_db", .min = -60.0, .max = 0.0, .step_fine = 1.0, .step_coarse = 6.0 },
+    .{ .name = "autogain", .field = "autogain_on", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+    .{ .name = "target", .field = "autogain_target_lufs", .min = -36.0, .max = -6.0, .step_fine = 1.0, .step_coarse = 3.0 },
 };
 
 pub const stereo_width_specs = [_]ParamSpec{
