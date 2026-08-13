@@ -770,6 +770,24 @@ pub fn moveFocused(app: *App, target: EqTarget, dir: i2) void {
     syncChain(app, target);
 }
 
+/// Move focused unit directly to one slot, recording one undo entry even
+/// when it crosses several neighbors. GUI drag/drop lands here once.
+pub fn moveFocusedTo(app: *App, target: EqTarget, destination: usize) void {
+    const fx = fxPtr(app, target) orelse return;
+    if (focusedUnit(app, fx) == null or destination >= fx.units.items.len or destination == app.fx_focus) return;
+    history.recordFx(app, target);
+    while (app.fx_focus < destination) {
+        fx.swap(app.fx_focus, app.fx_focus + 1);
+        app.fx_focus += 1;
+    }
+    while (app.fx_focus > destination) {
+        fx.swap(app.fx_focus, app.fx_focus - 1);
+        app.fx_focus -= 1;
+    }
+    app.dirty = true;
+    syncChain(app, target);
+}
+
 pub fn toggleBypass(app: *App, target: EqTarget) void {
     const fx = fxPtr(app, target) orelse return;
     const u = focusedUnit(app, fx) orelse return;
@@ -1136,8 +1154,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
                 }
             },
             .drag => if (app.fx_drag_slot != null and i < len) {
-                while (app.fx_focus < i) moveFocused(app, target, 1);
-                while (app.fx_focus > i) moveFocused(app, target, -1);
+                moveFocusedTo(app, target, i);
                 app.fx_drag_slot = app.fx_focus;
             },
             else => {},

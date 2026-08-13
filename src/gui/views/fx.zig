@@ -129,6 +129,22 @@ fn drawSlot(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index:
     draw_list.addText(.{ origin[0] + 8, origin[1] + 9 }, color(if (unit.bypassed) theme.fg3 else theme.fg0), "{s}", .{spectrum_ed.stripLabel(unit.kind())});
     widgets.accentMark(draw_list, .{ origin[0] + width - 7, origin[1] + 9 }, .{ origin[0] + width - 4, origin[1] + 27 }, accent);
     if (clicked and !selected) spectrum_ed.setFocus(&app.core, target, index);
+    if (zgui.beginDragDropSource(.{})) {
+        _ = zgui.setDragDropPayload("WSTUDIO_FX_SLOT", std.mem.asBytes(&index), .once);
+        zgui.text("Move {s}", .{spectrum_ed.stripLabel(unit.kind())});
+        zgui.endDragDropSource();
+    }
+    if (zgui.beginDragDropTarget()) {
+        if (zgui.acceptDragDropPayload("WSTUDIO_FX_SLOT", .{})) |payload| {
+            if (payload.delivery and payload.data_size == @sizeOf(usize)) {
+                const bytes = @as([*]const u8, @ptrCast(payload.data.?))[0..@sizeOf(usize)];
+                const source = std.mem.bytesToValue(usize, bytes);
+                spectrum_ed.setFocus(&app.core, target, source);
+                spectrum_ed.moveFocusedTo(&app.core, target, index);
+            }
+        }
+        zgui.endDragDropTarget();
+    }
 }
 
 const kindAccent = style.fxKindAccent;
