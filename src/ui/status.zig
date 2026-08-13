@@ -92,8 +92,6 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !v
     try writeViewBadge(right, "DRUM", app.modal.mode);
     try w.writeAll(dim ++ "  pad " ++ rst);
     try w.print("{d}/{d}", .{ p + 1, DrumMachine.max_pads });
-    try w.writeAll(dim ++ "  step " ++ rst);
-    try w.print("{d}/{d}", .{ s + 1, dm.step_count });
     try w.writeAll(dim ++ "  bars " ++ rst);
     try w.print("{d:.2}", .{@as(f64, @floatFromInt(dm.step_count)) * @as(f64, @floatFromInt(@max(app.session.project.meter_denominator, 1))) / (@as(f64, @floatFromInt(@max(dm.steps_per_beat, 1))) * @as(f64, @floatFromInt(@max(app.session.project.beats_per_bar, 1))) * 4.0)});
     try w.writeAll(dim ++ "  swing " ++ rst);
