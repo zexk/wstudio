@@ -2184,7 +2184,7 @@ test "piano roll flags an unlinked scratch pattern in song mode, not pattern mod
     app.session.setSongMode(true);
     w = std.Io.Writer.fixed(&buf);
     try tui_mod.draw(&app, &w, .{ .cols = 100, .rows = 24 });
-    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "scratch: not in the song until stamped") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "SCRATCH  stamp from arrangement with enter") != null);
 
     // Linked to a clip (arrangement's 'e'): no warning even in song mode.
     try app.session.stampClip(0, 0);
@@ -3968,7 +3968,7 @@ test "draw renders spectrum view without errors" {
     try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "FX CHAIN") != null);
     // A fresh chain explains both the direct path and how to insert.
-    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "directly from IN to OUT") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "IN feeds OUT unchanged") != null);
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "insert an effect") != null);
 }
 

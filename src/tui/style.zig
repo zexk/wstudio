@@ -343,7 +343,7 @@ test "toggle rows show one compact current state" {
     var w = std.Io.Writer.fixed(&buf);
     try toggleRow(&w, false, false, acc, "enabled", true);
     var plain: [128]u8 = undefined;
-    try std.testing.expectEqualStrings("  enabled   [on ]\x1b[K\r\n", stripAnsi(w.buffered(), &plain));
+    try std.testing.expectEqualStrings("  enabled   [on ]\r\n", stripAnsi(w.buffered(), &plain));
 }
 
 test "choice rows show direction without implying magnitude" {
@@ -351,7 +351,7 @@ test "choice rows show direction without implying magnitude" {
     var w = std.Io.Writer.fixed(&buf);
     try choiceRow(&w, false, false, acc, "sync", "1/16");
     var plain: [128]u8 = undefined;
-    try std.testing.expectEqualStrings("  sync      < 1/16 >\x1b[K\r\n", stripAnsi(w.buffered(), &plain));
+    try std.testing.expectEqualStrings("  sync      < 1/16 >\r\n", stripAnsi(w.buffered(), &plain));
 }
 
 test "writeChromeRow leaves short content unpadded, no reverse-video fill" {
