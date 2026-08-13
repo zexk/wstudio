@@ -99,7 +99,7 @@ pub const main_sections = [_]SectionDef{
         .{ .id = 251, .label = "waveform" },
     } },
     .{ .title = "OSC B", .tone = .source, .band = 0, .params = &.{
-        .{ .id = 6,  .label = "on/off" },    .{ .id = 9,  .label = "semi" },
+        .{ .id = 6,  .label = "enabled" },   .{ .id = 9,  .label = "semi" },
         .{ .id = 10, .label = "detune" },    .{ .id = 11, .label = "level" },
         .{ .id = 12, .label = "unison" },    .{ .id = 13, .label = "uni.det" },
         .{ .id = 40, .label = "uni.mode" },  .{ .id = 43, .label = "warp" },
@@ -107,7 +107,7 @@ pub const main_sections = [_]SectionDef{
         .{ .id = 252, .label = "waveform" },
     } },
     .{ .title = "OSC C", .tone = .source, .band = 0, .params = &.{
-        .{ .id = 50, .label = "on/off" },    .{ .id = 53, .label = "semi" },
+        .{ .id = 50, .label = "enabled" },   .{ .id = 53, .label = "semi" },
         .{ .id = 54, .label = "detune" },    .{ .id = 55, .label = "level" },
         .{ .id = 56, .label = "unison" },    .{ .id = 57, .label = "uni.det" },
         .{ .id = 58, .label = "uni.mode" },  .{ .id = 14, .label = "warp" },
@@ -140,7 +140,7 @@ pub const main_sections = [_]SectionDef{
         .{ .id = 249, .label = "drive" },
     } },
     .{ .title = "FILTER 2", .tone = .filter, .band = 2, .params = &.{
-        .{ .id = 45, .label = "on/off" }, .{ .id = 46, .label = "type" },
+        .{ .id = 45, .label = "enabled" }, .{ .id = 46, .label = "type" },
         .{ .id = 47, .label = "cutoff" }, .{ .id = 48, .label = "res" }, .{ .id = 250, .label = "drive" },
         .{ .id = 49, .label = "routing" },
     } },
@@ -149,8 +149,8 @@ pub const main_sections = [_]SectionDef{
         .{ .id = 18, .label = "sustain" }, .{ .id = 19, .label = "release" },
     } },
     .{ .title = "ENV 2", .tone = .env, .band = 3, .params = &.{
-        .{ .id = 24, .label = "f.attack" }, .{ .id = 25, .label = "f.decay" },
-        .{ .id = 26, .label = "f.sustain" }, .{ .id = 27, .label = "f.release" },
+        .{ .id = 24, .label = "attack" }, .{ .id = 25, .label = "decay" },
+        .{ .id = 26, .label = "sustain" }, .{ .id = 27, .label = "release" },
     } },
     .{ .title = "ENV 3", .tone = .env, .band = 3, .params = &.{
         .{ .id = 122, .label = "attack" }, .{ .id = 123, .label = "decay" },
@@ -160,7 +160,7 @@ pub const main_sections = [_]SectionDef{
         .{ .id = 32, .label = "mode" }, .{ .id = 33, .label = "glide" },
     } },
     .{ .title = "ARP", .tone = .util, .band = 4, .params = &.{
-        .{ .id = 116, .label = "on/off" }, .{ .id = 117, .label = "mode" },
+        .{ .id = 116, .label = "enabled" }, .{ .id = 117, .label = "mode" },
         .{ .id = 118, .label = "octaves" }, .{ .id = 119, .label = "rate" },
         .{ .id = 268, .label = "sync" },
         .{ .id = 120, .label = "gate" }, .{ .id = 121, .label = "hold" },
