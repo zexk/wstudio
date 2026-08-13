@@ -264,7 +264,7 @@ fn secOscA(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try barRow(w, c == 42, synth.warp_mode == .none, acc, "amount", synth.warp_amount, warpMax(synth.warp_mode),
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.warp_amount}));
     try barRow(w, c == 185, false, acc, "position", synth.wt_pos, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.wt_pos}));
+        synth_ed.paramValueText(synth, 185, &buf));
     try wtTableRow(w, c == 251, false, synth.wt_bundled);
 }
 // zig fmt: on
@@ -295,7 +295,7 @@ fn secOscB(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try barRow(w, c == 44, !b_on or synth.osc_b_warp_mode == .none, acc, "amount", synth.osc_b_warp_amount, warpMax(synth.osc_b_warp_mode),
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_b_warp_amount}));
     try barRow(w, c == 186, !b_on, acc, "position", synth.osc_b_wt_pos, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_b_wt_pos}));
+        synth_ed.paramValueText(synth, 186, &buf));
     try wtTableRow(w, c == 252, !b_on, synth.osc_b_wt_bundled);
 }
 
@@ -618,7 +618,7 @@ fn secOscC(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try barRow(w, c == 15, !c_on or synth.osc_c_warp_mode == .none, acc, "amount", synth.osc_c_warp_amount, warpMax(synth.osc_c_warp_mode),
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_c_warp_amount}));
     try barRow(w, c == 187, !c_on, acc, "position", synth.osc_c_wt_pos, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_c_wt_pos}));
+        synth_ed.paramValueText(synth, 187, &buf));
     try wtTableRow(w, c == 253, !c_on, synth.osc_c_wt_bundled);
 }
 

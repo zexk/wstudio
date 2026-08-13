@@ -350,9 +350,9 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         124 => try w.print("{d:.3}",       .{synth.env3_sustain}),
         125 => try writeTime(w, synth.env3_release_s),
         248 => try w.print("{d:.2}",       .{synth.env3_curve}),
-        185 => try w.print("{d:.2}",       .{synth.wt_pos}),
-        186 => try w.print("{d:.2}",       .{synth.osc_b_wt_pos}),
-        187 => try w.print("{d:.2}",       .{synth.osc_c_wt_pos}),
+        185 => try w.print("{d:.0}%", .{synth.wt_pos * 100.0}),
+        186 => try w.print("{d:.0}%", .{synth.osc_b_wt_pos * 100.0}),
+        187 => try w.print("{d:.0}%", .{synth.osc_c_wt_pos * 100.0}),
         251, 252, 253 => try w.writeAll(wtTableName(synth.wtBundled(ws.dsp.PolySynth.wtTableSlot(id).?))),
         // zig fmt: on
         else => {},
@@ -387,6 +387,8 @@ test "param value text covers envelope curves and filter drives" {
     try std.testing.expectEqualStrings("1.25 s", paramValueText(&synth, 19, &buf));
     synth.gain = 0.5;
     try std.testing.expectEqualStrings("-6.0 dB", paramValueText(&synth, 38, &buf));
+    synth.wt_pos = 0.625;
+    try std.testing.expectEqualStrings("63%", paramValueText(&synth, 185, &buf));
 }
 
 pub fn searchCandidates(buf: []SearchCandidate) []const SearchCandidate {
