@@ -3575,7 +3575,7 @@ test "draw renders drum machine control panel without overflowing" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "DRUM MACHINE") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "PAD BANK 1/8") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "attack") != null);
-    try std.testing.expect(std.mem.indexOf(u8, frame, "j/k: param") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "j/k param") != null);
 }
 
 test "sampler envelope and fade modified nudges change curves" {
@@ -3617,7 +3617,7 @@ test "draw renders slicer control panel without overflowing" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "SLICER") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "No audio loaded for this slicer.") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "SLICE MAP") == null);
-    try std.testing.expect(std.mem.indexOf(u8, frame, "enter: load") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "enter load") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "slice 1/0") == null);
 
     const sl = app.slicerInst();
@@ -3627,7 +3627,7 @@ test "draw renders slicer control panel without overflowing" {
     try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 30 });
     const unchopped = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, unchopped, "Audio loaded, but no slices exist.") != null);
-    try std.testing.expect(std.mem.indexOf(u8, unchopped, "enter: chop view") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unchopped, "enter chop") != null);
 
     sl.sliceInto(3);
     w = std.Io.Writer.fixed(&buf);
@@ -3635,7 +3635,7 @@ test "draw renders slicer control panel without overflowing" {
     const loaded = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, loaded, "SLICE MAP 1/1") != null);
     try std.testing.expect(std.mem.indexOf(u8, loaded, "attack") != null);
-    try std.testing.expect(std.mem.indexOf(u8, loaded, "j/k: param") != null);
+    try std.testing.expect(std.mem.indexOf(u8, loaded, "j/k param") != null);
 }
 
 test "empty sampler panel ignores hidden keyboard controls" {
@@ -3861,8 +3861,8 @@ test "blank track row shows the empty hint" {
     var w = std.Io.Writer.fixed(&buf);
     try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 24 });
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "empty") != null);
-    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "enter: instrument") != null);
-    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "?: help") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "enter instrument") != null);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "? help") != null);
 }
 
 test "picker footers preserve mode, view identity, and live feedback" {
@@ -3883,7 +3883,7 @@ test "picker footers preserve mode, view identity, and live feedback" {
         const frame = w.buffered();
         try std.testing.expect(std.mem.indexOf(u8, frame, case.label) != null);
         try std.testing.expect(std.mem.indexOf(u8, frame, "picker feedback") != null);
-        try std.testing.expect(std.mem.indexOf(u8, frame, "j/k: move") != null);
+        try std.testing.expect(std.mem.indexOf(u8, frame, "j/k move") != null);
     }
 }
 
@@ -3896,14 +3896,14 @@ test "tracks view progressively discloses row and footer actions" {
     try tui_mod.draw(&app, &w, .{ .cols = 100, .rows = 24 });
     const track_frame = w.buffered();
     try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, track_frame, "[enter:edit]"));
-    try std.testing.expect(std.mem.indexOf(u8, track_frame, "p: piano  s: fx  m: mute") != null);
+    try std.testing.expect(std.mem.indexOf(u8, track_frame, "p piano  s fx  m mute") != null);
 
     app.setTrackRow(app.track_rows_len);
     w = std.Io.Writer.fixed(&buf);
     try tui_mod.draw(&app, &w, .{ .cols = 100, .rows = 24 });
     const master_frame = w.buffered();
     try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, master_frame, "[enter:fx]"));
-    try std.testing.expect(std.mem.indexOf(u8, master_frame, "enter/s: fx  -/+: gain") != null);
+    try std.testing.expect(std.mem.indexOf(u8, master_frame, "enter/s fx  -/+ gain") != null);
 }
 
 test ":help opens on the current view's section; g jumps to COMMANDS; esc closes" {

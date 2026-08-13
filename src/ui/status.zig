@@ -66,19 +66,19 @@ pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
     } else {
         try w.writeAll(dim ++ "  " ++ rst);
         if (app.track_row == app.track_rows_len) {
-            try w.writeAll("enter/s: fx  -/+: gain  ?: help");
+            try w.writeAll("enter/s fx  -/+ gain  ? help");
         } else if (app.cursorGroup() != null) {
-            try w.writeAll("enter/s: fx  z: fold  -/+: gain  R: rename");
+            try w.writeAll("enter/s fx  z fold  -/+ gain  R rename");
         } else if (app.cursorTrack()) |ti| {
             const track = app.session.project.tracks.items[ti];
             switch (std.meta.activeTag(app.session.racks.items[ti].instrument)) {
-                .empty => try w.writeAll("enter: instrument  a: add track  ?: help"),
-                .poly_synth, .sampler, .soundfont, .acoustic => try w.print("enter: edit  p: piano  s: fx  m: {s}", .{if (track.muted) "unmute" else "mute"}),
-                .clap, .vst3 => try w.print("enter: GUI  p: piano  s: fx  m: {s}", .{if (track.muted) "unmute" else "mute"}),
-                .drum_machine, .slicer => try w.print("enter: edit  p: steps  s: fx  m: {s}", .{if (track.muted) "unmute" else "mute"}),
+                .empty => try w.writeAll("enter instrument  a add track  ? help"),
+                .poly_synth, .sampler, .soundfont, .acoustic => try w.print("enter edit  p piano  s fx  m {s}", .{if (track.muted) "unmute" else "mute"}),
+                .clap, .vst3 => try w.print("enter GUI  p piano  s fx  m {s}", .{if (track.muted) "unmute" else "mute"}),
+                .drum_machine, .slicer => try w.print("enter edit  p steps  s fx  m {s}", .{if (track.muted) "unmute" else "mute"}),
             }
         } else {
-            try w.writeAll("?: help  space: play  tab: song");
+            try w.writeAll("? help  space play  tab song");
         }
     }
 }
@@ -168,7 +168,7 @@ pub fn drawSlicerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
         else if (sl.hasAudio())
             try w.writeAll("q: chop  :slice <n>")
         else
-            try w.writeAll("enter: load");
+            try w.writeAll("enter load");
         return;
     }
     try w.writeAll(dim ++ "  pat " ++ rst);
@@ -245,9 +245,9 @@ pub fn drawPickerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, 
         try w.writeAll(dim ++ "  " ++ rst);
         try w.writeAll(app.status_buf[0..app.status_len]);
     }
-    try w.writeAll(dim ++ "  " ++ rst ++ "j/k: move  g/G: ends");
-    if (filterable) try w.writeAll("  /: filter");
-    try w.print("  enter: {s}  esc: cancel", .{action});
+    try w.writeAll(dim ++ "  " ++ rst ++ "j/k move  g/G ends");
+    if (filterable) try w.writeAll("  / filter");
+    try w.print("  enter {s}  esc cancel", .{action});
 }
 
 /// Help's footer status row: the live `/` prompt while typing, otherwise
@@ -260,7 +260,7 @@ pub fn drawHelpStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !v
         try w.writeAll(dim ++ "  " ++ rst);
         try w.writeAll(app.status_buf[0..app.status_len]);
     }
-    try w.writeAll(dim ++ "  " ++ rst ++ "j/k: scroll  d/u: page  {/}: section  g/G: top/bottom  /: search  n/N: next/prev  ?/esc: close");
+    try w.writeAll(dim ++ "  " ++ rst ++ "j/k scroll  d/u page  {/} section  g/G ends  / search  n/N repeat  ?/esc close");
 }
 
 pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, target: spectrum_ed.EqTarget) !void {
@@ -398,7 +398,7 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
     } else if (note != null) {
         try w.print(dim ++ "  [ ]: resize  < >: {s}  f: field  M/Y: move/clone" ++ rst, .{app.piano_note_field.label()});
     } else {
-        try w.writeAll(dim ++ "  n/N: note/rest + advance  enter: toggle  a: hear" ++ rst);
+        try w.writeAll(dim ++ "  n/N note/rest + advance  enter toggle  a hear" ++ rst);
     }
 }
 
@@ -434,7 +434,7 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
     try writeViewBadge(right, if (is_drum) "DRUM" else if (is_slice) "SLICER" else "SAMPLER", app.modal.mode);
     if (is_slice and app.slicerInst().slice_count == 0) {
         try w.writeAll(dim);
-        try w.writeAll(if (app.slicerInst().hasAudio()) "  no slices  enter: chop view  e/esc: back" else "  no slices  enter: load  e/esc: back");
+        try w.writeAll(if (app.slicerInst().hasAudio()) "  no slices  enter chop  e/esc back" else "  no slices  enter load  e/esc back");
         try w.writeAll(rst);
         return;
     }
@@ -494,11 +494,11 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
         try w.writeAll(dim ++ "  " ++ rst);
         try w.writeAll(app.status_buf[0..app.status_len]);
     } else if (pad.samples.len == 0) {
-        try w.writeAll(dim ++ "  enter: load  e/esc: back" ++ rst);
+        try w.writeAll(dim ++ "  enter load  e/esc back" ++ rst);
     } else if (is_drum or is_slice) {
-        try w.writeAll(dim ++ "  j/k: param  h/l: adjust  1-8/J/K: select  a: hear  p: steps" ++ rst);
+        try w.writeAll(dim ++ "  j/k param  h/l adjust  1-8/J/K select  a hear  p steps" ++ rst);
     } else {
-        try w.writeAll(dim ++ "  j/k: param  h/l: adjust  a: hear  p: piano" ++ rst);
+        try w.writeAll(dim ++ "  j/k param  h/l adjust  a hear  p piano" ++ rst);
     }
 }
 
@@ -608,14 +608,14 @@ pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
         try w.writeAll(app.status_buf[0..app.status_len]);
     }
     if (app.browser_recent_mode) {
-        try w.writeAll(dim ++ "  " ++ rst ++ "enter: open  esc: cancel");
+        try w.writeAll(dim ++ "  " ++ rst ++ "enter open  esc cancel");
     } else if (app.browser_bookmark_mode) {
-        try w.writeAll(dim ++ "  " ++ rst ++ "enter: jump  d: remove  esc: back");
+        try w.writeAll(dim ++ "  " ++ rst ++ "enter jump  d remove  esc back");
     } else {
-        try w.writeAll(dim ++ "  " ++ rst ++ "enter: open  /: search");
-        if (app.browser_purpose.canAudition()) try w.writeAll("  a: audition");
+        try w.writeAll(dim ++ "  " ++ rst ++ "enter open  / search");
+        if (app.browser_purpose.canAudition()) try w.writeAll("  a audition");
         if (app.browser_purpose.canMultiSelect()) try w.writeAll("  v: select");
-        try w.writeAll("  B: locations  esc: cancel");
+        try w.writeAll("  B locations  esc cancel");
     }
 }
 
@@ -690,11 +690,11 @@ pub fn drawPresetPickerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wr
         try w.writeAll(dim ++ "  " ++ rst);
         try w.writeAll(app.status_buf[0..app.status_len]);
     }
-    try w.writeAll(dim ++ "  " ++ rst ++ "j/k: move");
+    try w.writeAll(dim ++ "  " ++ rst ++ "j/k move");
     switch (app.preset_picker_kind) {
-        .synth => try w.writeAll("  a: audition C3"),
-        .soundfont, .acoustic => try w.writeAll("  a: audition"),
+        .synth => try w.writeAll("  a audition C3"),
+        .soundfont, .acoustic => try w.writeAll("  a audition"),
         .drum => {},
     }
-    try w.writeAll("  enter: apply  /: filter  d: delete  esc: close");
+    try w.writeAll("  enter apply  / filter  d delete  esc close");
 }

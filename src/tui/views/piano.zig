@@ -99,7 +99,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
         // song until stamped (arrangement: enter). Flag it so editing here
         // doesn't get mistaken for editing what's actually playing.
         try w.writeAll("  " ++ red);
-        try w.writeAll("scratch: not in the song until stamped (arrangement: enter)");
+        try w.writeAll("SCRATCH  stamp from arrangement with enter");
         try w.writeAll(rst);
     }
     if (app.session.project.scale) |s| {

@@ -88,7 +88,7 @@ pub fn drawAutomation(
     }
     try w.writeAll(dim ++ "  " ++ rst ++ acc ++ bold);
     try w.print(" {s} ", .{target_label});
-    try w.writeAll(rst ++ dim ++ " (tab: switch curve, p: pick param)" ++ rst);
+    try w.writeAll(rst ++ dim ++ " (tab curve, p parameter)" ++ rst);
     try endLine(w);
 
     // Bar lines in quarter-step units, scaled by the signature's beat unit

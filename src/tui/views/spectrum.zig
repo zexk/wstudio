@@ -216,20 +216,20 @@ pub fn drawFxView(
     const focused = spectrum_ed.focusedUnit(app, chain);
 
     if (!compact) {
-        try w.writeAll(dim ++ "  tab/[/]:slot  a:insert  x:remove  y/P:copy  </>:move  b:bypass  ");
+        try w.writeAll(dim ++ "  tab/[/] slot  a insert  x remove  y/P copy  </> move  b bypass  ");
         // EQ gets its own two-stage scheme (see editors/fx_editor.zig's
         // eq_band_select doc comment) - h/l means something different
         // depending which stage it's in, so the hint has to match.
         if (focused != null and focused.?.kind() == .eq) {
-            if (app.eq_band_select) try w.writeAll("h/l:band  enter:edit") else try w.writeAll("j/k:field  h/l:adjust  esc:back");
-            try w.writeAll("  g:gain  z:analog  p:pre/post  f:freeze");
+            if (app.eq_band_select) try w.writeAll("h/l band  enter edit") else try w.writeAll("j/k field  h/l adjust  esc back");
+            try w.writeAll("  g gain  z analog  p pre/post  f freeze");
             const e = &focused.?.payload.eq;
             if (e.auto_gain) try w.writeAll("  " ++ grn ++ "auto" ++ dim);
             if (e.analog) try w.writeAll("  " ++ grn ++ "analog" ++ dim);
             try w.writeAll(if (app.eq_spectrum_pre) "  " ++ bcyn ++ "pre" ++ dim else "");
             if (app.eq_spectrum_frozen) try w.writeAll("  " ++ yel ++ "frozen" ++ dim);
         } else {
-            try w.writeAll("j/k:param  h/l:adjust");
+            try w.writeAll("j/k param  h/l adjust");
         }
         if (target == .group) try w.writeAll("  -/+:bus gain");
         try w.writeAll(rst);
