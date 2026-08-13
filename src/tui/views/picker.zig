@@ -122,10 +122,10 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     try endLine(w);
     for (kinds, 0..) |k, i| {
         const is_sel = (i == app.fx_picker_cursor);
-        if (is_sel) try w.writeAll(sel);
+        try w.writeAll(if (is_sel) sel else style.fxKindColor(k));
         try w.writeAll(if (is_sel) "  > " else "    ");
         try w.print("{s: <12}", .{spectrum_ed.unitLabel(k)});
-        if (!is_sel) try w.writeAll(dim);
+        if (!is_sel) try w.writeAll(rst ++ dim);
         try w.print(" {s}", .{spectrum_ed.pickerDescription(k)});
         try w.writeAll(rst);
         try endLine(w);

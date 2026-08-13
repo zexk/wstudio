@@ -83,28 +83,7 @@ fn brailleBar(rem: usize) u21 {
     return @as(u21, 0x2800) | @as(u21, bits);
 }
 
-/// Accent colour per unit kind - used by its section divider and param bars.
-fn sectionColor(k: ws.FxKind) []const u8 {
-    return switch (k) {
-        .gate => bcyn,
-        .comp => yel,
-        .mb_comp => yel,
-        .ott, .limiter, .transient_shaper, .expander, .clipper => yel,
-        .eq, .filter, .crossover, .utility, .stereo_width => grn,
-        .sat => red,
-        .crush => mag,
-        .chorus => bcyn,
-        .pitch_shift => bcyn,
-        .auto_pan => bcyn,
-        .flanger => bcyn,
-        .tape => bcyn,
-        .phaser => yel,
-        .freq_shift => acc,
-        .delay => blu,
-        .reverb => mag,
-        .clap, .vst3 => acc,
-    };
-}
+const sectionColor = style.fxKindColor;
 
 /// Whether the strip shows the trailing "+" insert box.
 fn plusBoxShown(chain: *const ws.Fx) bool {

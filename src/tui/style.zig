@@ -28,6 +28,26 @@ pub const track_color_names = ansi.track_color_names;
 pub const stripAnsi = ansi.stripAnsi;
 pub const endLine = ansi.endLine;
 
+/// One accent per FX family, shared by picker and editor.
+pub fn fxKindColor(kind: ws.FxKind) []const u8 {
+    return switch (kind) {
+        .gate, .comp, .mb_comp, .ott, .limiter, .transient_shaper, .expander, .clipper => yel,
+        .eq, .filter, .crossover, .utility, .stereo_width => grn,
+        .sat, .crush, .tape => mag,
+        .chorus, .flanger, .phaser, .freq_shift, .pitch_shift, .auto_pan => bcyn,
+        .delay, .reverb => blu,
+        .clap, .vst3 => acc,
+    };
+}
+
+test "FX families share TUI accents" {
+    try std.testing.expectEqualStrings(fxKindColor(.gate), fxKindColor(.limiter));
+    try std.testing.expectEqualStrings(fxKindColor(.eq), fxKindColor(.crossover));
+    try std.testing.expectEqualStrings(fxKindColor(.sat), fxKindColor(.tape));
+    try std.testing.expectEqualStrings(fxKindColor(.chorus), fxKindColor(.phaser));
+    try std.testing.expectEqualStrings(fxKindColor(.delay), fxKindColor(.reverb));
+}
+
 // ---------------------------------------------------------------------------
 // Primitive helpers
 // ---------------------------------------------------------------------------
