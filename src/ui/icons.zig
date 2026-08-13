@@ -1,4 +1,4 @@
-//! Icon glyphs for the TUI and GUI, drawn from a 35-glyph subset of "Symbols
+//! Icon glyphs for the TUI and GUI, drawn from a 43-glyph subset of "Symbols
 //! Nerd Font Mono" (MIT license; see assets/fonts/LICENSE and the Nerd Fonts
 //! project at https://github.com/ryanoasis/nerd-fonts). Codepoints are the
 //! ones the upstream font's own `post` table names (`fa-play`, `md-undo`,
@@ -57,6 +57,14 @@ pub const loudness = "\u{f057e}";
 /// md-power_plug - CLAP/VST3 hosted plugins, distinct from `synth`'s piano
 /// glyph so a hosted plugin reads differently from wstudio's own synth.
 pub const plugin = "\u{f06a5}";
+pub const position = "\u{f034e}"; // md-map_marker
+pub const meter = "\u{f07db}"; // md-metronome_tick
+pub const sample_rate = "\u{f04c5}"; // md-speedometer
+pub const audio = "\u{f04c3}"; // md-speaker
+pub const project = "\u{f1359}"; // md-folder_music
+pub const automation = "\u{f0e93}"; // md-chart_timeline_variant
+pub const rescan = "\u{f0450}"; // md-refresh
+pub const bypass = "\u{f06a6}"; // md-power_plug_off
 
 // The GUI's toolbar buttons. These say nothing the surrounding Unicode
 // couldn't (they replaced a literal "\u{2190}", "+", "\u{00D7}" and so on),

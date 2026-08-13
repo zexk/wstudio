@@ -211,7 +211,7 @@ fn drawPluginScanButton(app: anytype) void {
     zgui.sameLine(.{ .spacing = 14 });
     if (app.pluginScanProgress()) |progress| {
         zgui.progressBar(.{ .fraction = progress.fraction, .w = 150, .overlay = progress.label });
-    } else if (widgets.iconButton(icons.redo ++ "##external-plugins", "Rescan external plugins")) {
+    } else if (widgets.iconButton(icons.rescan ++ "##external-plugins", "Rescan external plugins")) {
         app.startPluginScan();
     }
 }

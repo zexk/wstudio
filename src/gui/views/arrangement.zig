@@ -467,7 +467,7 @@ fn drawArrangementInspector(app: anytype) void {
         zgui.sameLine(.{ .spacing = 6 });
         if (widgets.iconButton(icons.plus ++ "##clip-longer", "Lengthen clip  +")) action = '+';
         zgui.sameLine(.{ .spacing = 6 });
-        if (widgets.iconButton(icons.arrangement ++ "##clip-automation", "Edit automation  a")) action = 'a';
+        if (widgets.iconButton(icons.automation ++ "##clip-automation", "Edit automation  a")) action = 'a';
         zgui.sameLine(.{ .spacing = 6 });
         zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = theme.danger });
         if (widgets.iconButton(icons.close ++ "##clip-delete", "Delete clip  x")) action = 'x';
