@@ -226,8 +226,6 @@ pub fn drawSlicerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
     try w.print("{d:.0}%", .{sl.swing.load(.monotonic)});
     if (sIdx < sl.slice_count) {
         const pad = &sl.slices[sIdx];
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.print("{d:.0}-{d:.0}%", .{ pad.start_norm * 100.0, pad.end_norm * 100.0 });
         if (@abs(pad.pitch_semitones) > 0.01) {
             try w.writeAll(dim ++ "  pitch " ++ rst);
             try w.print("{s}{d:.0}", .{ if (pad.pitch_semitones >= 0) "+" else "", pad.pitch_semitones });

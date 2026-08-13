@@ -757,13 +757,13 @@ test "slicer grid rows start where the mouse hit-test looks for them" {
     // The clip's waveform belongs to the slice panel now, not over the grid.
     try std.testing.expect(std.mem.indexOf(u8, frame, "\u{2588}") == null);
 
-    // Title, bar ruler, then slice #1 - handleMouse maps a click row back to
+    // Title, bar ruler, then Slice 1 - handleMouse maps a click row back to
     // a slice with that same offset (`slicer_ed.grid_top`), so a drift here
     // silently edits the wrong row.
     var lines = std.mem.splitScalar(u8, frame, '\n');
     var row: usize = 0;
     while (lines.next()) |line| : (row += 1) {
-        if (std.mem.indexOf(u8, line, "#1") != null) break;
+        if (std.mem.indexOf(u8, line, "Slice 1") != null) break;
     }
     try std.testing.expectEqual(slicer_ed.grid_top, row);
 }

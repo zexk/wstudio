@@ -150,7 +150,7 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
         } else {
             try w.writeAll(dim);
         }
-        try w.print(" #{d: <3}     ", .{sIdx + 1});
+        try w.print(" Slice {d:<2} ", .{sIdx + 1});
         try w.writeAll(rst);
         const slice_len = sl.sliceSteps(@intCast(sIdx), sl.step_count);
         col = 0;
