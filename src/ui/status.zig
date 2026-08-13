@@ -614,14 +614,14 @@ pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
     } else {
         try w.writeAll(dim ++ "  " ++ rst ++ "enter open  / search");
         if (app.browser_purpose.canAudition()) try w.writeAll("  a audition");
-        if (app.browser_purpose.canMultiSelect()) try w.writeAll("  v: select");
+        if (app.browser_purpose.canMultiSelect()) try w.writeAll("  v select");
         try w.writeAll("  B locations  esc cancel");
     }
 }
 
 pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     const clip = automation_ed.currentClip(app) orelse {
-        try w.writeAll(dim ++ "clip gone - esc" ++ rst);
+        try w.writeAll(dim ++ "clip unavailable  esc back" ++ rst);
         return;
     };
 
@@ -672,7 +672,7 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
             try w.writeAll(dim ++ " (interpolated)" ++ rst);
         }
     } else {
-        try w.writeAll(dim ++ "  no automation yet - j/k adds a point" ++ rst);
+        try w.writeAll(dim ++ "  no points  j/k add one" ++ rst);
     }
 
     if (app.status_len > 0) {

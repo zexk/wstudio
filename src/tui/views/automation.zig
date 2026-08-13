@@ -58,7 +58,7 @@ pub fn drawAutomation(
     snap: engine_mod.UiSnapshot,
 ) !void {
     const clip = automation_ed.currentClip(app) orelse {
-        try w.writeAll(bold ++ " AUTOMATION" ++ rst ++ dim ++ "  clip gone - esc" ++ rst);
+        try w.writeAll(bold ++ " AUTOMATION" ++ rst ++ dim ++ "  clip unavailable  esc back" ++ rst);
         try endLine(w);
         for (1..@max(1, rows -| 4)) |_| try endLine(w);
         return;
