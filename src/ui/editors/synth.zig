@@ -197,6 +197,10 @@ fn warpAmount(w: *std.Io.Writer, mode: ws.dsp.synth.WarpMode, amount: f32) !void
     if (mode.isFm()) try w.print("\u{03b2}={d:.2}", .{amount}) else try w.print("{d:.2}", .{amount});
 }
 
+fn writeTime(w: *std.Io.Writer, seconds: f32) !void {
+    if (seconds < 1.0) try w.print("{d:.1} ms", .{seconds * 1_000.0}) else try w.print("{d:.2} s", .{seconds});
+}
+
 /// A `wt.table` row's display. "imported" is not a selectable option - it
 /// only reports that `:load-wavetable` put a file in this slot, which no
 /// `h`/`l` step can walk back to.
@@ -245,10 +249,10 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         13 => try w.print("{d:.1} ct", .{synth.osc_b_unison_detune}),
         14 => try w.writeAll(warpModeName(synth.osc_c_warp_mode)),
         15 => try warpAmount(w, synth.osc_c_warp_mode, synth.osc_c_warp_amount),
-        16 => try w.print("{d:.3} s", .{synth.attack_s}),
-        17 => try w.print("{d:.3} s", .{synth.decay_s}),
+        16 => try writeTime(w, synth.attack_s),
+        17 => try writeTime(w, synth.decay_s),
         18 => try w.print("{d:.3}", .{synth.sustain}),
-        19 => try w.print("{d:.3} s", .{synth.release_s}),
+        19 => try writeTime(w, synth.release_s),
         246 => try w.print("{d:.2}", .{synth.env_curve}),
         20 => try w.writeAll(filterTypeName(synth.filter_type)),
         21 => if (synth.filter_cutoff >= 1_000.0)
@@ -257,10 +261,10 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
             try w.print("{d:.0} Hz", .{synth.filter_cutoff}),
         22 => try w.print("{d:.3}", .{synth.filter_res}),
         249 => try w.print("{d:.1}x", .{synth.filter_drive}),
-        24 => try w.print("{d:.3} s", .{synth.fenv_attack_s}),
-        25 => try w.print("{d:.3} s", .{synth.fenv_decay_s}),
+        24 => try writeTime(w, synth.fenv_attack_s),
+        25 => try writeTime(w, synth.fenv_decay_s),
         26 => try w.print("{d:.3}", .{synth.fenv_sustain}),
-        27 => try w.print("{d:.3} s", .{synth.fenv_release_s}),
+        27 => try writeTime(w, synth.fenv_release_s),
         247 => try w.print("{d:.2}", .{synth.fenv_curve}),
         28 => try w.writeAll(lfoShapeName(synth.lfo_shape)),
         29 => try writeRate(w, synth.lfo_sync, synth.lfo_rate_hz, "{d:.2} Hz"),
@@ -273,7 +277,7 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
             .mono => "mono",
             .legato => "legato",
         }),
-        33 => if (synth.glide_s == 0.0) try w.writeAll("off") else try w.print("{d:.3} s", .{synth.glide_s}),
+        33 => if (synth.glide_s == 0.0) try w.writeAll("off") else try writeTime(w, synth.glide_s),
         34 => if (synth.sub_level == 0.0) try w.writeAll("off") else try w.print("{d:.2}", .{synth.sub_level}),
         35 => try w.writeAll(switch (synth.sub_shape) {
             .sine => "sine",
@@ -341,10 +345,10 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         268 => try w.writeAll(synth.arp_sync.label()),
         120 => try w.print("{d:.2}",       .{synth.arp_gate}),
         121 => try w.writeAll(if (synth.arp_hold) "on" else "off"),
-        122 => try w.print("{d:.3} s",     .{synth.env3_attack_s}),
-        123 => try w.print("{d:.3} s",     .{synth.env3_decay_s}),
+        122 => try writeTime(w, synth.env3_attack_s),
+        123 => try writeTime(w, synth.env3_decay_s),
         124 => try w.print("{d:.3}",       .{synth.env3_sustain}),
-        125 => try w.print("{d:.3} s",     .{synth.env3_release_s}),
+        125 => try writeTime(w, synth.env3_release_s),
         248 => try w.print("{d:.2}",       .{synth.env3_curve}),
         185 => try w.print("{d:.2}",       .{synth.wt_pos}),
         186 => try w.print("{d:.2}",       .{synth.osc_b_wt_pos}),
@@ -376,9 +380,11 @@ test "param value text covers envelope curves and filter drives" {
     try std.testing.expectEqualStrings("1.0x", paramValueText(&synth, 250, &buf));
 
     synth.adjustParam(33, 1);
-    try std.testing.expectEqualStrings("0.001 s", paramValueText(&synth, 33, &buf));
+    try std.testing.expectEqualStrings("1.3 ms", paramValueText(&synth, 33, &buf));
     synth.adjustParam(265, 1);
     try std.testing.expectEqualStrings("0.1 ms", paramValueText(&synth, 265, &buf));
+    synth.release_s = 1.25;
+    try std.testing.expectEqualStrings("1.25 s", paramValueText(&synth, 19, &buf));
 }
 
 pub fn searchCandidates(buf: []SearchCandidate) []const SearchCandidate {
