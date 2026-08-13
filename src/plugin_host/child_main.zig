@@ -333,9 +333,10 @@ fn dispatch(shared: *Shared, req: rpc.Received, writer: *std.Io.Writer) !void {
                 .vst3 => |p| {
                     if (req.payload.len < 4) return error.RpcProtocolError;
                     const component_len = std.mem.readInt(u32, req.payload[0..4], .little);
-                    if (4 + component_len + 4 > req.payload.len) return error.RpcProtocolError;
+                    if (req.payload.len < 8 or component_len > req.payload.len - 8) return error.RpcProtocolError;
                     const component = req.payload[4..][0..component_len];
                     const controller_len = std.mem.readInt(u32, req.payload[4 + component_len ..][0..4], .little);
+                    if (controller_len > req.payload.len - (8 + @as(usize, component_len))) return error.RpcProtocolError;
                     const controller = req.payload[4 + component_len + 4 ..][0..controller_len];
                     p.loadState(component, controller) catch {
                         try rpc.send(writer, req.kind, true, &.{});

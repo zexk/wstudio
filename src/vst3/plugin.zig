@@ -794,17 +794,18 @@ const rpc_max_payload = @import("../plugin_host/rpc.zig").max_payload;
 fn savedComponentFromWire(allocator: std.mem.Allocator, payload: []const u8) ![]u8 {
     if (payload.len < 4) return error.ComponentStateSaveFailed;
     const len = std.mem.readInt(u32, payload[0..4], .little);
-    if (4 + len > payload.len) return error.ComponentStateSaveFailed;
+    if (len > payload.len - 4) return error.ComponentStateSaveFailed;
     return try allocator.dupe(u8, payload[4..][0..len]);
 }
 
 fn savedControllerFromWire(allocator: std.mem.Allocator, payload: []const u8) !?[]u8 {
     if (payload.len < 4) return error.ComponentStateSaveFailed;
     const component_len = std.mem.readInt(u32, payload[0..4], .little);
+    if (component_len > payload.len - 4) return error.ComponentStateSaveFailed;
     const rest = payload[4 + component_len ..];
     if (rest.len < 4) return error.ComponentStateSaveFailed;
     const controller_len = std.mem.readInt(u32, rest[0..4], .little);
-    if (4 + controller_len > rest.len) return error.ComponentStateSaveFailed;
+    if (controller_len > rest.len - 4) return error.ComponentStateSaveFailed;
     if (controller_len == 0) return null;
     return try allocator.dupe(u8, rest[4..][0..controller_len]);
 }
@@ -1183,6 +1184,15 @@ test "controller cleanup terminates only initialized instances and always releas
 test "VST3 sample position clamps beyond signed ABI range" {
     try std.testing.expectEqual(@as(i64, 48_000), vstSamplePosition(48_000));
     try std.testing.expectEqual(std.math.maxInt(i64), vstSamplePosition(std.math.maxInt(u64)));
+}
+
+test "VST3 state wire decoder rejects oversized fields" {
+    const oversized = [_]u8{ 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0 };
+    try std.testing.expectError(error.ComponentStateSaveFailed, savedComponentFromWire(std.testing.allocator, &oversized));
+    try std.testing.expectError(error.ComponentStateSaveFailed, savedControllerFromWire(std.testing.allocator, &oversized));
+
+    const oversized_controller = [_]u8{ 0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff };
+    try std.testing.expectError(error.ComponentStateSaveFailed, savedControllerFromWire(std.testing.allocator, &oversized_controller));
 }
 
 test "VST3 parameter queue preserves sample offsets" {
