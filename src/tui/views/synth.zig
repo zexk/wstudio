@@ -682,7 +682,6 @@ fn secMatrix(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
 
         const bc = if (sel_dep) bcyn else if (off) dim else mag;
         try synthBar(w, row.depth + 1.0, 2.0, sel_dep, bc);
-        try w.writeAll("  ");
         if (sel_dep) {
             try w.writeAll(bwht ++ bold);
         } else if (off) {
