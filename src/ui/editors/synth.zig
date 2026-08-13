@@ -334,10 +334,10 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         261 => try w.writeAll(lfoRetrigName(synth.lfo3_retrig)),
         264 => try w.print("{d:.2}",      .{synth.lfo3_phase_offset}),
         267 => try w.print("{d:.1} ms",   .{synth.lfo3_slew_ms}),
-        99  => try w.print("{d:.2}",      .{synth.macro1}),
-        100 => try w.print("{d:.2}",      .{synth.macro2}),
-        101 => try w.print("{d:.2}",      .{synth.macro3}),
-        102 => try w.print("{d:.2}",      .{synth.macro4}),
+        99 => try w.print("{d:.0}%", .{synth.macro1 * 100.0}),
+        100 => try w.print("{d:.0}%", .{synth.macro2 * 100.0}),
+        101 => try w.print("{d:.0}%", .{synth.macro3 * 100.0}),
+        102 => try w.print("{d:.0}%", .{synth.macro4 * 100.0}),
         116 => try w.writeAll(if (synth.arp_on) "on" else "off"),
         117 => try w.writeAll(arpModeName(synth.arp_mode)),
         118 => try w.print("{d}",          .{synth.arp_octaves}),
@@ -389,6 +389,8 @@ test "param value text covers envelope curves and filter drives" {
     try std.testing.expectEqualStrings("-6.0 dB", paramValueText(&synth, 38, &buf));
     synth.wt_pos = 0.625;
     try std.testing.expectEqualStrings("63%", paramValueText(&synth, 185, &buf));
+    synth.macro1 = 0.42;
+    try std.testing.expectEqualStrings("42%", paramValueText(&synth, 99, &buf));
 }
 
 pub fn searchCandidates(buf: []SearchCandidate) []const SearchCandidate {

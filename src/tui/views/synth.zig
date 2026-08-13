@@ -455,7 +455,7 @@ fn secMacro(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
         var lbl: [12]u8 = undefined;
         try barRow(w, c == 99 + @as(u8, @intCast(k)), false, bcyn,
             try std.fmt.bufPrint(&lbl, "macro {d}", .{k + 1}), v, 1.0,
-            try std.fmt.bufPrint(&buf, "{d:.2}", .{v}));
+            synth_ed.paramValueText(synth, 99 + @as(u8, @intCast(k)), &buf));
     }
 }
 
