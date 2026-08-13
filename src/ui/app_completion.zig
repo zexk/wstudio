@@ -12,7 +12,7 @@ const cmd_mod = @import("cmd.zig");
 const commands = @import("commands.zig");
 const commands_load = @import("commands/load.zig");
 const fuzzy = @import("fuzzy.zig");
-const cmd_history_store = @import("cmd_history_store.zig");
+const cmd_history_store = @import("store/command_history.zig");
 const config_mod = @import("../config.zig");
 
 const app_mod = @import("app.zig");

@@ -3,7 +3,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const config_mod = @import("../config.zig");
+const config_mod = @import("../../config.zig");
 
 /// Size every caller's `configPath` buffer. Deliberately not
 /// `std.fs.max_path_bytes`: these are stack buffers and a 4 KiB `$HOME` is

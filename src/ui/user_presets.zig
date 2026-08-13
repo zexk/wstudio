@@ -3,7 +3,7 @@
 
 const std = @import("std");
 const ws = @import("wstudio");
-const json_store = @import("json_store.zig");
+const json_store = @import("store/json.zig");
 const Patch = ws.dsp.PolySynth.Patch;
 const Fx = ws.Fx;
 

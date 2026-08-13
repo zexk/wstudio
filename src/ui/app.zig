@@ -33,9 +33,9 @@ const automation_ed = @import("editors/automation.zig");
 const preset_ed = @import("editors/preset_picker.zig");
 const user_presets = @import("user_presets.zig");
 const user_drum_kits = @import("user_drum_kits.zig");
-const cmd_history_store = @import("cmd_history_store.zig");
-const bookmark_store = @import("bookmark_store.zig");
-const recent_project_store = @import("recent_project_store.zig");
+const cmd_history_store = @import("store/command_history.zig");
+const bookmark_store = @import("store/bookmarks.zig");
+const recent_project_store = @import("store/recent_projects.zig");
 const fuzzy = @import("fuzzy.zig");
 const waveform = @import("waveform.zig");
 const ansi = @import("ansi.zig");
@@ -979,7 +979,7 @@ pub const App = struct {
     /// Submitted `:` commands, oldest first, for up/down recall in the
     /// command prompt. Capped at `cmd_history_cap`; oldest drops when full.
     /// Persisted to `~/.config/wstudio/cmd_history.json` (see
-    /// `cmd_history_store.zig`) - loaded once at `init`, rewritten on every
+    /// `store/command_history.zig`) - loaded once at `init`, rewritten on every
     /// new entry so it survives across runs like a shell's history file.
     cmd_history: std.ArrayListUnmanaged([]const u8) = .empty,
     /// Position while recalling: `cmd_history.items.len` means "not
@@ -1024,7 +1024,7 @@ pub const App = struct {
     browser_scroll: usize = 0,
     browser_purpose: BrowserPurpose = .load_sample,
     /// `b` toggles the cursor entry in/out. Persisted to
-    /// `~/.config/wstudio/bookmarks.json` (see `bookmark_store.zig`) - loaded
+    /// `~/.config/wstudio/bookmarks.json` (see `store/bookmarks.zig`) - loaded
     /// once at `init`, rewritten on every add/remove so it survives across
     /// runs like `cmd_history`.
     bookmarks: std.ArrayListUnmanaged(bookmark_store.Bookmark) = .empty,

@@ -12,8 +12,8 @@ const modal_mod = ws.input;
 const commands = @import("commands.zig");
 const commands_load = @import("commands/load.zig");
 const commands_util = @import("commands/util.zig");
-const bookmark_store = @import("bookmark_store.zig");
-const recent_project_store = @import("recent_project_store.zig");
+const bookmark_store = @import("store/bookmarks.zig");
+const recent_project_store = @import("store/recent_projects.zig");
 
 const app_mod = @import("app.zig");
 const App = app_mod.App;

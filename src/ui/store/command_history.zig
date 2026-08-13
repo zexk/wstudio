@@ -2,7 +2,7 @@
 //! See docs/user-config-storage.md for paths and write conventions.
 
 const std = @import("std");
-const json_store = @import("json_store.zig");
+const json_store = @import("json.zig");
 
 const FileSnapshot = struct {
     version: u32 = 1,

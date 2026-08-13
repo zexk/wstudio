@@ -38,7 +38,7 @@ const modal_mod = ws.input;
 /// `std.Io.failing`) and dispatch real commands - otherwise cmd-history/
 /// synth-preset persistence would leak writes into the developer's actual
 /// `~/.config/wstudio/`.
-const redirectHome = @import("../ui/json_store.zig").testRedirectHome;
+const redirectHome = @import("../ui/store/json.zig").testRedirectHome;
 
 /// Build a deterministic 3-track app for tests: synth(0), sampler(1), drums(2).
 fn testApp() !App {
