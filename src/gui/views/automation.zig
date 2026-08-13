@@ -59,8 +59,30 @@ fn drawHeader(app: anytype, clip: ?*const ws.Clip) void {
     draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(theme.fg0), "{s}", .{track.name});
     if (clip) |c| {
         const ticks_per_bar = ws.time_grid.barTicks(app.core.session.project.beats_per_bar, app.core.session.project.meter_denominator);
-        draw_list.addText(.{ origin[0] + width - 190, origin[1] + 13 }, color(accent), "CLIP @ BAR {d}", .{c.start_tick / ticks_per_bar + 1});
-        draw_list.addText(.{ origin[0] + width - 190, origin[1] + 39 }, color(theme.fg3), "{d:.2} BEATS", .{ws.time_grid.tickToBeat(c.length_ticks)});
+        const map_x = origin[0] + @max(190, width * 0.55);
+        const map_w = @max(1, origin[0] + width - map_x - 14);
+        const lane = app.core.session.arrangement.lane(app.core.automation_track);
+        const lane_end = if (lane) |l| blk: {
+            var end: u32 = c.endTick();
+            for (l.clips.items) |item| end = @max(end, item.endTick());
+            break :blk @max(end, 1);
+        } else @max(c.endTick(), 1);
+        draw_list.addText(.{ map_x, origin[1] + 9 }, color(theme.fg3), "TRACK CLIPS", .{});
+        draw_list.addText(.{ map_x + map_w - 118, origin[1] + 9 }, color(accent), "BAR {d}  {d:.2} BEATS", .{ c.start_tick / ticks_per_bar + 1, ws.time_grid.tickToBeat(c.length_ticks) });
+        const strip_y = origin[1] + 39;
+        draw_list.addLine(.{ .p1 = .{ map_x, strip_y + 8 }, .p2 = .{ map_x + map_w, strip_y + 8 }, .col = color(theme.line), .thickness = 1 });
+        if (lane) |l| for (l.clips.items) |item| {
+            const x1 = map_x + @as(f32, @floatFromInt(item.start_tick)) / @as(f32, @floatFromInt(lane_end)) * map_w;
+            const x2 = map_x + @as(f32, @floatFromInt(item.endTick())) / @as(f32, @floatFromInt(lane_end)) * map_w;
+            const active = item.start_tick == c.start_tick;
+            draw_list.addRectFilled(.{
+                .pmin = .{ x1, strip_y },
+                .pmax = .{ @max(x1 + 3, x2 - 1), strip_y + 16 },
+                .col = color(if (active) accent else theme.bg5),
+                .rounding = 2,
+            });
+            if (active) draw_list.addRect(.{ .pmin = .{ x1, strip_y }, .pmax = .{ @max(x1 + 3, x2 - 1), strip_y + 16 }, .col = color(theme.fg0), .rounding = 2, .thickness = 1 });
+        };
     }
 }
 

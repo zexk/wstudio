@@ -9,6 +9,7 @@ const widgets = @import("../widgets.zig");
 const zgui = @import("zgui");
 const shared_step_grid = @import("../../ui/editors/step_grid.zig");
 const scroll = @import("../scroll.zig");
+const automation_ed = @import("../../ui/editors/automation.zig");
 
 const color = gui_style.color;
 const theme = &gui_style.palette;
@@ -265,7 +266,7 @@ pub fn draw(app: anytype) void {
                     draw_list.addLine(.{ .p1 = .{ pmin[0] + 5, mid }, .p2 = .{ pmax[0] - 5, mid }, .col = color(.{ ink[0], ink[1], ink[2], 0.72 }), .thickness = 2 });
                 },
             }
-            if (clip.automation.gain.len + clip.automation.pan.len + clip.automation.synth_params.items.len > 0) draw_list.addText(.{ pmax[0] - 16, pmin[1] + 4 }, color(theme.modulation), "A", .{});
+            drawAutomationPreview(app, draw_list, &clip, pmin, pmax);
         }
     }
 
@@ -371,6 +372,39 @@ pub fn draw(app: anytype) void {
     }
     zgui.spacing();
     drawArrangementInspector(app);
+}
+
+fn drawAutomationPreview(app: anytype, draw_list: anytype, clip: *const ws.Clip, pmin: [2]f32, pmax: [2]f32) void {
+    const target: automation_ed.AutomationFocus = if (automation_ed.curvePointsConst(clip, app.core.automation_focus).len > 0)
+        app.core.automation_focus
+    else if (clip.automation.gain.len > 0)
+        .gain
+    else if (clip.automation.pan.len > 0)
+        .pan
+    else if (clip.automation.synth_params.items.len > 0)
+        .{ .synth_param = .{
+            .instance_id = clip.automation.synth_params.items[0].instance_id,
+            .param_id = clip.automation.synth_params.items[0].param_id,
+        } }
+    else
+        return;
+    const points = automation_ed.curvePointsConst(clip, target);
+    const range = automation_ed.curveRange(&app.core, target);
+    const width = pmax[0] - pmin[0];
+    const top = pmin[1] + 25;
+    const height = @max(4, pmax[1] - top - 4);
+    const samples: usize = @max(2, @min(128, @as(usize, @intFromFloat(@max(2, width / 4)))));
+    const length_beats = ws.time_grid.tickToBeat(clip.length_ticks);
+    var previous: ?[2]f32 = null;
+    for (0..samples + 1) |i| {
+        const fraction = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(samples));
+        const value = ws.dsp.automation.interpolate(points, @as(f64, fraction * @as(f32, @floatCast(length_beats)))) orelse continue;
+        const normalized = std.math.clamp((value - range[0]) / (range[1] - range[0]), 0, 1);
+        const point = [2]f32{ pmin[0] + fraction * width, top + (1 - normalized) * height };
+        if (previous) |from| draw_list.addLine(.{ .p1 = from, .p2 = point, .col = color(theme.modulation), .thickness = 2 });
+        previous = point;
+    }
+    draw_list.addText(.{ pmax[0] - 16, pmin[1] + 4 }, color(theme.modulation), "A", .{});
 }
 
 fn finishClipDrag(app: anytype, drag: ClipDrag) void {
