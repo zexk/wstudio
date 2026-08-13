@@ -38,6 +38,15 @@ const unity_epsilon: f32 = 0.005;
 /// blocks, which is the most that can be in flight at once.
 const ring_frames: usize = types.max_block_frames * 2 + 8192;
 
+/// Ceiling on the pitch ratio of the very first block after construction or
+/// reset. Rubber Band pre-pads its input ring with `window * pitch_scale`
+/// frames on that block alone, and the ring is only four windows long: from
+/// around +23 semitones up there is no room left for the block itself, so it
+/// drops that input and logs the overrun straight from the audio thread.
+/// Three (an octave and a fifth) leaves the pad room at every window size the
+/// library picks; every later block gets the ratio actually asked for.
+const max_first_scale: f64 = 3.0;
+
 pub const PitchShift = struct {
     sample_rate: u32,
     state: c.RubberBandLiveState,
@@ -61,6 +70,8 @@ pub const PitchShift = struct {
     /// re-issue a parameter change it would have to react to.
     applied_scale: f64 = 1.0,
     applied_formant: f64 = 1.0,
+    /// Whether the next `rubberband_live_shift` is the one that pre-pads.
+    first_shift: bool = true,
 
     semitones: f32 = 0.0,
     cents: f32 = 0.0,
@@ -141,6 +152,7 @@ pub const PitchShift = struct {
         self.pending_len = 0;
         self.ready_len = 0;
         self.ready_read = 0;
+        self.first_shift = true;
         for (0..8) |i| @memset(self.bufferAt(i), 0.0);
     }
 
@@ -166,7 +178,8 @@ pub const PitchShift = struct {
             return;
         }
 
-        const scale = std.math.pow(f64, 2.0, @as(f64, semis) / 12.0);
+        const wanted_scale = std.math.pow(f64, 2.0, @as(f64, semis) / 12.0);
+        const scale = if (self.first_shift) @min(wanted_scale, max_first_scale) else wanted_scale;
         if (scale != self.applied_scale) {
             c.rubberband_live_set_pitch_scale(self.state, scale);
             self.applied_scale = scale;
@@ -202,6 +215,7 @@ pub const PitchShift = struct {
         var in_ptrs = [_][*c]const f32{ self.in_channels[0].ptr, self.in_channels[1].ptr };
         var out_ptrs = [_][*c]f32{ self.out_channels[0].ptr, self.out_channels[1].ptr };
         c.rubberband_live_shift(self.state, &in_ptrs, &out_ptrs);
+        self.first_shift = false;
 
         // Drop the oldest output rather than overrun the ring: that only
         // happens if a caller pushes far more input than it reads back, and
@@ -307,6 +321,41 @@ test "non-finite params and samples never reach the output" {
     var buf = [_]Sample{ std.math.nan(f32), std.math.inf(f32), -std.math.inf(f32), 1.0 };
     shifter.processBlock(&buf);
     for (buf) |s| try std.testing.expect(std.math.isFinite(s));
+}
+
+test "the top of the range still reaches its pitch after the first block" {
+    // Semitones and cents both at maximum ask for a ratio past the one the
+    // shifter's first-block pre-pad can fit; the first block is held back for
+    // it, so what has to hold is that the rest are not.
+    const sr: u32 = 48_000;
+    var shifter = try PitchShift.init(std.testing.allocator, sr);
+    defer shifter.deinit(std.testing.allocator);
+    shifter.semitones = 24.0;
+    shifter.cents = 100.0;
+
+    const frames = sr;
+    const buf = try std.testing.allocator.alloc(Sample, frames * 2);
+    defer std.testing.allocator.free(buf);
+    for (0..frames) |i| {
+        const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(sr));
+        const v = 0.5 * @sin(2.0 * std.math.pi * 200.0 * t);
+        buf[i * 2] = v;
+        buf[i * 2 + 1] = v;
+    }
+    var at: usize = 0;
+    while (at + 512 <= buf.len) : (at += 512) shifter.processBlock(buf[at..][0..512]);
+
+    var crossings: usize = 0;
+    const tail = buf[buf.len / 2 ..];
+    var i: usize = 2;
+    while (i < tail.len) : (i += 2) {
+        if ((tail[i - 2] < 0) != (tail[i] < 0)) crossings += 1;
+    }
+    const seconds = @as(f32, @floatFromInt(tail.len / 2)) / @as(f32, @floatFromInt(sr));
+    const measured_hz = @as(f32, @floatFromInt(crossings)) / (2.0 * seconds);
+    // 200Hz up 25 semitones is 843Hz; the held-back first block would land
+    // near 600Hz if it were the one still in effect.
+    try std.testing.expect(measured_hz > 750.0 and measured_hz < 950.0);
 }
 
 test "latency is reported so the engine can compensate" {
