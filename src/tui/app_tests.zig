@@ -9794,6 +9794,9 @@ test "wstudio.api reads and replaces melodic pattern content" {
     try std.testing.expectError(error.LuaError, rt.loadString(
         \\wstudio.api.notes_set(1, { { pitch = 60, release_scale = 99 } })
     ));
+    try std.testing.expectError(error.LuaError, rt.loadString(
+        \\wstudio.api.notes_set(1, { { pitch = 60.5 } })
+    ));
     try std.testing.expectEqual(@as(u16, 2), pp.note_count);
     history.doUndo(&app);
     history.doUndo(&app);

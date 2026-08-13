@@ -879,7 +879,7 @@ pub fn apiNotesSet(state: ?*c.lua_State) callconv(.c) c_int {
     while (i < n) : (i += 1) {
         if (c.lua_rawgeti(l, 2, @intCast(i + 1)) != c.LUA_TTABLE) return c.luaL_error(l, "note %d is not a table", @as(c_int, @intCast(i + 1)));
         buf[i] = .{
-            .pitch = @intFromFloat(tableNumber(l, -1, "pitch", 60, 0, 127)),
+            .pitch = @intCast(tableInteger(l, -1, "pitch", 60, 0, 127)),
             .start_beat = tableNumber(l, -1, "start_beat", 0, 0, 1_000_000),
             .duration_beat = tableNumber(l, -1, "duration_beat", 1, 0, 1_000_000),
             .velocity = @floatCast(tableNumber(l, -1, "velocity", pattern_mod.default_velocity, 0, 1)),
