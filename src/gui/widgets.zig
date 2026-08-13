@@ -651,6 +651,17 @@ fn adsrHandle(draw_list: zgui.DrawList, theme: *const gui_style.Palette, p: [2]f
     if (focused) focusRing(draw_list, p, adsr_handle_r, accent);
 }
 
+fn plotGrid(draw_list: zgui.DrawList, origin: [2]f32, width: f32, height: f32, x_divisions: u8, y_divisions: u8) void {
+    for (1..x_divisions) |i| {
+        const x = origin[0] + width * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(x_divisions));
+        draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + height }, .col = gui_style.color(gui_style.palette.line) });
+    }
+    for (1..y_divisions) |i| {
+        const y = origin[1] + height * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(y_divisions));
+        draw_list.addLine(.{ .p1 = .{ origin[0], y }, .p2 = .{ origin[0] + width, y }, .col = gui_style.color(gui_style.palette.line) });
+    }
+}
+
 /// One ADSR node: an invisible square hit box over the curve point, plus the
 /// drag and wheel handling behind it. A duration node (`range` non-null)
 /// rides the horizontal axis multiplicatively - its range spans decades, so
@@ -711,7 +722,8 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
     const draw_list = zgui.getWindowDrawList();
     scroll.noteFocusRow(args.focused_stage != null, origin[1], height);
     zgui.dummy(.{ .w = width, .h = height });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg2), .rounding = gui_style.panel_rounding });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg1), .rounding = gui_style.panel_rounding });
+    plotGrid(draw_list, origin, width, height, 4, 4);
 
     const fracs = adsrSegFracs(args.attack.*, args.decay.*, args.release.*);
     const xs = [_]f32{
@@ -811,6 +823,10 @@ pub const Curve = struct {
     /// Grid line spacing and drag/insert snap increment, in beats. 0
     /// disables both the grid and snapping.
     snap_beats: f64 = 0.25,
+    /// Display-only subdivisions. Independent from snapping so editors can
+    /// preview a useful grid before quantized editing exists.
+    grid_divisions: u8 = 0,
+    fill: bool = false,
     accent: [4]f32,
     /// Which point (if any) the external cursor is currently parked on,
     /// for the focus ring - mirrors `Adsr.focused_stage`.
@@ -893,13 +909,21 @@ fn drawCurveSegment(draw_list: anytype, a: [2]f32, b: [2]f32, shape: ws.dsp.auto
 
 /// `drawCurveSegment`'s counterpart for a continuous bend (see
 /// `Curve.bends`), chorded the same way `.ease` is so the two look alike.
-fn drawBentSegment(draw_list: anytype, a: [2]f32, b: [2]f32, bend: f32, col: u32) void {
-    if (bend == 0) return draw_list.addLine(.{ .p1 = a, .p2 = b, .col = col, .thickness = 2 });
+fn drawBentSegment(draw_list: anytype, a: [2]f32, b: [2]f32, bend: f32, col: u32, fill_col: ?u32, bottom: f32) void {
+    if (fill_col) |fill| {
+        const pixels: usize = @max(1, @as(usize, @intFromFloat(@ceil(@abs(b[0] - a[0])))));
+        for (0..pixels + 1) |i| {
+            const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(pixels));
+            const shaped = if (bend == 0) t else ws.dsp.synth.bendShape(t, bend);
+            const p = [2]f32{ a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * shaped };
+            draw_list.addLine(.{ .p1 = p, .p2 = .{ p[0], bottom }, .col = fill, .thickness = 1.1 });
+        }
+    }
     const chords = 16;
     var from = a;
     for (1..chords + 1) |i| {
         const t = @as(f32, @floatFromInt(i)) / @as(f32, chords);
-        const shaped = ws.dsp.synth.bendShape(t, bend);
+        const shaped = if (bend == 0) t else ws.dsp.synth.bendShape(t, bend);
         const to = [2]f32{ a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * shaped };
         draw_list.addLine(.{ .p1 = from, .p2 = to, .col = col, .thickness = 2 });
         from = to;
@@ -916,6 +940,7 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
     scroll.noteFocusRow(args.focused_index != null, origin[1], height);
 
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg1), .rounding = gui_style.panel_rounding });
+    if (args.grid_divisions > 1) plotGrid(draw_list, origin, width, height, args.grid_divisions, args.grid_divisions);
     if (args.snap_beats > 0 and args.beat_hi > 0) {
         const grid_step = curveGridStep(args.beat_hi, args.snap_beats, width);
         var b: f64 = 0;
@@ -939,6 +964,12 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
 
     if (args.points.len > 0) {
         const first = curveToScreen(origin, width, height, args.beat_hi, args.value_lo, args.value_hi, 0, args.points[0].value);
+        const fill_col: ?u32 = if (args.fill) gui_style.color(.{
+            theme.bg1[0] * 0.82 + args.accent[0] * 0.18,
+            theme.bg1[1] * 0.82 + args.accent[1] * 0.18,
+            theme.bg1[2] * 0.82 + args.accent[2] * 0.18,
+            1,
+        }) else null;
         draw_list.addLine(.{ .p1 = .{ origin[0], first[1] }, .p2 = first, .col = gui_style.color(args.accent), .thickness = 2 });
         var prev = first;
         // The lead-in above is flat, so the shape of the run into the first
@@ -949,7 +980,7 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
         for (args.points, 0..) |p, i| {
             const cur = curveToScreen(origin, width, height, args.beat_hi, args.value_lo, args.value_hi, p.beat, p.value);
             if (args.bends) |bends| {
-                drawBentSegment(draw_list, prev, cur, prev_bend, gui_style.color(args.accent));
+                drawBentSegment(draw_list, prev, cur, prev_bend, gui_style.color(args.accent), fill_col, origin[1] + height);
                 prev_bend = if (i < bends.len) bends[i] else 0;
             } else {
                 drawCurveSegment(draw_list, prev, cur, prev_shape, gui_style.color(args.accent));

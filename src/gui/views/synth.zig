@@ -479,6 +479,8 @@ fn drawLfoCustomCurve(app: anytype, synth: *ws.dsp.PolySynth, slot: usize) void 
         .value_lo = -1.0,
         .value_hi = 1.0,
         .snap_beats = 0,
+        .grid_divisions = 4,
+        .fill = true,
         .accent = theme.modulation,
         .focused_index = focused_index,
         .x_unit_label = "phase",
