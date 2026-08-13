@@ -839,11 +839,10 @@ pub fn cmdConsolidate(app: *App, _: []const u8) void {
     const gain = ws.types.dbToGain(audio.gain_db);
     for (rendered, 0..) |*sample, i| {
         const offset: u64 = @intFromFloat(@as(f64, @floatFromInt(i)) * @as(f64, @floatFromInt(source.sample_rate)) / @as(f64, @floatFromInt(app.session.project.sample_rate)) / audio.stretch_ratio);
-        if (offset >= audio.source_length_frames) {
+        const source_frame = ws.arrangement.audioSourceFrame(audio.source_start_frame, audio.source_length_frames, offset, audio.reverse) orelse {
             sample.* = 0;
             continue;
-        }
-        const source_frame = audio.source_start_frame + if (audio.reverse) audio.source_length_frames - offset - 1 else offset;
+        };
         if (source_frame >= source_frames) {
             sample.* = 0;
             continue;
@@ -962,11 +961,15 @@ pub fn cmdComp(app: *App, args: []const u8) void {
         const start = if (use_alternate) alternate.source_start_frame else audio.source_start_frame;
         const length = if (use_alternate) alternate.source_length_frames else audio.source_length_frames;
         const source_offset: u64 = @intFromFloat(@as(f64, @floatFromInt(frame)) * @as(f64, @floatFromInt(source.sample_rate)) / @as(f64, @floatFromInt(project_rate)));
-        if (source_offset >= length or start + source_offset >= source.samples.len / source.channel_count) {
+        const source_frame = ws.arrangement.audioSourceFrame(start, length, source_offset, false) orelse {
+            sample.* = 0;
+            continue;
+        };
+        if (source_frame >= source.samples.len / source.channel_count) {
             sample.* = 0;
             continue;
         }
-        const base: usize = @intCast((start + source_offset) * source.channel_count);
+        const base: usize = @intCast(source_frame * source.channel_count);
         var mono: f32 = 0;
         for (0..source.channel_count) |channel| mono += source.samples[base + channel];
         sample.* = mono / @as(f32, @floatFromInt(source.channel_count));

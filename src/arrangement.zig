@@ -18,6 +18,12 @@ pub fn fadeGain(progress: f32, curve: FadeCurve) f32 {
     };
 }
 
+pub fn audioSourceFrame(start: u64, length: u64, offset: u64, reverse: bool) ?u64 {
+    if (offset >= length) return null;
+    const relative = if (reverse) length - offset - 1 else offset;
+    return std.math.add(u64, start, relative) catch null;
+}
+
 test "equal-power crossfade keeps summed power constant" {
     for (0..11) |i| {
         const t: f32 = @as(f32, @floatFromInt(i)) / 10.0;
@@ -25,6 +31,14 @@ test "equal-power crossfade keeps summed power constant" {
         const b = fadeGain(1.0 - t, .equal_power);
         try std.testing.expectApproxEqAbs(@as(f32, 1.0), a * a + b * b, 1e-5);
     }
+}
+
+test "audio source frame rejects range and integer overflow" {
+    try std.testing.expectEqual(@as(?u64, 12), audioSourceFrame(10, 4, 2, false));
+    try std.testing.expectEqual(@as(?u64, 11), audioSourceFrame(10, 4, 2, true));
+    try std.testing.expectEqual(@as(?u64, null), audioSourceFrame(10, 4, 4, false));
+    try std.testing.expectEqual(@as(?u64, null), audioSourceFrame(std.math.maxInt(u64), 2, 1, false));
+    try std.testing.expectEqual(@as(?u64, null), audioSourceFrame(std.math.maxInt(u64), 2, 0, true));
 }
 
 /// A clip placed on a track lane. Positions use `time_grid.ticks_per_beat`.

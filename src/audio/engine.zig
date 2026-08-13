@@ -1982,8 +1982,7 @@ pub const Engine = struct {
             for (first..last) |timeline_frame| {
                 const relative = timeline_frame - region.start_frame;
                 const source_offset: u64 = @intFromFloat(@as(f64, @floatFromInt(relative)) * @as(f64, @floatFromInt(region.source_sample_rate)) / @as(f64, @floatFromInt(engine_rate)) / region.stretch_ratio);
-                if (source_offset >= region.source_length_frames) break;
-                const source_frame = region.source_start_frame + if (region.reverse) region.source_length_frames - source_offset - 1 else source_offset;
+                const source_frame = arrangement.audioSourceFrame(region.source_start_frame, region.source_length_frames, source_offset, region.reverse) orelse break;
                 if (source_frame >= source_frames) break;
                 const dst: usize = @intCast((timeline_frame - block_start) * channels);
                 const src: usize = @intCast(source_frame * region.channel_count);
