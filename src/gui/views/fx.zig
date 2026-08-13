@@ -562,6 +562,7 @@ fn gridFloor(rows: usize) f32 {
 fn drawParamGrid(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, grid: spectrum_ed.ParamGrid) void {
     const available = zgui.getContentRegionAvail()[0];
     const gap: f32 = param_row_gap;
+    const width = (available - gap * @as(f32, @floatFromInt(grid.columns -| 1))) / @as(f32, @floatFromInt(@max(grid.columns, 1)));
     const available_height = zgui.getContentRegionAvail()[1] - rowGapCost() * @as(f32, @floatFromInt(grid.rows -| 1));
     const row_height = std.math.clamp(
         available_height / @as(f32, @floatFromInt(@max(grid.rows, 1))),
@@ -572,7 +573,6 @@ fn drawParamGrid(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, g
 
     for (0..grid.rows) |row| {
         const row_columns = grid.columnsInRow(row);
-        const width = (available - gap * @as(f32, @floatFromInt(row_columns -| 1))) / @as(f32, @floatFromInt(row_columns));
         for (0..row_columns) |column| {
             const index = grid.index(row, column) orelse continue;
             if (column > 0) zgui.sameLine(.{ .spacing = gap });
@@ -585,7 +585,7 @@ fn drawParamGrid(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, g
             // wholesale, so the knob inside it never gets to mark itself as
             // the focused row - the one case cursor-following exists for.
             scroll.noteFocusRow(selected, zgui.getCursorScreenPos()[1], row_height);
-            if (zgui.beginChild(id, .{ .w = if (column + 1 == row_columns) 0 else width, .h = row_height, .child_flags = .{ .border = true } })) {
+            if (zgui.beginChild(id, .{ .w = width, .h = row_height, .child_flags = .{ .border = true } })) {
                 drawParam(app, target, unit, index, knob_diameter);
             }
             zgui.endChild();

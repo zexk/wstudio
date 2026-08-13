@@ -78,7 +78,7 @@ fn drawMain(app: anytype, synth: *ws.dsp.PolySynth) void {
     drawCard(app, synth, synth_layout.main_sections[0], "synth-main", 0, utility_w);
     drawCard(app, synth, synth_layout.main_sections[16], "synth-main", 16, utility_w);
     zgui.setCursorPosX(origin[0]);
-    drawCardSized(app, synth, synth_layout.main_sections[14], "synth-main", 14, utility_w, center_bottom - zgui.getCursorPosY());
+    drawCard(app, synth, synth_layout.main_sections[14], "synth-main", 14, utility_w);
     const left_bottom = zgui.getCursorPosY();
 
     const composition_bottom = @max(left_bottom, @max(center_bottom, right_bottom));
