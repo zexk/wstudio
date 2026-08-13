@@ -126,7 +126,7 @@ fn drawSlot(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index:
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 36 }, .col = color(if (selected) theme.bg4 else if (hovered) theme.bg3 else theme.bg2), .rounding = style.item_rounding });
     draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 36 }, .col = color(if (selected) theme.focus else theme.line), .rounding = style.item_rounding, .thickness = if (selected) 2 else 1 });
     draw_list.addText(.{ origin[0] + 8, origin[1] + 9 }, color(if (unit.bypassed) theme.fg3 else theme.fg0), "{s}", .{spectrum_ed.stripLabel(unit.kind())});
-    draw_list.addCircleFilled(.{ .p = .{ origin[0] + width - 11, origin[1] + 18 }, .r = 3.5, .col = color(accent) });
+    widgets.accentMark(draw_list, .{ origin[0] + width - 7, origin[1] + 9 }, .{ origin[0] + width - 4, origin[1] + 27 }, accent);
     if (clicked and !selected) spectrum_ed.setFocus(&app.core, target, index);
 }
 

@@ -371,8 +371,8 @@ pub fn draw(app: anytype) void {
         draw_list.addRectFilled(.{ .pmin = .{ x + 1, y }, .pmax = .{ right, y + row_h - 4 }, .col = color(.{ theme.audio[0], theme.audio[1], theme.audio[2], note_alpha }), .rounding = 3 });
         draw_list.addLine(.{ .p1 = .{ x + 3, y + 2 }, .p2 = .{ x + 3, y + row_h - 6 }, .col = color(.{ theme.fg0[0], theme.fg0[1], theme.fg0[2], 0.72 }), .thickness = 2 });
         if (selected) {
-            draw_list.addRect(.{ .pmin = .{ x, y - 1 }, .pmax = .{ right + 1, y + row_h - 3 }, .col = color(theme.rhythm), .rounding = 3, .thickness = 2 });
-            draw_list.addRectFilled(.{ .pmin = .{ @max(x + 2, right - 5), y + 2 }, .pmax = .{ right, y + row_h - 6 }, .col = color(theme.rhythm), .rounding = 1 });
+            widgets.focusRect(draw_list, .{ x, y - 1 }, .{ right + 1, y + row_h - 3 }, 3, theme.focus);
+            widgets.accentMark(draw_list, .{ @max(x + 2, right - 5), y + 2 }, .{ right, y + row_h - 6 }, theme.focus);
         }
     }
     pp.notes_lock.unlock();

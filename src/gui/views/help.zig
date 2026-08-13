@@ -163,7 +163,7 @@ fn drawPositionBar(draw_list: zgui.DrawList, origin: [2]f32, width: f32, body_h:
         .pmin = .{ x, origin[1] },
         .pmax = .{ x + 4, origin[1] + body_h },
         .col = color(theme.bg2),
-        .rounding = 2,
+        .rounding = style.item_rounding,
     });
     const thumb_h = @max(24, body_h * shown / total);
     const travel = body_h - thumb_h;
@@ -172,7 +172,7 @@ fn drawPositionBar(draw_list: zgui.DrawList, origin: [2]f32, width: f32, body_h:
         .pmin = .{ x, y },
         .pmax = .{ x + 4, y + thumb_h },
         .col = color(theme.focus_soft),
-        .rounding = 2,
+        .rounding = style.item_rounding,
     });
 }
 

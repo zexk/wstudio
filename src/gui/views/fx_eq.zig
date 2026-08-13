@@ -134,8 +134,9 @@ fn drawEqGraph(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, sel
         if (spectrum_ed.bandCollides(&unit.payload.eq, i)) {
             draw_list.addCircle(.{ .p = node, .r = (if (selected) @as(f32, 12) else 10) + 4, .col = color(theme.danger), .thickness = 1.5 });
         }
-        draw_list.addCircleFilled(.{ .p = node, .r = if (selected) 10 else 8, .col = color(if (selected) accent else .{ accent[0], accent[1], accent[2], 0.72 }) });
-        draw_list.addCircle(.{ .p = node, .r = if (selected) 12 else 10, .col = color(if (selected) theme.fg0 else accent), .thickness = if (selected) 2 else 1 });
+        draw_list.addCircleFilled(.{ .p = node, .r = 8, .col = color(if (selected) accent else .{ accent[0], accent[1], accent[2], 0.72 }) });
+        draw_list.addCircle(.{ .p = node, .r = 10, .col = color(accent), .thickness = 1 });
+        if (selected) widgets.focusRing(draw_list, node, 10, theme.focus);
         draw_list.addText(.{ node[0] - 4, node[1] - 8 }, color(style.legibleOn(accent)), "{d}", .{i + 1});
     }
 

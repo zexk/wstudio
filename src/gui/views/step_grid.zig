@@ -1,6 +1,7 @@
 const std = @import("std");
 const zgui = @import("zgui");
 const style = @import("../style.zig");
+const widgets = @import("../widgets.zig");
 const shared_step_grid = @import("../../ui/editors/step_grid.zig");
 const history = @import("../../ui/history.zig");
 
@@ -281,12 +282,7 @@ pub fn draw(
             .pmax = .{ x + cell_w - 1, y + row_h - 1 },
             .col = color(.{ theme.focus[0], theme.focus[1], theme.focus[2], 0.18 }),
         });
-        draw_list.addRect(.{
-            .pmin = .{ x + 1, y + 1 },
-            .pmax = .{ x + cell_w - 1, y + row_h - 1 },
-            .col = color(accent),
-            .thickness = 2,
-        });
+        widgets.focusRect(draw_list, .{ x + 1, y + 1 }, .{ x + cell_w - 1, y + row_h - 1 }, 0, theme.focus);
     }
 
     if (hovered and mouse[1] >= grid_y and row_count > 0) {

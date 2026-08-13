@@ -5,6 +5,18 @@ const format = @import("../ui/format.zig");
 const gui_style = @import("style.zig");
 const scroll = @import("scroll.zig");
 
+pub fn focusRing(draw_list: zgui.DrawList, center: [2]f32, radius: f32, accent: [4]f32) void {
+    draw_list.addCircle(.{ .p = center, .r = radius + 3, .col = gui_style.color(accent), .thickness = 1.5 });
+}
+
+pub fn focusRect(draw_list: zgui.DrawList, pmin: [2]f32, pmax: [2]f32, rounding: f32, accent: [4]f32) void {
+    draw_list.addRect(.{ .pmin = pmin, .pmax = pmax, .col = gui_style.color(accent), .rounding = rounding, .thickness = 2 });
+}
+
+pub fn accentMark(draw_list: zgui.DrawList, pmin: [2]f32, pmax: [2]f32, accent: [4]f32) void {
+    draw_list.addRectFilled(.{ .pmin = pmin, .pmax = pmax, .col = gui_style.color(accent), .rounding = gui_style.item_rounding });
+}
+
 /// A square button carrying a single glyph. The square is the point: ImGui
 /// sizes a button to its label's advance width, and these labels come from
 /// two fonts with unrelated metrics - the merged Nerd Font icons (see
@@ -352,7 +364,7 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
         draw_list.pathStroke(.{ .col = gui_style.color(args.accent), .thickness = 3 });
     }
     draw_list.addCircleFilled(.{ .p = center, .r = radius - 5, .col = gui_style.color(if (active or hovered) theme.bg4 else theme.bg3) });
-    if (args.focused) draw_list.addCircle(.{ .p = center, .r = radius + 2, .col = gui_style.color(args.accent), .thickness = 1.5 });
+    if (args.focused) focusRing(draw_list, center, radius, args.accent);
 
     const dir = [2]f32{ @cos(angle), @sin(angle) };
     draw_list.addLine(.{
@@ -636,7 +648,7 @@ fn envelopeScrollStep() f32 {
 
 fn adsrHandle(draw_list: zgui.DrawList, theme: *const gui_style.Palette, p: [2]f32, lit: bool, focused: bool, accent: [4]f32) void {
     draw_list.addCircleFilled(.{ .p = p, .r = adsr_handle_r, .col = gui_style.color(if (lit) accent else theme.fg1) });
-    if (focused) draw_list.addCircle(.{ .p = p, .r = adsr_handle_r + 3, .col = gui_style.color(accent), .thickness = 1.5 });
+    if (focused) focusRing(draw_list, p, adsr_handle_r, accent);
 }
 
 /// One ADSR node: an invisible square hit box over the curve point, plus the
@@ -985,7 +997,7 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
             zgui.endTooltip();
         }
         draw_list.addCircleFilled(.{ .p = center, .r = handle_r - 1, .col = gui_style.color(if (node_active or node_hovered) args.accent else theme.fg1) });
-        if (args.focused_index != null and args.focused_index.? == i) draw_list.addCircle(.{ .p = center, .r = handle_r + 3, .col = gui_style.color(args.accent), .thickness = 1.5 });
+        if (args.focused_index != null and args.focused_index.? == i) focusRing(draw_list, center, handle_r, args.accent);
     }
 
     if (bg_activated and result.moved == null and result.removed == null and result.activated_index == null) {

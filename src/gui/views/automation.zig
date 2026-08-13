@@ -79,9 +79,9 @@ fn drawHeader(app: anytype, clip: ?*const ws.Clip) void {
                 .pmin = .{ x1, strip_y },
                 .pmax = .{ @max(x1 + 3, x2 - 1), strip_y + 16 },
                 .col = color(if (active) accent else theme.bg5),
-                .rounding = 2,
+                .rounding = style.item_rounding,
             });
-            if (active) draw_list.addRect(.{ .pmin = .{ x1, strip_y }, .pmax = .{ @max(x1 + 3, x2 - 1), strip_y + 16 }, .col = color(theme.fg0), .rounding = 2, .thickness = 1 });
+            if (active) widgets.focusRect(draw_list, .{ x1, strip_y }, .{ @max(x1 + 3, x2 - 1), strip_y + 16 }, style.item_rounding, theme.focus);
         };
     }
 }
@@ -256,7 +256,7 @@ fn drawCurve(app: anytype, points: *[]ws.dsp.automation.AutomationPoint, length_
         draw_list.addLine(.{ .p1 = .{ cursor[0] - 5, cursor[1] }, .p2 = .{ cursor[0] + 5, cursor[1] }, .col = color(theme.focus), .thickness = 2 });
         draw_list.addLine(.{ .p1 = .{ cursor[0], cursor[1] - 5 }, .p2 = .{ cursor[0], cursor[1] + 5 }, .col = color(theme.focus), .thickness = 2 });
     }
-    draw_list.addCircle(.{ .p = cursor, .r = 8, .col = color(theme.fg0), .thickness = 1 });
+    widgets.focusRing(draw_list, cursor, 5, theme.focus);
     const badge_width: f32 = if (stored_point) 88 else 134;
     const badge = [2]f32{ @min(cursor[0] + 9, plot_end[0] - badge_width - 6), @max(plot_origin[1] + 7, cursor[1] - 29) };
     draw_list.addRectFilled(.{ .pmin = badge, .pmax = .{ badge[0] + badge_width, badge[1] + 22 }, .col = color(theme.bg4), .rounding = style.item_rounding });

@@ -182,8 +182,8 @@ pub fn draw(app: anytype) void {
                 .rounding = 4,
             });
             if (selected) {
-                draw_list.addRect(.{ .pmin = .{ pmin[0] - 1, pmin[1] - 1 }, .pmax = .{ pmax[0] + 1, pmax[1] + 1 }, .col = color(theme.fg0), .rounding = 5, .thickness = 3 });
-                draw_list.addRectFilled(.{ .pmin = .{ pmin[0], pmin[1] }, .pmax = .{ pmin[0] + 5, pmax[1] }, .col = color(theme.focus), .rounding = 3 });
+                widgets.focusRect(draw_list, .{ pmin[0] - 1, pmin[1] - 1 }, .{ pmax[0] + 1, pmax[1] + 1 }, 5, theme.focus);
+                widgets.accentMark(draw_list, pmin, .{ pmin[0] + 5, pmax[1] }, theme.focus);
             }
             switch (clip.content) {
                 .melodic => |melodic| {
