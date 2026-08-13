@@ -94,7 +94,24 @@ pub fn encodeCompressed(gpa: std.mem.Allocator, out: *std.Io.Writer, value: anyt
 /// word, so it caps the allocation rather than driving it.
 pub fn decodeCompressed(comptime T: type, arena: std.mem.Allocator, bytes: []const u8) DecodeError!T {
     const window = try arena.alloc(u8, std.compress.flate.max_window_len);
-    var input: std.Io.Reader = .fixed(bytes);
+    // A `.fixed` reader over `bytes` is what this wants to be, but this Zig's
+    // inflate crashes instead of erroring on a stream that stops mid-symbol:
+    // `tossBitsShort` guards with `buffered * 8 + consumed_bits` where it
+    // means minus, and a truncated file then tosses past the end of the input
+    // buffer - an assert in Debug, a segfault in ReleaseFast, on nothing more
+    // than a half-copied .wsj. Two things keep it away from that path: the
+    // padding, so a stream that genuinely ends here still has whole words to
+    // peek at, and the failing vtable, which turns the refill a truncated one
+    // asks for into a read error before any of it can toss.
+    const padded = try arena.alloc(u8, bytes.len + inflate_tail_pad);
+    @memcpy(padded[0..bytes.len], bytes);
+    @memset(padded[bytes.len..], 0);
+    var input: std.Io.Reader = .{
+        .vtable = std.Io.Reader.failing.vtable,
+        .buffer = padded,
+        .seek = 0,
+        .end = padded.len,
+    };
     var decompress: std.compress.flate.Decompress = .init(&input, .zlib, window);
     const plain = decompress.reader.allocRemaining(arena, .limited(max_decompressed_bytes)) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -108,6 +125,11 @@ pub fn decodeCompressed(comptime T: type, arena: std.mem.Allocator, bytes: []con
 /// hundred thousand notes and their automation is a few MB) and far below
 /// what a deflate bomb would like to hand us.
 const max_decompressed_bytes = 256 * 1024 * 1024;
+
+/// Zero bytes past the end of the compressed stream, so inflate's four-byte
+/// peeks stay inside the buffer right up to the last real bit. Padding cannot
+/// pass off a truncated file as a whole one: the adler32 still has to match.
+const inflate_tail_pad = 32;
 
 /// Read a `T` out of `bytes`, allocating every slice from `arena`. Trailing
 /// bytes are ignored; anything else that doesn't line up is
@@ -300,6 +322,30 @@ test "compression round-trips, and pays for itself on repetitive data" {
     // 2000 rows is 12 KB flat; anything near that means compression isn't
     // running at all.
     try testing.expect(buf.written().len < 1024);
+}
+
+test "a compressed section cut off anywhere is rejected, not crashed on" {
+    // A half-copied .wsj used to reach inflate's own end-of-input handling,
+    // which tosses past the end of its buffer instead of erroring.
+    const testing = std.testing;
+    const Row = struct { a: f32, b: u32, c: bool };
+    const rows = try testing.allocator.alloc(Row, 500);
+    defer testing.allocator.free(rows);
+    for (rows, 0..) |*row, i| row.* = .{ .a = @floatFromInt(i % 13), .b = @intCast(i), .c = i % 3 == 0 };
+
+    var buf: std.Io.Writer.Allocating = try .initCapacity(testing.allocator, 64);
+    defer buf.deinit();
+    try encodeCompressed(testing.allocator, &buf.writer, @as([]const Row, rows));
+    const whole = buf.written();
+
+    for (0..whole.len) |cut| {
+        var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+        defer arena.deinit();
+        try testing.expectError(
+            error.CorruptProjectFile,
+            decodeCompressed([]const Row, arena.allocator(), whole[0..cut]),
+        );
+    }
 }
 
 test "a truncated, over-long, or out-of-range file is rejected, not trusted" {
