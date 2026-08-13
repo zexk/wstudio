@@ -9855,9 +9855,11 @@ test "wstudio.api reads and replaces drum grid content" {
     // A bad entry anywhere in the list leaves the grid untouched.
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.steps_set(3, { { pad = 1, step = 1 }, { pad = 1, step = 999 } })"));
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.steps_set(3, { { pad = 1, step = 1, cond = 'nope' } })"));
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.steps_set(3, { { pad = 1.5, step = 1 } })"));
     try std.testing.expect(dm.stepActive(1, 4));
 
     // pattern_set resizes the grid; length_beats resolves to a step count.
+    try std.testing.expectError(error.LuaError, rt.loadString("wstudio.api.pattern_set(3, { step_count = 63.5 })"));
     try rt.loadString("wstudio.api.pattern_set(3, { step_count = 64 }); assert(wstudio.api.pattern_get(3).step_count == 64)");
     try rt.loadString("wstudio.api.pattern_set(3, { length_beats = 2 }); assert(wstudio.api.pattern_get(3).step_count == 64)");
 }

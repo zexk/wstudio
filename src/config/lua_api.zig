@@ -771,6 +771,15 @@ fn tableNumber(l: *c.lua_State, table: c_int, key: [*:0]const u8, fallback: f64,
     return value;
 }
 
+fn tableInteger(l: *c.lua_State, table: c_int, key: [*:0]const u8, fallback: i64, min: i64, max: i64) i64 {
+    const value = tableNumber(l, table, key, @floatFromInt(fallback), @floatFromInt(min), @floatFromInt(max));
+    if (value != @trunc(value)) {
+        _ = c.luaL_error(l, "%s must be an integer", key);
+        unreachable;
+    }
+    return @intFromFloat(value);
+}
+
 pub fn apiPatternGet(state: ?*c.lua_State) callconv(.c) c_int {
     const l = state.?;
     const app = requireApp(l);
@@ -808,9 +817,11 @@ pub fn apiPatternSet(state: ?*c.lua_State) callconv(.c) c_int {
             if (value < 0.25 or value > 4096.0) return c.luaL_error(l, "length_beats is out of range (0.25 to 4096)");
             update.length_beats = value;
         } else if (std.mem.eql(u8, key, "step_count")) {
+            if (value != @trunc(value)) return c.luaL_error(l, "step_count must be an integer");
             if (value < 1 or value > @as(f64, DrumMachine.max_steps)) return c.luaL_error(l, "step_count is out of range");
             update.step_count = @intFromFloat(value);
         } else if (std.mem.eql(u8, key, "steps_per_beat")) {
+            if (value != @trunc(value)) return c.luaL_error(l, "steps_per_beat must be an integer");
             if (value < 1 or value > 32) return c.luaL_error(l, "steps_per_beat is out of range (1 to 32)");
             update.steps_per_beat = @intFromFloat(value);
         } else {
@@ -969,21 +980,21 @@ pub fn apiStepsSet(state: ?*c.lua_State) callconv(.c) c_int {
         var i: usize = 0;
         while (i < n) : (i += 1) {
             if (c.lua_rawgeti(l, 2, @intCast(i + 1)) != c.LUA_TTABLE) return c.luaL_error(l, "step %d is not a table", @as(c_int, @intCast(i + 1)));
-            const pad: u8 = @intFromFloat(tableNumber(l, -1, "pad", 1, 1, DrumMachine.max_pads) - 1);
-            const step: u16 = @intFromFloat(tableNumber(l, -1, "step", 1, 1, @floatFromInt(step_count)) - 1);
+            const pad: u8 = @intCast(tableInteger(l, -1, "pad", 1, 1, DrumMachine.max_pads) - 1);
+            const step: u16 = @intCast(tableInteger(l, -1, "step", 1, 1, step_count) - 1);
             const velocity = tableNumber(l, -1, "velocity", 1.0, 0, 1);
-            const prob = tableNumber(l, -1, "prob", 100, 0, 100);
-            const micro = tableNumber(l, -1, "micro", 0, -50, 50);
-            const retrig = tableNumber(l, -1, "retrig", 0, 0, 8);
-            const tune = tableNumber(l, -1, "tune", 0, -24, 24);
+            const prob = tableInteger(l, -1, "prob", 100, 0, 100);
+            const micro = tableInteger(l, -1, "micro", 0, -50, 50);
+            const retrig = tableInteger(l, -1, "retrig", 0, 0, 8);
+            const tune = tableInteger(l, -1, "tune", 0, -24, 24);
             const cond = checkCond(l, -1);
             if (pass == 1) {
                 if (!dm.stepActive(pad, step)) dm.toggleStep(pad, step);
                 dm.setStepVel(pad, step, @intFromFloat(@round(velocity * 127.0)));
-                dm.setStepProb(pad, step, @intFromFloat(prob));
-                dm.setStepMicro(pad, step, @intFromFloat(micro));
-                dm.setStepRetrig(pad, step, @intFromFloat(retrig));
-                dm.setStepTune(pad, step, @intFromFloat(tune));
+                dm.setStepProb(pad, step, @intCast(prob));
+                dm.setStepMicro(pad, step, @intCast(micro));
+                dm.setStepRetrig(pad, step, @intCast(retrig));
+                dm.setStepTune(pad, step, @intCast(tune));
                 dm.setStepCond(pad, step, cond);
             }
             c.lua_settop(l, -2);
