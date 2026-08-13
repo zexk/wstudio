@@ -1401,7 +1401,23 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
                 1 => "left",
                 else => "right",
             },
-            else => if (v < 0.5) "normal" else "swap",
+            4 => if (v < 0.5) "normal" else "swap",
+            5 => std.fmt.bufPrint(buf, "{d:.0} samples", .{v}) catch "?",
+            6, 9 => if (v < 0.5) "off" else "on",
+            7 => switch (@as(u3, @intFromFloat(v))) {
+                1 => "pink",
+                2 => "brown",
+                3 => "blue",
+                4 => "violet",
+                else => "white",
+            },
+            8, 10 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            else => "?",
+        },
+        .crossover => switch (idx) {
+            0, 1 => std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?",
+            2, 3, 4 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            else => if (v < 0.5) "off" else "solo",
         },
         .stereo_width => if (idx == 0)
             std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?"
