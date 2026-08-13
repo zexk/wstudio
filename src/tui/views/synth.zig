@@ -405,7 +405,7 @@ fn secLfoSlot(w: *std.Io.Writer, synth: *const PolySynth, c: u16, slot: u8, titl
     try choiceRow(w, c == ids[3], false, mag, "sync", s.sync.label());
     try enumRow(w, c == ids[4], false, mag, "retrig", &lfo_retrig_names, @intFromEnum(s.retrig));
     try barRow(w, c == ids[5], false, mag, "phase", s.phase_offset, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{s.phase_offset}));
+        synth_ed.paramValueText(synth, ids[5], &buf));
     try barRow(w, c == ids[6], false, mag, "slew", s.slew_ms, 500.0,
         try std.fmt.bufPrint(&buf, "{d:.0} ms", .{s.slew_ms}));
     try secLfoShapePlot(w, synth, slot, s.shape);

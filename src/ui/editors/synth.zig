@@ -270,7 +270,7 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         29 => try writeRate(w, synth.lfo_sync, synth.lfo_rate_hz, "{d:.2} Hz"),
         256 => try w.writeAll(synth.lfo_sync.label()),
         259 => try w.writeAll(lfoRetrigName(synth.lfo_retrig)),
-        262 => try w.print("{d:.2}", .{synth.lfo_phase_offset}),
+        262 => try w.print("{d:.0}\u{00b0}", .{synth.lfo_phase_offset * 360.0}),
         265 => try w.print("{d:.1} ms", .{synth.lfo_slew_ms}),
         32 => try w.writeAll(switch (synth.voice_mode) {
             .poly => "poly",
@@ -326,13 +326,13 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         96 => try writeRate(w, synth.lfo2_sync, synth.lfo2_rate_hz, "{d:.2} Hz"),
         257 => try w.writeAll(synth.lfo2_sync.label()),
         260 => try w.writeAll(lfoRetrigName(synth.lfo2_retrig)),
-        263 => try w.print("{d:.2}",      .{synth.lfo2_phase_offset}),
+        263 => try w.print("{d:.0}\u{00b0}", .{synth.lfo2_phase_offset * 360.0}),
         266 => try w.print("{d:.1} ms",   .{synth.lfo2_slew_ms}),
         97 => try w.writeAll(lfoShapeName(synth.lfo3_shape)),
         98 => try writeRate(w, synth.lfo3_sync, synth.lfo3_rate_hz, "{d:.2} Hz"),
         258 => try w.writeAll(synth.lfo3_sync.label()),
         261 => try w.writeAll(lfoRetrigName(synth.lfo3_retrig)),
-        264 => try w.print("{d:.2}",      .{synth.lfo3_phase_offset}),
+        264 => try w.print("{d:.0}\u{00b0}", .{synth.lfo3_phase_offset * 360.0}),
         267 => try w.print("{d:.1} ms",   .{synth.lfo3_slew_ms}),
         99 => try w.print("{d:.0}%", .{synth.macro1 * 100.0}),
         100 => try w.print("{d:.0}%", .{synth.macro2 * 100.0}),
@@ -393,6 +393,8 @@ test "param value text covers envelope curves and filter drives" {
     try std.testing.expectEqualStrings("42%", paramValueText(&synth, 99, &buf));
     synth.arp_gate = 0.75;
     try std.testing.expectEqualStrings("75%", paramValueText(&synth, 120, &buf));
+    synth.lfo_phase_offset = 0.25;
+    try std.testing.expectEqualStrings("90\u{00b0}", paramValueText(&synth, 262, &buf));
 }
 
 pub fn searchCandidates(buf: []SearchCandidate) []const SearchCandidate {
