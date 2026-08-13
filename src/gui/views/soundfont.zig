@@ -15,7 +15,7 @@ pub fn draw(app: anytype) void {
     const sf = switch (app.core.session.racks.items[track].instrument) {
         .soundfont, .acoustic => |*s| s,
         else => {
-            zgui.textDisabled("Select a SoundFont track.", .{});
+            zgui.textDisabled("Select a SoundFont track", .{});
             return;
         },
     };

@@ -94,7 +94,7 @@ fn drawEmptyState() void {
     const draw_list = zgui.getWindowDrawList();
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 150 }, .col = color(theme.bg2), .rounding = style.panel_rounding });
     draw_list.addText(.{ origin[0] + 22, origin[1] + 29 }, color(theme.fg0), "No clip selected", .{});
-    draw_list.addText(.{ origin[0] + 22, origin[1] + 59 }, color(theme.fg3), "Place a clip, then press a on it in the arrangement.", .{});
+    draw_list.addText(.{ origin[0] + 22, origin[1] + 59 }, color(theme.fg3), "Stamp a clip, then press a", .{});
 }
 
 fn drawTargetStrip(app: anytype, clip: *ws.Clip) void {

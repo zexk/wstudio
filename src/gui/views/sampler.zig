@@ -199,7 +199,7 @@ fn drawStandalone(app: anytype) void {
     const sampler = switch (app.core.session.racks.items[track].instrument) {
         .sampler => |*s| s,
         else => {
-            zgui.textDisabled("Select a Sampler track.", .{});
+            zgui.textDisabled("Select a sampler track", .{});
             return;
         },
     };

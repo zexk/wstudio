@@ -16,7 +16,7 @@ pub fn draw(app: anytype) void {
     const slicer = switch (rack.instrument) {
         .slicer => |*s| s,
         else => {
-            zgui.textDisabled("Select a Slicer track.", .{});
+            zgui.textDisabled("Select a slicer track", .{});
             return;
         },
     };

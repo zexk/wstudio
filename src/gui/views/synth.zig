@@ -21,7 +21,7 @@ pub fn draw(app: anytype) void {
     const synth = switch (app.core.session.racks.items[track].instrument) {
         .poly_synth => |*s| s,
         else => {
-            zgui.textDisabled("Select a Synth track.", .{});
+            zgui.textDisabled("Select a synth track", .{});
             return;
         },
     };

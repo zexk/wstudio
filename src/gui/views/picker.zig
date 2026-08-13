@@ -89,11 +89,11 @@ pub fn drawInstrument(app: anytype) void {
     if (app.core.picker_replace) {
         widgets.coloredTitle(theme.focus, "REPLACE INSTRUMENT", .{});
         zgui.sameLine(.{});
-        zgui.textDisabled("Swaps notes over when the old and new kinds are compatible", .{});
+        zgui.textDisabled("Keeps notes when instrument types match", .{});
     } else {
         widgets.coloredTitle(theme.focus, "ADD INSTRUMENT", .{});
         zgui.sameLine(.{});
-        zgui.textDisabled("Choose the track's sound source", .{});
+        zgui.textDisabled("Choose track sound", .{});
     }
     zgui.separator();
     // Single column: `j`/`k` move the shared picker cursor by a flat +/-1,

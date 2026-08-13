@@ -218,7 +218,7 @@ pub fn draw(app: anytype) void {
     if (app.core.piano_track >= app.core.session.racks.items.len) return;
     const rack = app.core.session.racks.items[app.core.piano_track];
     const pp = if (rack.pattern_player) |*p| p else {
-        zgui.textDisabled("This instrument has no melodic pattern. Choose a melodic instrument.", .{});
+        zgui.textDisabled("Choose a melodic instrument", .{});
         return;
     };
     const track_name = app.core.session.project.tracks.items[app.core.piano_track].name;

@@ -17,7 +17,7 @@ pub fn draw(app: anytype) void {
     const drum = switch (rack.instrument) {
         .drum_machine => |*d| d,
         else => {
-            zgui.textDisabled("Select a Drum Machine track.", .{});
+            zgui.textDisabled("Select a drum track", .{});
             return;
         },
     };

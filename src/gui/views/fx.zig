@@ -25,7 +25,7 @@ var monitor_fit: scroll.PaneFit = .{};
 pub fn draw(app: anytype) void {
     const target = spectrum_ed.currentTarget(&app.core);
     const fx = spectrum_ed.fxPtr(&app.core, target) orelse {
-        zgui.textDisabled("This FX chain is no longer available.", .{});
+        zgui.textDisabled("FX chain unavailable", .{});
         return;
     };
     if (fx.units.items.len > 0) app.core.fx_focus = @min(app.core.fx_focus, fx.units.items.len - 1);

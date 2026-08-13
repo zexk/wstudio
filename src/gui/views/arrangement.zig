@@ -104,7 +104,7 @@ pub fn draw(app: anytype) void {
         // lane "Empty lane" says nothing the blank row didn't already.
         const lane = app.core.session.arrangement.lane(@intCast(ti));
         if (selected and (lane == null or lane.?.clips.items.len == 0)) {
-            draw_list.addText(.{ timeline_x + 12, y + lane_h * 0.5 - 8 }, color(theme.fg2), "Press s to stamp a clip at the cursor", .{});
+            draw_list.addText(.{ timeline_x + 12, y + lane_h * 0.5 - 8 }, color(theme.fg2), "Press s to stamp at cursor", .{});
         }
         draw_list.addLine(.{ .p1 = .{ origin[0], y + lane_h }, .p2 = .{ origin[0] + canvas_w, y + lane_h }, .col = color(theme.line), .thickness = 1 });
     }
