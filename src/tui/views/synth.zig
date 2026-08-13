@@ -254,7 +254,7 @@ fn secOscA(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try barRow(w, c == 4, false, acc, "uni.det", synth.unison_detune, 100.0,
         try std.fmt.bufPrint(&buf, "{d:.1} ct", .{synth.unison_detune}));
     try barRow(w, c == 5, false, acc, "spread", synth.unison_spread, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.unison_spread}));
+        synth_ed.paramValueText(synth, 5, &buf));
 
     // uni.mode/warp/wt.pos: formerly the standalone UNI MODE/WARP/WAVETABLE
     // sections' "osc a" rows - folded into this card so each oscillator's

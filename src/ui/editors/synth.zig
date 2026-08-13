@@ -240,7 +240,7 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         2 => try w.print("{d:.0} ct", .{synth.detune_cents}),
         3 => try w.print("{d}", .{synth.unison}),
         4 => try w.print("{d:.1} ct", .{synth.unison_detune}),
-        5 => try w.print("{d:.2}", .{synth.unison_spread}),
+        5 => try w.print("{d:.0}%", .{synth.unison_spread * 100.0}),
         6 => try w.writeAll(if (synth.osc_b_on) "on" else "off"),
         9 => try w.print("{d:.0} st", .{synth.osc_b_semi}),
         10 => try w.print("{d:.0} ct", .{synth.osc_b_detune_cents}),
@@ -400,6 +400,8 @@ test "param value text covers envelope curves and filter drives" {
     try std.testing.expectEqualStrings("50% warm", paramValueText(&synth, 37, &buf));
     synth.osc_b_level = 0.375;
     try std.testing.expectEqualStrings("38%", paramValueText(&synth, 11, &buf));
+    synth.unison_spread = 0.8;
+    try std.testing.expectEqualStrings("80%", paramValueText(&synth, 5, &buf));
 }
 
 pub fn searchCandidates(buf: []SearchCandidate) []const SearchCandidate {
