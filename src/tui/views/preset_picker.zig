@@ -106,7 +106,10 @@ pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     }
     if (count == 0) {
         try w.writeAll(dim);
-        try w.print("    no match for /{s}", .{filter});
+        if (filter.len > 0)
+            try w.print("    no match for /{s}", .{filter})
+        else
+            try w.writeAll("    NO PRESETS");
         try w.writeAll(rst);
         try endLine(w);
     }

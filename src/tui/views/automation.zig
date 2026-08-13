@@ -270,7 +270,10 @@ pub fn drawAutomationParamPicker(app: anytype, w: *std.Io.Writer, rows: usize) !
     }
     if (match_count == 0) {
         try w.writeAll(dim);
-        try w.print("    no match for /{s}", .{filter});
+        if (filter.len > 0)
+            try w.print("    no match for /{s}", .{filter})
+        else
+            try w.writeAll("    NO PARAMETERS");
         try w.writeAll(rst);
         try endLine(w);
     }

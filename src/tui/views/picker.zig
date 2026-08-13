@@ -64,6 +64,7 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
     try w.writeAll(bold ++ " EXTERNAL" ++ rst ++ dim ++ "  CLAP / VST3");
     try endLine(w);
     const external_count = app.filteredInstrumentPluginCount();
+    const filter = app.searchPattern();
     for (0..external_count) |external_i| {
         const plugin = app.filteredInstrumentPluginAt(external_i).?;
         const i = items.len + external_i;
@@ -77,7 +78,12 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
         try endLine(w);
     }
     if (external_count == 0) {
-        try w.writeAll(dim ++ "    no external instruments found" ++ rst);
+        try w.writeAll(dim);
+        if (items.len == 0 and filter.len > 0)
+            try w.print("    no match for /{s}", .{filter})
+        else
+            try w.writeAll("    no external instruments found");
+        try w.writeAll(rst);
         try endLine(w);
     }
 
@@ -146,7 +152,10 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     }
     if (total_count == 0) {
         try w.writeAll(dim);
-        try w.print("    no match for /{s}", .{filter});
+        if (filter.len > 0)
+            try w.print("    no match for /{s}", .{filter})
+        else
+            try w.writeAll("    NO EFFECTS AVAILABLE");
         try w.writeAll(rst);
         try endLine(w);
     }
