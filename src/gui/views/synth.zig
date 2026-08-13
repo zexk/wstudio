@@ -724,14 +724,12 @@ fn zeroSkewParam(id: u16) bool {
 fn drawParamToggle(app: anytype, id: u16, label_text: []const u8, active: bool, accent: [4]f32) void {
     const focused = app.core.synth_cursor == id;
     scroll.noteFocusRow(focused, zgui.getCursorScreenPos()[1], zgui.getFontSize() + 8);
-    zgui.textColored(if (focused) accent else theme.fg1, "{s}", .{label_text});
-    zgui.sameLine(.{ .spacing = 8 });
-    var btn_buf: [48]u8 = undefined;
-    const btn_id = std.fmt.bufPrintZ(&btn_buf, "{s}##synth-toggle-{d}", .{ if (active) "ON" else "OFF", id }) catch return;
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (active) accent else if (focused) theme.bg4 else theme.bg3 });
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (active) theme.bg0 else if (focused) accent else theme.fg2 });
-    if (zgui.smallButton(btn_id)) nudgeParam(app, id, 'h');
-    zgui.popStyleColor(.{ .count = 2 });
+    if (focused) zgui.pushStyleColor4f(.{ .idx = .text, .c = accent });
+    defer if (focused) zgui.popStyleColor(.{});
+    var value = active;
+    var label_buf: [48]u8 = undefined;
+    const label = std.fmt.bufPrintZ(&label_buf, "{s}", .{label_text}) catch return;
+    if (widgets.toggle(label, &value)) nudgeParam(app, id, 'h');
 }
 
 fn isOscPositionParam(id: u16) bool {
