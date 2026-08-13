@@ -1089,20 +1089,40 @@ fn nudgeMouse(app: *App, target: EqTarget, ev: modal_mod.MouseEvent) void {
     nudge(app, target, key);
 }
 
-/// Click a chain-strip slot box to focus it (the trailing "+" box opens the
-/// picker); click an EQ band or a param row to select it; scroll over
-/// either nudges it (**ctrl**+scroll = coarse).
+/// Click a chain-strip slot box to focus it (the trailing "+" opens the
+/// picker). **Shift**+drag reorders; middle-click bypasses; right-click
+/// removes. Click an EQ band or param row to select it; scroll nudges it.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, view_rows: usize) void {
     _ = cols; // slot/band/param columns here are fixed-width, not terminal-width-dependent
     const target = currentTarget(app);
     const fx = fxPtr(app, target) orelse return;
     const compact = compactLayout(view_rows);
 
+    if (ev.kind == .release) app.fx_drag_slot = null;
     if (row >= strip_rows_start and row <= (if (compact) strip_rows_start else strip_rows_end)) {
-        if (ev.kind == .press) {
-            const len = fx.units.items.len;
-            const i = slotAt(ev.x, len) orelse return;
-            if (i == len) openPicker(app, target) else setFocus(app, target, i);
+        const len = fx.units.items.len;
+        const i = slotAt(ev.x, len) orelse return;
+        switch (ev.kind) {
+            .press => {
+                if (i == len) {
+                    if (ev.button == .left) openPicker(app, target);
+                    return;
+                }
+                setFocus(app, target, i);
+                if (ev.button == .right) {
+                    removeFocused(app, target);
+                } else if (ev.button == .middle) {
+                    toggleBypass(app, target);
+                } else if (ev.shift) {
+                    app.fx_drag_slot = i;
+                }
+            },
+            .drag => if (app.fx_drag_slot != null and i < len) {
+                while (app.fx_focus < i) moveFocused(app, target, 1);
+                while (app.fx_focus > i) moveFocused(app, target, -1);
+                app.fx_drag_slot = app.fx_focus;
+            },
+            else => {},
         }
         return;
     }

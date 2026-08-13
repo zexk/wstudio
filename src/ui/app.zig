@@ -889,6 +889,7 @@ pub const App = struct {
     sampler_drag_marker: ?SamplerMarker = null,
     automation_mouse_edit: bool = false,
     automation_mouse_erase: bool = false,
+    fx_drag_slot: ?usize = null,
     /// The arrangement clip the piano roll is editing, or null when it edits
     /// the track's live pattern (see `ClipLink`). Set by `e` on a clip in the
     /// arrangement; cleared when the roll opens on a live pattern instead.

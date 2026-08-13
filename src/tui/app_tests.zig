@@ -8457,6 +8457,29 @@ test "mouse click on a chain-strip slot box focuses that slot" {
     try std.testing.expectEqual(app_mod.AppView.track_spectrum, app.fx_picker_return);
 }
 
+test "FX strip modifier mouse gestures reorder bypass and remove" {
+    var app = try testApp();
+    defer app.deinit();
+    const fx = &app.session.racks.items[0].fx;
+    const alloc = app.session.allocator;
+    const sr = app.session.project.sample_rate;
+    _ = try fx.insert(alloc, 0, .eq, sr);
+    _ = try fx.insert(alloc, 1, .comp, sr);
+    _ = try fx.insert(alloc, 2, .reverb, sr);
+    spectrum_ed.switchToTrack(&app, 0);
+    const row = app_mod.content_top + 2;
+
+    app.handleMouse(.{ .x = 4, .y = row, .button = .left, .kind = .press, .shift = true }, 80, 24, 0);
+    app.handleMouse(.{ .x = 20, .y = row, .button = .left, .kind = .drag, .shift = true }, 80, 24, 0);
+    app.handleMouse(.{ .x = 20, .y = row, .button = .left, .kind = .release, .shift = true }, 80, 24, 0);
+    try std.testing.expectEqual(ws.FxKind.eq, fx.units.items[2].kind());
+
+    app.handleMouse(.{ .x = 20, .y = row, .button = .middle, .kind = .press }, 80, 24, 0);
+    try std.testing.expect(fx.units.items[2].bypassed);
+    app.handleMouse(.{ .x = 20, .y = row, .button = .right, .kind = .press }, 80, 24, 0);
+    try std.testing.expectEqual(@as(usize, 2), fx.units.items.len);
+}
+
 test "clicking the EQ band-detail rows lands on the field actually drawn there" {
     // Regression: the click-side row math carried its own hand-copied
     // flat-offset constants instead of sharing the render side's formula,
