@@ -56,7 +56,7 @@ pub fn drawHelp(w: *std.Io.Writer, rows: usize, cols: usize, cmds: []const cmd_m
     if (t.sectionLineAt(@min(off + 1, t.count -| 1))) |s| {
         try w.print(acc ++ "  {s}" ++ rst, .{help_model.sectionTitle(t.line(s))});
     }
-    try w.writeAll(dim ++ "   esc close   j/k scroll   {/} section   / search");
+    try w.writeAll(dim);
     if (t.count > visible) {
         try w.print("   {d}–{d}/{d}", .{ off + 1, end, t.count });
         if (off < max_scroll) try w.writeAll("  ↓");

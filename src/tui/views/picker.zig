@@ -31,9 +31,9 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
     try w.writeAll(rst);
     try endLine(w);
     if (app.picker_replace) {
-        try w.writeAll(dim ++ " > select  " ++ rst ++ "j/k move  enter swap (keeps compatible notes)  esc close");
+        try w.writeAll(dim ++ " compatible notes stay" ++ rst);
     } else {
-        try w.writeAll(dim ++ " > select  " ++ rst ++ "j/k move  enter choose  esc close");
+        try w.writeAll(dim ++ " choose track sound" ++ rst);
     }
     try endLine(w);
 
