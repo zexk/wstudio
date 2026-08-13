@@ -282,7 +282,7 @@ fn secOscB(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try barRow(w, c == 10, !b_on, acc, "detune", synth.osc_b_detune_cents + 100.0, 200.0,
         try std.fmt.bufPrint(&buf, "{d:.0} ct", .{synth.osc_b_detune_cents}));
     try barRow(w, c == 11, !b_on, acc, "level", synth.osc_b_level, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_b_level}));
+        synth_ed.paramValueText(synth, 11, &buf));
     try barRow(w, c == 12, !b_on, acc, "unison", @floatFromInt(synth.osc_b_unison), 16.0,
         try std.fmt.bufPrint(&buf, "{d}", .{synth.osc_b_unison}));
     try barRow(w, c == 13, !b_on, acc, "uni.det", synth.osc_b_unison_detune, 100.0,
@@ -518,7 +518,7 @@ fn secSub(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try synthSection(w, "SUB", acc);
 
     try barRow(w, c == 34, false, acc, "level", synth.sub_level, 1.0,
-        if (synth.sub_level == 0.0) "off" else try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.sub_level}));
+        synth_ed.paramValueText(synth, 34, &buf));
     {
         const sh_names = [_][]const u8{ "sine", "sqr" };
         const sh_idx: usize = switch (synth.sub_shape) { .sine => 0, .square => 1 };
@@ -531,7 +531,7 @@ fn secNoise(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try synthSection(w, "NOISE", acc);
 
     try barRow(w, c == 36, false, acc, "level", synth.noise_level, 1.0,
-        if (synth.noise_level == 0.0) "off" else try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.noise_level}));
+        synth_ed.paramValueText(synth, 36, &buf));
     try barRow(w, c == 37, synth.noise_level == 0.0, acc, "color", synth.noise_color, 1.0,
         synth_ed.paramValueText(synth, 37, &buf));
 }
@@ -603,7 +603,7 @@ fn secOscC(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try barRow(w, c == 54, !c_on, acc, "detune", synth.osc_c_detune_cents + 100.0, 200.0,
         try std.fmt.bufPrint(&buf, "{d:.0} ct", .{synth.osc_c_detune_cents}));
     try barRow(w, c == 55, !c_on, acc, "level", synth.osc_c_level, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.osc_c_level}));
+        synth_ed.paramValueText(synth, 55, &buf));
     try barRow(w, c == 56, !c_on, acc, "unison", @floatFromInt(synth.osc_c_unison), 16.0,
         try std.fmt.bufPrint(&buf, "{d}", .{synth.osc_c_unison}));
     try barRow(w, c == 57, !c_on, acc, "uni.det", synth.osc_c_unison_detune, 100.0,

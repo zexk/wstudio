@@ -244,7 +244,7 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         6 => try w.writeAll(if (synth.osc_b_on) "on" else "off"),
         9 => try w.print("{d:.0} st", .{synth.osc_b_semi}),
         10 => try w.print("{d:.0} ct", .{synth.osc_b_detune_cents}),
-        11 => try w.print("{d:.2}", .{synth.osc_b_level}),
+        11 => try w.print("{d:.0}%", .{synth.osc_b_level * 100.0}),
         12 => try w.print("{d}", .{synth.osc_b_unison}),
         13 => try w.print("{d:.1} ct", .{synth.osc_b_unison_detune}),
         14 => try w.writeAll(warpModeName(synth.osc_c_warp_mode)),
@@ -278,12 +278,12 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
             .legato => "legato",
         }),
         33 => if (synth.glide_s == 0.0) try w.writeAll("off") else try writeTime(w, synth.glide_s),
-        34 => if (synth.sub_level == 0.0) try w.writeAll("off") else try w.print("{d:.2}", .{synth.sub_level}),
+        34 => if (synth.sub_level == 0.0) try w.writeAll("off") else try w.print("{d:.0}%", .{synth.sub_level * 100.0}),
         35 => try w.writeAll(switch (synth.sub_shape) {
             .sine => "sine",
             .square => "sqr",
         }),
-        36 => if (synth.noise_level == 0.0) try w.writeAll("off") else try w.print("{d:.2}", .{synth.noise_level}),
+        36 => if (synth.noise_level == 0.0) try w.writeAll("off") else try w.print("{d:.0}%", .{synth.noise_level * 100.0}),
         37 => try w.print("{d:.0}% {s}", .{ synth.noise_color * 100.0, if (synth.noise_color < 0.33) "dark" else if (synth.noise_color > 0.66) "white" else "warm" }),
         38 => try w.print("{d:.1} dB", .{20.0 * std.math.log10(synth.gain)}),
         39 => try w.writeAll(uniModeName(synth.unison_mode)),
@@ -307,7 +307,7 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         50 => try w.writeAll(if (synth.osc_c_on) "on" else "off"),
         53 => try w.print("{d:.0} st", .{synth.osc_c_semi}),
         54 => try w.print("{d:.0} ct", .{synth.osc_c_detune_cents}),
-        55 => try w.print("{d:.2}", .{synth.osc_c_level}),
+        55 => try w.print("{d:.0}%", .{synth.osc_c_level * 100.0}),
         56 => try w.print("{d}", .{synth.osc_c_unison}),
         57 => try w.print("{d:.1} ct", .{synth.osc_c_unison_detune}),
         58 => try w.writeAll(uniModeName(synth.osc_c_unison_mode)),
@@ -398,6 +398,8 @@ test "param value text covers envelope curves and filter drives" {
     try std.testing.expectEqualStrings("90\u{00b0}", paramValueText(&synth, 262, &buf));
     synth.noise_color = 0.5;
     try std.testing.expectEqualStrings("50% warm", paramValueText(&synth, 37, &buf));
+    synth.osc_b_level = 0.375;
+    try std.testing.expectEqualStrings("38%", paramValueText(&synth, 11, &buf));
 }
 
 pub fn searchCandidates(buf: []SearchCandidate) []const SearchCandidate {
