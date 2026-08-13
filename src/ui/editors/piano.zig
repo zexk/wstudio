@@ -894,6 +894,7 @@ pub fn insertNoteAt(app: *App, pitch: u7, step: u16) bool {
     if (app.piano_grab) dropGrab(app);
     app.piano_cursor_pitch = pitch;
     app.piano_cursor_step = step;
+    app.piano_note_len = 1.0 / stepsPerBeatF(app);
     const before = pp.note_count;
     insertNote(app);
     if (pp.note_count == before) return false;
@@ -901,17 +902,15 @@ pub fn insertNoteAt(app: *App, pitch: u7, step: u16) bool {
     return true;
 }
 
-/// GUI draw-drag adapter: length of the note the same gesture just inserted,
-/// which also becomes the default for the next one - FL's "last drawn length
-/// sticks". No undo entry of its own: the insert's entry already covers the
+/// GUI draw-drag adapter: length of the note the same gesture just inserted.
+/// No undo entry of its own: the insert's entry already covers the
 /// gesture, so one undo takes the drawn note away rather than two.
 pub fn setDrawnLength(app: *App, pitch: u7, start_step: u16, duration_steps: u16) void {
     const pp = currentPatternPlayer(app) orelse return;
     const note = pp.noteAt(pitch, stepToBeat(app, start_step)) orelse return;
     const step_beats = 1.0 / stepsPerBeatF(app);
     note.duration_beat = std.math.clamp(@as(f64, @floatFromInt(@max(duration_steps, 1))) * step_beats, step_beats, pp.length_beats);
-    app.piano_note_len = note.duration_beat;
-    app.setStatus("drew {d:.2} beats - default len", .{note.duration_beat});
+    app.setStatus("drew {d:.2} beats", .{note.duration_beat});
     syncLinkedClip(app);
 }
 

@@ -8062,21 +8062,21 @@ test "piano-roll mouse grabs sustained note bodies without jumping the onset" {
     try std.testing.expect(pp.noteAt(72, 0.25) != null);
 }
 
-test "piano-roll draw-drag sizes the note it just placed, and that length sticks" {
+test "piano-roll draw-drag sizes only the note it just placed" {
     var app = try testApp();
     defer app.deinit();
     app.piano_track = 0;
     app.view = .piano_roll;
     app.piano_scroll_step = 0;
     app.piano_scroll_pitch = 72;
-    app.piano_note_len = 0.25; // one 16th
+    app.piano_note_len = 1.0;
     const pp = &app.session.racks.items[0].pattern_player.?;
 
     const row = app_mod.content_top + 3; // pitch 72
     app.handleMouse(.{ .x = 7, .y = row, .button = .left, .kind = .press }, 80, 24, 0); // step 0
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
     try std.testing.expect(app.piano_mouse_draw);
-    // The press alone leaves the default length in place.
+    // New draw starts at natural grid size, not stale default length.
     try std.testing.expectApproxEqAbs(@as(f64, 0.25), pp.notes[0].duration_beat, 1e-9);
 
     // Drag out to step 3 (x in [15,18)) - 4 steps = 1 beat.
@@ -8084,8 +8084,7 @@ test "piano-roll draw-drag sizes the note it just placed, and that length sticks
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.notes[0].duration_beat, 1e-9);
     app.handleMouse(.{ .x = 16, .y = row, .button = .left, .kind = .release }, 80, 24, 0);
     try std.testing.expect(!app.piano_mouse_draw);
-    // FL's length chase: the next note drawn inherits what was drawn here.
-    try std.testing.expectApproxEqAbs(@as(f64, 1.0), app.piano_note_len, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25), app.piano_note_len, 1e-9);
 
     // And the whole gesture is one undo entry, not insert-then-resize.
     app.handleKey(.{ .char = 'u' }, 0);
