@@ -69,6 +69,14 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
         drawLevelMeters(app, snap);
         drawPhaseMeter(snap.correlation);
         drawLoudnessReadout(snap);
+
+        const draw = zgui.getWindowDrawList();
+        const size = zgui.getWindowSize();
+        draw.addLine(.{
+            .p1 = .{ 0, size[1] - 1 },
+            .p2 = .{ size[0], size[1] - 1 },
+            .col = color(theme.line),
+        });
     }
     zgui.end();
 }
