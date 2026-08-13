@@ -8364,6 +8364,19 @@ test "mouse scroll over a synth param row selects and nudges it" {
     try std.testing.expect(app.session.racks.items[0].instrument.poly_synth.macro1 > old_macro);
 }
 
+test "middle-click resets a synth parameter to default" {
+    var app = try testApp();
+    defer app.deinit();
+    app.handleKey(.enter, 0);
+    const synth = &app.session.racks.items[0].instrument.poly_synth;
+    synth.macro1 = 0.25;
+    const row = app_mod.content_top + 2;
+    app.handleMouse(.{ .x = 20, .y = row, .button = .middle, .kind = .press }, 80, 24, 0);
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block);
+    try std.testing.expectEqual(@as(f32, 0.0), synth.macro1);
+}
+
 test "mouse click/drag on a sampler waveform moves the nearer marker" {
     var app = try testApp();
     defer app.deinit();

@@ -579,6 +579,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
             } else if (paramAtRow(app, row, view_rows)) |p| {
                 history.flushParamNudge(app);
                 app.sampler_param = p;
+                if (ev.button == .middle) resetMouseParam(app);
             }
         },
         .drag => {
@@ -613,4 +614,18 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
             if (ev.ctrl) adjustModifiedParam(app, dir) else adjustParam(app, dir);
         },
     }
+}
+
+fn resetMouseParam(app: *App) void {
+    var fresh = ws.dsp.Sampler.init(app.allocator, app.session.project.sample_rate) catch return;
+    defer fresh.deinit();
+    const value = fresh.paramValue(app.sampler_param) orelse return;
+    const track = app.sampler_target.track();
+    const id = switch (app.sampler_target) {
+        .drum => engineParamId(app.sampler_target, @intCast(app.drum_cursor[0]), app.sampler_param),
+        .slice => engineParamId(app.sampler_target, @intCast(app.slicer_cursor[0]), app.sampler_param),
+        .sampler => app.sampler_param,
+    };
+    history.recordParamSet(app, track, id);
+    _ = app.session.engine.send(.{ .set_track_param_abs = .{ .track = track, .id = id, .value = value } });
 }

@@ -926,6 +926,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
             history.flushParamNudge(app);
             app.synth_cursor = p;
             updateScroll(app);
+            if (ev.button == .middle) resetMouseParam(app);
         },
         .scroll_up, .scroll_down => {
             const p = paramAtRow(app, body_row, ev.x, cols) orelse return;
@@ -936,4 +937,12 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
         },
         else => {},
     }
+}
+
+fn resetMouseParam(app: *App) void {
+    var fresh = ws.dsp.PolySynth.init(app.allocator, app.session.project.sample_rate) catch return;
+    defer fresh.deinit();
+    const value = fresh.paramValue(app.synth_cursor) orelse return;
+    history.recordParamSet(app, app.synth_track, app.synth_cursor);
+    _ = app.session.engine.send(.{ .set_track_param_abs = .{ .track = app.synth_track, .id = app.synth_cursor, .value = value } });
 }

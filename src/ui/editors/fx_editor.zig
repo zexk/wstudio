@@ -1089,6 +1089,24 @@ fn nudgeMouse(app: *App, target: EqTarget, ev: modal_mod.MouseEvent) void {
     nudge(app, target, key);
 }
 
+fn resetMouseParam(app: *App, target: EqTarget) void {
+    const fx = fxPtr(app, target) orelse return;
+    const unit = focusedUnit(app, fx) orelse return;
+    const value = switch (unit.payload) {
+        .clap => |plugin| if (plugin.parameterInfo(@intCast(app.fx_param))) |info| @as(f32, @floatCast(info.default_value)) else return,
+        .vst3 => |plugin| if (plugin.parameterInfo(app.fx_param)) |info| @as(f32, @floatCast(info.default_normalized_value)) else return,
+        else => blk: {
+            var fresh = ws.Fx.initPayload(app.allocator, unit.kind(), app.session.project.sample_rate) catch return;
+            defer fresh.deinit(app.allocator);
+            break :blk getParam(&fresh, app.fx_param);
+        },
+    };
+    history.noteFxNudge(app, target, app.fx_focus, app.fx_param);
+    setParam(app, &unit.payload, app.fx_param, value);
+    history.flushFxNudge(app);
+    syncChain(app, target);
+}
+
 /// Click a chain-strip slot box to focus it (the trailing "+" opens the
 /// picker). **Shift**+drag reorders; middle-click bypasses; right-click
 /// removes. Click an EQ band or param row to select it; scroll nudges it.
@@ -1147,7 +1165,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
             switch (ev.kind) {
                 // Picking a band from the overview is band-select, same as
                 // h/l - it doesn't imply editing a field yet.
-                .press => { history.flushFxNudge(app); app.fx_param = idx; app.eq_band_select = true; },
+                .press => { history.flushFxNudge(app); app.fx_param = idx; app.eq_band_select = true; if (ev.button == .middle) resetMouseParam(app, target); },
                 .scroll_up, .scroll_down => {
                     app.fx_param = idx;
                     nudgeMouse(app, target, ev);
@@ -1162,7 +1180,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
         switch (ev.kind) {
             // Clicking a specific field row is the mouse equivalent of
             // enter - it goes straight into that field's submenu.
-            .press => { history.flushFxNudge(app); app.fx_param = idx; app.eq_band_select = false; },
+            .press => { history.flushFxNudge(app); app.fx_param = idx; app.eq_band_select = false; if (ev.button == .middle) resetMouseParam(app, target); },
             .scroll_up, .scroll_down => {
                 app.fx_param = idx;
                 nudgeMouse(app, target, ev);
@@ -1174,7 +1192,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
 
     if (rel >= visibleParamCount(app, unit.kind(), &unit.payload)) return;
     switch (ev.kind) {
-        .press => { history.flushFxNudge(app); app.fx_param = rel; },
+        .press => { history.flushFxNudge(app); app.fx_param = rel; if (ev.button == .middle) resetMouseParam(app, target); },
         .scroll_up, .scroll_down => {
             app.fx_param = rel;
             nudgeMouse(app, target, ev);

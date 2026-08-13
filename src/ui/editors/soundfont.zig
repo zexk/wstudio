@@ -204,6 +204,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
         .press => {
             history.flushParamNudge(app);
             app.soundfont_param = p;
+            if (ev.button == .middle) resetMouseParam(app);
         },
         .scroll_up, .scroll_down => {
             app.soundfont_param = p;
@@ -212,4 +213,12 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
         },
         else => {},
     }
+}
+
+fn resetMouseParam(app: *App) void {
+    var fresh = ws.dsp.SoundfontPlayer.init(app.allocator, app.session.project.sample_rate);
+    defer fresh.deinit();
+    const value = fresh.paramValue(app.soundfont_param) orelse return;
+    history.recordParamSet(app, app.soundfont_track, app.soundfont_param);
+    _ = app.session.engine.send(.{ .set_track_param_abs = .{ .track = app.soundfont_track, .id = app.soundfont_param, .value = value } });
 }
