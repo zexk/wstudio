@@ -33,13 +33,26 @@ pub fn iconButton(label: [:0]const u8, tooltip: []const u8) bool {
     zgui.pushStyleVar2f(.{ .idx = .button_text_align, .v = .{ 0.5, 0.5 } });
     const clicked = zgui.button(label, .{ .w = zgui.getFontSize() + pad_x * 2, .h = 0 });
     zgui.popStyleVar(.{ .count = 2 });
-    if (zgui.isItemHovered(.{})) {
-        zgui.setMouseCursor(.hand);
-        _ = zgui.beginTooltip();
-        zgui.textUnformatted(tooltip);
-        zgui.endTooltip();
-    }
+    if (zgui.isItemHovered(.{})) zgui.setMouseCursor(.hand);
+    itemTooltip(tooltip);
     return clicked;
+}
+
+fn tooltipContents(text: []const u8) void {
+    if (std.mem.indexOf(u8, text, "  ")) |split| {
+        zgui.textUnformatted(text[0..split]);
+        zgui.sameLine(.{ .spacing = 12 });
+        zgui.textDisabled("{s}", .{text[split + 2 ..]});
+    } else {
+        zgui.textUnformatted(text);
+    }
+}
+
+fn itemTooltip(text: []const u8) void {
+    if (!zgui.isItemHovered(.{ .for_tooltip = true })) return;
+    _ = zgui.beginTooltip();
+    tooltipContents(text);
+    zgui.endTooltip();
 }
 
 pub fn viewTitle(comptime fmt: []const u8, args: anytype) void {
@@ -58,11 +71,8 @@ pub fn coloredTitle(col: [4]f32, comptime fmt: []const u8, args: anytype) void {
 /// available to mouse users while keyboard users already have status/help.
 pub fn hoverHelp(tooltip: []const u8) void {
     zgui.textDisabled(icons.help, .{});
-    if (!zgui.isItemHovered(.{})) return;
-    zgui.setMouseCursor(.hand);
-    _ = zgui.beginTooltip();
-    zgui.textUnformatted(tooltip);
-    zgui.endTooltip();
+    if (zgui.isItemHovered(.{})) zgui.setMouseCursor(.hand);
+    itemTooltip(tooltip);
 }
 
 /// A section header used inside a bordered/tinted card column: a small
@@ -407,7 +417,7 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
         .thickness = 2,
     });
 
-    if (args.tooltip and (hovered or active)) {
+    if (args.tooltip and (active or zgui.isItemHovered(.{ .for_tooltip = true }))) {
         var value_buf: [32]u8 = undefined;
         _ = zgui.beginTooltip();
         zgui.textUnformatted(args.display orelse knobFormatValue(&value_buf, args.cfmt, args.v.*));
@@ -1058,7 +1068,7 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
             const new_value = std.math.clamp(p.value + gui_style.wheel_delta * step, args.value_lo, args.value_hi);
             if (new_value != p.value) result.moved = .{ .index = i, .beat = p.beat, .value = new_value };
         }
-        if (node_active or node_hovered) {
+        if (node_active or zgui.isItemHovered(.{ .for_tooltip = true })) {
             var buf: [32]u8 = undefined;
             _ = zgui.beginTooltip();
             zgui.text("{d:.2} {s}  /  {s}", .{ p.beat, args.x_unit_label, knobFormatValue(&buf, "%.2f", p.value) });
