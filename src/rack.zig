@@ -161,6 +161,7 @@ pub const FxPayload = union(enum) {
             .delay => |*d| d.deinit(allocator),
             .reverb => |*r| r.deinit(allocator),
             .limiter => |*l| l.deinit(allocator),
+            .utility => |*u| u.deinit(allocator),
             else => {},
         }
     }
@@ -206,6 +207,16 @@ pub const FxPayload = union(enum) {
                 nl.release_ms = l.release_ms;
                 nl.lookahead_ms = l.lookahead_ms;
                 return .{ .limiter = nl };
+            },
+            .utility => |u| {
+                var nu = try Utility.init(allocator);
+                nu.gain_db = u.gain_db;
+                nu.invert = u.invert;
+                nu.mono = u.mono;
+                nu.channel = u.channel;
+                nu.swap = u.swap;
+                nu.delay_frames = u.delay_frames;
+                return .{ .utility = nu };
             },
             .clap => |plugin| {
                 const copy = try ClapPlugin.load(allocator, plugin.pluginPath(), plugin.id(), sr);
@@ -493,7 +504,7 @@ pub const Fx = struct {
             },
             .eq      => .{ .eq = ParametricEq.init(sr) },
             .filter  => .{ .filter = Filter.init(sr) },
-            .utility => .{ .utility = .{} },
+            .utility => .{ .utility = try Utility.init(allocator) },
             .stereo_width => .{ .stereo_width = .{} },
             .auto_pan => .{ .auto_pan = AutoPan.init(sr) },
             .transient_shaper => .{ .transient_shaper = TransientShaper.init(sr) },

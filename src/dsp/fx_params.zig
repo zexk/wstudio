@@ -24,6 +24,7 @@ const expander_mod = @import("expander.zig");
 const clipper_mod = @import("clipper.zig");
 const saturator_mod = @import("saturator.zig");
 const pitch_shift_mod = @import("pitch_shift.zig");
+const utility_mod = @import("utility.zig");
 
 /// Flat param list for a multiband compressor: 7 shared controls (crossover
 /// x2, attack, release, knee, style, mix) followed by 3 fields (thresh/
@@ -178,6 +179,7 @@ pub const utility_specs = [_]ParamSpec{
     .{ .name = "mono", .field = "mono", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
     .{ .name = "channel", .field = "channel", .min = 0.0, .max = 2.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
     .{ .name = "swap", .field = "swap", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+    .{ .name = "delay", .field = "delay_frames", .min = 0.0, .max = utility_mod.Utility.max_delay_frames, .step_fine = 1.0, .step_coarse = 32.0, .round = true },
 };
 
 pub const stereo_width_specs = [_]ParamSpec{

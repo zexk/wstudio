@@ -866,6 +866,7 @@ test "save/load round-trip persists master FX" {
     (try session.master_fx.insert(alloc, 3, .chorus, sr)).payload.chorus.rate_hz = 1.5;
     (try session.master_fx.insert(alloc, 4, .phaser, sr)).payload.phaser.feedback = 0.7;
     (try session.master_fx.insert(alloc, 5, .comp, sr)).payload.comp.threshold_db = -9.0;
+    (try session.master_fx.insert(alloc, 6, .utility, sr)).payload.utility.delay_frames = 127;
     session.syncMasterChain();
 
     try save(testing.allocator, &session, testing.io, wsj_path);
@@ -873,7 +874,7 @@ test "save/load round-trip persists master FX" {
     defer loaded.deinit();
 
     const units = loaded.master_fx.units.items;
-    try testing.expectEqual(@as(usize, 6), units.len);
+    try testing.expectEqual(@as(usize, 7), units.len);
     try testing.expectApproxEqAbs(@as(f32, 18.0), units[0].payload.sat.drive_db, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, -42.0), units[1].payload.gate.threshold_db, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 6.0), units[2].payload.crush.bits, 1e-4);
@@ -882,9 +883,10 @@ test "save/load round-trip persists master FX" {
     try testing.expectApproxEqAbs(@as(f32, 1.5), units[3].payload.chorus.rate_hz, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 0.7), units[4].payload.phaser.feedback, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, -9.0), units[5].payload.comp.threshold_db, 1e-4);
+    try testing.expectApproxEqAbs(@as(f32, 127), units[6].payload.utility.delay_frames, 1e-4);
     // The bypassed crusher is still in the live chain; it fades itself out
     // rather than leaving the device list.
-    try testing.expectEqual(@as(usize, 6), loaded.engine.master_chain.slice().len);
+    try testing.expectEqual(@as(usize, 7), loaded.engine.master_chain.slice().len);
 }
 
 test "save/load round-trip persists a multiband compressor's crossover, style, and per-band params" {
