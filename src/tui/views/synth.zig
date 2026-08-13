@@ -340,13 +340,13 @@ fn secFenv(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "ENV 2", grn);
 
-    try barRow(w, c == 24, false, grn, "f.attack", synth.fenv_attack_s, 5.0,
+    try barRow(w, c == 24, false, grn, "attack", synth.fenv_attack_s, 5.0,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fenv_attack_s}));
-    try barRow(w, c == 25, false, grn, "f.decay", synth.fenv_decay_s, 5.0,
+    try barRow(w, c == 25, false, grn, "decay", synth.fenv_decay_s, 5.0,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fenv_decay_s}));
-    try barRow(w, c == 26, false, grn, "f.sustain", synth.fenv_sustain, 1.0,
+    try barRow(w, c == 26, false, grn, "sustain", synth.fenv_sustain, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.fenv_sustain}));
-    try barRow(w, c == 27, false, grn, "f.release", synth.fenv_release_s, 10.0,
+    try barRow(w, c == 27, false, grn, "release", synth.fenv_release_s, 10.0,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fenv_release_s}));
 }
 
