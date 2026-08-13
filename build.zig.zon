@@ -8,6 +8,10 @@
             .url = "https://github.com/steinbergmedia/vst3_c_api/archive/93a116f7c6c52a317ec3aaee9b13789068b5234e.tar.gz",
             .hash = "N-V-__8AAEHCAwAxYjXA-vPZ7iVZWZBVcSgvsw9_Ej1KeS0v",
         },
+        .clap = .{
+            .url = "https://github.com/free-audio/clap/archive/refs/tags/1.2.10.tar.gz",
+            .hash = "N-V-__8AAB-JOwBFtOGup87WSc2jjAlPh8eIMTZnpkjysvO1",
+        },
         .zgui = .{
             .url = "https://github.com/zig-gamedev/zgui/archive/bfbebed372723d1f585f86fc0a550232b3427f4d.tar.gz",
             .hash = "zgui-0.6.0-dev--L6sZJhIbgAjWdK5h6xuVUrsOcD-RdqEOEPf03Zgi4mF",

@@ -36,6 +36,13 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     vst3_c_api_mod.addIncludePath(vst3_c_api_dep.path("."));
+    const clap_dep = b.dependency("clap", .{});
+    const clap_api_mod = b.createModule(.{
+        .root_source_file = b.path("src/clap/c_api.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    clap_api_mod.addIncludePath(clap_dep.path("include"));
 
     // The engine as a reusable library module. Frontends import this and
     // never reach into engine internals.
@@ -43,7 +50,10 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
-        .imports = &.{.{ .name = "vst3_c_api", .module = vst3_c_api_mod }},
+        .imports = &.{
+            .{ .name = "vst3_c_api", .module = vst3_c_api_mod },
+            .{ .name = "clap_api", .module = clap_api_mod },
+        },
     });
     // Sample decoding (core/audio_file.zig) and sinc resampling for sample
     // loads (dsp/pad.zig). System libraries, like asound below: nix supplies
@@ -375,6 +385,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/clap/test_plugin.zig"),
             .target = target,
             .optimize = optimize,
+            .imports = &.{.{ .name = "clap_api", .module = clap_api_mod }},
         }),
     });
     // Defined after `clap_test_plugin` because the plugin-bridge scenario

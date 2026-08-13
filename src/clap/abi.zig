@@ -1,7 +1,6 @@
-//! CLAP 1.2.10 ABI subset used by wstudio's host adapter.
-//!
-//! Field order and integer widths mirror the official C headers at
-//! https://github.com/free-audio/clap/tree/1.2.10/include/clap.
+//! Zig adapter for official CLAP 1.2.10 C headers.
+
+const official = @import("clap_api");
 
 pub const Version = extern struct {
     major: u32,
@@ -9,23 +8,23 @@ pub const Version = extern struct {
     revision: u32,
 };
 
-pub const version: Version = .{ .major = 1, .minor = 2, .revision = 10 };
-pub const plugin_factory_id: [*:0]const u8 = "clap.plugin-factory";
-pub const ext_audio_ports: [*:0]const u8 = "clap.audio-ports";
-pub const ext_note_ports: [*:0]const u8 = "clap.note-ports";
-pub const ext_params: [*:0]const u8 = "clap.params";
-pub const ext_state: [*:0]const u8 = "clap.state";
-pub const ext_latency: [*:0]const u8 = "clap.latency";
-pub const ext_tail: [*:0]const u8 = "clap.tail";
-pub const ext_thread_check: [*:0]const u8 = "clap.thread-check";
-pub const ext_log: [*:0]const u8 = "clap.log";
-pub const ext_gui: [*:0]const u8 = "clap.gui";
-pub const ext_thread_pool: [*:0]const u8 = "clap.thread-pool";
-pub const window_api_win32: [*:0]const u8 = "win32";
-pub const window_api_cocoa: [*:0]const u8 = "cocoa";
-pub const window_api_wayland: [*:0]const u8 = "wayland";
-pub const window_api_x11: [*:0]const u8 = "x11";
-pub const invalid_id: u32 = 0xffffffff;
+pub const version: Version = @bitCast(official.core.CLAP_VERSION);
+pub const plugin_factory_id: [*:0]const u8 = &official.core.CLAP_PLUGIN_FACTORY_ID;
+pub const ext_audio_ports: [*:0]const u8 = &official.audio_ports.CLAP_EXT_AUDIO_PORTS;
+pub const ext_note_ports: [*:0]const u8 = &official.note_ports.CLAP_EXT_NOTE_PORTS;
+pub const ext_params: [*:0]const u8 = &official.params.CLAP_EXT_PARAMS;
+pub const ext_state: [*:0]const u8 = &official.state.CLAP_EXT_STATE;
+pub const ext_latency: [*:0]const u8 = &official.latency.CLAP_EXT_LATENCY;
+pub const ext_tail: [*:0]const u8 = &official.tail.CLAP_EXT_TAIL;
+pub const ext_thread_check: [*:0]const u8 = &official.thread_check.CLAP_EXT_THREAD_CHECK;
+pub const ext_log: [*:0]const u8 = &official.log.CLAP_EXT_LOG;
+pub const ext_gui: [*:0]const u8 = &official.gui.CLAP_EXT_GUI;
+pub const ext_thread_pool: [*:0]const u8 = &official.thread_pool.CLAP_EXT_THREAD_POOL;
+pub const window_api_win32: [*:0]const u8 = &official.gui.CLAP_WINDOW_API_WIN32;
+pub const window_api_cocoa: [*:0]const u8 = &official.gui.CLAP_WINDOW_API_COCOA;
+pub const window_api_wayland: [*:0]const u8 = &official.gui.CLAP_WINDOW_API_WAYLAND;
+pub const window_api_x11: [*:0]const u8 = &official.gui.CLAP_WINDOW_API_X11;
+pub const invalid_id: u32 = official.core.CLAP_INVALID_ID;
 
 pub const EventHeader = extern struct {
     size: u32,
@@ -337,7 +336,14 @@ pub fn versionIsCompatible(v: Version) bool {
 }
 
 comptime {
-    if (@sizeOf(EventHeader) != 16) @compileError("CLAP event header ABI mismatch");
-    if (@offsetOf(Plugin, "process") <= @offsetOf(Plugin, "reset"))
-        @compileError("CLAP plugin ABI field order mismatch");
+    const pairs = .{
+        .{ Version, official.core.clap_version_t },                            .{ EventHeader, official.core.clap_event_header_t },          .{ EventNote, official.core.clap_event_note_t },
+        .{ EventMidi, official.core.clap_event_midi_t },                       .{ EventParamValue, official.core.clap_event_param_value_t }, .{ EventTransport, official.core.clap_event_transport_t },
+        .{ AudioPortInfo, official.audio_ports.clap_audio_port_info_t },       .{ NotePortInfo, official.note_ports.clap_note_port_info_t }, .{ ParamInfo, official.params.clap_param_info_t },
+        .{ AudioBuffer, official.core.clap_audio_buffer_t },                   .{ Process, official.core.clap_process_t },                   .{ PluginDescriptor, official.core.clap_plugin_descriptor_t },
+        .{ Host, official.core.clap_host_t },                                  .{ Plugin, official.core.clap_plugin_t },                     .{ PluginFactory, official.core.clap_plugin_factory_t },
+        .{ PluginEntry, official.entry.clap_plugin_entry_t },                  .{ InputEvents, official.core.clap_input_events_t },          .{ OutputEvents, official.core.clap_output_events_t },
+        .{ PluginAudioPorts, official.audio_ports.clap_plugin_audio_ports_t }, .{ PluginParams, official.params.clap_plugin_params_t },      .{ PluginGui, official.gui.clap_plugin_gui_t },
+    };
+    for (pairs) |pair| if (@sizeOf(pair[0]) != @sizeOf(pair[1]) or @alignOf(pair[0]) != @alignOf(pair[1])) @compileError("CLAP adapter differs from official C API");
 }
