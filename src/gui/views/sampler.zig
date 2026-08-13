@@ -284,9 +284,9 @@ fn drawTargetBank(app: anytype, track: u16, kind: PadTargetKind, selected: u8) v
         .drum => ws.dsp.DrumMachine.max_pads,
         .slice => app.core.session.racks.items[track].instrument.slicer.slice_count,
     };
-    const bank_start: u8 = selected / 8 * 8;
     const bank_count: u8 = @max(1, (count + 7) / 8);
     const bank: u8 = @min(selected / 8, bank_count - 1);
+    const bank_start: u8 = bank * 8;
     widgets.sectionTitle(if (kind == .drum) "PAD BANK" else "SLICE MAP", if (kind == .drum) theme.rhythm else theme.audio);
     zgui.textDisabled("bank {d}/{d}", .{ bank + 1, bank_count });
     zgui.sameLine(.{ .spacing = 8 });
