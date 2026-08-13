@@ -840,17 +840,17 @@ fn adjustParam(app: *App, steps: i32) void {
 
 pub fn curveParam(id: u16) ?u16 {
     return switch (id) {
-        16, 17, 19 => 246,
-        24, 25, 27 => 247,
-        122, 123, 125 => 248,
+        16 => 246, 17 => 400, 19 => 401,
+        24 => 247, 25 => 402, 27 => 403,
+        122 => 248, 123 => 404, 125 => 405,
         else => null,
     };
 }
 
-test "modified synth envelope params select their shared curves" {
+test "modified synth envelope params select per-stage curves" {
     try std.testing.expectEqual(@as(u16, 246), curveParam(16).?);
-    try std.testing.expectEqual(@as(u16, 247), curveParam(27).?);
-    try std.testing.expectEqual(@as(u16, 248), curveParam(123).?);
+    try std.testing.expectEqual(@as(u16, 403), curveParam(27).?);
+    try std.testing.expectEqual(@as(u16, 404), curveParam(123).?);
     try std.testing.expect(curveParam(18) == null);
 }
 

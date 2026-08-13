@@ -75,7 +75,7 @@ in place after the blobs land, since its value isn't known until then.
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 66) is the only format version
+`persist.zig`'s `file_version` (currently 67) is the only format version
 this build writes or reads. Loading enforces one rule:
 
 - **A file whose `version` is not exactly `file_version` is hard-rejected**
@@ -88,6 +88,8 @@ because they protect against corrupt and hand-edited values.
 
 **Bump `file_version` for every schema or semantic change**, including new
 fields and enum members.
+
+Version 67 gives each synth envelope stage its own curve.
 
 Version 66 adds per-band EQ enable switches.
 

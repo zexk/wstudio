@@ -437,6 +437,8 @@ pub const PolySynth = struct {
     release_s: f32 = 0.25,
     /// Segment curvature: -1 logarithmic, 0 linear, +1 exponential.
     env_curve: f32 = 0.0,
+    env_decay_curve: f32 = 0.0,
+    env_release_curve: f32 = 0.0,
 
     // ── FILTER ──────────────────────────────────────────────────────────────
     filter_type: FilterType = .lp,
@@ -467,6 +469,8 @@ pub const PolySynth = struct {
     fenv_release_s: f32 = 0.3,
     /// Segment curvature: -1 logarithmic, 0 linear, +1 exponential.
     fenv_curve:     f32 = 0.0,
+    fenv_decay_curve: f32 = 0.0,
+    fenv_release_curve: f32 = 0.0,
 
     // ── LFO ─────────────────────────────────────────────────────────────────
     // A pure mod source since the matrix absorbed its routing: shape + rate
@@ -667,6 +671,8 @@ pub const PolySynth = struct {
     env3_release_s: f32 = 0.3,
     /// Segment curvature: -1 logarithmic, 0 linear, +1 exponential.
     env3_curve:     f32 = 0.0,
+    env3_decay_curve: f32 = 0.0,
+    env3_release_curve: f32 = 0.0,
     // zig fmt: on
 
     /// Index of the most recently triggered voice: the FX destinations are
@@ -1132,6 +1138,8 @@ pub const PolySynth = struct {
         sustain: f32 = 0.7,
         release_s: f32 = 0.25,
         env_curve: f32 = 0.0,
+        env_decay_curve: ?f32 = null,
+        env_release_curve: ?f32 = null,
 
         filter_type: FilterType = .lp,
         filter_cutoff: f32 = 18_000.0,
@@ -1150,6 +1158,8 @@ pub const PolySynth = struct {
         fenv_sustain: f32 = 0.0,
         fenv_release_s: f32 = 0.3,
         fenv_curve: f32 = 0.0,
+        fenv_decay_curve: ?f32 = null,
+        fenv_release_curve: ?f32 = null,
 
         lfo_shape: LfoShape = .drawn,
         lfo_rate_hz: f32 = 1.0,
@@ -1283,6 +1293,8 @@ pub const PolySynth = struct {
         env3_sustain: f32 = 0.0,
         env3_release_s: f32 = 0.3,
         env3_curve: f32 = 0.0,
+        env3_decay_curve: ?f32 = null,
+        env3_release_curve: ?f32 = null,
     };
 
     /// Load a patch onto this synth. Field-by-field so per-instance state
@@ -1296,9 +1308,16 @@ pub const PolySynth = struct {
     /// project-load path. A raw `lfo_custom_count` is the sharpest edge: the
     /// audio thread slices `lfo_custom[slot][0..count]` every block.
     pub fn applyPatch(self: *PolySynth, patch: Patch) void {
+        self.env_decay_curve = patch.env_decay_curve orelse patch.env_curve;
+        self.env_release_curve = patch.env_release_curve orelse patch.env_curve;
+        self.fenv_decay_curve = patch.fenv_decay_curve orelse patch.fenv_curve;
+        self.fenv_release_curve = patch.fenv_release_curve orelse patch.fenv_curve;
+        self.env3_decay_curve = patch.env3_decay_curve orelse patch.env3_curve;
+        self.env3_release_curve = patch.env3_release_curve orelse patch.env3_curve;
         inline for (@typeInfo(Patch).@"struct".fields) |f| {
             if (@hasField(PolySynth, f.name)) {
-                const v = @field(patch, f.name);
+                const raw = @field(patch, f.name);
+                const v = if (comptime @typeInfo(@TypeOf(raw)) == .optional) raw orelse @field(self, f.name) else raw;
                 if (@typeInfo(@TypeOf(v)) != .float or std.math.isFinite(v)) {
                     @field(self, f.name) = v;
                 }
@@ -1821,9 +1840,9 @@ pub const PolySynth = struct {
             const env3_decay_inc   = (1.0 - env3_sustain_v) / @max(eff(&mods, 123, self.env3_decay_s) * self.sample_rate, 1.0);
             const env3_release_inc = 1.0 / @max(eff(&mods, 125, self.env3_release_s) * self.sample_rate, 1.0);
 
-            const amp_shape  = envShape(attack_inc, decay_inc, release_inc, sustain_v, eff(&mods, 246, self.env_curve));
-            const fenv_shape = envShape(fenv_attack_inc, fenv_decay_inc, fenv_release_inc, fenv_sustain_v, eff(&mods, 247, self.fenv_curve));
-            const env3_shape = envShape(env3_attack_inc, env3_decay_inc, env3_release_inc, env3_sustain_v, eff(&mods, 248, self.env3_curve));
+            const amp_shape  = envShape(attack_inc, decay_inc, release_inc, sustain_v, .{ eff(&mods, 246, self.env_curve), eff(&mods, 400, self.env_decay_curve), eff(&mods, 401, self.env_release_curve) });
+            const fenv_shape = envShape(fenv_attack_inc, fenv_decay_inc, fenv_release_inc, fenv_sustain_v, .{ eff(&mods, 247, self.fenv_curve), eff(&mods, 402, self.fenv_decay_curve), eff(&mods, 403, self.fenv_release_curve) });
+            const env3_shape = envShape(env3_attack_inc, env3_decay_inc, env3_release_inc, env3_sustain_v, .{ eff(&mods, 248, self.env3_curve), eff(&mods, 404, self.env3_decay_curve), eff(&mods, 405, self.env3_release_curve) });
 
             const drive1_v = eff(&mods, 249, self.filter_drive);
             const drive2_v = eff(&mods, 250, self.filter2_drive);
@@ -2775,7 +2794,8 @@ pub const PolySynth = struct {
         const Snap = @TypeOf(snap.*);
         inline for (param_specs) |spec| {
             if (@hasField(Snap, spec.field)) {
-                const val = @field(snap.*, spec.field);
+                const raw = @field(snap.*, spec.field);
+                const val = if (comptime @typeInfo(@TypeOf(raw)) == .optional) raw orelse @field(self.*, spec.field) else raw;
                 switch (spec.kind) {
                     .cont, .log, .skew_zero => if (std.math.isFinite(val)) {
                         @field(self.*, spec.field) = std.math.clamp(val, spec.min, spec.max);
@@ -2819,6 +2839,8 @@ pub const PolySynth = struct {
         .{ .id = 18, .field = "sustain", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 19, .field = "release_s", .kind = .log, .min = 0.001, .max = 10.0 },
         .{ .id = 246, .field = "env_curve", .min = -1.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 400, .field = "env_decay_curve", .min = -1.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 401, .field = "env_release_curve", .min = -1.0, .max = 1.0, .step = 0.01 },
         .{ .id = 20, .field = "filter_type", .kind = .cycle, .enum_type = FilterType },
         .{ .id = 21, .field = "filter_cutoff", .kind = .log, .min = 20.0, .max = 20_000.0 },
         .{ .id = 22, .field = "filter_res", .min = 0.0, .max = 1.0, .step = 0.01 },
@@ -2829,6 +2851,8 @@ pub const PolySynth = struct {
         .{ .id = 26, .field = "fenv_sustain", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 27, .field = "fenv_release_s", .kind = .log, .min = 0.001, .max = 10.0 },
         .{ .id = 247, .field = "fenv_curve", .min = -1.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 402, .field = "fenv_decay_curve", .min = -1.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 403, .field = "fenv_release_curve", .min = -1.0, .max = 1.0, .step = 0.01 },
         .{ .id = 28, .field = "lfo_shape", .kind = .cycle, .enum_type = LfoShape },
         .{ .id = 29, .field = "lfo_rate_hz", .kind = .log, .min = 0.01, .max = 20.0 },
         .{ .id = 256, .field = "lfo_sync", .kind = .cycle, .enum_type = LfoSync },
@@ -2891,6 +2915,8 @@ pub const PolySynth = struct {
         .{ .id = 124, .field = "env3_sustain", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 125, .field = "env3_release_s", .kind = .log, .min = 0.001, .max = 10.0 },
         .{ .id = 248, .field = "env3_curve", .min = -1.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 404, .field = "env3_decay_curve", .min = -1.0, .max = 1.0, .step = 0.01 },
+        .{ .id = 405, .field = "env3_release_curve", .min = -1.0, .max = 1.0, .step = 0.01 },
         // WAVETABLE frame position, one per oscillator.
         .{ .id = 185, .field = "wt_pos", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 186, .field = "osc_b_wt_pos", .min = 0.0, .max = 1.0, .step = 0.01 },
@@ -3135,7 +3161,7 @@ pub const PolySynth = struct {
         .{ .id = 17, .label = "DECAY",      .section = "ENV",     .range = .{ 0.001,  5.0 },     .step = 0.01 },
         .{ .id = 18, .label = "SUSTAIN",    .section = "ENV",     .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 19, .label = "RELEASE",    .section = "ENV",     .range = .{ 0.001,  10.0 },    .step = 0.01 },
-        .{ .id = 246,.label = "ENV CURVE",  .section = "ENV",     .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 246,.label = "ATK CURVE",  .section = "ENV",     .range = .{ -1.0,   1.0 },     .step = 0.01 },
         .{ .id = 21, .label = "CUTOFF",     .section = "FILTER",  .range = .{ 20.0,   20_000.0 },.step = 100.0 },
         .{ .id = 22, .label = "RESONANCE",  .section = "FILTER",  .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 249,.label = "DRIVE",      .section = "FILTER",  .range = .{ 1.0,    16.0 },    .step = 0.1 },
@@ -3143,7 +3169,7 @@ pub const PolySynth = struct {
         .{ .id = 25, .label = "FENV DEC",   .section = "FENV",    .range = .{ 0.001,  5.0 },     .step = 0.01 },
         .{ .id = 26, .label = "FENV SUS",   .section = "FENV",    .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 27, .label = "FENV REL",   .section = "FENV",    .range = .{ 0.001,  10.0 },    .step = 0.01 },
-        .{ .id = 247,.label = "FENV CURVE", .section = "FENV",    .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 247,.label = "F ATK CURVE",.section = "FENV",    .range = .{ -1.0,   1.0 },     .step = 0.01 },
         .{ .id = 29, .label = "LFO RATE",   .section = "LFO",     .range = .{ 0.01,   20.0 },    .step = 0.1 },
         .{ .id = 262,.label = "LFO PHASE",  .section = "LFO",     .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 265,.label = "LFO SLEW",   .section = "LFO",     .range = .{ 0.0,    500.0 },   .step = 5.0 },
@@ -3237,7 +3263,7 @@ pub const PolySynth = struct {
         .{ .id = 123,.label = "E3 DECAY",   .section = "ENV 3",   .range = .{ 0.001,  5.0 },     .step = 0.01 },
         .{ .id = 124,.label = "E3 SUSTAIN", .section = "ENV 3",   .range = .{ 0.0,    1.0 },     .step = 0.01 },
         .{ .id = 125,.label = "E3 RELEASE", .section = "ENV 3",   .range = .{ 0.001,  10.0 },    .step = 0.01 },
-        .{ .id = 248,.label = "E3 CURVE",   .section = "ENV 3",   .range = .{ -1.0,   1.0 },     .step = 0.01 },
+        .{ .id = 248,.label = "E3 ATK CURVE",.section = "ENV 3",  .range = .{ -1.0,   1.0 },     .step = 0.01 },
         .{ .id = 133,.label = "GATE THRESH",.section = "FX GATE", .range = .{ -80.0,  0.0 },     .step = 1.0 },
         .{ .id = 134,.label = "GATE ATTACK",.section = "FX GATE", .range = .{ 0.1,    50.0 },    .step = 0.1 },
         .{ .id = 135,.label = "GATE RELEASE",.section = "FX GATE",.range = .{ 5.0,    1000.0 },  .step = 10.0 },
@@ -4960,12 +4986,35 @@ test "envelope curve spans logarithmic, linear, and exponential shapes" {
     var levels: [3]f32 = @splat(0.0);
     for (curves, 0..) |curve, i| {
         var stage: PolySynth.Stage = .attack;
-        const shape = synth_math.envShape(0.01, 0.005, 0.01, 0.5, curve);
+        const shape = synth_math.envShape(0.01, 0.005, 0.01, 0.5, @splat(curve));
         for (0..25) |_| _ = synth_math.advanceEnv(&stage, &levels[i], 0.5, shape);
     }
     try std.testing.expect(levels[0] > levels[1]);
     try std.testing.expect(levels[1] > levels[2]);
     try std.testing.expectApproxEqAbs(@as(f32, 0.25), levels[1], 1e-6);
+}
+
+test "envelope stage curves are independent" {
+    const linear = synth_math.envShape(0.01, 0.01, 0.01, 0.5, .{ 0, 0, 0 });
+    const attack_bent = synth_math.envShape(0.01, 0.01, 0.01, 0.5, .{ -1, 0, 0 });
+    const decay_bent = synth_math.envShape(0.01, 0.01, 0.01, 0.5, .{ 0, -1, 0 });
+
+    var linear_level: f32 = 0;
+    var bent_level: f32 = 0;
+    var attack: PolySynth.Stage = .attack;
+    var bent_attack: PolySynth.Stage = .attack;
+    _ = synth_math.advanceEnv(&attack, &linear_level, 0.5, linear);
+    _ = synth_math.advanceEnv(&bent_attack, &bent_level, 0.5, attack_bent);
+    try std.testing.expect(bent_level > linear_level);
+
+    linear_level = 1;
+    bent_level = 1;
+    var decay: PolySynth.Stage = .decay;
+    var bent_decay: PolySynth.Stage = .decay;
+    _ = synth_math.advanceEnv(&decay, &linear_level, 0.5, attack_bent);
+    _ = synth_math.advanceEnv(&bent_decay, &bent_level, 0.5, decay_bent);
+    try std.testing.expectEqual(@as(f32, 0.99), linear_level);
+    try std.testing.expect(bent_level < linear_level);
 }
 
 test "polyBLEP reduces saw discontinuity" {

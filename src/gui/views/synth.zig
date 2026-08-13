@@ -380,12 +380,16 @@ fn drawEnvelope(app: anytype, synth: *ws.dsp.PolySynth, base_id: u16) void {
     var decay = synth.paramValue(base_id + 1) orelse return;
     var sustain = synth.paramValue(base_id + 2) orelse return;
     var release = synth.paramValue(base_id + 3) orelse return;
-    const curve_id: u16 = switch (base_id) {
-        16 => 246,
-        24 => 247,
-        else => 248,
+    const curve_ids: [3]u16 = switch (base_id) {
+        16 => .{ 246, 400, 401 },
+        24 => .{ 247, 402, 403 },
+        else => .{ 248, 404, 405 },
     };
-    var curve = synth.paramValue(curve_id) orelse return;
+    var curves = [3]f32{
+        synth.paramValue(curve_ids[0]) orelse return,
+        synth.paramValue(curve_ids[1]) orelse return,
+        synth.paramValue(curve_ids[2]) orelse return,
+    };
     const a_range = (ws.dsp.PolySynth.findAutomatableParam(base_id) orelse return).range;
     const d_range = (ws.dsp.PolySynth.findAutomatableParam(base_id + 1) orelse return).range;
     const r_range = (ws.dsp.PolySynth.findAutomatableParam(base_id + 3) orelse return).range;
@@ -403,7 +407,7 @@ fn drawEnvelope(app: anytype, synth: *ws.dsp.PolySynth, base_id: u16) void {
         .attack_range = a_range,
         .decay_range = d_range,
         .release_range = r_range,
-        .curve = &curve,
+        .curves = .{ &curves[0], &curves[1], &curves[2] },
         .accent = theme.rhythm,
         .focused_stage = focused_stage,
     });
@@ -411,7 +415,7 @@ fn drawEnvelope(app: anytype, synth: *ws.dsp.PolySynth, base_id: u16) void {
     if (result.changed[1]) sendParam(app, base_id + 1, decay);
     if (result.changed[2]) sendParam(app, base_id + 2, sustain);
     if (result.changed[3]) sendParam(app, base_id + 3, release);
-    if (result.curve_changed) sendParam(app, curve_id, curve);
+    for (result.curve_changed, curve_ids, curves) |changed, id, curve| if (changed) sendParam(app, id, curve);
     if (result.activated_stage) |stage| app.core.synth_cursor = switch (stage) {
         0 => base_id,
         1 => base_id + 1,

@@ -164,7 +164,7 @@ fn drawAmpEnvelope(app: anytype, target: Target) void {
         .attack_range = a_range,
         .decay_range = d_range,
         .release_range = r_range,
-        .curve = &curve,
+        .curves = .{ &curve, &curve, &curve },
         .accent = theme.rhythm,
         .focused_stage = focused_stage,
     });
@@ -172,7 +172,7 @@ fn drawAmpEnvelope(app: anytype, target: Target) void {
     if (result.changed[1]) setPadParam(app, target, 4, decay);
     if (result.changed[2]) setPadParam(app, target, 5, sustain);
     if (result.changed[3]) setPadParam(app, target, 6, release);
-    if (result.curve_changed) setPadParam(app, target, ws.dsp.pad.env_curve_id, curve);
+    if (result.curve_changed[0] or result.curve_changed[1] or result.curve_changed[2]) setPadParam(app, target, ws.dsp.pad.env_curve_id, curve);
     if (result.activated_stage) |stage| app.core.sampler_param = switch (stage) {
         0 => 3,
         1 => 4,

@@ -122,10 +122,10 @@ test "panGains: centre is unity, ends are constant power" {
 pub fn advanceEnv(stage: *Stage, level: *f32, sustain_v: f32, sh: EnvShape) bool {
     switch (stage.*) {
         .attack => {
-            if (sh.curve < 0.0)
-                level.* += (1.0 + sh.ov - level.*) * sh.ka
-            else if (sh.curve > 0.0)
-                level.* += (level.* + sh.ov) * sh.ka
+            if (sh.curves[0] < 0.0)
+                level.* += (1.0 + sh.ov[0] - level.*) * sh.ka
+            else if (sh.curves[0] > 0.0)
+                level.* += (level.* + sh.ov[0]) * sh.ka
             else
                 level.* += sh.attack;
             if (level.* >= 1.0) {
@@ -134,10 +134,10 @@ pub fn advanceEnv(stage: *Stage, level: *f32, sustain_v: f32, sh: EnvShape) bool
             }
         },
         .decay => {
-            if (sh.curve < 0.0)
-                level.* += (sustain_v - (1.0 - sustain_v) * sh.ov - level.*) * sh.kd
-            else if (sh.curve > 0.0)
-                level.* -= (1.0 - level.* + (1.0 - sustain_v) * sh.ov) * sh.kd
+            if (sh.curves[1] < 0.0)
+                level.* += (sustain_v - (1.0 - sustain_v) * sh.ov[1] - level.*) * sh.kd
+            else if (sh.curves[1] > 0.0)
+                level.* -= (1.0 - level.* + (1.0 - sustain_v) * sh.ov[1]) * sh.kd
             else
                 level.* -= sh.decay;
             if (level.* <= sustain_v) {
@@ -147,10 +147,10 @@ pub fn advanceEnv(stage: *Stage, level: *f32, sustain_v: f32, sh: EnvShape) bool
         },
         .sustain => {},
         .release => {
-            if (sh.curve < 0.0)
-                level.* -= (level.* + sh.ov) * sh.kr
-            else if (sh.curve > 0.0)
-                level.* -= (1.0 - level.* + sh.ov) * sh.kr
+            if (sh.curves[2] < 0.0)
+                level.* -= (level.* + sh.ov[2]) * sh.kr
+            else if (sh.curves[2] > 0.0)
+                level.* -= (1.0 - level.* + sh.ov[2]) * sh.kr
             else
                 level.* -= sh.release;
             if (level.* <= 0.0) {
@@ -167,30 +167,29 @@ const EnvShape = struct {
     attack: f32,
     decay: f32,
     release: f32,
-    curve: f32 = 0.0,
+    curves: [3]f32 = @splat(0.0),
     ka: f32 = 0.0,
     kd: f32 = 0.0,
     kr: f32 = 0.0,
-    ov: f32 = 0.0,
+    ov: [3]f32 = @splat(0.0),
 };
 
-pub fn envShape(attack_inc: f32, decay_inc: f32, release_inc: f32, sustain_v: f32, curve: f32) EnvShape {
+pub fn envShape(attack_inc: f32, decay_inc: f32, release_inc: f32, sustain_v: f32, curves: [3]f32) EnvShape {
     var out: EnvShape = .{ .attack = attack_inc, .decay = decay_inc, .release = release_inc };
-    const c = std.math.clamp(curve, -1.0, 1.0);
-    if (!(c < 0.0 or c > 0.0)) return out;
-    const r = std.math.pow(f32, 0.01, @abs(c));
     const span = 1.0 - sustain_v;
-    const decay_step = if (span > 1e-6) decay_inc / span else decay_inc;
-    out.curve = c;
-    out.ov = r / (1.0 - r);
-    if (c < 0.0) {
-        out.ka = 1.0 - std.math.pow(f32, r, attack_inc);
-        out.kd = 1.0 - std.math.pow(f32, r, decay_step);
-        out.kr = 1.0 - std.math.pow(f32, r, release_inc);
-    } else {
-        out.ka = std.math.pow(f32, r, -attack_inc) - 1.0;
-        out.kd = std.math.pow(f32, r, -decay_step) - 1.0;
-        out.kr = std.math.pow(f32, r, -release_inc) - 1.0;
+    const steps = [3]f32{ attack_inc, if (span > 1e-6) decay_inc / span else decay_inc, release_inc };
+    for (curves, steps, 0..) |curve, step, i| {
+        const c = std.math.clamp(curve, -1.0, 1.0);
+        out.curves[i] = c;
+        if (!(c < 0.0 or c > 0.0)) continue;
+        const r = std.math.pow(f32, 0.01, @abs(c));
+        out.ov[i] = r / (1.0 - r);
+        const k = if (c < 0.0) 1.0 - std.math.pow(f32, r, step) else std.math.pow(f32, r, -step) - 1.0;
+        switch (i) {
+            0 => out.ka = k,
+            1 => out.kd = k,
+            else => out.kr = k,
+        }
     }
     return out;
 }

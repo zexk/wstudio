@@ -610,7 +610,7 @@ pub const Adsr = struct {
     attack_range: [2]f32,
     decay_range: [2]f32,
     release_range: [2]f32,
-    curve: *f32,
+    curves: [3]*f32,
     accent: [4]f32,
     /// 0=attack, 1=decay, 2=sustain, 3=release - which node (if any) the
     /// external cursor is currently parked on, for the focus ring.
@@ -621,7 +621,7 @@ pub const Adsr = struct {
 pub const AdsrResult = struct {
     /// attack, decay, sustain, release
     changed: [4]bool = .{ false, false, false, false },
-    curve_changed: bool = false,
+    curve_changed: [3]bool = .{ false, false, false },
     activated_stage: ?u2 = null,
 };
 
@@ -701,8 +701,9 @@ fn adsrNode(
     if (node_hovered and gui_style.wheel_delta != 0) {
         gui_style.wheel_consumed = true;
         if (gui_style.modDown() and range != null) {
-            args.curve.* = std.math.clamp(args.curve.* + gui_style.wheel_delta * 0.05, -1, 1);
-            result.curve_changed = true;
+            const curve_index: usize = if (stage == 3) 2 else stage;
+            args.curves[curve_index].* = std.math.clamp(args.curves[curve_index].* + gui_style.wheel_delta * 0.05, -1, 1);
+            result.curve_changed[curve_index] = true;
         } else {
             value.* = if (range) |r|
                 std.math.clamp(value.* * @exp(gui_style.wheel_delta * envelopeScrollStep()), r[0], r[1])
@@ -756,7 +757,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
         const steps = if (segment == 2) 1 else 16;
         for (1..steps + 1) |step| {
             const t = @as(f32, @floatFromInt(step)) / @as(f32, @floatFromInt(steps));
-            const shaped = if (segment == 2) t else ws.dsp.synth_math.bendShape(t, args.curve.*);
+            const shaped = if (segment == 2) t else ws.dsp.synth_math.bendShape(t, args.curves[if (segment == 3) 2 else segment].*);
             draw_list.pathLineTo(.{
                 points[segment][0] + (points[segment + 1][0] - points[segment][0]) * t,
                 points[segment][1] + (points[segment + 1][1] - points[segment][1]) * shaped,
@@ -770,7 +771,7 @@ pub fn adsrEditor(label: [:0]const u8, args: Adsr) AdsrResult {
         var prev = points[segment];
         for (1..steps + 1) |step| {
             const t = @as(f32, @floatFromInt(step)) / @as(f32, @floatFromInt(steps));
-            const shaped = if (segment == 2) t else ws.dsp.synth_math.bendShape(t, args.curve.*);
+            const shaped = if (segment == 2) t else ws.dsp.synth_math.bendShape(t, args.curves[if (segment == 3) 2 else segment].*);
             const next = [2]f32{
                 points[segment][0] + (points[segment + 1][0] - points[segment][0]) * t,
                 points[segment][1] + (points[segment + 1][1] - points[segment][1]) * shaped,

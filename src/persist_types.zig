@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("dsp/tuning.zig");
 const controller_mod = @import("dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 66;
+pub const file_version: u32 = 67;
 
 /// First four bytes of every .wsj. The file is a container: a 12-byte
 /// header, the audio cache (user sample blobs, concatenated), then this
@@ -158,6 +158,8 @@ pub const SynthSnap = struct {
     sustain: f32 = 0.7,
     release_s: f32 = 0.25,
     env_curve: f32 = 0.0,
+    env_decay_curve: f32 = 0.0,
+    env_release_curve: f32 = 0.0,
     // Filter
     filter_type: synth_mod.FilterType = .lp,
     filter_cutoff: f32 = 18_000.0,
@@ -175,6 +177,8 @@ pub const SynthSnap = struct {
     fenv_sustain: f32 = 0.0,
     fenv_release_s: f32 = 0.3,
     fenv_curve: f32 = 0.0,
+    fenv_decay_curve: f32 = 0.0,
+    fenv_release_curve: f32 = 0.0,
     // LFO
     lfo_shape: synth_mod.LfoShape = .drawn,
     lfo_rate_hz: f32 = 1.0,
@@ -234,6 +238,8 @@ pub const SynthSnap = struct {
     env3_sustain: f32 = 0.0,
     env3_release_s: f32 = 0.3,
     env3_curve: f32 = 0.0,
+    env3_decay_curve: f32 = 0.0,
+    env3_release_curve: f32 = 0.0,
     // Wavetable oscillators
     wt_pos: f32 = 0.0,
     osc_b_wt_pos: f32 = 0.0,
