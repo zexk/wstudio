@@ -304,13 +304,13 @@ fn secEnv(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try synthSection(w, "ENV 1", grn);
 
     try barRow(w, c == 16, false, grn, "attack", synth.attack_s, 5.0,
-        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.attack_s}));
+        synth_ed.paramValueText(synth, 16, &buf));
     try barRow(w, c == 17, false, grn, "decay", synth.decay_s, 5.0,
-        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.decay_s}));
+        synth_ed.paramValueText(synth, 17, &buf));
     try barRow(w, c == 18, false, grn, "sustain", synth.sustain, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.sustain}));
     try barRow(w, c == 19, false, grn, "release", synth.release_s, 10.0,
-        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.release_s}));
+        synth_ed.paramValueText(synth, 19, &buf));
 }
 
 const filter_type_names = [_][]const u8{ "lp", "hp", "bp", "ntch", "ladr", "diod", "comb", "frmt" };
@@ -341,13 +341,13 @@ fn secFenv(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try synthSection(w, "ENV 2", grn);
 
     try barRow(w, c == 24, false, grn, "attack", synth.fenv_attack_s, 5.0,
-        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fenv_attack_s}));
+        synth_ed.paramValueText(synth, 24, &buf));
     try barRow(w, c == 25, false, grn, "decay", synth.fenv_decay_s, 5.0,
-        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fenv_decay_s}));
+        synth_ed.paramValueText(synth, 25, &buf));
     try barRow(w, c == 26, false, grn, "sustain", synth.fenv_sustain, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.fenv_sustain}));
     try barRow(w, c == 27, false, grn, "release", synth.fenv_release_s, 10.0,
-        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.fenv_release_s}));
+        synth_ed.paramValueText(synth, 27, &buf));
 }
 
 const lfo_shape_names = [_][]const u8{ "drawn", "s&h", "chaos" };
@@ -490,13 +490,13 @@ fn secEnv3(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try synthSection(w, "ENV 3", grn);
 
     try barRow(w, c == 122, false, grn, "attack", synth.env3_attack_s, 5.0,
-        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.env3_attack_s}));
+        synth_ed.paramValueText(synth, 122, &buf));
     try barRow(w, c == 123, false, grn, "decay", synth.env3_decay_s, 5.0,
-        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.env3_decay_s}));
+        synth_ed.paramValueText(synth, 123, &buf));
     try barRow(w, c == 124, false, grn, "sustain", synth.env3_sustain, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.env3_sustain}));
     try barRow(w, c == 125, false, grn, "release", synth.env3_release_s, 10.0,
-        try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.env3_release_s}));
+        synth_ed.paramValueText(synth, 125, &buf));
 }
 
 fn secVoice(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
@@ -510,7 +510,7 @@ fn secVoice(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try enumRow(w, c == 32, false, blu, "mode", &vm_names, vm_idx);
 
     try barRow(w, c == 33, false, blu, "glide", synth.glide_s, 10.0,
-        if (synth.glide_s == 0.0) "off" else try std.fmt.bufPrint(&buf, "{d:.3} s", .{synth.glide_s}));
+        synth_ed.paramValueText(synth, 33, &buf));
 }
 
 fn secSub(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
