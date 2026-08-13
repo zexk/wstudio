@@ -34,7 +34,7 @@ pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     const body = rows -| 6; // 2 lines above + the caller's header/transport/status (4)
     const visible = @max(body, 1);
     if (entries.len == 0) {
-        try w.writeAll(dim ++ "  (empty)" ++ rst);
+        try w.writeAll(dim ++ "  NO FILES" ++ rst);
         try endLine(w);
         for (1..visible) |_| try endLine(w);
         return;
@@ -71,7 +71,7 @@ pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize) !void {
 fn drawRecentProjects(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     try w.writeAll(bold ++ " RECENT PROJECTS" ++ rst);
     try endLine(w);
-    try w.writeAll(dim ++ "persisted in recent_projects.json" ++ rst);
+    try w.writeAll(dim ++ "opened projects appear here" ++ rst);
     try endLine(w);
     const visible = @max(rows -| 6, 1);
     if (app.recent_project_cursor < app.recent_project_scroll) app.recent_project_scroll = app.recent_project_cursor;
@@ -79,6 +79,10 @@ fn drawRecentProjects(app: anytype, w: *std.Io.Writer, rows: usize) !void {
         app.recent_project_scroll = app.recent_project_cursor - visible + 1;
     const off = app.recent_project_scroll;
     const end = @min(off + visible, app.recent_projects.items.len);
+    if (app.recent_projects.items.len == 0) {
+        try w.writeAll(dim ++ "  NO RECENT PROJECTS" ++ rst);
+        try endLine(w);
+    }
     for (app.recent_projects.items[off..end], off..) |path, i| {
         const is_sel = i == app.recent_project_cursor;
         if (is_sel) try w.writeAll(sel);
@@ -87,7 +91,7 @@ fn drawRecentProjects(app: anytype, w: *std.Io.Writer, rows: usize) !void {
         try w.writeAll(rst);
         try endLine(w);
     }
-    for (end - off..visible) |_| try endLine(w);
+    for ((end - off) + @intFromBool(app.recent_projects.items.len == 0)..visible) |_| try endLine(w);
 }
 
 /// Writes `name`, reverse-video highlighting the bytes the last `/` search
@@ -118,14 +122,14 @@ fn writeHighlighted(w: *std.Io.Writer, name: []const u8, pattern: []const u8, ro
 fn drawBookmarkList(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     try w.writeAll(bold ++ " BOOKMARKS" ++ rst);
     try endLine(w);
-    try w.writeAll(dim ++ "persisted in ~/.config/wstudio/bookmarks.json" ++ rst);
+    try w.writeAll(dim ++ "b marks current path" ++ rst);
     try endLine(w);
 
     const marks = app.bookmarks.items;
     const body = rows -| 6; // 2 lines above + the caller's header/transport/status (4)
     const visible = @max(body, 1);
     if (marks.len == 0) {
-        try w.writeAll(dim ++ "  (no bookmarks)" ++ rst);
+        try w.writeAll(dim ++ "  NO BOOKMARKS" ++ rst);
         try endLine(w);
         for (1..visible) |_| try endLine(w);
         return;
