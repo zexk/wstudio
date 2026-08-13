@@ -58,14 +58,18 @@ pub fn draw(app: anytype) void {
     const sel_lo = @min(anchor orelse 0, app.core.browser_cursor);
     const sel_hi = @max(anchor orelse 0, app.core.browser_cursor);
 
-    for (app.core.browser_entries.items, 0..) |entry, i| {
-        const in_visual = anchor != null and i >= sel_lo and i <= sel_hi and !entry.is_dir;
-        if (drawEntry(entry.name, entry.is_dir, app.core.browser_cursor == i, in_visual, i, pattern)) {
-            app.core.clickBrowserItem(i, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-            // handleKey may have just freed/replaced browser_entries
-            // (descending into a directory, or closing the browser on a
-            // file pick) - the slice this loop is iterating is stale now.
-            break;
+    var clipper = zgui.ListClipper.init();
+    clipper.begin(@intCast(app.core.browser_entries.items.len), entry_pitch);
+    defer clipper.end();
+    clipper.includeItemsByIndex(@intCast(app.core.browser_cursor), @intCast(app.core.browser_cursor + 1));
+    while (clipper.step()) {
+        for (@intCast(clipper.DisplayStart)..@intCast(clipper.DisplayEnd)) |i| {
+            const entry = app.core.browser_entries.items[i];
+            const in_visual = anchor != null and i >= sel_lo and i <= sel_hi and !entry.is_dir;
+            if (drawEntry(entry.name, entry.is_dir, app.core.browser_cursor == i, in_visual, i, pattern)) {
+                app.core.clickBrowserItem(i, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+                return;
+            }
         }
     }
 }
@@ -77,11 +81,17 @@ fn browserHints(purpose: anytype) []const u8 {
 }
 
 fn drawRecentProjects(app: anytype) void {
-    for (app.core.recent_projects.items, 0..) |path, i| {
-        if (drawEntry(path, false, app.core.recent_project_cursor == i, false, i, "")) {
-            app.core.recent_project_cursor = i;
-            app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-            break;
+    var clipper = zgui.ListClipper.init();
+    clipper.begin(@intCast(app.core.recent_projects.items.len), entry_pitch);
+    defer clipper.end();
+    if (app.core.recent_projects.items.len > 0) clipper.includeItemsByIndex(@intCast(app.core.recent_project_cursor), @intCast(app.core.recent_project_cursor + 1));
+    while (clipper.step()) {
+        for (@intCast(clipper.DisplayStart)..@intCast(clipper.DisplayEnd)) |i| {
+            if (drawEntry(app.core.recent_projects.items[i], false, app.core.recent_project_cursor == i, false, i, "")) {
+                app.core.recent_project_cursor = i;
+                app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+                return;
+            }
         }
     }
 }
@@ -91,14 +101,23 @@ fn drawBookmarks(app: anytype) void {
         zgui.textDisabled("(no bookmarks)", .{});
         return;
     }
-    for (app.core.bookmarks.items, 0..) |bookmark, i| {
-        if (drawEntry(bookmark.path, bookmark.is_dir, app.core.bookmark_cursor == i, false, i, "")) {
-            app.core.bookmark_cursor = i;
-            app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-            break;
+    var clipper = zgui.ListClipper.init();
+    clipper.begin(@intCast(app.core.bookmarks.items.len), entry_pitch);
+    defer clipper.end();
+    clipper.includeItemsByIndex(@intCast(app.core.bookmark_cursor), @intCast(app.core.bookmark_cursor + 1));
+    while (clipper.step()) {
+        for (@intCast(clipper.DisplayStart)..@intCast(clipper.DisplayEnd)) |i| {
+            const bookmark = app.core.bookmarks.items[i];
+            if (drawEntry(bookmark.path, bookmark.is_dir, app.core.bookmark_cursor == i, false, i, "")) {
+                app.core.bookmark_cursor = i;
+                app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+                return;
+            }
         }
     }
 }
+
+const entry_pitch: f32 = 32;
 
 fn drawEntry(name: []const u8, is_dir: bool, selected: bool, in_visual: bool, index: usize, filter: []const u8) bool {
     const width = picker.overlayWidth();
