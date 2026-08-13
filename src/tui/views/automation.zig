@@ -96,7 +96,7 @@ pub fn drawAutomation(
     // integer trick the drum/slicer grids already use for their own rulers.
     const bar_units: u32 = @as(u32, @max(app.session.project.beats_per_bar, 1)) * 16;
     const meter_denominator: u32 = @max(app.session.project.meter_denominator, 1);
-    const total_steps = @max(1, (clip.length_ticks + 7) / 8);
+    const total_steps = @max(1, std.math.divCeil(u32, clip.length_ticks, 8) catch unreachable);
     const visible: u32 = @intCast(@max(1, cols -| gutter));
 
     if (app.automation_cursor_step < app.automation_scroll) app.automation_scroll = app.automation_cursor_step;
