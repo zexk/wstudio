@@ -267,7 +267,7 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         256 => try w.writeAll(synth.lfo_sync.label()),
         259 => try w.writeAll(lfoRetrigName(synth.lfo_retrig)),
         262 => try w.print("{d:.2}", .{synth.lfo_phase_offset}),
-        265 => try w.print("{d:.0} ms", .{synth.lfo_slew_ms}),
+        265 => try w.print("{d:.1} ms", .{synth.lfo_slew_ms}),
         32 => try w.writeAll(switch (synth.voice_mode) {
             .poly => "poly",
             .mono => "mono",
@@ -323,13 +323,13 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         257 => try w.writeAll(synth.lfo2_sync.label()),
         260 => try w.writeAll(lfoRetrigName(synth.lfo2_retrig)),
         263 => try w.print("{d:.2}",      .{synth.lfo2_phase_offset}),
-        266 => try w.print("{d:.0} ms",   .{synth.lfo2_slew_ms}),
+        266 => try w.print("{d:.1} ms",   .{synth.lfo2_slew_ms}),
         97 => try w.writeAll(lfoShapeName(synth.lfo3_shape)),
         98 => try writeRate(w, synth.lfo3_sync, synth.lfo3_rate_hz, "{d:.2} Hz"),
         258 => try w.writeAll(synth.lfo3_sync.label()),
         261 => try w.writeAll(lfoRetrigName(synth.lfo3_retrig)),
         264 => try w.print("{d:.2}",      .{synth.lfo3_phase_offset}),
-        267 => try w.print("{d:.0} ms",   .{synth.lfo3_slew_ms}),
+        267 => try w.print("{d:.1} ms",   .{synth.lfo3_slew_ms}),
         99  => try w.print("{d:.2}",      .{synth.macro1}),
         100 => try w.print("{d:.2}",      .{synth.macro2}),
         101 => try w.print("{d:.2}",      .{synth.macro3}),
@@ -374,6 +374,11 @@ test "param value text covers envelope curves and filter drives" {
     try std.testing.expectEqualStrings("0.00", paramValueText(&synth, 248, &buf));
     try std.testing.expectEqualStrings("1.0x", paramValueText(&synth, 249, &buf));
     try std.testing.expectEqualStrings("1.0x", paramValueText(&synth, 250, &buf));
+
+    synth.adjustParam(33, 1);
+    try std.testing.expectEqualStrings("0.001 s", paramValueText(&synth, 33, &buf));
+    synth.adjustParam(265, 1);
+    try std.testing.expectEqualStrings("0.1 ms", paramValueText(&synth, 265, &buf));
 }
 
 pub fn searchCandidates(buf: []SearchCandidate) []const SearchCandidate {

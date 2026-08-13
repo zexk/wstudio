@@ -2834,10 +2834,10 @@ pub const PolySynth = struct {
         .{ .id = 256, .field = "lfo_sync", .kind = .cycle, .enum_type = LfoSync },
         .{ .id = 259, .field = "lfo_retrig", .kind = .cycle, .enum_type = LfoRetrig },
         .{ .id = 262, .field = "lfo_phase_offset", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 265, .field = "lfo_slew_ms", .kind = .skew_zero, .min = 0.0, .max = 500.0, .step = 0.01 },
+        .{ .id = 265, .field = "lfo_slew_ms", .kind = .skew_zero, .min = 0.0, .max = 500.0, .step = 0.05 },
         // 30/31 (LFO depth+target) retired into the mod matrix.
         .{ .id = 32, .field = "voice_mode", .kind = .cycle, .enum_type = VoiceMode },
-        .{ .id = 33, .field = "glide_s", .kind = .skew_zero, .min = 0.0, .max = 10.0, .step = 0.01 },
+        .{ .id = 33, .field = "glide_s", .kind = .skew_zero, .min = 0.0, .max = 10.0, .step = 0.05 },
         .{ .id = 34, .field = "sub_level", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 35, .field = "sub_shape", .kind = .cycle, .enum_type = SubShape },
         .{ .id = 36, .field = "noise_level", .min = 0.0, .max = 1.0, .step = 0.01 },
@@ -2868,13 +2868,13 @@ pub const PolySynth = struct {
         .{ .id = 257, .field = "lfo2_sync", .kind = .cycle, .enum_type = LfoSync },
         .{ .id = 260, .field = "lfo2_retrig", .kind = .cycle, .enum_type = LfoRetrig },
         .{ .id = 263, .field = "lfo2_phase_offset", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 266, .field = "lfo2_slew_ms", .kind = .skew_zero, .min = 0.0, .max = 500.0, .step = 0.01 },
+        .{ .id = 266, .field = "lfo2_slew_ms", .kind = .skew_zero, .min = 0.0, .max = 500.0, .step = 0.05 },
         .{ .id = 97, .field = "lfo3_shape", .kind = .cycle, .enum_type = LfoShape },
         .{ .id = 98, .field = "lfo3_rate_hz", .kind = .log, .min = 0.01, .max = 20.0 },
         .{ .id = 258, .field = "lfo3_sync", .kind = .cycle, .enum_type = LfoSync },
         .{ .id = 261, .field = "lfo3_retrig", .kind = .cycle, .enum_type = LfoRetrig },
         .{ .id = 264, .field = "lfo3_phase_offset", .min = 0.0, .max = 1.0, .step = 0.01 },
-        .{ .id = 267, .field = "lfo3_slew_ms", .kind = .skew_zero, .min = 0.0, .max = 500.0, .step = 0.01 },
+        .{ .id = 267, .field = "lfo3_slew_ms", .kind = .skew_zero, .min = 0.0, .max = 500.0, .step = 0.05 },
         .{ .id = 99, .field = "macro1", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 100, .field = "macro2", .min = 0.0, .max = 1.0, .step = 0.01 },
         .{ .id = 101, .field = "macro3", .min = 0.0, .max = 1.0, .step = 0.01 },
@@ -4621,9 +4621,13 @@ test "time parameters nudge by ratio and glide keeps explicit zero" {
 
     synth.glide_s = 0;
     synth.adjustParam(33, 1);
-    try std.testing.expect(synth.glide_s > 0 and synth.glide_s < 0.001);
+    try std.testing.expect(synth.glide_s >= 0.001);
     synth.adjustParam(33, -1);
     try std.testing.expectEqual(@as(f32, 0), synth.glide_s);
+
+    synth.lfo_slew_ms = 0;
+    synth.adjustParam(265, 1);
+    try std.testing.expect(synth.lfo_slew_ms >= 0.05);
 }
 
 test "applyCC: reset all controllers restores transient performance controls only" {
