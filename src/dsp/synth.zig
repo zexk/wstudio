@@ -2619,8 +2619,26 @@ pub const PolySynth = struct {
         self.arp_phase = 0.0;
         self.arp_gate_open = false;
         self.arp_was_on = false;
+        self.arp_rand = 0x2545F491;
         self.controller_smooth = @splat(0.0);
         self.fx_mod_bus.clear();
+        // Everything else that runs free between notes: the per-trigger
+        // randomness and the synth-global LFOs, back to where a fresh synth
+        // starts. `triggerVoice` draws every voice's oscillator start phases
+        // out of `mod_rand_state`, so leaving any of this running made a
+        // second render of the same session come out phase-shifted against
+        // the first - which is why a stem rendered after another one did not
+        // line up with the mix it belonged to.
+        self.mod_rand_state = 0xA341316C;
+        self.mod_alternate = false;
+        self.lfo_phase = 0.0;
+        self.lfo2_phase = 0.0;
+        self.lfo3_phase = 0.0;
+        self.lfo_slew_state = .{ 0.0, 0.0, 0.0 };
+        self.lfo_oneshot_done = .{ false, false, false };
+        self.lfo_sh = .{ 0.0, 0.0, 0.0 };
+        self.lfo_sh_rand = 0x9E3779B9;
+        self.lfo_chaos = .{ .{}, .{}, .{} };
     }
 
     /// Apply a raw MIDI CC. Safe to call on the audio thread (field writes only).

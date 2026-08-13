@@ -398,3 +398,32 @@ test "failed export preserves destination and removes temporary file" {
     try std.testing.expectEqualStrings("existing", data);
     try std.testing.expectError(error.FileNotFound, std.Io.Dir.cwd().access(std.testing.io, tmp_path, .{}));
 }
+
+test "rendering the same session twice gives the same audio" {
+    // What makes stems sum back to the mix: `render-stems` renders each
+    // track through this path in turn, so anything a render leaves behind
+    // shows up in the next one. It cost a real bug - the synth's per-trigger
+    // PRNG picks every voice's oscillator start phases and survived the
+    // reset, so every stem after the first came out phase-shifted against
+    // the mix it belonged to.
+    var session = try Session.initDefaultWithSampleRate(std.testing.allocator, 48_000);
+    defer session.deinit();
+    try session.setInstrument(0, .poly_synth);
+    session.racks.items[0].pattern_player.?.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    session.racks.items[0].pattern_player.?.addNote(.{ .pitch = 67, .start_beat = 1.0, .duration_beat = 0.5 });
+
+    const bounce_range = range(&session, 1.0);
+    const count: usize = @intCast(bounce_range.total_frames * engine_mod.channels);
+    const first = try std.testing.allocator.alloc(types.Sample, count);
+    defer std.testing.allocator.free(first);
+    const second = try std.testing.allocator.alloc(types.Sample, count);
+    defer std.testing.allocator.free(second);
+
+    render(&session, first, bounce_range.start_frame);
+    render(&session, second, bounce_range.start_frame);
+
+    var peak: f32 = 0.0;
+    for (first) |s| peak = @max(peak, @abs(s));
+    try std.testing.expect(peak > 0.01); // the notes actually sounded
+    try std.testing.expectEqualSlices(types.Sample, first, second);
+}
