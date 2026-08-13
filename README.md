@@ -28,9 +28,9 @@ zig build run -- render demo.wsj demo.wav # render saved project without fronten
 zig build run -- render-stems demo.wsj stems # render each track without frontend
 ```
 
-On Linux, devShell also supplies Odin 2 for CLAP checks and LSP Plugins for
-VST3 checks. Launch either frontend with
-`-u tools/plugin_test_init.lua` to scan only those known plugins.
+On Linux, devShell also supplies Odin 2, Surge XT, sfizz, Chow Tape Model,
+Uhhyou, and LSP plugins across CLAP and VST3. Both formats scan this stress-test
+set automatically through `CLAP_PATH` and `VST3_PATH`.
 
 Without Nix, install Zig 0.16, libsndfile, speexdsp, Lua 5.4 and, on Linux,
 the ALSA development libraries, then build the same way; see
@@ -67,8 +67,8 @@ section, or `:plugin-scan`, after installing a plugin while wstudio is open. Set
 `wstudio.o.clap_plugin_path = "/path/to/clap"` in `init.lua` to scan only a
 fixed custom directory instead.
 
-wstudio also hosts VST3 instruments and effects. Discovery uses standard Linux,
-Windows, and macOS VST3 directories. Set
+wstudio also hosts VST3 instruments and effects. Discovery checks `VST3_PATH`
+before standard Linux, Windows, and macOS VST3 directories. Set
 `wstudio.o.vst3_plugin_path = "/path/to/vst3"` to scan one custom directory,
 or inspect discovery with:
 

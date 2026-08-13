@@ -46,7 +46,7 @@ pub const Registry = struct {
         var walker = try dir.walk(self.allocator);
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
-            if (entry.kind != .directory or !std.ascii.endsWithIgnoreCase(entry.basename, ".vst3")) continue;
+            if ((entry.kind != .directory and entry.kind != .sym_link) or !std.ascii.endsWithIgnoreCase(entry.basename, ".vst3")) continue;
             const bundle = try std.fs.path.join(self.allocator, &.{ path, entry.path });
             defer self.allocator.free(bundle);
             self.scanBundle(bundle) catch |err| switch (err) {
@@ -143,6 +143,12 @@ pub fn moduleRelativePath(allocator: std.mem.Allocator, bundle_name: []const u8,
 pub fn searchPaths(allocator: std.mem.Allocator, environ: *const std.process.Environ.Map) !std.ArrayListUnmanaged([]u8) {
     var paths: std.ArrayListUnmanaged([]u8) = .empty;
     errdefer freeSearchPaths(allocator, &paths);
+    if (environ.get("VST3_PATH")) |value| {
+        var split = std.mem.splitScalar(u8, value, std.fs.path.delimiter);
+        while (split.next()) |path| {
+            if (path.len > 0) try appendUnique(allocator, &paths, path);
+        }
+    }
     switch (builtin.os.tag) {
         .linux => {
             if (environ.get("HOME")) |home| try appendJoined(allocator, &paths, &.{ home, ".vst3" });

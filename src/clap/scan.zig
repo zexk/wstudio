@@ -51,7 +51,7 @@ pub const Registry = struct {
         var walker = try dir.walk(self.allocator);
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
-            if (entry.kind != .file or !std.ascii.endsWithIgnoreCase(entry.basename, ".clap")) continue;
+            if ((entry.kind != .file and entry.kind != .sym_link) or !std.ascii.endsWithIgnoreCase(entry.basename, ".clap")) continue;
             const full_path = try std.fs.path.join(self.allocator, &.{ path, entry.path });
             defer self.allocator.free(full_path);
             try self.scanFile(full_path);

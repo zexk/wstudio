@@ -77,8 +77,8 @@ cmd_start() {
     "TERM=tmux-256color" \
     "COLORTERM=truecolor"
   )
-  [ -n "${WSTUDIO_TEST_CLAP_PATH:-}" ] && clean_env+=("WSTUDIO_TEST_CLAP_PATH=$WSTUDIO_TEST_CLAP_PATH")
-  [ -n "${WSTUDIO_TEST_VST3_PATH:-}" ] && clean_env+=("WSTUDIO_TEST_VST3_PATH=$WSTUDIO_TEST_VST3_PATH")
+  [ -n "${CLAP_PATH:-}" ] && clean_env+=("CLAP_PATH=$CLAP_PATH")
+  [ -n "${VST3_PATH:-}" ] && clean_env+=("VST3_PATH=$VST3_PATH")
   [ -n "${DISPLAY:-}" ] && clean_env+=("DISPLAY=$DISPLAY")
   [ -n "${XAUTHORITY:-}" ] && clean_env+=("XAUTHORITY=$XAUTHORITY")
   printf -v command '%q ' env -i "${clean_env[@]}" "$BIN" "${app_args[@]}"

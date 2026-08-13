@@ -235,6 +235,23 @@
           runtimeInputs = [ (wstudioPackage pkgs) ];
           text = ''exec wstudio -u NONE "$@"'';
         };
+      testPluginBundle =
+        pkgs:
+        pkgs.buildEnv {
+          name = "wstudio-test-plugins";
+          paths = with pkgs; [
+            chow-tape-model
+            lsp-plugins
+            odin2
+            sfizz-ui
+            surge-xt
+            uhhyou-plugins
+          ];
+          pathsToLink = [
+            "/lib/clap"
+            "/lib/vst3"
+          ];
+        };
     in
     {
       nixosModules.default = import ./nix/nixos-module.nix { inherit self; };
@@ -261,8 +278,7 @@
                 libxi
                 libxinerama
                 libxrandr
-                odin2
-                lsp-plugins
+                (testPluginBundle pkgs)
               ];
           }
           // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
@@ -275,9 +291,8 @@
             # `zig build -Dtarget=x86_64-windows-gnu` from this shell, which is
             # what CI does, needs the mingw copies rather than the host ones.
             WSTUDIO_TARGET_PREFIX = targetPrefix pkgs.pkgsCross.mingwW64;
-            CLAP_PATH = "${pkgs.odin2}/lib/clap";
-            WSTUDIO_TEST_CLAP_PATH = "${pkgs.odin2}/lib/clap";
-            WSTUDIO_TEST_VST3_PATH = "${pkgs.lsp-plugins}/lib/vst3";
+            CLAP_PATH = "${testPluginBundle pkgs}/lib/clap";
+            VST3_PATH = "${testPluginBundle pkgs}/lib/vst3";
           }
         );
       });
