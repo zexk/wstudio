@@ -26,6 +26,18 @@ pub const Id = enum {
     }
 };
 
+/// Every `Id` tag joined by `|`, for the `:library` usage string and its help
+/// row. Built from the enum so adding a bank can't leave either one listing a
+/// subset of what `stringToEnum` actually accepts (it did: both named three of
+/// the ten, so seven working banks were undiscoverable).
+pub const id_names = blk: {
+    var s: []const u8 = "";
+    for (@typeInfo(Id).@"enum".fields, 0..) |f, i| {
+        s = s ++ (if (i == 0) "" else "|") ++ f.name;
+    }
+    break :blk s;
+};
+
 /// Display name and on-disk SFZ filename per `Id`, in tag order.
 // zig fmt: off
 const specs = [_]struct { label: []const u8, sfz: []const u8 }{

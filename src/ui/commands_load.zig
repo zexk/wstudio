@@ -500,7 +500,7 @@ pub fn cmdLibrary(app: *App, args: []const u8) void {
     };
     const name = std.mem.trim(u8, args, " ");
     const id = std.meta.stringToEnum(ws.dsp.builtin_library.Id, name) orelse {
-        app.setStatus("usage: library <grand|upright|harpsichord>", .{});
+        app.setStatus("usage: library <" ++ ws.dsp.builtin_library.id_names ++ ">", .{});
         return;
     };
     sf.loadBuiltin(app.io, id) catch |err| {

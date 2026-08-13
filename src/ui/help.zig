@@ -4,6 +4,7 @@
 //! stays with each frontend (tui/views/help.zig, gui/views/help.zig).
 
 const std = @import("std");
+const ws = @import("wstudio");
 const cmd_mod = @import("cmd.zig");
 const config_mod = @import("../config.zig");
 const ansi = @import("ansi.zig");
@@ -353,8 +354,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("f",            "preset picker - Acoustic lists the bundled banks, SoundFont every preset in the loaded font grouped by bank; / filters by name/bank/program");
     t.key("a (in picker)", "audition the highlighted bank/preset immediately; the switch commits either way");
     t.key("esc / e",      "back to the tracks view");
-    t.key(":load-soundfont", "[file.sf2]  load a SoundFont into the cursor track (omit the file to browse; SoundFont tracks only)");
-    t.key(":library", "<grand|upright|harpsichord>  load a bundled VCSL bank (Acoustic tracks only)");
+    t.key(":load",        "[file.sf2]  load a SoundFont into the cursor track (omit the file to browse; SoundFont tracks only)");
+    t.key(":library", "<" ++ ws.dsp.builtin_library.id_names ++ ">  load a bundled VCSL bank (Acoustic tracks only)");
     t.key(":sf-preset",   "<bank> <program>  jump straight to a preset by its MIDI bank/program number");
 
     t.taggedSection(.synth_editor, "SYNTH EDITOR");
