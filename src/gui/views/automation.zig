@@ -1,6 +1,7 @@
 const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
+const icons = @import("../../ui/icons.zig");
 const automation_ed = @import("../../ui/editors/automation.zig");
 const history = @import("../../ui/history.zig");
 const style = @import("../style.zig");
@@ -109,7 +110,7 @@ fn drawTargetStrip(app: anytype, clip: *ws.Clip) void {
             drawTargetButton(app, label, .{ .synth_param = target }, i + 2);
         }
         zgui.sameLine(.{ .spacing = 8 });
-        if (zgui.button("+ PARAM##automation-param", .{ .h = 32 })) {
+        if (widgets.iconButton(icons.plus ++ "##automation-param", "Add automation parameter  p")) {
             app.core.handleKey(.{ .char = 'p' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
         }
     }

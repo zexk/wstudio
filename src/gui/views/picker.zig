@@ -1,6 +1,7 @@
 const std = @import("std");
 const ws = @import("wstudio");
 const zgui = @import("zgui");
+const icons = @import("../../ui/icons.zig");
 const widgets = @import("../widgets.zig");
 const spectrum_ed = @import("../../ui/editors/fx_editor.zig");
 const preset_ed = @import("../../ui/editors/preset_picker.zig");
@@ -190,7 +191,7 @@ pub fn drawFx(app: anytype) void {
 
 fn drawPluginScanButton(app: anytype) void {
     zgui.sameLine(.{ .spacing = 14 });
-    if (zgui.smallButton("RESCAN##external-plugins")) app.core.rescanExternalPlugins();
+    if (widgets.iconButton(icons.redo ++ "##external-plugins", "Rescan external plugins")) app.core.rescanExternalPlugins();
 }
 
 const fxAccent = style.fxKindAccent;

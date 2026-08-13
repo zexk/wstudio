@@ -94,7 +94,7 @@ fn drawSignalChain(app: anytype, target: spectrum_ed.EqTarget, fx: *ws.Fx) void 
         zgui.sameLine(.{ .spacing = gap });
         zgui.pushStyleColor4f(.{ .idx = .button, .c = theme.bg2 });
         zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = theme.focus_soft });
-        if (zgui.button("+##fx-chain-add", .{ .w = slot_w, .h = 36 })) spectrum_ed.openPicker(&app.core, target);
+        if (widgets.iconButton(icons.plus ++ "##fx-chain-add", "Insert effect  a")) spectrum_ed.openPicker(&app.core, target);
         zgui.popStyleColor(.{ .count = 2 });
     }
     zgui.sameLine(.{ .spacing = gap });
