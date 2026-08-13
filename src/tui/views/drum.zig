@@ -127,9 +127,6 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
     }
     try endLine(w);
 
-    // One tint per choke group so paired pads (e.g. closed/open hihat) read
-    // at a glance; ungrouped pads stay dim as before.
-    const choke_colors = [_][]const u8{ yel, mag, blu, red };
     var printed: usize = 0;
     for (bank_start..bank_end) |p| {
         // A dim rule between stacked banks. Mirrored by editors/drum.zig's
@@ -141,7 +138,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
         const name = dm.padName(@intCast(p));
         const group = dm.choke_group[p];
         const pad_len = dm.padSteps(@intCast(p), dm.step_count);
-        try w.writeAll(if (group != 0) choke_colors[(group - 1) % choke_colors.len] else dim);
+        try w.writeAll(style.chokeGroupColor(group));
         // 8 = the rename cap (:rename), so no legal name truncates -
         // at 4 the two stock toms both rendered as "tom-".
         try w.print(" {s: <8} ", .{name[0..@min(name.len, 8)]});

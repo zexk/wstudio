@@ -69,6 +69,17 @@ pub fn stepCellSgr(active: bool, is_cursor: bool, is_play: bool, in_sel: bool) [
     return dim;
 }
 
+/// Stable tint for choke groups across drum and slicer grids.
+pub fn chokeGroupColor(group: u8) []const u8 {
+    const colors = [_][]const u8{ yel, mag, blu, red };
+    return if (group == 0) dim else colors[(group - 1) % colors.len];
+}
+
+test "choke groups share TUI accents" {
+    try std.testing.expectEqualStrings(dim, chokeGroupColor(0));
+    try std.testing.expectEqualStrings(chokeGroupColor(1), chokeGroupColor(5));
+}
+
 /// Renders `raw` (may contain ANSI SGR sequences) as a header/transport
 /// row: content clamped to `cols`, no fill (a reverse-video fill read as
 /// a stray highlighted bar; see docs/ui-conventions.md).

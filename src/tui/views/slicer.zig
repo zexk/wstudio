@@ -138,15 +138,12 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
     try endLine(w);
     written += 1;
 
-    // One tint per choke group so grouped slices read as a set - same
-    // palette order as the drum grid's pad names.
-    const choke_colors = [_][]const u8{ yel, mag, blu, red };
     for (bank_start..bank_end) |sIdx| {
         const group = sl.choke_group[sIdx];
         if (sIdx == cur_slice) {
             try w.writeAll(acc);
         } else if (group != 0) {
-            try w.writeAll(choke_colors[(group - 1) % choke_colors.len]);
+            try w.writeAll(style.chokeGroupColor(group));
         } else {
             try w.writeAll(dim);
         }
