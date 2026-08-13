@@ -36,6 +36,7 @@ const spectrum_band_count = spectrum_ed.spectrum_band_count;
 const synthSection = style.synthSection;
 const barRow = style.barRow;
 const enumRow = style.enumRow;
+const toggleRow = style.toggleRow;
 
 // Lower-eighths block glyphs, shortest (cut) to tallest (boost). 0dB lands
 // on the middle glyph so a flat band still reads as a visible bar.
@@ -472,7 +473,7 @@ pub fn drawFxView(
         // field order the mouse hit-test (editors/fx_editor.zig's
         // handleMouse -> detail_row0) expects.
         const solo_idx = cur_band * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_solo;
-        try enumRow(w, in_submenu and cur_field == spectrum_ed.eq_field_solo, false, sectionColor(.eq), "solo", &.{ "off", "solo" }, @intFromFloat(@round(spectrum_ed.getParam(&unit.payload, solo_idx))));
+        try toggleRow(w, in_submenu and cur_field == spectrum_ed.eq_field_solo, false, sectionColor(.eq), "solo", spectrum_ed.getParam(&unit.payload, solo_idx) >= 0.5);
 
         const stereo_idx = cur_band * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_stereo_mode;
         try enumRow(w, in_submenu and cur_field == spectrum_ed.eq_field_stereo_mode, false, sectionColor(.eq), "stereo", &.{ "stereo", "mid", "side" }, @intFromFloat(@round(spectrum_ed.getParam(&unit.payload, stereo_idx))));

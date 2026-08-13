@@ -266,7 +266,7 @@ pub fn barRow(
     try endLine(w);
 }
 
-/// One enum/toggle row: label followed by bracketed options, the active one
+/// One enum row: label followed by bracketed options, the active one
 /// highlighted in the section color (bright when the row is selected).
 pub fn enumRow(
     w: *std.Io.Writer,
@@ -292,6 +292,26 @@ pub fn enumRow(
         }
     }
     try endLine(w);
+}
+
+/// One binary-state row: compact current-state chip instead of two enum
+/// choices. Mirrors GUI pill switches and keeps booleans distinct from lists.
+pub fn toggleRow(w: *std.Io.Writer, is_sel: bool, dimmed: bool, color: []const u8, label: []const u8, on: bool) !void {
+    try rowHead(w, is_sel, dimmed, label);
+    try w.writeByte(' ');
+    try w.writeAll(if (is_sel) bcyn else if (dimmed or !on) dim else color);
+    if (is_sel or on) try w.writeAll(bold);
+    try w.writeAll(if (on) "[on ]" else "[off]");
+    try w.writeAll(rst);
+    try endLine(w);
+}
+
+test "toggle rows show one compact current state" {
+    var buf: [128]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try toggleRow(&w, false, false, acc, "enabled", true);
+    var plain: [128]u8 = undefined;
+    try std.testing.expectEqualStrings("  enabled   [on ]\x1b[K\r\n", stripAnsi(w.buffered(), &plain));
 }
 
 test "writeChromeRow leaves short content unpadded, no reverse-video fill" {

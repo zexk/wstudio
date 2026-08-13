@@ -25,6 +25,7 @@ const hr = style.hr;
 const synthSection = style.synthSection;
 const barRow = style.barRow;
 const enumRow = style.enumRow;
+const toggleRow = style.toggleRow;
 
 // Waveform panel caps live with the editor (ui/editors/sampler.zig) since
 // its waveformNorm/waveRows mouse hit-testing mirrors this draw path.
@@ -193,8 +194,7 @@ pub fn drawSamplerEditor(
         try barRow(w, c == 8, false, bcyn, "pan", pan + 1.0, 2.0, lab);
     }
     {
-        const rev_names = [_][]const u8{ "off", "on" };
-        try enumRow(w, c == 9, false, bcyn, "reverse", &rev_names, if (pad.reverse) 1 else 0);
+        try toggleRow(w, c == 9, false, bcyn, "reverse", pad.reverse);
     }
     try barRow(w, c == 13, false, bcyn, "filter", pad.filter + 1.0, 2.0,
         format.filterLabel(&buf, pad.filter));

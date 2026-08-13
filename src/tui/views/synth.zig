@@ -26,6 +26,7 @@ const synthBar = style.synthBar;
 const synthSection = style.synthSection;
 const barRow = style.barRow;
 const enumRow = style.enumRow;
+const toggleRow = style.toggleRow;
 const rowHead = style.rowHead;
 const rowVal = style.rowVal;
 
@@ -272,8 +273,7 @@ fn secOscB(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try synthSection(w, "OSC B", acc);
 
     const b_on = synth.osc_b_on;
-    const on_names = [_][]const u8{ "on", "off" };
-    try enumRow(w, c == 6, false, acc, "on/off", &on_names, if (b_on) 0 else 1);
+    try toggleRow(w, c == 6, false, acc, "enabled", b_on);
 
     // zig fmt: off
     try barRow(w, c == 9, !b_on, acc, "semi", synth.osc_b_semi + 24.0, 48.0,
@@ -468,7 +468,7 @@ fn secArp(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try synthSection(w, "ARP", bcyn);
 
     const on = synth.arp_on;
-    try enumRow(w, c == 116, false, bcyn, "on/off", &on_off_names, if (on) 0 else 1);
+    try toggleRow(w, c == 116, false, bcyn, "enabled", on);
     try enumRow(w, c == 117, !on, bcyn, "mode", &arp_mode_names, @intFromEnum(synth.arp_mode));
     try barRow(w, c == 118, !on or synth.arp_mode == .chord, bcyn, "octaves", @floatFromInt(synth.arp_octaves), 4.0,
         try std.fmt.bufPrint(&buf, "{d}", .{synth.arp_octaves}));
@@ -480,7 +480,7 @@ fn secArp(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try barRow(w, c == 268, !on, bcyn, "sync", @floatFromInt(@intFromEnum(synth.arp_sync)), @floatFromInt(@typeInfo(ws.dsp.synth.LfoSync).@"enum".fields.len - 1), synth.arp_sync.label());
     try barRow(w, c == 120, !on, bcyn, "gate", synth.arp_gate, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.arp_gate}));
-    try enumRow(w, c == 121, !on, bcyn, "hold", &on_off_names, if (synth.arp_hold) 0 else 1);
+    try toggleRow(w, c == 121, !on, bcyn, "hold", synth.arp_hold);
 }
 
 /// A third ADSR with no fixed destination - a pure MATRIX source (env3),
@@ -571,8 +571,7 @@ fn secFilter2(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
     try synthSection(w, "FILTER 2", yel);
 
-    const on_names = [_][]const u8{ "on", "off" };
-    try enumRow(w, c == 45, false, yel, "on/off", &on_names, if (synth.filter2_on) 0 else 1);
+    try toggleRow(w, c == 45, false, yel, "enabled", synth.filter2_on);
 
     const on = synth.filter2_on;
     try enumRow(w, c == 46, !on, yel, "type", &filter_type_names, @intFromEnum(synth.filter2_type));
@@ -601,8 +600,7 @@ fn secOscC(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try synthSection(w, "OSC C", acc);
 
     const c_on = synth.osc_c_on;
-    const on_names = [_][]const u8{ "on", "off" };
-    try enumRow(w, c == 50, false, acc, "on/off", &on_names, if (c_on) 0 else 1);
+    try toggleRow(w, c == 50, false, acc, "enabled", c_on);
 
     try barRow(w, c == 53, !c_on, acc, "semi", synth.osc_c_semi + 24.0, 48.0,
         try std.fmt.bufPrint(&buf, "{d:.0}", .{synth.osc_c_semi}));
@@ -701,7 +699,6 @@ fn secMatrix(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     }
 }
 
-const on_off_names = [_][]const u8{ "on", "off" };
 
 /// Log-normalized 0..1 bar fill for a 20Hz-20kHz frequency param - same
 /// formula `secFilter`'s cutoff bar already uses (a linear fill would cram
