@@ -214,15 +214,13 @@ fn drawEqBandControls(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUn
     zgui.sameLine(.{});
     zgui.textDisabled("{s}", .{spectrum_ed.eq_kind_specs[@intFromEnum(band.kind)].title});
     zgui.sameLine(.{ .spacing = 16 });
-    zgui.pushStyleColor4f(.{ .idx = .button, .c = if (band.enabled) accent else theme.bg2 });
-    zgui.pushStyleColor4f(.{ .idx = .text, .c = if (band.enabled) theme.bg0 else theme.fg2 });
-    if (zgui.button(if (band.enabled) "ON##eq-band-enabled" else "OFF##eq-band-enabled", .{})) {
+    var enabled = band.enabled;
+    if (widgets.toggle("ENABLED", &enabled)) {
         history.recordFx(&app.core, target);
-        unit.payload.eq.setEnabled(band_index, !band.enabled);
+        unit.payload.eq.setEnabled(band_index, enabled);
         app.core.dirty = true;
         fx_view.syncChain(app, target);
     }
-    zgui.popStyleColor(.{ .count = 2 });
     zgui.separator();
 
     const kind_idx = band_index * spectrum_ed.eq_fields_per_band + spectrum_ed.eq_field_kind;
