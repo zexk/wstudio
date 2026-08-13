@@ -688,8 +688,12 @@ fn secMatrix(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
         } else if (off) {
             try w.writeAll(dim);
         }
-        const sign: []const u8 = if (row.depth >= 0.0) "+" else "";
-        try w.print("{s}{d:.2}", .{ sign, row.depth });
+        if (off) {
+            try w.writeAll(" off ");
+        } else {
+            const sign: []const u8 = if (row.depth >= 0.0) "+" else "";
+            try w.print("{s}{d:.2}", .{ sign, row.depth });
+        }
         try w.writeAll(rst);
         try endLine(w);
     }

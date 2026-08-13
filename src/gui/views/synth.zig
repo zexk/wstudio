@@ -626,8 +626,12 @@ fn drawMatrixRow(app: anytype, synth: *ws.dsp.PolySynth, base_id: u16, accent: [
     if (result.changed) sendParam(app, depth_id, depth);
     if (result.activated) app.core.synth_cursor = depth_id;
     zgui.sameLine(.{ .spacing = 6 });
-    const sign: []const u8 = if (row.depth >= 0.0) "+" else "";
-    zgui.textColored(if (on) theme.fg2 else theme.fg3, "{s}{d:.2}", .{ sign, row.depth });
+    if (on) {
+        const sign: []const u8 = if (row.depth >= 0.0) "+" else "";
+        zgui.textColored(theme.fg2, "{s}{d:.2}", .{ sign, row.depth });
+    } else {
+        zgui.textColored(theme.fg3, "off", .{});
+    }
 
     // Polarity: a stepper, not a knob - it's a two-state list param.
     zgui.sameLine(.{ .spacing = 8 });

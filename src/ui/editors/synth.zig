@@ -231,7 +231,10 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
                 try w.writeAll(ws.dsp.PolySynth.modDestLabel(row.dest))
             else
                 try w.print("FX {d}:{d}", .{ row.fx_instance_id, row.dest }),
-            2 => try w.print("{s}{d:.2}", .{ @as([]const u8, if (row.depth >= 0.0) "+" else ""), row.depth }),
+            2 => if (row.source == .none)
+                try w.writeAll("off")
+            else
+                try w.print("{s}{d:.2}", .{ @as([]const u8, if (row.depth >= 0.0) "+" else ""), row.depth }),
             else => unreachable,
         }
         return;
@@ -404,6 +407,7 @@ test "param value text covers envelope curves and filter drives" {
     try std.testing.expectEqualStrings("80%", paramValueText(&synth, 5, &buf));
     synth.filter_res = 0.625;
     try std.testing.expectEqualStrings("63%", paramValueText(&synth, 22, &buf));
+    try std.testing.expectEqualStrings("off", paramValueText(&synth, ws.dsp.PolySynth.matrixParamId(0, 2), &buf));
 }
 
 pub fn searchCandidates(buf: []SearchCandidate) []const SearchCandidate {
