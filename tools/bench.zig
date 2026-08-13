@@ -19,9 +19,10 @@
 //!     any audio does - solo scan, sidechain pre-scan, phase-2 dedup.
 //!   * meters (finding 5): the loudness/correlation push, timed on its own,
 //!     against the whole-callback numbers above.
-//!
-//! Not covered: bridged-plugin scaling (finding 3) needs real plugin binaries
-//! on the host, so it stays a manual measurement.
+//!   * hosted plugins in-process against bridged (finding 3), if a CLAP
+//!     plugin path is passed as the second argument - `zig build bench` wires
+//!     the repo's own CLAP test plugin, whose DSP is one multiply, so what is
+//!     measured is the round trip and not the plugin.
 
 const std = @import("std");
 const ws = @import("wstudio");
@@ -33,6 +34,9 @@ const warmup_blocks = 64;
 /// and 2000 blocks of 64 frames covers a quarter of what 2000 of 256 does.
 const measure_frames = 2000 * 128;
 const max_samples = measure_frames / 64;
+/// Blocks per paced row - each one costs its own real-time duration, so this
+/// is a second of audio at 128 frames rather than the free-running count.
+const paced_blocks = 400;
 
 const Stats = struct {
     p50_us: f64,
@@ -60,17 +64,31 @@ fn summarize(samples: []i96, frames: u32, sample_rate: u32) Stats {
     };
 }
 
-fn measure(io: std.Io, session: *ws.Session, frames: u32, scratch: []i96) Stats {
+/// `pace` sleeps out the rest of each block's deadline instead of running the
+/// next one immediately. Everything in-process measures the same either way,
+/// so the fast free-running loop is fine there - but a bridged plugin's child
+/// process needs the gap between callbacks to do its work, and hammering
+/// blocks back to back asks a whole pool of children for many times real-time
+/// throughput and reads as a bridge collapse that a real session would not
+/// see. Paced runs are shorter, since each block now costs its own wall time.
+fn measure(io: std.Io, session: *ws.Session, frames: u32, scratch: []i96, pace: bool) Stats {
     var block: [ws.types.max_block_frames * ws.engine.channels]ws.types.Sample = undefined;
     const out = block[0 .. frames * ws.engine.channels];
-    const samples = scratch[0..@min(scratch.len, measure_frames / frames)];
+    const block_ns: i96 = @intCast(@divTrunc(@as(u64, frames) * std.time.ns_per_s, session.project.sample_rate));
+    const wanted: usize = if (pace) paced_blocks else measure_frames / frames;
+    const samples = scratch[0..@min(scratch.len, wanted)];
     session.engine.transport.seekFrames(0);
     for (0..warmup_blocks) |_| session.engine.process(out);
     session.engine.transport.seekFrames(0);
     for (samples) |*slot| {
         const start = std.Io.Clock.awake.now(io);
         session.engine.process(out);
-        slot.* = start.durationTo(std.Io.Clock.awake.now(io)).nanoseconds;
+        const end = std.Io.Clock.awake.now(io);
+        slot.* = start.durationTo(end).nanoseconds;
+        if (pace) {
+            const target: std.Io.Clock.Timestamp = .{ .raw = .{ .nanoseconds = start.nanoseconds + block_ns }, .clock = .awake };
+            target.wait(io) catch {};
+        }
     }
     return summarize(samples, frames, session.project.sample_rate);
 }
@@ -104,6 +122,22 @@ fn routedSession(gpa: std.mem.Allocator, tracks: u16, sends: u8, instrument: ws.
     return session;
 }
 
+/// One CLAP instance per track, `tracks` of them. Bridged or not depends on
+/// `bridge.sandbox_enabled`, which `ClapPlugin.load` reads for itself.
+fn pluginSession(gpa: std.mem.Allocator, tracks: u16, plugin_path: []const u8, plugin_id: []const u8) !ws.Session {
+    var session = try ws.Session.initDefault(gpa);
+    errdefer session.deinit();
+    while (session.project.tracks.items.len < tracks) _ = try session.addTrack("bench");
+    for (0..tracks) |i| {
+        const idx: u16 = @intCast(i);
+        const rack = session.racks.items[idx];
+        _ = try rack.fx.insertClap(gpa, 0, plugin_path, plugin_id, session.project.sample_rate);
+        session.syncTrackChain(idx, rack);
+    }
+    session.engine.transport.play();
+    return session;
+}
+
 /// `tracks` blank tracks - no instrument, no clips, so `renderOneTrack`
 /// returns immediately for every one of them.
 fn blankSession(gpa: std.mem.Allocator, tracks: u16) !ws.Session {
@@ -122,6 +156,11 @@ pub fn main(init: std.process.Init) !void {
     defer args.deinit();
     _ = args.skip();
     const project_path = args.next() orelse "demo.wsj";
+    // Optional: a CLAP binary and the id to instantiate from it. The id is
+    // not optional in-process - an empty one means "plugin literally named
+    // ''" there, while the bridge reads it as "pick the default".
+    const plugin_path = args.next();
+    const plugin_id = args.next() orelse "";
 
     const samples = try gpa.alloc(i96, max_samples);
     defer gpa.free(samples);
@@ -143,7 +182,7 @@ pub fn main(init: std.process.Init) !void {
         session.engine.transport.play();
         var demo_p50: f64 = 0;
         for ([_]u32{ 64, 128, 512 }) |frames| {
-            const s = measure(io, &session, frames, samples);
+            const s = measure(io, &session, frames, samples, false);
             if (frames == 128) demo_p50 = s.p50_us;
             try row(w, project_path, frames, s);
         }
@@ -180,7 +219,7 @@ pub fn main(init: std.process.Init) !void {
             var session = try routedSession(gpa, tracks, sends, .empty);
             defer session.deinit();
             const name = try std.fmt.bufPrint(&name_buf, "{d} tracks, {d} sends", .{ tracks, sends });
-            try row(w, name, 128, measure(io, &session, 128, samples));
+            try row(w, name, 128, measure(io, &session, 128, samples, false));
         }
     }
     {
@@ -188,7 +227,28 @@ pub fn main(init: std.process.Init) !void {
         // "128 tracks, 0 sends" is what a voiceless instrument costs.
         var session = try routedSession(gpa, 128, 0, .poly_synth);
         defer session.deinit();
-        try row(w, "128 tracks, 0 sends, idle synth", 128, measure(io, &session, 128, samples));
+        try row(w, "128 tracks, 0 sends, idle synth", 128, measure(io, &session, 128, samples, false));
+    }
+
+    // Finding 3: what the out-of-process bridge costs per instance. Same
+    // plugin, same count, once loaded in-process and once sandboxed - the
+    // difference is the shared-memory copies plus the synchronous wait on the
+    // child, which the engine pays serially because chains render in order.
+    if (plugin_path) |path| {
+        try header(w, "hosted CLAP plugins, in-process vs bridged (finding 3)");
+        for ([_]bool{ false, true }) |sandboxed| {
+            ws.plugin_host.bridge.sandbox_enabled.store(sandboxed, .release);
+            for ([_]u16{ 1, 4, 8, 16 }) |count| {
+                var session = pluginSession(gpa, count, path, plugin_id) catch |err| {
+                    try w.print("{d} plugins: {s}\n", .{ count, @errorName(err) });
+                    continue;
+                };
+                defer session.deinit();
+                const name = try std.fmt.bufPrint(&name_buf, "{d} plugins, {s}", .{ count, if (sandboxed) "bridged" else "in-process" });
+                try row(w, name, 128, measure(io, &session, 128, samples, true));
+            }
+        }
+        ws.plugin_host.bridge.sandbox_enabled.store(true, .release);
     }
 
     // Finding 6: per-block scans that run whether or not a track renders.
@@ -197,7 +257,7 @@ pub fn main(init: std.process.Init) !void {
         var session = try blankSession(gpa, tracks);
         defer session.deinit();
         const name = try std.fmt.bufPrint(&name_buf, "{d} blank tracks", .{tracks});
-        try row(w, name, 128, measure(io, &session, 128, samples));
+        try row(w, name, 128, measure(io, &session, 128, samples, false));
     }
 
     try w.flush();

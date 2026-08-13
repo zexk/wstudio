@@ -255,22 +255,6 @@ pub fn build(b: *std.Build) void {
     const soak_step = b.step("soak", "Run one-hour simulated playback plus save/load/export soak");
     soak_step.dependOn(&run_soak.step);
 
-    const bench = b.addExecutable(.{
-        .name = "bench",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tools/bench.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "wstudio", .module = wstudio_mod },
-            },
-        }),
-    });
-    const run_bench = b.addRunArtifact(bench);
-    if (b.args) |args| run_bench.addArgs(args) else run_bench.addArg("demo.wsj");
-    const bench_step = b.step("bench", "Measure audio-callback time (p50/p99/deadline use) across track, send, and buffer-size scaling");
-    bench_step.dependOn(&run_bench.step);
-
     // Not part of `zig build test`: it needs a sample corpus on disk that is
     // far too large to ship, so it stays an on-demand check.
     const dspcheck = b.addExecutable(.{
@@ -384,6 +368,33 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    // Defined after `clap_test_plugin` because the plugin-bridge scenario
+    // hosts that very plugin: its DSP is one multiply, so what the in-process
+    // versus bridged rows measure is the round trip, not the plugin.
+    const bench = b.addExecutable(.{
+        .name = "bench",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/bench.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "wstudio", .module = wstudio_mod },
+            },
+        }),
+    });
+    const run_bench = b.addRunArtifact(bench);
+    if (b.args) |args| {
+        run_bench.addArgs(args); // caller supplies project (and optionally plugin) paths
+    } else {
+        run_bench.addArg("demo.wsj");
+        run_bench.addArtifactArg(clap_test_plugin);
+        run_bench.addArg("studio.wstudio.test.double"); // its effect (1-in/1-out) plugin
+    }
+    run_bench.step.dependOn(&install_plugin_bridge.step);
+    run_bench.setEnvironmentVariable("WSTUDIO_PLUGIN_BRIDGE_EXE", plugin_bridge_path);
+    const bench_step = b.step("bench", "Measure audio-callback time (p50/p99/deadline use) across track, send, plugin-bridge, and buffer-size scaling");
+    bench_step.dependOn(&run_bench.step);
+
     const clap_integration_test = b.addExecutable(.{
         .name = "clap-integration-test",
         .root_module = b.createModule(.{
