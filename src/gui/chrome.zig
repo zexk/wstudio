@@ -17,11 +17,12 @@ const zgui = @import("zgui");
 
 const color = gui_style.color;
 const theme = &gui_style.palette;
+pub const transport_height: f32 = 68;
 
 pub fn drawTransport(app: anytype, audio_label: []const u8) void {
     const snap = app.core.session.engine.uiSnapshot();
     zgui.setNextWindowPos(.{ .x = 0, .y = 0, .cond = .always });
-    zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = 64, .cond = .always });
+    zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = transport_height, .cond = .always });
     if (zgui.begin("Transport", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true, .no_scrollbar = true, .no_scroll_with_mouse = true } })) {
         const transport = app.core.displayTransport(snap.position_frames);
         const bar_beat = transport.positionBarBeat();

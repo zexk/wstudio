@@ -143,7 +143,7 @@ pub const App = struct {
 };
 
 fn bodyHeight(prompt_open: bool) f32 {
-    return zgui.io.getDisplaySize()[1] - 98 - @as(f32, if (prompt_open) 38 else 0);
+    return zgui.io.getDisplaySize()[1] - chrome.transport_height - 34 - @as(f32, if (prompt_open) 38 else 0);
 }
 
 fn drawWorkspace(app: *App) void {
@@ -152,7 +152,7 @@ fn drawWorkspace(app: *App) void {
         app.eq_analyzer_key = null;
     }
     const body_h = bodyHeight(app.core.modal.mode == .command or app.core.modal.mode == .search);
-    zgui.setNextWindowPos(.{ .x = 0, .y = 64, .cond = .always });
+    zgui.setNextWindowPos(.{ .x = 0, .y = chrome.transport_height, .cond = .always });
     zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = body_h, .cond = .always });
     if (zgui.begin("Workspace", .{ .flags = .{ .no_title_bar = true, .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
         const overlay = isPickerView(app.core.view);
