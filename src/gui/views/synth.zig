@@ -46,11 +46,11 @@ fn drawMain(app: anytype, synth: *ws.dsp.PolySynth) void {
 
     const gap: f32 = 6;
     const origin = zgui.getCursorPos();
-    const macro_w: f32 = 280;
-    const content_w = available[0] - macro_w - gap;
+    const utility_w: f32 = 240;
+    const content_w = available[0] - utility_w - gap;
     const column_w = (content_w - gap) / 2;
-    const center_x = origin[0] + macro_w + gap;
-    const right_x = origin[0] + macro_w + gap + column_w + gap;
+    const center_x = origin[0] + utility_w + gap;
+    const right_x = origin[0] + utility_w + gap + column_w + gap;
 
     zgui.setCursorPos(.{ center_x, origin[1] });
     drawTabbedCard(app, synth, synth_layout.main_sections[1..4], &app.core.synth_osc_tab, "synth-osc-tabs", column_w);
@@ -58,7 +58,7 @@ fn drawMain(app: anytype, synth: *ws.dsp.PolySynth) void {
     zgui.setCursorPos(.{ center_x, env_y });
     drawTabbedCard(app, synth, synth_layout.main_sections[11..14], &app.core.synth_env_tab, "synth-env-tabs", column_w);
     zgui.setCursorPosX(center_x);
-    drawCard(app, synth, synth_layout.main_sections[16], "synth-main", 16, column_w);
+    drawCard(app, synth, synth_layout.main_sections[15], "synth-main", 15, column_w);
     const center_bottom = zgui.getCursorPosY();
 
     zgui.setCursorPos(.{ right_x, origin[1] });
@@ -71,14 +71,14 @@ fn drawMain(app: anytype, synth: *ws.dsp.PolySynth) void {
     drawCard(app, synth, synth_layout.main_sections[5], "synth-main", 5, pair_w);
     const lfo_y = zgui.getCursorPosY();
     zgui.setCursorPos(.{ right_x, lfo_y });
-    drawTabbedCard(app, synth, synth_layout.main_sections[6..9], &app.core.synth_lfo_tab, "synth-lfo-tabs", column_w);
+    drawTabbedCardSized(app, synth, synth_layout.main_sections[6..9], &app.core.synth_lfo_tab, "synth-lfo-tabs", column_w, center_bottom - lfo_y);
     const right_bottom = zgui.getCursorPosY();
 
     zgui.setCursorPos(origin);
-    drawCard(app, synth, synth_layout.main_sections[0], "synth-main", 0, macro_w);
-    drawCard(app, synth, synth_layout.main_sections[15], "synth-main", 15, macro_w);
+    drawCard(app, synth, synth_layout.main_sections[0], "synth-main", 0, utility_w);
+    drawCard(app, synth, synth_layout.main_sections[16], "synth-main", 16, utility_w);
     zgui.setCursorPosX(origin[0]);
-    drawCard(app, synth, synth_layout.main_sections[14], "synth-main", 14, macro_w);
+    drawCardSized(app, synth, synth_layout.main_sections[14], "synth-main", 14, utility_w, center_bottom - zgui.getCursorPosY());
     const left_bottom = zgui.getCursorPosY();
 
     const composition_bottom = @max(left_bottom, @max(center_bottom, right_bottom));
@@ -194,6 +194,10 @@ fn drawSections(
 }
 
 fn drawTabbedCard(app: anytype, synth: *ws.dsp.PolySynth, sections: []const synth_layout.SectionDef, tab: *u8, child_id: [:0]const u8, width: f32) void {
+    drawTabbedCardSized(app, synth, sections, tab, child_id, width, 0);
+}
+
+fn drawTabbedCardSized(app: anytype, synth: *ws.dsp.PolySynth, sections: []const synth_layout.SectionDef, tab: *u8, child_id: [:0]const u8, width: f32, height: f32) void {
     tab.* = @min(tab.*, @as(u8, @intCast(sections.len - 1)));
     const slot = tab.*;
     const section = sections[slot];
@@ -201,8 +205,8 @@ fn drawTabbedCard(app: anytype, synth: *ws.dsp.PolySynth, sections: []const synt
     zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.bg2 });
     if (zgui.beginChild(child_id, .{
         .w = width,
-        .h = 0,
-        .child_flags = .{ .border = true, .auto_resize_y = true },
+        .h = height,
+        .child_flags = .{ .border = true, .auto_resize_y = height == 0 },
         .window_flags = .{ .no_scrollbar = true, .no_scroll_with_mouse = true },
     })) {
         for (sections, 0..) |tab_section, i| {
