@@ -13,6 +13,7 @@ const editor_window = @import("../plugin_host/editor_window.zig");
 
 const max_events = 256;
 const max_parameters = 256;
+const max_timers = 16;
 const max_thread_pool_workers = 4;
 
 threadlocal var on_audio_thread = false;
@@ -104,6 +105,8 @@ fn emptyEventAt(_: ?*const abi.InputEvents, _: u32) callconv(.c) ?*const abi.Eve
 }
 
 const HostContext = struct {
+    const Timer = struct { period_ns: u64, next_ns: u64 };
+
     host: abi.Host,
     restart_requested: std.atomic.Value(bool) = .init(false),
     process_requested: std.atomic.Value(bool) = .init(false),
@@ -117,6 +120,7 @@ const HostContext = struct {
     gui_hide_requested: std.atomic.Value(bool) = .init(false),
     gui_closed: std.atomic.Value(u8) = .init(0),
     gui_resize_requested: std.atomic.Value(u64) = .init(0),
+    timers: [max_timers]?Timer = .{null} ** max_timers,
     plugin: ?*const abi.Plugin = null,
     plugin_thread_pool: ?*const abi.PluginThreadPool = null,
     main_thread_id: std.Thread.Id,
@@ -180,6 +184,7 @@ const HostContext = struct {
         if (std.mem.eql(u8, name, std.mem.span(abi.ext_log))) return &host_log;
         if (std.mem.eql(u8, name, std.mem.span(abi.ext_gui))) return &host_gui;
         if (std.mem.eql(u8, name, std.mem.span(abi.ext_thread_pool))) return &host_thread_pool;
+        if (std.mem.eql(u8, name, std.mem.span(abi.ext_timer_support))) return &host_timer_support;
         return null;
     }
 
@@ -279,6 +284,25 @@ const HostContext = struct {
         fromHost(host).gui_closed.store(if (was_destroyed) 2 else 1, .release);
     }
 
+    fn registerTimer(host: *const abi.Host, period_ms: u32, timer_id: *u32) callconv(.c) bool {
+        if (period_ms == 0) return false;
+        const self = fromHost(host);
+        for (&self.timers, 0..) |*slot, id| if (slot.* == null) {
+            const period_ns = @as(u64, period_ms) * std.time.ns_per_ms;
+            slot.* = .{ .period_ns = period_ns, .next_ns = wire.monotonicNs() + period_ns };
+            timer_id.* = @intCast(id);
+            return true;
+        };
+        return false;
+    }
+
+    fn unregisterTimer(host: *const abi.Host, timer_id: u32) callconv(.c) bool {
+        const self = fromHost(host);
+        if (timer_id >= self.timers.len or self.timers[timer_id] == null) return false;
+        self.timers[timer_id] = null;
+        return true;
+    }
+
     const host_params: abi.HostParams = .{
         .rescan = paramsRescan,
         .clear = paramsClear,
@@ -300,6 +324,7 @@ const HostContext = struct {
         .closed = guiClosed,
     };
     const host_thread_pool: abi.HostThreadPool = .{ .request_exec = requestExec };
+    const host_timer_support: abi.HostTimerSupport = .{ .register_timer = registerTimer, .unregister_timer = unregisterTimer };
 };
 
 const WorkerArg = struct {
@@ -1227,10 +1252,18 @@ const Direct = struct {
     /// change notifications only need acknowledging. Returns whether the
     /// plugin marked its opaque state dirty since the previous service.
     pub fn serviceMainThread(self: *Direct) bool {
+        const now = wire.monotonicNs();
+        if (getExt(abi.PluginTimerSupport, self.plugin, abi.ext_timer_support)) |timer_support| {
+            for (&self.host_context.timers, 0..) |*slot, timer_id| if (slot.*) |*timer| {
+                if (now < timer.next_ns) continue;
+                timer.next_ns = now + timer.period_ns;
+                timer_support.on_timer(self.plugin, @intCast(timer_id));
+            };
+        }
         const gui_window_open = if (self.gui_window) |*window| window.service() else true;
         if (!gui_window_open) self.destroyGui();
         if (self.gui_window) |*window| if (window.takeResize()) |size| {
-            if (size.width > 0 and size.height > 0) if (self.guiExtension()) |gui| {
+            if (size.width > 0 and size.height > 0) if (self.guiExtension()) |gui| if (gui.can_resize(self.plugin)) {
                 var width: u32 = @intCast(size.width);
                 var height: u32 = @intCast(size.height);
                 _ = gui.adjust_size(self.plugin, &width, &height);
@@ -1242,8 +1275,7 @@ const Direct = struct {
         if (resize != 0 and self.gui_window != null) {
             const width: u32 = @intCast(resize >> 32);
             const height: u32 = @truncate(resize);
-            if (self.guiExtension()) |gui| if (gui.set_size(self.plugin, width, height))
-                if (self.gui_window) |*window| window.resize(@intCast(width), @intCast(height));
+            if (self.gui_window) |*window| window.resize(@intCast(width), @intCast(height));
         }
         if (self.restart_ready.swap(false, .acquire)) {
             self.plugin.deactivate(self.plugin);
@@ -1407,6 +1439,19 @@ test "CLAP event list preserves event order and ABI headers" {
     try std.testing.expectEqual(abi.event_midi, header.event_type);
     try std.testing.expectEqual(@as(u32, 4), header.time);
     try std.testing.expect(list.interface.get(&list.interface, 1) == null);
+}
+
+test "CLAP host timer registration validates and reuses slots" {
+    var host = HostContext.init();
+    host.bind();
+    var timer_id: u32 = undefined;
+    try std.testing.expect(!HostContext.registerTimer(&host.host, 0, &timer_id));
+    try std.testing.expect(HostContext.registerTimer(&host.host, 20, &timer_id));
+    try std.testing.expectEqual(@as(u32, 0), timer_id);
+    try std.testing.expect(!HostContext.unregisterTimer(&host.host, 1));
+    try std.testing.expect(HostContext.unregisterTimer(&host.host, timer_id));
+    try std.testing.expect(HostContext.registerTimer(&host.host, 10, &timer_id));
+    try std.testing.expectEqual(@as(u32, 0), timer_id);
 }
 
 test "CLAP transport carries musical position loop and play state" {

@@ -36,3 +36,6 @@ pub const gui = @cImport({
 pub const thread_pool = @cImport({
     @cInclude("clap/ext/thread-pool.h");
 });
+pub const timer_support = @cImport({
+    @cInclude("clap/ext/timer-support.h");
+});
