@@ -113,7 +113,23 @@ fn audioLoop(shared: *Shared) void {
     var last_seq: u64 = 0;
     var buf: [transport.max_frames * 2]f32 = undefined;
     while (true) {
-        while (@atomicLoad(u64, &block.input_seq, .acquire) == last_seq) std.atomic.spinLoopHint();
+        // Spin for a while, then yield - the same policy (and the same 200)
+        // as `transport.waitUntil`, which is what the parent waits with. A
+        // pure spin here reads a published block a hair sooner, but it also
+        // pegs a core per hosted plugin for as long as the plugin is loaded,
+        // so a project with more bridged plugins than the machine has cores
+        // starves every child at once: measured at 16 instances on 12 cores,
+        // callbacks went from 134us (8 instances) to 25ms, ten times the
+        // block deadline, while 16 of the same plugin in-process cost 40us.
+        var spins: u32 = 0;
+        while (@atomicLoad(u64, &block.input_seq, .acquire) == last_seq) {
+            std.atomic.spinLoopHint();
+            spins += 1;
+            if (spins >= 200) {
+                std.Thread.yield() catch {};
+                spins = 0;
+            }
+        }
         last_seq = @atomicLoad(u64, &block.input_seq, .acquire);
 
         if (@atomicRmw(u8, &block.reset_requested, .Xchg, 0, .acq_rel) != 0) {
