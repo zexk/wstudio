@@ -10,8 +10,8 @@ const std = @import("std");
 const ws = @import("wstudio");
 const modal_mod = ws.input;
 const commands = @import("commands.zig");
-const commands_load = @import("commands_load.zig");
-const commands_util = @import("commands_util.zig");
+const commands_load = @import("commands/load.zig");
+const commands_util = @import("commands/util.zig");
 const bookmark_store = @import("bookmark_store.zig");
 const recent_project_store = @import("recent_project_store.zig");
 

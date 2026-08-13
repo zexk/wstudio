@@ -13,7 +13,7 @@ const app_mod = @import("../app.zig");
 const App = app_mod.App;
 const StepRangeClip = app_mod.StepRangeClip;
 const history = @import("../history.zig");
-const commands_load = @import("../commands_load.zig");
+const commands_load = @import("../commands/load.zig");
 const commands = @import("../commands.zig");
 const step_grid = @import("step_grid.zig");
 

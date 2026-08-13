@@ -7,7 +7,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const DrumMachine = ws.dsp.DrumMachine;
 const Slicer = ws.dsp.Slicer;
-const app_mod = @import("app.zig");
+const app_mod = @import("../app.zig");
 const App = app_mod.App;
 const pattern_mod = ws.dsp.pattern;
 

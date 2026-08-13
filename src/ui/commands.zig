@@ -27,11 +27,11 @@ const user_presets = @import("user_presets.zig");
 const user_drum_kits = @import("user_drum_kits.zig");
 const help_view = @import("help.zig");
 
-const commands_util = @import("commands_util.zig");
-const commands_pattern = @import("commands_pattern.zig");
-const commands_tracks = @import("commands_tracks.zig");
-const commands_load = @import("commands_load.zig");
-const commands_mixer = @import("commands_mixer.zig");
+const commands_util = @import("commands/util.zig");
+const commands_pattern = @import("commands/pattern.zig");
+const commands_tracks = @import("commands/tracks.zig");
+const commands_load = @import("commands/load.zig");
+const commands_mixer = @import("commands/mixer.zig");
 
 fn wrap(comptime f: fn (*App, []const u8) void) *const fn (*anyopaque, []const u8) void {
     return struct {
