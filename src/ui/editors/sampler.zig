@@ -530,17 +530,37 @@ fn moveMarkerTo(app: *App, marker: SamplerMarker, target_norm: f32) void {
 
 /// Press inside the waveform: grab whichever marker (start/end) is nearer to
 /// the clicked position and move it there immediately.
-fn startWaveformDrag(app: *App, x: usize, cols: u16) void {
+fn startWaveformDrag(app: *App, x: usize, cols: u16, ev: modal_mod.MouseEvent) void {
     const norm = waveformNorm(x, cols) orelse return;
     const norms = currentNorms(app) orelse return;
-    const marker: SamplerMarker = if (@abs(norm - norms.start) <= @abs(norm - norms.end)) .start else .end;
+    if (ev.shift) {
+        app.sampler_drag_window = true;
+        app.sampler_drag_norm = norm;
+        return;
+    }
+    const marker: SamplerMarker = if (ev.button == .middle)
+        .start
+    else if (ev.button == .right)
+        .end
+    else if (@abs(norm - norms.start) <= @abs(norm - norms.end))
+        .start
+    else
+        .end;
     app.sampler_drag_marker = marker;
     moveMarkerTo(app, marker, norm);
 }
 
+fn moveWindow(app: *App, delta: f32) void {
+    const norms = currentNorms(app) orelse return;
+    const d = std.math.clamp(delta, -norms.start, 1.0 - norms.end);
+    moveMarkerTo(app, .start, norms.start + d);
+    moveMarkerTo(app, .end, norms.end + d);
+}
+
 /// Click a param row to select it (like j/k landing there); click inside the
-/// waveform panel to grab and move the nearer start/end marker, continuing
-/// to follow the mouse while the button stays held. Scroll over a param row
+/// waveform panel to grab and move the nearer marker; middle picks start,
+/// right picks end, and **Shift**+drag moves both. Wheel zooms the window;
+/// **Ctrl**+wheel scrolls it. Scroll over a param row
 /// nudges it via `adjustParam` (**ctrl**+scroll curves envelope/fade time
 /// params and coarse-nudges everything else, matching H/L).
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, view_rows: usize) void {
@@ -555,19 +575,39 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
     switch (ev.kind) {
         .press => {
             if (in_waveform) {
-                startWaveformDrag(app, ev.x, cols);
+                startWaveformDrag(app, ev.x, cols, ev);
             } else if (paramAtRow(app, row, view_rows)) |p| {
                 history.flushParamNudge(app);
                 app.sampler_param = p;
             }
         },
         .drag => {
+            if (app.sampler_drag_window) {
+                const norm = waveformNorm(ev.x, cols) orelse return;
+                moveWindow(app, norm - app.sampler_drag_norm);
+                app.sampler_drag_norm = norm;
+                return;
+            }
             const marker = app.sampler_drag_marker orelse return;
             const norm = waveformNorm(ev.x, cols) orelse return;
             moveMarkerTo(app, marker, norm);
         },
-        .release => app.sampler_drag_marker = null,
+        .release => {
+            app.sampler_drag_marker = null;
+            app.sampler_drag_window = false;
+        },
         .scroll_up, .scroll_down => {
+            if (in_waveform) {
+                const dir: f32 = if (ev.kind == .scroll_up) 0.01 else -0.01;
+                if (ev.ctrl) {
+                    moveWindow(app, dir);
+                } else {
+                    const norms = currentNorms(app) orelse return;
+                    moveMarkerTo(app, .start, norms.start + dir);
+                    moveMarkerTo(app, .end, norms.end - dir);
+                }
+                return;
+            }
             if (paramAtRow(app, row, view_rows)) |p| app.sampler_param = p else return;
             const dir: i32 = if (ev.kind == .scroll_up) 1 else -1;
             if (ev.ctrl) adjustModifiedParam(app, dir) else adjustParam(app, dir);

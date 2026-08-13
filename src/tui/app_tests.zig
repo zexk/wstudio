@@ -8385,6 +8385,36 @@ test "mouse click/drag on a sampler waveform moves the nearer marker" {
     try std.testing.expectEqual(@as(u8, 0), app.sampler_param);
 }
 
+test "sampler waveform modifier mouse edits markers and window" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    app.sampler_target = .{ .drum = 2 };
+    app.drum_cursor[0] = 0;
+    app.view = .sampler_editor;
+    const row = app_mod.content_top + 5;
+    var block: [64]types.Sample = undefined;
+
+    app.handleMouse(.{ .x = 20, .y = row, .button = .middle, .kind = .press }, 80, 48, 0);
+    app.session.engine.process(&block);
+    try std.testing.expect(app.drumMachine().pads[0].?.pad.start_norm > 0.1);
+    app.handleMouse(.{ .x = 60, .y = row, .button = .right, .kind = .press }, 80, 48, 0);
+    app.session.engine.process(&block);
+    try std.testing.expect(app.drumMachine().pads[0].?.pad.end_norm < 1.0);
+
+    const before = app.drumMachine().pads[0].?.pad.start_norm;
+    app.handleMouse(.{ .x = 30, .y = row, .button = .left, .kind = .press, .shift = true }, 80, 48, 0);
+    app.handleMouse(.{ .x = 35, .y = row, .button = .left, .kind = .drag, .shift = true }, 80, 48, 0);
+    app.session.engine.process(&block);
+    app.handleMouse(.{ .x = 35, .y = row, .button = .left, .kind = .release, .shift = true }, 80, 48, 0);
+    try std.testing.expect(app.drumMachine().pads[0].?.pad.start_norm > before);
+
+    const width = app.drumMachine().pads[0].?.pad.end_norm - app.drumMachine().pads[0].?.pad.start_norm;
+    app.handleMouse(.{ .x = 40, .y = row, .button = .none, .kind = .scroll_up }, 80, 48, 0);
+    app.session.engine.process(&block);
+    try std.testing.expect(app.drumMachine().pads[0].?.pad.end_norm - app.drumMachine().pads[0].?.pad.start_norm < width);
+}
+
 test "empty sampler panel ignores hidden mouse controls" {
     var app = try testApp();
     defer app.deinit();

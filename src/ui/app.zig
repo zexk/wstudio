@@ -887,6 +887,8 @@ pub const App = struct {
     /// In-progress sampler-waveform marker drag. Null when no drag is
     /// active. See editors/sampler.zig's handleMouse.
     sampler_drag_marker: ?SamplerMarker = null,
+    sampler_drag_window: bool = false,
+    sampler_drag_norm: f32 = 0.0,
     automation_mouse_edit: bool = false,
     automation_mouse_erase: bool = false,
     fx_drag_slot: ?usize = null,
