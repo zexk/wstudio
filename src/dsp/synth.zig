@@ -1374,9 +1374,11 @@ pub const PolySynth = struct {
     /// test - has nothing to say about pan, tuning or release and shouldn't
     /// have to spell out that it doesn't.
     pub fn noteOnArt(self: *PolySynth, note: u7, velocity: f32, art: dsp.Articulation) void {
+        const safe_velocity = if (std.math.isFinite(velocity)) std.math.clamp(velocity, 0.0, 1.0) else 0.0;
+        const safe_art = art.clamped();
         if (self.arp_on) {
             const was_empty = self.held_count == 0;
-            self.pushHeld(note, velocity, art);
+            self.pushHeld(note, safe_velocity, safe_art);
             self.arpUpdateLatch();
             // Fresh press from silence: trigger immediately and restart the
             // step clock, rather than waiting out whatever phase happened
@@ -1390,13 +1392,13 @@ pub const PolySynth = struct {
         }
         switch (self.voice_mode) {
             // zig fmt: off
-            .poly   => self.noteOnPoly(note, velocity, art),
-            .mono   => { self.pushHeld(note, velocity, art); self.noteOnMono(note, velocity, art, true); },
+            .poly   => self.noteOnPoly(note, safe_velocity, safe_art),
+            .mono   => { self.pushHeld(note, safe_velocity, safe_art); self.noteOnMono(note, safe_velocity, safe_art, true); },
             // zig fmt: on
             .legato => {
                 const was_active = self.voices[0].active;
-                self.pushHeld(note, velocity, art);
-                self.noteOnMono(note, velocity, art, !was_active);
+                self.pushHeld(note, safe_velocity, safe_art);
+                self.noteOnMono(note, safe_velocity, safe_art, !was_active);
             },
         }
     }
@@ -4325,6 +4327,19 @@ test "Articulation.clamped pulls a hand-edited value back into range" {
 
     const nan = dsp.Articulation{ .pan = std.math.nan(f32), .fine_cents = std.math.inf(f32), .release_scale = std.math.nan(f32) };
     try std.testing.expect(nan.clamped().isNeutral());
+}
+
+test "note-on sanitizes velocity and articulation before they reach a voice" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+
+    synth.noteOnArt(60, std.math.nan(f32), .{ .pan = 2.0, .fine_cents = -200.0, .release_scale = 0.0 });
+
+    const voice = synth.voices[0];
+    try std.testing.expectEqual(@as(f32, 0.0), voice.velocity);
+    try std.testing.expectEqual(@as(f32, 1.0), voice.art.pan);
+    try std.testing.expectEqual(@as(f32, -100.0), voice.art.fine_cents);
+    try std.testing.expectEqual(@as(f32, 0.1), voice.art.release_scale);
 }
 
 test "mono mode: only one voice active" {
