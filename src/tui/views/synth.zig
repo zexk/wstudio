@@ -545,7 +545,7 @@ fn secOut(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try synthSection(w, "OUT", bcyn);
 
     try barRow(w, c == 38, false, bcyn, "gain", synth.gain, 1.0,
-        try std.fmt.bufPrint(&buf, "{d:.3}", .{synth.gain}));
+        synth_ed.paramValueText(synth, 38, &buf));
 }
 
 const uni_mode_names = [_][]const u8{ "spread", "step", "harm", "ratio" };

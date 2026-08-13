@@ -285,7 +285,7 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
         }),
         36 => if (synth.noise_level == 0.0) try w.writeAll("off") else try w.print("{d:.2}", .{synth.noise_level}),
         37 => try w.print("{d:.2}", .{synth.noise_color}),
-        38 => try w.print("{d:.3}", .{synth.gain}),
+        38 => try w.print("{d:.1} dB", .{20.0 * std.math.log10(synth.gain)}),
         39 => try w.writeAll(uniModeName(synth.unison_mode)),
         40 => try w.writeAll(uniModeName(synth.osc_b_unison_mode)),
         41 => try w.writeAll(warpModeName(synth.warp_mode)),
@@ -385,6 +385,8 @@ test "param value text covers envelope curves and filter drives" {
     try std.testing.expectEqualStrings("0.1 ms", paramValueText(&synth, 265, &buf));
     synth.release_s = 1.25;
     try std.testing.expectEqualStrings("1.25 s", paramValueText(&synth, 19, &buf));
+    synth.gain = 0.5;
+    try std.testing.expectEqualStrings("-6.0 dB", paramValueText(&synth, 38, &buf));
 }
 
 pub fn searchCandidates(buf: []SearchCandidate) []const SearchCandidate {
