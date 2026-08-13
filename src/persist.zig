@@ -16,7 +16,7 @@
 //!   - User-loaded sample audio (drum pads + sampler clips), exported as mono
 //!     FLAC into the .wsj's own audio cache section
 //!
-//! The snapshot itself is written by `persist_bin.zig`; this file only
+//! The snapshot itself is written by `persist/bin.zig`; this file only
 //! builds and consumes the snapshot structs.
 
 const std = @import("std");
@@ -62,10 +62,10 @@ const automation_mod = @import("dsp/automation.zig");
 const tuning_mod = @import("dsp/tuning.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
 
-const persist_types = @import("persist_types.zig");
-const persist_bin = @import("persist_bin.zig");
-const persist_save = @import("persist_save.zig");
-const persist_load = @import("persist_load.zig");
+const persist_types = @import("persist/types.zig");
+const persist_bin = @import("persist/bin.zig");
+const persist_save = @import("persist/save.zig");
+const persist_load = @import("persist/load.zig");
 
 // Snapshot types, save path, and load path all live in their own files now -
 // re-exported here under their original names so every external

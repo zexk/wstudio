@@ -19,9 +19,9 @@ pub const c = @cImport({
     @cInclude("lualib.h");
 });
 
-const config_keymap = @import("config_keymap.zig");
-const config_lua_api = @import("config_lua_api.zig");
-const config_options = @import("config_options.zig");
+const config_keymap = @import("config/keymap.zig");
+const config_lua_api = @import("config/lua_api.zig");
+const config_options = @import("config/options.zig");
 
 // Re-exported so api_functions below (which still lists every Lua API
 // function by bare name) and Runtime's own keymap-table registration

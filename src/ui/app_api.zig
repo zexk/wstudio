@@ -3,7 +3,7 @@
 //! mirrors the exact code path the equivalent UI gesture takes, so
 //! scripts and keys can't diverge. App re-exports every method and
 //! error/info type here under its original name, since
-//! config_lua_api.zig reaches them as `App.ApiPatternError` etc.
+//! config/lua_api.zig reaches them as `App.ApiPatternError` etc.
 
 const std = @import("std");
 const types = ws.types;

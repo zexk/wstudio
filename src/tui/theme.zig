@@ -48,7 +48,7 @@ pub const reset_osc = "\x1b]104\x07" ++ "\x1b]110\x07" ++ "\x1b]111\x07";
 /// leaves the terminal's own palette untouched entirely.
 pub fn oscFor(theme: config_mod.TuiTheme, overrides: *const ws.theme_identity.Overrides, buf: []u8) []const u8 {
     if (theme == .none) return "";
-    // `TuiTheme` is `Name` with `.none` prepended (config_options.zig), so the
+    // `TuiTheme` is `Name` with `.none` prepended (config/options.zig), so the
     // ordinals line up one apart.
     const name: ws.theme_identity.Name = @enumFromInt(@intFromEnum(theme) - 1);
     const resolved = overrides.apply(ws.theme_identity.get(name).*);

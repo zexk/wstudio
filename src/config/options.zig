@@ -7,7 +7,7 @@
 const std = @import("std");
 const theme_identity = @import("wstudio").theme_identity;
 
-const config = @import("config.zig");
+const config = @import("../config.zig");
 const c = config.c;
 const runtime = config.runtime;
 

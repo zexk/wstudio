@@ -3,55 +3,55 @@
 //! see that file's header for the round-trip guarantees these serve.
 
 const std = @import("std");
-const Session = @import("session.zig").Session;
-const wav = @import("core/wav.zig");
-const types = @import("core/types.zig");
-const theory = @import("theory.zig");
-const project_mod = @import("project.zig");
+const Session = @import("../session.zig").Session;
+const wav = @import("../core/wav.zig");
+const types = @import("../core/types.zig");
+const theory = @import("../theory.zig");
+const project_mod = @import("../project.zig");
 const Project = project_mod.Project;
 const track_color_count = project_mod.track_color_count;
-const ws_arrangement = @import("arrangement.zig");
-const time_grid = @import("time_grid.zig");
-const time_map = @import("time_map.zig");
-const rack_mod = @import("rack.zig");
+const ws_arrangement = @import("../arrangement.zig");
+const time_grid = @import("../time_grid.zig");
+const time_map = @import("../time_map.zig");
+const rack_mod = @import("../rack.zig");
 const Rack = rack_mod.Rack;
 const Fx = rack_mod.Fx;
-const engine_mod = @import("audio/engine.zig");
+const engine_mod = @import("../audio/engine.zig");
 const Engine = engine_mod.Engine;
-const Transport = @import("transport.zig").Transport;
-const synth_mod = @import("dsp/synth.zig");
+const Transport = @import("../transport.zig").Transport;
+const synth_mod = @import("../dsp/synth.zig");
 const PolySynth = synth_mod.PolySynth;
-const wavetable_mod = @import("dsp/wavetable.zig");
-const pattern_mod = @import("dsp/pattern.zig");
+const wavetable_mod = @import("../dsp/wavetable.zig");
+const pattern_mod = @import("../dsp/pattern.zig");
 const PatternPlayer = pattern_mod.PatternPlayer;
-const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
-const drum_kit = @import("dsp/drum_kit.zig");
-const pad_mod = @import("dsp/pad.zig");
+const DrumMachine = @import("../dsp/drum_sampler.zig").DrumMachine;
+const drum_kit = @import("../dsp/drum_kit.zig");
+const pad_mod = @import("../dsp/pad.zig");
 const Pad = pad_mod.Pad;
-const lfo_mod = @import("dsp/lfo.zig");
-const Sampler = @import("dsp/sampler.zig").Sampler;
-const Slicer = @import("dsp/slicer.zig").Slicer;
-const SoundfontPlayer = @import("dsp/soundfont_player.zig").SoundfontPlayer;
-const soundfont_mod = @import("dsp/soundfont.zig");
-const Compressor = @import("dsp/compressor.zig").Compressor;
-const multiband_comp_mod = @import("dsp/multiband_comp.zig");
-const Reverb = @import("dsp/reverb.zig").Reverb;
-const eq_mod = @import("dsp/eq.zig");
-const Gate = @import("dsp/gate.zig").Gate;
-const Saturator = @import("dsp/saturator.zig").Saturator;
-const Crusher = @import("dsp/crusher.zig").Crusher;
-const Phaser = @import("dsp/phaser.zig").Phaser;
-const dsp = @import("dsp/device.zig");
-const automation_mod = @import("dsp/automation.zig");
+const lfo_mod = @import("../dsp/lfo.zig");
+const Sampler = @import("../dsp/sampler.zig").Sampler;
+const Slicer = @import("../dsp/slicer.zig").Slicer;
+const SoundfontPlayer = @import("../dsp/soundfont_player.zig").SoundfontPlayer;
+const soundfont_mod = @import("../dsp/soundfont.zig");
+const Compressor = @import("../dsp/compressor.zig").Compressor;
+const multiband_comp_mod = @import("../dsp/multiband_comp.zig");
+const Reverb = @import("../dsp/reverb.zig").Reverb;
+const eq_mod = @import("../dsp/eq.zig");
+const Gate = @import("../dsp/gate.zig").Gate;
+const Saturator = @import("../dsp/saturator.zig").Saturator;
+const Crusher = @import("../dsp/crusher.zig").Crusher;
+const Phaser = @import("../dsp/phaser.zig").Phaser;
+const dsp = @import("../dsp/device.zig");
+const automation_mod = @import("../dsp/automation.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
-const tuning_mod = @import("dsp/tuning.zig");
-const controller_mod = @import("dsp/controller.zig");
+const tuning_mod = @import("../dsp/tuning.zig");
+const controller_mod = @import("../dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
 pub const file_version: u32 = 72;
 
 /// First four bytes of every .wsj. The file is a container: a 12-byte
 /// header, the audio cache (user sample blobs, concatenated), then this
-/// `Snapshot` binary-encoded and deflated by `persist_bin.zig` to EOF.
+/// `Snapshot` binary-encoded and deflated by `persist/bin.zig` to EOF.
 /// See FORMAT.md for the full layout.
 pub const bundle_magic = "WSJ1".*;
 
@@ -97,7 +97,7 @@ pub const SynthParamAutomationSnap = struct {
 };
 
 // ---------------------------------------------------------------------------
-// Snapshot types - plain data, encodable by `persist_bin.zig`
+// Snapshot types - plain data, encodable by `persist/bin.zig`
 // ---------------------------------------------------------------------------
 
 /// Per-note expression (`dsp.Articulation`) stored flat with neutral defaults.

@@ -12,12 +12,12 @@ const theme_identity = @import("wstudio").theme_identity;
 const pattern_mod = @import("wstudio").dsp.pattern;
 const DrumMachine = @import("wstudio").dsp.DrumMachine;
 const ws_root = @import("wstudio");
-const cmd_mod = @import("ui/cmd.zig");
-const tui_app = @import("ui/app.zig");
-const undo_mod = @import("ui/undo.zig");
-const spectrum_ed = @import("ui/editors/fx_editor.zig");
+const cmd_mod = @import("../ui/cmd.zig");
+const tui_app = @import("../ui/app.zig");
+const undo_mod = @import("../ui/undo.zig");
+const spectrum_ed = @import("../ui/editors/fx_editor.zig");
 
-const config = @import("config.zig");
+const config = @import("../config.zig");
 const c = config.c;
 const runtime = config.runtime;
 const pending_cmds_key = config.pending_cmds_key;

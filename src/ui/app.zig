@@ -1843,7 +1843,7 @@ pub const App = struct {
 
     // wstudio.api surface (docs/lua-api.md phase 6): bodies live in
     // app_api.zig, re-exported here under their own names since
-    // config_lua_api.zig reaches them as requireApp(l).apiPlay() /
+    // config/lua_api.zig reaches them as requireApp(l).apiPlay() /
     // App.ApiPatternError-style qualified access.
     pub const ApiTransportInfo = app_api.ApiTransportInfo;
     pub const apiIsPlaying = app_api.apiIsPlaying;
