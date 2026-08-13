@@ -284,7 +284,7 @@ pub fn writeParamValue(synth: *const ws.dsp.PolySynth, id: u16, w: *std.Io.Write
             .square => "sqr",
         }),
         36 => if (synth.noise_level == 0.0) try w.writeAll("off") else try w.print("{d:.2}", .{synth.noise_level}),
-        37 => try w.print("{d:.2}", .{synth.noise_color}),
+        37 => try w.print("{d:.0}% {s}", .{ synth.noise_color * 100.0, if (synth.noise_color < 0.33) "dark" else if (synth.noise_color > 0.66) "white" else "warm" }),
         38 => try w.print("{d:.1} dB", .{20.0 * std.math.log10(synth.gain)}),
         39 => try w.writeAll(uniModeName(synth.unison_mode)),
         40 => try w.writeAll(uniModeName(synth.osc_b_unison_mode)),
@@ -395,6 +395,8 @@ test "param value text covers envelope curves and filter drives" {
     try std.testing.expectEqualStrings("75%", paramValueText(&synth, 120, &buf));
     synth.lfo_phase_offset = 0.25;
     try std.testing.expectEqualStrings("90\u{00b0}", paramValueText(&synth, 262, &buf));
+    synth.noise_color = 0.5;
+    try std.testing.expectEqualStrings("50% warm", paramValueText(&synth, 37, &buf));
 }
 
 pub fn searchCandidates(buf: []SearchCandidate) []const SearchCandidate {

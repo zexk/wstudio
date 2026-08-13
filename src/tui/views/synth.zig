@@ -532,12 +532,8 @@ fn secNoise(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
 
     try barRow(w, c == 36, false, acc, "level", synth.noise_level, 1.0,
         if (synth.noise_level == 0.0) "off" else try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.noise_level}));
-    {
-        const hint: []const u8 = if (synth.noise_color < 0.33) "dark"
-            else if (synth.noise_color > 0.66) "white" else "warm";
-        try barRow(w, c == 37, synth.noise_level == 0.0, acc, "color", synth.noise_color, 1.0,
-            try std.fmt.bufPrint(&buf, "{d:.2}  {s}", .{ synth.noise_color, hint }));
-    }
+    try barRow(w, c == 37, synth.noise_level == 0.0, acc, "color", synth.noise_color, 1.0,
+        synth_ed.paramValueText(synth, 37, &buf));
 }
 
 fn secOut(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
