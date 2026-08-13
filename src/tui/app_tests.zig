@@ -9883,19 +9883,17 @@ test "applyUserConfig plumbs session defaults" {
     var cfg: @import("../config.zig").Config = .{};
     cfg.default_master_gain_db = -9;
     cfg.default_piano_pitch = 120;
-    cfg.default_song_mode = true;
     app.applyUserConfig(cfg, false);
     try std.testing.expectEqual(@as(f32, -9), app.master_gain_db);
     try std.testing.expectEqual(@as(u7, 120), app.piano_cursor_pitch);
     try std.testing.expectEqual(@as(u7, 127), app.piano_scroll_pitch);
-    try std.testing.expect(app.session.song_mode);
 
     cfg.default_piano_pitch = 36;
-    cfg.default_song_mode = false;
     app.applyUserConfig(cfg, false);
     try std.testing.expectEqual(@as(u7, 36), app.piano_cursor_pitch);
     try std.testing.expectEqual(@as(u7, 48), app.piano_scroll_pitch);
-    try std.testing.expect(!app.session.song_mode);
+    // `default_song_mode` is not here: it only applies to a blank session -
+    // see "opening a project keeps the song mode it was saved with".
 }
 
 test "openBrowser falls back to default_browse_dir when no project path is known" {
@@ -10374,4 +10372,25 @@ test "undo restores the project byte for byte" {
             return error.UndoContractChanged;
         }
     }
+}
+
+test "opening a project keeps the song mode it was saved with" {
+    // A loaded project's own arrangement/pattern setting outranks the
+    // config default, the same way its tempo does. It used to lose: opening
+    // a song-mode project put it in pattern mode, and saving wrote that
+    // back, so a load and a save with nothing in between changed the mix.
+    var app = try testApp();
+    defer app.deinit();
+    var cfg: @import("../config.zig").Config = .{};
+    cfg.default_song_mode = false;
+
+    app.session.setSongMode(true);
+    app.applyUserConfig(cfg, false);
+    try std.testing.expect(app.session.song_mode);
+
+    // With no project to honour, the default is the whole answer.
+    cfg.default_song_mode = true;
+    app.session.setSongMode(false);
+    app.applyUserConfig(cfg, true);
+    try std.testing.expect(app.session.song_mode);
 }

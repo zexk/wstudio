@@ -1655,7 +1655,13 @@ pub const App = struct {
         // persisted (see its doc comment), so every load - blank or from a
         // project file - starts silent unless this restores the click.
         self.session.setMetronome(user_config.default_metronome_enabled);
-        self.session.setSongMode(user_config.default_song_mode);
+        // Gated by `blank`, unlike the metronome above, because song mode IS
+        // persisted: a project that was saved playing its arrangement has to
+        // open playing its arrangement. Applying the config default over it
+        // opened demo.wsj as a bare pattern loop, and the next save wrote
+        // that back - a load and a save with no edits between them changed
+        // what the project sounded like.
+        if (blank) self.session.setSongMode(user_config.default_song_mode);
         self.default_browse_dir = user_config.default_browse_dir;
         self.clap_plugin_path = user_config.clap_plugin_path;
         self.vst3_plugin_path = user_config.vst3_plugin_path;
