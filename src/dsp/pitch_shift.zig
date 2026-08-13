@@ -83,7 +83,11 @@ pub const PitchShift = struct {
     mix: f32 = 1.0,
 
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32) !PitchShift {
-        const safe_rate = @max(sample_rate, 1);
+        // Rubber Band supports 8k to 192k and silently clamps anything else
+        // to that range, after logging the complaint. Clamp here instead, so
+        // a degenerate rate neither prints from the audio thread nor leaves
+        // `sample_rate` disagreeing with the rate the shifter really runs at.
+        const safe_rate = std.math.clamp(sample_rate, 8_000, 192_000);
         // The live shifter has its own option enum whose values differ from
         // the offline one's: `RubberBandOptionWindowShort` is 0x00100000,
         // which here means *Medium*. Named for what it actually selects.
