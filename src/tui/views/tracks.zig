@@ -99,9 +99,9 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
     const is_empty = inst_tag == .empty;
     const label: []const u8 = if (is_empty) "-- empty --" else app.session.racks.items[ti].label;
     const hint: []const u8 = if (!is_sel) "" else switch (inst_tag) {
-        .empty => dim ++ "[enter:insert]" ++ rst,
-        .drum_machine, .slicer => dim ++ "[enter:grid]" ++ rst,
-        else => dim ++ "[enter:edit]" ++ rst,
+        .empty => dim ++ "[enter insert]" ++ rst,
+        .drum_machine, .slicer => dim ++ "[enter grid]" ++ rst,
+        else => dim ++ "[enter edit]" ++ rst,
     };
     // muted-but-not-selected rows get a dim wash over everything
     const faded = track.muted and !is_sel;
@@ -275,7 +275,7 @@ fn writeGroupRow(app: anytype, w: *std.Io.Writer, gi: u8, is_sel: bool, in_sel: 
         try lw.print("  ({d} track{s})", .{ members, if (members == 1) "" else "s" });
         if (!is_sel) try lw.writeAll(rst);
     }
-    const hint: []const u8 = if (is_sel) dim ++ "[enter:fx z:fold]" ++ rst else "";
+    const hint: []const u8 = if (is_sel) dim ++ "[enter fx  z fold]" ++ rst else "";
     try style.writeSplitRow(w, row_w.buffered(), hint, cols -| 1);
 }
 // zig fmt: on
@@ -353,7 +353,7 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, sna
             }
         }
         try writeGainCell(lw, app.master_gain_db, !is_sel);
-        const hint: []const u8 = if (is_sel) dim ++ "[enter:fx]" ++ rst else "";
+        const hint: []const u8 = if (is_sel) dim ++ "[enter fx]" ++ rst else "";
         try style.writeSplitRow(w, row_w.buffered(), hint, cols -| 1);
         try endLine(w);
     }

@@ -3895,14 +3895,14 @@ test "tracks view progressively discloses row and footer actions" {
     var w = std.Io.Writer.fixed(&buf);
     try tui_mod.draw(&app, &w, .{ .cols = 100, .rows = 24 });
     const track_frame = w.buffered();
-    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, track_frame, "[enter:edit]"));
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, track_frame, "[enter edit]"));
     try std.testing.expect(std.mem.indexOf(u8, track_frame, "p piano  s fx  m mute") != null);
 
     app.setTrackRow(app.track_rows_len);
     w = std.Io.Writer.fixed(&buf);
     try tui_mod.draw(&app, &w, .{ .cols = 100, .rows = 24 });
     const master_frame = w.buffered();
-    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, master_frame, "[enter:fx]"));
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, master_frame, "[enter fx]"));
     try std.testing.expect(std.mem.indexOf(u8, master_frame, "enter/s fx  -/+ gain") != null);
 }
 
