@@ -238,7 +238,9 @@ pub fn draw(app: anytype) void {
     }
     drawToolbar(app);
 
-    const gutter_w: f32 = 58;
+    // Wide enough for the velocity lane's header below it, which is the
+    // longest thing the gutter has to hold ("VELOCITY", not a key name).
+    const gutter_w: f32 = 66;
     const ruler_h: f32 = 24;
     const row_h: f32 = gui_style.piano_row_height;
     const controller_h: f32 = 96;
@@ -551,10 +553,16 @@ fn drawVelocityLane(app: anytype, pp: *ws.dsp.PatternPlayer, width: f32, gutter_
     const field = app.core.piano_note_field;
     var head_buf: [24]u8 = undefined;
     const head = std.ascii.upperString(&head_buf, field.label());
-    draw_list.addText(.{ origin[0] + 8, origin[1] + 8 }, color(theme.rhythm), "{s}", .{head});
-    // Kept to what fits the gutter - the status line already spells out that
-    // `f` cycles the field, and this header names whichever one is showing.
-    draw_list.addText(.{ origin[0] + 8, origin[1] + 30 }, color(theme.fg3), "</> f drag", .{});
+    // Clipped to the gutter, because neither string is guaranteed to fit one:
+    // the gutter is as wide as the piano roll's key labels need, the font is
+    // whatever `gui_font_size` says, and a name like MICROTUNE at 20pt runs
+    // well past both. Overflow used to spill under the first velocity bar.
+    draw_list.pushClipRect(.{ .pmin = origin, .pmax = .{ grid_x, origin[1] + height }, .intersect_with_current = true });
+    draw_list.addText(.{ origin[0] + 4, origin[1] + 8 }, color(theme.rhythm), "{s}", .{head});
+    // The status line already spells out that `f` cycles the field and that
+    // dragging edits it, so the gutter only has room to name the keys.
+    draw_list.addText(.{ origin[0] + 4, origin[1] + 30 }, color(theme.fg3), "</> f", .{});
+    draw_list.popClipRect();
 
     const steps_per_beat = app.core.pianoStepsPerBeat();
     const beat_count: usize = @intFromFloat(@ceil(beats));
