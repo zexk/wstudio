@@ -14,6 +14,9 @@
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
       version = "1.0.0-beta.9";
+      # fetchDeps converts build.zig.zon's source dependencies into Zig's
+      # package cache. One hash keeps native, macOS, and Windows builds synced.
+      zigDepsHash = "sha256-0GeMYLsWO89SK6f7rw0HxIqkahbSt/8/SeEkI5WVFus=";
       # Built with a static archive as well as the usual shared library, so a
       # downloaded wstudio does not ask the user to install it too. Whatever
       # `pkgs` this is applied to decides the platform, which is how the
@@ -133,7 +136,7 @@
           src = self;
           zigDeps = pkgs.zig.fetchDeps {
             inherit (finalAttrs) pname version src;
-            hash = "sha256-U4HA3J4+mxUbSMWyr6W3JjWa1TthohTYCGJnzZR2qFQ=";
+            hash = zigDepsHash;
           };
           nativeBuildInputs = [
             pkgs.zig.hook
@@ -207,7 +210,7 @@
           src = self;
           zigDeps = pkgs.zig.fetchDeps {
             inherit (finalAttrs) pname version src;
-            hash = "sha256-U4HA3J4+mxUbSMWyr6W3JjWa1TthohTYCGJnzZR2qFQ=";
+            hash = zigDepsHash;
           };
           nativeBuildInputs = [
             pkgs.zig.hook
@@ -295,7 +298,7 @@
           src = self;
           zigDeps = pkgs.zig.fetchDeps {
             inherit (finalAttrs) pname version src;
-            hash = "sha256-U4HA3J4+mxUbSMWyr6W3JjWa1TthohTYCGJnzZR2qFQ=";
+            hash = zigDepsHash;
           };
           nativeBuildInputs = [ pkgs.zig.hook ];
           # Not buildInputs: those set the host's NIX_CFLAGS, and this build
