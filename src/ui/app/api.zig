@@ -10,13 +10,13 @@ const types = ws.types;
 const ws = @import("wstudio");
 const pattern_mod = ws.dsp.pattern;
 const DrumMachine = ws.dsp.DrumMachine;
-const undo_mod = @import("undo.zig");
-const history = @import("history.zig");
+const undo_mod = @import("../undo.zig");
+const history = @import("../history.zig");
 
-const app_mod = @import("app.zig");
+const app_mod = @import("../app.zig");
 const App = app_mod.App;
 const apiKindName = app_mod.apiKindName;
-const spectrum_ed = @import("editors/fx_editor.zig");
+const spectrum_ed = @import("../editors/fx_editor.zig");
 const reload_path_buf_len = app_mod.reload_path_buf_len;
 const currentTrack = App.currentTrack;
 const doTrackAddKind = App.doTrackAddKind;

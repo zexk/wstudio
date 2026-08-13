@@ -40,9 +40,9 @@ const fuzzy = @import("fuzzy.zig");
 const waveform = @import("waveform.zig");
 const ansi = @import("ansi.zig");
 const help = @import("help.zig");
-const app_browser = @import("app_browser.zig");
-const app_completion = @import("app_completion.zig");
-const app_api = @import("app_api.zig");
+const app_browser = @import("app/browser.zig");
+const app_completion = @import("app/completion.zig");
+const app_api = @import("app/api.zig");
 const RecordingTake = @import("recording_take.zig").RecordingTake;
 
 const Engine = engine_mod.Engine;
@@ -1842,7 +1842,7 @@ pub const App = struct {
     }
 
     // wstudio.api surface (docs/lua-api.md phase 6): bodies live in
-    // app_api.zig, re-exported here under their own names since
+    // app/api.zig, re-exported here under their own names since
     // config/lua_api.zig reaches them as requireApp(l).apiPlay() /
     // App.ApiPatternError-style qualified access.
     pub const ApiTransportInfo = app_api.ApiTransportInfo;
@@ -3506,7 +3506,7 @@ pub const App = struct {
     }
 
     // File browser + recent-projects + bookmarks: bodies live in
-    // app_browser.zig, re-exported here under their own names so every
+    // app/browser.zig, re-exported here under their own names so every
     // self.openBrowser(...)-style call site above and every external
     // app.openBrowser(...) caller keep resolving unchanged.
     pub const openBrowser = app_browser.openBrowser;
@@ -3965,7 +3965,7 @@ pub const App = struct {
         }
     };
 
-    // Command history + tab completion: bodies live in app_completion.zig,
+    // Command history + tab completion: bodies live in app/completion.zig,
     // re-exported here under their own names so self.pushCommandHistory(...)
     // -style call sites elsewhere in App keep resolving unchanged.
     pub const pushCommandHistory = app_completion.pushCommandHistory;
