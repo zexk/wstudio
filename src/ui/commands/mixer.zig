@@ -710,19 +710,32 @@ pub fn cmdClipReverse(app: *App, _: []const u8) void {
     app.setStatus("clip reverse: {s}", .{if (audio.reverse) "on" else "off"});
 }
 
+fn slippedFrame(start: u64, seconds: f64, sample_rate: u32) u64 {
+    const magnitude_f = @round(@abs(seconds) * @as(f64, @floatFromInt(sample_rate)));
+    if (!std.math.isFinite(magnitude_f) or magnitude_f >= @as(f64, @floatFromInt(std.math.maxInt(u64))))
+        return if (seconds < 0) 0 else std.math.maxInt(u64);
+    const magnitude: u64 = @intFromFloat(magnitude_f);
+    return if (seconds < 0) start -| magnitude else start +| magnitude;
+}
+
 pub fn cmdClipSlip(app: *App, args: []const u8) void {
     const audio = audioRegionAtCursor(app, "clip-slip") orelse return;
     const seconds = parseFiniteFloat(f64, std.mem.trim(u8, args, " ")) catch {
         app.setStatus("clip-slip: expected signed seconds", .{});
         return;
     };
-    const frames_f = seconds * @as(f64, @floatFromInt(app.session.project.sample_rate));
-    const delta: i64 = @intFromFloat(@round(std.math.clamp(frames_f, @as(f64, @floatFromInt(std.math.minInt(i64))), @as(f64, @floatFromInt(std.math.maxInt(i64))))));
     history.recordLane(app, @intCast(app.cursor));
-    audio.source_start_frame = if (delta >= 0) audio.source_start_frame +| @as(u64, @intCast(delta)) else audio.source_start_frame -| @as(u64, @intCast(-delta));
+    audio.source_start_frame = slippedFrame(audio.source_start_frame, seconds, app.session.project.sample_rate);
     if (app.session.song_mode) app.session.rebuildSongData();
     app.dirty = true;
     app.setStatus("clip slipped to source frame {d}", .{audio.source_start_frame});
+}
+
+test "clip slip saturates extreme offsets" {
+    try std.testing.expectEqual(@as(u64, 130), slippedFrame(100, 3, 10));
+    try std.testing.expectEqual(@as(u64, 70), slippedFrame(100, -3, 10));
+    try std.testing.expectEqual(std.math.maxInt(u64), slippedFrame(100, 1e308, 48_000));
+    try std.testing.expectEqual(@as(u64, 0), slippedFrame(100, -1e308, 48_000));
 }
 
 pub fn cmdClipLayer(app: *App, args: []const u8) void {
