@@ -465,6 +465,71 @@ pub fn cmdUnsolo(app: *App, _: []const u8) void {
     clearTrackFlag(app, .solo);
 }
 
+/// `:reference [track|off]`: designate a track, then toggle between it and
+/// the current mix. A Utility unit on the reference track matches the
+/// short-term master loudness captured when the track is designated.
+pub fn cmdReference(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (std.mem.eql(u8, trimmed, "off")) {
+        leaveReference(app);
+        app.reference_track = null;
+        app.setStatus("reference: off", .{});
+        return;
+    }
+    if (trimmed.len > 0) {
+        const track_1 = std.fmt.parseInt(usize, trimmed, 10) catch {
+            app.setStatus("reference: expected track number or off", .{});
+            return;
+        };
+        if (track_1 == 0 or track_1 > app.session.racks.items.len) {
+            app.setStatus("reference: track must be 1–{d}", .{app.session.racks.items.len});
+            return;
+        }
+        leaveReference(app);
+        const track: u16 = @intCast(track_1 - 1);
+        const rack = app.session.racks.items[track];
+        const unit = rack.fx.find(.utility) orelse rack.fx.insert(app.allocator, rack.fx.units.items.len, .utility, app.session.project.sample_rate) catch {
+            app.setStatus("reference: FX chain full or out of memory", .{});
+            return;
+        };
+        const measured = app.session.engine.uiSnapshot().lufs_short_term;
+        unit.payload.utility.autogain_on = 1;
+        unit.payload.utility.autogain_target_lufs = if (measured > ws.dsp.LoudnessMeter.floor_lufs) measured else -18;
+        app.session.syncTrackChain(track, rack);
+        app.reference_track = track;
+        app.dirty = true;
+    }
+
+    const reference = app.reference_track orelse {
+        app.setStatus("usage: reference <track|off>", .{});
+        return;
+    };
+    if (app.reference_active) {
+        leaveReference(app);
+        app.setStatus("reference: mix", .{});
+        return;
+    }
+
+    for (app.session.project.tracks.items, 0..) |track, i| {
+        app.reference_saved_solo[i] = track.soloed;
+        app.apiSetTrackSoloed(i, i == reference);
+    }
+    for (&app.session.groups, 0..) |group, i| {
+        app.reference_saved_group_solo[i] = if (group) |g| g.soloed else false;
+        if (group != null) app.session.setGroupSoloed(@intCast(i), false);
+    }
+    app.reference_active = true;
+    app.setStatus("reference: track {d}", .{reference + 1});
+}
+
+fn leaveReference(app: *App) void {
+    if (!app.reference_active) return;
+    for (app.session.project.tracks.items, 0..) |_, i| app.apiSetTrackSoloed(i, app.reference_saved_solo[i]);
+    for (&app.session.groups, 0..) |group, i| if (group != null)
+        app.session.setGroupSoloed(@intCast(i), app.reference_saved_group_solo[i]);
+    app.reference_active = false;
+}
+
 fn clearTrackFlag(app: *App, flag: enum { mute, solo }) void {
     var n: usize = 0;
     for (app.session.project.tracks.items, 0..) |track, i| {

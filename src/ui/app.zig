@@ -465,6 +465,11 @@ pub const App = struct {
     picker_replace: bool = false,
     audio_label: []const u8 = "off",
     master_gain_db: f32 = 0.0,
+    /// Track used by `:reference` for loudness-matched A/B monitoring.
+    reference_track: ?u16 = null,
+    reference_active: bool = false,
+    reference_saved_solo: [ws.engine.max_tracks]bool = @splat(false),
+    reference_saved_group_solo: [ws.engine.max_groups]bool = @splat(false),
     should_quit: bool = false,
     status_buf: [256]u8 = undefined,
     status_len: usize = 0,

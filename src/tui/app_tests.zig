@@ -622,6 +622,25 @@ test ":unmute clears every track's mute in one shot; :unsolo clears solo" {
     try std.testing.expectEqualStrings("unmute: nothing was muted", app.status_buf[0..app.status_len]);
 }
 
+test ":reference toggles a loudness-matched track against saved solo state" {
+    var app = try testApp();
+    defer app.deinit();
+    commands.run(&app, "track-add");
+    app.apiSetTrackSoloed(0, true);
+
+    commands.run(&app, "reference 2");
+    try std.testing.expect(app.reference_active);
+    try std.testing.expect(!app.session.project.tracks.items[0].soloed);
+    try std.testing.expect(app.session.project.tracks.items[1].soloed);
+    const utility = app.session.racks.items[1].fx.find(.utility).?;
+    try std.testing.expectEqual(@as(f32, 1), utility.payload.utility.autogain_on);
+
+    commands.run(&app, "reference");
+    try std.testing.expect(!app.reference_active);
+    try std.testing.expect(app.session.project.tracks.items[0].soloed);
+    try std.testing.expect(!app.session.project.tracks.items[1].soloed);
+}
+
 test "notes route to a synth track and queue their own release" {
     var app = try testApp();
     defer app.deinit();

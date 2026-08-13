@@ -147,6 +147,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "wq!",         .desc = "[file]  save project and quit (alias for :write-quit)", .run = wrap(commands_mixer.cmdWriteQuit) },
     .{ .name = "bounce",       .desc = "[file] [16|24]  render session (wav, or .flac/.ogg by extension)", .run = wrap(commands_mixer.cmdBounce) },
     .{ .name = "bounce-stems", .desc = "[dir] [16|24]  render each non-empty track soloed to <dir>/<N>-<track>.wav (default: stems/)", .run = wrap(commands_mixer.cmdBounceStems) },
+    .{ .name = "reference",    .desc = "[track|off]  designate and A/B a loudness-matched reference track", .run = wrap(commands_mixer.cmdReference) },
     .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern, or every pad in a drum machine", .run = wrap(cmdClear), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "%d",          .desc = "erase all notes/hits in the pattern (alias for :clear)",  .run = wrap(cmdClear), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "humanize",    .desc = "[amount]  jitter the pattern's note timing/velocity 0-100% (default 15)", .run = wrap(cmdHumanize), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
