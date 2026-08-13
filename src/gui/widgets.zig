@@ -6,6 +6,8 @@ const icons = @import("../ui/icons.zig");
 const gui_style = @import("style.zig");
 const scroll = @import("scroll.zig");
 
+pub var hover_status: ?[]const u8 = null;
+
 pub fn focusRing(draw_list: zgui.DrawList, center: [2]f32, radius: f32, accent: [4]f32) void {
     draw_list.addCircle(.{ .p = center, .r = radius + 3, .col = gui_style.color(accent), .thickness = 1.5 });
 }
@@ -33,7 +35,10 @@ pub fn iconButton(label: [:0]const u8, tooltip: []const u8) bool {
     zgui.pushStyleVar2f(.{ .idx = .button_text_align, .v = .{ 0.5, 0.5 } });
     const clicked = zgui.button(label, .{ .w = zgui.getFontSize() + pad_x * 2, .h = 0 });
     zgui.popStyleVar(.{ .count = 2 });
-    if (zgui.isItemHovered(.{})) zgui.setMouseCursor(.hand);
+    if (zgui.isItemHovered(.{})) {
+        zgui.setMouseCursor(.hand);
+        hover_status = tooltip;
+    }
     itemTooltip(tooltip);
     return clicked;
 }
@@ -92,7 +97,10 @@ pub fn coloredValue(col: [4]f32, comptime fmt: []const u8, args: anytype) void {
 /// available to mouse users while keyboard users already have status/help.
 pub fn hoverHelp(tooltip: []const u8) void {
     zgui.textDisabled(icons.help, .{});
-    if (zgui.isItemHovered(.{})) zgui.setMouseCursor(.hand);
+    if (zgui.isItemHovered(.{})) {
+        zgui.setMouseCursor(.hand);
+        hover_status = tooltip;
+    }
     itemTooltip(tooltip);
 }
 

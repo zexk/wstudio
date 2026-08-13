@@ -58,6 +58,7 @@ pub const App = struct {
     }
 
     pub fn draw(self: *App, audio_label: []const u8) void {
+        widgets.hover_status = null;
         if (self.core.view != .arrangement) self.arrangement_drag = null;
         if (self.core.view != .piano_roll) self.piano_mouse_edit = null;
         if (self.automation_edit_active and (self.core.view != .automation or !zgui.isMouseDown(.left))) {

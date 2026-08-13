@@ -274,7 +274,7 @@ pub fn drawStatus(app: anytype) void {
         if (showcmd.len > 0) {
             x = drawStatusSegment(draw, x, pos[1], size[1], theme.bg3, theme.fg0, showcmd);
         }
-        const context = compactStatusContext(std.mem.trim(u8, text.left, " "));
+        const context = statusContext(std.mem.trim(u8, text.left, " "), widgets.hover_status);
         if (context.len > 0) {
             const text_size = zgui.calcTextSize(context, .{});
             draw.addText(.{ x + 12, pos[1] + (size[1] - text_size[1]) / 2 }, color(theme.fg1), "{s}", .{context});
@@ -301,9 +301,18 @@ fn compactStatusContext(text: []const u8) []const u8 {
     return text;
 }
 
+fn statusContext(normal: []const u8, hover: ?[]const u8) []const u8 {
+    return hover orelse compactStatusContext(normal);
+}
+
 test "GUI status keeps selection and one contextual hint" {
     try std.testing.expectEqualStrings("kick  vel 90%   enter toggle", compactStatusContext("kick  vel 90%   enter toggle   x clear   ?: help"));
     try std.testing.expectEqualStrings("short status", compactStatusContext("short status"));
+}
+
+test "GUI status prefers hovered control help" {
+    try std.testing.expectEqualStrings("Remove  x", statusContext("unit 1   h/l adjust   ?: help", "Remove  x"));
+    try std.testing.expectEqualStrings("unit 1   h/l adjust", statusContext("unit 1   h/l adjust   ?: help", null));
 }
 
 const StatusText = struct { left: []const u8, right: []const u8 };
