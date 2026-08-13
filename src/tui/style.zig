@@ -306,12 +306,32 @@ pub fn toggleRow(w: *std.Io.Writer, is_sel: bool, dimmed: bool, color: []const u
     try endLine(w);
 }
 
+/// One list row when showing every option would overflow: current choice
+/// bracketed by direction marks, matching h/l stepping without a fake bar.
+pub fn choiceRow(w: *std.Io.Writer, is_sel: bool, dimmed: bool, color: []const u8, label: []const u8, value: []const u8) !void {
+    try rowHead(w, is_sel, dimmed, label);
+    try w.writeByte(' ');
+    try w.writeAll(if (is_sel) bcyn else if (dimmed) dim else color);
+    if (is_sel) try w.writeAll(bold);
+    try w.print("< {s} >", .{value});
+    try w.writeAll(rst);
+    try endLine(w);
+}
+
 test "toggle rows show one compact current state" {
     var buf: [128]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try toggleRow(&w, false, false, acc, "enabled", true);
     var plain: [128]u8 = undefined;
     try std.testing.expectEqualStrings("  enabled   [on ]\x1b[K\r\n", stripAnsi(w.buffered(), &plain));
+}
+
+test "choice rows show direction without implying magnitude" {
+    var buf: [128]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try choiceRow(&w, false, false, acc, "sync", "1/16");
+    var plain: [128]u8 = undefined;
+    try std.testing.expectEqualStrings("  sync      < 1/16 >\x1b[K\r\n", stripAnsi(w.buffered(), &plain));
 }
 
 test "writeChromeRow leaves short content unpadded, no reverse-video fill" {

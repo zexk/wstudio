@@ -27,6 +27,7 @@ const synthSection = style.synthSection;
 const barRow = style.barRow;
 const enumRow = style.enumRow;
 const toggleRow = style.toggleRow;
+const choiceRow = style.choiceRow;
 const rowHead = style.rowHead;
 const rowVal = style.rowVal;
 
@@ -382,9 +383,8 @@ fn lfoSlotState(synth: *const PolySynth, slot: u8) struct {
 /// moves: shape, how fast, whether the tempo or the Hz knob decides that,
 /// and how it behaves across note-ons.
 ///
-/// `sync` draws as a bar rather than an enum strip: 17 note divisions won't
-/// fit a column, and they're ordered slow-to-fast, so bar position reads as
-/// "how fast" at a glance with the exact division in the value slot.
+/// `sync` uses a compact choice row because 17 note divisions won't fit an
+/// enum strip and a fill bar would misread them as a continuous quantity.
 fn secLfoSlot(w: *std.Io.Writer, synth: *const PolySynth, c: u16, slot: u8, title: []const u8) !void {
     var buf: [40]u8 = undefined;
     const ids = lfo_slot_ids[slot];
@@ -402,7 +402,7 @@ fn secLfoSlot(w: *std.Io.Writer, synth: *const PolySynth, c: u16, slot: u8, titl
         try std.fmt.bufPrint(&buf, "{s} sync", .{s.sync.label()})
     else
         try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{s.rate}));
-    try barRow(w, c == ids[3], false, mag, "sync", @floatFromInt(@intFromEnum(s.sync)), @floatFromInt(@typeInfo(ws.dsp.synth.LfoSync).@"enum".fields.len - 1), s.sync.label());
+    try choiceRow(w, c == ids[3], false, mag, "sync", s.sync.label());
     try enumRow(w, c == ids[4], false, mag, "retrig", &lfo_retrig_names, @intFromEnum(s.retrig));
     try barRow(w, c == ids[5], false, mag, "phase", s.phase_offset, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{s.phase_offset}));
@@ -477,7 +477,7 @@ fn secArp(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
         try std.fmt.bufPrint(&buf, "{s} sync", .{synth.arp_sync.label()})
     else
         try std.fmt.bufPrint(&buf, "{d:.1} Hz", .{synth.arp_rate_hz}));
-    try barRow(w, c == 268, !on, bcyn, "sync", @floatFromInt(@intFromEnum(synth.arp_sync)), @floatFromInt(@typeInfo(ws.dsp.synth.LfoSync).@"enum".fields.len - 1), synth.arp_sync.label());
+    try choiceRow(w, c == 268, !on, bcyn, "sync", synth.arp_sync.label());
     try barRow(w, c == 120, !on, bcyn, "gate", synth.arp_gate, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{synth.arp_gate}));
     try toggleRow(w, c == 121, !on, bcyn, "hold", synth.arp_hold);

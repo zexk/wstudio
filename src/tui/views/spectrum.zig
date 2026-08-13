@@ -37,6 +37,7 @@ const synthSection = style.synthSection;
 const barRow = style.barRow;
 const enumRow = style.enumRow;
 const toggleRow = style.toggleRow;
+const choiceRow = style.choiceRow;
 
 // Lower-eighths block glyphs, shortest (cut) to tallest (boost). 0dB lands
 // on the middle glyph so a flat band still reads as a visible bar.
@@ -512,6 +513,11 @@ pub fn drawFxView(
             var nbuf: [64]u8 = undefined;
             if (spectrum_ed.paramToggleNames(k, i)) |names| {
                 try enumRow(w, is_sel, disabled, sectionColor(k), spectrum_ed.formatParamName(&nbuf, &unit.payload, i), &names, if (v < 0.5) 0 else 1);
+                continue;
+            }
+            if (spectrum_ed.isListParam(k, i)) {
+                var vbuf: [32]u8 = undefined;
+                try choiceRow(w, is_sel, disabled, sectionColor(k), spectrum_ed.formatParamName(&nbuf, &unit.payload, i), spectrum_ed.formatValue(app, &vbuf, &unit.payload, i));
                 continue;
             }
             const range = spectrum_ed.paramRange(app, &unit.payload, i);
