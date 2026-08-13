@@ -3308,9 +3308,9 @@ pub const App = struct {
             self.dirty = true;
             if (kind == .acoustic) self.loadDefaultAcoustic(self.cursor);
             if (preserved) {
-                self.setStatus("track {d}: now {s} (notes kept)", .{ self.cursor + 1, item.label });
+                self.setStatus("track {d}: {s}, notes kept", .{ self.cursor + 1, item.label });
             } else {
-                self.setStatus("track {d}: now {s} (no compatible mapping - notes cleared)", .{ self.cursor + 1, item.label });
+                self.setStatus("track {d}: {s}, notes cleared", .{ self.cursor + 1, item.label });
             }
             self.view = .tracks;
             self.openTrack(self.cursor);
@@ -3324,14 +3324,13 @@ pub const App = struct {
         if (kind == .acoustic) self.loadDefaultAcoustic(self.cursor);
         self.dirty = true;
         const hint: []const u8 = switch (kind) {
-            .empty => "?: help",
-            .poly_synth => "j/k: move  h/l: adjust  i: play  ?: help",
-            .sampler => "j/k: move  h/l: adjust  i: play  ?: help",
-            .drum_machine => "enter: pads  p: steps  i: play  ?: help",
-            .slicer => "enter: slices  p: steps  :load  ?: help",
-            .clap, .vst3 => "enter: plugin GUI  p: piano  i: play  ?: help",
-            .soundfont => "h/l: adjust  :load  i: play  ?: help",
-            .acoustic => "h/l: adjust  f: banks  i: play  ?: help",
+            .empty => "? help",
+            .poly_synth, .sampler => "j/k move  h/l adjust  i play  ? help",
+            .drum_machine => "enter pads  p steps  i play  ? help",
+            .slicer => "enter slices  p steps  :load  ? help",
+            .clap, .vst3 => "enter plugin GUI  p piano  i play  ? help",
+            .soundfont => "h/l adjust  :load  i play  ? help",
+            .acoustic => "h/l adjust  f banks  i play  ? help",
         };
         self.setStatus("{s} inserted  {s}", .{ item.label, hint });
         self.view = .tracks;
