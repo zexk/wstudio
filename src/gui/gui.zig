@@ -8,6 +8,7 @@ const builtin = @import("builtin");
 const ws = @import("wstudio");
 const config_mod = @import("../config.zig");
 const app_mod = @import("app.zig");
+const icons = @import("../ui/icons.zig");
 const gui_style = @import("style.zig");
 const glfw = @import("zglfw");
 const zgui = @import("zgui");
@@ -105,6 +106,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     glfw.windowHint(.context_version_minor, 3);
     glfw.windowHint(.opengl_profile, .opengl_core_profile);
     glfw.windowHint(.opengl_forward_compat, true);
+    glfw.windowHint(.visible, false);
     // Placeholder only: `syncWindowTitle` replaces it with
     // "<project> - wstudio" before the first frame is presented.
     const window = try glfw.Window.create(user_config.gui_window_width, user_config.gui_window_height, "wstudio", null, null);
@@ -174,6 +176,10 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     defer frame_ctx = null;
     _ = glfwSetWindowRefreshCallback(window, onWindowRefresh);
     _ = window.setFramebufferSizeCallback(onFramebufferSize);
+
+    warmFonts(window);
+    drawFrame();
+    window.show();
 
     while (!window.shouldClose() and !app.core.should_quit) {
         glfw.pollEvents();
@@ -269,6 +275,26 @@ fn configureFonts(size: f32) void {
     icon_config.glyph_min_advance_x = size;
     _ = zgui.io.addFontFromMemoryWithConfig(ws.icon_font_ttf, size, icon_config, null);
     zgui.io.setDefaultFont(text_font);
+}
+
+fn warmFonts(window: *glfw.Window) void {
+    const fb = window.getFramebufferSize();
+    if (fb[0] <= 0 or fb[1] <= 0) return;
+    zgui.backend.newFrame(@intCast(fb[0]), @intCast(fb[1]));
+    zgui.setNextWindowPos(.{ .x = 0, .y = 0, .cond = .always });
+    if (zgui.begin("Font warmup", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_scrollbar = true, .no_collapse = true, .no_mouse_inputs = true, .no_nav_inputs = true, .no_nav_focus = true, .no_saved_settings = true } })) {
+        inline for (std.meta.tags(gui_style.FontRole)) |role| {
+            gui_style.pushFont(role);
+            zgui.textUnformatted("ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789 .,:;!?+-/%()[]");
+            inline for (@typeInfo(icons).@"struct".decls) |decl| {
+                const glyph = @field(icons, decl.name);
+                if (@typeInfo(@TypeOf(glyph)) == .pointer) zgui.textUnformatted(glyph);
+            }
+            gui_style.popFont();
+        }
+    }
+    zgui.end();
+    zgui.backend.draw();
 }
 
 test {
