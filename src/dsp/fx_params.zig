@@ -180,6 +180,9 @@ pub const utility_specs = [_]ParamSpec{
     .{ .name = "channel", .field = "channel", .min = 0.0, .max = 2.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
     .{ .name = "swap", .field = "swap", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
     .{ .name = "delay", .field = "delay_frames", .min = 0.0, .max = utility_mod.Utility.max_delay_frames, .step_fine = 1.0, .step_coarse = 32.0, .round = true },
+    .{ .name = "noise", .field = "noise_on", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+    .{ .name = "color", .field = "noise_color", .min = 0.0, .max = 4.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+    .{ .name = "noise dB", .field = "noise_db", .min = -60.0, .max = 0.0, .step_fine = 1.0, .step_coarse = 6.0 },
 };
 
 pub const stereo_width_specs = [_]ParamSpec{

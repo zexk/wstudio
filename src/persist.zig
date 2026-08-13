@@ -867,6 +867,12 @@ test "save/load round-trip persists master FX" {
     (try session.master_fx.insert(alloc, 4, .phaser, sr)).payload.phaser.feedback = 0.7;
     (try session.master_fx.insert(alloc, 5, .comp, sr)).payload.comp.threshold_db = -9.0;
     (try session.master_fx.insert(alloc, 6, .utility, sr)).payload.utility.delay_frames = 127;
+    {
+        const utility = &session.master_fx.units.items[6].payload.utility;
+        utility.noise_on = 1;
+        utility.noise_color = 3;
+        utility.noise_db = -30;
+    }
     session.syncMasterChain();
 
     try save(testing.allocator, &session, testing.io, wsj_path);
@@ -884,6 +890,9 @@ test "save/load round-trip persists master FX" {
     try testing.expectApproxEqAbs(@as(f32, 0.7), units[4].payload.phaser.feedback, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, -9.0), units[5].payload.comp.threshold_db, 1e-4);
     try testing.expectApproxEqAbs(@as(f32, 127), units[6].payload.utility.delay_frames, 1e-4);
+    try testing.expectEqual(@as(f32, 1), units[6].payload.utility.noise_on);
+    try testing.expectEqual(@as(f32, 3), units[6].payload.utility.noise_color);
+    try testing.expectEqual(@as(f32, -30), units[6].payload.utility.noise_db);
     // The bypassed crusher is still in the live chain; it fades itself out
     // rather than leaving the device list.
     try testing.expectEqual(@as(usize, 7), loaded.engine.master_chain.slice().len);

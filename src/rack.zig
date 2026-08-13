@@ -216,6 +216,9 @@ pub const FxPayload = union(enum) {
                 nu.channel = u.channel;
                 nu.swap = u.swap;
                 nu.delay_frames = u.delay_frames;
+                nu.noise_on = u.noise_on;
+                nu.noise_color = u.noise_color;
+                nu.noise_db = u.noise_db;
                 return .{ .utility = nu };
             },
             .clap => |plugin| {
