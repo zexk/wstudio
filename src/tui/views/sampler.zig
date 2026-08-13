@@ -261,10 +261,11 @@ fn drawSliceMap(app: anytype, w: *std.Io.Writer, cols: usize) !void {
     const sl = app.slicerInst();
     const width = @min(cols -| 4, wave_max_w);
     const selected: u8 = @intCast(app.slicer_cursor[0]);
-    const bank_start = selected / 8 * 8;
     const bank_count = @max(1, (sl.slice_count + 7) / 8);
+    const bank = @min(selected / 8, bank_count - 1);
+    const bank_start = bank * 8;
     var title_buf: [32]u8 = undefined;
-    try synthSection(w, try std.fmt.bufPrint(&title_buf, "SLICE MAP {d}/{d}", .{ selected / 8 + 1, bank_count }), mag);
+    try synthSection(w, try std.fmt.bufPrint(&title_buf, "SLICE MAP {d}/{d}", .{ bank + 1, bank_count }), mag);
     try w.writeAll("  ");
     for (0..8) |offset| {
         const index: u8 = bank_start + @as(u8, @intCast(offset));
