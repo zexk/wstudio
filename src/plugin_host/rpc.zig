@@ -55,6 +55,14 @@ pub const Header = extern struct {
 
 pub const max_payload: usize = 1 << 20; // 1 MiB - generous for a CLAP/VST3 state blob
 
+pub fn requestMinPayload(kind: Kind) usize {
+    return switch (kind) {
+        .set_parameter, .format_parameter => 12,
+        .parameter_info, .parameter_name, .parameter_value => 4,
+        else => 0,
+    };
+}
+
 pub const Error = error{ RpcClosed, RpcPayloadTooLarge } || std.Io.Writer.Error || std.Io.Reader.Error;
 
 /// Writes one frame. `payload` may be empty.
@@ -103,4 +111,10 @@ test "send then recv round-trips a payload over an in-memory pipe-like buffer" {
     try std.testing.expectEqual(Kind.parameter_value, got.kind);
     try std.testing.expect(!got.failed);
     try std.testing.expectEqualStrings("hello", got.payload);
+}
+
+test "fixed-shape requests declare their minimum payload" {
+    try std.testing.expectEqual(@as(usize, 12), requestMinPayload(.set_parameter));
+    try std.testing.expectEqual(@as(usize, 4), requestMinPayload(.parameter_info));
+    try std.testing.expectEqual(@as(usize, 0), requestMinPayload(.load_state));
 }

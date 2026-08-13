@@ -189,6 +189,7 @@ fn rpcLoop(shared: *Shared, reader: *std.Io.Reader, writer: *std.Io.Writer) void
 }
 
 fn dispatch(shared: *Shared, req: rpc.Received, writer: *std.Io.Writer) !void {
+    if (req.payload.len < rpc.requestMinPayload(req.kind)) return error.RpcProtocolError;
     switch (req.kind) {
         .shutdown, .ping => try rpc.send(writer, req.kind, false, &.{}),
         .set_parameter => {
