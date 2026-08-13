@@ -120,7 +120,7 @@ pub fn drawAutomation(
     var col: u32 = 0;
     while (col < visible and scroll + col <= total_steps) : (col += 1) {
         const step = scroll + col;
-        try w.writeAll(if (step * meter_denominator % bar_units == 0) blu ++ "|" ++ rst else " ");
+        try w.writeAll(if (@as(u64, step) * meter_denominator % bar_units == 0) blu ++ "|" ++ rst else " ");
     }
     try endLine(w);
 
