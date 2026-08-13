@@ -254,6 +254,11 @@ fn sinkFilelen(user_data: ?*anyopaque) callconv(.c) c.sf_count_t {
     return @intCast(sinkOf(user_data).bytes.items.len);
 }
 
+fn seekTarget(base: i64, offset: i64, len: i64) ?i64 {
+    const target = std.math.add(i64, base, offset) catch return null;
+    return if (target >= 0 and target <= len) target else null;
+}
+
 fn sinkSeek(offset: c.sf_count_t, whence: c_int, user_data: ?*anyopaque) callconv(.c) c.sf_count_t {
     const sink = sinkOf(user_data);
     const len: i64 = @intCast(sink.bytes.items.len);
@@ -263,8 +268,7 @@ fn sinkSeek(offset: c.sf_count_t, whence: c_int, user_data: ?*anyopaque) callcon
         c.SEEK_END => len,
         else => return -1,
     };
-    const target = base + offset;
-    if (target < 0 or target > len) return -1;
+    const target = seekTarget(base, offset, len) orelse return -1;
     sink.pos = @intCast(target);
     return target;
 }
@@ -283,15 +287,19 @@ fn sinkWrite(ptr: ?*const anyopaque, count: c.sf_count_t, user_data: ?*anyopaque
     const sink = sinkOf(user_data);
     if (count <= 0 or ptr == null) return 0;
     const n: usize = @intCast(count);
-    if (sink.pos + n > sink.bytes.items.len) {
-        sink.bytes.resize(sink.allocator, sink.pos + n) catch {
+    const end = std.math.add(usize, sink.pos, n) catch {
+        sink.failed = true;
+        return 0;
+    };
+    if (end > sink.bytes.items.len) {
+        sink.bytes.resize(sink.allocator, end) catch {
             sink.failed = true;
             return 0;
         };
     }
     const src: [*]const u8 = @ptrCast(ptr.?);
     @memcpy(sink.bytes.items[sink.pos..][0..n], src[0..n]);
-    sink.pos += n;
+    sink.pos = end;
     return @intCast(n);
 }
 
@@ -324,8 +332,7 @@ fn vioSeek(offset: c.sf_count_t, whence: c_int, user_data: ?*anyopaque) callconv
         c.SEEK_END => len,
         else => return -1,
     };
-    const target = base + offset;
-    if (target < 0 or target > len) return -1;
+    const target = seekTarget(base, offset, len) orelse return -1;
     cursor.pos = @intCast(target);
     return target;
 }
@@ -349,6 +356,16 @@ fn vioWrite(_: ?*const anyopaque, _: c.sf_count_t, _: ?*anyopaque) callconv(.c) 
 
 fn vioTell(user_data: ?*anyopaque) callconv(.c) c.sf_count_t {
     return @intCast(cursorOf(user_data).pos);
+}
+
+test "virtual IO rejects overflowing seeks and writes" {
+    var cursor = Cursor{ .bytes = "x" };
+    try std.testing.expectEqual(@as(c.sf_count_t, -1), vioSeek(std.math.maxInt(i64), c.SEEK_END, &cursor));
+
+    var sink = Sink{ .allocator = std.testing.allocator, .pos = std.math.maxInt(usize) };
+    const byte: u8 = 0;
+    try std.testing.expectEqual(@as(c.sf_count_t, 0), sinkWrite(&byte, 1, &sink));
+    try std.testing.expect(sink.failed);
 }
 
 test "decode VCSL FLAC fixture" {
