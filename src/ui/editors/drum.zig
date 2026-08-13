@@ -789,18 +789,22 @@ fn cycleVariant(app: *App, delta: i32) void {
 /// paint state depends on whatever the first cell under the cursor happened
 /// to be. Scroll moves the step cursor, or - over the gutter - the pad
 /// cursor, regardless of which row the mouse sits on. **Shift**+scroll moves
-/// pads from anywhere; **Ctrl**+scroll over grid jumps by beat.
+/// pads from anywhere; **Ctrl**+scroll over grid jumps by beat. Over an
+/// active hit, **Alt**+wheel changes microtiming, **Alt+Shift** velocity,
+/// and **Alt+Ctrl** tuning. **Shift**+click writes a full-velocity accent.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: usize) void {
     switch (ev.kind) {
         .scroll_up, .scroll_down => {
             const delta: i32 = if (ev.kind == .scroll_up) -1 else 1;
-            if (ev.shift or ev.x < gutter)
-                movePad(app, delta)
-            else if (ev.ctrl)
-                jumpBar(app, delta)
-            else
-                moveStep(app, delta);
-            return;
+            if (!ev.alt) {
+                if (ev.shift or ev.x < gutter)
+                    movePad(app, delta)
+                else if (ev.ctrl)
+                    jumpBar(app, delta)
+                else
+                    moveStep(app, delta);
+                return;
+            }
         },
         else => {},
     }
@@ -820,6 +824,23 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
     const pad = bank_start + block * per_bank + within;
     if (pad >= DrumMachine.max_pads) return;
 
+    if (ev.kind == .scroll_up or ev.kind == .scroll_down) {
+        const dm = app.drumMachine();
+        const step = step_grid.stepAt(u16, gutter, app.drumCellWidth(), app.drum_step_scroll, dm.step_count, dm.steps_per_beat, app.drum_grid.ticks(), ev.x) orelse return;
+        app.drum_cursor = .{ @intCast(pad), step };
+        if (!dm.stepActive(@intCast(pad), step)) return;
+        const delta: i32 = if (ev.kind == .scroll_up) 1 else -1;
+        history.recordDrum(app, app.drum_track);
+        if (ev.ctrl)
+            dm.nudgeStepTune(@intCast(pad), step, delta)
+        else if (ev.shift)
+            dm.nudgeStepVel(@intCast(pad), step, delta)
+        else
+            dm.nudgeStepMicro(@intCast(pad), step, delta);
+        app.dirty = true;
+        return;
+    }
+
     switch (ev.kind) {
         .press => {
             // A click elsewhere ends any active velocity-stamp session
@@ -838,6 +859,8 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
             history.recordDrum(app, app.drum_track);
             if (ev.button == .right) {
                 step_grid.setStep(dm, @intCast(pad), step, false, DrumMachine.vel_full);
+            } else if (ev.shift) {
+                step_grid.setStep(dm, @intCast(pad), step, true, DrumMachine.vel_full);
             } else {
                 dm.toggleStep(@intCast(pad), step);
             }

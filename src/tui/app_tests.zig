@@ -8066,6 +8066,25 @@ test "mouse click toggles a drum step and drag paints a run of them" {
     try std.testing.expect(app.drum_paint_state == null);
 }
 
+test "drum grid modifier mouse edits hovered step expression" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    app.view = .drum_grid;
+    const dm = app.drumMachine();
+    const row = app_mod.content_top + 2;
+    const x = 15;
+
+    app.handleMouse(.{ .x = x, .y = row, .button = .left, .kind = .press, .shift = true }, 80, 24, 0);
+    try std.testing.expectEqual(ws.dsp.DrumMachine.vel_full, dm.stepVel(0, 8));
+    app.handleMouse(.{ .x = x, .y = row, .button = .none, .kind = .scroll_down, .alt = true, .shift = true }, 80, 24, 0);
+    try std.testing.expectEqual(ws.dsp.DrumMachine.vel_full - 1, dm.stepVel(0, 8));
+    app.handleMouse(.{ .x = x, .y = row, .button = .none, .kind = .scroll_up, .alt = true }, 80, 24, 0);
+    try std.testing.expectEqual(@as(i8, 1), dm.stepMicro(0, 8));
+    app.handleMouse(.{ .x = x, .y = row, .button = .none, .kind = .scroll_up, .alt = true, .ctrl = true }, 80, 24, 0);
+    try std.testing.expectEqual(@as(i8, 1), dm.stepTune(0, 8));
+}
+
 test "mouse click on an empty piano-roll cell inserts a note" {
     var app = try testApp();
     defer app.deinit();

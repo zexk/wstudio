@@ -753,19 +753,22 @@ fn repeatLastEdit(app: *App) void {
 /// doc comment for why a right-drag beats a left-drag for erasing a run of
 /// steps. Scroll moves the step cursor, or - over the gutter - the slice
 /// cursor. **Shift**+scroll moves slices from anywhere; **Ctrl**+scroll over
-/// grid jumps by beat.
+/// grid jumps by beat. Over an active hit, **Alt**+wheel changes microtiming,
+/// **Alt+Shift** velocity, and **Alt+Ctrl** tuning. **Shift**+click accents.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
     const sl = app.slicerInst();
     switch (ev.kind) {
         .scroll_up, .scroll_down => {
             const delta: i32 = if (ev.kind == .scroll_up) -1 else 1;
-            if (ev.shift or ev.x < gutter)
-                moveSlice(app, delta)
-            else if (ev.ctrl)
-                jumpBar(app, delta)
-            else
-                moveStep(app, delta);
-            return;
+            if (!ev.alt) {
+                if (ev.shift or ev.x < gutter)
+                    moveSlice(app, delta)
+                else if (ev.ctrl)
+                    jumpBar(app, delta)
+                else
+                    moveStep(app, delta);
+                return;
+            }
         },
         else => {},
     }
@@ -774,6 +777,22 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
     const bank_start = (@as(usize, app.slicer_cursor[0]) / 8) * 8;
     const slice = bank_start + (row - grid_top);
     if (slice >= sl.slice_count) return;
+
+    if (ev.kind == .scroll_up or ev.kind == .scroll_down) {
+        const step = step_grid.stepAt(u16, gutter, 3, app.slicer_step_scroll, sl.step_count, sl.steps_per_beat, app.slicer_grid.ticks(), ev.x) orelse return;
+        app.slicer_cursor = .{ @intCast(slice), step };
+        if (!sl.stepActive(@intCast(slice), step)) return;
+        const delta: i32 = if (ev.kind == .scroll_up) 1 else -1;
+        history.recordSlicer(app, app.slicer_track);
+        if (ev.ctrl)
+            sl.nudgeStepTune(@intCast(slice), step, delta)
+        else if (ev.shift)
+            sl.nudgeStepVel(@intCast(slice), step, delta)
+        else
+            sl.nudgeStepMicro(@intCast(slice), step, delta);
+        app.dirty = true;
+        return;
+    }
 
     switch (ev.kind) {
         .press => {
@@ -786,6 +805,8 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
             history.recordSlicer(app, app.slicer_track);
             if (ev.button == .right) {
                 step_grid.setStep(sl, @intCast(slice), step, false, Slicer.vel_full);
+            } else if (ev.shift) {
+                step_grid.setStep(sl, @intCast(slice), step, true, Slicer.vel_full);
             } else {
                 sl.toggleStep(@intCast(slice), step);
             }
