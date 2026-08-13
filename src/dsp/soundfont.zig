@@ -680,10 +680,11 @@ fn parseImpl(allocator: std.mem.Allocator, bytes: []const u8, target_sample_rate
     h.deinit(allocator);
     hydra = null;
 
-    if (presets.items.len == 0) {
-        presets.deinit(allocator);
-        return error.NoPresets;
-    }
+    // No `deinit` here: the errdefer above owns the list, and deiniting it
+    // first left that errdefer walking `items` after `deinit` had set the
+    // list to undefined - a wild pointer to free, reachable from any .sf2
+    // that parses this far with nothing playable in it.
+    if (presets.items.len == 0) return error.NoPresets;
 
     return .{ .allocator = allocator, .sample_data = sample_data, .presets = try presets.toOwnedSlice(allocator) };
 }
@@ -1147,4 +1148,18 @@ test "parse cleans up every partial allocation" {
     const bytes = try buildTestSf2(std.testing.allocator, true, 22_050);
     defer std.testing.allocator.free(bytes);
     try std.testing.checkAllAllocationFailures(std.testing.allocator, parseForAllocationTest, .{bytes});
+}
+
+test "a soundfont with nothing playable is rejected, not crashed on" {
+    const gpa = std.testing.allocator;
+    const bytes = try buildTestSf2(gpa, false, 44_100);
+    defer gpa.free(bytes);
+
+    // Point the only preset zone at an instrument that is not there. The
+    // zone is skipped, the preset ends up with no regions at all, and the
+    // parse fails with everything still to unwind - the path that used to
+    // hand its own errdefer a list it had already deinited.
+    const pgen = std.mem.indexOf(u8, bytes, "pgen").?;
+    std.mem.writeInt(u16, bytes[pgen + 10 ..][0..2], 0xFFFF, .little);
+    try std.testing.expectError(error.NoPresets, SoundFont.parse(gpa, bytes, 48_000));
 }
