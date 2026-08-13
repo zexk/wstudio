@@ -324,7 +324,6 @@ fn drawSectionBody(app: anytype, synth: *ws.dsp.PolySynth, section: synth_layout
 
     var flow = Flow.init();
     for (section.params) |entry| {
-        if (section.params[0].id == 99) flow.brk();
         if (gate != null and entry.id == gate.?) continue;
         // A mod-matrix slot: source, dest and depth are one row, not three.
         if (entry.fields == 3) {
