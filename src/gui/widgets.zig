@@ -34,6 +34,7 @@ pub fn iconButton(label: [:0]const u8, tooltip: []const u8) bool {
     const clicked = zgui.button(label, .{ .w = zgui.getFontSize() + pad_x * 2, .h = 0 });
     zgui.popStyleVar(.{ .count = 2 });
     if (zgui.isItemHovered(.{})) {
+        zgui.setMouseCursor(.hand);
         _ = zgui.beginTooltip();
         zgui.textUnformatted(tooltip);
         zgui.endTooltip();
@@ -58,6 +59,7 @@ pub fn coloredTitle(col: [4]f32, comptime fmt: []const u8, args: anytype) void {
 pub fn hoverHelp(tooltip: []const u8) void {
     zgui.textDisabled(icons.help, .{});
     if (!zgui.isItemHovered(.{})) return;
+    zgui.setMouseCursor(.hand);
     _ = zgui.beginTooltip();
     zgui.textUnformatted(tooltip);
     zgui.endTooltip();
@@ -132,6 +134,7 @@ pub fn toggle(label: [:0]const u8, v: *bool) bool {
     zgui.beginGroup();
     _ = zgui.invisibleButton(label, .{ .w = track_w, .h = track_h });
     const hovered = zgui.isItemHovered(.{});
+    if (hovered) zgui.setMouseCursor(.hand);
     var changed = false;
     if (zgui.isItemActivated()) {
         v.* = !v.*;
@@ -323,6 +326,7 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
     scroll.noteFocusRow(args.focused, cursor[1], args.diameter + zgui.getFontSize() + 6);
     const active = zgui.isItemActive();
     const hovered = zgui.isItemHovered(.{});
+    if (hovered or active) zgui.setMouseCursor(.resize_ns);
     const activated = zgui.isItemActivated();
     var changed = false;
 
@@ -511,6 +515,7 @@ pub fn stepperCell(label_text: []const u8, id: [:0]const u8, display: []const u8
     _ = zgui.invisibleButton(id, .{ .w = cell_w, .h = box_h });
     scroll.noteFocusRow(focused, origin[1], box_h + zgui.getFontSize() + 6);
     const hovered = zgui.isItemHovered(.{});
+    if (hovered) zgui.setMouseCursor(.hand);
     var delta: i8 = 0;
     if (zgui.isItemActivated()) {
         delta = if (zgui.getMousePos()[0] < origin[0] + cell_w * 0.5) -1 else 1;
@@ -714,6 +719,7 @@ fn adsrNode(
     _ = zgui.invisibleButton(nid, .{ .w = adsr_handle_r * 2, .h = adsr_handle_r * 2 });
     const node_active = zgui.isItemActive();
     const node_hovered = zgui.isItemHovered(.{});
+    if (node_active or node_hovered) zgui.setMouseCursor(if (range == null) .resize_ns else .resize_ew);
     if (zgui.isItemActivated()) result.activated_stage = stage;
     if (node_active) {
         const delta = zgui.getMouseDragDelta(.left, .{});
@@ -1032,6 +1038,7 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
         _ = zgui.invisibleButton(nid, .{ .w = handle_r * 2, .h = handle_r * 2 });
         const node_active = zgui.isItemActive();
         const node_hovered = zgui.isItemHovered(.{});
+        if (node_active or node_hovered) zgui.setMouseCursor(.resize_all);
         if (zgui.isItemActivated()) result.activated_index = i;
         if (node_hovered and zgui.isMouseDoubleClicked(.left)) result.removed = p.beat;
         if (node_active and result.removed == null) {

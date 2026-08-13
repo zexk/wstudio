@@ -138,6 +138,7 @@ fn drawEqGraph(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, sel
         draw_list.addCircle(.{ .p = node, .r = 10, .col = color(accent), .thickness = 1 });
         if (selected) widgets.focusRing(draw_list, node, 10, theme.focus);
         draw_list.addText(.{ node[0] - 4, node[1] - 8 }, color(style.legibleOn(accent)), "{d}", .{i + 1});
+        if (hovered and std.math.hypot(mouse[0] - node[0], mouse[1] - node[1]) <= 22) zgui.setMouseCursor(.resize_all);
     }
 
     if (hovered and zgui.isMouseClicked(.left)) {
