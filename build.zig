@@ -29,12 +29,21 @@ pub fn build(b: *std.Build) void {
     const cross_compiling = target.result.os.tag != b.graph.host.result.os.tag or
         target.result.cpu.arch != b.graph.host.result.cpu.arch;
 
+    const vst3_c_api_dep = b.dependency("vst3_c_api", .{});
+    const vst3_c_api_mod = b.createModule(.{
+        .root_source_file = b.path("src/vst3/c_api.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    vst3_c_api_mod.addIncludePath(vst3_c_api_dep.path("."));
+
     // The engine as a reusable library module. Frontends import this and
     // never reach into engine internals.
     const wstudio_mod = b.addModule("wstudio", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{.{ .name = "vst3_c_api", .module = vst3_c_api_mod }},
     });
     // Sample decoding (core/audio_file.zig) and sinc resampling for sample
     // loads (dsp/pad.zig). System libraries, like asound below: nix supplies
@@ -440,6 +449,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/vst3/test_plugin.zig"),
             .target = target,
             .optimize = optimize,
+            .imports = &.{.{ .name = "vst3_c_api", .module = vst3_c_api_mod }},
         }),
     });
     const vst3_integration_test = b.addExecutable(.{

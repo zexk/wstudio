@@ -1,8 +1,8 @@
-//! Minimal VST3 ABI base types. Values mirror Steinberg's generated C API at
-//! revision a137a8135679e5e20fd6334a9d61f01994d6f282.
+//! Zig adapter for Steinberg's official generated VST3 C API.
 
 const std = @import("std");
 const builtin = @import("builtin");
+const official = @import("vst3_c_api").api;
 
 pub const Result = i32;
 pub const not_implemented: Result = if (builtin.os.tag == .windows) @bitCast(@as(u32, 0x80004001)) else 3;
@@ -124,7 +124,7 @@ pub const Stream = extern struct { vtable: *const StreamVTable };
 pub const ProcessSetup = extern struct { process_mode: i32, symbolic_sample_size: i32, max_samples_per_block: i32, sample_rate: f64 };
 pub const NoteOnEvent = extern struct { channel: i16, pitch: i16, tuning: f32, velocity: f32, length: i32, note_id: i32 };
 pub const NoteOffEvent = extern struct { channel: i16, pitch: i16, velocity: f32, note_id: i32, tuning: f32 };
-pub const EventPayload = extern union { note_on: NoteOnEvent, note_off: NoteOffEvent, reserved: [4]u64 };
+pub const EventPayload = extern union { note_on: NoteOnEvent, note_off: NoteOffEvent, reserved: [3]u64 };
 pub const Event = extern struct { bus_index: i32, sample_offset: i32, ppq_position: f64, flags: u16, event_type: u16, payload: EventPayload };
 pub const EventListVTable = extern struct {
     query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
@@ -331,20 +331,20 @@ pub fn uid(a: u32, b: u32, c: u32, d: u32) Tuid {
     };
 }
 
-pub const f_unknown_iid = uid(0x00000000, 0x00000000, 0xC0000000, 0x00000046);
-pub const plugin_factory_iid = uid(0x7A4D811C, 0x52114A1F, 0xAED9D2EE, 0x0B43BF9F);
-pub const plugin_factory_2_iid = uid(0x0007B650, 0xF24B4C0B, 0xA464EDB9, 0xF00B2ABB);
-pub const component_iid = uid(0xE831FF31, 0xF2D54301, 0x928EBBEE, 0x25697802);
-pub const host_application_iid = uid(0x58E595CC, 0xDB2D4969, 0x8B6AAF8C, 0x36A664E5);
-pub const audio_processor_iid = uid(0x42043F99, 0xB7DA453C, 0xA569E79D, 0x9AAEC33D);
-pub const event_list_iid = uid(0x3A2C4214, 0x346349FE, 0xB2C4F397, 0xB9695A44);
-pub const edit_controller_iid = uid(0xDCD7BBE3, 0x7742448D, 0xA874AACC, 0x979C759E);
-pub const midi_mapping_iid = uid(0xDF0FF9F7, 0x49B74669, 0xB63AB732, 0x7ADBF5E5);
-pub const connection_point_iid = uid(0x70A4156F, 0x6E6E4026, 0x989148BF, 0xAA60D8D1);
-pub const component_handler_iid = uid(0x93A0BEA3, 0x0BD045DB, 0x8E890B0C, 0xC1E46AC6);
-pub const plug_view_iid = uid(0x5BC32507, 0xD06049EA, 0xA6151B52, 0x2B755B29);
-pub const plug_frame_iid = uid(0x367FAF01, 0xAFA94693, 0x8D4DA2A0, 0xED0882A3);
-pub const run_loop_iid = uid(0x18C35366, 0x97764F1A, 0x9C5B8385, 0x7A871389);
+pub const f_unknown_iid: Tuid = official.Steinberg_FUnknown_iid;
+pub const plugin_factory_iid: Tuid = official.Steinberg_IPluginFactory_iid;
+pub const plugin_factory_2_iid: Tuid = official.Steinberg_IPluginFactory2_iid;
+pub const component_iid: Tuid = official.Steinberg_Vst_IComponent_iid;
+pub const host_application_iid: Tuid = official.Steinberg_Vst_IHostApplication_iid;
+pub const audio_processor_iid: Tuid = official.Steinberg_Vst_IAudioProcessor_iid;
+pub const event_list_iid: Tuid = official.Steinberg_Vst_IEventList_iid;
+pub const edit_controller_iid: Tuid = official.Steinberg_Vst_IEditController_iid;
+pub const midi_mapping_iid: Tuid = official.Steinberg_Vst_IMidiMapping_iid;
+pub const connection_point_iid: Tuid = official.Steinberg_Vst_IConnectionPoint_iid;
+pub const component_handler_iid: Tuid = official.Steinberg_Vst_IComponentHandler_iid;
+pub const plug_view_iid: Tuid = official.Steinberg_IPlugView_iid;
+pub const plug_frame_iid: Tuid = official.Steinberg_IPlugFrame_iid;
+pub const run_loop_iid: Tuid = official.Steinberg_Linux_IRunLoop_iid;
 
 pub fn formatUid(value: Tuid) [32]u8 {
     var canonical = value;
@@ -373,6 +373,14 @@ pub fn parseUid(text: []const u8) !Tuid {
 comptime {
     if (@sizeOf(FUnknown) != @sizeOf(*anyopaque)) @compileError("VST3 FUnknown ABI size mismatch");
     if (@sizeOf(Tuid) != 16) @compileError("VST3 TUID ABI size mismatch");
+    const pairs = .{
+        .{ FactoryInfo, official.Steinberg_PFactoryInfo },           .{ ClassInfo, official.Steinberg_PClassInfo },                         .{ ClassInfo2, official.Steinberg_PClassInfo2 },
+        .{ BusInfo, official.Steinberg_Vst_BusInfo },                .{ ParameterInfo, official.Steinberg_Vst_ParameterInfo },              .{ ProcessSetup, official.Steinberg_Vst_ProcessSetup },
+        .{ Event, official.Steinberg_Vst_Event },                    .{ ProcessContext, official.Steinberg_Vst_ProcessContext },            .{ AudioBusBuffers, official.Steinberg_Vst_AudioBusBuffers },
+        .{ ProcessData, official.Steinberg_Vst_ProcessData },        .{ PluginFactoryVTable, official.Steinberg_IPluginFactoryVtbl },       .{ PluginFactory2VTable, official.Steinberg_IPluginFactory2Vtbl },
+        .{ ComponentVTable, official.Steinberg_Vst_IComponentVtbl }, .{ EditControllerVTable, official.Steinberg_Vst_IEditControllerVtbl }, .{ AudioProcessorVTable, official.Steinberg_Vst_IAudioProcessorVtbl },
+    };
+    for (pairs) |pair| if (@sizeOf(pair[0]) != @sizeOf(pair[1]) or @alignOf(pair[0]) != @alignOf(pair[1])) @compileError("VST3 adapter differs from official C API");
 }
 
 test "VST3 UID uses platform ABI byte order" {
