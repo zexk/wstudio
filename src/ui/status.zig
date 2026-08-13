@@ -166,7 +166,7 @@ pub fn drawSlicerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
         if (app.status_len > 0)
             try w.writeAll(app.status_buf[0..app.status_len])
         else if (sl.hasAudio())
-            try w.writeAll("q: chop  :slice <n>")
+            try w.writeAll("q chop  :slice <n> equal parts")
         else
             try w.writeAll("enter load");
         return;
@@ -303,7 +303,7 @@ pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, targ
     } else {
         try writeModeBadge(w, app.modal.mode);
         try writeViewBadge(right, "FX", app.modal.mode);
-        try w.writeAll(dim ++ "  chain empty: 'a' inserts an effect" ++ rst);
+        try w.writeAll(dim ++ "  empty chain  a add effect" ++ rst);
     }
     if (app.status_len > 0) {
         try w.writeAll(dim ++ "  " ++ rst);

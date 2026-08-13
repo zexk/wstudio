@@ -640,7 +640,7 @@ pub fn loadSliceFromPath(app: *App, path: []const u8) void {
     };
     clampSlicerCursor(app, sl);
     app.dirty = true;
-    app.setStatus("clip loaded: {s} - :slice <n> to chop it", .{stem});
+    app.setStatus("clip loaded: {s}  q chop or :slice <n>", .{stem});
 }
 
 pub fn cmdSlice(app: *App, args: []const u8) void {

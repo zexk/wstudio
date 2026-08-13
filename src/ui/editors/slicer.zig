@@ -110,7 +110,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         // be chopped before a slice row can hold steps.
         .enter => {
             if (sl.slice_count == 0) {
-                if (!sl.hasAudio()) commands_load.cmdLoad(app, "") else app.setStatus("no slices - q: chop or :slice <n>", .{});
+                if (!sl.hasAudio()) commands_load.cmdLoad(app, "") else app.setStatus("no slices  q chop or :slice <n>", .{});
                 return true;
             }
             history.recordSlicer(app, app.slicer_track);
@@ -529,7 +529,7 @@ fn stepEnter(app: *App) void {
 
 fn hasCursorSlice(app: *App) bool {
     if (app.slicer_cursor[0] < app.slicerInst().slice_count) return true;
-    app.setStatus("no slices - q: chop or :slice <n>", .{});
+    app.setStatus("no slices  q chop or :slice <n>", .{});
     return false;
 }
 
