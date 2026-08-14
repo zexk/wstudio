@@ -1142,6 +1142,18 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
         .scroll_up => { if (ev.shift or ev.x < gutter) moveLane(app, lane_count, -1) else if (ev.ctrl) jumpBar(app, -1) else moveBar(app, -1); return; },
         .scroll_down => { if (ev.shift or ev.x < gutter) moveLane(app, lane_count, 1) else if (ev.ctrl) jumpBar(app, 1) else moveBar(app, 1); return; },
         // zig fmt: on
+        // A drag and its release belong to the lane the press picked, not to
+        // whatever row the pointer has since wandered onto, so they run
+        // before the row guards below. A release those guards swallowed left
+        // the clone/resize flags armed, and the next plain drag cloned.
+        .drag => return dragClip(app, ev, cw),
+        .release => {
+            app.arr_drag_bar = null;
+            app.arr_drag_resize = false;
+            app.arr_drag_clone = false;
+            app.arr_drag_clone_done = false;
+            return;
+        },
         else => {},
     }
 
@@ -1169,43 +1181,43 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
             app.arr_drag_clone = has_clip and ev.shift and !ev.ctrl;
             app.arr_drag_clone_done = false;
         },
-        .drag => {
-            const last = app.arr_drag_bar orelse return;
-            const new_bar = barAt(app.arr_scroll_bar, ev.x, cw) orelse return;
-            if (new_bar == last) return;
-            app.arr_cursor_bar = last;
-            const delta: i32 = @as(i32, @intCast(new_bar)) - @as(i32, @intCast(last));
-            if (app.arr_drag_resize) {
-                resizeClip(app, delta);
-                app.arr_drag_bar = new_bar;
-            } else if (app.arr_drag_clone and !app.arr_drag_clone_done) {
-                const lane_ptr = app.session.arrangement.lane(lane) orelse return;
-                const source_tick = cursorTick(app);
-                var clone = (lane_ptr.clipAt(source_tick) orelse return).dupe(app.allocator) catch {
-                    app.setStatus("clone failed (out of memory)", .{});
-                    return;
-                };
-                moveClip(app, delta);
-                clone.start_tick = source_tick;
-                lane_ptr.place(app.allocator, clone) catch {
-                    clone.deinit(app.allocator);
-                    app.setStatus("clone failed (out of memory)", .{});
-                    return;
-                };
-                app.arr_drag_clone_done = true;
-                app.arr_drag_bar = app.arr_cursor_bar;
-                if (app.session.song_mode) app.session.rebuildSongData();
-            } else {
-                moveClip(app, delta);
-                app.arr_drag_bar = app.arr_cursor_bar;
-            }
-        },
-        .release => {
-            app.arr_drag_bar = null;
-            app.arr_drag_resize = false;
-            app.arr_drag_clone = false;
-            app.arr_drag_clone_done = false;
-        },
         else => {},
+    }
+}
+
+/// One motion event of an in-flight clip drag. Everything here acts on
+/// `app.cursor` - the lane the press picked - the same lane `moveClip` and
+/// `resizeClip` read; the clone arm used to resolve the lane from the
+/// pointer's current row instead, so a drag that strayed one row up cloned
+/// the neighbouring lane's clip.
+fn dragClip(app: *App, ev: modal_mod.MouseEvent, cw: usize) void {
+    const last = app.arr_drag_bar orelse return;
+    const new_bar = barAt(app.arr_scroll_bar, ev.x, cw) orelse return;
+    if (new_bar == last) return;
+    app.arr_cursor_bar = last;
+    const delta: i32 = @as(i32, @intCast(new_bar)) - @as(i32, @intCast(last));
+    if (app.arr_drag_resize) {
+        resizeClip(app, delta);
+        app.arr_drag_bar = new_bar;
+    } else if (app.arr_drag_clone and !app.arr_drag_clone_done) {
+        const lane_ptr = app.session.arrangement.lane(app.cursor) orelse return;
+        const source_tick = cursorTick(app);
+        var clone = (lane_ptr.clipAt(source_tick) orelse return).dupe(app.allocator) catch {
+            app.setStatus("clone failed (out of memory)", .{});
+            return;
+        };
+        moveClip(app, delta);
+        clone.start_tick = source_tick;
+        lane_ptr.place(app.allocator, clone) catch {
+            clone.deinit(app.allocator);
+            app.setStatus("clone failed (out of memory)", .{});
+            return;
+        };
+        app.arr_drag_clone_done = true;
+        app.arr_drag_bar = app.arr_cursor_bar;
+        if (app.session.song_mode) app.session.rebuildSongData();
+    } else {
+        moveClip(app, delta);
+        app.arr_drag_bar = app.arr_cursor_bar;
     }
 }

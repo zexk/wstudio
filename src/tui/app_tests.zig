@@ -8453,17 +8453,53 @@ test "arrangement modifier drags clone and resize clips" {
     const lane = app.session.arrangement.lane(0).?;
     const row = app_mod.content_top + 2;
 
+    // x=34 is bar 5, five grid cells along - far enough that the clone and
+    // the clip it was cloned from do not overlap. A shorter drag left one
+    // 4-bar clip covering both bars this used to assert on, so the pair of
+    // `clipAt` checks passed without a clone ever happening.
     app.handleMouse(.{ .x = 14, .y = row, .button = .left, .kind = .press, .shift = true }, 80, 24, 0);
-    app.handleMouse(.{ .x = 22, .y = row, .button = .left, .kind = .drag, .shift = true }, 80, 24, 0);
-    app.handleMouse(.{ .x = 22, .y = row, .button = .left, .kind = .release, .shift = true }, 80, 24, 0);
-    try std.testing.expect(lane.clipAt(0) != null);
-    try std.testing.expect(lane.clipAt(64) != null);
+    app.handleMouse(.{ .x = 34, .y = row, .button = .left, .kind = .drag, .shift = true }, 80, 24, 0);
+    app.handleMouse(.{ .x = 34, .y = row, .button = .left, .kind = .release, .shift = true }, 80, 24, 0);
+    try std.testing.expectEqual(@as(usize, 2), lane.clips.items.len);
+    try std.testing.expectEqual(@as(u32, 0), lane.clips.items[0].start_tick);
+    try std.testing.expectEqual(@as(u32, 5 * app.arr_grid.ticks()), lane.clips.items[1].start_tick);
 
-    const old_len = lane.clipAt(64).?.length_ticks;
-    app.handleMouse(.{ .x = 22, .y = row, .button = .left, .kind = .press, .ctrl = true }, 80, 24, 0);
-    app.handleMouse(.{ .x = 26, .y = row, .button = .left, .kind = .drag, .ctrl = true }, 80, 24, 0);
-    app.handleMouse(.{ .x = 26, .y = row, .button = .left, .kind = .release, .ctrl = true }, 80, 24, 0);
-    try std.testing.expectEqual(old_len + app.arr_grid.ticks(), lane.clipAt(64).?.length_ticks);
+    const moved_start = 5 * app.arr_grid.ticks();
+    const old_len = lane.clipAt(moved_start).?.length_ticks;
+    app.handleMouse(.{ .x = 34, .y = row, .button = .left, .kind = .press, .ctrl = true }, 80, 24, 0);
+    app.handleMouse(.{ .x = 38, .y = row, .button = .left, .kind = .drag, .ctrl = true }, 80, 24, 0);
+    app.handleMouse(.{ .x = 38, .y = row, .button = .left, .kind = .release, .ctrl = true }, 80, 24, 0);
+    try std.testing.expectEqual(old_len + app.arr_grid.ticks(), lane.clipAt(moved_start).?.length_ticks);
+}
+
+test "a clip drag belongs to the lane the press picked, and its release always lands" {
+    var app = try testApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try app.session.stampClip(0, 0);
+    try app.session.stampClip(1, 0); // a clip on lane 1 at the same bar
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_scroll_bar = 0;
+    const lane0 = app.session.arrangement.lane(0).?;
+    const lane1 = app.session.arrangement.lane(1).?;
+    const row = app_mod.content_top + 2;
+
+    // Shift-drag starting on lane 0 but straying one row down onto lane 1:
+    // the clone belongs to lane 0, and lane 1 is left alone.
+    // Far enough that the clone and the moved original do not overlap: a
+    // shorter drag would let `Lane.place` delete the one it landed on.
+    app.handleMouse(.{ .x = 14, .y = row, .button = .left, .kind = .press, .shift = true }, 80, 24, 0);
+    app.handleMouse(.{ .x = 34, .y = row + 1, .button = .left, .kind = .drag, .shift = true }, 80, 24, 0);
+    try std.testing.expectEqual(@as(usize, 2), lane0.clips.items.len);
+    try std.testing.expectEqual(@as(usize, 1), lane1.clips.items.len);
+
+    // Releasing over the bar ruler still ends the gesture; a release the row
+    // guard swallowed used to leave the clone flag armed for the next drag.
+    app.handleMouse(.{ .x = 22, .y = app_mod.content_top, .button = .left, .kind = .release, .shift = true }, 80, 24, 0);
+    try std.testing.expect(app.arr_drag_bar == null);
+    try std.testing.expect(!app.arr_drag_clone);
 }
 
 test "right-click always erases a drum step, and a right-drag erases a run of them" {
