@@ -3368,6 +3368,35 @@ test "consolidate renders audio region edits into a plain source" {
     try std.testing.expectEqual(@as(f32, 1), audio.stretch_ratio);
 }
 
+test "consolidate keeps a stereo source stereo and clamps fades to clip length" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .arrangement;
+    app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
+    app.session.engine.transport.tempo_bpm = app.session.project.tempo_bpm;
+    const source_id = try app.session.project.addAudioSource("raw", app.session.project.sample_rate, 2, &.{ 0.1, -0.1, 0.2, -0.2 });
+    try app.session.arrangement.lane(0).?.place(app.allocator, ws.Clip.initAudio(0, 64, .{
+        .source_id = source_id,
+        .source_start_frame = 0,
+        .source_length_frames = 2,
+        // Longer than the two-frame clip: playback clamps this to the clip
+        // length, so the bake has to as well.
+        .fade_in_frames = 1_000,
+    }));
+
+    commands.run(&app, "consolidate");
+    const audio = app.session.arrangement.lane(0).?.clips.items[0].content.audio;
+    const consolidated = app.session.project.audioSource(audio.source_id).?;
+    try std.testing.expectEqual(@as(u16, 2), consolidated.channel_count);
+    try std.testing.expectEqual(@as(usize, 4), consolidated.samples.len);
+    // Frame 0 is the clamped fade-in's zero point; frame 1 keeps its channels
+    // distinct instead of collapsing to their average.
+    try std.testing.expectApproxEqAbs(@as(f32, 0), consolidated.samples[0], 1e-6);
+    try std.testing.expect(consolidated.samples[2] > 0);
+    try std.testing.expect(consolidated.samples[3] < 0);
+    try std.testing.expectEqual(@as(u64, 0), audio.fade_in_frames);
+}
+
 test "comp splices a beat range from an alternate audio take" {
     var app = try testApp();
     defer app.deinit();

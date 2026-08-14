@@ -830,32 +830,38 @@ pub fn cmdConsolidate(app: *App, _: []const u8) void {
     };
     const frames_per_beat = app.session.engine.transport.framesPerBeat();
     const frame_count: usize = @intFromFloat(@max(1.0, ws.time_grid.tickToBeat(clip.length_ticks) * frames_per_beat));
-    const rendered = app.allocator.alloc(f32, frame_count) catch {
+    const channels = source.channel_count;
+    const rendered = app.allocator.alloc(f32, frame_count * channels) catch {
         app.setStatus("consolidate: out of memory", .{});
         return;
     };
     defer app.allocator.free(rendered);
-    const source_frames = source.samples.len / source.channel_count;
-    const gain = ws.types.dbToGain(audio.gain_db);
-    for (rendered, 0..) |*sample, i| {
-        const offset: u64 = @intFromFloat(@as(f64, @floatFromInt(i)) * @as(f64, @floatFromInt(source.sample_rate)) / @as(f64, @floatFromInt(app.session.project.sample_rate)) / audio.stretch_ratio);
+    const source_frames = source.samples.len / channels;
+    // Bake with the same clamps `Session.syncAudioRegions` applies before
+    // playback, so the consolidated source sounds like what was heard.
+    const gain = ws.types.dbToGain(std.math.clamp(audio.gain_db, -60.0, 24.0));
+    const stretch_ratio = std.math.clamp(audio.stretch_ratio, 0.125, 8.0);
+    const fade_in_frames = @min(audio.fade_in_frames, frame_count);
+    const fade_out_frames = @min(audio.fade_out_frames, frame_count);
+    for (0..frame_count) |i| {
+        const out = rendered[i * channels ..][0..channels];
+        const offset: u64 = @intFromFloat(@as(f64, @floatFromInt(i)) * @as(f64, @floatFromInt(source.sample_rate)) / @as(f64, @floatFromInt(app.session.project.sample_rate)) / stretch_ratio);
         const source_frame = ws.arrangement.audioSourceFrame(audio.source_start_frame, audio.source_length_frames, offset, audio.reverse) orelse {
-            sample.* = 0;
+            @memset(out, 0);
             continue;
         };
         if (source_frame >= source_frames) {
-            sample.* = 0;
+            @memset(out, 0);
             continue;
         }
-        const fade_in = if (audio.fade_in_frames > 0) ws.arrangement.fadeGain(@as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(audio.fade_in_frames)), audio.fade_curve) else 1.0;
+        const fade_in = if (fade_in_frames > 0) ws.arrangement.fadeGain(@as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(fade_in_frames)), audio.fade_curve) else 1.0;
         const remaining = frame_count - i - 1;
-        const fade_out = if (audio.fade_out_frames > 0) ws.arrangement.fadeGain(@as(f32, @floatFromInt(remaining)) / @as(f32, @floatFromInt(audio.fade_out_frames)), audio.fade_curve) else 1.0;
-        var mono: f32 = 0;
-        const source_index: usize = @intCast(source_frame * source.channel_count);
-        for (0..source.channel_count) |channel| mono += source.samples[source_index + channel];
-        sample.* = mono / @as(f32, @floatFromInt(source.channel_count)) * gain * @min(fade_in, fade_out);
+        const fade_out = if (fade_out_frames > 0) ws.arrangement.fadeGain(@as(f32, @floatFromInt(remaining)) / @as(f32, @floatFromInt(fade_out_frames)), audio.fade_curve) else 1.0;
+        const frame_gain = gain * @min(fade_in, fade_out);
+        const source_index: usize = @intCast(source_frame * channels);
+        for (out, 0..) |*sample, channel| sample.* = source.samples[source_index + channel] * frame_gain;
     }
-    const source_id = app.session.project.addAudioSource("consolidated", app.session.project.sample_rate, 1, rendered) catch {
+    const source_id = app.session.project.addAudioSource("consolidated", app.session.project.sample_rate, channels, rendered) catch {
         app.setStatus("consolidate: failed to create source", .{});
         return;
     };
@@ -944,7 +950,8 @@ pub fn cmdComp(app: *App, args: []const u8) void {
     const alternate_source = app.session.project.audioSource(alternate.source_id) orelse return;
     const project_rate = app.session.project.sample_rate;
     const output_frames: usize = @intFromFloat(@as(f64, @floatFromInt(audio.source_length_frames)) * @as(f64, @floatFromInt(project_rate)) / @as(f64, @floatFromInt(active_source.sample_rate)));
-    const result = app.allocator.alloc(f32, output_frames) catch {
+    const channels = @max(active_source.channel_count, alternate_source.channel_count);
+    const result = app.allocator.alloc(f32, output_frames * channels) catch {
         app.setStatus("comp: out of memory", .{});
         return;
     };
@@ -955,26 +962,26 @@ pub fn cmdComp(app: *App, args: []const u8) void {
         app.setStatus("comp: range falls outside clip", .{});
         return;
     }
-    for (result, 0..) |*sample, frame| {
+    for (0..output_frames) |frame| {
+        const out = result[frame * channels ..][0..channels];
         const use_alternate = frame >= range_start and frame < range_end;
         const source = if (use_alternate) alternate_source else active_source;
         const start = if (use_alternate) alternate.source_start_frame else audio.source_start_frame;
         const length = if (use_alternate) alternate.source_length_frames else audio.source_length_frames;
         const source_offset: u64 = @intFromFloat(@as(f64, @floatFromInt(frame)) * @as(f64, @floatFromInt(source.sample_rate)) / @as(f64, @floatFromInt(project_rate)));
         const source_frame = ws.arrangement.audioSourceFrame(start, length, source_offset, false) orelse {
-            sample.* = 0;
+            @memset(out, 0);
             continue;
         };
         if (source_frame >= source.samples.len / source.channel_count) {
-            sample.* = 0;
+            @memset(out, 0);
             continue;
         }
         const base: usize = @intCast(source_frame * source.channel_count);
-        var mono: f32 = 0;
-        for (0..source.channel_count) |channel| mono += source.samples[base + channel];
-        sample.* = mono / @as(f32, @floatFromInt(source.channel_count));
+        // A mono take spliced against a stereo one feeds both output channels.
+        for (out, 0..) |*sample, channel| sample.* = source.samples[base + @min(channel, source.channel_count - 1)];
     }
-    const source_id = app.session.project.addAudioSource("comp", project_rate, 1, result) catch {
+    const source_id = app.session.project.addAudioSource("comp", project_rate, channels, result) catch {
         app.setStatus("comp: failed to create source", .{});
         return;
     };
