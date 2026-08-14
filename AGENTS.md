@@ -77,11 +77,19 @@ build, plugin harness) leaves its own multi-hundred-MB directory under
 find .zig-cache/o -mindepth 1 -maxdepth 1 -type d -mtime +0 -exec rm -rf {} +
 ```
 
-That drops everything untouched for 24h and keeps the current build hot, so
-the next `zig build` is incremental, not a from-scratch rebuild. A missing
-entry is only ever a cache miss, so this is safe at any time; `rm -rf
-.zig-cache` also works but costs a full rebuild. Do not let more than one
-generation of `wstudio` binaries accumulate.
+That drops everything untouched for 24h and keeps the *current* build hot, so
+the next `zig build` of the configuration you were just using is incremental.
+
+**It is not a pure cache miss for the configurations it did evict.** A build
+config that has been idle longer than the cutoff can come back with
+`error: C import failed: FileNotFound` (sndfile.h, rubberband-c.h) even
+though the headers are right there in the store: the prune took the cached
+cimport while a manifest referencing it survived. Seen 2026-08-14 with Debug
+building fine and `zig build bench -Doptimize=ReleaseFast` failing. The only
+fix is `rm -rf .zig-cache` and a from-scratch rebuild, so prune at the *end*
+of a session, not before a cross-build, a release build, or a benchmark.
+
+Do not let more than one generation of `wstudio` binaries accumulate.
 
 For visual verification of TUI changes, follow
 [`docs/tui-screenshots.md`](docs/tui-screenshots.md). It drives a dedicated
