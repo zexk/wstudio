@@ -3381,6 +3381,17 @@ test "clip commands name the missing track instead of failing silently" {
     }
 }
 
+test "an over-long status message truncates instead of drawing the buffer's tail" {
+    var app = try testApp();
+    defer app.deinit();
+    const long = "x" ** 400;
+    app.setStatus("path {s}", .{long});
+    const shown = app.status_buf[0..app.status_len];
+    try std.testing.expectEqual(app.status_buf.len, shown.len);
+    try std.testing.expect(std.mem.startsWith(u8, shown, "path xxx"));
+    for (shown[5..]) |byte| try std.testing.expectEqual(@as(u8, 'x'), byte);
+}
+
 test "crossfade fades the overlapping layers into each other" {
     var app = try testApp();
     defer app.deinit();

@@ -4689,8 +4689,12 @@ pub const App = struct {
     }
 
     pub fn setStatus(self: *App, comptime fmt: []const u8, args: anytype) void {
-        const msg = std.fmt.bufPrint(&self.status_buf, fmt, args) catch &self.status_buf;
-        self.status_len = msg.len;
+        // A message longer than the buffer keeps the prefix that fit.
+        // `bufPrint`'s error path used to fall back to the whole (undefined)
+        // buffer, which drew uninitialized bytes on the status line.
+        var w = std.Io.Writer.fixed(&self.status_buf);
+        w.print(fmt, args) catch {};
+        self.status_len = w.buffered().len;
         self.status_pending = true;
     }
 };
