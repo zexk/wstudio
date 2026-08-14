@@ -31,9 +31,10 @@ history lives in [FORMAT.md](FORMAT.md).
   `:ctrl-bind`.
 - MIDI learn: `:cc-learn` binds a hardware controller knob to the param under
   the cursor, on any track, and `:cc`/`:cc-clear` list and drop bindings.
-- CLAP and VST3 plugins load out of process by default, so one that crashes or
-  hangs degrades to silence in its own slot instead of taking the session with
-  it. `wstudio.o.sandbox_plugins = false` hosts them in-process instead.
+- On Linux, CLAP and VST3 plugins load out of process by default, so one that
+  crashes or hangs degrades to silence in its own slot instead of taking the
+  session with it. `wstudio.o.sandbox_plugins = false` hosts them in-process
+  instead; other platforms always host in-process.
 - A hosted plugin's own editor window opens inside the session
   (`:clap-gui`, `:vst3-gui`) and follows the size the plugin reports.
 - Reverb gains an impulse mode that puts a sparse room reflection pattern

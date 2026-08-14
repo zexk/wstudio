@@ -50,10 +50,10 @@ wstudio hosts stereo CLAP instruments and effects using the
 [CLAP 1.2 ABI](https://github.com/free-audio/clap). Discovery follows
 `CLAP_PATH` and the platform paths required by the CLAP specification.
 
-Plugins of both formats load in a separate process by default, so one that
-crashes or hangs degrades to silence in its own slot rather than taking the
-session with it. Set `wstudio.o.sandbox_plugins = false` to host them
-in-process instead.
+On Linux, plugins of both formats load in a separate process by default, so
+one that crashes or hangs degrades to silence in its own slot rather than
+taking the session with it. Set `wstudio.o.sandbox_plugins = false` to host
+them in-process instead. Other platforms always host in-process.
 
 ```sh
 wstudio clap-scan
