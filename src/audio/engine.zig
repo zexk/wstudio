@@ -2540,6 +2540,107 @@ test "a loop wrap selects the same automation a seek to that position selects" {
     try std.testing.expect(after_wrap < 9_000.0);
 }
 
+test "stopping and resuming lands where an uninterrupted run lands" {
+    // Stop is a pause, not time travel: the blocks processed while stopped
+    // must not advance the transport, and resuming must continue selecting
+    // automation from the position the stop left behind. An engine that let
+    // stopped blocks advance - or that resumed from somewhere else - would
+    // render a passage differently from a live pass over the same bars.
+    const sample_rate = 48_000;
+    const curve = [_]AutomationPoint{
+        .{ .beat = 0.0, .value = 1_000.0 },
+        .{ .beat = 8.0, .value = 9_000.0 },
+    };
+    const block_frames = 256; // the buffer below is interleaved stereo
+    var block: [block_frames * 2]Sample = undefined;
+
+    var paused_synth = try PolySynth.init(std.testing.allocator, sample_rate);
+    defer paused_synth.deinit();
+    var paused = try Engine.init(std.testing.allocator, sample_rate);
+    defer paused.deinit();
+    paused.trackAt(0).* = .{ .active = true };
+    paused.setTrackChain(0, &.{paused_synth.device()});
+    paused.setTrackSynthParam(0, 21, 0, 21, &curve);
+    _ = paused.send(.{ .seek_frames = 96_000 });
+    _ = paused.send(.play);
+    for (0..4) |_| paused.process(&block);
+
+    const at_stop = paused.transport.position_frames;
+    const cutoff_at_stop = paused_synth.filter_cutoff;
+    _ = paused.send(.stop);
+    for (0..4) |_| paused.process(&block);
+    try std.testing.expectEqual(at_stop, paused.transport.position_frames);
+    // The cutoff is deliberately not asserted unchanged here: the target the
+    // curve names at the stopped position stands still, but the smoother is
+    // still walking towards it, which is what a held note should do.
+
+    _ = paused.send(.play);
+    for (0..40) |_| paused.process(&block);
+
+    // Same engine, same curve, played straight through the same 44 blocks.
+    var straight_synth = try PolySynth.init(std.testing.allocator, sample_rate);
+    defer straight_synth.deinit();
+    var straight = try Engine.init(std.testing.allocator, sample_rate);
+    defer straight.deinit();
+    straight.trackAt(0).* = .{ .active = true };
+    straight.setTrackChain(0, &.{straight_synth.device()});
+    straight.setTrackSynthParam(0, 21, 0, 21, &curve);
+    _ = straight.send(.{ .seek_frames = 96_000 });
+    _ = straight.send(.play);
+    for (0..44) |_| straight.process(&block);
+
+    try std.testing.expectEqual(straight.transport.position_frames, paused.transport.position_frames);
+    // The tolerance is wider than the 1.0 the neighbouring checks use because
+    // the paused engine spent four extra blocks smoothing towards a target
+    // that was standing still, which leaves it ~11Hz further along. The bug
+    // this guards against - stopped blocks advancing the transport - moves
+    // the value by ~43Hz over the same four blocks, so 15 still separates
+    // them.
+    try std.testing.expectApproxEqAbs(straight_synth.filter_cutoff, paused_synth.filter_cutoff, 15.0);
+    // Not a vacuous pass: the curve really does climb across these bars, so a
+    // stop that advanced the transport would land on a different value.
+    try std.testing.expect(paused_synth.filter_cutoff > cutoff_at_stop);
+}
+
+test "automation selects by beat, so a different sample rate picks the same value" {
+    // A project reopened at another sample rate has to sound the same. The
+    // frame count for a given beat changes with the rate; the automation
+    // value at that beat must not. A curve read against frames instead of
+    // beats would land nearly a beat early at 44.1kHz.
+    //
+    // Both segments hold, so the value is exactly flat either side of beat 4
+    // and the comparison cannot be decided by where inside the bar each
+    // engine happens to sit after the same number of blocks.
+    const curve = [_]AutomationPoint{
+        .{ .beat = 0.0, .value = 1_000.0, .curve = .hold },
+        .{ .beat = 4.0, .value = 7_000.0, .curve = .hold },
+    };
+    const Run = struct {
+        fn cutoffAtBeatFour(sample_rate: u32) !f32 {
+            var synth = try PolySynth.init(std.testing.allocator, sample_rate);
+            defer synth.deinit();
+            var engine = try Engine.init(std.testing.allocator, sample_rate);
+            defer engine.deinit();
+            engine.trackAt(0).* = .{ .active = true };
+            engine.setTrackChain(0, &.{synth.device()});
+            engine.setTrackSynthParam(0, 21, 0, 21, &curve);
+            // 120bpm: a beat is sample_rate/2 frames, so beat 4 is 2 seconds.
+            _ = engine.send(.{ .seek_frames = @as(u64, sample_rate) * 2 });
+            _ = engine.send(.play);
+            var buf: [256 * 2]Sample = undefined;
+            for (0..60) |_| engine.process(&buf);
+            return synth.filter_cutoff;
+        }
+    };
+
+    const at_48k = try Run.cutoffAtBeatFour(48_000);
+    const at_44k = try Run.cutoffAtBeatFour(44_100);
+    try std.testing.expectApproxEqAbs(at_48k, at_44k, 1.0);
+    // Not a vacuous pass: both engines have to have crossed into the second
+    // segment, or they would agree on 1000 for the wrong reason.
+    try std.testing.expect(at_48k > 6_000.0);
+}
+
 test "renderTracks handles multiple simultaneous synth-param automation slots" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();

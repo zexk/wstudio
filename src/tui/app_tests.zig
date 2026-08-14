@@ -4513,6 +4513,43 @@ test "session swap resets view, editor targets, and undo history" {
     try std.testing.expectEqualStrings("new project", app.status_buf[0..app.status_len]);
 }
 
+test "session swap ends the record pass instead of carrying it to the new project" {
+    // The other half of the swap: `:e` and `:new` are reachable mid-pass, and
+    // the bookkeeping that says "a recording is running" names tracks in the
+    // session about to be freed. Left standing it would stamp captured audio
+    // onto whatever track holds that index in the new project.
+    var app = try testApp();
+    defer app.deinit();
+
+    app.punch_enabled = true;
+    app.recording_punch_start_bar = 4;
+    app.recording_punch_end_bar = 8;
+    app.recording_loop_start_bar = 0;
+    app.recording_loop_end_bar = 16;
+    app.recording_pending_len = 1;
+    app.recording_active_len = 1;
+    app.input_monitor = .on;
+    const old_engine = app.session.engine;
+
+    app.pending_reload = .blank;
+    const prepared = app.preparePendingReload() orelse return error.TestUnexpectedResult;
+    app.installPreparedReload(prepared);
+
+    try std.testing.expect(!app.punch_enabled);
+    try std.testing.expect(app.recording_punch_start_bar == null);
+    try std.testing.expect(app.recording_punch_end_bar == null);
+    try std.testing.expect(app.recording_loop_start_bar == null);
+    try std.testing.expect(app.recording_loop_end_bar == null);
+    try std.testing.expectEqual(@as(usize, 0), app.recording_pending_len);
+    try std.testing.expectEqual(@as(usize, 0), app.recording_active_len);
+    try std.testing.expect(app.recording_take == null);
+    try std.testing.expectEqual(app_mod.InputMonitor.auto, app.input_monitor);
+    // The transport the app now drives belongs to the new session; nothing
+    // may still be pointing at the engine that was just freed.
+    try std.testing.expect(app.session.engine != old_engine);
+    try std.testing.expect(!app.session.engine.transport.playing);
+}
+
 test "track add/delete/move remap the preset picker's target track" {
     var app = try testApp();
     defer app.deinit();

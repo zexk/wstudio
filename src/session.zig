@@ -2747,6 +2747,71 @@ test "later clip automation owns a shared boundary" {
     try std.testing.expectEqual(@as(f32, 1000.0), s.racks.items[0].instrument.poly_synth.filter_cutoff);
 }
 
+test "removing a clip takes its automation with it" {
+    // A clip owns its automation points, so deleting one has to withdraw them
+    // from the flattened curve. If it did not, the removed clip would keep
+    // driving the parameter over bars that now belong to its neighbour.
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    try s.setInstrument(0, .poly_synth);
+
+    const lane = s.arrangement.lane(0).?;
+    try lane.place(s.allocator, try Clip.initMelodic(s.allocator, 0, 32, &.{}, 1.0));
+    try lane.place(s.allocator, try Clip.initMelodic(s.allocator, 32, 32, &.{}, 1.0));
+    try automation_mod.setPoint(s.allocator, try lane.clips.items[0].automation.synthParamPoints(s.allocator, 0, 21), 0.0, 5000.0);
+    try automation_mod.setPoint(s.allocator, try lane.clips.items[1].automation.synthParamPoints(s.allocator, 0, 21), 0.0, 1000.0);
+
+    s.setSongMode(true);
+    var block: [512]@import("core/types.zig").Sample = undefined;
+    _ = s.engine.send(.{ .seek_frames = 0 });
+    // The cutoff is smoothed towards its target, so it arrives near 5000
+    // rather than at it - far enough from the neighbour's 1000 to tell apart.
+    for (0..8) |_| s.engine.process(&block);
+    try std.testing.expect(s.racks.items[0].instrument.poly_synth.filter_cutoff > 4000.0);
+
+    try std.testing.expect(lane.removeAt(s.allocator, 0));
+    s.rebuildSongData();
+
+    // Only the surviving clip's point is left, and a curve holds its first
+    // value backwards, so bar 0 now reads the neighbour's 1000 rather than
+    // the 5000 the deleted clip put there.
+    _ = s.engine.send(.{ .seek_frames = 0 });
+    for (0..8) |_| s.engine.process(&block);
+    try std.testing.expect(s.racks.items[0].instrument.poly_synth.filter_cutoff < 1500.0);
+}
+
+test "a replacement FX unit does not inherit the removed unit's automation" {
+    // The session-level half of the instance-id contract rack.zig proves: a
+    // clip lane addressed to a removed unit must not start driving whatever
+    // unit takes its chain slot, or automation written for one plugin would
+    // land on the parameter that happens to share its index in another.
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    const rack = s.racks.items[0];
+    const first = try rack.fx.insert(s.allocator, 0, .sat, s.project.sample_rate);
+    const removed_id = first.instance_id;
+    s.syncTrackChain(0, rack);
+
+    const lane = s.arrangement.lane(0).?;
+    try lane.place(s.allocator, try Clip.initMelodic(s.allocator, 0, 32, &.{}, 1.0));
+    // idx 2 = sat's "mix" row, same row the neighbouring test drives.
+    try automation_mod.setPoint(s.allocator, try lane.clipAt(0).?.automation.synthParamPoints(s.allocator, removed_id, 2), 0.0, 0.3);
+    s.setSongMode(true);
+    var block: [512]@import("core/types.zig").Sample = undefined;
+    s.engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.3), first.payload.sat.mix, 1e-6);
+
+    rack.fx.remove(s.allocator, 0);
+    const second = try rack.fx.insert(s.allocator, 0, .sat, s.project.sample_rate);
+    try std.testing.expect(second.instance_id != removed_id);
+    s.syncTrackChain(0, rack);
+    s.rebuildSongData();
+
+    second.payload.sat.mix = 1.0;
+    s.engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), second.payload.sat.mix, 1e-6);
+}
+
 test "clip automation reaches an FX unit's param on a non-poly_synth track" {
     var s = try Session.initDefault(std.testing.allocator);
     defer s.deinit();
