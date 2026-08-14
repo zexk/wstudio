@@ -65,6 +65,39 @@ ranges mean. They are recorded as notes and do not fail the run.
 The check is on-demand rather than part of `zig build test`, since it needs
 third-party plugins installed on the machine.
 
+## Ownership and stale state after delete or reorder
+
+2026-08-14 automated coverage locks the four kinds of stored track index
+against every operation that shifts one. Deleting an earlier track moves
+compressor sidechain sources, LFO controller targets, learned CC bindings, and
+send-level automation lanes down with it; deleting the referenced track clears
+them outright rather than letting them land on a neighbour; swapping two tracks
+carries them along. A shared helper sets all four before each case, so none of
+those assertions can pass by testing nothing.
+
+FX units are addressed by a stable instance id rather than a chain slot, and
+that is now proven at the boundary that could break it: removing a unit does
+not hand its id to the unit that shifts into its slot, automation still
+addressed to the removed unit stays inert, and a unit inserted afterwards does
+not inherit the dead id. Loading restores saved instance ids and advances the
+allocator past them (`persist/load.zig`), so a reopened project cannot mint a
+duplicate.
+
+Group, clip, and plugin-parameter ownership are not yet covered by an
+equivalent focused check.
+
+## Transport coherence
+
+2026-08-14 the loop-wrap boundary is covered: arriving at a position by playing
+across the loop end selects the same automation value as arriving at the same
+position by seeking, at the same transport frame. This is the property that
+keeps live playback and an offline render of the same bars in agreement, and
+the curve used moves steeply across the bars in question so a wrap that kept
+reading the pre-wrap position would read a different value.
+
+Play, stop, seek, recording start and stop, project replacement, and
+sample-rate changes are not yet covered by equivalent focused checks.
+
 ## Punch recording
 
 Automated frontend coverage verifies `:punch` rejects missing bounds and gates
