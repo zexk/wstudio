@@ -417,8 +417,13 @@ test "X11 window sees a resize the server reports, not only a synthetic one" {
     window.resize(96, 80);
     _ = window.functions.sync(window.display, 0);
 
+    // 5 s, not the 1 s this used to allow: the window manager maps and
+    // resizes asynchronously, and under the load of a full `zig build test`
+    // (or anything else busy on the machine) a second is not always enough.
+    // The loop exits on the first event, so the higher cap only costs time
+    // on a run that was going to fail anyway.
     var tries: usize = 0;
-    const got: ?Size = while (tries < 200) : (tries += 1) {
+    const got: ?Size = while (tries < 1000) : (tries += 1) {
         _ = window.service();
         if (window.takeResize()) |size| break size;
         transport.sleepNs(5 * std.time.ns_per_ms);
