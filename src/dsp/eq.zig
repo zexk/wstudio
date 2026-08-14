@@ -134,7 +134,12 @@ const EqBand = struct {
     /// (`recompute`) passes `gain_db` itself; the dynamic path passes the
     /// envelope-modulated effective gain without touching the stored value.
     fn recomputeWithGain(band: *EqBand, sr: f32, gain_db_for_calc: f32) void {
-        const w0 = 2.0 * std.math.pi * band.freq / sr;
+        // A band's own knob clamps to 20 kHz, which is already above Nyquist
+        // on any device under 40 kHz - and a project may be loaded at any
+        // rate down to 8 kHz. Past Nyquist `w0` wraps, `alpha` can come out
+        // negative, and the cookbook biquad turns into an oscillator, so the
+        // design frequency is pinned here rather than in each setter.
+        const w0 = 2.0 * std.math.pi * @min(band.freq, sr * 0.45) / sr;
         const cos_w0 = std.math.cos(w0);
         const sin_w0 = std.math.sin(w0);
         const alpha = sin_w0 / (2.0 * band.q);
@@ -1007,4 +1012,20 @@ test "disabled EQ bands leave audio unchanged" {
     const input = buf;
     eq.processBlock(&buf);
     try std.testing.expectEqualSlices(Sample, &input, &buf);
+}
+
+test "a band above the device's Nyquist does not blow the EQ up" {
+    // Band frequencies clamp to 20 kHz, but a project may be loaded at any
+    // rate down to 8 kHz, where that is far above Nyquist. Past Nyquist the
+    // cookbook design's `alpha` can come out negative and the biquad turns
+    // into an oscillator.
+    var eq = ParametricEq.init(8_000);
+    eq.setFreq(0, 20_000.0);
+    eq.setGain(0, 12.0);
+    var buf: [512]Sample = undefined;
+    for (0..50) |_| {
+        for (&buf, 0..) |*s, i| s.* = 0.3 * @sin(@as(f32, @floatFromInt(i)) * 0.3);
+        eq.processBlock(&buf);
+        for (buf) |s| try std.testing.expect(std.math.isFinite(s) and @abs(s) < 16.0);
+    }
 }
