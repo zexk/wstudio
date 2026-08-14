@@ -21,13 +21,81 @@ threadlocal var on_thread_pool = false;
 
 const NoteDialect = enum { none, clap, midi };
 
-/// Supported main-bus layouts: no input or one mono/stereo input, plus one
-/// mono/stereo output. Mono inputs downmix host stereo; mono outputs duplicate.
+/// What the plugin declares, not what this host would prefer: any number
+/// of ports with any channel counts. Host audio only ever travels on port 0
+/// in each direction (mono inputs downmix host stereo, mono outputs
+/// duplicate); the rest exist so sidechains and multi-out plugins load and
+/// process at all.
 const AudioPortLayout = struct {
     input_count: u32,
+    output_count: u32,
     input_channels: u32,
     output_channels: u32,
 };
+
+/// Process buffers for every audio port a CLAP plugin declares.
+///
+/// `clap_process` carries one `AudioBuffer` per port, and plugins index
+/// `audio_outputs[port]` across their own port count - so the ports this
+/// host does not exchange audio on still need real channel pointers. Port 0
+/// in each direction carries host audio; the others read silence and have
+/// their output discarded. Same reasoning as `BusBuffers` in src/vst3/plugin.zig.
+const PortBuffers = struct {
+    inputs: []abi.AudioBuffer,
+    outputs: []abi.AudioBuffer,
+    channel_ptrs: []?[*]f32,
+    pool: []f32,
+    /// Index into `channel_ptrs` of the main output port's first channel.
+    /// The main input port is port 0, so its first channel is index 0.
+    main_output_channel: usize,
+
+    fn init(allocator: std.mem.Allocator, plugin: *const abi.Plugin, input_count: usize, output_count: usize) !PortBuffers {
+        const inputs = try allocator.alloc(abi.AudioBuffer, input_count);
+        errdefer allocator.free(inputs);
+        const outputs = try allocator.alloc(abi.AudioBuffer, output_count);
+        errdefer allocator.free(outputs);
+
+        var total: usize = 0;
+        for (inputs, 0..) |*port, index| {
+            port.* = .{ .data32 = null, .data64 = null, .channel_count = portChannelCount(plugin, index, true), .latency = 0, .constant_mask = 0 };
+            total += port.channel_count;
+        }
+        const main_output_channel = total;
+        for (outputs, 0..) |*port, index| {
+            port.* = .{ .data32 = null, .data64 = null, .channel_count = portChannelCount(plugin, index, false), .latency = 0, .constant_mask = 0 };
+            total += port.channel_count;
+        }
+
+        const pool = try allocator.alloc(f32, @max(total, 1) * types.max_block_frames);
+        errdefer allocator.free(pool);
+        const channel_ptrs = try allocator.alloc(?[*]f32, @max(total, 1));
+        errdefer allocator.free(channel_ptrs);
+        for (channel_ptrs, 0..) |*ptr, index| ptr.* = pool[index * types.max_block_frames ..].ptr;
+
+        var next: usize = 0;
+        for ([_][]abi.AudioBuffer{ inputs, outputs }) |list| {
+            for (list) |*port| {
+                port.data32 = channel_ptrs[next..].ptr;
+                next += port.channel_count;
+            }
+        }
+        return .{ .inputs = inputs, .outputs = outputs, .channel_ptrs = channel_ptrs, .pool = pool, .main_output_channel = main_output_channel };
+    }
+
+    fn deinit(self: *PortBuffers, allocator: std.mem.Allocator) void {
+        allocator.free(self.inputs);
+        allocator.free(self.outputs);
+        allocator.free(self.channel_ptrs);
+        allocator.free(self.pool);
+    }
+};
+
+fn portChannelCount(plugin: *const abi.Plugin, index: usize, is_input: bool) u32 {
+    const ports = getExt(abi.PluginAudioPorts, plugin, abi.ext_audio_ports) orelse return 0;
+    var info: abi.AudioPortInfo = undefined;
+    if (!ports.get(plugin, @intCast(index), is_input, &info)) return 0;
+    return info.channel_count;
+}
 
 /// Looks up CLAP extension `ext_id` on `plugin` and casts it to `*const T`,
 /// or null if the plugin doesn't implement it - shared by every extension
@@ -477,14 +545,8 @@ pub const ClapPlugin = struct {
 
         const self = try allocator.create(ClapPlugin);
         errdefer allocator.destroy(self);
-        const input_left = try allocator.alloc(f32, types.max_block_frames);
-        errdefer allocator.free(input_left);
-        const input_right = try allocator.alloc(f32, types.max_block_frames);
-        errdefer allocator.free(input_right);
-        const output_left = try allocator.alloc(f32, types.max_block_frames);
-        errdefer allocator.free(output_left);
-        const output_right = try allocator.alloc(f32, types.max_block_frames);
-        errdefer allocator.free(output_right);
+        var ports = try PortBuffers.init(allocator, plugin, audio_layout.input_count, audio_layout.output_count);
+        errdefer ports.deinit(allocator);
         self.* = .{
             .allocator = allocator,
             .audio_inputs_count = audio_layout.input_count,
@@ -495,10 +557,7 @@ pub const ClapPlugin = struct {
                 .plugin = plugin,
                 .host_context = host_context,
                 .path_z = path_z,
-                .input_left = input_left,
-                .input_right = input_right,
-                .output_left = output_left,
-                .output_right = output_right,
+                .ports = ports,
                 .audio_inputs_count = audio_layout.input_count,
                 .input_channels = audio_layout.input_channels,
                 .output_channels = audio_layout.output_channels,
@@ -779,19 +838,18 @@ fn validateAudioPorts(plugin: *const abi.Plugin) !AudioPortLayout {
         return error.MissingAudioPorts;
     const input_count = ports.count(plugin, true);
     const output_count = ports.count(plugin, false);
-    if (input_count > 1 or output_count != 1) return error.UnsupportedAudioPortLayout;
+    if (output_count == 0) return error.UnsupportedAudioPortLayout;
 
-    var input_channels: u32 = 0;
-    if (input_count == 1) {
-        var input_info: abi.AudioPortInfo = undefined;
-        if (!ports.get(plugin, 0, true, &input_info) or (input_info.channel_count != 1 and input_info.channel_count != 2))
-            return error.UnsupportedAudioPortLayout;
-        input_channels = input_info.channel_count;
-    }
-    var output_info: abi.AudioPortInfo = undefined;
-    if (!ports.get(plugin, 0, false, &output_info) or (output_info.channel_count != 1 and output_info.channel_count != 2))
-        return error.UnsupportedAudioPortLayout;
-    return .{ .input_count = input_count, .input_channels = input_channels, .output_channels = output_info.channel_count };
+    // Channels beyond the first two of the main port are still allocated and
+    // handed to the plugin (see `PortBuffers`); this host just exchanges the
+    // first one or two with the track.
+    const input_channels: u32 = if (input_count == 0) 0 else @min(portChannelCount(plugin, 0, true), 2);
+    return .{
+        .input_count = input_count,
+        .output_count = output_count,
+        .input_channels = input_channels,
+        .output_channels = @min(portChannelCount(plugin, 0, false), 2),
+    };
 }
 
 fn detectNoteSupport(plugin: *const abi.Plugin) struct {
@@ -848,15 +906,12 @@ const Direct = struct {
     plugin: *const abi.Plugin,
     host_context: *HostContext,
     path_z: [:0]u8,
-    input_left: []f32,
-    input_right: []f32,
-    output_left: []f32,
-    output_right: []f32,
-    input_channel_ptrs: [2]?[*]f32 = .{ null, null },
-    output_channel_ptrs: [2]?[*]f32 = .{ null, null },
+    ports: PortBuffers,
     events: EventList = EventList.init(),
     output_events: abi.OutputEvents,
     audio_inputs_count: u32,
+    /// Channels of the *main* port this host exchanges audio on, clamped to
+    /// 2. The ports themselves may declare more (or none).
     input_channels: u32,
     output_channels: u32,
     note_dialect: NoteDialect,
@@ -874,16 +929,22 @@ const Direct = struct {
 
     fn deinit(self: *Direct) void {
         self.destroyGui();
-        if (self.started) self.plugin.stop_processing(self.plugin);
+        if (self.started) {
+            // `stop_processing` is [audio-thread] in the CLAP spec, and
+            // plugins check: Odin2 calls std::terminate when the host says
+            // otherwise. No audio thread is running by now (teardown owns
+            // the plugin exclusively), so this thread is the audio thread
+            // for the length of that one call.
+            on_audio_thread = true;
+            self.plugin.stop_processing(self.plugin);
+            on_audio_thread = false;
+        }
         if (self.activated) self.plugin.deactivate(self.plugin);
         self.host_context.stopWorkers();
         self.plugin.destroy(self.plugin);
         self.entry.deinit();
         self.library.close();
-        self.allocator.free(self.input_left);
-        self.allocator.free(self.input_right);
-        self.allocator.free(self.output_left);
-        self.allocator.free(self.output_right);
+        self.ports.deinit(self.allocator);
         self.allocator.free(self.path_z);
         self.allocator.destroy(self.host_context);
     }
@@ -905,31 +966,23 @@ const Direct = struct {
             if (!self.started) return;
         }
 
-        for (0..frames) |frame| {
-            self.input_left[frame] = if (self.input_channels == 1)
-                (buf[frame * 2] + buf[frame * 2 + 1]) * 0.5
-            else
-                buf[frame * 2];
-            self.input_right[frame] = buf[frame * 2 + 1];
-            self.output_left[frame] = 0;
-            self.output_right[frame] = 0;
+        // Every channel of every port starts silent - the ports this host
+        // does not use stay that way, and their output is discarded.
+        for (self.ports.channel_ptrs) |channel| if (channel) |ptr| @memset(ptr[0..frames], 0);
+        if (self.input_channels > 0) {
+            if (self.ports.channel_ptrs[0]) |left| {
+                for (0..frames) |frame|
+                    left[frame] = if (self.input_channels == 1)
+                        (buf[frame * 2] + buf[frame * 2 + 1]) * 0.5
+                    else
+                        buf[frame * 2];
+            }
+            if (self.input_channels >= 2) {
+                if (self.ports.channel_ptrs[1]) |right| {
+                    for (0..frames) |frame| right[frame] = buf[frame * 2 + 1];
+                }
+            }
         }
-        self.input_channel_ptrs = .{ self.input_left.ptr, self.input_right.ptr };
-        self.output_channel_ptrs = .{ self.output_left.ptr, self.output_right.ptr };
-        var input_audio = abi.AudioBuffer{
-            .data32 = &self.input_channel_ptrs,
-            .data64 = null,
-            .channel_count = self.input_channels,
-            .latency = 0,
-            .constant_mask = 0,
-        };
-        var output_audio = abi.AudioBuffer{
-            .data32 = &self.output_channel_ptrs,
-            .data64 = null,
-            .channel_count = self.output_channels,
-            .latency = 0,
-            .constant_mask = 0,
-        };
         var transport_event: abi.EventTransport = undefined;
         const transport_ptr: ?*const anyopaque = if (self.transport) |transport| blk: {
             transport_event = makeTransportEvent(transport);
@@ -939,10 +992,10 @@ const Direct = struct {
             .steady_time = self.steady_time,
             .frames_count = @intCast(frames),
             .transport = transport_ptr,
-            .audio_inputs = if (self.audio_inputs_count == 1) @ptrCast(&input_audio) else null,
-            .audio_outputs = @ptrCast(&output_audio),
-            .audio_inputs_count = self.audio_inputs_count,
-            .audio_outputs_count = 1,
+            .audio_inputs = if (self.ports.inputs.len == 0) null else self.ports.inputs.ptr,
+            .audio_outputs = self.ports.outputs.ptr,
+            .audio_inputs_count = @intCast(self.ports.inputs.len),
+            .audio_outputs_count = @intCast(self.ports.outputs.len),
             .in_events = &self.events.interface,
             .out_events = &self.output_events,
         };
@@ -954,9 +1007,15 @@ const Direct = struct {
         self.events.len = 0;
         self.steady_time += @intCast(frames);
         if (status == 0) return;
+        if (self.output_channels == 0) return;
+        const out_left = self.ports.channel_ptrs[self.ports.main_output_channel] orelse return;
+        const out_right = if (self.output_channels >= 2)
+            (self.ports.channel_ptrs[self.ports.main_output_channel + 1] orelse out_left)
+        else
+            out_left;
         for (0..frames) |frame| {
-            buf[frame * 2] = self.output_left[frame];
-            buf[frame * 2 + 1] = if (self.output_channels == 1) self.output_left[frame] else self.output_right[frame];
+            buf[frame * 2] = out_left[frame];
+            buf[frame * 2 + 1] = out_right[frame];
         }
     }
 
