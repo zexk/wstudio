@@ -597,30 +597,6 @@ pub const presets = [_]Preset{
         .gain = 0.42,
     } },
 
-    // --- Rave / hardcore ---
-    // hoover - ENV 3 does the upward "yoy" pitch scoop the mentasm is
-    // known for, third saw an octave down, phaser swirl + grit
-    .{ .name = "hoover", .category = "lead", .tags = &.{ "wstudio", "rave" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_detune = 16.0, .unison_spread = 0.6,
-        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 12.0, .osc_b_level = 0.8,
-        .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.6666667, .osc_c_semi = -12.0, .osc_c_level = 0.5,
-        .voice_mode = .mono, .glide_s = 0.04,
-        .attack_s = 0.02, .decay_s = 0.3, .sustain = 0.8, .release_s = 0.25,
-        .filter_type = .lp, .filter_cutoff = 2400.0, .filter_res = 0.25,
-        .lfo_rate_hz = 5.5,
-        .env3_attack_s = 0.001, .env3_decay_s = 0.15, .env3_sustain = 0.0, .env3_release_s = 0.1, .env3_curve = 0.55,
-        .mod_matrix = mods(&.{
-            .{ .source = .lfo,  .dest = dP,  .depth = 0.18 },
-            .{ .source = .env3, .dest = dP,  .depth = -0.45 },
-            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac3, .dest = 107, .depth = 0.3 },
-            .{ .source = .mac4, .dest = 85,  .depth = 0.3 },
-        }),
-        .fx_phaser_on = true, .fx_phaser_rate_hz = 0.6, .fx_phaser_depth = 0.8, .fx_phaser_feedback = 0.4, .fx_phaser_mix = 0.4,
-        .fx_dist_on = true, .fx_dist_drive_db = 9.0, .fx_dist_mix = 0.3,
-        .gain = 0.26,
-    } },
-
     // --- Acid (open lead voicing) ---
     // acid-lead - diode ladder wide open, screamer-pedal drive, tight echo
     .{ .name = "acid-lead", .category = "lead", .tags = &.{ "wstudio", "acid" }, .patch = .{
@@ -700,23 +676,6 @@ pub const presets = [_]Preset{
     } },
 
     // === Round 2: fill each genre's remaining core roles ===
-
-    // house - the classic stacked-drawbar organ chord stab; harmonic unison
-    // supplies the upper drawbars, ENV 3 the key-click percussion
-    .{ .name = "house-organ", .category = "stab", .tags = &.{ "wstudio", "house" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.0, .unison = 3, .unison_mode = .harmonic, .unison_detune = 100.0,
-        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_level = 0.5,
-        .attack_s = 0.005, .decay_s = 0.15, .sustain = 0.8, .release_s = 0.12,
-        .filter_type = .lp, .filter_cutoff = 5000.0, .filter_res = 0.0,
-        .env3_attack_s = 0.001, .env3_decay_s = 0.12, .env3_sustain = 0.0, .env3_release_s = 0.08,
-        .sub_level = 0.5, .sub_shape = .sine,
-        .mod_matrix = mods(&.{
-            .{ .source = .env3, .dest = 11, .depth = 0.4 },
-            .{ .source = .mac1, .dest = 21, .depth = 0.4 },
-            .{ .source = .mac2, .dest = 34, .depth = 0.4 },
-        }),
-        .gain = 0.3,
-    } },
 
     // dubstep - the talking growl finally talks: a real formant filter
     // scanned by the LFO, lowpassed in series to keep it bass; macro 1 is
@@ -1117,24 +1076,6 @@ pub const presets = [_]Preset{
         .gain = 0.36,
     } },
 
-    // technopop - piercing square lead with fast vibrato (Rydeen-style,
-    // halfway between synth and video game); LFO 2 morphs its waveform
-    .{ .name = "technopop-lead", .category = "lead", .tags = &.{ "wstudio", "technopop" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 1.0, .voice_mode = .mono, .glide_s = 0.0,
-        .attack_s = 0.003, .decay_s = 0.1, .sustain = 0.85, .release_s = 0.08,
-        .filter_type = .lp, .filter_cutoff = 9000.0, .filter_res = 0.05,
-        .lfo_rate_hz = 5.8, .lfo_retrig = .key, .lfo_phase_offset = 0.25,
-        .lfo2_rate_hz = 0.9,
-        .mod_matrix = mods(&.{
-            .{ .source = .lfo,  .dest = dP,  .depth = 0.15 },
-            .{ .source = .lfo2, .dest = 185,   .depth = -0.12 },
-            .{ .source = .mac2, .dest = 185,   .depth = -0.2 },
-            .{ .source = .mac3, .dest = 111, .depth = 0.35 },
-        }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.25, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.25,
-        .gain = 0.28,
-    } },
-
     // technopop - tight sequencer-locked analog bass
     .{ .name = "technopop-bass", .category = "bass", .tags = &.{ "wstudio", "technopop" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.0,
@@ -1151,24 +1092,6 @@ pub const presets = [_]Preset{
         }),
         .fx_comp_on = true, .fx_comp_threshold_db = -16.0, .fx_comp_ratio = 4.0, .fx_comp_attack_ms = 5.0, .fx_comp_release_ms = 60.0,
         .gain = 0.36,
-    } },
-
-    // kawaii future bass - sparkly bell pluck on top of the chords
-    .{ .name = "kawaii-pluck", .category = "pluck", .tags = &.{ "wstudio", "kawaii" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 24.0, .osc_b_detune_cents = 3.0, .osc_b_level = 0.6,
-        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 2.0,
-        .attack_s = 0.001, .decay_s = 0.35, .sustain = 0.0, .release_s = 0.3, .env_curve = 0.72,
-        .filter_type = .lp, .filter_cutoff = 10_000.0, .filter_res = 0.0,
-        .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 15,  .depth = 0.12 },
-            .{ .source = .random,   .dest = 15,  .depth = 0.02 },
-            .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
-        }),
-        .fx_ott_on = true, .fx_ott_depth = 0.5, .fx_ott_gain_out_db = -8.0,
-        .fx_delay_on = true, .fx_delay_time_s = 0.2, .fx_delay_feedback = 0.35, .fx_delay_mix = 0.25,
-        .fx_reverb_on = true, .fx_reverb_room = 0.72, .fx_reverb_damp = 0.3, .fx_reverb_mix = 0.3,
-        .gain = 0.3,
     } },
 
     // vaporwave - slow watery detuned pad; the dedicated tape unit now does
@@ -1804,8 +1727,8 @@ pub fn find(name: []const u8) ?Patch {
     return null;
 }
 
-test "factory library holds exactly 87 presets" {
-    try std.testing.expectEqual(@as(usize, 87), presets.len);
+test "factory library holds exactly 83 presets" {
+    try std.testing.expectEqual(@as(usize, 83), presets.len);
 }
 
 test "every preset's matrix rows target legal dests at sane depths" {
