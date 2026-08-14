@@ -565,7 +565,10 @@ fn moveWindow(app: *App, delta: f32) void {
 /// params and coarse-nudges everything else, matching H/L).
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, view_rows: usize) void {
     if (!targetIsEditable(app)) {
+        // Both halves of the gesture, not just the marker: leaving the
+        // window drag armed would resume it on the next press.
         app.sampler_drag_marker = null;
+        app.sampler_drag_window = false;
         return;
     }
     const prefix = prefixRows(app);
