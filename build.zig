@@ -415,6 +415,27 @@ pub fn build(b: *std.Build) void {
     const bench_step = b.step("bench", "Measure audio-callback time (p50/p99/deadline use) across track, send, plugin-bridge, and buffer-size scaling");
     bench_step.dependOn(&run_bench.step);
 
+    // Not part of `zig build test`: it hosts whatever third-party plugins are
+    // installed on this machine, which no CI runner has. The fixture plugins
+    // covered by the integration tests above are what runs unattended.
+    const plugincheck = b.addExecutable(.{
+        .name = "plugincheck",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/plugincheck.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "wstudio", .module = wstudio_mod },
+            },
+        }),
+    });
+    const run_plugincheck = b.addRunArtifact(plugincheck);
+    if (b.args) |args| run_plugincheck.addArgs(args);
+    run_plugincheck.step.dependOn(&install_plugin_bridge.step);
+    run_plugincheck.setEnvironmentVariable("WSTUDIO_PLUGIN_BRIDGE_EXE", plugin_bridge_path);
+    const plugincheck_step = b.step("plugincheck", "Host every installed CLAP and VST3 plugin through load/process/automate/state/teardown");
+    plugincheck_step.dependOn(&run_plugincheck.step);
+
     const clap_integration_test = b.addExecutable(.{
         .name = "clap-integration-test",
         .root_module = b.createModule(.{
