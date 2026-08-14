@@ -23,7 +23,16 @@ const MemoryStream = struct {
     fn from(raw: *anyopaque) *MemoryStream {
         return @ptrCast(@alignCast(raw));
     }
-    fn query(raw: *anyopaque, _: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+    /// Only the two interfaces this stream really is. Answering "yes" to
+    /// every id hands the caller an `IBStream` vtable under another
+    /// interface's name: JUCE asks a state stream for `IStreamAttributes`,
+    /// then calls what it believes is `getFileName` and lands on `read`.
+    /// Surge XT, Odin 2, and CHOW Tape all crashed in `setState` that way.
+    fn query(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+        if (!std.mem.eql(u8, iid, &abi.bstream_iid) and !std.mem.eql(u8, iid, &abi.f_unknown_iid)) {
+            object.* = null;
+            return -1;
+        }
         object.* = raw;
         return 0;
     }
@@ -174,7 +183,11 @@ const HostMessage = struct {
         return entry;
     }
 
-    fn query(raw: *anyopaque, _: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+    fn query(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+        if (!std.mem.eql(u8, iid, &abi.message_iid) and !std.mem.eql(u8, iid, &abi.f_unknown_iid)) {
+            object.* = null;
+            return -1;
+        }
         object.* = raw;
         _ = addRef(raw);
         return 0;
@@ -212,7 +225,11 @@ const HostMessage = struct {
         .get_attributes = getAttributes,
     };
 
-    fn attributesQuery(raw: *anyopaque, _: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+    fn attributesQuery(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+        if (!std.mem.eql(u8, iid, &abi.attribute_list_iid) and !std.mem.eql(u8, iid, &abi.f_unknown_iid)) {
+            object.* = null;
+            return -1;
+        }
         object.* = raw;
         return 0;
     }
@@ -318,7 +335,20 @@ const HostContext = struct {
     fn from(raw: *anyopaque) *HostContext {
         return @ptrCast(@alignCast(raw));
     }
-    fn query(raw: *anyopaque, _: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+    /// A plugin reaching `IHostApplication` through the component handler is
+    /// ordinary, but it has to arrive at the application interface, not at
+    /// this one under another name. Everything else this host does not
+    /// implement (`IComponentHandler2`, `IComponentHandler3`, ...) has to be
+    /// refused, or the plugin calls a vtable slot that means something else.
+    fn query(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+        if (std.mem.eql(u8, iid, &abi.host_application_iid)) {
+            object.* = @ptrCast(&from(raw).application);
+            return 0;
+        }
+        if (!std.mem.eql(u8, iid, &abi.component_handler_iid) and !std.mem.eql(u8, iid, &abi.f_unknown_iid)) {
+            object.* = null;
+            return -1;
+        }
         object.* = raw;
         return 0;
     }
@@ -1354,7 +1384,13 @@ const Direct = struct {
         const controller = self.controller orelse return null;
         var stream = MemoryStream.init(allocator);
         defer stream.deinit();
-        if (controller.vtable.get_state(controller, &stream.interface) != 0) return error.ControllerStateSaveFailed;
+        // `IEditController::getState` is optional, and a plugin that keeps no
+        // controller-side state of its own says so with `kNotImplemented`
+        // rather than by failing. Every JUCE plugin in the test set answers
+        // that way; treating it as an error made saving them impossible.
+        const result = controller.vtable.get_state(controller, &stream.interface);
+        if (result == abi.not_implemented) return null;
+        if (result != 0) return error.ControllerStateSaveFailed;
         return @as(?[]u8, try allocator.dupe(u8, stream.data.items));
     }
 
@@ -1365,11 +1401,17 @@ const Direct = struct {
         if (self.component.vtable.set_state(self.component, &component_stream.interface) != 0) return error.ComponentStateLoadFailed;
         if (self.controller) |controller| {
             component_stream.position = 0;
-            if (controller.vtable.set_component_state(controller, &component_stream.interface) != 0) return error.ControllerComponentStateLoadFailed;
+            // Same optionality on the way back in: syncing the controller to
+            // the processor's state is best effort, and a plugin that mirrors
+            // its parameters internally answers `kNotImplemented`. The
+            // component state above is what actually carries the sound.
+            const sync = controller.vtable.set_component_state(controller, &component_stream.interface);
+            if (sync != 0 and sync != abi.not_implemented) return error.ControllerComponentStateLoadFailed;
             if (controller_bytes.len > 0) {
                 var controller_stream = try MemoryStream.initRead(self.allocator, controller_bytes);
                 defer controller_stream.deinit();
-                if (controller.vtable.set_state(controller, &controller_stream.interface) != 0) return error.ControllerStateLoadFailed;
+                const restored = controller.vtable.set_state(controller, &controller_stream.interface);
+                if (restored != 0 and restored != abi.not_implemented) return error.ControllerStateLoadFailed;
             }
         }
     }

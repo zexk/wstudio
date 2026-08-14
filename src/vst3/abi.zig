@@ -376,6 +376,7 @@ pub const connection_point_iid: Tuid = official.Steinberg_Vst_IConnectionPoint_i
 pub const attribute_list_iid: Tuid = official.Steinberg_Vst_IAttributeList_iid;
 pub const message_iid: Tuid = official.Steinberg_Vst_IMessage_iid;
 pub const component_handler_iid: Tuid = official.Steinberg_Vst_IComponentHandler_iid;
+pub const bstream_iid: Tuid = official.Steinberg_IBStream_iid;
 pub const plug_view_iid: Tuid = official.Steinberg_IPlugView_iid;
 pub const plug_frame_iid: Tuid = official.Steinberg_IPlugFrame_iid;
 pub const run_loop_iid: Tuid = official.Steinberg_Linux_IRunLoop_iid;
