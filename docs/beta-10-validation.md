@@ -83,8 +83,19 @@ not inherit the dead id. Loading restores saved instance ids and advances the
 allocator past them (`persist/load.zig`), so a reopened project cannot mint a
 duplicate.
 
-Group, clip, and plugin-parameter ownership are not yet covered by an
-equivalent focused check.
+Group slots are fixed and reused, so a reference left behind by a deleted group
+does not dangle, it becomes a reference to whatever group is created next. That
+is now closed and covered: deleting a group unassigns its member tracks, clears
+every aux send aimed at it, and drops its gain-automation lane, and a group
+created afterwards in the same slot inherits none of it. Sends clear outright
+rather than falling back to master, since rerouting audio is an audible change
+the user never asked for.
+
+Clip and plugin-parameter ownership are covered at the same boundary. Removing
+a clip withdraws its automation from the flattened curve rather than leaving it
+to drive bars that now belong to the neighbouring clip. A replacement FX unit
+does not inherit automation addressed to the unit that held its chain slot,
+which is the session-level half of the instance-id contract above.
 
 ## Transport coherence
 
@@ -95,8 +106,24 @@ keeps live playback and an offline render of the same bars in agreement, and
 the curve used moves steeply across the bars in question so a wrap that kept
 reading the pre-wrap position would read a different value.
 
-Play, stop, seek, recording start and stop, project replacement, and
-sample-rate changes are not yet covered by equivalent focused checks.
+Play and stop are covered at the same standard: blocks processed while stopped
+do not advance the transport, and a run that stops and resumes lands on the
+same position and the same automation value as an uninterrupted run over the
+same bars. Seek is covered as the control arm of both that check and the loop
+wrap above.
+
+Sample-rate changes are covered by the property that makes a reopened project
+sound the same at another rate: automation selects by beat, so the frame count
+for a given beat changes with the rate and the value at that beat does not.
+Both segments of the curve used hold, so the comparison cannot be decided by
+where inside the bar each engine happens to sit.
+
+Recording start and stop are covered by the punch checks below. Project
+replacement builds a whole new `Session`, engine included, so no transport or
+automation state can survive it; what needed covering was the frontend
+bookkeeping that outlives the swap, and a session swap now provably ends the
+record pass instead of carrying its target indices into a project where they
+name other tracks.
 
 ## Punch recording
 
