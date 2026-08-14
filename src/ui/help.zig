@@ -171,7 +171,9 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("drag (GUI)",   "piano note edges resize it - right edge sets the length, left edge moves the start");
     t.key("shift+scroll", "piano roll only: move the step cursor instead of pitch");
     t.key("alt+scroll",   "micro-nudge piano or step-grid note under pointer earlier / later");
-    t.key("shift+drag",   "bypass wstudio - your terminal's native text selection (for copy/paste)");
+    t.key("ctrl+drag",    "arrangement only: resize the clip's right edge instead of moving it");
+    t.key("shift+drag",   "arrangement only: leave a clone behind - but most terminals keep shift+drag");
+    t.key("",             "  for their own text selection, so wstudio may never see it (y then p, or the GUI)");
 
     t.taggedSection(.tracks, "TRACKS");
     t.group("BASICS");
