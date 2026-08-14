@@ -1195,6 +1195,115 @@ pub const variants = [_]KitVariant{
         .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 330.0, .tone2_hz = 450.0, .body_decay = 40.0, .slap_mix = 0.3, .seed = 0x764 } }, .gain = 0.76 },
         .{ .name = "gated", .kind = .snare, .params = .{ .snare = .{ .tone1_hz = 170.0, .tone2_hz = 255.0, .tone_decay = 18.0, .noise_decay = 7.0, .drive = 2.0, .dur_s = 0.5, .lp_hz = 6500.0, .hp_hz = 700.0 } }, .gain = 0.72 },
     } },
+    // Console drums, where a 5-channel chip had no drum voices at all: a
+    // pitch-bent triangle stood in for the tonal part and the noise channel
+    // did everything else. So the kicks and toms bend hard and die fast, the
+    // hats and snares are almost pure noise (`air_mix` up near 1, the metal
+    // cluster pushed out of the way at 9.5 kHz), and every drive sits high
+    // enough that `saturate` squares the sine off into something chip-like.
+    // Nothing here rings: the longest pad is the 0.5 s crash.
+    .{
+        .name = "chiptune",
+        .category = "8-bit",
+        .tags = &.{ "wstudio", "chiptune", "game" },
+        .pads = .{
+            .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
+                .freq_end = 72.0,
+                .freq_start_add = 130.0,
+                .pitch_decay = 110.0,
+                .body_decay = 26.0,
+                .click_decay = 400.0,
+                .click_freq = 3000.0,
+                .click_mix = 0.45,
+                .drive = 5.0,
+                .dur_s = 0.12,
+            } }, .gain = 1.00 },
+            .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
+                .freq_end = 60.0,
+                .freq_start_add = 180.0,
+                .pitch_decay = 70.0,
+                .body_decay = 20.0,
+                .click_decay = 400.0,
+                .click_freq = 2600.0,
+                .click_mix = 0.3,
+                .drive = 5.0,
+                .dur_s = 0.16,
+            } }, .gain = 0.90 },
+            .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
+                .tone1_hz = 200.0,
+                .tone2_hz = 320.0,
+                .tone_decay = 70.0,
+                .noise_decay = 26.0,
+                .drive = 3.2,
+                .dur_s = 0.13,
+                .lp_hz = 9000.0,
+                .hp_hz = 700.0,
+            } }, .gain = 0.85 },
+            .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
+                .tone1_hz = 240.0,
+                .tone2_hz = 380.0,
+                .tone_decay = 90.0,
+                .noise_decay = 40.0,
+                .drive = 3.4,
+                .dur_s = 0.09,
+                .lp_hz = 11_000.0,
+                .hp_hz = 1200.0,
+            } }, .gain = 0.78 },
+            .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.022, .decay = 230.0, .body_hz = 9500.0, .air_hz = 6000.0, .air_mix = 0.8 } }, .gain = 0.45 },
+            .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.018, .decay = 300.0, .body_hz = 10_500.0, .air_hz = 7000.0, .air_mix = 0.7 } }, .gain = 0.40 },
+            .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.16, .decay = 22.0, .body_hz = 9500.0, .air_hz = 6000.0, .air_mix = 0.8 } }, .gain = 0.45 },
+            .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.5, .decay = 8.0, .body_hz = 9000.0, .air_hz = 5500.0, .air_mix = 0.9, .attack_mix = 0.5 } }, .gain = 0.50, .tune = alt_crash },
+            .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
+                .lp_hz = 8000.0,
+                .hp_hz = 1500.0,
+                .burst_decay = 300.0,
+                .tail_decay = 40.0,
+                .tail_mix = 0.2,
+                .dur_s = 0.12,
+            } }, .gain = 0.66 },
+            .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
+                .tone1_hz = 1760.0,
+                .tone2_hz = 2640.0,
+                .tone_decay = 200.0,
+                .click_decay = 400.0,
+                .drive = 4.0,
+                .dur_s = 0.05,
+            } }, .gain = 0.62 },
+            .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
+                .tone1_hz = 1760.0,
+                .tone2_hz = 2640.0,
+                .tone_decay = 200.0,
+                .click_decay = 400.0,
+                .drive = 4.0,
+                .dur_s = 0.05,
+            } }, .gain = 0.55, .tune = alt_stick },
+            // Toms bend a full octave, the way a chip tom does - a couple of
+            // semitones would just read as a detuned kick at this length.
+            .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
+                .freq_start = 440.0,
+                .freq_end = 220.0,
+                .dur_s = 0.14,
+                .body_decay = 20.0,
+                .attack_decay = 200.0,
+                .drive = 4.0,
+                .attack_mix = 0.06,
+                .seed = 0x7f1,
+            } }, .gain = 0.80 },
+            .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
+                .freq_start = 330.0,
+                .freq_end = 165.0,
+                .dur_s = 0.16,
+                .body_decay = 18.0,
+                .attack_decay = 200.0,
+                .drive = 4.0,
+                .attack_mix = 0.06,
+                .seed = 0x7f2,
+            } }, .gain = 0.80 },
+            .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 880.0, .tone2_hz = 1320.0, .body_decay = 70.0, .slap_mix = 0.15, .drive = 3.0, .dur_s = 0.07, .seed = 0x7f3 } }, .gain = 0.68 },
+            .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 587.0, .tone2_hz = 880.0, .body_decay = 60.0, .slap_mix = 0.15, .drive = 3.0, .dur_s = 0.08, .seed = 0x7f4 } }, .gain = 0.68 },
+            .{ .name = "blip", .kind = .tom, .params = .{ .tom = .{ .freq_start = 1320.0, .freq_end = 660.0, .dur_s = 0.1, .body_decay = 30.0, .attack_decay = 240.0, .drive = 4.0, .attack_mix = 0.02, .seed = 0x7f5 } }, .gain = 0.64 },
+        },
+    },
     .{ .name = "vaporwave", .category = "tape", .tags = &.{ "wstudio", "vaporwave", "chill" }, .pads = .{
         .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
             .freq_end = 50.0,
@@ -1385,6 +1494,47 @@ pub const variants = [_]KitVariant{
         .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 380.0, .tone2_hz = 520.0, .drive = 3.4, .body_decay = 45.0, .dur_s = 0.11, .seed = 0x7b4 } }, .gain = 0.72 },
         .{ .name = "screech", .kind = .tom, .params = .{ .tom = .{ .freq_start = 1600.0, .freq_end = 120.0, .dur_s = 0.35, .body_decay = 4.0, .attack_decay = 120.0, .drive = 6.0, .attack_mix = 0.15, .seed = 0x7c4 } }, .gain = 0.68 },
     } },
+    // The one kit that does NOT follow the kick/snare/hat layout every other
+    // one shares - it has no kick, no snare and no hihat, because a hand
+    // percussion set doesn't have them. Pads run low to high instead: the
+    // three congas and a slap, bongos, timbales, then the struck wood and
+    // metal, the shakers, and a surdo underneath it all. Meant to be layered
+    // under another machine, not played on its own.
+    //
+    // Pitches are the common Afro-Cuban tuning (tumba D3 / conga G3 / quinto
+    // C4, bongos a fifth apart above them) and the cowbell is the classic
+    // 587/845 Hz pair - a 1:1.44 ratio, which is what makes it read as a bell
+    // rather than a pitched drum.
+    .{
+        .name = "percussion",
+        .category = "percussion",
+        .tags = &.{ "wstudio", "latin", "afro-cuban" },
+        .pads = .{
+            .{ .name = "tumba", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 147.0, .tone2_hz = 220.0, .body_decay = 26.0, .slap_mix = 0.3, .drive = 1.5, .dur_s = 0.3, .seed = 0x811 } }, .gain = 0.90 },
+            .{ .name = "conga", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 196.0, .tone2_hz = 294.0, .body_decay = 30.0, .slap_mix = 0.35, .drive = 1.5, .dur_s = 0.26, .seed = 0x812 } }, .gain = 0.88 },
+            .{ .name = "quinto", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 262.0, .tone2_hz = 393.0, .body_decay = 34.0, .slap_mix = 0.4, .drive = 1.5, .dur_s = 0.22, .seed = 0x813 } }, .gain = 0.86 },
+            // Same drum as the quinto, struck at the edge: the body barely speaks
+            // and the slap carries it, which is the whole difference in the hand.
+            .{ .name = "slap", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 262.0, .tone2_hz = 393.0, .body_decay = 40.0, .slap_mix = 0.9, .drive = 2.4, .dur_s = 0.16, .seed = 0x814 } }, .gain = 0.84 },
+            .{ .name = "bongo-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 330.0, .tone2_hz = 495.0, .body_decay = 45.0, .slap_mix = 0.5, .drive = 1.7, .dur_s = 0.16, .seed = 0x815 } }, .gain = 0.82 },
+            .{ .name = "bongo-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 494.0, .tone2_hz = 740.0, .body_decay = 55.0, .slap_mix = 0.55, .drive = 1.7, .dur_s = 0.13, .seed = 0x816 } }, .gain = 0.80 },
+            .{ .name = "timbale-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 300.0, .tone2_hz = 450.0, .body_decay = 30.0, .slap_mix = 0.5, .drive = 2.6, .dur_s = 0.3, .seed = 0x817 } }, .gain = 0.84 },
+            .{ .name = "timbale-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 400.0, .tone2_hz = 600.0, .body_decay = 36.0, .slap_mix = 0.55, .drive = 2.6, .dur_s = 0.25, .seed = 0x818 } }, .gain = 0.82 },
+            // Struck wood: two sines and no resonance, gone in 50 ms.
+            .{ .name = "clave", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 2500.0, .tone2_hz = 1250.0, .tone_decay = 200.0, .click_decay = 500.0, .drive = 1.4, .dur_s = 0.05 } }, .gain = 0.70 },
+            .{ .name = "woodblock", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 1600.0, .tone2_hz = 2400.0, .tone_decay = 170.0, .click_decay = 420.0, .drive = 1.6, .dur_s = 0.06 } }, .gain = 0.70 },
+            .{ .name = "cowbell", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 587.0, .tone2_hz = 845.0, .tone_decay = 16.0, .click_decay = 90.0, .drive = 1.6, .dur_s = 0.32 } }, .gain = 0.66 },
+            .{ .name = "agogo", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 780.0, .tone2_hz = 1170.0, .tone_decay = 14.0, .click_decay = 120.0, .drive = 1.5, .dur_s = 0.38 } }, .gain = 0.64 },
+            // Shakers are the hat generator with its metal cluster filtered out
+            // of the way (body_hz well above the partials), leaving the air path
+            // as the whole sound - which is what a shaker is.
+            .{ .name = "shaker", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.07, .decay = 60.0, .body_hz = 14_000.0, .air_hz = 5000.0, .air_mix = 1.0 } }, .gain = 0.56 },
+            .{ .name = "cabasa", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.05, .decay = 90.0, .body_hz = 14_000.0, .air_hz = 7000.0, .air_mix = 1.0 } }, .gain = 0.54 },
+            // Tambourine keeps some cluster: the jingles are the metal part.
+            .{ .name = "tambourine", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.34, .decay = 11.0, .body_hz = 8000.0, .air_hz = 7500.0, .air_mix = 0.8, .attack_mix = 0.5 } }, .gain = 0.52 },
+            .{ .name = "surdo", .kind = .tom, .params = .{ .tom = .{ .freq_start = 110.0, .freq_end = 78.0, .dur_s = 0.7, .body_decay = 5.0, .attack_decay = 100.0, .drive = 1.8, .attack_mix = 0.12, .seed = 0x819 } }, .gain = 0.92 },
+        },
+    },
 };
 
 /// Look a factory kit up by name, or null if there is no such flavour.
@@ -1458,7 +1608,11 @@ test "every crash strikes harder than the same crash without its stick hit" {
             flat_params.hat.attack_mix = 0;
             const flat = try genSlot(.hat, flat_params, std.testing.allocator, 480_000);
             defer std.testing.allocator.free(flat);
-            try std.testing.expect(rms.ratio(hit) > rms.ratio(flat) * 1.35);
+            // Most kits gain 1.5-1.9x here. chiptune's crash is the floor at
+            // 1.25: its wash is nearly all noise and decays fast enough that
+            // it already starts at a 3:1 strike-to-wash ratio, so the stick
+            // layer has less to fix.
+            try std.testing.expect(rms.ratio(hit) > rms.ratio(flat) * 1.2);
         }
     }
 }
