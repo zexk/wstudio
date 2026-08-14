@@ -1091,8 +1091,11 @@ pub const variants = [_]KitVariant{
             .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 500.0, .tone2_hz = 700.0, .body_decay = 45.0, .slap_mix = 0.45, .dur_s = 0.12, .seed = 0x7e3 } }, .gain = 0.74 },
             .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 300.0, .tone2_hz = 420.0, .body_decay = 45.0, .slap_mix = 0.45, .dur_s = 0.12, .seed = 0x7e4 } }, .gain = 0.74 },
             // Ride: a crash's length with almost none of its air, so the metal
-            // partials ping through instead of washing over the pattern.
-            .{ .name = "ride", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.9, .decay = 3.6, .body_hz = 9000.0, .air_hz = 12_000.0, .air_mix = 0.1, .attack_mix = 0.5 } }, .gain = 0.50 },
+            // partials ping through instead of washing over the pattern. What
+            // is left is spiky - RMS 0.025 against an open hat's 0.064 at the
+            // same peak - so its gain runs higher than the hats' or it would
+            // sit under the pattern instead of over it.
+            .{ .name = "ride", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.9, .decay = 3.6, .body_hz = 9000.0, .air_hz = 12_000.0, .air_mix = 0.1, .attack_mix = 0.5 } }, .gain = 0.68 },
         },
     },
     // The bright, clean, short pop kit - and the only one. "technopop" and
