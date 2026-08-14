@@ -143,13 +143,21 @@ verifies both fades and their undo/redo restoration.
 
 ## Timeline tempo and signature changes
 
-Postponed until after 1.0. Current tempo and `/4` signature are project-global:
-transport frame/beat conversion, loop and recording bounds, live and offline
-song scheduling, plugin transport, metronome, arrangement grids, Lua, and
-persistence all consume one value. Adding changes at timeline positions would
-require a shared tempo map plus persistence and boundary tests across every one of
-those consumers. That is a new timing subsystem, not bounded release-candidate
-polish, and would risk live/offline coherence.
+Shipped 2026-08-08, after this section had already recorded it as postponed.
+The project carries a tempo map and a meter map (64 points each, `time_map.zig`)
+rather than one global value: `:tempo-point <beat> <bpm> [step|ramp]` adds a
+tempo change with an optional ramp into the next one, and
+`:meter-point <beat> <n>/<d>` changes the signature at a beat.
+
+The maps live on the transport, which both live playback and offline render
+read, so there is one set of consumers rather than a parallel timing path.
+Coverage: `time_map.zig`'s own beat/seconds round-trip, ramp, clamp and
+denominator tests, plus a frontend test that the two commands agree between
+`project` and `transport` after a processed block. Loop bounds and song data
+resync on every point edit. Persistence carries both maps.
+
+Lua reads the tempo in force at a position through `transport_get` but cannot
+add points; that is the one remaining surface, and it is post-1.0 work.
 
 ## Frontend polish pass
 
