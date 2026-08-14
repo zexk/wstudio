@@ -4,10 +4,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const macos_sdk = if (target.result.os.tag == .macos) b.graph.environ_map.get("SDKROOT") else null;
-    // A macOS target that is not this machine: zig only auto-detects an SDK
-    // for the native case, so everything else has to be pointed at one.
-    const macos_cross = target.result.os.tag == .macos and
-        (b.graph.host.result.os.tag != .macos or target.result.cpu.arch != b.graph.host.result.cpu.arch);
+    // A macOS target that zig will not auto-detect an SDK for: detection only
+    // happens for a native target, so an explicit -Dtarget has to be pointed
+    // at one even when it names this very machine.
+    const macos_cross = target.result.os.tag == .macos and !target.query.isNative();
     if (b.graph.host.result.os.tag != .macos) {
         if (macos_sdk) |sdk| b.sysroot = sdk;
     }
