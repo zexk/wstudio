@@ -191,7 +191,14 @@ pub const Bridge = struct {
         }
 
         const ready = try self.recvBlocking(.ping);
-        if (ready.failed) return error.PluginLoadFailedInChild;
+        if (ready.failed) {
+            // The child answers a failed load with the error name it hit
+            // inside the real `load()`. Dropping it left the parent's own
+            // log saying only "PluginLoadFailedInChild", which names the
+            // messenger and not one thing about why.
+            std.log.err("plugin {s} failed to load in sandbox child: {s}", .{ options.path, ready.payload });
+            return error.PluginLoadFailedInChild;
+        }
         if (ready.payload.len < @sizeOf(transport.Handshake)) return error.RpcProtocolError;
         const hs = std.mem.bytesToValue(transport.Handshake, ready.payload[0..@sizeOf(transport.Handshake)]);
         if (hs.id_len > hs.id.len or hs.name_len > hs.name.len) return error.RpcProtocolError;
