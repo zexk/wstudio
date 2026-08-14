@@ -292,7 +292,7 @@ pub fn build(b: *std.Build) void {
     const dspcheck_step = b.step("dspcheck", "Run a directory of real audio files through decode/detect/render/FX");
     dspcheck_step.dependOn(&run_dspcheck.step);
 
-    // Also on-demand: it renders all 100 factory presets and its output is a
+    // Also on-demand: it renders all factory presets and its output is a
     // report to read, not a pass/fail.
     const presetscan = b.addExecutable(.{
         .name = "presetscan",

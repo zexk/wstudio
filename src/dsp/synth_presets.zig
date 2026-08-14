@@ -251,29 +251,6 @@ pub const presets = [_]Preset{
         .gain = 0.28,
     } },
 
-    // rhodes-keys - fenv->MOD AMT gives the tine bark its own fast-decaying
-    // envelope (the DX7 EP recipe, same trick as fm-epiano/shaolin-bell -
-    // FM index spikes on attack and settles low for sustain, using the
-    // engine's default fenv timing which is already attack-fast/decay-fast),
-    // chorus like the suitcase's stereo vibrato
-    .{ .name = "rhodes-keys", .category = "keys", .tags = &.{ "wstudio", "hip-hop" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 14.0, .osc_b_detune_cents = 3.0,
-        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 1.0,
-        .attack_s = 0.002, .decay_s = 1.4, .sustain = 0.25, .release_s = 0.9, .env_curve = 0.55,
-        .filter_type = .lp, .filter_cutoff = 3800.0, .filter_res = 0.05,
-        .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 15,  .depth = 0.1 },
-            .{ .source = .velocity, .dest = 15,  .depth = 0.15 },
-            .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
-            .{ .source = .random,   .dest = 15,  .depth = 0.018 },
-            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
-            .{ .source = .mac3,     .dest = 179, .depth = 0.3 },
-        }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.9, .fx_chorus_depth_ms = 4.0, .fx_chorus_mix = 0.35,
-        .gain = 0.3,
-    } },
-
     // upright-bass - finger-thump noise transient, velocity into cutoff,
     // gentle compression to even out the notes
     .{ .name = "upright-bass", .category = "bass", .tags = &.{ "wstudio", "hip-hop" }, .patch = .{
@@ -847,22 +824,6 @@ pub const presets = [_]Preset{
     } },
 
     // === Round 2: fill each genre's remaining core roles ===
-
-    // trance - a rolling offbeat bass to sit under the pads/leads
-    .{ .name = "trance-bass", .category = "bass", .tags = &.{ "wstudio", "trance" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.0,
-        .attack_s = 0.004, .decay_s = 0.12, .sustain = 0.6, .release_s = 0.08,
-        .filter_type = .ladder, .filter_cutoff = 600.0, .filter_res = 0.15, .filter_drive = 2.5,
-        .sub_level = 0.4, .sub_shape = .sine,
-        .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
-            .{ .source = .keytrack, .dest = 21, .depth = 0.25 },
-            .{ .source = .mac1,     .dest = 21, .depth = 0.5 },
-            .{ .source = .mac2,     .dest = 22, .depth = 0.2 },
-        }),
-        .fx_comp_on = true, .fx_comp_threshold_db = -18.0, .fx_comp_ratio = 4.0, .fx_comp_attack_ms = 5.0, .fx_comp_release_ms = 80.0,
-        .gain = 0.36,
-    } },
 
     // house - the classic stacked-drawbar organ chord stab; harmonic unison
     // supplies the upper drawbars, ENV 3 the key-click percussion
@@ -2038,8 +1999,8 @@ pub fn find(name: []const u8) ?Patch {
     return null;
 }
 
-test "factory library holds exactly 100 presets" {
-    try std.testing.expectEqual(@as(usize, 100), presets.len);
+test "factory library holds exactly 98 presets" {
+    try std.testing.expectEqual(@as(usize, 98), presets.len);
 }
 
 test "every preset's matrix rows target legal dests at sane depths" {

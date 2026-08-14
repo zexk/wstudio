@@ -38,7 +38,7 @@ const sample_rate: u32 = 48_000;
 const block_frames: usize = 256;
 /// Note held this long, then released and left to ring. Long enough that a
 /// 0.9 s pad attack finishes inside the hold, short enough that 100 presets
-/// still render in a couple of seconds.
+/// full library still renders in a couple of seconds.
 const hold_s: f32 = 1.5;
 const tail_s: f32 = 2.0;
 /// Spectrum window, taken from the middle of the hold so it sees the sustain
@@ -448,7 +448,7 @@ pub fn main(init: std.process.Init) !void {
         for (0..8) |i| spread[i] = if (hi[i] > lo[i]) hi[i] - lo[i] else 1.0;
     }
 
-    // ponytail: O(n^2) over 100 presets is ~5k comparisons, nothing. If the
+    // ponytail: O(n^2) over this library is cheap. If the
     // preset count ever reaches thousands, bucket by category first.
     for (rows.items, 0..) |*r, i| {
         r.near_patch_d = std.math.floatMax(f32);
