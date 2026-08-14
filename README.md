@@ -13,7 +13,7 @@ turns the keyboard into a piano, **visual** selects and yanks ranges, and
 **command** mode runs `:` commands. It ships with grand and upright pianos, a
 harpsichord, synths, samplers, a drum machine, a sample-chopping slicer, and a
 full effects rack (gate, compressor,
-multiband compressor, OTT, limiter, transient shaper, EQ, multimode filter, utility, stereo width, auto-pan/tremolo, saturation, bitcrush, chorus, phaser, flanger,
+multiband compressor, OTT, limiter, expander, clipper, crossover, transient shaper, EQ, multimode filter, utility, stereo width, auto-pan/tremolo, saturation, bitcrush, chorus, phaser, flanger,
 tape, frequency shifter, pitch shifter, delay, reverb) built in, so there's no plugin
 hunting before the first note.
 
@@ -49,6 +49,11 @@ picks the file, `f` browses its presets.
 wstudio hosts stereo CLAP instruments and effects using the
 [CLAP 1.2 ABI](https://github.com/free-audio/clap). Discovery follows
 `CLAP_PATH` and the platform paths required by the CLAP specification.
+
+Plugins of both formats load in a separate process by default, so one that
+crashes or hangs degrades to silence in its own slot rather than taking the
+session with it. Set `wstudio.o.sandbox_plugins = false` to host them
+in-process instead.
 
 ```sh
 wstudio clap-scan

@@ -15,7 +15,12 @@ history lives in [FORMAT.md](FORMAT.md).
 - Internal rack multimode filter with low-pass, high-pass, and band-pass modes,
   cutoff, resonance, drive, and dry/wet mix.
 - Internal rack limiter with ceiling and release controls.
-- Internal rack utility for gain, polarity, mono, channel selection, and swap.
+- Internal rack utility for gain, polarity, mono, channel selection, swap,
+  sample-accurate delay, a colored test-noise generator (white, pink, brown,
+  blue, violet), and loudness autogain toward a target LUFS.
+- Internal rack expander and clipper.
+- Internal rack crossover: a three-band Linkwitz-Riley split as its own unit,
+  with per-band gain and solo.
 - Internal rack stereo width with mono-compatible mid/side width and output trim.
 - Internal rack auto-pan/tremolo with free or tempo-synced rate.
 - Internal rack transient shaper with attack, sustain, and output trim.
@@ -26,6 +31,13 @@ history lives in [FORMAT.md](FORMAT.md).
   `:ctrl-bind`.
 - MIDI learn: `:cc-learn` binds a hardware controller knob to the param under
   the cursor, on any track, and `:cc`/`:cc-clear` list and drop bindings.
+- CLAP and VST3 plugins load out of process by default, so one that crashes or
+  hangs degrades to silence in its own slot instead of taking the session with
+  it. `wstudio.o.sandbox_plugins = false` hosts them in-process instead.
+- A hosted plugin's own editor window opens inside the session
+  (`:clap-gui`, `:vst3-gui`) and follows the size the plugin reports.
+- Reverb gains an impulse mode that puts a sparse room reflection pattern
+  ahead of the algorithmic tail.
 - Tempo and time-signature changes on the timeline: `:tempo-point <beat> <bpm>
   [step|ramp]` and `:meter-point <beat> <n>/<d>`, up to 64 of each. A `ramp`
   point glides into the next one instead of stepping. Live playback and offline
