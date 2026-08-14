@@ -246,6 +246,34 @@ pub const ConnectionPointVTable = extern struct {
     notify: *const fn (*anyopaque, *anyopaque) callconv(abi_callconv) Result,
 };
 pub const ConnectionPoint = extern struct { vtable: *const ConnectionPointVTable };
+/// `IAttributeList` / `IMessage` - the payload a plugin's controller and
+/// component send each other through their connection points. Both are
+/// created by the HOST (`IHostApplication::createInstance`), which is why
+/// they live here rather than being something a plugin hands us.
+/// `AttrID` is a plain C string; strings are UTF-16 (`TChar`).
+pub const AttributeListVTable = extern struct {
+    query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
+    add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    release: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    set_int: *const fn (*anyopaque, [*:0]const u8, i64) callconv(abi_callconv) Result,
+    get_int: *const fn (*anyopaque, [*:0]const u8, *i64) callconv(abi_callconv) Result,
+    set_float: *const fn (*anyopaque, [*:0]const u8, f64) callconv(abi_callconv) Result,
+    get_float: *const fn (*anyopaque, [*:0]const u8, *f64) callconv(abi_callconv) Result,
+    set_string: *const fn (*anyopaque, [*:0]const u8, [*:0]const u16) callconv(abi_callconv) Result,
+    get_string: *const fn (*anyopaque, [*:0]const u8, [*]u16, u32) callconv(abi_callconv) Result,
+    set_binary: *const fn (*anyopaque, [*:0]const u8, *const anyopaque, u32) callconv(abi_callconv) Result,
+    get_binary: *const fn (*anyopaque, [*:0]const u8, *?*const anyopaque, *u32) callconv(abi_callconv) Result,
+};
+pub const AttributeList = extern struct { vtable: *const AttributeListVTable };
+pub const MessageVTable = extern struct {
+    query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
+    add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    release: *const fn (*anyopaque) callconv(abi_callconv) u32,
+    get_message_id: *const fn (*anyopaque) callconv(abi_callconv) ?[*:0]const u8,
+    set_message_id: *const fn (*anyopaque, ?[*:0]const u8) callconv(abi_callconv) void,
+    get_attributes: *const fn (*anyopaque) callconv(abi_callconv) ?*AttributeList,
+};
+pub const Message = extern struct { vtable: *const MessageVTable };
 pub const ParamValueQueueVTable = extern struct {
     query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
     add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
@@ -345,6 +373,8 @@ pub const event_list_iid: Tuid = official.Steinberg_Vst_IEventList_iid;
 pub const edit_controller_iid: Tuid = official.Steinberg_Vst_IEditController_iid;
 pub const midi_mapping_iid: Tuid = official.Steinberg_Vst_IMidiMapping_iid;
 pub const connection_point_iid: Tuid = official.Steinberg_Vst_IConnectionPoint_iid;
+pub const attribute_list_iid: Tuid = official.Steinberg_Vst_IAttributeList_iid;
+pub const message_iid: Tuid = official.Steinberg_Vst_IMessage_iid;
 pub const component_handler_iid: Tuid = official.Steinberg_Vst_IComponentHandler_iid;
 pub const plug_view_iid: Tuid = official.Steinberg_IPlugView_iid;
 pub const plug_frame_iid: Tuid = official.Steinberg_IPlugFrame_iid;
@@ -383,6 +413,7 @@ comptime {
         .{ Event, official.Steinberg_Vst_Event },                    .{ ProcessContext, official.Steinberg_Vst_ProcessContext },            .{ AudioBusBuffers, official.Steinberg_Vst_AudioBusBuffers },
         .{ ProcessData, official.Steinberg_Vst_ProcessData },        .{ PluginFactoryVTable, official.Steinberg_IPluginFactoryVtbl },       .{ PluginFactory2VTable, official.Steinberg_IPluginFactory2Vtbl },
         .{ ComponentVTable, official.Steinberg_Vst_IComponentVtbl }, .{ EditControllerVTable, official.Steinberg_Vst_IEditControllerVtbl }, .{ AudioProcessorVTable, official.Steinberg_Vst_IAudioProcessorVtbl },
+        .{ MessageVTable, official.Steinberg_Vst_IMessageVtbl },     .{ AttributeListVTable, official.Steinberg_Vst_IAttributeListVtbl },
     };
     for (pairs) |pair| if (@sizeOf(pair[0]) != @sizeOf(pair[1]) or @alignOf(pair[0]) != @alignOf(pair[1])) @compileError("VST3 adapter differs from official C API");
 }

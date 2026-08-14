@@ -82,9 +82,236 @@ const MemoryStream = struct {
         self.data.deinit(self.allocator);
     }
 };
+/// One host-created `IMessage` plus the `IAttributeList` it carries.
+///
+/// A plugin's controller and component talk to each other over their
+/// connection points, and the message they pass is allocated by the HOST -
+/// `IHostApplication::createInstance`. Answering that call with "no" (what
+/// this host did until now) does not degrade gracefully: sfizz reports
+/// "UI could not allocate message" and its editor simply cannot reach its
+/// own DSP, so nothing the user does in the GUI takes effect.
+///
+/// Refcounted for real, unlike the host's other singletons: the plugin
+/// creates and releases these constantly. The attribute list is embedded
+/// and reports a constant refcount of 1 - its lifetime is the message's,
+/// which is how the SDK's own host implementation treats it.
+const HostMessage = struct {
+    interface: abi.Message = .{ .vtable = &message_vtable },
+    attributes: abi.AttributeList = .{ .vtable = &attributes_vtable },
+    allocator: std.mem.Allocator,
+    refs: std.atomic.Value(u32) = .init(1),
+    id: [128]u8 = @splat(0),
+    entries: [max_attributes]Attribute = undefined,
+    count: usize = 0,
+
+    const max_attributes = 32;
+    const max_key = 64;
+    const Attribute = struct {
+        key: [max_key]u8,
+        key_len: usize,
+        value: union(enum) {
+            int: i64,
+            float: f64,
+            /// Owned copies, freed with the message. The string keeps its
+            /// sentinel in the type: `allocSentinel` reserves len + 1, and
+            /// freeing it as a plain `[]u16` frees the wrong size.
+            string: [:0]u16,
+            binary: []u8,
+        },
+    };
+
+    fn create(allocator: std.mem.Allocator) !*HostMessage {
+        const self = try allocator.create(HostMessage);
+        self.* = .{ .allocator = allocator };
+        return self;
+    }
+
+    fn from(raw: *anyopaque) *HostMessage {
+        return @ptrCast(@alignCast(raw));
+    }
+    /// The attribute list is a second interface pointer into the same
+    /// allocation, so it has to step back to the message before use.
+    fn fromAttributes(raw: *anyopaque) *HostMessage {
+        const list: *abi.AttributeList = @ptrCast(@alignCast(raw));
+        return @fieldParentPtr("attributes", list);
+    }
+
+    fn destroy(self: *HostMessage) void {
+        for (self.entries[0..self.count]) |entry| switch (entry.value) {
+            .string => |s| self.allocator.free(s),
+            .binary => |b| self.allocator.free(b),
+            else => {},
+        };
+        self.allocator.destroy(self);
+    }
+
+    fn find(self: *HostMessage, id: [*:0]const u8) ?*Attribute {
+        const key = std.mem.span(id);
+        for (self.entries[0..self.count]) |*entry| {
+            if (std.mem.eql(u8, entry.key[0..entry.key_len], key)) return entry;
+        }
+        return null;
+    }
+    /// Reuses an existing slot for the same key (a plugin overwrites the
+    /// same attribute on every message it sends), freeing whatever that
+    /// slot owned first.
+    fn slot(self: *HostMessage, id: [*:0]const u8) ?*Attribute {
+        const key = std.mem.span(id);
+        if (key.len > max_key) return null;
+        if (self.find(id)) |entry| {
+            switch (entry.value) {
+                .string => |s| self.allocator.free(s),
+                .binary => |b| self.allocator.free(b),
+                else => {},
+            }
+            return entry;
+        }
+        if (self.count == max_attributes) return null;
+        const entry = &self.entries[self.count];
+        self.count += 1;
+        @memcpy(entry.key[0..key.len], key);
+        entry.key_len = key.len;
+        return entry;
+    }
+
+    fn query(raw: *anyopaque, _: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+        object.* = raw;
+        _ = addRef(raw);
+        return 0;
+    }
+    fn addRef(raw: *anyopaque) callconv(abi.abi_callconv) u32 {
+        return from(raw).refs.fetchAdd(1, .acq_rel) + 1;
+    }
+    fn release(raw: *anyopaque) callconv(abi.abi_callconv) u32 {
+        const self = from(raw);
+        const remaining = self.refs.fetchSub(1, .acq_rel) - 1;
+        if (remaining == 0) self.destroy();
+        return remaining;
+    }
+    fn getMessageId(raw: *anyopaque) callconv(abi.abi_callconv) ?[*:0]const u8 {
+        const self = from(raw);
+        if (self.id[0] == 0) return null;
+        return @ptrCast(&self.id);
+    }
+    fn setMessageId(raw: *anyopaque, id: ?[*:0]const u8) callconv(abi.abi_callconv) void {
+        const self = from(raw);
+        self.id = @splat(0);
+        const text = std.mem.span(id orelse return);
+        const len = @min(text.len, self.id.len - 1);
+        @memcpy(self.id[0..len], text[0..len]);
+    }
+    fn getAttributes(raw: *anyopaque) callconv(abi.abi_callconv) ?*abi.AttributeList {
+        return &from(raw).attributes;
+    }
+    const message_vtable: abi.MessageVTable = .{
+        .query_interface = query,
+        .add_ref = addRef,
+        .release = release,
+        .get_message_id = getMessageId,
+        .set_message_id = setMessageId,
+        .get_attributes = getAttributes,
+    };
+
+    fn attributesQuery(raw: *anyopaque, _: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+        object.* = raw;
+        return 0;
+    }
+    fn attributesRef(_: *anyopaque) callconv(abi.abi_callconv) u32 {
+        return 1;
+    }
+    fn setInt(raw: *anyopaque, id: [*:0]const u8, value: i64) callconv(abi.abi_callconv) abi.Result {
+        const entry = fromAttributes(raw).slot(id) orelse return -1;
+        entry.value = .{ .int = value };
+        return 0;
+    }
+    fn getInt(raw: *anyopaque, id: [*:0]const u8, value: *i64) callconv(abi.abi_callconv) abi.Result {
+        const entry = fromAttributes(raw).find(id) orelse return -1;
+        value.* = switch (entry.value) {
+            .int => |v| v,
+            .float => |v| @intFromFloat(v),
+            else => return -1,
+        };
+        return 0;
+    }
+    fn setFloat(raw: *anyopaque, id: [*:0]const u8, value: f64) callconv(abi.abi_callconv) abi.Result {
+        const entry = fromAttributes(raw).slot(id) orelse return -1;
+        entry.value = .{ .float = value };
+        return 0;
+    }
+    fn getFloat(raw: *anyopaque, id: [*:0]const u8, value: *f64) callconv(abi.abi_callconv) abi.Result {
+        const entry = fromAttributes(raw).find(id) orelse return -1;
+        value.* = switch (entry.value) {
+            .float => |v| v,
+            .int => |v| @floatFromInt(v),
+            else => return -1,
+        };
+        return 0;
+    }
+    fn setString(raw: *anyopaque, id: [*:0]const u8, text: [*:0]const u16) callconv(abi.abi_callconv) abi.Result {
+        const self = fromAttributes(raw);
+        const source = std.mem.span(text);
+        const copy = self.allocator.allocSentinel(u16, source.len, 0) catch return -1;
+        @memcpy(copy, source);
+        const entry = self.slot(id) orelse {
+            self.allocator.free(copy);
+            return -1;
+        };
+        entry.value = .{ .string = copy };
+        return 0;
+    }
+    fn getString(raw: *anyopaque, id: [*:0]const u8, buffer: [*]u16, size_in_bytes: u32) callconv(abi.abi_callconv) abi.Result {
+        const entry = fromAttributes(raw).find(id) orelse return -1;
+        const source = switch (entry.value) {
+            .string => |s| s,
+            else => return -1,
+        };
+        const capacity = size_in_bytes / @sizeOf(u16);
+        if (capacity == 0) return -1;
+        const len = @min(source.len, capacity - 1);
+        @memcpy(buffer[0..len], source[0..len]);
+        buffer[len] = 0;
+        return 0;
+    }
+    fn setBinary(raw: *anyopaque, id: [*:0]const u8, data: *const anyopaque, size_in_bytes: u32) callconv(abi.abi_callconv) abi.Result {
+        const self = fromAttributes(raw);
+        const source = @as([*]const u8, @ptrCast(data))[0..size_in_bytes];
+        const copy = self.allocator.dupe(u8, source) catch return -1;
+        const entry = self.slot(id) orelse {
+            self.allocator.free(copy);
+            return -1;
+        };
+        entry.value = .{ .binary = copy };
+        return 0;
+    }
+    fn getBinary(raw: *anyopaque, id: [*:0]const u8, data: *?*const anyopaque, size_in_bytes: *u32) callconv(abi.abi_callconv) abi.Result {
+        const entry = fromAttributes(raw).find(id) orelse return -1;
+        const source = switch (entry.value) {
+            .binary => |b| b,
+            else => return -1,
+        };
+        data.* = source.ptr;
+        size_in_bytes.* = @intCast(source.len);
+        return 0;
+    }
+    const attributes_vtable: abi.AttributeListVTable = .{
+        .query_interface = attributesQuery,
+        .add_ref = attributesRef,
+        .release = attributesRef,
+        .set_int = setInt,
+        .get_int = getInt,
+        .set_float = setFloat,
+        .get_float = getFloat,
+        .set_string = setString,
+        .get_string = getString,
+        .set_binary = setBinary,
+        .get_binary = getBinary,
+    };
+};
+
 const HostContext = struct {
     handler: abi.ComponentHandler = .{ .vtable = &vtable },
     application: abi.HostApplication = .{ .vtable = &application_vtable },
+    allocator: std.mem.Allocator,
     restart_flags: std.atomic.Value(i32) = .init(0),
     state_dirty: std.atomic.Value(bool) = .init(false),
 
@@ -127,9 +354,20 @@ const HostContext = struct {
         for ("wstudio", 0..) |byte, i| name[i] = byte;
         return 0;
     }
-    fn appCreate(_: *anyopaque, _: *const abi.Tuid, _: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+    fn appCreate(raw: *anyopaque, cid: *const abi.Tuid, _: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
         object.* = null;
-        return -1;
+        // IMessage is the only class a host is actually required to make.
+        // The requested interface is ignored: both of a message's
+        // interfaces live in the one allocation, and the plugin reaches
+        // the attribute list through `getAttributes` regardless.
+        if (!std.mem.eql(u8, cid, &abi.message_iid)) return -1;
+        // Not `from`: what a plugin holds is `&host_context.application`,
+        // and only `handler` sits at the context's own address.
+        const application: *abi.HostApplication = @ptrCast(@alignCast(raw));
+        const self: *HostContext = @fieldParentPtr("application", application);
+        const message = HostMessage.create(self.allocator) catch return -1;
+        object.* = @ptrCast(&message.interface);
+        return 0;
     }
     const application_vtable: abi.HostApplicationVTable = .{ .query_interface = appQuery, .add_ref = ref, .release = ref, .get_name = appName, .create_instance = appCreate };
 };
@@ -370,7 +608,7 @@ pub const Vst3Plugin = struct {
         errdefer module.close();
         const host_context = try allocator.create(HostContext);
         errdefer allocator.destroy(host_context);
-        host_context.* = .{};
+        host_context.* = .{ .allocator = allocator };
 
         var component_raw: ?*anyopaque = null;
         if (module.factory.vtable.create_instance(module.factory, &class_id, &abi.component_iid, &component_raw) != 0)
@@ -1234,6 +1472,63 @@ test "VST3 memory stream reads writes and seeks" {
     var output: [5]u8 = undefined;
     try std.testing.expectEqual(@as(abi.Result, 0), stream.interface.vtable.read(&stream.interface, &output, output.len, &count));
     try std.testing.expectEqualStrings(input, &output);
+}
+
+test "VST3 stream out-parameters are optional" {
+    var stream = MemoryStream.init(std.testing.allocator);
+    defer stream.deinit();
+    const input = "state";
+    // JUCE's getState passes null for numBytesWritten; a host that stores
+    // through it unconditionally segfaults on every JUCE plugin's save.
+    try std.testing.expectEqual(@as(abi.Result, 0), stream.interface.vtable.write(&stream.interface, input.ptr, input.len, null));
+    try std.testing.expectEqual(@as(abi.Result, 0), stream.interface.vtable.seek(&stream.interface, 0, 0, null));
+    try std.testing.expectEqual(@as(abi.Result, 0), stream.interface.vtable.tell(&stream.interface, null));
+    var output: [5]u8 = undefined;
+    try std.testing.expectEqual(@as(abi.Result, 0), stream.interface.vtable.read(&stream.interface, &output, output.len, null));
+    try std.testing.expectEqualStrings(input, &output);
+}
+
+test "host-created VST3 messages carry attributes and free themselves" {
+    var host: HostContext = .{ .allocator = std.testing.allocator };
+    var raw: ?*anyopaque = null;
+    try std.testing.expectEqual(
+        @as(abi.Result, 0),
+        host.application.vtable.create_instance(&host.application, &abi.message_iid, &abi.message_iid, &raw),
+    );
+    const message: *abi.Message = @ptrCast(@alignCast(raw.?));
+    message.vtable.set_message_id(message, "sfizz");
+    try std.testing.expectEqualStrings("sfizz", std.mem.span(message.vtable.get_message_id(message).?));
+
+    const attributes = message.vtable.get_attributes(message).?;
+    _ = attributes.vtable.set_int(attributes, "count", 7);
+    _ = attributes.vtable.set_float(attributes, "gain", 0.5);
+    _ = attributes.vtable.set_string(attributes, "path", std.unicode.utf8ToUtf16LeStringLiteral("a.sfz"));
+    _ = attributes.vtable.set_binary(attributes, "blob", "xyz", 3);
+    // Overwriting a key reuses its slot rather than growing the list.
+    _ = attributes.vtable.set_int(attributes, "count", 9);
+
+    var int_value: i64 = 0;
+    try std.testing.expectEqual(@as(abi.Result, 0), attributes.vtable.get_int(attributes, "count", &int_value));
+    try std.testing.expectEqual(@as(i64, 9), int_value);
+    var float_value: f64 = 0;
+    try std.testing.expectEqual(@as(abi.Result, 0), attributes.vtable.get_float(attributes, "gain", &float_value));
+    try std.testing.expectEqual(@as(f64, 0.5), float_value);
+    var text: [8]u16 = undefined;
+    try std.testing.expectEqual(@as(abi.Result, 0), attributes.vtable.get_string(attributes, "path", &text, @sizeOf(@TypeOf(text))));
+    var utf8: [8]u8 = undefined;
+    const len = try std.unicode.utf16LeToUtf8(&utf8, std.mem.sliceTo(&text, 0));
+    try std.testing.expectEqualStrings("a.sfz", utf8[0..len]);
+    var blob: ?*const anyopaque = null;
+    var blob_len: u32 = 0;
+    try std.testing.expectEqual(@as(abi.Result, 0), attributes.vtable.get_binary(attributes, "blob", &blob, &blob_len));
+    try std.testing.expectEqualStrings("xyz", @as([*]const u8, @ptrCast(blob.?))[0..blob_len]);
+    try std.testing.expect(attributes.vtable.get_int(attributes, "missing", &int_value) != 0);
+
+    // The plugin owns the message from here: the testing allocator fails
+    // this test if release does not free it and everything it copied.
+    try std.testing.expectEqual(@as(u32, 2), message.vtable.add_ref(message));
+    try std.testing.expectEqual(@as(u32, 1), message.vtable.release(message));
+    try std.testing.expectEqual(@as(u32, 0), message.vtable.release(message));
 }
 
 test "controller cleanup terminates only initialized instances and always releases" {
