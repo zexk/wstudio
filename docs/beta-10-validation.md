@@ -31,6 +31,40 @@ stay under `.zig-cache/` or isolated screenshot homes.
 These skips do not cover create, edit, undo/redo, save/reopen, transport, or
 export. Those paths passed in both Linux frontends above.
 
+## Third-party plugin pass
+
+2026-08-14 `zig build plugincheck` hosted the `wstudio-test-plugins` bundle
+(LSP, Surge XT, Odin 2, sfizz, CHOW Tape, Uhhyou) on NixOS Linux x86_64: 441
+CLAP and VST3 plugins scanned, all 441 loaded, and every one completed load,
+process, automation to both ends of its declared parameter ranges, state save,
+state reload, re-render, reset, and teardown. The sweep ran twice, once
+sandboxed the way a stock session loads plugins and once in-process with
+`--direct`. Both runs report zero host faults.
+
+Getting there closed three host defects, all invisible to the bundled fixture
+plugins because those fixtures are this repository's own code:
+
+- Host objects answered every `queryInterface` id with themselves, so a plugin
+  asking a state stream for `IStreamAttributes` got the stream's own vtable and
+  called `read` believing it was `getFileName`. Surge XT, Odin 2 and CHOW Tape
+  crashed inside `setState`. Under the sandbox this appeared only as a lost
+  bridge child, which is what the recorded `ProcessingStartFailed`-era LSP
+  blocker looked like from the outside.
+- `IEditController::getState` and `setComponentState` are optional, and JUCE
+  plugins answer `kNotImplemented`. The host treated that as failure, so no
+  JUCE plugin could be saved or reopened at all.
+- `clap_plugin.reset` is `[audio-thread]`, and the host's thread check only
+  reported an audio thread from inside `processBlock`. Odin 2 aborted the whole
+  process on the violation.
+
+Five remaining reports are plugin-side and not release blockers: LSP's send and
+return utilities and Uhhyou's ClangSynth produce an enormous output level when a
+parameter is driven to the end of its own declared range, which is what those
+ranges mean. They are recorded as notes and do not fail the run.
+
+The check is on-demand rather than part of `zig build test`, since it needs
+third-party plugins installed on the machine.
+
 ## Punch recording
 
 Automated frontend coverage verifies `:punch` rejects missing bounds and gates

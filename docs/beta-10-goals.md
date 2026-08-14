@@ -96,9 +96,11 @@ focused regression check covers it. Otherwise record it for post-1.0. At most
 two candidates ship in beta.10.
 
 Explicitly postponed: take lanes and comping, audio warping, elastic audio,
-MPE/MIDI 2.0, surround or multi-bus hosting, plugin sandboxing, embedded plugin
-GUIs, video, notation, collaboration, and any new plugin format. These are
-large subsystems, not release-candidate polish.
+MPE/MIDI 2.0, surround or multi-bus hosting, video, notation, collaboration,
+and any new plugin format. These are large subsystems, not release-candidate
+polish. Plugin sandboxing and plugin GUI windows were on this list and came off
+it: both shipped during beta.10 and are covered by the third-party plugin pass
+in [beta-10-validation.md](beta-10-validation.md).
 
 ## 3. Polish, validate, and promote unchanged
 
