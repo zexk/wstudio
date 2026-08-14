@@ -109,19 +109,20 @@ fn drawSignalChain(app: anytype, target: spectrum_ed.EqTarget, fx: *ws.Fx) void 
         }
     }
 
-    widgets.hoverHelp("a insert  tab select slot  b bypass");
-    if (spectrum_ed.focusedUnit(&app.core, fx)) |unit| {
-        zgui.sameLine(.{});
-        if (unit.kind() == .eq) {
-            if (app.core.eq_band_select) {
-                widgets.hoverHelp("h/l band  enter edit");
-            } else {
-                widgets.hoverHelp("j/k field  h/l adjust");
-            }
-        } else {
-            widgets.hoverHelp("j/k parameter  h/l adjust");
-        }
-    }
+    // One badge for the view, like every other view: two identical `?`
+    // circles side by side read as a glitch and gave no way to tell which
+    // one described the chain and which the parameters.
+    const chain_hint = "a insert  tab select slot  b bypass";
+    widgets.hoverHelp(if (spectrum_ed.focusedUnit(&app.core, fx)) |unit|
+        if (unit.kind() == .eq)
+            (if (app.core.eq_band_select)
+                chain_hint ++ "  h/l band  enter edit"
+            else
+                chain_hint ++ "  j/k field  h/l adjust")
+        else
+            chain_hint ++ "  j/k parameter  h/l adjust"
+    else
+        chain_hint);
 }
 
 const SlotAction = struct { index: usize, kind: enum { bypass, remove } };
