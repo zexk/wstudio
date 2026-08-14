@@ -292,6 +292,24 @@ pub fn build(b: *std.Build) void {
     const dspcheck_step = b.step("dspcheck", "Run a directory of real audio files through decode/detect/render/FX");
     dspcheck_step.dependOn(&run_dspcheck.step);
 
+    // Also on-demand: it renders all 100 factory presets and its output is a
+    // report to read, not a pass/fail.
+    const presetscan = b.addExecutable(.{
+        .name = "presetscan",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/presetscan.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "wstudio", .module = wstudio_mod },
+            },
+        }),
+    });
+    const run_presetscan = b.addRunArtifact(presetscan);
+    if (b.args) |args| run_presetscan.addArgs(args);
+    const presetscan_step = b.step("presetscan", "Measure every factory synth preset and report the closest pairs");
+    presetscan_step.dependOn(&run_presetscan.step);
+
     // demo.wsj lives above the module root, so no Zig test can @embedFile it;
     // this tiny loader stands in for one and joins `zig build test` below.
     const checkdemo = b.addExecutable(.{
