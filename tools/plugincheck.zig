@@ -95,15 +95,19 @@ pub fn main(init: std.process.Init) !void {
     defer roots.deinit(init.gpa);
     var verbose = false;
     var direct = false;
+    var gui_seconds: u32 = 0;
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--verbose")) {
             verbose = true;
         } else if (std.mem.eql(u8, arg, "--direct")) {
             direct = true;
+        } else if (std.mem.startsWith(u8, arg, "--gui=")) {
+            gui_seconds = std.fmt.parseInt(u32, arg["--gui=".len..], 10) catch 0;
         } else {
             try roots.append(init.gpa, arg);
         }
     }
+    if (gui_seconds != 0) return openGuis(init, roots.items, gui_seconds, direct);
     if (direct) ws.plugin_host.bridge.sandbox_enabled.store(false, .release);
 
     var stdout_buffer: [4096]u8 = undefined;
@@ -129,6 +133,52 @@ pub fn main(init: std.process.Init) !void {
 
     if (tally.host_faults != 0) return error.PluginLifecycleFailed;
     if (tally.scanned == 0) return error.NoPluginsFound;
+}
+
+/// Open each CLAP editor in turn and hold it for `seconds`, servicing the
+/// main thread the way a session does. Nothing here can assert a window
+/// looks right - that is what an X tool inspecting the live window is for
+/// (`xwininfo -root -tree` while this runs). What it does give is a
+/// reproducible way to put a real plugin editor on screen without driving
+/// the whole DAW.
+fn openGuis(init: std.process.Init, roots: []const []const u8, seconds: u32, direct: bool) !void {
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    const out = &stdout.interface;
+    if (!direct) ws.plugin_host.bridge.sandbox_enabled.store(false, .release);
+
+    var owned: std.ArrayListUnmanaged([]u8) = .empty;
+    var paths: []const []const u8 = roots;
+    if (roots.len == 0) {
+        owned = try ws.dsp.clap_scan.searchPaths(init.gpa, init.environ_map);
+        paths = owned.items;
+    }
+    defer ws.dsp.clap_scan.freeSearchPaths(init.gpa, &owned);
+
+    var registry = ws.dsp.clap_scan.Registry.init(init.gpa);
+    defer registry.deinit();
+    try registry.scanPaths(init.io, paths);
+
+    for (registry.plugins.items) |info| {
+        const plugin = ws.dsp.ClapPlugin.load(init.gpa, info.path, info.id, sample_rate) catch continue;
+        defer plugin.deinit();
+        if (!plugin.hasGui()) continue;
+        _ = plugin.serviceMainThread();
+        const shown = plugin.toggleGui() catch false;
+        try out.print("gui   {s}: {s}\n", .{ info.name, if (shown) "open" else "refused" });
+        try out.flush();
+        if (!shown) continue;
+        var elapsed: u32 = 0;
+        while (elapsed < seconds * 20) : (elapsed += 1) {
+            _ = plugin.serviceMainThread();
+            ws.plugin_host.transport.sleepNs(50 * std.time.ns_per_ms);
+        }
+        _ = plugin.toggleGui() catch {};
+        // One editor per run: a single `.clap` binary can hold hundreds of
+        // plugins (LSP does), and holding each in turn would outlast any
+        // sitting to inspect the first.
+        return;
+    }
 }
 
 fn sweepClap(
