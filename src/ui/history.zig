@@ -641,7 +641,6 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
                 return null;
             };
             restoreSections(app, s);
-            app.dirty = true;
             return .{ .sections = displaced };
         },
         .fx => |f| {

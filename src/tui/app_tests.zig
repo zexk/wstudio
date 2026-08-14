@@ -3381,6 +3381,38 @@ test "clip commands name the missing track instead of failing silently" {
     }
 }
 
+test "crossfade fades the overlapping layers into each other" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .arrangement;
+    app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
+    app.session.engine.transport.tempo_bpm = app.session.project.tempo_bpm;
+    const lane = app.session.arrangement.lane(0).?;
+    const source_id = try app.session.project.addAudioSource("raw", app.session.project.sample_rate, 1, &.{ 0.1, 0.2 });
+    // Two layers overlapping over the second half of the first clip: a lane
+    // only holds overlapping clips on distinct layers.
+    try lane.place(app.allocator, ws.Clip.initAudio(0, 64, .{ .source_id = source_id, .source_start_frame = 0, .source_length_frames = 2 }));
+    var later = ws.Clip.initAudio(32, 64, .{ .source_id = source_id, .source_start_frame = 0, .source_length_frames = 2 });
+    later.layer = 1;
+    try lane.place(app.allocator, later);
+
+    commands.run(&app, "crossfade");
+    const first = &lane.clips.items[0].content.audio;
+    const second = &lane.clips.items[1].content.audio;
+    // 32 ticks of overlap at one beat per tick-grid unit; the later clip
+    // fades in over exactly that span while the earlier one fades out.
+    const overlap_frames = first.fade_out_frames;
+    try std.testing.expect(overlap_frames > 0);
+    try std.testing.expectEqual(overlap_frames, second.fade_in_frames);
+    try std.testing.expectEqual(@as(u64, 0), first.fade_in_frames);
+    try std.testing.expectEqual(@as(u64, 0), second.fade_out_frames);
+    try std.testing.expectEqual(ws.arrangement.FadeCurve.equal_power, first.fade_curve);
+    try std.testing.expectEqual(ws.arrangement.FadeCurve.equal_power, second.fade_curve);
+
+    history.doUndo(&app);
+    try std.testing.expectEqual(@as(u64, 0), lane.clips.items[0].content.audio.fade_out_frames);
+}
+
 test "consolidate keeps a stereo source stereo and clamps fades to clip length" {
     var app = try testApp();
     defer app.deinit();
