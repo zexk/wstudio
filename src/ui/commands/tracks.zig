@@ -499,21 +499,30 @@ const lfo_mod = ws.dsp.lfo;
 /// Ranges and the current value come from the same tables the automation
 /// editor and the FX editor already use, so a param that can't be automated
 /// can't be bound either.
-fn focusedControllerTarget(app: *App) ?controller_mod.Target {
+/// The param under the open editor's cursor, as a modulation target, or null
+/// with the reason on the status line. `cmd` names the command that asked, so
+/// `:cc` and `:cc-learn` stop reporting failures as `ctrl-bind`.
+fn focusedControllerTarget(app: *App, cmd: []const u8) ?controller_mod.Target {
     switch (app.view) {
         .track_spectrum => {
-            if (app.eq_track >= app.session.racks.items.len) return null;
+            if (app.eq_track >= app.session.racks.items.len) {
+                app.setStatus("{s}: no track for this FX chain", .{cmd});
+                return null;
+            }
             const fx = &app.session.racks.items[app.eq_track].fx;
             const unit = spectrum_ed.focusedUnit(app, fx) orelse {
-                app.setStatus("ctrl-bind: this chain is empty", .{});
+                app.setStatus("{s}: this chain is empty", .{cmd});
                 return null;
             };
             if (!ws.dsp.fx_params.isPayloadAutomatable(&unit.payload, app.fx_param)) {
-                app.setStatus("ctrl-bind: this param can't be modulated", .{});
+                app.setStatus("{s}: this param can't be modulated", .{cmd});
                 return null;
             }
             const range = ws.dsp.fx_params.paramRange(&unit.payload, app.fx_param);
-            if (!(range[1] > range[0])) return null;
+            if (!(range[1] > range[0])) {
+                app.setStatus("{s}: this param has no range to sweep", .{cmd});
+                return null;
+            }
             return .{
                 .track = app.eq_track,
                 .instance_id = unit.instance_id,
@@ -529,11 +538,17 @@ fn focusedControllerTarget(app: *App) ?controller_mod.Target {
                 @intCast(app.synth_cursor)
             else
                 @intCast(app.sampler_param);
-            if (track >= app.session.racks.items.len) return null;
+            if (track >= app.session.racks.items.len) {
+                app.setStatus("{s}: no track for this editor", .{cmd});
+                return null;
+            }
             const params = app.session.racks.items[track].instrument.automatableParams();
             for (params) |p| {
                 if (p.id != id) continue;
-                if (!(p.range[1] > p.range[0])) return null;
+                if (!(p.range[1] > p.range[0])) {
+                    app.setStatus("{s}: this param has no range to sweep", .{cmd});
+                    return null;
+                }
                 return .{
                     .track = track,
                     .param_id = id,
@@ -542,11 +557,11 @@ fn focusedControllerTarget(app: *App) ?controller_mod.Target {
                     .hi = p.range[1],
                 };
             }
-            app.setStatus("ctrl-bind: this param can't be modulated", .{});
+            app.setStatus("{s}: this param can't be modulated", .{cmd});
             return null;
         },
         else => {
-            app.setStatus("ctrl-bind: open a synth, sampler or FX editor first", .{});
+            app.setStatus("{s}: open a synth, sampler or FX editor first", .{cmd});
             return null;
         },
     }
@@ -666,7 +681,7 @@ pub fn cmdControllerBind(app: *App, args: []const u8) void {
         app.setStatus("ctrl-bind: controller {d} doesn't exist yet - ':ctrl {d}' makes it", .{ idx + 1, idx + 1 });
         return;
     }
-    const target = focusedControllerTarget(app) orelse return;
+    const target = focusedControllerTarget(app, "ctrl-bind") orelse return;
 
     // Re-binding the same knob retunes it (fresh centre) rather than
     // stacking a second target that would fight the first every block.
@@ -723,7 +738,7 @@ pub fn cmdCc(app: *App, args: []const u8) void {
         app.setStatus("cc: controller number must be 0-127", .{});
         return;
     }
-    const target = focusedControllerTarget(app) orelse return;
+    const target = focusedControllerTarget(app, "cc") orelse return;
     bindCc(app, @intCast(cc), target);
 }
 
@@ -784,7 +799,7 @@ pub fn cmdCcLearn(app: *App, args: []const u8) void {
         app.setStatus("cc-learn: cancelled", .{});
         return;
     }
-    const target = focusedControllerTarget(app) orelse return;
+    const target = focusedControllerTarget(app, "cc-learn") orelse return;
     app.cc_learn = target;
     // Only a message arriving after this counts - see `App.cc_learn_seq`.
     app.cc_learn_seq = if (app.session.engine.lastCc()) |last| last.seq else 0;
