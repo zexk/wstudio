@@ -512,6 +512,17 @@ pub const Slicer = struct {
         }
     }
 
+    /// Set every live slice's warp method together, matching `stretchAll`.
+    /// One clip means one kind of material, so the algorithm that suits it is
+    /// a clip-wide choice the same way the stretch ratio is.
+    pub fn warpAll(self: *Slicer, method: pad_mod.WarpMethod) void {
+        while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.sample_lock.unlock();
+        for (0..self.slice_count) |i| {
+            self.slices[i].warp_method = method;
+        }
+    }
+
     /// Cycle all live slices to the next play mode as one. Mixed state
     /// resolves to whatever comes after slice 0's mode, so the clip always
     /// lands uniform in one keypress.

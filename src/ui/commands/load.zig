@@ -768,10 +768,17 @@ pub fn cmdBpmSync(app: *App, args: []const u8) void {
         // Stretch is only touched when the tempo is actually known, so a
         // key-only sync leaves a hand-dialled warp alone. Pitch always is:
         // zeroing it is what releases the control from tempo duty.
-        if (clip_bpm) |b| sl.stretchAll(ws.dsp.tempo.stretchToTempo(b, project_bpm));
+        var warp: ?ws.dsp.pad.WarpMethod = null;
+        if (clip_bpm) |b| {
+            sl.stretchAll(ws.dsp.tempo.stretchToTempo(b, project_bpm));
+            // The method only matters once the ratio is off 1.0, so it rides
+            // along with the stretch rather than being set on its own.
+            warp = warpForClip(sl.samples, sl.sample_rate, sl.clip_root);
+            sl.warpAll(warp.?);
+        }
         sl.pitchAll(tune orelse 0);
         app.dirty = true;
-        reportSync(app, clip_bpm, project_bpm, tune, tempoSource(forced, sl.clip_bpm));
+        reportSync(app, clip_bpm, project_bpm, tune, tempoSource(forced, sl.clip_bpm), warp);
         return;
     }
 
@@ -786,12 +793,21 @@ pub fn cmdBpmSync(app: *App, args: []const u8) void {
             app.setStatus("bpm-sync: no clear pulse or pitch - pass BPM and set :scale", .{});
             return;
         }
+        var warp: ?ws.dsp.pad.WarpMethod = null;
         if (clip_bpm) |b| {
             history.recordParamSet(app, @intCast(track), ws.dsp.pad.stretch_id);
             _ = app.session.engine.send(.{ .set_track_param_abs = .{
                 .track = @intCast(track),
                 .id = ws.dsp.pad.stretch_id,
                 .value = ws.dsp.tempo.stretchToTempo(b, project_bpm),
+            } });
+            // Same material-picks-the-algorithm rule as the slicer arm.
+            warp = warpForClip(smp.pad.samples, smp.sample_rate, smp.clip_root);
+            history.recordParamSet(app, @intCast(track), ws.dsp.pad.warp_method_id);
+            _ = app.session.engine.send(.{ .set_track_param_abs = .{
+                .track = @intCast(track),
+                .id = ws.dsp.pad.warp_method_id,
+                .value = @floatFromInt(@intFromEnum(warp.?)),
             } });
         }
         if (tune) |semitones| {
@@ -803,7 +819,7 @@ pub fn cmdBpmSync(app: *App, args: []const u8) void {
             } });
         }
         app.dirty = true;
-        reportSync(app, clip_bpm, project_bpm, tune, tempoSource(forced, smp.clip_bpm));
+        reportSync(app, clip_bpm, project_bpm, tune, tempoSource(forced, smp.clip_bpm), warp);
         return;
     }
 
@@ -819,6 +835,19 @@ fn clipTempo(name_bpm: f32, samples: []const f32, sample_rate: u32) ?f32 {
     return r.bpm;
 }
 
+/// The warp algorithm that suits the clip's material, the way the Akai
+/// stretcher's presets split percussion from vocals: a clip with a clear
+/// pitch is a tone, anything else is a beat. `pitch.detect` is the same test
+/// `tuneToProjectRoot` leans on, and finds no pitch at all in most loop
+/// material - so a break falls through to `.beats` and its 16 ms grains snap
+/// to the attacks, while a vocal or a keys phrase gets the 60 ms grains that
+/// don't buzz a sustained tail. A key in the file name says "melodic" outright
+/// and skips the analysis.
+fn warpForClip(samples: []const f32, sample_rate: u32, name_root: ?u4) ws.dsp.pad.WarpMethod {
+    if (name_root != null) return .tones;
+    return if (ws.dsp.pitch.detect(samples, sample_rate) != null) .tones else .beats;
+}
+
 fn tempoSource(forced: ?f32, name_bpm: f32) []const u8 {
     if (forced != null) return "given";
     return if (name_bpm > 0.0) "from name" else "detected";
@@ -827,15 +856,18 @@ fn tempoSource(forced: ?f32, name_bpm: f32) []const u8 {
 /// `:bpm-sync`'s one status line, shared by both instrument arms. Names where
 /// the tempo came from: the three sources disagree often enough that "85 BPM"
 /// alone doesn't say whether to trust the result.
-fn reportSync(app: *App, clip_bpm: ?f32, project_bpm: f32, tune: ?f32, source: []const u8) void {
+fn reportSync(app: *App, clip_bpm: ?f32, project_bpm: f32, tune: ?f32, source: []const u8, warp: ?ws.dsp.pad.WarpMethod) void {
     const b = clip_bpm orelse {
         app.setStatus("sync: tune {d:.2} st; no tempo in the name and no clear pulse", .{tune.?});
         return;
     };
+    // A tempo was found, so the warp arm ran too - naming the method it chose
+    // is the only way the pick is visible without opening the slice params.
+    const w = ws.dsp.pad.warp_method_names[@intFromEnum(warp orelse .tones)];
     if (tune) |semitones|
-        app.setStatus("sync: {d:.1} -> {d:.1} BPM ({s}), tune {d:.2} st", .{ b, project_bpm, source, semitones })
+        app.setStatus("sync: {d:.1} -> {d:.1} BPM ({s}, {s}), tune {d:.2} st", .{ b, project_bpm, source, w, semitones })
     else
-        app.setStatus("sync: {d:.1} -> {d:.1} BPM ({s}); no project key or clip key", .{ b, project_bpm, source });
+        app.setStatus("sync: {d:.1} -> {d:.1} BPM ({s}, {s}); no project key or clip key", .{ b, project_bpm, source, w });
 }
 
 /// Semitones that put the clip's root on the project scale's, or null when
@@ -859,6 +891,23 @@ pub fn tuneToRoot(root: u4, detected: ws.dsp.pitch.Result) f32 {
 test "tuneToRoot takes shortest pitch-class shift and corrects cents" {
     try std.testing.expectApproxEqAbs(@as(f32, 2.0), tuneToRoot(0, .{ .note = 70, .cents = 0 }), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, -2.25), tuneToRoot(10, .{ .note = 60, .cents = 25 }), 1e-6);
+}
+
+test "warpForClip sends tones to pitched material and beats to noise" {
+    const sr: u32 = 48_000;
+    var tone: [sr]f32 = undefined;
+    for (&tone, 0..) |*s, i| {
+        const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(sr));
+        s.* = @sin(2.0 * std.math.pi * 220.0 * t);
+    }
+    var noise: [sr]f32 = undefined;
+    var rng = std.Random.DefaultPrng.init(0x5eed);
+    for (&noise) |*s| s.* = rng.random().floatNorm(f32) * 0.25;
+
+    try std.testing.expectEqual(ws.dsp.pad.WarpMethod.tones, warpForClip(&tone, sr, null));
+    try std.testing.expectEqual(ws.dsp.pad.WarpMethod.beats, warpForClip(&noise, sr, null));
+    // A key in the file name is taken at its word, analysis never runs.
+    try std.testing.expectEqual(ws.dsp.pad.WarpMethod.tones, warpForClip(&noise, sr, 0));
 }
 
 /// `:chop-random [n]` - Serato's "Set Random": chop into n slices at random
