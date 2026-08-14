@@ -30,16 +30,16 @@ const MemoryStream = struct {
     fn ref(_: *anyopaque) callconv(abi.abi_callconv) u32 {
         return 1;
     }
-    fn read(raw: *anyopaque, destination: *anyopaque, count: i32, read_count: *i32) callconv(abi.abi_callconv) abi.Result {
+    fn read(raw: *anyopaque, destination: *anyopaque, count: i32, read_count: ?*i32) callconv(abi.abi_callconv) abi.Result {
         const self = from(raw);
         if (count < 0) return -1;
         const len = @min(@as(usize, @intCast(count)), self.data.items.len -| self.position);
         @memcpy(@as([*]u8, @ptrCast(destination))[0..len], self.data.items[self.position..][0..len]);
         self.position += len;
-        read_count.* = @intCast(len);
+        if (read_count) |out| out.* = @intCast(len);
         return 0;
     }
-    fn write(raw: *anyopaque, source: *const anyopaque, count: i32, written: *i32) callconv(abi.abi_callconv) abi.Result {
+    fn write(raw: *anyopaque, source: *const anyopaque, count: i32, written: ?*i32) callconv(abi.abi_callconv) abi.Result {
         const self = from(raw);
         if (count < 0) return -1;
         const len: usize = @intCast(count);
@@ -47,10 +47,10 @@ const MemoryStream = struct {
         self.data.resize(self.allocator, end) catch return -1;
         @memcpy(self.data.items[self.position..end], @as([*]const u8, @ptrCast(source))[0..len]);
         self.position = end;
-        written.* = count;
+        if (written) |out| out.* = count;
         return 0;
     }
-    fn seek(raw: *anyopaque, offset: i64, mode: i32, result: *i64) callconv(abi.abi_callconv) abi.Result {
+    fn seek(raw: *anyopaque, offset: i64, mode: i32, result: ?*i64) callconv(abi.abi_callconv) abi.Result {
         const self = from(raw);
         const base: i64 = switch (mode) {
             0 => 0,
@@ -61,11 +61,11 @@ const MemoryStream = struct {
         const target = std.math.add(i64, base, offset) catch return -1;
         if (target < 0) return -1;
         self.position = @intCast(target);
-        result.* = target;
+        if (result) |out| out.* = target;
         return 0;
     }
-    fn tell(raw: *anyopaque, result: *i64) callconv(abi.abi_callconv) abi.Result {
-        result.* = @intCast(from(raw).position);
+    fn tell(raw: *anyopaque, result: ?*i64) callconv(abi.abi_callconv) abi.Result {
+        if (result) |out| out.* = @intCast(from(raw).position);
         return 0;
     }
     const vtable: abi.StreamVTable = .{ .query_interface = query, .add_ref = ref, .release = ref, .read = read, .write = write, .seek = seek, .tell = tell };

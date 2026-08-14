@@ -114,10 +114,14 @@ pub const StreamVTable = extern struct {
     query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
     add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
     release: *const fn (*anyopaque) callconv(abi_callconv) u32,
-    read: *const fn (*anyopaque, *anyopaque, i32, *i32) callconv(abi_callconv) Result,
-    write: *const fn (*anyopaque, *const anyopaque, i32, *i32) callconv(abi_callconv) Result,
-    seek: *const fn (*anyopaque, i64, i32, *i64) callconv(abi_callconv) Result,
-    tell: *const fn (*anyopaque, *i64) callconv(abi_callconv) Result,
+    // The four out-parameters below are all optional in the VST3 spec: a
+    // plugin that does not care how many bytes moved passes null (JUCE's
+    // `getState` does exactly that for `numBytesWritten`), so they are
+    // `?*` here and every implementation must null-check before storing.
+    read: *const fn (*anyopaque, *anyopaque, i32, ?*i32) callconv(abi_callconv) Result,
+    write: *const fn (*anyopaque, *const anyopaque, i32, ?*i32) callconv(abi_callconv) Result,
+    seek: *const fn (*anyopaque, i64, i32, ?*i64) callconv(abi_callconv) Result,
+    tell: *const fn (*anyopaque, ?*i64) callconv(abi_callconv) Result,
 };
 pub const Stream = extern struct { vtable: *const StreamVTable };
 
