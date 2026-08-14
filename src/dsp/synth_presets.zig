@@ -490,44 +490,6 @@ pub const presets = [_]Preset{
         .gain = 0.28,
     } },
 
-    // pwm-strings keeps its preset name, but LFO 2 now morphs the basic
-    // waveform while the ensemble chorus does the Solina shimmer
-    .{ .name = "pwm-strings", .category = "pad", .tags = &.{ "wstudio", "synthwave" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 1.0, .unison = 4, .unison_detune = 12.0, .unison_spread = 0.6,
-        .attack_s = 0.5, .decay_s = 0.6, .sustain = 0.8, .release_s = 1.0,
-        .filter_type = .lp, .filter_cutoff = 3200.0, .filter_res = 0.08,
-        .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 150.0, .filter_routing = .series,
-        .lfo_rate_hz = 0.4,
-        .lfo_custom = waves(.{ .triangle, .sine, .sine }), .lfo_custom_count = waveCounts(.{ .triangle, .sine, .sine }),
-        .lfo2_rate_hz = 0.3, .lfo2_phase_offset = 0.25, .lfo2_slew_ms = 25.0,
-        .mod_matrix = mods(&.{
-            .{ .source = .lfo,  .dest = 21,  .depth = 0.05 },
-            .{ .source = .lfo2, .dest = 185,   .depth = -0.25 },
-            .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac2, .dest = 185,   .depth = -0.3 },
-            .{ .source = .mac3, .dest = 179, .depth = 0.3 },
-        }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.8, .fx_chorus_depth_ms = 6.0, .fx_chorus_mix = 0.5,
-        .gain = 0.26,
-    } },
-
-    // --- Future bass / EDM ---
-    // future-chord - OTT is the genre's whole sound; kept wide and bright
-    .{ .name = "future-chord", .category = "stab", .tags = &.{ "wstudio", "future-bass" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 7, .unison_detune = 20.0, .unison_spread = 0.9,
-        .attack_s = 0.02, .decay_s = 0.3, .sustain = 0.85, .release_s = 0.4, .env_curve = 0.25,
-        .filter_type = .lp, .filter_cutoff = 5000.0, .filter_res = 0.12,
-        .lfo_rate_hz = 5.0,
-        .mod_matrix = mods(&.{
-            .{ .source = .lfo,  .dest = dP,  .depth = 0.1 },
-            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
-        }),
-        .fx_ott_on = true, .fx_ott_depth = 0.7, .fx_ott_gain_out_db = -12.0,
-        .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.25,
-        .gain = 0.24,
-    } },
-
     // --- Chiptune / video game ---
     // chip-lead - LFO 2 flickers the duty cycle like NES channel swaps,
     // bit-crush for the console DAC grit
@@ -735,24 +697,6 @@ pub const presets = [_]Preset{
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.7, .fx_chorus_depth_ms = 3.5, .fx_chorus_mix = 0.3,
         .gain = 0.32,
-    } },
-
-    // mallet - velocity-bright strikes, small room around the bars
-    .{ .name = "mallet", .category = "keys", .tags = &.{ "wstudio", "jazz" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 24.0, .osc_b_detune_cents = 2.0, .osc_b_level = 0.5,
-        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 1.5,
-        .attack_s = 0.001, .decay_s = 0.7, .sustain = 0.0, .release_s = 0.4, .env_curve = 0.72,
-        .filter_type = .lp, .filter_cutoff = 8000.0, .filter_res = 0.0,
-        .lfo_rate_hz = 5.0,
-        .mod_matrix = mods(&.{
-            .{ .source = .lfo,      .dest = dA,  .depth = 0.075 },
-            .{ .source = .velocity, .dest = 15,  .depth = 0.12 },
-            .{ .source = .random,   .dest = 15,  .depth = 0.025 },
-            .{ .source = .mac2,     .dest = 15,  .depth = 0.2 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
-        }),
-        .fx_reverb_on = true, .fx_reverb_room = 0.55, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.25,
-        .gain = 0.3,
     } },
 
     // === Round 2: fill each genre's remaining core roles ===
@@ -1209,24 +1153,6 @@ pub const presets = [_]Preset{
         .gain = 0.36,
     } },
 
-    // kawaii future bass - hyper-bright wide supersaw chord, OTT'd to the
-    // ceiling like the genre demands
-    .{ .name = "kawaii-chord", .category = "stab", .tags = &.{ "wstudio", "kawaii" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 7, .unison_detune = 24.0, .unison_spread = 0.9,
-        .attack_s = 0.01, .decay_s = 0.25, .sustain = 0.9, .release_s = 0.3,
-        .filter_type = .lp, .filter_cutoff = 7500.0, .filter_res = 0.1,
-        .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 150.0, .filter_routing = .series,
-        .lfo_rate_hz = 5.5,
-        .mod_matrix = mods(&.{
-            .{ .source = .lfo,  .dest = dP,  .depth = 0.08 },
-            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
-        }),
-        .fx_ott_on = true, .fx_ott_depth = 0.8, .fx_ott_gain_out_db = -16.0,
-        .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.3, .fx_reverb_mix = 0.28,
-        .gain = 0.22,
-    } },
-
     // kawaii future bass - sparkly bell pluck on top of the chords
     .{ .name = "kawaii-pluck", .category = "pluck", .tags = &.{ "wstudio", "kawaii" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 24.0, .osc_b_detune_cents = 3.0, .osc_b_level = 0.6,
@@ -1287,24 +1213,6 @@ pub const presets = [_]Preset{
         .fx_eq_on = true, .fx_eq_high_freq = 6000.0, .fx_eq_high_gain_db = 3.0,
         .fx_delay_on = true, .fx_delay_time_s = 0.25, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.25,
         .gain = 0.28,
-    } },
-
-    // eurobeat - driving octave-pump bass, compressed to sit dead center
-    .{ .name = "eurobeat-bass", .category = "bass", .tags = &.{ "wstudio", "eurobeat" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.0,
-        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_semi = -12.0, .osc_b_level = 0.8,
-        .attack_s = 0.002, .decay_s = 0.12, .sustain = 0.7, .release_s = 0.06,
-        .filter_type = .lp, .filter_cutoff = 1000.0, .filter_res = 0.2, .filter_drive = 2.8,
-        .fenv_attack_s = 0.001, .fenv_decay_s = 0.1, .fenv_sustain = 0.2, .fenv_release_s = 0.05,
-        .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 21, .depth = 0.25 },
-            .{ .source = .velocity, .dest = 21, .depth = 0.2 },
-            .{ .source = .alternate, .dest = 21, .depth = 0.018 },
-            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
-            .{ .source = .mac2,     .dest = 22, .depth = 0.2 },
-        }),
-        .fx_comp_on = true, .fx_comp_threshold_db = -16.0, .fx_comp_ratio = 4.0, .fx_comp_attack_ms = 5.0, .fx_comp_release_ms = 70.0,
-        .gain = 0.36,
     } },
 
     // anime - twangy koto-style pluck; the comb filter is the string body
@@ -1896,8 +1804,8 @@ pub fn find(name: []const u8) ?Patch {
     return null;
 }
 
-test "factory library holds exactly 92 presets" {
-    try std.testing.expectEqual(@as(usize, 92), presets.len);
+test "factory library holds exactly 87 presets" {
+    try std.testing.expectEqual(@as(usize, 87), presets.len);
 }
 
 test "every preset's matrix rows target legal dests at sane depths" {
