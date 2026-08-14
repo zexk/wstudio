@@ -12,6 +12,10 @@ multi-lane entry instead, so one `u` puts the whole section back rather than
 needing one per lane. If a track is later deleted, such an entry drops just
 that track's lane and keeps the rest, since the others are still restorable.
 
+The arrangement's named sections are content too, so `:section` and
+`:section-del` capture the marker list on its own rather than every lane's
+clips.
+
 Parameter nudges are the exception. Synth, sampler, and FX parameters live on
 the audio thread, so a nudge records one absolute before-value and restores it
 through the same event path used by automation. Rapid repeated nudges of the
