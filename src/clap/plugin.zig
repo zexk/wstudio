@@ -1213,7 +1213,19 @@ const Direct = struct {
 
     pub fn reset(self: *Direct) void {
         self.events.len = 0;
-        if (self.started) self.plugin.reset(self.plugin);
+        if (!self.started) return;
+        // `clap_plugin.reset` is [audio-thread], the same rule `deinit`
+        // observes for `stop_processing`, and Odin 2 aborts the process when
+        // the host's thread check disagrees. Every caller reaches here from
+        // the audio thread - the rack resets an FX unit from inside the
+        // callback, and the bridge child from its own audio loop - but the
+        // flag is only raised inside `processBlock`, so this call arrived
+        // with it still clear. Saved and restored rather than cleared, since
+        // a device chain can reset from within a block already in flight.
+        const was_audio_thread = on_audio_thread;
+        on_audio_thread = true;
+        defer on_audio_thread = was_audio_thread;
+        self.plugin.reset(self.plugin);
     }
 
     fn guiExtension(self: *const Direct) ?*const abi.PluginGui {
