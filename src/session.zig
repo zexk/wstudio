@@ -1966,6 +1966,88 @@ test "deleteTrack removes project+rack and retires it" {
     try std.testing.expectEqual(@as(usize, 1), s.retired_racks.items.len);
 }
 
+/// Point all four kinds of track-index reference at `track`, so one edit can
+/// be checked against every consumer at once: a compressor sidechain, an LFO
+/// controller target, a learned CC binding, and a send-level automation lane.
+fn referenceEverythingAt(s: *Session, track: u16) !void {
+    const comp_unit = try s.racks.items[0].fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
+    comp_unit.payload.comp.sidechain_source = .{ .track = track };
+    s.project.controllers[0] = .{ .targets = @splat(null) };
+    s.project.controllers[0].?.targets[0] = .{ .track = track, .param_id = 3, .center = 0.5, .lo = 0, .hi = 1 };
+    s.project.cc_bindings[0] = .{ .cc = 7, .target = .{ .track = track, .param_id = 3, .center = 0.5, .lo = 0, .hi = 1 } };
+    try s.setMixAutomationPoint(.{ .send_level = .{ .track = track, .slot = 0 } }, .{ .beat = 0, .value = -6 });
+
+    // Guards the tests below against passing vacuously: every assertion they
+    // make is that one of these four moved, so all four have to be set here.
+    try std.testing.expectEqual(@as(?u16, track), sidechainTrack(s));
+    try std.testing.expectEqual(track, s.project.controllers[0].?.targets[0].?.track);
+    try std.testing.expectEqual(track, s.project.cc_bindings[0].?.target.track);
+    try std.testing.expectEqual(@as(?u16, track), sendLaneTrack(s));
+}
+
+fn sidechainTrack(s: *Session) ?u16 {
+    for (s.racks.items[0].fx.units.items) |u| switch (u.payload) {
+        .comp => |c| return if (c.sidechain_source) |sc| sc.track else null,
+        else => {},
+    };
+    return null;
+}
+
+fn sendLaneTrack(s: *Session) ?u16 {
+    for (s.mix_automation.items) |lane| switch (lane.target) {
+        .send_level => |t| return t.track,
+        else => {},
+    };
+    return null;
+}
+
+test "deleting an earlier track shifts every reference to a later one" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    _ = try s.addTrack("two");
+    _ = try s.addTrack("three");
+    try referenceEverythingAt(&s, 2);
+
+    try s.deleteTrack(1);
+
+    // Track 2 became track 1. A reference left at 2 would now name nothing;
+    // one left at its old neighbour would silently drive a different track.
+    try std.testing.expectEqual(@as(?u16, 1), sidechainTrack(&s));
+    try std.testing.expectEqual(@as(u16, 1), s.project.controllers[0].?.targets[0].?.track);
+    try std.testing.expectEqual(@as(u16, 1), s.project.cc_bindings[0].?.target.track);
+    try std.testing.expectEqual(@as(?u16, 1), sendLaneTrack(&s));
+}
+
+test "deleting the referenced track clears every reference instead of retargeting" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    _ = try s.addTrack("two");
+    _ = try s.addTrack("three");
+    try referenceEverythingAt(&s, 2);
+
+    try s.deleteTrack(2);
+
+    try std.testing.expectEqual(@as(?u16, null), sidechainTrack(&s));
+    try std.testing.expectEqual(@as(?@import("dsp/controller.zig").Target, null), s.project.controllers[0].?.targets[0]);
+    try std.testing.expectEqual(@as(?@import("dsp/controller.zig").CcBinding, null), s.project.cc_bindings[0]);
+    try std.testing.expectEqual(@as(?u16, null), sendLaneTrack(&s));
+}
+
+test "swapping tracks moves every reference with the track it names" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    _ = try s.addTrack("two");
+    _ = try s.addTrack("three");
+    try referenceEverythingAt(&s, 2);
+
+    s.swapTracks(1, 2);
+
+    try std.testing.expectEqual(@as(?u16, 1), sidechainTrack(&s));
+    try std.testing.expectEqual(@as(u16, 1), s.project.controllers[0].?.targets[0].?.track);
+    try std.testing.expectEqual(@as(u16, 1), s.project.cc_bindings[0].?.target.track);
+    try std.testing.expectEqual(@as(?u16, 1), sendLaneTrack(&s));
+}
+
 test "deleteTrack rejects last track" {
     var s = try Session.initDefault(std.testing.allocator);
     defer s.deinit();

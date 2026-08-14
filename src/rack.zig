@@ -940,6 +940,44 @@ test "FX instance IDs survive reorder and duplication" {
     try std.testing.expect(copy.findInstance(delay_id) != null);
 }
 
+test "removing an FX unit does not hand its identity to a survivor" {
+    var fx: Fx = .{};
+    defer fx.deinit(std.testing.allocator);
+    const comp = try fx.insert(std.testing.allocator, 0, .comp, 48_000);
+    const sat = try fx.insert(std.testing.allocator, 1, .sat, 48_000);
+    const dead_id = comp.instance_id;
+    const sat_id = sat.instance_id;
+    sat.payload.sat.mix = 0.25;
+
+    fx.remove(std.testing.allocator, 0);
+
+    // The saturator moved from slot 1 to slot 0 but is still itself, and the
+    // compressor's id resolves to nothing rather than to its old neighbour.
+    try std.testing.expectEqual(sat_id, fx.units.items[0].instance_id);
+    try std.testing.expectEqual(@as(?*FxUnit, null), fx.findInstance(dead_id));
+
+    // Automation still addressed to the removed unit has to stay inert. The
+    // same event aimed at the survivor's own id must still land, or this
+    // would pass by doing nothing at all.
+    const mix_param = 2; // sat_specs[2]
+    fx.units.items[0].handleEvent(.{ .automation_param = .{
+        .instance_id = dead_id,
+        .id = mix_param,
+        .value = 1.0,
+    } });
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), fx.units.items[0].payload.sat.mix, 1e-6);
+    fx.units.items[0].handleEvent(.{ .automation_param = .{
+        .instance_id = sat_id,
+        .id = mix_param,
+        .value = 1.0,
+    } });
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), fx.units.items[0].payload.sat.mix, 1e-6);
+
+    // A unit added afterwards must not inherit the dead id either.
+    const added = try fx.insert(std.testing.allocator, 1, .delay, 48_000);
+    try std.testing.expect(added.instance_id != dead_id);
+}
+
 test "rack FX consumes modulation for its stable instance only" {
     var fx: Fx = .{};
     defer fx.deinit(std.testing.allocator);

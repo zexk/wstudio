@@ -2488,6 +2488,58 @@ test "renderTracks pushes filter-cutoff automation into the synth before it proc
     try std.testing.expectApproxEqAbs(@as(f32, 1_000.0), synth.filter_cutoff, 1.0);
 }
 
+test "a loop wrap selects the same automation a seek to that position selects" {
+    // The boundary the release gate cares about: playing across the loop end
+    // and arriving at a position has to choose the same automation value as
+    // arriving at that position any other way. A wrap that left the curve
+    // reading from the pre-wrap position would drift live playback away from
+    // an offline render of the same bars.
+    const sample_rate = 48_000;
+    const curve = [_]AutomationPoint{
+        .{ .beat = 0.0, .value = 1_000.0 },
+        .{ .beat = 8.0, .value = 9_000.0 },
+    };
+
+    var wrapped = try PolySynth.init(std.testing.allocator, sample_rate);
+    defer wrapped.deinit();
+    var engine = try Engine.init(std.testing.allocator, sample_rate);
+    defer engine.deinit();
+    engine.trackAt(0).* = .{ .active = true };
+    engine.setTrackChain(0, &.{wrapped.device()});
+    engine.setTrackSynthParam(0, 21, 0, 21, &curve);
+
+    // Loop the second bar at 120 bpm: two seconds per bar, so bar 1 starts at
+    // 96k frames and bar 2 at 192k. Park one block short of the loop end and
+    // play over it, so the block after that renders from the loop start.
+    const block_frames = 256; // the buffer is interleaved stereo
+    _ = engine.send(.{ .set_loop = .{ .enabled = true, .start_frames = 96_000, .end_frames = 192_000 } });
+    _ = engine.send(.{ .seek_frames = 192_000 - block_frames });
+    _ = engine.send(.play);
+    var block: [block_frames * 2]Sample = undefined;
+    engine.process(&block); // last block of the loop; the advance wraps
+    engine.process(&block); // renders from the loop start
+    const after_wrap = wrapped.filter_cutoff;
+    try std.testing.expectEqual(@as(u64, 96_000 + block_frames), engine.transport.position_frames);
+
+    // Same engine, same curve, reached by seeking instead of wrapping.
+    var sought = try PolySynth.init(std.testing.allocator, sample_rate);
+    defer sought.deinit();
+    var direct = try Engine.init(std.testing.allocator, sample_rate);
+    defer direct.deinit();
+    direct.trackAt(0).* = .{ .active = true };
+    direct.setTrackChain(0, &.{sought.device()});
+    direct.setTrackSynthParam(0, 21, 0, 21, &curve);
+    _ = direct.send(.{ .seek_frames = 96_000 });
+    _ = direct.send(.play);
+    direct.process(&block);
+
+    try std.testing.expectEqual(direct.transport.position_frames, engine.transport.position_frames);
+    try std.testing.expectApproxEqAbs(sought.filter_cutoff, after_wrap, 1e-3);
+    // Not a vacuous pass: the curve really does move across these bars, so a
+    // wrap that kept reading the pre-wrap position would read differently.
+    try std.testing.expect(after_wrap < 9_000.0);
+}
+
 test "renderTracks handles multiple simultaneous synth-param automation slots" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
