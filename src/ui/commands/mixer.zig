@@ -860,10 +860,16 @@ pub fn cmdConsolidate(app: *App, _: []const u8) void {
         return;
     };
     history.recordLane(app, @intCast(app.cursor));
+    // The fresh region has no alternate takes, so say how many the bake
+    // replaced - saving no longer keeps their audio around either.
+    const dropped_takes = audio.takeCount() - 1;
     clip.content.audio = .{ .source_id = source_id, .source_start_frame = 0, .source_length_frames = @intCast(frame_count) };
     if (app.session.song_mode) app.session.rebuildSongData();
     app.dirty = true;
-    app.setStatus("consolidated audio region", .{});
+    if (dropped_takes > 0)
+        app.setStatus("consolidated audio region, dropping {d} alternate take(s)", .{dropped_takes})
+    else
+        app.setStatus("consolidated audio region", .{});
 }
 
 pub fn cmdTake(app: *App, args: []const u8) void {
