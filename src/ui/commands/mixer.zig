@@ -606,16 +606,26 @@ pub fn cmdSectionDel(app: *App, _: []const u8) void {
     app.setStatus("section deleted", .{});
 }
 
-fn audioRegionAtCursor(app: *App, command: []const u8) ?*ws.Clip.AudioRegion {
+/// The clip under the arrangement cursor, or null with the reason on the
+/// status line. Every clip command routes its preconditions through here so
+/// none of them can fail silently.
+fn clipAtCursor(app: *App, command: []const u8) ?*ws.Clip {
     if (app.view != .arrangement) {
         app.setStatus("{s}: open arrangement first", .{command});
         return null;
     }
-    const lane = app.session.arrangement.lane(app.cursor) orelse return null;
-    const clip = lane.clipAt(app.arr_cursor_bar *| app.arr_grid.ticks()) orelse {
+    const lane = app.session.arrangement.lane(app.cursor) orelse {
+        app.setStatus("{s}: no track at cursor", .{command});
+        return null;
+    };
+    return lane.clipAt(app.arr_cursor_bar *| app.arr_grid.ticks()) orelse {
         app.setStatus("{s}: no clip at cursor", .{command});
         return null;
     };
+}
+
+fn audioRegionAtCursor(app: *App, command: []const u8) ?*ws.Clip.AudioRegion {
+    const clip = clipAtCursor(app, command) orelse return null;
     switch (clip.content) {
         .audio => {},
         else => {
@@ -747,15 +757,7 @@ test "clip slip saturates extreme offsets" {
 }
 
 pub fn cmdClipLayer(app: *App, args: []const u8) void {
-    if (app.view != .arrangement) {
-        app.setStatus("clip-layer: open arrangement first", .{});
-        return;
-    }
-    const lane = app.session.arrangement.lane(app.cursor) orelse return;
-    const clip = lane.clipAt(app.arr_cursor_bar *| app.arr_grid.ticks()) orelse {
-        app.setStatus("clip-layer: no clip at cursor", .{});
-        return;
-    };
+    const clip = clipAtCursor(app, "clip-layer") orelse return;
     const arg = std.mem.trim(u8, args, " ");
     if (arg.len == 0) {
         app.setStatus("clip layer: {d}", .{clip.layer});
@@ -772,20 +774,12 @@ pub fn cmdClipLayer(app: *App, args: []const u8) void {
 }
 
 pub fn cmdCrossfade(app: *App, _: []const u8) void {
-    if (app.view != .arrangement) {
-        app.setStatus("crossfade: open arrangement first", .{});
-        return;
-    }
-    const lane = app.session.arrangement.lane(app.cursor) orelse return;
-    const tick = app.arr_cursor_bar *| app.arr_grid.ticks();
-    const selected = lane.clipAt(tick) orelse {
-        app.setStatus("crossfade: no clip at cursor", .{});
-        return;
-    };
+    const selected = clipAtCursor(app, "crossfade") orelse return;
     if (selected.content != .audio) {
         app.setStatus("crossfade: clip is not audio", .{});
         return;
     }
+    const lane = app.session.arrangement.lane(app.cursor).?; // clipAtCursor resolved it
     var other: ?*ws.Clip = null;
     for (lane.clips.items) |*candidate| {
         if (candidate == selected or candidate.content != .audio) continue;
@@ -816,15 +810,7 @@ pub fn cmdCrossfade(app: *App, _: []const u8) void {
 }
 
 pub fn cmdConsolidate(app: *App, _: []const u8) void {
-    if (app.view != .arrangement) {
-        app.setStatus("consolidate: open arrangement first", .{});
-        return;
-    }
-    const lane = app.session.arrangement.lane(app.cursor) orelse return;
-    const clip = lane.clipAt(app.arr_cursor_bar *| app.arr_grid.ticks()) orelse {
-        app.setStatus("consolidate: no clip at cursor", .{});
-        return;
-    };
+    const clip = clipAtCursor(app, "consolidate") orelse return;
     const audio = switch (clip.content) {
         .audio => |region| region,
         else => {
@@ -881,15 +867,7 @@ pub fn cmdConsolidate(app: *App, _: []const u8) void {
 }
 
 pub fn cmdTake(app: *App, args: []const u8) void {
-    if (app.view != .arrangement) {
-        app.setStatus("take: open arrangement first", .{});
-        return;
-    }
-    const lane = app.session.arrangement.lane(app.cursor) orelse return;
-    const clip = lane.clipAt(app.arr_cursor_bar *| app.arr_grid.ticks()) orelse {
-        app.setStatus("take: no clip at cursor", .{});
-        return;
-    };
+    const clip = clipAtCursor(app, "take") orelse return;
     const arg = std.mem.trim(u8, args, " ");
     const delta: i32 = if (arg.len == 0 or std.mem.eql(u8, arg, "next"))
         1
@@ -915,10 +893,6 @@ pub fn cmdTake(app: *App, args: []const u8) void {
 }
 
 pub fn cmdComp(app: *App, args: []const u8) void {
-    if (app.view != .arrangement) {
-        app.setStatus("comp: open arrangement first", .{});
-        return;
-    }
     var words = std.mem.tokenizeScalar(u8, args, ' ');
     const take_number = std.fmt.parseInt(usize, words.next() orelse "", 10) catch {
         app.setStatus("comp: expected <take> <start-beat> <end-beat>", .{});
@@ -936,11 +910,7 @@ pub fn cmdComp(app: *App, args: []const u8) void {
         app.setStatus("comp: expected alternate take and increasing beat range", .{});
         return;
     }
-    const lane = app.session.arrangement.lane(app.cursor) orelse return;
-    const clip = lane.clipAt(app.arr_cursor_bar *| app.arr_grid.ticks()) orelse {
-        app.setStatus("comp: no clip at cursor", .{});
-        return;
-    };
+    const clip = clipAtCursor(app, "comp") orelse return;
     const audio = switch (clip.content) {
         .audio => |region| region,
         else => {
@@ -954,8 +924,14 @@ pub fn cmdComp(app: *App, args: []const u8) void {
         return;
     }
     const alternate = audio.alternate_takes[alternate_index].?;
-    const active_source = app.session.project.audioSource(audio.source_id) orelse return;
-    const alternate_source = app.session.project.audioSource(alternate.source_id) orelse return;
+    const active_source = app.session.project.audioSource(audio.source_id) orelse {
+        app.setStatus("comp: missing audio source", .{});
+        return;
+    };
+    const alternate_source = app.session.project.audioSource(alternate.source_id) orelse {
+        app.setStatus("comp: missing audio source for that take", .{});
+        return;
+    };
     const project_rate = app.session.project.sample_rate;
     const output_frames: usize = @intFromFloat(@as(f64, @floatFromInt(audio.source_length_frames)) * @as(f64, @floatFromInt(project_rate)) / @as(f64, @floatFromInt(active_source.sample_rate)));
     const channels = @max(active_source.channel_count, alternate_source.channel_count);

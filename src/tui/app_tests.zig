@@ -3368,6 +3368,19 @@ test "consolidate renders audio region edits into a plain source" {
     try std.testing.expectEqual(@as(f32, 1), audio.stretch_ratio);
 }
 
+test "clip commands name the missing track instead of failing silently" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .arrangement;
+    // Past the last lane: every clip command used to return without a word.
+    app.cursor = app.session.arrangement.lanes.items.len;
+    for ([_][]const u8{ "clip-layer 1", "crossfade", "consolidate", "take next", "comp 2 1 3" }) |line| {
+        app.status_len = 0;
+        commands.run(&app, line);
+        try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "no track at cursor") != null);
+    }
+}
+
 test "consolidate keeps a stereo source stereo and clamps fades to clip length" {
     var app = try testApp();
     defer app.deinit();
