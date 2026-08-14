@@ -128,7 +128,12 @@ const Frame = struct {
     }
     fn registerTimer(raw: *anyopaque, handler: *abi.TimerHandler, milliseconds: u64) callconv(abi.abi_callconv) abi.Result {
         const self = runLoopFrom(raw);
-        const interval = @max(@min(milliseconds, 86_400_000), 1) * std.time.ns_per_ms;
+        // `@min` narrows to the smallest type holding the literal (u27 here),
+        // so the multiply must not happen in that inferred type: 86_400_000 *
+        // ns_per_ms overflows it. Annotating the cap as u64 first is what
+        // keeps the product in range.
+        const capped_ms: u64 = @max(@min(milliseconds, 86_400_000), 1);
+        const interval = capped_ms * std.time.ns_per_ms;
         const now: i128 = @intCast(std.Io.Timestamp.now(std.Options.debug_io, .awake).nanoseconds);
         for (&self.timers) |*slot| if (slot.* == null) {
             slot.* = .{ .handler = handler, .interval_ns = interval, .next_ns = now + interval };
