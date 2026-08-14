@@ -129,7 +129,7 @@ Beta.10 exits when:
 
 - `zig build test`, native `zig build`, supported cross-builds, and package
   checks pass from a clean checkout.
-- All 20 internal effects pass shared rack, persistence, automation, and render
+- Every internal effect passes shared rack, persistence, automation, and render
   checks; curated defaults receive an audible manual pass.
 - LSP VST3 activation is fixed or replaced by an equally real documented
   compatibility target with root cause and supported boundary recorded.

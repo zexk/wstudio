@@ -1106,7 +1106,7 @@ test "every FX payload stays finite when constructed with zero sample rate" {
     }
 }
 
-test "all 20 internal FX defaults keep normal audio audible, finite, and bounded" {
+test "every internal FX default keeps normal audio audible, finite, and bounded" {
     const allocator = std.testing.allocator;
     for (internal_fx_kinds) |kind| {
         var payload = try Fx.initPayload(allocator, kind, 48_000);
