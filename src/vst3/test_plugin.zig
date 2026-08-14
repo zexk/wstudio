@@ -132,19 +132,28 @@ fn getController(raw: *anyopaque, id: *abi.Tuid) callconv(abi.abi_callconv) abi.
 fn setIoMode(_: *anyopaque, _: i32) callconv(abi.abi_callconv) abi.Result {
     return 0;
 }
+/// The stereo effect declares a sidechain input bus and an aux output bus on
+/// top of its main pair, the way real sidechain and multi-out plugins do.
+/// The host only wires audio to bus 0, but it must still hand this plugin
+/// real buffers for bus 1 - `process` below reads and writes them, so a host
+/// that passes short arrays or null pointers crashes the integration test.
+fn busCount(owner: *const Instance, direction: i32) i32 {
+    if (direction == 0 and owner.instrument) return 0;
+    return if (owner.channels == 2 and !owner.instrument) 2 else 1;
+}
 fn getBusCount(raw: *anyopaque, media: i32, direction: i32) callconv(abi.abi_callconv) i32 {
     if (media != 0) return 0;
-    if (direction == 1) return 1;
-    return if (componentOwner(raw).instrument) 0 else 1;
+    return busCount(componentOwner(raw), direction);
 }
 fn getBusInfo(raw: *anyopaque, media: i32, direction: i32, index: i32, info: *abi.BusInfo) callconv(abi.abi_callconv) abi.Result {
-    if (media != 0 or index != 0 or (direction == 0 and componentOwner(raw).instrument)) return -1;
+    const owner = componentOwner(raw);
+    if (media != 0 or index < 0 or index >= busCount(owner, direction)) return -1;
     info.* = std.mem.zeroes(abi.BusInfo);
     info.media_type = 0;
     info.direction = direction;
-    info.channel_count = componentOwner(raw).channels;
-    info.bus_type = 0;
-    info.flags = 1;
+    info.channel_count = owner.channels;
+    info.bus_type = if (index == 0) 0 else 1; // kAux for the extra buses
+    info.flags = if (index == 0) 1 else 0; // only the main bus defaults active
     return 0;
 }
 fn noRouting(_: *anyopaque, _: *anyopaque, _: *anyopaque) callconv(abi.abi_callconv) abi.Result {
@@ -223,6 +232,23 @@ fn process(raw: *anyopaque, data: *abi.ProcessData) callconv(abi.abi_callconv) a
         if (queue.vtable.get_point(queue, 0, &offset, &value) == 0) owner.param = value;
     }
     const frames: usize = @intCast(data.num_samples);
+    // Every bus this plugin declares must arrive with usable buffers, and the
+    // ones the host does not wire up must arrive silent.
+    if (data.num_inputs != busCount(owner, 0) or data.num_outputs != busCount(owner, 1)) return -1;
+    var bus: usize = 1;
+    while (bus < @as(usize, @intCast(data.num_inputs))) : (bus += 1) {
+        const aux = &data.inputs.?[bus];
+        for (0..@as(usize, @intCast(aux.num_channels))) |channel|
+            for (0..frames) |frame| if (aux.buffers.channel_buffers_32[channel][frame] != 0) return -1;
+    }
+    bus = 1;
+    while (bus < @as(usize, @intCast(data.num_outputs))) : (bus += 1) {
+        const aux = &data.outputs.?[bus];
+        for (0..@as(usize, @intCast(aux.num_channels))) |channel|
+            for (0..frames) |frame| {
+                aux.buffers.channel_buffers_32[channel][frame] = 99;
+            };
+    }
     const output = &data.outputs.?[0];
     const events: *abi.EventList = @ptrCast(@alignCast(data.input_events.?));
     const context: *abi.ProcessContext = @ptrCast(@alignCast(data.process_context.?));

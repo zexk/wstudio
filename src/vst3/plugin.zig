@@ -447,35 +447,48 @@ pub const Vst3Plugin = struct {
         }
 
         if (processor.vtable.can_process_sample_size(processor, 0) != 0) return error.Sample32Unsupported;
-        const input_count = component.vtable.get_bus_count(component, 0, 0);
-        const output_count = component.vtable.get_bus_count(component, 0, 1);
-        if (input_count != @as(i32, if (instrument) 0 else 1) or output_count != 1)
-            return error.UnsupportedAudioBusCount;
-        var output_info: abi.BusInfo = undefined;
-        if (component.vtable.get_bus_info(component, 0, 1, 0, &output_info) != 0 or
-            (output_info.channel_count != 1 and output_info.channel_count != 2))
-            return error.UnsupportedAudioBusLayout;
-        var input_channels: i32 = 0;
-        if (input_count == 1) {
-            var input_info: abi.BusInfo = undefined;
-            if (component.vtable.get_bus_info(component, 0, 0, 0, &input_info) != 0 or
-                (input_info.channel_count != 1 and input_info.channel_count != 2))
-                return error.UnsupportedAudioBusLayout;
-            input_channels = input_info.channel_count;
+        // Bus counts are whatever the plugin declares, not what this host
+        // would prefer. Demanding exactly one input and one output bus
+        // rejected 93 of the 210 plugins in the test set: every sidechain
+        // effect, every A/B tester, every multi-out sampler. Only the main
+        // bus (index 0 in each direction) carries host audio; the rest are
+        // deactivated but still handed real buffers below, because plugins
+        // index `data.inputs[bus]` across every bus they declare.
+        const input_bus_count: usize = @intCast(@max(component.vtable.get_bus_count(component, 0, 0), 0));
+        const output_bus_count: usize = @intCast(@max(component.vtable.get_bus_count(component, 0, 1), 0));
+        if (output_bus_count == 0) return error.UnsupportedAudioBusCount;
+        const has_main_input = !instrument and input_bus_count > 0;
+
+        // The VST3 spec makes `set_bus_arrangements` a *negotiation*: a
+        // plugin may answer kResultFalse and keep its own layout, which is
+        // what every mono LSP plugin and every Uhhyou synth does. Treating
+        // that answer as fatal rejected 56 more plugins. So ask for each
+        // bus's current arrangement (a confirmation, not a change), ignore
+        // the answer, and read the channel counts back afterwards.
+        {
+            const arrangements = try allocator.alloc(u64, input_bus_count + output_bus_count);
+            defer allocator.free(arrangements);
+            for (0..input_bus_count) |index| arrangements[index] = busArrangement(component, processor, 0, index);
+            for (0..output_bus_count) |index| arrangements[input_bus_count + index] = busArrangement(component, processor, 1, index);
+            _ = processor.vtable.set_bus_arrangements(
+                processor,
+                if (input_bus_count == 0) null else arrangements.ptr,
+                @intCast(input_bus_count),
+                arrangements[input_bus_count..].ptr,
+                @intCast(output_bus_count),
+            );
         }
 
-        var input_arrangement: [1]u64 = .{if (input_channels == 1) 1 else 3};
-        var output_arrangement: [1]u64 = .{if (output_info.channel_count == 1) 1 else 3};
-        if (processor.vtable.set_bus_arrangements(
-            processor,
-            if (input_count == 1) &input_arrangement else null,
-            input_count,
-            &output_arrangement,
-            1,
-        ) != 0) return error.UnsupportedAudioBusLayout;
-        if (input_count == 1 and component.vtable.activate_bus(component, 0, 0, 0, 1) != 0)
-            return error.BusActivationFailed;
-        if (component.vtable.activate_bus(component, 0, 1, 0, 1) != 0) return error.BusActivationFailed;
+        for (0..input_bus_count) |index| {
+            const active: u8 = @intFromBool(has_main_input and index == 0);
+            const result = component.vtable.activate_bus(component, 0, 0, @intCast(index), active);
+            if (result != 0 and active == 1) return error.BusActivationFailed;
+        }
+        for (0..output_bus_count) |index| {
+            const active: u8 = @intFromBool(index == 0);
+            const result = component.vtable.activate_bus(component, 0, 1, @intCast(index), active);
+            if (result != 0 and active == 1) return error.BusActivationFailed;
+        }
 
         var setup: abi.ProcessSetup = .{ .process_mode = 0, .symbolic_sample_size = 0, .max_samples_per_block = types.max_block_frames, .sample_rate = @floatFromInt(sample_rate) };
         if (processor.vtable.setup_processing(processor, &setup) != 0) return error.ProcessingSetupFailed;
@@ -487,14 +500,10 @@ pub const Vst3Plugin = struct {
 
         const self = try allocator.create(Vst3Plugin);
         errdefer allocator.destroy(self);
-        const input_left = try allocator.alloc(f32, types.max_block_frames);
-        errdefer allocator.free(input_left);
-        const input_right = try allocator.alloc(f32, types.max_block_frames);
-        errdefer allocator.free(input_right);
-        const output_left = try allocator.alloc(f32, types.max_block_frames);
-        errdefer allocator.free(output_left);
-        const output_right = try allocator.alloc(f32, types.max_block_frames);
-        errdefer allocator.free(output_right);
+        var buses = try BusBuffers.init(allocator, component, input_bus_count, output_bus_count);
+        errdefer buses.deinit(allocator);
+        const input_channels: usize = if (has_main_input and buses.inputs.len > 0) @intCast(@max(buses.inputs[0].num_channels, 0)) else 0;
+        const output_channels: usize = @intCast(@max(buses.outputs[0].num_channels, 0));
         const owned_path = try allocator.dupe(u8, bundle_path);
         errdefer allocator.free(owned_path);
         const owned_path_outer = try allocator.dupe(u8, bundle_path);
@@ -515,12 +524,9 @@ pub const Vst3Plugin = struct {
                 .host_context = host_context,
                 .bundle_path = owned_path,
                 .class_id = abi.formatUid(class_id),
-                .input_channels = @intCast(input_channels),
-                .output_channels = @intCast(output_info.channel_count),
-                .input_left = input_left,
-                .input_right = input_right,
-                .output_left = output_left,
-                .output_right = output_right,
+                .input_channels = @intCast(@min(input_channels, 2)),
+                .output_channels = @intCast(@min(output_channels, 2)),
+                .buses = buses,
                 .sample_rate = sample_rate,
                 .instrument = instrument,
             } },
@@ -827,6 +833,90 @@ fn encodeStateForWire(buf: []u8, component_bytes: []const u8, controller_bytes: 
     return buf[0..pos];
 }
 
+/// Speaker arrangement a bus already reports, for handing straight back to
+/// `set_bus_arrangements`. Falls back to deriving one from the channel
+/// count when the plugin has no answer - note that VST3 mono is
+/// `kSpeakerM` (bit 19), not bit 0: asking for bit 0 (which is
+/// `kSpeakerL`, the left channel of a stereo pair) is what every mono
+/// plugin in the test set rejected.
+fn busArrangement(component: *abi.Component, processor: *abi.AudioProcessor, direction: i32, index: usize) u64 {
+    var arrangement: u64 = 0;
+    if (processor.vtable.get_bus_arrangement(processor, direction, @intCast(index), &arrangement) == 0 and arrangement != 0)
+        return arrangement;
+    return switch (busChannelCount(component, direction, index)) {
+        0 => 0,
+        1 => 1 << 19, // kSpeakerM
+        2 => 3, // kSpeakerL | kSpeakerR
+        else => |channels| (@as(u64, 1) << @intCast(@min(channels, 63))) - 1,
+    };
+}
+
+fn busChannelCount(component: *abi.Component, direction: i32, index: usize) usize {
+    var info: abi.BusInfo = undefined;
+    if (component.vtable.get_bus_info(component, 0, direction, @intCast(index), &info) != 0) return 0;
+    return @intCast(@max(info.channel_count, 0));
+}
+
+/// Process buffers for every bus a plugin declares.
+///
+/// `process` takes one `AudioBusBuffers` per declared bus, and plugins index
+/// `data.inputs[bus]` by their own bus count rather than by `numInputs` - so
+/// the deactivated buses (sidechains, aux sends, the 47 extra outputs of a
+/// multi-out sampler) need real channel pointers too. Bus 0 in each
+/// direction carries host audio; every other bus reads silence and has its
+/// output discarded.
+const BusBuffers = struct {
+    inputs: []abi.AudioBusBuffers,
+    outputs: []abi.AudioBusBuffers,
+    channel_ptrs: [][*]f32,
+    pool: []f32,
+    /// Index into `channel_ptrs` of the main output bus's first channel.
+    /// The main input bus is bus 0, so its own first channel is index 0.
+    main_output_channel: usize,
+
+    fn init(allocator: std.mem.Allocator, component: *abi.Component, input_bus_count: usize, output_bus_count: usize) !BusBuffers {
+        const inputs = try allocator.alloc(abi.AudioBusBuffers, input_bus_count);
+        errdefer allocator.free(inputs);
+        const outputs = try allocator.alloc(abi.AudioBusBuffers, output_bus_count);
+        errdefer allocator.free(outputs);
+
+        var total: usize = 0;
+        for (inputs, 0..) |*bus, index| {
+            const channels = busChannelCount(component, 0, index);
+            bus.* = .{ .num_channels = @intCast(channels), .silence_flags = 0, .buffers = undefined };
+            total += channels;
+        }
+        const main_output_channel = total;
+        for (outputs, 0..) |*bus, index| {
+            const channels = busChannelCount(component, 1, index);
+            bus.* = .{ .num_channels = @intCast(channels), .silence_flags = 0, .buffers = undefined };
+            total += channels;
+        }
+
+        const pool = try allocator.alloc(f32, @max(total, 1) * types.max_block_frames);
+        errdefer allocator.free(pool);
+        const channel_ptrs = try allocator.alloc([*]f32, @max(total, 1));
+        errdefer allocator.free(channel_ptrs);
+        for (channel_ptrs, 0..) |*ptr, index| ptr.* = pool[index * types.max_block_frames ..].ptr;
+
+        var next: usize = 0;
+        for ([_][]abi.AudioBusBuffers{ inputs, outputs }) |list| {
+            for (list) |*bus| {
+                bus.buffers = .{ .channel_buffers_32 = channel_ptrs[next..].ptr };
+                next += @intCast(bus.num_channels);
+            }
+        }
+        return .{ .inputs = inputs, .outputs = outputs, .channel_ptrs = channel_ptrs, .pool = pool, .main_output_channel = main_output_channel };
+    }
+
+    fn deinit(self: *BusBuffers, allocator: std.mem.Allocator) void {
+        allocator.free(self.inputs);
+        allocator.free(self.outputs);
+        allocator.free(self.channel_ptrs);
+        allocator.free(self.pool);
+    }
+};
+
 /// Real in-process VST3 hosting - unchanged from before sandboxing
 /// existed. Constructed by `Vst3Plugin.loadModuleDirect`; also the exact
 /// code plugin_host/child_main.zig runs inside a sandboxed child.
@@ -842,14 +932,11 @@ const Direct = struct {
     host_context: *HostContext,
     bundle_path: []u8,
     class_id: [32]u8,
+    /// Channels of the *main* bus this host actually exchanges audio on,
+    /// clamped to 2. The buses themselves may have more (or none).
     input_channels: u8,
     output_channels: u8,
-    input_left: []f32,
-    input_right: []f32,
-    output_left: []f32,
-    output_right: []f32,
-    input_ptrs: [2][*]f32 = undefined,
-    output_ptrs: [2][*]f32 = undefined,
+    buses: BusBuffers,
     events: HostEventList = .{},
     active_notes: [128]bool = .{false} ** 128,
     transport: ?*const Transport = null,
@@ -888,10 +975,7 @@ const Direct = struct {
         _ = self.component.vtable.release(self.component);
         self.module.close();
         self.allocator.free(self.bundle_path);
-        self.allocator.free(self.input_left);
-        self.allocator.free(self.input_right);
-        self.allocator.free(self.output_left);
-        self.allocator.free(self.output_right);
+        self.buses.deinit(self.allocator);
         self.allocator.destroy(self.host_context);
         // No `allocator.destroy(self)` here: unlike the outer `Vst3Plugin`,
         // `Direct` is embedded by value inside `Vst3Plugin.impl`, not its
@@ -908,25 +992,27 @@ const Direct = struct {
             self.restart_ready.store(true, .release);
         }
         if (self.restart_in_progress.load(.acquire)) return;
-        for (0..frames) |frame| {
-            self.input_left[frame] = if (self.input_channels == 1) (buf[frame * 2] + buf[frame * 2 + 1]) * 0.5 else buf[frame * 2];
-            self.input_right[frame] = buf[frame * 2 + 1];
-            self.output_left[frame] = 0;
-            self.output_right[frame] = 0;
+        // Every channel of every bus starts silent - the deactivated ones
+        // stay that way, and the plugin's writes into them are discarded.
+        for (self.buses.channel_ptrs) |channel| @memset(channel[0..frames], 0);
+        if (self.input_channels > 0) {
+            const left = self.buses.channel_ptrs[0];
+            for (0..frames) |frame|
+                left[frame] = if (self.input_channels == 1) (buf[frame * 2] + buf[frame * 2 + 1]) * 0.5 else buf[frame * 2];
+            if (self.input_channels >= 2) {
+                const right = self.buses.channel_ptrs[1];
+                for (0..frames) |frame| right[frame] = buf[frame * 2 + 1];
+            }
         }
-        self.input_ptrs = .{ self.input_left.ptr, self.input_right.ptr };
-        self.output_ptrs = .{ self.output_left.ptr, self.output_right.ptr };
-        var input = abi.AudioBusBuffers{ .num_channels = self.input_channels, .silence_flags = 0, .buffers = .{ .channel_buffers_32 = &self.input_ptrs } };
-        var output = abi.AudioBusBuffers{ .num_channels = self.output_channels, .silence_flags = 0, .buffers = .{ .channel_buffers_32 = &self.output_ptrs } };
         var context = self.makeProcessContext();
         var data: abi.ProcessData = .{
             .process_mode = 0,
             .symbolic_sample_size = 0,
             .num_samples = @intCast(frames),
-            .num_inputs = if (self.input_channels == 0) 0 else 1,
-            .num_outputs = 1,
-            .inputs = if (self.input_channels == 0) null else @ptrCast(&input),
-            .outputs = @ptrCast(&output),
+            .num_inputs = @intCast(self.buses.inputs.len),
+            .num_outputs = @intCast(self.buses.outputs.len),
+            .inputs = if (self.buses.inputs.len == 0) null else self.buses.inputs.ptr,
+            .outputs = self.buses.outputs.ptr,
             .input_parameter_changes = @ptrCast(&self.param_changes.interface),
             .output_parameter_changes = null,
             .input_events = @ptrCast(&self.events.interface),
@@ -937,9 +1023,11 @@ const Direct = struct {
         self.events.len = 0;
         self.param_changes.len = 0;
         if (result != 0) return;
+        const out_left = self.buses.channel_ptrs[self.buses.main_output_channel];
+        const out_right = if (self.output_channels >= 2) self.buses.channel_ptrs[self.buses.main_output_channel + 1] else out_left;
         for (0..frames) |frame| {
-            buf[frame * 2] = self.output_left[frame];
-            buf[frame * 2 + 1] = if (self.output_channels == 1) self.output_left[frame] else self.output_right[frame];
+            buf[frame * 2] = out_left[frame];
+            buf[frame * 2 + 1] = out_right[frame];
         }
     }
 
