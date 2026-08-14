@@ -1430,10 +1430,14 @@ test "a fresh machine is blank; a kit flavour fills pads 0-15, init empties them
     try std.testing.expect(peak > 0.01);
     // Hihat ships quieter than the kick by default.
     try std.testing.expect(dm.pads[4].?.pad.gain < dm.pads[0].?.pad.gain);
-    // The second kick is the same generator retuned, not the same drum again.
-    try std.testing.expectEqual(@as(f32, 3), dm.pads[1].?.pad.pitch_semitones);
-    try std.testing.expect(dm.pads[1].?.pad.end_norm < 1.0);
+    // The second kick is its own drum (the folded-in eurobeat one), so it
+    // differs in the audio rather than in the pad tuning that used to
+    // separate it. "stick" is still the rim retuned - that pairing stands.
+    try std.testing.expect(!std.mem.eql(f32, dm.pads[0].?.pad.samples, dm.pads[1].?.pad.samples));
     try std.testing.expectEqual(@as(f32, 0), dm.pads[0].?.pad.pitch_semitones);
+    try std.testing.expectEqual(@as(f32, 0), dm.pads[1].?.pad.pitch_semitones);
+    try std.testing.expect(dm.pads[10].?.pad.pitch_semitones > 0);
+    try std.testing.expect(dm.pads[10].?.pad.end_norm < 1.0);
 
     // Back to init: the kit pads stay materialized (the audio thread may be
     // inside one) but go silent, and their choke pairing is dropped.
