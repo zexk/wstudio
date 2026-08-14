@@ -344,7 +344,7 @@ pub fn cmdLoadSample(app: *App, args: []const u8) void {
 /// off-mixer preview voice and play it, so a sample can be heard before it's
 /// picked. Nothing about the project changes - no track, no dirty flag.
 pub fn auditionPath(app: *App, path: []const u8) void {
-    const data = readFileForLoad(app, path) orelse return;
+    const data = readFileForLoad(app, "audition", path) orelse return;
     defer app.allocator.free(data);
     const stem = stemOf(path);
     app.session.engine.preview.loadWav(data, stem) catch |e| {
@@ -364,7 +364,7 @@ pub fn loadSampleFromPath(app: *App, path: []const u8) void {
         app.setStatus("load: select a sampler track first", .{});
         return;
     };
-    const data = readFileForLoad(app, path) orelse return;
+    const data = readFileForLoad(app, "load", path) orelse return;
     defer app.allocator.free(data);
     const stem = stemOf(path);
     var backup = history.captureTrackKindSwap(app, track) orelse {
@@ -426,7 +426,7 @@ pub fn loadWavetableFromPath(app: *App, slot: ws.dsp.PolySynth.OscSlot, path: []
         app.setStatus("load: select a synth track first", .{});
         return;
     };
-    const data = readFileForLoad(app, path) orelse return;
+    const data = readFileForLoad(app, "load", path) orelse return;
     defer app.allocator.free(data);
     s.loadWavetable(slot, data) catch |e| {
         app.setStatus("load: parse error: {s}", .{@errorName(e)});
@@ -469,7 +469,7 @@ pub fn loadSoundfontFromPath(app: *App, path: []const u8) void {
         app.setStatus("load: select a soundfont track first", .{});
         return;
     };
-    const data = readFileForLoad(app, path) orelse return;
+    const data = readFileForLoad(app, "load", path) orelse return;
     defer app.allocator.free(data);
     sf.loadSf2(data) catch |e| {
         app.setStatus("load: parse error: {s}", .{@errorName(e)});
@@ -572,7 +572,7 @@ pub fn loadClipFromPath(app: *App, path: []const u8) void {
         app.setStatus("load: select a sampler track first", .{});
         return;
     };
-    const data = readFileForLoad(app, path) orelse return;
+    const data = readFileForLoad(app, "load", path) orelse return;
     defer app.allocator.free(data);
     const stem = stemOf(path);
     var backup = history.captureTrackKindSwap(app, track) orelse {
@@ -631,7 +631,7 @@ pub fn loadSliceFromPath(app: *App, path: []const u8) void {
         app.setStatus("load: select a slicer track first", .{});
         return;
     };
-    const data = readFileForLoad(app, path) orelse return;
+    const data = readFileForLoad(app, "load", path) orelse return;
     defer app.allocator.free(data);
     const stem = stemOf(path);
     sl.loadWav(data, stem, true) catch |e| {

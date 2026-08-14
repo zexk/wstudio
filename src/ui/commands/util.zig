@@ -60,15 +60,17 @@ pub fn cursorDrumMachine(app: *App) ?*DrumMachine {
 }
 
 /// Reads a `:load`-family source file, setting status and returning `null`
-/// on failure. Shared by every `load*FromPath` handler below.
-pub fn readFileForLoad(app: *App, path: []const u8) ?[]u8 {
+/// on failure. Shared by every `load*FromPath` handler below, plus
+/// `:import-midi` and the browser's audition key, which is why the caller
+/// names itself rather than every failure reading as `load:`.
+pub fn readFileForLoad(app: *App, cmd: []const u8, path: []const u8) ?[]u8 {
     const data = std.Io.Dir.cwd().readFileAlloc(
         app.io,
         path,
         app.allocator,
         .limited(64 * 1024 * 1024),
     ) catch |e| {
-        app.setStatus("load: cannot read '{s}': {s}", .{ path, @errorName(e) });
+        app.setStatus("{s}: cannot read '{s}': {s}", .{ cmd, path, @errorName(e) });
         return null;
     };
     // Every `:load`-family read lands here, so this is the one place that
@@ -87,7 +89,7 @@ pub fn stemOf(path: []const u8) []const u8 {
 /// pad-load purpose (the browser hands over an already-resolved path - no
 /// `~` to expand).
 pub fn loadPadFromPath(app: *App, pad_idx: u8, path: []const u8) void {
-    const data = readFileForLoad(app, path) orelse return;
+    const data = readFileForLoad(app, "load", path) orelse return;
     defer app.allocator.free(data);
     const dm = cursorDrumMachine(app) orelse {
         app.setStatus("load: select a drum-machine track first", .{});
@@ -126,7 +128,7 @@ pub fn loadPadsFromEntries(app: *App, entries: []const app_mod.BrowserEntry) voi
         }
         const path = std.fs.path.join(app.allocator, &.{ app.browser_dir, entry.name }) catch continue;
         defer app.allocator.free(path);
-        const data = readFileForLoad(app, path) orelse {
+        const data = readFileForLoad(app, "load", path) orelse {
             failed += 1;
             continue;
         };

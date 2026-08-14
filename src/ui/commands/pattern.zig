@@ -585,7 +585,7 @@ pub fn cmdImportMidi(app: *App, args: []const u8) void {
     };
     var path_buf: [path_buf_len]u8 = undefined;
     const path = expandHome(&path_buf, trimmed);
-    const data = readFileForLoad(app, path) orelse return;
+    const data = readFileForLoad(app, "import-midi", path) orelse return;
     defer app.allocator.free(data);
     var result = ws.midi_file.parse(app.allocator, data) catch |e| {
         app.setStatus("import-midi: parse error: {s}", .{@errorName(e)});
