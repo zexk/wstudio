@@ -145,12 +145,21 @@ pub fn Splitter(comptime bands: usize) type {
         /// `freqs` must be ascending; callers clamp their own params (see
         /// `MultibandComp.setXovers`) rather than have this reorder them.
         pub fn setFreqs(self: *Self, sr: f32, freqs: [splits]f32) void {
-            for (&self.lp, &self.hp, freqs) |*lp, *hp, f| {
+            // An RBJ biquad is only well behaved below Nyquist: past it `w0`
+            // wraps, `alpha` can come out negative, and the stage turns into
+            // an oscillator that runs away to inf within a block. Callers
+            // clamp their crossover knobs to 20 kHz, which is already above
+            // Nyquist on any device under 44.1k, so the guard belongs here
+            // where all of them pass through rather than in each of them.
+            var safe: [splits]f32 = undefined;
+            const ceiling = @max(20.0, sr * 0.45);
+            for (&safe, freqs) |*out, f| out.* = std.math.clamp(f, 20.0, ceiling);
+            for (&self.lp, &self.hp, safe) |*lp, *hp, f| {
                 lp.set(sr, f, .lowpass);
                 hp.set(sr, f, .highpass);
             }
             for (&self.phase, 0..) |*row, b| {
-                for (row[b + 1 ..], freqs[b + 1 ..]) |*ap, f| ap.set(sr, f);
+                for (row[b + 1 ..], safe[b + 1 ..]) |*ap, f| ap.set(sr, f);
             }
         }
 

@@ -62,8 +62,11 @@ pub const CrossoverFx = struct {
         const any_solo = solos[0] or solos[1] or solos[2];
         var frame: usize = 0;
         while (frame * 2 + 1 < buf.len) : (frame += 1) {
-            const left = self.splitters[0].split(buf[frame * 2]);
-            const right = self.splitters[1].split(buf[frame * 2 + 1]);
+            // Sanitize going in, same as every other rack unit: the splitters
+            // are IIR, so one non-finite sample would poison their state for
+            // good rather than for a block.
+            const left = self.splitters[0].split(dsp.sanitizeParam(buf[frame * 2], -16, 16, 0));
+            const right = self.splitters[1].split(dsp.sanitizeParam(buf[frame * 2 + 1], -16, 16, 0));
             var out_l: f32 = 0;
             var out_r: f32 = 0;
             inline for (0..3) |band| {
@@ -72,8 +75,8 @@ pub const CrossoverFx = struct {
                     out_r += right[band] * gains[band];
                 }
             }
-            buf[frame * 2] = out_l;
-            buf[frame * 2 + 1] = out_r;
+            buf[frame * 2] = std.math.clamp(out_l, -16, 16);
+            buf[frame * 2 + 1] = std.math.clamp(out_r, -16, 16);
         }
     }
 
@@ -105,4 +108,24 @@ test "crossover passes unity and solos one band" {
     buf = input;
     effect.processBlock(&buf);
     try std.testing.expect(@abs(buf[buf.len - 2]) < 0.25);
+}
+
+test "crossover stays finite under hostile input" {
+    var effect = CrossoverFx.init(48_000);
+    effect.low_gain_db = std.math.inf(f32);
+    effect.mid_solo = std.math.nan(f32);
+    var buf = [_]types.Sample{ std.math.nan(f32), std.math.inf(f32), -std.math.inf(f32), 1 };
+    effect.processBlock(&buf);
+    for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
+    // One poisoned block must not leave the splitter's IIR state stuck: the
+    // next, clean block has to come back out finite too.
+    try dsp.expectBoundedUnderNoise(&effect, 16.1);
+}
+
+test "a crossover point above Nyquist does not blow the splitter up" {
+    // Every caller clamps its knobs to 20 kHz, which is well past Nyquist on
+    // a low-rate device.
+    var effect = CrossoverFx.init(8_000);
+    effect.setXovers(15_000, 20_000);
+    try dsp.expectBoundedUnderNoise(&effect, 16.1);
 }
