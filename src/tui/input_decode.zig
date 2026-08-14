@@ -608,3 +608,39 @@ test "decode rejects malformed and unsupported SGR mouse reports" {
     try std.testing.expectEqual(@as(usize, 0), decode("\x1b[<66;1;1M", &keys));
     try std.testing.expectEqual(@as(usize, 0), decode("\x1b[<67;1;1M", &keys));
 }
+
+test "the stream decoder never panics or stalls on arbitrary bytes" {
+    // Escape sequences are the one thing a terminal hands wstudio that no
+    // wstudio code shaped, and a panic here takes the session down. The
+    // app-level fuzz tests inject already-decoded keys, so this is the only
+    // place raw bytes get exercised.
+    var prng = std.Random.DefaultPrng.init(0x5eed);
+    const rand = prng.random();
+    // Bytes that actually steer the parser, so a random run reaches the CSI,
+    // SGR-mouse and kitty branches instead of spending itself on printables.
+    const interesting = "\x1b[<;:0123456789MmuABCDHF~$";
+    var decoder: StreamDecoder = .{};
+    var keys: [8]Key = undefined;
+    var chunk: [64]u8 = undefined;
+    for (0..4000) |_| {
+        const len = rand.uintLessThan(usize, chunk.len + 1);
+        for (chunk[0..len]) |*b| {
+            b.* = if (rand.boolean())
+                interesting[rand.uintLessThan(usize, interesting.len)]
+            else
+                rand.int(u8);
+        }
+        // Bounded: `feed` must not report more keys than the caller's buffer
+        // holds, and must always drain what it buffered within a few empty
+        // polls rather than wedging on a half-parsed sequence.
+        var drains: usize = 0;
+        var n = decoder.feed(chunk[0..len], &keys);
+        try std.testing.expect(n <= keys.len);
+        while (n > 0) {
+            drains += 1;
+            try std.testing.expect(drains <= len + 2);
+            n = decoder.feed("", &keys);
+            try std.testing.expect(n <= keys.len);
+        }
+    }
+}
