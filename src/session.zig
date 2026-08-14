@@ -1459,14 +1459,37 @@ pub const Session = struct {
     }
 
     /// Delete group `idx`: unassigns every member track (falls back to the
-    /// master mix, same as a track that was never grouped), frees the
-    /// group's name/FX chain, and tells the audio thread the slot is
-    /// inactive. No-op on an already-unused slot.
+    /// master mix, same as a track that was never grouped), drops every aux
+    /// send and gain-automation lane aimed at it, frees the group's name/FX
+    /// chain, and tells the audio thread the slot is inactive. No-op on an
+    /// already-unused slot.
+    ///
+    /// Group slots are fixed and reused - `addGroup` takes the first free one
+    /// - so a reference left behind here does not dangle, it silently becomes
+    /// a reference to whatever group is created next. A send clears outright
+    /// rather than falling back to master, for the same reason a CC binding
+    /// does when its track goes: rerouting it somewhere else is an audible
+    /// change the user never asked for.
     pub fn deleteGroup(self: *Session, idx: u8) void {
         if (idx >= engine_mod.max_groups) return;
         const g = self.groups[idx] orelse return;
         for (self.project.tracks.items, 0..) |*t, ti| {
             if (t.group == idx) self.assignTrackGroup(ti, null);
+            for (t.sends, 0..) |slot, si| {
+                const send = slot orelse continue;
+                if (send.target == .group and send.target.group == idx) self.clearTrackSend(@intCast(ti), @intCast(si));
+            }
+        }
+        var lane_index = self.mix_automation.items.len;
+        while (lane_index > 0) {
+            lane_index -= 1;
+            const lane = self.mix_automation.items[lane_index];
+            if (lane.target != .group_gain or lane.target.group_gain != idx) continue;
+            self.allocator.free(lane.points);
+            _ = self.mix_automation.orderedRemove(lane_index);
+            // `syncMixAutomation` only republishes the lanes that survive, so
+            // the engine's copy of a dropped one has to be cleared by hand.
+            self.engine.setMixAutomation(.{ .group_gain = idx }, &.{});
         }
         // Unpublish the chain before the units it points at go away - see
         // `retireFxChain`.
@@ -2046,6 +2069,43 @@ test "swapping tracks moves every reference with the track it names" {
     try std.testing.expectEqual(@as(u16, 1), s.project.controllers[0].?.targets[0].?.track);
     try std.testing.expectEqual(@as(u16, 1), s.project.cc_bindings[0].?.target.track);
     try std.testing.expectEqual(@as(?u16, 1), sendLaneTrack(&s));
+}
+
+test "deleting a group leaves nothing for the next group in that slot to inherit" {
+    // Group slots are fixed and reused: `addGroup` takes the first free one,
+    // so the index a deleted group held is handed to the next group created.
+    // Every reference to it has to go with it, or the new group silently
+    // adopts the old one's members, sends and gain automation.
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    const drums = try s.addGroup("drums");
+    s.assignTrackGroup(0, drums);
+    s.setTrackSend(0, 0, .{ .group = drums }, -6.0, false);
+    try s.setMixAutomationPoint(.{ .group_gain = drums }, .{ .beat = 0, .value = -12 });
+
+    // Guards against a vacuous pass: all three really do name the group.
+    try std.testing.expectEqual(@as(?u8, drums), s.project.tracks.items[0].group);
+    try std.testing.expectEqual(project_mod.SendTarget{ .group = drums }, s.project.tracks.items[0].sends[0].?.target);
+    try std.testing.expect(groupGainLane(&s, drums) != null);
+
+    s.deleteGroup(drums);
+    try std.testing.expectEqual(@as(?u8, null), s.project.tracks.items[0].group);
+    try std.testing.expectEqual(@as(?project_mod.SendSlot, null), s.project.tracks.items[0].sends[0]);
+    try std.testing.expectEqual(@as(?usize, null), groupGainLane(&s, drums));
+
+    // The slot comes back with the same index, and is a different group.
+    const keys = try s.addGroup("keys");
+    try std.testing.expectEqual(drums, keys);
+    try std.testing.expectEqual(@as(?u8, null), s.project.tracks.items[0].group);
+    try std.testing.expectEqual(@as(?usize, null), groupGainLane(&s, keys));
+}
+
+fn groupGainLane(s: *Session, group: u8) ?usize {
+    for (s.mix_automation.items, 0..) |lane, i| switch (lane.target) {
+        .group_gain => |g| if (g == group) return i,
+        else => {},
+    };
+    return null;
 }
 
 test "deleteTrack rejects last track" {
