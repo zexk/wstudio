@@ -217,9 +217,7 @@
         pkgs.stdenv.mkDerivation (finalAttrs: {
           pname = "wstudio-macos";
           inherit version;
-          meta = wstudioMeta pkgs // {
-            platforms = pkgs.lib.platforms.darwin;
-          };
+          meta = wstudioMeta pkgs;
           src = self;
           zigDeps = pkgs.zig.fetchDeps {
             inherit (finalAttrs) pname version src;
@@ -323,9 +321,7 @@
         windows = pkgs.stdenv.mkDerivation (finalAttrs: {
           pname = "wstudio";
           inherit version;
-          meta = wstudioMeta pkgs // {
-            platforms = pkgs.lib.platforms.windows;
-          };
+          meta = wstudioMeta pkgs;
           src = self;
           zigDeps = pkgs.zig.fetchDeps {
             inherit (finalAttrs) pname version src;
