@@ -195,8 +195,11 @@ built against can't write FLAC, rather than failing the save.
 SoundFont snapshots may instead name a bundled `library` id. Bundled SFZ/FLAC
 banks are part of the wstudio installation, so they need no cached copy.
 
-Arrangement audio sources use `source-<id>.wav`. Regions store stable source
-ids plus nondestructive source offsets and lengths.
+Arrangement audio sources use `source-<id>.flac`. Regions store stable source
+ids plus nondestructive source offsets and lengths. Only sources some clip
+still names - as its region or as one of that region's alternate takes - are
+written, so the recording `:consolidate` or `:comp` baked over does not stay
+in the file forever.
 
 The pad's `sample_file` field holds an `audio_cache` key, not a path: nothing
 about a sample's storage depends on where the `.wsj` lives, so a project can

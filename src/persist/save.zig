@@ -191,8 +191,18 @@ pub fn save(
     for (session.racks.items, racks) |rack, *rs| {
         rs.* = try rackToSnap(aa, rack);
     }
-    const audio_sources = try aa.alloc(AudioSourceSnap, session.project.audio_sources.items.len);
-    for (session.project.audio_sources.items, audio_sources) |source, *snap| snap.* = .{
+    // Only sources some clip still plays. `:consolidate` and `:comp` bake a
+    // region into a fresh source and leave the one they read behind, so a
+    // project that has been consolidated a few times would otherwise carry
+    // every superseded recording forever - and a take is minutes of audio.
+    // The in-memory list is untouched, so undo still reaches them this
+    // session; reopening drops the undo history along with them.
+    var kept: std.ArrayList(*const project_mod.AudioSource) = .empty;
+    for (session.project.audio_sources.items) |*source| {
+        if (audioSourceInUse(session, source.id)) try kept.append(aa, source);
+    }
+    const audio_sources = try aa.alloc(AudioSourceSnap, kept.items.len);
+    for (kept.items, audio_sources) |source, *snap| snap.* = .{
         .id = source.id,
         .file = "",
         .sample_rate = source.sample_rate,
@@ -225,7 +235,7 @@ pub fn save(
         try fw.interface.writeAll(&header);
 
         // Fills in every snapshot's cache key as it streams the blobs out.
-        const audio_cache = try exportSamples(aa, session, &fw, racks, audio_sources);
+        const audio_cache = try exportSamples(aa, session, &fw, racks, kept.items, audio_sources);
 
         const snap: Snapshot = .{
             .tempo_bpm = session.project.tempo_bpm,
@@ -637,6 +647,25 @@ const CacheWriter = struct {
 };
 
 /// Write every user-loaded pad's audio (`Pad.user_sample`) into the audio
+/// Whether any arrangement clip still names `id`, as its active audio region
+/// or as one of that region's alternate takes. Those two are the only places
+/// a source id is ever stored.
+fn audioSourceInUse(session: *const Session, id: u32) bool {
+    for (session.arrangement.lanes.items) |lane| {
+        for (lane.clips.items) |clip| {
+            const audio = switch (clip.content) {
+                .audio => |region| region,
+                else => continue,
+            };
+            if (audio.source_id == id) return true;
+            for (audio.alternate_takes) |slot| {
+                if (slot) |take| if (take.source_id == id) return true;
+            }
+        }
+    }
+    return false;
+}
+
 /// cache section of the open .wsj, point the matching snapshots at it, and
 /// return the directory `Snapshot.audio_cache` carries. A session holding no
 /// user audio writes no blobs and gets an empty directory.
@@ -647,6 +676,7 @@ pub fn exportSamples(
     session: *const Session,
     fw: *std.Io.File.Writer,
     racks: []RackSnap,
+    sources: []const *const project_mod.AudioSource,
     audio_sources: []AudioSourceSnap,
 ) ![]const AudioCacheSnap {
     var cache: CacheWriter = .{ .fw = fw };
@@ -694,7 +724,7 @@ pub fn exportSamples(
             else => {},
         }
     }
-    for (session.project.audio_sources.items, audio_sources) |source, *snap| {
+    for (sources, audio_sources) |source, *snap| {
         const key = try std.fmt.allocPrint(aa, "source-{d}.flac", .{source.id});
         snap.file = try cache.addAudio(aa, key, source.sample_rate, source.channel_count, source.samples);
     }

@@ -2090,6 +2090,35 @@ test "save/load round-trip persists audio sources and regions" {
     try testing.expectEqual(@as(u64, 2), region.alternate_takes[0].?.source_length_frames);
 }
 
+test "saving drops audio sources no clip plays any more" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    // What `:consolidate` leaves behind: the baked source is played, the one
+    // it was rendered from is not.
+    const played = try session.project.addAudioSource("kept", 48_000, 1, &.{ 0.25, -0.25 });
+    const orphan = try session.project.addAudioSource("superseded", 48_000, 1, &.{ 0.5, -0.5 });
+    try session.arrangement.lane(0).?.place(testing.allocator, ws_arrangement.Clip.initAudio(0, 32, .{
+        .source_id = played,
+        .source_start_frame = 0,
+        .source_length_frames = 2,
+    }));
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    // The live project still has both, so undo can still reach the orphan.
+    try testing.expectEqual(@as(usize, 2), session.project.audio_sources.items.len);
+
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    try testing.expectEqual(@as(usize, 1), loaded.project.audio_sources.items.len);
+    try testing.expectEqual(played, loaded.project.audio_sources.items[0].id);
+    try testing.expect(loaded.project.audioSource(orphan) == null);
+}
+
 test "save/load round-trip persists a :load-wavetable-imported table, default state caches no audio" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
