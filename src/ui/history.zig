@@ -216,24 +216,34 @@ pub fn captureLanesOf(app: *App, tracks: []const u16) ?undo_mod.Entry {
         list.deinit(app.allocator);
         return null;
     }
-    const sections = app.allocator.alloc(ws.Section, app.session.project.sections.items.len) catch {
+    const sections = dupeSections(app) orelse {
         for (list.items) |*lane| lane.deinit(app.allocator);
         list.deinit(app.allocator);
         return null;
     };
+    return .{ .lanes = .{ .lanes = list, .sections = sections } };
+}
+
+/// Deep-copy the project's named sections. Null on OOM, leaving nothing
+/// allocated - callers treat that as "no snapshot" rather than a partial one.
+fn dupeSections(app: *App) ?[]ws.Section {
+    const sections = app.allocator.alloc(ws.Section, app.session.project.sections.items.len) catch return null;
     var copied: usize = 0;
     for (app.session.project.sections.items, sections) |section, *copy| {
         const name = app.allocator.dupe(u8, section.name) catch {
             for (sections[0..copied]) |done| app.allocator.free(done.name);
             app.allocator.free(sections);
-            for (list.items) |*lane| lane.deinit(app.allocator);
-            list.deinit(app.allocator);
             return null;
         };
         copy.* = .{ .tick = section.tick, .name = name };
         copied += 1;
     }
-    return .{ .lanes = .{ .lanes = list, .sections = sections } };
+    return sections;
+}
+
+/// Pre-edit wrapper for `:section` / `:section-del` and their Lua twins.
+pub fn recordSections(app: *App) void {
+    push(app, if (dupeSections(app)) |sections| .{ .sections = sections } else null);
 }
 
 /// `captureLanesOf` over a contiguous lane band - what a visual-mode range
@@ -249,6 +259,15 @@ pub fn captureLanes(app: *App, lo: usize, hi: usize) ?undo_mod.Entry {
 /// Pre-edit wrapper for a multi-lane edit.
 pub fn recordLanes(app: *App, lo: usize, hi: usize) void {
     push(app, captureLanes(app, lo, hi));
+}
+
+/// Install captured sections over the live ones, taking ownership of
+/// `sections`. Callers reserve capacity first so this cannot fail midway.
+fn restoreSections(app: *App, sections: []ws.Section) void {
+    for (app.session.project.sections.items) |section| app.allocator.free(section.name);
+    app.session.project.sections.clearRetainingCapacity();
+    for (sections) |section| app.session.project.sections.appendAssumeCapacity(section);
+    app.allocator.free(sections);
 }
 
 /// Install one captured lane's clips over whatever is live there, taking
@@ -610,12 +629,20 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             for (ml.lanes.items) |l| restoreLane(app, l);
             var owned = ml.lanes;
             owned.deinit(app.allocator);
-            for (app.session.project.sections.items) |section| app.allocator.free(section.name);
-            app.session.project.sections.clearRetainingCapacity();
-            for (ml.sections) |section| app.session.project.sections.appendAssumeCapacity(section);
-            app.allocator.free(ml.sections);
+            restoreSections(app, ml.sections);
             if (app.session.song_mode) app.session.rebuildSongData();
             return displaced;
+        },
+        .sections => |s| {
+            const displaced = dupeSections(app) orelse return null;
+            app.session.project.sections.ensureTotalCapacity(app.allocator, s.len) catch {
+                for (displaced) |section| app.allocator.free(section.name);
+                app.allocator.free(displaced);
+                return null;
+            };
+            restoreSections(app, s);
+            app.dirty = true;
+            return .{ .sections = displaced };
         },
         .fx => |f| {
             const displaced = captureFxRaw(app, f.target) orelse return null;

@@ -6053,6 +6053,27 @@ test "arrangement sections add, navigate, select, and delete" {
     for (":section-del") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(usize, 3), app.session.project.sections.items.len);
+
+    // The delete, then the add before it, both undo; redo replays them.
+    history.doUndo(&app);
+    try std.testing.expectEqual(@as(usize, 4), app.session.project.sections.items.len);
+    try std.testing.expectEqualStrings("outro", app.session.project.sections.items[3].name);
+    history.doUndo(&app);
+    try std.testing.expectEqual(@as(usize, 3), app.session.project.sections.items.len);
+    history.doRedo(&app);
+    try std.testing.expectEqualStrings("outro", app.session.project.sections.items[3].name);
+    history.doRedo(&app);
+    try std.testing.expectEqual(@as(usize, 3), app.session.project.sections.items.len);
+
+    // Renaming in place is a section edit too, and undo restores the name
+    // rather than dropping the marker.
+    app.arr_cursor_bar = 0;
+    for (":section prelude") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqualStrings("prelude", app.session.project.sections.items[0].name);
+    history.doUndo(&app);
+    try std.testing.expectEqual(@as(usize, 3), app.session.project.sections.items.len);
+    try std.testing.expectEqualStrings("intro", app.session.project.sections.items[0].name);
 }
 
 test "arrangement clip-edge motions skip empty time" {

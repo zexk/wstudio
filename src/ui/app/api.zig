@@ -469,12 +469,18 @@ pub fn apiClipClear(self: *App, idx: usize) ApiClipError!void {
 }
 
 pub fn apiSectionSet(self: *App, at: u32, name: []const u8) !void {
+    history.recordSections(self);
     try self.session.project.setSection(at, name);
     self.dirty = true;
 }
 
 pub fn apiSectionDel(self: *App, at: u32) bool {
-    if (!self.session.project.removeSection(at)) return false;
+    const present = for (self.session.project.sections.items) |section| {
+        if (section.tick == at) break true;
+    } else false;
+    if (!present) return false;
+    history.recordSections(self);
+    _ = self.session.project.removeSection(at);
     self.dirty = true;
     return true;
 }

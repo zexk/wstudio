@@ -576,6 +576,7 @@ pub fn cmdSection(app: *App, args: []const u8) void {
         return;
     }
     const tick = app.arr_cursor_bar *| app.arr_grid.ticks();
+    history.recordSections(app);
     app.session.project.setSection(tick, name) catch {
         app.setStatus("section failed (out of memory)", .{});
         return;
@@ -590,10 +591,17 @@ pub fn cmdSectionDel(app: *App, _: []const u8) void {
         return;
     }
     const tick = app.arr_cursor_bar *| app.arr_grid.ticks();
-    if (!app.session.project.removeSection(tick)) {
+    // Probe before snapshotting: an undo step for a no-op delete would make
+    // `u` look like it did nothing.
+    const present = for (app.session.project.sections.items) |section| {
+        if (section.tick == tick) break true;
+    } else false;
+    if (!present) {
         app.setStatus("no section at cursor", .{});
         return;
     }
+    history.recordSections(app);
+    _ = app.session.project.removeSection(tick);
     app.dirty = true;
     app.setStatus("section deleted", .{});
 }

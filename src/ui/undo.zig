@@ -269,6 +269,10 @@ pub const Entry = union(enum) {
     slicer: SlicerState,
     lane: LaneState,
     lanes: MultiLaneState,
+    /// The arrangement's named sections alone (owned, as is each name).
+    /// `.lanes` already carries them, but a section edit touches no clip, so
+    /// snapshotting every lane to undo one marker would be wasteful.
+    sections: []Section,
     fx: FxState,
     param_nudge: ParamNudgeState,
     mod_target: ModTargetState,
@@ -293,6 +297,10 @@ pub const Entry = union(enum) {
             .slicer => |*s| s.deinit(allocator),
             .lane => |*l| l.deinit(allocator),
             .lanes => |*l| l.deinit(allocator),
+            .sections => |s| {
+                for (s) |section| allocator.free(section.name);
+                allocator.free(s);
+            },
             .fx => |*f| f.deinit(allocator),
             .param_nudge => {},
             .mod_target => {},
@@ -310,6 +318,7 @@ pub const Entry = union(enum) {
             .drum => "drum",
             .slicer => "slicer",
             .lane, .lanes => "clip",
+            .sections => "section",
             .fx => "fx",
             .param_nudge => "param",
             .mod_target => "mod target",
@@ -461,6 +470,7 @@ fn retargetStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Alloc
                 ml.lanes.shrinkRetainingCapacity(kept);
                 if (kept == 0) keep = false;
             },
+            .sections => {}, // arrangement-wide, names no track
             .param_nudge => |*p| if (remap.apply(p.track)) |nt| { p.track = nt; } else { keep = false; },
             .mod_target => |*m| if (remap.apply(m.track)) |nt| { m.track = nt; } else { keep = false; },
             .swing => |*s| if (remap.apply(s.track)) |nt| { s.track = nt; } else { keep = false; },
