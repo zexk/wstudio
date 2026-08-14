@@ -128,11 +128,21 @@
               --override font_size=14.0 "$@"
           '';
         };
+      # Shared by every wstudio derivation below so `nix flake show`, `nix
+      # search` and any downstream consumer see the same description and
+      # license rather than an unlabelled package.
+      wstudioMeta = pkgs: {
+        description = "Keyboard-centric digital audio workstation with a vim-modal terminal UI and a native GUI";
+        homepage = "https://github.com/zexk/wstudio";
+        license = pkgs.lib.licenses.gpl3Plus;
+        mainProgram = "wstudio";
+      };
       wstudioPackage =
         pkgs:
         pkgs.stdenv.mkDerivation (finalAttrs: {
           pname = "wstudio";
           inherit version;
+          meta = wstudioMeta pkgs;
           src = self;
           zigDeps = pkgs.zig.fetchDeps {
             inherit (finalAttrs) pname version src;
@@ -207,6 +217,9 @@
         pkgs.stdenv.mkDerivation (finalAttrs: {
           pname = "wstudio-macos";
           inherit version;
+          meta = wstudioMeta pkgs // {
+            platforms = pkgs.lib.platforms.darwin;
+          };
           src = self;
           zigDeps = pkgs.zig.fetchDeps {
             inherit (finalAttrs) pname version src;
@@ -310,6 +323,9 @@
         windows = pkgs.stdenv.mkDerivation (finalAttrs: {
           pname = "wstudio";
           inherit version;
+          meta = wstudioMeta pkgs // {
+            platforms = pkgs.lib.platforms.windows;
+          };
           src = self;
           zigDeps = pkgs.zig.fetchDeps {
             inherit (finalAttrs) pname version src;
