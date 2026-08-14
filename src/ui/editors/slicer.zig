@@ -773,6 +773,15 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
         else => {},
     }
 
+    // The paint stroke outlives the row checks below - a release above the
+    // grid or past the last slice still has to end it, or the next press
+    // keeps painting the state this one left armed. Same rule
+    // piano.zig's handleMouse spells out.
+    if (ev.kind == .release) {
+        app.slicer_paint_state = null;
+        return;
+    }
+
     if (row < grid_top) return;
     const bank_start = (@as(usize, app.slicer_cursor[0]) / 8) * 8;
     const slice = bank_start + (row - grid_top);
@@ -819,7 +828,6 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
             app.slicer_cursor[1] = step;
             step_grid.setStep(sl, @intCast(slice), step, state, Slicer.vel_full);
         },
-        .release => app.slicer_paint_state = null,
         else => {},
     }
 }

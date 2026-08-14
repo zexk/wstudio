@@ -809,6 +809,15 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
         else => {},
     }
 
+    // The paint stroke outlives the row checks below - a release that lands
+    // on the title, the ruler, or a between-bank rule still has to end it,
+    // or the next press keeps painting the state this one left armed. Same
+    // rule piano.zig's handleMouse spells out.
+    if (ev.kind == .release) {
+        app.drum_paint_state = null;
+        return;
+    }
+
     if (row < 2) return; // title / bar ruler rows; see views/drum.zig
     // Row 2 is the visible bank window's first pad, not absolute pad 0 -
     // mirrors views/drum.zig's bankWindowStart/banksShown windowing. A dim
@@ -874,7 +883,6 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
             app.drum_cursor[1] = step;
             step_grid.setStep(dm, @intCast(pad), step, state, DrumMachine.vel_full);
         },
-        .release => app.drum_paint_state = null,
         else => {},
     }
 }

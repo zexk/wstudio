@@ -522,6 +522,14 @@ fn stepAt(app: *App, clip: *const ws.Clip, x: u16) ?u32 {
 /// nudges the value; **Ctrl** nudges coarsely, **Shift** moves one step, and
 /// **Alt** jumps one beat.
 pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: usize) void {
+    // The paint stroke outlives the guards below - a release on the title
+    // row, or after the clip went away mid-gesture, still has to end it, or
+    // the next press keeps painting. Same rule piano.zig spells out.
+    if (ev.kind == .release) {
+        app.automation_mouse_edit = false;
+        app.automation_mouse_erase = false;
+        return;
+    }
     const clip = currentClip(app) orelse return;
     if (row == 0) return;
     const graph_rows: usize = @max(1, @min(18, view_rows -| 7));
@@ -541,10 +549,6 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
             app.automation_cursor_step = step;
             paintMouse(app, clip, row, graph_rows);
         },
-        .release => {
-            app.automation_mouse_edit = false;
-            app.automation_mouse_erase = false;
-        },
         .scroll_up, .scroll_down => {
             const step = stepAt(app, clip, ev.x) orelse return;
             app.automation_cursor_step = step;
@@ -556,6 +560,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, view_rows: u
             else
                 nudgeValue(app, clip, dir * (if (ev.ctrl) @as(i32, 10) else 1));
         },
+        .release => unreachable, // handled above, before the guards
     }
 }
 

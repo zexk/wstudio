@@ -8523,6 +8523,14 @@ test "right-click always erases a drum step, and a right-drag erases a run of th
 
     app.handleMouse(.{ .x = 18, .y = row, .button = .right, .kind = .release }, 80, 24, 0);
     try std.testing.expect(app.drum_paint_state == null);
+
+    // A release that lands off the grid still ends the stroke. It used to be
+    // swallowed by the row guard, leaving the paint state armed so the next
+    // drag kept painting without a press.
+    app.handleMouse(.{ .x = 15, .y = row, .button = .left, .kind = .press }, 80, 24, 0);
+    try std.testing.expect(app.drum_paint_state != null);
+    app.handleMouse(.{ .x = 18, .y = app_mod.content_top, .button = .left, .kind = .release }, 80, 24, 0);
+    try std.testing.expect(app.drum_paint_state == null);
 }
 
 test "right-click deletes a piano-roll note without needing a grab/release cycle" {
