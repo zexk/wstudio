@@ -339,25 +339,6 @@ pub const presets = [_]Preset{
     } },
 
     // --- Psytrance / Goa ---
-    // psy-bass - diode filter squelch, velocity + keytrack accents, a hair
-    // of drive for the mid presence
-    .{ .name = "psy-bass", .category = "bass", .tags = &.{ "wstudio", "psytrance" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.3333333, .voice_mode = .mono, .glide_s = 0.0,
-        .attack_s = 0.002, .decay_s = 0.11, .sustain = 0.0, .release_s = 0.05,
-        .filter_type = .diode, .filter_cutoff = 420.0, .filter_res = 0.15, .filter_drive = 4.5,
-        .fenv_attack_s = 0.001, .fenv_decay_s = 0.09, .fenv_sustain = 0.0, .fenv_release_s = 0.05, .fenv_curve = 0.7,
-        .sub_level = 0.7, .sub_shape = .sine,
-        .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 21, .depth = 0.375 },
-            .{ .source = .velocity, .dest = 21, .depth = 0.2 },
-            .{ .source = .keytrack, .dest = 21, .depth = 0.3 },
-            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
-            .{ .source = .mac4,     .dest = 85, .depth = 0.3 },
-        }),
-        .fx_dist_on = true, .fx_dist_drive_db = 8.0, .fx_dist_mix = 0.2,
-        .gain = 0.4,
-    } },
-
     // psy-lead - diode squelch + fast triplet-ish echo
     .{ .name = "psy-lead", .category = "lead", .tags = &.{ "wstudio", "psytrance" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_detune = 12.0, .unison_spread = 0.5,
@@ -448,22 +429,6 @@ pub const presets = [_]Preset{
         .gain = 0.36,
     } },
 
-    // ladder-bass - finally an actual ladder filter behind the name
-    .{ .name = "ladder-bass", .category = "bass", .tags = &.{ "wstudio", "funk" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.015,
-        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_semi = -12.0, .osc_b_level = 0.7,
-        .attack_s = 0.003, .decay_s = 0.2, .sustain = 0.7, .release_s = 0.15,
-        .filter_type = .ladder, .filter_cutoff = 600.0, .filter_res = 0.35, .filter_drive = 3.5,
-        .fenv_attack_s = 0.002, .fenv_decay_s = 0.25, .fenv_sustain = 0.3, .fenv_release_s = 0.15,
-        .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 21, .depth = 0.4 },
-            .{ .source = .velocity, .dest = 21, .depth = 0.4 },
-            .{ .source = .mac1,     .dest = 21, .depth = 0.5 },
-            .{ .source = .mac2,     .dest = 22, .depth = 0.3 },
-        }),
-        .gain = 0.36,
-    } },
-
     // funk-clav - the classic clav-through-phaser, velocity + keytrack
     // keep the top end percussive
     .{ .name = "funk-clav", .category = "keys", .tags = &.{ "wstudio", "funk" }, .patch = .{
@@ -480,22 +445,6 @@ pub const presets = [_]Preset{
         }),
         .fx_phaser_on = true, .fx_phaser_rate_hz = 0.5, .fx_phaser_depth = 0.8, .fx_phaser_feedback = 0.5, .fx_phaser_mix = 0.45,
         .gain = 0.32,
-    } },
-
-    // --- Dub / reggae ---
-    // dub-bass - ladder-rounded, a whisper of drive for warmth
-    .{ .name = "dub-bass", .category = "bass", .tags = &.{ "wstudio", "dub" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.0, .voice_mode = .mono, .glide_s = 0.05,
-        .attack_s = 0.01, .decay_s = 0.3, .sustain = 0.9, .release_s = 0.3,
-        .filter_type = .ladder, .filter_cutoff = 300.0, .filter_res = 0.1, .filter_drive = 2.2,
-        .sub_level = 0.7, .sub_shape = .sine,
-        .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 21, .depth = 0.2 },
-            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
-            .{ .source = .mac4,     .dest = 85, .depth = 0.3 },
-        }),
-        .fx_dist_on = true, .fx_dist_drive_db = 5.0, .fx_dist_mix = 0.15,
-        .gain = 0.42,
     } },
 
     // --- Synthwave / retro 80s ---
@@ -669,23 +618,6 @@ pub const presets = [_]Preset{
     } },
 
     // --- Trap ---
-    // trap-bell - velocity rings the FM brighter, long dark reverb tail
-    .{ .name = "trap-bell", .category = "keys", .tags = &.{ "wstudio", "trap" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_detune_cents = 4.0, .osc_b_level = 0.9,
-        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 2.6,
-        .voice_mode = .mono, .glide_s = 0.06,
-        .attack_s = 0.001, .decay_s = 0.6, .sustain = 0.0, .release_s = 0.5, .env_curve = 0.75,
-        .filter_type = .lp, .filter_cutoff = 9000.0, .filter_res = 0.0,
-        .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 15,  .depth = 0.15 },
-            .{ .source = .random,   .dest = 15,  .depth = 0.03 },
-            .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
-        }),
-        .fx_reverb_on = true, .fx_reverb_room = 0.8, .fx_reverb_damp = 0.6, .fx_reverb_mix = 0.35,
-        .gain = 0.3,
-    } },
-
     // trap-808 - ENV 3 gives the 808 pitch knock (starts ~half an octave
     // sharp and drops in), drive adds the speaker-rattle harmonics
     .{ .name = "trap-808", .category = "bass", .tags = &.{ "wstudio", "trap" }, .patch = .{
@@ -898,24 +830,6 @@ pub const presets = [_]Preset{
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.28, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
         .gain = 0.28,
-    } },
-
-    // dnb - lush liquid pad to contrast the reese
-    .{ .name = "liquid-pad", .category = "pad", .tags = &.{ "wstudio", "dnb" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 5, .unison_detune = 12.0, .unison_spread = 0.7,
-        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.3333333, .osc_b_semi = 0.0, .osc_b_level = 0.5,
-        .attack_s = 0.8, .decay_s = 0.7, .sustain = 0.8, .release_s = 1.3,
-        .filter_type = .lp, .filter_cutoff = 3200.0, .filter_res = 0.08,
-        .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 120.0, .filter_routing = .series,
-        .lfo_rate_hz = 0.3, .lfo_sync = .n2_1, .lfo_slew_ms = 30.0,
-        .mod_matrix = mods(&.{
-            .{ .source = .lfo,  .dest = 21,  .depth = 0.05 },
-            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
-        }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.5, .fx_chorus_depth_ms = 5.0, .fx_chorus_mix = 0.4,
-        .fx_reverb_on = true, .fx_reverb_room = 0.8, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.35,
-        .gain = 0.26,
     } },
 
     // neurofunk - screechy resonant FM lead; a small upward frequency shift
@@ -1650,23 +1564,6 @@ pub const presets = [_]Preset{
         .gain = 0.3,
     } },
 
-    // j-core/nerdcore - the arpeggiator now drives the needle-thin square
-    // runs itself: hold a chord, it ping-pongs two octaves at 16 Hz
-    .{ .name = "square-arp", .category = "pluck", .tags = &.{ "wstudio", "j-core", "nerdcore" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 1.0,
-        .attack_s = 0.001, .decay_s = 0.07, .sustain = 0.0, .release_s = 0.04, .env_curve = 0.8,
-        .filter_type = .lp, .filter_cutoff = 12_000.0, .filter_res = 0.15,
-        .arp_on = true, .arp_mode = .updown, .arp_octaves = 2, .arp_rate_hz = 16.0, .arp_sync = .n1_16, .arp_gate = 0.55,
-        .mod_matrix = mods(&.{
-            .{ .source = .mac2, .dest = 185,   .depth = -0.2 },
-            .{ .source = .mac3, .dest = 111, .depth = 0.3 },
-            .{ .source = .mac4, .dest = 89,  .depth = 0.3 },
-        }),
-        .fx_crush_on = true, .fx_crush_bits = 8.0, .fx_crush_rate = 3.0, .fx_crush_mix = 0.25,
-        .fx_delay_on = true, .fx_delay_time_s = 0.18, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
-        .gain = 0.26,
-    } },
-
     // === Round 4: reinforce the least-covered genres ===
 
     // dnb: a short minor-chord rave hit with velocity bite and wide room
@@ -1999,8 +1896,8 @@ pub fn find(name: []const u8) ?Patch {
     return null;
 }
 
-test "factory library holds exactly 98 presets" {
-    try std.testing.expectEqual(@as(usize, 98), presets.len);
+test "factory library holds exactly 92 presets" {
+    try std.testing.expectEqual(@as(usize, 92), presets.len);
 }
 
 test "every preset's matrix rows target legal dests at sane depths" {
