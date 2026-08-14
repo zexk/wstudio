@@ -35,6 +35,16 @@ restores the project byte for byte" pins both halves of this - it saves either
 side of a `u` and compares the files, and lists the exclusions explicitly, so
 moving one in or out of scope has to be a deliberate edit to that table.
 
+The mix-automation lanes `:automation-point` writes (master gain, group gain,
+send level) are out of scope too, unlike the clip automation that rides inside
+a clip and is covered by the lane snapshot. Two reasons: the same lanes are
+also written a point at a time by `automation-mode` recording while the
+transport runs, which would flood the stack, and a lane addresses a track by
+index, so a stored snapshot would need the same remap-or-drop pass
+`Session.remapTrackReferences` does for the live list or it could restore a
+curve onto a track that is no longer the one it was written for. Correcting a
+mistyped point means writing the point again at the same beat.
+
 The history is bounded, and failure to allocate a snapshot does not block the
 edit.
 
