@@ -42,6 +42,15 @@ const NativeEditor = struct {
         if (view.vtable.set_frame(view, &frame.interface) != 0) return error.GuiFrameFailed;
         errdefer _ = view.vtable.set_frame(view, null);
         if (view.vtable.attached(view, @ptrFromInt(window.handle()), platform_type) != 0) return error.GuiAttachFailed;
+        // The size before `attached` is the plugin's guess about a window it
+        // has not seen yet; the size after is the one it will actually draw.
+        // JUCE editors in particular report a placeholder until attachment.
+        var attached_rect: abi.ViewRect = undefined;
+        if (view.vtable.get_size(view, &attached_rect) == 0) {
+            const w = @max(attached_rect.right - attached_rect.left, 1);
+            const h = @max(attached_rect.bottom - attached_rect.top, 1);
+            if (w != @max(rect.right - rect.left, 1) or h != @max(rect.bottom - rect.top, 1)) window.resize(w, h);
+        }
         window.show();
         return .{ .view = view, .window = window, .frame = frame };
     }

@@ -1324,6 +1324,20 @@ const Direct = struct {
             },
         };
         if (!gui.set_parent(self.plugin, &parent)) return error.GuiParentFailed;
+        // Ask again now that the editor has a parent. The first answer is
+        // whatever the plugin defaults to before it knows where it lives, and
+        // plugins that scale to their host, restore a saved editor size, or
+        // build their view on parenting all report a different size here. The
+        // window has to follow, or the plugin draws at its real size inside a
+        // frame sized for the guess.
+        var parented_width: u32 = width;
+        var parented_height: u32 = height;
+        if (gui.get_size(self.plugin, &parented_width, &parented_height) and
+            parented_width > 0 and parented_height > 0 and
+            (parented_width != width or parented_height != height))
+        {
+            window.resize(@intCast(parented_width), @intCast(parented_height));
+        }
         self.gui_window = window;
     }
 

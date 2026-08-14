@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const transport = @import("transport.zig");
 
 pub const Api = enum { win32, cocoa, wayland, x11 };
 pub const Size = struct { width: i32, height: i32 };
@@ -196,6 +197,7 @@ const X11Window = struct {
     id: usize,
     delete_atom: usize,
     pending_resize: ?Size = null,
+    resizable: bool = true,
 
     pub fn open(width: i32, height: i32, title: [*:0]const u8, resizable: bool) !X11Window {
         var lib = std.DynLib.open("libX11.so.6") catch return error.X11Unavailable;
@@ -208,14 +210,43 @@ const X11Window = struct {
         const id = functions.create_simple_window(display, root, 0, 0, @intCast(width), @intCast(height), 0, 0, 0);
         if (id == 0) return error.X11WindowFailed;
         _ = functions.store_name(display, id, title);
+        // Without this the server sends no ConfigureNotify, so `takeResize`
+        // never reports anything and a window the user drags never reaches
+        // the plugin. ClientMessage (the close button) arrives either way,
+        // which is why only the resize half was silently missing.
+        _ = functions.select_input(display, id, structure_notify_mask);
         const delete_atom = functions.intern_atom(display, "WM_DELETE_WINDOW", 0);
         if (delete_atom == 0 or functions.set_wm_protocols(display, id, @constCast(&delete_atom), 1) == 0) return error.X11WindowProtocolFailed;
-        if (!resizable) {
-            var hints: SizeHints = .{ .flags = p_min_size | p_max_size, .min_width = width, .min_height = height, .max_width = width, .max_height = height };
-            functions.set_wm_normal_hints(display, id, &hints);
-        }
+        var self: X11Window = .{
+            .lib = lib,
+            .functions = functions,
+            .display = display,
+            .id = id,
+            .delete_atom = delete_atom,
+            .resizable = resizable,
+        };
+        self.applySizeHints(width, height);
         _ = functions.flush(display);
-        return .{ .lib = lib, .functions = functions, .display = display, .id = id, .delete_atom = delete_atom };
+        return self;
+    }
+
+    /// A fixed-size window pins min == max so the window manager cannot let
+    /// the user stretch it away from what the plugin draws. That has to be
+    /// re-sent on every resize: the size a plugin asks for after it is
+    /// parented is routinely not the one it reported before, and hints left
+    /// at the old size keep the manager enforcing the old geometry no matter
+    /// what `XResizeWindow` requests - a window too small clips the editor,
+    /// one too large frames it in black.
+    fn applySizeHints(self: *X11Window, width: i32, height: i32) void {
+        if (self.resizable) return;
+        var hints: SizeHints = .{
+            .flags = p_min_size | p_max_size,
+            .min_width = width,
+            .min_height = height,
+            .max_width = width,
+            .max_height = height,
+        };
+        self.functions.set_wm_normal_hints(self.display, self.id, &hints);
     }
 
     pub fn api(_: *const X11Window) Api {
@@ -227,6 +258,7 @@ const X11Window = struct {
     }
 
     pub fn resize(self: *X11Window, width: i32, height: i32) void {
+        self.applySizeHints(width, height);
         _ = self.functions.resize_window(self.display, self.id, @intCast(width), @intCast(height));
         _ = self.functions.flush(self.display);
     }
@@ -283,6 +315,7 @@ const X11Window = struct {
         next_event: *const fn (*anyopaque, *XEvent) callconv(.c) c_int,
         send_event: *const fn (*anyopaque, usize, c_int, c_long, *XEvent) callconv(.c) c_int,
         set_wm_normal_hints: *const fn (*anyopaque, usize, *SizeHints) callconv(.c) void,
+        select_input: *const fn (*anyopaque, usize, c_long) callconv(.c) c_int,
 
         fn load(lib: *std.DynLib) !Functions {
             return .{
@@ -304,6 +337,7 @@ const X11Window = struct {
                 .next_event = lib.lookup(@FieldType(Functions, "next_event"), "XNextEvent") orelse return error.X11SymbolMissing,
                 .send_event = lib.lookup(@FieldType(Functions, "send_event"), "XSendEvent") orelse return error.X11SymbolMissing,
                 .set_wm_normal_hints = lib.lookup(@FieldType(Functions, "set_wm_normal_hints"), "XSetWMNormalHints") orelse return error.X11SymbolMissing,
+                .select_input = lib.lookup(@FieldType(Functions, "select_input"), "XSelectInput") orelse return error.X11SymbolMissing,
             };
         }
     };
@@ -353,6 +387,7 @@ const X11Window = struct {
         base_height: c_int = 0,
         win_gravity: c_int = 0,
     };
+    const structure_notify_mask: c_long = 1 << 17;
     const p_min_size: c_long = 1 << 4;
     const p_max_size: c_long = 1 << 5;
     const XEvent = extern union { type: c_int, client: ClientMessage, configure: ConfigureEvent, pad: [24]c_long };
@@ -363,6 +398,34 @@ test "editor window platform selection" {
         var window: Window = undefined;
         try std.testing.expectEqual(Api.x11, window.api());
     }
+}
+
+test "X11 window sees a resize the server reports, not only a synthetic one" {
+    if (builtin.os.tag != .linux or std.c.getenv("DISPLAY") == null) return;
+    // The companion test below hands `service` a hand-built ConfigureNotify
+    // through XSendEvent, which reaches the window whatever input mask it
+    // selected. That is exactly why a window selecting no mask at all looked
+    // covered while no real resize ever arrived. This one makes the server
+    // generate the event, so what it proves is that the mask is selected at
+    // all. It deliberately does not assert the geometry: a window manager
+    // grants whatever size it wants (a tiling one hands back its whole tile),
+    // and the companion test already covers carrying the reported size
+    // through.
+    var window = try Window.open(64, 64, "wstudio GUI resize test", true);
+    defer window.close();
+    window.show();
+    window.resize(96, 80);
+    _ = window.functions.sync(window.display, 0);
+
+    var tries: usize = 0;
+    const got: ?Size = while (tries < 200) : (tries += 1) {
+        _ = window.service();
+        if (window.takeResize()) |size| break size;
+        transport.sleepNs(5 * std.time.ns_per_ms);
+        _ = window.functions.sync(window.display, 0);
+    } else null;
+    if (got == null) return error.NoConfigureNotifyArrived;
+    try std.testing.expect(got.?.width > 0 and got.?.height > 0);
 }
 
 test "X11 close request reaches host lifecycle" {
