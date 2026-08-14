@@ -82,6 +82,7 @@ pub const Bridge = struct {
     path: []u8,
     audio_inputs_count: u32 = 0,
     has_gui: bool = false,
+    has_note_input: bool = false,
 
     pub fn spawn(allocator: std.mem.Allocator, options: SpawnOptions) !*Bridge {
         if (builtin.os.tag != .linux) return error.SandboxUnsupportedOnThisPlatform;
@@ -204,6 +205,7 @@ pub const Bridge = struct {
         if (hs.id_len > hs.id.len or hs.name_len > hs.name.len) return error.RpcProtocolError;
         self.audio_inputs_count = hs.audio_inputs_count;
         self.has_gui = hs.has_gui != 0;
+        self.has_note_input = hs.has_note_input != 0;
         self.resolved_id = try allocator.dupe(u8, hs.id[0..hs.id_len]);
         errdefer allocator.free(self.resolved_id);
         self.resolved_name = try allocator.dupe(u8, hs.name[0..hs.name_len]);

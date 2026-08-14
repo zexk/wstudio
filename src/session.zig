@@ -593,7 +593,10 @@ pub const Session = struct {
         if (track_idx >= self.racks.items.len) return;
         const plugin = try rack_mod.ClapPlugin.load(self.allocator, path, plugin_id, self.project.sample_rate);
         errdefer plugin.deinit();
-        if (plugin.audio_inputs_count != 0) return error.ClapPluginIsNotInstrument;
+        // Note input, not audio-port count: plenty of synths take audio in
+        // too (Surge XT, Odin2), and rejecting them for it kept every one of
+        // them out of the instrument slot.
+        if (!plugin.acceptsNotes()) return error.ClapPluginIsNotInstrument;
         plugin.attachTransport(&self.engine.transport);
 
         const rack = try self.allocator.create(Rack);

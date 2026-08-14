@@ -53,6 +53,23 @@ const instrument_descriptor: abi.PluginDescriptor = .{
     .features = &instrument_features,
 };
 
+/// An instrument that also takes audio in - the shape Surge XT, Odin2 and
+/// every LSP sampler have. Nothing distinguishes it from `instrument` except
+/// that audio input, which is exactly the thing the instrument slot used to
+/// reject plugins for.
+const hybrid_descriptor: abi.PluginDescriptor = .{
+    .clap_version = abi.version,
+    .id = "studio.wstudio.test.hybrid",
+    .name = "wstudio CLAP hybrid test",
+    .vendor = "wstudio",
+    .url = null,
+    .manual_url = null,
+    .support_url = null,
+    .plugin_version = "1.0",
+    .description = "Test instrument with an audio input",
+    .features = &instrument_features,
+};
+
 const mono_descriptor: abi.PluginDescriptor = .{
     .clap_version = abi.version,
     .id = "studio.wstudio.test.mono",
@@ -423,6 +440,21 @@ const instrument_plugin: abi.Plugin = .{
     .on_main_thread = onMainThread,
 };
 
+const hybrid_plugin: abi.Plugin = .{
+    .desc = &hybrid_descriptor,
+    .plugin_data = &state,
+    .init = pluginInit,
+    .destroy = pluginDestroy,
+    .activate = pluginActivate,
+    .deactivate = pluginDeactivate,
+    .start_processing = startProcessing,
+    .stop_processing = stopProcessing,
+    .reset = reset,
+    .process = process,
+    .get_extension = getExtension,
+    .on_main_thread = onMainThread,
+};
+
 const mono_plugin: abi.Plugin = .{
     .desc = &mono_descriptor,
     .plugin_data = &state,
@@ -439,7 +471,7 @@ const mono_plugin: abi.Plugin = .{
 };
 
 fn pluginCount(_: *const abi.PluginFactory) callconv(.c) u32 {
-    return 3;
+    return 4;
 }
 
 fn pluginDescriptor(_: *const abi.PluginFactory, index: u32) callconv(.c) ?*const abi.PluginDescriptor {
@@ -447,6 +479,7 @@ fn pluginDescriptor(_: *const abi.PluginFactory, index: u32) callconv(.c) ?*cons
         0 => &descriptor,
         1 => &instrument_descriptor,
         2 => &mono_descriptor,
+        3 => &hybrid_descriptor,
         else => null,
     };
 }
@@ -461,6 +494,7 @@ fn createPlugin(
     if (@import("std").mem.eql(u8, requested, @import("std").mem.span(descriptor.id))) return &plugin;
     if (@import("std").mem.eql(u8, requested, @import("std").mem.span(instrument_descriptor.id))) return &instrument_plugin;
     if (@import("std").mem.eql(u8, requested, @import("std").mem.span(mono_descriptor.id))) return &mono_plugin;
+    if (@import("std").mem.eql(u8, requested, @import("std").mem.span(hybrid_descriptor.id))) return &hybrid_plugin;
     return null;
 }
 

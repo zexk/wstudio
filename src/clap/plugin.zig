@@ -793,6 +793,16 @@ pub const ClapPlugin = struct {
         };
     }
 
+    /// Whether the plugin has a note input port this host can drive, which
+    /// is what makes it usable as a track's instrument. Audio input count
+    /// says nothing about it: Surge XT is an instrument with one.
+    pub fn acceptsNotes(self: *const ClapPlugin) bool {
+        return switch (self.impl) {
+            .direct => |*d| d.acceptsNotes(),
+            .bridged => |b| b.has_note_input,
+        };
+    }
+
     pub fn toggleGui(self: *ClapPlugin) !bool {
         switch (self.impl) {
             .direct => |*d| return d.toggleGui(),
@@ -1051,7 +1061,13 @@ const Direct = struct {
                 if (param.target == @as(*anyopaque, @ptrCast(outer)))
                     self.pushParameter(param.id, param.cookie, param.value, param.sample_offset);
             },
-            .automation_param => |param| if (self.audio_inputs_count == 0 and param.instance_id == 0) self.pushParameter(param.id, null, param.value, param.sample_offset),
+            // instance_id 0 is the track's instrument slot and never a real
+            // FxUnit id, and `FxUnit.handleEvent` swallows those before they
+            // reach a chain plugin - so the slot test alone is the whole
+            // guard. It used to also require zero audio inputs as an
+            // "am I the instrument" proxy, which silently dropped automation
+            // for every synth that has an audio input (Surge XT, Odin2).
+            .automation_param => |param| if (param.instance_id == 0) self.pushParameter(param.id, null, param.value, param.sample_offset),
             else => {},
         }
     }
@@ -1206,6 +1222,10 @@ const Direct = struct {
 
     pub fn hasGui(self: *const Direct) bool {
         return self.guiExtension() != null;
+    }
+
+    pub fn acceptsNotes(self: *const Direct) bool {
+        return self.note_dialect != .none;
     }
 
     pub fn toggleGui(self: *Direct) !bool {

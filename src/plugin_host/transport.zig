@@ -111,6 +111,10 @@ pub fn toDeviceEvent(wire: WireEvent, self_ptr: *anyopaque) ?device_mod.Event {
 pub const Handshake = extern struct {
     audio_inputs_count: u32 = 0,
     has_gui: u8 = 0,
+    /// Whether the plugin accepts note input - the only honest test of
+    /// "can this be a track's instrument", and not derivable from
+    /// `audio_inputs_count` (Surge XT is an instrument with an audio input).
+    has_note_input: u8 = 0,
     id_len: u32 = 0,
     name_len: u32 = 0,
     id: [256]u8 = undefined,

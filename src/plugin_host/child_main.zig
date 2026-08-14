@@ -91,6 +91,7 @@ fn writeHandshake(writer: *std.Io.Writer, failed_msg: ?[]const u8, plugin: ?Real
         .clap => |p| {
             hs.audio_inputs_count = p.audio_inputs_count;
             hs.has_gui = @intFromBool(p.hasGui());
+            hs.has_note_input = @intFromBool(p.acceptsNotes());
             const id = p.id();
             hs.id_len = @intCast(@min(id.len, hs.id.len));
             @memcpy(hs.id[0..hs.id_len], id[0..hs.id_len]);

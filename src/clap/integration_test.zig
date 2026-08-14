@@ -64,6 +64,17 @@ fn runScenario(gpa: std.mem.Allocator, io: std.Io, plugin_path: []const u8) !voi
         error.ClapPluginIsNotEffect,
         fx.insertClap(gpa, 0, plugin_path, "studio.wstudio.test.instrument", 48_000),
     );
+    {
+        // An instrument that also takes audio in belongs in the instrument
+        // slot just the same. The slot used to demand zero audio inputs,
+        // which locked out Surge XT, Odin2 and every LSP sampler.
+        var session = try ws.Session.initDefault(gpa);
+        defer session.deinit();
+        try session.setClapInstrument(0, plugin_path, "studio.wstudio.test.hybrid");
+        const hybrid = session.racks.items[0].instrument.clap;
+        try std.testing.expect(hybrid.acceptsNotes());
+        try std.testing.expectEqual(@as(u32, 1), hybrid.audio_inputs_count);
+    }
     const automated = try fx.insertClap(gpa, 0, plugin_path, "studio.wstudio.test.double", 48_000);
     automated.device().sendEvent(.{ .automation_param = .{ .instance_id = automated.instance_id, .id = 0, .value = 2 } });
     var automated_audio = [_]f32{ 1, 1 };
