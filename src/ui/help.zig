@@ -36,7 +36,7 @@ pub const Section = enum {
 pub const HelpText = struct {
     buf: [53248]u8 = undefined,
     len: usize = 0,
-    ends: [576]usize = undefined,
+    ends: [640]usize = undefined,
     count: usize = 0,
     /// Set when a line didn't fit in `buf`/`ends` - from then on lines render
     /// blank, so the build test below asserts this never trips with the real
@@ -454,7 +454,10 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("=",            "toggle A/B loop on/off");
     t.key(":punch",       "[on|off]  record only between enabled A/B bounds");
     t.key(":monitor",     "[off|auto|on]  input monitoring mode");
+    t.key(":take",        "[next|prev]  cycle the alternate recordings on the audio clip at cursor");
     t.key(":comp",        "<take> <start-beat> <end-beat>  splice alternate take range");
+    t.key(":crossfade",   "fade the two overlapping audio layers at cursor into each other");
+    t.key(":consolidate", "bake the cursor audio clip's gain, fades, stretch and reverse into one source");
     t.key("gs",           "play from cursor bar");
     t.key("T",            "toggle song / pattern mode (manual override; view switches while the");
     t.key("",             "  transport is stopped set it for you: arrangement = song, tracks (or a");
