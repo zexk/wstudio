@@ -138,7 +138,12 @@ fn audioLoop(shared: *Shared) void {
                 inline else => |p| p.reset(),
             }
         }
-        const frames = block.frames;
+        // The parent clamps both of these before publishing, but the block is
+        // mapped writable in this process and the plugin loaded here is
+        // third-party code that can scribble anywhere in it. Clamping again
+        // keeps a stray write inside the buffers rather than out of them.
+        const frames = @min(block.frames, transport.max_frames);
+        const event_count = @min(block.event_count, transport.max_events);
         const self_ptr = shared.plugin.ptr();
         // The parent's `xport` never crosses as a pointer (it wouldn't be
         // valid in this address space) - it rides as `TransportWire` data
@@ -149,7 +154,7 @@ fn audioLoop(shared: *Shared) void {
         switch (shared.plugin) {
             inline else => |p| p.attachTransport(&local_transport),
         }
-        for (block.events[0..block.event_count]) |wire| {
+        for (block.events[0..event_count]) |wire| {
             if (transport.toDeviceEvent(wire, self_ptr)) |ev| switch (shared.plugin) {
                 inline else => |p| p.handleEvent(ev),
             };
