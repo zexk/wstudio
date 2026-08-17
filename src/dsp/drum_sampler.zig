@@ -2534,3 +2534,34 @@ test "every pad parameter the editor exposes actually moves the audio" {
         try std.testing.expect(best > 0.001);
     }
 }
+
+test "every factory kit pad renders audible and below clipping" {
+    // The drum counterpart of synth_presets' render test. The kits are
+    // deliberately peak-matched per role across kits - a kick lands near
+    // 0.97 in all of them - so a new kit that clips, or one whose pad never
+    // sounds, is a mistake rather than a choice.
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    for (drum_kit.variants) |variant| {
+        for (variant.pads, 0..) |slot, pad| {
+            if (slot.kind == null) continue;
+            var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+            defer dm.deinit();
+            try dm.loadKitVariant(&variant);
+            const dev = dm.device();
+            dev.sendEvent(.{ .note_on = .{ .note = @intCast(pad), .velocity = 1.0 } });
+            var peak: f32 = 0;
+            var buf: [1024]f32 = undefined;
+            for (0..14) |_| {
+                @memset(&buf, 0);
+                dev.process(&buf);
+                for (buf) |s| {
+                    try std.testing.expect(std.math.isFinite(s));
+                    peak = @max(peak, @abs(s));
+                }
+            }
+            errdefer std.debug.print("kit '{s}' pad {d} '{s}' peak {d:.4}\n", .{ variant.name, pad, slot.name, peak });
+            try std.testing.expect(peak > 0.05);
+            try std.testing.expect(peak <= 1.0);
+        }
+    }
+}

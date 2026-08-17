@@ -307,6 +307,21 @@ pub fn build(b: *std.Build) void {
     });
     const run_presetscan = b.addRunArtifact(presetscan);
     if (b.args) |args| run_presetscan.addArgs(args);
+    const kitcheck = b.addExecutable(.{
+        .name = "kitcheck",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/kitcheck.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "wstudio", .module = wstudio_mod },
+            },
+        }),
+    });
+    const run_kitcheck = b.addRunArtifact(kitcheck);
+    const kitcheck_step = b.step("kitcheck", "Measure every factory drum kit pad");
+    kitcheck_step.dependOn(&run_kitcheck.step);
+
     const presetscan_step = b.step("presetscan", "Measure every factory synth preset and report the closest pairs");
     presetscan_step.dependOn(&run_presetscan.step);
 
