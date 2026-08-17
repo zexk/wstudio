@@ -49,6 +49,17 @@ fn playheadBar(app: anytype, snap: engine_mod.UiSnapshot) ?u32 {
     return @intFromFloat(@max(tick, 0.0));
 }
 
+/// Where a loop edge falls relative to the ruler cell starting at `tick` and
+/// spanning `cell_ticks`. The cell stride is the grid, not the bar, so the
+/// edge tick rarely lands on a cell start exactly - hence the range test.
+/// `end_tick` is exclusive, so its bracket rides the cell it opens.
+pub fn loopEdge(tick: u32, cell_ticks: u32, start_tick: u32, end_tick: u32) ?enum { start, end } {
+    const cell_end = tick +| cell_ticks;
+    if (start_tick >= tick and start_tick < cell_end) return .start;
+    if (end_tick >= tick and end_tick < cell_end) return .end;
+    return null;
+}
+
 pub fn drawArrangement(
     app: anytype,
     w: *std.Io.Writer,
@@ -91,7 +102,17 @@ pub fn drawArrangement(
         const section_name: ?[]const u8 = for (p.sections.items) |section| {
             if (section.tick == bar) break section.name;
         } else null;
-        try w.writeAll(if (in_loop) yel ++ "│" ++ rst else if (downbeat) blu ++ "│" ++ rst else dim ++ "│" ++ rst);
+        // The loop's two edges wear brackets; the bars between keep the plain
+        // tinted separator.
+        const edge = if (loop_on)
+            loopEdge(bar, grid_ticks, p.loop_start_bar *| ticks_per_bar, p.loop_end_bar *| ticks_per_bar)
+        else
+            null;
+        if (edge) |e| {
+            try w.writeAll(yel ++ bold);
+            try w.writeAll(if (e == .start) "[" else "]");
+            try w.writeAll(rst);
+        } else try w.writeAll(if (in_loop) yel ++ "│" ++ rst else if (downbeat) blu ++ "│" ++ rst else dim ++ "│" ++ rst);
         if (cw == 2) {
             // Compact: no room for a bar number without corrupting column
             // alignment - the separator's colour already marks downbeat/loop.
@@ -208,6 +229,18 @@ pub fn drawArrangement(
 
     const used = 2 + (last_lane - lane_scroll);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
+}
+
+test "loop brackets land on the cells holding each edge" {
+    // Bars 2-4 (ticks 3840..11520) on a 1/4-note grid: the edges fall inside
+    // the cells that open at those ticks, not on any other beat.
+    const cell: u32 = 960;
+    try std.testing.expectEqual(.start, loopEdge(3840, cell, 3840, 11520).?);
+    try std.testing.expectEqual(.end, loopEdge(11520, cell, 3840, 11520).?);
+    try std.testing.expectEqual(@as(?@TypeOf(loopEdge(0, 1, 0, 1).?), null), loopEdge(4800, cell, 3840, 11520));
+    // A grid coarser than the loop still marks both edges on their cells.
+    try std.testing.expectEqual(.start, loopEdge(0, 7680, 3840, 11520).?);
+    try std.testing.expectEqual(.end, loopEdge(7680, 7680, 3840, 11520).?);
 }
 
 test "playhead tick saturates for positions beyond the arrangement range" {

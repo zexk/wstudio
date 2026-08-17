@@ -127,6 +127,40 @@ pub fn draw(app: anytype) void {
         if (on_bar and tick_index < total_ticks_u64) draw_list.addText(.{ x + 7, origin[1] + 7 }, color(theme.fg2), "{d}", .{tick_index / ticks_per_bar + 1});
     }
 
+    // Loop region: a solid band across the top of the ruler, a wash over the
+    // lanes it covers, and an edge line at each boundary. An armed-but-off
+    // region (set with `(`/`)` before `L`) draws the same shape, quieter.
+    const proj = &app.core.session.project;
+    if (proj.loop_end_bar > proj.loop_start_bar) {
+        const alpha: f32 = if (proj.loop_enabled) 1.0 else 0.4;
+        const per_bar = @as(f32, @floatFromInt(ticks_per_bar)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
+        const right_edge = origin[0] + canvas_w;
+        const x1 = std.math.clamp(timeline_x + @as(f32, @floatFromInt(proj.loop_start_bar)) * per_bar, timeline_x, right_edge);
+        const x2 = std.math.clamp(timeline_x + @as(f32, @floatFromInt(proj.loop_end_bar)) * per_bar, timeline_x, right_edge);
+        if (x2 > x1) {
+            const hue = theme.modulation;
+            draw_list.addRectFilled(.{
+                .pmin = .{ x1, origin[1] + ruler_h - 5 },
+                .pmax = .{ x2, origin[1] + ruler_h },
+                .col = color(.{ hue[0], hue[1], hue[2], 0.85 * alpha }),
+            });
+            draw_list.addRectFilled(.{
+                .pmin = .{ x1, origin[1] + ruler_h },
+                .pmax = .{ x2, origin[1] + canvas_h },
+                .col = color(.{ hue[0], hue[1], hue[2], 0.08 * alpha }),
+            });
+            for ([2]f32{ x1, x2 }) |x| {
+                if (x <= timeline_x or x >= right_edge) continue;
+                draw_list.addLine(.{
+                    .p1 = .{ x, origin[1] },
+                    .p2 = .{ x, origin[1] + canvas_h },
+                    .col = color(.{ hue[0], hue[1], hue[2], 0.7 * alpha }),
+                    .thickness = 2,
+                });
+            }
+        }
+    }
+
     for (app.core.session.project.sections.items) |section| {
         const x = timeline_x + @as(f32, @floatFromInt(section.tick)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
         if (x < timeline_x or x > origin[0] + canvas_w) continue;
