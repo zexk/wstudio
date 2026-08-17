@@ -686,7 +686,7 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21, .depth = 0.45 },
             .{ .source = .velocity, .dest = 21, .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 3 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
         }),
         .gain = 0.26,
     }, .fx = &.{

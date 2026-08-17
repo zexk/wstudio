@@ -1406,6 +1406,11 @@ fn buildPresetFxChain(
     s: *PolySynth,
     fx: *Fx,
     sr: u32,
+    /// Which rows carried a slot placeholder when the preset was authored.
+    /// Taken before the legacy pass runs, because afterwards the two are
+    /// indistinguishable: it stamps real instance ids into the same field,
+    /// and a small one reads exactly like a slot number.
+    placeholder: *const [PolySynth.max_mod_rows]bool,
 ) !void {
     if (specs.len == 0) return;
     var ids: [PolySynth.max_mod_rows]u32 = @splat(0);
@@ -1414,8 +1419,8 @@ fn buildPresetFxChain(
         for (spec.params) |p| fx_params.setParamAbsolute(&unit.payload, p.idx, p.value);
         if (i < ids.len) ids[i] = unit.instance_id;
     }
-    for (&s.mod_matrix) |*row| {
-        if (row.source == .none or row.fx_instance_id == 0) continue;
+    for (&s.mod_matrix, 0..) |*row, i| {
+        if (row.source == .none or row.fx_instance_id == 0 or !placeholder[i]) continue;
         const slot = row.fx_instance_id - 1;
         if (slot < specs.len and slot < ids.len) row.fx_instance_id = ids[slot];
     }
@@ -1456,13 +1461,15 @@ fn applySynthPatchInner(
     const synth = &rack.instrument.poly_synth;
     var probe = synth.*;
     probe.applyPatch(patch);
+    var placeholder: [PolySynth.max_mod_rows]bool = @splat(false);
+    for (probe.mod_matrix, 0..) |row, i| placeholder[i] = row.fx_instance_id != 0;
     var replacement: Fx = .{};
     buildPresetFx(allocator, &patch, &probe, &replacement, sr) catch |err| {
         replacement.deinit(allocator);
         return err;
     };
     errdefer replacement.deinit(allocator);
-    try buildPresetFxChain(allocator, specs, &probe, &replacement, sr);
+    try buildPresetFxChain(allocator, specs, &probe, &replacement, sr, &placeholder);
     try synth.applyPatchWithWavetables(patch);
     // `buildPresetFx` bound every row that modulates an FX param to the
     // unit it created for that param, but it ran against `probe` - the whole
