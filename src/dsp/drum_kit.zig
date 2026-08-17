@@ -130,8 +130,13 @@ pub const SnareParams = struct {
 /// Two-detuned-sine "shell" tone, exponentially decaying - shared by
 /// snareGen and rimGen. Advances and wraps the caller's own phase
 /// accumulators (`p1`/`p2`) in place.
-fn twoToneBody(p1: *f32, p2: *f32, hz1: f32, hz2: f32, srf: f32, t: f32, decay: f32) f32 {
-    const tone = (@sin(tau * p1.*) * 0.6 + @sin(tau * p2.*) * 0.4) * expEnv(t, decay);
+///
+/// `decay2` is the upper partial's own rate. On anything struck, the higher
+/// mode is damped harder and dies first, which is why a drum reads as a drum
+/// and not as a two-note chime; passing the same rate for both (what every
+/// caller did before percussion needed otherwise) keeps the old behaviour.
+fn twoToneBody(p1: *f32, p2: *f32, hz1: f32, hz2: f32, srf: f32, t: f32, decay: f32, decay2: f32) f32 {
+    const tone = @sin(tau * p1.*) * 0.6 * expEnv(t, decay) + @sin(tau * p2.*) * 0.4 * expEnv(t, decay2);
     p1.* += hz1 / srf;
     p2.* += hz2 / srf;
     if (p1.* >= 1.0) p1.* -= 1.0;
@@ -156,7 +161,7 @@ fn snareGen(allocator: std.mem.Allocator, sr: u32, p: SnareParams) std.mem.Alloc
     for (buf, 0..) |*s, i| {
         const t = @as(f32, @floatFromInt(i)) / srf;
         // Shell: two detuned sines, fast decay.
-        const tone = twoToneBody(&p1, &p2, p.tone1_hz, p.tone2_hz, srf, t, p.tone_decay);
+        const tone = twoToneBody(&p1, &p2, p.tone1_hz, p.tone2_hz, srf, t, p.tone_decay, p.tone_decay);
         // Snare buzz: noise band-passed ~0.9–8.5 kHz, slightly longer decay.
         const n = rand.float(f32) * 2.0 - 1.0;
         const noise = hp.hp(lp.lp(n, lp_a), hp_a) * expEnv(t, p.noise_decay);
@@ -304,6 +309,10 @@ pub const PercParams = struct {
     body_decay: f32 = 30.0,
     slap_decay: f32 = 220.0,
     slap_mix: f32 = 0.4,
+    /// The upper partial's decay as a multiple of `body_decay`. A struck
+    /// membrane's (1,1) mode is damped harder than its fundamental and dies
+    /// first; 1.0 is the old behaviour, where both rang equally.
+    tone2_decay_mul: f32 = 1.0,
     drive: f32 = 1.6,
     dur_s: f32 = 0.16,
     seed: u64,
@@ -323,7 +332,7 @@ fn percGen(allocator: std.mem.Allocator, sr: u32, p: PercParams) std.mem.Allocat
     const hp_a = cutoffAlpha(2200.0, srf);
     for (buf, 0..) |*s, i| {
         const t = @as(f32, @floatFromInt(i)) / srf;
-        const body = twoToneBody(&p1, &p2, p.tone1_hz, p.tone2_hz, srf, t, p.body_decay);
+        const body = twoToneBody(&p1, &p2, p.tone1_hz, p.tone2_hz, srf, t, p.body_decay, p.body_decay * p.tone2_decay_mul);
         const slap = hp.hp(rand.float(f32) * 2.0 - 1.0, hp_a) * expEnv(t, p.slap_decay) * p.slap_mix;
         s.* = saturate((body + slap) * p.drive, 1.0);
     }
@@ -337,6 +346,9 @@ pub const RimParams = struct {
     tone1_hz: f32 = 1720.0,
     tone2_hz: f32 = 1130.0,
     tone_decay: f32 = 150.0,
+    /// As `PercParams.tone2_decay_mul` - a struck bar's upper mode dies first
+    /// too, and by more, since it is nearly three times the frequency.
+    tone2_decay_mul: f32 = 1.0,
     click_decay: f32 = 320.0,
     drive: f32 = 1.8,
     dur_s: f32 = 0.08,
@@ -353,7 +365,7 @@ fn rimGen(allocator: std.mem.Allocator, sr: u32, p: RimParams) std.mem.Allocator
     var p2: f32 = 0;
     for (buf, 0..) |*s, i| {
         const t = @as(f32, @floatFromInt(i)) / srf;
-        const tone = twoToneBody(&p1, &p2, p.tone1_hz, p.tone2_hz, srf, t, p.tone_decay);
+        const tone = twoToneBody(&p1, &p2, p.tone1_hz, p.tone2_hz, srf, t, p.tone_decay, p.tone_decay * p.tone2_decay_mul);
         const click = (rand.float(f32) * 2.0 - 1.0) * expEnv(t, p.click_decay) * 0.5;
         s.* = saturate((tone + click) * p.drive, 1.0);
     }
@@ -1740,38 +1752,70 @@ pub const variants = [_]KitVariant{
     // metal, the shakers, and a surdo underneath it all. Meant to be layered
     // under another machine, not played on its own.
     //
-    // Pitches are the common Afro-Cuban tuning (tumba D3 / conga G3 / quinto
-    // C4, bongos a fifth apart above them) and the cowbell is the classic
-    // 587/845 Hz pair - a 1:1.44 ratio, which is what makes it read as a bell
-    // rather than a pitched drum.
+    // The pitches are the common Afro-Cuban tuning - tumba D3, conga G3,
+    // quinto C4, bongos above them, timbales a fourth apart, which is the
+    // interval that pair is tuned to. What the first version got wrong was
+    // everything above the fundamental: every drum here had its second
+    // partial at a perfect fifth, which is a chord, not a drum. A struck
+    // circular membrane's next mode is the (1,1) at 1.593x, and it is damped
+    // harder than the fundamental, so it dies first - that ratio and that
+    // faster decay are most of what separates a drum from a two-note chime.
+    // The struck bars work the same way with different numbers: a free bar's
+    // second mode sits at 2.76x, which is why claves and woodblocks read as
+    // wood rather than as pitched percussion.
     .{
         .name = "percussion",
         .category = "percussion",
         .tags = &.{ "wstudio", "latin", "afro-cuban" },
         .pads = .{
-            .{ .name = "tumba", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 147.0, .tone2_hz = 220.0, .body_decay = 26.0, .slap_mix = 0.3, .drive = 1.5, .dur_s = 0.3, .seed = 0x811 } }, .gain = 0.90 },
-            .{ .name = "conga", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 196.0, .tone2_hz = 294.0, .body_decay = 30.0, .slap_mix = 0.35, .drive = 1.5, .dur_s = 0.26, .seed = 0x812 } }, .gain = 0.88 },
-            .{ .name = "quinto", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 262.0, .tone2_hz = 393.0, .body_decay = 34.0, .slap_mix = 0.4, .drive = 1.5, .dur_s = 0.22, .seed = 0x813 } }, .gain = 0.86 },
-            // Same drum as the quinto, struck at the edge: the body barely speaks
-            // and the slap carries it, which is the whole difference in the hand.
-            .{ .name = "slap", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 262.0, .tone2_hz = 393.0, .body_decay = 40.0, .slap_mix = 0.9, .drive = 2.4, .dur_s = 0.16, .seed = 0x814 } }, .gain = 0.84 },
-            .{ .name = "bongo-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 330.0, .tone2_hz = 495.0, .body_decay = 45.0, .slap_mix = 0.5, .drive = 1.7, .dur_s = 0.16, .seed = 0x815 } }, .gain = 0.82 },
-            .{ .name = "bongo-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 494.0, .tone2_hz = 740.0, .body_decay = 55.0, .slap_mix = 0.55, .drive = 1.7, .dur_s = 0.13, .seed = 0x816 } }, .gain = 0.80 },
-            .{ .name = "timbale-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 300.0, .tone2_hz = 450.0, .body_decay = 30.0, .slap_mix = 0.5, .drive = 2.6, .dur_s = 0.3, .seed = 0x817 } }, .gain = 0.84 },
-            .{ .name = "timbale-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 400.0, .tone2_hz = 600.0, .body_decay = 36.0, .slap_mix = 0.55, .drive = 2.6, .dur_s = 0.25, .seed = 0x818 } }, .gain = 0.82 },
-            // Struck wood: two sines and no resonance, gone in 50 ms.
-            .{ .name = "clave", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 2500.0, .tone2_hz = 1250.0, .tone_decay = 200.0, .click_decay = 500.0, .drive = 1.4, .dur_s = 0.05 } }, .gain = 0.70 },
-            .{ .name = "woodblock", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 1600.0, .tone2_hz = 2400.0, .tone_decay = 170.0, .click_decay = 420.0, .drive = 1.6, .dur_s = 0.06 } }, .gain = 0.70 },
+            // Open tones, which are what a conga is tuned by: the drum rings
+            // on after the hand leaves. The old set decayed in under a tenth
+            // of a second, which is a muffled tone, not an open one.
+            .{ .name = "tumba", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 147.0, .tone2_hz = 234.0, .body_decay = 11.0, .tone2_decay_mul = 2.2, .slap_mix = 0.22, .drive = 1.4, .dur_s = 0.5, .seed = 0x811 } }, .gain = 0.90 },
+            .{ .name = "conga", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 196.0, .tone2_hz = 312.0, .body_decay = 13.0, .tone2_decay_mul = 2.2, .slap_mix = 0.25, .drive = 1.4, .dur_s = 0.45, .seed = 0x812 } }, .gain = 0.88 },
+            .{ .name = "quinto", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 262.0, .tone2_hz = 417.0, .body_decay = 16.0, .tone2_decay_mul = 2.2, .slap_mix = 0.3, .drive = 1.4, .dur_s = 0.38, .seed = 0x813 } }, .gain = 0.86 },
+            // Same drum as the quinto, struck at the edge with a cupped hand:
+            // the head is choked, so the tone barely speaks and the crack
+            // carries it. That crack is the reason the drum can be heard over
+            // a band at all.
+            .{ .name = "slap", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 262.0, .tone2_hz = 417.0, .body_decay = 55.0, .tone2_decay_mul = 2.2, .slap_decay = 260.0, .slap_mix = 0.95, .drive = 2.6, .dur_s = 0.14, .seed = 0x814 } }, .gain = 0.84 },
+            // Bongos are small, high and quick - the hembra sits around E4
+            // and the macho around B4, and neither rings anywhere near as
+            // long as a conga.
+            .{ .name = "bongo-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 330.0, .tone2_hz = 526.0, .body_decay = 26.0, .tone2_decay_mul = 2.4, .slap_mix = 0.4, .drive = 1.6, .dur_s = 0.24, .seed = 0x815 } }, .gain = 0.82 },
+            .{ .name = "bongo-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 494.0, .tone2_hz = 787.0, .body_decay = 32.0, .tone2_decay_mul = 2.4, .slap_mix = 0.45, .drive = 1.6, .dur_s = 0.2, .seed = 0x816 } }, .gain = 0.80 },
+            // Timbales are the odd pair here: a thin, high-tension head on a
+            // metal shell, so the shell rings with the head instead of
+            // swallowing it. They keep the fourth between them and hold their
+            // upper partial far longer than a hide drum does.
+            .{ .name = "timbale-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 300.0, .tone2_hz = 478.0, .body_decay = 14.0, .tone2_decay_mul = 1.5, .slap_mix = 0.45, .drive = 2.2, .dur_s = 0.45, .seed = 0x817 } }, .gain = 0.84 },
+            .{ .name = "timbale-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 400.0, .tone2_hz = 637.0, .body_decay = 16.0, .tone2_decay_mul = 1.5, .slap_mix = 0.5, .drive = 2.2, .dur_s = 0.4, .seed = 0x818 } }, .gain = 0.82 },
+            // Rosewood bars: a fundamental around 1.2 kHz with the bar's
+            // second mode at 2.76x, and they ring - a quarter of a second,
+            // not the 50 ms click the drum machines make of them.
+            .{ .name = "clave", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 1200.0, .tone2_hz = 3312.0, .tone_decay = 18.0, .tone2_decay_mul = 3.5, .click_decay = 500.0, .drive = 1.3, .dur_s = 0.25 } }, .gain = 0.70 },
+            // A slit block is hollower and lower than a clave and damped by
+            // the hand that holds it, so the same bar ratio over a shorter
+            // ring.
+            .{ .name = "woodblock", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 900.0, .tone2_hz = 2484.0, .tone_decay = 42.0, .tone2_decay_mul = 3.0, .click_decay = 420.0, .drive = 1.5, .dur_s = 0.14 } }, .gain = 0.70 },
+            // Struck metal, where the partials are inharmonic and both ring:
+            // the cowbell's classic 587/845 pair (1:1.44) and the agogo's
+            // higher, brighter one. No decay multiplier - a bell's upper
+            // partial is exactly what sustains.
             .{ .name = "cowbell", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 587.0, .tone2_hz = 845.0, .tone_decay = 16.0, .click_decay = 90.0, .drive = 1.6, .dur_s = 0.32 } }, .gain = 0.66 },
             .{ .name = "agogo", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 780.0, .tone2_hz = 1170.0, .tone_decay = 14.0, .click_decay = 120.0, .drive = 1.5, .dur_s = 0.38 } }, .gain = 0.64 },
-            // Shakers are the hat generator with its metal cluster filtered out
-            // of the way (body_hz well above the partials), leaving the air path
-            // as the whole sound - which is what a shaker is.
+            // Shakers are the hat generator with its metal cluster filtered
+            // out of the way (body_hz well above the partials), leaving the
+            // air path as the whole sound - which is what a shaker is.
             .{ .name = "shaker", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.07, .decay = 60.0, .body_hz = 14_000.0, .air_hz = 5000.0, .air_mix = 1.0 } }, .gain = 0.56 },
             .{ .name = "cabasa", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.05, .decay = 90.0, .body_hz = 14_000.0, .air_hz = 7000.0, .air_mix = 1.0 } }, .gain = 0.54 },
             // Tambourine keeps some cluster: the jingles are the metal part.
             .{ .name = "tambourine", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.34, .decay = 11.0, .body_hz = 8000.0, .air_hz = 7500.0, .air_mix = 0.8, .attack_mix = 0.5 } }, .gain = 0.52 },
-            .{ .name = "surdo", .kind = .tom, .params = .{ .tom = .{ .freq_start = 110.0, .freq_end = 78.0, .dur_s = 0.7, .body_decay = 5.0, .attack_decay = 100.0, .drive = 1.8, .attack_mix = 0.12, .seed = 0x819 } }, .gain = 0.92 },
+            // A surdo is a 16-20 inch drum carried on a strap and struck with
+            // a beater: its fundamental sits under 100 Hz, well below where
+            // the old 110 Hz sweep started, and an open stroke rings for the
+            // best part of a second.
+            .{ .name = "surdo", .kind = .tom, .params = .{ .tom = .{ .freq_start = 95.0, .freq_end = 62.0, .dur_s = 0.85, .body_decay = 4.0, .attack_decay = 100.0, .drive = 1.8, .attack_mix = 0.12, .seed = 0x819 } }, .gain = 0.92 },
         },
     },
 };
@@ -1901,3 +1945,35 @@ test "the noise register runs the two sequence lengths the hardware has" {
     }
 }
 
+
+
+test "the percussion kit's partials are the ones its instruments have" {
+    // The numbers this kit was rebuilt on: a struck circular membrane's next
+    // mode after the fundamental is the (1,1) at 1.593x, and a free bar's is
+    // at 2.76x. Both are easy to "tidy" back into a musical interval by
+    // someone reading the table later, and a perfect fifth is exactly what
+    // was wrong with the first version of these pads.
+    const v = byName("percussion").?;
+    var membranes: usize = 0;
+    var bars: usize = 0;
+    for (v.pads) |slot| {
+        switch (slot.kind orelse continue) {
+            .perc => {
+                const p = slot.params.perc;
+                try std.testing.expectApproxEqRel(@as(f32, 1.593), p.tone2_hz / p.tone1_hz, 0.01);
+                membranes += 1;
+            },
+            .rim => {
+                // The bells are struck metal, not bars: inharmonic partials
+                // that both ring, which is why they are exempt here.
+                if (std.mem.eql(u8, slot.name, "cowbell") or std.mem.eql(u8, slot.name, "agogo")) continue;
+                const p = slot.params.rim;
+                try std.testing.expectApproxEqRel(@as(f32, 2.76), p.tone2_hz / p.tone1_hz, 0.01);
+                bars += 1;
+            },
+            else => {},
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 8), membranes); // 3 congas + slap + 2 bongos + 2 timbales
+    try std.testing.expectEqual(@as(usize, 2), bars); // clave, woodblock
+}
