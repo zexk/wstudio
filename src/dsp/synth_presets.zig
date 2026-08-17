@@ -1342,7 +1342,16 @@ pub const presets = [_]Preset{
         .filter2_on = true, .filter2_type = .lp, .filter2_cutoff = 3500.0, .filter2_res = 0.1, .filter_routing = .series,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.08, .fenv_sustain = 0.0, .fenv_release_s = 0.05, .fenv_curve = 0.72,
         .mod_matrix = mods(&.{
+            // Oshide: the player presses the string left of the bridge after
+            // plucking, bending the note up by a half or whole step. That is a
+            // gesture, not a setting, so it belongs on the wheel - a whole
+            // step at the top of its travel.
+            .{ .source = .wheel, .dest = dP, .depth = 0.1667 },
             .{ .source = .keytrack, .dest = 21, .depth = 1.0 },
+            // The comb (the string body) already follows the note; the lowpass
+            // after it did not, so the patch measured DARKER as it was played
+            // up, which is backwards for a plucked string.
+            .{ .source = .keytrack, .dest = 47, .depth = 0.7 },
             .{ .source = .fenv,     .dest = 47, .depth = 0.5 },
             .{ .source = .velocity, .dest = 36, .depth = 0.1 },
             .{ .source = .mac1,     .dest = 47, .depth = 0.4 },
