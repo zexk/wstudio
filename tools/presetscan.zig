@@ -119,10 +119,21 @@ const Row = struct {
 // ---------------------------------------------------------------------------
 // Rendering
 
+/// Renders through a whole Rack, not a bare PolySynth. A patch's `fx_*`
+/// fields are not synth parameters at all - nothing in the DSP layer reads
+/// them - they are instructions for building the rack's insert chain, which
+/// `applySynthPatch` does. Rendering the synth alone therefore measured every
+/// preset dry, and a preset whose identity IS its chain (a tape-degraded pad,
+/// a reverb-tail rumble, anything driven) measured as its bare oscillators.
 fn render(allocator: std.mem.Allocator, patch: Patch, note: u7, vel: f32) ![]Sample {
-    var synth = try PolySynth.init(allocator, sample_rate);
-    defer synth.deinit();
-    try synth.applyPatchWithWavetables(patch);
+    var rack = ws.Rack{
+        .instrument = .{ .poly_synth = try PolySynth.init(allocator, sample_rate) },
+        .label = "presetscan",
+    };
+    defer rack.deinit(allocator);
+    var displaced = try ws.persist.applySynthPatch(allocator, &rack, patch, sample_rate);
+    displaced.deinit(allocator);
+    const synth = &rack.instrument.poly_synth;
 
     const srf: f32 = @floatFromInt(sample_rate);
     const hold_frames: usize = @intFromFloat(hold_s * srf);
@@ -136,7 +147,9 @@ fn render(allocator: std.mem.Allocator, patch: Patch, note: u7, vel: f32) ![]Sam
         var n: usize = @min(block_frames, total_frames - done);
         // Never straddle the note-off: it lands on a block boundary.
         if (done < hold_frames) n = @min(n, hold_frames - done);
-        synth.processBlock(buf[done * 2 ..][0 .. n * 2]);
+        const chunk = buf[done * 2 ..][0 .. n * 2];
+        synth.processBlock(chunk);
+        for (rack.fx.units.items) |unit| unit.device().process(chunk);
         done += n;
         if (done == hold_frames) synth.noteOff(note);
     }
