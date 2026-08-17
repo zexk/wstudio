@@ -111,6 +111,11 @@ const Features = struct {
     /// headroom, and any patch that ends with a non-zero level clicks when
     /// the voice is cut.
     dc: f32 = 0,
+    /// BS.1770 integrated loudness of the whole render. RMS cannot answer
+    /// "do these presets sit at the same level": it counts sub energy the
+    /// ear does not, so an 808 reads 15 dB over a lead that sounds louder.
+    /// K-weighting is the correction, and it is already in the codebase.
+    lufs: f32 = 0,
 };
 
 const Row = struct {
@@ -207,6 +212,11 @@ fn analyze(allocator: std.mem.Allocator, buf: []const Sample) !Features {
     }
     f.rms = rmsOf(buf);
     f.crest = if (f.rms > 1e-9) f.peak / f.rms else 0;
+    {
+        var meter = ws.dsp.meter.LoudnessMeter.init(sample_rate);
+        meter.push(buf);
+        f.lufs = meter.integrated();
+    }
     if (f.peak < 1e-6) return f; // silent patch: the rest would be noise
 
     {
@@ -685,7 +695,7 @@ pub fn main(init: std.process.Init) !void {
     try w.print("# up to {d:.0} Hz, and above. cmod/amod are how far the centroid (octaves)\n", .{band_edges[band_edges.len - 1]});
     try w.print("# and the level wander while the note is held: 0 is a static sound.\n", .{});
     try w.print("# nearest_* are the closest other preset by patch fields and by measured sound.\n\n", .{});
-    try w.print("name\tcategory\ttags\tpeak\trms\tcrest\tattack_ms\tsustain\trelease_ms\tcentroid\tflatness", .{});
+    try w.print("name\tcategory\ttags\tpeak\trms\tlufs\tcrest\tattack_ms\tsustain\trelease_ms\tcentroid\tflatness", .{});
     for (0..band_count) |i| try w.print("\tb{d}", .{i + 1});
     try w.print("\twidth\tlow_w\tcmod\tamod\tdc\tvel_db\tvel_tone\tlo_db\thi_db\ttrack\tmods\tfx\tarp\tnearest_patch\tpatch_d\tnearest_audio\taudio_d\n", .{});
     for (rows.items) |r| {
@@ -695,9 +705,10 @@ pub fn main(init: std.process.Init) !void {
             if (i > 0) try w.print(",", .{});
             try w.print("{s}", .{t});
         }
-        try w.print("\t{d:.3}\t{d:.4}\t{d:.1}\t{d:.0}\t{d:.2}\t{d:.0}\t{d:.0}\t{d:.3}", .{
-            f.peak,    f.rms,        f.crest,       f.attack_ms,
-            f.sustain, f.release_ms, f.centroid_hz, f.flatness,
+        try w.print("\t{d:.3}\t{d:.4}\t{d:.1}\t{d:.1}\t{d:.0}\t{d:.2}\t{d:.0}\t{d:.0}\t{d:.3}", .{
+            f.peak,     f.rms,        f.lufs,        f.crest,
+            f.attack_ms, f.sustain,   f.release_ms,  f.centroid_hz,
+            f.flatness,
         });
         for (f.bands) |b| try w.print("\t{d:.2}", .{b});
         try w.print("\t{d:.2}\t{d:.2}\t{d:.2}\t{d:.2}\t{d:.3}\t{d:.1}\t{d:.2}\t{d:.1}\t{d:.1}\t{d:.2}\t{d}\t{d}\t{s}\t{s}\t{d:.3}\t{s}\t{d:.3}\n", .{
