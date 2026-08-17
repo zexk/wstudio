@@ -2360,7 +2360,7 @@ test "a synth preset replaces the whole FX chain and rebinds its mod rows" {
         if (std.mem.eql(u8, p.name, "warm-pad")) break p;
     } else return error.PresetMissing;
     {
-        var old = try applySynthPatch(testing.allocator, &rack, warm.patch, 48_000);
+        var old = try applySynthPreset(testing.allocator, &rack, warm, 48_000);
         old.deinit(testing.allocator);
     }
     const reverb = rack.fx.find(.reverb).?;

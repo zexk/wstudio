@@ -470,6 +470,8 @@ fn audioDistance(a: [probes.len]Features, b: [probes.len]Features, scales: [audi
 
 // ---------------------------------------------------------------------------
 
+/// Legacy `fx_*` carriers still count, but the library declares its chain
+/// generically now, so the preset's own list is the bulk of it.
 fn countFx(p: Patch) usize {
     @setEvalBranchQuota(50_000);
     var n: usize = 0;
@@ -565,7 +567,7 @@ pub fn main(init: std.process.Init) !void {
             .patch = p.patch,
             .f = features,
             .mod_rows = countModRows(p.patch),
-            .fx_count = countFx(p.patch),
+            .fx_count = countFx(p.patch) + p.fx.len,
             .arp = p.patch.arp_on,
         });
     }

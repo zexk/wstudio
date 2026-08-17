@@ -115,11 +115,12 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = 21,  .depth = 0.06 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
         }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.5, .fx_chorus_depth_ms = 5.0, .fx_chorus_mix = 0.4,
-        .fx_reverb_on = true, .fx_reverb_room = 0.75, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.25,
         .gain = 0.3,
+    }, .fx = &.{
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 1, .value = 5 }, .{ .idx = 2, .value = 0.4 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.75 }, .{ .idx = 1, .value = 0.4 }, .{ .idx = 2, .value = 0.25 } } },
     } },
 
     // pluck - ladder filter, velocity + keytrack into cutoff, dotted echo
@@ -132,10 +133,11 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac3,     .dest = 111, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.35, .fx_delay_mix = 0.25,
         .gain = 0.35,
+    }, .fx = &.{
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.375 } } },
     } },
 
     // sub-bass - pure sine kept pure; light drive adds the harmonics small
@@ -149,10 +151,11 @@ pub const presets = [_]Preset{
             .{ .source = .keytrack, .dest = 21, .depth = 0.2 },
             .{ .source = .random,   .dest = 21, .depth = 0.015 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
-            .{ .source = .mac4,     .dest = 85, .depth = 0.5 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.5, .fx_instance_id = 1 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 6.0, .fx_dist_mix = 0.15,
         .gain = 0.44,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 6 }, .{ .idx = 2, .value = 0.15 } } },
     } },
 
     // acid-bass - diode ladder (the 303-family filter), overdriven, with
@@ -169,10 +172,11 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21, .depth = 0.5 },
             .{ .source = .mac2,     .dest = 22, .depth = 0.25 },
             .{ .source = .mac4,     .dest = 249, .depth = 0.35 },
-            .{ .source = .mac4,     .dest = 85, .depth = 0.4 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 10.0, .fx_dist_mix = 0.5,
         .gain = 1.0,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 10 }, .{ .idx = 2, .value = 0.5 } } },
     } },
 
     // brass-stab - third osc a sub octave down for weight, velocity opens
@@ -188,10 +192,11 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21, .depth = 0.625 },
             .{ .source = .velocity, .dest = 21, .depth = 0.4 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.5 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
         }),
-        .fx_reverb_on = true, .fx_reverb_room = 0.55, .fx_reverb_damp = 0.45, .fx_reverb_mix = 0.12,
         .gain = 0.32,
+    }, .fx = &.{
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.55 }, .{ .idx = 1, .value = 0.45 }, .{ .idx = 2, .value = 0.12 } } },
     } },
 
     // supersaw-lead - HP'd like the JP-8000's stack, macro 1 rides the
@@ -204,13 +209,14 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .random, .dest = dP,  .depth = 0.003 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac3, .dest = 111, .depth = 0.4 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 2 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.4, .fx_delay_mix = 0.28,
-        .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.22,
         .gain = 0.53,
+    }, .fx = &.{
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.375 }, .{ .idx = 1, .value = 0.4 }, .{ .idx = 2, .value = 0.28 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 0.35 }, .{ .idx = 2, .value = 0.22 } } },
     } },
 
     // bell-fm - velocity drives FM depth (hard hits ring brighter), plate
@@ -224,10 +230,11 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 15,  .depth = 0.15 },
             .{ .source = .random,   .dest = 15,  .depth = 0.025 },
             .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_reverb_on = true, .fx_reverb_room = 0.8, .fx_reverb_damp = 0.3, .fx_reverb_mix = 0.3,
         .gain = 0.3,
+    }, .fx = &.{
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.8 }, .{ .idx = 1, .value = 0.3 } } },
     } },
 
     // wobble-bass - wavetable osc so the LFO scans timbre in step with the
@@ -261,10 +268,11 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = 185, .depth = 0.3 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac2, .dest = 185, .depth = 0.4 },
-            .{ .source = .mac4, .dest = 85,  .depth = 0.4 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 12.0, .fx_dist_mix = 0.4,
         .gain = 0.69,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 2, .value = 0.4 } } },
     } },
 
     // wind-riser - chaos LFO stirs the bandpass, ENV 3's slow ramp bends
@@ -279,10 +287,11 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = 21, .depth = 0.25 },
             .{ .source = .env3, .dest = dP, .depth = 0.4 },
             .{ .source = .mac1, .dest = 21, .depth = 0.5 },
-            .{ .source = .mac3, .dest = 94, .depth = 0.3 },
+            .{ .source = .mac3, .dest = 3, .depth = 0.3, .fx_instance_id = 1 },
         }),
-        .fx_flanger_on = true, .fx_flanger_rate_hz = 0.15, .fx_flanger_depth = 0.9, .fx_flanger_feedback = 0.6, .fx_flanger_mix = 0.5,
         .gain = 0.28,
+    }, .fx = &.{
+        .{ .kind = .flanger, .params = &.{ .{ .idx = 0, .value = 0.15 }, .{ .idx = 1, .value = 0.9 }, .{ .idx = 2, .value = 0.6 } } },
     } },
 
     // dusty-pad - bit-crush dust + tape-wobble pitch drift from LFO 2,
@@ -300,12 +309,13 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = 21,  .depth = 0.04 },
             .{ .source = .lfo2, .dest = dP,  .depth = 0.015 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
-            .{ .source = .mac4, .dest = 89,  .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_crush_on = true, .fx_crush_bits = 12.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.25,
-        .fx_reverb_on = true, .fx_reverb_room = 0.65, .fx_reverb_damp = 0.55, .fx_reverb_mix = 0.2,
         .gain = 0.25,
+    }, .fx = &.{
+        .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 12 }, .{ .idx = 1, .value = 2 }, .{ .idx = 2, .value = 0.25 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.65 }, .{ .idx = 1, .value = 0.55 }, .{ .idx = 2, .value = 0.2 } } },
     } },
 
     // --- Drum & bass / neurofunk ---
@@ -327,10 +337,7 @@ pub const presets = [_]Preset{
         }),
         .gain = 1.0,
     }, .fx = &.{
-        // The wide detuned saws put the sub off-centre too (measured 0.20
-        // decorrelation below 120 Hz), which cancels on a mono system. This
-        // centres the low band and leaves the body as wide as it was.
-        .{ .kind = .utility, .params = &.{ .{ .idx = 11, .value = 120.0 } } },
+        .{ .kind = .utility, .params = &.{ .{ .idx = 11, .value = 120 } } },
     } },
 
     // neuro-bass - wavetable osc with sample&hold timbre flicker, formant
@@ -352,11 +359,12 @@ pub const presets = [_]Preset{
             .{ .source = .lfo2, .dest = 185, .depth = 0.2 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac2, .dest = 47,  .depth = 0.4 },
-            .{ .source = .mac4, .dest = 85,  .depth = 0.3 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 2 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 14.0, .fx_dist_mix = 0.5,
-        .fx_ott_on = true, .fx_ott_depth = 0.6, .fx_ott_gain_out_db = -8.0,
         .gain = 0.21,
+    }, .fx = &.{
+        .{ .kind = .ott, .params = &.{ .{ .idx = 0, .value = 0.6 }, .{ .idx = 3, .value = -8 } } },
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 14 }, .{ .idx = 2, .value = 0.5 } } },
     } },
 
     // --- Psytrance / Goa ---
@@ -372,11 +380,12 @@ pub const presets = [_]Preset{
             .{ .source = .fenv, .dest = 21,  .depth = 0.7 },
             .{ .source = .lfo,  .dest = dP,  .depth = 0.02 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac3, .dest = 111, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.16, .fx_delay_feedback = 0.45, .fx_delay_mix = 0.3,
         .gain = 1.0,
+    }, .fx = &.{
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.16 }, .{ .idx = 1, .value = 0.45 }, .{ .idx = 2, .value = 0.3 } } },
     } },
 
     // --- Techno / Detroit ---
@@ -391,10 +400,11 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21,  .depth = 0.45 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.35 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_reverb_on = true, .fx_reverb_room = 0.5, .fx_reverb_damp = 0.5, .fx_reverb_mix = 0.18,
         .gain = 0.3,
+    }, .fx = &.{
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 1, .value = 0.5 }, .{ .idx = 2, .value = 0.18 } } },
     } },
 
     // techno-bass - ladder filter + drive for the warehouse thump
@@ -408,11 +418,12 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21, .depth = 0.3 },
             .{ .source = .velocity, .dest = 21, .depth = 0.2 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
-            .{ .source = .mac4,     .dest = 85, .depth = 0.4 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.4, .fx_instance_id = 1 },
             .{ .source = .mac4,     .dest = 249, .depth = 0.3 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 8.0, .fx_dist_mix = 0.3,
         .gain = 1.0,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 8 }, .{ .idx = 2, .value = 0.3 } } },
     } },
 
     // --- House / disco / funk ---
@@ -447,8 +458,9 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 22, .depth = 0.2 },
         }),
-        .fx_comp_on = true, .fx_comp_threshold_db = -18.0, .fx_comp_ratio = 3.0, .fx_comp_attack_ms = 10.0, .fx_comp_release_ms = 100.0,
         .gain = 0.29,
+    }, .fx = &.{
+        .{ .kind = .comp, .params = &.{ .{ .idx = 1, .value = 3 }, .{ .idx = 3, .value = 100 } } },
     } },
 
     // funk-clav - the classic clav-through-phaser, velocity + keytrack
@@ -463,10 +475,11 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.4 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac3,     .dest = 107, .depth = 0.3 },
+            .{ .source = .mac3, .dest = 3, .depth = 0.3, .fx_instance_id = 1 },
         }),
-        .fx_phaser_on = true, .fx_phaser_rate_hz = 0.5, .fx_phaser_depth = 0.8, .fx_phaser_feedback = 0.5, .fx_phaser_mix = 0.45,
         .gain = 0.32,
+    }, .fx = &.{
+        .{ .kind = .phaser, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 1, .value = 0.8 }, .{ .idx = 3, .value = 0.45 } } },
     } },
 
     // --- Synthwave / retro 80s ---
@@ -484,12 +497,13 @@ pub const presets = [_]Preset{
             .{ .source = .env3, .dest = 42,  .depth = 0.4 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac2, .dest = 42,  .depth = 0.4 },
-            .{ .source = .mac3, .dest = 111, .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 2 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.4, .fx_delay_mix = 0.3,
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.7, .fx_chorus_depth_ms = 3.5, .fx_chorus_mix = 0.3,
         .gain = 0.34,
+    }, .fx = &.{
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 3.5 }, .{ .idx = 2, .value = 0.3 } } },
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.375 }, .{ .idx = 1, .value = 0.4 }, .{ .idx = 2, .value = 0.3 } } },
     } },
 
     // retro-brass - Juno-style chorus is the whole trick, velocity swells
@@ -507,10 +521,11 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.35 },
             .{ .source = .random,   .dest = dP,  .depth = 0.004 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac3,     .dest = 179, .depth = 0.3 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
         }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.8, .fx_chorus_depth_ms = 5.0, .fx_chorus_mix = 0.35,
         .gain = 0.28,
+    }, .fx = &.{
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 1, .value = 5 }, .{ .idx = 2, .value = 0.35 } } },
     } },
 
     // --- Chiptune / video game ---
@@ -528,11 +543,12 @@ pub const presets = [_]Preset{
             .{ .source = .lfo2, .dest = 185,  .depth = -0.12 },
             .{ .source = .alternate, .dest = 185, .depth = -0.08 },
             .{ .source = .mac2, .dest = 185,  .depth = -0.3 },
-            .{ .source = .mac4, .dest = 89, .depth = 0.4 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 185, .depth = -0.35 },
         }),
-        .fx_crush_on = true, .fx_crush_bits = 8.0, .fx_crush_rate = 4.0, .fx_crush_mix = 0.4,
         .gain = 0.17,
+    }, .fx = &.{
+        .{ .kind = .crush, .params = &.{ .{ .idx = 2, .value = 0.4 } } },
     } },
 
     // chip-bass - crushed hard toward the NES triangle's 4-bit staircase
@@ -541,10 +557,11 @@ pub const presets = [_]Preset{
         .attack_s = 0.001, .decay_s = 0.08, .sustain = 0.9, .release_s = 0.03,
         .filter_type = .lp, .filter_cutoff = 18_000.0, .filter_res = 0.0,
         .mod_matrix = mods(&.{
-            .{ .source = .mac4, .dest = 89, .depth = 0.4 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_crush_on = true, .fx_crush_bits = 4.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.5,
         .gain = 0.67,
+    }, .fx = &.{
+        .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 4 }, .{ .idx = 1, .value = 2 }, .{ .idx = 2, .value = 0.5 } } },
     } },
 
     // chip-arp - the built-in arpeggiator does the work now: hold a chord
@@ -556,10 +573,11 @@ pub const presets = [_]Preset{
         .arp_on = true, .arp_mode = .up, .arp_octaves = 2, .arp_rate_hz = 12.0, .arp_sync = .n1_16, .arp_gate = 0.6,
         .mod_matrix = mods(&.{
             .{ .source = .mac2, .dest = 185,  .depth = -0.3 },
-            .{ .source = .mac4, .dest = 89, .depth = 0.4 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_crush_on = true, .fx_crush_bits = 8.0, .fx_crush_rate = 3.0, .fx_crush_mix = 0.3,
         .gain = 0.3,
+    }, .fx = &.{
+        .{ .kind = .crush, .params = &.{ .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 0.3 } } },
     } },
 
     // --- Ambient / downtempo ---
@@ -578,10 +596,11 @@ pub const presets = [_]Preset{
             .{ .source = .lfo2, .dest = 185, .depth = 0.25 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac2, .dest = 185, .depth = 0.4 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_reverb_on = true, .fx_reverb_room = 0.92, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.45,
         .gain = 0.24,
+    }, .fx = &.{
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.92 }, .{ .idx = 1, .value = 0.35 }, .{ .idx = 2, .value = 0.45 } } },
     } },
 
     // glass-pad - velocity glints the FM depth, chorus + hall around it
@@ -596,11 +615,12 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 15,  .depth = 0.1 },
             .{ .source = .random,   .dest = 15,  .depth = 0.02 },
             .{ .source = .mac2,     .dest = 15,  .depth = 0.2 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
         }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.4, .fx_chorus_depth_ms = 5.0, .fx_chorus_mix = 0.3,
-        .fx_reverb_on = true, .fx_reverb_room = 0.85, .fx_reverb_damp = 0.3, .fx_reverb_mix = 0.4,
         .gain = 0.26,
+    }, .fx = &.{
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.4 }, .{ .idx = 1, .value = 5 }, .{ .idx = 2, .value = 0.3 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.85 }, .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.4 } } },
     } },
 
     // --- Trap ---
@@ -615,10 +635,11 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .env3, .dest = dP, .depth = 0.55 },
             .{ .source = .mac1, .dest = 21, .depth = 0.3 },
-            .{ .source = .mac4, .dest = 85, .depth = 0.4 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 8.0, .fx_dist_mix = 0.2,
         .gain = 0.45,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 8 }, .{ .idx = 2, .value = 0.2 } } },
     } },
 
     // --- Acid (open lead voicing) ---
@@ -634,13 +655,14 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.5 },
             .{ .source = .mac2,     .dest = 22,  .depth = 0.25 },
-            .{ .source = .mac3,     .dest = 111, .depth = 0.3 },
-            .{ .source = .mac4,     .dest = 85,  .depth = 0.3 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 14.0, .fx_dist_mix = 0.5,
-        .fx_delay_on = true, .fx_delay_time_s = 0.19, .fx_delay_feedback = 0.4, .fx_delay_mix = 0.25,
         .gain = 0.69,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 14 }, .{ .idx = 2, .value = 0.5 } } },
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.19 }, .{ .idx = 1, .value = 0.4 } } },
     } },
 
     // --- Industrial / EBM ---
@@ -656,15 +678,13 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21, .depth = 0.45 },
             .{ .source = .velocity, .dest = 21, .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
-            .{ .source = .mac4,     .dest = 85, .depth = 0.3 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 3 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 10.0, .fx_dist_mix = 0.45,
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.6, .fx_chorus_depth_ms = 3.0, .fx_chorus_mix = 0.25,
         .gain = 0.26,
     }, .fx = &.{
-        // Same as outrun-bass: unison spread and chorus put 0.15 of the sub
-        // off-centre, which cancels in mono.
-        .{ .kind = .utility, .params = &.{ .{ .idx = 11, .value = 120.0 } } },
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 10 }, .{ .idx = 2, .value = 0.45 } } },
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.6 }, .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 0.25 } } },
+        .{ .kind = .utility, .params = &.{ .{ .idx = 11, .value = 120 } } },
     } },
 
     // --- Jazz / soul ---
@@ -721,11 +741,12 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = 21, .depth = 0.4 },
             .{ .source = .mac1, .dest = 21, .depth = 0.5 },
-            .{ .source = .mac4, .dest = 85, .depth = 0.3 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 2 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 12.0, .fx_dist_mix = 0.5,
-        .fx_ott_on = true, .fx_ott_depth = 0.5, .fx_ott_gain_out_db = -8.0,
         .gain = 0.18,
+    }, .fx = &.{
+        .{ .kind = .ott, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 3, .value = -8 } } },
+        .{ .kind = .sat, .params = &.{ .{ .idx = 2, .value = 0.5 } } },
     } },
 
     // hip-hop - the whiny G-funk portamento lead. "The whine" is a slow-
@@ -742,11 +763,12 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .fenv, .dest = 21,  .depth = 0.1 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac3, .dest = 111, .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.28, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
         .gain = 0.29,
+    }, .fx = &.{
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.28 }, .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.2 } } },
     } },
 
     // neurofunk - screechy resonant FM lead; a small upward frequency shift
@@ -765,13 +787,14 @@ pub const presets = [_]Preset{
             .{ .source = .fenv, .dest = 21,  .depth = 0.625 },
             .{ .source = .lfo,  .dest = 21,  .depth = 0.15 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac2, .dest = 182, .depth = 0.05 },
-            .{ .source = .mac4, .dest = 85,  .depth = 0.3 },
+            .{ .source = .mac2, .dest = 0, .depth = 0.05, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .fx_freq_shift_on = true, .fx_freq_shift_hz = 30.0, .fx_freq_shift_mix = 0.3,
-        .fx_dist_on = true, .fx_dist_drive_db = 12.0, .fx_dist_mix = 0.5,
         .gain = 0.50,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 2, .value = 0.5 } } },
+        .{ .kind = .freq_shift, .params = &.{ .{ .idx = 0, .value = 30 }, .{ .idx = 1, .value = 0.3 } } },
     } },
 
     // techno - dark hypnotic pluck swimming in dub-techno echo
@@ -784,11 +807,12 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21,  .depth = 0.375 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac3,     .dest = 111, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.55, .fx_delay_mix = 0.35,
-        .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.6, .fx_reverb_mix = 0.25,
         .gain = 0.27,
+    }, .fx = &.{
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.375 }, .{ .idx = 1, .value = 0.55 }, .{ .idx = 2, .value = 0.35 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 0.6 }, .{ .idx = 2, .value = 0.25 } } },
     } },
 
     // deep-house - warm electric-piano-ish chord
@@ -804,10 +828,11 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.2 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac3,     .dest = 179, .depth = 0.3 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
         }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.6, .fx_chorus_depth_ms = 4.0, .fx_chorus_mix = 0.35,
         .gain = 0.28,
+    }, .fx = &.{
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.6 }, .{ .idx = 2, .value = 0.35 } } },
     } },
 
     // disco - Solina-style ensemble strings; the chorus is the ensemble
@@ -821,10 +846,11 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP,  .depth = 0.012 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac3, .dest = 179, .depth = 0.3 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
         }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.9, .fx_chorus_depth_ms = 6.0, .fx_chorus_mix = 0.5,
         .gain = 0.24,
+    }, .fx = &.{
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.9 }, .{ .idx = 1, .value = 6 } } },
     } },
 
     // funk - P-funk mono synth lead; ENV 3 snaps a hard-sync sweep on each
@@ -844,11 +870,12 @@ pub const presets = [_]Preset{
             .{ .source = .env3, .dest = 42,  .depth = 0.35 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
             .{ .source = .mac2, .dest = 42,  .depth = 0.4 },
-            .{ .source = .mac3, .dest = 107, .depth = 0.3 },
+            .{ .source = .mac3, .dest = 3, .depth = 0.3, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .fx_phaser_on = true, .fx_phaser_rate_hz = 0.4, .fx_phaser_depth = 0.8, .fx_phaser_feedback = 0.45, .fx_phaser_mix = 0.35,
         .gain = 0.72,
+    }, .fx = &.{
+        .{ .kind = .phaser, .params = &.{ .{ .idx = 1, .value = 0.8 }, .{ .idx = 2, .value = 0.45 }, .{ .idx = 3, .value = 0.35 } } },
     } },
 
     // dub - reedy melodica with vibrato, sunk into King Tubby tape echo
@@ -861,10 +888,11 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP,  .depth = 0.022 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac3, .dest = 111, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.33, .fx_delay_feedback = 0.55, .fx_delay_mix = 0.35,
         .gain = 0.3,
+    }, .fx = &.{
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.33 }, .{ .idx = 1, .value = 0.55 }, .{ .idx = 2, .value = 0.35 } } },
     } },
 
     // synthwave - driving outrun bass; LFO 2 breathes the B-osc duty cycle
@@ -881,12 +909,10 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 186,  .depth = -0.2 },
         }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.7, .fx_chorus_depth_ms = 3.0, .fx_chorus_mix = 0.3,
         .gain = 0.27,
     }, .fx = &.{
-        // Its chorus widens the sub along with the body (0.18 decorrelated
-        // below 120 Hz); this centres the low end without touching either.
-        .{ .kind = .utility, .params = &.{ .{ .idx = 11, .value = 120.0 } } },
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 0.3 } } },
+        .{ .kind = .utility, .params = &.{ .{ .idx = 11, .value = 120 } } },
     } },
 
     // chiptune - square pad with basic-waveform motion and light crush
@@ -901,10 +927,11 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = dP, .depth = 0.02 },
             .{ .source = .lfo2, .dest = 185,  .depth = -0.25 },
             .{ .source = .mac2, .dest = 185,  .depth = -0.3 },
-            .{ .source = .mac4, .dest = 89, .depth = 0.3 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
         }),
-        .fx_crush_on = true, .fx_crush_bits = 8.0, .fx_crush_rate = 3.0, .fx_crush_mix = 0.2,
         .gain = 0.26,
+    }, .fx = &.{
+        .{ .kind = .crush, .params = &.{ .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 0.2 } } },
     } },
 
     // ambient - the choir finally has vocal cords: a real formant filter
@@ -919,11 +946,12 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = 21,  .depth = 0.15 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.3 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
         }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.5, .fx_chorus_depth_ms = 5.0, .fx_chorus_mix = 0.3,
-        .fx_reverb_on = true, .fx_reverb_room = 0.88, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.4,
         .gain = 0.28,
+    }, .fx = &.{
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 1, .value = 5 }, .{ .idx = 2, .value = 0.3 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.88 }, .{ .idx = 1, .value = 0.35 }, .{ .idx = 2, .value = 0.4 } } },
     } },
 
     // rave - Mentasm-style detuned hoover stab, sub-octave saw + swirl
@@ -937,12 +965,13 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .fenv, .dest = 21,  .depth = 0.375 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac3, .dest = 107, .depth = 0.3 },
-            .{ .source = .mac4, .dest = 85,  .depth = 0.3 },
+            .{ .source = .mac3, .dest = 3, .depth = 0.3, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 1 },
         }),
-        .fx_phaser_on = true, .fx_phaser_rate_hz = 0.7, .fx_phaser_depth = 0.8, .fx_phaser_feedback = 0.4, .fx_phaser_mix = 0.4,
-        .fx_dist_on = true, .fx_dist_drive_db = 9.0, .fx_dist_mix = 0.35,
         .gain = 0.26,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 9 }, .{ .idx = 2, .value = 0.35 } } },
+        .{ .kind = .phaser, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 0.8 }, .{ .idx = 2, .value = 0.4 }, .{ .idx = 3, .value = 0.4 } } },
     } },
 
     // ebm - ratio-mode unison turns the lead into a fifths power-chord
@@ -958,13 +987,14 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21,  .depth = 0.4 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac3,     .dest = 111, .depth = 0.3 },
-            .{ .source = .mac4,     .dest = 85,  .depth = 0.3 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 11.0, .fx_dist_mix = 0.4,
-        .fx_delay_on = true, .fx_delay_time_s = 0.25, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
         .gain = 0.12,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 11 }, .{ .idx = 2, .value = 0.4 } } },
+        .{ .kind = .delay, .params = &.{ .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.2 } } },
     } },
 
     // jazz - breathy sine flute; blowing harder (velocity) adds breath noise
@@ -979,11 +1009,12 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 36,  .depth = 0.15 },
             .{ .source = .random,   .dest = 36,  .depth = 0.04 },
             .{ .source = .mac2,     .dest = 36,  .depth = 0.2 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .fx_reverb_on = true, .fx_reverb_room = 0.6, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.25,
         .gain = 0.27,
+    }, .fx = &.{
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.6 }, .{ .idx = 1, .value = 0.4 }, .{ .idx = 2, .value = 0.25 } } },
     } },
 
     // === Round 3: Japanese genres + 90s hip-hop deep dive ===
@@ -1008,10 +1039,11 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 15,  .depth = 0.2 },
             .{ .source = .random,   .dest = 15,  .depth = 0.015 },
             .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
-            .{ .source = .mac3,     .dest = 179, .depth = 0.3 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
         }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.8, .fx_chorus_depth_ms = 4.5, .fx_chorus_mix = 0.4,
         .gain = 0.3,
+    }, .fx = &.{
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 1, .value = 4.5 }, .{ .idx = 2, .value = 0.4 } } },
     } },
 
     // city-pop - round funky FM knock bass, velocity-aware like a slapped
@@ -1031,8 +1063,9 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 15, .depth = 0.2 },
         }),
-        .fx_comp_on = true, .fx_comp_threshold_db = -18.0, .fx_comp_ratio = 4.0, .fx_comp_attack_ms = 8.0, .fx_comp_release_ms = 90.0,
         .gain = 0.43,
+    }, .fx = &.{
+        .{ .kind = .comp, .params = &.{ .{ .idx = 2, .value = 8 }, .{ .idx = 3, .value = 90 } } },
     } },
 
     // technopop - tight sequencer-locked analog bass
@@ -1049,8 +1082,9 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 22, .depth = 0.2 },
         }),
-        .fx_comp_on = true, .fx_comp_threshold_db = -16.0, .fx_comp_ratio = 4.0, .fx_comp_attack_ms = 5.0, .fx_comp_release_ms = 60.0,
         .gain = 0.25,
+    }, .fx = &.{
+        .{ .kind = .comp, .params = &.{ .{ .idx = 0, .value = -16 }, .{ .idx = 2, .value = 5 }, .{ .idx = 3, .value = 60 } } },
     } },
 
     // eurobeat - bright punchy unison lead, HP'd above 150Hz JP-8000-style
@@ -1065,12 +1099,13 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,      .dest = dP,  .depth = 0.015 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac3,     .dest = 111, .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 2 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .fx_eq_on = true, .fx_eq_high_freq = 6000.0, .fx_eq_high_gain_db = 3.0,
-        .fx_delay_on = true, .fx_delay_time_s = 0.25, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.25,
         .gain = 0.39,
+    }, .fx = &.{
+        .{ .kind = .eq, .params = &.{ .{ .idx = 0, .value = 3 }, .{ .idx = 1, .value = 150 }, .{ .idx = 10, .value = 1000 }, .{ .idx = 18, .value = 4 }, .{ .idx = 19, .value = 6000 }, .{ .idx = 21, .value = 3 } } },
+        .{ .kind = .delay, .params = &.{ .{ .idx = 1, .value = 0.3 } } },
     } },
 
     // anime - twangy koto-style pluck; the comb filter is the string body
@@ -1101,13 +1136,14 @@ pub const presets = [_]Preset{
         .lfo_rate_hz = 5.2, .lfo_retrig = .key, .lfo_phase_offset = 0.25,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP,  .depth = 0.028 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
-            .{ .source = .mac3, .dest = 111, .depth = 0.3 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.25, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
-        .fx_reverb_on = true, .fx_reverb_room = 0.65, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.25,
         .gain = 0.28,
+    }, .fx = &.{
+        .{ .kind = .delay, .params = &.{ .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.2 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.65 }, .{ .idx = 1, .value = 0.4 }, .{ .idx = 2, .value = 0.25 } } },
     } },
 
     // g-funk - the squelchy resonant portamento worm; ladder filter for the
@@ -1139,8 +1175,9 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 22, .depth = 0.2 },
         }),
-        .fx_comp_on = true, .fx_comp_threshold_db = -20.0, .fx_comp_ratio = 3.0, .fx_comp_attack_ms = 12.0, .fx_comp_release_ms = 110.0,
         .gain = 0.95,
+    }, .fx = &.{
+        .{ .kind = .comp, .params = &.{ .{ .idx = 0, .value = -20 }, .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 12 }, .{ .idx = 3, .value = 110 } } },
     } },
 
     // g-funk - dark cinematic string layer, ensemble drift from LFO 2
@@ -1155,11 +1192,12 @@ pub const presets = [_]Preset{
             .{ .source = .fenv, .dest = 21,  .depth = 0.2 },
             .{ .source = .lfo2, .dest = dP,  .depth = 0.02 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
         }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.6, .fx_chorus_depth_ms = 5.0, .fx_chorus_mix = 0.4,
-        .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.5, .fx_reverb_mix = 0.3,
         .gain = 0.26,
+    }, .fx = &.{
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.6 }, .{ .idx = 1, .value = 5 }, .{ .idx = 2, .value = 0.4 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 0.5 } } },
     } },
 
     // boom-bap - grimy dark minor keys (the QB dungeon-piano sound), put
@@ -1173,11 +1211,12 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
-            .{ .source = .mac4,     .dest = 89, .depth = 0.3 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
         }),
-        .fx_crush_on = true, .fx_crush_bits = 11.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.3,
-        .fx_reverb_on = true, .fx_reverb_room = 0.6, .fx_reverb_damp = 0.7, .fx_reverb_mix = 0.25,
         .gain = 0.3,
+    }, .fx = &.{
+        .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 11 }, .{ .idx = 1, .value = 2 }, .{ .idx = 2, .value = 0.3 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.6 }, .{ .idx = 1, .value = 0.7 }, .{ .idx = 2, .value = 0.25 } } },
     } },
 
     // boom-bap - warped out-of-tune bell (dusty 36-chambers tape flavor:
@@ -1193,11 +1232,12 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 15, .depth = 0.12 },
             .{ .source = .random,   .dest = 15,  .depth = 0.025 },
             .{ .source = .mac2,     .dest = 15, .depth = 0.25 },
-            .{ .source = .mac4,     .dest = 89, .depth = 0.3 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
         }),
-        .fx_crush_on = true, .fx_crush_bits = 12.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.35,
-        .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.6, .fx_reverb_mix = 0.3,
         .gain = 0.28,
+    }, .fx = &.{
+        .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 12 }, .{ .idx = 1, .value = 2 }, .{ .idx = 2, .value = 0.35 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 0.6 } } },
     } },
 
     // hip-hop - creepy detuned horror-movie organ (late-90s shock-rap
@@ -1213,10 +1253,11 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = dA,  .depth = 0.05 },
             .{ .source = .lfo2, .dest = dP,  .depth = 0.02 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_reverb_on = true, .fx_reverb_room = 0.75, .fx_reverb_damp = 0.6, .fx_reverb_mix = 0.35,
         .gain = 0.28,
+    }, .fx = &.{
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.75 }, .{ .idx = 1, .value = 0.6 }, .{ .idx = 2, .value = 0.35 } } },
     } },
 
     // hardstyle - the real technique is a formant filter vowel-scan, not a
@@ -1258,13 +1299,14 @@ pub const presets = [_]Preset{
             .{ .source = .fenv, .dest = 21, .depth = 0.3 },
             .{ .source = .mac1, .dest = 21, .depth = 0.4 },
             .{ .source = .mac2, .dest = 22, .depth = 0.2 },
-            .{ .source = .mac4, .dest = 85, .depth = 0.3 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 2 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .fx_eq_on = true, .fx_eq_mid_freq = 750.0, .fx_eq_mid_gain_db = 4.0, .fx_eq_mid_q = 1.0,
-        .fx_dist_on = true, .fx_dist_drive_db = 18.0, .fx_dist_mix = 0.7,
-        .fx_delay_on = true, .fx_delay_time_s = 0.19, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
         .gain = 0.06,
+    }, .fx = &.{
+        .{ .kind = .eq, .params = &.{ .{ .idx = 0, .value = 3 }, .{ .idx = 1, .value = 150 }, .{ .idx = 10, .value = 750 }, .{ .idx = 11, .value = 1 }, .{ .idx = 12, .value = 4 }, .{ .idx = 18, .value = 4 }, .{ .idx = 19, .value = 6000 } } },
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 18 }, .{ .idx = 2, .value = 0.7 } } },
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.19 }, .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.2 } } },
     } },
 
     // speedcore/terrorcore - FM-driven harsh bass, square carrier torn up by
@@ -1280,12 +1322,13 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .mac1, .dest = 21, .depth = 0.4 },
             .{ .source = .mac2, .dest = 42, .depth = 0.4 },
-            .{ .source = .mac4, .dest = 85, .depth = 0.3 },
-            .{ .source = .mac4, .dest = 89, .depth = 0.3 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 20.0, .fx_dist_mix = 0.7,
-        .fx_crush_on = true, .fx_crush_bits = 6.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.3,
         .gain = 0.11,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 20 }, .{ .idx = 2, .value = 0.7 } } },
+        .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 6 }, .{ .idx = 1, .value = 2 }, .{ .idx = 2, .value = 0.3 } } },
     } },
 
     // happy hardcore/j-core - bright FM bell-piano stab for euphoric build
@@ -1299,11 +1342,12 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 15,  .depth = 0.15 },
             .{ .source = .random,   .dest = 15,  .depth = 0.018 },
             .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
         }),
-        .fx_ott_on = true, .fx_ott_depth = 0.4, .fx_ott_gain_out_db = -6.0,
-        .fx_reverb_on = true, .fx_reverb_room = 0.6, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.22,
         .gain = 0.3,
+    }, .fx = &.{
+        .{ .kind = .ott, .params = &.{ .{ .idx = 0, .value = 0.4 }, .{ .idx = 3, .value = -6 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.6 }, .{ .idx = 1, .value = 0.35 }, .{ .idx = 2, .value = 0.22 } } },
     } },
 
     // === Round 4: reinforce the least-covered genres ===
@@ -1320,12 +1364,13 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21,  .depth = 0.45 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.35 },
-            .{ .source = .mac4,     .dest = 85,  .depth = 0.25 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.25, .fx_instance_id = 1 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 7.0, .fx_dist_mix = 0.12,
-        .fx_reverb_on = true, .fx_reverb_room = 0.55, .fx_reverb_damp = 0.5, .fx_reverb_mix = 0.16,
         .gain = 0.28,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 7 }, .{ .idx = 2, .value = 0.12 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.55 }, .{ .idx = 1, .value = 0.5 }, .{ .idx = 2, .value = 0.16 } } },
     } },
 
     // dnb: airy sampled-choir color for breakdowns and liquid intros
@@ -1340,11 +1385,12 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = 185, .depth = 0.12 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.35 },
             .{ .source = .mac2, .dest = 185, .depth = 0.3 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.45 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 2 },
         }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.35, .fx_chorus_depth_ms = 5.0, .fx_chorus_mix = 0.3,
-        .fx_reverb_on = true, .fx_reverb_room = 0.9, .fx_reverb_damp = 0.45, .fx_reverb_mix = 0.4,
         .gain = 0.24,
+    }, .fx = &.{
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.35 }, .{ .idx = 1, .value = 5 }, .{ .idx = 2, .value = 0.3 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.9 }, .{ .idx = 1, .value = 0.45 }, .{ .idx = 2, .value = 0.4 } } },
     } },
 
     // dubstep: square lead with formant motion and controlled abrasion
@@ -1374,13 +1420,14 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = 21, .depth = 0.45 },
             .{ .source = .mac1, .dest = 21, .depth = 0.5 },
             .{ .source = .mac2, .dest = 185,  .depth = -0.25 },
-            .{ .source = .mac3, .dest = 111, .depth = 0.3 },
-            .{ .source = .mac4, .dest = 85, .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.35, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 12.0, .fx_dist_mix = 0.35,
-        .fx_delay_on = true, .fx_delay_time_s = 0.19, .fx_delay_feedback = 0.28, .fx_delay_mix = 0.16,
         .gain = 0.13,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 2, .value = 0.35 } } },
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.19 }, .{ .idx = 1, .value = 0.28 }, .{ .idx = 2, .value = 0.16 } } },
     } },
 
     // dubstep: dark suspended pad that leaves the sub range clear
@@ -1395,12 +1442,13 @@ pub const presets = [_]Preset{
             .{ .source = .lfo2, .dest = 185, .depth = 0.18 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
             .{ .source = .mac2, .dest = 185, .depth = 0.35 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.45 },
-            .{ .source = .mac4, .dest = 89,  .depth = 0.25 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.25, .fx_instance_id = 1 },
         }),
-        .fx_crush_on = true, .fx_crush_bits = 10.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.12,
-        .fx_reverb_on = true, .fx_reverb_room = 0.9, .fx_reverb_damp = 0.55, .fx_reverb_mix = 0.38,
         .gain = 0.23,
+    }, .fx = &.{
+        .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 10 }, .{ .idx = 1, .value = 2 }, .{ .idx = 2, .value = 0.12 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.9 }, .{ .idx = 1, .value = 0.55 }, .{ .idx = 2, .value = 0.38 } } },
     } },
 
     // future bass: elastic mono low end with a bright wavetable snap
@@ -1415,11 +1463,12 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 185, .depth = 0.2 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
             .{ .source = .mac2,     .dest = 185, .depth = 0.4 },
-            .{ .source = .mac4,     .dest = 85,  .depth = 0.3 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 2 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 8.0, .fx_dist_mix = 0.18,
-        .fx_comp_on = true, .fx_comp_threshold_db = -18.0, .fx_comp_ratio = 4.0, .fx_comp_attack_ms = 6.0, .fx_comp_release_ms = 80.0,
         .gain = 1.0,
+    }, .fx = &.{
+        .{ .kind = .comp, .params = &.{ .{ .idx = 2, .value = 6 } } },
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 8 }, .{ .idx = 2, .value = 0.18 } } },
     } },
 
     // future bass: breathy vocal bed for wide chords and breakdowns
@@ -1432,13 +1481,14 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = 21,  .depth = 0.16 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.45 },
             .{ .source = .mac2, .dest = 185, .depth = 0.4 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.45 },
-            .{ .source = .mac4, .dest = 85,  .depth = 0.2 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 3 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.2, .fx_instance_id = 1 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 5.0, .fx_dist_mix = 0.08,
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.5, .fx_chorus_depth_ms = 5.5, .fx_chorus_mix = 0.42,
-        .fx_reverb_on = true, .fx_reverb_room = 0.85, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.32,
         .gain = 0.22,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 5 }, .{ .idx = 2, .value = 0.08 } } },
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 1, .value = 5.5 }, .{ .idx = 2, .value = 0.42 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.85 }, .{ .idx = 1, .value = 0.35 }, .{ .idx = 2, .value = 0.32 } } },
     } },
 
     // deep house: muted chord pluck with a soft filter-envelope knock
@@ -1453,10 +1503,11 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
             .{ .source = .mac2,     .dest = 22,  .depth = 0.2 },
-            .{ .source = .mac3,     .dest = 111, .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
         }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.33, .fx_delay_feedback = 0.26, .fx_delay_mix = 0.14,
         .gain = 0.32,
+    }, .fx = &.{
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.33 }, .{ .idx = 1, .value = 0.26 }, .{ .idx = 2, .value = 0.14 } } },
     } },
 
     // deep house: smooth mono lead with restrained glide and chorus
@@ -1470,11 +1521,12 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = dP,  .depth = 0.014 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.45 },
             .{ .source = .mac2, .dest = 186,   .depth = -0.22 },
-            .{ .source = .mac3, .dest = 179, .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.55, .fx_chorus_depth_ms = 3.5, .fx_chorus_mix = 0.22,
         .gain = 0.31,
+    }, .fx = &.{
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.55 }, .{ .idx = 1, .value = 3.5 }, .{ .idx = 2, .value = 0.22 } } },
     } },
 
     // dub: short minor organ chord made for long feedback-delay throws
@@ -1488,12 +1540,13 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
             .{ .source = .mac2,     .dest = 22,  .depth = 0.2 },
-            .{ .source = .mac3,     .dest = 111, .depth = 0.55 },
-            .{ .source = .mac4,     .dest = 85,  .depth = 0.22 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.55, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.22, .fx_instance_id = 1 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 5.0, .fx_dist_mix = 0.1,
-        .fx_delay_on = true, .fx_delay_time_s = 0.5, .fx_delay_feedback = 0.58, .fx_delay_mix = 0.28,
         .gain = 0.3,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 5 }, .{ .idx = 2, .value = 0.1 } } },
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 1, .value = 0.58 }, .{ .idx = 2, .value = 0.28 } } },
     } },
 
     // dub: airy bubble organ with waveform motion and spring-like ambience
@@ -1507,10 +1560,11 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = 185,   .depth = -0.12 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
             .{ .source = .mac2, .dest = 185,   .depth = -0.25 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_reverb_on = true, .fx_reverb_room = 0.45, .fx_reverb_damp = 0.65, .fx_reverb_mix = 0.2,
         .gain = 0.32,
+    }, .fx = &.{
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.45 }, .{ .idx = 1, .value = 0.65 }, .{ .idx = 2, .value = 0.2 } } },
     } },
 
     // soul: warm electric-piano body with velocity-controlled tine bark
@@ -1527,10 +1581,11 @@ pub const presets = [_]Preset{
             .{ .source = .random,   .dest = 15,  .depth = 0.015 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.35 },
             .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
-            .{ .source = .mac3,     .dest = 179, .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
         }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.7, .fx_chorus_depth_ms = 3.5, .fx_chorus_mix = 0.24,
         .gain = 0.3,
+    }, .fx = &.{
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 3.5 }, .{ .idx = 2, .value = 0.24 } } },
     } },
 
     // === Round 4: the modern production toolkit ===
@@ -1557,10 +1612,11 @@ pub const presets = [_]Preset{
             .{ .source = .env3, .dest = dP,  .depth = 0.5 },
             .{ .source = .lfo,  .dest = 22,  .depth = 0.15 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_reverb_on = true, .fx_reverb_room = 0.85, .fx_reverb_damp = 0.3, .fx_reverb_mix = 0.35,
         .gain = 0.26,
+    }, .fx = &.{
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.85 }, .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.35 } } },
     } },
 
     // The riser's counterpart, for the bar after the drop: the same noise bed
@@ -1578,10 +1634,11 @@ pub const presets = [_]Preset{
             .{ .source = .fenv, .dest = 21,  .depth = 0.75 },
             .{ .source = .env3, .dest = dP,  .depth = -0.6 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.45 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 1 },
         }),
-        .fx_reverb_on = true, .fx_reverb_room = 0.9, .fx_reverb_damp = 0.25, .fx_reverb_mix = 0.4,
         .gain = 0.26,
+    }, .fx = &.{
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.9 }, .{ .idx = 2, .value = 0.4 } } },
     } },
 
     // Section marker: a sub sine whose pitch collapses an octave in 120 ms
@@ -1599,12 +1656,13 @@ pub const presets = [_]Preset{
             .{ .source = .env3,     .dest = dP,  .depth = -1.0 },
             .{ .source = .fenv,     .dest = 36,  .depth = 0.5 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.5 },
-            .{ .source = .mac4,     .dest = 85,  .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.5, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 10.0, .fx_dist_mix = 0.35,
-        .fx_reverb_on = true, .fx_reverb_room = 0.95, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.45,
         .gain = 0.3,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 10 }, .{ .idx = 2, .value = 0.35 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.95 }, .{ .idx = 1, .value = 0.35 }, .{ .idx = 2, .value = 0.45 } } },
     } },
 
     // The breakdown bed melodic techno is built on: air, not notes. Bandpassed
@@ -1623,10 +1681,11 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = 21,  .depth = 0.45 },
             .{ .source = .lfo2, .dest = dA,  .depth = -0.25 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_reverb_on = true, .fx_reverb_room = 0.9, .fx_reverb_damp = 0.5, .fx_reverb_mix = 0.4,
         .gain = 0.16,
+    }, .fx = &.{
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.9 }, .{ .idx = 1, .value = 0.5 }, .{ .idx = 2, .value = 0.4 } } },
     } },
 
     // The transition that costs nothing: one sine falling an octave and a half
@@ -1643,10 +1702,11 @@ pub const presets = [_]Preset{
             .{ .source = .env3, .dest = dP, .depth = -1.0 },
             .{ .source = .env3, .dest = 21, .depth = -0.3 },
             .{ .source = .mac1, .dest = 21, .depth = 0.4 },
-            .{ .source = .mac4, .dest = 85, .depth = 0.35 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.35, .fx_instance_id = 1 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 6.0, .fx_dist_mix = 0.2,
         .gain = 0.34,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 6 }, .{ .idx = 2, .value = 0.2 } } },
     } },
 
     // amapiano - the log drum, which is the genre's bassline, its kick and its
@@ -1670,8 +1730,9 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 15, .depth = 0.35 },
         }),
-        .fx_comp_on = true, .fx_comp_threshold_db = -18.0, .fx_comp_ratio = 3.5, .fx_comp_attack_ms = 8.0, .fx_comp_release_ms = 90.0,
         .gain = 0.57,
+    }, .fx = &.{
+        .{ .kind = .comp, .params = &.{ .{ .idx = 1, .value = 3.5 }, .{ .idx = 2, .value = 8 }, .{ .idx = 3, .value = 90 } } },
     } },
 
     // amapiano - the other half of the genre's name: jazzy sevenths on a
@@ -1689,11 +1750,12 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21,  .depth = 0.3 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.35 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
-            .{ .source = .mac3,     .dest = 179, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.4, .fx_chorus_depth_ms = 6.0, .fx_chorus_mix = 0.35,
-        .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.5, .fx_reverb_mix = 0.25,
         .gain = 0.28,
+    }, .fx = &.{
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.4 }, .{ .idx = 1, .value = 6 }, .{ .idx = 2, .value = 0.35 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 0.5 }, .{ .idx = 2, .value = 0.25 } } },
     } },
 
     // afro house - the mallet line the genre builds its melodies from. A
@@ -1713,11 +1775,12 @@ pub const presets = [_]Preset{
             .{ .source = .keytrack, .dest = 21,  .depth = 0.3 },
             .{ .source = .velocity, .dest = 15,  .depth = 0.3 },
             .{ .source = .mac2,     .dest = 15,  .depth = 0.35 },
-            .{ .source = .mac3,     .dest = 111, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.187, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.18,
-        .fx_reverb_on = true, .fx_reverb_room = 0.5, .fx_reverb_damp = 0.6, .fx_reverb_mix = 0.12,
         .gain = 0.32,
+    }, .fx = &.{
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.187 }, .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.18 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 1, .value = 0.6 }, .{ .idx = 2, .value = 0.12 } } },
     } },
 
     // afrobeats - the plucked guitar figure the records are written on, as a
@@ -1736,10 +1799,11 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 36,  .depth = 0.35 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac3,     .dest = 111, .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
         }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.25, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
         .gain = 0.32,
+    }, .fx = &.{
+        .{ .kind = .delay, .params = &.{ .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.2 } } },
     } },
 
     // afro house - the horn stab that answers the vocal. Real sections play
@@ -1756,11 +1820,12 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21,  .depth = 0.5 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.45 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 2 },
         }),
-        .fx_comp_on = true, .fx_comp_threshold_db = -16.0, .fx_comp_ratio = 3.0, .fx_comp_attack_ms = 6.0, .fx_comp_release_ms = 70.0,
-        .fx_reverb_on = true, .fx_reverb_room = 0.55, .fx_reverb_damp = 0.5, .fx_reverb_mix = 0.18,
         .gain = 0.3,
+    }, .fx = &.{
+        .{ .kind = .comp, .params = &.{ .{ .idx = 0, .value = -16 }, .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 6 }, .{ .idx = 3, .value = 70 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.55 }, .{ .idx = 1, .value = 0.5 }, .{ .idx = 2, .value = 0.18 } } },
     } },
 
     // drill - the sliding 808. What separates it from trap-808 is not the
@@ -1779,11 +1844,12 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21, .depth = 0.4 },
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
-            .{ .source = .mac4,     .dest = 85, .depth = 0.45 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.45, .fx_instance_id = 2 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 9.0, .fx_dist_mix = 0.3,
-        .fx_comp_on = true, .fx_comp_threshold_db = -20.0, .fx_comp_ratio = 4.0, .fx_comp_attack_ms = 12.0, .fx_comp_release_ms = 130.0,
         .gain = 0.49,
+    }, .fx = &.{
+        .{ .kind = .comp, .params = &.{ .{ .idx = 0, .value = -20 }, .{ .idx = 2, .value = 12 }, .{ .idx = 3, .value = 130 } } },
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 9 }, .{ .idx = 2, .value = 0.3 } } },
     } },
 
     // drill - the sparse bell that carries the hook over the slide. Drill
@@ -1802,11 +1868,12 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 15,  .depth = 0.3 },
             .{ .source = .velocity, .dest = 15,  .depth = 0.2 },
             .{ .source = .mac2,     .dest = 15,  .depth = 0.3 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.45 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 2 },
         }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.333, .fx_delay_feedback = 0.32, .fx_delay_mix = 0.2,
-        .fx_reverb_on = true, .fx_reverb_room = 0.88, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.35,
         .gain = 0.24,
+    }, .fx = &.{
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.333 }, .{ .idx = 1, .value = 0.32 }, .{ .idx = 2, .value = 0.2 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.88 }, .{ .idx = 1, .value = 0.4 }, .{ .idx = 2, .value = 0.35 } } },
     } },
 
     // drill - the other half of the genre's melodic palette, borrowed from
@@ -1825,11 +1892,12 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21,  .depth = 0.55 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
         }),
-        .fx_eq_on = true, .fx_eq_low_freq = 120.0, .fx_eq_low_gain_db = 3.0, .fx_eq_high_freq = 5000.0, .fx_eq_high_gain_db = -4.0,
-        .fx_reverb_on = true, .fx_reverb_room = 0.8, .fx_reverb_damp = 0.55, .fx_reverb_mix = 0.3,
         .gain = 0.26,
+    }, .fx = &.{
+        .{ .kind = .eq, .params = &.{ .{ .idx = 0, .value = 3 }, .{ .idx = 1, .value = 120 }, .{ .idx = 3, .value = 3 }, .{ .idx = 10, .value = 1000 }, .{ .idx = 18, .value = 4 }, .{ .idx = 19, .value = 5000 }, .{ .idx = 21, .value = -4 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.8 }, .{ .idx = 1, .value = 0.55 } } },
     } },
 
     // phonk - the cowbell melody the whole genre is written on. The 808's
@@ -1846,11 +1914,12 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21, .depth = 0.35 },
             .{ .source = .velocity, .dest = 21, .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
-            .{ .source = .mac4,     .dest = 89, .depth = 0.4 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 11.0, .fx_dist_mix = 0.35,
-        .fx_crush_on = true, .fx_crush_bits = 10.0, .fx_crush_rate = 3.0, .fx_crush_mix = 0.3,
         .gain = 0.28,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 11 }, .{ .idx = 2, .value = 0.35 } } },
+        .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 10 }, .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 0.3 } } },
     } },
 
     // pluggnb - the glassy bell the style is built on. Bright but soft: a
@@ -1868,12 +1937,13 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 15,  .depth = 0.15 },
             .{ .source = .random,   .dest = 15,  .depth = 0.02 },
             .{ .source = .mac2,     .dest = 15,  .depth = 0.3 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.45 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 3 },
         }),
-        .fx_ott_on = true, .fx_ott_depth = 0.65, .fx_ott_gain_out_db = -7.0,
-        .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.38, .fx_delay_mix = 0.25,
-        .fx_reverb_on = true, .fx_reverb_room = 0.82, .fx_reverb_damp = 0.3, .fx_reverb_mix = 0.35,
         .gain = 0.24,
+    }, .fx = &.{
+        .{ .kind = .ott, .params = &.{ .{ .idx = 0, .value = 0.65 }, .{ .idx = 3, .value = -7 } } },
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.375 }, .{ .idx = 1, .value = 0.38 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.82 }, .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.35 } } },
     } },
 
     // uk garage - the organ stab that gives 2-step its skip. Drawbar organ
@@ -1892,10 +1962,11 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.35 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .fx_reverb_on = true, .fx_reverb_room = 0.45, .fx_reverb_damp = 0.5, .fx_reverb_mix = 0.22,
         .gain = 0.3,
+    }, .fx = &.{
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.45 }, .{ .idx = 1, .value = 0.5 }, .{ .idx = 2, .value = 0.22 } } },
     } },
 
     // hard techno - the rumble. Not an oscillator patch: the sound is a kick
@@ -1914,12 +1985,13 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,      .dest = dA, .depth = -0.35 },
             .{ .source = .velocity, .dest = 21, .depth = 0.2 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.35 },
-            .{ .source = .mac4,     .dest = 85, .depth = 0.45 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.45, .fx_instance_id = 2 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 15.0, .fx_dist_mix = 0.5,
-        .fx_reverb_on = true, .fx_reverb_room = 0.95, .fx_reverb_damp = 0.85, .fx_reverb_mix = 0.45,
-        .fx_eq_on = true, .fx_eq_high_freq = 400.0, .fx_eq_high_gain_db = -10.0,
         .gain = 0.24,
+    }, .fx = &.{
+        .{ .kind = .eq, .params = &.{ .{ .idx = 0, .value = 3 }, .{ .idx = 1, .value = 150 }, .{ .idx = 10, .value = 1000 }, .{ .idx = 18, .value = 4 }, .{ .idx = 21, .value = -10 } } },
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 15 }, .{ .idx = 2, .value = 0.5 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.95 }, .{ .idx = 1, .value = 0.85 }, .{ .idx = 2, .value = 0.45 } } },
     } },
 
     // melodic techno - the pluck the genre crystallises around. The patch is
@@ -1937,11 +2009,12 @@ pub const presets = [_]Preset{
             .{ .source = .keytrack, .dest = 21,  .depth = 0.3 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.5 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.5, .fx_instance_id = 2 },
         }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.281, .fx_delay_feedback = 0.5, .fx_delay_mix = 0.35,
-        .fx_reverb_on = true, .fx_reverb_room = 0.92, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.4,
         .gain = 0.26,
+    }, .fx = &.{
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.281 }, .{ .idx = 1, .value = 0.5 }, .{ .idx = 2, .value = 0.35 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.92 }, .{ .idx = 1, .value = 0.35 }, .{ .idx = 2, .value = 0.4 } } },
     } },
 
     // melodic techno - the hypnotic sixteenth arp that carries a set. The
@@ -1961,12 +2034,13 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac2, .dest = 185, .depth = 0.4 },
-            .{ .source = .mac3, .dest = 111, .depth = 0.45 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.45, .fx_delay_mix = 0.3,
-        .fx_reverb_on = true, .fx_reverb_room = 0.85, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.3,
         .gain = 0.33,
+    }, .fx = &.{
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.375 }, .{ .idx = 1, .value = 0.45 }, .{ .idx = 2, .value = 0.3 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.85 }, .{ .idx = 1, .value = 0.4 } } },
     } },
 
     // house - the pumping chord bed. Every other pad in the library holds
@@ -1995,11 +2069,12 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = dA,  .depth = 0.55 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac2, .dest = 185, .depth = 0.35 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
         }),
-        .fx_ott_on = true, .fx_ott_depth = 0.45, .fx_ott_gain_out_db = -6.0,
-        .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.28,
         .gain = 0.28,
+    }, .fx = &.{
+        .{ .kind = .ott, .params = &.{ .{ .idx = 0, .value = 0.45 }, .{ .idx = 3, .value = -6 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 0.4 }, .{ .idx = 2, .value = 0.28 } } },
     } },
 
     // hyperpop - the chord stab, which is a mixing decision more than a
@@ -2019,12 +2094,13 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
             .{ .source = .mac2,     .dest = 4,   .depth = 0.4 },
-            .{ .source = .mac4,     .dest = 85,  .depth = 0.4 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.4, .fx_instance_id = 2 },
         }),
-        .fx_ott_on = true, .fx_ott_depth = 0.9, .fx_ott_gain_out_db = -9.0,
-        .fx_dist_on = true, .fx_dist_drive_db = 8.0, .fx_dist_mix = 0.3,
-        .fx_reverb_on = true, .fx_reverb_room = 0.65, .fx_reverb_damp = 0.3, .fx_reverb_mix = 0.22,
         .gain = 0.24,
+    }, .fx = &.{
+        .{ .kind = .ott, .params = &.{ .{ .idx = 0, .value = 0.9 }, .{ .idx = 3, .value = -9 } } },
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 8 }, .{ .idx = 2, .value = 0.3 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.65 }, .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.22 } } },
     } },
 
     // hard techno - the metallic percussive stab that carries a hardgroove
@@ -2043,11 +2119,12 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.35 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
             .{ .source = .mac2,     .dest = 185, .depth = 0.4 },
-            .{ .source = .mac4,     .dest = 85,  .depth = 0.35 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.35, .fx_instance_id = 1 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 12.0, .fx_dist_mix = 0.35,
-        .fx_delay_on = true, .fx_delay_time_s = 0.14, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.18,
         .gain = 0.28,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 2, .value = 0.35 } } },
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.14 }, .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.18 } } },
     } },
 
     // reggaeton - the dembow stab. Short, mid-forward and mono, sitting in
@@ -2064,11 +2141,12 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21,  .depth = 0.45 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.35 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
-            .{ .source = .mac3,     .dest = 111, .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
         }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.21, .fx_delay_feedback = 0.28, .fx_delay_mix = 0.2,
-        .fx_reverb_on = true, .fx_reverb_room = 0.5, .fx_reverb_damp = 0.55, .fx_reverb_mix = 0.16,
         .gain = 0.3,
+    }, .fx = &.{
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.21 }, .{ .idx = 1, .value = 0.28 }, .{ .idx = 2, .value = 0.2 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 1, .value = 0.55 }, .{ .idx = 2, .value = 0.16 } } },
     } },
 
     // house - the piano the genre never stopped using. A real piano's hammer
@@ -2087,11 +2165,12 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.4 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 2 },
         }),
-        .fx_comp_on = true, .fx_comp_threshold_db = -18.0, .fx_comp_ratio = 3.0, .fx_comp_attack_ms = 8.0, .fx_comp_release_ms = 90.0,
-        .fx_reverb_on = true, .fx_reverb_room = 0.6, .fx_reverb_damp = 0.45, .fx_reverb_mix = 0.2,
         .gain = 0.3,
+    }, .fx = &.{
+        .{ .kind = .comp, .params = &.{ .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 8 }, .{ .idx = 3, .value = 90 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.6 }, .{ .idx = 1, .value = 0.45 }, .{ .idx = 2, .value = 0.2 } } },
     } },
 
     // afro house - the hypnotic analog riff that runs under the percussion
@@ -2111,12 +2190,13 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,      .dest = 21,  .depth = 0.25 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac3,     .dest = 111, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.3, .fx_delay_feedback = 0.4, .fx_delay_mix = 0.25,
-        .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.45, .fx_reverb_mix = 0.22,
         .gain = 1.0,
+    }, .fx = &.{
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.3 }, .{ .idx = 1, .value = 0.4 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 0.45 }, .{ .idx = 2, .value = 0.22 } } },
     } },
 
     // pop - the bell arpeggio that tops a chorus, and the second arp in a
@@ -2135,13 +2215,14 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 15,  .depth = 0.35 },
             .{ .source = .velocity, .dest = 15,  .depth = 0.2 },
             .{ .source = .mac2,     .dest = 15,  .depth = 0.3 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.45 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 3 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.5, .fx_chorus_depth_ms = 4.5, .fx_chorus_mix = 0.28,
-        .fx_delay_on = true, .fx_delay_time_s = 0.187, .fx_delay_feedback = 0.42, .fx_delay_mix = 0.28,
-        .fx_reverb_on = true, .fx_reverb_room = 0.8, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.32,
         .gain = 0.31,
+    }, .fx = &.{
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 1, .value = 4.5 }, .{ .idx = 2, .value = 0.28 } } },
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.187 }, .{ .idx = 1, .value = 0.42 }, .{ .idx = 2, .value = 0.28 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.8 }, .{ .idx = 1, .value = 0.35 }, .{ .idx = 2, .value = 0.32 } } },
     } },
 
     // soul: rounded finger bass with a small upper-harmonic layer
@@ -2157,11 +2238,12 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 11, .depth = 0.25 },
-            .{ .source = .mac4,     .dest = 85, .depth = 0.2 },
+            .{ .source = .mac4, .dest = 1, .depth = 0.2, .fx_instance_id = 2 },
         }),
-        .fx_dist_on = true, .fx_dist_drive_db = 5.0, .fx_dist_mix = 0.1,
-        .fx_comp_on = true, .fx_comp_threshold_db = -20.0, .fx_comp_ratio = 3.0, .fx_comp_attack_ms = 14.0, .fx_comp_release_ms = 120.0,
         .gain = 0.89,
+    }, .fx = &.{
+        .{ .kind = .comp, .params = &.{ .{ .idx = 0, .value = -20 }, .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 14 }, .{ .idx = 3, .value = 120 } } },
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 5 }, .{ .idx = 2, .value = 0.1 } } },
     } },
 
     // vaporwave: softened electric keys with tape drift and a long tail
@@ -2174,13 +2256,14 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.2 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.35 },
             .{ .source = .mac2,     .dest = 11,  .depth = 0.22 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.45 },
-            .{ .source = .mac4,     .dest = 89,  .depth = 0.28 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 3 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.28, .fx_instance_id = 1 },
         }),
-        .fx_crush_on = true, .fx_crush_bits = 12.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.14,
-        .fx_tape_on = true, .fx_tape_wow_rate_hz = 0.45, .fx_tape_wow_depth = 0.28, .fx_tape_flutter_rate_hz = 6.0, .fx_tape_flutter_depth = 0.14, .fx_tape_mix = 1.0,
-        .fx_reverb_on = true, .fx_reverb_room = 0.9, .fx_reverb_damp = 0.55, .fx_reverb_mix = 0.38,
         .gain = 0.26,
+    }, .fx = &.{
+        .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 12 }, .{ .idx = 1, .value = 2 }, .{ .idx = 2, .value = 0.14 } } },
+        .{ .kind = .tape, .params = &.{ .{ .idx = 0, .value = 0.45 }, .{ .idx = 1, .value = 0.28 }, .{ .idx = 2, .value = 6 }, .{ .idx = 3, .value = 0.14 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.9 }, .{ .idx = 1, .value = 0.55 }, .{ .idx = 2, .value = 0.38 } } },
     } },
 
     // vaporwave: slow rounded bass with degraded sampler edges
@@ -2195,11 +2278,12 @@ pub const presets = [_]Preset{
             .{ .source = .keytrack, .dest = 21, .depth = 0.18 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.35 },
             .{ .source = .mac2,     .dest = 11, .depth = 0.22 },
-            .{ .source = .mac4,     .dest = 89, .depth = 0.3 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
         }),
-        .fx_crush_on = true, .fx_crush_bits = 12.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.16,
-        .fx_tape_on = true, .fx_tape_wow_rate_hz = 0.35, .fx_tape_wow_depth = 0.2, .fx_tape_flutter_rate_hz = 5.5, .fx_tape_flutter_depth = 0.08, .fx_tape_mix = 1.0,
         .gain = 0.46,
+    }, .fx = &.{
+        .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 12 }, .{ .idx = 1, .value = 2 }, .{ .idx = 2, .value = 0.16 } } },
+        .{ .kind = .tape, .params = &.{ .{ .idx = 0, .value = 0.35 }, .{ .idx = 1, .value = 0.2 }, .{ .idx = 2, .value = 5.5 }, .{ .idx = 3, .value = 0.08 } } },
     } },
 
     // anime: expressive bright lead with portamento and delayed vibrato feel
@@ -2214,13 +2298,14 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = dP,  .depth = 0.016 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.45 },
             .{ .source = .mac2, .dest = 186,   .depth = -0.2 },
-            .{ .source = .mac3, .dest = 111, .depth = 0.35 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.3 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.28, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.18,
-        .fx_reverb_on = true, .fx_reverb_room = 0.65, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.18,
         .gain = 0.42,
+    }, .fx = &.{
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.28 }, .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.18 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.65 }, .{ .idx = 1, .value = 0.35 }, .{ .idx = 2, .value = 0.18 } } },
     } },
 
 };
@@ -2239,12 +2324,36 @@ test "factory library holds exactly 100 presets" {
 }
 
 test "every preset's matrix rows target legal dests at sane depths" {
+    const fx_params = @import("fx_params.zig");
     for (presets) |p| {
         for (p.patch.mod_matrix) |row| {
             if (row.source == .none) continue;
+            try std.testing.expect(@abs(row.depth) <= 1.0);
+            if (row.fx_instance_id != 0) {
+                // An insert route: the id is a 1-based slot in `p.fx` until
+                // the chain is built, and the dest is that unit's own param
+                // index, so neither is a synth param id to look up.
+                errdefer std.debug.print("preset '{s}' row targets slot {d}\n", .{ p.name, row.fx_instance_id });
+                try std.testing.expect(row.fx_instance_id <= p.fx.len);
+                const kind = p.fx[row.fx_instance_id - 1].kind;
+                try std.testing.expect(row.dest < fx_params.paramCount(kind));
+                try std.testing.expect(fx_params.isAutomatable(kind, row.dest));
+                continue;
+            }
             const legacy_fx = if (PolySynth.findAutomatableParam(row.dest)) |param| param.modDestOnly() else false;
             try std.testing.expect(PolySynth.modDestIndex(row.dest) != null or legacy_fx);
-            try std.testing.expect(@abs(row.depth) <= 1.0);
+        }
+    }
+}
+
+test "every preset's declared inserts set params that exist" {
+    const fx_params = @import("fx_params.zig");
+    for (presets) |p| {
+        for (p.fx) |spec| {
+            for (spec.params) |param| {
+                errdefer std.debug.print("preset '{s}' {s} param {d}\n", .{ p.name, @tagName(spec.kind), param.idx });
+                try std.testing.expect(param.idx < fx_params.paramCount(spec.kind));
+            }
         }
     }
 }
