@@ -606,10 +606,32 @@ pub const Params = union(GenKind) {
     chip: ChipParams,
 };
 
+/// Ramp the last few milliseconds to zero. Every generator ends its buffer
+/// at `dur_s` whether or not the sound has finished, and a lot of them were
+/// still 20 dB under their own peak when the buffer ran out - which is a step
+/// discontinuity, i.e. a click, on a pad that is supposed to be a decaying
+/// drum. Five milliseconds is short enough to leave the tail audible and long
+/// enough to remove the edge.
+fn fadeOut(buf: []f32, sr: u32) void {
+    const n = @min(buf.len, @as(usize, @intFromFloat(0.005 * @as(f32, @floatFromInt(sr)))));
+    if (n == 0) return;
+    const tail = buf[buf.len - n ..];
+    for (tail, 0..) |*s, i| {
+        const g = 1.0 - @as(f32, @floatFromInt(i + 1)) / @as(f32, @floatFromInt(n));
+        s.* *= g;
+    }
+}
+
 /// Dispatch a slot's `(kind, params)` to the generator it names. The
 /// per-kind `Params` payload is exactly what each wrapper used to close
 /// over, now a data literal in `variants` instead of a function body.
 pub fn genSlot(kind: GenKind, params: Params, allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
+    const buf = try genRaw(kind, params, allocator, sr);
+    fadeOut(buf, sr);
+    return buf;
+}
+
+fn genRaw(kind: GenKind, params: Params, allocator: std.mem.Allocator, sr: u32) std.mem.Allocator.Error![]f32 {
     return switch (kind) {
         .kick => kickGen(allocator, sr, params.kick),
         .snare => snareGen(allocator, sr, params.snare),
@@ -1966,9 +1988,12 @@ test "a chip pad emits only the levels a chip has" {
             if (p.source == .triangle or p.noise_mix > 0.0) continue;
             const buf = try genSlot(.chip, slot.params, std.testing.allocator, 48_000);
             defer std.testing.allocator.free(buf);
+            // Everything but the 5 ms anti-click ramp every pad ends with,
+            // which is a fade and therefore continuous by construction.
+            const body = buf[0 .. buf.len - @min(buf.len, 240)];
             var seen: [64]f32 = undefined;
             var n: usize = 0;
-            for (buf) |s| {
+            for (body) |s| {
                 const known = for (seen[0..n]) |q| {
                     if (q == s) break true;
                 } else false;
@@ -2068,3 +2093,35 @@ test "the guiro is a train of clicks and the shaken gourds are not" {
     }
 }
 
+
+
+
+test "no pad is cut off while it is still sounding" {
+    // Every generator stops at its `dur_s` whether the sound has finished or
+    // not, and a buffer that ends at a fifth of its own peak is a step, i.e.
+    // a click. `fadeOut` removes the step; this checks the other half, that
+    // the tail being faded is already quiet enough that the fade is not
+    // audibly chopping the drum short.
+    for (variants) |v| {
+        for (v.pads) |slot| {
+            const kind = slot.kind orelse continue;
+            // The three deliberate stops: a scrape ends when the pua leaves
+            // the gourd, and the screech and the dive are effects that end
+            // where they are cut off rather than decaying.
+            if (std.mem.eql(u8, slot.name, "guiro") or std.mem.eql(u8, slot.name, "screech") or
+                std.mem.eql(u8, slot.name, "dive")) continue;
+            const buf = try genSlot(kind, slot.params, std.testing.allocator, 48_000);
+            defer std.testing.allocator.free(buf);
+            const fade = 240;
+            if (buf.len < fade + 480) continue;
+            var peak: f32 = 0;
+            for (buf) |s| peak = @max(peak, @abs(s));
+            var tail: f32 = 0;
+            for (buf[buf.len - fade - 480 .. buf.len - fade]) |s| tail = @max(tail, @abs(s));
+            // -20 dB. Not a target - a floor: the pads this caught were
+            // ending at -11 to -19 dB, which is a fifth of full level and
+            // plainly audible. Most of the library now lands under -28.
+            try std.testing.expect(tail <= peak * 0.1);
+        }
+    }
+}
