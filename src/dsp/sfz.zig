@@ -4,7 +4,6 @@
 //! claiming full SFZ compatibility.
 
 const std = @import("std");
-const pad_dsp = @import("pad.zig");
 const audio_file = @import("../core/audio_file.zig");
 const sample_bank = @import("soundfont.zig");
 
@@ -143,9 +142,16 @@ fn appendRegion(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, sampl
     // extension: an SFZ pack can point at any of the formats it reads.
     const raw = try audio_file.parseAlloc(allocator, bytes);
     defer allocator.free(raw.samples);
+    if (raw.sample_rate == 0) return error.InvalidValue;
     const offset: usize = @min(s.offset, raw.samples.len);
-    const decoded = try pad_dsp.resample(allocator, raw.samples[offset..], raw.sample_rate, sample_rate);
-    defer allocator.free(decoded);
+    // Kept at its recorded rate: the voice already reads the pool at an
+    // arbitrary pitch ratio, so a 44.1k sample in a 48k project is one more
+    // constant folded into that ratio. Band-limiting all of it up front
+    // instead cost 31 of the grand piano's 33 second load.
+    const decoded = raw.samples[offset..];
+    const rate_cents: f32 = @floatCast(1200.0 * std.math.log2(
+        @as(f64, @floatFromInt(raw.sample_rate)) / @as(f64, @floatFromInt(sample_rate)),
+    ));
     const start = samples.items.len;
     try samples.appendSlice(allocator, decoded);
     if (samples.items.len > std.math.maxInt(u32)) return error.OutputTooLarge;
@@ -161,7 +167,7 @@ fn appendRegion(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, sampl
         .vel_hi = s.vel_hi,
         .root_key = s.root_key,
         .scale_tuning_cents = s.scale_tuning_cents,
-        .tune_semitones = s.tune_cents / 100,
+        .tune_semitones = (s.tune_cents + rate_cents) / 100,
         .pan = 0,
         .attenuation_gain = std.math.pow(f32, 10, s.volume_db / 20),
         .delay_s = 0,
@@ -224,6 +230,25 @@ test "SFZ global and group inheritance resolve into shared sample bank" {
     try std.testing.expectEqual(@as(u8, 80), r.vel_hi);
     try std.testing.expectApproxEqAbs(@as(f32, 0.4), r.release_s, 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.501187), r.attenuation_gain, 1e-5);
+}
+
+test "off-rate sample keeps its recorded frames and pays for it in tune" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var wav_buf: [512]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&wav_buf);
+    const frames = [_]f32{ 0, 0.5, 1, 0.5, 0, -0.5, -1, -0.5 };
+    try @import("../core/wav.zig").write(&writer, 44_100, 1, &frames, .pcm16);
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "tone.wav", .data = writer.buffered() });
+    var bank = try parse(std.testing.allocator, std.testing.io, tmp.dir, "<region>\nsample=tone.wav\ntune=0\n", "Piano", 48_000);
+    defer bank.deinit();
+    // No resampling at load: the pool holds the file's own frames.
+    try std.testing.expectEqual(frames.len, bank.sample_data.len);
+    // The region's tune is what makes the voice read those frames at 44.1k
+    // while the engine runs at 48k (soundfont_player.spawnVoice's `rate`).
+    const r = bank.presets[0].regions[0];
+    const rate = std.math.pow(f64, 2.0, @as(f64, r.tune_semitones) * 100.0 / 1200.0);
+    try std.testing.expectApproxEqAbs(@as(f64, 44_100), rate * 48_000, 0.5);
 }
 
 test "SFZ reads inline headers and several opcodes per line" {

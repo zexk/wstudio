@@ -497,7 +497,7 @@ fn renderVoice(
             break;
         }
 
-        var s = pad_dsp.sampleAt(samples, v.read_pos);
+        var s = pad_dsp.sampleAtCubic(samples, v.read_pos);
         if (v.use_filter) s = v.filt.process(s, &v.filt_state);
 
         const env: f32 = blk: {

@@ -970,6 +970,27 @@ pub fn sampleAt(samples: []const f32, p: f64) f32 {
     return 0.0;
 }
 
+/// Catmull-Rom interpolation of `samples` at fractional position `p`, falling
+/// back to `sampleAt` where the four-point window would run off an end.
+/// Used where a sample plays at a fractional rate for its whole length - a
+/// bank kept at its recorded rate never lands on integer positions, and
+/// linear interpolation there dulls the top octave audibly.
+pub fn sampleAtCubic(samples: []const f32, p: f64) f32 {
+    if (p < 1.0) return sampleAt(samples, p);
+    const idx: usize = @intFromFloat(p);
+    if (idx + 2 >= samples.len) return sampleAt(samples, p);
+    const t: f32 = @floatCast(p - @as(f64, @floatFromInt(idx)));
+    const p0 = samples[idx - 1];
+    const p1 = samples[idx];
+    const p2 = samples[idx + 1];
+    const p3 = samples[idx + 2];
+    const a = 2 * p1;
+    const b = p2 - p0;
+    const c = 2 * p0 - 5 * p1 + 4 * p2 - p3;
+    const d = 3 * (p1 - p2) + p3 - p0;
+    return 0.5 * (a + t * (b + t * (c + t * d)));
+}
+
 /// Attack → decay → sustain level at output time `t` seconds. With the default
 /// params (attack≈0, decay 0, sustain 1) this is unity after the first sample.
 fn adsrLevel(t: f64, attack_s: f32, decay_s: f32, sustain: f32, curve: f32) f32 {
@@ -1078,6 +1099,25 @@ pub fn resample(
 
 // -----------------------------------------------------------------------
 // Tests
+
+test "cubic sample read tracks a sine closer than linear and stays in range" {
+    // A 44.1k-recorded sine read back at the 48k playback ratio: exactly what
+    // a bundled bank does now that it is no longer resampled at load.
+    const rate = 44_100.0;
+    const hz = 6_000.0;
+    var src: [512]f32 = undefined;
+    for (&src, 0..) |*s, i| s.* = @floatCast(@sin(2.0 * std.math.pi * hz * @as(f64, @floatFromInt(i)) / rate));
+    var cubic_err: f64 = 0;
+    var linear_err: f64 = 0;
+    var p: f64 = 1.0;
+    while (p < 500.0) : (p += 44_100.0 / 48_000.0) {
+        const want = @sin(2.0 * std.math.pi * hz * p / rate);
+        cubic_err += @abs(want - sampleAtCubic(&src, p));
+        linear_err += @abs(want - sampleAt(&src, p));
+        try std.testing.expect(@abs(sampleAtCubic(&src, p)) <= 1.05);
+    }
+    try std.testing.expect(cubic_err * 4 < linear_err);
+}
 
 test "resample preserves amplitude" {
     const src = [_]f32{ 0.0, 0.5, 1.0, 0.5, 0.0 };
