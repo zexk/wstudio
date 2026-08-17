@@ -641,22 +641,6 @@ pub const presets = [_]Preset{
         .gain = 0.3,
     } },
 
-    // reed-keys - velocity breathes into the FM depth, light chorus
-    .{ .name = "reed-keys", .category = "keys", .tags = &.{ "wstudio", "soul" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_detune_cents = 2.0, .osc_b_level = 0.5,
-        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 2.4,
-        .attack_s = 0.002, .decay_s = 1.0, .sustain = 0.2, .release_s = 0.6,
-        .filter_type = .lp, .filter_cutoff = 3200.0, .filter_res = 0.05,
-        .mod_matrix = mods(&.{
-            .{ .source = .random,   .dest = 15,  .depth = 0.018 },
-            .{ .source = .velocity, .dest = 15,  .depth = 0.12 },
-            .{ .source = .mac2,     .dest = 15,  .depth = 0.2 },
-            .{ .source = .mac3,     .dest = 179, .depth = 0.3 },
-        }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.7, .fx_chorus_depth_ms = 3.5, .fx_chorus_mix = 0.3,
-        .gain = 0.32,
-    } },
-
     // === Round 2: fill each genre's remaining core roles ===
 
     // dubstep - the talking growl finally talks: a real formant filter
@@ -886,20 +870,6 @@ pub const presets = [_]Preset{
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.5, .fx_chorus_depth_ms = 5.0, .fx_chorus_mix = 0.3,
         .fx_reverb_on = true, .fx_reverb_room = 0.88, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.4,
         .gain = 0.28,
-    } },
-
-    // trap - detuned saw pluck
-    .{ .name = "trap-pluck", .category = "pluck", .tags = &.{ "wstudio", "trap" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 2, .unison_detune = 14.0, .unison_spread = 0.5,
-        .attack_s = 0.002, .decay_s = 0.25, .sustain = 0.0, .release_s = 0.2, .env_curve = 0.68,
-        .filter_type = .lp, .filter_cutoff = 4000.0, .filter_res = 0.12,
-        .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
-            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
-        }),
-        .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.55, .fx_reverb_mix = 0.25,
-        .gain = 0.3,
     } },
 
     // rave - Mentasm-style detuned hoover stab, sub-octave saw + swirl
@@ -1633,8 +1603,8 @@ pub fn find(name: []const u8) ?Patch {
     return null;
 }
 
-test "factory library holds exactly 78 presets" {
-    try std.testing.expectEqual(@as(usize, 78), presets.len);
+test "factory library holds exactly 76 presets" {
+    try std.testing.expectEqual(@as(usize, 76), presets.len);
 }
 
 test "every preset's matrix rows target legal dests at sane depths" {
