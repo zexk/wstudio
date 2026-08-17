@@ -55,6 +55,9 @@ const fft_size: usize = 8192;
 /// held, which a single snapshot cannot see.
 const motion_fft_size: usize = 2048;
 const motion_frames: usize = 12;
+/// Crossover for the low-band correlation: the accepted line under which a
+/// mix is kept mono for punch and club/mono compatibility.
+const low_width_hz: f32 = 120.0;
 
 /// Band edges in Hz. Three bands lump a 3.3-octave middle together, which is
 /// where most of the library's timbral difference actually sits.
@@ -92,6 +95,12 @@ const Features = struct {
     bands: [band_count]f32 = @splat(0),
     /// 1 - |correlation(L, R)|. 0 is mono, 1 is fully decorrelated.
     width: f32 = 0,
+    /// The same correlation measured below `low_width_hz`. Width up here is
+    /// a choice; width in the sub is a defect - it cancels on a mono club
+    /// system and costs level. The sub oscillator is summed centre, so
+    /// anything this reports comes from spread oscillators or a stereo FX
+    /// unit smearing the low end.
+    low_width: f32 = 0,
     /// Spread of the centroid across the hold, in octaves: a filter sweep, a
     /// wobble or a vowel scan reads high, a static tone reads 0.
     centroid_mod: f32 = 0,
@@ -210,19 +219,34 @@ fn analyze(allocator: std.mem.Allocator, buf: []const Sample) !Features {
         }
     }
 
-    // Stereo width from the L/R correlation over the hold.
+    // Stereo width from the L/R correlation over the hold, full band and
+    // again below the crossover where mono is not a style choice.
     var sxy: f64 = 0;
     var sxx: f64 = 0;
     var syy: f64 = 0;
+    var lxy: f64 = 0;
+    var lxx: f64 = 0;
+    var lyy: f64 = 0;
+    // One-pole lowpass per channel, so the second correlation sees the sub.
+    const lp_a: f64 = @exp(-2.0 * std.math.pi * @as(f64, low_width_hz) / @as(f64, srf));
+    var lp_l: f64 = 0;
+    var lp_r: f64 = 0;
     for (0..hold_frames) |i| {
         const l: f64 = buf[i * 2];
         const r: f64 = buf[i * 2 + 1];
         sxy += l * r;
         sxx += l * l;
         syy += r * r;
+        lp_l = (1.0 - lp_a) * l + lp_a * lp_l;
+        lp_r = (1.0 - lp_a) * r + lp_a * lp_r;
+        lxy += lp_l * lp_r;
+        lxx += lp_l * lp_l;
+        lyy += lp_r * lp_r;
     }
     const denom = @sqrt(sxx * syy);
     f.width = if (denom > 1e-12) 1.0 - @abs(@as(f32, @floatCast(sxy / denom))) else 0;
+    const low_denom = @sqrt(lxx * lyy);
+    f.low_width = if (low_denom > 1e-12) 1.0 - @abs(@as(f32, @floatCast(lxy / low_denom))) else 0;
 
     // Center spectrum on loudest frame. Mid-hold is silent for plucks, which
     // would collapse distinct transient sounds to the same zero vector.
@@ -604,7 +628,7 @@ pub fn main(init: std.process.Init) !void {
     try w.print("# nearest_* are the closest other preset by patch fields and by measured sound.\n\n", .{});
     try w.print("name\tcategory\ttags\tpeak\trms\tcrest\tattack_ms\tsustain\trelease_ms\tcentroid\tflatness", .{});
     for (0..band_count) |i| try w.print("\tb{d}", .{i + 1});
-    try w.print("\twidth\tcmod\tamod\tmods\tfx\tarp\tnearest_patch\tpatch_d\tnearest_audio\taudio_d\n", .{});
+    try w.print("\twidth\tlow_w\tcmod\tamod\tmods\tfx\tarp\tnearest_patch\tpatch_d\tnearest_audio\taudio_d\n", .{});
     for (rows.items) |r| {
         const f = r.f[probes.len / 2];
         try w.print("{s}\t{s}\t", .{ r.name, r.category });
@@ -617,11 +641,11 @@ pub fn main(init: std.process.Init) !void {
             f.sustain, f.release_ms, f.centroid_hz, f.flatness,
         });
         for (f.bands) |b| try w.print("\t{d:.2}", .{b});
-        try w.print("\t{d:.2}\t{d:.2}\t{d:.2}\t{d}\t{d}\t{s}\t{s}\t{d:.3}\t{s}\t{d:.3}\n", .{
-            f.width,                       f.centroid_mod, f.amp_mod,
-            r.mod_rows,                    r.fx_count,     if (r.arp) "yes" else "no",
-            rows.items[r.near_patch].name, r.near_patch_d, rows.items[r.near_audio].name,
-            r.near_audio_d,
+        try w.print("\t{d:.2}\t{d:.2}\t{d:.2}\t{d:.2}\t{d}\t{d}\t{s}\t{s}\t{d:.3}\t{s}\t{d:.3}\n", .{
+            f.width,                       f.low_width,                   f.centroid_mod,
+            f.amp_mod,                     r.mod_rows,                    r.fx_count,
+            if (r.arp) "yes" else "no",    rows.items[r.near_patch].name, r.near_patch_d,
+            rows.items[r.near_audio].name, r.near_audio_d,
         });
     }
 
