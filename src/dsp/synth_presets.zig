@@ -848,7 +848,9 @@ pub const presets = [_]Preset{
     .{ .name = "gfunk-lead", .category = "lead", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.6666667, .unison = 2, .unison_detune = 6.0, .unison_spread = 0.4, .detune_cents = -1.0,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_semi = 0.0, .osc_b_detune_cents = 1.0, .osc_b_level = 0.9,
-        .voice_mode = .legato, .glide_s = 0.01,
+        // The genre's definition of this lead is "high-pitched portamento":
+        // the slide between notes is the sound, and 10 ms is not a slide.
+        .voice_mode = .legato, .glide_s = 0.07,
         .attack_s = 0.001, .decay_s = 0.05, .sustain = 1.0, .release_s = 0.02,
         .filter_type = .ladder, .filter_cutoff = 3400.0, .filter_res = 0.15, .filter_drive = 2.0,
         .fenv_attack_s = 2.15, .fenv_decay_s = 0.3, .fenv_sustain = 1.0, .fenv_release_s = 0.2,
