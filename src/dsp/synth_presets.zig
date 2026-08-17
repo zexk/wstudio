@@ -429,7 +429,12 @@ pub const presets = [_]Preset{
         .filter_type = .diode, .filter_cutoff = 1400.0, .filter_res = 0.6, .filter_drive = 3.0,
         .fenv_attack_s = 0.02, .fenv_decay_s = 0.3, .fenv_sustain = 0.4, .fenv_release_s = 0.2,
         .lfo_rate_hz = 5.0, .lfo_retrig = .key, .lfo_phase_offset = 0.25,
+        // The blip every account of a psy lead starts with: a very fast pitch
+        // envelope on the front of the note. A saw through a resonant diode
+        // filter was the rest of the recipe already.
+        .env3_attack_s = 0.001, .env3_decay_s = 0.03, .env3_sustain = 0.0, .env3_release_s = 0.03, .env3_curve = 0.8,
         .mod_matrix = mods(&.{
+            .{ .source = .env3, .dest = dP, .depth = 0.12 },
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .fenv, .dest = 21,  .depth = 0.7 },
             .{ .source = .lfo,  .dest = dP,  .depth = 0.02 },
@@ -497,6 +502,11 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 900.0, .filter_res = 0.05, .filter_drive = 2.0,
         .sub_level = 0.4, .sub_shape = .sine,
         .mod_matrix = mods(&.{
+            // Unlike the jazz organ, this one is not a tonewheel instrument
+            // with switch keys - it is the workstation organ deep house took
+            // from Robin S, played as stabs whose dynamics carry the groove.
+            // So velocity opens it.
+            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .keytrack, .dest = 21, .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 55, .depth = 0.4 },
