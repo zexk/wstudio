@@ -1074,26 +1074,41 @@ pub const presets = [_]Preset{
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.88 }, .{ .idx = 1, .value = 0.35 }, .{ .idx = 2, .value = 0.4 } } },
     } },
 
-    // rave - Mentasm-style detuned hoover stab, sub-octave saw + swirl
+    // rave - Mentasm-style hoover stab. The Alpha Juno patch it comes from is
+    // three things at once: a saw, a pulse whose width an LFO sweeps, and a
+    // sub an octave down, with a pitch envelope diving into every note and a
+    // fast chorus swarming the result. Osc B is the pulse, so the LFO rides
+    // its bend (dest 44 = the phase pivot, which on a square IS pulse width);
+    // env3 is the dive; the chorus replaced a phaser that no account of this
+    // sound mentions.
     .{ .name = "rave-stab", .category = "stab", .tags = &.{ "wstudio", "rave" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_detune = 18.0, .unison_spread = 0.6,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 14.0, .osc_b_level = 0.8,
+        .osc_b_warp_mode = .bend, .osc_b_warp_amount = 0.45,
         .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.6666667, .osc_c_semi = -12.0, .osc_c_level = 0.5,
         .attack_s = 0.006, .decay_s = 0.3, .sustain = 0.0, .release_s = 0.2, .env_curve = 0.62,
         .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.25,
+        // A swept pulse is asymmetric, and an asymmetric wave carries DC -
+        // measured at a third of this patch's own RMS before the highpass.
+        .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 20.0, .filter_routing = .series,
         .fenv_attack_s = 0.004, .fenv_decay_s = 0.28, .fenv_sustain = 0.0, .fenv_release_s = 0.15, .fenv_curve = 0.55,
+        .env3_attack_s = 0.001, .env3_decay_s = 0.14, .env3_sustain = 0.0, .env3_release_s = 0.05, .env3_curve = 0.7,
+        .lfo_rate_hz = 5.5,
         .mod_matrix = mods(&.{
             .{ .source = .fenv, .dest = 21,  .depth = 0.375 },
+            .{ .source = .env3, .dest = dP,  .depth = 0.3 },
+            .{ .source = .lfo,  .dest = 44,  .depth = 0.03 },
+            .{ .source = .velocity, .dest = 21, .depth = 0.3 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac3, .dest = 3, .depth = 0.3, .fx_instance_id = 2 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
             .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
             .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
-        .macro_labels = macros(.{ "brightness", "detune", "phaser", "drive" }),
+        .macro_labels = macros(.{ "brightness", "detune", "chorus", "drive" }),
         .gain = 0.26,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 9 }, .{ .idx = 2, .value = 0.35 } } },
-        .{ .kind = .phaser, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 0.8 }, .{ .idx = 2, .value = 0.4 }, .{ .idx = 3, .value = 0.4 } } },
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 1.1 }, .{ .idx = 1, .value = 5.5 }, .{ .idx = 2, .value = 0.45 } } },
     } },
 
     // ebm - ratio-mode unison turns the lead into a fifths power-chord
@@ -2098,7 +2113,11 @@ pub const presets = [_]Preset{
     // and drive for the tape-dub grit rather than a clean digital tone.
     .{ .name = "phonk-cowbell", .category = "pluck", .tags = &.{ "wstudio", "phonk", "hip-hop" }, .patch = .{
         .wt_table = .basic, .wt_pos = 1.0, .voice_mode = .mono,
-        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 7.0, .osc_b_detune_cents = 14.0, .osc_b_level = 0.85,
+        // The 808 cowbell is two square oscillators at 540 and 800 Hz - 681
+        // cents apart, a fifth flattened by 19 cents. That not-quite-interval
+        // is what beats and reads as metal; a fifth sharpened by 14, which is
+        // what this was, beats too but around the wrong centre.
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 7.0, .osc_b_detune_cents = -19.0, .osc_b_level = 0.85,
         .attack_s = 0.001, .decay_s = 0.28, .sustain = 0.0, .release_s = 0.12, .env_curve = 0.75,
         .filter_type = .bp, .filter_cutoff = 2400.0, .filter_res = 0.55, .filter_drive = 2.6,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.12, .fenv_sustain = 0.0, .fenv_release_s = 0.08, .fenv_curve = 0.7,
