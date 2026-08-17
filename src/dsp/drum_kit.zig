@@ -525,9 +525,13 @@ pub const variants = [_]KitVariant{
             .drive = 3.2,
             .dur_s = 0.55,
         } }, .gain = 0.90, .tune = alt_kick },
+        // The machine snare this kit models is two oscillators about an
+        // octave apart with noise over them; these two were a fifth apart,
+        // which is the library default and not any machine's interval. The
+        // low oscillator keeps its tuning, so the kit stays as deep as it was.
         .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
             .tone1_hz = 150.0,
-            .tone2_hz = 210.0,
+            .tone2_hz = 300.0,
             .tone_decay = 18.0,
             .noise_decay = 36.0,
             .drive = 1.1,
@@ -535,7 +539,7 @@ pub const variants = [_]KitVariant{
         } }, .gain = 0.80 },
         .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
             .tone1_hz = 150.0,
-            .tone2_hz = 210.0,
+            .tone2_hz = 300.0,
             .tone_decay = 18.0,
             .noise_decay = 36.0,
             .drive = 1.1,
@@ -591,7 +595,12 @@ pub const variants = [_]KitVariant{
         } }, .gain = 0.85 },
         .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 430.0, .tone2_hz = 610.0, .drive = 1.9, .seed = 0x713 } }, .gain = 0.75 },
         .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 260.0, .tone2_hz = 360.0, .drive = 1.9, .seed = 0x714 } }, .gain = 0.75 },
-        .{ .name = "cowbell", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 560.0, .tone2_hz = 845.0, .tone_decay = 15.0, .click_decay = 100.0, .drive = 2.2, .dur_s = 0.35 } }, .gain = 0.62 },
+        // The drum machine cowbell is two square oscillators at 540 and 800 Hz
+        // - 681 cents, a fifth flattened by 19 - and it is the beating of that
+        // not-quite-interval that reads as metal. This pair was 560/845, which
+        // is 721 cents: neither the machine's interval nor the acoustic
+        // cowbell's 1:1.44 that the percussion kit uses.
+        .{ .name = "cowbell", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 540.0, .tone2_hz = 800.0, .tone_decay = 15.0, .click_decay = 100.0, .drive = 2.2, .dur_s = 0.35 } }, .gain = 0.62 },
     } },
     .{ .name = "acoustic", .category = "acoustic", .tags = &.{ "wstudio", "rock" }, .pads = .{
         .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
