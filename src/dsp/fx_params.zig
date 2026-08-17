@@ -185,6 +185,8 @@ pub const utility_specs = [_]ParamSpec{
     .{ .name = "noise dB", .field = "noise_db", .min = -60.0, .max = 0.0, .step_fine = 1.0, .step_coarse = 6.0 },
     .{ .name = "autogain", .field = "autogain_on", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
     .{ .name = "target", .field = "autogain_target_lufs", .min = -36.0, .max = -6.0, .step_fine = 1.0, .step_coarse = 3.0 },
+    // Appended, never inserted: a project stores FX params by index.
+    .{ .name = "mono below", .field = "mono_below_hz", .min = 0.0, .max = 500.0, .step_fine = 5.0, .step_coarse = 20.0 },
 };
 
 pub const crossover_specs = [_]ParamSpec{

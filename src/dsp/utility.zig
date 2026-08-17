@@ -11,6 +11,13 @@ pub const Utility = struct {
     gain_db: f32 = 0,
     invert: f32 = 0,
     mono: f32 = 0,
+    /// Sum to mono only below this frequency, leaving the body stereo.
+    /// 0 disables it. Bass is kept centred under ~120 Hz because stereo
+    /// content down there cancels when a club system sums to mono and
+    /// buys nothing either way - the ear cannot place it. `mono` above
+    /// collapses the whole band; this collapses only the range where
+    /// width is a liability, so a wide detuned bass keeps its body.
+    mono_below_hz: f32 = 0,
     /// 0 = stereo, 1 = left, 2 = right.
     channel: f32 = 0,
     swap: f32 = 0,
@@ -28,6 +35,12 @@ pub const Utility = struct {
     noise_low: f32 = 0,
     noise_prev: f32 = 0,
     noise_diff_prev: f32 = 0,
+    /// Two cascaded one-pole highpasses on the side signal, for
+    /// `mono_below_hz`. Each stage keeps its own input and output history.
+    side_hp1_x: f32 = 0,
+    side_hp1_y: f32 = 0,
+    side_hp2_x: f32 = 0,
+    side_hp2_y: f32 = 0,
     loudness: LoudnessMeter,
     autogain_db: f32 = 0,
     sample_rate: u32,
@@ -63,6 +76,10 @@ pub const Utility = struct {
         self.noise_low = 0;
         self.noise_prev = 0;
         self.noise_diff_prev = 0;
+        self.side_hp1_x = 0;
+        self.side_hp1_y = 0;
+        self.side_hp2_x = 0;
+        self.side_hp2_y = 0;
         self.loudness = LoudnessMeter.init(self.sample_rate);
         self.autogain_db = 0;
     }
@@ -112,6 +129,14 @@ pub const Utility = struct {
         const noise_on = dsp.sanitizeParam(self.noise_on, 0, 1, 0) >= 0.5;
         const noise_color: u3 = @intFromFloat(@round(dsp.sanitizeParam(self.noise_color, 0, 4, 0)));
         const noise_gain = types.dbToGain(dsp.sanitizeParam(self.noise_db, -60, 0, -18));
+        // Sanitised to 0 or a usable crossover: below ~20 Hz there is nothing
+        // to centre, and above ~500 Hz this stops being a bass tool.
+        const bass_mono_hz = dsp.sanitizeParam(self.mono_below_hz, 0, 500, 0);
+        const bass_mono = bass_mono_hz >= 20.0;
+        const bass_a: f32 = if (bass_mono)
+            @exp(-2.0 * std.math.pi * bass_mono_hz / @as(f32, @floatFromInt(@max(self.sample_rate, 1))))
+        else
+            0;
 
         var i: usize = 0;
         while (i + 1 < buf.len) : (i += 2) {
@@ -129,6 +154,27 @@ pub const Utility = struct {
                     left = (left + right) * 0.5;
                     right = left;
                 },
+            }
+            if (bass_mono) {
+                // Work in mid/side and highpass only the side: the mid passes
+                // through untouched, so nothing phase-shifts the part a mono
+                // system will hear. (Lowpassing each channel and subtracting
+                // is the obvious version and it is wrong - the complementary
+                // highpass of a one-pole is not phase-aligned with it, so a
+                // large lagged copy of the sub survives on its original side.)
+                // Two poles, because one leaves 39% of the side at 50 Hz
+                // against a 120 Hz corner where two leave 15%.
+                const mid = (left + right) * 0.5;
+                const side = (left - right) * 0.5;
+                // y = a*(y[-1] + x - x[-1]) - a real one-pole highpass, twice.
+                const s1 = bass_a * (self.side_hp1_y + side - self.side_hp1_x);
+                self.side_hp1_x = side;
+                self.side_hp1_y = s1;
+                const s2 = bass_a * (self.side_hp2_y + s1 - self.side_hp2_x);
+                self.side_hp2_x = s1;
+                self.side_hp2_y = s2;
+                left = mid + s2;
+                right = mid - s2;
             }
             if (swap) std.mem.swap(f32, &left, &right);
             self.delay_line_l[self.write_pos] = left * gain * polarity;
@@ -225,4 +271,74 @@ test "utility autogain moves sustained audio toward target" {
     }
     try std.testing.expect(utility.autogain_db > 10);
     try std.testing.expect(utility.autogain_db <= 24);
+}
+
+test "mono below drops sub side energy without narrowing the body" {
+    const sr = 48_000;
+    // Hard-panned pair: 50 Hz on the left only, 2 kHz on the right only.
+    const fill = struct {
+        fn go(buf: []types.Sample) void {
+            var low_phase: f32 = 0;
+            var high_phase: f32 = 0;
+            var i: usize = 0;
+            while (i + 1 < buf.len) : (i += 2) {
+                buf[i] = @sin(low_phase);
+                buf[i + 1] = @sin(high_phase);
+                low_phase += 2.0 * std.math.pi * 50.0 / @as(f32, sr);
+                high_phase += 2.0 * std.math.pi * 2000.0 / @as(f32, sr);
+            }
+        }
+    }.go;
+    // Side energy below the crossover, and each channel's total energy.
+    const measure = struct {
+        fn go(buf: []const types.Sample, low_side: *f64, el: *f64, er: *f64) void {
+            const a: f64 = @exp(-2.0 * std.math.pi * 120.0 / @as(f64, sr));
+            var lp1: f64 = 0;
+            var lp2: f64 = 0;
+            var i: usize = 0;
+            while (i + 1 < buf.len) : (i += 2) {
+                const side = (@as(f64, buf[i]) - buf[i + 1]) * 0.5;
+                lp1 = (1.0 - a) * side + a * lp1;
+                lp2 = (1.0 - a) * lp1 + a * lp2;
+                if (i < buf.len / 2) continue; // let the filters settle
+                low_side.* += lp2 * lp2;
+                el.* += @as(f64, buf[i]) * buf[i];
+                er.* += @as(f64, buf[i + 1]) * buf[i + 1];
+            }
+        }
+    }.go;
+
+    var dry: [19200]types.Sample = undefined;
+    fill(&dry);
+    var dry_side: f64 = 0;
+    var dry_l: f64 = 0;
+    var dry_r: f64 = 0;
+    measure(&dry, &dry_side, &dry_l, &dry_r);
+
+    var utility = try Utility.init(std.testing.allocator, sr);
+    defer utility.deinit(std.testing.allocator);
+    utility.mono_below_hz = 120;
+    var wet: [19200]types.Sample = undefined;
+    fill(&wet);
+    utility.processBlock(&wet);
+    var wet_side: f64 = 0;
+    var wet_l: f64 = 0;
+    var wet_r: f64 = 0;
+    measure(&wet, &wet_side, &wet_l, &wet_r);
+
+    // The sub stops being a side signal: better than 10 dB down.
+    try std.testing.expect(wet_side < dry_side * 0.1);
+    // The 2 kHz body is still panned right, not collapsed to the centre.
+    try std.testing.expect(wet_r > wet_l * 2.0);
+    // And an untouched unit is bit-transparent to the same input.
+    var off = try Utility.init(std.testing.allocator, sr);
+    defer off.deinit(std.testing.allocator);
+    var bypass: [19200]types.Sample = undefined;
+    fill(&bypass);
+    off.processBlock(&bypass);
+    var off_side: f64 = 0;
+    var off_l: f64 = 0;
+    var off_r: f64 = 0;
+    measure(&bypass, &off_side, &off_l, &off_r);
+    try std.testing.expectApproxEqAbs(dry_side, off_side, dry_side * 0.01);
 }
