@@ -48,6 +48,40 @@ pub fn peakBuckets(samples: []const f32, out: []f32) void {
     peakBucketsWarped(samples, out, 0.0, 1.0, 1.0);
 }
 
+/// `peakBuckets` with a ceiling on how many samples each bucket reads. The
+/// sampler pane draws one source across a whole pane, where an exhaustive
+/// walk is cheap; the arrangement draws whole sources squeezed into a clip
+/// box, where it is millions of reads per clip per frame. Probing on a
+/// stride can miss a lone transient, which an overview drawn a few pixels
+/// tall would not have shown anyway.
+pub fn peakBucketsSampled(samples: []const f32, out: []f32, max_probes: usize) void {
+    for (out, 0..) |*bucket, x| {
+        bucket.* = 0;
+        const r = bucketRange(x, out.len, samples.len, 0.0, 1.0, 1.0) orelse continue;
+        const span = r.hi - r.lo;
+        const stride = @max(1, span / @max(max_probes, 1));
+        var peak: f32 = 0;
+        var i = r.lo;
+        while (i < r.hi) : (i += stride) peak = @max(peak, @abs(samples[i]));
+        bucket.* = peak;
+    }
+}
+
+test "sampled peaks track the full walk on smooth material and stay bounded" {
+    var samples: [4096]f32 = undefined;
+    for (&samples, 0..) |*s, i| s.* = @sin(@as(f32, @floatFromInt(i)) * 0.01);
+    var exact: [16]f32 = undefined;
+    var probed: [16]f32 = undefined;
+    peakBuckets(&samples, &exact);
+    peakBucketsSampled(&samples, &probed, 8);
+    for (exact, probed) |e, p| {
+        try std.testing.expect(p <= e + 1e-6);
+        try std.testing.expect(p > e * 0.5);
+    }
+    // A single probe per bucket is still a legal request, and reads in range.
+    peakBucketsSampled(&samples, &probed, 1);
+}
+
 /// Rough frequency content of a column, for Serato-style waveform tinting.
 pub const Band = enum { low, mid, high };
 

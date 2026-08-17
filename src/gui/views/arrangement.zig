@@ -10,6 +10,7 @@ const zgui = @import("zgui");
 const shared_step_grid = @import("../../ui/editors/step_grid.zig");
 const scroll = @import("../scroll.zig");
 const automation_ed = @import("../../ui/editors/automation.zig");
+const waveform = @import("../../ui/waveform.zig");
 
 const color = gui_style.color;
 const theme = &gui_style.palette;
@@ -37,6 +38,44 @@ test "a fade covers its share of the clip and never more than all of it" {
     try std.testing.expectEqual(@as(f32, 100), fadeWidthPx(96_000, 48_000, 100));
     try std.testing.expectEqual(@as(f32, 0), fadeWidthPx(0, 48_000, 100));
     try std.testing.expectEqual(@as(f32, 0), fadeWidthPx(24_000, 0, 100));
+}
+
+/// Peak overview of the region's own slice of its source, drawn across the
+/// clip box. Falls back to the flat centre line this view drew before when
+/// the source is missing (a project can outlive the file it imported).
+fn drawClipWaveform(
+    proj: *const ws.Project,
+    draw_list: anytype,
+    region: anytype,
+    x0: f32,
+    x1: f32,
+    mid_y: f32,
+    half_h: f32,
+    ink: [4]f32,
+) void {
+    const line_col = color(.{ ink[0], ink[1], ink[2], 0.72 });
+    const width = x1 - x0 - 10;
+    const source = proj.audioSource(region.source_id);
+    const slice: []const f32 = if (source) |s| blk: {
+        const channels = @max(s.channel_count, 1);
+        const lo = @min(region.source_start_frame *| channels, s.samples.len);
+        const hi = @min(lo +| region.source_length_frames *| channels, s.samples.len);
+        break :blk s.samples[@intCast(lo)..@intCast(hi)];
+    } else &.{};
+    if (width < 2 or slice.len == 0) {
+        draw_list.addLine(.{ .p1 = .{ x0 + 5, mid_y }, .p2 = .{ x1 - 5, mid_y }, .col = line_col, .thickness = 2 });
+        return;
+    }
+    var peaks: [512]f32 = undefined;
+    const columns = @min(peaks.len, @as(usize, @intFromFloat(width)));
+    waveform.peakBucketsSampled(slice, peaks[0..columns], 64);
+    // Reversed playback mirrors what is heard, so mirror the overview too.
+    if (region.reverse) std.mem.reverse(f32, peaks[0..columns]);
+    for (peaks[0..columns], 0..) |peak, i| {
+        const x = x0 + 5 + width * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(columns));
+        const h = @max(1, peak * half_h * 0.9);
+        draw_list.addLine(.{ .p1 = .{ x, mid_y - h }, .p2 = .{ x, mid_y + h }, .col = line_col, .thickness = 1 });
+    }
 }
 
 pub fn draw(app: anytype) void {
@@ -356,7 +395,7 @@ pub fn draw(app: anytype) void {
                 .audio => |region| {
                     draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(ink), "AUDIO  {d}f  {d:.1}dB  {d}T", .{ region.source_length_frames, region.gain_db, region.takeCount() });
                     const mid = (pmin[1] + 22 + pmax[1]) * 0.5;
-                    draw_list.addLine(.{ .p1 = .{ pmin[0] + 5, mid }, .p2 = .{ pmax[0] - 5, mid }, .col = color(.{ ink[0], ink[1], ink[2], 0.72 }), .thickness = 2 });
+                    drawClipWaveform(proj, draw_list, region, pmin[0], pmax[0], mid, (pmax[1] - pmin[1] - 22) * 0.5, ink);
                     // Fade ramps (`:clip-fade`, and the pair `:crossfade` writes)
                     // are counted in timeline frames from each clip edge, so they
                     // scale against the clip's own frame span rather than its
