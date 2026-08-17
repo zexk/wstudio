@@ -184,6 +184,12 @@ pub const HatParams = struct {
     /// crashes switch it on - see `metalHat`.
     attack_decay: f32 = 240.0,
     attack_mix: f32 = 0.0,
+    /// Teeth per second, for the one instrument here that is scraped rather
+    /// than shaken or struck. A guiro's sound is not a wash: it is a train of
+    /// separate clicks as the pua crosses the ridges, and the rate of that
+    /// train is what tells a long scrape from a short one. 0 leaves the wash
+    /// continuous, which is every other pad.
+    ratchet_hz: f32 = 0.0,
 };
 
 /// Inharmonic metal cluster (six squares) highpassed to keep only the bright
@@ -199,6 +205,7 @@ fn metalHat(allocator: std.mem.Allocator, sr: u32, p: HatParams) std.mem.Allocat
     var body_hp: OnePole = .{};
     var air_hp: OnePole = .{};
     var hit_hp: OnePole = .{};
+    var tooth_phase: f32 = 0.0;
     const body_a = cutoffAlpha(p.body_hz, srf);
     const air_a = cutoffAlpha(p.air_hz, srf);
     const hit_a = cutoffAlpha(1500.0, srf);
@@ -218,7 +225,15 @@ fn metalHat(allocator: std.mem.Allocator, sr: u32, p: HatParams) std.mem.Allocat
         // gated to a few ms. A slow crash decay without it opens at full wash
         // level, so there is no strike to hear and the hit reads as soft.
         const hit = hit_hp.hp(cluster + n, hit_a) * expEnv(t, p.attack_decay) * p.attack_mix;
-        s.* = (metal + air) * expEnv(t, p.decay) + hit;
+        // Each tooth is a short burst, not a gap in a continuous noise: the
+        // ridge is struck, rings for a moment and is left behind.
+        var gate: f32 = 1.0;
+        if (p.ratchet_hz > 0.0) {
+            tooth_phase += p.ratchet_hz / srf;
+            tooth_phase -= @floor(tooth_phase);
+            gate = 0.12 + 0.88 * expEnv(tooth_phase / p.ratchet_hz, p.ratchet_hz * 6.0);
+        }
+        s.* = ((metal + air) * expEnv(t, p.decay) + hit) * gate;
     }
     normalize(buf, 0.85);
     return buf;
@@ -1749,8 +1764,19 @@ pub const variants = [_]KitVariant{
     // one shares - it has no kick, no snare and no hihat, because a hand
     // percussion set doesn't have them. Pads run low to high instead: the
     // three congas and a slap, bongos, timbales, then the struck wood and
-    // metal, the shakers, and a surdo underneath it all. Meant to be layered
-    // under another machine, not played on its own.
+    // the two bells, the shaken and scraped gourds, and a bombo underneath
+    // it all. Meant to be layered under another machine, not played on its
+    // own.
+    //
+    // The roster is Cuban throughout. It used to carry an agogo, a cabasa, a
+    // tambourine and a surdo - three Brazilian instruments and one generic
+    // one, in a kit that calls itself Afro-Cuban - while the section that
+    // actually keeps time in Cuban music, the scraped gourd, was missing
+    // entirely. Now: two bells rather than one, since Cuban music uses a
+    // pair and they are different instruments (the campana is the wide,
+    // thick, low one the bongosero picks up for the montuno; the cha-cha
+    // bell is the small bright one mounted on the timbales), maracas and a
+    // chekere for the shaken gourds, and a guiro for the scraped one.
     //
     // The pitches are the common Afro-Cuban tuning - tumba D3, conga G3,
     // quinto C4, bongos above them, timbales a fourth apart, which is the
@@ -1802,20 +1828,20 @@ pub const variants = [_]KitVariant{
             // the cowbell's classic 587/845 pair (1:1.44) and the agogo's
             // higher, brighter one. No decay multiplier - a bell's upper
             // partial is exactly what sustains.
-            .{ .name = "cowbell", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 587.0, .tone2_hz = 845.0, .tone_decay = 16.0, .click_decay = 90.0, .drive = 1.6, .dur_s = 0.32 } }, .gain = 0.66 },
-            .{ .name = "agogo", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 780.0, .tone2_hz = 1170.0, .tone_decay = 14.0, .click_decay = 120.0, .drive = 1.5, .dur_s = 0.38 } }, .gain = 0.64 },
+            .{ .name = "chacha", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 587.0, .tone2_hz = 845.0, .tone_decay = 16.0, .click_decay = 90.0, .drive = 1.6, .dur_s = 0.32 } }, .gain = 0.66 },
+            .{ .name = "campana", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 440.0, .tone2_hz = 632.0, .tone_decay = 10.0, .click_decay = 60.0, .drive = 2.0, .dur_s = 0.45 } }, .gain = 0.68 },
             // Shakers are the hat generator with its metal cluster filtered
             // out of the way (body_hz well above the partials), leaving the
             // air path as the whole sound - which is what a shaker is.
-            .{ .name = "shaker", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.07, .decay = 60.0, .body_hz = 14_000.0, .air_hz = 5000.0, .air_mix = 1.0 } }, .gain = 0.56 },
-            .{ .name = "cabasa", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.05, .decay = 90.0, .body_hz = 14_000.0, .air_hz = 7000.0, .air_mix = 1.0 } }, .gain = 0.54 },
+            .{ .name = "maracas", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.06, .decay = 95.0, .body_hz = 12_000.0, .air_hz = 4500.0, .air_mix = 1.0 } }, .gain = 0.56 },
+            .{ .name = "chekere", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.13, .decay = 42.0, .body_hz = 5000.0, .air_hz = 3200.0, .air_mix = 0.8 } }, .gain = 0.56 },
             // Tambourine keeps some cluster: the jingles are the metal part.
-            .{ .name = "tambourine", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.34, .decay = 11.0, .body_hz = 8000.0, .air_hz = 7500.0, .air_mix = 0.8, .attack_mix = 0.5 } }, .gain = 0.52 },
+            .{ .name = "guiro", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.3, .decay = 3.5, .body_hz = 9000.0, .air_hz = 2600.0, .air_mix = 1.0, .ratchet_hz = 85.0 } }, .gain = 0.54 },
             // A surdo is a 16-20 inch drum carried on a strap and struck with
             // a beater: its fundamental sits under 100 Hz, well below where
             // the old 110 Hz sweep started, and an open stroke rings for the
             // best part of a second.
-            .{ .name = "surdo", .kind = .tom, .params = .{ .tom = .{ .freq_start = 95.0, .freq_end = 62.0, .dur_s = 0.85, .body_decay = 4.0, .attack_decay = 100.0, .drive = 1.8, .attack_mix = 0.12, .seed = 0x819 } }, .gain = 0.92 },
+            .{ .name = "bombo", .kind = .tom, .params = .{ .tom = .{ .freq_start = 120.0, .freq_end = 72.0, .dur_s = 0.7, .body_decay = 5.0, .attack_decay = 90.0, .drive = 1.9, .attack_mix = 0.18, .seed = 0x819 } }, .gain = 0.92 },
         },
     },
 };
@@ -1966,7 +1992,7 @@ test "the percussion kit's partials are the ones its instruments have" {
             .rim => {
                 // The bells are struck metal, not bars: inharmonic partials
                 // that both ring, which is why they are exempt here.
-                if (std.mem.eql(u8, slot.name, "cowbell") or std.mem.eql(u8, slot.name, "agogo")) continue;
+                if (std.mem.eql(u8, slot.name, "chacha") or std.mem.eql(u8, slot.name, "campana")) continue;
                 const p = slot.params.rim;
                 try std.testing.expectApproxEqRel(@as(f32, 2.76), p.tone2_hz / p.tone1_hz, 0.01);
                 bars += 1;
@@ -1976,4 +2002,43 @@ test "the percussion kit's partials are the ones its instruments have" {
     }
     try std.testing.expectEqual(@as(usize, 8), membranes); // 3 congas + slap + 2 bongos + 2 timbales
     try std.testing.expectEqual(@as(usize, 2), bars); // clave, woodblock
+}
+
+
+test "the guiro is a train of clicks and the shaken gourds are not" {
+    // What separates a scrape from a shake: the pua crosses one ridge at a
+    // time, so the sound is separate strikes at the rate of the ridges, while
+    // maracas and a chekere are a single burst of beads. Without the ratchet
+    // the guiro is just a long shaker, which is what it used to be.
+    const v = byName("percussion").?;
+    const bursts = struct {
+        fn count(buf: []const f32) usize {
+            const win = 240; // 5 ms
+            var n: usize = 0;
+            var prev: f32 = 0;
+            var rising = false;
+            var i: usize = 0;
+            while (i + win < buf.len) : (i += win) {
+                var m: f32 = 0;
+                for (buf[i .. i + win]) |x| m = @max(m, @abs(x));
+                if (m > prev * 1.3 and m > 0.05) rising = true;
+                if (rising and m < prev * 0.77) {
+                    n += 1;
+                    rising = false;
+                }
+                prev = m;
+            }
+            return n;
+        }
+    };
+    for (v.pads) |slot| {
+        const kind = slot.kind orelse continue;
+        const scraped = std.mem.eql(u8, slot.name, "guiro");
+        const shaken = std.mem.eql(u8, slot.name, "maracas") or std.mem.eql(u8, slot.name, "chekere");
+        if (!scraped and !shaken) continue;
+        const buf = try genSlot(kind, slot.params, std.testing.allocator, 48_000);
+        defer std.testing.allocator.free(buf);
+        const n = bursts.count(buf);
+        if (scraped) try std.testing.expect(n > 15) else try std.testing.expect(n <= 2);
+    }
 }
