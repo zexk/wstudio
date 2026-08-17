@@ -1939,6 +1939,145 @@ pub const presets = [_]Preset{
         .gain = 0.28,
     } },
 
+    // hyperpop - the chord stab, which is a mixing decision more than a
+    // patch: a wide supersaw squared off by heavy OTT and hard drive until
+    // the envelope is flat and the top end is all edge. Deliberately brighter
+    // and more compressed than the trance supersaw it starts from - the
+    // genre's whole aesthetic is the plastic surface.
+    .{ .name = "hyperpop-stab", .category = "stab", .tags = &.{ "wstudio", "hyperpop", "future-bass" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 7, .unison_detune = 26.0, .unison_spread = 0.9,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 12.0, .osc_b_detune_cents = 12.0, .osc_b_level = 0.45,
+        .attack_s = 0.003, .decay_s = 0.5, .sustain = 0.0, .release_s = 0.3, .env_curve = 0.55,
+        .filter_type = .lp, .filter_cutoff = 7500.0, .filter_res = 0.12,
+        .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 200.0, .filter_routing = .series,
+        .fenv_attack_s = 0.002, .fenv_decay_s = 0.4, .fenv_sustain = 0.0, .fenv_release_s = 0.2,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.3 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac2,     .dest = 4,   .depth = 0.4 },
+            .{ .source = .mac4,     .dest = 85,  .depth = 0.4 },
+        }),
+        .fx_ott_on = true, .fx_ott_depth = 0.9, .fx_ott_gain_out_db = -9.0,
+        .fx_dist_on = true, .fx_dist_drive_db = 8.0, .fx_dist_mix = 0.3,
+        .fx_reverb_on = true, .fx_reverb_room = 0.65, .fx_reverb_damp = 0.3, .fx_reverb_mix = 0.22,
+        .gain = 0.24,
+    } },
+
+    // hard techno - the metallic percussive stab that carries a hardgroove
+    // loop. Ring modulation rather than detuning: an inharmonic partial is
+    // what makes a stab read as metal instead of as a chord, and it stays
+    // legible at 150 BPM where a detuned saw turns to mush.
+    .{ .name = "hardgroove-stab", .category = "stab", .tags = &.{ "wstudio", "hard-techno", "techno" }, .patch = .{
+        .wt_table = .metallic, .wt_pos = 0.4, .voice_mode = .mono,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 8.0, .osc_b_level = 0.7,
+        .osc_b_warp_mode = .ring_a_b, .osc_b_warp_amount = 0.7,
+        .attack_s = 0.001, .decay_s = 0.18, .sustain = 0.0, .release_s = 0.12, .env_curve = 0.8,
+        .filter_type = .bp, .filter_cutoff = 1800.0, .filter_res = 0.4, .filter_drive = 2.8,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.14, .fenv_sustain = 0.0, .fenv_release_s = 0.1, .fenv_curve = 0.75,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.5 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.35 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac2,     .dest = 185, .depth = 0.4 },
+            .{ .source = .mac4,     .dest = 85,  .depth = 0.35 },
+        }),
+        .fx_dist_on = true, .fx_dist_drive_db = 12.0, .fx_dist_mix = 0.35,
+        .fx_delay_on = true, .fx_delay_time_s = 0.14, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.18,
+        .gain = 0.28,
+    } },
+
+    // reggaeton - the dembow stab. Short, mid-forward and mono, sitting in
+    // the gap the kick-snare pattern leaves rather than filling the bar:
+    // a bandpass keeps it out of both the 808's range and the vocal's, which
+    // is why the genre's synths sound thin soloed and correct in the mix.
+    .{ .name = "dembow-stab", .category = "stab", .tags = &.{ "wstudio", "reggaeton", "trap" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.008,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 11.0, .osc_b_level = 0.6,
+        .attack_s = 0.002, .decay_s = 0.22, .sustain = 0.0, .release_s = 0.14, .env_curve = 0.7,
+        .filter_type = .bp, .filter_cutoff = 1100.0, .filter_res = 0.35, .filter_drive = 2.0,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.16, .fenv_sustain = 0.0, .fenv_release_s = 0.1, .fenv_curve = 0.7,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.35 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac3,     .dest = 111, .depth = 0.35 },
+        }),
+        .fx_delay_on = true, .fx_delay_time_s = 0.21, .fx_delay_feedback = 0.28, .fx_delay_mix = 0.2,
+        .fx_reverb_on = true, .fx_reverb_room = 0.5, .fx_reverb_damp = 0.55, .fx_reverb_mix = 0.16,
+        .gain = 0.3,
+    } },
+
+    // house - the piano the genre never stopped using. A real piano's hammer
+    // strike is a fast inharmonic burst over a struck string, so the filter
+    // envelope opens and shuts in 40 ms while the amplitude rings on; the
+    // slight detune between the two oscillators is the unison string pair.
+    // Plays as a chord stab or as a full line.
+    .{ .name = "house-piano", .category = "keys", .tags = &.{ "wstudio", "house", "uk-garage" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.3333333,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_detune_cents = -8.0, .osc_b_level = 0.5,
+        .attack_s = 0.001, .decay_s = 0.7, .sustain = 0.12, .release_s = 0.35, .env_curve = 0.68,
+        .filter_type = .lp, .filter_cutoff = 3000.0, .filter_res = 0.14,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.04, .fenv_sustain = 0.0, .fenv_release_s = 0.06, .fenv_curve = 0.85,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.6 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.4 },
+            .{ .source = .keytrack, .dest = 21,  .depth = 0.25 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.35 },
+        }),
+        .fx_comp_on = true, .fx_comp_threshold_db = -18.0, .fx_comp_ratio = 3.0, .fx_comp_attack_ms = 8.0, .fx_comp_release_ms = 90.0,
+        .fx_reverb_on = true, .fx_reverb_room = 0.6, .fx_reverb_damp = 0.45, .fx_reverb_mix = 0.2,
+        .gain = 0.3,
+    } },
+
+    // afro house - the hypnotic analog riff that runs under the percussion
+    // for eight bars at a time. Mono with real glide so the line slurs, and
+    // a slow unsynced LFO on the cutoff so a repeated figure never lands
+    // twice the same way - the movement has to come from the patch when the
+    // notes do not change.
+    .{ .name = "afro-lead", .category = "lead", .tags = &.{ "wstudio", "afro-house", "deep-house" }, .patch = .{
+        .wt_table = .analog, .wt_pos = 0.55, .voice_mode = .mono, .glide_s = 0.045,
+        .osc_b_on = true, .osc_b_wt_table = .analog, .osc_b_wt_pos = 0.2, .osc_b_detune_cents = 9.0, .osc_b_level = 0.5,
+        .attack_s = 0.01, .decay_s = 0.4, .sustain = 0.55, .release_s = 0.3,
+        .filter_type = .ladder, .filter_cutoff = 1500.0, .filter_res = 0.3, .filter_drive = 1.8,
+        .fenv_attack_s = 0.004, .fenv_decay_s = 0.3, .fenv_sustain = 0.2, .fenv_release_s = 0.2, .fenv_curve = 0.5,
+        .lfo_rate_hz = 0.17, .lfo_slew_ms = 30.0,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .lfo,      .dest = 21,  .depth = 0.25 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac3,     .dest = 111, .depth = 0.4 },
+        }),
+        .fx_delay_on = true, .fx_delay_time_s = 0.3, .fx_delay_feedback = 0.4, .fx_delay_mix = 0.25,
+        .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.45, .fx_reverb_mix = 0.22,
+        .gain = 0.28,
+    } },
+
+    // pop - the bell arpeggio that tops a chorus, and the second arp in a
+    // library that had one. Sixteenths up three octaves with a long gate so
+    // the tails overlap into a shimmer, FM bell body kept soft: this sits
+    // above a vocal rather than competing with it.
+    .{ .name = "bell-arp", .category = "lead", .tags = &.{ "wstudio", "j-pop", "future-bass" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 19.0, .osc_b_detune_cents = 4.0, .osc_b_level = 0.55,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 1.2,
+        .arp_on = true, .arp_mode = .up, .arp_octaves = 3, .arp_sync = .n1_16, .arp_gate = 0.85,
+        .attack_s = 0.002, .decay_s = 0.5, .sustain = 0.0, .release_s = 0.45, .env_curve = 0.65,
+        .filter_type = .lp, .filter_cutoff = 5500.0, .filter_res = 0.04,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.12, .fenv_sustain = 0.0, .fenv_release_s = 0.1, .fenv_curve = 0.7,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 15,  .depth = 0.35 },
+            .{ .source = .velocity, .dest = 15,  .depth = 0.2 },
+            .{ .source = .mac2,     .dest = 15,  .depth = 0.3 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.45 },
+        }),
+        .fx_delay_on = true, .fx_delay_time_s = 0.187, .fx_delay_feedback = 0.42, .fx_delay_mix = 0.28,
+        .fx_reverb_on = true, .fx_reverb_room = 0.8, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.32,
+        .gain = 0.24,
+    } },
+
     // soul: rounded finger bass with a small upper-harmonic layer
     .{ .name = "soul-bass", .category = "bass", .tags = &.{ "wstudio", "soul", "neo-soul" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.3333333, .voice_mode = .mono, .glide_s = 0.012,
@@ -2028,8 +2167,8 @@ pub fn find(name: []const u8) ?Patch {
     return null;
 }
 
-test "factory library holds exactly 94 presets" {
-    try std.testing.expectEqual(@as(usize, 94), presets.len);
+test "factory library holds exactly 100 presets" {
+    try std.testing.expectEqual(@as(usize, 100), presets.len);
 }
 
 test "every preset's matrix rows target legal dests at sane depths" {
