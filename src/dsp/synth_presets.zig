@@ -1814,6 +1814,131 @@ pub const presets = [_]Preset{
         .gain = 0.24,
     } },
 
+    // uk garage - the organ stab that gives 2-step its skip. Drawbar organ
+    // registration (root, octave, twelfth) with no filter movement at all:
+    // the bounce is in the envelope, a hard gate closing before the next
+    // eighth, not in a sweep. Dub-style short plate, and the third harmonic
+    // is what keeps it cutting through a busy shuffle.
+    .{ .name = "garage-organ", .category = "stab", .tags = &.{ "wstudio", "uk-garage", "house" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 1.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 12.0, .osc_b_level = 0.55,
+        .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.0, .osc_c_semi = 19.0, .osc_c_level = 0.35,
+        .attack_s = 0.004, .decay_s = 0.14, .sustain = 0.0, .release_s = 0.08, .env_curve = 0.5,
+        .filter_type = .lp, .filter_cutoff = 3800.0, .filter_res = 0.1,
+        .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 220.0, .filter_routing = .series,
+        .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21,  .depth = 0.35 },
+            .{ .source = .keytrack, .dest = 21,  .depth = 0.25 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
+        }),
+        .fx_reverb_on = true, .fx_reverb_room = 0.45, .fx_reverb_damp = 0.5, .fx_reverb_mix = 0.22,
+        .gain = 0.3,
+    } },
+
+    // hard techno - the rumble. Not an oscillator patch: the sound is a kick
+    // sent to a long reverb, distorted, then shelved so only the sub tail
+    // survives. Here the reverb is in the voice and the lowpass sits after
+    // the drive, so a held note becomes the rolling sub the genre runs on.
+    // Slow attack on purpose - a rumble with a transient is a kick.
+    .{ .name = "rumble-bass", .category = "bass", .tags = &.{ "wstudio", "hard-techno", "techno" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.0, .voice_mode = .mono, .glide_s = 0.02,
+        .sub_level = 0.85, .sub_shape = .sine,
+        .noise_level = 0.06, .noise_color = 0.25,
+        .attack_s = 0.06, .decay_s = 0.5, .sustain = 0.8, .release_s = 0.45,
+        .filter_type = .lp, .filter_cutoff = 190.0, .filter_res = 0.08, .filter_drive = 3.2,
+        .lfo_rate_hz = 2.0, .lfo_sync = .n1_4, .lfo_retrig = .key, .lfo_slew_ms = 20.0,
+        .mod_matrix = mods(&.{
+            .{ .source = .lfo,      .dest = dA, .depth = -0.35 },
+            .{ .source = .velocity, .dest = 21, .depth = 0.2 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.35 },
+            .{ .source = .mac4,     .dest = 85, .depth = 0.45 },
+        }),
+        .fx_dist_on = true, .fx_dist_drive_db = 15.0, .fx_dist_mix = 0.5,
+        .fx_reverb_on = true, .fx_reverb_room = 0.95, .fx_reverb_damp = 0.85, .fx_reverb_mix = 0.45,
+        .fx_eq_on = true, .fx_eq_high_freq = 400.0, .fx_eq_high_gain_db = -10.0,
+        .gain = 0.34,
+    } },
+
+    // melodic techno - the pluck the genre crystallises around. The patch is
+    // almost nothing: a short filtered saw. What makes it the sound is a
+    // dotted-eighth delay feeding a long hall, so the notes overlap into
+    // their own chord. Macro 3 rides that send, which is how the drop is
+    // played in this style - reverb cut to zero on the downbeat.
+    .{ .name = "melodic-pluck", .category = "pluck", .tags = &.{ "wstudio", "melodic-techno", "techno" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 2, .unison_detune = 9.0, .unison_spread = 0.4,
+        .attack_s = 0.002, .decay_s = 0.35, .sustain = 0.0, .release_s = 0.3, .env_curve = 0.7,
+        .filter_type = .ladder, .filter_cutoff = 1800.0, .filter_res = 0.28, .filter_drive = 1.6,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.3, .fenv_sustain = 0.0, .fenv_release_s = 0.2, .fenv_curve = 0.65,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.55 },
+            .{ .source = .keytrack, .dest = 21,  .depth = 0.3 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.5 },
+        }),
+        .fx_delay_on = true, .fx_delay_time_s = 0.281, .fx_delay_feedback = 0.5, .fx_delay_mix = 0.35,
+        .fx_reverb_on = true, .fx_reverb_room = 0.92, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.4,
+        .gain = 0.26,
+    } },
+
+    // melodic techno - the hypnotic sixteenth arp that carries a set. The
+    // library had exactly one arpeggiated preset, all of it chiptune. Gate
+    // well under half so each step is a separate event rather than a legato
+    // line, two octaves of travel, and the same delay-into-hall treatment
+    // the plucks get, because the repeats are the melody here.
+    .{ .name = "hypno-arp", .category = "lead", .tags = &.{ "wstudio", "melodic-techno", "trance" }, .patch = .{
+        .wt_table = .analog, .wt_pos = 0.35, .unison = 2, .unison_detune = 11.0, .unison_spread = 0.5,
+        .arp_on = true, .arp_mode = .updown, .arp_octaves = 2, .arp_sync = .n1_16, .arp_gate = 0.38,
+        .attack_s = 0.002, .decay_s = 0.22, .sustain = 0.0, .release_s = 0.15, .env_curve = 0.7,
+        .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.22,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.18, .fenv_sustain = 0.0, .fenv_release_s = 0.12, .fenv_curve = 0.6,
+        .lfo_rate_hz = 0.12, .lfo_slew_ms = 40.0,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv, .dest = 21,  .depth = 0.5 },
+            .{ .source = .lfo,  .dest = 21,  .depth = 0.3 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac2, .dest = 185, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 111, .depth = 0.45 },
+        }),
+        .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.45, .fx_delay_mix = 0.3,
+        .fx_reverb_on = true, .fx_reverb_room = 0.85, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.3,
+        .gain = 0.26,
+    } },
+
+    // house - the pumping chord bed. Every other pad in the library holds
+    // still; this one is shaped by a quarter-note gate on the amp, which is
+    // the sidechain-to-the-kick sound as a patch rather than as a mixer
+    // routing. Retriggered on key so the pump starts with the chord.
+    .{ .name = "pump-chords", .category = "pad", .tags = &.{ "wstudio", "house", "future-bass" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 4, .unison_detune = 14.0, .unison_spread = 0.65,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = -12.0, .osc_b_level = 0.3,
+        .attack_s = 0.02, .decay_s = 0.5, .sustain = 0.85, .release_s = 0.5,
+        .filter_type = .lp, .filter_cutoff = 3200.0, .filter_res = 0.1,
+        .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 150.0, .filter_routing = .series,
+        .lfo_shape = .drawn, .lfo_sync = .n1_4, .lfo_retrig = .key, .lfo_rate_hz = 2.0, .lfo_slew_ms = 8.0,
+        .lfo_custom = .{
+            lfoPoints(&.{
+                .{ .phase = 0.0,  .value = -1.0 },
+                .{ .phase = 0.55, .value = 0.9 },
+                .{ .phase = 0.9,  .value = 1.0 },
+                .{ .phase = 1.0,  .value = 1.0 },
+            }),
+            lfoPoints(&.{}),
+            lfoPoints(&.{}),
+        },
+        .lfo_custom_count = .{ 4, 0, 0 },
+        .mod_matrix = mods(&.{
+            .{ .source = .lfo,  .dest = dA,  .depth = 0.55 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac2, .dest = 185, .depth = 0.35 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
+        }),
+        .fx_ott_on = true, .fx_ott_depth = 0.45, .fx_ott_gain_out_db = -6.0,
+        .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.28,
+        .gain = 0.28,
+    } },
+
     // soul: rounded finger bass with a small upper-harmonic layer
     .{ .name = "soul-bass", .category = "bass", .tags = &.{ "wstudio", "soul", "neo-soul" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.3333333, .voice_mode = .mono, .glide_s = 0.012,
@@ -1903,8 +2028,8 @@ pub fn find(name: []const u8) ?Patch {
     return null;
 }
 
-test "factory library holds exactly 89 presets" {
-    try std.testing.expectEqual(@as(usize, 89), presets.len);
+test "factory library holds exactly 94 presets" {
+    try std.testing.expectEqual(@as(usize, 94), presets.len);
 }
 
 test "every preset's matrix rows target legal dests at sane depths" {
