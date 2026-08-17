@@ -20,6 +20,7 @@ const engine_mod = @import("../audio/engine.zig");
 const Engine = engine_mod.Engine;
 const Transport = @import("../transport.zig").Transport;
 const synth_mod = @import("../dsp/synth.zig");
+const synth_presets = @import("../dsp/synth_presets.zig");
 const PolySynth = synth_mod.PolySynth;
 const wavetable_mod = @import("../dsp/wavetable.zig");
 const pattern_mod = @import("../dsp/pattern.zig");
@@ -1386,6 +1387,44 @@ fn legacyFxParamIndex(kind: synth_mod.FxUnitKind, id: u16) ?u16 {
     };
 }
 
+/// Appends a preset's generic inserts after whatever its `fx_*` fields
+/// built, and points the matrix rows that referenced them at the units that
+/// now exist. A row authored against this chain carries the unit's 1-based
+/// position in `specs` as its `fx_instance_id`; the real ids are collected
+/// first and substituted in one pass afterwards, so a placeholder can never
+/// collide with an instance id handed out earlier in the same build.
+fn buildPresetFxChain(
+    allocator: std.mem.Allocator,
+    specs: []const synth_presets.FxSpec,
+    s: *PolySynth,
+    fx: *Fx,
+    sr: u32,
+) !void {
+    if (specs.len == 0) return;
+    var ids: [PolySynth.max_mod_rows]u32 = @splat(0);
+    for (specs, 0..) |spec, i| {
+        const unit = try fx.insert(allocator, fx.units.items.len, spec.kind, sr);
+        for (spec.params) |p| fx_params.setParamAbsolute(&unit.payload, p.idx, p.value);
+        if (i < ids.len) ids[i] = unit.instance_id;
+    }
+    for (&s.mod_matrix) |*row| {
+        if (row.source == .none or row.fx_instance_id == 0) continue;
+        const slot = row.fx_instance_id - 1;
+        if (slot < specs.len and slot < ids.len) row.fx_instance_id = ids[slot];
+    }
+}
+
+/// `applySynthPatch` for a factory preset, which can carry inserts its patch
+/// fields cannot describe (see `synth_presets.FxSpec`).
+pub fn applySynthPreset(
+    allocator: std.mem.Allocator,
+    rack: *Rack,
+    preset: synth_presets.Preset,
+    sr: u32,
+) !Fx {
+    return applySynthPatchInner(allocator, rack, preset.patch, preset.fx, sr);
+}
+
 /// Install `patch` (and the FX chain its legacy carriers migrate into) on
 /// `rack`'s synth, returning the chain it displaced. The caller owns that
 /// chain and must re-sync the rack's chain to the engine BEFORE disposing of
@@ -1394,6 +1433,16 @@ pub fn applySynthPatch(
     allocator: std.mem.Allocator,
     rack: *Rack,
     patch: PolySynth.Patch,
+    sr: u32,
+) !Fx {
+    return applySynthPatchInner(allocator, rack, patch, &.{}, sr);
+}
+
+fn applySynthPatchInner(
+    allocator: std.mem.Allocator,
+    rack: *Rack,
+    patch: PolySynth.Patch,
+    specs: []const synth_presets.FxSpec,
     sr: u32,
 ) !Fx {
     if (rack.instrument != .poly_synth) return error.NotSynth;
@@ -1406,6 +1455,7 @@ pub fn applySynthPatch(
         return err;
     };
     errdefer replacement.deinit(allocator);
+    try buildPresetFxChain(allocator, specs, &probe, &replacement, sr);
     try synth.applyPatchWithWavetables(patch);
     // `buildPresetFx` bound every row that modulates an FX param to the
     // unit it created for that param, but it ran against `probe` - the whole

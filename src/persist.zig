@@ -102,6 +102,7 @@ pub const applyToSynth = persist_load.applyToSynth;
 pub const applyLfoCustomSnap = persist_load.applyLfoCustomSnap;
 pub const applyFxChain = persist_load.applyFxChain;
 pub const applySynthPatch = persist_load.applySynthPatch;
+pub const applySynthPreset = persist_load.applySynthPreset;
 
 // ---------------------------------------------------------------------------
 // Tests - in-memory round-trip (no file I/O; std.Io not needed)
@@ -2368,6 +2369,46 @@ test "a synth preset replaces the whole FX chain and rebinds its mod rows" {
         try testing.expectEqual(reverb.instance_id, row.fx_instance_id);
         break;
     } else return error.PresetRowMissing;
+}
+
+test "a preset builds inserts its patch fields cannot describe, and binds rows to them" {
+    const testing = std.testing;
+    const presets_mod = @import("dsp/synth_presets.zig");
+    var rack = Rack{
+        .instrument = .{ .poly_synth = try PolySynth.init(testing.allocator, 48_000) },
+        .label = "test",
+    };
+    defer rack.deinit(testing.allocator);
+
+    // utility is one of the ten kinds fx_order cannot name. Param 11 is its
+    // mono-below crossover; the row targets param 0 (gain) on the first spec,
+    // written as instance 1 because the real id does not exist until build.
+    var patch: PolySynth.Patch = .{};
+    patch.fx_reverb_on = true; // a legacy unit too, to prove the two coexist
+    patch.mod_matrix[0] = .{ .source = .mac1, .dest = 0, .depth = 0.5, .fx_instance_id = 1 };
+    const preset: presets_mod.Preset = .{
+        .name = "generic",
+        .category = "bass",
+        .tags = &.{"wstudio"},
+        .patch = patch,
+        .fx = &.{
+            .{ .kind = .utility, .params = &.{.{ .idx = 11, .value = 120.0 }} },
+        },
+    };
+    {
+        var old = try applySynthPreset(testing.allocator, &rack, preset, 48_000);
+        old.deinit(testing.allocator);
+    }
+
+    // Both units exist, and the generic one lands after the legacy one.
+    try testing.expectEqual(@as(usize, 2), rack.fx.units.items.len);
+    try testing.expectEqual(rack_mod.FxKind.reverb, rack.fx.units.items[0].kind());
+    const utility = rack.fx.find(.utility).?;
+    try testing.expectApproxEqAbs(@as(f32, 120.0), utility.payload.utility.mono_below_hz, 1e-6);
+
+    // The placeholder became the real instance id, so the row modulates it.
+    try testing.expectEqual(utility.instance_id, rack.instrument.poly_synth.mod_matrix[0].fx_instance_id);
+    try testing.expect(utility.instance_id != 1);
 }
 
 test "save/load round-trip persists an EQ band's lowpass/highpass type and slope" {

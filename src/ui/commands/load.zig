@@ -137,7 +137,7 @@ pub fn cmdSynthPreset(app: *App, args: []const u8) void {
         return;
     }
     const user = user_presets.find(app.user_synth_presets.items, trimmed);
-    const factory = ws.dsp.synth_presets.find(trimmed);
+    const factory = ws.dsp.synth_presets.findPreset(trimmed);
     if (user == null and factory == null) {
         app.setStatus("synth-preset: unknown '{s}' - :synth-preset lists names", .{trimmed});
         return;
@@ -160,7 +160,7 @@ pub fn cmdSynthPreset(app: *App, args: []const u8) void {
             return;
         }
     else
-        ws.persist.applySynthPatch(app.allocator, rack, factory.?, app.session.project.sample_rate) catch |e| {
+        ws.persist.applySynthPreset(app.allocator, rack, factory.?, app.session.project.sample_rate) catch |e| {
             backup.deinit(app.allocator);
             app.setStatus("synth-preset: {s}", .{@errorName(e)});
             return;

@@ -20,6 +20,7 @@
 //! are wired, but every preset except init carries at least one.
 
 const std = @import("std");
+const rack = @import("../rack.zig");
 const synth = @import("synth.zig");
 const PolySynth = synth.PolySynth;
 const Patch = PolySynth.Patch;
@@ -57,6 +58,24 @@ fn waveCounts(comptime w: [3]synth.LfoWave) [3]u8 {
     return .{ synth.lfoWave(w[0]).count, synth.lfoWave(w[1]).count, synth.lfoWave(w[2]).count };
 }
 
+/// One insert a preset wants in its chain, named by rack kind and set by
+/// param index rather than by a dedicated `fx_*` Patch field per knob.
+///
+/// The `fx_*` fields cover fourteen units and cost roughly seven new Patch
+/// fields for every unit added, which is why ten of the rack's twenty-five
+/// native units were unreachable from a preset - and therefore unreachable
+/// from a preset's mod matrix, since a row cannot modulate a unit that was
+/// never built. This reaches all of them and costs nothing per unit. The
+/// `fx_*` fields stay regardless: they are the CLAP/VST3 parameter surface,
+/// not just preset storage.
+pub const FxSpec = struct {
+    kind: rack.FxKind,
+    /// Index into the unit's `fx_params` spec table, and the value to set.
+    params: []const Param = &.{},
+
+    pub const Param = struct { idx: u16, value: f32 };
+};
+
 pub const Preset = struct {
     name: []const u8,
     /// Sound role, not genre - e.g. "bass", "lead", "pad".
@@ -64,7 +83,21 @@ pub const Preset = struct {
     /// First tag is always "wstudio"; the rest are genre associations.
     tags: []const []const u8,
     patch: Patch,
+    /// Inserts appended after whatever the patch's `fx_*` fields build.
+    /// A `mod_matrix` row targets one of these by setting `fx_instance_id`
+    /// to its 1-based position in this list and `dest` to the unit's param
+    /// index; `buildPresetFx` swaps the placeholder for the real instance id
+    /// once the unit exists.
+    fx: []const FxSpec = &.{},
 };
+
+/// Like `find`, but keeps the whole preset - the generic `fx` chain included.
+pub fn findPreset(name: []const u8) ?Preset {
+    for (presets) |p| {
+        if (std.ascii.eqlIgnoreCase(p.name, name)) return p;
+    }
+    return null;
+}
 
 pub const presets = [_]Preset{
     .{ .name = "init", .category = "utility", .tags = &.{"wstudio"}, .patch = .{} },
@@ -293,6 +326,11 @@ pub const presets = [_]Preset{
             .{ .source = .mac2, .dest = 4,  .depth = 0.3 },
         }),
         .gain = 1.0,
+    }, .fx = &.{
+        // The wide detuned saws put the sub off-centre too (measured 0.20
+        // decorrelation below 120 Hz), which cancels on a mono system. This
+        // centres the low band and leaves the body as wide as it was.
+        .{ .kind = .utility, .params = &.{ .{ .idx = 11, .value = 120.0 } } },
     } },
 
     // neuro-bass - wavetable osc with sample&hold timbre flicker, formant

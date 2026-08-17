@@ -134,13 +134,13 @@ const Row = struct {
 /// `applySynthPatch` does. Rendering the synth alone therefore measured every
 /// preset dry, and a preset whose identity IS its chain (a tape-degraded pad,
 /// a reverb-tail rumble, anything driven) measured as its bare oscillators.
-fn render(allocator: std.mem.Allocator, patch: Patch, note: u7, vel: f32) ![]Sample {
+fn render(allocator: std.mem.Allocator, preset: ws.dsp.synth_presets.Preset, note: u7, vel: f32) ![]Sample {
     var rack = ws.Rack{
         .instrument = .{ .poly_synth = try PolySynth.init(allocator, sample_rate) },
         .label = "presetscan",
     };
     defer rack.deinit(allocator);
-    var displaced = try ws.persist.applySynthPatch(allocator, &rack, patch, sample_rate);
+    var displaced = try ws.persist.applySynthPreset(allocator, &rack, preset, sample_rate);
     displaced.deinit(allocator);
     const synth = &rack.instrument.poly_synth;
 
@@ -554,7 +554,7 @@ pub fn main(init: std.process.Init) !void {
         var features: [probes.len]Features = undefined;
         for (probes, 0..) |probe, i| {
             const at: u7 = @intCast(std.math.clamp(@as(i16, note) + probe.semi, 0, 127));
-            const buf = try render(allocator, p.patch, at, probe.vel);
+            const buf = try render(allocator, p, at, probe.vel);
             defer allocator.free(buf);
             features[i] = try analyze(allocator, buf);
         }
