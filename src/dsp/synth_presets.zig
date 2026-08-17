@@ -1587,6 +1587,120 @@ pub const presets = [_]Preset{
         .gain = 0.34,
     } },
 
+    // amapiano - the log drum, which is the genre's bassline, its kick and its
+    // hook at once. It is a hybrid rather than a bass patch: a sine body with
+    // a fast downward pitch envelope for the kick-like thump, a short FM knock
+    // on top for the wooden mallet edge, and mono glide, because the punch
+    // comes from the slide between notes rather than from level.
+    .{ .name = "log-drum", .category = "bass", .tags = &.{ "wstudio", "amapiano" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.0, .voice_mode = .mono, .glide_s = 0.07,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 19.0, .osc_b_level = 0.45,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 1.6,
+        .sub_level = 0.7, .sub_shape = .sine,
+        .attack_s = 0.002, .decay_s = 0.42, .sustain = 0.0, .release_s = 0.2, .env_curve = 0.55,
+        .filter_type = .lp, .filter_cutoff = 1400.0, .filter_res = 0.06, .filter_drive = 1.8,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.1, .fenv_sustain = 0.0, .fenv_release_s = 0.08, .fenv_curve = 0.7,
+        .env3_attack_s = 0.001, .env3_decay_s = 0.05, .env3_sustain = 0.0, .env3_release_s = 0.05, .env3_curve = 0.85,
+        .mod_matrix = mods(&.{
+            .{ .source = .env3,     .dest = dP, .depth = 0.25 },
+            .{ .source = .fenv,     .dest = 15, .depth = 0.3 },
+            .{ .source = .velocity, .dest = 15, .depth = 0.25 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
+            .{ .source = .mac2,     .dest = 15, .depth = 0.35 },
+        }),
+        .fx_comp_on = true, .fx_comp_threshold_db = -18.0, .fx_comp_ratio = 3.5, .fx_comp_attack_ms = 8.0, .fx_comp_release_ms = 90.0,
+        .gain = 0.4,
+    } },
+
+    // amapiano - the other half of the genre's name: jazzy sevenths on a
+    // soft electric piano, deliberately duller and slower to speak than the
+    // FM tine pianos so it sits behind the log drum instead of competing with
+    // it. Long release and a wide chorus for the airy tail the style leans on.
+    .{ .name = "ama-keys", .category = "keys", .tags = &.{ "wstudio", "amapiano", "afro-house" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.3333333, .detune_cents = -3.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_detune_cents = 5.0, .osc_b_level = 0.4,
+        .attack_s = 0.03, .decay_s = 1.6, .sustain = 0.25, .release_s = 1.3, .env_curve = 0.35,
+        .filter_type = .lp, .filter_cutoff = 2400.0, .filter_res = 0.07,
+        .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 160.0, .filter_routing = .series,
+        .fenv_attack_s = 0.02, .fenv_decay_s = 0.6, .fenv_sustain = 0.15, .fenv_release_s = 0.4,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.3 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.35 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac3,     .dest = 179, .depth = 0.4 },
+        }),
+        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.4, .fx_chorus_depth_ms = 6.0, .fx_chorus_mix = 0.35,
+        .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.5, .fx_reverb_mix = 0.25,
+        .gain = 0.28,
+    } },
+
+    // afro house - the mallet line the genre builds its melodies from. A
+    // marimba is a struck bar: near-silent attack transient, a strong 4th
+    // partial that decays much faster than the fundamental, and nothing
+    // sustained. FM at a 4:1 ratio on a fast envelope is that in two
+    // oscillators; keytrack shortens the decay upward like a real bar.
+    .{ .name = "marimba-pluck", .category = "pluck", .tags = &.{ "wstudio", "afro-house", "amapiano" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 24.0, .osc_b_level = 0.55,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 1.9,
+        .attack_s = 0.001, .decay_s = 0.3, .sustain = 0.0, .release_s = 0.12, .env_curve = 0.8,
+        .filter_type = .lp, .filter_cutoff = 4600.0, .filter_res = 0.04,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.025, .fenv_sustain = 0.0, .fenv_release_s = 0.05, .fenv_curve = 0.9,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 15,  .depth = 0.6 },
+            .{ .source = .keytrack, .dest = 21,  .depth = 0.3 },
+            .{ .source = .velocity, .dest = 15,  .depth = 0.3 },
+            .{ .source = .mac2,     .dest = 15,  .depth = 0.35 },
+            .{ .source = .mac3,     .dest = 111, .depth = 0.4 },
+        }),
+        .fx_delay_on = true, .fx_delay_time_s = 0.187, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.18,
+        .fx_reverb_on = true, .fx_reverb_room = 0.5, .fx_reverb_damp = 0.6, .fx_reverb_mix = 0.12,
+        .gain = 0.32,
+    } },
+
+    // afrobeats - the plucked guitar figure the records are written on, as a
+    // synth: a short bright body with a noise pick transient and a fast
+    // filter close, played mono with a little glide for the hammer-on slurs.
+    // Nylon rather than steel, so the top end stops around 3 kHz.
+    .{ .name = "afro-pluck", .category = "pluck", .tags = &.{ "wstudio", "afrobeats", "afro-house" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.3333333, .voice_mode = .mono, .glide_s = 0.015,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_detune_cents = 6.0, .osc_b_level = 0.3,
+        .noise_level = 0.12, .noise_color = 0.9,
+        .attack_s = 0.002, .decay_s = 0.4, .sustain = 0.08, .release_s = 0.3, .env_curve = 0.6,
+        .filter_type = .lp, .filter_cutoff = 2900.0, .filter_res = 0.12,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.07, .fenv_sustain = 0.0, .fenv_release_s = 0.1, .fenv_curve = 0.75,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.5 },
+            .{ .source = .fenv,     .dest = 36,  .depth = 0.35 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3,     .dest = 111, .depth = 0.35 },
+        }),
+        .fx_delay_on = true, .fx_delay_time_s = 0.25, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
+        .gain = 0.32,
+    } },
+
+    // afro house - the horn stab that answers the vocal. Real sections play
+    // it short and hard, so the filter envelope opens faster than the
+    // amplitude one and velocity drives both: at low velocity it is a muted
+    // section, at full it is the whole brass line leaning in.
+    .{ .name = "afro-brass", .category = "brass", .tags = &.{ "wstudio", "afro-house", "afrobeats" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_detune = 12.0, .unison_spread = 0.45,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_semi = 12.0, .osc_b_detune_cents = 8.0, .osc_b_level = 0.35,
+        .attack_s = 0.012, .decay_s = 0.22, .sustain = 0.45, .release_s = 0.18, .env_curve = 0.4,
+        .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.15, .filter_drive = 1.8,
+        .fenv_attack_s = 0.006, .fenv_decay_s = 0.2, .fenv_sustain = 0.2, .fenv_release_s = 0.15, .fenv_curve = 0.5,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.5 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.35 },
+        }),
+        .fx_comp_on = true, .fx_comp_threshold_db = -16.0, .fx_comp_ratio = 3.0, .fx_comp_attack_ms = 6.0, .fx_comp_release_ms = 70.0,
+        .fx_reverb_on = true, .fx_reverb_room = 0.55, .fx_reverb_damp = 0.5, .fx_reverb_mix = 0.18,
+        .gain = 0.3,
+    } },
+
     // soul: rounded finger bass with a small upper-harmonic layer
     .{ .name = "soul-bass", .category = "bass", .tags = &.{ "wstudio", "soul", "neo-soul" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.3333333, .voice_mode = .mono, .glide_s = 0.012,
@@ -1676,8 +1790,8 @@ pub fn find(name: []const u8) ?Patch {
     return null;
 }
 
-test "factory library holds exactly 79 presets" {
-    try std.testing.expectEqual(@as(usize, 79), presets.len);
+test "factory library holds exactly 84 presets" {
+    try std.testing.expectEqual(@as(usize, 84), presets.len);
 }
 
 test "every preset's matrix rows target legal dests at sane depths" {
