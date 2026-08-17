@@ -668,6 +668,12 @@ pub const Slicer = struct {
         if (pad_mod.affectsTimeRange(param)) pad_mod.clampTimeParamsToDuration(&self.slices[slice_idx], self.sample_rate);
     }
 
+    comptime {
+        // Same 5-bit field as the drum machine's pads, same failure mode.
+        for (DrumMachine.automatable_params[0]) |p| if (p.id > 0x1F)
+            @compileError("pad param id no longer fits the 5-bit slice field");
+    }
+
     pub fn paramId(slice: u8, param: u8) u16 {
         return (@as(u16, slice) << 5) | (param & 0x1F);
     }

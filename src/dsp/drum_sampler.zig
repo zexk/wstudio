@@ -1006,6 +1006,14 @@ pub const DrumMachine = struct {
         }
     }
 
+    comptime {
+        // The id packs (pad << 5) | param, so a sampler param id past 31
+        // would alias onto the next pad's instead of failing - the same
+        // silent-retarget shape as a mod row pointing at the wrong id.
+        for (Sampler.automatable_params) |p| if (p.id > 0x1F)
+            @compileError("sampler param id no longer fits the 5-bit pad field");
+    }
+
     /// Encode a (pad, param) pair into the `set_param` id space.
     pub fn paramId(pad: u8, param: u8) u16 {
         return (@as(u16, pad) << 5) | (param & 0x1F);
@@ -2466,4 +2474,63 @@ test "pitch up plays the region faster" {
         pad_mod.renderVoice(&voice, &dm.pads[0].?.pad, &buf, 2, 128, 48_000.0);
     }
     try std.testing.expect(fast_frames < unity_frames);
+}
+
+test "every pad parameter the editor exposes actually moves the audio" {
+    // The synth had a whole convention of modulation routes pointing at a
+    // param id that was not the one the comment named, and nothing caught it
+    // because a wrong id still compiles, still saves and still draws. The
+    // only check that finds that class is rendering with the param moved.
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    const span = 8192;
+    const ref = try std.testing.allocator.alloc(f32, span);
+    defer std.testing.allocator.free(ref);
+
+    for (Sampler.automatable_params) |param| {
+        // Both ends, because a param sitting at one extreme by default can
+        // only move toward the other.
+        var best: f64 = 0;
+        for ([2]f32{ param.range[0], param.range[1] }) |value| {
+            var energy: f64 = 0;
+            var diff: f64 = 0;
+            for ([2]bool{ false, true }) |moved| {
+                var fresh = try testMachine(&transport);
+                defer fresh.deinit();
+                const fdev = fresh.device();
+                // A param whose effect depends on a sibling needs that
+                // sibling somewhere it can act: decay does nothing against
+                // the default full sustain, on a pad or on any other ADSR.
+                fresh.handleEvent(.{ .automation_param = .{
+                    .id = DrumMachine.paramId(0, 5),
+                    .value = 0.5,
+                } });
+                if (moved) fresh.handleEvent(.{ .automation_param = .{
+                    .id = DrumMachine.paramId(0, @intCast(param.id)),
+                    .value = value,
+                } });
+                fdev.sendEvent(.{ .note_on = .{ .note = 0, .velocity = 1.0 } });
+                var buf: [1024]f32 = undefined;
+                var at: usize = 0;
+                while (at < span) : (at += buf.len) {
+                    @memset(&buf, 0);
+                    fdev.process(&buf);
+                    for (buf, 0..) |s, k| {
+                        if (!moved) {
+                            ref[at + k] = s;
+                            energy += @as(f64, s) * s;
+                        } else diff += @abs(@as(f64, s) - ref[at + k]);
+                    }
+                }
+                if (!moved) {
+                    const rms = @sqrt(energy / @as(f64, span));
+                    if (rms < 1e-6) return error.PadSilent;
+                    diff = 0;
+                    // Reuse `energy` as the scale for the second pass.
+                    energy = rms;
+                } else best = @max(best, (diff / @as(f64, span)) / energy);
+            }
+        }
+        errdefer std.debug.print("pad param '{s}' (id {d}) moved {d:.6}\n", .{ param.label, param.id, best });
+        try std.testing.expect(best > 0.001);
+    }
 }
