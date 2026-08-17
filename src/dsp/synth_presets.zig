@@ -159,7 +159,7 @@ pub const presets = [_]Preset{
             .{ .source = .keytrack, .dest = 21, .depth = 0.2 },
             .{ .source = .random,   .dest = 21, .depth = 0.015 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.5, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.5, .fx_instance_id = 1 },
         }),
         .gain = 0.44,
     }, .fx = &.{
@@ -180,7 +180,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21, .depth = 0.5 },
             .{ .source = .mac2,     .dest = 22, .depth = 0.25 },
             .{ .source = .mac4,     .dest = 249, .depth = 0.35 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
         .gain = 1.0,
     }, .fx = &.{
@@ -276,7 +276,7 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = 185, .depth = 0.3 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac2, .dest = 185, .depth = 0.4 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
         .gain = 0.69,
     }, .fx = &.{
@@ -367,7 +367,7 @@ pub const presets = [_]Preset{
             .{ .source = .lfo2, .dest = 185, .depth = 0.2 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac2, .dest = 47,  .depth = 0.4 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
         }),
         .gain = 0.21,
     }, .fx = &.{
@@ -426,7 +426,7 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21, .depth = 0.3 },
             .{ .source = .velocity, .dest = 21, .depth = 0.2 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
             .{ .source = .mac4,     .dest = 249, .depth = 0.3 },
         }),
         .gain = 1.0,
@@ -643,7 +643,7 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .env3, .dest = dP, .depth = 0.55 },
             .{ .source = .mac1, .dest = 21, .depth = 0.3 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
         .gain = 0.45,
     }, .fx = &.{
@@ -664,7 +664,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21,  .depth = 0.5 },
             .{ .source = .mac2,     .dest = 22,  .depth = 0.25 },
             .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .gain = 0.69,
@@ -749,7 +749,7 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = 21, .depth = 0.4 },
             .{ .source = .mac1, .dest = 21, .depth = 0.5 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
         }),
         .gain = 0.18,
     }, .fx = &.{
@@ -796,7 +796,7 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = 21,  .depth = 0.15 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac2, .dest = 0, .depth = 0.05, .fx_instance_id = 2 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .gain = 0.50,
@@ -974,7 +974,7 @@ pub const presets = [_]Preset{
             .{ .source = .fenv, .dest = 21,  .depth = 0.375 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac3, .dest = 3, .depth = 0.3, .fx_instance_id = 2 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
         }),
         .gain = 0.26,
     }, .fx = &.{
@@ -996,7 +996,7 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .gain = 0.12,
@@ -1307,7 +1307,7 @@ pub const presets = [_]Preset{
             .{ .source = .fenv, .dest = 21, .depth = 0.3 },
             .{ .source = .mac1, .dest = 21, .depth = 0.4 },
             .{ .source = .mac2, .dest = 22, .depth = 0.2 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .gain = 0.06,
@@ -1330,7 +1330,7 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .mac1, .dest = 21, .depth = 0.4 },
             .{ .source = .mac2, .dest = 42, .depth = 0.4 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
             .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
         }),
         .gain = 0.11,
@@ -1373,7 +1373,7 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
             .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 2 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.25, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.25, .fx_instance_id = 1 },
         }),
         .gain = 0.28,
     }, .fx = &.{
@@ -1429,7 +1429,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1, .dest = 21, .depth = 0.5 },
             .{ .source = .mac2, .dest = 185,  .depth = -0.25 },
             .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.35, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .gain = 0.13,
@@ -1471,7 +1471,7 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 185, .depth = 0.2 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
             .{ .source = .mac2,     .dest = 185, .depth = 0.4 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.3, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
         }),
         .gain = 1.0,
     }, .fx = &.{
@@ -1490,7 +1490,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1, .dest = 21,  .depth = 0.45 },
             .{ .source = .mac2, .dest = 185, .depth = 0.4 },
             .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 3 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.2, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.2, .fx_instance_id = 1 },
         }),
         .gain = 0.22,
     }, .fx = &.{
@@ -1549,7 +1549,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
             .{ .source = .mac2,     .dest = 22,  .depth = 0.2 },
             .{ .source = .mac3, .dest = 2, .depth = 0.55, .fx_instance_id = 2 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.22, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.22, .fx_instance_id = 1 },
         }),
         .gain = 0.3,
     }, .fx = &.{
@@ -1665,7 +1665,7 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 36,  .depth = 0.5 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac3, .dest = 2, .depth = 0.5, .fx_instance_id = 2 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
         .gain = 0.3,
     }, .fx = &.{
@@ -1710,7 +1710,7 @@ pub const presets = [_]Preset{
             .{ .source = .env3, .dest = dP, .depth = -1.0 },
             .{ .source = .env3, .dest = 21, .depth = -0.3 },
             .{ .source = .mac1, .dest = 21, .depth = 0.4 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.35, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
         }),
         .gain = 0.34,
     }, .fx = &.{
@@ -1852,7 +1852,7 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21, .depth = 0.4 },
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.45, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.45, .fx_instance_id = 2 },
         }),
         .gain = 0.49,
     }, .fx = &.{
@@ -1993,7 +1993,7 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,      .dest = dA, .depth = -0.35 },
             .{ .source = .velocity, .dest = 21, .depth = 0.2 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.35 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.45, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.45, .fx_instance_id = 2 },
         }),
         .gain = 0.24,
     }, .fx = &.{
@@ -2102,7 +2102,7 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
             .{ .source = .mac2,     .dest = 4,   .depth = 0.4 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.4, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
         }),
         .gain = 0.24,
     }, .fx = &.{
@@ -2127,7 +2127,7 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.35 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
             .{ .source = .mac2,     .dest = 185, .depth = 0.4 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.35, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
         }),
         .gain = 0.28,
     }, .fx = &.{
@@ -2246,7 +2246,7 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 11, .depth = 0.25 },
-            .{ .source = .mac4, .dest = 1, .depth = 0.2, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.2, .fx_instance_id = 2 },
         }),
         .gain = 0.89,
     }, .fx = &.{

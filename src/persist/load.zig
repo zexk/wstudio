@@ -1365,7 +1365,9 @@ pub fn fxKindOwnsParam(kind: synth_mod.FxUnitKind, id: u16) bool {
 fn legacyFxParamIndex(kind: synth_mod.FxUnitKind, id: u16) ?u16 {
     if (!fxKindOwnsParam(kind, id)) return null;
     return switch (kind) {
-        .dist => id - 84,
+        // Not `id - 84`: the saturator has an `output` param at index 1 that
+        // the legacy pair never had, so DIST MIX (85) lands on mix at 2.
+        .dist => switch (id) { 84 => 0, 85 => 2, else => unreachable },
         .crush => id - 87,
         .flanger => id - 91,
         .phaser => id - 104,
