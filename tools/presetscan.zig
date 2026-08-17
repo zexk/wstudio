@@ -3,14 +3,17 @@
 //! is closest to.
 //!
 //! The drum kits could be judged by reading `variants` - 12 entries, a dozen
-//! numbers each. The synth presets can't: 100 patches with ~150 fields, where
+//! numbers each. The synth presets can't: ~100 patches with ~150 fields, where
 //! the fields that matter differ per patch (a pad is defined by its envelope,
 //! a bass by its filter). So this measures instead of listing:
 //!
-//!   1. Every preset is rendered through real `PolySynth`: same note,
-//!      same velocity, same hold - and reduced to features you can sort a
+//!   1. Every preset is rendered through real `PolySynth` at three probes -
+//!      low/soft, middle, high/hard - and reduced to features you can sort a
 //!      table by: where its energy sits, how fast it starts and stops, how
-//!      wide and how noisy it is.
+//!      wide, how noisy and how much it moves while held. One probe is not
+//!      enough: at a single note a bass and an electric piano measure alike,
+//!      and it is the response across register and velocity that separates
+//!      them.
 //!   2. Every preset is compared to every other one, using patch fields
 //!      (reflected, so nothing needs listing here) and those features.
 //!      Two presets can be near-identical patches that sound different, or
@@ -22,7 +25,10 @@
 //! by how much, which is what tells you whether one can fold into the other
 //! as a variation or whether they are genuinely two sounds.
 //!
-//! Usage: `zig build presetscan [-- --note 48 --pairs 30 --category bass]`
+//! Usage: `zig build presetscan [-- --note 48 --pairs 30 --category bass
+//!                                --same-category]`
+//! `--note` moves the middle probe; the other two follow an octave and a third
+//! either side of it.
 //! Nothing is asserted and the exit code is always 0 - this reports, it does
 //! not judge. The judging is the point of reading it.
 
@@ -44,6 +50,27 @@ const tail_s: f32 = 2.0;
 /// Spectrum window, taken from the middle of the hold so it sees the sustain
 /// rather than the attack transient.
 const fft_size: usize = 8192;
+/// Shorter window, hopped across the hold, for the motion features. A patch's
+/// LFO/arp/beating identity lives in how the spectrum changes while it is
+/// held, which a single snapshot cannot see.
+const motion_fft_size: usize = 2048;
+const motion_frames: usize = 12;
+
+/// Band edges in Hz. Three bands lump a 3.3-octave middle together, which is
+/// where most of the library's timbral difference actually sits.
+const band_edges = [_]f32{ 100, 250, 600, 1500, 4000 };
+const band_count = band_edges.len + 1;
+
+/// Note and velocity of each render. Spans register and velocity at once
+/// rather than orthogonally: for a similarity scan, two patches that respond
+/// differently to either axis diverge just as well on the diagonal, at a third
+/// of the renders.
+const Probe = struct { semi: i8, vel: f32 };
+const probes = [_]Probe{
+    .{ .semi = -16, .vel = 0.45 },
+    .{ .semi = 0, .vel = 0.8 },
+    .{ .semi = 16, .vel = 1.0 },
+};
 
 const Features = struct {
     peak: f32 = 0,
@@ -61,12 +88,16 @@ const Features = struct {
     /// Geometric over arithmetic mean of the spectrum: ~0 is a clean tone,
     /// toward 1 is noise.
     flatness: f32 = 0,
-    /// Share of spectral energy below 200 Hz / 200 Hz-2 kHz / above 2 kHz.
-    low: f32 = 0,
-    mid: f32 = 0,
-    high: f32 = 0,
+    /// Share of spectral energy in each `band_edges` band.
+    bands: [band_count]f32 = @splat(0),
     /// 1 - |correlation(L, R)|. 0 is mono, 1 is fully decorrelated.
     width: f32 = 0,
+    /// Spread of the centroid across the hold, in octaves: a filter sweep, a
+    /// wobble or a vowel scan reads high, a static tone reads 0.
+    centroid_mod: f32 = 0,
+    /// Spread of the frame RMS over its mean across the hold: tremolo, gating
+    /// and arp motion read high.
+    amp_mod: f32 = 0,
 };
 
 const Row = struct {
@@ -74,7 +105,7 @@ const Row = struct {
     category: []const u8,
     tags: []const []const u8,
     patch: Patch,
-    f: Features,
+    f: [probes.len]Features,
     mod_rows: usize,
     fx_count: usize,
     arp: bool,
@@ -88,7 +119,7 @@ const Row = struct {
 // ---------------------------------------------------------------------------
 // Rendering
 
-fn render(allocator: std.mem.Allocator, patch: Patch, note: u7) ![]Sample {
+fn render(allocator: std.mem.Allocator, patch: Patch, note: u7, vel: f32) ![]Sample {
     var synth = try PolySynth.init(allocator, sample_rate);
     defer synth.deinit();
     try synth.applyPatchWithWavetables(patch);
@@ -99,7 +130,7 @@ fn render(allocator: std.mem.Allocator, patch: Patch, note: u7) ![]Sample {
     const buf = try allocator.alloc(Sample, total_frames * 2);
     @memset(buf, 0);
 
-    synth.noteOn(note, 0.8);
+    synth.noteOn(note, vel);
     var done: usize = 0;
     while (done < total_frames) {
         var n: usize = @min(block_frames, total_frames - done);
@@ -183,48 +214,100 @@ fn analyze(allocator: std.mem.Allocator, buf: []const Sample) !Features {
     // Center spectrum on loudest frame. Mid-hold is silent for plucks, which
     // would collapse distinct transient sounds to the same zero vector.
     const start = @min(peak_frame -| fft_size / 2, hold_frames - fft_size);
-    const real = try allocator.alloc(f32, fft_size);
+    const held = try spectrumAt(allocator, buf, start, fft_size);
+    f.centroid_hz = held.centroid_hz;
+    f.flatness = held.flatness;
+    f.bands = held.bands;
+
+    // Motion: how far the spectrum and the level wander over the hold. Frames
+    // start after the attack so the onset transient does not read as movement.
+    const motion_start = @min(peak_frame + win, hold_frames -| motion_fft_size);
+    const hop = (hold_frames -| (motion_start + motion_fft_size)) / motion_frames;
+    if (hop > 0) {
+        var oct: [motion_frames]f32 = undefined;
+        var lvl: [motion_frames]f32 = undefined;
+        var n: usize = 0;
+        for (0..motion_frames) |i| {
+            const at = motion_start + i * hop;
+            const s = try spectrumAt(allocator, buf, at, motion_fft_size);
+            const level = rmsOf(buf[at * 2 ..][0 .. motion_fft_size * 2]);
+            // A frame that has decayed into the noise floor has no meaningful
+            // centroid; counting it would read decay as modulation.
+            if (s.centroid_hz < 1.0 or level < f.peak * 0.01) continue;
+            oct[n] = @log2(s.centroid_hz);
+            lvl[n] = level;
+            n += 1;
+        }
+        if (n > 1) {
+            f.centroid_mod = stdDev(oct[0..n]);
+            const mean_lvl = blk: {
+                var sum: f32 = 0;
+                for (lvl[0..n]) |x| sum += x;
+                break :blk sum / @as(f32, @floatFromInt(n));
+            };
+            f.amp_mod = if (mean_lvl > 1e-9) stdDev(lvl[0..n]) / mean_lvl else 0;
+        }
+    }
+    return f;
+}
+
+fn stdDev(xs: []const f32) f32 {
+    var sum: f64 = 0;
+    for (xs) |x| sum += x;
+    const mean = sum / @as(f64, @floatFromInt(xs.len));
+    var acc: f64 = 0;
+    for (xs) |x| {
+        const d = @as(f64, x) - mean;
+        acc += d * d;
+    }
+    return @floatCast(@sqrt(acc / @as(f64, @floatFromInt(xs.len))));
+}
+
+const Spectrum = struct {
+    centroid_hz: f32 = 0,
+    flatness: f32 = 0,
+    bands: [band_count]f32 = @splat(0),
+};
+
+fn spectrumAt(allocator: std.mem.Allocator, buf: []const Sample, start: usize, comptime size: usize) !Spectrum {
+    const frames = buf.len / 2;
+    const real = try allocator.alloc(f32, size);
     defer allocator.free(real);
-    const imag = try allocator.alloc(f32, fft_size);
+    const imag = try allocator.alloc(f32, size);
     defer allocator.free(imag);
     @memset(imag, 0);
-    for (0..fft_size) |i| {
+    for (0..size) |i| {
         const idx = start + i;
         const mono = if (idx < frames) (buf[idx * 2] + buf[idx * 2 + 1]) * 0.5 else 0;
-        const phase = std.math.tau * @as(f32, @floatFromInt(i)) / @as(f32, fft_size);
+        const phase = std.math.tau * @as(f32, @floatFromInt(i)) / @as(f32, size);
         real[i] = mono * 0.5 * (1.0 - @cos(phase));
     }
-    ws.dsp.fft.fft(fft_size, real, imag);
+    ws.dsp.fft.fft(size, real, imag);
 
+    var out: Spectrum = .{};
     var mag_sum: f64 = 0;
     var weighted: f64 = 0;
     var log_sum: f64 = 0;
-    var bands = [3]f64{ 0, 0, 0 };
-    const bin_hz = srf / @as(f32, fft_size);
-    for (0..fft_size / 2) |i| {
+    var bands: [band_count]f64 = @splat(0);
+    const bin_hz = @as(f32, @floatFromInt(sample_rate)) / @as(f32, size);
+    for (0..size / 2) |i| {
         const mag = @sqrt(real[i] * real[i] + imag[i] * imag[i]);
         const hz = @as(f32, @floatFromInt(i)) * bin_hz;
         mag_sum += mag;
         weighted += @as(f64, mag) * hz;
         log_sum += @log(@as(f64, mag) + 1e-12);
-        if (hz < 200.0) {
-            bands[0] += mag;
-        } else if (hz < 2000.0) {
-            bands[1] += mag;
-        } else {
-            bands[2] += mag;
-        }
+        var b: usize = 0;
+        while (b < band_edges.len and hz >= band_edges[b]) : (b += 1) {}
+        bands[b] += mag;
     }
     if (mag_sum > 1e-12) {
-        f.centroid_hz = @floatCast(weighted / mag_sum);
-        const geo = @exp(log_sum / @as(f64, fft_size / 2));
-        const arith = mag_sum / @as(f64, fft_size / 2);
-        f.flatness = @floatCast(geo / arith);
-        f.low = @floatCast(bands[0] / mag_sum);
-        f.mid = @floatCast(bands[1] / mag_sum);
-        f.high = @floatCast(bands[2] / mag_sum);
+        out.centroid_hz = @floatCast(weighted / mag_sum);
+        const geo = @exp(log_sum / @as(f64, size / 2));
+        const arith = mag_sum / @as(f64, size / 2);
+        out.flatness = @floatCast(geo / arith);
+        for (&out.bands, bands) |*dst, b| dst.* = @floatCast(b / mag_sum);
     }
-    return f;
+    return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -267,64 +350,81 @@ const scalar_fields = blk: {
 };
 
 /// Per-field spread across the whole preset set, so distance is in units of
-/// "how much this field varies at all" rather than raw Hz vs seconds.
-const Ranges = [scalar_fields.len]f32;
+/// "how much this field varies at all" rather than raw Hz vs seconds. Standard
+/// deviation, not min-to-max: one preset with a 20 kHz filter2 cutoff would
+/// otherwise squash every ordinary difference in that field to nothing.
+const Scales = [scalar_fields.len]f32;
 
 fn fieldValue(comptime name: []const u8, p: Patch) f32 {
     const T = @FieldType(Patch, name);
     return scalarValue(T, @field(p, name), 0);
 }
 
-fn computeRanges(rows: []const Row) Ranges {
+fn computeScales(rows: []const Row) Scales {
     @setEvalBranchQuota(50_000);
-    var out: Ranges = undefined;
+    var out: Scales = undefined;
+    const n: f64 = @floatFromInt(rows.len);
     inline for (scalar_fields, 0..) |name, i| {
-        var lo: f32 = std.math.floatMax(f32);
-        var hi: f32 = -std.math.floatMax(f32);
+        var sum: f64 = 0;
+        for (rows) |r| sum += fieldValue(name, r.patch);
+        const mean = sum / n;
+        var acc: f64 = 0;
         for (rows) |r| {
-            const v = fieldValue(name, r.patch);
-            lo = @min(lo, v);
-            hi = @max(hi, v);
+            const d = fieldValue(name, r.patch) - mean;
+            acc += d * d;
         }
-        out[i] = if (hi > lo) hi - lo else 1.0;
+        const sd = @sqrt(acc / n);
+        out[i] = if (sd > 1e-9) @floatCast(sd) else 1.0;
     }
     return out;
 }
 
-fn patchDistance(a: Patch, b: Patch, ranges: Ranges) f32 {
+fn patchDistance(a: Patch, b: Patch, scales: Scales) f32 {
     @setEvalBranchQuota(50_000);
     var sum: f32 = 0;
     inline for (scalar_fields, 0..) |name, i| {
-        const d = (fieldValue(name, a) - fieldValue(name, b)) / ranges[i];
+        const d = (fieldValue(name, a) - fieldValue(name, b)) / scales[i];
         sum += d * d;
     }
-    return @sqrt(sum);
+    return @sqrt(sum / @as(f32, scalar_fields.len));
 }
 
-fn featureVector(f: Features) [8]f32 {
-    // Log where the scale is multiplicative, so 20 ms vs 40 ms counts as much
-    // as 200 ms vs 400 ms.
-    return .{
-        @log10(f.centroid_hz + 20.0),
-        f.flatness,
-        f.low,
-        f.mid,
-        f.high,
-        @log10(f.attack_ms + 1.0),
-        @log10(f.release_ms + 1.0),
-        f.sustain,
-    };
+const probe_dims = 7 + band_count;
+/// Every probe's features end to end, plus width once. Width barely moves
+/// between probes, so repeating it per probe would weight unison spread three
+/// times as heavily as anything else.
+const audio_dims = probes.len * probe_dims + 1;
+
+fn featureVector(fs: [probes.len]Features) [audio_dims]f32 {
+    var out: [audio_dims]f32 = undefined;
+    for (fs, 0..) |f, p| {
+        // Log where the scale is multiplicative, so 20 ms vs 40 ms counts as
+        // much as 200 ms vs 400 ms.
+        var v: [probe_dims]f32 = .{
+            @log10(f.centroid_hz + 20.0),
+            f.flatness,
+            @log10(f.attack_ms + 1.0),
+            @log10(f.release_ms + 1.0),
+            f.sustain,
+            f.centroid_mod,
+            f.amp_mod,
+        } ++ @as([band_count]f32, @splat(0));
+        @memcpy(v[7..], &f.bands);
+        @memcpy(out[p * probe_dims ..][0..probe_dims], &v);
+    }
+    out[audio_dims - 1] = fs[probes.len / 2].width;
+    return out;
 }
 
-fn audioDistance(a: Features, b: Features, spread: [8]f32) f32 {
+fn audioDistance(a: [probes.len]Features, b: [probes.len]Features, scales: [audio_dims]f32) f32 {
     const va = featureVector(a);
     const vb = featureVector(b);
     var sum: f32 = 0;
-    for (va, vb, spread) |x, y, s| {
+    for (va, vb, scales) |x, y, s| {
         const d = (x - y) / s;
         sum += d * d;
     }
-    return @sqrt(sum);
+    return @sqrt(sum / @as(f32, audio_dims));
 }
 
 // ---------------------------------------------------------------------------
@@ -352,7 +452,7 @@ fn countModRows(p: Patch) usize {
 
 /// The fields where two patches differ, worst first: the "why are these two
 /// different" answer for a close pair.
-fn printDiff(w: anytype, a: Patch, b: Patch, ranges: Ranges, limit: usize) !void {
+fn printDiff(w: anytype, a: Patch, b: Patch, scales: Scales, limit: usize) !void {
     @setEvalBranchQuota(50_000);
     const Item = struct { name: []const u8, a: f32, b: f32, d: f32 };
     var items: [scalar_fields.len]Item = undefined;
@@ -361,7 +461,7 @@ fn printDiff(w: anytype, a: Patch, b: Patch, ranges: Ranges, limit: usize) !void
         const va = fieldValue(name, a);
         const vb = fieldValue(name, b);
         if (va != vb) {
-            items[n] = .{ .name = name, .a = va, .b = vb, .d = @abs(va - vb) / ranges[i] };
+            items[n] = .{ .name = name, .a = va, .b = vb, .d = @abs(va - vb) / scales[i] };
             n += 1;
         }
     }
@@ -379,20 +479,23 @@ fn printDiff(w: anytype, a: Patch, b: Patch, ranges: Ranges, limit: usize) !void
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
 
-    var note: u7 = 48; // C3: low enough for basses, high enough for leads
+    var note: u7 = 52; // middle probe; the outer two sit +/- 16 semitones
     var pair_count: usize = 25;
     var only_category: ?[]const u8 = null;
+    var same_category_only = false;
 
     var args = try std.process.Args.Iterator.initAllocator(init.minimal.args, allocator);
     defer args.deinit();
     _ = args.skip();
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--note")) {
-            note = std.fmt.parseInt(u7, args.next() orelse "48", 10) catch 48;
+            note = std.fmt.parseInt(u7, args.next() orelse "52", 10) catch 52;
         } else if (std.mem.eql(u8, arg, "--pairs")) {
             pair_count = std.fmt.parseInt(usize, args.next() orelse "25", 10) catch 25;
         } else if (std.mem.eql(u8, arg, "--category")) {
             only_category = args.next();
+        } else if (std.mem.eql(u8, arg, "--same-category")) {
+            same_category_only = true;
         }
     }
 
@@ -407,11 +510,13 @@ pub fn main(init: std.process.Init) !void {
         if (only_category) |c| {
             if (!std.mem.eql(u8, c, p.category)) continue;
         }
-        const features = blk: {
-            const buf = try render(allocator, p.patch, note);
+        var features: [probes.len]Features = undefined;
+        for (probes, 0..) |probe, i| {
+            const at: u7 = @intCast(std.math.clamp(@as(i16, note) + probe.semi, 0, 127));
+            const buf = try render(allocator, p.patch, at, probe.vel);
             defer allocator.free(buf);
-            break :blk try analyze(allocator, buf);
-        };
+            features[i] = try analyze(allocator, buf);
+        }
         try rows.append(allocator, .{
             .name = p.name,
             .category = p.category,
@@ -430,22 +535,27 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
-    const ranges = computeRanges(rows.items);
+    const scales = computeScales(rows.items);
 
     // Feature spread, so the audio distance weights each feature by how much
-    // it actually varies across the set (same idea as `ranges`).
-    var spread: [8]f32 = @splat(1.0);
+    // it actually varies across the set (same idea as `scales`).
+    var spread: [audio_dims]f32 = @splat(1.0);
     {
-        var lo: [8]f32 = @splat(std.math.floatMax(f32));
-        var hi: [8]f32 = @splat(-std.math.floatMax(f32));
+        var mean: [audio_dims]f32 = @splat(0);
+        var acc: [audio_dims]f32 = @splat(0);
+        const n: f32 = @floatFromInt(rows.items.len);
         for (rows.items) |r| {
             const v = featureVector(r.f);
-            for (v, 0..) |x, i| {
-                lo[i] = @min(lo[i], x);
-                hi[i] = @max(hi[i], x);
-            }
+            for (v, 0..) |x, i| mean[i] += x / n;
         }
-        for (0..8) |i| spread[i] = if (hi[i] > lo[i]) hi[i] - lo[i] else 1.0;
+        for (rows.items) |r| {
+            const v = featureVector(r.f);
+            for (v, 0..) |x, i| acc[i] += (x - mean[i]) * (x - mean[i]);
+        }
+        for (0..audio_dims) |i| {
+            const sd = @sqrt(acc[i] / n);
+            spread[i] = if (sd > 1e-6) sd else 1.0;
+        }
     }
 
     // ponytail: O(n^2) over this library is cheap. If the
@@ -455,7 +565,7 @@ pub fn main(init: std.process.Init) !void {
         r.near_audio_d = std.math.floatMax(f32);
         for (rows.items, 0..) |o, j| {
             if (i == j) continue;
-            const pd = patchDistance(r.patch, o.patch, ranges);
+            const pd = patchDistance(r.patch, o.patch, scales);
             if (pd < r.near_patch_d) {
                 r.near_patch_d = pd;
                 r.near_patch = j;
@@ -468,22 +578,33 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    try w.print("# {d} presets, rendered at note {d}, {d} Hz\n", .{ rows.items.len, note, sample_rate });
-    try w.print("# low/mid/high are the share of spectral energy below 200 Hz, 200-2k, above 2k.\n", .{});
+    try w.print("# {d} presets, {d} Hz, rendered at notes", .{ rows.items.len, sample_rate });
+    for (probes) |p| try w.print(" {d}@vel{d:.2}", .{ @as(i16, note) + p.semi, p.vel });
+    try w.print("\n# The measured columns are the middle probe; the distances use all of them.\n", .{});
+    try w.print("# b1..b{d} are the share of spectral energy below {d:.0} Hz, then each band\n", .{ band_count, band_edges[0] });
+    try w.print("# up to {d:.0} Hz, and above. cmod/amod are how far the centroid (octaves)\n", .{band_edges[band_edges.len - 1]});
+    try w.print("# and the level wander while the note is held: 0 is a static sound.\n", .{});
     try w.print("# nearest_* are the closest other preset by patch fields and by measured sound.\n\n", .{});
-    try w.print("name\tcategory\ttags\tpeak\trms\tcrest\tattack_ms\tsustain\trelease_ms\tcentroid\tflatness\tlow\tmid\thigh\twidth\tmods\tfx\tarp\tnearest_patch\tpatch_d\tnearest_audio\taudio_d\n", .{});
+    try w.print("name\tcategory\ttags\tpeak\trms\tcrest\tattack_ms\tsustain\trelease_ms\tcentroid\tflatness", .{});
+    for (0..band_count) |i| try w.print("\tb{d}", .{i + 1});
+    try w.print("\twidth\tcmod\tamod\tmods\tfx\tarp\tnearest_patch\tpatch_d\tnearest_audio\taudio_d\n", .{});
     for (rows.items) |r| {
+        const f = r.f[probes.len / 2];
         try w.print("{s}\t{s}\t", .{ r.name, r.category });
         for (r.tags, 0..) |t, i| {
             if (i > 0) try w.print(",", .{});
             try w.print("{s}", .{t});
         }
-        try w.print("\t{d:.3}\t{d:.4}\t{d:.1}\t{d:.0}\t{d:.2}\t{d:.0}\t{d:.0}\t{d:.3}\t{d:.2}\t{d:.2}\t{d:.2}\t{d:.2}\t{d}\t{d}\t{s}\t{s}\t{d:.2}\t{s}\t{d:.2}\n", .{
-            r.f.peak,       r.f.rms,                       r.f.crest,                  r.f.attack_ms,
-            r.f.sustain,    r.f.release_ms,                r.f.centroid_hz,            r.f.flatness,
-            r.f.low,        r.f.mid,                       r.f.high,                   r.f.width,
-            r.mod_rows,     r.fx_count,                    if (r.arp) "yes" else "no", rows.items[r.near_patch].name,
-            r.near_patch_d, rows.items[r.near_audio].name, r.near_audio_d,
+        try w.print("\t{d:.3}\t{d:.4}\t{d:.1}\t{d:.0}\t{d:.2}\t{d:.0}\t{d:.0}\t{d:.3}", .{
+            f.peak,    f.rms,        f.crest,       f.attack_ms,
+            f.sustain, f.release_ms, f.centroid_hz, f.flatness,
+        });
+        for (f.bands) |b| try w.print("\t{d:.2}", .{b});
+        try w.print("\t{d:.2}\t{d:.2}\t{d:.2}\t{d}\t{d}\t{s}\t{s}\t{d:.3}\t{s}\t{d:.3}\n", .{
+            f.width,                       f.centroid_mod, f.amp_mod,
+            r.mod_rows,                    r.fx_count,     if (r.arp) "yes" else "no",
+            rows.items[r.near_patch].name, r.near_patch_d, rows.items[r.near_audio].name,
+            r.near_audio_d,
         });
     }
 
@@ -493,10 +614,11 @@ pub fn main(init: std.process.Init) !void {
     defer pairs.deinit(allocator);
     for (rows.items, 0..) |ra, i| {
         for (rows.items[i + 1 ..], i + 1..) |rb, j| {
+            if (same_category_only and !std.mem.eql(u8, ra.category, rb.category)) continue;
             try pairs.append(allocator, .{
                 .a = i,
                 .b = j,
-                .patch_d = patchDistance(ra.patch, rb.patch, ranges),
+                .patch_d = patchDistance(ra.patch, rb.patch, scales),
                 .audio_d = audioDistance(ra.f, rb.f, spread),
             });
         }
@@ -507,22 +629,28 @@ pub fn main(init: std.process.Init) !void {
         }
     }.lt);
 
-    try w.print("\n\n# The {d} closest pairs by measured sound. A pair that is close on\n", .{pair_count});
+    try w.print("\n\n# The {d} closest pairs by measured sound{s}. A pair that is close on\n", .{
+        pair_count,
+        if (same_category_only) ", within a category" else "",
+    });
     try w.print("# BOTH distances is the same preset twice; close on audio but far on\n", .{});
     try w.print("# patch means two ways to build one sound, which is worth keeping.\n", .{});
     for (pairs.items[0..@min(pairs.items.len, pair_count)]) |p| {
         const ra = rows.items[p.a];
         const rb = rows.items[p.b];
-        try w.print("\n  {s} ({s}) <-> {s} ({s})   audio_d={d:.2}  patch_d={d:.2}\n", .{
+        try w.print("\n  {s} ({s}) <-> {s} ({s})   audio_d={d:.3}  patch_d={d:.3}\n", .{
             ra.name, ra.category, rb.name, rb.category, p.audio_d, p.patch_d,
         });
-        try printDiff(w, ra.patch, rb.patch, ranges, 8);
+        try printDiff(w, ra.patch, rb.patch, scales, 8);
     }
 
     // Category coverage, so a gap shows up as a thin row rather than by
     // reading 100 names.
     try w.print("\n\n# Coverage by category: count, and the mean of each feature.\n", .{});
-    try w.print("category\tn\tcentroid\tattack_ms\trelease_ms\tsustain\tlow\thigh\n", .{});
+    // `crowding` is the mean distance from each preset in the category to its
+    // nearest neighbour anywhere: a low number is a category where the presets
+    // sit on top of each other, which is where the next cut belongs.
+    try w.print("category\tn\tcentroid\tattack_ms\trelease_ms\tsustain\tlow\thigh\tcmod\tcrowding\n", .{});
     var seen: std.StringHashMapUnmanaged(void) = .empty;
     defer seen.deinit(allocator);
     for (rows.items) |r| {
@@ -530,20 +658,27 @@ pub fn main(init: std.process.Init) !void {
         try seen.put(allocator, r.category, {});
         var n: usize = 0;
         var acc: Features = .{};
+        var crowding: f32 = 0;
         for (rows.items) |o| {
             if (!std.mem.eql(u8, o.category, r.category)) continue;
+            const f = o.f[probes.len / 2];
             n += 1;
-            acc.centroid_hz += o.f.centroid_hz;
-            acc.attack_ms += o.f.attack_ms;
-            acc.release_ms += o.f.release_ms;
-            acc.sustain += o.f.sustain;
-            acc.low += o.f.low;
-            acc.high += o.f.high;
+            acc.centroid_hz += f.centroid_hz;
+            acc.attack_ms += f.attack_ms;
+            acc.release_ms += f.release_ms;
+            acc.sustain += f.sustain;
+            acc.bands[0] += f.bands[0];
+            acc.bands[band_count - 1] += f.bands[band_count - 1];
+            acc.centroid_mod += f.centroid_mod;
+            crowding += o.near_audio_d;
         }
         const d: f32 = @floatFromInt(n);
-        try w.print("{s}\t{d}\t{d:.0}\t{d:.0}\t{d:.0}\t{d:.2}\t{d:.2}\t{d:.2}\n", .{
-            r.category,         n,               acc.centroid_hz / d, acc.attack_ms / d,
-            acc.release_ms / d, acc.sustain / d, acc.low / d,         acc.high / d,
+        try w.print("{s}\t{d}\t{d:.0}\t{d:.0}\t{d:.0}\t{d:.2}\t{d:.2}\t{d:.2}\t{d:.2}\t{d:.3}\n", .{
+            r.category,           n,
+            acc.centroid_hz / d,  acc.attack_ms / d,
+            acc.release_ms / d,   acc.sustain / d,
+            acc.bands[0] / d,     acc.bands[band_count - 1] / d,
+            acc.centroid_mod / d, crowding / d,
         });
     }
 
