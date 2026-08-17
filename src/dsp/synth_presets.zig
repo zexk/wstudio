@@ -1471,6 +1471,122 @@ pub const presets = [_]Preset{
         .gain = 0.3,
     } },
 
+    // === Round 4: the modern production toolkit ===
+    //
+    // The library had one FX preset and one brass against twenty basses. These
+    // fill the roles a 2020s session reaches for and the factory set could not
+    // answer: transitions, the African and Caribbean rhythm exports, drill and
+    // phonk, and the club sounds built on effects rather than oscillators.
+
+    // The universal build tool: noise through a resonant lowpass whose cutoff
+    // climbs four octaves on the filter envelope, with pitch rising underneath
+    // so it lifts even against a static-key track. Audible from the downbeat
+    // rather than fading in - a riser that starts silent wastes its first bar.
+    .{ .name = "riser-noise", .category = "fx", .tags = &.{ "wstudio", "house", "trance" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_detune = 25.0, .unison_spread = 0.8,
+        .noise_level = 0.9, .noise_color = 1.0,
+        .attack_s = 0.02, .decay_s = 0.5, .sustain = 1.0, .release_s = 0.4,
+        .filter_type = .bp, .filter_cutoff = 300.0, .filter_res = 0.45,
+        .fenv_attack_s = 3.6, .fenv_decay_s = 0.5, .fenv_sustain = 1.0, .fenv_release_s = 0.3, .fenv_curve = 0.35,
+        .env3_attack_s = 3.6, .env3_decay_s = 0.5, .env3_sustain = 1.0, .env3_release_s = 0.3,
+        .lfo_rate_hz = 5.0,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv, .dest = 21,  .depth = 0.9 },
+            .{ .source = .env3, .dest = dP,  .depth = 0.5 },
+            .{ .source = .lfo,  .dest = 22,  .depth = 0.15 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
+        }),
+        .fx_reverb_on = true, .fx_reverb_room = 0.85, .fx_reverb_damp = 0.3, .fx_reverb_mix = 0.35,
+        .gain = 0.26,
+    } },
+
+    // The riser's counterpart, for the bar after the drop: the same noise bed
+    // with both envelopes inverted, so cutoff and pitch fall away instead of
+    // climbing. Wide stereo and a long tail so it clears the way rather than
+    // fighting the groove that follows it.
+    .{ .name = "downlifter", .category = "fx", .tags = &.{ "wstudio", "house", "dubstep" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 4, .unison_detune = 30.0, .unison_spread = 1.0,
+        .noise_level = 0.8, .noise_color = 0.8,
+        .attack_s = 0.004, .decay_s = 2.4, .sustain = 0.0, .release_s = 1.2, .env_curve = 0.4,
+        .filter_type = .lp, .filter_cutoff = 9000.0, .filter_res = 0.25,
+        .fenv_attack_s = 0.004, .fenv_decay_s = 2.2, .fenv_sustain = 0.0, .fenv_release_s = 1.0, .fenv_curve = 0.5,
+        .env3_attack_s = 0.004, .env3_decay_s = 2.0, .env3_sustain = 0.0, .env3_release_s = 1.0, .env3_curve = 0.45,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv, .dest = 21,  .depth = 0.75 },
+            .{ .source = .env3, .dest = dP,  .depth = -0.6 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.45 },
+        }),
+        .fx_reverb_on = true, .fx_reverb_room = 0.9, .fx_reverb_damp = 0.25, .fx_reverb_mix = 0.4,
+        .gain = 0.26,
+    } },
+
+    // Section marker: a sub sine whose pitch collapses an octave in 120 ms
+    // (the boom) under a noise burst (the crack), then a long plate to carry
+    // it. Distortion before the reverb so the tail is dense rather than clean.
+    .{ .name = "impact-hit", .category = "fx", .tags = &.{ "wstudio", "techno", "trap" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.0, .voice_mode = .mono,
+        .sub_level = 0.8, .sub_shape = .sine,
+        .noise_level = 0.5, .noise_color = 0.55,
+        .attack_s = 0.001, .decay_s = 1.6, .sustain = 0.0, .release_s = 1.4, .env_curve = 0.7,
+        .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.1, .filter_drive = 2.0,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.09, .fenv_sustain = 0.0, .fenv_release_s = 0.1, .fenv_curve = 0.8,
+        .env3_attack_s = 0.001, .env3_decay_s = 0.12, .env3_sustain = 0.0, .env3_release_s = 0.1, .env3_curve = 0.85,
+        .mod_matrix = mods(&.{
+            .{ .source = .env3,     .dest = dP,  .depth = -1.0 },
+            .{ .source = .fenv,     .dest = 36,  .depth = 0.5 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.5 },
+            .{ .source = .mac4,     .dest = 85,  .depth = 0.4 },
+        }),
+        .fx_dist_on = true, .fx_dist_drive_db = 10.0, .fx_dist_mix = 0.35,
+        .fx_reverb_on = true, .fx_reverb_room = 0.95, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.45,
+        .gain = 0.3,
+    } },
+
+    // The breakdown bed melodic techno is built on: air, not notes. Bandpassed
+    // noise with two slow LFOs walking the band, so it reads as room tone
+    // rather than as a held synth. Every Afterlife-school breakdown has one
+    // under it and sounds cheap without it.
+    .{ .name = "air-wash", .category = "fx", .tags = &.{ "wstudio", "ambient", "melodic-techno" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.0,
+        .noise_level = 1.0, .noise_color = 0.75,
+        .attack_s = 0.35, .decay_s = 1.0, .sustain = 0.9, .release_s = 2.5,
+        .filter_type = .bp, .filter_cutoff = 1400.0, .filter_res = 0.3,
+        .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 400.0, .filter_routing = .series,
+        .lfo_rate_hz = 0.08, .lfo_slew_ms = 60.0,
+        .lfo2_rate_hz = 0.13, .lfo2_phase_offset = 0.25, .lfo2_slew_ms = 60.0,
+        .mod_matrix = mods(&.{
+            .{ .source = .lfo,  .dest = 21,  .depth = 0.45 },
+            .{ .source = .lfo2, .dest = dA,  .depth = -0.25 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
+        }),
+        .fx_reverb_on = true, .fx_reverb_room = 0.9, .fx_reverb_damp = 0.5, .fx_reverb_mix = 0.4,
+        .gain = 0.16,
+    } },
+
+    // The transition that costs nothing: one sine falling an octave and a half
+    // over two seconds. Trap and dubstep drops are still built on it, and it
+    // is the one FX voice that must stay clean - no noise layer, so it lands
+    // under a mix instead of on top of it.
+    .{ .name = "sub-drop", .category = "fx", .tags = &.{ "wstudio", "trap", "dubstep" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.0, .voice_mode = .mono,
+        .sub_level = 0.7, .sub_shape = .sine,
+        .attack_s = 0.006, .decay_s = 2.0, .sustain = 0.3, .release_s = 0.6, .env_curve = 0.3,
+        .filter_type = .lp, .filter_cutoff = 900.0, .filter_res = 0.05, .filter_drive = 1.6,
+        .env3_attack_s = 0.004, .env3_decay_s = 1.8, .env3_sustain = 0.0, .env3_release_s = 0.5, .env3_curve = 0.55,
+        .mod_matrix = mods(&.{
+            .{ .source = .env3, .dest = dP, .depth = -1.0 },
+            .{ .source = .env3, .dest = 21, .depth = -0.3 },
+            .{ .source = .mac1, .dest = 21, .depth = 0.4 },
+            .{ .source = .mac4, .dest = 85, .depth = 0.35 },
+        }),
+        .fx_dist_on = true, .fx_dist_drive_db = 6.0, .fx_dist_mix = 0.2,
+        .gain = 0.34,
+    } },
+
     // soul: rounded finger bass with a small upper-harmonic layer
     .{ .name = "soul-bass", .category = "bass", .tags = &.{ "wstudio", "soul", "neo-soul" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.3333333, .voice_mode = .mono, .glide_s = 0.012,
@@ -1560,8 +1676,8 @@ pub fn find(name: []const u8) ?Patch {
     return null;
 }
 
-test "factory library holds exactly 74 presets" {
-    try std.testing.expectEqual(@as(usize, 74), presets.len);
+test "factory library holds exactly 79 presets" {
+    try std.testing.expectEqual(@as(usize, 79), presets.len);
 }
 
 test "every preset's matrix rows target legal dests at sane depths" {

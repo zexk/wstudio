@@ -7414,9 +7414,10 @@ test ":synth-preset Tab completes the preset-name argument from the fixed preset
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    // "sub" uniquely matches "sub-bass" - completes in full plus a
-    // trailing space, same single-match behavior as command names.
-    for (":synth-preset sub") |c| app.handleKey(.{ .char = c }, 0);
+    // "sub-b" uniquely matches "sub-bass" - completes in full plus a
+    // trailing space, same single-match behavior as command names. ("sub"
+    // alone stopped being unique once "sub-drop" joined the library.)
+    for (":synth-preset sub-b") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("synth-preset sub-bass ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
