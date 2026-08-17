@@ -284,7 +284,12 @@ pub fn draw(app: anytype) void {
         for (lane.clips.items, 0..) |clip, ci| {
             const x = timeline_x + @as(f32, @floatFromInt(clip.start_tick)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
             const clip_w = @max(8, @as(f32, @floatFromInt(clip.length_ticks)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w - 2);
-            const pmin = [2]f32{ x + 1, lane_y + 5 };
+            // Stacked layers overlap in time by design (`place` only evicts an
+            // overlap on the same layer), and the higher one drew over the
+            // lower one edge to edge - two clips looked like one. Step each
+            // layer down so the stack shows.
+            const layer_step = @min(@as(f32, @floatFromInt(clip.layer)), 3) * 7;
+            const pmin = [2]f32{ x + 1, lane_y + 5 + layer_step };
             const pmax = [2]f32{ @min(x + clip_w, origin[0] + canvas_w - 1), lane_y + lane_h - 5 };
             const selected = if (app.arrangement_clip) |selection| selection.track == ti and selection.clip == ci else false;
             // The lane's own track colour when it has one, else the content

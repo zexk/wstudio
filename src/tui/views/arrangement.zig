@@ -220,6 +220,19 @@ pub fn drawArrangement(
             const clip = if (lane) |l| l.clipAt(bar) else null;
             const covered = clip != null;
             const is_start = covered and clip.?.start_tick == bar;
+            // `clipAt` reports the top layer only, so a stack of two looked
+            // exactly like one clip. Shade the body where more than one covers
+            // the cell (see arrangement.zig - only same-layer overlaps evict).
+            var stacked = false;
+            if (covered) {
+                var hits: u8 = 0;
+                for (lane.?.clips.items) |other| {
+                    if (other.covers(bar)) hits +|= 1;
+                    if (hits > 1) break;
+                }
+                stacked = hits > 1;
+            }
+            const body: []const u8 = if (stacked) "▓" else "█";
             const is_cursor = is_sel_lane and bar == cur_bar;
             const is_play = playhead == bar;
             const in_sel = visual_active and is_sel_lane and bar >= sel_lo and bar <= sel_hi;
@@ -245,18 +258,20 @@ pub fn drawArrangement(
                 } else if (letter) |ch| {
                     try w.print("{c}", .{ch});
                 } else {
-                    try w.writeAll(if (is_start) "▌" else "█");
+                    try w.writeAll(if (is_start) "▌" else body);
                 }
             } else if (!covered) {
                 try w.writeAll(if (in_sel) " · " else if (is_play and !is_cursor) " ‖ " else "   ");
             } else if (letter) |ch| {
-                try w.print("▌{c}█", .{ch});
+                try w.print("▌{c}{s}", .{ ch, body });
+            } else if (is_start) {
+                try w.print("▌{s}{s}", .{ body, body });
             } else {
-                try w.writeAll(if (is_start) "▌██" else "███");
+                try w.print("{s}{s}{s}", .{ body, body, body });
             }
             if (cw > 4) {
                 if (covered) {
-                    for (0..cw - 4) |_| try w.writeAll("█");
+                    for (0..cw - 4) |_| try w.writeAll(body);
                 } else try w.splatByteAll(' ', cw - 4);
             }
             if (is_cursor or is_play or covered or in_sel) try w.writeAll(rst);
