@@ -5,6 +5,10 @@
 //! soft saturation. They run straight into pad buffers when the user picks a
 //! kit (see `variants` and `DrumMachine.loadKitVariant`) - nothing is embedded
 //! or read from disk. Keep them allocation-light and deterministic.
+//!
+//! `chipGen` is the deliberate exception and is poorer on purpose: it is a
+//! console sound chip's three voices, quantised the way the hardware
+//! quantises, because for that kit the limits are the instrument.
 
 const std = @import("std");
 
@@ -358,6 +362,163 @@ fn rimGen(allocator: std.mem.Allocator, sr: u32, p: RimParams) std.mem.Allocator
 }
 
 // ---------------------------------------------------------------------------
+// Chip voice
+//
+// The generators above model drums: a struck body, a shell, a metal cluster.
+// A chip has none of that. A 2A03 has three things a drum can be made of - a
+// pulse channel with four duty cycles, a 4-bit stepped triangle, and a noise
+// channel that is a shift register clocked at one of sixteen fixed rates -
+// and every level it emits is one of sixteen. Rendering chip drums through
+// the analog generators gets the rhythm right and the sound wrong, because
+// the sound IS the quantisation: sixteen noise colours instead of a filter
+// sweep, sixteen volume steps instead of a smooth decay, a pitch that can
+// only land on the timer values the chip can count to.
+
+/// The noise channel's sixteen timer periods in CPU cycles (NTSC). There is
+/// no continuous control here: these are the only sixteen noise colours the
+/// chip can make, which is why every chip hat and snare sounds related.
+const nes_noise_periods = [16]f32{ 4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068 };
+const nes_cpu_hz: f32 = 1_789_773.0;
+/// The APU's envelope/sweep units are clocked by the frame counter, not by
+/// the sample: volume steps at 240 Hz and pitch at 120 Hz, which is what
+/// makes a chip decay audibly staircase rather than glide.
+const nes_env_hz: f32 = 240.0;
+const nes_sweep_hz: f32 = 120.0;
+
+/// The noise channel's 15-bit shift register. Feedback is bit 0 XOR bit 1,
+/// or bit 0 XOR bit 6 in short mode - which shortens the sequence from 32767
+/// steps to 93 and turns hiss into a pitched metallic rattle. That short mode
+/// is where a chip snare's buzz comes from.
+const Lfsr = struct {
+    reg: u16 = 1,
+    short: bool = false,
+
+    fn next(self: *Lfsr) f32 {
+        const tap: u16 = if (self.short) (self.reg >> 6) & 1 else (self.reg >> 1) & 1;
+        const fb: u16 = (self.reg & 1) ^ tap;
+        self.reg = ((self.reg >> 1) | (fb << 14)) & 0x7FFF;
+        // The channel is silent while bit 0 is set and at full level when it
+        // is clear - a two-level output, not a noise floor.
+        return if (self.reg & 1 == 0) 1.0 else -1.0;
+    }
+};
+
+/// Snap a frequency to what the chip's 11-bit timer can actually count.
+/// `divider` is 16 for the pulse channels and 32 for the triangle. High notes
+/// land visibly off-pitch this way, which is a chip's own out-of-tuneness and
+/// not an error to correct.
+fn nesTimerFreq(hz: f32, divider: f32) f32 {
+    const period = std.math.clamp(@round(nes_cpu_hz / (divider * @max(hz, 1.0)) - 1.0), 8.0, 2047.0);
+    return nes_cpu_hz / (divider * (period + 1.0));
+}
+
+pub const ChipSource = enum { noise, pulse, triangle };
+
+/// Tunable knobs behind `chipGen`. One generator covers every pad because
+/// the chip does: a drum is a channel, an envelope and a duration.
+pub const ChipParams = struct {
+    source: ChipSource = .noise,
+    /// Index into `nes_noise_periods`: 0 is the brightest hiss, 15 a slow
+    /// crackle. Swept linearly to `noise_index_end` across the hit, which is
+    /// the tracker's pitch macro on the noise channel.
+    noise_index: u8 = 0,
+    noise_index_end: ?u8 = null,
+    /// 93-step register instead of 32767: buzz instead of hiss.
+    short: bool = false,
+    /// `pulse`/`triangle` only: pitch falls from `freq_start` toward
+    /// `freq_end`, exponentially at `pitch_decay`.
+    freq_start: f32 = 220.0,
+    freq_end: f32 = 110.0,
+    pitch_decay: f32 = 60.0,
+    /// Pulse duty. The chip offers 0.125, 0.25, 0.5 and 0.75 - nothing else.
+    duty: f32 = 0.5,
+    /// Noise struck together with a tone pad, which on hardware means a
+    /// second channel triggered on the same row. This is how a tracker gets
+    /// an attack onto a triangle kick.
+    noise_mix: f32 = 0.0,
+    /// That second channel's own decay. It is a different channel with a
+    /// different envelope, so it dies while the tone is still ringing -
+    /// which is what makes the noise read as the attack of the drum rather
+    /// than as hiss laid over it.
+    noise_decay: f32 = 300.0,
+    /// Volume envelope decay rate, before the 240 Hz staircase.
+    decay: f32 = 60.0,
+    /// Retriggers of the whole envelope, `burst_gap_s` apart - a chip clap is
+    /// the same noise hit written three rows in a row.
+    bursts: u8 = 1,
+    burst_gap_s: f32 = 0.012,
+    dur_s: f32 = 0.1,
+    /// Shift-register start state. Hardware resets to 1; varying it is how
+    /// two noise pads avoid being the same sequence twice.
+    seed: u16 = 1,
+};
+
+fn chipGen(allocator: std.mem.Allocator, sr: u32, p: ChipParams) std.mem.Allocator.Error![]f32 {
+    const srf: f32 = @floatFromInt(sr);
+    const buf = try allocator.alloc(f32, frames(sr, p.dur_s));
+    var noise: Lfsr = .{ .reg = if (p.seed & 0x7FFF == 0) 1 else p.seed & 0x7FFF, .short = p.short };
+    var noise_phase: f32 = 0.0;
+    var noise_level: f32 = 1.0;
+    var tone_phase: f32 = 0.0;
+    const idx_start: f32 = @floatFromInt(@min(p.noise_index, 15));
+    const idx_end: f32 = @floatFromInt(@min(p.noise_index_end orelse p.noise_index, 15));
+
+    for (buf, 0..) |*s, i| {
+        const t = @as(f32, @floatFromInt(i)) / srf;
+        const norm = std.math.clamp(t / p.dur_s, 0.0, 1.0);
+        // Envelope: held for a whole 240 Hz frame, then rounded to one of the
+        // sixteen levels the DAC has.
+        const t_env = @floor(t * nes_env_hz) / nes_env_hz;
+        var env: f32 = 0.0;
+        for (0..@max(p.bursts, 1)) |b| {
+            const tb = t_env - @as(f32, @floatFromInt(b)) * p.burst_gap_s;
+            if (tb >= 0.0) env = @max(env, expEnv(tb, p.decay));
+        }
+        env = @floor(env * 15.0) / 15.0;
+
+        // Noise runs for every pad: on its own for the hats and snares, and
+        // under the tone pads as the second channel.
+        const idx = std.math.clamp(@round(idx_start + (idx_end - idx_start) * norm), 0.0, 15.0);
+        const noise_hz = nes_cpu_hz / nes_noise_periods[@intFromFloat(idx)];
+        noise_phase += noise_hz / srf;
+        while (noise_phase >= 1.0) {
+            noise_level = noise.next();
+            noise_phase -= 1.0;
+        }
+
+        const tone: f32 = switch (p.source) {
+            .noise => 0.0,
+            .pulse, .triangle => blk: {
+                // Pitch is reloaded by the sweep unit, so it steps at 120 Hz
+                // and lands only on a timer value the chip can hold.
+                const t_sweep = @floor(t * nes_sweep_hz) / nes_sweep_hz;
+                const target = p.freq_end + (p.freq_start - p.freq_end) * expEnv(t_sweep, p.pitch_decay);
+                const divider: f32 = if (p.source == .pulse) 16.0 else 32.0;
+                const hz = nesTimerFreq(target, divider);
+                tone_phase += hz / srf;
+                tone_phase -= @floor(tone_phase);
+                if (p.source == .pulse) break :blk if (tone_phase < p.duty) 1.0 else -1.0;
+                // 32-step triangle, 4 bits deep: the staircase is audible and
+                // is most of why a chip triangle bass reads as a chip.
+                const step: f32 = @floor(tone_phase * 32.0);
+                const level = if (step < 16.0) 15.0 - step else step - 16.0;
+                break :blk level / 7.5 - 1.0;
+            },
+        };
+
+        s.* = switch (p.source) {
+            .noise => noise_level * env,
+            else => blk: {
+                const ne = @floor(expEnv(t_env, p.noise_decay) * 15.0) / 15.0;
+                break :blk tone * env * (1.0 - p.noise_mix) + noise_level * ne * p.noise_mix;
+            },
+        };
+    }
+    normalize(buf, 0.95);
+    return buf;
+}
+
+// ---------------------------------------------------------------------------
 // Kit variants - alternate flavours of the same 16 drums, selectable at
 // runtime via `:drum-kit <name>` (see tui/commands.zig). Unlike `kit` above,
 // these are never rendered to WAV or embedded: picking one calls the
@@ -405,7 +566,7 @@ const alt_stick: Tune = .{ .pitch = 7.0, .end = 0.35, .filter = 0.3 };
 /// function pointer so a slot's params can be a plain data literal instead
 /// of a one-line wrapper function per flavor (there were ~130 of those:
 /// `kickAnalog`, `snareAnalog`, ... one per generator per kit).
-pub const GenKind = enum { kick, snare, hat, clap, tom, perc, rim };
+pub const GenKind = enum { kick, snare, hat, clap, tom, perc, rim, chip };
 
 pub const Params = union(GenKind) {
     kick: KickParams,
@@ -415,6 +576,7 @@ pub const Params = union(GenKind) {
     tom: TomParams,
     perc: PercParams,
     rim: RimParams,
+    chip: ChipParams,
 };
 
 /// Dispatch a slot's `(kind, params)` to the generator it names. The
@@ -429,6 +591,7 @@ pub fn genSlot(kind: GenKind, params: Params, allocator: std.mem.Allocator, sr: 
         .tom => tomGen(allocator, sr, params.tom),
         .perc => percGen(allocator, sr, params.perc),
         .rim => rimGen(allocator, sr, params.rim),
+        .chip => chipGen(allocator, sr, params.chip),
     };
 }
 
@@ -1207,113 +1370,177 @@ pub const variants = [_]KitVariant{
         .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 330.0, .tone2_hz = 450.0, .body_decay = 40.0, .slap_mix = 0.3, .seed = 0x764 } }, .gain = 0.76 },
         .{ .name = "gated", .kind = .snare, .params = .{ .snare = .{ .tone1_hz = 170.0, .tone2_hz = 255.0, .tone_decay = 18.0, .noise_decay = 7.0, .drive = 2.0, .dur_s = 0.5, .lp_hz = 6500.0, .hp_hz = 700.0 } }, .gain = 0.72 },
     } },
-    // Console drums, where a 5-channel chip had no drum voices at all: a
-    // pitch-bent triangle stood in for the tonal part and the noise channel
-    // did everything else. So the kicks and toms bend hard and die fast, the
-    // hats and snares are almost pure noise (`air_mix` up near 1, the metal
-    // cluster pushed out of the way at 9.5 kHz), and every drive sits high
-    // enough that `saturate` squares the sine off into something chip-like.
-    // Nothing here rings: the longest pad is the 0.5 s crash.
+    // Console drums, played on the chip's own three voices rather than
+    // modelled on acoustic ones. A 2A03 had no drum channels: a tracker made
+    // a kit out of the noise channel, the 4-bit triangle and a pulse, and the
+    // machine's limits are the sound. The noise pads sit on the sixteen timer
+    // periods the chip can count to and nothing between them; the snares use
+    // the register's short mode, whose 93-step sequence buzzes instead of
+    // hissing; the kick and toms are the triangle's staircase bent down with
+    // a noise channel struck alongside for the attack; every decay steps at
+    // 240 Hz through sixteen volume levels. Nothing here is filtered, because
+    // nothing on the chip could be.
     .{
         .name = "chiptune",
         .category = "8-bit",
         .tags = &.{ "wstudio", "chiptune", "game" },
         .pads = .{
-            .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
-                .freq_end = 72.0,
-                .freq_start_add = 130.0,
-                .pitch_decay = 110.0,
-                .body_decay = 26.0,
-                .click_decay = 400.0,
-                .click_freq = 3000.0,
-                .click_mix = 0.45,
-                .drive = 5.0,
-                .dur_s = 0.12,
+            // Triangle bent an octave and a half down inside 40 ms, with a
+            // frame of noise on the front - the standard tracker kick.
+            .{ .name = "kick", .kind = .chip, .params = .{ .chip = .{
+                .source = .triangle,
+                .freq_start = 165.0,
+                .freq_end = 48.0,
+                .pitch_decay = 90.0,
+                .decay = 40.0,
+                .noise_mix = 0.14,
+                .noise_index = 6,
+                .dur_s = 0.11,
+                .seed = 0x21,
             } }, .gain = 1.00 },
-            .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
-                .freq_end = 60.0,
-                .freq_start_add = 180.0,
-                .pitch_decay = 70.0,
-                .body_decay = 20.0,
-                .click_decay = 400.0,
-                .click_freq = 2600.0,
-                .click_mix = 0.3,
-                .drive = 5.0,
-                .dur_s = 0.16,
-            } }, .gain = 0.90 },
-            .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
-                .tone1_hz = 200.0,
-                .tone2_hz = 320.0,
-                .tone_decay = 70.0,
-                .noise_decay = 26.0,
-                .drive = 3.2,
-                .dur_s = 0.13,
-                .lp_hz = 9000.0,
-                .hp_hz = 700.0,
-            } }, .gain = 0.85 },
-            .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
-                .tone1_hz = 240.0,
-                .tone2_hz = 380.0,
-                .tone_decay = 90.0,
-                .noise_decay = 40.0,
-                .drive = 3.4,
+            // The other way to write it: a 50% pulse instead of the triangle,
+            // which is louder and harder because a pulse is a square edge.
+            .{ .name = "kick-2", .kind = .chip, .params = .{ .chip = .{
+                .source = .pulse,
+                .duty = 0.5,
+                .freq_start = 210.0,
+                .freq_end = 58.0,
+                .pitch_decay = 120.0,
+                .decay = 52.0,
+                .noise_mix = 0.12,
+                .noise_index = 5,
                 .dur_s = 0.09,
-                .lp_hz = 11_000.0,
-                .hp_hz = 1200.0,
-            } }, .gain = 0.78 },
-            .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.022, .decay = 230.0, .body_hz = 9500.0, .air_hz = 6000.0, .air_mix = 0.8 } }, .gain = 0.45 },
-            .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.018, .decay = 300.0, .body_hz = 10_500.0, .air_hz = 7000.0, .air_mix = 0.7 } }, .gain = 0.40 },
-            .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.16, .decay = 22.0, .body_hz = 9500.0, .air_hz = 6000.0, .air_mix = 0.8 } }, .gain = 0.45 },
-            .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.5, .decay = 8.0, .body_hz = 9000.0, .air_hz = 5500.0, .air_mix = 0.9, .attack_mix = 0.5 } }, .gain = 0.50, .tune = alt_crash },
-            .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
-                .lp_hz = 8000.0,
-                .hp_hz = 1500.0,
-                .burst_decay = 300.0,
-                .tail_decay = 40.0,
-                .tail_mix = 0.2,
+                .seed = 0x22,
+            } }, .gain = 0.92 },
+            // Noise swept two periods down over the hit: the chip has no
+            // filter envelope, so stepping the timer is the only way to make
+            // a snare fall.
+            .{ .name = "snare", .kind = .chip, .params = .{ .chip = .{
+                .noise_index = 3,
+                .noise_index_end = 5,
+                .decay = 30.0,
+                .dur_s = 0.15,
+                .seed = 0x23,
+            } }, .gain = 0.88 },
+            // Short mode: 93 steps instead of 32767, which reads as a pitched
+            // metallic rattle. This is the snare everyone recognises.
+            .{ .name = "snare-2", .kind = .chip, .params = .{ .chip = .{
+                .noise_index = 2,
+                .noise_index_end = 4,
+                .short = true,
+                .decay = 36.0,
                 .dur_s = 0.12,
-            } }, .gain = 0.66 },
-            .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
-                .tone1_hz = 1760.0,
-                .tone2_hz = 2640.0,
-                .tone_decay = 200.0,
-                .click_decay = 400.0,
-                .drive = 4.0,
-                .dur_s = 0.05,
-            } }, .gain = 0.62 },
-            .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
-                .tone1_hz = 1760.0,
-                .tone2_hz = 2640.0,
-                .tone_decay = 200.0,
-                .click_decay = 400.0,
-                .drive = 4.0,
-                .dur_s = 0.05,
-            } }, .gain = 0.55, .tune = alt_stick },
-            // Toms bend a full octave, the way a chip tom does - a couple of
-            // semitones would just read as a detuned kick at this length.
-            .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
-                .freq_start = 440.0,
-                .freq_end = 220.0,
+                .seed = 0x24,
+            } }, .gain = 0.80 },
+            .{ .name = "hihat", .kind = .chip, .params = .{ .chip = .{
+                .noise_index = 0,
+                .decay = 210.0,
+                .dur_s = 0.03,
+                .seed = 0x25,
+            } }, .gain = 0.46 },
+            .{ .name = "hat-2", .kind = .chip, .params = .{ .chip = .{
+                .noise_index = 1,
+                .decay = 260.0,
+                .dur_s = 0.025,
+                .seed = 0x26,
+            } }, .gain = 0.42 },
+            .{ .name = "open", .kind = .chip, .params = .{ .chip = .{
+                .noise_index = 0,
+                .decay = 22.0,
+                .dur_s = 0.18,
+                .seed = 0x27,
+            } }, .gain = 0.46 },
+            .{ .name = "crash", .kind = .chip, .params = .{ .chip = .{
+                .noise_index = 2,
+                .decay = 7.0,
+                .dur_s = 0.6,
+                .seed = 0x28,
+            } }, .gain = 0.50 },
+            // A chip clap is the same noise hit written on three rows in a
+            // row, so it is one envelope retriggered twice, not a new voice.
+            .{ .name = "clap", .kind = .chip, .params = .{ .chip = .{
+                .noise_index = 4,
+                .decay = 120.0,
+                .bursts = 3,
+                .burst_gap_s = 0.013,
                 .dur_s = 0.14,
-                .body_decay = 20.0,
-                .attack_decay = 200.0,
-                .drive = 4.0,
-                .attack_mix = 0.06,
-                .seed = 0x7f1,
-            } }, .gain = 0.80 },
-            .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
-                .freq_start = 330.0,
-                .freq_end = 165.0,
-                .dur_s = 0.16,
-                .body_decay = 18.0,
-                .attack_decay = 200.0,
-                .drive = 4.0,
-                .attack_mix = 0.06,
-                .seed = 0x7f2,
-            } }, .gain = 0.80 },
-            .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 880.0, .tone2_hz = 1320.0, .body_decay = 70.0, .slap_mix = 0.15, .drive = 3.0, .dur_s = 0.07, .seed = 0x7f3 } }, .gain = 0.68 },
-            .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 587.0, .tone2_hz = 880.0, .body_decay = 60.0, .slap_mix = 0.15, .drive = 3.0, .dur_s = 0.08, .seed = 0x7f4 } }, .gain = 0.68 },
-            .{ .name = "blip", .kind = .tom, .params = .{ .tom = .{ .freq_start = 1320.0, .freq_end = 660.0, .dur_s = 0.1, .body_decay = 30.0, .attack_decay = 240.0, .drive = 4.0, .attack_mix = 0.02, .seed = 0x7f5 } }, .gain = 0.64 },
+                .seed = 0x29,
+            } }, .gain = 0.66 },
+            // The thinnest duty the chip has, held at pitch: a click with a
+            // tone in it, which is all a chip rim can be.
+            .{ .name = "rim", .kind = .chip, .params = .{ .chip = .{
+                .source = .pulse,
+                .duty = 0.125,
+                .freq_start = 2200.0,
+                .freq_end = 2200.0,
+                .decay = 380.0,
+                .dur_s = 0.035,
+                .seed = 0x2a,
+            } }, .gain = 0.62 },
+            .{ .name = "stick", .kind = .chip, .params = .{ .chip = .{
+                .source = .pulse,
+                .duty = 0.125,
+                .freq_start = 3300.0,
+                .freq_end = 3300.0,
+                .decay = 460.0,
+                .dur_s = 0.028,
+                .seed = 0x2b,
+            } }, .gain = 0.55 },
+            .{ .name = "tom-1", .kind = .chip, .params = .{ .chip = .{
+                .source = .triangle,
+                .freq_start = 420.0,
+                .freq_end = 190.0,
+                .pitch_decay = 34.0,
+                .decay = 34.0,
+                .noise_mix = 0.07,
+                .noise_index = 7,
+                .dur_s = 0.15,
+                .seed = 0x2c,
+            } }, .gain = 0.82 },
+            .{ .name = "tom-2", .kind = .chip, .params = .{ .chip = .{
+                .source = .triangle,
+                .freq_start = 300.0,
+                .freq_end = 140.0,
+                .pitch_decay = 30.0,
+                .decay = 30.0,
+                .noise_mix = 0.07,
+                .noise_index = 8,
+                .dur_s = 0.17,
+                .seed = 0x2d,
+            } }, .gain = 0.82 },
+            .{ .name = "perc-hi", .kind = .chip, .params = .{ .chip = .{
+                .source = .pulse,
+                .duty = 0.25,
+                .freq_start = 1250.0,
+                .freq_end = 880.0,
+                .pitch_decay = 120.0,
+                .decay = 95.0,
+                .dur_s = 0.07,
+                .seed = 0x2e,
+            } }, .gain = 0.68 },
+            .{ .name = "perc-lo", .kind = .chip, .params = .{ .chip = .{
+                .source = .pulse,
+                .duty = 0.25,
+                .freq_start = 840.0,
+                .freq_end = 590.0,
+                .pitch_decay = 110.0,
+                .decay = 80.0,
+                .dur_s = 0.09,
+                .seed = 0x2f,
+            } }, .gain = 0.68 },
+            // The kit's signature: a pulse dropped three octaves in a tenth
+            // of a second, stepping through timer values on the way down.
+            // Every console made this sound and no drum machine did.
+            .{ .name = "blip", .kind = .chip, .params = .{ .chip = .{
+                .source = .pulse,
+                .duty = 0.25,
+                .freq_start = 1800.0,
+                .freq_end = 220.0,
+                .pitch_decay = 55.0,
+                .decay = 26.0,
+                .dur_s = 0.14,
+                .seed = 0x30,
+            } }, .gain = 0.64 },
         },
     },
     .{ .name = "vaporwave", .category = "tape", .tags = &.{ "wstudio", "vaporwave", "chill" }, .pads = .{
@@ -1620,11 +1847,57 @@ test "every crash strikes harder than the same crash without its stick hit" {
             flat_params.hat.attack_mix = 0;
             const flat = try genSlot(.hat, flat_params, std.testing.allocator, 480_000);
             defer std.testing.allocator.free(flat);
-            // Most kits gain 1.5-1.9x here. chiptune's crash is the floor at
-            // 1.25: its wash is nearly all noise and decays fast enough that
-            // it already starts at a 3:1 strike-to-wash ratio, so the stick
-            // layer has less to fix.
+            // Most kits gain 1.5-1.9x here. The chiptune kit no longer takes
+            // part: its crash is a `.chip` noise pad, which has no separate
+            // stick layer to compare against because the chip has no way to
+            // strike one channel with two envelopes.
             try std.testing.expect(rms.ratio(hit) > rms.ratio(flat) * 1.2);
         }
     }
 }
+
+test "a chip pad emits only the levels a chip has" {
+    // A two-level source times a 4-bit volume is at most 31 distinct sample
+    // values, however long the hit runs. Anything smooth on this path - a
+    // filter, a fade, an interpolated envelope - multiplies that count
+    // immediately, which is why it is worth measuring: the quantisation is
+    // the sound, not an artifact of it.
+    for (variants) |v| {
+        for (v.pads) |slot| {
+            if (slot.kind != .chip) continue;
+            const p = slot.params.chip;
+            // The triangle has sixteen levels of its own and a mixed-in noise
+            // channel adds a second source, so neither is a two-level pad.
+            if (p.source == .triangle or p.noise_mix > 0.0) continue;
+            const buf = try genSlot(.chip, slot.params, std.testing.allocator, 48_000);
+            defer std.testing.allocator.free(buf);
+            var seen: [64]f32 = undefined;
+            var n: usize = 0;
+            for (buf) |s| {
+                const known = for (seen[0..n]) |q| {
+                    if (q == s) break true;
+                } else false;
+                if (known) continue;
+                try std.testing.expect(n < seen.len);
+                seen[n] = s;
+                n += 1;
+            }
+            try std.testing.expect(n <= 31);
+        }
+    }
+}
+
+test "the noise register runs the two sequence lengths the hardware has" {
+    // 32767 steps in normal mode and 93 in short mode. The 93 is the whole
+    // reason short mode exists here: a sequence that short repeats inside a
+    // millisecond, so it reads as a pitch rather than as noise, and that is
+    // what a chip snare's buzz is.
+    inline for (.{ .{ false, 32767 }, .{ true, 93 } }) |case| {
+        var reg: Lfsr = .{ .short = case[0] };
+        const start = reg.reg;
+        var steps: usize = 0;
+        while (steps < case[1]) : (steps += 1) _ = reg.next();
+        try std.testing.expectEqual(start, reg.reg);
+    }
+}
+
