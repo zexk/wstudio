@@ -107,6 +107,18 @@ pub const SoundfontPlayer = struct {
         use_filter: bool = false,
         filt: Biquad = .{},
         filt_state: FiltState = .{},
+
+        /// Last stereo pair this voice wrote, kept so that whoever steals its
+        /// slot can fade the interrupted waveform out instead of dropping it
+        /// to zero mid-cycle (an audible click).
+        prev_l: f32 = 0,
+        prev_r: f32 = 0,
+        /// The stolen predecessor's final pair, faded out over ~1ms on top of
+        /// this voice's own output - same declick `PolySynth`'s voice
+        /// `steal_tail_l`/`steal_fade` pair already does.
+        steal_tail_l: f32 = 0,
+        steal_tail_r: f32 = 0,
+        steal_fade: f32 = 0,
     };
 
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32) SoundfontPlayer {
@@ -308,6 +320,9 @@ pub const SoundfontPlayer = struct {
         if (self.preset_index >= font.presets.len) return;
         const preset = font.presets[self.preset_index];
         const vel127: u8 = @intFromFloat(std.math.clamp(vel, 0.0, 1.0) * 127.0);
+        // Every voice this one note-on spawns is exempt from its own choke
+        // pass below - see the `v.age < spawn_age` guard.
+        const spawn_age = self.next_age;
 
         for (preset.regions) |region| {
             if (note < region.key_lo or note > region.key_hi) continue;
@@ -317,9 +332,16 @@ pub const SoundfontPlayer = struct {
             // silences whatever else is ringing in it (spec's choke idiom,
             // e.g. closed hi-hat cutting an open one) - same hard-cut
             // DrumMachine.chokeTrigger already uses for its own groups.
+            // Only voices predating this note-on are choked: a layered or
+            // stereo-paired instrument fires several regions sharing one
+            // class, and the later region's choke would otherwise kill the
+            // sibling voice the earlier one just spawned (collapsing a
+            // stereo pair to whichever region happened to be last).
+            // DrumMachine dodges this with its own `i != p` guard.
             if (region.exclusive_class != 0) {
                 for (&self.voices) |*v| {
-                    if (v.active and v.region.exclusive_class == region.exclusive_class) v.active = false;
+                    if (v.active and v.age < spawn_age and
+                        v.region.exclusive_class == region.exclusive_class) v.active = false;
                 }
             }
             self.spawnVoice(region, note, vel, block_start);
@@ -327,13 +349,27 @@ pub const SoundfontPlayer = struct {
     }
 
     fn spawnVoice(self: *SoundfontPlayer, region: Region, note: u7, vel: f32, block_start: u32) void {
+        // Free slot if there is one; else steal, preferring a voice already
+        // fading out on its release tail over one whose key is still down.
+        // Oldest-active alone is the wrong pick for a sustained instrument: on
+        // a piano the oldest voice is typically a bass note still being held
+        // under a busy melody, so plain age-order murders the held note and
+        // spares an inaudible tail. Age still breaks ties within each group.
         var slot: usize = 0;
         var oldest_age: u64 = std.math.maxInt(u64);
+        var stealing_releasing = false;
         for (&self.voices, 0..) |*v, i| {
-            // zig fmt: off
-            if (!v.active) { slot = i; break; }
-            if (v.age < oldest_age) { oldest_age = v.age; slot = i; }
-            // zig fmt: on
+            if (!v.active) {
+                slot = i;
+                break;
+            }
+            const better = (v.releasing and !stealing_releasing) or
+                (v.releasing == stealing_releasing and v.age < oldest_age);
+            if (better) {
+                stealing_releasing = v.releasing;
+                oldest_age = v.age;
+                slot = i;
+            }
         }
 
         const key_diff: f32 = @floatFromInt(@as(i16, note) - @as(i16, region.root_key));
@@ -343,6 +379,10 @@ pub const SoundfontPlayer = struct {
             @as(f64, self.tuning.offsetCents(note));
         const rate = std.math.pow(f64, 2.0, cents / 1200.0);
 
+        // Read the outgoing voice before the assignment below overwrites it:
+        // a stolen voice is cut mid-waveform, so its last output is carried
+        // into the new voice and faded out rather than stepping to zero.
+        const stolen = self.voices[slot];
         const use_filter = region.filter_cutoff_hz != null;
         self.voices[slot] = .{
             .active = true,
@@ -350,6 +390,9 @@ pub const SoundfontPlayer = struct {
             .vel = std.math.clamp(vel, 0.0, 1.0),
             .age = self.next_age,
             .block_start = block_start,
+            .steal_tail_l = if (stolen.active) stolen.prev_l else 0.0,
+            .steal_tail_r = if (stolen.active) stolen.prev_r else 0.0,
+            .steal_fade = if (stolen.active) 1.0 else 0.0,
             .region = region,
             .read_pos = @floatFromInt(region.start),
             .playback_rate = rate,
@@ -489,6 +532,13 @@ fn renderVoice(
     const gl: f32 = level * @min(1.0, 1.0 - pan);
     const gr: f32 = level * @min(1.0, 1.0 + pan);
 
+    // ~1ms declick ramp for a waveform this voice interrupted by stealing its
+    // slot - see `Voice.steal_tail_l`.
+    // ponytail: the tail is dropped if this voice itself ends inside that 1ms
+    // (region shorter than a millisecond). Carry it on a dedicated fade-out
+    // slot if that ever turns out to be audible.
+    const steal_fade_step: f32 = 1.0 / @max(@as(f32, @floatCast(sr)) * 0.001, 1.0);
+
     const start = v.block_start;
     var i: usize = start;
     while (i < frames) : (i += 1) {
@@ -513,8 +563,11 @@ fn renderVoice(
         };
         if (!v.active) break;
 
-        buf[i * channels] += s * env * gl;
-        buf[i * channels + 1] += s * env * gr;
+        v.prev_l = s * env * gl;
+        v.prev_r = s * env * gr;
+        buf[i * channels] += v.prev_l + v.steal_tail_l * v.steal_fade;
+        buf[i * channels + 1] += v.prev_r + v.steal_tail_r * v.steal_fade;
+        v.steal_fade = @max(v.steal_fade - steal_fade_step, 0.0);
 
         v.read_pos += v.playback_rate;
         v.elapsed_frames += 1.0;
@@ -696,6 +749,111 @@ test "exclusive class chokes a still-ringing voice sharing it" {
     p.device().sendEvent(.{ .note_on = .{ .note = 64, .velocity = 1.0 } });
     try std.testing.expect(p.voices[0].active);
     try std.testing.expect(p.voices[1].active);
+}
+
+test "one note-on's layered regions sharing an exclusive class don't choke each other" {
+    var p = SoundfontPlayer.init(std.testing.allocator, 44_100);
+    defer p.deinit();
+    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, false, 44_100);
+    defer std.testing.allocator.free(bytes);
+    try p.loadSf2(bytes);
+
+    // The fixture is single-region; widen it to the stereo-pair shape this
+    // guard exists for - two regions, one class, both covering the note.
+    const font = &p.font.?;
+    const pair = try std.testing.allocator.alloc(Region, 2);
+    pair[0] = font.presets[0].regions[0];
+    pair[0].exclusive_class = 1;
+    pair[0].pan = -1.0;
+    pair[1] = pair[0];
+    pair[1].pan = 1.0;
+    std.testing.allocator.free(font.presets[0].regions);
+    font.presets[0].regions = pair;
+
+    p.device().sendEvent(.{ .note_on = .{ .note = 60, .velocity = 1.0 } });
+    var active: usize = 0;
+    for (p.voices) |v| {
+        if (v.active) active += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 2), active);
+
+    // Across note-ons the choke still bites: the next note kills both.
+    p.device().sendEvent(.{ .note_on = .{ .note = 64, .velocity = 1.0 } });
+    active = 0;
+    for (p.voices) |v| {
+        if (v.active) active += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 2), active);
+    for (p.voices) |v| {
+        if (v.active) try std.testing.expectEqual(@as(u7, 64), v.note);
+    }
+}
+
+test "voice stealing takes a released voice before a still-held older one" {
+    var p = SoundfontPlayer.init(std.testing.allocator, 44_100);
+    defer p.deinit();
+    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, false, 44_100);
+    defer std.testing.allocator.free(bytes);
+    try p.loadSf2(bytes);
+
+    // Fill every slot: note 40 is the oldest, note 41 the second oldest.
+    const base: u7 = 40;
+    for (0..SoundfontPlayer.max_voices) |i| {
+        p.device().sendEvent(.{ .note_on = .{ .note = base + @as(u7, @intCast(i)), .velocity = 1.0 } });
+    }
+    for (p.voices) |v| try std.testing.expect(v.active);
+
+    // Let the key of note 41 up, then play one more note than we have slots.
+    p.device().sendEvent(.{ .note_off = .{ .note = base + 1 } });
+    p.device().sendEvent(.{ .note_on = .{ .note = 100, .velocity = 1.0 } });
+
+    // The released note is gone; the older but still-held note 40 survives.
+    var saw_oldest = false;
+    var saw_released = false;
+    var saw_new = false;
+    for (p.voices) |v| {
+        if (!v.active) continue;
+        if (v.note == base) saw_oldest = true;
+        if (v.note == base + 1) saw_released = true;
+        if (v.note == 100) saw_new = true;
+    }
+    try std.testing.expect(saw_new);
+    try std.testing.expect(saw_oldest);
+    try std.testing.expect(!saw_released);
+}
+
+test "stealing a voice carries its interrupted waveform into a declick fade" {
+    var p = SoundfontPlayer.init(std.testing.allocator, 44_100);
+    defer p.deinit();
+    // Looping fixture so every voice is still ringing when the steal happens.
+    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, true, 44_100);
+    defer std.testing.allocator.free(bytes);
+    try p.loadSf2(bytes);
+
+    const base: u7 = 40;
+    for (0..SoundfontPlayer.max_voices) |i| {
+        p.device().sendEvent(.{ .note_on = .{ .note = base + @as(u7, @intCast(i)), .velocity = 1.0 } });
+    }
+    // Long enough to clear the region's delay/attack stages (a fraction of a
+    // millisecond each) so the last written sample is actually non-zero; the
+    // looping fixture keeps every voice ringing meanwhile.
+    var buf: [256]Sample = undefined;
+    @memset(&buf, 0.0);
+    p.processBlock(&buf);
+
+    // Slot 0 holds the oldest voice, and none is releasing, so it is next.
+    const interrupted = p.voices[0].prev_l;
+    try std.testing.expect(@abs(interrupted) > 0.0);
+
+    p.device().sendEvent(.{ .note_on = .{ .note = 100, .velocity = 1.0 } });
+    try std.testing.expectEqual(@as(u7, 100), p.voices[0].note);
+    try std.testing.expectEqual(@as(f32, 1.0), p.voices[0].steal_fade);
+    try std.testing.expectEqual(interrupted, p.voices[0].steal_tail_l);
+
+    // The ramp actually decays as the new voice renders.
+    @memset(&buf, 0.0);
+    p.processBlock(&buf);
+    try std.testing.expect(p.voices[0].steal_fade < 1.0);
 }
 
 test "presetKeyRange: null with nothing loaded, spans the fixture's single region once loaded" {
