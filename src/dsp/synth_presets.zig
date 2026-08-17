@@ -997,31 +997,6 @@ pub const presets = [_]Preset{
         .gain = 0.36,
     } },
 
-    // vaporwave - slow watery detuned pad; the dedicated tape unit now does
-    // the wow+flutter directly instead of the old LFO2-S&H pitch-jitter
-    // workaround (that gap closed when the tape FX unit shipped), master
-    // lowpass shelf above 15kHz + a near-fully-wet plate for the source
-    // material's own "heavy reverb into a wobbly chorus" recipe
-    .{ .name = "vapor-pad", .category = "pad", .tags = &.{ "wstudio", "vaporwave" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_detune = 10.0, .unison_spread = 0.6,
-        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.3333333, .osc_b_semi = 0.0, .osc_b_detune_cents = 9.0, .osc_b_level = 0.7,
-        .attack_s = 2.2, .decay_s = 1.0, .sustain = 0.8, .release_s = 2.8, .env_curve = -0.45,
-        .filter_type = .lp, .filter_cutoff = 2400.0, .filter_res = 0.08,
-        .lfo_rate_hz = 0.8, .lfo_slew_ms = 55.0,
-        .mod_matrix = mods(&.{
-            .{ .source = .lfo,  .dest = dP,  .depth = 0.08 },
-            .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
-            .{ .source = .mac4, .dest = 89,  .depth = 0.3 },
-        }),
-        .fx_crush_on = true, .fx_crush_bits = 12.0, .fx_crush_rate = 2.0, .fx_crush_mix = 0.2,
-        .fx_tape_on = true, .fx_tape_wow_rate_hz = 0.6, .fx_tape_wow_depth = 0.35, .fx_tape_flutter_rate_hz = 7.0, .fx_tape_flutter_depth = 0.2, .fx_tape_mix = 1.0,
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.5, .fx_chorus_depth_ms = 6.0, .fx_chorus_mix = 0.45,
-        .fx_eq_on = true, .fx_eq_high_freq = 15_000.0, .fx_eq_high_gain_db = -6.0,
-        .fx_reverb_on = true, .fx_reverb_room = 0.95, .fx_reverb_damp = 0.3, .fx_reverb_mix = 0.55,
-        .gain = 0.24,
-    } },
-
     // eurobeat - bright punchy unison lead, HP'd above 150Hz JP-8000-style
     // so it doesn't fight the bass, top end lifted, echo behind
     .{ .name = "eurobeat-lead", .category = "lead", .tags = &.{ "wstudio", "eurobeat" }, .patch = .{
@@ -1574,24 +1549,6 @@ pub const presets = [_]Preset{
         .gain = 0.27,
     } },
 
-    // anime: glossy string ensemble for themes and emotional lifts
-    .{ .name = "anime-strings", .category = "pad", .tags = &.{ "wstudio", "anime", "j-pop" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 5, .unison_detune = 11.0, .unison_spread = 0.78,
-        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_level = 0.35,
-        .attack_s = 0.55, .decay_s = 0.5, .sustain = 0.85, .release_s = 1.5,
-        .filter_type = .lp, .filter_cutoff = 3600.0, .filter_res = 0.08,
-        .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 130.0, .filter_routing = .series,
-        .lfo2_rate_hz = 0.32, .lfo2_phase_offset = 0.25, .lfo2_slew_ms = 25.0,
-        .mod_matrix = mods(&.{
-            .{ .source = .lfo2, .dest = 186,   .depth = -0.16 },
-            .{ .source = .mac1, .dest = 21,  .depth = 0.42 },
-            .{ .source = .mac2, .dest = 186,   .depth = -0.2 },
-            .{ .source = .mac3, .dest = 115, .depth = 0.4 },
-        }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.45, .fx_chorus_depth_ms = 5.0, .fx_chorus_mix = 0.38,
-        .fx_reverb_on = true, .fx_reverb_room = 0.78, .fx_reverb_damp = 0.42, .fx_reverb_mix = 0.28,
-        .gain = 0.25,
-    } },
 };
 // zig fmt: on
 
@@ -1603,8 +1560,8 @@ pub fn find(name: []const u8) ?Patch {
     return null;
 }
 
-test "factory library holds exactly 76 presets" {
-    try std.testing.expectEqual(@as(usize, 76), presets.len);
+test "factory library holds exactly 74 presets" {
+    try std.testing.expectEqual(@as(usize, 74), presets.len);
 }
 
 test "every preset's matrix rows target legal dests at sane depths" {
