@@ -193,6 +193,32 @@ pub fn cmdSynthPresetSave(app: *App, args: []const u8) void {
     app.setStatus("saved synth preset: {s}", .{name});
 }
 
+/// `:synth-macro <1-4> [name]` - name one of the cursor synth's macro knobs,
+/// or clear the name by passing none. A macro means whatever its matrix rows
+/// fan out to, so an unnamed one is unreadable until you move it and listen;
+/// the name is what the editor shows in place of "macro n".
+pub fn cmdSynthMacro(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    const split = std.mem.indexOfScalar(u8, trimmed, ' ') orelse trimmed.len;
+    const slot = std.fmt.parseInt(u8, trimmed[0..split], 10) catch 0;
+    if (slot < 1 or slot > 4) {
+        app.setStatus("usage: synth-macro <1-4> [name]", .{});
+        return;
+    }
+    const s = cursorSynth(app) orelse {
+        app.setStatus("synth-macro: select a synth track first", .{});
+        return;
+    };
+    const name = std.mem.trim(u8, trimmed[split..], " ");
+    s.macro_labels[slot - 1].set(name);
+    app.dirty = true;
+    if (name.len == 0) {
+        app.setStatus("macro {d}: name cleared", .{slot});
+    } else {
+        app.setStatus("macro {d}: {s}", .{ slot, s.macro_labels[slot - 1].slice() });
+    }
+}
+
 /// `:drum-kit [name]` - regenerate all 8 pads of the cursor track's drum
 /// machine from a procedural kit variant (see `dsp/drum_kit.zig`'s
 /// `variants` table), or apply a user-saved kit's tuning (name/gain/pan/

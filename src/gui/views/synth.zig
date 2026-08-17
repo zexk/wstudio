@@ -346,7 +346,7 @@ fn drawSectionBody(app: anytype, synth: *ws.dsp.PolySynth, section: synth_layout
             flow.brk();
         }
         var label_buf: [48]u8 = undefined;
-        drawParam(app, synth, entry.id, synth_ed.paramLabel(entry.id, &label_buf), accent, &flow);
+        drawParam(app, synth, entry.id, synth_ed.paramLabelFor(synth, entry.id, &label_buf), accent, &flow);
         if (lfoShapeSlot(entry.id)) |slot| {
             flow.brk();
             drawLfoCustomCurve(app, synth, slot);

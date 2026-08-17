@@ -28,6 +28,14 @@ const ModRow = PolySynth.ModRow;
 const dP = PolySynth.dest_pitch;
 const dA = PolySynth.dest_amp;
 
+/// Name the four macro knobs (comptime only). An empty string leaves that
+/// slot unnamed, which is what an unused macro should be.
+fn macros(comptime names: [4][]const u8) [4]synth.MacroLabel {
+    var out: [4]synth.MacroLabel = @splat(.{});
+    for (names, 0..) |name, i| out[i] = synth.MacroLabel.init(name);
+    return out;
+}
+
 /// Pad a row list out to a full `mod_matrix` array (comptime only).
 fn mods(comptime rows: []const ModRow) [PolySynth.max_mod_rows]ModRow {
     var out = [_]ModRow{.{}} ** PolySynth.max_mod_rows;
@@ -2393,4 +2401,24 @@ test "every preset renders finite, audible, bounded output" {
         try std.testing.expect(peak > 0.005);
         try std.testing.expect(peak < 4.0);
     }
+}
+
+test "a macro label survives the patch round-trip and truncates rather than refusing" {
+    var s = try PolySynth.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    var patch: Patch = .{};
+    patch.macro_labels = macros(.{ "brightness", "", "space", "a name far past the column" });
+    s.applyPatch(patch);
+
+    try std.testing.expectEqualStrings("brightness", s.macroLabel(0).?);
+    try std.testing.expect(s.macroLabel(1) == null); // empty stays unnamed
+    try std.testing.expectEqualStrings("space", s.macroLabel(2).?);
+    try std.testing.expectEqualStrings("a name far past", s.macroLabel(3).?);
+
+    // And back out again, so saving a hand-tuned sound keeps the names.
+    const round = s.toPatch();
+    try std.testing.expectEqualStrings("brightness", round.macro_labels[0].slice());
+    try std.testing.expectEqual(@as(u16, 0), PolySynth.macroSlot(99).?);
+    try std.testing.expectEqual(@as(u16, 3), PolySynth.macroSlot(102).?);
+    try std.testing.expect(PolySynth.macroSlot(98) == null);
 }

@@ -324,7 +324,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
     try writeViewBadge(right, "SYNTH", app.modal.mode);
     try w.writeAll(dim ++ "  " ++ rst);
     var label_buf: [24]u8 = undefined;
-    try w.writeAll(synth_ed.paramLabel(app.synth_cursor, &label_buf));
+    try w.writeAll(synth_ed.paramLabelFor(synth, app.synth_cursor, &label_buf));
     try w.writeAll(dim ++ ": " ++ rst);
     try w.writeAll(acc);
     if (ws.dsp.PolySynth.matrixParamAddr(app.synth_cursor)) |addr| {

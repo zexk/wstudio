@@ -1009,12 +1009,17 @@ pub fn applyToSynth(s: *PolySynth, ss: *const SynthSnap) !void {
         if (k < ss.mod_matrix.len) {
             var row = ss.mod_matrix[k];
             row.depth = clamp(row.depth, -1.0, 1.0);
-            if (PolySynth.modDestIndex(row.dest) == null) row.dest = 21;
+            // A row bound to an insert carries that unit's own param index,
+            // which is not a synth dest and must not be judged as one - the
+            // ranges overlap, so validating it here silently retargets the
+            // row at whatever synth param shares the number.
+            if (row.fx_instance_id == 0 and PolySynth.modDestIndex(row.dest) == null) row.dest = 21;
             s.mod_matrix[k] = row;
         } else {
             s.mod_matrix[k] = .{};
         }
     }
+    s.macro_labels = ss.macro_labels;
     applyLfoCustomSnap(&s.lfo_custom[0], &s.lfo_custom_count[0], ss.lfo_custom);
     applyLfoCustomSnap(&s.lfo_custom[1], &s.lfo_custom_count[1], ss.lfo2_custom);
     applyLfoCustomSnap(&s.lfo_custom[2], &s.lfo_custom_count[2], ss.lfo3_custom);

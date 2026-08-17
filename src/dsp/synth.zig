@@ -353,6 +353,34 @@ pub const ArpMode = enum { up, down, updown, downup, played, random, chord };
 /// Factory-preset rack FX kinds.
 pub const FxUnitKind = enum { gate, eq, comp, mb_comp, ott, dist, crush, chorus, flanger, tape, phaser, freq_shift, delay, reverb };
 
+/// A macro's name, inline rather than a slice: a Patch is copied by value
+/// onto the audio thread, so a label that owned memory would need an owner
+/// and a lifetime. Sixteen bytes is what the narrowest column can show.
+pub const MacroLabel = struct {
+    pub const max_len = 15;
+
+    buf: [max_len]u8 = @splat(0),
+    len: u8 = 0,
+
+    pub fn init(text: []const u8) MacroLabel {
+        var self: MacroLabel = .{};
+        self.set(text);
+        return self;
+    }
+
+    /// Silently truncates: a name too long for the column is still a better
+    /// answer than refusing to set one.
+    pub fn set(self: *MacroLabel, text: []const u8) void {
+        const n = @min(text.len, max_len);
+        @memcpy(self.buf[0..n], text[0..n]);
+        self.len = @intCast(n);
+    }
+
+    pub fn slice(self: *const MacroLabel) []const u8 {
+        return self.buf[0..@min(self.len, max_len)];
+    }
+};
+
 /// Default factory-preset rack FX order.
 pub const default_fx_order = [_]FxUnitKind{ .gate, .eq, .comp, .mb_comp, .ott, .dist, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .delay, .reverb };
 
@@ -548,6 +576,10 @@ pub const PolySynth = struct {
     macro2: f32 = 0.0,
     macro3: f32 = 0.0,
     macro4: f32 = 0.0,
+    /// What each knob does, in the patch's own words. A macro has no fixed
+    /// meaning - it is whatever its matrix rows fan out to - so an unnamed
+    /// one tells a player nothing until they move it and listen.
+    macro_labels: [4]MacroLabel = @splat(.{}),
     // zig fmt: on
 
     // ── MOD MATRIX ──────────────────────────────────────────────────────────
@@ -1189,6 +1221,7 @@ pub const PolySynth = struct {
         macro2: f32 = 0.0,
         macro3: f32 = 0.0,
         macro4: f32 = 0.0,
+        macro_labels: [4]MacroLabel = @splat(.{}),
 
         mod_matrix: [max_mod_rows]ModRow = [_]ModRow{.{}} ** max_mod_rows,
 
@@ -1351,6 +1384,19 @@ pub const PolySynth = struct {
     /// a `Patch` (e.g. to save a hand-tuned sound as a reusable preset - see
     /// `tui/user_presets.zig`). The legacy carrier fields stay at their
     /// defaults, so a round-trip never re-triggers migration.
+    /// `slot`'s name, or null when it has none - callers fall back to the
+    /// static "MACRO n" so an unnamed knob still reads as a knob.
+    pub fn macroLabel(self: *const PolySynth, slot: usize) ?[]const u8 {
+        if (slot >= self.macro_labels.len) return null;
+        const text = self.macro_labels[slot].slice();
+        return if (text.len == 0) null else text;
+    }
+
+    /// The macro slot param id `id` names, if it names one.
+    pub fn macroSlot(id: u16) ?usize {
+        return if (id >= 99 and id <= 102) id - 99 else null;
+    }
+
     pub fn toPatch(self: *const PolySynth) Patch {
         var patch: Patch = .{};
         inline for (@typeInfo(Patch).@"struct".fields) |f| {

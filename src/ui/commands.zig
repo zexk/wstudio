@@ -180,6 +180,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "ghost",       .desc = "[on|off]  dim every other melodic track's notes into the piano-roll background", .run = wrap(cmdGhost) },
     .{ .name = "audition",    .desc = "[on|off]  preview the pitch under the piano-roll cursor on every j/k move", .run = wrap(cmdAudition) },
     .{ .name = "synth-preset", .desc = "[name]  apply a factory or saved synth patch to the cursor track (no args: list names)", .run = wrap(commands_load.cmdSynthPreset), .scope = .{ .synth = true } },
+    .{ .name = "synth-macro", .desc = "<1-4> [name]  name a macro knob on the cursor synth (no name: clear it)", .run = wrap(commands_load.cmdSynthMacro), .scope = .{ .synth = true } },
     .{ .name = "synth-preset-save", .desc = "<name>  save the cursor track's current synth params as a reusable preset", .run = wrap(commands_load.cmdSynthPresetSave), .scope = .{ .synth = true } },
     .{ .name = "drum-kit",    .desc = "[name]  apply a factory or saved kit to the cursor drum machine (no args: list names)", .run = wrap(commands_load.cmdDrumKit), .scope = .{ .drum = true } },
     .{ .name = "drum-kit-save", .desc = "<name>  save the cursor drum machine's pad tuning (name/gain/pan/pitch/ADSR/choke, no audio) as a reusable kit", .run = wrap(commands_load.cmdDrumKitSave), .scope = .{ .drum = true } },

@@ -2265,6 +2265,7 @@ test "save/load round-trip persists LFO 2/3, macros, and their matrix sources" {
     s.lfo2_shape = .sh;  s.lfo2_rate_hz = 6.5;
     s.lfo3_shape = .chaos; s.lfo3_rate_hz = 0.25;
     s.macro1 = 0.33; s.macro4 = 0.9;
+    s.macro_labels[0].set("brightness"); s.macro_labels[3].set("grit");
     s.mod_matrix[0] = .{ .source = .lfo2, .dest = 21,                 .depth = 0.5 };
     s.mod_matrix[1] = .{ .source = .mac1, .dest = PolySynth.dest_amp, .depth = -0.3 };
     // zig fmt: on
@@ -2280,6 +2281,9 @@ test "save/load round-trip persists LFO 2/3, macros, and their matrix sources" {
     try testing.expectApproxEqAbs(@as(f32, 0.25), ls.lfo3_rate_hz, 1e-6);
     try testing.expectApproxEqAbs(@as(f32, 0.33), ls.macro1, 1e-6);
     try testing.expectApproxEqAbs(@as(f32, 0.9), ls.macro4, 1e-6);
+    try testing.expectEqualStrings("brightness", ls.macroLabel(0).?);
+    try testing.expectEqualStrings("grit", ls.macroLabel(3).?);
+    try testing.expect(ls.macroLabel(1) == null);
     try testing.expectEqual(synth_mod.ModSource.lfo2, ls.mod_matrix[0].source);
     try testing.expectEqual(synth_mod.ModSource.mac1, ls.mod_matrix[1].source);
     try testing.expectApproxEqAbs(@as(f32, -0.3), ls.mod_matrix[1].depth, 1e-6);

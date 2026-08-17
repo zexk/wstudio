@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("../dsp/tuning.zig");
 const controller_mod = @import("../dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 72;
+pub const file_version: u32 = 73;
 
 /// First four bytes of every .wsj. The file is a container: a 12-byte
 /// header, the audio cache (user sample blobs, concatenated), then this
@@ -212,6 +212,7 @@ pub const SynthSnap = struct {
     macro2: f32 = 0.0,
     macro3: f32 = 0.0,
     macro4: f32 = 0.0,
+    macro_labels: [4]synth_mod.MacroLabel = @splat(.{}),
     mod_matrix: []const synth_mod.PolySynth.ModRow = &.{},
     // Voice
     voice_mode: synth_mod.VoiceMode = .poly,

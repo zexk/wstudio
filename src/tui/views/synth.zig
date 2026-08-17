@@ -452,9 +452,13 @@ fn secMacro(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     try synthSection(w, "MACRO", bcyn);
     const vals = [4]f32{ synth.macro1, synth.macro2, synth.macro3, synth.macro4 };
     for (vals, 0..) |v, k| {
-        var lbl: [12]u8 = undefined;
+        var lbl: [16]u8 = undefined;
+        // A named macro shows its name: "macro 3" says nothing about what
+        // the knob does, and the patch is the only thing that knows.
+        const label = synth.macroLabel(k) orelse
+            try std.fmt.bufPrint(&lbl, "macro {d}", .{k + 1});
         try barRow(w, c == 99 + @as(u8, @intCast(k)), false, bcyn,
-            try std.fmt.bufPrint(&lbl, "macro {d}", .{k + 1}), v, 1.0,
+            label, v, 1.0,
             synth_ed.paramValueText(synth, 99 + @as(u8, @intCast(k)), &buf));
     }
 }

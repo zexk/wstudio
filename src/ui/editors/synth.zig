@@ -88,6 +88,16 @@ fn matrixFieldLabel(p: synth_layout.ParamEntry, id: u16, buf: []u8) []const u8 {
 /// synth_layout intentionally doesn't cover. `buf` only gets written for a
 /// matrix field id (`fields > 1`); every other id returns its static label
 /// directly.
+/// `paramLabel`, but a macro that carries a name shows the name. The static
+/// tables cannot answer for those: a macro's meaning lives in the patch, not
+/// in the id.
+pub fn paramLabelFor(synth: *const ws.dsp.PolySynth, id: u16, buf: []u8) []const u8 {
+    if (ws.dsp.PolySynth.macroSlot(id)) |slot| {
+        if (synth.macroLabel(slot)) |name| return name;
+    }
+    return paramLabel(id, buf);
+}
+
 pub fn paramLabel(id: u16, buf: []u8) []const u8 {
     for (synth_layout.main_sections) |sec| {
         for (sec.params) |p| {
