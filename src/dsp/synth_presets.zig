@@ -1278,7 +1278,12 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 6000.0, .filter_res = 0.1,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 150.0, .filter_routing = .series,
         .lfo_rate_hz = 5.5, .lfo_retrig = .key, .lfo_phase_offset = 0.25,
+        // The trumpet-like front the genre puts on its brass lead: a pitch
+        // envelope with a very fast decay. Nothing else here starts the note
+        // anywhere but on it.
+        .env3_attack_s = 0.001, .env3_decay_s = 0.025, .env3_sustain = 0.0, .env3_release_s = 0.03, .env3_curve = 0.8,
         .mod_matrix = mods(&.{
+            .{ .source = .env3,     .dest = dP,  .depth = 0.2 },
             .{ .source = .lfo,      .dest = dP,  .depth = 0.015 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
@@ -1503,7 +1508,11 @@ pub const presets = [_]Preset{
             lfoPoints(&.{}),
         },
         .lfo_custom_count = .{ 8, 0, 0 },
+        // The pitch slope a screech is built on. Env3 was unused and the
+        // note started flat, which leaves the vowel scan doing all the work.
+        .env3_attack_s = 0.001, .env3_decay_s = 0.08, .env3_sustain = 0.0, .env3_release_s = 0.05, .env3_curve = 0.7,
         .mod_matrix = mods(&.{
+            .{ .source = .env3, .dest = dP, .depth = 0.25 },
             .{ .source = .lfo,  .dest = 21, .depth = 1.0 },
             .{ .source = .fenv, .dest = 21, .depth = 0.3 },
             .{ .source = .mac1, .dest = 21, .depth = 0.4 },
