@@ -666,7 +666,7 @@ pub const variants = [_]KitVariant{
             .click_freq = 1900.0,
             .click_mix = 0.65,
             .drive = 3.0,
-            .dur_s = 0.3,
+            .dur_s = 0.375,
         } }, .gain = 0.90 },
         .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{} }, .gain = 0.85 },
         .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
@@ -681,13 +681,17 @@ pub const variants = [_]KitVariant{
         } }, .gain = 0.80 },
         .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.09, .decay = 65.0 } }, .gain = 0.50 },
         .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.05, .decay = 110.0, .body_hz = 7200.0, .air_hz = 10_000.0, .air_mix = 0.35 } }, .gain = 0.45 },
-        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.42, .decay = 8.5 } }, .gain = 0.50 },
-        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.92, .decay = 3.9, .attack_mix = 0.5 } }, .gain = 0.54, .tune = alt_crash },
+        // The machine this kit is named for sampled its hats, ride and crash
+        // instead of synthesising them, and those samples ring: an open hat
+        // for the better part of half a second, a crash for over a second.
+        // These were cut at 0.42 and 0.92.
+        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.7, .decay = 5.5 } }, .gain = 0.50 },
+        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 1.7, .decay = 2.5, .attack_mix = 0.5 } }, .gain = 0.54, .tune = alt_crash },
         .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{} }, .gain = 0.70 },
         .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{} }, .gain = 0.65 },
         .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{} }, .gain = 0.55, .tune = alt_stick },
-        .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{ .freq_start = 220.0, .freq_end = 110.0, .dur_s = 0.42, .seed = 0x701 } }, .gain = 0.80 },
-        .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{ .freq_start = 160.0, .freq_end = 80.0, .dur_s = 0.5, .seed = 0x702 } }, .gain = 0.80 },
+        .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{ .freq_start = 220.0, .freq_end = 110.0, .dur_s = 0.672, .seed = 0x701 } }, .gain = 0.80 },
+        .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{ .freq_start = 160.0, .freq_end = 80.0, .dur_s = 0.675, .seed = 0x702 } }, .gain = 0.80 },
         .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 520.0, .tone2_hz = 730.0, .seed = 0x703 } }, .gain = 0.70 },
         .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 310.0, .tone2_hz = 430.0, .seed = 0x704 } }, .gain = 0.70 },
         .{ .name = "stab", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 880.0, .tone2_hz = 1320.0, .tone_decay = 12.0, .click_decay = 100.0, .drive = 2.8, .dur_s = 0.4 } }, .gain = 0.66 },
@@ -766,7 +770,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
             .freq_start = 180.0,
             .freq_end = 90.0,
-            .dur_s = 0.6,
+            .dur_s = 1.08,
             .body_decay = 4.0,
             .attack_decay = 100.0,
             .drive = 1.8,
@@ -776,7 +780,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
             .freq_start = 130.0,
             .freq_end = 60.0,
-            .dur_s = 0.7,
+            .dur_s = 1.19,
             .body_decay = 3.5,
             .attack_decay = 100.0,
             .drive = 1.8,
@@ -974,7 +978,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
             .freq_start = 210.0,
             .freq_end = 95.0,
-            .dur_s = 0.55,
+            .dur_s = 0.853,
             .body_decay = 5.0,
             .attack_decay = 90.0,
             .drive = 2.4,
@@ -984,7 +988,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
             .freq_start = 150.0,
             .freq_end = 65.0,
-            .dur_s = 0.65,
+            .dur_s = 0.943,
             .body_decay = 4.5,
             .attack_decay = 90.0,
             .drive = 2.4,
@@ -1026,7 +1030,7 @@ pub const variants = [_]KitVariant{
                 .click_freq = 1400.0,
                 .click_mix = 0.2,
                 .drive = 3.4,
-                .dur_s = 0.7,
+                .dur_s = 0.805,
             } }, .gain = 0.90 },
             .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
                 .tone1_hz = 165.0,
@@ -1077,7 +1081,7 @@ pub const variants = [_]KitVariant{
             .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
                 .freq_start = 200.0,
                 .freq_end = 100.0,
-                .dur_s = 0.35,
+                .dur_s = 0.63,
                 .body_decay = 7.0,
                 .attack_decay = 110.0,
                 .drive = 2.0,
@@ -1087,7 +1091,7 @@ pub const variants = [_]KitVariant{
             .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
                 .freq_start = 140.0,
                 .freq_end = 70.0,
-                .dur_s = 0.42,
+                .dur_s = 0.714,
                 .body_decay = 6.0,
                 .attack_decay = 110.0,
                 .drive = 2.0,
@@ -1183,7 +1187,7 @@ pub const variants = [_]KitVariant{
             .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
                 .freq_start = 180.0,
                 .freq_end = 90.0,
-                .dur_s = 0.45,
+                .dur_s = 0.72,
                 .body_decay = 6.0,
                 .attack_decay = 130.0,
                 .drive = 2.0,
@@ -1193,7 +1197,7 @@ pub const variants = [_]KitVariant{
             .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
                 .freq_start = 130.0,
                 .freq_end = 65.0,
-                .dur_s = 0.55,
+                .dur_s = 0.825,
                 .body_decay = 5.0,
                 .attack_decay = 130.0,
                 .drive = 2.0,
@@ -1225,7 +1229,7 @@ pub const variants = [_]KitVariant{
                 .click_freq = 2200.0,
                 .click_mix = 0.55,
                 .drive = 2.8,
-                .dur_s = 0.2,
+                .dur_s = 0.23,
             } }, .gain = 1.00 },
             .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
                 .freq_end = 44.0,
@@ -1236,7 +1240,7 @@ pub const variants = [_]KitVariant{
                 .click_freq = 1500.0,
                 .click_mix = 0.3,
                 .drive = 3.0,
-                .dur_s = 0.45,
+                .dur_s = 0.517,
             } }, .gain = 0.88 },
             .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
                 .tone1_hz = 235.0,
@@ -1291,7 +1295,7 @@ pub const variants = [_]KitVariant{
             .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
                 .freq_start = 260.0,
                 .freq_end = 150.0,
-                .dur_s = 0.3,
+                .dur_s = 0.48,
                 .body_decay = 9.0,
                 .attack_decay = 120.0,
                 .drive = 2.2,
@@ -1301,7 +1305,7 @@ pub const variants = [_]KitVariant{
             .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
                 .freq_start = 190.0,
                 .freq_end = 105.0,
-                .dur_s = 0.36,
+                .dur_s = 0.522,
                 .body_decay = 8.0,
                 .attack_decay = 120.0,
                 .drive = 2.2,
@@ -1315,7 +1319,7 @@ pub const variants = [_]KitVariant{
             // is left is spiky - RMS 0.025 against an open hat's 0.064 at the
             // same peak - so its gain runs higher than the hats' or it would
             // sit under the pattern instead of over it.
-            .{ .name = "ride", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.9, .decay = 3.6, .body_hz = 9000.0, .air_hz = 12_000.0, .air_mix = 0.1, .attack_mix = 0.5 } }, .gain = 0.68 },
+            .{ .name = "ride", .kind = .hat, .params = .{ .hat = .{ .dur_s = 1.6, .decay = 2.4, .body_hz = 9000.0, .air_hz = 12_000.0, .air_mix = 0.1, .attack_mix = 0.5 } }, .gain = 0.68 },
         },
     },
     // The bright, clean, short pop kit - and the only one. "technopop" and
@@ -1344,7 +1348,7 @@ pub const variants = [_]KitVariant{
             .click_freq = 2400.0,
             .click_mix = 0.9,
             .drive = 1.8,
-            .dur_s = 0.18,
+            .dur_s = 0.216,
         } }, .gain = 0.90 },
         .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
             .tone1_hz = 195.0,
@@ -1352,7 +1356,7 @@ pub const variants = [_]KitVariant{
             .tone_decay = 26.0,
             .noise_decay = 12.0,
             .drive = 1.6,
-            .dur_s = 0.2,
+            .dur_s = 0.31,
             .lp_hz = 7500.0,
             .hp_hz = 950.0,
         } }, .gain = 0.90 },
@@ -1362,7 +1366,7 @@ pub const variants = [_]KitVariant{
             .tone_decay = 30.0,
             .noise_decay = 16.0,
             .drive = 1.7,
-            .dur_s = 0.2,
+            .dur_s = 0.24,
             .lp_hz = 10_000.0,
             .hp_hz = 1200.0,
         } }, .gain = 0.82 },
@@ -1397,7 +1401,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
             .freq_start = 240.0,
             .freq_end = 130.0,
-            .dur_s = 0.32,
+            .dur_s = 0.496,
             .body_decay = 8.0,
             .attack_decay = 130.0,
             .drive = 1.6,
@@ -1407,7 +1411,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
             .freq_start = 175.0,
             .freq_end = 95.0,
-            .dur_s = 0.38,
+            .dur_s = 0.551,
             .body_decay = 7.0,
             .attack_decay = 130.0,
             .drive = 1.6,
@@ -1665,7 +1669,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
             .freq_start = 190.0,
             .freq_end = 95.0,
-            .dur_s = 0.5,
+            .dur_s = 0.875,
             .body_decay = 4.5,
             .attack_decay = 90.0,
             .drive = 1.4,
@@ -1675,7 +1679,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
             .freq_start = 140.0,
             .freq_end = 70.0,
-            .dur_s = 0.6,
+            .dur_s = 0.96,
             .body_decay = 4.0,
             .attack_decay = 90.0,
             .drive = 1.4,
@@ -1696,7 +1700,7 @@ pub const variants = [_]KitVariant{
             .click_freq = 2400.0,
             .click_mix = 0.85,
             .drive = 7.5,
-            .dur_s = 0.22,
+            .dur_s = 0.44,
         } }, .gain = 1.00 },
         .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
             .freq_end = 58.0,
@@ -1707,7 +1711,7 @@ pub const variants = [_]KitVariant{
             .click_freq = 2400.0,
             .click_mix = 0.85,
             .drive = 7.5,
-            .dur_s = 0.22,
+            .dur_s = 0.44,
         } }, .gain = 0.92, .tune = alt_kick },
         .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
             .tone1_hz = 215.0,
@@ -1760,7 +1764,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
             .freq_start = 280.0,
             .freq_end = 150.0,
-            .dur_s = 0.24,
+            .dur_s = 0.48,
             .body_decay = 10.0,
             .attack_decay = 150.0,
             .drive = 3.2,
@@ -1770,7 +1774,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
             .freq_start = 200.0,
             .freq_end = 100.0,
-            .dur_s = 0.28,
+            .dur_s = 0.532,
             .body_decay = 9.0,
             .attack_decay = 150.0,
             .drive = 3.2,
