@@ -20,6 +20,7 @@ const grn = style.grn;
 const yel = style.yel;
 const sel = style.sel;
 const blu = style.blu;
+const mag = style.mag;
 const bcyn = style.bcyn;
 const endLine = style.endLine;
 
@@ -60,6 +61,22 @@ pub fn loopEdge(tick: u32, cell_ticks: u32, start_tick: u32, end_tick: u32) ?enu
     return null;
 }
 
+/// Text for a tempo or meter change landing in the ruler cell that starts at
+/// `tick` (null = none). Linear scan, but both maps hold at most 64 points
+/// (`time_map.max_tempo_points`) and only the visible cells ask.
+fn mapPointLabel(p: *const ws.Project, tick: u32, cell_ticks: u32, buf: []u8) ?[]const u8 {
+    const cell_end = tick +| cell_ticks;
+    for (p.tempo_points.items) |point| {
+        const at = ws.Project.tickAtBeat(point.beat);
+        if (at >= tick and at < cell_end) return std.fmt.bufPrint(buf, "{d:.0}", .{point.bpm}) catch null;
+    }
+    for (p.meter_points.items) |point| {
+        const at = ws.Project.tickAtBeat(point.beat);
+        if (at >= tick and at < cell_end) return std.fmt.bufPrint(buf, "{d}/{d}", .{ point.numerator, point.denominator }) catch null;
+    }
+    return null;
+}
+
 pub fn drawArrangement(
     app: anytype,
     w: *std.Io.Writer,
@@ -67,7 +84,6 @@ pub fn drawArrangement(
     cols: usize,
     snap: engine_mod.UiSnapshot,
 ) !void {
-    const ticks_per_bar = ws.time_grid.barTicks(app.session.project.beats_per_bar, app.session.project.meter_denominator);
     const grid_ticks = app.arr_grid.ticks();
     const cw: usize = app.arrCellWidth();
     const visible = visibleBars(cols, cw);
@@ -92,26 +108,30 @@ pub fn drawArrangement(
     // Bar ruler. Bars inside an armed loop region wear the accent colour.
     const p = &app.session.project;
     const loop_on = p.loop_enabled and p.loop_end_bar > p.loop_start_bar;
+    // Bar starts come from the meter map, not one fixed bar length - see
+    // Project.barAtTick.
+    const loop_start_tick = p.tickAtBar(p.loop_start_bar);
+    const loop_end_tick = p.tickAtBar(p.loop_end_bar);
     for (0..gutter - 1) |_| try w.writeByte(' ');
     for (0..visible) |c| {
         const bar = scroll +| @as(u32, @intCast(c)) *| grid_ticks;
-        const downbeat = bar % ticks_per_bar == 0;
-        const in_loop = loop_on and
-            bar >= p.loop_start_bar *| ticks_per_bar and
-            bar < p.loop_end_bar *| ticks_per_bar;
+        const bar_pos = p.barAtTick(bar);
+        const downbeat = bar_pos.start_tick == bar;
+        const in_loop = loop_on and bar >= loop_start_tick and bar < loop_end_tick;
         const section_name: ?[]const u8 = for (p.sections.items) |section| {
             if (section.tick == bar) break section.name;
         } else null;
         // The loop's two edges wear brackets; the bars between keep the plain
-        // tinted separator.
-        const edge = if (loop_on)
-            loopEdge(bar, grid_ticks, p.loop_start_bar *| ticks_per_bar, p.loop_end_bar *| ticks_per_bar)
-        else
-            null;
+        // tinted separator. A tempo/meter change crosses its separator.
+        const edge = if (loop_on) loopEdge(bar, grid_ticks, loop_start_tick, loop_end_tick) else null;
+        var map_buf: [8]u8 = undefined;
+        const map_label = mapPointLabel(p, bar, grid_ticks, &map_buf);
         if (edge) |e| {
             try w.writeAll(yel ++ bold);
             try w.writeAll(if (e == .start) "[" else "]");
             try w.writeAll(rst);
+        } else if (map_label != null) {
+            try w.writeAll(mag ++ bold ++ "╪" ++ rst);
         } else try w.writeAll(if (in_loop) yel ++ "│" ++ rst else if (downbeat) blu ++ "│" ++ rst else dim ++ "│" ++ rst);
         if (cw == 2) {
             // Compact: no room for a bar number without corrupting column
@@ -122,8 +142,15 @@ pub fn drawArrangement(
             try w.print("{s}{s}{s}", .{ bold, shown, rst });
             try w.splatByteAll(' ', cw - 1 - shown.len);
         } else if (downbeat) {
-            try w.print("{s}{d: <3}{s}", .{ if (in_loop) yel else dim, bar / ticks_per_bar + 1, rst });
+            // A change usually lands on a downbeat, where the bar number owns
+            // the cell - recolour it rather than hide it. Off-bar changes get
+            // the value spelled out below.
+            try w.print("{s}{d: <3}{s}", .{ if (map_label != null) mag else if (in_loop) yel else dim, bar_pos.bar + 1, rst });
             try w.splatByteAll(' ', cw - 4);
+        } else if (map_label) |label| {
+            const shown = label[0..@min(label.len, cw - 1)];
+            try w.print("{s}{s}{s}", .{ mag, shown, rst });
+            try w.splatByteAll(' ', cw - 1 - shown.len);
         } else if (in_loop) {
             try w.writeAll(yel ++ "···" ++ rst);
             try w.splatByteAll(' ', cw - 4);
@@ -177,7 +204,7 @@ pub fn drawArrangement(
 
         for (0..visible) |c| {
             const bar = scroll +| @as(u32, @intCast(c)) *| grid_ticks;
-            const downbeat = bar % ticks_per_bar == 0;
+            const downbeat = p.barAtTick(bar).start_tick == bar;
             try w.writeAll(if (downbeat) blu ++ "│" ++ rst else dim ++ "│" ++ rst);
 
             const clip = if (lane) |l| l.clipAt(bar) else null;

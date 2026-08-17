@@ -46,15 +46,17 @@ pub fn draw(app: anytype) void {
     }
     const track_count = app.core.session.project.tracks.items.len;
     const ticks_per_beat = ws.time_grid.ticks_per_beat;
-    const beats_per_bar: u32 = app.core.session.project.beats_per_bar;
-    const ticks_per_bar = ws.time_grid.barTicks(app.core.session.project.beats_per_bar, app.core.session.project.meter_denominator);
+    // The ruler grows a strip for tempo/meter flags only when the project has
+    // a map to show - an empty band above every arrangement buys nothing.
+    const proj = &app.core.session.project;
     const content_ticks = app.core.session.arrangement.lengthTicks();
     const cursor_tick = app.core.arr_cursor_bar *| app.core.arr_grid.ticks();
-    const cursor_bar_count = cursor_tick / ticks_per_bar + 1;
-    const content_bar_count = content_ticks / ticks_per_bar + @intFromBool(content_ticks % ticks_per_bar != 0);
-    const bar_count: u32 = @max(8, @max(content_bar_count, cursor_bar_count));
+    // Bar extent (and the width one bar gets) comes from the meter map, so an
+    // odd-meter stretch draws its own bar length instead of the default one.
+    const bar_count: u32 = @max(8, proj.barAtTick(@max(content_ticks, cursor_tick)).bar +| 2);
     const gutter_w: f32 = 132;
-    const ruler_h: f32 = 30;
+    const map_strip: f32 = if (proj.tempo_points.items.len > 0 or proj.meter_points.items.len > 0) 16 else 0;
+    const ruler_h: f32 = 30 + map_strip;
     const available = zgui.getContentRegionAvail();
     const inspector_h: f32 = if (app.arrangement_clip != null) 116 else 0;
     const lane_h: f32 = if (track_count == 0)
@@ -70,9 +72,10 @@ pub fn draw(app: anytype) void {
     const draw_list = zgui.getWindowDrawList();
     const timeline_x = origin[0] + gutter_w;
     const timeline_w = canvas_w - gutter_w;
-    const total_beats_u64 = @as(u64, bar_count) * beats_per_bar;
-    const total_beats: f32 = @floatFromInt(total_beats_u64);
+    const total_ticks_u64: u64 = @max(ticks_per_beat, proj.tickAtBar(bar_count));
+    const total_beats: f32 = @as(f32, @floatFromInt(total_ticks_u64)) / @as(f32, @floatFromInt(ticks_per_beat));
     const beat_w = timeline_w / total_beats;
+    const px_per_tick = beat_w / @as(f32, @floatFromInt(ticks_per_beat));
 
     if (app.arrangement_drag) |*drag| {
         if (zgui.isMouseDown(.left)) {
@@ -110,33 +113,42 @@ pub fn draw(app: anytype) void {
     }
 
     const max_grid_lines = 4096;
-    const total_ticks_u64 = total_beats_u64 * ticks_per_beat;
     const grid_ticks: u64 = app.core.arr_grid.ticks();
     const tick_stride: u64 = @max(grid_ticks, grid_ticks * ((total_ticks_u64 / grid_ticks + max_grid_lines - 1) / max_grid_lines));
+    // Ruler text sits just under the tempo/meter strip, wherever that leaves it.
+    const label_y = origin[1] + ruler_h - 23;
     var tick_index: u64 = 0;
     while (tick_index <= total_ticks_u64) : (tick_index += tick_stride) {
         const x = timeline_x + @as(f32, @floatFromInt(tick_index)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
-        const on_bar = tick_index % ticks_per_bar == 0;
         const on_beat = tick_index % ticks_per_beat == 0;
         draw_list.addLine(.{
-            .p1 = .{ x, if (on_bar) origin[1] else origin[1] + ruler_h },
+            .p1 = .{ x, origin[1] + ruler_h },
             .p2 = .{ x, origin[1] + canvas_h },
-            .col = color(if (on_bar) theme.bg5 else if (on_beat) theme.line else .{ theme.line[0], theme.line[1], theme.line[2], theme.line[3] * 0.5 }),
-            .thickness = if (on_bar) 1.5 else 1,
+            .col = color(if (on_beat) theme.line else .{ theme.line[0], theme.line[1], theme.line[2], theme.line[3] * 0.5 }),
+            .thickness = 1,
         });
-        if (on_bar and tick_index < total_ticks_u64) draw_list.addText(.{ x + 7, origin[1] + 7 }, color(theme.fg2), "{d}", .{tick_index / ticks_per_bar + 1});
+    }
+
+    // Bar lines walk the bars themselves rather than filtering the grid loop
+    // above: under an odd meter a bar can start between two grid steps (7/8
+    // bars are 3.5 quarter notes), and every such bar went unlined and
+    // unnumbered while the ruler filtered by tick.
+    var bar: u32 = 0;
+    while (bar <= bar_count) : (bar += 1) {
+        const x = timeline_x + @as(f32, @floatFromInt(proj.tickAtBar(bar))) * px_per_tick;
+        if (x > origin[0] + canvas_w) break;
+        draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(theme.bg5), .thickness = 1.5 });
+        if (bar < bar_count) draw_list.addText(.{ x + 7, label_y }, color(theme.fg2), "{d}", .{bar + 1});
     }
 
     // Loop region: a solid band across the top of the ruler, a wash over the
     // lanes it covers, and an edge line at each boundary. An armed-but-off
     // region (set with `(`/`)` before `L`) draws the same shape, quieter.
-    const proj = &app.core.session.project;
     if (proj.loop_end_bar > proj.loop_start_bar) {
         const alpha: f32 = if (proj.loop_enabled) 1.0 else 0.4;
-        const per_bar = @as(f32, @floatFromInt(ticks_per_bar)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
         const right_edge = origin[0] + canvas_w;
-        const x1 = std.math.clamp(timeline_x + @as(f32, @floatFromInt(proj.loop_start_bar)) * per_bar, timeline_x, right_edge);
-        const x2 = std.math.clamp(timeline_x + @as(f32, @floatFromInt(proj.loop_end_bar)) * per_bar, timeline_x, right_edge);
+        const x1 = std.math.clamp(timeline_x + @as(f32, @floatFromInt(proj.tickAtBar(proj.loop_start_bar))) * px_per_tick, timeline_x, right_edge);
+        const x2 = std.math.clamp(timeline_x + @as(f32, @floatFromInt(proj.tickAtBar(proj.loop_end_bar))) * px_per_tick, timeline_x, right_edge);
         if (x2 > x1) {
             const hue = theme.modulation;
             draw_list.addRectFilled(.{
@@ -165,7 +177,26 @@ pub fn draw(app: anytype) void {
         const x = timeline_x + @as(f32, @floatFromInt(section.tick)) / @as(f32, @floatFromInt(ticks_per_beat)) * beat_w;
         if (x < timeline_x or x > origin[0] + canvas_w) continue;
         draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(theme.focus), .thickness = 2 });
-        draw_list.addText(.{ x + 5, origin[1] + 7 }, color(theme.focus), "{s}", .{section.name});
+        draw_list.addText(.{ x + 5, label_y }, color(theme.focus), "{s}", .{section.name});
+    }
+
+    // Tempo and meter changes, in the strip the ruler grew for them. Both maps
+    // are keyed by quarter-note beat, so they share the tick math; the meter
+    // label sits left of its line and the tempo right, since a change of both
+    // on one beat is the common case.
+    if (map_strip > 0) {
+        for (proj.tempo_points.items) |point| {
+            const x = timeline_x + @as(f32, @floatFromInt(ws.Project.tickAtBeat(point.beat))) * px_per_tick;
+            if (x > origin[0] + canvas_w) continue;
+            draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(.{ theme.modulation[0], theme.modulation[1], theme.modulation[2], 0.35 }), .thickness = 1 });
+            draw_list.addText(.{ x + 4, origin[1] + 2 }, color(theme.modulation), "{d:.0}{s}", .{ point.bpm, if (point.ramp_to_next) " ramp" else "" });
+        }
+        for (proj.meter_points.items) |point| {
+            const x = timeline_x + @as(f32, @floatFromInt(ws.Project.tickAtBeat(point.beat))) * px_per_tick;
+            if (x > origin[0] + canvas_w) continue;
+            draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.35 }), .thickness = 1 });
+            draw_list.addText(.{ @max(timeline_x, x - 32), origin[1] + 2 }, color(theme.rhythm), "{d}/{d}", .{ point.numerator, point.denominator });
+        }
     }
 
     if (app.core.modal.mode == .visual and app.core.cursor < track_count) {

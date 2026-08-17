@@ -9,6 +9,7 @@ const theory = @import("theory.zig");
 const dsp_tuning = @import("dsp/tuning.zig");
 const dsp_controller = @import("dsp/controller.zig");
 const time_map = @import("time_map.zig");
+const time_grid = @import("time_grid.zig");
 
 pub const TrackKind = enum { audio, midi };
 
@@ -63,6 +64,10 @@ pub const Track = struct {
     /// Parallel aux sends - see `SendSlot`. `null` entries are unused slots.
     sends: [max_sends_per_track]?SendSlot = @splat(null),
 };
+
+fn meterBarTicks(meter: time_map.MeterPoint) u32 {
+    return @max(1, time_grid.barTicks(@max(meter.numerator, 1), @max(meter.denominator, 1)));
+}
 
 pub const Section = struct {
     tick: u32,
@@ -196,6 +201,50 @@ pub const Project = struct {
 
     pub fn frameAtBar(self: *const Project, bar: u32) u64 {
         return self.framesAtBeat(self.beatAtBar(bar));
+    }
+
+    /// Quarter-note beat (what the tempo and meter maps are keyed by) as a
+    /// tick on the editors' timeline, saturating rather than trapping - a
+    /// point may legally sit past any tick the arrangement can address.
+    pub fn tickAtBeat(beat: f64) u32 {
+        const ticks = beat * @as(f64, @floatFromInt(time_grid.ticks_per_beat));
+        if (!std.math.isFinite(ticks) or ticks <= 0) return 0;
+        if (ticks >= @as(f64, @floatFromInt(std.math.maxInt(u32)))) return std.math.maxInt(u32);
+        return @intFromFloat(ticks);
+    }
+
+    pub const BarPos = struct { bar: u32, start_tick: u32 };
+
+    /// Which bar `tick` falls in, and where that bar starts. `beatAtBar`
+    /// inverted into the tick domain the arrangement editors work in - they
+    /// used to divide by one fixed bar length, so any meter point left their
+    /// ruler numbering disagreeing with the transport's own bar readout.
+    /// A meter point always opens a new bar, cutting the one it lands in
+    /// short, which is the rule `beatAtBar` and `Transport.barBeatAtFrames`
+    /// already follow.
+    pub fn barAtTick(self: *const Project, tick: u32) BarPos {
+        var segment_tick: u32 = 0;
+        var bar: u32 = 0;
+        var meter = time_map.MeterPoint{ .beat = 0, .numerator = @max(self.beats_per_bar, 1), .denominator = @max(self.meter_denominator, 1) };
+        for (self.meter_points.items) |point| {
+            const point_tick = tickAtBeat(point.beat);
+            if (point_tick > tick) break;
+            if (point_tick > segment_tick) {
+                const bar_ticks = meterBarTicks(meter);
+                bar +|= (point_tick - segment_tick + bar_ticks - 1) / bar_ticks;
+            }
+            segment_tick = point_tick;
+            meter = point;
+        }
+        const bar_ticks = meterBarTicks(meter);
+        const whole = (tick - segment_tick) / bar_ticks;
+        return .{ .bar = bar +| whole, .start_tick = segment_tick +| whole *| bar_ticks };
+    }
+
+    /// First tick of `bar`, the direction `barAtTick` doesn't cover - used to
+    /// place bar-addressed spans (the loop region) on a tick timeline.
+    pub fn tickAtBar(self: *const Project, bar: u32) u32 {
+        return tickAtBeat(self.beatAtBar(bar));
     }
 
     pub fn setTempoPoint(self: *Project, point: time_map.TempoPoint) !void {
@@ -449,6 +498,32 @@ test "a bar's length in quarter beats follows the signature's beat unit" {
     try std.testing.expectApproxEqAbs(@as(f64, 3.0), p.quarterBeatsPerBar(), 1e-9);
     // ...and the bar->beat conversion the loop region uses agrees.
     try std.testing.expectApproxEqAbs(@as(f64, 6.0), p.beatAtBar(2), 1e-9);
+}
+
+test "bar lookup on the tick timeline agrees with the bar to beat conversion" {
+    var p = Project.init(std.testing.allocator);
+    defer p.deinit();
+    try p.setMeterPoint(.{ .beat = 12, .numerator = 7, .denominator = 8 });
+    // Bars 0-2 are 4/4 (16 ticks/beat * 4), bar 3 onwards is 7/8 (3.5 beats).
+    for ([_]u32{ 0, 1, 2, 3, 4, 5 }) |bar| {
+        const start = p.tickAtBar(bar);
+        try std.testing.expectEqual(bar, p.barAtTick(start).bar);
+        try std.testing.expectEqual(start, p.barAtTick(start).start_tick);
+        // One tick short of the next bar still reads as this one.
+        try std.testing.expectEqual(bar, p.barAtTick(p.tickAtBar(bar + 1) - 1).bar);
+    }
+    try std.testing.expectEqual(@as(u32, 12 * time_grid.ticks_per_beat), p.tickAtBar(3));
+}
+
+test "a meter point mid-bar starts a new bar instead of stretching the old one" {
+    var p = Project.init(std.testing.allocator);
+    defer p.deinit();
+    try p.setMeterPoint(.{ .beat = 6, .numerator = 3, .denominator = 4 });
+    // Beat 6 is halfway through 4/4 bar 1, so that bar is cut short and the
+    // 3/4 run starts at bar 2 - the same rule beatAtBar applies.
+    try std.testing.expectEqual(@as(u32, 1), p.barAtTick(5 * time_grid.ticks_per_beat).bar);
+    try std.testing.expectEqual(@as(u32, 2), p.barAtTick(6 * time_grid.ticks_per_beat).bar);
+    try std.testing.expectEqual(@as(u32, 6 * time_grid.ticks_per_beat), p.tickAtBar(2));
 }
 
 test "far-future meter point does not overflow bar conversion" {
