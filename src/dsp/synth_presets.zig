@@ -176,7 +176,7 @@ pub const presets = [_]Preset{
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.4, .fx_delay_mix = 0.28,
         .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.22,
-        .gain = 0.26,
+        .gain = 0.33,
     } },
 
     // bell-fm - velocity drives FM depth (hard hits ring brighter), plate
@@ -336,7 +336,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac3, .dest = 111, .depth = 0.4 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.16, .fx_delay_feedback = 0.45, .fx_delay_mix = 0.3,
-        .gain = 0.28,
+        .gain = 0.83,
     } },
 
     // --- Techno / Detroit ---
@@ -448,7 +448,7 @@ pub const presets = [_]Preset{
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.4, .fx_delay_mix = 0.3,
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.7, .fx_chorus_depth_ms = 3.5, .fx_chorus_mix = 0.3,
-        .gain = 0.28,
+        .gain = 0.22,
     } },
 
     // retro-brass - Juno-style chorus is the whole trick, velocity swells
@@ -490,7 +490,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac4, .dest = 89, .depth = 0.4 },
         }),
         .fx_crush_on = true, .fx_crush_bits = 8.0, .fx_crush_rate = 4.0, .fx_crush_mix = 0.4,
-        .gain = 0.3,
+        .gain = 0.17,
     } },
 
     // chip-bass - crushed hard toward the NES triangle's 4-bit staircase
@@ -597,7 +597,7 @@ pub const presets = [_]Preset{
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 14.0, .fx_dist_mix = 0.5,
         .fx_delay_on = true, .fx_delay_time_s = 0.19, .fx_delay_feedback = 0.4, .fx_delay_mix = 0.25,
-        .gain = 0.3,
+        .gain = 1.0,
     } },
 
     // --- Industrial / EBM ---
@@ -698,7 +698,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac3, .dest = 111, .depth = 0.35 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.28, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
-        .gain = 0.28,
+        .gain = 0.30,
     } },
 
     // neurofunk - screechy resonant FM lead; a small upward frequency shift
@@ -722,7 +722,7 @@ pub const presets = [_]Preset{
         }),
         .fx_freq_shift_on = true, .fx_freq_shift_hz = 30.0, .fx_freq_shift_mix = 0.3,
         .fx_dist_on = true, .fx_dist_drive_db = 12.0, .fx_dist_mix = 0.5,
-        .gain = 0.26,
+        .gain = 0.85,
     } },
 
     // techno - dark hypnotic pluck swimming in dub-techno echo
@@ -798,7 +798,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac3, .dest = 107, .depth = 0.3 },
         }),
         .fx_phaser_on = true, .fx_phaser_rate_hz = 0.4, .fx_phaser_depth = 0.8, .fx_phaser_feedback = 0.45, .fx_phaser_mix = 0.35,
-        .gain = 0.28,
+        .gain = 0.52,
     } },
 
     // dub - reedy melodica with vibrato, sunk into King Tubby tape echo
@@ -909,7 +909,7 @@ pub const presets = [_]Preset{
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 11.0, .fx_dist_mix = 0.4,
         .fx_delay_on = true, .fx_delay_time_s = 0.25, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
-        .gain = 0.28,
+        .gain = 0.16,
     } },
 
     // jazz - breathy sine flute; blowing harder (velocity) adds breath noise
@@ -927,7 +927,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
         }),
         .fx_reverb_on = true, .fx_reverb_room = 0.6, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.25,
-        .gain = 0.3,
+        .gain = 0.21,
     } },
 
     // === Round 3: Japanese genres + 90s hip-hop deep dive ===
@@ -1013,7 +1013,7 @@ pub const presets = [_]Preset{
         }),
         .fx_eq_on = true, .fx_eq_high_freq = 6000.0, .fx_eq_high_gain_db = 3.0,
         .fx_delay_on = true, .fx_delay_time_s = 0.25, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.25,
-        .gain = 0.28,
+        .gain = 0.31,
     } },
 
     // anime - twangy koto-style pluck; the comb filter is the string body
@@ -1049,7 +1049,7 @@ pub const presets = [_]Preset{
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.25, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
         .fx_reverb_on = true, .fx_reverb_room = 0.65, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.25,
-        .gain = 0.28,
+        .gain = 0.18,
     } },
 
     // g-funk - the squelchy resonant portamento worm; ladder filter for the
@@ -1066,7 +1066,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1, .dest = 21, .depth = 0.7 },
             .{ .source = .mac2, .dest = 22, .depth = 0.3 },
         }),
-        .gain = 0.28,
+        .gain = 0.62,
     } },
 
     // g-funk - deep gliding Moog-style low end, now on the actual ladder
@@ -1204,7 +1204,7 @@ pub const presets = [_]Preset{
         .fx_eq_on = true, .fx_eq_mid_freq = 750.0, .fx_eq_mid_gain_db = 4.0, .fx_eq_mid_q = 1.0,
         .fx_dist_on = true, .fx_dist_drive_db = 18.0, .fx_dist_mix = 0.7,
         .fx_delay_on = true, .fx_delay_time_s = 0.19, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
-        .gain = 0.26,
+        .gain = 0.22,
     } },
 
     // speedcore/terrorcore - FM-driven harsh bass, square carrier torn up by
@@ -1319,7 +1319,7 @@ pub const presets = [_]Preset{
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 12.0, .fx_dist_mix = 0.35,
         .fx_delay_on = true, .fx_delay_time_s = 0.19, .fx_delay_feedback = 0.28, .fx_delay_mix = 0.16,
-        .gain = 0.28,
+        .gain = 0.19,
     } },
 
     // dubstep: dark suspended pad that leaves the sub range clear
@@ -1412,7 +1412,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac3, .dest = 179, .depth = 0.35 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.55, .fx_chorus_depth_ms = 3.5, .fx_chorus_mix = 0.22,
-        .gain = 0.3,
+        .gain = 0.18,
     } },
 
     // dub: short minor organ chord made for long feedback-delay throws
@@ -1903,7 +1903,7 @@ pub const presets = [_]Preset{
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.45, .fx_delay_mix = 0.3,
         .fx_reverb_on = true, .fx_reverb_room = 0.85, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.3,
-        .gain = 0.26,
+        .gain = 0.18,
     } },
 
     // house - the pumping chord bed. Every other pad in the library holds
@@ -2052,7 +2052,7 @@ pub const presets = [_]Preset{
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.3, .fx_delay_feedback = 0.4, .fx_delay_mix = 0.25,
         .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.45, .fx_reverb_mix = 0.22,
-        .gain = 0.28,
+        .gain = 0.52,
     } },
 
     // pop - the bell arpeggio that tops a chorus, and the second arp in a
@@ -2075,7 +2075,7 @@ pub const presets = [_]Preset{
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.187, .fx_delay_feedback = 0.42, .fx_delay_mix = 0.28,
         .fx_reverb_on = true, .fx_reverb_room = 0.8, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.32,
-        .gain = 0.24,
+        .gain = 0.11,
     } },
 
     // soul: rounded finger bass with a small upper-harmonic layer
@@ -2153,7 +2153,7 @@ pub const presets = [_]Preset{
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.28, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.18,
         .fx_reverb_on = true, .fx_reverb_room = 0.65, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.18,
-        .gain = 0.27,
+        .gain = 0.29,
     } },
 
 };
