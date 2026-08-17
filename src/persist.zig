@@ -2364,11 +2364,29 @@ test "a synth preset replaces the whole FX chain and rebinds its mod rows" {
         old.deinit(testing.allocator);
     }
     const reverb = rack.fx.find(.reverb).?;
-    for (rack.instrument.poly_synth.mod_matrix) |row| {
-        if (row.dest != 115) continue; // reverb mix
-        try testing.expectEqual(reverb.instance_id, row.fx_instance_id);
-        break;
+    // Both halves of the binding have to survive onto the live synth. The
+    // row must name the unit AND the unit's own param index (2, reverb mix)
+    // rather than the legacy synth id it was authored as (115), because the
+    // index is what the unit asks the mod bus for. Asserting only the
+    // instance is how this stayed broken: every factory preset published its
+    // FX routes under an id nothing queried.
+    const row = for (rack.instrument.poly_synth.mod_matrix) |r| {
+        if (r.fx_instance_id == reverb.instance_id) break r;
     } else return error.PresetRowMissing;
+    try testing.expectEqual(@as(u16, 2), row.dest);
+
+    // And the route resolves end to end: macro 3 up, reverb mix modulated.
+    var chain_buf: [rack_mod.Rack.chain_cap]@import("dsp/device.zig").Device = undefined;
+    _ = rack.chain(&chain_buf); // hands the units the synth's mod bus
+    const synth = &rack.instrument.poly_synth;
+    synth.macro3 = 1.0;
+    synth.noteOn(60, 1.0);
+    var audio: [512]f32 = undefined;
+    for (0..8) |_| {
+        @memset(&audio, 0);
+        synth.processBlock(&audio);
+    }
+    try testing.expectApproxEqAbs(@as(f32, 0.4), synth.fx_mod_bus.amount(reverb.instance_id, 2), 0.005); // macro smoothing
 }
 
 test "a preset builds inserts its patch fields cannot describe, and binds rows to them" {

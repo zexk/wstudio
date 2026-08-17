@@ -1463,7 +1463,17 @@ fn applySynthPatchInner(
     // untouched. `applyPatchWithWavetables` just rewrote the real matrix from
     // the patch, whose rows carry no instance id, so carry the bindings over
     // or every migrated modulation lands on nothing.
-    for (&synth.mod_matrix, probe.mod_matrix) |*row, migrated| row.fx_instance_id = migrated.fx_instance_id;
+    // Both halves of the binding, not just the instance: `buildPresetFx`
+    // also rewrote `dest` from the legacy synth param id (115, "VRB MIX")
+    // to the unit's own param index (2, reverb's mix), which is what
+    // `FxUnit.processPayload` asks the bus for. Carrying the instance alone
+    // published every route under an id no unit ever queries, so all of it
+    // landed on nothing - a macro wired to a reverb or delay mix did exactly
+    // nothing in every factory preset that had one.
+    for (&synth.mod_matrix, probe.mod_matrix) |*row, migrated| {
+        row.fx_instance_id = migrated.fx_instance_id;
+        if (migrated.fx_instance_id != 0) row.dest = migrated.dest;
+    }
     const displaced = rack.fx;
     rack.fx = replacement;
     return displaced;
