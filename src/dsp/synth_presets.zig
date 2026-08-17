@@ -719,9 +719,13 @@ pub const presets = [_]Preset{
         .attack_s = 0.002, .decay_s = 0.8, .sustain = 0.4, .release_s = 0.6,
         .filter_type = .lp, .filter_cutoff = 400.0, .filter_res = 0.0,
         .sub_level = 0.8, .sub_shape = .sine,
-        .env3_attack_s = 0.001, .env3_decay_s = 0.07, .env3_sustain = 0.0, .env3_release_s = 0.05, .env3_curve = 0.8,
+        .env3_attack_s = 0.001, .env3_decay_s = 0.05, .env3_sustain = 0.0, .env3_release_s = 0.05, .env3_curve = 0.8,
         .mod_matrix = mods(&.{
-            .{ .source = .env3, .dest = dP, .depth = 0.55 },
+            // The knock at the front of an 808 is a pitch drop, and the amount
+            // usually quoted for it is an octave or more inside 40-60 ms.
+            // This was two thirds of an octave over 70 ms, which is a slide
+            // into the note rather than a hit on it.
+            .{ .source = .env3, .dest = dP, .depth = 1.0 },
             .{ .source = .mac1, .dest = 21, .depth = 0.3 },
             .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
             .{ .source = .mac2, .dest = 34,  .depth = 0.3 },
@@ -2075,7 +2079,11 @@ pub const presets = [_]Preset{
         .attack_s = 0.004, .decay_s = 0.9, .sustain = 0.55, .release_s = 0.5, .env_curve = 0.35,
         .filter_type = .lp, .filter_cutoff = 700.0, .filter_res = 0.04, .filter_drive = 2.4,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.06, .fenv_sustain = 0.0, .fenv_release_s = 0.1, .fenv_curve = 0.8,
+        // Drill 808s glide, but they still knock: same pitch drop as trap-808,
+        // shorter, since the glide already owns the movement between notes.
+        .env3_attack_s = 0.001, .env3_decay_s = 0.04, .env3_sustain = 0.0, .env3_release_s = 0.05, .env3_curve = 0.8,
         .mod_matrix = mods(&.{
+            .{ .source = .env3,     .dest = dP, .depth = 0.6 },
             .{ .source = .fenv,     .dest = 21, .depth = 0.4 },
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
