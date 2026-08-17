@@ -1120,9 +1120,13 @@ pub const variants = [_]KitVariant{
                 .drive = 2.2,
                 .dur_s = 0.07,
             } }, .gain = 0.52, .tune = alt_stick },
+        // A sampled acoustic kit: these toms are a drum, not a machine, so
+        // they bend the few percent a stretched head relaxes by rather than
+        // diving an octave. The pitch stays where it was, at the geometric
+        // mean of the old sweep.
             .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
-                .freq_start = 200.0,
-                .freq_end = 100.0,
+                .freq_start = 150.0,
+                .freq_end = 133.0,
                 .dur_s = 0.63,
                 .body_decay = 7.0,
                 .attack_decay = 110.0,
@@ -1131,8 +1135,8 @@ pub const variants = [_]KitVariant{
                 .seed = 0x741,
             } }, .gain = 0.80 },
             .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
-                .freq_start = 140.0,
-                .freq_end = 70.0,
+                .freq_start = 105.0,
+                .freq_end = 93.0,
                 .dur_s = 0.714,
                 .body_decay = 6.0,
                 .attack_decay = 110.0,
@@ -1334,9 +1338,13 @@ pub const variants = [_]KitVariant{
                 .drive = 2.4,
                 .dur_s = 0.07,
             } }, .gain = 0.56, .tune = alt_stick },
+        // A sampled acoustic kit: these toms are a drum, not a machine, so
+        // they bend the few percent a stretched head relaxes by rather than
+        // diving an octave. The pitch stays where it was, at the geometric
+        // mean of the old sweep.
             .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
-                .freq_start = 260.0,
-                .freq_end = 150.0,
+                .freq_start = 200.0,
+                .freq_end = 177.0,
                 .dur_s = 0.48,
                 .body_decay = 9.0,
                 .attack_decay = 120.0,
@@ -1345,8 +1353,8 @@ pub const variants = [_]KitVariant{
                 .seed = 0x7e1,
             } }, .gain = 0.84 },
             .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
-                .freq_start = 190.0,
-                .freq_end = 105.0,
+                .freq_start = 145.0,
+                .freq_end = 128.0,
                 .dur_s = 0.522,
                 .body_decay = 8.0,
                 .attack_decay = 120.0,
@@ -1708,9 +1716,13 @@ pub const variants = [_]KitVariant{
             .drive = 1.4,
             .dur_s = 0.08,
         } }, .gain = 0.47, .tune = alt_stick },
+        // A sampled acoustic kit: these toms are a drum, not a machine, so
+        // they bend the few percent a stretched head relaxes by rather than
+        // diving an octave. The pitch stays where it was, at the geometric
+        // mean of the old sweep.
         .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
-            .freq_start = 190.0,
-            .freq_end = 95.0,
+            .freq_start = 140.0,
+            .freq_end = 124.0,
             .dur_s = 0.875,
             .body_decay = 4.5,
             .attack_decay = 90.0,
@@ -1719,8 +1731,8 @@ pub const variants = [_]KitVariant{
             .seed = 0x791,
         } }, .gain = 0.75 },
         .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
-            .freq_start = 140.0,
-            .freq_end = 70.0,
+            .freq_start = 104.0,
+            .freq_end = 92.0,
             .dur_s = 0.96,
             .body_decay = 4.0,
             .attack_decay = 90.0,
