@@ -9417,7 +9417,7 @@ test "preset-picker filter reaches genre tags and user-saved presets" {
     for ("/psytrance") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
     var buf: [preset_ed.max_display_rows]preset_ed.DisplayRow = undefined;
-    try std.testing.expectEqual(@as(usize, 2), preset_ed.entryCountOf(preset_ed.buildDisplayRows(&app, &buf)));
+    try std.testing.expectEqual(@as(usize, 1), preset_ed.entryCountOf(preset_ed.buildDisplayRows(&app, &buf)));
 
     // The saved preset is reachable by name and applies. (Its "saved"
     // category is matchable too, but as a subsequence it also catches

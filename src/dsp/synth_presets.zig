@@ -251,24 +251,6 @@ pub const presets = [_]Preset{
         .gain = 0.28,
     } },
 
-    // upright-bass - finger-thump noise transient, velocity into cutoff,
-    // gentle compression to even out the notes
-    .{ .name = "upright-bass", .category = "bass", .tags = &.{ "wstudio", "hip-hop" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.3333333, .voice_mode = .mono, .glide_s = 0.0,
-        .noise_level = 0.04, .noise_color = 0.2,
-        .attack_s = 0.005, .decay_s = 0.12, .sustain = 0.6, .release_s = 0.25, .env_curve = 0.4,
-        .filter_type = .ladder, .filter_cutoff = 650.0, .filter_res = 0.05,
-        .sub_level = 0.6, .sub_shape = .sine,
-        .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 21, .depth = 0.3 },
-            .{ .source = .random,   .dest = 36, .depth = 0.08 },
-            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
-            .{ .source = .mac2,     .dest = 36, .depth = 0.2 },
-        }),
-        .fx_comp_on = true, .fx_comp_threshold_db = -20.0, .fx_comp_ratio = 3.0, .fx_comp_attack_ms = 15.0, .fx_comp_release_ms = 120.0,
-        .gain = 0.4,
-    } },
-
     // dusty-pad - bit-crush dust + tape-wobble pitch drift from LFO 2,
     // HP'd so the haze sits above the bassline
     .{ .name = "dusty-pad", .category = "pad", .tags = &.{ "wstudio", "hip-hop" }, .patch = .{
@@ -759,23 +741,6 @@ pub const presets = [_]Preset{
         .gain = 0.26,
     } },
 
-    // psytrance - tight resonant off-beat pluck, gallop echo baked in
-    .{ .name = "psy-pluck", .category = "pluck", .tags = &.{ "wstudio", "psytrance" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.0,
-        .attack_s = 0.001, .decay_s = 0.12, .sustain = 0.0, .release_s = 0.06, .env_curve = 0.78,
-        .filter_type = .diode, .filter_cutoff = 1200.0, .filter_res = 0.5, .filter_drive = 3.5,
-        .fenv_attack_s = 0.001, .fenv_decay_s = 0.11, .fenv_sustain = 0.0, .fenv_release_s = 0.05,
-        .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 21,  .depth = 0.625 },
-            .{ .source = .keytrack, .dest = 21,  .depth = 0.4 },
-            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
-            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac3,     .dest = 111, .depth = 0.4 },
-        }),
-        .fx_delay_on = true, .fx_delay_time_s = 0.166, .fx_delay_feedback = 0.5, .fx_delay_mix = 0.3,
-        .gain = 0.3,
-    } },
-
     // techno - dark hypnotic pluck swimming in dub-techno echo
     .{ .name = "techno-pluck", .category = "pluck", .tags = &.{ "wstudio", "techno" }, .patch = .{
         .wt_table = .basic, .wt_pos = 1.0, .voice_mode = .mono, .glide_s = 0.0,
@@ -886,22 +851,6 @@ pub const presets = [_]Preset{
         .gain = 0.34,
     } },
 
-    // future-bass - bright detuned pluck to top the supersaw chords
-    .{ .name = "future-pluck", .category = "pluck", .tags = &.{ "wstudio", "future-bass" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.3333333, .unison = 2, .unison_detune = 10.0,
-        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_level = 0.5,
-        .attack_s = 0.002, .decay_s = 0.3, .sustain = 0.0, .release_s = 0.25, .env_curve = 0.62,
-        .filter_type = .lp, .filter_cutoff = 5000.0, .filter_res = 0.1,
-        .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
-            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
-        }),
-        .fx_ott_on = true, .fx_ott_depth = 0.5, .fx_ott_gain_out_db = -8.0,
-        .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.3,
-        .gain = 0.3,
-    } },
-
     // chiptune - square pad with basic-waveform motion and light crush
     .{ .name = "chip-pad", .category = "pad", .tags = &.{ "wstudio", "chiptune" }, .patch = .{
         .wt_table = .basic, .wt_pos = 1.0, .unison = 2, .unison_detune = 8.0,
@@ -1009,22 +958,6 @@ pub const presets = [_]Preset{
         }),
         .fx_reverb_on = true, .fx_reverb_room = 0.6, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.25,
         .gain = 0.3,
-    } },
-
-    // soul - Motown horn-section stab, velocity is the section leaning in
-    .{ .name = "soul-brass", .category = "brass", .tags = &.{ "wstudio", "soul" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_detune = 9.0, .unison_spread = 0.4,
-        .attack_s = 0.02, .decay_s = 0.3, .sustain = 0.6, .release_s = 0.2, .env_curve = 0.32,
-        .filter_type = .lp, .filter_cutoff = 3200.0, .filter_res = 0.1,
-        .fenv_attack_s = 0.015, .fenv_decay_s = 0.35, .fenv_sustain = 0.3, .fenv_release_s = 0.2, .fenv_curve = 0.38,
-        .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 21,  .depth = 0.4 },
-            .{ .source = .velocity, .dest = 21,  .depth = 0.45 },
-            .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
-            .{ .source = .mac3,     .dest = 179, .depth = 0.3 },
-        }),
-        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.6, .fx_chorus_depth_ms = 3.0, .fx_chorus_mix = 0.25,
-        .gain = 0.28,
     } },
 
     // === Round 3: Japanese genres + 90s hip-hop deep dive ===
@@ -1280,33 +1213,6 @@ pub const presets = [_]Preset{
         }),
         .fx_reverb_on = true, .fx_reverb_room = 0.75, .fx_reverb_damp = 0.6, .fx_reverb_mix = 0.35,
         .gain = 0.28,
-    } },
-
-    // j-core/gabber - Mentasm-style hoover. The real Alpha Juno patch's
-    // "hoovering" motion is a fast-attack/quick-release PITCH envelope
-    // sweeping ~12 semitones, with the filter comparatively static - ENV 3
-    // now carries that sweep at max legal depth instead of the filter env
-    // doing the morph; a fast triangle LFO morphs OSC B's basic waveform
-    .{ .name = "hoover-stab", .category = "stab", .tags = &.{ "wstudio", "hardcore", "gabber" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 4, .unison_detune = 28.0, .unison_spread = 0.85,
-        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 20.0, .osc_b_level = 0.75,
-        .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.6666667, .osc_c_semi = -12.0, .osc_c_level = 0.6,
-        .attack_s = 0.008, .decay_s = 0.32, .sustain = 0.15, .release_s = 0.18,
-        .filter_type = .lp, .filter_cutoff = 2500.0, .filter_res = 0.4,
-        .fenv_attack_s = 0.005, .fenv_decay_s = 0.28, .fenv_sustain = 0.05, .fenv_release_s = 0.15,
-        .env3_attack_s = 0.006, .env3_decay_s = 0.22, .env3_sustain = 0.0, .env3_release_s = 0.06, .env3_curve = 0.72,
-        .lfo_rate_hz = 6.5,
-        .lfo_custom = waves(.{ .triangle, .sine, .sine }), .lfo_custom_count = waveCounts(.{ .triangle, .sine, .sine }),
-        .mod_matrix = mods(&.{
-            .{ .source = .env3, .dest = dP, .depth = 1.0 },
-            .{ .source = .fenv, .dest = 21, .depth = -0.2 },
-            .{ .source = .lfo,  .dest = 186,  .depth = -0.3 },
-            .{ .source = .mac1, .dest = 21, .depth = 0.5 },
-            .{ .source = .mac4, .dest = 85, .depth = 0.3 },
-        }),
-        .fx_dist_on = true, .fx_dist_drive_db = 14.0, .fx_dist_mix = 0.5,
-        .fx_phaser_on = true, .fx_phaser_rate_hz = 0.8, .fx_phaser_depth = 0.7, .fx_phaser_feedback = 0.4, .fx_phaser_mix = 0.35,
-        .gain = 0.3,
     } },
 
     // hardstyle - the real technique is a formant filter vowel-scan, not a
@@ -1727,8 +1633,8 @@ pub fn find(name: []const u8) ?Patch {
     return null;
 }
 
-test "factory library holds exactly 83 presets" {
-    try std.testing.expectEqual(@as(usize, 83), presets.len);
+test "factory library holds exactly 78 presets" {
+    try std.testing.expectEqual(@as(usize, 78), presets.len);
 }
 
 test "every preset's matrix rows target legal dests at sane depths" {
