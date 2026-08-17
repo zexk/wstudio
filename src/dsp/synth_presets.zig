@@ -1701,6 +1701,119 @@ pub const presets = [_]Preset{
         .gain = 0.3,
     } },
 
+    // drill - the sliding 808. What separates it from trap-808 is not the
+    // tone but the glide: drill basslines slide between pitches instead of
+    // holding them, so this is mono with a long portamento and a sustain high
+    // enough that the note is still sounding when the slide arrives.
+    // Saturated rather than clean, since the slide has to stay audible after
+    // the low end is compressed.
+    .{ .name = "drill-808", .category = "bass", .tags = &.{ "wstudio", "drill", "trap" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.0, .voice_mode = .mono, .glide_s = 0.11,
+        .sub_level = 0.9, .sub_shape = .sine,
+        .attack_s = 0.004, .decay_s = 0.9, .sustain = 0.55, .release_s = 0.5, .env_curve = 0.35,
+        .filter_type = .lp, .filter_cutoff = 700.0, .filter_res = 0.04, .filter_drive = 2.4,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.06, .fenv_sustain = 0.0, .fenv_release_s = 0.1, .fenv_curve = 0.8,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 21, .depth = 0.4 },
+            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
+            .{ .source = .mac4,     .dest = 85, .depth = 0.45 },
+        }),
+        .fx_dist_on = true, .fx_dist_drive_db = 9.0, .fx_dist_mix = 0.3,
+        .fx_comp_on = true, .fx_comp_threshold_db = -20.0, .fx_comp_ratio = 4.0, .fx_comp_attack_ms = 12.0, .fx_comp_release_ms = 130.0,
+        .gain = 0.4,
+    } },
+
+    // drill - the sparse bell that carries the hook over the slide. Drill
+    // melodies are minimal and dark by design, so this is narrow, quiet and
+    // long-tailed: an inharmonic FM pair a semitone-and-a-half sharp of a
+    // 3:1 ratio, which is what makes a bell read as uneasy rather than
+    // pretty, into a wide plate.
+    .{ .name = "drill-bell", .category = "pluck", .tags = &.{ "wstudio", "drill" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 19.0, .osc_b_detune_cents = 22.0, .osc_b_level = 0.6,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 2.2,
+        .attack_s = 0.002, .decay_s = 1.4, .sustain = 0.0, .release_s = 1.0, .env_curve = 0.68,
+        .filter_type = .lp, .filter_cutoff = 3400.0, .filter_res = 0.05,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.35, .fenv_sustain = 0.0, .fenv_release_s = 0.3, .fenv_curve = 0.6,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 15,  .depth = 0.3 },
+            .{ .source = .velocity, .dest = 15,  .depth = 0.2 },
+            .{ .source = .mac2,     .dest = 15,  .depth = 0.3 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.45 },
+        }),
+        .fx_delay_on = true, .fx_delay_time_s = 0.333, .fx_delay_feedback = 0.32, .fx_delay_mix = 0.2,
+        .fx_reverb_on = true, .fx_reverb_room = 0.88, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.35,
+        .gain = 0.24,
+    } },
+
+    // drill - the other half of the genre's melodic palette, borrowed from
+    // film score: low brass swelling under the beat, minor and slow. Third
+    // above the root rather than the octave for the diminished colour, and
+    // the swell is on the filter, not the amplitude, so it stays present in
+    // the mix while it grows.
+    .{ .name = "noir-brass", .category = "brass", .tags = &.{ "wstudio", "drill", "trap" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 4, .unison_detune = 16.0, .unison_spread = 0.6,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_semi = 3.0, .osc_b_detune_cents = -7.0, .osc_b_level = 0.4,
+        .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.0, .osc_c_semi = -12.0, .osc_c_level = 0.5,
+        .attack_s = 0.35, .decay_s = 0.8, .sustain = 0.7, .release_s = 0.7, .env_curve = -0.2,
+        .filter_type = .lp, .filter_cutoff = 900.0, .filter_res = 0.1, .filter_drive = 2.2,
+        .fenv_attack_s = 0.9, .fenv_decay_s = 1.2, .fenv_sustain = 0.5, .fenv_release_s = 0.6, .fenv_curve = -0.3,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.55 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
+        }),
+        .fx_eq_on = true, .fx_eq_low_freq = 120.0, .fx_eq_low_gain_db = 3.0, .fx_eq_high_freq = 5000.0, .fx_eq_high_gain_db = -4.0,
+        .fx_reverb_on = true, .fx_reverb_room = 0.8, .fx_reverb_damp = 0.55, .fx_reverb_mix = 0.3,
+        .gain = 0.26,
+    } },
+
+    // phonk - the cowbell melody the whole genre is written on. The 808's
+    // cowbell is two square waves a fifth apart through a narrow bandpass
+    // with a fast decay; tuned and played as pitches it becomes a lead. Crush
+    // and drive for the tape-dub grit rather than a clean digital tone.
+    .{ .name = "phonk-cowbell", .category = "pluck", .tags = &.{ "wstudio", "phonk", "hip-hop" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 1.0, .voice_mode = .mono,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 7.0, .osc_b_detune_cents = 14.0, .osc_b_level = 0.85,
+        .attack_s = 0.001, .decay_s = 0.28, .sustain = 0.0, .release_s = 0.12, .env_curve = 0.75,
+        .filter_type = .bp, .filter_cutoff = 2400.0, .filter_res = 0.55, .filter_drive = 2.6,
+        .fenv_attack_s = 0.001, .fenv_decay_s = 0.12, .fenv_sustain = 0.0, .fenv_release_s = 0.08, .fenv_curve = 0.7,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv,     .dest = 21, .depth = 0.35 },
+            .{ .source = .velocity, .dest = 21, .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
+            .{ .source = .mac4,     .dest = 89, .depth = 0.4 },
+        }),
+        .fx_dist_on = true, .fx_dist_drive_db = 11.0, .fx_dist_mix = 0.35,
+        .fx_crush_on = true, .fx_crush_bits = 10.0, .fx_crush_rate = 3.0, .fx_crush_mix = 0.3,
+        .gain = 0.28,
+    } },
+
+    // pluggnb - the glassy bell the style is built on. Bright but soft: a
+    // 2:1 FM pair with the index almost static, so it reads as glass rather
+    // than as a struck bell, and heavy OTT flattening the envelope into the
+    // glossy surface the genre mixes for. Sparkle without a hard transient.
+    .{ .name = "plugg-bell", .category = "pluck", .tags = &.{ "wstudio", "pluggnb", "trap" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.0, .detune_cents = 4.0,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_detune_cents = 6.0, .osc_b_level = 0.7,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 0.8,
+        .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.0, .osc_c_semi = 24.0, .osc_c_level = 0.22,
+        .attack_s = 0.02, .decay_s = 0.9, .sustain = 0.15, .release_s = 0.8, .env_curve = 0.45,
+        .filter_type = .lp, .filter_cutoff = 6000.0, .filter_res = 0.03,
+        .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 15,  .depth = 0.15 },
+            .{ .source = .random,   .dest = 15,  .depth = 0.02 },
+            .{ .source = .mac2,     .dest = 15,  .depth = 0.3 },
+            .{ .source = .mac3,     .dest = 115, .depth = 0.45 },
+        }),
+        .fx_ott_on = true, .fx_ott_depth = 0.65, .fx_ott_gain_out_db = -7.0,
+        .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.38, .fx_delay_mix = 0.25,
+        .fx_reverb_on = true, .fx_reverb_room = 0.82, .fx_reverb_damp = 0.3, .fx_reverb_mix = 0.35,
+        .gain = 0.24,
+    } },
+
     // soul: rounded finger bass with a small upper-harmonic layer
     .{ .name = "soul-bass", .category = "bass", .tags = &.{ "wstudio", "soul", "neo-soul" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.3333333, .voice_mode = .mono, .glide_s = 0.012,
@@ -1790,8 +1903,8 @@ pub fn find(name: []const u8) ?Patch {
     return null;
 }
 
-test "factory library holds exactly 84 presets" {
-    try std.testing.expectEqual(@as(usize, 84), presets.len);
+test "factory library holds exactly 89 presets" {
+    try std.testing.expectEqual(@as(usize, 89), presets.len);
 }
 
 test "every preset's matrix rows target legal dests at sane depths" {
