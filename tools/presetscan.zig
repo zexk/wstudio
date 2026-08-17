@@ -220,9 +220,13 @@ fn analyze(allocator: std.mem.Allocator, buf: []const Sample) !Features {
     f.bands = held.bands;
 
     // Motion: how far the spectrum and the level wander over the hold. Frames
-    // start after the attack so the onset transient does not read as movement.
-    const motion_start = @min(peak_frame + win, hold_frames -| motion_fft_size);
-    const hop = (hold_frames -| (motion_start + motion_fft_size)) / motion_frames;
+    // start after the onset so the attack transient does not read as movement,
+    // but never later than mid-hold: a gated pad or an arp peaks near the END
+    // of the hold, and anchoring to the peak left no room for frames at all,
+    // so the patches whose whole identity is movement measured as static.
+    const motion_start = @max(win, @min(peak_frame, hold_frames / 2));
+    const span = hold_frames -| (motion_start + motion_fft_size);
+    const hop = span / motion_frames;
     if (hop > 0) {
         var oct: [motion_frames]f32 = undefined;
         var lvl: [motion_frames]f32 = undefined;
