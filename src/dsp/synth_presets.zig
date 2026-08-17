@@ -661,6 +661,10 @@ pub const presets = [_]Preset{
         .fx_dist_on = true, .fx_dist_drive_db = 10.0, .fx_dist_mix = 0.45,
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.6, .fx_chorus_depth_ms = 3.0, .fx_chorus_mix = 0.25,
         .gain = 0.26,
+    }, .fx = &.{
+        // Same as outrun-bass: unison spread and chorus put 0.15 of the sub
+        // off-centre, which cancels in mono.
+        .{ .kind = .utility, .params = &.{ .{ .idx = 11, .value = 120.0 } } },
     } },
 
     // --- Jazz / soul ---
@@ -879,6 +883,10 @@ pub const presets = [_]Preset{
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.7, .fx_chorus_depth_ms = 3.0, .fx_chorus_mix = 0.3,
         .gain = 0.27,
+    }, .fx = &.{
+        // Its chorus widens the sub along with the body (0.18 decorrelated
+        // below 120 Hz); this centres the low end without touching either.
+        .{ .kind = .utility, .params = &.{ .{ .idx = 11, .value = 120.0 } } },
     } },
 
     // chiptune - square pad with basic-waveform motion and light crush
