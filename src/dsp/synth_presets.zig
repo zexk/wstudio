@@ -374,7 +374,7 @@ pub const presets = [_]Preset{
     // --- Drum & bass / neurofunk ---
     // reese-bass - third saw widens the beat pattern, ladder filter, macro 1
     // as the DJ-style cutoff ride, macro 2 blurs the detune wider
-    .{ .name = "reese-bass", .category = "bass", .tags = &.{ "wstudio", "dnb" }, .patch = .{
+    .{ .name = "reese-bass", .category = "bass", .tags = &.{ "wstudio", "drum-and-bass" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.6666667, .unison = 2, .unison_detune = 16.0, .unison_spread = 0.6,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_semi = 0.0, .osc_b_detune_cents = 14.0, .osc_b_level = 0.9,
         .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.6666667, .osc_c_semi = 0.0, .osc_c_detune_cents = -11.0, .osc_c_level = 0.7,
@@ -1621,7 +1621,7 @@ pub const presets = [_]Preset{
     // === Round 4: reinforce the least-covered genres ===
 
     // dnb: a short minor-chord rave hit with velocity bite and wide room
-    .{ .name = "dnb-stab", .category = "stab", .tags = &.{ "wstudio", "dnb", "jungle" }, .patch = .{
+    .{ .name = "dnb-stab", .category = "stab", .tags = &.{ "wstudio", "drum-and-bass", "jungle" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_detune = 12.0, .unison_spread = 0.55,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 3.0, .osc_b_level = 0.55,
         .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.6666667, .osc_c_semi = 7.0, .osc_c_level = 0.45,
@@ -1644,7 +1644,7 @@ pub const presets = [_]Preset{
     } },
 
     // dnb: airy sampled-choir color for breakdowns and liquid intros
-    .{ .name = "jungle-atmos", .category = "pad", .tags = &.{ "wstudio", "dnb", "jungle" }, .patch = .{
+    .{ .name = "jungle-atmos", .category = "pad", .tags = &.{ "wstudio", "drum-and-bass", "jungle" }, .patch = .{
         .wt_table = .analog, .wt_pos = 0.7, .unison = 4, .unison_detune = 9.0, .unison_spread = 0.75,
         .noise_level = 0.08, .noise_color = 0.65,
         .attack_s = 1.1, .decay_s = 0.8, .sustain = 0.75, .release_s = 2.2,
