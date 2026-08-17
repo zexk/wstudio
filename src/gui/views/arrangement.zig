@@ -93,6 +93,9 @@ pub fn draw(app: anytype) void {
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + canvas_h }, .col = color(theme.bg0) });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + canvas_w, origin[1] + ruler_h }, .col = color(theme.bg2) });
 
+    const any_soloed = for (app.core.session.project.tracks.items) |t| {
+        if (t.soloed) break true;
+    } else false;
     for (0..track_count) |ti| {
         const y = origin[1] + ruler_h + @as(f32, @floatFromInt(ti)) * lane_h;
         const selected = ti == app.core.cursor;
@@ -103,6 +106,11 @@ pub fn draw(app: anytype) void {
         const rack = app.core.session.racks.items[ti];
         const rack_label: []const u8 = if (std.meta.activeTag(rack.instrument) == .empty) "-- empty --" else rack.label;
         draw_list.addText(.{ origin[0] + 34, y + 32 }, color(theme.fg3), "[{s}]", .{rack_label});
+        // Mute/solo badges, same colours the tracks view gives them - a lane
+        // the mix can't hear used to look exactly like one it can.
+        const track = app.core.session.project.tracks.items[ti];
+        if (track.muted) draw_list.addText(.{ origin[0] + 104, y + 11 }, color(theme.danger), "M", .{});
+        if (track.soloed) draw_list.addText(.{ origin[0] + 116, y + 11 }, color(theme.audio), "S", .{});
         // Only the cursor's lane gets a hint. Labelling every other empty
         // lane "Empty lane" says nothing the blank row didn't already.
         const lane = app.core.session.arrangement.lane(@intCast(ti));
@@ -234,7 +242,11 @@ pub fn draw(app: anytype) void {
                 .drum => theme.rhythm,
                 .audio => theme.audio,
             };
-            const clip_color: [4]f32 = .{ base[0], base[1], base[2], if (selected) 1 else 0.68 };
+            // A muted lane (or an unsoloed one while something else is soloed)
+            // fades its clips - the badge in the gutter says which it is.
+            const track = app.core.session.project.tracks.items[ti];
+            const silent = track.muted or (any_soloed and !track.soloed);
+            const clip_color: [4]f32 = .{ base[0], base[1], base[2], if (selected) 1 else if (silent) 0.26 else 0.68 };
             // Labels and previews sit on the darkened header strip / clip
             // body, so their ink follows the fill instead of assuming a
             // bright accent.

@@ -182,6 +182,9 @@ pub fn drawArrangement(
     app.arr_scroll_lane = if (lane_count > vis_lanes) @min(app.arr_scroll_lane, lane_count - vis_lanes) else 0;
     const lane_scroll = app.arr_scroll_lane;
     const last_lane = @min(lane_count, lane_scroll + vis_lanes);
+    const any_soloed = for (app.session.project.tracks.items) |t| {
+        if (t.soloed) break true;
+    } else false;
 
     for (app.session.project.tracks.items[lane_scroll..last_lane], lane_scroll..) |track, li| {
         const lane = app.session.arrangement.lane(li);
@@ -196,9 +199,16 @@ pub fn drawArrangement(
         else
             null;
 
+        // A lane the mix can't hear reads as one: the badge names why, and
+        // its clips drop the track colour below.
+        const silent = track.muted or (any_soloed and !track.soloed);
+        if (is_sel_lane) try w.writeAll(sel);
+        if (track.muted) try w.writeAll(yel) else if (track.soloed) try w.writeAll(grn);
+        try w.writeByte(if (track.muted) 'M' else if (track.soloed) 'S' else ' ');
+        if ((track.muted or track.soloed) and !is_sel_lane) try w.writeAll(rst);
         if (is_sel_lane) try w.writeAll(sel);
         if (!is_sel_lane) if (track_color) |c| try w.writeAll(c);
-        try w.print(" {d: >2} {s: <8}", .{ li + 1, track.name[0..@min(track.name.len, 8)] });
+        try w.print("{d: >2} {s: <8}", .{ li + 1, track.name[0..@min(track.name.len, 8)] });
         if (!is_sel_lane) if (track_color) |_| try w.writeAll(rst);
         if (is_sel_lane) try w.writeAll(rst);
 
@@ -227,7 +237,7 @@ pub fn drawArrangement(
             } else if (in_sel) {
                 try w.writeAll(yel);
             } else if (covered) {
-                try w.writeAll(track_color orelse acc);
+                try w.writeAll(if (silent) dim else track_color orelse acc);
             }
             if (cw == 2) {
                 if (!covered) {
