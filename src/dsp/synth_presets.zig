@@ -6,7 +6,7 @@
 //!
 //! Every mod route is an explicit `mod_matrix` row. Dest ids used below
 //! (see `automatable_params`):
-//! 1 PW A · 4 UNI DET A · 8 PW B · 11 LEVEL B · 21 CUTOFF ·
+//! 4 UNI DET A · 11 LEVEL B · 21 CUTOFF ·
 //! 22 RES · 34 SUB LVL · 36 NOISE LVL · 42 WARP AMT A · 47 CUTOFF 2 ·
 //! 44 WARP AMT B - the FM index when OSC B warps into A. Not 15, which is
 //! OSC C's warp and was mislabelled "MOD AMT" here while every FM preset
@@ -14,6 +14,11 @@
 //! 55 LEVEL C · 85 DIST MIX · 89 CRUSH MIX · 94 FLNG MIX · 107 PHSR MIX ·
 //! 111 DLY MIX · 115 VRB MIX · 179 CHOR MIX · 182 FRQS SHIFT ·
 //! 185 WT POS A · plus the dP/dA virtual pitch/amp dests.
+//! There is no pulse-width dest: the synth has no PW param, and a pulse
+//! width is set by warping a square with `bend`, whose phase pivot is the
+//! same control. Ids 1 and 8 were listed here as "PW A"/"PW B" and match
+//! nothing in `param_specs`, so a row aimed at either would have modulated
+//! nothing.
 //!
 //! Macro convention (all four default to 0, so every patch sounds stock
 //! until a knob moves): MACRO 1 = brightness (cutoff; the vowel scan on
