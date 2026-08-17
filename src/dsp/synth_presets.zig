@@ -6,8 +6,11 @@
 //!
 //! Every mod route is an explicit `mod_matrix` row. Dest ids used below
 //! (see `automatable_params`):
-//! 1 PW A · 4 UNI DET A · 8 PW B · 11 LEVEL B · 15 MOD AMT · 21 CUTOFF ·
+//! 1 PW A · 4 UNI DET A · 8 PW B · 11 LEVEL B · 21 CUTOFF ·
 //! 22 RES · 34 SUB LVL · 36 NOISE LVL · 42 WARP AMT A · 47 CUTOFF 2 ·
+//! 44 WARP AMT B - the FM index when OSC B warps into A. Not 15, which is
+//! OSC C's warp and was mislabelled "MOD AMT" here while every FM preset
+//! routed its index at it, modulating an oscillator none of them enable ·
 //! 55 LEVEL C · 85 DIST MIX · 89 CRUSH MIX · 94 FLNG MIX · 107 PHSR MIX ·
 //! 111 DLY MIX · 115 VRB MIX · 179 CHOR MIX · 182 FRQS SHIFT ·
 //! 185 WT POS A · plus the dP/dA virtual pitch/amp dests.
@@ -31,6 +34,7 @@ const dA = PolySynth.dest_amp;
 /// Name the four macro knobs (comptime only). An empty string leaves that
 /// slot unnamed, which is what an unused macro should be.
 fn macros(comptime names: [4][]const u8) [4]synth.MacroLabel {
+    @setEvalBranchQuota(50_000);
     var out: [4]synth.MacroLabel = @splat(.{});
     for (names, 0..) |name, i| out[i] = synth.MacroLabel.init(name);
     return out;
@@ -124,7 +128,9 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = 21,  .depth = 0.06 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "space", "" }),
         .gain = 0.3,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 1, .value = 5 }, .{ .idx = 2, .value = 0.4 } } },
@@ -141,8 +147,11 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac1, .dest = 185, .depth = 0.3 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 185, .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "wave", "echo", "" }),
         .gain = 0.35,
     }, .fx = &.{
         .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.375 } } },
@@ -160,7 +169,9 @@ pub const presets = [_]Preset{
             .{ .source = .random,   .dest = 21, .depth = 0.015 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac4, .dest = 2, .depth = 0.5, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 34,  .depth = 0.3 },
         }),
+        .macro_labels = macros(.{ "brightness", "sub", "", "drive" }),
         .gain = 0.44,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 6 }, .{ .idx = 2, .value = 0.15 } } },
@@ -182,6 +193,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac4,     .dest = 249, .depth = 0.35 },
             .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
+        .macro_labels = macros(.{ "cutoff", "squelch", "", "drive" }),
         .gain = 1.0,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 10 }, .{ .idx = 2, .value = 0.5 } } },
@@ -201,7 +213,9 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21, .depth = 0.4 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.5 },
             .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "space", "" }),
         .gain = 0.32,
     }, .fx = &.{
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.55 }, .{ .idx = 1, .value = 0.45 }, .{ .idx = 2, .value = 0.12 } } },
@@ -217,10 +231,12 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .random, .dest = dP,  .depth = 0.003 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac2, .dest = 4,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
             .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 2 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "echo", "" }),
         .gain = 0.53,
     }, .fx = &.{
         .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.375 }, .{ .idx = 1, .value = 0.4 }, .{ .idx = 2, .value = 0.28 } } },
@@ -235,11 +251,12 @@ pub const presets = [_]Preset{
         .attack_s = 0.001, .decay_s = 1.2, .sustain = 0.0, .release_s = 1.8, .env_curve = 0.72,
         .filter_type = .lp, .filter_cutoff = 12_000.0, .filter_res = 0.0,
         .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 15,  .depth = 0.15 },
-            .{ .source = .random,   .dest = 15,  .depth = 0.025 },
-            .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
+            .{ .source = .velocity, .dest = 44,  .depth = 0.15 },
+            .{ .source = .random,   .dest = 44,  .depth = 0.025 },
+            .{ .source = .mac2,     .dest = 44,  .depth = 0.25 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
+        .macro_labels = macros(.{ "", "bell", "space", "" }),
         .gain = 0.3,
     }, .fx = &.{
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.8 }, .{ .idx = 1, .value = 0.3 } } },
@@ -278,6 +295,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac2, .dest = 185, .depth = 0.4 },
             .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
+        .macro_labels = macros(.{ "brightness", "wobble", "", "drive" }),
         .gain = 0.69,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 2, .value = 0.4 } } },
@@ -296,7 +314,9 @@ pub const presets = [_]Preset{
             .{ .source = .env3, .dest = dP, .depth = 0.4 },
             .{ .source = .mac1, .dest = 21, .depth = 0.5 },
             .{ .source = .mac3, .dest = 3, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 22,  .depth = 0.25 },
         }),
+        .macro_labels = macros(.{ "brightness", "resonance", "flange", "" }),
         .gain = 0.28,
     }, .fx = &.{
         .{ .kind = .flanger, .params = &.{ .{ .idx = 0, .value = 0.15 }, .{ .idx = 1, .value = 0.9 }, .{ .idx = 2, .value = 0.6 } } },
@@ -319,7 +339,10 @@ pub const presets = [_]Preset{
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
             .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 0, .depth = -0.4, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "space", "dust" }),
         .gain = 0.25,
     }, .fx = &.{
         .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 12 }, .{ .idx = 1, .value = 2 }, .{ .idx = 2, .value = 0.25 } } },
@@ -343,6 +366,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1, .dest = 21, .depth = 0.6 },
             .{ .source = .mac2, .dest = 4,  .depth = 0.3 },
         }),
+        .macro_labels = macros(.{ "brightness", "growl", "", "" }),
         .gain = 1.0,
     }, .fx = &.{
         .{ .kind = .utility, .params = &.{ .{ .idx = 11, .value = 120 } } },
@@ -369,6 +393,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac2, .dest = 47,  .depth = 0.4 },
             .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
         }),
+        .macro_labels = macros(.{ "brightness", "formant", "", "drive" }),
         .gain = 0.21,
     }, .fx = &.{
         .{ .kind = .ott, .params = &.{ .{ .idx = 0, .value = 0.6 }, .{ .idx = 3, .value = -8 } } },
@@ -390,7 +415,9 @@ pub const presets = [_]Preset{
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "echo", "" }),
         .gain = 1.0,
     }, .fx = &.{
         .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.16 }, .{ .idx = 1, .value = 0.45 }, .{ .idx = 2, .value = 0.3 } } },
@@ -409,7 +436,9 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.35 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.5 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "space", "" }),
         .gain = 0.3,
     }, .fx = &.{
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 1, .value = 0.5 }, .{ .idx = 2, .value = 0.18 } } },
@@ -428,7 +457,9 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
             .{ .source = .mac4,     .dest = 249, .depth = 0.3 },
+            .{ .source = .mac2, .dest = 22,  .depth = 0.25 },
         }),
+        .macro_labels = macros(.{ "cutoff", "resonance", "", "drive" }),
         .gain = 1.0,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 8 }, .{ .idx = 2, .value = 0.3 } } },
@@ -449,6 +480,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 55, .depth = 0.4 },
         }),
+        .macro_labels = macros(.{ "brightness", "drawbar", "", "" }),
         .gain = 0.38,
     } },
 
@@ -466,6 +498,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 22, .depth = 0.2 },
         }),
+        .macro_labels = macros(.{ "brightness", "resonance", "", "" }),
         .gain = 0.29,
     }, .fx = &.{
         .{ .kind = .comp, .params = &.{ .{ .idx = 1, .value = 3 }, .{ .idx = 3, .value = 100 } } },
@@ -484,7 +517,9 @@ pub const presets = [_]Preset{
             .{ .source = .keytrack, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 3, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 22,  .depth = 0.25 },
         }),
+        .macro_labels = macros(.{ "brightness", "resonance", "phaser", "" }),
         .gain = 0.32,
     }, .fx = &.{
         .{ .kind = .phaser, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 1, .value = 0.8 }, .{ .idx = 3, .value = 0.45 } } },
@@ -504,10 +539,11 @@ pub const presets = [_]Preset{
             .{ .source = .lfo2, .dest = dP,  .depth = 0.015 },
             .{ .source = .env3, .dest = 42,  .depth = 0.4 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac2, .dest = 42,  .depth = 0.4 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.5 },
             .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 2 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "echo", "" }),
         .gain = 0.34,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 3.5 }, .{ .idx = 2, .value = 0.3 } } },
@@ -530,7 +566,9 @@ pub const presets = [_]Preset{
             .{ .source = .random,   .dest = dP,  .depth = 0.004 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "chorus", "" }),
         .gain = 0.28,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 1, .value = 5 }, .{ .idx = 2, .value = 0.35 } } },
@@ -552,8 +590,10 @@ pub const presets = [_]Preset{
             .{ .source = .alternate, .dest = 185, .depth = -0.08 },
             .{ .source = .mac2, .dest = 185,  .depth = -0.3 },
             .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 0, .depth = -0.4, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 185, .depth = -0.35 },
         }),
+        .macro_labels = macros(.{ "", "duty", "", "crush" }),
         .gain = 0.17,
     }, .fx = &.{
         .{ .kind = .crush, .params = &.{ .{ .idx = 2, .value = 0.4 } } },
@@ -566,7 +606,10 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 18_000.0, .filter_res = 0.0,
         .mod_matrix = mods(&.{
             .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 0, .depth = -0.4, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 185, .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "", "wave", "", "crush" }),
         .gain = 0.67,
     }, .fx = &.{
         .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 4 }, .{ .idx = 1, .value = 2 }, .{ .idx = 2, .value = 0.5 } } },
@@ -582,7 +625,9 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .mac2, .dest = 185,  .depth = -0.3 },
             .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 0, .depth = -0.4, .fx_instance_id = 1 },
         }),
+        .macro_labels = macros(.{ "", "duty", "", "crush" }),
         .gain = 0.3,
     }, .fx = &.{
         .{ .kind = .crush, .params = &.{ .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 0.3 } } },
@@ -606,6 +651,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac2, .dest = 185, .depth = 0.4 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
+        .macro_labels = macros(.{ "brightness", "wave", "space", "" }),
         .gain = 0.24,
     }, .fx = &.{
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.92 }, .{ .idx = 1, .value = 0.35 }, .{ .idx = 2, .value = 0.45 } } },
@@ -620,11 +666,12 @@ pub const presets = [_]Preset{
         .lfo_rate_hz = 0.3,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,      .dest = dA,  .depth = 0.05 },
-            .{ .source = .velocity, .dest = 15,  .depth = 0.1 },
-            .{ .source = .random,   .dest = 15,  .depth = 0.02 },
-            .{ .source = .mac2,     .dest = 15,  .depth = 0.2 },
+            .{ .source = .velocity, .dest = 44,  .depth = 0.1 },
+            .{ .source = .random,   .dest = 44,  .depth = 0.02 },
+            .{ .source = .mac2,     .dest = 44,  .depth = 0.2 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
         }),
+        .macro_labels = macros(.{ "", "glass", "space", "" }),
         .gain = 0.26,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.4 }, .{ .idx = 1, .value = 5 }, .{ .idx = 2, .value = 0.3 } } },
@@ -644,7 +691,9 @@ pub const presets = [_]Preset{
             .{ .source = .env3, .dest = dP, .depth = 0.55 },
             .{ .source = .mac1, .dest = 21, .depth = 0.3 },
             .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 34,  .depth = 0.3 },
         }),
+        .macro_labels = macros(.{ "brightness", "sub", "", "drive" }),
         .gain = 0.45,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 8 }, .{ .idx = 2, .value = 0.2 } } },
@@ -667,6 +716,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "cutoff", "squelch", "echo", "drive" }),
         .gain = 0.69,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 14 }, .{ .idx = 2, .value = 0.5 } } },
@@ -687,7 +737,10 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21, .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "chorus", "drive" }),
         .gain = 0.26,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 10 }, .{ .idx = 2, .value = 0.45 } } },
@@ -713,6 +766,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1, .dest = 21, .depth = 0.4 },
             .{ .source = .mac2, .dest = 34, .depth = 0.4 },
         }),
+        .macro_labels = macros(.{ "brightness", "drawbar", "", "" }),
         .gain = 0.3,
     } },
 
@@ -750,7 +804,9 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = 21, .depth = 0.4 },
             .{ .source = .mac1, .dest = 21, .depth = 0.5 },
             .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
+            .{ .source = .mac2, .dest = 44,  .depth = 0.3 },
         }),
+        .macro_labels = macros(.{ "vowel", "fm depth", "", "drive" }),
         .gain = 0.18,
     }, .fx = &.{
         .{ .kind = .ott, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 3, .value = -8 } } },
@@ -773,7 +829,9 @@ pub const presets = [_]Preset{
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "echo", "" }),
         .gain = 0.29,
     }, .fx = &.{
         .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.28 }, .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.2 } } },
@@ -799,6 +857,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "metal", "", "drive" }),
         .gain = 0.50,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 2, .value = 0.5 } } },
@@ -816,7 +875,9 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 22,  .depth = 0.25 },
         }),
+        .macro_labels = macros(.{ "brightness", "resonance", "echo", "" }),
         .gain = 0.27,
     }, .fx = &.{
         .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.375 }, .{ .idx = 1, .value = 0.55 }, .{ .idx = 2, .value = 0.35 } } },
@@ -837,7 +898,9 @@ pub const presets = [_]Preset{
             .{ .source = .keytrack, .dest = 21,  .depth = 0.2 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "chorus", "" }),
         .gain = 0.28,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.6 }, .{ .idx = 2, .value = 0.35 } } },
@@ -855,7 +918,9 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = dP,  .depth = 0.012 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "chorus", "" }),
         .gain = 0.24,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.9 }, .{ .idx = 1, .value = 6 } } },
@@ -881,6 +946,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac3, .dest = 3, .depth = 0.3, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "sync", "sweep", "" }),
         .gain = 0.72,
     }, .fx = &.{
         .{ .kind = .phaser, .params = &.{ .{ .idx = 1, .value = 0.8 }, .{ .idx = 2, .value = 0.45 }, .{ .idx = 3, .value = 0.35 } } },
@@ -897,7 +963,9 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = dP,  .depth = 0.022 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 185, .depth = -0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "wave", "echo", "" }),
         .gain = 0.3,
     }, .fx = &.{
         .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.33 }, .{ .idx = 1, .value = 0.55 }, .{ .idx = 2, .value = 0.35 } } },
@@ -916,7 +984,9 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 186,  .depth = -0.2 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
+        .macro_labels = macros(.{ "brightness", "wave", "chorus", "" }),
         .gain = 0.27,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 0.3 } } },
@@ -936,7 +1006,9 @@ pub const presets = [_]Preset{
             .{ .source = .lfo2, .dest = 185,  .depth = -0.25 },
             .{ .source = .mac2, .dest = 185,  .depth = -0.3 },
             .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 0, .depth = -0.4, .fx_instance_id = 1 },
         }),
+        .macro_labels = macros(.{ "", "duty", "", "crush" }),
         .gain = 0.26,
     }, .fx = &.{
         .{ .kind = .crush, .params = &.{ .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 0.2 } } },
@@ -955,7 +1027,9 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = 21,  .depth = 0.15 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "space", "" }),
         .gain = 0.28,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 1, .value = 5 }, .{ .idx = 2, .value = 0.3 } } },
@@ -975,7 +1049,9 @@ pub const presets = [_]Preset{
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac3, .dest = 3, .depth = 0.3, .fx_instance_id = 2 },
             .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "phaser", "drive" }),
         .gain = 0.26,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 9 }, .{ .idx = 2, .value = 0.35 } } },
@@ -998,7 +1074,9 @@ pub const presets = [_]Preset{
             .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
             .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
+            .{ .source = .mac2, .dest = 4,   .depth = -0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "echo", "drive" }),
         .gain = 0.12,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 11 }, .{ .idx = 2, .value = 0.4 } } },
@@ -1020,6 +1098,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "", "breath", "space", "" }),
         .gain = 0.27,
     }, .fx = &.{
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.6 }, .{ .idx = 1, .value = 0.4 }, .{ .idx = 2, .value = 0.25 } } },
@@ -1042,13 +1121,14 @@ pub const presets = [_]Preset{
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.18, .fenv_sustain = 0.0, .fenv_release_s = 0.1, .fenv_curve = 0.7,
         .lfo_rate_hz = 4.5,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 15,  .depth = 0.16 },
+            .{ .source = .fenv,     .dest = 44,  .depth = 0.16 },
             .{ .source = .lfo,      .dest = dA,  .depth = 0.04 },
-            .{ .source = .velocity, .dest = 15,  .depth = 0.2 },
-            .{ .source = .random,   .dest = 15,  .depth = 0.015 },
-            .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
+            .{ .source = .velocity, .dest = 44,  .depth = 0.2 },
+            .{ .source = .random,   .dest = 44,  .depth = 0.015 },
+            .{ .source = .mac2,     .dest = 44,  .depth = 0.25 },
             .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
         }),
+        .macro_labels = macros(.{ "", "tine", "chorus", "" }),
         .gain = 0.3,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 1, .value = 4.5 }, .{ .idx = 2, .value = 0.4 } } },
@@ -1066,11 +1146,12 @@ pub const presets = [_]Preset{
         .sub_level = 0.3, .sub_shape = .sine,
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21, .depth = 0.3 },
-            .{ .source = .velocity, .dest = 15, .depth = 0.12 },
+            .{ .source = .velocity, .dest = 44, .depth = 0.12 },
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
-            .{ .source = .mac2,     .dest = 15, .depth = 0.2 },
+            .{ .source = .mac2,     .dest = 44, .depth = 0.2 },
         }),
+        .macro_labels = macros(.{ "brightness", "tine", "", "" }),
         .gain = 0.43,
     }, .fx = &.{
         .{ .kind = .comp, .params = &.{ .{ .idx = 2, .value = 8 }, .{ .idx = 3, .value = 90 } } },
@@ -1090,6 +1171,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 22, .depth = 0.2 },
         }),
+        .macro_labels = macros(.{ "brightness", "resonance", "", "" }),
         .gain = 0.25,
     }, .fx = &.{
         .{ .kind = .comp, .params = &.{ .{ .idx = 0, .value = -16 }, .{ .idx = 2, .value = 5 }, .{ .idx = 3, .value = 60 } } },
@@ -1109,7 +1191,9 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 2 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "echo", "" }),
         .gain = 0.39,
     }, .fx = &.{
         .{ .kind = .eq, .params = &.{ .{ .idx = 0, .value = 3 }, .{ .idx = 1, .value = 150 }, .{ .idx = 10, .value = 1000 }, .{ .idx = 18, .value = 4 }, .{ .idx = 19, .value = 6000 }, .{ .idx = 21, .value = 3 } } },
@@ -1133,6 +1217,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 47, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 22, .depth = 0.3 },
         }),
+        .macro_labels = macros(.{ "body", "resonance", "", "" }),
         .gain = 0.32,
     } },
 
@@ -1147,7 +1232,9 @@ pub const presets = [_]Preset{
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
             .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
+            .{ .source = .mac2, .dest = 185, .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "", "wave", "space", "" }),
         .gain = 0.28,
     }, .fx = &.{
         .{ .kind = .delay, .params = &.{ .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.2 } } },
@@ -1169,6 +1256,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac2, .dest = 22, .depth = 0.3 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "cutoff", "squeal", "", "" }),
         .gain = 0.62,
     } },
 
@@ -1183,6 +1271,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 22, .depth = 0.2 },
         }),
+        .macro_labels = macros(.{ "cutoff", "squelch", "", "" }),
         .gain = 0.95,
     }, .fx = &.{
         .{ .kind = .comp, .params = &.{ .{ .idx = 0, .value = -20 }, .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 12 }, .{ .idx = 3, .value = 110 } } },
@@ -1201,7 +1290,9 @@ pub const presets = [_]Preset{
             .{ .source = .lfo2, .dest = dP,  .depth = 0.02 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "space", "" }),
         .gain = 0.26,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.6 }, .{ .idx = 1, .value = 5 }, .{ .idx = 2, .value = 0.4 } } },
@@ -1220,7 +1311,11 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 0, .depth = -0.4, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 185, .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
         }),
+        .macro_labels = macros(.{ "brightness", "wave", "space", "dust" }),
         .gain = 0.3,
     }, .fx = &.{
         .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 11 }, .{ .idx = 1, .value = 2 }, .{ .idx = 2, .value = 0.3 } } },
@@ -1237,11 +1332,14 @@ pub const presets = [_]Preset{
         .attack_s = 0.001, .decay_s = 1.0, .sustain = 0.0, .release_s = 0.8, .env_curve = 0.7,
         .filter_type = .lp, .filter_cutoff = 5000.0, .filter_res = 0.0,
         .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 15, .depth = 0.12 },
-            .{ .source = .random,   .dest = 15,  .depth = 0.025 },
-            .{ .source = .mac2,     .dest = 15, .depth = 0.25 },
+            .{ .source = .velocity, .dest = 44, .depth = 0.12 },
+            .{ .source = .random,   .dest = 44,  .depth = 0.025 },
+            .{ .source = .mac2,     .dest = 44, .depth = 0.25 },
             .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 0, .depth = -0.4, .fx_instance_id = 1 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
         }),
+        .macro_labels = macros(.{ "", "bell", "space", "crush" }),
         .gain = 0.28,
     }, .fx = &.{
         .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 12 }, .{ .idx = 1, .value = 2 }, .{ .idx = 2, .value = 0.35 } } },
@@ -1262,7 +1360,9 @@ pub const presets = [_]Preset{
             .{ .source = .lfo2, .dest = dP,  .depth = 0.02 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 185, .depth = -0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "wave", "space", "" }),
         .gain = 0.28,
     }, .fx = &.{
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.75 }, .{ .idx = 1, .value = 0.6 }, .{ .idx = 2, .value = 0.35 } } },
@@ -1309,7 +1409,9 @@ pub const presets = [_]Preset{
             .{ .source = .mac2, .dest = 22, .depth = 0.2 },
             .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 3 },
         }),
+        .macro_labels = macros(.{ "vowel", "scream", "echo", "drive" }),
         .gain = 0.06,
     }, .fx = &.{
         .{ .kind = .eq, .params = &.{ .{ .idx = 0, .value = 3 }, .{ .idx = 1, .value = 150 }, .{ .idx = 10, .value = 750 }, .{ .idx = 11, .value = 1 }, .{ .idx = 12, .value = 4 }, .{ .idx = 18, .value = 4 }, .{ .idx = 19, .value = 6000 } } },
@@ -1332,7 +1434,9 @@ pub const presets = [_]Preset{
             .{ .source = .mac2, .dest = 42, .depth = 0.4 },
             .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
             .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 0, .depth = -0.4, .fx_instance_id = 2 },
         }),
+        .macro_labels = macros(.{ "brightness", "warp", "", "destroy" }),
         .gain = 0.11,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 20 }, .{ .idx = 2, .value = 0.7 } } },
@@ -1347,11 +1451,12 @@ pub const presets = [_]Preset{
         .attack_s = 0.001, .decay_s = 0.5, .sustain = 0.05, .release_s = 0.35, .env_curve = 0.7,
         .filter_type = .lp, .filter_cutoff = 9000.0, .filter_res = 0.05,
         .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 15,  .depth = 0.15 },
-            .{ .source = .random,   .dest = 15,  .depth = 0.018 },
-            .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
+            .{ .source = .velocity, .dest = 44,  .depth = 0.15 },
+            .{ .source = .random,   .dest = 44,  .depth = 0.018 },
+            .{ .source = .mac2,     .dest = 44,  .depth = 0.25 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
         }),
+        .macro_labels = macros(.{ "", "tine", "space", "" }),
         .gain = 0.3,
     }, .fx = &.{
         .{ .kind = .ott, .params = &.{ .{ .idx = 0, .value = 0.4 }, .{ .idx = 3, .value = -6 } } },
@@ -1374,7 +1479,9 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
             .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 2 },
             .{ .source = .mac4, .dest = 2, .depth = 0.25, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "space", "drive" }),
         .gain = 0.28,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 7 }, .{ .idx = 2, .value = 0.12 } } },
@@ -1395,6 +1502,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac2, .dest = 185, .depth = 0.3 },
             .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 2 },
         }),
+        .macro_labels = macros(.{ "brightness", "wave", "space", "" }),
         .gain = 0.24,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.35 }, .{ .idx = 1, .value = 5 }, .{ .idx = 2, .value = 0.3 } } },
@@ -1432,6 +1540,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac4, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "vowel", "vowel", "echo", "drive" }),
         .gain = 0.13,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 2, .value = 0.35 } } },
@@ -1452,7 +1561,9 @@ pub const presets = [_]Preset{
             .{ .source = .mac2, .dest = 185, .depth = 0.35 },
             .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 2 },
             .{ .source = .mac4, .dest = 2, .depth = 0.25, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 0, .depth = -0.4, .fx_instance_id = 1 },
         }),
+        .macro_labels = macros(.{ "brightness", "wave", "space", "crush" }),
         .gain = 0.23,
     }, .fx = &.{
         .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 10 }, .{ .idx = 1, .value = 2 }, .{ .idx = 2, .value = 0.12 } } },
@@ -1473,6 +1584,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac2,     .dest = 185, .depth = 0.4 },
             .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
         }),
+        .macro_labels = macros(.{ "brightness", "wave", "", "drive" }),
         .gain = 1.0,
     }, .fx = &.{
         .{ .kind = .comp, .params = &.{ .{ .idx = 2, .value = 6 } } },
@@ -1492,6 +1604,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 3 },
             .{ .source = .mac4, .dest = 2, .depth = 0.2, .fx_instance_id = 1 },
         }),
+        .macro_labels = macros(.{ "brightness", "wave", "space", "drive" }),
         .gain = 0.22,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 5 }, .{ .idx = 2, .value = 0.08 } } },
@@ -1513,6 +1626,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac2,     .dest = 22,  .depth = 0.2 },
             .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
         }),
+        .macro_labels = macros(.{ "brightness", "resonance", "echo", "" }),
         .gain = 0.32,
     }, .fx = &.{
         .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.33 }, .{ .idx = 1, .value = 0.26 }, .{ .idx = 2, .value = 0.14 } } },
@@ -1532,6 +1646,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "wave", "chorus", "" }),
         .gain = 0.31,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.55 }, .{ .idx = 1, .value = 3.5 }, .{ .idx = 2, .value = 0.22 } } },
@@ -1551,6 +1666,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac3, .dest = 2, .depth = 0.55, .fx_instance_id = 2 },
             .{ .source = .mac4, .dest = 2, .depth = 0.22, .fx_instance_id = 1 },
         }),
+        .macro_labels = macros(.{ "brightness", "resonance", "echo", "drive" }),
         .gain = 0.3,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 5 }, .{ .idx = 2, .value = 0.1 } } },
@@ -1570,6 +1686,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac2, .dest = 185,   .depth = -0.25 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
+        .macro_labels = macros(.{ "brightness", "bubble", "space", "" }),
         .gain = 0.32,
     }, .fx = &.{
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.45 }, .{ .idx = 1, .value = 0.65 }, .{ .idx = 2, .value = 0.2 } } },
@@ -1584,13 +1701,14 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 4200.0, .filter_res = 0.04,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.16, .fenv_sustain = 0.0, .fenv_release_s = 0.1,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 15,  .depth = 0.1 },
-            .{ .source = .velocity, .dest = 15,  .depth = 0.16 },
-            .{ .source = .random,   .dest = 15,  .depth = 0.015 },
+            .{ .source = .fenv,     .dest = 44,  .depth = 0.1 },
+            .{ .source = .velocity, .dest = 44,  .depth = 0.16 },
+            .{ .source = .random,   .dest = 44,  .depth = 0.015 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.35 },
-            .{ .source = .mac2,     .dest = 15,  .depth = 0.25 },
+            .{ .source = .mac2,     .dest = 44,  .depth = 0.25 },
             .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
         }),
+        .macro_labels = macros(.{ "brightness", "tine", "chorus", "" }),
         .gain = 0.3,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 3.5 }, .{ .idx = 2, .value = 0.24 } } },
@@ -1621,7 +1739,9 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = 22,  .depth = 0.15 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "sweep", "detune", "space", "" }),
         .gain = 0.26,
     }, .fx = &.{
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.85 }, .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.35 } } },
@@ -1641,9 +1761,11 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .fenv, .dest = 21,  .depth = 0.75 },
             .{ .source = .env3, .dest = dP,  .depth = -0.6 },
-            .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac1, .dest = 21,  .depth = -0.5 },
             .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "sweep", "detune", "space", "" }),
         .gain = 0.26,
     }, .fx = &.{
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.9 }, .{ .idx = 2, .value = 0.4 } } },
@@ -1666,7 +1788,9 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac3, .dest = 2, .depth = 0.5, .fx_instance_id = 2 },
             .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 34,  .depth = 0.3 },
         }),
+        .macro_labels = macros(.{ "", "sub", "boom", "drive" }),
         .gain = 0.3,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 10 }, .{ .idx = 2, .value = 0.35 } } },
@@ -1690,7 +1814,9 @@ pub const presets = [_]Preset{
             .{ .source = .lfo2, .dest = dA,  .depth = -0.25 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 22,  .depth = 0.25 },
         }),
+        .macro_labels = macros(.{ "air", "resonance", "space", "" }),
         .gain = 0.16,
     }, .fx = &.{
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.9 }, .{ .idx = 1, .value = 0.5 }, .{ .idx = 2, .value = 0.4 } } },
@@ -1711,7 +1837,9 @@ pub const presets = [_]Preset{
             .{ .source = .env3, .dest = 21, .depth = -0.3 },
             .{ .source = .mac1, .dest = 21, .depth = 0.4 },
             .{ .source = .mac4, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 34,  .depth = 0.3 },
         }),
+        .macro_labels = macros(.{ "tone", "sub", "", "drive" }),
         .gain = 0.34,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 6 }, .{ .idx = 2, .value = 0.2 } } },
@@ -1733,11 +1861,12 @@ pub const presets = [_]Preset{
         .env3_attack_s = 0.001, .env3_decay_s = 0.05, .env3_sustain = 0.0, .env3_release_s = 0.05, .env3_curve = 0.85,
         .mod_matrix = mods(&.{
             .{ .source = .env3,     .dest = dP, .depth = 0.25 },
-            .{ .source = .fenv,     .dest = 15, .depth = 0.3 },
-            .{ .source = .velocity, .dest = 15, .depth = 0.25 },
+            .{ .source = .fenv,     .dest = 44, .depth = 0.3 },
+            .{ .source = .velocity, .dest = 44, .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
-            .{ .source = .mac2,     .dest = 15, .depth = 0.35 },
+            .{ .source = .mac2,     .dest = 44, .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "knock", "", "" }),
         .gain = 0.57,
     }, .fx = &.{
         .{ .kind = .comp, .params = &.{ .{ .idx = 1, .value = 3.5 }, .{ .idx = 2, .value = 8 }, .{ .idx = 3, .value = 90 } } },
@@ -1758,8 +1887,11 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21,  .depth = 0.3 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.35 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac1, .dest = 185, .depth = 0.3 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 185, .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "wave", "chorus", "" }),
         .gain = 0.28,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.4 }, .{ .idx = 1, .value = 6 }, .{ .idx = 2, .value = 0.35 } } },
@@ -1779,12 +1911,13 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 4600.0, .filter_res = 0.04,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.025, .fenv_sustain = 0.0, .fenv_release_s = 0.05, .fenv_curve = 0.9,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 15,  .depth = 0.6 },
+            .{ .source = .fenv,     .dest = 44,  .depth = 0.6 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.3 },
-            .{ .source = .velocity, .dest = 15,  .depth = 0.3 },
-            .{ .source = .mac2,     .dest = 15,  .depth = 0.35 },
+            .{ .source = .velocity, .dest = 44,  .depth = 0.3 },
+            .{ .source = .mac2,     .dest = 44,  .depth = 0.35 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
         }),
+        .macro_labels = macros(.{ "", "mallet", "echo", "" }),
         .gain = 0.32,
     }, .fx = &.{
         .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.187 }, .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.18 } } },
@@ -1808,7 +1941,9 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 185, .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "wave", "echo", "" }),
         .gain = 0.32,
     }, .fx = &.{
         .{ .kind = .delay, .params = &.{ .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.2 } } },
@@ -1829,7 +1964,9 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.45 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
             .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 2 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "space", "" }),
         .gain = 0.3,
     }, .fx = &.{
         .{ .kind = .comp, .params = &.{ .{ .idx = 0, .value = -16 }, .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 6 }, .{ .idx = 3, .value = 70 } } },
@@ -1853,7 +1990,9 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac4, .dest = 2, .depth = 0.45, .fx_instance_id = 2 },
+            .{ .source = .mac2, .dest = 34,  .depth = 0.3 },
         }),
+        .macro_labels = macros(.{ "brightness", "sub", "", "drive" }),
         .gain = 0.49,
     }, .fx = &.{
         .{ .kind = .comp, .params = &.{ .{ .idx = 0, .value = -20 }, .{ .idx = 2, .value = 12 }, .{ .idx = 3, .value = 130 } } },
@@ -1873,11 +2012,12 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 3400.0, .filter_res = 0.05,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.35, .fenv_sustain = 0.0, .fenv_release_s = 0.3, .fenv_curve = 0.6,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 15,  .depth = 0.3 },
-            .{ .source = .velocity, .dest = 15,  .depth = 0.2 },
-            .{ .source = .mac2,     .dest = 15,  .depth = 0.3 },
+            .{ .source = .fenv,     .dest = 44,  .depth = 0.3 },
+            .{ .source = .velocity, .dest = 44,  .depth = 0.2 },
+            .{ .source = .mac2,     .dest = 44,  .depth = 0.3 },
             .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 2 },
         }),
+        .macro_labels = macros(.{ "", "bell", "space", "" }),
         .gain = 0.24,
     }, .fx = &.{
         .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.333 }, .{ .idx = 1, .value = 0.32 }, .{ .idx = 2, .value = 0.2 } } },
@@ -1901,7 +2041,9 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.5 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "space", "" }),
         .gain = 0.26,
     }, .fx = &.{
         .{ .kind = .eq, .params = &.{ .{ .idx = 0, .value = 3 }, .{ .idx = 1, .value = 120 }, .{ .idx = 3, .value = 3 }, .{ .idx = 10, .value = 1000 }, .{ .idx = 18, .value = 4 }, .{ .idx = 19, .value = 5000 }, .{ .idx = 21, .value = -4 } } },
@@ -1923,7 +2065,10 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21, .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 0, .depth = -0.4, .fx_instance_id = 2 },
+            .{ .source = .mac2, .dest = 22,  .depth = 0.25 },
         }),
+        .macro_labels = macros(.{ "brightness", "resonance", "", "tape dirt" }),
         .gain = 0.28,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 11 }, .{ .idx = 2, .value = 0.35 } } },
@@ -1942,11 +2087,12 @@ pub const presets = [_]Preset{
         .attack_s = 0.02, .decay_s = 0.9, .sustain = 0.15, .release_s = 0.8, .env_curve = 0.45,
         .filter_type = .lp, .filter_cutoff = 6000.0, .filter_res = 0.03,
         .mod_matrix = mods(&.{
-            .{ .source = .velocity, .dest = 15,  .depth = 0.15 },
-            .{ .source = .random,   .dest = 15,  .depth = 0.02 },
-            .{ .source = .mac2,     .dest = 15,  .depth = 0.3 },
+            .{ .source = .velocity, .dest = 44,  .depth = 0.15 },
+            .{ .source = .random,   .dest = 44,  .depth = 0.02 },
+            .{ .source = .mac2,     .dest = 44,  .depth = 0.3 },
             .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 3 },
         }),
+        .macro_labels = macros(.{ "", "glass", "space", "" }),
         .gain = 0.24,
     }, .fx = &.{
         .{ .kind = .ott, .params = &.{ .{ .idx = 0, .value = 0.65 }, .{ .idx = 3, .value = -7 } } },
@@ -1971,7 +2117,9 @@ pub const presets = [_]Preset{
             .{ .source = .keytrack, .dest = 21,  .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 185, .depth = -0.35 },
         }),
+        .macro_labels = macros(.{ "bite", "wave", "space", "" }),
         .gain = 0.3,
     }, .fx = &.{
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.45 }, .{ .idx = 1, .value = 0.5 }, .{ .idx = 2, .value = 0.22 } } },
@@ -1994,7 +2142,10 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21, .depth = 0.2 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.35 },
             .{ .source = .mac4, .dest = 2, .depth = 0.45, .fx_instance_id = 2 },
+            .{ .source = .mac2, .dest = 34,  .depth = 0.3 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 3 },
         }),
+        .macro_labels = macros(.{ "brightness", "sub", "space", "rumble" }),
         .gain = 0.24,
     }, .fx = &.{
         .{ .kind = .eq, .params = &.{ .{ .idx = 0, .value = 3 }, .{ .idx = 1, .value = 150 }, .{ .idx = 10, .value = 1000 }, .{ .idx = 18, .value = 4 }, .{ .idx = 21, .value = -10 } } },
@@ -2018,7 +2169,9 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
             .{ .source = .mac3, .dest = 2, .depth = 0.5, .fx_instance_id = 2 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "hall", "" }),
         .gain = 0.26,
     }, .fx = &.{
         .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.281 }, .{ .idx = 1, .value = 0.5 }, .{ .idx = 2, .value = 0.35 } } },
@@ -2045,6 +2198,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "wave", "echo", "" }),
         .gain = 0.33,
     }, .fx = &.{
         .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.375 }, .{ .idx = 1, .value = 0.45 }, .{ .idx = 2, .value = 0.3 } } },
@@ -2079,6 +2233,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac2, .dest = 185, .depth = 0.35 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
         }),
+        .macro_labels = macros(.{ "brightness", "wave", "space", "" }),
         .gain = 0.28,
     }, .fx = &.{
         .{ .kind = .ott, .params = &.{ .{ .idx = 0, .value = 0.45 }, .{ .idx = 3, .value = -6 } } },
@@ -2103,7 +2258,9 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
             .{ .source = .mac2,     .dest = 4,   .depth = 0.4 },
             .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 3 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "space", "drive" }),
         .gain = 0.24,
     }, .fx = &.{
         .{ .kind = .ott, .params = &.{ .{ .idx = 0, .value = 0.9 }, .{ .idx = 3, .value = -9 } } },
@@ -2128,7 +2285,9 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
             .{ .source = .mac2,     .dest = 185, .depth = 0.4 },
             .{ .source = .mac4, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
         }),
+        .macro_labels = macros(.{ "bite", "metal", "echo", "drive" }),
         .gain = 0.28,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 2, .value = 0.35 } } },
@@ -2150,7 +2309,9 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.35 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
             .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 22,  .depth = 0.25 },
         }),
+        .macro_labels = macros(.{ "bite", "resonance", "echo", "" }),
         .gain = 0.3,
     }, .fx = &.{
         .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.21 }, .{ .idx = 1, .value = 0.28 }, .{ .idx = 2, .value = 0.2 } } },
@@ -2174,7 +2335,9 @@ pub const presets = [_]Preset{
             .{ .source = .keytrack, .dest = 21,  .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
             .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 2 },
+            .{ .source = .mac2, .dest = 185, .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "wave", "space", "" }),
         .gain = 0.3,
     }, .fx = &.{
         .{ .kind = .comp, .params = &.{ .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 8 }, .{ .idx = 3, .value = 90 } } },
@@ -2198,9 +2361,12 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,      .dest = 21,  .depth = 0.25 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.5 },
+            .{ .source = .mac1, .dest = 185, .depth = 0.3 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "detune", "echo", "" }),
         .gain = 1.0,
     }, .fx = &.{
         .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.3 }, .{ .idx = 1, .value = 0.4 } } },
@@ -2220,12 +2386,13 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 5500.0, .filter_res = 0.04,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.12, .fenv_sustain = 0.0, .fenv_release_s = 0.1, .fenv_curve = 0.7,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 15,  .depth = 0.35 },
-            .{ .source = .velocity, .dest = 15,  .depth = 0.2 },
-            .{ .source = .mac2,     .dest = 15,  .depth = 0.3 },
+            .{ .source = .fenv,     .dest = 44,  .depth = 0.35 },
+            .{ .source = .velocity, .dest = 44,  .depth = 0.2 },
+            .{ .source = .mac2,     .dest = 44,  .depth = 0.3 },
             .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 3 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "", "bell", "space", "" }),
         .gain = 0.31,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 1, .value = 4.5 }, .{ .idx = 2, .value = 0.28 } } },
@@ -2245,9 +2412,10 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21, .depth = 0.22 },
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
-            .{ .source = .mac2,     .dest = 11, .depth = 0.25 },
+            .{ .source = .mac2,     .dest = 11, .depth = 0.55 },
             .{ .source = .mac4, .dest = 2, .depth = 0.2, .fx_instance_id = 2 },
         }),
+        .macro_labels = macros(.{ "brightness", "layer", "", "drive" }),
         .gain = 0.89,
     }, .fx = &.{
         .{ .kind = .comp, .params = &.{ .{ .idx = 0, .value = -20 }, .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 14 }, .{ .idx = 3, .value = 120 } } },
@@ -2263,10 +2431,13 @@ pub const presets = [_]Preset{
         .mod_matrix = mods(&.{
             .{ .source = .velocity, .dest = 21,  .depth = 0.2 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.35 },
+            .{ .source = .mac1, .dest = 185, .depth = 0.3 },
             .{ .source = .mac2,     .dest = 11,  .depth = 0.22 },
             .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 3 },
             .{ .source = .mac4, .dest = 2, .depth = 0.28, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 0, .depth = -0.4, .fx_instance_id = 1 },
         }),
+        .macro_labels = macros(.{ "brightness", "layer", "space", "age" }),
         .gain = 0.26,
     }, .fx = &.{
         .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 12 }, .{ .idx = 1, .value = 2 }, .{ .idx = 2, .value = 0.14 } } },
@@ -2286,8 +2457,10 @@ pub const presets = [_]Preset{
             .{ .source = .keytrack, .dest = 21, .depth = 0.18 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.35 },
             .{ .source = .mac2,     .dest = 11, .depth = 0.22 },
-            .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.6, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 0, .depth = -0.4, .fx_instance_id = 1 },
         }),
+        .macro_labels = macros(.{ "brightness", "layer", "", "age" }),
         .gain = 0.46,
     }, .fx = &.{
         .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 12 }, .{ .idx = 1, .value = 2 }, .{ .idx = 2, .value = 0.16 } } },
@@ -2310,6 +2483,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
+        .macro_labels = macros(.{ "brightness", "wave", "echo", "" }),
         .gain = 0.42,
     }, .fx = &.{
         .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.28 }, .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.18 } } },
@@ -2421,4 +2595,27 @@ test "a macro label survives the patch round-trip and truncates rather than refu
     try std.testing.expectEqual(@as(u16, 0), PolySynth.macroSlot(99).?);
     try std.testing.expectEqual(@as(u16, 3), PolySynth.macroSlot(102).?);
     try std.testing.expect(PolySynth.macroSlot(98) == null);
+}
+
+test "every macro that does something is named, and no name sits on a dead knob" {
+    for (presets) |p| {
+        var wired: [4]bool = @splat(false);
+        for (p.patch.mod_matrix) |row| {
+            const slot: usize = switch (row.source) {
+                .mac1 => 0,
+                .mac2 => 1,
+                .mac3 => 2,
+                .mac4 => 3,
+                else => continue,
+            };
+            if (row.depth != 0) wired[slot] = true;
+        }
+        for (wired, p.patch.macro_labels, 0..) |on, label, i| {
+            errdefer std.debug.print("preset '{s}' macro {d}\n", .{ p.name, i + 1 });
+            // A knob with routes must say what it does; a knob with none
+            // must not claim to, or the name is a promise the patch cannot
+            // keep. `init` is deliberately blank on both counts.
+            try std.testing.expectEqual(on, label.slice().len > 0);
+        }
+    }
 }

@@ -2764,3 +2764,68 @@ test "save/load round-trip persists controllers and learned CCs, dropping target
     try testing.expectEqual(@as(u16, 1), loaded.engine.controllers[2].?.targets[0].?.track);
     try testing.expectEqual(@as(u7, 74), loaded.engine.cc_bindings[0].?.cc);
 }
+
+test "every named macro changes the sound it claims to" {
+    const testing = std.testing;
+    const presets_mod = @import("dsp/synth_presets.zig");
+    const dsp_device = @import("dsp/device.zig");
+
+    for (presets_mod.presets) |p| {
+        for (p.patch.macro_labels, 0..) |label, slot| {
+            if (label.slice().len == 0) continue;
+            // Both passes render the same patch from a fresh synth, so they are
+            // sample-aligned: the plainest measure of "did the knob do
+            // anything" is how far the two waveforms drift apart.
+            const span = 24 * 1024;
+            const ref = try testing.allocator.alloc(f32, span);
+            defer testing.allocator.free(ref);
+            var energy: [2]f64 = .{ 0, 0 };
+            var diff: f64 = 0;
+            for ([2]f32{ 0.0, 1.0 }, 0..) |amount, pass| {
+                var rack = Rack{
+                    .instrument = .{ .poly_synth = try PolySynth.init(testing.allocator, 48_000) },
+                    .label = "macro",
+                };
+                defer rack.deinit(testing.allocator);
+                var old = try applySynthPreset(testing.allocator, &rack, p, 48_000);
+                old.deinit(testing.allocator);
+                var chain_buf: [rack_mod.Rack.chain_cap]dsp_device.Device = undefined;
+                _ = rack.chain(&chain_buf); // hands the units the mod bus
+                const synth = &rack.instrument.poly_synth;
+                switch (slot) {
+                    0 => synth.macro1 = amount,
+                    1 => synth.macro2 = amount,
+                    2 => synth.macro3 = amount,
+                    else => synth.macro4 = amount,
+                }
+                // Not full velocity: a patch that routes velocity into cutoff is
+                // already at its ceiling there, which would read as a dead
+                // knob when the knob is fine at any playable level.
+                synth.noteOn(57, 0.6);
+                var buf: [1024]f32 = undefined;
+                for (0..24) |block| {
+                    @memset(&buf, 0);
+                    synth.processBlock(&buf);
+                    for (rack.fx.units.items) |unit| unit.device().process(&buf);
+                    for (buf, 0..) |s, k| {
+                        energy[pass] += @as(f64, s) * s;
+                        const at = block * 1024 + k;
+                        if (pass == 0) ref[at] = s else diff += @abs(@as(f64, s) - ref[at]);
+                    }
+                }
+            }
+            // Mean absolute drift against the pass-0 waveform, in units of that
+            // render's own RMS, so a quiet patch is judged on its own scale.
+            const rms = @sqrt(energy[0] / @as(f64, span));
+            const moved = (diff / @as(f64, span)) / @max(rms, 1e-9);
+            errdefer std.debug.print(
+                "preset '{s}' macro {d} '{s}': moved {d:.5}\n",
+                .{ p.name, slot + 1, label.slice(), moved },
+            );
+            // A named knob is a promise. Turning it from nothing to full has
+            // to do something audible - otherwise the name is a lie and the
+            // route is dead, which is exactly how the FX bindings sat broken.
+            try testing.expect(moved > 0.02);
+        }
+    }
+}
