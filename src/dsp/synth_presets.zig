@@ -461,12 +461,18 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21,  .depth = 0.45 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.35 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.5 },
-            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
             .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
-        .macro_labels = macros(.{ "brightness", "detune", "space", "" }),
+        .macro_labels = macros(.{ "brightness", "detune", "space", "grit" }),
         .gain = 0.3,
     }, .fx = &.{
+        // The chord stab this genre is named for came off an 8-bit sampler,
+        // and that machine's quantisation is part of the sound - a clean saw
+        // stab into a room is only half of it. Crush before the reverb, so
+        // the room sits around the grit rather than under it.
+        .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 8 }, .{ .idx = 1, .value = 2 }, .{ .idx = 2, .value = 0.3 } } },
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 1, .value = 0.5 }, .{ .idx = 2, .value = 0.18 } } },
     } },
 
