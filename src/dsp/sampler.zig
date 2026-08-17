@@ -277,14 +277,32 @@ pub const Sampler = struct {
         // (e.g. a bass note) never overlap themselves.
         if (self.mono or self.pad.retrig) self.resetAll();
 
-        // Reuse a free voice, else steal the oldest active one.
+        // ponytail: no steal declick here, unlike PolySynth and
+        // SoundfontPlayer - the fade would have to thread through pad.zig's
+        // shared renderVoice (the drum machine's path too). Preferring an
+        // already-released voice below keeps most steals quiet; add the
+        // `steal_tail`/`steal_fade` pair to `pad.Voice` if it ever clicks.
+        // Reuse a free voice, else steal - preferring one already released
+        // (a gated pad past its note-off) over one still holding its key, so
+        // a held note isn't cut while an inaudible tail survives. Age breaks
+        // ties within each group. A latched one-shot pad never sets
+        // `release_frames`, so it falls back to plain oldest-first.
         var slot: usize = 0;
         var oldest_age: u64 = std.math.maxInt(u64);
+        var stealing_released = false;
         for (&self.voices, 0..) |*nv, i| {
-            // zig fmt: off
-            if (!nv.active) { slot = i; break; }
-            if (nv.age < oldest_age) { oldest_age = nv.age; slot = i; }
-            // zig fmt: on
+            if (!nv.active) {
+                slot = i;
+                break;
+            }
+            const released = nv.v.release_frames >= 0.0;
+            const better = (released and !stealing_released) or
+                (released == stealing_released and nv.age < oldest_age);
+            if (better) {
+                stealing_released = released;
+                oldest_age = nv.age;
+                slot = i;
+            }
         }
         self.voices[slot] = .{
             .active = true,
@@ -583,6 +601,33 @@ test "note-off releases only oldest same-pitch voice" {
     try std.testing.expect(s.voices[1].v.release_frames < 0.0);
     s.releaseNote(60);
     try std.testing.expectEqual(@as(f64, 0.0), s.voices[1].v.release_frames);
+}
+
+test "voice stealing takes a released voice before a still-held older one" {
+    var s = try Sampler.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    s.pad.gate = true;
+
+    // Fill every slot: note 40 is the oldest, note 41 the second oldest.
+    const base: u7 = 40;
+    for (0..Sampler.max_voices) |i| s.trigger(base + @as(u7, @intCast(i)), 1.0, 0);
+    for (s.voices) |nv| try std.testing.expect(nv.active);
+
+    s.releaseNote(base + 1);
+    s.trigger(100, 1.0, 0);
+
+    var saw_oldest = false;
+    var saw_released = false;
+    var saw_new = false;
+    for (s.voices) |nv| {
+        if (!nv.active) continue;
+        if (nv.note == base) saw_oldest = true;
+        if (nv.note == base + 1) saw_released = true;
+        if (nv.note == 100) saw_new = true;
+    }
+    try std.testing.expect(saw_new);
+    try std.testing.expect(saw_oldest);
+    try std.testing.expect(!saw_released);
 }
 
 test "detectRootNote sets root_note from a melodic clip" {

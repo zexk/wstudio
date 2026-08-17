@@ -1098,13 +1098,29 @@ pub const Slicer = struct {
         // zig fmt: off
         if (pad_mod.playMode(&self.slices[slice]) == .retrigger) for (pool) |*sv| { sv.* = .{}; };
         // zig fmt: on
+        // ponytail: no steal declick here either, same pad.zig reason the
+        // Sampler's own steal comment gives.
+        // Free slot, else steal - a voice already past its note-off goes
+        // before one still holding its key, age breaking ties within each
+        // group. Same order `PolySynth.stealVoice` picks in
+        // (`quietest_release orelse oldest`); plain oldest-first would cut a
+        // held gated chop and spare an inaudible tail.
         var slot: usize = 0;
         var oldest_age: u64 = std.math.maxInt(u64);
+        var stealing_released = false;
         for (pool, 0..) |*sv, i| {
-            // zig fmt: off
-            if (!sv.active) { slot = i; break; }
-            if (sv.age < oldest_age) { oldest_age = sv.age; slot = i; }
-            // zig fmt: on
+            if (!sv.active) {
+                slot = i;
+                break;
+            }
+            const released = sv.v.release_frames >= 0.0;
+            const better = (released and !stealing_released) or
+                (released == stealing_released and sv.age < oldest_age);
+            if (better) {
+                stealing_released = released;
+                oldest_age = sv.age;
+                slot = i;
+            }
         }
         pool[slot] = .{
             .active = true,
