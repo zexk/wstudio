@@ -218,7 +218,8 @@ pub const presets = [_]Preset{
         .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.6666667, .osc_c_semi = -12.0, .osc_c_level = 0.4,
         .attack_s = 0.02, .decay_s = 0.3, .sustain = 0.6, .release_s = 0.2, .env_curve = 0.35,
         .filter_type = .lp, .filter_cutoff = 700.0, .filter_res = 0.1,
-        .fenv_attack_s = 0.015, .fenv_decay_s = 0.35, .fenv_sustain = 0.3, .fenv_release_s = 0.2, .fenv_curve = 0.4,
+        // Filter opening after the level, as on retro-brass.
+        .fenv_attack_s = 0.035, .fenv_decay_s = 0.35, .fenv_sustain = 0.3, .fenv_release_s = 0.2, .fenv_curve = 0.4,
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21, .depth = 0.625 },
             .{ .source = .velocity, .dest = 21, .depth = 0.4 },
@@ -603,7 +604,11 @@ pub const presets = [_]Preset{
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_semi = 0.0, .osc_b_detune_cents = 8.0, .osc_b_level = 0.8,
         .attack_s = 0.08, .decay_s = 0.4, .sustain = 0.75, .release_s = 0.3, .env_curve = -0.25,
         .filter_type = .lp, .filter_cutoff = 3000.0, .filter_res = 0.12,
-        .fenv_attack_s = 0.07, .fenv_decay_s = 0.5, .fenv_sustain = 0.5, .fenv_release_s = 0.3,
+        // Brass brightens into the note: the filter envelope has to open
+        // slower than the level rises, or the patch starts bright and dulls,
+        // which is a synth attack, not a horn one. All three of these had it
+        // the wrong way round.
+        .fenv_attack_s = 0.13, .fenv_decay_s = 0.5, .fenv_sustain = 0.5, .fenv_release_s = 0.3,
         .lfo_rate_hz = 5.0,
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21,  .depth = 0.3 },
@@ -1196,9 +1201,17 @@ pub const presets = [_]Preset{
         .attack_s = 0.05, .decay_s = 0.2, .sustain = 0.8, .release_s = 0.2,
         .filter_type = .lp, .filter_cutoff = 4000.0, .filter_res = 0.05,
         .lfo_rate_hz = 5.0,
+        // The chiff: a flute is breathiest at the instant the air hits the
+        // edge, not evenly across the note. Env3 puts a burst of noise on
+        // the onset over the standing breath level.
+        .env3_attack_s = 0.004, .env3_decay_s = 0.09, .env3_sustain = 0.0, .env3_release_s = 0.05, .env3_curve = 0.7,
         .mod_matrix = mods(&.{
+            .{ .source = .env3,     .dest = 36,  .depth = 0.18 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.45 },
-            .{ .source = .lfo,      .dest = dP,  .depth = 0.022 },
+            .{ .source = .lfo,      .dest = dP,  .depth = 0.006 },
+            // A flautist vibrates the air, not the tube: the pitch barely
+            // moves and the level does. This was all pitch.
+            .{ .source = .lfo,      .dest = dA,  .depth = 0.14 },
             .{ .source = .velocity, .dest = 36,  .depth = 0.15 },
             .{ .source = .random,   .dest = 36,  .depth = 0.04 },
             .{ .source = .mac2,     .dest = 36,  .depth = 0.2 },
@@ -2103,7 +2116,8 @@ pub const presets = [_]Preset{
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_semi = 12.0, .osc_b_detune_cents = 8.0, .osc_b_level = 0.35,
         .attack_s = 0.012, .decay_s = 0.22, .sustain = 0.45, .release_s = 0.18, .env_curve = 0.4,
         .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.15, .filter_drive = 1.8,
-        .fenv_attack_s = 0.006, .fenv_decay_s = 0.2, .fenv_sustain = 0.2, .fenv_release_s = 0.15, .fenv_curve = 0.5,
+        // Filter opening after the level, as on retro-brass.
+        .fenv_attack_s = 0.02, .fenv_decay_s = 0.2, .fenv_sustain = 0.2, .fenv_release_s = 0.15, .fenv_curve = 0.5,
         .mod_matrix = mods(&.{
             .{ .source = .keytrack, .dest = 21,  .depth = 0.45 },
             .{ .source = .fenv,     .dest = 21,  .depth = 0.5 },
