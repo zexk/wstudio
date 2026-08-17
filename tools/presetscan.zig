@@ -124,6 +124,16 @@ const Row = struct {
     /// the same sound however it is played.
     vel_db: f32 = 0,
     vel_tone: f32 = 0,
+    /// Level at the low and high probes against the middle one, in dB. A
+    /// patch whose filter does not follow the keyboard thins out or vanishes
+    /// at one end: playable in the octave it was voiced in, useless outside.
+    lo_db: f32 = 0,
+    hi_db: f32 = 0,
+    /// Octaves the centroid climbs from the low probe to the high one, over
+    /// the octaves the pitch climbed. 1 is a timbre that follows the
+    /// keyboard; 0 is a fixed filter the notes slide under, which dulls the
+    /// top of the range and thins the bottom.
+    track: f32 = 0,
     mod_rows: usize,
     fx_count: usize,
     arp: bool,
@@ -593,10 +603,22 @@ pub fn main(init: std.process.Init) !void {
             @abs(@log2(mid.centroid_hz / soft.centroid_hz))
         else
             0;
+        const dbOf = struct {
+            fn go(a: f32, b: f32) f32 {
+                return if (a > 1e-9 and b > 1e-9) 20.0 * @log10(a / b) else 0;
+            }
+        }.go;
         try rows.append(allocator, .{
             .name = p.name,
             .vel_db = vel_db,
             .vel_tone = vel_tone,
+            .lo_db = dbOf(features[0].rms, mid.rms),
+            .hi_db = dbOf(features[probes.len - 1].rms, mid.rms),
+            .track = if (features[0].centroid_hz > 1.0 and features[probes.len - 1].centroid_hz > 1.0)
+                @log2(features[probes.len - 1].centroid_hz / features[0].centroid_hz) /
+                    (@as(f32, @floatFromInt(probes[probes.len - 1].semi - probes[0].semi)) / 12.0)
+            else
+                0,
             .category = p.category,
             .tags = p.tags,
             .patch = p.patch,
@@ -665,7 +687,7 @@ pub fn main(init: std.process.Init) !void {
     try w.print("# nearest_* are the closest other preset by patch fields and by measured sound.\n\n", .{});
     try w.print("name\tcategory\ttags\tpeak\trms\tcrest\tattack_ms\tsustain\trelease_ms\tcentroid\tflatness", .{});
     for (0..band_count) |i| try w.print("\tb{d}", .{i + 1});
-    try w.print("\twidth\tlow_w\tcmod\tamod\tdc\tvel_db\tvel_tone\tmods\tfx\tarp\tnearest_patch\tpatch_d\tnearest_audio\taudio_d\n", .{});
+    try w.print("\twidth\tlow_w\tcmod\tamod\tdc\tvel_db\tvel_tone\tlo_db\thi_db\ttrack\tmods\tfx\tarp\tnearest_patch\tpatch_d\tnearest_audio\taudio_d\n", .{});
     for (rows.items) |r| {
         const f = r.f[probes.len / 2];
         try w.print("{s}\t{s}\t", .{ r.name, r.category });
@@ -678,10 +700,11 @@ pub fn main(init: std.process.Init) !void {
             f.sustain, f.release_ms, f.centroid_hz, f.flatness,
         });
         for (f.bands) |b| try w.print("\t{d:.2}", .{b});
-        try w.print("\t{d:.2}\t{d:.2}\t{d:.2}\t{d:.2}\t{d:.3}\t{d:.1}\t{d:.2}\t{d}\t{d}\t{s}\t{s}\t{d:.3}\t{s}\t{d:.3}\n", .{
+        try w.print("\t{d:.2}\t{d:.2}\t{d:.2}\t{d:.2}\t{d:.3}\t{d:.1}\t{d:.2}\t{d:.1}\t{d:.1}\t{d:.2}\t{d}\t{d}\t{s}\t{s}\t{d:.3}\t{s}\t{d:.3}\n", .{
             f.width,                       f.low_width,                   f.centroid_mod,
             f.amp_mod,                     f.dc,                          r.vel_db,
-            r.vel_tone,                    r.mod_rows,                    r.fx_count,
+            r.vel_tone,                    r.lo_db,                       r.hi_db,
+            r.track,                       r.mod_rows,                    r.fx_count,
             if (r.arp) "yes" else "no",    rows.items[r.near_patch].name, r.near_patch_d,
             rows.items[r.near_audio].name, r.near_audio_d,
         });
