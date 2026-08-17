@@ -2450,13 +2450,18 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
             .{ .source = .mac2,     .dest = 4,   .depth = 0.4 },
             .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
-            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 3 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 4 },
         }),
         .macro_labels = macros(.{ "brightness", "detune", "space", "drive" }),
         .gain = 0.24,
     }, .fx = &.{
         .{ .kind = .ott, .params = &.{ .{ .idx = 0, .value = 0.9 }, .{ .idx = 3, .value = -9 } } },
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 8 }, .{ .idx = 2, .value = 0.3 } } },
+        // The genre's surface is digital clipping, not just saturation: a
+        // soft curve rounds the peaks and a hard one squares them, and the
+        // squared one is the sound. Before the reverb, so the room is around
+        // a clipped stab rather than itself clipped.
+        .{ .kind = .clipper, .params = &.{ .{ .idx = 0, .value = 4 }, .{ .idx = 1, .value = -0.5 }, .{ .idx = 2, .value = 0 } } },
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.65 }, .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.22 } } },
     } },
 
