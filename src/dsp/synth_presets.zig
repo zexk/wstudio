@@ -187,7 +187,11 @@ pub const presets = [_]Preset{
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.22, .fenv_sustain = 0.0, .fenv_release_s = 0.1, .fenv_curve = 0.6,
         .mod_matrix = mods(&.{
             .{ .source = .fenv,     .dest = 21, .depth = 0.875 },
+            // Accent on the real thing is not just louder: it opens the filter AND
+            // kicks the resonance for that step, which is where the squelch
+            // comes from. Velocity carries both.
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
+            .{ .source = .velocity, .dest = 22, .depth = 0.15 },
             .{ .source = .keytrack, .dest = 21, .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.5 },
             .{ .source = .mac2,     .dest = 22, .depth = 0.25 },
@@ -586,6 +590,9 @@ pub const presets = [_]Preset{
     // bit-crush for the console DAC grit
     .{ .name = "chip-lead", .category = "lead", .tags = &.{ "wstudio", "chiptune" }, .patch = .{
         .wt_table = .basic, .wt_pos = 1.0, .voice_mode = .mono, .glide_s = 0.0,
+        // 25% duty, not the 50% a plain square gives: the NES melody voice is
+        // a narrow pulse, and bend pivots the phase so the square flips early.
+        .warp_mode = .bend, .warp_amount = 0.51,
         .attack_s = 0.001, .decay_s = 0.05, .sustain = 1.0, .release_s = 0.02,
         .filter_type = .lp, .filter_cutoff = 18_000.0, .filter_res = 0.0,
         .lfo_rate_hz = 6.0,
@@ -595,7 +602,7 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = dP, .depth = 0.03 },
             .{ .source = .lfo2, .dest = 185,  .depth = -0.12 },
             .{ .source = .alternate, .dest = 185, .depth = -0.08 },
-            .{ .source = .mac2, .dest = 185,  .depth = -0.3 },
+            .{ .source = .mac2, .dest = 42,   .depth = 0.45 },
             .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
             .{ .source = .mac4, .dest = 0, .depth = -0.4, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 185, .depth = -0.35 },
@@ -626,12 +633,15 @@ pub const presets = [_]Preset{
     // and it rips through two octaves at 12 Hz
     .{ .name = "chip-arp", .category = "pluck", .tags = &.{ "wstudio", "chiptune" }, .patch = .{
         .wt_table = .basic, .wt_pos = 1.0, .voice_mode = .mono, .glide_s = 0.0,
+        // 12.5%, the thinnest of the four the chip offers - what an NES arp
+        // uses to stay out of the way of the melody.
+        .warp_mode = .bend, .warp_amount = 0.765,
         .attack_s = 0.001, .decay_s = 0.06, .sustain = 0.0, .release_s = 0.02, .env_curve = 0.8,
         .filter_type = .lp, .filter_cutoff = 18_000.0, .filter_res = 0.0,
         .arp_on = true, .arp_mode = .up, .arp_octaves = 2, .arp_rate_hz = 12.0, .arp_sync = .n1_16, .arp_gate = 0.6,
         .mod_matrix = mods(&.{
             .{ .source = .keytrack, .dest = 21,  .depth = 0.45 },
-            .{ .source = .mac2, .dest = 185,  .depth = -0.3 },
+            .{ .source = .mac2, .dest = 42,   .depth = 0.45 },
             .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
             .{ .source = .mac4, .dest = 0, .depth = -0.4, .fx_instance_id = 1 },
         }),
@@ -718,6 +728,8 @@ pub const presets = [_]Preset{
             .{ .source = .fenv,     .dest = 21,  .depth = 0.75 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.35 },
             .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
+            // Same accent-into-resonance as acid-bass.
+            .{ .source = .velocity, .dest = 22,  .depth = 0.12 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.5 },
             .{ .source = .mac2,     .dest = 22,  .depth = 0.25 },
             .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
@@ -773,9 +785,17 @@ pub const presets = [_]Preset{
             .{ .source = .env3, .dest = 11, .depth = 0.5 },
             .{ .source = .mac1, .dest = 21, .depth = 0.4 },
             .{ .source = .mac2, .dest = 34, .depth = 0.4 },
+            // The rotor. A Hammond is never heard without a Leslie, and the
+            // swirl is amplitude and pitch together - the horn coming toward
+            // you and going away - so the same LFO drives level here and the
+            // chorus below smears the pitch after it.
+            .{ .source = .lfo,  .dest = dA, .depth = 0.18 },
+            .{ .source = .mac3, .dest = 2,  .depth = 0.4, .fx_instance_id = 1 },
         }),
-        .macro_labels = macros(.{ "brightness", "drawbar", "", "" }),
+        .macro_labels = macros(.{ "brightness", "drawbar", "rotor", "" }),
         .gain = 0.3,
+    }, .fx = &.{
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 4.5 }, .{ .idx = 1, .value = 5.0 }, .{ .idx = 2, .value = 0.35 } } },
     } },
 
     // === Round 2: fill each genre's remaining core roles ===
@@ -1008,6 +1028,9 @@ pub const presets = [_]Preset{
     // chiptune - square pad with basic-waveform motion and light crush
     .{ .name = "chip-pad", .category = "pad", .tags = &.{ "wstudio", "chiptune" }, .patch = .{
         .wt_table = .basic, .wt_pos = 1.0, .unison = 2, .unison_detune = 8.0,
+        // Starts at a plain 50% square - a pad wants the body - but the mode
+        // has to be on for the duty macro to have anything to move.
+        .warp_mode = .bend, .warp_amount = 0.0,
         .attack_s = 0.3, .decay_s = 0.4, .sustain = 0.8, .release_s = 0.5,
         .filter_type = .lp, .filter_cutoff = 18_000.0, .filter_res = 0.0,
         .lfo_rate_hz = 3.0,
@@ -1017,7 +1040,7 @@ pub const presets = [_]Preset{
             .{ .source = .keytrack, .dest = 21,  .depth = 0.45 },
             .{ .source = .lfo,  .dest = dP, .depth = 0.02 },
             .{ .source = .lfo2, .dest = 185,  .depth = -0.25 },
-            .{ .source = .mac2, .dest = 185,  .depth = -0.3 },
+            .{ .source = .mac2, .dest = 42,  .depth = 0.45 },
             .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
             .{ .source = .mac4, .dest = 0, .depth = -0.4, .fx_instance_id = 1 },
         }),
@@ -1246,7 +1269,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
             .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
-            .{ .source = .mac2, .dest = 185, .depth = 0.35 },
+            .{ .source = .mac2, .dest = 185, .depth = 0.4 },
         }),
         .macro_labels = macros(.{ "", "wave", "space", "" }),
         .gain = 0.28,
