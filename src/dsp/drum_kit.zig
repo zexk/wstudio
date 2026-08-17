@@ -179,6 +179,8 @@ pub const HatParams = struct {
     body_hz: f32 = 6500.0,
     air_hz: f32 = 9000.0,
     air_mix: f32 = 0.3,
+    /// Which cluster of squares the metal is built from - see `MetalSet`.
+    partials: MetalSet = .generic,
     /// Stick-hit layer, on top of the wash. A closed hat is already all
     /// transient, so this stays off (mix 0) there and only the long, slow
     /// crashes switch it on - see `metalHat`.
@@ -192,6 +194,21 @@ pub const HatParams = struct {
     ratchet_hz: f32 = 0.0,
 };
 
+/// Which six square oscillators the metal cluster runs on. `generic` is this
+/// library's own inharmonic set. `tr808` is the drum machine's actual bank,
+/// published in the circuit analysis of its cymbal: four hardwired
+/// oscillators at 205.3, 304.4, 369.6 and 522.7 Hz plus two factory-trimmed
+/// ones at 540 and 800 - the same 540/800 pair the cowbell taps off. The
+/// machine's hats, open hat and cymbal are all that one bank through
+/// different envelopes and filters, which is why they sound like each other
+/// and unlike anything else.
+pub const MetalSet = enum { generic, tr808 };
+
+const metal_sets = [_][6]f32{
+    .{ 317.0, 465.0, 540.0, 643.0, 791.0, 957.0 },
+    .{ 205.3, 304.4, 369.6, 522.7, 540.0, 800.0 },
+};
+
 /// Inharmonic metal cluster (six squares) highpassed to keep only the bright
 /// odd harmonics, shaped by `p.decay` and trimmed to `p.dur_s`.
 fn metalHat(allocator: std.mem.Allocator, sr: u32, p: HatParams) std.mem.Allocator.Error![]f32 {
@@ -199,8 +216,7 @@ fn metalHat(allocator: std.mem.Allocator, sr: u32, p: HatParams) std.mem.Allocat
     const buf = try allocator.alloc(f32, frames(sr, p.dur_s));
     var prng = std.Random.DefaultPrng.init(0x4a7e);
     const rand = prng.random();
-    // 808-ish inharmonic partials.
-    const freqs = [_]f32{ 317.0, 465.0, 540.0, 643.0, 791.0, 957.0 };
+    const freqs = metal_sets[@intFromEnum(p.partials)];
     var ph = [_]f32{0} ** 6;
     var body_hp: OnePole = .{};
     var air_hp: OnePole = .{};
@@ -761,10 +777,14 @@ pub const variants = [_]KitVariant{
             .drive = 1.1,
             .dur_s = 0.3,
         } }, .gain = 0.72, .tune = alt_snare },
-        .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.06, .decay = 90.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.45 },
-        .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.06, .decay = 90.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.40, .tune = alt_hat },
-        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.35, .decay = 10.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.45 },
-        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.77, .decay = 4.5, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2, .attack_mix = 0.5 } }, .gain = 0.50, .tune = alt_crash },
+        // This kit is the machine whose bank is published, so its metal runs
+        // on the real one: the hats, the open hat and the cymbal are all the
+        // same six squares, which is why on the hardware they sound like
+        // relatives of each other and of the cowbell.
+        .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .partials = .tr808, .dur_s = 0.06, .decay = 90.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.45 },
+        .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .partials = .tr808, .dur_s = 0.06, .decay = 90.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.40, .tune = alt_hat },
+        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .partials = .tr808, .dur_s = 0.35, .decay = 10.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.45 },
+        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .partials = .tr808, .dur_s = 0.77, .decay = 4.5, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2, .attack_mix = 0.5 } }, .gain = 0.50, .tune = alt_crash },
         .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
             .lp_hz = 2500.0,
             .hp_hz = 1000.0,
