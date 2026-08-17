@@ -111,10 +111,11 @@ const Features = struct {
     /// headroom, and any patch that ends with a non-zero level clicks when
     /// the voice is cut.
     dc: f32 = 0,
-    /// BS.1770 integrated loudness of the whole render. RMS cannot answer
-    /// "do these presets sit at the same level": it counts sub energy the
-    /// ear does not, so an 808 reads 15 dB over a lead that sounds louder.
-    /// K-weighting is the correction, and it is already in the codebase.
+    /// Loudest momentary (400 ms) BS.1770 reading of the render. RMS cannot
+    /// answer "do these presets sit at the same level": it counts sub energy
+    /// the ear does not, so an 808 reads 15 dB over a lead that sounds
+    /// louder. K-weighting is the correction, and it is already in the
+    /// codebase.
     lufs: f32 = 0,
 };
 
@@ -213,9 +214,19 @@ fn analyze(allocator: std.mem.Allocator, buf: []const Sample) !Features {
     f.rms = rmsOf(buf);
     f.crest = if (f.rms > 1e-9) f.peak / f.rms else 0;
     {
+        // Momentary (400 ms) rather than integrated: the render is one note
+        // in a fixed 3.5 s window, so an integrated reading is really a duty
+        // cycle measurement - a pluck that is over in 300 ms reads 13 dB
+        // under a pad that holds, without being any quieter to play. The
+        // loudest 400 ms is how loud the preset actually hits.
         var meter = ws.dsp.meter.LoudnessMeter.init(sample_rate);
-        meter.push(buf);
-        f.lufs = meter.integrated();
+        const chunk = 4800 * 2;
+        f.lufs = ws.dsp.meter.LoudnessMeter.floor_lufs;
+        var at: usize = 0;
+        while (at < buf.len) : (at += chunk) {
+            meter.push(buf[at..@min(at + chunk, buf.len)]);
+            f.lufs = @max(f.lufs, meter.momentary());
+        }
     }
     if (f.peak < 1e-6) return f; // silent patch: the rest would be noise
 
