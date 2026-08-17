@@ -972,12 +972,14 @@ test "slicer grid: advancing entry, pattern double, and source-order sequence" {
     app.view = .slicer_grid;
     app.slicerInst().sliceInto(4);
     app.slicerInst().setStepCount(8);
+    // One cell per storage step - see the drum grid's own advancing-entry test.
+    app.slicer_grid = .one_twenty_eighth;
 
     app.slicer_cursor = .{ 2, 1 };
     app.modal.count = 3;
     _ = slicer_ed.handleKey(&app, .{ .char = 'n' });
     try std.testing.expect(app.slicerInst().stepActive(2, 1));
-    try std.testing.expectEqual(@as(u16, 7), app.slicer_cursor[1]);
+    try std.testing.expectEqual(@as(u16, 4), app.slicer_cursor[1]);
 
     app.slicerInst().setStepVel(2, 1, 63);
     _ = slicer_ed.handleKey(&app, .{ .char = 'E' });
@@ -1291,12 +1293,16 @@ test "drum grid advancing entry and pattern double preserve velocity" {
     defer app.deinit();
     app.drum_track = 2;
     app.drumMachine().setStepCount(8);
+    // One cell per storage step: at the default sixteenth grid (stride 8) an
+    // 8-step pattern is a single column, and the cursor could not advance at
+    // all - see step_grid.moveGridClamped.
+    app.drum_grid = .one_twenty_eighth;
     app.drum_cursor = .{ 1, 0 };
 
     app.modal.count = 4;
     _ = drum_ed.handleKey(&app, .{ .char = 'n' });
     try std.testing.expect(app.drumMachine().stepActive(1, 0));
-    try std.testing.expectEqual(@as(u16, 7), app.drum_cursor[1]);
+    try std.testing.expectEqual(@as(u16, 4), app.drum_cursor[1]);
 
     app.drumMachine().setStepVel(1, 0, 95);
     _ = drum_ed.handleKey(&app, .{ .char = 'E' });
@@ -1423,6 +1429,38 @@ test "drum grid Z preserves adjacent off-grid hits" {
     try std.testing.expectEqualStrings("grid: 1/8", app.status_buf[0..app.status_len]);
 }
 
+test "drum step cursor stays on the grid after running into the right edge" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    app.drum_cursor = .{ 0, 0 };
+
+    const stride: u16 = @intCast(app.drum_grid.ticks());
+    const dm = app.drumMachine();
+    // Storage is 32 ticks per beat and the default grid is a sixteenth, so the
+    // pattern's last raw step (127) sits between columns. Walking into the
+    // right edge used to park the cursor there, and every step back kept the
+    // leftover offset - hits then landed off the column the grid highlights.
+    try std.testing.expect((dm.step_count - 1) % stride != 0);
+
+    for (0..dm.step_count) |_| _ = drum_ed.handleKey(&app, .{ .char = 'l' });
+    try std.testing.expectEqual(@as(u16, 0), app.drum_cursor[1] % stride);
+    try std.testing.expectEqual((dm.step_count - 1) / stride * stride, app.drum_cursor[1]);
+
+    // Coming back stays on the grid the whole way.
+    for (0..4) |_| {
+        _ = drum_ed.handleKey(&app, .{ .char = 'h' });
+        try std.testing.expectEqual(@as(u16, 0), app.drum_cursor[1] % stride);
+    }
+
+    // A coarser grid re-snaps rather than stranding the cursor mid-cell.
+    _ = drum_ed.handleKey(&app, .{ .char = 'z' });
+    _ = drum_ed.handleKey(&app, .{ .char = 'Z' });
+    _ = drum_ed.handleKey(&app, .{ .char = 'z' });
+    _ = drum_ed.handleKey(&app, .{ .char = 'G' });
+    try std.testing.expectEqual(@as(u16, 0), app.drum_cursor[1] % @as(u16, @intCast(app.drum_grid.ticks())));
+}
+
 test "drum grid g jumps the step cursor to the pattern start" {
     var app = try testApp();
     defer app.deinit();
@@ -1444,7 +1482,11 @@ test "drum grid G jumps the step cursor to the pattern end; C cycles choke group
 
     _ = drum_ed.handleKey(&app, .{ .char = 'g' });
     _ = drum_ed.handleKey(&app, .{ .char = 'G' });
-    try std.testing.expectEqual(app.drumMachine().step_count - 1, app.drum_cursor[1]);
+    // The last whole grid cell, not `step_count - 1`: storage runs at 32 ticks
+    // per beat and the default grid is a sixteenth (stride 8), so the pattern's
+    // final raw step is not a cell the grid draws.
+    const stride: u16 = @intCast(app.drum_grid.ticks());
+    try std.testing.expectEqual((app.drumMachine().step_count - 1) / stride * stride, app.drum_cursor[1]);
 
     try std.testing.expectEqual(@as(u8, 0), app.drumMachine().choke_group[0]);
     _ = drum_ed.handleKey(&app, .{ .char = 'C' });
@@ -2833,7 +2875,9 @@ test "drum grid visual-line mode selects a step range across pads for y/d/P" {
     for ("3l") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.{ .char = 'y' }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
-    try std.testing.expectEqual(@as(u16, 25), app.drum_range_clip.?.width);
+    // Four grid cells at a sixteenth grid (stride 8) - the range covers whole
+    // cells, so 32 storage steps rather than 25.
+    try std.testing.expectEqual(@as(u16, 32), app.drum_range_clip.?.width);
 
     // Paste at step 8 (all pads): P is a visual-mode action, so re-enter
     // visual first (V establishes the cursor as the paste point).
@@ -3037,22 +3081,24 @@ test "drum grid operator+motion: d3l / y3l act on a range without entering visua
     app.drum_track = 2;
     const dm = app.drumMachine();
     for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
-    dm.setStepCount(32);
+    dm.setStepCount(64);
     dm.toggleStep(0, 0);
     dm.toggleStep(1, 2);
-    dm.toggleStep(3, 30); // outside the range below
+    dm.toggleStep(3, 40); // outside the range below
 
     app.drum_cursor = .{ 0, 0 };
     for ("y3l") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
-    try std.testing.expectEqual(@as(u16, 25), app.drum_range_clip.?.width);
+    // 3l moves three grid cells; the range covers all four cells it spans, so
+    // at a sixteenth grid (stride 8) that is 32 storage steps, not 25.
+    try std.testing.expectEqual(@as(u16, 32), app.drum_range_clip.?.width);
     try std.testing.expectEqual(@as(u16, 24), app.drum_cursor[1]); // cursor follows the motion
 
     app.drum_cursor = .{ 0, 0 };
     for ("d3l") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expect(!dm.stepActive(0, 0));
     try std.testing.expect(!dm.stepActive(1, 2));
-    try std.testing.expect(dm.stepActive(3, 30)); // untouched, outside the range
+    try std.testing.expect(dm.stepActive(3, 40)); // untouched, outside the range
 
     // yy stays the whole-pattern yank (the cross-track copy vehicle); dd is
     // vim's line-delete where a "line" is the cursor pad's row - other
@@ -3063,10 +3109,10 @@ test "drum grid operator+motion: d3l / y3l act on a range without entering visua
     app.drum_cursor = .{ 2, 0 };
     for ("dd") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expect(!dm.stepActive(2, 5));
-    try std.testing.expect(dm.stepActive(3, 30)); // other pad untouched
+    try std.testing.expect(dm.stepActive(3, 40)); // other pad untouched
     app.drum_cursor = .{ 3, 0 };
     for ("dd") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expect(!dm.stepActive(3, 30));
+    try std.testing.expect(!dm.stepActive(3, 40));
 }
 
 test "drum grid char/word tiers: x clears just this cell, w/b jump by beat" {
@@ -5898,14 +5944,16 @@ test "count prefixes multiply editor motions and die with the next key" {
     app.drum_track = 2;
     for ("4l") |c| app.handleKey(.{ .char = c }, 0);
     try std.testing.expectEqual(@as(u16, 32), app.drum_cursor[1]);
+    // The edge is the last whole grid cell (248 at a sixteenth grid over 256
+    // storage steps), not the final raw step - see step_grid.moveGridClamped.
     for ("99l") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expectEqual(@as(u16, 255), app.drum_cursor[1]);
+    try std.testing.expectEqual(@as(u16, 248), app.drum_cursor[1]);
 
     // An unused count is discarded by the handled key it preceded ('p'
     // previews, no count) - the following motion moves 1, not 5.
     for ("5p") |c| app.handleKey(.{ .char = c }, 0);
     for ("h") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expectEqual(@as(u16, 247), app.drum_cursor[1]);
+    try std.testing.expectEqual(@as(u16, 240), app.drum_cursor[1]);
 
     // Arrangement: 3l = three bars.
     app.view = .arrangement;

@@ -99,6 +99,18 @@ pub fn selectionRange(comptime T: type, anchor: ?T, cursor: T) StepRange(T) {
     return .{ .lo = @min(a, cursor), .hi = @max(a, cursor) };
 }
 
+/// `selectionRange` for an axis whose cursor names a grid cell rather than a
+/// raw step. A cell covers `stride` raw steps, so the range has to run to the
+/// end of the cursor's cell: stopping at its first step would quietly drop the
+/// rest of the cell, and a selection dragged to the right edge would leave the
+/// pattern's tail steps behind. Same widening the arrangement editor does with
+/// `r.hi +| arr_grid.ticks()`.
+pub fn gridSelectionRange(comptime T: type, anchor: ?T, cursor: T, stride: usize, count: usize) StepRange(T) {
+    const r = selectionRange(T, anchor, cursor);
+    if (count == 0 or stride <= 1) return r;
+    return .{ .lo = r.lo, .hi = @intCast(@min(count - 1, @as(usize, r.hi) + stride - 1)) };
+}
+
 /// The row half of a 2D grid selection - the other axis to `StepRange`.
 pub const RowRange = struct {
     lo: usize,
@@ -146,6 +158,37 @@ pub fn moveClamped(cursor: anytype, delta: i32, count: usize) void {
     const top: i64 = @intCast(count - 1);
     const target = @as(i64, cursor.*) + delta;
     cursor.* = @intCast(std.math.clamp(target, 0, top));
+}
+
+/// Last raw step the grid can actually put a cursor on at `stride`: the start
+/// of the final whole cell, not `count - 1`. A pattern is rarely a whole
+/// number of cells at a coarse grid, and the leftover tail steps have no
+/// column of their own to sit in.
+pub fn lastGridStep(stride: usize, count: usize) usize {
+    if (count == 0 or stride == 0) return 0;
+    return (count - 1) / stride * stride;
+}
+
+/// Move a cursor by `delta` **grid cells** when the grid is coarser than the
+/// pattern's storage. The cursor is stored in raw steps, so this converts to a
+/// cell index, moves, clamps to the last whole cell, and converts back - which
+/// snaps the cursor back onto the grid as a side effect.
+///
+/// `moveClamped` is wrong for this axis even with a pre-multiplied delta: it
+/// clamps to `count - 1`, and whenever the pattern is not a whole number of
+/// cells that lands the cursor between columns. Every later move then keeps
+/// that offset, so hits get stamped on steps the grid never draws and the
+/// cursor visibly desyncs from the highlighted column (running the cursor to
+/// the right edge and back was the reproducer).
+pub fn moveGridClamped(cursor: anytype, delta: i32, stride: usize, count: usize) void {
+    if (count == 0 or stride == 0) {
+        cursor.* = 0;
+        return;
+    }
+    const s: i64 = @intCast(stride);
+    const top_cell: i64 = @intCast((count - 1) / stride);
+    const cell = @divFloor(@as(i64, cursor.*), s) + delta;
+    cursor.* = @intCast(std.math.clamp(cell, 0, top_cell) * s);
 }
 
 /// Resize a step pattern by `count` beats without narrowing count-prefix

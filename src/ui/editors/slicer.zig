@@ -93,7 +93,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
         },
         'g' => switch (key.char) {
             'g' => { step.* = 0; return true; },
-            'G' => { if (sl.step_count > 0) step.* = sl.step_count - 1; return true; },
+            'G' => { step.* = @intCast(step_grid.lastGridStep(app.slicer_grid.ticks(), sl.step_count)); return true; },
             else => {},
         },
         'z' => switch (key.char) {
@@ -458,6 +458,9 @@ fn zoom(app: *App, delta: i8) void {
     const next = if (delta > 0) app.slicer_grid.finer() else app.slicer_grid.coarser();
     if (next == app.slicer_grid) return;
     app.slicer_grid = next;
+    // See drum.zig's zoom: a coarser grid can strand the cursor between
+    // columns, so snap it onto the new cell.
+    moveStep(app, 0);
     app.setStatus("grid: {s}", .{app.slicer_grid.label()});
 }
 
@@ -505,9 +508,11 @@ pub fn recordNote(app: *App, pitch: u7, vel: u8) void {
     app.setStatus("rec: slice {d} step {d}", .{ slice + 1, step + 1 });
 }
 
-/// Move the step cursor by `delta` steps, clamped to the pattern length.
+/// Move the step cursor by `delta` grid cells, clamped to the last whole cell
+/// of the pattern - see step_grid.moveGridClamped on why the clamp has to be
+/// grid-aware rather than `step_count - 1`.
 fn moveStep(app: *App, delta: i32) void {
-    step_grid.moveClamped(&app.slicer_cursor[1], delta * @as(i32, @intCast(app.slicer_grid.ticks())), app.slicerInst().step_count);
+    step_grid.moveGridClamped(&app.slicer_cursor[1], delta, app.slicer_grid.ticks(), app.slicerInst().step_count);
 }
 
 /// Move the slice cursor by `delta` rows, clamped to the slice count.
@@ -646,7 +651,7 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
             },
             'G' => {
                 const sl = app.slicerInst();
-                if (sl.step_count > 0) app.slicer_cursor[1] = sl.step_count - 1;
+                app.slicer_cursor[1] = @intCast(step_grid.lastGridStep(app.slicer_grid.ticks(), sl.step_count));
                 return true;
             },
             // vim's `o`: bounce the cursor to the selection's other corner
@@ -689,7 +694,7 @@ fn sliceRange(app: *App) step_grid.RowRange {
 /// - the clipboard is heap-allocated to fit the range (see `StepRangeClip`).
 fn yankSelection(app: *App) void {
     const sl = app.slicerInst();
-    const r = step_grid.selectionRange(u16, app.slicer_visual_anchor, app.slicer_cursor[1]);
+    const r = step_grid.gridSelectionRange(u16, app.slicer_visual_anchor, app.slicer_cursor[1], app.slicer_grid.ticks(), sl.step_count);
     const rows = sliceRange(app);
     const clip = step_grid.yankRangeDyn(StepRangeClip, app.allocator, sl, rows, r) catch {
         app.setStatus("yank failed - out of memory", .{});
@@ -705,7 +710,7 @@ fn yankSelection(app: *App) void {
 /// Clear the selected slice band's steps within the selected range.
 fn deleteSelection(app: *App) void {
     const sl = app.slicerInst();
-    const r = step_grid.selectionRange(u16, app.slicer_visual_anchor, app.slicer_cursor[1]);
+    const r = step_grid.gridSelectionRange(u16, app.slicer_visual_anchor, app.slicer_cursor[1], app.slicer_grid.ticks(), sl.step_count);
     history.recordSlicer(app, app.slicer_track);
     step_grid.clearRange(sl, sliceRange(app), r);
     const width: u16 = r.hi - r.lo + 1;

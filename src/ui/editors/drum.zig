@@ -112,7 +112,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             },
             'G' => {
                 const dm = app.drumMachine();
-                if (dm.step_count > 0) step.* = dm.step_count - 1;
+                step.* = @intCast(step_grid.lastGridStep(app.drum_grid.ticks(), dm.step_count));
                 return true;
             },
             else => {},
@@ -409,9 +409,11 @@ fn stampNudgeVel(app: *App, delta: i32) void {
     app.setStatus("vel {d}", .{dm.stepVel(pad, step)});
 }
 
-/// Move the step cursor by `delta` steps, clamped to the pattern length.
+/// Move the step cursor by `delta` grid cells, clamped to the last whole cell
+/// of the pattern - see step_grid.moveGridClamped on why the clamp has to be
+/// grid-aware rather than `step_count - 1`.
 fn moveStep(app: *App, delta: i32) void {
-    step_grid.moveClamped(&app.drum_cursor[1], delta * @as(i32, @intCast(app.drum_grid.ticks())), app.drumMachine().step_count);
+    step_grid.moveGridClamped(&app.drum_cursor[1], delta, app.drum_grid.ticks(), app.drumMachine().step_count);
 }
 
 /// Move the pad cursor by `delta` rows, clamped to the pad count.
@@ -445,6 +447,9 @@ fn zoom(app: *App, delta: i8) void {
     const next = if (delta > 0) app.drum_grid.finer() else app.drum_grid.coarser();
     if (next == app.drum_grid) return;
     app.drum_grid = next;
+    // A coarser grid can leave the cursor between columns, which would stamp
+    // hits onto steps the grid no longer draws - snap it to the new cell.
+    moveStep(app, 0);
     app.setStatus("grid: {s}", .{app.drum_grid.label()});
 }
 
@@ -625,7 +630,7 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
             'g' => { app.drum_cursor[1] = 0; return true; },
             'G' => {
                 const dm = app.drumMachine();
-                if (dm.step_count > 0) app.drum_cursor[1] = dm.step_count - 1;
+                app.drum_cursor[1] = @intCast(step_grid.lastGridStep(app.drum_grid.ticks(), dm.step_count));
                 return true;
             },
             // vim's `o`: bounce the cursor to the selection's other corner so
@@ -671,7 +676,7 @@ fn padRange(app: *App) step_grid.RowRange {
 /// - the clipboard is heap-allocated to fit the range (see `StepRangeClip`).
 fn yankSelection(app: *App) void {
     const dm = app.drumMachine();
-    const r = step_grid.selectionRange(u16, app.drum_visual_anchor, app.drum_cursor[1]);
+    const r = step_grid.gridSelectionRange(u16, app.drum_visual_anchor, app.drum_cursor[1], app.drum_grid.ticks(), dm.step_count);
     const rows = padRange(app);
     const clip = step_grid.yankRangeDyn(StepRangeClip, app.allocator, dm, rows, r) catch {
         app.setStatus("yank failed - out of memory", .{});
@@ -688,7 +693,7 @@ fn yankSelection(app: *App) void {
 /// Clear the selected pad band's steps within the selected range.
 fn deleteSelection(app: *App) void {
     const dm = app.drumMachine();
-    const r = step_grid.selectionRange(u16, app.drum_visual_anchor, app.drum_cursor[1]);
+    const r = step_grid.gridSelectionRange(u16, app.drum_visual_anchor, app.drum_cursor[1], app.drum_grid.ticks(), dm.step_count);
     history.recordDrum(app, app.drum_track);
     step_grid.clearRange(dm, padRange(app), r);
     const width: u16 = r.hi - r.lo + 1;
