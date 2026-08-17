@@ -107,6 +107,10 @@ const Features = struct {
     /// Spread of the frame RMS over its mean across the hold: tremolo, gating
     /// and arp motion read high.
     amp_mod: f32 = 0,
+    /// Mean sample value over the hold, against the RMS. Offset costs
+    /// headroom, and any patch that ends with a non-zero level clicks when
+    /// the voice is cut.
+    dc: f32 = 0,
 };
 
 const Row = struct {
@@ -115,6 +119,11 @@ const Row = struct {
     tags: []const []const u8,
     patch: Patch,
     f: [probes.len]Features,
+    /// dB between a soft and a hard hit at the same note, and how far the
+    /// tone moves with it. A patch that answers the keyboard with neither is
+    /// the same sound however it is played.
+    vel_db: f32 = 0,
+    vel_tone: f32 = 0,
     mod_rows: usize,
     fx_count: usize,
     arp: bool,
@@ -189,6 +198,13 @@ fn analyze(allocator: std.mem.Allocator, buf: []const Sample) !Features {
     f.rms = rmsOf(buf);
     f.crest = if (f.rms > 1e-9) f.peak / f.rms else 0;
     if (f.peak < 1e-6) return f; // silent patch: the rest would be noise
+
+    {
+        var sum: f64 = 0;
+        for (0..hold_frames) |i| sum += @as(f64, buf[i * 2]) + buf[i * 2 + 1];
+        const mean = sum / @as(f64, @floatFromInt(hold_frames * 2));
+        f.dc = if (f.rms > 1e-9) @floatCast(@abs(mean) / f.rms) else 0;
+    }
 
     // Attack: first frame reaching 90% of peak.
     for (0..frames) |i| {
@@ -560,8 +576,27 @@ pub fn main(init: std.process.Init) !void {
             defer allocator.free(buf);
             features[i] = try analyze(allocator, buf);
         }
+        // A fourth render, same note as the middle probe but played softly,
+        // so velocity response is read on its own axis instead of being
+        // tangled up with register.
+        const soft = blk: {
+            const buf = try render(allocator, p, note, 0.25);
+            defer allocator.free(buf);
+            break :blk try analyze(allocator, buf);
+        };
+        const mid = features[probes.len / 2];
+        const vel_db: f32 = if (soft.rms > 1e-9 and mid.rms > 1e-9)
+            20.0 * @log10(mid.rms / soft.rms)
+        else
+            0;
+        const vel_tone: f32 = if (soft.centroid_hz > 1.0 and mid.centroid_hz > 1.0)
+            @abs(@log2(mid.centroid_hz / soft.centroid_hz))
+        else
+            0;
         try rows.append(allocator, .{
             .name = p.name,
+            .vel_db = vel_db,
+            .vel_tone = vel_tone,
             .category = p.category,
             .tags = p.tags,
             .patch = p.patch,
@@ -630,7 +665,7 @@ pub fn main(init: std.process.Init) !void {
     try w.print("# nearest_* are the closest other preset by patch fields and by measured sound.\n\n", .{});
     try w.print("name\tcategory\ttags\tpeak\trms\tcrest\tattack_ms\tsustain\trelease_ms\tcentroid\tflatness", .{});
     for (0..band_count) |i| try w.print("\tb{d}", .{i + 1});
-    try w.print("\twidth\tlow_w\tcmod\tamod\tmods\tfx\tarp\tnearest_patch\tpatch_d\tnearest_audio\taudio_d\n", .{});
+    try w.print("\twidth\tlow_w\tcmod\tamod\tdc\tvel_db\tvel_tone\tmods\tfx\tarp\tnearest_patch\tpatch_d\tnearest_audio\taudio_d\n", .{});
     for (rows.items) |r| {
         const f = r.f[probes.len / 2];
         try w.print("{s}\t{s}\t", .{ r.name, r.category });
@@ -643,9 +678,10 @@ pub fn main(init: std.process.Init) !void {
             f.sustain, f.release_ms, f.centroid_hz, f.flatness,
         });
         for (f.bands) |b| try w.print("\t{d:.2}", .{b});
-        try w.print("\t{d:.2}\t{d:.2}\t{d:.2}\t{d:.2}\t{d}\t{d}\t{s}\t{s}\t{d:.3}\t{s}\t{d:.3}\n", .{
+        try w.print("\t{d:.2}\t{d:.2}\t{d:.2}\t{d:.2}\t{d:.3}\t{d:.1}\t{d:.2}\t{d}\t{d}\t{s}\t{s}\t{d:.3}\t{s}\t{d:.3}\n", .{
             f.width,                       f.low_width,                   f.centroid_mod,
-            f.amp_mod,                     r.mod_rows,                    r.fx_count,
+            f.amp_mod,                     f.dc,                          r.vel_db,
+            r.vel_tone,                    r.mod_rows,                    r.fx_count,
             if (r.arp) "yes" else "no",    rows.items[r.near_patch].name, r.near_patch_d,
             rows.items[r.near_audio].name, r.near_audio_d,
         });

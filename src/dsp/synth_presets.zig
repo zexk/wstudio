@@ -533,6 +533,10 @@ pub const presets = [_]Preset{
         .warp_mode = .sync, .warp_amount = 0.08,
         .attack_s = 0.06, .decay_s = 0.3, .sustain = 0.8, .release_s = 0.4,
         .filter_type = .lp, .filter_cutoff = 4200.0, .filter_res = 0.1,
+        // Sync makes an asymmetric wave, and an asymmetric wave carries DC:
+        // measured at half this patch's own RMS, which is headroom spent on
+        // nothing audible. A 20 Hz highpass removes it and nothing else.
+        .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 20.0, .filter_routing = .series,
         .lfo2_rate_hz = 5.5, .lfo2_retrig = .key, .lfo2_phase_offset = 0.25,
         .env3_attack_s = 0.001, .env3_decay_s = 0.35, .env3_sustain = 0.0, .env3_release_s = 0.2, .env3_curve = 0.65,
         .mod_matrix = mods(&.{
@@ -934,6 +938,8 @@ pub const presets = [_]Preset{
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 6.0, .osc_b_level = 0.6,
         .attack_s = 0.008, .decay_s = 0.25, .sustain = 0.7, .release_s = 0.15,
         .filter_type = .ladder, .filter_cutoff = 1800.0, .filter_res = 0.4, .filter_drive = 3.2,
+        // Same sync-borne DC as synthwave-lead, same 20 Hz cure.
+        .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 20.0, .filter_routing = .series,
         .fenv_attack_s = 0.005, .fenv_decay_s = 0.3, .fenv_sustain = 0.3, .fenv_release_s = 0.15,
         .lfo_rate_hz = 5.0,
         .env3_attack_s = 0.001, .env3_decay_s = 0.25, .env3_sustain = 0.0, .env3_release_s = 0.15,
@@ -2617,5 +2623,20 @@ test "every macro that does something is named, and no name sits on a dead knob"
             // keep. `init` is deliberately blank on both counts.
             try std.testing.expectEqual(on, label.slice().len > 0);
         }
+    }
+}
+
+test "no preset cuts a sounding note fast enough to click" {
+    // An amp release shorter than a few milliseconds ends the note wherever
+    // the waveform happens to be, and a step from mid-cycle to zero is a
+    // click - the loudest thing a quiet patch can do. Only matters when the
+    // patch is still sounding at note-off, which is what sustain says.
+    for (presets) |p| {
+        if (p.patch.sustain <= 0.2) continue;
+        errdefer std.debug.print(
+            "preset '{s}' sustains at {d:.2} but releases in {d:.3}s\n",
+            .{ p.name, p.patch.sustain, p.patch.release_s },
+        );
+        try std.testing.expect(p.patch.release_s >= 0.02);
     }
 }
