@@ -21,9 +21,11 @@
 //! nothing.
 //!
 //! Macro convention (all four default to 0, so every patch sounds stock
-//! until a knob moves): MACRO 1 = brightness (cutoff; the vowel scan on
-//! formant patches), MACRO 2 = timbre motion (FM depth, waveform position, warp,
-//! wavetable pos, resonance), MACRO 3 = space (delay/reverb/chorus/phaser
+//! until a knob moves): MACRO 1 = brightness (cutoff; on a formant filter
+//! the same knob scans the vowel and is labelled "vowel", because past /i/
+//! it gets darker, not brighter), MACRO 2 = timbre motion (FM depth,
+//! waveform position, warp, wavetable pos, resonance),
+//! MACRO 3 = space (delay/reverb/chorus/phaser
 //! mix), MACRO 4 = grit (dist/crush mix). Only routes that fit the sound
 //! are wired, but every preset except init carries at least one.
 
@@ -1125,7 +1127,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
             .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
-        .macro_labels = macros(.{ "brightness", "detune", "space", "" }),
+        .macro_labels = macros(.{ "vowel", "detune", "space", "" }),
         .gain = 0.28,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 1, .value = 5 }, .{ .idx = 2, .value = 0.3 } } },
@@ -1655,7 +1657,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac2, .dest = 185, .depth = 0.3 },
             .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 2 },
         }),
-        .macro_labels = macros(.{ "brightness", "wave", "space", "" }),
+        .macro_labels = macros(.{ "vowel", "wave", "space", "" }),
         .gain = 0.24,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.35 }, .{ .idx = 1, .value = 5 }, .{ .idx = 2, .value = 0.3 } } },
@@ -1757,7 +1759,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac3, .dest = 2, .depth = 0.45, .fx_instance_id = 3 },
             .{ .source = .mac4, .dest = 2, .depth = 0.2, .fx_instance_id = 1 },
         }),
-        .macro_labels = macros(.{ "brightness", "wave", "space", "drive" }),
+        .macro_labels = macros(.{ "vowel", "wave", "space", "drive" }),
         .gain = 0.22,
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 5 }, .{ .idx = 2, .value = 0.08 } } },
