@@ -1840,11 +1840,17 @@ pub const presets = [_]Preset{
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
             .{ .source = .mac2, .dest = 185,   .depth = -0.25 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 2 },
         }),
         .macro_labels = macros(.{ "brightness", "bubble", "space", "" }),
         .gain = 0.32,
     }, .fx = &.{
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.45 }, .{ .idx = 1, .value = 0.65 }, .{ .idx = 2, .value = 0.2 } } },
+        // Dub keyboards are not heard dry into a room: the short tape slap
+        // with a couple of repeats is as much part of the sound as the
+        // organ, and the spring it feeds is already here. Damped, because
+        // tape loses the top on every pass.
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.11 }, .{ .idx = 1, .value = 0.38 }, .{ .idx = 2, .value = 0.28 }, .{ .idx = 3, .value = 0.45 } } },
     } },
 
     // soul: warm electric-piano body with velocity-controlled tine bark
@@ -1862,11 +1868,17 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21,  .depth = 0.35 },
             .{ .source = .mac2,     .dest = 44,  .depth = 0.25 },
             .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 3, .depth = 0.5, .fx_instance_id = 2 },
         }),
-        .macro_labels = macros(.{ "brightness", "tine", "chorus", "" }),
+        .macro_labels = macros(.{ "brightness", "tine", "chorus", "tremolo" }),
         .gain = 0.3,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 3.5 }, .{ .idx = 2, .value = 0.24 } } },
+        // The suitcase Rhodes has a stereo tremolo in its own amplifier, and
+        // the soul records this patch is named for are that instrument, not
+        // the bare tine. Shallow by default, with macro 4 opening it - the
+        // grit slot, since nothing in this chain distorts.
+        .{ .kind = .auto_pan, .params = &.{ .{ .idx = 0, .value = 5.0 }, .{ .idx = 3, .value = 0.3 } } },
     } },
 
     // === Round 4: the modern production toolkit ===
