@@ -23,6 +23,22 @@ fn clipSelectionValid(arrangement: *const ws.Arrangement, selection: ClipSelecti
     return selection.clip < clips.len and clips[selection.clip].start_tick == selection.start_tick;
 }
 
+/// Width of a fade ramp on a clip `clip_w` pixels wide. Fades are counted in
+/// timeline frames from the clip's edge (see `audio/engine.zig`'s region
+/// mixing), so they scale against the clip's frame span; one longer than the
+/// clip itself covers the whole box rather than running past it.
+fn fadeWidthPx(fade_frames: u64, clip_frames: u64, clip_w: f32) f32 {
+    if (fade_frames == 0 or clip_frames == 0) return 0;
+    return @min(clip_w, clip_w * @as(f32, @floatFromInt(fade_frames)) / @as(f32, @floatFromInt(clip_frames)));
+}
+
+test "a fade covers its share of the clip and never more than all of it" {
+    try std.testing.expectApproxEqAbs(@as(f32, 50), fadeWidthPx(24_000, 48_000, 100), 1e-4);
+    try std.testing.expectEqual(@as(f32, 100), fadeWidthPx(96_000, 48_000, 100));
+    try std.testing.expectEqual(@as(f32, 0), fadeWidthPx(0, 48_000, 100));
+    try std.testing.expectEqual(@as(f32, 0), fadeWidthPx(24_000, 0, 100));
+}
+
 pub fn draw(app: anytype) void {
     if (app.arrangement_clip) |selection| {
         if (!clipSelectionValid(&app.core.session.arrangement, selection)) app.arrangement_clip = null;
@@ -341,6 +357,20 @@ pub fn draw(app: anytype) void {
                     draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(ink), "AUDIO  {d}f  {d:.1}dB  {d}T", .{ region.source_length_frames, region.gain_db, region.takeCount() });
                     const mid = (pmin[1] + 22 + pmax[1]) * 0.5;
                     draw_list.addLine(.{ .p1 = .{ pmin[0] + 5, mid }, .p2 = .{ pmax[0] - 5, mid }, .col = color(.{ ink[0], ink[1], ink[2], 0.72 }), .thickness = 2 });
+                    // Fade ramps (`:clip-fade`, and the pair `:crossfade` writes)
+                    // are counted in timeline frames from each clip edge, so they
+                    // scale against the clip's own frame span rather than its
+                    // ticks - which keeps them honest across a tempo change.
+                    const clip_frames = proj.framesAtBeat(ws.time_grid.tickToBeat(clip.start_tick +| clip.length_ticks)) -|
+                        proj.framesAtBeat(ws.time_grid.tickToBeat(clip.start_tick));
+                    const body_top = @min(pmax[1], pmin[1] + 22);
+                    if (region.fade_in_frames > 0 or region.fade_out_frames > 0) {
+                        const fade_col = color(.{ ink[0], ink[1], ink[2], 0.8 });
+                        const w_in = fadeWidthPx(region.fade_in_frames, clip_frames, clip_w);
+                        const w_out = fadeWidthPx(region.fade_out_frames, clip_frames, clip_w);
+                        if (w_in > 0) draw_list.addLine(.{ .p1 = .{ pmin[0], pmax[1] }, .p2 = .{ @min(pmin[0] + w_in, pmax[0]), body_top }, .col = fade_col, .thickness = 2 });
+                        if (w_out > 0) draw_list.addLine(.{ .p1 = .{ @max(pmin[0], pmax[0] - w_out), body_top }, .p2 = .{ pmax[0], pmax[1] }, .col = fade_col, .thickness = 2 });
+                    }
                 },
             }
             drawAutomationPreview(app, draw_list, &clip, pmin, pmax);
