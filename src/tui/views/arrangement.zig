@@ -237,10 +237,13 @@ pub fn drawArrangement(
             const is_play = playhead == bar;
             const in_sel = visual_active and is_sel_lane and bar >= sel_lo and bar <= sel_hi;
 
-            // Drum clips wear their variant letter on the start cell.
+            // Drum clips wear their variant letter on the start cell, audio
+            // regions an 'A' - melodic clips stay plain, which is what the
+            // whole lane looked like before either mark existed.
             const letter: ?u8 = if (is_start) switch (clip.?.content) {
                 .drum => |d| ws.dsp.DrumMachine.variantLetter(d.variant),
-                .melodic, .audio => null,
+                .audio => 'A',
+                .melodic => null,
             } else null;
 
             if (is_cursor) {
