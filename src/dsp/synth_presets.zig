@@ -234,7 +234,11 @@ pub const presets = [_]Preset{
     // supersaw-lead - HP'd like the JP-8000's stack, macro 1 rides the
     // cutoff, wash of delay + reverb baked in
     .{ .name = "supersaw-lead", .category = "lead", .tags = &.{ "wstudio", "trance" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 8, .unison_detune = 22.0, .unison_spread = 0.85,
+        // Seven, not eight: the JP-8000 super saw is seven saws around a
+        // centre one that stays put, and `spread` mode only leaves a voice at
+        // centre when the count is odd. An even count detunes every voice off
+        // the played pitch, which is why the note itself sat slightly hollow.
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 7, .unison_detune = 22.0, .unison_spread = 0.85,
         .attack_s = 0.01, .decay_s = 0.2, .sustain = 0.8, .release_s = 0.3,
         .filter_type = .lp, .filter_cutoff = 6500.0, .filter_res = 0.15,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 180.0, .filter_routing = .series,
@@ -779,7 +783,13 @@ pub const presets = [_]Preset{
     // pulls in the sub drawbar
     .{ .name = "jazz-organ", .category = "keys", .tags = &.{ "wstudio", "jazz" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.0, .unison = 3, .unison_mode = .harmonic, .unison_detune = 100.0,
-        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_level = 0.4,
+        // Osc B is the percussion tab, not a drawbar: on a Hammond the plink
+        // is the third harmonic, it decays to nothing, and it is not part of
+        // the held tone. So B sits 19 semitones up at zero level and exists
+        // only for as long as env3 lifts it. It was the octave at a standing
+        // 0.4, which is a drawbar the Jimmy Smith 888000000 setting does not
+        // pull.
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 19.0, .osc_b_level = 0.0,
         .attack_s = 0.004, .decay_s = 0.05, .sustain = 1.0, .release_s = 0.08,
         .filter_type = .lp, .filter_cutoff = 6000.0, .filter_res = 0.0,
         .lfo_rate_hz = 6.5,
@@ -787,7 +797,7 @@ pub const presets = [_]Preset{
         .sub_level = 0.3, .sub_shape = .sine,
         .mod_matrix = mods(&.{
             .{ .source = .lfo,  .dest = dP, .depth = 0.01 },
-            .{ .source = .env3, .dest = 11, .depth = 0.5 },
+            .{ .source = .env3, .dest = 11, .depth = 0.55 },
             .{ .source = .mac1, .dest = 21, .depth = 0.4 },
             .{ .source = .mac2, .dest = 34, .depth = 0.4 },
             // The rotor. A Hammond is never heard without a Leslie, and the
@@ -1303,12 +1313,17 @@ pub const presets = [_]Preset{
     // g-funk - the squelchy resonant portamento worm; ladder filter for the
     // Moog squelch, macro 1 is the wah pedal
     .{ .name = "funky-worm", .category = "lead", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.3333333, .voice_mode = .mono, .glide_s = 0.1,
+        // Every account of this line - an ARP Pro Soloist, later chased with
+        // a Minimoog - describes the same simple thing: a sawtooth, glide,
+        // and a filter kept low enough to leave a whine rather than a buzz.
+        // It was a triangle, which is the whistle sound one preset over.
+        .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.1,
         .attack_s = 0.005, .decay_s = 0.3, .sustain = 0.7, .release_s = 0.15,
         .filter_type = .ladder, .filter_cutoff = 1200.0, .filter_res = 0.55, .filter_drive = 3.0,
         .fenv_attack_s = 0.004, .fenv_decay_s = 0.25, .fenv_sustain = 0.4, .fenv_release_s = 0.12,
         .lfo2_rate_hz = 5.0,
         .mod_matrix = mods(&.{
+            .{ .source = .keytrack, .dest = 21, .depth = 0.45 },
             .{ .source = .fenv, .dest = 21, .depth = 0.3 },
             .{ .source = .lfo2, .dest = dP, .depth = 0.02 },
             .{ .source = .mac1, .dest = 21, .depth = 0.7 },
