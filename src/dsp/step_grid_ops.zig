@@ -255,12 +255,24 @@ pub fn scanBlock(self: anytype, lane_len: []const u16, lane_count: usize, frames
     const swing_pct = self.swing.load(.monotonic);
     var step_k = self.next_step_k;
 
-    // Resync on discontinuity (seek, loop, first play after stop).
+    // Resync on discontinuity (seek, loop, first play after stop). The
+    // playhead never walks backwards on its own, so a rewind is a
+    // discontinuity whatever its size - measuring it against the forward
+    // tolerance instead swallowed every step between the new position and the
+    // stale counter, which is the downbeat itself when warping to bar 0. The
+    // forward tolerance stays wide: a swung step legitimately runs ahead of
+    // the playhead by up to half a beat.
     const expected = @as(f64, @floatFromInt(step_k)) * fps;
     const resync_steps: u8 = if (self.song_mode) @max(2, self.song_steps_per_beat / 2) else 2;
-    if (@abs(expected - pos_f) > fps * @as(f64, @floatFromInt(resync_steps))) {
+    if (self.transport.position_frames < self.last_pos_frames or
+        @abs(expected - pos_f) > fps * @as(f64, @floatFromInt(resync_steps)))
+    {
         step_k = @intFromFloat(@ceil(pos_f / fps));
+        // Hits scheduled off the old position belong to a timeline that no
+        // longer runs; dropping them is what a seek does to a roll's tail.
+        for (&self.rolls) |*r| r.* = null;
     }
+    self.last_pos_frames = self.transport.position_frames;
 
     // "Could" rather than "does": a step's own `micro` can pull a hit up to
     // half a step ahead of its boundary, so a step whose boundary is still in

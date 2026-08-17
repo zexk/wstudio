@@ -416,6 +416,8 @@ pub const DrumMachine = struct {
     // Audio-thread-only state:
     /// Monotonic counter of steps that have fired. Resynced on seek.
     next_step_k: u64,
+    /// Where the last scanned block started, so a rewind is recognisable.
+    last_pos_frames: u64,
 
     /// Current step index, published by the audio thread for UI display.
     current_step: std.atomic.Value(u16),
@@ -445,6 +447,7 @@ pub const DrumMachine = struct {
             .step_count = default_step_count,
 
             .next_step_k = 0,
+            .last_pos_frames = 0,
             .current_step = .init(0),
         };
         // Every pad starts null - the "init" kit's blank slate (see
@@ -1363,6 +1366,7 @@ pub const DrumMachine = struct {
         // seek shouldn't spit the rest of a roll out on the next block.
         for (&self.rolls) |*r| r.* = null;
         self.next_step_k = 0;
+        self.last_pos_frames = 0;
     }
 
     /// `deviceOf`'s expected name; forwards to `resetAll`.
@@ -1737,6 +1741,43 @@ test "song mode fires the clip covering the playhead" {
     @memset(&buf, 0.0);
     dm.processBlock(&buf);
     peak = 0;
+    for (buf) |s| peak = @max(peak, @abs(s));
+    try std.testing.expect(peak > 0.01);
+}
+
+test "warping back to the song start replays the downbeat" {
+    var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
+    var dm = try testMachine(&transport);
+    defer dm.deinit();
+    for (0..DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
+
+    // One bar on the canonical 32-ticks-per-beat song grid, kick on step 0.
+    var clip_midi = try DrumMachine.allocMidi(std.testing.allocator, 128);
+    clip_midi[0][0] = DrumMachine.gridNote(0, 0, DrumMachine.vel_full);
+    const clips = [_]DrumMachine.SongClip{.{
+        // zig fmt: off
+        .start_step = 0, .span_steps = 128, .step_count = 128, .steps_per_beat = 32, .midi = clip_midi,
+        // zig fmt: on
+    }};
+    dm.setSongClips(&clips, 128, 32);
+    dm.song_mode = true;
+    transport.play();
+
+    var buf: [512]Sample = undefined;
+    // Roll forward less than the swing tolerance the forward resync allows,
+    // then warp home the way `0`/`gg` does. A seek does not reset the
+    // machine, so this is the audio thread's only cue that it rewound.
+    while (transport.position_frames < 6_000) {
+        @memset(&buf, 0.0);
+        dm.processBlock(&buf);
+        transport.advance(256);
+    }
+    for (&dm.pads) |*p| if (p.*) |*s| s.resetAll(); // silence the first kick's tail
+    transport.seekFrames(0);
+
+    @memset(&buf, 0.0);
+    dm.processBlock(&buf);
+    var peak: f32 = 0;
     for (buf) |s| peak = @max(peak, @abs(s));
     try std.testing.expect(peak > 0.01);
 }

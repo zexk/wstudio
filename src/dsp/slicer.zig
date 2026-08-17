@@ -268,6 +268,7 @@ pub const Slicer = struct {
 
     // Audio-thread-only state:
     next_step_k: u64 = 0,
+    last_pos_frames: u64 = 0,
     current_step: std.atomic.Value(u16) = .init(0),
 
     pub fn init(allocator: std.mem.Allocator, sample_rate: u32, transport: *const Transport) !Slicer {
