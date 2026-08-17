@@ -130,6 +130,7 @@ pub const presets = [_]Preset{
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 120.0, .filter_routing = .series,
         .lfo_rate_hz = 0.25, .lfo_sync = .n2_1, .lfo_slew_ms = 35.0,
         .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.45 },
             .{ .source = .lfo,  .dest = 21,  .depth = 0.06 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
@@ -243,6 +244,7 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 6500.0, .filter_res = 0.15,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 180.0, .filter_routing = .series,
         .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.45 },
             .{ .source = .random, .dest = dP,  .depth = 0.003 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
@@ -349,6 +351,7 @@ pub const presets = [_]Preset{
         .lfo_rate_hz = 0.2,
         .lfo2_rate_hz = 0.7, .lfo2_phase_offset = 0.37, .lfo2_slew_ms = 45.0,
         .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.45 },
             .{ .source = .lfo,  .dest = 21,  .depth = 0.04 },
             .{ .source = .lfo2, .dest = dP,  .depth = 0.015 },
@@ -378,6 +381,7 @@ pub const presets = [_]Preset{
         .lfo_rate_hz = 0.5, .lfo_sync = .n1_2, .lfo_retrig = .key,
         .sub_level = 0.3, .sub_shape = .sine,
         .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .lfo,  .dest = 21, .depth = 0.125 },
             .{ .source = .mac1, .dest = 21, .depth = 0.6 },
             .{ .source = .mac2, .dest = 4,  .depth = 0.3 },
@@ -426,6 +430,7 @@ pub const presets = [_]Preset{
         .fenv_attack_s = 0.02, .fenv_decay_s = 0.3, .fenv_sustain = 0.4, .fenv_release_s = 0.2,
         .lfo_rate_hz = 5.0, .lfo_retrig = .key, .lfo_phase_offset = 0.25,
         .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .fenv, .dest = 21,  .depth = 0.7 },
             .{ .source = .lfo,  .dest = dP,  .depth = 0.02 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
@@ -556,6 +561,7 @@ pub const presets = [_]Preset{
         .lfo2_rate_hz = 5.5, .lfo2_retrig = .key, .lfo2_phase_offset = 0.25,
         .env3_attack_s = 0.001, .env3_decay_s = 0.35, .env3_sustain = 0.0, .env3_release_s = 0.2, .env3_curve = 0.65,
         .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .lfo2, .dest = dP,  .depth = 0.015 },
             .{ .source = .env3, .dest = 42,  .depth = 0.4 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
@@ -870,6 +876,7 @@ pub const presets = [_]Preset{
         .filter_type = .ladder, .filter_cutoff = 3400.0, .filter_res = 0.15, .filter_drive = 2.0,
         .fenv_attack_s = 2.15, .fenv_decay_s = 0.3, .fenv_sustain = 1.0, .fenv_release_s = 0.2,
         .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .fenv, .dest = 21,  .depth = 0.1 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
@@ -960,6 +967,7 @@ pub const presets = [_]Preset{
         .lfo_rate_hz = 6.0, .lfo_phase_offset = 0.25, .lfo_slew_ms = 12.0,
         .lfo_custom = waves(.{ .triangle, .sine, .sine }), .lfo_custom_count = waveCounts(.{ .triangle, .sine, .sine }),
         .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.45 },
             .{ .source = .lfo,  .dest = dP,  .depth = 0.012 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
@@ -986,6 +994,7 @@ pub const presets = [_]Preset{
         .lfo_rate_hz = 5.0,
         .env3_attack_s = 0.001, .env3_decay_s = 0.25, .env3_sustain = 0.0, .env3_release_s = 0.15,
         .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .fenv, .dest = 21,  .depth = 0.45 },
             .{ .source = .lfo,  .dest = dP,  .depth = 0.018 },
             .{ .source = .env3, .dest = 42,  .depth = 0.35 },
@@ -1008,6 +1017,7 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 2400.0, .filter_res = 0.1,
         .lfo_rate_hz = 5.5, .lfo_retrig = .key, .lfo_phase_offset = 0.25,
         .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.45 },
             .{ .source = .lfo,  .dest = dP,  .depth = 0.022 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
@@ -1360,6 +1370,7 @@ pub const presets = [_]Preset{
         .fenv_attack_s = 0.04, .fenv_decay_s = 0.5, .fenv_sustain = 0.4, .fenv_release_s = 0.3,
         .lfo2_rate_hz = 0.5, .lfo2_phase_offset = 0.25, .lfo2_slew_ms = 25.0,
         .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.45 },
             .{ .source = .fenv, .dest = 21,  .depth = 0.2 },
             .{ .source = .lfo2, .dest = dP,  .depth = 0.02 },
@@ -1431,6 +1442,7 @@ pub const presets = [_]Preset{
         .lfo_rate_hz = 5.0,
         .lfo2_shape = .chaos, .lfo2_rate_hz = 0.15, .lfo2_slew_ms = 80.0,
         .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .lfo,  .dest = dA,  .depth = 0.05 },
             .{ .source = .lfo2, .dest = dP,  .depth = 0.02 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
@@ -1715,6 +1727,7 @@ pub const presets = [_]Preset{
         .filter_type = .lp, .filter_cutoff = 1900.0, .filter_res = 0.2,
         .lfo_rate_hz = 5.0, .lfo_retrig = .key, .lfo_phase_offset = 0.25,
         .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.45 },
             .{ .source = .lfo,  .dest = dP,  .depth = 0.014 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.45 },
@@ -2272,6 +2285,7 @@ pub const presets = [_]Preset{
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.18, .fenv_sustain = 0.0, .fenv_release_s = 0.12, .fenv_curve = 0.6,
         .lfo_rate_hz = 0.12, .lfo_slew_ms = 40.0,
         .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .fenv, .dest = 21,  .depth = 0.5 },
             .{ .source = .lfo,  .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
@@ -2559,6 +2573,7 @@ pub const presets = [_]Preset{
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 140.0, .filter_routing = .series,
         .lfo_rate_hz = 5.6, .lfo_retrig = .key, .lfo_phase_offset = 0.25,
         .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.45 },
             .{ .source = .lfo,  .dest = dP,  .depth = 0.016 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.45 },
