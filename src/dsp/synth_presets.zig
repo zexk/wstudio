@@ -539,6 +539,10 @@ pub const presets = [_]Preset{
         .gain = 0.29,
     }, .fx = &.{
         .{ .kind = .comp, .params = &.{ .{ .idx = 1, .value = 3 }, .{ .idx = 3, .value = 100 } } },
+        // Level pass: this patch measured far off its category's median
+        // momentary loudness, and its own chain is nonlinear, so the trim
+        // goes after it rather than into the voice gain ahead of it.
+        .{ .kind = .utility, .params = &.{ .{ .idx = 0, .value = 5 } } },
     } },
 
     // funk-clav - the classic clav-through-phaser, velocity + keytrack
@@ -1069,7 +1073,7 @@ pub const presets = [_]Preset{
         .gain = 0.27,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 0.3 } } },
-        .{ .kind = .utility, .params = &.{ .{ .idx = 11, .value = 120 } } },
+        .{ .kind = .utility, .params = &.{ .{ .idx = 0, .value = 4 }, .{ .idx = 11, .value = 120 } } },
     } },
 
     // chiptune - square pad with basic-waveform motion and light crush
@@ -1095,6 +1099,10 @@ pub const presets = [_]Preset{
         .gain = 0.26,
     }, .fx = &.{
         .{ .kind = .crush, .params = &.{ .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 0.2 } } },
+        // Level pass: this patch measured far off its category's median
+        // momentary loudness, and its own chain is nonlinear, so the trim
+        // goes after it rather than into the voice gain ahead of it.
+        .{ .kind = .utility, .params = &.{ .{ .idx = 0, .value = -8 } } },
     } },
 
     // ambient - the choir finally has vocal cords: a real formant filter
@@ -1274,6 +1282,10 @@ pub const presets = [_]Preset{
         .gain = 0.25,
     }, .fx = &.{
         .{ .kind = .comp, .params = &.{ .{ .idx = 0, .value = -16 }, .{ .idx = 2, .value = 5 }, .{ .idx = 3, .value = 60 } } },
+        // Level pass: this patch measured far off its category's median
+        // momentary loudness, and its own chain is nonlinear, so the trim
+        // goes after it rather than into the voice gain ahead of it.
+        .{ .kind = .utility, .params = &.{ .{ .idx = 0, .value = 5 } } },
     } },
 
     // eurobeat - bright punchy unison lead, HP'd above 150Hz JP-8000-style
@@ -1533,6 +1545,10 @@ pub const presets = [_]Preset{
         .{ .kind = .eq, .params = &.{ .{ .idx = 0, .value = 3 }, .{ .idx = 1, .value = 150 }, .{ .idx = 10, .value = 750 }, .{ .idx = 11, .value = 1 }, .{ .idx = 12, .value = 4 }, .{ .idx = 18, .value = 4 }, .{ .idx = 19, .value = 6000 } } },
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 18 }, .{ .idx = 2, .value = 0.7 } } },
         .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.19 }, .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.2 } } },
+        // Level pass: this patch measured far off its category's median
+        // momentary loudness, and its own chain is nonlinear, so the trim
+        // goes after it rather than into the voice gain ahead of it.
+        .{ .kind = .utility, .params = &.{ .{ .idx = 0, .value = -7 } } },
     } },
 
     // speedcore/terrorcore - FM-driven harsh bass, square carrier torn up by
@@ -1557,6 +1573,10 @@ pub const presets = [_]Preset{
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 20 }, .{ .idx = 2, .value = 0.7 } } },
         .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 6 }, .{ .idx = 1, .value = 2 }, .{ .idx = 2, .value = 0.3 } } },
+        // Level pass: this patch measured far off its category's median
+        // momentary loudness, and its own chain is nonlinear, so the trim
+        // goes after it rather than into the voice gain ahead of it.
+        .{ .kind = .utility, .params = &.{ .{ .idx = 0, .value = -7 } } },
     } },
 
     // happy hardcore/j-core - bright FM bell-piano stab for euphoric build
@@ -1577,6 +1597,10 @@ pub const presets = [_]Preset{
     }, .fx = &.{
         .{ .kind = .ott, .params = &.{ .{ .idx = 0, .value = 0.4 }, .{ .idx = 3, .value = -6 } } },
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.6 }, .{ .idx = 1, .value = 0.35 }, .{ .idx = 2, .value = 0.22 } } },
+        // Level pass: this patch measured far off its category's median
+        // momentary loudness, and its own chain is nonlinear, so the trim
+        // goes after it rather than into the voice gain ahead of it.
+        .{ .kind = .utility, .params = &.{ .{ .idx = 0, .value = 5 } } },
     } },
 
     // === Round 4: reinforce the least-covered genres ===
@@ -2010,7 +2034,10 @@ pub const presets = [_]Preset{
             .{ .source = .mac2, .dest = 185, .depth = 0.35 },
         }),
         .macro_labels = macros(.{ "brightness", "wave", "chorus", "" }),
-        .gain = 0.28,
+        // Level pass: 8 dB under the median keys patch. Sitting behind the log
+        // drum is what the dull filter and slow attack are for; being quiet is
+        // the user's fader, not the preset's.
+        .gain = 0.71,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.4 }, .{ .idx = 1, .value = 6 }, .{ .idx = 2, .value = 0.35 } } },
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 0.5 }, .{ .idx = 2, .value = 0.25 } } },
@@ -2225,6 +2252,10 @@ pub const presets = [_]Preset{
         .{ .kind = .ott, .params = &.{ .{ .idx = 0, .value = 0.65 }, .{ .idx = 3, .value = -7 } } },
         .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.375 }, .{ .idx = 1, .value = 0.38 } } },
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.82 }, .{ .idx = 1, .value = 0.3 }, .{ .idx = 2, .value = 0.35 } } },
+        // Level pass: this patch measured far off its category's median
+        // momentary loudness, and its own chain is nonlinear, so the trim
+        // goes after it rather than into the voice gain ahead of it.
+        .{ .kind = .utility, .params = &.{ .{ .idx = 0, .value = 9 } } },
     } },
 
     // uk garage - the organ stab that gives 2-step its skip. Drawbar organ
@@ -2299,7 +2330,10 @@ pub const presets = [_]Preset{
             .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
         }),
         .macro_labels = macros(.{ "brightness", "detune", "hall", "" }),
-        .gain = 0.26,
+        // Level pass: this measured 13 dB under the median pluck, which is
+        // the widest gap in the library. Its chain is a delay into a hall, both
+        // linear, so the voice gain is the right place to fix it.
+        .gain = 1,
     }, .fx = &.{
         .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.281 }, .{ .idx = 1, .value = 0.5 }, .{ .idx = 2, .value = 0.35 } } },
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.92 }, .{ .idx = 1, .value = 0.35 }, .{ .idx = 2, .value = 0.4 } } },
