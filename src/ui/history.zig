@@ -8,6 +8,7 @@ const pattern_mod = ws.dsp.pattern;
 const undo_mod = @import("undo.zig");
 const App = @import("app.zig").App;
 const piano = @import("editors/piano.zig");
+const step_grid = @import("editors/step_grid.zig");
 const spectrum = @import("editors/fx_editor.zig");
 
 /// Record a pre-edit snapshot; null (capture failed / target invalid)
@@ -576,7 +577,7 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             // After applyVariant: the restored pattern's step count is what
             // decides whether a length is still an override.
             for (d.pad_len, 0..) |len, pad| dm.setPadLen(@intCast(pad), len);
-            if (app.drum_cursor[1] >= dm.step_count) app.drum_cursor[1] = dm.step_count - 1;
+            step_grid.clampToGrid(&app.drum_cursor[1], app.drum_grid.ticks(), dm.step_count);
             return displaced;
         },
         .slicer => |d| {

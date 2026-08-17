@@ -83,7 +83,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'g' => { app.drum_cursor[1] = 0; finishOperator(app, op); return true; },
                 'G' => {
                     const dm = app.drumMachine();
-                    if (dm.step_count > 0) step.* = dm.step_count - 1;
+                    step.* = @intCast(step_grid.lastGridStep(app.drum_grid.ticks(), dm.step_count));
                     finishOperator(app, op);
                     return true;
                 },
@@ -218,13 +218,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 '-' => {
                     const dm = app.drumMachine();
                     history.recordDrum(app, app.drum_track);
-                    dm.setStepCount(step_grid.resizeByBeats(dm.step_count, dm.steps_per_beat, app.takeCount(), false));
-                    if (step.* >= dm.step_count) step.* = dm.step_count - 1;
+                    dm.setStepCount(step_grid.resizeByUnits(dm.step_count, step_grid.barSteps(app.session.project.quarterBeatsPerBar(), dm.steps_per_beat), app.takeCount(), false));
+                    step_grid.clampToGrid(step, app.drum_grid.ticks(), dm.step_count);
                 },
                 '+' => {
                     const dm = app.drumMachine();
                     history.recordDrum(app, app.drum_track);
-                    dm.setStepCount(step_grid.resizeByBeats(dm.step_count, dm.steps_per_beat, app.takeCount(), true));
+                    dm.setStepCount(step_grid.resizeByUnits(dm.step_count, step_grid.barSteps(app.session.project.quarterBeatsPerBar(), dm.steps_per_beat), app.takeCount(), true));
                 },
                 'E' => doublePattern(app),
                 'c' => {
@@ -319,7 +319,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                         const dm = app.drumMachine();
                         history.recordDrum(app, app.drum_track);
                         dm.applyVariant(clip);
-                        if (step.* >= dm.step_count) step.* = dm.step_count - 1;
+                        step_grid.clampToGrid(step, app.drum_grid.ticks(), dm.step_count);
                         app.setStatus("pasted into pattern {c}", .{DrumMachine.variantLetter(dm.variant)});
                     } else app.setStatus("nothing yanked - y copies the pattern", .{});
                 },
@@ -346,7 +346,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     if (dm.variant_count > 1)
                         history.recordDrum(app, app.drum_track);
                     if (dm.removeVariant()) {
-                        if (step.* >= dm.step_count) step.* = dm.step_count - 1;
+                        step_grid.clampToGrid(step, app.drum_grid.ticks(), dm.step_count);
                         app.setStatus("deleted pattern - now on {c}", .{DrumMachine.variantLetter(dm.variant)});
                     } else app.setStatus("can't delete the only pattern", .{});
                 },
@@ -778,7 +778,7 @@ fn cycleVariant(app: *App, delta: i32) void {
     }
     dm.cycleVariant(delta);
     app.dirty = true;
-    if (app.drum_cursor[1] >= dm.step_count) app.drum_cursor[1] = dm.step_count - 1;
+    step_grid.clampToGrid(&app.drum_cursor[1], app.drum_grid.ticks(), dm.step_count);
     app.setStatus("pattern {c} ({d}/{d})", .{
         DrumMachine.variantLetter(dm.variant), dm.variant + 1, dm.variant_count,
     });

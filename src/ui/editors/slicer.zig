@@ -69,7 +69,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 'L' => { moveStep(app, 4 * app.takeCount()); finishOperator(app, op); return true; },
                 'g' => { step.* = 0; finishOperator(app, op); return true; },
                 'G' => {
-                    if (sl.step_count > 0) step.* = sl.step_count - 1;
+                    step.* = @intCast(step_grid.lastGridStep(app.slicer_grid.ticks(), sl.step_count));
                     finishOperator(app, op);
                     return true;
                 },
@@ -160,12 +160,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 // the drum grid's same rule (see editors/drum.zig).
                 '-' => {
                     history.recordSlicer(app, app.slicer_track);
-                    sl.setStepCount(step_grid.resizeByBeats(sl.step_count, sl.steps_per_beat, app.takeCount(), false));
-                    if (step.* >= sl.step_count) step.* = sl.step_count - 1;
+                    sl.setStepCount(step_grid.resizeByUnits(sl.step_count, step_grid.barSteps(app.session.project.quarterBeatsPerBar(), sl.steps_per_beat), app.takeCount(), false));
+                    step_grid.clampToGrid(step, app.slicer_grid.ticks(), sl.step_count);
                 },
                 '+' => {
                     history.recordSlicer(app, app.slicer_track);
-                    sl.setStepCount(step_grid.resizeByBeats(sl.step_count, sl.steps_per_beat, app.takeCount(), true));
+                    sl.setStepCount(step_grid.resizeByUnits(sl.step_count, step_grid.barSteps(app.session.project.quarterBeatsPerBar(), sl.steps_per_beat), app.takeCount(), true));
                 },
                 'E' => doublePattern(app),
                 'O' => sequenceSourceOrder(app),
@@ -294,7 +294,7 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                     if (sl.variant_count > 1)
                         history.recordSlicer(app, app.slicer_track);
                     if (sl.removeVariant()) {
-                        if (step.* >= sl.step_count) step.* = sl.step_count - 1;
+                        step_grid.clampToGrid(step, app.slicer_grid.ticks(), sl.step_count);
                         app.setStatus("deleted pattern - now on {c}", .{Slicer.variantLetter(sl.variant)});
                     } else app.setStatus("can't delete the only pattern", .{});
                 },
@@ -474,7 +474,7 @@ fn cycleVariant(app: *App, delta: i32) void {
     }
     sl.cycleVariant(delta);
     app.dirty = true;
-    if (app.slicer_cursor[1] >= sl.step_count) app.slicer_cursor[1] = sl.step_count - 1;
+    step_grid.clampToGrid(&app.slicer_cursor[1], app.slicer_grid.ticks(), sl.step_count);
     app.setStatus("pattern {c} ({d}/{d})", .{
         Slicer.variantLetter(sl.variant), sl.variant + 1, sl.variant_count,
     });
@@ -558,10 +558,17 @@ fn sequenceSourceOrder(app: *App) void {
         return;
     }
     history.recordSlicer(app, app.slicer_track);
-    sl.setStepCount(@max(sl.step_count, sl.slice_count));
+    // One slice per grid cell, not per storage step: a step used to be a
+    // visible column, but storage now runs at 32 ticks per beat, so stepping
+    // by 1 crammed the whole chop into the first fraction of a beat.
+    const stride: u32 = @max(app.slicer_grid.ticks(), 1);
+    const needed = @as(u32, sl.slice_count) * stride;
+    sl.setStepCount(@intCast(@min(@max(@as(u32, sl.step_count), needed), @as(u32, Slicer.max_steps))));
     for (0..Slicer.max_slices) |row| sl.clearSlice(@intCast(row));
     for (0..sl.slice_count) |idx| {
-        step_grid.setStep(sl, @intCast(idx), @as(u8, @intCast(idx)), true, Slicer.vel_full);
+        const at = @as(u32, @intCast(idx)) * stride;
+        if (at >= sl.step_count) break;
+        step_grid.setStep(sl, @intCast(idx), @as(u16, @intCast(at)), true, Slicer.vel_full);
     }
     app.slicer_cursor = .{ 0, 0 };
     app.setStatus("sequenced {d} slices in source order", .{sl.slice_count});

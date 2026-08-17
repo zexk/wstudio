@@ -191,20 +191,46 @@ pub fn moveGridClamped(cursor: anytype, delta: i32, stride: usize, count: usize)
     cursor.* = @intCast(std.math.clamp(cell, 0, top_cell) * s);
 }
 
-/// Resize a step pattern by `count` beats without narrowing count-prefix
-/// arithmetic before clamping to the pattern's u16 storage range.
-pub fn resizeByBeats(step_count: u16, steps_per_beat: u8, count: i32, grow: bool) u16 {
+/// Steps in one bar of the project's meter. `+`/`-` resize by this, matching
+/// the piano roll's own bar-at-a-time loop resize - a step grid used to be one
+/// fixed bar of 16, so resizing it by beats made sense; with storage at 32
+/// ticks per beat the musical unit the rest of the app edits in is the bar.
+pub fn barSteps(quarter_beats_per_bar: f64, steps_per_beat: u8) u16 {
+    const n = quarter_beats_per_bar * @as(f64, @floatFromInt(@max(steps_per_beat, 1)));
+    if (!(n >= 1.0)) return @max(steps_per_beat, 1); // also catches NaN
+    return @intFromFloat(@min(n, @as(f64, std.math.maxInt(u16))));
+}
+
+/// Resize a step pattern by `count` whole `unit`s (a bar's worth of steps),
+/// without narrowing count-prefix arithmetic before clamping to the pattern's
+/// u16 storage range. Shrinking floors at one unit, so `-` can't leave a
+/// pattern shorter than the bar the grid draws.
+pub fn resizeByUnits(step_count: u16, unit: u16, count: i32, grow: bool) u16 {
+    const u: u32 = @max(unit, 1);
     const current: u32 = step_count;
-    const amount = @as(u32, steps_per_beat) * @as(u32, @intCast(@max(count, 1)));
+    const amount = u * @as(u32, @intCast(@max(count, 1)));
     return @intCast(if (grow)
         @min(@as(u32, std.math.maxInt(u16)), current + amount)
     else
-        @max(1, current -| amount));
+        @max(u, current -| amount));
 }
 
-test "beat resize clamps large count prefixes" {
-    try std.testing.expectEqual(std.math.maxInt(u16), resizeByBeats(16, 32, 4096, true));
-    try std.testing.expectEqual(@as(u16, 1), resizeByBeats(16, 32, 4096, false));
+test "unit resize clamps large count prefixes and floors at one unit" {
+    try std.testing.expectEqual(std.math.maxInt(u16), resizeByUnits(16, 128, 4096, true));
+    try std.testing.expectEqual(@as(u16, 128), resizeByUnits(256, 128, 4096, false));
+    // 4/4 at 32 ticks per beat is a 128-step bar; a meaningless meter falls
+    // back to one beat rather than zero.
+    try std.testing.expectEqual(@as(u16, 128), barSteps(4.0, 32));
+    try std.testing.expectEqual(@as(u16, 32), barSteps(0.0, 32));
+}
+
+/// Pull a cursor back onto the grid and inside `count` - for wherever the
+/// pattern shrank under it (resize, variant switch, undo). The old
+/// `cursor = step_count - 1` idiom predates coarse grids and lands the cursor
+/// between columns; see `moveGridClamped`.
+pub fn clampToGrid(cursor: anytype, stride: usize, count: usize) void {
+    const s = @max(stride, 1);
+    cursor.* = @intCast(@min(@as(usize, cursor.*), lastGridStep(s, count)) / s * s);
 }
 
 /// w/b: jump the step cursor `delta` groups forward/back, snapping to the

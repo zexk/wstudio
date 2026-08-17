@@ -1332,7 +1332,7 @@ test "z and Z select drum grid subdivisions" {
     try std.testing.expectEqual(ws.time_grid.Division.thirty_second, app.drum_grid);
 }
 
-test "drum grid +/- resize the loop by musical beats" {
+test "drum grid +/- resize the loop by musical bars" {
     var app = try testApp();
     defer app.deinit();
     app.drum_track = 2;
@@ -1340,25 +1340,57 @@ test "drum grid +/- resize the loop by musical beats" {
     app.drum_cursor = .{ 0, 0 };
     const dm = app.drumMachine();
     const start = dm.step_count;
+    // 4/4 at 32 ticks per beat: one bar is 128 steps.
+    const bar = step_grid.barSteps(app.session.project.quarterBeatsPerBar(), dm.steps_per_beat);
+    try std.testing.expectEqual(@as(u16, 128), bar);
 
     app.handleKey(.{ .char = '+' }, 0);
-    try std.testing.expectEqual(start + dm.steps_per_beat, dm.step_count);
+    try std.testing.expectEqual(start + bar, dm.step_count);
     app.handleKey(.{ .char = '-' }, 0);
     try std.testing.expectEqual(start, dm.step_count);
 
-    // A count prefix scales the resize by whole beats too.
+    // A count prefix scales the resize by whole bars too.
     for ("2+") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expectEqual(start + 2 * @as(u16, dm.steps_per_beat), dm.step_count);
+    try std.testing.expectEqual(start + 2 * bar, dm.step_count);
 
+    // Shrinking floors at one bar rather than collapsing to a single tick.
+    for (0..12) |_| app.handleKey(.{ .char = '-' }, 0);
+    try std.testing.expectEqual(bar, dm.step_count);
+
+    // The grid division is a zoom, not a length: it doesn't change the unit.
     dm.setStepCount(start);
     app.handleKey(.{ .char = 'z' }, 0);
     app.handleKey(.{ .char = 'g' }, 0);
     const zoomed = dm.step_count;
     app.handleKey(.{ .char = '+' }, 0);
-    try std.testing.expectEqual(zoomed + dm.steps_per_beat, dm.step_count);
+    try std.testing.expectEqual(zoomed + bar, dm.step_count);
 }
 
-test "slicer grid +/- resize the loop by musical beats" {
+test "slicer source-order sequence lands one slice per grid cell" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+    app.slicerInst().sliceInto(4);
+
+    // Default sixteenth grid over 32-tick storage: one column is 8 steps, so
+    // consecutive slices must be 8 apart. Stepping by 1 (the old fixed-grid
+    // assumption) packed the whole chop into the first column.
+    const stride: u16 = @intCast(app.slicer_grid.ticks());
+    try std.testing.expectEqual(@as(u16, 8), stride);
+
+    _ = slicer_ed.handleKey(&app, .{ .char = 'O' });
+    const sl = app.slicerInst();
+    for (0..4) |idx| {
+        const at: u16 = @as(u16, @intCast(idx)) * stride;
+        try std.testing.expect(sl.stepActive(@intCast(idx), at));
+        // Nothing crammed into the tick right after it.
+        if (idx > 0) try std.testing.expect(!sl.stepActive(@intCast(idx), @intCast(idx)));
+    }
+}
+
+test "slicer grid +/- resize the loop by musical bars" {
     var app = try testApp();
     defer app.deinit();
     try app.session.setInstrument(0, .slicer);
@@ -1367,22 +1399,28 @@ test "slicer grid +/- resize the loop by musical beats" {
     app.slicer_cursor = .{ 0, 0 };
     const sl = app.slicerInst();
     const start = sl.step_count;
+    const bar = step_grid.barSteps(app.session.project.quarterBeatsPerBar(), sl.steps_per_beat);
+    try std.testing.expectEqual(@as(u16, 128), bar);
 
     app.handleKey(.{ .char = '+' }, 0);
-    try std.testing.expectEqual(start + sl.steps_per_beat, sl.step_count);
+    try std.testing.expectEqual(start + bar, sl.step_count);
     app.handleKey(.{ .char = '-' }, 0);
     try std.testing.expectEqual(start, sl.step_count);
 
-    // A count prefix scales the resize by whole beats too.
+    // A count prefix scales the resize by whole bars too.
     for ("2+") |c| app.handleKey(.{ .char = c }, 0);
-    try std.testing.expectEqual(start + 2 * @as(u16, sl.steps_per_beat), sl.step_count);
+    try std.testing.expectEqual(start + 2 * bar, sl.step_count);
+
+    // Shrinking floors at one bar rather than collapsing to a single tick.
+    for (0..12) |_| app.handleKey(.{ .char = '-' }, 0);
+    try std.testing.expectEqual(bar, sl.step_count);
 
     sl.setStepCount(start);
     app.handleKey(.{ .char = 'z' }, 0);
     app.handleKey(.{ .char = 'g' }, 0);
     const zoomed = sl.step_count;
     app.handleKey(.{ .char = '+' }, 0);
-    try std.testing.expectEqual(zoomed + sl.steps_per_beat, sl.step_count);
+    try std.testing.expectEqual(zoomed + bar, sl.step_count);
 }
 
 test "drum grid m/M set a pad's own loop length and grid zoom leaves it untouched" {
