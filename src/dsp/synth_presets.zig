@@ -173,6 +173,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac3, .dest = 111, .depth = 0.4 },
             .{ .source = .mac3, .dest = 115, .depth = 0.35 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.4, .fx_delay_mix = 0.28,
         .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.22,
@@ -334,6 +335,7 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = dP,  .depth = 0.02 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac3, .dest = 111, .depth = 0.4 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.16, .fx_delay_feedback = 0.45, .fx_delay_mix = 0.3,
         .gain = 0.83,
@@ -445,6 +447,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac2, .dest = 42,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 111, .depth = 0.35 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.4, .fx_delay_mix = 0.3,
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.7, .fx_chorus_depth_ms = 3.5, .fx_chorus_mix = 0.3,
@@ -488,6 +491,7 @@ pub const presets = [_]Preset{
             .{ .source = .alternate, .dest = 185, .depth = -0.08 },
             .{ .source = .mac2, .dest = 185,  .depth = -0.3 },
             .{ .source = .mac4, .dest = 89, .depth = 0.4 },
+            .{ .source = .wheel,    .dest = 185, .depth = -0.35 },
         }),
         .fx_crush_on = true, .fx_crush_bits = 8.0, .fx_crush_rate = 4.0, .fx_crush_mix = 0.4,
         .gain = 0.17,
@@ -594,6 +598,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac2,     .dest = 22,  .depth = 0.25 },
             .{ .source = .mac3,     .dest = 111, .depth = 0.3 },
             .{ .source = .mac4,     .dest = 85,  .depth = 0.3 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 14.0, .fx_dist_mix = 0.5,
         .fx_delay_on = true, .fx_delay_time_s = 0.19, .fx_delay_feedback = 0.4, .fx_delay_mix = 0.25,
@@ -686,7 +691,7 @@ pub const presets = [_]Preset{
     // Dre-era patch has zero pitch-LFO on it); two tight-detuned saws stand
     // in for the real patch's +1/-1 cent pair
     .{ .name = "gfunk-lead", .category = "lead", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.6666667, .detune_cents = -1.0,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 2, .unison_detune = 6.0, .unison_spread = 0.4, .detune_cents = -1.0,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_semi = 0.0, .osc_b_detune_cents = 1.0, .osc_b_level = 0.9,
         .voice_mode = .legato, .glide_s = 0.01,
         .attack_s = 0.001, .decay_s = 0.05, .sustain = 1.0, .release_s = 0.02,
@@ -696,9 +701,10 @@ pub const presets = [_]Preset{
             .{ .source = .fenv, .dest = 21,  .depth = 0.1 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 111, .depth = 0.35 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.28, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
-        .gain = 0.30,
+        .gain = 0.27,
     } },
 
     // neurofunk - screechy resonant FM lead; a small upward frequency shift
@@ -719,6 +725,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac2, .dest = 182, .depth = 0.05 },
             .{ .source = .mac4, .dest = 85,  .depth = 0.3 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .fx_freq_shift_on = true, .fx_freq_shift_hz = 30.0, .fx_freq_shift_mix = 0.3,
         .fx_dist_on = true, .fx_dist_drive_db = 12.0, .fx_dist_mix = 0.5,
@@ -739,7 +746,7 @@ pub const presets = [_]Preset{
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.55, .fx_delay_mix = 0.35,
         .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.6, .fx_reverb_mix = 0.25,
-        .gain = 0.3,
+        .gain = 0.27,
     } },
 
     // deep-house - warm electric-piano-ish chord
@@ -796,6 +803,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
             .{ .source = .mac2, .dest = 42,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 107, .depth = 0.3 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .fx_phaser_on = true, .fx_phaser_rate_hz = 0.4, .fx_phaser_depth = 0.8, .fx_phaser_feedback = 0.45, .fx_phaser_mix = 0.35,
         .gain = 0.52,
@@ -894,7 +902,7 @@ pub const presets = [_]Preset{
     // ebm - ratio-mode unison turns the lead into a fifths power-chord
     // stack, driven and echoed
     .{ .name = "ebm-lead", .category = "lead", .tags = &.{ "wstudio", "ebm" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_mode = .ratio, .unison_detune = 100.0,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_mode = .ratio, .unison_detune = 100.0, .unison_spread = 0.5,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_semi = -12.0, .osc_b_level = 0.6,
         .voice_mode = .mono, .glide_s = 0.02,
         .attack_s = 0.005, .decay_s = 0.2, .sustain = 0.8, .release_s = 0.15,
@@ -906,6 +914,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
             .{ .source = .mac3,     .dest = 111, .depth = 0.3 },
             .{ .source = .mac4,     .dest = 85,  .depth = 0.3 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 11.0, .fx_dist_mix = 0.4,
         .fx_delay_on = true, .fx_delay_time_s = 0.25, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
@@ -925,6 +934,7 @@ pub const presets = [_]Preset{
             .{ .source = .random,   .dest = 36,  .depth = 0.04 },
             .{ .source = .mac2,     .dest = 36,  .depth = 0.2 },
             .{ .source = .mac3,     .dest = 115, .depth = 0.4 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .fx_reverb_on = true, .fx_reverb_room = 0.6, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.25,
         .gain = 0.21,
@@ -1010,6 +1020,7 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.4 },
             .{ .source = .mac3,     .dest = 111, .depth = 0.35 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .fx_eq_on = true, .fx_eq_high_freq = 6000.0, .fx_eq_high_gain_db = 3.0,
         .fx_delay_on = true, .fx_delay_time_s = 0.25, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.25,
@@ -1046,6 +1057,7 @@ pub const presets = [_]Preset{
             .{ .source = .lfo,  .dest = dP,  .depth = 0.028 },
             .{ .source = .mac3, .dest = 115, .depth = 0.4 },
             .{ .source = .mac3, .dest = 111, .depth = 0.3 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.25, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.2,
         .fx_reverb_on = true, .fx_reverb_room = 0.65, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.25,
@@ -1065,6 +1077,7 @@ pub const presets = [_]Preset{
             .{ .source = .lfo2, .dest = dP, .depth = 0.02 },
             .{ .source = .mac1, .dest = 21, .depth = 0.7 },
             .{ .source = .mac2, .dest = 22, .depth = 0.3 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .gain = 0.62,
     } },
@@ -1200,6 +1213,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1, .dest = 21, .depth = 0.4 },
             .{ .source = .mac2, .dest = 22, .depth = 0.2 },
             .{ .source = .mac4, .dest = 85, .depth = 0.3 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .fx_eq_on = true, .fx_eq_mid_freq = 750.0, .fx_eq_mid_gain_db = 4.0, .fx_eq_mid_q = 1.0,
         .fx_dist_on = true, .fx_dist_drive_db = 18.0, .fx_dist_mix = 0.7,
@@ -1289,7 +1303,7 @@ pub const presets = [_]Preset{
 
     // dubstep: square lead with formant motion and controlled abrasion
     .{ .name = "talkbox-lead", .category = "lead", .tags = &.{ "wstudio", "dubstep" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 1.0, .unison = 3, .unison_detune = 15.0, .voice_mode = .mono, .glide_s = 0.035,
+        .wt_table = .basic, .wt_pos = 1.0, .unison = 3, .unison_detune = 15.0, .unison_spread = 0.55, .voice_mode = .mono, .glide_s = 0.035,
         .attack_s = 0.004, .decay_s = 0.2, .sustain = 0.75, .release_s = 0.1,
         .filter_type = .formant, .filter_cutoff = 420.0, .filter_res = 0.5,
         // .custom, not .triangle: a talkbox's mouth motion is asymmetric
@@ -1316,6 +1330,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac2, .dest = 185,  .depth = -0.25 },
             .{ .source = .mac3, .dest = 111, .depth = 0.3 },
             .{ .source = .mac4, .dest = 85, .depth = 0.35 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .fx_dist_on = true, .fx_dist_drive_db = 12.0, .fx_dist_mix = 0.35,
         .fx_delay_on = true, .fx_delay_time_s = 0.19, .fx_delay_feedback = 0.28, .fx_delay_mix = 0.16,
@@ -1400,7 +1415,7 @@ pub const presets = [_]Preset{
 
     // deep house: smooth mono lead with restrained glide and chorus
     .{ .name = "deep-lead", .category = "lead", .tags = &.{ "wstudio", "deep-house" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.3333333, .voice_mode = .legato, .glide_s = 0.055,
+        .wt_table = .basic, .wt_pos = 0.3333333, .unison = 2, .unison_detune = 8.0, .unison_spread = 0.45, .voice_mode = .legato, .glide_s = 0.055,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_level = 0.35,
         .attack_s = 0.015, .decay_s = 0.25, .sustain = 0.75, .release_s = 0.22,
         .filter_type = .lp, .filter_cutoff = 1900.0, .filter_res = 0.2,
@@ -1410,9 +1425,10 @@ pub const presets = [_]Preset{
             .{ .source = .mac1, .dest = 21,  .depth = 0.45 },
             .{ .source = .mac2, .dest = 186,   .depth = -0.22 },
             .{ .source = .mac3, .dest = 179, .depth = 0.35 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .fx_chorus_on = true, .fx_chorus_rate_hz = 0.55, .fx_chorus_depth_ms = 3.5, .fx_chorus_mix = 0.22,
-        .gain = 0.18,
+        .gain = 0.23,
     } },
 
     // dub: short minor organ chord made for long feedback-delay throws
@@ -1900,6 +1916,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac1, .dest = 21,  .depth = 0.5 },
             .{ .source = .mac2, .dest = 185, .depth = 0.4 },
             .{ .source = .mac3, .dest = 111, .depth = 0.45 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.375, .fx_delay_feedback = 0.45, .fx_delay_mix = 0.3,
         .fx_reverb_on = true, .fx_reverb_room = 0.85, .fx_reverb_damp = 0.4, .fx_reverb_mix = 0.3,
@@ -2037,7 +2054,7 @@ pub const presets = [_]Preset{
     // twice the same way - the movement has to come from the patch when the
     // notes do not change.
     .{ .name = "afro-lead", .category = "lead", .tags = &.{ "wstudio", "afro-house", "deep-house" }, .patch = .{
-        .wt_table = .analog, .wt_pos = 0.55, .voice_mode = .mono, .glide_s = 0.045,
+        .wt_table = .analog, .wt_pos = 0.55, .unison = 2, .unison_detune = 7.0, .unison_spread = 0.4, .voice_mode = .mono, .glide_s = 0.045,
         .osc_b_on = true, .osc_b_wt_table = .analog, .osc_b_wt_pos = 0.2, .osc_b_detune_cents = 9.0, .osc_b_level = 0.5,
         .attack_s = 0.01, .decay_s = 0.4, .sustain = 0.55, .release_s = 0.3,
         .filter_type = .ladder, .filter_cutoff = 1500.0, .filter_res = 0.3, .filter_drive = 1.8,
@@ -2049,10 +2066,11 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21,  .depth = 0.5 },
             .{ .source = .mac3,     .dest = 111, .depth = 0.4 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.3, .fx_delay_feedback = 0.4, .fx_delay_mix = 0.25,
         .fx_reverb_on = true, .fx_reverb_room = 0.7, .fx_reverb_damp = 0.45, .fx_reverb_mix = 0.22,
-        .gain = 0.52,
+        .gain = 0.56,
     } },
 
     // pop - the bell arpeggio that tops a chorus, and the second arp in a
@@ -2060,7 +2078,7 @@ pub const presets = [_]Preset{
     // the tails overlap into a shimmer, FM bell body kept soft: this sits
     // above a vocal rather than competing with it.
     .{ .name = "bell-arp", .category = "lead", .tags = &.{ "wstudio", "j-pop", "future-bass" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.0,
+        .wt_table = .basic, .wt_pos = 0.0, .unison = 2, .unison_detune = 5.0, .unison_spread = 0.5,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 19.0, .osc_b_detune_cents = 4.0, .osc_b_level = 0.55,
         .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 1.2,
         .arp_on = true, .arp_mode = .up, .arp_octaves = 3, .arp_sync = .n1_16, .arp_gate = 0.85,
@@ -2072,7 +2090,9 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 15,  .depth = 0.2 },
             .{ .source = .mac2,     .dest = 15,  .depth = 0.3 },
             .{ .source = .mac3,     .dest = 115, .depth = 0.45 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
+        .fx_chorus_on = true, .fx_chorus_rate_hz = 0.5, .fx_chorus_depth_ms = 4.5, .fx_chorus_mix = 0.28,
         .fx_delay_on = true, .fx_delay_time_s = 0.187, .fx_delay_feedback = 0.42, .fx_delay_mix = 0.28,
         .fx_reverb_on = true, .fx_reverb_room = 0.8, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.32,
         .gain = 0.11,
@@ -2150,6 +2170,7 @@ pub const presets = [_]Preset{
             .{ .source = .mac2, .dest = 186,   .depth = -0.2 },
             .{ .source = .mac3, .dest = 111, .depth = 0.35 },
             .{ .source = .mac3, .dest = 115, .depth = 0.3 },
+            .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
         .fx_delay_on = true, .fx_delay_time_s = 0.28, .fx_delay_feedback = 0.3, .fx_delay_mix = 0.18,
         .fx_reverb_on = true, .fx_reverb_room = 0.65, .fx_reverb_damp = 0.35, .fx_reverb_mix = 0.18,
