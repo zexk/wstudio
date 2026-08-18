@@ -265,12 +265,21 @@ pub const presets = [_]Preset{
 
     // bell-fm - velocity drives FM depth (hard hits ring brighter), plate
     // reverb tail
+    // The two things that make an FM bell a bell, neither of which this had:
+    // the modulator sits at a NON-integer ratio (Chowning's original bell is
+    // 1:1.4 - a tritone is 1.414, so six semitones shy 15 cents lands on it),
+    // and its index decays faster than the note does, so the inharmonic clang
+    // is an attack transient over a tone that settles almost pure. An octave
+    // up at a fixed index is a harmonic spectrum that never simplifies, which
+    // is an FM organ.
     .{ .name = "bell-fm", .category = "keys", .tags = &.{ "wstudio", "trance" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_detune_cents = 7.0,
-        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 3.5,
+        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 6.0, .osc_b_detune_cents = -15.0,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 1.2,
         .attack_s = 0.001, .decay_s = 1.2, .sustain = 0.0, .release_s = 1.8, .env_curve = 0.72,
         .filter_type = .lp, .filter_cutoff = 12_000.0, .filter_res = 0.0,
+        .env3_attack_s = 0.001, .env3_decay_s = 0.5, .env3_sustain = 0.0, .env3_release_s = 0.4,
         .mod_matrix = mods(&.{
+            .{ .source = .env3,     .dest = 44,  .depth = 0.45 },
             .{ .source = .velocity, .dest = 44,  .depth = 0.15 },
             .{ .source = .random,   .dest = 44,  .depth = 0.025 },
             .{ .source = .mac2,     .dest = 44,  .depth = 0.25 },
