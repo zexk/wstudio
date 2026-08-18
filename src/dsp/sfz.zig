@@ -39,6 +39,9 @@ const Settings = struct {
     sustain: f32 = 1,
     release_s: f32 = 0.1,
     seq_position: u16 = 1,
+    loops: bool = false,
+    loop_start: u32 = 0,
+    loop_end: u32 = 0,
     cc64_lo: u8 = 0,
     cc64_hi: u8 = 127,
 };
@@ -59,6 +62,7 @@ pub fn parse(
     var global: Settings = .{};
     var group = global;
     var current: ?Settings = null;
+    var in_group = false;
     var section: enum { none, global, group, region } = .none;
 
     var lines = std.mem.splitScalar(u8, text, '\n');
@@ -76,13 +80,18 @@ pub fn parse(
                 if (std.mem.eql(u8, header, "<global>")) {
                     section = .global;
                     global = .{};
-                    group = global;
+                    in_group = false;
                 } else if (std.mem.eql(u8, header, "<group>")) {
                     section = .group;
                     group = global;
+                    in_group = true;
                 } else if (std.mem.eql(u8, header, "<region>")) {
                     section = .region;
-                    current = group;
+                    // `group` is a snapshot taken when its header was read, so
+                    // it only carries the `<global>` opcodes seen by then. A
+                    // file that writes regions straight under `<global>` has to
+                    // inherit from `global` itself or it loses all of them.
+                    current = if (in_group) group else global;
                 } else return error.UnsupportedOpcode;
                 rest = std.mem.trimStart(u8, rest[close + 1 ..], " \t");
                 continue;
@@ -120,13 +129,22 @@ pub fn parse(
 fn apply(s: *Settings, key: []const u8, value: []const u8) ParseError!void {
     if (std.mem.eql(u8, key, "sample")) s.sample = value else if (std.mem.eql(u8, key, "trigger")) {
         if (std.mem.eql(u8, value, "attack")) s.trigger_release = false else if (std.mem.eql(u8, value, "release")) s.trigger_release = true else return error.UnsupportedOpcode;
+    } else if (std.mem.eql(u8, key, "loop_mode")) {
+        // `loop_sustain` collapses to a plain loop for the same reason SF2
+        // sample mode 3 does (see soundfont.zig): the unlooped tail after
+        // key-up is the part we drop.
+        if (std.mem.eql(u8, value, "no_loop") or std.mem.eql(u8, value, "one_shot")) s.loops = false else if (std.mem.eql(u8, value, "loop_continuous") or std.mem.eql(u8, value, "loop_sustain")) s.loops = true else return error.UnsupportedOpcode;
     } else if (std.mem.eql(u8, key, "key")) {
         const v = try midi(value);
         s.key_lo = v;
         s.key_hi = v;
         s.root_key = v;
-    } else if (std.mem.eql(u8, key, "lokey")) s.key_lo = try midi(value) else if (std.mem.eql(u8, key, "hikey")) s.key_hi = try midi(value) else if (std.mem.eql(u8, key, "lovel") or std.mem.eql(u8, key, "xfin_lovel")) s.vel_lo = try midi(value) else if (std.mem.eql(u8, key, "hivel") or std.mem.eql(u8, key, "xfout_hivel")) s.vel_hi = try midi(value) else if (std.mem.eql(u8, key, "pitch_keycenter")) s.root_key = try midi(value) else if (std.mem.eql(u8, key, "pitch_keytrack")) s.scale_tuning_cents = try float(value) else if (std.mem.eql(u8, key, "tune")) s.tune_cents = try float(value) else if (std.mem.eql(u8, key, "volume") or std.mem.eql(u8, key, "global_volume")) s.volume_db += try float(value) else if (std.mem.eql(u8, key, "offset")) s.offset = try uint(u32, value) else if (std.mem.eql(u8, key, "ampeg_attack")) s.attack_s = try nonnegative(value) else if (std.mem.eql(u8, key, "ampeg_decay")) s.decay_s = try nonnegative(value) else if (std.mem.eql(u8, key, "ampeg_sustain")) s.sustain = std.math.clamp((try float(value)) / 100, 0, 1) else if (std.mem.eql(u8, key, "ampeg_release")) s.release_s = try nonnegative(value) else if (std.mem.eql(u8, key, "seq_position")) s.seq_position = try uint(u16, value) else if (std.mem.eql(u8, key, "seq_length") or std.mem.eql(u8, key, "amp_veltrack") or std.mem.eql(u8, key, "rt_decay") or std.mem.eql(u8, key, "xfin_hivel") or std.mem.eql(u8, key, "xfout_lovel")) {
+    } else if (std.mem.eql(u8, key, "lokey")) s.key_lo = try midi(value) else if (std.mem.eql(u8, key, "hikey")) s.key_hi = try midi(value) else if (std.mem.eql(u8, key, "lovel") or std.mem.eql(u8, key, "xfin_lovel")) s.vel_lo = try midi(value) else if (std.mem.eql(u8, key, "hivel") or std.mem.eql(u8, key, "xfout_hivel")) s.vel_hi = try midi(value) else if (std.mem.eql(u8, key, "pitch_keycenter")) s.root_key = try midi(value) else if (std.mem.eql(u8, key, "pitch_keytrack")) s.scale_tuning_cents = try float(value) else if (std.mem.eql(u8, key, "tune")) s.tune_cents = try float(value) else if (std.mem.eql(u8, key, "volume") or std.mem.eql(u8, key, "global_volume")) s.volume_db += try float(value) else if (std.mem.eql(u8, key, "offset")) s.offset = try uint(u32, value) else if (std.mem.eql(u8, key, "loop_start")) s.loop_start = try uint(u32, value) else if (std.mem.eql(u8, key, "loop_end")) s.loop_end = try uint(u32, value) else if (std.mem.eql(u8, key, "ampeg_attack")) s.attack_s = try nonnegative(value) else if (std.mem.eql(u8, key, "ampeg_decay")) s.decay_s = try nonnegative(value) else if (std.mem.eql(u8, key, "ampeg_sustain")) s.sustain = std.math.clamp((try float(value)) / 100, 0, 1) else if (std.mem.eql(u8, key, "ampeg_release")) s.release_s = try nonnegative(value) else if (std.mem.eql(u8, key, "seq_position")) s.seq_position = try uint(u16, value) else if (std.mem.eql(u8, key, "seq_length") or std.mem.eql(u8, key, "amp_veltrack") or std.mem.eql(u8, key, "rt_decay") or std.mem.eql(u8, key, "xfin_hivel") or std.mem.eql(u8, key, "xfout_lovel")) {
         _ = try float(value);
+    } else if (std.mem.eql(u8, key, "ampeg_dynamic") or std.mem.eql(u8, key, "group_label")) {
+        // Editor metadata and an envelope-recalculation hint: neither changes
+        // a rendered sample, and rejecting them would lock out every VSCO 2
+        // patch, which sets both.
     } else if (std.mem.eql(u8, key, "locc64") or std.mem.eql(u8, key, "on_locc64")) s.cc64_lo = try midi(value) else if (std.mem.eql(u8, key, "hicc64") or std.mem.eql(u8, key, "on_hicc64")) s.cc64_hi = try midi(value) else return error.UnsupportedOpcode;
 }
 
@@ -155,12 +173,20 @@ fn appendRegion(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, sampl
     const start = samples.items.len;
     try samples.appendSlice(allocator, decoded);
     if (samples.items.len > std.math.maxInt(u32)) return error.OutputTooLarge;
+    // SFZ counts loop points in source frames from the file start and calls
+    // the last looped frame `loop_end`; the pool wants pool indices and an
+    // exclusive end. A loop that `offset` already cut past, or one the file
+    // is too short for, degrades to no loop rather than reading a neighbour.
+    const loop_lo = (start + @as(usize, s.loop_start)) -| offset;
+    const loop_hi = (start + @as(usize, s.loop_end) + 1) -| offset;
+    const loops = s.loops and s.loop_end > s.loop_start and
+        s.loop_start >= offset and loop_hi <= samples.items.len;
     try regions.append(allocator, .{
         .start = @intCast(start),
         .end = @intCast(samples.items.len),
-        .loop_start = @intCast(samples.items.len),
-        .loop_end = @intCast(samples.items.len),
-        .loops = false,
+        .loop_start = @intCast(if (loops) loop_lo else samples.items.len),
+        .loop_end = @intCast(if (loops) loop_hi else samples.items.len),
+        .loops = loops,
         .key_lo = s.key_lo,
         .key_hi = s.key_hi,
         .vel_lo = s.vel_lo,
@@ -267,6 +293,46 @@ test "SFZ reads inline headers and several opcodes per line" {
     try std.testing.expectEqual(@as(u8, 62), r.key_hi);
     try std.testing.expectEqual(@as(u8, 61), r.root_key);
     try std.testing.expectApproxEqAbs(@as(f32, 0.4), r.release_s, 1e-6);
+}
+
+test "SFZ loop points land in the pool, offset and all" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var wav_buf: [512]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&wav_buf);
+    const frames = [_]f32{ 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7 };
+    try @import("../core/wav.zig").write(&writer, 48_000, 1, &frames, .pcm16);
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "tone.wav", .data = writer.buffered() });
+
+    // Two regions so the second one starts at a non-zero pool offset, which is
+    // where a file-relative loop point would otherwise be read as a pool one.
+    const text =
+        \\<global> loop_mode=loop_continuous
+        \\<region> sample=tone.wav loop_start=2 loop_end=5
+        \\<region> sample=tone.wav offset=1 loop_start=2 loop_end=5
+        \\
+    ;
+    var bank = try parse(std.testing.allocator, std.testing.io, tmp.dir, text, "Loop", 48_000);
+    defer bank.deinit();
+    const regions = bank.presets[0].regions;
+    try std.testing.expectEqual(@as(usize, 2), regions.len);
+    // `loop_end` is SFZ's last looped frame; the pool wants one past it.
+    try std.testing.expect(regions[0].loops);
+    try std.testing.expectEqual(@as(u32, 2), regions[0].loop_start);
+    try std.testing.expectEqual(@as(u32, 6), regions[0].loop_end);
+    // Second region: pool starts at 8, and `offset=1` shifts the loop back one.
+    try std.testing.expect(regions[1].loops);
+    try std.testing.expectEqual(@as(u32, 9), regions[1].loop_start);
+    try std.testing.expectEqual(@as(u32, 13), regions[1].loop_end);
+
+    // no_loop wins even with loop points present, and an out-of-range loop
+    // degrades to no loop rather than reading the neighbouring region.
+    var plain = try parse(std.testing.allocator, std.testing.io, tmp.dir, "<region> sample=tone.wav loop_mode=no_loop loop_start=2 loop_end=5\n", "Loop", 48_000);
+    defer plain.deinit();
+    try std.testing.expect(!plain.presets[0].regions[0].loops);
+    var past = try parse(std.testing.allocator, std.testing.io, tmp.dir, "<region> sample=tone.wav loop_mode=loop_continuous loop_start=2 loop_end=99\n", "Loop", 48_000);
+    defer past.deinit();
+    try std.testing.expect(!past.presets[0].regions[0].loops);
 }
 
 test "SFZ rejects MIDI-domain values above 127" {
