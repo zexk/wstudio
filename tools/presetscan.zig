@@ -679,22 +679,33 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    // ponytail: O(n^2) over this library is cheap. If the
-    // preset count ever reaches thousands, bucket by category first.
-    for (rows.items, 0..) |*r, i| {
+    // Every pair once, updating both rows: the two distances are symmetric,
+    // so the full square would compute each of them twice. Still quadratic -
+    // bucketing by category is NOT the upgrade path, since a twin that
+    // crossed categories is exactly what this column exists to find.
+    for (rows.items) |*r| {
         r.near_patch_d = std.math.floatMax(f32);
         r.near_audio_d = std.math.floatMax(f32);
-        for (rows.items, 0..) |o, j| {
-            if (i == j) continue;
+    }
+    for (rows.items, 0..) |*r, i| {
+        for (rows.items[i + 1 ..], i + 1..) |*o, j| {
             const pd = patchDistance(r.patch, o.patch, scales);
             if (pd < r.near_patch_d) {
                 r.near_patch_d = pd;
                 r.near_patch = j;
             }
+            if (pd < o.near_patch_d) {
+                o.near_patch_d = pd;
+                o.near_patch = i;
+            }
             const ad = audioDistance(r.f, o.f, spread);
             if (ad < r.near_audio_d) {
                 r.near_audio_d = ad;
                 r.near_audio = j;
+            }
+            if (ad < o.near_audio_d) {
+                o.near_audio_d = ad;
+                o.near_audio = i;
             }
         }
     }
