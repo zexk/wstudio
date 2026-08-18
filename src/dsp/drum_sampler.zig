@@ -1194,7 +1194,13 @@ pub const DrumMachine = struct {
         fade_curve: f32 = 0.0,
         stretch_ratio: f32 = 1.0,
         filter: f32 = 0.0,
+        /// The two flags `pad.PlayMode` packs, stored raw so a kit file
+        /// written before the play mode was reachable still loads: an absent
+        /// `retrig` defaults to true, which is how every pad in such a file
+        /// actually sounded. Write them through `pad.setPlayMode`, never one
+        /// at a time - `gate` wins when both are set.
         gate: bool = false,
+        retrig: bool = true,
         choke_group: u8 = 0,
     };
 
@@ -1220,6 +1226,7 @@ pub const DrumMachine = struct {
                     .stretch_ratio = s.pad.stretch_ratio,
                     .filter = s.pad.filter,
                     .gate = s.pad.gate,
+                    .retrig = s.pad.retrig,
                     .choke_group = self.choke_group[i],
                 };
             } else {
@@ -1237,7 +1244,8 @@ pub const DrumMachine = struct {
             const pad = if (self.pads[i]) |*s| s else continue;
             pad.rename(t.name);
             // A saved kit is a hand-editable JSON file, so every value goes
-            // through setParamAbsolute's clamp/non-finite guard rather than
+            // through setParamAbsolute's clamp/non-finite guard (or, for the
+            // non-float ones below, their own clamping writer) rather than
             // landing raw in fields the audio thread reads. Ids are
             // dsp/pad.zig's shared table.
             // zig fmt: off
@@ -1255,8 +1263,10 @@ pub const DrumMachine = struct {
             pad.setParamAbsolute(pad_mod.stretch_id, t.stretch_ratio);
             pad.setParamAbsolute(13, t.filter);
             // zig fmt: on
-            pad.pad.gate = t.gate;
-            self.choke_group[i] = t.choke_group;
+            pad_mod.setPlayMode(&pad.pad, if (t.gate) .gate else if (t.retrig) .retrigger else .one_shot);
+            // Same clamp the .wsj load path applies - a group past the last
+            // one would sit outside anything `cycleChokeGroup` can reach.
+            self.choke_group[i] = @min(t.choke_group, max_choke_groups);
         }
     }
 
@@ -2505,7 +2515,7 @@ test "applying a hand-edited kit clamps its values" {
     defer dm.deinit();
 
     var tune: [8]DrumMachine.PadTune = [_]DrumMachine.PadTune{.{}} ** 8;
-    tune[0] = .{ .name = "kick", .gain = 500, .pan = -9, .pitch_semitones = 99, .stretch_ratio = 0, .release_s = std.math.inf(f32), .env_curve = -8 };
+    tune[0] = .{ .name = "kick", .gain = 500, .pan = -9, .pitch_semitones = 99, .stretch_ratio = 0, .release_s = std.math.inf(f32), .env_curve = -8, .choke_group = 200 };
     dm.applyPadTune(&tune);
 
     const p = &dm.pads[0].?.pad;
@@ -2516,6 +2526,31 @@ test "applying a hand-edited kit clamps its values" {
     try std.testing.expectApproxEqAbs(@as(f32, -1.0), p.env_curve, 1e-6);
     // Non-finite is dropped, not clamped: the previous value survives.
     try std.testing.expect(std.math.isFinite(p.release_s));
+    // A group past the last one is clamped, not stored - it would otherwise
+    // sit outside everything `cycleChokeGroup` can walk to.
+    try std.testing.expectEqual(DrumMachine.max_choke_groups, dm.choke_group[0]);
+}
+
+test "a kit round-trips a pad's play mode, and an old kit still reads as retrigger" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try testMachine(&transport);
+    defer dm.deinit();
+
+    pad_mod.setPlayMode(&dm.pads[0].?.pad, .one_shot);
+    pad_mod.setPlayMode(&dm.pads[1].?.pad, .gate);
+    const saved = dm.tunePads();
+
+    pad_mod.setPlayMode(&dm.pads[0].?.pad, .retrigger);
+    pad_mod.setPlayMode(&dm.pads[1].?.pad, .retrigger);
+    dm.applyPadTune(&saved);
+    try std.testing.expectEqual(pad_mod.PlayMode.one_shot, pad_mod.playMode(&dm.pads[0].?.pad));
+    try std.testing.expectEqual(pad_mod.PlayMode.gate, pad_mod.playMode(&dm.pads[1].?.pad));
+
+    // A kit file written before `retrig` existed has no such key, so it
+    // parses as the field default - which is how those pads used to sound.
+    const old: [8]DrumMachine.PadTune = [_]DrumMachine.PadTune{.{}} ** 8;
+    dm.applyPadTune(&old);
+    try std.testing.expectEqual(pad_mod.PlayMode.retrigger, pad_mod.playMode(&dm.pads[0].?.pad));
 }
 
 test "region trim shortens the voice" {
