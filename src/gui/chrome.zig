@@ -58,10 +58,8 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
         zgui.sameLine(.{ .spacing = 0 });
         const left_end = zgui.getCursorPosX() + group_gap;
         const project_w = @max(readoutWidth(icons.project ++ "  PROJECT", ""), zgui.getWindowSize()[0] - 20 - left_end - right_fixed_w);
-        const glyph_w = @max(1, zgui.calcTextSize("M", .{})[0]);
-        const project_chars: usize = @intFromFloat(@max(1, @floor(project_w / glyph_w)));
         var project_buf: [256]u8 = undefined;
-        const fitted_project_title = ellipsizeUtf8(project_title, project_chars, &project_buf);
+        const fitted_project_title = ellipsizeToWidth(project_title, project_w, &project_buf, measureValue);
         const right_w = readoutWidth(icons.project ++ "  PROJECT", fitted_project_title) + right_fixed_w;
         zgui.setCursorPosX(@max(left_end, zgui.getWindowSize()[0] - right_w - 20));
 
@@ -205,30 +203,58 @@ fn readoutWidth(label: []const u8, value: []const u8) f32 {
     return @max(label_width, value_width);
 }
 
-fn ellipsizeUtf8(text: []const u8, max_codepoints: usize, scratch: []u8) []const u8 {
-    var count_it = std.unicode.Utf8Iterator{ .bytes = text, .i = 0 };
-    var count: usize = 0;
-    while (count_it.nextCodepointSlice() != null) count += 1;
-    if (count <= max_codepoints) return text;
-    if (max_codepoints == 0 or scratch.len < 3) return "";
+/// Trim `text` to what fits in `max_width` pixels, ending in an ellipsis.
+///
+/// `measure` is a seam, not indirection for its own sake: the real one asks
+/// ImGui, which needs a live context, and the test needs to run without one.
+fn ellipsizeToWidth(text: []const u8, max_width: f32, scratch: []u8, measure: *const fn ([]const u8) f32) []const u8 {
+    if (measure(text) <= max_width) return text;
+    const ellipsis = "…";
+    if (scratch.len < ellipsis.len) return "";
+    const room = max_width - measure(ellipsis);
 
     var it = std.unicode.Utf8Iterator{ .bytes = text, .i = 0 };
     var len: usize = 0;
-    for (0..max_codepoints - 1) |_| {
-        const codepoint = it.nextCodepointSlice() orelse break;
-        if (len + codepoint.len + 3 > scratch.len) break;
+    while (it.nextCodepointSlice()) |codepoint| {
+        if (len + codepoint.len + ellipsis.len > scratch.len) break;
         @memcpy(scratch[len..][0..codepoint.len], codepoint);
+        if (measure(scratch[0 .. len + codepoint.len]) > room) break;
         len += codepoint.len;
     }
-    @memcpy(scratch[len..][0..3], "…");
-    return scratch[0 .. len + 3];
+    @memcpy(scratch[len..][0..ellipsis.len], ellipsis);
+    return scratch[0 .. len + ellipsis.len];
 }
 
-test "transport ellipsis keeps UTF-8 boundaries" {
+/// Width of one line of the readout value font, which is what the project
+/// title is drawn in.
+fn measureValue(text: []const u8) f32 {
+    gui_style.pushFont(.heading);
+    defer gui_style.popFont();
+    return zgui.calcTextSize(text, .{})[0];
+}
+
+test "transport ellipsis fits the width it was given" {
+    const fake = struct {
+        // Every glyph 10 wide except the ellipsis, so the test can tell
+        // "what fits" apart from "how many characters".
+        fn measure(text: []const u8) f32 {
+            var it = std.unicode.Utf8Iterator{ .bytes = text, .i = 0 };
+            var width: f32 = 0;
+            while (it.nextCodepointSlice()) |codepoint| {
+                width += if (std.mem.eql(u8, codepoint, "…")) 5 else 10;
+            }
+            return width;
+        }
+    }.measure;
     var buf: [32]u8 = undefined;
-    try std.testing.expectEqualStrings("demo.wsj", ellipsizeUtf8("demo.wsj", 8, &buf));
-    try std.testing.expectEqualStrings("dé…", ellipsizeUtf8("démo.wsj", 3, &buf));
-    try std.testing.expectEqualStrings("…", ellipsizeUtf8("demo.wsj", 1, &buf));
+    try std.testing.expectEqualStrings("demo.wsj", ellipsizeToWidth("demo.wsj", 80, &buf, fake));
+    try std.testing.expectEqualStrings("demo.wsj", ellipsizeToWidth("demo.wsj", 200, &buf, fake));
+    // 35px holds three 10px glyphs and the 5px ellipsis exactly.
+    try std.testing.expectEqualStrings("dém…", ellipsizeToWidth("démo.wsj", 35, &buf, fake));
+    try std.testing.expectEqualStrings("…", ellipsizeToWidth("demo.wsj", 5, &buf, fake));
+    // Narrower than the ellipsis alone: it is still the honest answer, and
+    // the caller has already reserved the slot.
+    try std.testing.expectEqualStrings("…", ellipsizeToWidth("demo.wsj", 1, &buf, fake));
 }
 
 /// `drawLevelMeters`'s on-screen width: the fixed meter-bar width
