@@ -29,6 +29,7 @@ const sampler_ed = @import("../ui/editors/sampler.zig");
 const spectrum_ed = @import("../ui/editors/fx_editor.zig");
 const soundfont_ed = @import("../ui/editors/soundfont.zig");
 const synth_ed_mod = @import("../ui/editors/synth.zig");
+const synth_layout = @import("../ui/synth_layout.zig");
 const preset_ed = @import("../ui/editors/preset_picker.zig");
 const icons = @import("../ui/icons.zig");
 const ansi = @import("../ui/ansi.zig");
@@ -5420,6 +5421,39 @@ test "synth MOD subview contains matrix without LFO cards" {
     // secMatrix's own body, not just its title: proves the render fn that
     // ran under the MATRIX header is the matrix one.
     try std.testing.expect(std.mem.indexOf(u8, frame, "CUTOFF") != null);
+}
+
+test "the synth editor renders a card for every section in the shared layout" {
+    var app = try testApp();
+    defer app.deinit();
+    app.handleKey(.enter, 0);
+    var buf: [64 * 1024]u8 = undefined;
+
+    // synth_layout.zig owns the section list, and cursor traversal, column
+    // packing and hit-testing all derive from it - but the TUI writes each
+    // card's title by hand, so nothing but this test notices a section that
+    // gained a cursor slot without gaining a card (or one whose title was
+    // typed differently: MACROS spent a while as "MACRO").
+    var w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 240, .rows = 120 });
+    const main_frame = w.buffered();
+    for (synth_layout.main_sections) |section| {
+        std.testing.expect(std.mem.indexOf(u8, main_frame, section.title) != null) catch |e| {
+            std.debug.print("MAIN subview draws no card titled '{s}'\n", .{section.title});
+            return e;
+        };
+    }
+
+    app.handleKey(.tab, 0);
+    w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 240, .rows = 120 });
+    const mod_frame = w.buffered();
+    for (synth_layout.mod_sections) |section| {
+        std.testing.expect(std.mem.indexOf(u8, mod_frame, section.title) != null) catch |e| {
+            std.debug.print("MOD subview draws no card titled '{s}'\n", .{section.title});
+            return e;
+        };
+    }
 }
 
 test "synth tabs cycle cursor group and preserve selected field" {

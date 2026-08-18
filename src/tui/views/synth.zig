@@ -449,7 +449,7 @@ fn secLfoShapePlot(w: *std.Io.Writer, synth: *const PolySynth, slot: u8, shape: 
 /// of their own, automatable as ids 99-102.
 fn secMacro(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
-    try synthSection(w, "MACRO", bcyn);
+    try synthSection(w, "MACROS", bcyn);
     const vals = [4]f32{ synth.macro1, synth.macro2, synth.macro3, synth.macro4 };
     for (vals, 0..) |v, k| {
         var lbl: [16]u8 = undefined;
