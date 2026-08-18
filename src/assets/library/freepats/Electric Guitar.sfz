@@ -1,0 +1,87 @@
+//+ Name: EGuitar Cl. Br. Sm.
+//+ Date: 2026-08-07
+//+ URL: http://freepats.zenvoid.org/ElectricGuitar/clean-electric-guitar.html
+
+<global>
+ ampeg_release=1.1
+
+<group>
+ loop_mode=loop_continuous
+
+<region>
+ lokey=35 hikey=38
+ pitch_keycenter=36
+ loop_start=657845 loop_end=883503
+ sample=Electric Guitar/C2_s1_01.flac
+
+<region>
+ lokey=39 hikey=42
+ pitch_keycenter=41
+ loop_start=701254 loop_end=879471
+ sample=Electric Guitar/F2_s1_01.flac
+
+<region>
+ lokey=43 hikey=46
+ pitch_keycenter=45
+ loop_start=566379 loop_end=677450
+ sample=Electric Guitar/A2_s2_01.flac
+
+<region>
+ lokey=47 hikey=49
+ pitch_keycenter=48
+ loop_start=488769 loop_end=551879
+ sample=Electric Guitar/C3_s2_02.flac
+
+<region>
+ lokey=50 hikey=53
+ pitch_keycenter=52
+ loop_start=205029 loop_end=314605
+ sample=Electric Guitar/E3_s3_01.flac
+
+<region>
+ lokey=54 hikey=56
+ pitch_keycenter=55
+ loop_start=329236 loop_end=388720
+ sample=Electric Guitar/G3_s4_01.flac
+
+<region>
+ lokey=57 hikey=61
+ pitch_keycenter=59
+ loop_start=262912 loop_end=370979
+ sample=Electric Guitar/B3_s5_01.flac
+
+<region>
+ lokey=62 hikey=65
+ pitch_keycenter=64
+ loop_start=216555 loop_end=310777
+ sample=Electric Guitar/E4_s6_01.flac
+
+<region>
+ lokey=66 hikey=69
+ pitch_keycenter=67
+ loop_start=208236 loop_end=265522
+ sample=Electric Guitar/G4_s6_01.flac
+
+<region>
+ lokey=70 hikey=72
+ pitch_keycenter=71
+ loop_start=201253 loop_end=255851
+ sample=Electric Guitar/B4_s6_01.flac
+
+<group>
+ loop_mode=no_loop
+
+<region>
+ lokey=73 hikey=76
+ pitch_keycenter=74
+ sample=Electric Guitar/D5_s6_01.flac
+
+<region>
+ lokey=77 hikey=82
+ pitch_keycenter=80
+ sample=Electric Guitar/G#5_s6_03.flac
+
+<region>
+ lokey=83 hikey=86
+ pitch_keycenter=85
+ sample=Electric Guitar/C#6_s6_01.flac

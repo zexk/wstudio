@@ -16,9 +16,9 @@ the public domain under CC0 1.0; exact licence text is in `vcsl/LICENSE`.
 
 ## `freepats/`
 
-Sound banks from the FreePats project: nylon-string guitar, tenor ukulele,
-finger and picked bass, honky-tonk piano, tenor saxophone, clarinet, soprano
-recorder.
+Sound banks from the FreePats project: nylon-string and clean electric
+guitar, tenor ukulele, finger and picked bass, honky-tonk piano, tenor
+saxophone, clarinet, soprano recorder.
 
 Source: <https://freepats.zenvoid.org/>. Dedicated to the public domain under
 CC0 1.0; exact licence text is in `freepats/LICENSE`. The per-bank recording

@@ -39,10 +39,11 @@ not more engines.
 
 Current shipment covers grand, upright and honky-tonk piano, Italian
 harpsichord, pipe organ, concert harp, glockenspiel, marimba, vibraphone,
-xylophone, kalimba, nylon-string guitar, tenor ukulele, finger and picked
-bass, tenor saxophone, clarinet, soprano recorder, harmonica, violin, viola
-and cello sections, pizzicato contrabass, flute, and muted trumpet, from CC0
-VCSL, FreePats and VSCO 2 CE through one shared SFZ sample-bank path.
+xylophone, kalimba, nylon-string and clean electric guitar, tenor ukulele,
+finger and picked bass, tenor saxophone, clarinet, soprano recorder,
+harmonica, violin, viola and cello sections, pizzicato contrabass, flute,
+and muted trumpet, from CC0 VCSL, FreePats and VSCO 2 CE through one shared
+SFZ sample-bank path.
 Existing factory kits and synth presets cover starter drums, electric piano,
 and electric bass.
 

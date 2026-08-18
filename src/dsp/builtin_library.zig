@@ -21,6 +21,7 @@ pub const Id = enum {
     kalimba,
     harmonica,
     nylon_guitar,
+    electric_guitar,
     ukulele,
     finger_bass,
     picked_bass,
@@ -108,6 +109,7 @@ const specs = [_]struct { label: []const u8, pack: Pack, sfz: []const u8 }{
     .{ .label = "Kenyan Kalimba",      .pack = .vcsl,      .sfz = "Kalimba, Kenya.sfz" },
     .{ .label = "Harmonica",           .pack = .vcsl,      .sfz = "Harmonica.sfz" },
     .{ .label = "Nylon String Guitar", .pack = .freepats,  .sfz = "Nylon String Guitar.sfz" },
+    .{ .label = "Electric Guitar",     .pack = .freepats,  .sfz = "Electric Guitar.sfz" },
     .{ .label = "Tenor Ukulele",       .pack = .freepats,  .sfz = "Tenor Ukulele.sfz" },
     .{ .label = "Finger Bass",         .pack = .freepats,  .sfz = "Finger Bass.sfz" },
     .{ .label = "Picked Bass",         .pack = .freepats,  .sfz = "Picked Bass.sfz" },
@@ -170,9 +172,10 @@ test "bundled catalog loads every patch" {
 }
 
 test "bundled looping banks kept their loop points" {
-    // The FreePats winds were sampled short and loop to hold a longer note;
-    // everything else was sampled long enough to play out, and must not loop
-    // or its tail repeats. (The VSCO 2 winds are in the second camp, so this
+    // The FreePats winds were sampled short and loop to hold a longer note,
+    // and the electric guitar loops the zones that sustain; everything else
+    // was sampled long enough to play out, and must not loop at all or its
+    // tail repeats. (The VSCO 2 winds are in the second camp, so this
     // is about how a bank was vendored, not about which family it belongs
     // to.) Catches a re-vendored pack that dropped its loop points, which
     // sounds like the note stopping early rather than like a parse failure.
@@ -180,6 +183,7 @@ test "bundled looping banks kept their loop points" {
         .{ .tenor_sax, true },
         .{ .clarinet, true },
         .{ .recorder, true },
+        .{ .electric_guitar, true },
         .{ .grand, false },
         .{ .nylon_guitar, false },
         .{ .flute, false },
@@ -196,7 +200,7 @@ test "bundled looping banks kept their loop points" {
             try std.testing.expect(r.loop_end <= r.end);
         }
         if (case[1]) {
-            try std.testing.expectEqual(bank.presets[0].regions.len, looping);
+            try std.testing.expect(looping > 0);
         } else {
             try std.testing.expectEqual(@as(usize, 0), looping);
         }
