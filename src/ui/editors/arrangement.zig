@@ -303,6 +303,12 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
                 selectSection(app);
                 return true;
             },
+            // S: scissors. x and d cut material out; this only divides what
+            // is there, so the two halves keep playing what one clip did.
+            'S' => {
+                splitClip(app);
+                return true;
+            },
             '[' => {
                 cycleDrumVariant(app, -1);
                 return true;
@@ -1097,6 +1103,31 @@ fn resizeClip(app: *App, delta: i32) void {
 /// `x`: cut just the bar under the cursor out of whatever clip covers it -
 /// trims or splits the clip so the rest of it survives (see
 /// `Lane.cutRange`), instead of deleting the whole thing.
+/// Divide the clip under the cursor at the cursor, keeping every tick of it.
+fn splitClip(app: *App) void {
+    const lane = app.session.arrangement.lane(app.cursor) orelse return;
+    const cursor_tick = cursorTick(app);
+    // A clip that starts or ends here is already divided at this point, so
+    // check before recording undo rather than logging a no-op entry.
+    const crosses = for (lane.clips.items) |c| {
+        if (c.start_tick < cursor_tick and c.endTick() > cursor_tick) break true;
+    } else false;
+    if (!crosses) {
+        app.setStatus("no clip to split here", .{});
+        return;
+    }
+    history.recordLane(app, @intCast(app.cursor));
+    _ = lane.splitAt(app.allocator, cursor_tick) catch {
+        app.setStatus("split failed (out of memory)", .{});
+        return;
+    };
+    app.dirty = true;
+    // arr_cursor_bar counts grid cells, not bars - ask the project which bar
+    // the cursor tick actually sits in.
+    app.setStatus("split at bar {d}", .{app.session.project.barAtTick(cursor_tick).bar + 1});
+    if (app.session.song_mode) app.session.rebuildSongData();
+}
+
 fn deleteClip(app: *App) void {
     const lane = app.session.arrangement.lane(app.cursor) orelse return;
     const cursor_tick = cursorTick(app);
@@ -1109,7 +1140,7 @@ fn deleteClip(app: *App) void {
         app.setStatus("cut failed (out of memory)", .{});
         return;
     };
-    app.setStatus("cut bar {d}", .{app.arr_cursor_bar + 1});
+    app.setStatus("cut bar {d}", .{app.session.project.barAtTick(cursor_tick).bar + 1});
     if (app.session.song_mode) app.session.rebuildSongData();
 }
 

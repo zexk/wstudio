@@ -528,18 +528,16 @@ pub const Lane = struct {
         std.mem.sort(Clip, self.clips.items, {}, lessThanStart);
     }
 
-    /// Open an empty span at `at`. A clip crossing the insertion point is
-    /// split so material on its right moves with later clips.
-    pub fn insertTime(self: *Lane, allocator: std.mem.Allocator, at: u32, width: u32) !void {
-        if (width == 0) return;
-        for (self.clips.items) |c| {
-            if (c.endTick() > at and c.endTick() > std.math.maxInt(u32) - width)
-                return error.OutOfRange;
-        }
+    /// Cut every clip crossing `at` in two, removing nothing: the halves butt
+    /// against each other and keep playing what they played. Returns whether
+    /// anything crossed. A clip already starting or ending there is left
+    /// alone - it is split at that point by definition.
+    pub fn splitAt(self: *Lane, allocator: std.mem.Allocator, at: u32) !bool {
         // Index loop, not `for (items)`: layers let a lane hold overlapping
         // clips (`place` only evicts an overlap on the same layer), so more
         // than one can cross `at`, and each split inserts into the list being
         // walked. Same shape `cutRange` uses for the same reason.
+        var split_any = false;
         var i: usize = 0;
         while (i < self.clips.items.len) {
             const c = self.clips.items[i];
@@ -556,7 +554,24 @@ pub const Lane = struct {
             self.clips.items[i].length_ticks = at - c.start_tick;
             self.clips.insertAssumeCapacity(i + 1, right);
             i += 2; // past the remainder and the piece just inserted
+            split_any = true;
         }
+        // The right half lands at `at`, which can overtake a clip sitting
+        // later in the list untouched - reachable only with layers, same as
+        // `cutRange`'s own re-sort.
+        if (split_any) std.mem.sort(Clip, self.clips.items, {}, lessThanStart);
+        return split_any;
+    }
+
+    /// Open an empty span at `at`. A clip crossing the insertion point is
+    /// split so material on its right moves with later clips.
+    pub fn insertTime(self: *Lane, allocator: std.mem.Allocator, at: u32, width: u32) !void {
+        if (width == 0) return;
+        for (self.clips.items) |c| {
+            if (c.endTick() > at and c.endTick() > std.math.maxInt(u32) - width)
+                return error.OutOfRange;
+        }
+        _ = try self.splitAt(allocator, at);
         for (self.clips.items) |*c| {
             if (c.start_tick >= at) c.start_tick += width;
         }
@@ -1054,6 +1069,44 @@ test "a cut through an audio region moves its source cursor with it" {
     const rev = lane3.clips.items[1].content.audio;
     try testing.expectEqual(@as(u64, 1_000), rev.source_start_frame);
     try testing.expectEqual(@as(u64, 20_000), rev.source_length_frames);
+}
+
+test "splitAt divides a clip without losing a tick of it" {
+    const a = testing.allocator;
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    try lane.place(a, Clip.initDrum(0, 100, .{ .step_count = 16 }));
+
+    try testing.expect(try lane.splitAt(a, 40));
+    try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
+    try testing.expectEqual(@as(u32, 0), lane.clips.items[0].start_tick);
+    try testing.expectEqual(@as(u32, 40), lane.clips.items[0].length_ticks);
+    try testing.expectEqual(@as(u32, 40), lane.clips.items[1].start_tick);
+    try testing.expectEqual(@as(u32, 60), lane.clips.items[1].length_ticks);
+
+    // A tick no clip crosses (a seam, the far end, a bare stretch) is a no-op.
+    try testing.expect(!try lane.splitAt(a, 40));
+    try testing.expect(!try lane.splitAt(a, 100));
+    try testing.expect(!try lane.splitAt(a, 500));
+    try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
+}
+
+test "splitAt divides every clip crossing the tick, stacked layers included" {
+    const a = testing.allocator;
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    var lower = Clip.initDrum(0, 100, .{ .step_count = 16 });
+    lower.layer = 0;
+    var upper = Clip.initDrum(30, 40, .{ .step_count = 16 });
+    upper.layer = 1;
+    try lane.place(a, lower);
+    try lane.place(a, upper);
+
+    try testing.expect(try lane.splitAt(a, 50));
+    try testing.expectEqual(@as(usize, 4), lane.clips.items.len);
+    for (lane.clips.items[1..], 0..) |c, prev| {
+        try testing.expect(lane.clips.items[prev].start_tick <= c.start_tick);
+    }
 }
 
 test "cutRange leaves the lane sorted when layers stack" {

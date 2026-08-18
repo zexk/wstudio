@@ -6299,6 +6299,35 @@ test "arrangement blockwise visual bounds the cut to the lane band j/k grows" {
     try std.testing.expectEqual(@as(?usize, null), app.arr_visual_lane_anchor);
 }
 
+test "arrangement S splits the clip at the cursor and keeps every tick of it" {
+    var app = try testApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try app.session.stampClip(0, 0);
+    const lane = app.session.arrangement.lane(0).?;
+    const span = lane.clips.items[0].length_ticks;
+
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_cursor_bar = 1; // one grid cell in, inside the clip
+    const cut_tick = app.arr_cursor_bar * app.arr_grid.ticks();
+    app.handleKey(.{ .char = 'S' }, 0);
+    try std.testing.expectEqual(@as(usize, 2), lane.clips.items.len);
+    try std.testing.expectEqual(@as(u32, 0), lane.clips.items[0].start_tick);
+    try std.testing.expectEqual(cut_tick, lane.clips.items[0].length_ticks);
+    try std.testing.expectEqual(cut_tick, lane.clips.items[1].start_tick);
+    try std.testing.expectEqual(span, lane.clips.items[0].length_ticks + lane.clips.items[1].length_ticks);
+
+    // Pressing it again on the seam changes nothing, and undo puts the one
+    // clip back.
+    app.handleKey(.{ .char = 'S' }, 0);
+    try std.testing.expectEqual(@as(usize, 2), lane.clips.items.len);
+    app.handleKey(.{ .char = 'u' }, 0);
+    try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
+    try std.testing.expectEqual(span, lane.clips.items[0].length_ticks);
+}
+
 test "arrangement operator+motion: d3l / y3l act on a bar range without entering visual mode" {
     var app = try testApp();
     defer app.deinit();

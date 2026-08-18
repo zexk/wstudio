@@ -127,7 +127,9 @@ cancels. `dw`/`yw` end at the last step of the nth beat forward, not at
 
 The arrangement collapses a tier at the char end: `x` cuts the cell
 under the cursor out of whatever clip covers it, so there is no separate
-"delete the clip" key below `dd`'s whole lane.
+"delete the clip" key below `dd`'s whole lane. `S` is the one arrangement
+edit outside the hierarchy: it removes nothing, it divides the clip under
+the cursor into two that between them play exactly what the one did.
 
 `yy` in the piano roll and drum grid is the whole-pattern yank rather
 than a one-row yank: it is the cross-track pattern-copy vehicle (`p`
