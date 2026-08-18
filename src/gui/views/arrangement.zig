@@ -359,7 +359,7 @@ pub fn draw(app: anytype) void {
                 },
                 .drum => |drum| {
                     const pattern_bars = @as(f32, @floatFromInt(drum.step_count)) * @as(f32, @floatFromInt(@max(app.core.session.project.meter_denominator, 1))) / (@as(f32, @floatFromInt(@max(drum.steps_per_beat, 1))) * @as(f32, @floatFromInt(@max(app.core.session.project.beats_per_bar, 1))) * 4.0);
-                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(ink), "PATTERN {c}  {d:.2} bars", .{ 'A' + drum.variant, pattern_bars });
+                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(ink), "PATTERN {c}  {d:.2} bars", .{ ws.dsp.DrumMachine.variantLetter(drum.variant), pattern_bars });
                     // step_px is fixed by beat_w/steps_per_beat, not the clip's box
                     // width, so a chopped (shortened) clip truncates the pattern
                     // instead of squeezing every step into the smaller box, and a

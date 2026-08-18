@@ -69,7 +69,7 @@ fn drawHeader(app: anytype, slicer: *const ws.dsp.Slicer) void {
     zgui.sameLine(.{});
     zgui.textDisabled("\"{s}\"  slices {d}", .{ slicer.clipName(), slicer.slice_count });
     zgui.sameLine(.{});
-    zgui.textColored(theme.audio, "pat {c}", .{'A' + slicer.variant});
+    zgui.textColored(theme.audio, "pat {c}", .{ws.dsp.Slicer.variantLetter(slicer.variant)});
     if (slicer.variant_count > 1) {
         zgui.sameLine(.{});
         zgui.textDisabled("{d}/{d}", .{ slicer.variant + 1, slicer.variant_count });

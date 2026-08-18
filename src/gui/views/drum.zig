@@ -45,9 +45,11 @@ fn drawTitle(app: anytype, drum: *const ws.dsp.DrumMachine) void {
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[app.core.drum_track].name});
     zgui.sameLine(.{});
-    zgui.textColored(theme.rhythm, "Pattern {c}", .{'A' + drum.variant});
+    // "pat A  1/4", the same words the TUI header and the GUI slicer use -
+    // and off the same clamping helper, not a raw 'A' + variant.
+    zgui.textColored(theme.rhythm, "pat {c}", .{ws.dsp.DrumMachine.variantLetter(drum.variant)});
     zgui.sameLine(.{});
-    zgui.textDisabled("Variation {d}/{d}", .{ drum.variant + 1, drum.variant_count });
+    zgui.textDisabled("{d}/{d}", .{ drum.variant + 1, drum.variant_count });
     zgui.sameLine(.{ .spacing = 8 });
     zgui.beginDisabled(.{ .disabled = drum.variant_count <= 1 });
     if (widgets.iconButton(icons.prev ++ "##drum-variant-prev", "Previous variation  [")) app.core.handleKey(.{ .char = '[' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
