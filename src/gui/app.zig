@@ -114,6 +114,7 @@ pub const App = struct {
         drawWorkspace(self);
         chrome.drawStatus(self);
         chrome.drawCommandPrompt(self);
+        if (imgui_metrics_open) zgui.showMetricsWindow(&imgui_metrics_open);
     }
 
     pub fn recordInstrumentEdit(self: *App, track: u16, id: u16) void {
@@ -176,6 +177,14 @@ pub const App = struct {
         }
     }
 };
+
+/// ImGui's own metrics/debugger window, opened by running with
+/// `WSTUDIO_IMGUI_METRICS=1` in the environment. It lists every window,
+/// its rect and its draw commands, which is how a layout question about
+/// this frontend gets answered by looking rather than by guessing. Behind
+/// an environment variable rather than a command because it is a tool for
+/// working on wstudio, not a feature of it.
+pub var imgui_metrics_open: bool = false;
 
 fn bodyHeight(prompt_open: bool) f32 {
     return zgui.io.getDisplaySize()[1] - chrome.transport_height - 34 - @as(f32, if (prompt_open) 38 else 0);

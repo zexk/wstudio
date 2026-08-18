@@ -227,6 +227,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     gui_style.envelope_drag_pixels = user_config.gui_envelope_drag_pixels;
     gui_style.piano_row_height = user_config.gui_piano_row_height;
     gui_style.meter_decay_db_per_s = user_config.gui_meter_decay_db_s;
+    app_mod.imgui_metrics_open = std.c.getenv("WSTUDIO_IMGUI_METRICS") != null;
     zgui.backend.init(window);
     defer zgui.backend.deinit();
     // Takes over from the char/scroll callbacks zgui.backend.init just
