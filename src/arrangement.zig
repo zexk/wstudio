@@ -4,6 +4,7 @@
 const std = @import("std");
 const Note = @import("dsp/pattern.zig").Note;
 const DrumMachine = @import("dsp/drum_sampler.zig").DrumMachine;
+const time_grid = @import("time_grid.zig");
 const automation_mod = @import("dsp/automation.zig");
 const AutomationPoint = automation_mod.AutomationPoint;
 pub const max_audio_takes: usize = 8;
@@ -96,6 +97,22 @@ pub const Clip = struct {
             allocator.free(self.pan);
             for (self.synth_params.items) |*sp| allocator.free(sp.points);
             self.synth_params.deinit(allocator);
+        }
+
+        /// Slide every curve back by `beats`, for a clip that just lost that
+        /// much off its front. Points now before the clip start keep their
+        /// slot at beat 0 rather than being dropped: they are what the curve
+        /// held at the cut, and `dsp.automation.interpolate` reads the last
+        /// point at or before a beat, so removing them would leave the
+        /// remainder starting from the wrong value.
+        pub fn dropFront(self: *Automation, beats: f64) void {
+            if (beats <= 0) return;
+            for ([_][]AutomationPoint{ self.gain, self.pan }) |curve| shiftPoints(curve, beats);
+            for (self.synth_params.items) |sp| shiftPoints(sp.points, beats);
+        }
+
+        fn shiftPoints(points: []AutomationPoint, beats: f64) void {
+            for (points) |*point| point.beat = @max(0, point.beat - beats);
         }
 
         pub fn dupe(self: Automation, allocator: std.mem.Allocator) !Automation {
@@ -323,6 +340,59 @@ pub const Clip = struct {
         return true;
     }
 
+    /// Drop `ticks` of material off the clip's front, keeping what is left
+    /// where it already sounds. Every front trim used to just move
+    /// `start_tick` forward, and content is played from the clip's own start
+    /// (`Session.rebuildSongData` repeats a pattern from `rep_start = 0`, and
+    /// an audio region is read from `source_start_frame`) - so cutting a clip
+    /// in two handed back two clips both replaying the same opening instead of
+    /// one clip cut in place.
+    ///
+    /// ponytail: the audio cursor moves proportionally, exact while the region
+    /// spans its clip (what recording and `:consolidate` produce) and an
+    /// approximation for one that does not; take it to real frame math if a
+    /// short sample under a long clip ever needs a mid-clip cut. Alternate
+    /// takes and the fade lengths ride along unchanged.
+    pub fn dropFront(self: *Clip, ticks: u32) void {
+        const drop = @min(ticks, self.length_ticks);
+        if (drop == 0) return;
+        const span = self.length_ticks;
+        self.start_tick +|= drop;
+        self.length_ticks -= drop;
+        switch (self.content) {
+            .melodic => |*m| {
+                if (m.length_beats > 0) {
+                    const by = @mod(time_grid.tickToBeat(drop), m.length_beats);
+                    for (m.notes) |*note| note.start_beat = @mod(note.start_beat - by + m.length_beats, m.length_beats);
+                    std.mem.sort(Note, m.notes, {}, noteBeforeStart);
+                }
+            },
+            .drum => |*d| {
+                // The grid can only hold whole-step offsets; a cut that lands
+                // between two steps rounds to the nearer one.
+                const steps_f = @round(time_grid.tickToBeat(drop) * @as(f64, @floatFromInt(@max(d.steps_per_beat, 1))));
+                if (d.step_count > 0 and steps_f > 0) {
+                    const by: usize = @as(usize, @intFromFloat(steps_f)) % d.step_count;
+                    if (by > 0) for (&d.midi) |row| {
+                        if (row.len == d.step_count) std.mem.rotate(?DrumMachine.MidiNote, row, by);
+                    };
+                }
+            },
+            .audio => |*a| {
+                const consumed = if (span == 0) 0 else a.source_length_frames * drop / span;
+                // Reversed playback reads the region back to front, so the
+                // material dropped off the front comes off the source's tail.
+                if (!a.reverse) a.source_start_frame +|= consumed;
+                a.source_length_frames -|= consumed;
+            },
+        }
+        self.automation.dropFront(time_grid.tickToBeat(drop));
+    }
+
+    fn noteBeforeStart(_: void, a: Note, b: Note) bool {
+        return a.start_beat < b.start_beat;
+    }
+
     pub fn covers(self: Clip, tick: u32) bool {
         return tick >= self.start_tick and tick < self.endTick();
     }
@@ -438,8 +508,7 @@ pub const Lane = struct {
                     right.deinit(allocator);
                     return err;
                 };
-                right.start_tick = hi;
-                right.length_ticks = end - hi;
+                right.dropFront(hi - start);
                 self.clips.items[i].length_ticks = lo - start;
                 self.clips.insertAssumeCapacity(i + 1, right);
                 i += 2;
@@ -448,8 +517,7 @@ pub const Lane = struct {
             if (start < lo) {
                 c.length_ticks = lo - start; // trim the tail
             } else {
-                c.length_ticks = end - hi; // trim the head
-                c.start_tick = hi;
+                c.dropFront(hi - start); // trim the head, content and all
             }
             i += 1;
         }
@@ -484,8 +552,7 @@ pub const Lane = struct {
                 right.deinit(allocator);
                 return err;
             };
-            right.start_tick = at;
-            right.length_ticks = c.endTick() - at;
+            right.dropFront(at - c.start_tick);
             self.clips.items[i].length_ticks = at - c.start_tick;
             self.clips.insertAssumeCapacity(i + 1, right);
             i += 2; // past the remainder and the piece just inserted
@@ -923,6 +990,70 @@ test "swapLanes ignores invalid indices" {
 
     arrangement.swapLanes(0, 99);
     try testing.expectEqual(@as(usize, 1), arrangement.lanes.items.len);
+}
+
+test "a cut through a clip leaves the right half playing where the left one stopped" {
+    const a = testing.allocator;
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    // One bar of pattern (32 ticks = 1 beat here) repeating over 4 beats, with
+    // a note on each beat of the pattern.
+    const notes = [_]Note{
+        .{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 },
+        .{ .pitch = 64, .start_beat = 0.5, .duration_beat = 0.25 },
+    };
+    var clip = try Clip.initMelodic(a, 0, 4 * time_grid.ticks_per_beat, &notes, 1.0);
+    clip.automation.gain = try a.dupe(AutomationPoint, &[_]AutomationPoint{
+        .{ .beat = 0, .value = -6 },
+        .{ .beat = 2, .value = 0 },
+    });
+    try lane.place(a, clip);
+
+    // Cut out the third beat: left half keeps beats 0-1, right half is the
+    // half-beat that was playing at beat 3 - so its pattern must be rotated by
+    // that same 3 beats, not restarted.
+    try lane.cutRange(a, 2 * time_grid.ticks_per_beat, 3 * time_grid.ticks_per_beat);
+    try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
+    const right = lane.clips.items[1];
+    try testing.expectEqual(@as(u32, 3 * time_grid.ticks_per_beat), right.start_tick);
+    // 3 beats dropped, pattern is 1 beat long: rotation is 0, and the notes
+    // keep their places. The curve, which is clip-relative, slides back by 3.
+    try testing.expectApproxEqAbs(@as(f64, 0.0), right.automation.gain[0].beat, 1e-9);
+    try testing.expectApproxEqAbs(@as(f64, 0.0), right.automation.gain[1].beat, 1e-9);
+
+    // A drop the pattern does not divide: a 2-beat pattern, cut from beat 1 to
+    // beat 3, so the right half opens 3 beats into the pattern - one beat in,
+    // and every note rotates by that beat.
+    var lane2: Lane = .{};
+    defer lane2.deinit(a);
+    try lane2.place(a, try Clip.initMelodic(a, 0, 8 * time_grid.ticks_per_beat, &notes, 2.0));
+    try lane2.cutRange(a, 1 * time_grid.ticks_per_beat, 3 * time_grid.ticks_per_beat);
+    const half = lane2.clips.items[1].content.melodic;
+    try testing.expectApproxEqAbs(@as(f64, 1.0), half.notes[0].start_beat, 1e-9);
+    try testing.expectApproxEqAbs(@as(f64, 1.5), half.notes[1].start_beat, 1e-9);
+}
+
+test "a cut through an audio region moves its source cursor with it" {
+    const a = testing.allocator;
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    try lane.place(a, Clip.initAudio(0, 100, .{ .source_id = 1, .source_start_frame = 1_000, .source_length_frames = 50_000 }));
+
+    try lane.cutRange(a, 40, 60);
+    const right = lane.clips.items[1].content.audio;
+    // 60 of 100 ticks dropped off the front, so 60% of the source with it.
+    try testing.expectEqual(@as(u64, 31_000), right.source_start_frame);
+    try testing.expectEqual(@as(u64, 20_000), right.source_length_frames);
+
+    // Reversed playback reads the region backwards, so the front comes off
+    // the source's tail and the cursor stays put.
+    var lane3: Lane = .{};
+    defer lane3.deinit(a);
+    try lane3.place(a, Clip.initAudio(0, 100, .{ .source_id = 1, .source_start_frame = 1_000, .source_length_frames = 50_000, .reverse = true }));
+    try lane3.cutRange(a, 40, 60);
+    const rev = lane3.clips.items[1].content.audio;
+    try testing.expectEqual(@as(u64, 1_000), rev.source_start_frame);
+    try testing.expectEqual(@as(u64, 20_000), rev.source_length_frames);
 }
 
 test "cutRange leaves the lane sorted when layers stack" {
