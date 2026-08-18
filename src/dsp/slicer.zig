@@ -320,6 +320,11 @@ pub const Slicer = struct {
         for (&copy.slices) |*p| p.samples = copy.samples;
         copy.name = self.name;
         copy.user_sample = self.user_sample;
+        // What the clip's file name declared, which is what `:bpm-sync`
+        // trusts over the analysers - the duplicate holds the same audio, so
+        // it has to know the same thing about it.
+        copy.clip_bpm = self.clip_bpm;
+        copy.clip_root = self.clip_root;
 
         const midi = try dupeMidi(self.allocator, &self.midi);
         freeMidi(copy.allocator, &copy.midi);
@@ -1235,6 +1240,11 @@ pub const Slicer = struct {
         // see `clearVoices`'s doc comment. A stop or a panic must not leave
         // hits scheduled past it.
         self.clearVoices();
+        // And rewind the step counter with them, so the next block resyncs
+        // against the transport instead of carrying a count from the
+        // timeline that just ended - same as `DrumMachine.resetAll`.
+        self.next_step_k = 0;
+        self.last_pos_frames = 0;
     }
 
     /// `deviceOf`'s expected name; forwards to `resetAll`.
@@ -1448,6 +1458,22 @@ test "every slice aliases the same underlying buffer (no duplication)" {
     for (s.slices[0..8]) |slice| {
         try std.testing.expectEqual(s.samples.ptr, slice.samples.ptr);
     }
+}
+
+test "a duplicated slicer keeps what its clip's name declared" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    try installTestClip(&s);
+    s.clip_bpm = 174.0;
+    s.clip_root = 7;
+
+    var copy = try s.dupe();
+    defer copy.deinit();
+    // Without these the duplicate's `:bpm-sync` falls back to the detector,
+    // which is wrong or silent on most real loop material.
+    try std.testing.expectApproxEqAbs(@as(f32, 174.0), copy.clip_bpm, 1e-6);
+    try std.testing.expectEqual(@as(?u4, 7), copy.clip_root);
 }
 
 test "re-slicing clears voices tied to the old regions" {
