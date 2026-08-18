@@ -2512,11 +2512,17 @@ test "pitch up plays the region faster" {
     try std.testing.expect(fast_frames < unity_frames);
 }
 
-test "every pad parameter the editor exposes actually moves the audio" {
+test "every automatable pad parameter actually moves the audio" {
     // The synth had a whole convention of modulation routes pointing at a
     // param id that was not the one the comment named, and nothing caught it
     // because a wrong id still compiles, still saves and still draws. The
     // only check that finds that class is rendering with the param moved.
+    //
+    // Scope is the 13 ids in `Sampler.automatable_params` - one swept float
+    // per pass is what this can measure. The editor draws eight more rows
+    // (reverse, play mode, loop, warp, the four mod ids) whose effect needs a
+    // second trigger or a note-off to show at all; those carry their own
+    // tests, so widening the sweep here is not what covers them.
     var transport: Transport = .{ .sample_rate = 48_000 };
     const span = 8192;
     const ref = try std.testing.allocator.alloc(f32, span);

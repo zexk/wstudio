@@ -86,17 +86,19 @@ pub const Pad = struct {
     /// 20 Hz to 8 kHz. 0 (the default) bypasses the filter entirely, so an
     /// untouched pad renders exactly as before.
     filter: f32 = 0.0,
-    /// Gated playback: a note-off releases the voice over `release_s` instead
-    /// of letting it run to the region end. Off (the default) is the classic
-    /// one-shot/latched behaviour - a triggered pad always plays out. Only
-    /// the standalone Sampler ever sees a note-off (piano-roll note lengths);
-    /// step-sequenced drum pads and slices fire without one, so the flag is
-    /// inert there, same as in Serato's own pad tools.
+    /// Gated playback: the voice releases over `release_s` at the end of its
+    /// note instead of running to the region end. Off (the default) is the
+    /// classic one-shot/latched behaviour - a triggered pad always plays out.
+    /// A standalone Sampler's note end is the piano-roll note-off; a
+    /// step-sequenced drum pad or slice has no note-off to wait for, so the
+    /// sequencer hands it the step's own length as `Voice.hold_frames` (see
+    /// `step_grid_ops.scheduleNote`) and the pad stops where its step does.
     gate: bool = false,
     /// Retrigger playback: a one-shot that cuts its own still-ringing voices
     /// when it fires again, so a replayed pad never overlaps itself. Unlike
-    /// `gate` this needs no note-off, which is what makes it useful to a step
-    /// sequencer. `gate` wins when both are set - see `playMode`.
+    /// `gate` this needs nothing from the caller, which is what makes it the
+    /// default a drum pad and a fresh chop both opt into. `gate` wins when
+    /// both are set - see `playMode`.
     retrig: bool = false,
 
     /// Free-running per-pad LFO (see `dsp/lfo.zig`). Ticked once per block

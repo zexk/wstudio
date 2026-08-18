@@ -24,15 +24,15 @@
 //! the same thing in both grids and the shared editors/renderers can treat
 //! the two machines alike.
 //!
-//! The step *sequencer* still deliberately does NOT share code with
-//! DrumMachine's, despite the conceptual overlap (both fire per-step
-//! triggers with swing and per-step velocity, hold pattern variants A-H,
-//! carry per-row choke groups and per-row loop lengths, and flatten
-//! arrangement clips into a SongClip timeline for song mode) - DrumMachine
-//! is the heaviest-tested, most atomics-delicate file in the codebase (see
-//! its own doc comment), and entangling a second consumer with its internals
-//! is a real risk. This file mirrors those algorithms independently; only
-//! the note *data* is shared.
+//! The step sequencer is shared with DrumMachine's, in
+//! `dsp/step_grid_ops.zig`: both types carry the same
+//! `song_mode`/`swing`/`next_step_k`/`song_clips` state under the same field
+//! names, so `scanBlock`/`fireSongStep`/`scheduleNote`/`drainRolls`/
+//! `trigFires` take them as `anytype`, as do the ~20 per-step grid accessors
+//! and the whole-grid transforms (`clearGrid`, `euclidLane`, `rotateLane`,
+//! …). What genuinely diverges and stays here is voice allocation and
+//! render: a slice owns a small pool aliasing one shared buffer, a drum pad
+//! is a whole embedded Sampler.
 //!
 //! `midi`/`Variant.midi`/`SongClip.midi` are heap-owned per-slice slices
 //! rather than inline `[max_slices][max_steps]` arrays for the same reason
@@ -261,9 +261,9 @@ pub const Slicer = struct {
     song_clip_count: u16 = 0,
     /// Whole-arrangement length in steps; silent past this (no wrap).
     song_length_steps: u32 = 0,
-    /// Resolution of the absolute song timeline. Live slicer patterns stay at
-    /// four steps per beat; arrangement clips use 32 so every editor grid
-    /// position remains exact.
+    /// Resolution of the absolute song timeline. The same 32 ticks per beat
+    /// the live pattern runs at (see `steps_per_beat`), so every editor grid
+    /// position stays exact across the two.
     song_steps_per_beat: u8 = DrumMachine.ticks_per_beat,
 
     // Audio-thread-only state:
