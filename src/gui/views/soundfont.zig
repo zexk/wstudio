@@ -20,7 +20,7 @@ pub fn draw(app: anytype) void {
         },
     };
 
-    drawHeader(app, track, sf);
+    drawHeader(app, track);
     zgui.spacing();
 
     if (sf.presetCount() == 0) {
@@ -41,7 +41,7 @@ pub fn draw(app: anytype) void {
         }
         if (widgets.emptyState(.{
             .id = "soundfont-empty-state",
-            .title = "LOAD A SOUNDFONT",
+            .title = "NO SOUNDFONT LOADED",
             .explanation = "Choose a .sf2 file to play its presets on this track.",
             .shortcut = ":load",
             .action = "LOAD SOUNDFONT",
@@ -54,10 +54,9 @@ pub fn draw(app: anytype) void {
     const panel_width = @min(available, 900);
     zgui.setCursorPosX(zgui.getCursorPos()[0] + @max(0, (available - panel_width) * 0.5));
     if (zgui.beginChild("soundfont-panel", .{ .w = panel_width, .h = 0, .child_flags = .{ .border = true, .auto_resize_y = true } })) {
-        widgets.sectionTitle("PROGRAM", theme.rhythm);
-        drawPresetRow(app, track, sf);
-        zgui.spacing();
-
+        // OUT before PROGRAM: the same order the TUI draws, which is also
+        // the order `soundfont_param` steps through under j/k (gain, pan,
+        // transpose, then preset).
         widgets.sectionTitle("OUT", theme.focus);
         drawParam(app, track, sf, 0, "Gain", "%.2f");
         zgui.sameLine(.{ .spacing = 28 });
@@ -65,18 +64,20 @@ pub fn draw(app: anytype) void {
         zgui.sameLine(.{ .spacing = 28 });
         drawParam(app, track, sf, 2, "Transpose", "%.0f st");
         zgui.spacing();
+
+        widgets.sectionTitle("PROGRAM", theme.rhythm);
+        drawPresetRow(app, track, sf);
+        zgui.spacing();
     }
     zgui.endChild();
 }
 
-fn drawHeader(app: anytype, track: u16, sf: *const ws.dsp.SoundfontPlayer) void {
+fn drawHeader(app: anytype, track: u16) void {
     widgets.viewTitle(icons.soundfont ++ "  {s}", .{app.core.editingSoundfontLabel()});
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[track].name});
-    if (sf.presetCount() > 0) {
-        zgui.sameLine(.{});
-        zgui.textColored(theme.focus, "\"{s}\"", .{sf.presetName()});
-    }
+    // No preset name here: the PROGRAM row below already names it, and no
+    // other view repeats its content in the header.
 }
 
 fn drawPresetRow(app: anytype, track: u16, sf: *ws.dsp.SoundfontPlayer) void {
