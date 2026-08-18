@@ -6,9 +6,10 @@
 //! sequencer on top - sample loading, param edits, and voice rendering are
 //! delegated straight to each pad's Sampler, so there is exactly one place
 //! that owns that logic (shared with the standalone melodic Sampler track).
-//! A step trigger is `pad.resetAll()` + `pad.trigger(...)`: the reset forces
-//! single-voice "choke" behaviour (a retrigger cuts the previous hit, the
-//! classic drum-machine convention) even though Sampler itself is polyphonic.
+//! A fresh pad starts in `.retrigger` play mode, so a hit cuts the previous
+//! one (the classic drum-machine convention) even though Sampler itself is
+//! polyphonic; a pad switched to `.one_shot` overlaps its own ring instead,
+//! the same three-way `pad.PlayMode` choice a slice carries.
 //!
 //! Each pad step is stored as a compact MIDI note (`midi`, a per-pad,
 //! heap-owned slice sized to `step_count`) - the sole source of truth for
@@ -1104,6 +1105,11 @@ pub const DrumMachine = struct {
     fn ensurePad(self: *DrumMachine, idx: u8) !*Sampler {
         if (self.pads[idx] == null) {
             self.pads[idx] = try Sampler.init(self.allocator, self.sample_rate);
+            // A drum pad cuts its own ring by default - `Pad`'s own default is
+            // `.one_shot` (what a melodic Sampler wants), so every path that
+            // materializes or blanks a pad opts back in, exactly as `Slicer`
+            // does on a fresh chop.
+            self.pads[idx].?.pad.retrig = true;
         }
         return &self.pads[idx].?;
     }
@@ -1128,6 +1134,7 @@ pub const DrumMachine = struct {
             return;
         };
         pad.setSamples(samples, name);
+        pad.pad.retrig = true; // setSamples resets to Pad's defaults - see ensurePad
     }
 
     /// Regenerate the kit variant's pads (always the first 16 - kits are a
@@ -1335,17 +1342,22 @@ pub const DrumMachine = struct {
     /// `note - root_note`, so a tuned hit is just a different trigger note.
     /// `hold` is how long a gated pad plays before releasing itself, or -1 to
     /// wait for a note-off - see `Sampler.triggerHeld`.
+    ///
+    /// A nonzero choke group cuts every ringing voice in the group including
+    /// this pad's own, the same rule `Slicer.chokeTriggerTuned` applies. The
+    /// ungrouped self-cut is the pad's own `.retrigger` play mode, which
+    /// `Sampler.triggerHeldArt` already honours - doing it unconditionally
+    /// here made `.one_shot` unreachable on a pad.
     pub fn chokeTriggerTuned(self: *DrumMachine, p: u8, vel: f32, block_start: u32, tune: i8, hold: f64) void {
         const pad = if (self.pads[p]) |*s| s else return;
         const group = self.choke_group[p];
         if (group != 0) {
             for (&self.pads, 0..) |*other, i| {
-                if (i != p and self.choke_group[i] == group) {
+                if (self.choke_group[i] == group) {
                     if (other.*) |*s| s.resetAll();
                 }
             }
         }
-        pad.resetAll();
         const note: u7 = @intCast(std.math.clamp(@as(i16, pad.root_note) + tune, 0, 127));
         pad.triggerHeld(note, vel, block_start, hold);
     }
@@ -2334,6 +2346,46 @@ test "a gated pad stops at its step; a live hit waits for the note-off" {
     try std.testing.expect(dm.pads[0].?.voices[0].v.release_frames < 0.0);
     dm.device().sendEvent(.{ .note_off = .{ .note = 0 } });
     try std.testing.expectEqual(@as(f64, 0.0), dm.pads[0].?.voices[0].v.release_frames);
+}
+
+/// How many of pad `p`'s Sampler voices are still ringing.
+fn ringing(dm: *const DrumMachine, p: u8) usize {
+    var n: usize = 0;
+    for (&dm.pads[p].?.voices) |v| {
+        if (v.active) n += 1;
+    }
+    return n;
+}
+
+test "a pad's play mode decides whether a second hit cuts the first" {
+    var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
+    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    defer dm.deinit();
+    const samples = try std.testing.allocator.alloc(f32, 48_000);
+    @memset(samples, 0.5);
+    dm.setPadSamples(0, samples, "crash");
+
+    // A fresh pad is `.retrigger` - the drum-machine default a kit expects.
+    try std.testing.expectEqual(pad_mod.PlayMode.retrigger, pad_mod.playMode(&dm.pads[0].?.pad));
+    dm.chokeTriggerTuned(0, 1.0, 0, 0, -1.0);
+    dm.chokeTriggerTuned(0, 1.0, 0, 0, -1.0);
+    try std.testing.expectEqual(@as(usize, 1), ringing(&dm, 0));
+
+    // `.one_shot` is a real choice on a pad, not a synonym for retrigger: a
+    // long tail hit twice rings twice.
+    dm.resetAll();
+    pad_mod.setPlayMode(&dm.pads[0].?.pad, .one_shot);
+    dm.chokeTriggerTuned(0, 1.0, 0, 0, -1.0);
+    dm.chokeTriggerTuned(0, 1.0, 0, 0, -1.0);
+    try std.testing.expectEqual(@as(usize, 2), ringing(&dm, 0));
+
+    // A choke group overrides the play mode, cutting this pad's own ring
+    // along with the rest of the group - same rule the slicer applies.
+    dm.resetAll();
+    dm.choke_group[0] = 1;
+    dm.chokeTriggerTuned(0, 1.0, 0, 0, -1.0);
+    dm.chokeTriggerTuned(0, 1.0, 0, 0, -1.0);
+    try std.testing.expectEqual(@as(usize, 1), ringing(&dm, 0));
 }
 
 test "trig conditions gate a step by pass count and the fill switch" {

@@ -75,7 +75,7 @@ in place after the blobs land, since its value isn't known until then.
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 72) is the only format version
+`persist.zig`'s `file_version` (currently 74) is the only format version
 this build writes or reads. Loading enforces one rule:
 
 - **A file whose `version` is not exactly `file_version` is hard-rejected**
@@ -88,6 +88,10 @@ because they protect against corrupt and hand-edited values.
 
 **Bump `file_version` for every schema or semantic change**, including new
 fields and enum members.
+
+Version 74 makes a drum pad's saved `retrig` flag audible: a pad now honours
+its three-way `PlayMode` the way a slice already did, where before every hit
+cut the previous one regardless. Version 73 gives a synth macro a name.
 
 Version 72 adds Reverb FX impulse mode. Version 71 adds standalone Crossover
 FX. Version 70 adds Utility FX loudness
