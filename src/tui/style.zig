@@ -34,7 +34,7 @@ pub fn fxKindColor(kind: ws.FxKind) []const u8 {
     return switch (kind) {
         .gate, .comp, .mb_comp, .ott, .limiter, .transient_shaper, .expander, .clipper => yel,
         .eq, .filter, .crossover, .utility, .stereo_width => grn,
-        .sat, .crush, .tape => mag,
+        .sat, .amp, .crush, .tape => mag,
         .chorus, .flanger, .phaser, .freq_shift, .pitch_shift, .auto_pan => bcyn,
         .delay, .reverb => blu,
         .clap, .vst3 => acc,

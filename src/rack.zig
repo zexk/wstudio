@@ -14,6 +14,7 @@ const Reverb = @import("dsp/reverb.zig").Reverb;
 const ParametricEq = @import("dsp/eq.zig").ParametricEq;
 const Gate = @import("dsp/gate.zig").Gate;
 const Saturator = @import("dsp/saturator.zig").Saturator;
+const Amp = @import("dsp/amp.zig").Amp;
 const Crusher = @import("dsp/crusher.zig").Crusher;
 const Chorus = @import("dsp/chorus.zig").Chorus;
 const Phaser = @import("dsp/phaser.zig").Phaser;
@@ -132,6 +133,7 @@ pub const FxPayload = union(enum) {
     stereo_width: StereoWidth,
     auto_pan: AutoPan,
     sat: Saturator,
+    amp: Amp,
     crush: Crusher,
     chorus: Chorus,
     phaser: Phaser,
@@ -467,9 +469,11 @@ pub const Fx = struct {
 
     /// Chain length cap. Every unit costs a stack slot in the fixed-size
     /// `[max_units]Device` buffers the audio thread builds each block, so it
-    /// stays a compile-time bound rather than growing freely; 24 is well past
-    /// any musically useful insert count.
-    pub const max_units = 24;
+    /// stays a compile-time bound rather than growing freely. It has to be at
+    /// least the internal kind count, since `internal_fx_kinds` builds a chain
+    /// holding one of each; 32 leaves room for the next few units on top of
+    /// that, and is well past any musically useful insert count.
+    pub const max_units = 32;
 
     fn allocInstanceId(self: *Fx) u32 {
         while (true) {
@@ -524,6 +528,7 @@ pub const Fx = struct {
             .clipper => .{ .clipper = Clipper.init(sr) },
             .crossover => .{ .crossover = CrossoverFx.init(sr) },
             .sat     => .{ .sat = .{} },
+            .amp     => .{ .amp = Amp.init(sr) },
             .crush   => .{ .crush = .{} },
             .chorus  => .{ .chorus = try Chorus.init(allocator, sr) },
             .phaser  => .{ .phaser = Phaser.init(sr) },
@@ -1092,7 +1097,7 @@ test "Fx.dupe deep-copies params and heap buffers independently (used by undo's 
 
 const internal_fx_kinds = [_]FxKind{
     .gate,     .comp,    .mb_comp, .ott,    .limiter, .transient_shaper, .eq,         .filter,      .crossover, .utility, .stereo_width, .auto_pan, .sat, .crush,
-    .expander, .clipper, .chorus,  .phaser, .flanger, .tape,             .freq_shift, .pitch_shift, .delay,     .reverb,
+    .expander, .clipper, .chorus,  .phaser, .flanger, .tape,             .freq_shift, .pitch_shift, .delay,     .reverb,  .amp,
 };
 
 test "every FX payload stays finite when constructed with zero sample rate" {

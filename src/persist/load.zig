@@ -1081,7 +1081,7 @@ pub fn applyFxChain(
                 const kind: rack_mod.FxKind = switch (saved_kind) {
                     .gate => .gate, .comp => .comp, .mb_comp => .mb_comp, .ott => .ott, .limiter => .limiter, .transient_shaper => .transient_shaper,
                     .expander => .expander, .clipper => .clipper, .crossover => .crossover,
-                    .eq => .eq, .filter => .filter, .utility => .utility, .stereo_width => .stereo_width, .auto_pan => .auto_pan, .sat => .sat, .crush => .crush, .chorus => .chorus,
+                    .eq => .eq, .filter => .filter, .utility => .utility, .stereo_width => .stereo_width, .auto_pan => .auto_pan, .sat => .sat, .amp => .amp, .crush => .crush, .chorus => .chorus,
                     .phaser => .phaser, .flanger => .flanger, .tape => .tape,
                     .freq_shift => .freq_shift, .pitch_shift => .pitch_shift, .delay => .delay, .reverb => .reverb,
                     .clap, .vst3 => unreachable,
@@ -1185,7 +1185,7 @@ pub fn applyFxChain(
                 effect.high_solo = snap.high_solo;
             },
             inline .filter, .limiter, .utility, .stereo_width, .auto_pan,
-            .transient_shaper, .gate, .sat, .crush, .chorus, .phaser, .expander, .clipper,
+            .transient_shaper, .gate, .sat, .amp, .crush, .chorus, .phaser, .expander, .clipper,
             .flanger, .tape, .freq_shift, .pitch_shift => |snap, tag|
                 applySnapToDevice(&@field(unit.payload, @tagName(tag)), snap),
             .clap, .vst3 => {},
@@ -1338,7 +1338,7 @@ fn buildPresetFx(allocator: std.mem.Allocator, patch: *const PolySynth.Patch, s:
                 v.damp = patch.fx_reverb_damp;
                 v.mix = patch.fx_reverb_mix;
             },
-            .filter, .limiter, .crossover, .utility, .stereo_width, .auto_pan, .transient_shaper, .pitch_shift, .expander, .clipper, .clap, .vst3 => unreachable,
+            .filter, .limiter, .crossover, .utility, .stereo_width, .auto_pan, .transient_shaper, .pitch_shift, .expander, .clipper, .amp, .clap, .vst3 => unreachable,
         }
     }
 }

@@ -532,6 +532,17 @@ pub const SatSnap = struct {
     shape: f32 = 0.0,
 };
 
+pub const AmpSnap = struct {
+    drive_db: f32 = 24.0,
+    bass: f32 = 0.5,
+    mid: f32 = 0.5,
+    treble: f32 = 0.6,
+    presence: f32 = 0.3,
+    master_db: f32 = 6.0,
+    cab: f32 = 1.0,
+    out_db: f32 = 0.0,
+};
+
 pub const CrushSnap = struct {
     bits: f32 = 8.0,
     downsample: f32 = 4.0,
@@ -676,6 +687,7 @@ pub const FxContentSnap = union(enum) {
     transient_shaper: TransientShaperSnap,
     gate: GateSnap,
     sat: SatSnap,
+    amp: AmpSnap,
     crush: CrushSnap,
     chorus: ChorusSnap,
     phaser: PhaserSnap,

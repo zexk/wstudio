@@ -62,7 +62,7 @@ pub const spectrum_band_count: usize = 80;
 /// The insertable kinds in picker display order (signal-flow-ish: dynamics,
 /// tone, character, modulation, time).
 pub const picker_kinds = [_]FxKind{
-    .gate, .comp, .expander, .mb_comp, .ott, .limiter, .clipper, .transient_shaper, .eq, .filter, .crossover, .utility, .stereo_width, .auto_pan, .sat, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .pitch_shift, .delay, .reverb,
+    .gate, .comp, .expander, .mb_comp, .ott, .limiter, .clipper, .transient_shaper, .eq, .filter, .crossover, .utility, .stereo_width, .auto_pan, .sat, .amp, .crush, .chorus, .flanger, .tape, .phaser, .freq_shift, .pitch_shift, .delay, .reverb,
 };
 
 comptime {
@@ -1453,6 +1453,11 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
         },
         .sat => switch (idx) {
             0, 1 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
+        },
+        .amp => switch (idx) {
+            0, 5, 7 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            6 => if (v < 0.5) "direct" else "cabinet",
             else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
         },
         .crush => switch (idx) {

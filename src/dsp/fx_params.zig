@@ -226,6 +226,17 @@ pub const sat_specs = [_]ParamSpec{
     .{ .name = "shape", .field = "shape", .min = 0.0, .max = saturator_mod.max_shape, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
 };
 
+pub const amp_specs = [_]ParamSpec{
+    .{ .name = "drive", .field = "drive_db", .min = 0.0, .max = 48.0, .step_fine = 1.0, .step_coarse = 6.0 },
+    .{ .name = "bass", .field = "bass", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "mid", .field = "mid", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "treble", .field = "treble", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "presence", .field = "presence", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
+    .{ .name = "master", .field = "master_db", .min = 0.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
+    .{ .name = "cab", .field = "cab", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+    .{ .name = "output", .field = "out_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
+};
+
 pub const crush_specs = [_]ParamSpec{
     .{ .name = "bits", .field = "bits", .min = 1.0, .max = 16.0, .step_fine = 1.0, .step_coarse = 4.0, .round = true },
     .{ .name = "downsmp", .field = "downsample", .min = 1.0, .max = 32.0, .step_fine = 1.0, .step_coarse = 4.0, .round = true },
@@ -363,6 +374,7 @@ pub fn paramCount(k: FxKind) usize {
         .stereo_width => stereo_width_specs.len,
         .auto_pan => auto_pan_specs.len,
         .sat => sat_specs.len,
+        .amp => amp_specs.len,
         .crush => crush_specs.len,
         .chorus => chorus_specs.len,
         .phaser => phaser_specs.len,
@@ -446,6 +458,7 @@ pub fn paramName(p: *const FxPayload, idx: usize) []const u8 {
         .auto_pan => tableName(&auto_pan_specs, idx),
         .transient_shaper => tableName(&transient_shaper_specs, idx),
         .sat => tableName(&sat_specs, idx),
+        .amp => tableName(&amp_specs, idx),
         .crush => tableName(&crush_specs, idx),
         .chorus => tableName(&chorus_specs, idx),
         .phaser => tableName(&phaser_specs, idx),
@@ -515,6 +528,7 @@ pub fn getParam(p: *const FxPayload, idx: usize) f32 {
         .auto_pan => |*a| tableGet(a, &auto_pan_specs, idx),
         .transient_shaper => |*t| tableGet(t, &transient_shaper_specs, idx),
         .sat => |*s| tableGet(s, &sat_specs, idx),
+        .amp => |*s| tableGet(s, &amp_specs, idx),
         .crush => |*c| tableGet(c, &crush_specs, idx),
         .chorus => |*c| tableGet(c, &chorus_specs, idx),
         .phaser => |*p2| tableGet(p2, &phaser_specs, idx),
@@ -575,6 +589,7 @@ pub fn paramRange(p: *const FxPayload, idx: usize) [2]f32 {
         .auto_pan => tableRange(&auto_pan_specs, idx),
         .transient_shaper => tableRange(&transient_shaper_specs, idx),
         .sat => tableRange(&sat_specs, idx),
+        .amp => tableRange(&amp_specs, idx),
         .crush => tableRange(&crush_specs, idx),
         .chorus => tableRange(&chorus_specs, idx),
         .phaser => tableRange(&phaser_specs, idx),
@@ -657,6 +672,7 @@ pub fn setParamAbsolute(p: *FxPayload, idx: usize, value: f32) void {
         .auto_pan => |*a| tableSet(a, &auto_pan_specs, idx, value),
         .transient_shaper => |*t| tableSet(t, &transient_shaper_specs, idx, value),
         .sat => |*s| tableSet(s, &sat_specs, idx, value),
+        .amp => |*s| tableSet(s, &amp_specs, idx, value),
         .crush => |*c| tableSet(c, &crush_specs, idx, value),
         .chorus => |*c| tableSet(c, &chorus_specs, idx, value),
         .phaser => |*p2| tableSet(p2, &phaser_specs, idx, value),
@@ -719,6 +735,7 @@ pub fn paramStep(p: *const FxPayload, idx: usize, coarse: bool) f32 {
         .auto_pan => tableStep(&auto_pan_specs, idx, coarse),
         .transient_shaper => tableStep(&transient_shaper_specs, idx, coarse),
         .sat => tableStep(&sat_specs, idx, coarse),
+        .amp => tableStep(&amp_specs, idx, coarse),
         .crush => tableStep(&crush_specs, idx, coarse),
         .chorus => tableStep(&chorus_specs, idx, coarse),
         .phaser => tableStep(&phaser_specs, idx, coarse),
