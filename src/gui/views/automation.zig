@@ -313,6 +313,7 @@ pub fn drawParamPicker(app: anytype) void {
     var buf: [automation_ed.max_param_display_rows]automation_ed.ParamDisplayRow = undefined;
     const rows = automation_ed.buildParamDisplayRows(params, automation_ed.activeParamFilter(&app.core), &buf);
     const width = @min(zgui.getContentRegionAvail()[0], 820);
+    const clip = automation_ed.currentClip(&app.core);
     for (rows) |row| switch (row) {
         .header => |name| {
             zgui.spacing();
@@ -331,7 +332,12 @@ pub fn drawParamPicker(app: anytype) void {
             const draw_list = zgui.getWindowDrawList();
             draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + 34 }, .col = color(if (selected) theme.bg4 else if (hovered) theme.bg3 else theme.bg2), .rounding = style.item_rounding });
             if (selected) draw_list.addRect(.{ .pmin = .{ origin[0] + 1, origin[1] + 1 }, .pmax = .{ origin[0] + width - 1, origin[1] + 33 }, .col = color(theme.focus), .rounding = style.item_rounding, .thickness = 2 });
-            draw_list.addText(.{ origin[0] + 12, origin[1] + 8 }, color(if (selected) theme.fg0 else theme.fg1), "{s}", .{p.label});
+            // Same dot the TUI puts on params the clip already automates -
+            // without it there's no telling which rows would add a lane and
+            // which would only jump to one.
+            const has_lane = if (clip) |c| c.automation.findSynthParam(0, p.id) != null else false;
+            if (has_lane) draw_list.addText(.{ origin[0] + 12, origin[1] + 8 }, color(theme.modulation), "\u{2022}", .{});
+            draw_list.addText(.{ origin[0] + 26, origin[1] + 8 }, color(if (selected) theme.fg0 else theme.fg1), "{s}", .{p.label});
             var range_buf: [48]u8 = undefined;
             const range = compactParamRange(&range_buf, p.label, p.range);
             const range_width = zgui.calcTextSize(range, .{})[0];
