@@ -16,6 +16,8 @@ history lives in [FORMAT.md](FORMAT.md).
   trumpet. Acoustic tracks start on grand piano and switch bundled timbre
   with `:library` or the `f` preset picker; `SoundFont` is now a separate
   instrument for playing your own `.sf2` banks.
+- Internal rack guitar amp: drive, a bass/mid/treble tone stack, presence,
+  master, a switchable speaker cabinet, and output trim.
 - Internal rack multimode filter with low-pass, high-pass, and band-pass modes,
   cutoff, resonance, drive, and dry/wet mix.
 - Internal rack limiter with ceiling and release controls.

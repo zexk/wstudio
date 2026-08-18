@@ -75,7 +75,7 @@ in place after the blobs land, since its value isn't known until then.
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 74) is the only format version
+`persist.zig`'s `file_version` (currently 75) is the only format version
 this build writes or reads. Loading enforces one rule:
 
 - **A file whose `version` is not exactly `file_version` is hard-rejected**
@@ -88,6 +88,11 @@ because they protect against corrupt and hand-edited values.
 
 **Bump `file_version` for every schema or semantic change**, including new
 fields and enum members.
+
+Version 75 adds the guitar amp FX unit. Its snapshot sits mid-union rather
+than at the end, so every FX tag after it renumbers - a version 74 file
+would decode its crusher as an amp, its chorus as a crusher, and so on down
+the list, which is exactly what the hard version check exists to stop.
 
 Version 74 makes a drum pad's saved `retrig` flag audible: a pad now honours
 its three-way `PlayMode` the way a slice already did, where before every hit
