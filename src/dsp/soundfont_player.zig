@@ -545,11 +545,18 @@ fn renderVoice(
     const gr: f32 = level * @min(1.0, 1.0 + pan);
 
     // ~1ms declick ramp for a waveform this voice interrupted by stealing its
-    // slot - see `Voice.steal_tail_l`.
-    // ponytail: the tail is dropped if this voice itself ends inside that 1ms
-    // (region shorter than a millisecond). Carry it on a dedicated fade-out
-    // slot if that ever turns out to be audible.
-    const steal_fade_step: f32 = 1.0 / @max(@as(f32, @floatCast(sr)) * 0.001, 1.0);
+    // slot - see `Voice.steal_tail_l`. Rendered up front, in its own pass, so
+    // it survives this voice ending inside that millisecond (a region shorter
+    // than 1ms, or a release that lands mid-ramp).
+    if (v.steal_fade > 0.0) {
+        const steal_fade_step: f32 = 1.0 / @max(@as(f32, @floatCast(sr)) * 0.001, 1.0);
+        var j: usize = v.block_start;
+        while (j < frames and v.steal_fade > 0.0) : (j += 1) {
+            buf[j * channels] += v.steal_tail_l * v.steal_fade;
+            buf[j * channels + 1] += v.steal_tail_r * v.steal_fade;
+            v.steal_fade = @max(v.steal_fade - steal_fade_step, 0.0);
+        }
+    }
 
     const start = v.block_start;
     var i: usize = start;
@@ -577,9 +584,8 @@ fn renderVoice(
 
         v.prev_l = s * env * gl;
         v.prev_r = s * env * gr;
-        buf[i * channels] += v.prev_l + v.steal_tail_l * v.steal_fade;
-        buf[i * channels + 1] += v.prev_r + v.steal_tail_r * v.steal_fade;
-        v.steal_fade = @max(v.steal_fade - steal_fade_step, 0.0);
+        buf[i * channels] += v.prev_l;
+        buf[i * channels + 1] += v.prev_r;
 
         v.read_pos += v.playback_rate;
         v.elapsed_frames += 1.0;
@@ -931,4 +937,36 @@ test "round-robin regions alternate takes across repeated note-ons" {
         // Member 1 (pan 0) on even note-ons, member 2 (pan 1) on odd ones.
         try std.testing.expectEqual(@as(f32, if (i % 2 == 0) -1.0 else 1.0), pan);
     }
+}
+
+test "a steal tail still fades out when the voice that took the slot dies immediately" {
+    var p = SoundfontPlayer.init(std.testing.allocator, 44_100);
+    defer p.deinit();
+    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, true, 44_100);
+    defer std.testing.allocator.free(bytes);
+    try p.loadSf2(bytes);
+
+    // Seed a slot with a tail to fade and a voice that ends on its very
+    // first frame (read position already past the region's end), the case
+    // the old in-loop ramp dropped on the floor.
+    var buf: [256]Sample = undefined;
+    @memset(&buf, 0.0);
+    p.voices[0] = .{
+        .active = true,
+        .region = p.font.?.presets[0].regions[0],
+        .read_pos = @floatFromInt(p.font.?.presets[0].regions[0].end),
+        .steal_tail_l = 0.5,
+        .steal_tail_r = 0.5,
+        .steal_fade = 1.0,
+    };
+    p.processBlock(&buf);
+
+    try std.testing.expect(!p.voices[0].active);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), buf[0], 1e-6);
+    try std.testing.expectEqual(@as(f32, 0), p.voices[0].steal_fade);
+    // The ramp decays instead of stopping dead, and is done inside ~1ms
+    // (44 frames at 44.1kHz).
+    try std.testing.expect(@abs(buf[20 * 2]) < 0.5);
+    try std.testing.expect(@abs(buf[20 * 2]) > 0.0);
+    try std.testing.expectEqual(@as(Sample, 0), buf[60 * 2]);
 }
