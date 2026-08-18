@@ -19,6 +19,31 @@ const step_grid = @import("step_grid.zig");
 
 const max_timeline_tick = std.math.maxInt(u32);
 
+/// The tick-to-source-frame mapping `arrangement.Clip.dropFront` needs, so a
+/// front trim consumes exactly the material it cut even when the region does
+/// not span its clip. Same conversion `Engine.renderAudioLane` reads a region
+/// with: timeline frames through the project's tempo map, then the source's
+/// own sample rate over the engine's, then the region's stretch.
+const AudioCursor = struct {
+    project: *const ws.Project,
+
+    pub fn sourceFrames(self: AudioCursor, source_id: u32, from_tick: u32, ticks: u32, stretch_ratio: f32) u64 {
+        const source = self.project.audioSource(source_id) orelse return 0;
+        const from_beat = ws.time_grid.tickToBeat(from_tick);
+        const to_beat = ws.time_grid.tickToBeat(from_tick +| ticks);
+        const timeline = self.project.framesAtBeat(to_beat) -| self.project.framesAtBeat(from_beat);
+        const ratio = @as(f64, @floatFromInt(source.sample_rate)) /
+            @as(f64, @floatFromInt(@max(self.project.sample_rate, 1))) /
+            @as(f64, @max(stretch_ratio, 0.125));
+        return @intFromFloat(@as(f64, @floatFromInt(timeline)) * ratio);
+    }
+};
+
+/// This project's cursor, for every clip edit that trims a clip's front.
+fn audioCursor(app: *const App) AudioCursor {
+    return .{ .project = &app.session.project };
+}
+
 /// Left gutter: " NN name " then the lane's leading separator - shared with
 /// the TUI view's draw path so mouse column math and rendering agree. The
 /// name field is 8 wide ("e-piano"-sized names showed as "e-pian" at the
@@ -575,7 +600,7 @@ fn deleteSelection(app: *App) void {
     var cut: usize = 0;
     for (lanes.lo..lanes.hi + 1) |track| {
         const lane = app.session.arrangement.lane(track) orelse continue;
-        lane.cutRange(app.allocator, r.lo, r.hi +| app.arr_grid.ticks()) catch {
+        lane.cutRange(app.allocator, r.lo, r.hi +| app.arr_grid.ticks(), audioCursor(app)) catch {
             app.setStatus("cut failed (out of memory)", .{});
             return;
         };
@@ -595,7 +620,7 @@ fn removeTimeSelection(app: *App) void {
     const hi = r.hi +| app.arr_grid.ticks();
     for (lanes.lo..lanes.hi + 1) |track| {
         const lane = app.session.arrangement.lane(track) orelse continue;
-        lane.removeTime(app.allocator, r.lo, hi) catch {
+        lane.removeTime(app.allocator, r.lo, hi, audioCursor(app)) catch {
             app.setStatus("remove time failed", .{});
             return;
         };
@@ -688,7 +713,7 @@ fn pasteSelection(app: *App, insert: bool) void {
     if (insert) {
         for (base_lane..hi_lane + 1) |track| {
             const lane = app.session.arrangement.lane(track) orelse continue;
-            lane.insertTime(app.allocator, cursor_tick, clip.width_ticks) catch {
+            lane.insertTime(app.allocator, cursor_tick, clip.width_ticks, audioCursor(app)) catch {
                 app.setStatus("insert time failed", .{});
                 return;
             };
@@ -1117,7 +1142,7 @@ fn splitClip(app: *App) void {
         return;
     }
     history.recordLane(app, @intCast(app.cursor));
-    _ = lane.splitAt(app.allocator, cursor_tick) catch {
+    _ = lane.splitAt(app.allocator, cursor_tick, audioCursor(app)) catch {
         app.setStatus("split failed (out of memory)", .{});
         return;
     };
@@ -1136,7 +1161,7 @@ fn deleteClip(app: *App) void {
         return;
     }
     history.recordLane(app, @intCast(app.cursor));
-    lane.cutRange(app.allocator, cursor_tick, cursor_tick +| app.arr_grid.ticks()) catch {
+    lane.cutRange(app.allocator, cursor_tick, cursor_tick +| app.arr_grid.ticks(), audioCursor(app)) catch {
         app.setStatus("cut failed (out of memory)", .{});
         return;
     };

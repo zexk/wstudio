@@ -348,15 +348,22 @@ pub const Clip = struct {
     /// in two handed back two clips both replaying the same opening instead of
     /// one clip cut in place.
     ///
-    /// ponytail: the audio cursor moves proportionally, exact while the region
-    /// spans its clip (what recording and `:consolidate` produce) and an
-    /// approximation for one that does not; take it to real frame math if a
-    /// short sample under a long clip ever needs a mid-clip cut. Alternate
-    /// takes and the fade lengths ride along unchanged.
-    pub fn dropFront(self: *Clip, ticks: u32) void {
+    /// `audio_cursor` resolves how much source material a span of ticks
+    /// actually covers, since the arrangement holds neither the tempo map nor
+    /// the sample pool. Pass `{}` for the proportional fallback, which is
+    /// exact whenever the region spans its clip (what recording and
+    /// `:consolidate` produce) and an approximation for a short sample under
+    /// a long clip. Anything else must expose:
+    ///
+    ///     fn sourceFrames(self, source_id: u32, from_tick: u32, ticks: u32,
+    ///                     stretch_ratio: f32) u64
+    ///
+    /// Alternate takes and the fade lengths ride along unchanged either way.
+    pub fn dropFront(self: *Clip, ticks: u32, audio_cursor: anytype) void {
         const drop = @min(ticks, self.length_ticks);
         if (drop == 0) return;
         const span = self.length_ticks;
+        const from_tick = self.start_tick;
         self.start_tick +|= drop;
         self.length_ticks -= drop;
         switch (self.content) {
@@ -379,7 +386,10 @@ pub const Clip = struct {
                 }
             },
             .audio => |*a| {
-                const consumed = if (span == 0) 0 else a.source_length_frames * drop / span;
+                const consumed: u64 = if (@TypeOf(audio_cursor) == void)
+                    (if (span == 0) 0 else a.source_length_frames * drop / span)
+                else
+                    @min(audio_cursor.sourceFrames(a.source_id, from_tick, drop, a.stretch_ratio), a.source_length_frames);
                 // Reversed playback reads the region back to front, so the
                 // material dropped off the front comes off the source's tail.
                 if (!a.reverse) a.source_start_frame +|= consumed;
@@ -481,7 +491,7 @@ pub const Lane = struct {
     /// every other resize/move already does; see `dupe`). `hi` is exclusive,
     /// so `(bar_tick, bar_tick + grid.ticks())` removes exactly one grid
     /// cell out of whatever clip sits under it, instead of the whole clip.
-    pub fn cutRange(self: *Lane, allocator: std.mem.Allocator, lo: u32, hi: u32) !void {
+    pub fn cutRange(self: *Lane, allocator: std.mem.Allocator, lo: u32, hi: u32, audio_cursor: anytype) !void {
         if (hi <= lo) return;
         var i: usize = 0;
         while (i < self.clips.items.len) {
@@ -508,7 +518,7 @@ pub const Lane = struct {
                     right.deinit(allocator);
                     return err;
                 };
-                right.dropFront(hi - start);
+                right.dropFront(hi - start, audio_cursor);
                 self.clips.items[i].length_ticks = lo - start;
                 self.clips.insertAssumeCapacity(i + 1, right);
                 i += 2;
@@ -517,7 +527,7 @@ pub const Lane = struct {
             if (start < lo) {
                 c.length_ticks = lo - start; // trim the tail
             } else {
-                c.dropFront(hi - start); // trim the head, content and all
+                c.dropFront(hi - start, audio_cursor); // trim the head, content and all
             }
             i += 1;
         }
@@ -532,7 +542,7 @@ pub const Lane = struct {
     /// against each other and keep playing what they played. Returns whether
     /// anything crossed. A clip already starting or ending there is left
     /// alone - it is split at that point by definition.
-    pub fn splitAt(self: *Lane, allocator: std.mem.Allocator, at: u32) !bool {
+    pub fn splitAt(self: *Lane, allocator: std.mem.Allocator, at: u32, audio_cursor: anytype) !bool {
         // Index loop, not `for (items)`: layers let a lane hold overlapping
         // clips (`place` only evicts an overlap on the same layer), so more
         // than one can cross `at`, and each split inserts into the list being
@@ -550,7 +560,7 @@ pub const Lane = struct {
                 right.deinit(allocator);
                 return err;
             };
-            right.dropFront(at - c.start_tick);
+            right.dropFront(at - c.start_tick, audio_cursor);
             self.clips.items[i].length_ticks = at - c.start_tick;
             self.clips.insertAssumeCapacity(i + 1, right);
             i += 2; // past the remainder and the piece just inserted
@@ -565,13 +575,13 @@ pub const Lane = struct {
 
     /// Open an empty span at `at`. A clip crossing the insertion point is
     /// split so material on its right moves with later clips.
-    pub fn insertTime(self: *Lane, allocator: std.mem.Allocator, at: u32, width: u32) !void {
+    pub fn insertTime(self: *Lane, allocator: std.mem.Allocator, at: u32, width: u32, audio_cursor: anytype) !void {
         if (width == 0) return;
         for (self.clips.items) |c| {
             if (c.endTick() > at and c.endTick() > std.math.maxInt(u32) - width)
                 return error.OutOfRange;
         }
-        _ = try self.splitAt(allocator, at);
+        _ = try self.splitAt(allocator, at, audio_cursor);
         for (self.clips.items) |*c| {
             if (c.start_tick >= at) c.start_tick += width;
         }
@@ -587,9 +597,9 @@ pub const Lane = struct {
     }
 
     /// Remove `[lo, hi)` and close its gap.
-    pub fn removeTime(self: *Lane, allocator: std.mem.Allocator, lo: u32, hi: u32) !void {
+    pub fn removeTime(self: *Lane, allocator: std.mem.Allocator, lo: u32, hi: u32, audio_cursor: anytype) !void {
         if (hi <= lo) return;
-        try self.cutRange(allocator, lo, hi);
+        try self.cutRange(allocator, lo, hi, audio_cursor);
         const width = hi - lo;
         // Needs no re-sort, unlike `cutRange` and `insertTime`: the cut above
         // leaves every start either below `lo` or at/after `hi`, and shifting
@@ -824,7 +834,7 @@ test "cutRange removes a clip fully inside the cut" {
     defer lane.deinit(a);
     try lane.place(a, Clip.initDrum(2, 2, .{ .step_count = 16 }));
 
-    try lane.cutRange(a, 0, 8);
+    try lane.cutRange(a, 0, 8, {});
     try testing.expectEqual(@as(usize, 0), lane.clips.items.len);
 }
 
@@ -834,7 +844,7 @@ test "cutRange trims the tail of a clip overlapping the cut's start" {
     defer lane.deinit(a);
     try lane.place(a, Clip.initDrum(0, 4, .{ .step_count = 16 }));
 
-    try lane.cutRange(a, 2, 6);
+    try lane.cutRange(a, 2, 6, {});
     try testing.expectEqual(@as(usize, 1), lane.clips.items.len);
     try testing.expectEqual(@as(u32, 0), lane.clips.items[0].start_tick);
     try testing.expectEqual(@as(u32, 2), lane.clips.items[0].length_ticks);
@@ -846,7 +856,7 @@ test "cutRange trims the head of a clip overlapping the cut's end" {
     defer lane.deinit(a);
     try lane.place(a, Clip.initDrum(4, 4, .{ .step_count = 16 }));
 
-    try lane.cutRange(a, 0, 6);
+    try lane.cutRange(a, 0, 6, {});
     try testing.expectEqual(@as(usize, 1), lane.clips.items.len);
     try testing.expectEqual(@as(u32, 6), lane.clips.items[0].start_tick);
     try testing.expectEqual(@as(u32, 2), lane.clips.items[0].length_ticks);
@@ -860,7 +870,7 @@ test "cutRange splits a clip the cut passes clean through the middle of" {
     // a 2-tick left remainder and a 1-tick right remainder.
     try lane.place(a, Clip.initDrum(0, 4, .{ .step_count = 16 }));
 
-    try lane.cutRange(a, 2, 3);
+    try lane.cutRange(a, 2, 3, {});
     try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
     try testing.expectEqual(@as(u32, 0), lane.clips.items[0].start_tick);
     try testing.expectEqual(@as(u32, 2), lane.clips.items[0].length_ticks);
@@ -877,7 +887,7 @@ test "cutRange splits correctly when the reservation has to grow the clip list" 
     // left remainder must still be trimmed in the NEW buffer.
     lane.clips.shrinkAndFree(a, lane.clips.items.len);
 
-    try lane.cutRange(a, 2, 3);
+    try lane.cutRange(a, 2, 3, {});
     try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
     try testing.expectEqual(@as(u32, 2), lane.clips.items[0].length_ticks);
     try testing.expectEqual(@as(u32, 3), lane.clips.items[1].start_tick);
@@ -890,10 +900,10 @@ test "cutRange leaves clips outside the range untouched and no-ops on an empty r
     try lane.place(a, Clip.initDrum(0, 2, .{ .step_count = 16 }));
     try lane.place(a, Clip.initDrum(10, 2, .{ .step_count = 16 }));
 
-    try lane.cutRange(a, 4, 6);
+    try lane.cutRange(a, 4, 6, {});
     try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
 
-    try lane.cutRange(a, 5, 5);
+    try lane.cutRange(a, 5, 5, {});
     try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
 }
 
@@ -904,7 +914,7 @@ test "insertTime splits a crossing clip and shifts later clips" {
     try lane.place(a, Clip.initDrum(0, 8, .{ .step_count = 16 }));
     try lane.place(a, Clip.initDrum(10, 2, .{ .step_count = 16 }));
 
-    try lane.insertTime(a, 4, 3);
+    try lane.insertTime(a, 4, 3, {});
     try testing.expectEqual(@as(usize, 3), lane.clips.items.len);
     try testing.expectEqual(@as(u32, 0), lane.clips.items[0].start_tick);
     try testing.expectEqual(@as(u32, 7), lane.clips.items[1].start_tick);
@@ -926,7 +936,7 @@ test "insertTime splits every crossing clip, not just the first" {
     try lane.place(a, upper);
     try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
 
-    try lane.insertTime(a, 4, 3);
+    try lane.insertTime(a, 4, 3, {});
 
     // Both clips split at 4: two remainders at 0, two shifted halves at 7.
     try testing.expectEqual(@as(usize, 4), lane.clips.items.len);
@@ -974,7 +984,7 @@ test "removeTime trims boundaries and closes the gap" {
     try lane.place(a, Clip.initDrum(0, 8, .{ .step_count = 16 }));
     try lane.place(a, Clip.initDrum(10, 2, .{ .step_count = 16 }));
 
-    try lane.removeTime(a, 2, 5);
+    try lane.removeTime(a, 2, 5, {});
     try testing.expectEqual(@as(usize, 3), lane.clips.items.len);
     try testing.expectEqual(@as(u32, 0), lane.clips.items[0].start_tick);
     try testing.expectEqual(@as(u32, 2), lane.clips.items[1].start_tick);
@@ -1027,7 +1037,7 @@ test "a cut through a clip leaves the right half playing where the left one stop
     // Cut out the third beat: left half keeps beats 0-1, right half is the
     // half-beat that was playing at beat 3 - so its pattern must be rotated by
     // that same 3 beats, not restarted.
-    try lane.cutRange(a, 2 * time_grid.ticks_per_beat, 3 * time_grid.ticks_per_beat);
+    try lane.cutRange(a, 2 * time_grid.ticks_per_beat, 3 * time_grid.ticks_per_beat, {});
     try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
     const right = lane.clips.items[1];
     try testing.expectEqual(@as(u32, 3 * time_grid.ticks_per_beat), right.start_tick);
@@ -1042,7 +1052,7 @@ test "a cut through a clip leaves the right half playing where the left one stop
     var lane2: Lane = .{};
     defer lane2.deinit(a);
     try lane2.place(a, try Clip.initMelodic(a, 0, 8 * time_grid.ticks_per_beat, &notes, 2.0));
-    try lane2.cutRange(a, 1 * time_grid.ticks_per_beat, 3 * time_grid.ticks_per_beat);
+    try lane2.cutRange(a, 1 * time_grid.ticks_per_beat, 3 * time_grid.ticks_per_beat, {});
     const half = lane2.clips.items[1].content.melodic;
     try testing.expectApproxEqAbs(@as(f64, 1.0), half.notes[0].start_beat, 1e-9);
     try testing.expectApproxEqAbs(@as(f64, 1.5), half.notes[1].start_beat, 1e-9);
@@ -1054,7 +1064,7 @@ test "a cut through an audio region moves its source cursor with it" {
     defer lane.deinit(a);
     try lane.place(a, Clip.initAudio(0, 100, .{ .source_id = 1, .source_start_frame = 1_000, .source_length_frames = 50_000 }));
 
-    try lane.cutRange(a, 40, 60);
+    try lane.cutRange(a, 40, 60, {});
     const right = lane.clips.items[1].content.audio;
     // 60 of 100 ticks dropped off the front, so 60% of the source with it.
     try testing.expectEqual(@as(u64, 31_000), right.source_start_frame);
@@ -1065,7 +1075,7 @@ test "a cut through an audio region moves its source cursor with it" {
     var lane3: Lane = .{};
     defer lane3.deinit(a);
     try lane3.place(a, Clip.initAudio(0, 100, .{ .source_id = 1, .source_start_frame = 1_000, .source_length_frames = 50_000, .reverse = true }));
-    try lane3.cutRange(a, 40, 60);
+    try lane3.cutRange(a, 40, 60, {});
     const rev = lane3.clips.items[1].content.audio;
     try testing.expectEqual(@as(u64, 1_000), rev.source_start_frame);
     try testing.expectEqual(@as(u64, 20_000), rev.source_length_frames);
@@ -1077,7 +1087,7 @@ test "splitAt divides a clip without losing a tick of it" {
     defer lane.deinit(a);
     try lane.place(a, Clip.initDrum(0, 100, .{ .step_count = 16 }));
 
-    try testing.expect(try lane.splitAt(a, 40));
+    try testing.expect(try lane.splitAt(a, 40, {}));
     try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
     try testing.expectEqual(@as(u32, 0), lane.clips.items[0].start_tick);
     try testing.expectEqual(@as(u32, 40), lane.clips.items[0].length_ticks);
@@ -1085,9 +1095,9 @@ test "splitAt divides a clip without losing a tick of it" {
     try testing.expectEqual(@as(u32, 60), lane.clips.items[1].length_ticks);
 
     // A tick no clip crosses (a seam, the far end, a bare stretch) is a no-op.
-    try testing.expect(!try lane.splitAt(a, 40));
-    try testing.expect(!try lane.splitAt(a, 100));
-    try testing.expect(!try lane.splitAt(a, 500));
+    try testing.expect(!try lane.splitAt(a, 40, {}));
+    try testing.expect(!try lane.splitAt(a, 100, {}));
+    try testing.expect(!try lane.splitAt(a, 500, {}));
     try testing.expectEqual(@as(usize, 2), lane.clips.items.len);
 }
 
@@ -1102,7 +1112,7 @@ test "splitAt divides every clip crossing the tick, stacked layers included" {
     try lane.place(a, lower);
     try lane.place(a, upper);
 
-    try testing.expect(try lane.splitAt(a, 50));
+    try testing.expect(try lane.splitAt(a, 50, {}));
     try testing.expectEqual(@as(usize, 4), lane.clips.items.len);
     for (lane.clips.items[1..], 0..) |c, prev| {
         try testing.expect(lane.clips.items[prev].start_tick <= c.start_tick);
@@ -1122,9 +1132,53 @@ test "cutRange leaves the lane sorted when layers stack" {
 
     // Splits the layer-0 clip in two while only trimming the layer-1 one,
     // so the pieces land either side of a clip that never moved.
-    try lane.cutRange(a, 10, 20);
+    try lane.cutRange(a, 10, 20, {});
 
     for (lane.clips.items[1..], 0..) |c, prev| {
         try testing.expect(lane.clips.items[prev].start_tick <= c.start_tick);
     }
+}
+
+test "a front trim consumes the material actually under the cut, not a proportion of the region" {
+    const a = std.testing.allocator;
+    // A one-beat sample sitting under a four-beat clip: 48000 source frames
+    // for the first beat, silence for the rest.
+    const cursor = struct {
+        pub fn sourceFrames(_: @This(), _: u32, _: u32, ticks: u32, stretch_ratio: f32) u64 {
+            const beats = time_grid.tickToBeat(ticks);
+            return @intFromFloat(beats * 48_000.0 / @as(f64, stretch_ratio));
+        }
+    }{};
+
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    try lane.place(a, Clip.initAudio(0, 4 * time_grid.ticks_per_beat, .{
+        .source_id = 1,
+        .source_start_frame = 0,
+        .source_length_frames = 48_000,
+    }));
+
+    // Split two beats in: the right half starts after every frame of audio,
+    // so it holds none of it. Proportional math would have handed it the
+    // sample's second half.
+    try std.testing.expect(try lane.splitAt(a, 2 * time_grid.ticks_per_beat, cursor));
+    try std.testing.expectEqual(@as(usize, 2), lane.clips.items.len);
+    const left = lane.clips.items[0].content.audio;
+    const right = lane.clips.items[1].content.audio;
+    try std.testing.expectEqual(@as(u64, 0), left.source_start_frame);
+    try std.testing.expectEqual(@as(u64, 48_000), left.source_length_frames);
+    try std.testing.expectEqual(@as(u64, 48_000), right.source_start_frame);
+    try std.testing.expectEqual(@as(u64, 0), right.source_length_frames);
+
+    // Half a beat in, the cut lands inside the sample and takes exactly that
+    // much of it.
+    var clip = Clip.initAudio(0, 4 * time_grid.ticks_per_beat, .{
+        .source_id = 1,
+        .source_start_frame = 0,
+        .source_length_frames = 48_000,
+    });
+    defer clip.deinit(a);
+    clip.dropFront(time_grid.ticks_per_beat / 2, cursor);
+    try std.testing.expectEqual(@as(u64, 24_000), clip.content.audio.source_start_frame);
+    try std.testing.expectEqual(@as(u64, 24_000), clip.content.audio.source_length_frames);
 }
