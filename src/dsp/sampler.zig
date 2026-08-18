@@ -274,14 +274,22 @@ pub const Sampler = struct {
     pub fn triggerHeldArt(self: *Sampler, note: u7, vel: f32, block_start: u32, hold: f64, art: dsp.Articulation) void {
         // Mono mode (and the pad's own `.retrigger` play mode): a new note
         // always cuts every still-ringing voice first, so long one-shots
-        // (e.g. a bass note) never overlap themselves.
-        if (self.mono or self.pad.retrig) self.resetAll();
+        // (e.g. a bass note) never overlap themselves. What they were
+        // collectively writing is carried onto the new voice and faded out,
+        // so the cut is a ramp rather than a step.
+        var cut_l: f32 = 0.0;
+        var cut_r: f32 = 0.0;
+        if (self.mono or self.pad.retrig) {
+            for (&self.voices) |*nv| if (nv.active) {
+                cut_l += nv.v.prev_l;
+                cut_r += nv.v.prev_r;
+            };
+            self.resetAll();
+        }
 
         // The stolen voice's last pair is faded out over the new one's first
         // ~1ms (`pad_dsp.carryStealTail`), the same declick PolySynth and
         // SoundfontPlayer voices get.
-        // ponytail: mono/retrigger's `resetAll` above still cuts hard - it
-        // wipes every voice at once, with no single predecessor to carry.
         // Reuse a free voice, else steal - preferring one already released
         // (a gated pad past its note-off) over one still holding its key, so
         // a held note isn't cut while an inaudible tail survives. Age breaks
@@ -314,6 +322,7 @@ pub const Sampler = struct {
             .v = .{ .active = true, .played = 0, .block_start = block_start, .vel = vel, .hold_frames = hold, .art = art },
         };
         pad_dsp.carryStealTail(&self.voices[slot].v, stolen);
+        pad_dsp.carryTailPair(&self.voices[slot].v, cut_l, cut_r);
         self.next_age +%= 1;
     }
 
@@ -716,4 +725,27 @@ test "a mid-block trigger renders from its block_start offset, not the block top
     var head: f32 = 0.0;
     for (buf[0..16]) |x| head = @max(head, @abs(x));
     try std.testing.expect(head > 0.0001);
+}
+
+test "a mono retrigger ramps the cut voices out instead of stepping to the new one" {
+    var s = try Sampler.init(std.testing.allocator, 48_000);
+    defer s.deinit();
+    s.setSamples(try generateTestClip(std.testing.allocator, 48_000), "tone");
+    s.pad.attack_s = 0.0;
+    s.mono = true;
+
+    var buf = [_]Sample{0.0} ** 512;
+    s.triggerHeld(60, 1.0, 0, -1.0);
+    s.processBlock(&buf);
+    const ringing = s.voices[0].v.prev_l;
+    try std.testing.expect(@abs(ringing) > 0.0);
+
+    // The retrigger wipes that voice; the new one carries its last pair.
+    s.triggerHeld(60, 1.0, 0, -1.0);
+    try std.testing.expectEqual(ringing, s.voices[0].v.steal_tail_l);
+    try std.testing.expectEqual(@as(f32, 1.0), s.voices[0].v.steal_fade);
+
+    @memset(&buf, 0.0);
+    s.processBlock(&buf);
+    try std.testing.expectEqual(@as(f32, 0), s.voices[0].v.steal_fade);
 }

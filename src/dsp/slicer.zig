@@ -1158,9 +1158,18 @@ pub const Slicer = struct {
     pub fn triggerSliceTuned(self: *Slicer, slice: u8, vel: f32, block_start: u32, tune: i8, hold: f64) void {
         if (slice >= self.slice_count) return;
         var pool = &self.voices[slice];
-        // zig fmt: off
-        if (pad_mod.playMode(&self.slices[slice]) == .retrigger) for (pool) |*sv| { sv.* = .{}; };
-        // zig fmt: on
+        // Retrigger cuts every voice on this slice; their summed last pair
+        // rides onto the new one so the cut ramps instead of stepping, same
+        // as the Sampler's mono/retrigger path.
+        var cut_l: f32 = 0.0;
+        var cut_r: f32 = 0.0;
+        if (pad_mod.playMode(&self.slices[slice]) == .retrigger) {
+            for (pool) |*sv| if (sv.active) {
+                cut_l += sv.v.prev_l;
+                cut_r += sv.v.prev_r;
+                sv.* = .{};
+            };
+        }
         // A stolen chop is faded out over the new voice's first ~1ms, same as
         // the Sampler's own steal (`pad_mod.carryStealTail`).
         // Free slot, else steal - a voice already past its note-off goes
@@ -1192,6 +1201,7 @@ pub const Slicer = struct {
             .v = .{ .active = true, .played = 0, .block_start = block_start, .vel = vel, .tune = tune, .hold_frames = hold },
         };
         pad_mod.carryStealTail(&pool[slot].v, stolen);
+        pad_mod.carryTailPair(&pool[slot].v, cut_l, cut_r);
         self.next_age +%= 1;
     }
 

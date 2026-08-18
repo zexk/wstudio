@@ -495,8 +495,16 @@ pub fn release(voice: *Voice) void {
 /// voice that never wrote a sample.
 pub fn carryStealTail(fresh: *Voice, stolen: Voice) void {
     if (!stolen.active) return;
-    fresh.steal_tail_l = stolen.prev_l;
-    fresh.steal_tail_r = stolen.prev_r;
+    carryTailPair(fresh, stolen.prev_l, stolen.prev_r);
+}
+
+/// Same declick against a whole pool at once: a mono or retriggering pad
+/// cuts every ringing voice, so what the new voice interrupts is their
+/// summed last pair, not any one voice's.
+pub fn carryTailPair(fresh: *Voice, l: f32, r: f32) void {
+    if (l == 0.0 and r == 0.0) return;
+    fresh.steal_tail_l = l;
+    fresh.steal_tail_r = r;
     fresh.steal_fade = 1.0;
 }
 
