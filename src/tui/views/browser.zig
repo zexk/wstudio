@@ -23,6 +23,13 @@ pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     try w.writeAll(acc);
     try w.writeAll(app.browser_purpose.displayLabel(&label_buf));
     try w.writeAll(rst);
+    // The pickers echo their filter here; the browser echoes its search for
+    // the same reason - the highlight alone doesn't say what was typed.
+    if (app.searchPattern().len > 0) {
+        try w.writeAll(yel);
+        try w.print("  /{s}", .{app.searchPattern()});
+        try w.writeAll(rst);
+    }
     try endLine(w);
     try w.writeAll(dim);
     try w.writeAll(app.browser_dir);
