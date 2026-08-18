@@ -37,10 +37,13 @@ drum sampling and sequencing, slicing, SoundFont 2 multisample playback, and
 plugin hosting. Missing value is mostly licensed content and useful defaults,
 not more engines.
 
-Current shipment covers grand and upright piano, Italian harpsichord, pipe
-organ, concert harp, glockenspiel, marimba, vibraphone, xylophone, and kalimba
-from CC0 VCSL through one shared SFZ sample-bank path. Existing factory kits
-and synth presets cover starter drums, electric piano, and electric bass.
+Current shipment covers grand, upright and honky-tonk piano, Italian
+harpsichord, pipe organ, concert harp, glockenspiel, marimba, vibraphone,
+xylophone, kalimba, nylon-string guitar, tenor ukulele, finger and picked
+bass, tenor saxophone, clarinet, soprano recorder, and harmonica, from CC0
+VCSL and CC0 FreePats through one shared SFZ sample-bank path. Existing
+factory kits and synth presets cover starter drums, electric piano, and
+electric bass.
 
 ## Ranked backlog
 

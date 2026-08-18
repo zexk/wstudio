@@ -1,0 +1,168 @@
+//+ Name: Spanish classical guitar
+//+ Date: 2019-06-18
+//+ URL: http://freepats.zenvoid.org/Guitar/acoustic-guitar.html
+
+<global>
+ //+ Instrument: Classical guitar
+ ampeg_release=1.5
+
+<group>
+ loop_mode=no_loop
+<region>
+ lokey=29 hikey=31
+ pitch_keycenter=31
+ sample=Nylon String Guitar/G1.flac
+<region>
+ key=32
+ sample=Nylon String Guitar/G#1.flac
+<region>
+ key=33
+ sample=Nylon String Guitar/A1.flac
+<region>
+ key=34
+ sample=Nylon String Guitar/A#1.flac
+<region>
+ key=35
+ sample=Nylon String Guitar/B1.flac
+<region>
+ key=36
+ sample=Nylon String Guitar/C2.flac
+<region>
+ key=37
+ sample=Nylon String Guitar/C#2.flac
+<region>
+ key=38
+ sample=Nylon String Guitar/D2.flac
+<region>
+ key=39
+ sample=Nylon String Guitar/D#2.flac
+<region>
+ key=40
+ sample=Nylon String Guitar/E2.flac
+<region>
+ key=41
+ sample=Nylon String Guitar/F2.flac
+<region>
+ lokey=42
+ hikey=43
+ pitch_keycenter=43
+ sample=Nylon String Guitar/G2.flac
+<region>
+ lokey=44
+ hikey=45
+ pitch_keycenter=45
+ sample=Nylon String Guitar/A2.flac
+<region>
+ lokey=46
+ hikey=47
+ pitch_keycenter=47
+ sample=Nylon String Guitar/B2.flac
+<region>
+ key=48
+ sample=Nylon String Guitar/C3.flac
+<region>
+ lokey=49
+ hikey=50
+ pitch_keycenter=50
+ sample=Nylon String Guitar/D3.flac
+<region>
+ lokey=51
+ hikey=52
+ pitch_keycenter=52
+ sample=Nylon String Guitar/E3.flac
+<region>
+ key=53
+ sample=Nylon String Guitar/F3.flac
+<region>
+ key=54
+ sample=Nylon String Guitar/F#3.flac
+<region>
+ key=55
+ sample=Nylon String Guitar/G3.flac
+<region>
+ key=56
+ sample=Nylon String Guitar/G#3.flac
+<region>
+ key=57
+ sample=Nylon String Guitar/A3.flac
+<region>
+ key=58
+ sample=Nylon String Guitar/A#3.flac
+<region>
+ key=59
+ sample=Nylon String Guitar/B3.flac
+<region>
+ key=60
+ sample=Nylon String Guitar/C4.flac
+<region>
+ key=61
+ sample=Nylon String Guitar/C#4.flac
+<region>
+ key=62
+ sample=Nylon String Guitar/D4.flac
+<region>
+ key=63
+ sample=Nylon String Guitar/D#4.flac
+<region>
+ key=64
+ sample=Nylon String Guitar/E4.flac
+<region>
+ key=65
+ sample=Nylon String Guitar/F4.flac
+<region>
+ key=66
+ sample=Nylon String Guitar/F#4.flac
+<region>
+ key=67
+ sample=Nylon String Guitar/G4.flac
+<region>
+ lokey=68
+ hikey=69
+ pitch_keycenter=69
+ sample=Nylon String Guitar/A4.flac
+<region>
+ key=70
+ sample=Nylon String Guitar/A#4.flac
+<region>
+ key=71
+ sample=Nylon String Guitar/B4.flac
+<region>
+ key=72
+ sample=Nylon String Guitar/C5.flac
+<region>
+ key=73
+ sample=Nylon String Guitar/C#5.flac
+<region>
+ key=74
+ sample=Nylon String Guitar/D5.flac
+<region>
+ key=75
+ sample=Nylon String Guitar/D#5.flac
+<region>
+ key=76
+ sample=Nylon String Guitar/E5.flac
+<region>
+ key=77
+ sample=Nylon String Guitar/F5.flac
+<region>
+ key=78
+ sample=Nylon String Guitar/F#5.flac
+<region>
+ key=79
+ sample=Nylon String Guitar/G5.flac
+<region>
+ key=80
+ sample=Nylon String Guitar/G#5.flac
+<region>
+ key=81
+ sample=Nylon String Guitar/A5.flac
+<region>
+ key=82
+ sample=Nylon String Guitar/A#5.flac
+<region>
+ key=83
+ sample=Nylon String Guitar/B5.flac
+<region>
+ lokey=84 hikey=88
+ pitch_keycenter=84
+ sample=Nylon String Guitar/C6.flac

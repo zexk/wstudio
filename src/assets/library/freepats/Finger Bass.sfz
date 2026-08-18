@@ -1,0 +1,45 @@
+//+ Name: Finger Bass YR
+//+ Date: 2019-09-30
+//+ URL: http://freepats.zenvoid.org/ElectricGuitar/clean-electric-bass.html#BassYR
+
+<group>
+ ampeg_release=0.5
+
+<region>
+ lokey=26 hikey=28
+ pitch_keycenter=28
+ sample=Finger Bass/E.flac
+<region>
+ key=29
+ sample=Finger Bass/F.flac
+<region>
+ key=30
+ sample=Finger Bass/F#.flac
+<region>
+ key=31
+ sample=Finger Bass/G.flac
+<region>
+ key=32
+ sample=Finger Bass/G#.flac
+<region>
+ key=33
+ sample=Finger Bass/A.flac
+<region>
+ key=34
+ sample=Finger Bass/A#.flac
+<region>
+ key=35
+ sample=Finger Bass/B.flac
+<region>
+ key=36
+ sample=Finger Bass/C.flac
+<region>
+ key=37
+ sample=Finger Bass/C#.flac
+<region>
+ key=38
+ sample=Finger Bass/D.flac
+<region>
+ lokey=39 hikey=45
+ pitch_keycenter=39
+ sample=Finger Bass/D#.flac

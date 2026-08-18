@@ -1,0 +1,90 @@
+//+ Name: Ukulele
+//+ Date: 2026-08-11
+//+ URL: http://freepats.zenvoid.org/
+
+<global>
+ ampeg_release=0.35
+
+<group>
+ loop_mode=no_loop
+<region>
+ lokey=58
+ hikey=60
+ pitch_keycenter=60
+ tune=-5
+ sample=Tenor Ukulele/C4.flac
+<region>
+ lokey=61
+ hikey=62
+ pitch_keycenter=62
+ tune=-8
+ sample=Tenor Ukulele/D4.flac
+<region>
+ lokey=63
+ hikey=64
+ pitch_keycenter=64
+ tune=-2
+ sample=Tenor Ukulele/E4.flac
+<region>
+ lokey=65
+ hikey=66
+ pitch_keycenter=66
+ tune=-11
+ sample=Tenor Ukulele/F#4.flac
+<region>
+ key=67
+ tune=-1
+ sample=Tenor Ukulele/G4.flac
+<region>
+ lokey=68
+ hikey=69
+ pitch_keycenter=69
+ sample=Tenor Ukulele/A4.flac
+<region>
+ lokey=70
+ hikey=71
+ pitch_keycenter=71
+ sample=Tenor Ukulele/B4.flac
+<region>
+ lokey=72
+ hikey=73
+ pitch_keycenter=73
+ sample=Tenor Ukulele/C#5.flac
+<region>
+ lokey=74
+ hikey=75
+ pitch_keycenter=75
+ tune=3
+ sample=Tenor Ukulele/D#5.flac
+<region>
+ lokey=76
+ hikey=77
+ pitch_keycenter=77
+ tune=4
+ sample=Tenor Ukulele/F5.flac
+<region>
+ lokey=78
+ hikey=79
+ pitch_keycenter=79
+ tune=6
+ sample=Tenor Ukulele/G5.flac
+<region>
+ lokey=80
+ hikey=82
+ pitch_keycenter=81
+ tune=8
+ sample=Tenor Ukulele/A5.flac
+<region>
+ lokey=83
+ hikey=86
+ pitch_keycenter=84
+ tune=4
+ sample=Tenor Ukulele/C6.flac
+<region>
+ key=47
+ pitch_keycenter=47
+ sample=Tenor Ukulele/body-tap.flac
+<region>
+ key=48
+ pitch_keycenter=48
+ sample=Tenor Ukulele/chuck.wav

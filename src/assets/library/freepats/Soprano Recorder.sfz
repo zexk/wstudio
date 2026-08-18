@@ -1,0 +1,81 @@
+<global>
+ //+ Instrument: Recorder N1
+ //+ Program: 2
+ ampeg_release=0.4
+ loop_mode=loop_continuous
+
+<group>
+<region>
+ lokey=69 hikey=72
+ pitch_keycenter=72
+ loop_start=34795 loop_end=104051
+ sample=Soprano Recorder/C5_01.flac
+<region>
+ lokey=73 hikey=74
+ pitch_keycenter=74
+ loop_start=22107 loop_end=85859
+ sample=Soprano Recorder/D5_01.flac
+<region>
+ lokey=75 hikey=76
+ pitch_keycenter=76
+ loop_start=16759 loop_end=127137
+ sample=Soprano Recorder/E5_01.flac
+<region>
+ key=77
+ loop_start=11338 loop_end=98889
+ sample=Soprano Recorder/F5_01.flac
+<region>
+ key=78
+ loop_start=28532 loop_end=120967
+ sample=Soprano Recorder/F#5_01.flac
+<region>
+ key=79
+ loop_start=11432 loop_end=109567
+ sample=Soprano Recorder/G5_01.flac
+<region>
+ key=80
+ loop_start=10100 loop_end=129610
+ sample=Soprano Recorder/G#5_01.flac
+<region>
+ key=81
+ loop_start=13662 loop_end=122690
+ sample=Soprano Recorder/A5_01.flac
+<region>
+ key=82
+ loop_start=13626 loop_end=152495
+ sample=Soprano Recorder/A#5_01.flac
+<region>
+ key=83
+ loop_start=20457 loop_end=117157
+ sample=Soprano Recorder/B5_01.flac
+<region>
+ key=84
+ loop_start=12267 loop_end=113870
+ sample=Soprano Recorder/C6_01.flac
+<region>
+ key=85
+ loop_start=13723 loop_end=135413
+ sample=Soprano Recorder/C#6_01.flac
+<region>
+ key=86
+ loop_start=10780 loop_end=86505
+ sample=Soprano Recorder/D6_01.flac
+<region>
+ lokey=87 hikey=88
+ pitch_keycenter=88
+ loop_start=20628 loop_end=120520
+ sample=Soprano Recorder/E6_01.flac
+<region>
+ key=89
+ loop_start=21686 loop_end=136315
+ sample=Soprano Recorder/F6_01.flac
+<region>
+ lokey=90 hikey=91
+ pitch_keycenter=91
+ loop_start=15640 loop_end=128476
+ sample=Soprano Recorder/G6_01.flac
+<region>
+ lokey=92 hikey=100
+ pitch_keycenter=93
+ loop_start=17245 loop_end=107521
+ sample=Soprano Recorder/A6_01.flac

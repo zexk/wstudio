@@ -213,14 +213,14 @@ pub fn buildDisplayRows(app: *App, buf: *[max_display_rows]DisplayRow) []Display
             for (std.enums.values(ws.dsp.builtin_library.Id)) |id| {
                 const e: Entry = .{
                     // zig fmt: off
-                    .name = id.label(), .category = "VCSL acoustic", .tags = &.{ "Versilian Studios", "acoustic" },
-                    .author = "Versilian Studios", .source = .{ .library = id },
+                    .name = id.label(), .category = "bundled acoustic", .tags = id.pack().tags(),
+                    .author = id.pack().author(), .source = .{ .library = id },
                     // zig fmt: on
                 };
                 if (!entryMatches(e, filter)) continue;
                 if (!wrote_header) {
                     if (n >= buf.len) return buf[0..n];
-                    buf[n] = .{ .header = "bundled VCSL" };
+                    buf[n] = .{ .header = "bundled library" };
                     n += 1;
                     wrote_header = true;
                 }

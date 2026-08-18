@@ -7,11 +7,14 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Added
 
-- CC0 VCSL pianos, harpsichord, pipe organ, concert harp, mallets, and kalimba
-  through a shared SFZ sample-bank loader, as their own `Acoustic` instrument
-  in the picker. Acoustic tracks start on grand piano and switch bundled
-  timbre with `:library` or the `f` preset picker; `SoundFont` is now a
-  separate instrument for playing your own `.sf2` banks.
+- CC0 acoustic instruments from VCSL and FreePats through a shared SFZ
+  sample-bank loader, as their own `Acoustic` instrument in the picker:
+  pianos, harpsichord, pipe organ, concert harp, mallets, kalimba, harmonica,
+  nylon-string guitar, tenor ukulele, finger and picked bass, honky-tonk
+  piano, tenor saxophone, clarinet, and soprano recorder. Acoustic tracks
+  start on grand piano and switch bundled timbre with `:library` or the `f`
+  preset picker; `SoundFont` is now a separate instrument for playing your own
+  `.sf2` banks.
 - Internal rack multimode filter with low-pass, high-pass, and band-pass modes,
   cutoff, resonance, drive, and dry/wet mix.
 - Internal rack limiter with ceiling and release controls.

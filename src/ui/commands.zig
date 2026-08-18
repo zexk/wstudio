@@ -107,7 +107,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "clap-gui",    .desc = "toggle the current CLAP instrument or focused effect's native GUI", .run = wrap(cmdClapGui) },
     .{ .name = "vst3-gui",    .desc = "toggle the current VST3 instrument or focused effect's native GUI", .run = wrap(cmdVst3Gui) },
     .{ .name = "sf-preset",   .desc = "<bank> <program>  jump to a SoundFont preset by its MIDI bank/program number", .run = wrap(commands_load.cmdSfPreset), .scope = .{ .soundfont = true } },
-    .{ .name = "library",     .desc = "<grand|upright|harpsichord>  load a bundled VCSL acoustic instrument", .run = wrap(commands_load.cmdLibrary), .scope = .{ .acoustic = true } },
+    .{ .name = "library",     .desc = "<" ++ ws.dsp.builtin_library.id_names ++ ">  load a bundled acoustic instrument", .run = wrap(commands_load.cmdLibrary), .scope = .{ .acoustic = true } },
     .{ .name = "slice",       .desc = "<n>  equal-divide the slicer's loaded clip into n slices (1-64)", .run = wrap(commands_load.cmdSlice), .scope = .{ .slicer = true } },
     .{ .name = "chop",        .desc = "[1-9]  chop the slicer's clip at detected transients (sensitivity, default 5)", .run = wrap(commands_load.cmdChop), .scope = .{ .slicer = true } },
     .{ .name = "chop-random", .desc = "[n]  roll the dice: chop the slicer's clip into n uneven slices (default 8)", .run = wrap(commands_load.cmdChopRandom), .scope = .{ .slicer = true } },

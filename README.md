@@ -40,7 +40,8 @@ release tarball links libsndfile dynamically, so a distribution package of it
 archive carries its own DLLs. Once running: `enter` on a blank track opens the
 instrument picker, `space` plays/stops, and `:help` lists every command.
 Choosing `Acoustic` starts on the bundled grand piano. Use `:library <name>`
-or press `f` to browse bundled pianos, organ, harp, mallets, and kalimba.
+or press `f` to browse the bundled pianos, organ, guitars, basses, winds,
+harp, and mallets.
 `SoundFont` is the separate instrument for your own `.sf2` banks: `:load`
 picks the file, `f` browses its presets.
 
@@ -159,5 +160,5 @@ available on those terms.
 Bundled assets keep their own licenses: `src/assets/fonts/wstudio-icons.ttf` is
 a subset of Symbols Nerd Font Mono (MIT, see `src/assets/fonts/LICENSE`),
 DejaVu Sans Mono is Bitstream's (see `src/assets/fonts/DEJAVU-LICENSE`), and the
-bundled VCSL sample library is Creative Commons (see
-`src/assets/library/vcsl/LICENSE`).
+bundled acoustic sample library is public domain (CC0) from the VCSL and
+FreePats projects (see `src/assets/library/README.md`).

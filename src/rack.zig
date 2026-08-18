@@ -59,7 +59,7 @@ pub const Instrument = union(enum) {
     /// SoundFont (.sf2) multi-timbral player - a preset picked from a
     /// loaded font, played chromatically like `poly_synth`/`sampler`.
     soundfont: SoundfontPlayer,
-    /// Bundled acoustic sample banks (dsp/builtin_library.zig's VCSL SFZ
+    /// Bundled acoustic sample banks (dsp/builtin_library.zig's SFZ
     /// catalog). Same player as `soundfont` - only the content source and
     /// therefore the browsing UI differ: `acoustic` picks a bundled patch,
     /// `soundfont` loads a user .sf2. Everything downstream (melodic

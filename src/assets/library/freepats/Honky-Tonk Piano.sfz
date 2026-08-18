@@ -1,0 +1,257 @@
+//+ Name: Piano FB
+//+ Date: 2020-04-01
+//+ URL: http://freepats.zenvoid.org/Piano/honky-tonk-piano.html#PianoFB
+
+<global>
+ //+ Instrument: Piano FB
+ ampeg_release=0.9
+
+<group>
+ loop_mode=no_loop
+<region>
+ lokey=19 hikey=20
+ pitch_keycenter=20
+ sample=Honky-Tonk Piano/G#0.flac
+<region>
+ key=21
+ sample=Honky-Tonk Piano/A0.flac
+<region>
+ key=22
+ sample=Honky-Tonk Piano/A#0.flac
+<region>
+ key=23
+ sample=Honky-Tonk Piano/B0.flac
+<region>
+ lokey=24 hikey=25
+ pitch_keycenter=24
+ sample=Honky-Tonk Piano/C1.flac
+<region>
+ lokey=26 hikey=27
+ pitch_keycenter=27
+ sample=Honky-Tonk Piano/D#1.flac
+<region>
+ key=28
+ sample=Honky-Tonk Piano/E1.flac
+<region>
+ key=29
+ sample=Honky-Tonk Piano/F1.flac
+<region>
+ key=30
+ sample=Honky-Tonk Piano/F#1.flac
+<region>
+ key=31
+ sample=Honky-Tonk Piano/G1.flac
+<region>
+ key=32
+ sample=Honky-Tonk Piano/G#1.flac
+<region>
+ lokey=33 hikey=34
+ pitch_keycenter=33
+ sample=Honky-Tonk Piano/A1.flac
+<region>
+ lokey=35 hikey=36
+ pitch_keycenter=36
+ sample=Honky-Tonk Piano/C2.flac
+<region>
+ key=37
+ sample=Honky-Tonk Piano/C#2.flac
+<region>
+ key=38
+ sample=Honky-Tonk Piano/D2.flac
+<region>
+ key=39
+ sample=Honky-Tonk Piano/D#2.flac
+<region>
+ key=40
+ sample=Honky-Tonk Piano/E2.flac
+<region>
+ lokey=41
+ hikey=42
+ pitch_keycenter=41
+ sample=Honky-Tonk Piano/F2.flac
+<region>
+ lokey=43 hikey=44
+ pitch_keycenter=44
+ sample=Honky-Tonk Piano/G#2.flac
+<region>
+ key=45
+ sample=Honky-Tonk Piano/A2.flac
+<region>
+ key=46
+ sample=Honky-Tonk Piano/A#2.flac
+<region>
+ key=47
+ sample=Honky-Tonk Piano/B2.flac
+<region>
+ key=48
+ sample=Honky-Tonk Piano/C3.flac
+<region>
+ key=49
+ sample=Honky-Tonk Piano/C#3.flac
+<region>
+ key=50
+ sample=Honky-Tonk Piano/D3.flac
+<region>
+ lokey=51 hikey=52
+ pitch_keycenter=52
+ sample=Honky-Tonk Piano/E3.flac
+<region>
+ key=53
+ sample=Honky-Tonk Piano/F3.flac
+<region>
+ key=54
+ sample=Honky-Tonk Piano/F#3.flac
+<region>
+ key=55
+ sample=Honky-Tonk Piano/G3.flac
+<region>
+ key=56
+ sample=Honky-Tonk Piano/G#3.flac
+<region>
+ key=57
+ sample=Honky-Tonk Piano/A3.flac
+<region>
+ key=58
+ sample=Honky-Tonk Piano/A#3.flac
+<region>
+ key=59
+ sample=Honky-Tonk Piano/B3.flac
+<region>
+ key=60
+ sample=Honky-Tonk Piano/C4.flac
+<region>
+ key=61
+ sample=Honky-Tonk Piano/C#4.flac
+<region>
+ key=62
+ sample=Honky-Tonk Piano/D4.flac
+<region>
+ key=63
+ sample=Honky-Tonk Piano/D#4.flac
+<region>
+ key=64
+ sample=Honky-Tonk Piano/E4.flac
+<region>
+ key=65
+ sample=Honky-Tonk Piano/F4.flac
+<region>
+ lokey=66 hikey=67
+ pitch_keycenter=67
+ sample=Honky-Tonk Piano/G4.flac
+<region>
+ key=68
+ sample=Honky-Tonk Piano/G#4.flac
+<region>
+ key=69
+ sample=Honky-Tonk Piano/A4.flac
+<region>
+ lokey=70 hikey=71
+ pitch_keycenter=71
+ sample=Honky-Tonk Piano/B4.flac
+<region>
+ key=72
+ sample=Honky-Tonk Piano/C5.flac
+<region>
+ key=73
+ sample=Honky-Tonk Piano/C#5.flac
+<region>
+ key=74
+ sample=Honky-Tonk Piano/D5.flac
+<region>
+ key=75
+ sample=Honky-Tonk Piano/D#5.flac
+<region>
+ key=76
+ sample=Honky-Tonk Piano/E5.flac
+<region>
+ key=77
+ sample=Honky-Tonk Piano/F5.flac
+<region>
+ key=78
+ sample=Honky-Tonk Piano/F#5.flac
+<region>
+ key=79
+ sample=Honky-Tonk Piano/G5.flac
+<region>
+ key=80
+ sample=Honky-Tonk Piano/G#5.flac
+<region>
+ key=81
+ sample=Honky-Tonk Piano/A5.flac
+<region>
+ key=82
+ sample=Honky-Tonk Piano/A#5.flac
+<region>
+ key=83
+ sample=Honky-Tonk Piano/B5.flac
+<region>
+ key=84
+ sample=Honky-Tonk Piano/C6.flac
+<region>
+ key=85
+ sample=Honky-Tonk Piano/C#6.flac
+<region>
+ key=86
+ sample=Honky-Tonk Piano/D6.flac
+<region>
+ key=87
+ sample=Honky-Tonk Piano/D#6.flac
+<region>
+ key=88
+ sample=Honky-Tonk Piano/E6.flac
+<region>
+ key=89
+ sample=Honky-Tonk Piano/F6.flac
+<region>
+ key=90
+ sample=Honky-Tonk Piano/F#6.flac
+<region>
+ key=91
+ sample=Honky-Tonk Piano/G6.flac
+<region>
+ key=92
+ sample=Honky-Tonk Piano/G#6.flac
+<region>
+ key=93
+ sample=Honky-Tonk Piano/A6.flac
+<region>
+ key=94
+ sample=Honky-Tonk Piano/A#6.flac
+<region>
+ key=95
+ sample=Honky-Tonk Piano/B6.flac
+<region>
+ key=96
+ sample=Honky-Tonk Piano/C7.flac
+<region>
+ key=97
+ sample=Honky-Tonk Piano/C#7.flac
+<region>
+ key=98
+ sample=Honky-Tonk Piano/D7.flac
+<region>
+ key=99
+ sample=Honky-Tonk Piano/D#7.flac
+<region>
+ lokey=100 hikey=101
+ pitch_keycenter=101
+ sample=Honky-Tonk Piano/F7.flac
+<region>
+ key=102
+ sample=Honky-Tonk Piano/F#7.flac
+<region>
+ key=103
+ sample=Honky-Tonk Piano/G7.flac
+<region>
+ key=104
+ sample=Honky-Tonk Piano/G#7.flac
+<region>
+ key=105
+ sample=Honky-Tonk Piano/A7.flac
+<region>
+ key=106
+ sample=Honky-Tonk Piano/A#7.flac
+<region>
+ lokey=107 hikey=108
+ pitch_keycenter=107
+ sample=Honky-Tonk Piano/B7.flac
