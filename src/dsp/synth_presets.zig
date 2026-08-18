@@ -1144,13 +1144,19 @@ pub const presets = [_]Preset{
     // ambient - the choir finally has vocal cords: a real formant filter
     // parked in the a/e region, slow LFO drifting the vowel, huge hall;
     // macro 1 scans vowels here rather than opening a cutoff
+    // Singers in unison are measured 25-30 cents apart (Jers & Ternström), and
+    // no two of them drift together - which is the whole reason a choir sounds
+    // unlike four synth voices at a fixed 10-cent detune. So: the spread goes
+    // up to the measured figure, and `random` scatters each note's pitch by up
+    // to a quarter tone on its own, per voice, so repeated notes never stack.
     .{ .name = "choir-pad", .category = "pad", .tags = &.{ "wstudio", "ambient" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 4, .unison_detune = 10.0, .unison_spread = 0.6,
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 4, .unison_detune = 27.0, .unison_spread = 0.6,
         .noise_level = 0.04, .noise_color = 0.6,
         .attack_s = 1.0, .decay_s = 1.0, .sustain = 0.8, .release_s = 2.0, .env_curve = -0.35,
         .filter_type = .formant, .filter_cutoff = 80.0, .filter_res = 0.3,
         .lfo_rate_hz = 0.2, .lfo_slew_ms = 45.0,
         .mod_matrix = mods(&.{
+            .{ .source = .random, .dest = dP, .depth = 0.02 },
             .{ .source = .lfo,  .dest = 21,  .depth = 0.15 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.3 },
             .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
