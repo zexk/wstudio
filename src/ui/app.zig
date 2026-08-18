@@ -3769,6 +3769,28 @@ pub const App = struct {
         return self.pickerFilterText(.instrument_picker, &self.instrument_picker_filter_buf, self.instrument_picker_filter_len);
     }
 
+    /// Track or bus the open picker is about to act on, for its header - both
+    /// frontends name the target the same way, including the "?" a stale
+    /// index falls back to.
+    pub fn pickerTargetName(self: *App) []const u8 {
+        const track: usize = switch (self.view) {
+            .instrument_picker => self.cursor,
+            .preset_picker => self.preset_picker_track,
+            .automation_param_picker => self.automation_track,
+            .fx_picker => switch (self.fx_picker_return) {
+                .track_spectrum => self.eq_track,
+                .group_spectrum => return if (self.eq_group < self.session.groups.len)
+                    (if (self.session.groups[self.eq_group]) |g| g.name else "?")
+                else
+                    "?",
+                else => return "MASTER",
+            },
+            else => return "?",
+        };
+        if (track >= self.session.project.tracks.items.len) return "?";
+        return self.session.project.tracks.items[track].name;
+    }
+
     pub fn filteredInstrumentPickerItems(self: *App, buf: *[instrument_picker_items.len]InstrumentPickerItem) []InstrumentPickerItem {
         const filter = self.activeInstrumentFilter();
         var n: usize = 0;

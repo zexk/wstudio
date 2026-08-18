@@ -77,6 +77,25 @@ pub fn overlayWidth() f32 {
     return @min(zgui.getContentRegionAvail()[0], 884);
 }
 
+/// Every picker overlay opens the same way the TUI's does: what it does,
+/// what it acts on, how many rows survived the filter, the filter itself,
+/// and a one-line subtitle. `pub` so the file browser heads up the same way.
+pub fn header(accent: [4]f32, title: []const u8, target: []const u8, subtitle: []const u8, count: usize, filter: []const u8) void {
+    widgets.coloredTitle(accent, "{s}", .{title});
+    if (target.len > 0) {
+        zgui.sameLine(.{});
+        zgui.textColored(theme.audio, "\"{s}\"", .{target});
+    }
+    zgui.sameLine(.{});
+    zgui.textDisabled("{d} match{s}", .{ count, if (count == 1) "" else "es" });
+    if (filter.len > 0) {
+        zgui.sameLine(.{ .spacing = 14 });
+        zgui.textColored(theme.modulation, "filter: {s}", .{filter});
+    }
+    if (subtitle.len > 0) zgui.textDisabled("{s}", .{subtitle});
+    zgui.separator();
+}
+
 /// The "nothing here" line the picker overlays share, worded like the TUI's
 /// (tui/views/picker.zig): a filter that hid everything explains itself,
 /// otherwise the list says what it is missing. `pub` so the param picker and
@@ -98,24 +117,24 @@ pub fn dismiss(app: anytype, now_ns: i96) void {
 }
 
 pub fn drawInstrument(app: anytype) void {
-    if (app.core.picker_replace) {
-        widgets.coloredTitle(theme.focus, "REPLACE INSTRUMENT", .{});
-        zgui.sameLine(.{});
-        zgui.textDisabled("Keeps notes when instrument types match", .{});
-    } else {
-        widgets.coloredTitle(theme.focus, "ADD INSTRUMENT", .{});
-        zgui.sameLine(.{});
-        zgui.textDisabled("Choose track sound", .{});
-    }
-    zgui.separator();
+    var item_buf: [app_mod.instrument_picker_items.len]app_mod.InstrumentPickerItem = undefined;
+    const items = app.core.filteredInstrumentPickerItems(&item_buf);
+    const filter = app.core.activeInstrumentFilter();
+    header(
+        theme.focus,
+        if (app.core.picker_replace) "REPLACE INSTRUMENT" else "INSERT INSTRUMENT",
+        app.core.pickerTargetName(),
+        if (app.core.picker_replace) "Keeps notes when instrument types match" else "Choose track sound",
+        items.len + app.core.filteredInstrumentPluginCount(),
+        filter,
+    );
+    widgets.hoverHelp("/ filter  j/k move  enter insert  esc cancel");
+    zgui.spacing();
     // Single column: `j`/`k` move the shared picker cursor by a flat +/-1,
     // same as the TUI's list - a multi-column card grid would make "down"
     // jump sideways instead.
     const width = overlayWidth();
     zgui.textColored(theme.fg2, "INTERNAL", .{});
-    var item_buf: [app_mod.instrument_picker_items.len]app_mod.InstrumentPickerItem = undefined;
-    const items = app.core.filteredInstrumentPickerItems(&item_buf);
-    const filter = app.core.activeInstrumentFilter();
     for (items, 0..) |entry, i| {
         var id_buf: [48]u8 = undefined;
         const id = std.fmt.bufPrintZ(&id_buf, "instrument-card-{d}", .{i}) catch continue;
@@ -151,7 +170,6 @@ pub fn drawInstrument(app: anytype) void {
             const desc = std.fmt.bufPrint(&desc_buf, "{s}  |  {s}", .{ format, plugin.vendor }) catch format;
             const ordinal = items.len + external_i;
             const clicked = drawCard(id, plugin.name, desc, theme.focus, app.core.picker_cursor == ordinal, width, filter);
-            widgets.copyContext(plugin.name);
             if (clicked) {
                 selectInstrument(app, ordinal, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
                 return;
@@ -162,10 +180,6 @@ pub fn drawInstrument(app: anytype) void {
 }
 
 pub fn drawFx(app: anytype) void {
-    widgets.coloredTitle(theme.modulation, "ADD EFFECT", .{});
-    zgui.sameLine(.{});
-    zgui.textDisabled("Inserted after the focused unit", .{});
-    zgui.separator();
     var kinds_buf: [spectrum_ed.picker_kinds.len]ws.FxKind = undefined;
     const kinds = spectrum_ed.filteredPickerKinds(&app.core, &kinds_buf);
     const filter = spectrum_ed.activeFilter(&app.core);
@@ -175,6 +189,9 @@ pub fn drawFx(app: anytype) void {
     if (total_count > 0) {
         app.core.fx_picker_cursor = @intCast(@min(app.core.fx_picker_cursor, total_count - 1));
     }
+    header(theme.modulation, "INSERT EFFECT", app.core.pickerTargetName(), "Inserted after the focused unit", total_count, filter);
+    widgets.hoverHelp("/ filter  j/k move  enter insert  esc cancel");
+    zgui.spacing();
     // Single column, matching the TUI list's flat j/k stepping - see
     // drawInstrument's comment above.
     const width = available;
@@ -211,7 +228,6 @@ pub fn drawFx(app: anytype) void {
             const desc = std.fmt.bufPrint(&desc_buf, "{s}  |  {s}", .{ format, plugin.vendor }) catch format;
             const ordinal = count + external_i;
             const clicked = drawCard(id, plugin.name, desc, theme.focus, app.core.fx_picker_cursor == ordinal, width, filter);
-            widgets.copyContext(plugin.name);
             if (clicked) {
                 app.core.clickFxPickerItem(ordinal, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
                 return;
@@ -240,6 +256,9 @@ fn drawCard(id: [:0]const u8, label: []const u8, desc: []const u8, accent: [4]f3
     const height: f32 = 62;
     const origin = zgui.getCursorScreenPos();
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
+    // Every card offers its label to the clipboard, not just the plugin rows
+    // that used to ask for it at the call site.
+    widgets.copyContext(label);
     // Pager-style, not `setScrollHereY`: re-centring every frame would pin
     // the list to the cursor and leave the wheel with nothing to do.
     scroll.noteFocusRow(selected, origin[1], height);
@@ -291,15 +310,8 @@ pub fn drawPreset(app: anytype) void {
         .drum => theme.rhythm,
         .soundfont, .acoustic => theme.audio,
     };
-    widgets.coloredTitle(kind_accent, "{s}", .{app.core.preset_picker_kind.label()});
-    zgui.sameLine(.{});
-    zgui.textDisabled("{d} matches for track {d:0>2}", .{ count, app.core.preset_picker_track + 1 });
     const filter = preset_ed.activeFilter(&app.core);
-    if (filter.len > 0) {
-        zgui.sameLine(.{ .spacing = 14 });
-        zgui.textColored(theme.audio, "filter: {s}", .{filter});
-    }
-    zgui.separator();
+    header(kind_accent, app.core.preset_picker_kind.label(), app.core.pickerTargetName(), "", count, filter);
     widgets.hoverHelp(if (app.core.preset_picker_kind == .drum)
         "/ filter  j/k move  enter choose  esc close  [ ] category"
     else
@@ -311,8 +323,8 @@ pub fn drawPreset(app: anytype) void {
     }
     var ordinal: usize = 0;
     for (rows, 0..) |row, row_index| switch (row) {
-        .header => |header| {
-            zgui.textColored(theme.fg2, "{s}", .{header});
+        .header => |section| {
+            zgui.textColored(theme.fg2, "{s}", .{section});
             zgui.separator();
         },
         .entry => |entry| {
@@ -329,7 +341,6 @@ pub fn drawPreset(app: anytype) void {
             else
                 entry.author;
             const clicked = drawCard(id, entry.name, desc, kind_accent, selected, overlayWidth(), filter);
-            widgets.copyContext(entry.name);
             if (clicked) {
                 app.core.clickPresetPickerItem(ordinal, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             }

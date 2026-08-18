@@ -4,7 +4,6 @@
 
 const std = @import("std");
 const style = @import("../style.zig");
-const fuzzy = @import("../../ui/fuzzy.zig");
 
 const rst = style.rst;
 const bold = style.bold;
@@ -60,7 +59,7 @@ pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize) !void {
         const in_sel = app.browser_visual_anchor != null and i >= sel_lo and i <= sel_hi and !entry.is_dir;
         if (is_sel) try w.writeAll(sel) else if (in_sel) try w.writeAll(yel);
         try w.writeAll(if (is_sel) "  > " else if (in_sel) "  ~ " else "    ");
-        try writeHighlighted(w, entry.name, pattern, is_sel);
+        try style.writeHighlighted(w, entry.name, pattern, if (is_sel) bold else sel, if (is_sel) sel else "", 0);
         if (entry.is_dir) try w.writeAll("/");
         try w.writeAll(rst);
         try endLine(w);
@@ -92,28 +91,6 @@ fn drawRecentProjects(app: anytype, w: *std.Io.Writer, rows: usize) !void {
         try endLine(w);
     }
     for ((end - off) + @intFromBool(app.recent_projects.items.len == 0)..visible) |_| try endLine(w);
-}
-
-/// Writes `name`, reverse-video highlighting the bytes the last `/` search
-/// pattern matched (see App.searchPattern). On the already-reverse-video
-/// selected row, `sel` would be invisible against itself, so matched bytes
-/// get `bold` instead and the row's `sel` is re-applied after each one.
-fn writeHighlighted(w: *std.Io.Writer, name: []const u8, pattern: []const u8, row_selected: bool) !void {
-    // zig fmt: off
-    if (pattern.len == 0) { try w.writeAll(name); return; }
-    // zig fmt: on
-    var match_buf: [128]bool = undefined;
-    const checked = name[0..@min(name.len, match_buf.len)];
-    fuzzy.matchPositions(pattern, checked, match_buf[0..checked.len]);
-    for (name, 0..) |c, i| {
-        const hl = i < checked.len and match_buf[i];
-        if (hl) try w.writeAll(if (row_selected) bold else sel);
-        try w.writeByte(c);
-        if (hl) {
-            try w.writeAll(rst);
-            if (row_selected) try w.writeAll(sel);
-        }
-    }
 }
 
 /// `B`'s overlay: the bookmark list in place of the directory listing, same

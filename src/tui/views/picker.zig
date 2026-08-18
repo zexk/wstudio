@@ -17,17 +17,24 @@ const sel = style.sel;
 const endLine = style.endLine;
 
 pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
-    const track_name = if (app.cursor < app.session.project.tracks.items.len)
-        app.session.project.tracks.items[app.cursor].name
-    else
-        "?";
+    var item_buf: [app_mod.instrument_picker_items.len]app_mod.InstrumentPickerItem = undefined;
+    const items = app.filteredInstrumentPickerItems(&item_buf);
+    const external_count = app.filteredInstrumentPluginCount();
+    const filter = app.activeInstrumentFilter();
+    const total_count = items.len + external_count;
 
-    const title: []const u8 = if (app.picker_replace) " REPLACE INSTRUMENT" else " INSERT INSTRUMENT";
+    // Same header shape as every other picker: what it does, what it acts
+    // on, how many rows survived the filter, and the filter itself.
     try w.writeAll(bold);
-    try w.writeAll(title);
-    try w.writeAll(rst);
-    try w.writeAll(acc);
-    try w.print("  \"{s}\"", .{track_name});
+    try w.writeAll(if (app.picker_replace) " REPLACE INSTRUMENT" else " INSERT INSTRUMENT");
+    try w.writeAll(rst ++ acc);
+    try w.print("  \"{s}\"", .{app.pickerTargetName()});
+    try w.writeAll(rst ++ dim);
+    try w.print("  {d} match{s}", .{ total_count, if (total_count == 1) "" else "es" });
+    if (filter.len > 0) {
+        try w.writeAll(rst ++ yel);
+        try w.print("  /{s}", .{filter});
+    }
     try w.writeAll(rst);
     try endLine(w);
     if (app.picker_replace) {
@@ -36,11 +43,6 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
         try w.writeAll(dim ++ " choose track sound" ++ rst);
     }
     try endLine(w);
-
-    var item_buf: [app_mod.instrument_picker_items.len]app_mod.InstrumentPickerItem = undefined;
-    const items = app.filteredInstrumentPickerItems(&item_buf);
-    const external_count = app.filteredInstrumentPluginCount();
-    const filter = app.activeInstrumentFilter();
 
     // Section headers ride the same scrolled list as the entries, so a long
     // plugin list stays reachable - see app_mod.pickerDisplayRow for the
@@ -75,7 +77,7 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
             try w.writeAll(if (is_sel) "  > " else "    ");
             try w.writeAll(icons.iconOr(icon, ""));
             try w.writeByte(' ');
-            try w.print("{s: <14}", .{item.label});
+            try style.writeHighlighted(w, item.label, filter, if (is_sel) bold else sel, if (is_sel) sel else "", 14);
             if (!is_sel) try w.writeAll(dim);
             try w.print(" {s}", .{item.description});
             try w.writeAll(rst);
@@ -85,7 +87,7 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
             const is_sel = (i == app.picker_cursor);
             if (is_sel) try w.writeAll(sel);
             try w.writeAll(if (is_sel) "  > " else "    ");
-            try w.print("{s: <15}", .{plugin.name});
+            try style.writeHighlighted(w, plugin.name, filter, if (is_sel) bold else sel, if (is_sel) sel else "", 15);
             if (!is_sel) try w.writeAll(dim);
             try w.print(" {s}  {s}", .{ ws.plugin_catalog.formatLabel(plugin.format), plugin.vendor });
             try w.writeAll(rst);
@@ -105,17 +107,6 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
 }
 
 pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
-    const target: []const u8 = switch (app.fx_picker_return) {
-        .track_spectrum => if (app.eq_track < app.session.project.tracks.items.len)
-            app.session.project.tracks.items[app.eq_track].name
-        else
-            "?",
-        .group_spectrum => if (app.eq_group < app.session.groups.len) blk: {
-            break :blk if (app.session.groups[app.eq_group]) |g| g.name else "?";
-        } else "?",
-        else => "MASTER",
-    };
-
     var buf: [spectrum_ed.picker_kinds.len]ws.FxKind = undefined;
     const kinds = spectrum_ed.filteredPickerKinds(app, &buf);
     const external_count = spectrum_ed.externalPickerCount(app);
@@ -124,7 +115,7 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
 
     try w.writeAll(bold ++ " INSERT EFFECT" ++ rst);
     try w.writeAll(acc);
-    try w.print("  \"{s}\"", .{target});
+    try w.print("  \"{s}\"", .{app.pickerTargetName()});
     try w.writeAll(rst ++ dim);
     try w.print("  {d} match{s}", .{ total_count, if (total_count == 1) "" else "es" });
     if (filter.len > 0) {
@@ -133,8 +124,9 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     }
     try w.writeAll(rst);
     try endLine(w);
-    try w.writeAll(dim ++ " > /" ++ rst);
-    if (filter.len > 0) try w.writeAll(filter) else try w.writeAll(dim ++ "type to filter" ++ rst);
+    // Second row is the subtitle every picker has, not the `> /` prompt this
+    // one used to keep to itself - the header already echoes the filter.
+    try w.writeAll(dim ++ " inserted after the focused unit" ++ rst);
     try endLine(w);
 
     // Section headers ride the same scrolled list as the entries - 24 built-in
@@ -160,7 +152,7 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
             const is_sel = (r - 1 == app.fx_picker_cursor);
             try w.writeAll(if (is_sel) sel else style.fxKindColor(k));
             try w.writeAll(if (is_sel) "  > " else "    ");
-            try w.print("{s: <12}", .{spectrum_ed.unitLabel(k)});
+            try style.writeHighlighted(w, spectrum_ed.unitLabel(k), filter, if (is_sel) bold else sel, if (is_sel) sel else style.fxKindColor(k), 12);
             if (!is_sel) try w.writeAll(rst ++ dim);
             try w.print(" {s}", .{spectrum_ed.pickerDescription(k)});
             try w.writeAll(rst);
@@ -170,9 +162,9 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
             const is_sel = (i == app.fx_picker_cursor);
             if (is_sel) try w.writeAll(sel);
             try w.writeAll(if (is_sel) "  > " else "    ");
-            try w.print("{s: <13}", .{plugin.name});
+            try style.writeHighlighted(w, plugin.name, filter, if (is_sel) bold else sel, if (is_sel) sel else "", 13);
             if (!is_sel) try w.writeAll(dim);
-            try w.print("{s}  {s}", .{ ws.plugin_catalog.formatLabel(plugin.format), plugin.vendor });
+            try w.print(" {s}  {s}", .{ ws.plugin_catalog.formatLabel(plugin.format), plugin.vendor });
             try w.writeAll(rst);
         } else {
             try w.writeAll(dim);

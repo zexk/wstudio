@@ -5,6 +5,7 @@
 const std = @import("std");
 const ws = @import("wstudio");
 const ansi = @import("../ui/ansi.zig");
+const fuzzy = @import("../ui/fuzzy.zig");
 const types = ws.types;
 const Mode = ws.input.Mode;
 
@@ -138,6 +139,40 @@ pub fn writeClamped(w: *std.Io.Writer, raw: []const u8, max_cols: usize) !void {
         i += 1;
     }
     try w.writeAll(rst);
+}
+
+/// Writes `text` highlighting the bytes the `/` pattern fuzzy-matched (see
+/// ui/fuzzy.zig), then pads with spaces to `pad_to` columns so it can stand
+/// in for a `{s: <n}` field. `hl` is the SGR the matched bytes get,
+/// `restore` the row's own SGR - re-applied after every matched run, since
+/// ending one needs a reset and that would otherwise drop a coloured or
+/// reverse-video row back to plain mid-word. Every list that takes a `/`
+/// shows its matches this way: the browser, both pickers, presets, params.
+pub fn writeHighlighted(
+    w: *std.Io.Writer,
+    text: []const u8,
+    pattern: []const u8,
+    hl: []const u8,
+    restore: []const u8,
+    pad_to: usize,
+) !void {
+    if (pattern.len == 0) {
+        try w.writeAll(text);
+    } else {
+        var match_buf: [128]bool = undefined;
+        const checked = text[0..@min(text.len, match_buf.len)];
+        fuzzy.matchPositions(pattern, checked, match_buf[0..checked.len]);
+        for (text, 0..) |c, i| {
+            const on = i < checked.len and match_buf[i];
+            if (on) try w.writeAll(hl);
+            try w.writeByte(c);
+            if (on) {
+                try w.writeAll(rst);
+                try w.writeAll(restore);
+            }
+        }
+    }
+    for (0..pad_to -| text.len) |_| try w.writeByte(' ');
 }
 
 /// Writes `left` then right-aligns `right` flush against `cols` (padding

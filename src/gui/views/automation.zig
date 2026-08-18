@@ -306,20 +306,19 @@ pub fn recordAutomationGesture(app: anytype) void {
 }
 
 pub fn drawParamPicker(app: anytype) void {
-    widgets.coloredTitle(theme.focus, "AUTOMATION PARAMETER", .{});
-    zgui.sameLine(.{});
-    widgets.hoverHelp("Enter add  / filter  Esc back");
-    zgui.separator();
     const params = automation_ed.instrumentAutomatableParams(&app.core);
     var buf: [automation_ed.max_param_display_rows]automation_ed.ParamDisplayRow = undefined;
     const filter = automation_ed.activeParamFilter(&app.core);
     const rows = automation_ed.buildParamDisplayRows(params, filter, &buf);
-    const width = @min(zgui.getContentRegionAvail()[0], 820);
+    const width = picker.overlayWidth();
     const clip = automation_ed.currentClip(&app.core);
     var match_count: usize = 0;
     for (rows) |row| {
         if (row == .param) match_count += 1;
     }
+    picker.header(theme.focus, "AUTOMATE PARAM", app.core.pickerTargetName(), "", match_count, filter);
+    widgets.hoverHelp("/ filter  j/k move  enter pick  esc back");
+    zgui.spacing();
     if (match_count == 0) {
         picker.emptyRow(filter.len > 0, filter, "No parameters");
         return;
@@ -337,6 +336,7 @@ pub fn drawParamPicker(app: anytype) void {
             const id = std.fmt.bufPrintZ(&id_buf, "automation-param-{d}", .{i}) catch continue;
             const origin = zgui.getCursorScreenPos();
             const clicked = zgui.invisibleButton(id, .{ .w = width, .h = 36 });
+            widgets.copyContext(p.label);
             scroll.noteFocusRow(selected, origin[1], 36);
             const hovered = zgui.isItemHovered(.{});
             const draw_list = zgui.getWindowDrawList();
@@ -347,7 +347,7 @@ pub fn drawParamPicker(app: anytype) void {
             // which would only jump to one.
             const has_lane = if (clip) |c| c.automation.findSynthParam(0, p.id) != null else false;
             if (has_lane) draw_list.addText(.{ origin[0] + 12, origin[1] + 8 }, color(theme.modulation), "\u{2022}", .{});
-            draw_list.addText(.{ origin[0] + 26, origin[1] + 8 }, color(if (selected) theme.fg0 else theme.fg1), "{s}", .{p.label});
+            picker.drawFuzzyLabel(draw_list, .{ origin[0] + 26, origin[1] + 8 }, p.label, filter, theme.modulation, if (selected) theme.fg0 else theme.fg1);
             var range_buf: [48]u8 = undefined;
             const range = compactParamRange(&range_buf, p.label, p.range);
             const range_width = zgui.calcTextSize(range, .{})[0];

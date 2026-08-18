@@ -37,6 +37,8 @@ pub fn draw(app: anytype) void {
     zgui.sameLine(.{});
     zgui.textDisabled("{s}", .{app.core.browser_purpose.displayLabel(&purpose_buf)});
     const pattern = app.core.searchPattern();
+    // "search", not "filter": `/` here moves the cursor to the next match, it
+    // does not narrow the listing the way a picker's filter does.
     if (pattern.len > 0) {
         zgui.sameLine(.{ .spacing = 14 });
         zgui.textColored(theme.modulation, "search: {s}", .{pattern});
@@ -47,7 +49,7 @@ pub fn draw(app: anytype) void {
     zgui.spacing();
 
     if (app.core.browser_entries.items.len == 0) {
-        zgui.textDisabled("(empty)", .{});
+        picker.emptyRow(false, "", "No files");
         return;
     }
 
@@ -105,7 +107,7 @@ fn drawRecentProjects(app: anytype) void {
 
 fn drawBookmarks(app: anytype) void {
     if (app.core.bookmarks.items.len == 0) {
-        zgui.textDisabled("(no bookmarks)", .{});
+        picker.emptyRow(false, "", "No bookmarks");
         return;
     }
     var clipper = zgui.ListClipper.init();

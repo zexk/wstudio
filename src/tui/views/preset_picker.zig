@@ -14,11 +14,6 @@ const yel = style.yel;
 const endLine = style.endLine;
 
 pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
-    const track_name = if (app.preset_picker_track < app.session.project.tracks.items.len)
-        app.session.project.tracks.items[app.preset_picker_track].name
-    else
-        "?";
-
     var buf: [preset_ed.max_display_rows]preset_ed.DisplayRow = undefined;
     const rows_list = preset_ed.buildDisplayRows(app, &buf);
     const count = preset_ed.entryCountOf(rows_list);
@@ -27,13 +22,9 @@ pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     try w.writeByte(' ');
     try w.writeAll(app.preset_picker_kind.label());
     try w.writeAll(rst ++ acc);
-    try w.print("  \"{s}\"", .{track_name});
+    try w.print("  \"{s}\"", .{app.pickerTargetName()});
     try w.writeAll(rst ++ dim);
-    if (count > 0) {
-        try w.print("  {d}/{d}", .{ @min(app.preset_picker_cursor + 1, count), count });
-    } else {
-        try w.writeAll("  0 matches");
-    }
+    try w.print("  {d} match{s}", .{ count, if (count == 1) "" else "es" });
     const filter = preset_ed.activeFilter(app);
     if (filter.len > 0) {
         try w.writeAll(rst ++ yel);
@@ -86,7 +77,7 @@ pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
                 ord += 1;
                 if (is_sel) try w.writeAll(sel);
                 try w.writeAll(if (is_sel) "  > " else "    ");
-                try w.print("{s: <18}", .{e.name});
+                try style.writeHighlighted(w, e.name, filter, if (is_sel) bold else sel, if (is_sel) sel else "", 18);
                 if (!is_sel) try w.writeAll(dim);
                 // Kits list flat (no category headers), so the category
                 // rides the row instead.

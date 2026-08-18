@@ -193,10 +193,6 @@ pub fn drawAutomation(
 /// `App.automationParamPickerMouse` via `automation_ed.buildParamDisplayRows`
 /// - keep the two in sync if this layout ever changes.
 pub fn drawAutomationParamPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
-    const track_name = if (app.automation_track < app.session.project.tracks.items.len)
-        app.session.project.tracks.items[app.automation_track].name
-    else
-        "?";
     const clip = automation_ed.currentClip(app);
     const params = automation_ed.instrumentAutomatableParams(app);
     const filter = automation_ed.activeParamFilter(app);
@@ -213,7 +209,7 @@ pub fn drawAutomationParamPicker(app: anytype, w: *std.Io.Writer, rows: usize) !
 
     try w.writeAll(bold ++ " AUTOMATE PARAM" ++ rst);
     try w.writeAll(acc);
-    try w.print("  \"{s}\"", .{track_name});
+    try w.print("  \"{s}\"", .{app.pickerTargetName()});
     try w.writeAll(rst ++ dim);
     try w.print("  {d} match{s}", .{ match_count, if (match_count == 1) "" else "es" });
     if (filter.len > 0) {
@@ -260,7 +256,7 @@ pub fn drawAutomationParamPicker(app: anytype, w: *std.Io.Writer, rows: usize) !
                 if (is_sel) try w.writeAll(sel);
                 try w.writeAll(if (is_sel) "  > " else "    ");
                 try w.writeAll(if (has_lane) "\u{2022} " else "  ");
-                try w.print("{s: <12}", .{p.label});
+                try style.writeHighlighted(w, p.label, filter, if (is_sel) bold else sel, if (is_sel) sel else "", 12);
                 if (!is_sel) try w.writeAll(dim);
                 try w.print(" {d:.2} .. {d:.2}", .{ p.range[0], p.range[1] });
                 try w.writeAll(rst);
