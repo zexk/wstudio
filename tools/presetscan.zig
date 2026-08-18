@@ -717,8 +717,8 @@ pub fn main(init: std.process.Init) !void {
             try w.print("{s}", .{t});
         }
         try w.print("\t{d:.3}\t{d:.4}\t{d:.1}\t{d:.1}\t{d:.0}\t{d:.2}\t{d:.0}\t{d:.0}\t{d:.3}", .{
-            f.peak,     f.rms,        f.lufs,        f.crest,
-            f.attack_ms, f.sustain,   f.release_ms,  f.centroid_hz,
+            f.peak,      f.rms,     f.lufs,       f.crest,
+            f.attack_ms, f.sustain, f.release_ms, f.centroid_hz,
             f.flatness,
         });
         for (f.bands) |b| try w.print("\t{d:.2}", .{b});
