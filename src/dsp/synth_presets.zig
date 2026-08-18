@@ -1263,16 +1263,24 @@ pub const presets = [_]Preset{
     // attack, dull sustain) - fenv->MOD AMT reproduces that per-operator
     // envelope-over-FM-index trick; osc C adds a plain additive body layer
     // under the FM pair
+    // The bell attack this patch is named after comes, on the machine that
+    // made it famous, from a modulator at 14:1 whose envelope dies almost at
+    // once - a tine ping over a body that is nearly a sine. Two things were
+    // missing: the ratio sat at 3:1, and the index barely moved, so the ping
+    // was a steady partial instead of a transient. The modulator now sits as
+    // high as OSC B goes (+24 semitones is a hard 4:1 ceiling, so 14:1 is out
+    // of reach) and 40 cents off it, and its index is mostly the filter
+    // envelope: loud for 180 ms, then gone.
     .{ .name = "fm-epiano", .category = "keys", .tags = &.{ "wstudio", "city-pop" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 19.0, .osc_b_detune_cents = 3.0, .osc_b_level = 0.8,
+        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 24.0, .osc_b_detune_cents = 40.0, .osc_b_level = 0.8,
         .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.0, .osc_c_semi = 0.0, .osc_c_level = 0.3,
-        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 0.9,
+        .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 0.25,
         .attack_s = 0.001, .decay_s = 1.2, .sustain = 0.15, .release_s = 0.5, .env_curve = 0.58,
         .filter_type = .lp, .filter_cutoff = 6500.0, .filter_res = 0.0,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.18, .fenv_sustain = 0.0, .fenv_release_s = 0.1, .fenv_curve = 0.7,
         .lfo_rate_hz = 4.5,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 44,  .depth = 0.16 },
+            .{ .source = .fenv,     .dest = 44,  .depth = 0.4 },
             .{ .source = .lfo,      .dest = dA,  .depth = 0.04 },
             .{ .source = .velocity, .dest = 44,  .depth = 0.2 },
             .{ .source = .random,   .dest = 44,  .depth = 0.015 },
