@@ -549,10 +549,20 @@ pub const presets = [_]Preset{
     } },
 
     // funk-clav - the classic clav-through-phaser, velocity + keytrack
-    // keep the top end percussive
+    // keep the top end percussive.
+    //
+    // A clavinet is a struck steel string, and the two envelopes work the
+    // opposite way round from a "percussive" preset: measurements of a D6 put
+    // the held string's T60 at twenty seconds and more, while releasing the
+    // key drops a yarn damper that mutes it at once. So the note rings for a
+    // couple of seconds under the hand and stops dead when the hand leaves -
+    // not a 0.22 s decay that dies while the key is still down and a 0.12 s
+    // release that hangs on after it comes up. The filter envelope keeps its
+    // short decay: the highs of a struck string do leave before its
+    // fundamental does.
     .{ .name = "funk-clav", .category = "keys", .tags = &.{ "wstudio", "funk" }, .patch = .{
         .wt_table = .basic, .wt_pos = 1.0,
-        .attack_s = 0.002, .decay_s = 0.22, .sustain = 0.0, .release_s = 0.12, .env_curve = 0.72,
+        .attack_s = 0.002, .decay_s = 2.5, .sustain = 0.0, .release_s = 0.025, .env_curve = 0.72,
         .filter_type = .bp, .filter_cutoff = 1600.0, .filter_res = 0.35,
         .fenv_attack_s = 0.001, .fenv_decay_s = 0.2, .fenv_sustain = 0.0, .fenv_release_s = 0.1, .fenv_curve = 0.68,
         .mod_matrix = mods(&.{
