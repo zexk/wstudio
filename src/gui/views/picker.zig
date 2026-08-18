@@ -77,6 +77,18 @@ pub fn overlayWidth() f32 {
     return @min(zgui.getContentRegionAvail()[0], 884);
 }
 
+/// The "nothing here" line the picker overlays share, worded like the TUI's
+/// (tui/views/picker.zig): a filter that hid everything explains itself,
+/// otherwise the list says what it is missing. `pub` so the param picker and
+/// the file browser fall back the same way.
+pub fn emptyRow(hidden_by_filter: bool, filter: []const u8, empty_label: []const u8) void {
+    if (hidden_by_filter) {
+        zgui.textDisabled("no match for /{s}", .{filter});
+    } else {
+        zgui.textDisabled("{s}", .{empty_label});
+    }
+}
+
 pub fn selectInstrument(app: anytype, ordinal: usize, now_ns: i96) void {
     app.core.clickInstrumentPickerItem(ordinal, now_ns);
 }
@@ -146,7 +158,7 @@ pub fn drawInstrument(app: anytype) void {
             }
         }
     }
-    if (external_count == 0) zgui.textDisabled("No external instruments found", .{});
+    if (external_count == 0) emptyRow(items.len == 0 and filter.len > 0, filter, "No external instruments found");
 }
 
 pub fn drawFx(app: anytype) void {
@@ -206,7 +218,7 @@ pub fn drawFx(app: anytype) void {
             }
         }
     }
-    if (external_count == 0) zgui.textDisabled("No external effects found", .{});
+    if (external_count == 0) emptyRow(total_count == 0 and filter.len > 0, filter, "No external effects found");
 }
 
 fn drawPluginScanButton(app: anytype) void {
@@ -293,6 +305,10 @@ pub fn drawPreset(app: anytype) void {
     else
         "/ filter  j/k move  enter choose  esc close  [ ] category  a audition");
     zgui.spacing();
+    if (count == 0) {
+        emptyRow(filter.len > 0, filter, "No presets");
+        return;
+    }
     var ordinal: usize = 0;
     for (rows, 0..) |row, row_index| switch (row) {
         .header => |header| {

@@ -7,6 +7,7 @@ const history = @import("../../ui/history.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
 const scroll = @import("../scroll.zig");
+const picker = @import("picker.zig");
 
 const color = style.color;
 const trackColor = style.trackColor;
@@ -311,9 +312,18 @@ pub fn drawParamPicker(app: anytype) void {
     zgui.separator();
     const params = automation_ed.instrumentAutomatableParams(&app.core);
     var buf: [automation_ed.max_param_display_rows]automation_ed.ParamDisplayRow = undefined;
-    const rows = automation_ed.buildParamDisplayRows(params, automation_ed.activeParamFilter(&app.core), &buf);
+    const filter = automation_ed.activeParamFilter(&app.core);
+    const rows = automation_ed.buildParamDisplayRows(params, filter, &buf);
     const width = @min(zgui.getContentRegionAvail()[0], 820);
     const clip = automation_ed.currentClip(&app.core);
+    var match_count: usize = 0;
+    for (rows) |row| {
+        if (row == .param) match_count += 1;
+    }
+    if (match_count == 0) {
+        picker.emptyRow(filter.len > 0, filter, "No parameters");
+        return;
+    }
     for (rows) |row| switch (row) {
         .header => |name| {
             zgui.spacing();
