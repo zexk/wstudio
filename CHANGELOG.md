@@ -51,6 +51,12 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Changed
 
+- Factory synth patches were checked one at a time against the instrument each
+  one names, and levelled to a common loudness within their category. The
+  clavinet rings under the hand and stops dead on release, the string machine
+  gets its ensemble instead of a detune, the FM bells and the electric piano
+  get the ratios and index envelopes that make them read as bells and tines,
+  and a choir spreads the way singers measure.
 - The pattern transforms work on a slicer's grid, not only a drum machine's:
   `:clear`, `:humanize`, `:reverse`, `:normalize`, `:vel-ramp`, `:euclid`,
   `:rotate` and `:pad-len` all act on whichever step grid the cursor is on.
