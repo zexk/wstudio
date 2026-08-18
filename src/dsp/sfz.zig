@@ -39,6 +39,7 @@ const Settings = struct {
     sustain: f32 = 1,
     release_s: f32 = 0.1,
     seq_position: u16 = 1,
+    seq_length: u16 = 1,
     loops: bool = false,
     loop_start: u32 = 0,
     loop_end: u32 = 0,
@@ -139,7 +140,7 @@ fn apply(s: *Settings, key: []const u8, value: []const u8) ParseError!void {
         s.key_lo = v;
         s.key_hi = v;
         s.root_key = v;
-    } else if (std.mem.eql(u8, key, "lokey")) s.key_lo = try midi(value) else if (std.mem.eql(u8, key, "hikey")) s.key_hi = try midi(value) else if (std.mem.eql(u8, key, "lovel") or std.mem.eql(u8, key, "xfin_lovel")) s.vel_lo = try midi(value) else if (std.mem.eql(u8, key, "hivel") or std.mem.eql(u8, key, "xfout_hivel")) s.vel_hi = try midi(value) else if (std.mem.eql(u8, key, "pitch_keycenter")) s.root_key = try midi(value) else if (std.mem.eql(u8, key, "pitch_keytrack")) s.scale_tuning_cents = try float(value) else if (std.mem.eql(u8, key, "tune")) s.tune_cents = try float(value) else if (std.mem.eql(u8, key, "volume") or std.mem.eql(u8, key, "global_volume")) s.volume_db += try float(value) else if (std.mem.eql(u8, key, "offset")) s.offset = try uint(u32, value) else if (std.mem.eql(u8, key, "loop_start")) s.loop_start = try uint(u32, value) else if (std.mem.eql(u8, key, "loop_end")) s.loop_end = try uint(u32, value) else if (std.mem.eql(u8, key, "ampeg_attack")) s.attack_s = try nonnegative(value) else if (std.mem.eql(u8, key, "ampeg_decay")) s.decay_s = try nonnegative(value) else if (std.mem.eql(u8, key, "ampeg_sustain")) s.sustain = std.math.clamp((try float(value)) / 100, 0, 1) else if (std.mem.eql(u8, key, "ampeg_release")) s.release_s = try nonnegative(value) else if (std.mem.eql(u8, key, "seq_position")) s.seq_position = try uint(u16, value) else if (std.mem.eql(u8, key, "seq_length") or std.mem.eql(u8, key, "amp_veltrack") or std.mem.eql(u8, key, "rt_decay") or std.mem.eql(u8, key, "xfin_hivel") or std.mem.eql(u8, key, "xfout_lovel")) {
+    } else if (std.mem.eql(u8, key, "lokey")) s.key_lo = try midi(value) else if (std.mem.eql(u8, key, "hikey")) s.key_hi = try midi(value) else if (std.mem.eql(u8, key, "lovel") or std.mem.eql(u8, key, "xfin_lovel")) s.vel_lo = try midi(value) else if (std.mem.eql(u8, key, "hivel") or std.mem.eql(u8, key, "xfout_hivel")) s.vel_hi = try midi(value) else if (std.mem.eql(u8, key, "pitch_keycenter")) s.root_key = try midi(value) else if (std.mem.eql(u8, key, "pitch_keytrack")) s.scale_tuning_cents = try float(value) else if (std.mem.eql(u8, key, "tune")) s.tune_cents = try float(value) else if (std.mem.eql(u8, key, "volume") or std.mem.eql(u8, key, "global_volume")) s.volume_db += try float(value) else if (std.mem.eql(u8, key, "offset")) s.offset = try uint(u32, value) else if (std.mem.eql(u8, key, "loop_start")) s.loop_start = try uint(u32, value) else if (std.mem.eql(u8, key, "loop_end")) s.loop_end = try uint(u32, value) else if (std.mem.eql(u8, key, "ampeg_attack")) s.attack_s = try nonnegative(value) else if (std.mem.eql(u8, key, "ampeg_decay")) s.decay_s = try nonnegative(value) else if (std.mem.eql(u8, key, "ampeg_sustain")) s.sustain = std.math.clamp((try float(value)) / 100, 0, 1) else if (std.mem.eql(u8, key, "ampeg_release")) s.release_s = try nonnegative(value) else if (std.mem.eql(u8, key, "seq_position")) s.seq_position = try uint(u16, value) else if (std.mem.eql(u8, key, "seq_length")) s.seq_length = try uint(u16, value) else if (std.mem.eql(u8, key, "amp_veltrack") or std.mem.eql(u8, key, "rt_decay") or std.mem.eql(u8, key, "xfin_hivel") or std.mem.eql(u8, key, "xfout_lovel")) {
         _ = try float(value);
     } else if (std.mem.eql(u8, key, "ampeg_dynamic") or std.mem.eql(u8, key, "group_label")) {
         // Editor metadata and an envelope-recalculation hint: neither changes
@@ -149,9 +150,13 @@ fn apply(s: *Settings, key: []const u8, value: []const u8) ParseError!void {
 }
 
 fn appendRegion(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, sample_rate: u32, s: Settings, samples: *std.ArrayListUnmanaged(f32), regions: *std.ArrayListUnmanaged(Region)) !void {
-    // ponytail: first round-robin member only; add runtime sequence state when
-    // repeated notes expose audible machine-gunning in shipped material.
-    if (s.trigger_release or s.seq_position > 1 or s.cc64_lo > 0) return;
+    if (s.trigger_release or s.cc64_lo > 0) return;
+    // A member numbered past its own sequence length can never come up in the
+    // player's `counter % seq_length` rotation, so it would be a silent
+    // region taking up pool space.
+    const seq_length: u8 = @intCast(@min(s.seq_length, 255));
+    const seq_position: u8 = @intCast(@min(s.seq_position, 255));
+    if (seq_length == 0 or seq_position == 0 or seq_position > seq_length) return;
     const path = s.sample orelse return error.MissingSample;
     if (std.fs.path.isAbsolute(path) or std.mem.indexOf(u8, path, "..") != null) return error.InvalidPath;
     const bytes = try dir.readFileAlloc(io, path, allocator, .limited(256 * 1024 * 1024));
@@ -205,6 +210,8 @@ fn appendRegion(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, sampl
         .filter_cutoff_hz = null,
         .filter_q = 1,
         .exclusive_class = 0,
+        .seq_position = seq_position,
+        .seq_length = seq_length,
     });
 }
 
@@ -355,4 +362,25 @@ test "SFZ parse cleans partial bank after allocation failure" {
     try @import("../core/wav.zig").write(&writer, 48_000, 1, &.{ 0.25, -0.25 }, .pcm16);
     try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "tone.wav", .data = writer.buffered() });
     try std.testing.checkAllAllocationFailures(std.testing.allocator, parseForAllocationTest, .{tmp.dir});
+}
+
+test "round-robin members all reach the bank, out-of-range ones do not" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var wav_buf: [128]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&wav_buf);
+    try @import("../core/wav.zig").write(&writer, 48_000, 1, &.{ 0.25, -0.25 }, .pcm16);
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "rr.wav", .data = writer.buffered() });
+    var bank = try parse(std.testing.allocator, std.testing.io, tmp.dir,
+        \\<region> sample=rr.wav seq_length=2 seq_position=1
+        \\<region> sample=rr.wav seq_length=2 seq_position=2
+        \\<region> sample=rr.wav seq_length=2 seq_position=3
+    , "Kalimba", 48_000);
+    defer bank.deinit();
+    // Position 3 of 2 can never come up in the player's rotation, so it is
+    // dropped rather than loaded as a silent region.
+    try std.testing.expectEqual(@as(usize, 2), bank.presets[0].regions.len);
+    try std.testing.expectEqual(@as(u8, 1), bank.presets[0].regions[0].seq_position);
+    try std.testing.expectEqual(@as(u8, 2), bank.presets[0].regions[1].seq_position);
+    try std.testing.expectEqual(@as(u8, 2), bank.presets[0].regions[1].seq_length);
 }

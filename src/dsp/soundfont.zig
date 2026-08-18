@@ -198,6 +198,13 @@ pub const Region = struct {
     /// with another active voice, the later one silences the earlier
     /// (spec's `exclusiveClass`) - same idiom as DrumMachine.choke_group.
     exclusive_class: u8,
+
+    /// SFZ round-robin: this region only fires on note-ons where
+    /// `counter % seq_length == seq_position - 1` (see
+    /// `SoundfontPlayer.seq_counter`). `seq_length = 1` means every note-on,
+    /// which is what SF2 regions and non-sequenced SFZ regions get.
+    seq_position: u8 = 1,
+    seq_length: u8 = 1,
 };
 
 pub const Preset = struct {

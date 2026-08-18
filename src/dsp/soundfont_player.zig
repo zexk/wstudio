@@ -76,6 +76,11 @@ pub const SoundfontPlayer = struct {
     // Audio-thread-only state:
     voices: [max_voices]Voice = [_]Voice{.{}} ** max_voices,
     next_age: u64 = 0,
+    /// Note-ons since load, the rotation SFZ round-robin regions index into.
+    /// ponytail: one counter for the whole preset, not one per key group as
+    /// the SFZ spec has it - a chord walks the rotation as many steps as it
+    /// has notes. Key it by `key_lo` if a pack ever wants per-key rotation.
+    seq_counter: u32 = 0,
 
     const Voice = struct {
         active: bool = false,
@@ -142,6 +147,7 @@ pub const SoundfontPlayer = struct {
         copy.reset_pending = .init(false);
         copy.voices = [_]Voice{.{}} ** max_voices;
         copy.next_age = 0;
+        copy.seq_counter = 0;
         return copy;
     }
 
@@ -323,10 +329,16 @@ pub const SoundfontPlayer = struct {
         // Every voice this one note-on spawns is exempt from its own choke
         // pass below - see the `v.age < spawn_age` guard.
         const spawn_age = self.next_age;
+        const seq_step = self.seq_counter;
+        self.seq_counter +%= 1;
 
         for (preset.regions) |region| {
             if (note < region.key_lo or note > region.key_hi) continue;
             if (vel127 < region.vel_lo or vel127 > region.vel_hi) continue;
+            // Round-robin member: only the one whose turn it is fires, so a
+            // repeated note alternates takes instead of machine-gunning one
+            // sample. `seq_length == 1` (every SF2 region) always passes.
+            if (seq_step % region.seq_length != @as(u32, region.seq_position) - 1) continue;
 
             // Exclusive class: a new note in the same class instantly
             // silences whatever else is ringing in it (spec's choke idiom,
@@ -882,4 +894,41 @@ test "dupe: independent font/source bytes, fresh voice state" {
     try std.testing.expect(!copy.voices[0].active);
     try std.testing.expectEqual(@as(usize, 1), copy.presetCount());
     try std.testing.expectEqualStrings(p.presetName(), copy.presetName());
+}
+
+test "round-robin regions alternate takes across repeated note-ons" {
+    var p = SoundfontPlayer.init(std.testing.allocator, 44_100);
+    defer p.deinit();
+    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, false, 44_100);
+    defer std.testing.allocator.free(bytes);
+    try p.loadSf2(bytes);
+
+    // Same widening the layered-region test does, but as a two-member SFZ
+    // sequence: both cover the note, and exactly one may fire per note-on.
+    const font = &p.font.?;
+    const pair = try std.testing.allocator.alloc(Region, 2);
+    pair[0] = font.presets[0].regions[0];
+    pair[0].pan = -1.0;
+    pair[0].seq_length = 2;
+    pair[0].seq_position = 1;
+    pair[1] = pair[0];
+    pair[1].seq_position = 2;
+    pair[1].pan = 1.0;
+    std.testing.allocator.free(font.presets[0].regions);
+    font.presets[0].regions = pair;
+
+    for (0..4) |i| {
+        for (&p.voices) |*v| v.active = false;
+        p.device().sendEvent(.{ .note_on = .{ .note = 60, .velocity = 1.0 } });
+        var active: usize = 0;
+        var pan: f32 = 0;
+        for (p.voices) |v| {
+            if (!v.active) continue;
+            active += 1;
+            pan = v.region.pan;
+        }
+        try std.testing.expectEqual(@as(usize, 1), active);
+        // Member 1 (pan 0) on even note-ons, member 2 (pan 1) on odd ones.
+        try std.testing.expectEqual(@as(f32, if (i % 2 == 0) -1.0 else 1.0), pan);
+    }
 }
