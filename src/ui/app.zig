@@ -468,8 +468,10 @@ pub const App = struct {
     /// that sequences it (e), and each should back out where it came from.
     /// Set by every site that switches to `.sampler_editor`.
     sampler_return: AppView = .tracks,
-    /// Highlighted row in the instrument picker.
-    picker_cursor: u8 = 0,
+    /// Highlighted row in the instrument picker. An ordinal over the built-in
+    /// kinds *and* every scanned plugin, so it is not a u8: a machine with a
+    /// few hundred instruments installed overflowed one on `G`.
+    picker_cursor: usize = 0,
     /// Scroll offset in printed display rows (see `pickerDisplayRow`),
     /// clamped at draw like `preset_picker_scroll`.
     picker_scroll: usize = 0,
@@ -619,8 +621,10 @@ pub const App = struct {
     /// Chain slot index the FX view is focused on - Tab cycles it. Clamped
     /// by every chain mutation; out of range only while the chain is empty.
     fx_focus: usize = 0,
-    /// Highlighted row in the FX picker.
-    fx_picker_cursor: u8 = 0,
+    /// Highlighted row in the FX picker - an ordinal over the built-in units
+    /// and every scanned plugin, so `usize` for the same reason
+    /// `picker_cursor` is.
+    fx_picker_cursor: usize = 0,
     /// Scroll offset in printed display rows (see `pickerDisplayRow`),
     /// clamped at draw like `preset_picker_scroll`.
     fx_picker_scroll: usize = 0,
@@ -2588,7 +2592,7 @@ pub const App = struct {
                 self.clickInstrumentPickerItem(item, self.now_ns);
             },
             .scroll_up => { self.picker_cursor -|= if (ev.ctrl) 10 else 1; },
-            .scroll_down => { self.picker_cursor = @intCast(modal_mod.clampDelta(self.picker_cursor, if (ev.ctrl) 10 else 1, @intCast(count -| 1))); },
+            .scroll_down => { self.picker_cursor = @min(self.picker_cursor +| (if (ev.ctrl) @as(usize, 10) else 1), count -| 1); },
             else => {},
         }
     }
@@ -3435,7 +3439,7 @@ pub const App = struct {
                 self.clickFxPickerItem(item, self.now_ns);
             },
             .scroll_up => { self.fx_picker_cursor -|= if (ev.ctrl) 10 else 1; },
-            .scroll_down => { self.fx_picker_cursor = @intCast(modal_mod.clampDelta(self.fx_picker_cursor, if (ev.ctrl) 10 else 1, @intCast(kinds.len + external_count -| 1))); },
+            .scroll_down => { self.fx_picker_cursor = @min(self.fx_picker_cursor +| (if (ev.ctrl) @as(usize, 10) else 1), kinds.len + external_count -| 1); },
             else => {},
         }
     }
