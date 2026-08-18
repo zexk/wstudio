@@ -999,26 +999,36 @@ pub const presets = [_]Preset{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.6 }, .{ .idx = 2, .value = 0.35 } } },
     } },
 
-    // disco - Solina-style ensemble strings; the chorus is the ensemble
+    // disco - Solina-style ensemble strings; the chorus is the ensemble.
+    //
+    // A string machine is a divide-down organ: every note comes off one
+    // master oscillator through a chain of dividers, so no two keys can beat
+    // against each other and there is nothing to detune. Six unison voices
+    // 14 cents apart was a supersaw wearing the name. All of the movement in
+    // the real instrument comes from the ensemble after it - three bucket-
+    // brigade lines mixed against the dry signal, each on its own free-running
+    // LFO, one slow and one fast - and it is deliberately set so you hear the
+    // width without hearing the LFOs as vibrato. So: one voice, no detune, no
+    // pitch LFO, and two chorus stages standing in for the BBD bank.
     .{ .name = "disco-strings", .category = "pad", .tags = &.{ "wstudio", "disco" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 6, .unison_detune = 14.0, .unison_spread = 0.7,
+        .wt_table = .basic, .wt_pos = 0.6666667,
         .attack_s = 0.15, .decay_s = 0.5, .sustain = 0.85, .release_s = 0.7,
         .filter_type = .lp, .filter_cutoff = 4000.0, .filter_res = 0.05,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 200.0, .filter_routing = .series,
-        .lfo_rate_hz = 6.0, .lfo_phase_offset = 0.25, .lfo_slew_ms = 12.0,
-        .lfo_custom = waves(.{ .triangle, .sine, .sine }), .lfo_custom_count = waveCounts(.{ .triangle, .sine, .sine }),
         .mod_matrix = mods(&.{
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
             .{ .source = .keytrack, .dest = 21,  .depth = 0.45 },
-            .{ .source = .lfo,  .dest = dP,  .depth = 0.012 },
             .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
             .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
-            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
+            .{ .source = .mac2, .dest = 1, .depth = 0.4, .fx_instance_id = 2 },
         }),
-        .macro_labels = macros(.{ "brightness", "detune", "chorus", "" }),
-        .gain = 0.24,
+        .macro_labels = macros(.{ "brightness", "ensemble", "chorus", "" }),
+        .gain = 0.36,
     }, .fx = &.{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.9 }, .{ .idx = 1, .value = 6 } } },
+        // The fast line. The real one runs near 6 Hz; the FX clamps at 5.
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 5.0 }, .{ .idx = 1, .value = 1.5 }, .{ .idx = 2, .value = 0.35 } } },
     } },
 
     // funk - P-funk mono synth lead; ENV 3 snaps a hard-sync sweep on each
