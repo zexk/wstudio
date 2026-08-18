@@ -76,11 +76,12 @@ pub const SoundfontPlayer = struct {
     // Audio-thread-only state:
     voices: [max_voices]Voice = [_]Voice{.{}} ** max_voices,
     next_age: u64 = 0,
-    /// Note-ons since load, the rotation SFZ round-robin regions index into.
-    /// ponytail: one counter for the whole preset, not one per key group as
-    /// the SFZ spec has it - a chord walks the rotation as many steps as it
-    /// has notes. Key it by `key_lo` if a pack ever wants per-key rotation.
-    seq_counter: u32 = 0,
+    /// Note-ons per key since load, the rotation SFZ round-robin regions
+    /// index into. Per key, not one counter for the whole preset: the spec
+    /// rotates each key group on its own, so a chord must not walk one
+    /// shared rotation as many steps as it has notes, and a repeated single
+    /// note must alternate takes no matter what else is playing.
+    seq_counter: [128]u32 = @splat(0),
 
     const Voice = struct {
         active: bool = false,
@@ -147,7 +148,7 @@ pub const SoundfontPlayer = struct {
         copy.reset_pending = .init(false);
         copy.voices = [_]Voice{.{}} ** max_voices;
         copy.next_age = 0;
-        copy.seq_counter = 0;
+        copy.seq_counter = @splat(0);
         return copy;
     }
 
@@ -329,8 +330,8 @@ pub const SoundfontPlayer = struct {
         // Every voice this one note-on spawns is exempt from its own choke
         // pass below - see the `v.age < spawn_age` guard.
         const spawn_age = self.next_age;
-        const seq_step = self.seq_counter;
-        self.seq_counter +%= 1;
+        const seq_step = self.seq_counter[note];
+        self.seq_counter[note] +%= 1;
 
         for (preset.regions) |region| {
             if (note < region.key_lo or note > region.key_hi) continue;
@@ -969,4 +970,45 @@ test "a steal tail still fades out when the voice that took the slot dies immedi
     try std.testing.expect(@abs(buf[20 * 2]) < 0.5);
     try std.testing.expect(@abs(buf[20 * 2]) > 0.0);
     try std.testing.expectEqual(@as(Sample, 0), buf[60 * 2]);
+}
+
+test "each key rotates its own round-robin, so a chord does not skip takes" {
+    var p = SoundfontPlayer.init(std.testing.allocator, 44_100);
+    defer p.deinit();
+    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, false, 44_100);
+    defer std.testing.allocator.free(bytes);
+    try p.loadSf2(bytes);
+
+    const font = &p.font.?;
+    const pair = try std.testing.allocator.alloc(Region, 2);
+    pair[0] = font.presets[0].regions[0];
+    pair[0].pan = -1.0;
+    pair[0].seq_length = 2;
+    pair[0].seq_position = 1;
+    pair[1] = pair[0];
+    pair[1].seq_position = 2;
+    pair[1].pan = 1.0;
+    std.testing.allocator.free(font.presets[0].regions);
+    font.presets[0].regions = pair;
+
+    // Two other notes in between - a chord's worth of unrelated note-ons
+    // must not advance this key's own rotation.
+    for (&p.voices) |*v| v.active = false;
+    p.device().sendEvent(.{ .note_on = .{ .note = 60, .velocity = 1.0 } });
+    p.device().sendEvent(.{ .note_on = .{ .note = 64, .velocity = 1.0 } });
+    p.device().sendEvent(.{ .note_on = .{ .note = 67, .velocity = 1.0 } });
+    for (p.voices) |v| {
+        if (v.active) try std.testing.expectApproxEqAbs(@as(f32, -1.0), v.region.pan, 1e-6);
+    }
+
+    // The next hit on 60 takes member 2, however many other keys fired.
+    for (&p.voices) |*v| v.active = false;
+    p.device().sendEvent(.{ .note_on = .{ .note = 60, .velocity = 1.0 } });
+    var active: usize = 0;
+    for (p.voices) |v| {
+        if (!v.active) continue;
+        active += 1;
+        try std.testing.expectApproxEqAbs(@as(f32, 1.0), v.region.pan, 1e-6);
+    }
+    try std.testing.expectEqual(@as(usize, 1), active);
 }
