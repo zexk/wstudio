@@ -92,10 +92,8 @@ pub const Slicer = struct {
     /// comment).
     pub const param_stride: u16 = 32;
 
-    pub const vel_full: u8 = 127;
-    pub fn velGain(level: u8) f32 {
-        return @as(f32, @floatFromInt(level)) / @as(f32, @floatFromInt(vel_full));
-    }
+    pub const vel_full: u8 = DrumMachine.vel_full;
+    pub const velGain = DrumMachine.velGain;
 
     pub const swing_min: f32 = 50.0;
     pub const swing_max: f32 = 75.0;
