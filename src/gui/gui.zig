@@ -42,6 +42,12 @@ fn syncWindowTitle(window: *glfw.Window, app: *const App, last: []u8, last_len: 
 // callback, so declare it against the statically linked GLFW.
 extern fn glfwSetWindowRefreshCallback(*glfw.Window, ?*const fn (*glfw.Window) callconv(.c) void) ?*const fn (*glfw.Window) callconv(.c) void;
 
+// The two backend halves `zgui.backend.newFrame` calls before it clobbers
+// the display size - see `drawFrame`. Declared here rather than reached
+// through zgui, which wraps them only inside that one function.
+extern fn ImGui_ImplGlfw_NewFrame() void;
+extern fn ImGui_ImplOpenGL3_NewFrame() void;
+
 const FrameCtx = struct { window: *glfw.Window, app: *App, audio: *ws.AudioHost };
 var frame_ctx: ?FrameCtx = null;
 
@@ -77,6 +83,81 @@ fn onScroll(_: *glfw.Window, xoffset: f64, yoffset: f64) callconv(.c) void {
     gui_style.wheel_delta += @floatCast(yoffset);
 }
 
+/// What ImGui's display state should be for one frame, from what GLFW
+/// reports. Pure so the arithmetic is testable without a window.
+const DisplayMetrics = struct {
+    /// ImGui's `DisplaySize`, in logical units.
+    size: [2]f32,
+    /// ImGui's `DisplayFramebufferScale`, also its font rasterizer density.
+    scale: f32,
+    /// GLFW window coordinates to logical units, for the cursor.
+    mouse: f32,
+};
+
+fn displayMetrics(fb: [2]c_int, win: [2]c_int, content_scale: f32) DisplayMetrics {
+    const scale: f32 = if (content_scale > 0) content_scale else 1;
+    const width = @as(f32, @floatFromInt(fb[0])) / scale;
+    const height = @as(f32, @floatFromInt(fb[1])) / scale;
+    const mouse: f32 = if (win[0] > 0) width / @as(f32, @floatFromInt(win[0])) else 1;
+    return .{ .size = .{ width, height }, .scale = scale, .mouse = mouse };
+}
+
+test "display metrics put every platform's HiDPI in logical units" {
+    // X11: framebuffer equals the window, the scale arrives only as content
+    // scale, so the display shrinks and the cursor has to shrink with it.
+    const x11 = displayMetrics(.{ 1920, 1200 }, .{ 1920, 1200 }, 2);
+    try std.testing.expectEqual([2]f32{ 960, 600 }, x11.size);
+    try std.testing.expectEqual(@as(f32, 2), x11.scale);
+    try std.testing.expectEqual(@as(f32, 0.5), x11.mouse);
+
+    // Wayland/macOS: the framebuffer already carries the scale, so the
+    // display is the window and the cursor needs no conversion.
+    const retina = displayMetrics(.{ 1920, 1200 }, .{ 960, 600 }, 2);
+    try std.testing.expectEqual([2]f32{ 960, 600 }, retina.size);
+    try std.testing.expectEqual(@as(f32, 1), retina.mouse);
+
+    const plain = displayMetrics(.{ 1440, 900 }, .{ 1440, 900 }, 1);
+    try std.testing.expectEqual([2]f32{ 1440, 900 }, plain.size);
+    try std.testing.expectEqual(@as(f32, 1), plain.mouse);
+
+    // A scale of 0 (headless, or a platform that has no answer) must not
+    // divide the display away.
+    const unknown = displayMetrics(.{ 800, 600 }, .{ 800, 600 }, 0);
+    try std.testing.expectEqual([2]f32{ 800, 600 }, unknown.size);
+    try std.testing.expectEqual(@as(f32, 1), unknown.scale);
+}
+
+/// Put ImGui in logical units on every platform, whatever the screen does.
+///
+/// A HiDPI screen reaches GLFW as two different facts, and only one of them
+/// ever reaches ImGui by itself. Wayland and macOS hand back a framebuffer
+/// larger than the window, which ImGui's own backend turns into a display
+/// size plus a framebuffer scale. X11 has no such split - framebuffer and
+/// window are the same size and the scale arrives only as the monitor's
+/// content scale (Xft.dpi) - so nothing acts on it and the GUI stays at 1x
+/// on a 2x screen. Dividing the framebuffer by the content scale covers
+/// both: everything the views draw, hand-written pixel geometry included,
+/// is then in logical units, and since 1.92 ImGui bakes glyphs at the
+/// framebuffer scale, so text is still rasterized at native resolution.
+fn applyDisplayScale(window: *glfw.Window, fb: [2]c_int) void {
+    const win = window.getSize();
+    const m = displayMetrics(fb, win, window.getContentScale()[0]);
+    zgui.io.setDisplaySize(m.size[0], m.size[1]);
+    zgui.io.setDisplayFramebufferScale(m.scale, m.scale);
+    if (m.mouse == 1) return;
+
+    // The backend has already read the cursor, in GLFW window coordinates -
+    // which are logical units only where the framebuffer carried the scale.
+    // Where it didn't, re-send the position converted; ImGui drains the
+    // event queue in order, so the later event wins. A cursor outside the
+    // window is left to the backend's own "somewhere else" value, or hover
+    // would keep following a mouse that has left the window.
+    const cursor = window.getCursorPos();
+    if (cursor[0] < 0 or cursor[0] > @as(f64, @floatFromInt(win[0]))) return;
+    if (cursor[1] < 0 or cursor[1] > @as(f64, @floatFromInt(win[1]))) return;
+    zgui.io.addMousePositionEvent(@as(f32, @floatCast(cursor[0])) * m.mouse, @as(f32, @floatCast(cursor[1])) * m.mouse);
+}
+
 fn drawFrame() void {
     const ctx = frame_ctx orelse return;
     const fb = ctx.window.getFramebufferSize();
@@ -84,7 +165,14 @@ fn drawFrame() void {
     gl.viewport(0, 0, fb[0], fb[1]);
     gl.clearColor(theme.bg0[0], theme.bg0[1], theme.bg0[2], 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    zgui.backend.newFrame(@intCast(fb[0]), @intCast(fb[1]));
+    // Not `zgui.backend.newFrame`: it pins `DisplaySize` to the framebuffer
+    // size and `DisplayFramebufferScale` to 1, which makes one ImGui unit
+    // one physical pixel and renders the whole GUI at half size on a 2x
+    // screen. `applyDisplayScale` sets the pair the frontend actually wants.
+    ImGui_ImplGlfw_NewFrame();
+    ImGui_ImplOpenGL3_NewFrame();
+    applyDisplayScale(ctx.window, fb);
+    zgui.newFrame();
     ctx.app.handleShortcuts();
     ctx.app.draw(ctx.audio.label());
     const imgu_wheel_y: f32 = if (gui_style.wheel_consumed) 0 else gui_style.wheel_delta;
