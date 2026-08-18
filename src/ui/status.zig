@@ -68,14 +68,22 @@ pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
         if (app.track_row == app.track_rows_len) {
             try w.writeAll("enter/s fx  -/+ gain  ? help");
         } else if (app.cursorGroup() != null) {
-            try w.writeAll("enter/s fx  z fold  -/+ gain  R rename");
+            try w.writeAll("enter/s fx  z fold  -/+ gain  S solo  R rename");
         } else if (app.cursorTrack()) |ti| {
             const track = app.session.project.tracks.items[ti];
             switch (std.meta.activeTag(app.session.racks.items[ti].instrument)) {
                 .empty => try w.writeAll("enter instrument  a add track  ? help"),
-                .poly_synth, .sampler, .soundfont, .acoustic => try w.print("enter edit  p piano  s fx  m {s}", .{if (track.muted) "unmute" else "mute"}),
-                .clap, .vst3 => try w.print("enter GUI  p piano  s fx  m {s}", .{if (track.muted) "unmute" else "mute"}),
-                .drum_machine, .slicer => try w.print("enter edit  p steps  s fx  m {s}", .{if (track.muted) "unmute" else "mute"}),
+                // Solo and arm are as reachable as mute (see ui/help.zig's
+                // `S`/`r`), and the GUI puts all three on every row as
+                // buttons - the footer used to name only mute.
+                else => |tag| {
+                    const head: []const u8 = switch (tag) {
+                        .clap, .vst3 => "enter GUI  p piano",
+                        .drum_machine, .slicer => "enter edit  p steps",
+                        else => "enter edit  p piano",
+                    };
+                    try w.print("{s}  s fx  m {s}  S solo  r arm", .{ head, if (track.muted) "unmute" else "mute" });
+                },
             }
         } else {
             try w.writeAll("? help  space play  tab song");
