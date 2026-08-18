@@ -7408,6 +7408,63 @@ test "Tab cycles named Euclidean rhythm presets" {
     try std.testing.expectEqual(@as(usize, 3), hits);
 }
 
+test "the pattern transforms reach a slicer's grid, not just a drum machine's" {
+    var app = try testApp();
+    defer app.deinit();
+    _ = try app.session.addTrack("slice");
+    try app.session.setInstrument(3, .slicer);
+    app.slicer_track = 3;
+    try installSlicerTestClip(&app);
+    const sl = app.slicerInst();
+    sl.sliceInto(4);
+    app.cursor = 3;
+    app.slicer_cursor[0] = 1;
+
+    // Both halves of a Euclidean fill: it lands on the cursor's lane, and it
+    // reads the slicer's own step count rather than a drum machine's.
+    commands.run(&app, "euclid 3");
+    var hits: usize = 0;
+    for (sl.midi[1]) |note| if (note != null) {
+        hits += 1;
+    };
+    try std.testing.expectEqual(@as(usize, 3), hits);
+
+    // :rotate moves that same lane, keeping the hit count.
+    commands.run(&app, "rotate 2");
+    hits = 0;
+    for (sl.midi[1]) |note| if (note != null) {
+        hits += 1;
+    };
+    try std.testing.expectEqual(@as(usize, 3), hits);
+    try std.testing.expect(sl.midi[1][2] != null);
+
+    // :vel-ramp and :normalize walk the velocities the euclid fill placed.
+    commands.run(&app, "vel-ramp 20 100");
+    try std.testing.expect(sl.stepVel(1, 2) < ws.dsp.Slicer.vel_full);
+    commands.run(&app, "normalize");
+    var peak: u8 = 0;
+    for (sl.midi[1]) |note| if (note) |n| {
+        peak = @max(peak, n.velocity);
+    };
+    try std.testing.expectEqual(@as(u8, 127), peak);
+
+    // :pad-len is a lane length on either instrument.
+    commands.run(&app, "pad-len 5");
+    try std.testing.expectEqual(@as(u16, 5), sl.slice_len[1]);
+
+    // :reverse mirrors the whole grid, :clear wipes it, and both report the
+    // slicer rather than falling through to "no pattern here".
+    commands.run(&app, "reverse");
+    try std.testing.expect(sl.midi[1][2] == null);
+    commands.run(&app, "clear");
+    for (sl.midi[1]) |note| try std.testing.expect(note == null);
+
+    // A track that is neither still says so.
+    app.cursor = 0;
+    commands.run(&app, "rotate 1");
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "slicer") != null);
+}
+
 test "Tab cycles mnemonic command names and ignores compatibility aliases" {
     var app = try testApp();
     defer app.deinit();

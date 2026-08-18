@@ -113,7 +113,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "chop-random", .desc = "[n]  roll the dice: chop the slicer's clip into n uneven slices (default 8)", .run = wrap(commands_load.cmdChopRandom), .scope = .{ .slicer = true } },
     .{ .name = "bpm-sync",    .desc = "[clip-bpm]  warp the clip to project tempo, tune it to the project key", .run = wrap(commands_load.cmdBpmSync), .scope = cmd_mod.scopes.sampler_slicer },
     .{ .name = "spread",      .desc = "[semitones]  ramp pitch across the slices/pads, one step each (default 1)", .run = wrap(commands_load.cmdSpread), .scope = cmd_mod.scopes.drum_slicer },
-    .{ .name = "pad-len",     .desc = "<n|off>  loop the cursor drum pad over its own n steps (polymeter)", .run = wrap(commands_load.cmdPadLen), .scope = .{ .drum = true } },
+    .{ .name = "pad-len",     .desc = "<n|off>  loop the cursor pad/slice over its own n steps (polymeter)", .run = wrap(commands_load.cmdPadLen), .scope = .{ .drum = true, .slicer = true } },
     .{ .name = "edit",        .desc = "[file]  open a project (refuses if unsaved changes; omit the file to browse)", .run = wrap(cmdEdit) },
     .{ .name = "edit!",       .desc = "[file]  open a project, discarding changes; no file reverts the current one", .run = wrap(cmdEditForce) },
     .{ .name = "e",           .desc = "[file]  open a project (alias for :edit)", .run = wrap(cmdEdit) },
@@ -148,7 +148,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "bounce",       .desc = "[file] [16|24]  render session (wav, or .flac/.ogg by extension)", .run = wrap(commands_mixer.cmdBounce) },
     .{ .name = "bounce-stems", .desc = "[dir] [16|24]  render each non-empty track soloed to <dir>/<N>-<track>.wav (default: stems/)", .run = wrap(commands_mixer.cmdBounceStems) },
     .{ .name = "reference",    .desc = "[track|off]  designate and A/B a loudness-matched reference track", .run = wrap(commands_mixer.cmdReference) },
-    .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern, or every pad in a drum machine", .run = wrap(cmdClear), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "clear",       .desc = "erase all notes in the piano-roll pattern, or every lane of a step grid", .run = wrap(cmdClear), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "%d",          .desc = "erase all notes/hits in the pattern (alias for :clear)",  .run = wrap(cmdClear), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "humanize",    .desc = "[amount]  jitter the pattern's note timing/velocity 0-100% (default 15)", .run = wrap(cmdHumanize), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "quantize",    .desc = "[strength]  snap the pattern's notes to the current grid 0-100% (default 100, hard snap)", .run = wrap(cmdQuantize), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
@@ -158,8 +158,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "double",      .desc = "copy the pattern after itself and double the loop length - vary the back half from there", .run = wrap(commands_pattern.cmdDouble), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "fit",         .desc = "shrink or grow the loop to the bar the last note ends in", .run = wrap(commands_pattern.cmdFit), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "dedupe",      .desc = "drop notes stacked on an identical pitch and start, keeping the longest of each pile", .run = wrap(commands_pattern.cmdDedupe), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
-    .{ .name = "normalize",   .desc = "lift every velocity until the loudest note peaks, keeping the dynamics between them (drum view: the whole kit)", .run = wrap(commands_pattern.cmdNormalize), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
-    .{ .name = "vel-ramp",    .desc = "<from> <to>  velocity ramp 0-100% across the pattern's notes (drum view: the cursor pad's hits)", .run = wrap(commands_pattern.cmdVelRamp), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "normalize",   .desc = "lift every velocity until the loudest note peaks, keeping the dynamics between them (step grid: every lane)", .run = wrap(commands_pattern.cmdNormalize), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "vel-ramp",    .desc = "<from> <to>  velocity ramp 0-100% across the pattern's notes (step grid: the cursor lane's hits)", .run = wrap(commands_pattern.cmdVelRamp), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "legato",      .desc = "extend every note to the next onset - gapless phrasing, no more staccato gaps", .run = wrap(commands_pattern.cmdLegato), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "glue",        .desc = "weld touching or overlapping same-pitch notes into one long note", .run = wrap(commands_pattern.cmdGlue), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "chop-notes",  .desc = "split every note into pieces one grid step long (the inverse of :glue)", .run = wrap(commands_pattern.cmdChopNotes), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
@@ -185,8 +185,8 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "drum-kit",    .desc = "[name]  apply a factory or saved kit to the cursor drum machine (no args: list names)", .run = wrap(commands_load.cmdDrumKit), .scope = .{ .drum = true } },
     .{ .name = "drum-kit-save", .desc = "<name>  save the cursor drum machine's pad tuning (name/gain/pan/pitch/ADSR/choke, no audio) as a reusable kit", .run = wrap(commands_load.cmdDrumKitSave), .scope = .{ .drum = true } },
     .{ .name = "split-drums", .desc = "replace the drum machine with one sampler + MIDI track per loaded pad", .run = wrap(commands_tracks.cmdSplitDrums), .scope = .{ .drum = true } },
-    .{ .name = "euclid",      .desc = "<pulses|preset> [rotation]  Euclidean rhythm across the cursor pad's lane (:euclid tresillo)", .run = wrap(cmdEuclid), .scope = .{ .drum = true } },
-    .{ .name = "rotate",      .desc = "<steps>  rotate the cursor pad's lane in time, wrapping (negative = earlier)", .run = wrap(cmdRotate), .scope = .{ .drum = true } },
+    .{ .name = "euclid",      .desc = "<pulses|preset> [rotation]  Euclidean rhythm across the cursor lane (:euclid tresillo)", .run = wrap(cmdEuclid), .scope = .{ .drum = true, .slicer = true } },
+    .{ .name = "rotate",      .desc = "<steps>  rotate the cursor lane in time, wrapping (negative = earlier)", .run = wrap(cmdRotate), .scope = .{ .drum = true, .slicer = true } },
     .{ .name = "undo",         .desc = "undo the last edit (alias for the u key)",   .run = wrap(cmdUndo) },
     .{ .name = "redo",         .desc = "redo the last undone edit (alias for the U key)", .run = wrap(cmdRedo) },
     .{ .name = "plugin-scan",  .desc = "rescan configured CLAP and VST3 plugin paths", .run = wrap(cmdPluginScan) },
@@ -455,9 +455,10 @@ fn newOrForce(app: *App, force: bool) void {
 }
 
 /// `:clear` - erase every note in a melodic pattern, or (same
-/// track-resolution rule as `:reverse`) wipe every pad in a drum machine
-/// when there's no melodic pattern to clear - the fast way back to a blank
-/// kit instead of clearing pads one by one.
+/// track-resolution rule as `:reverse`) wipe every lane of a step grid - a
+/// drum machine's pads or a slicer's slices - when there's no melodic
+/// pattern to clear. The fast way back to a blank kit instead of clearing
+/// lanes one by one.
 fn cmdClear(app: *App, _: []const u8) void {
     if (commands_util.resolveMelodic(app)) |m| {
         const n = m.pp.note_count;
@@ -467,10 +468,11 @@ fn cmdClear(app: *App, _: []const u8) void {
         piano_ed.syncLinkedClip(app);
         return;
     }
-    if (commands_util.cursorDrumTrack(app)) |drum_track| {
-        const dm = commands_util.cursorDrumMachine(app).?;
-        history.recordDrum(app, drum_track);
-        const n = dm.clearKit();
+    if (commands_util.cursorStepGrid(app)) |g| {
+        commands_util.recordStepGrid(app, g);
+        const n = switch (g.inst) {
+            inline else => |inst| inst.clearGrid(),
+        };
         app.setStatus("cleared {d} hits", .{n});
         return;
     }
@@ -479,9 +481,9 @@ fn cmdClear(app: *App, _: []const u8) void {
 
 /// `:humanize [amount]` - jitters every note in the pattern's timing (±amount%
 /// of one grid step) and velocity (±amount%, relative), 0-100 (default 15).
-/// A drum machine has no fractional timing to jitter (a hit's only an
-/// integer step), so its fallback (same track-resolution rule as `:reverse`)
-/// jitters hit velocity only - dynamics without moving anything off-grid.
+/// A step grid has no fractional timing to jitter (a hit's only an integer
+/// step), so its fallback (same track-resolution rule as `:reverse`) jitters
+/// hit velocity only - dynamics without moving anything off-grid.
 fn cmdHumanize(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     const amount: f64 = if (trimmed.len == 0) 15.0 else parseFiniteFloat(f64, trimmed) catch {
@@ -501,11 +503,12 @@ fn cmdHumanize(app: *App, args: []const u8) void {
         piano_ed.syncLinkedClip(app);
         return;
     }
-    if (commands_util.cursorDrumTrack(app)) |drum_track| {
-        const dm = commands_util.cursorDrumMachine(app).?;
-        history.recordDrum(app, drum_track);
-        dm.humanizeVelocity(amount, seed);
-        app.setStatus("humanized drum velocities ({d:.0}%)", .{amount});
+    if (commands_util.cursorStepGrid(app)) |g| {
+        commands_util.recordStepGrid(app, g);
+        switch (g.inst) {
+            inline else => |inst| inst.humanizeVelocity(amount, seed),
+        }
+        app.setStatus("humanized step velocities ({d:.0}%)", .{amount});
         return;
     }
     app.setStatus("humanize: no pattern here", .{});
@@ -770,16 +773,19 @@ fn findEuclidPreset(name: []const u8) ?EuclidPreset {
     return null;
 }
 
-/// `:euclid <pulses|preset> [rotation]` - replace the cursor pad's lane with a
-/// Euclidean rhythm: `pulses` hits spread as evenly as possible across the
-/// whole pattern, optionally rotated so the first hit lands `rotation` steps
-/// in. E(3,8) is the tresillo, E(5,16) a classic hat groove.
+/// `:euclid <pulses|preset> [rotation]` - replace the cursor lane (a drum pad
+/// or a slice) with a Euclidean rhythm: `pulses` hits spread as evenly as
+/// possible across the whole pattern, optionally rotated so the first hit
+/// lands `rotation` steps in. E(3,8) is the tresillo, E(5,16) a classic hat
+/// groove.
 fn cmdEuclid(app: *App, args: []const u8) void {
-    const track = commands_util.cursorDrumTrack(app) orelse {
-        app.setStatus("euclid: select a drum-machine track first", .{});
+    const g = commands_util.cursorStepGrid(app) orelse {
+        app.setStatus("euclid: select a drum-machine or slicer track first", .{});
         return;
     };
-    const dm = commands_util.cursorDrumMachine(app).?;
+    const step_count = switch (g.inst) {
+        inline else => |inst| inst.step_count,
+    };
     var it = std.mem.tokenizeScalar(u8, args, ' ');
     const rhythm = it.next() orelse {
         app.setStatus("usage: euclid <pulses|preset> [rotation], e.g. :euclid tresillo", .{});
@@ -794,17 +800,19 @@ fn cmdEuclid(app: *App, args: []const u8) void {
         app.setStatus("euclid: bad rotation '{s}'", .{rot_str});
         return;
     } else if (preset) |p| p.rotation else 0;
-    if (pulses > dm.step_count) {
-        app.setStatus("euclid: at most {d} pulses fit this pattern", .{dm.step_count});
+    if (pulses > step_count) {
+        app.setStatus("euclid: at most {d} pulses fit this pattern", .{step_count});
         return;
     }
-    const pad: u8 = @intCast(app.drum_cursor[0]);
-    history.recordDrum(app, track);
-    dm.euclidPad(pad, pulses, rotation);
+    commands_util.recordStepGrid(app, g);
+    switch (g.inst) {
+        inline else => |inst| inst.euclidLane(g.lane, pulses, rotation),
+    }
+    const name = commands_util.laneName(g);
     if (preset) |p|
-        app.setStatus("euclid {s}: E({d},{d}) rot {d} on pad {d} ({s})", .{ p.name, pulses, dm.step_count, rotation, pad + 1, dm.padName(pad) })
+        app.setStatus("euclid {s}: E({d},{d}) rot {d} on lane {d} ({s})", .{ p.name, pulses, step_count, rotation, g.lane + 1, name })
     else
-        app.setStatus("euclid E({d},{d}) rot {d} on pad {d} ({s})", .{ pulses, dm.step_count, rotation, pad + 1, dm.padName(pad) });
+        app.setStatus("euclid E({d},{d}) rot {d} on lane {d} ({s})", .{ pulses, step_count, rotation, g.lane + 1, name });
 }
 
 test "Euclidean rhythm presets resolve case-insensitively" {
@@ -814,15 +822,14 @@ test "Euclidean rhythm presets resolve case-insensitively" {
     try std.testing.expect(findEuclidPreset("unknown") == null);
 }
 
-/// `:rotate <steps>` - rotate the cursor pad's lane in time (positive =
-/// later, negative = earlier), wrapping at the pattern boundary. Hits keep
-/// their velocity; only their grid position moves.
+/// `:rotate <steps>` - rotate the cursor lane in time (positive = later,
+/// negative = earlier), wrapping at the pattern boundary. Hits keep their
+/// velocity; only their grid position moves.
 fn cmdRotate(app: *App, args: []const u8) void {
-    const track = commands_util.cursorDrumTrack(app) orelse {
-        app.setStatus("rotate: select a drum-machine track first", .{});
+    const g = commands_util.cursorStepGrid(app) orelse {
+        app.setStatus("rotate: select a drum-machine or slicer track first", .{});
         return;
     };
-    const dm = commands_util.cursorDrumMachine(app).?;
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
         app.setStatus("usage: rotate <steps> (negative = earlier), e.g. :rotate 2", .{});
@@ -832,10 +839,11 @@ fn cmdRotate(app: *App, args: []const u8) void {
         app.setStatus("rotate: bad step count '{s}'", .{trimmed});
         return;
     };
-    const pad: u8 = @intCast(app.drum_cursor[0]);
-    history.recordDrum(app, track);
-    dm.rotatePad(pad, delta);
-    app.setStatus("rotated pad {d} ({s}) {s}{d} steps", .{ pad + 1, dm.padName(pad), if (delta >= 0) "+" else "", delta });
+    commands_util.recordStepGrid(app, g);
+    switch (g.inst) {
+        inline else => |inst| inst.rotateLane(g.lane, delta),
+    }
+    app.setStatus("rotated lane {d} ({s}) {s}{d} steps", .{ g.lane + 1, commands_util.laneName(g), if (delta >= 0) "+" else "", delta });
 }
 
 // ---------------------------------------------------------------------------

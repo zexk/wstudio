@@ -10,6 +10,8 @@ const Slicer = ws.dsp.Slicer;
 const app_mod = @import("../app.zig");
 const App = app_mod.App;
 const pattern_mod = ws.dsp.pattern;
+const history = @import("../history.zig");
+const undo_mod = @import("../undo.zig");
 
 /// The track a pattern-transform command (`:clear`, `:humanize`, `:reverse`,
 /// `:vel-ramp`, `:quantize`, `:legato`, `:transpose`, `:strum`,
@@ -56,6 +58,64 @@ pub fn cursorDrumMachine(app: *App) ?*DrumMachine {
     return switch (app.session.racks.items[track].instrument) {
         .drum_machine => |*dm| dm,
         else => unreachable, // cursorDrumTrack only returns drum-machine tracks
+    };
+}
+
+/// Either of the two step-sequenced instruments. They hold the identical
+/// `[64][]?MidiNote` grid and carry the same lane-neutral pattern edits
+/// (`clearGrid`, `euclidLane`, `rotateLane`, …), so a command that transforms
+/// a pattern reaches both through one `inline else` rather than growing a
+/// drum arm and a slicer arm.
+pub const StepInstrument = union(enum) {
+    drum: *DrumMachine,
+    slicer: *Slicer,
+};
+
+/// The step grid a pattern-transform command should act on, with the track
+/// index its undo snapshot needs and the lane its cursor sits on: the cursor
+/// track, or - if one of the two grids is open - the instrument being edited.
+/// Null when neither resolves to a step instrument.
+pub fn cursorStepGrid(app: *App) ?struct { track: u16, lane: u8, inst: StepInstrument } {
+    if (cursorDrumTrack(app)) |track| {
+        return .{ .track = track, .lane = @intCast(app.drum_cursor[0]), .inst = .{ .drum = cursorDrumMachine(app).? } };
+    }
+    const track: u16 = blk: {
+        if (app.cursor < app.session.racks.items.len and
+            app.session.racks.items[app.cursor].instrument == .slicer) break :blk @intCast(app.cursor);
+        if (app.view == .slicer_grid and app.slicer_track < app.session.racks.items.len and
+            app.session.racks.items[app.slicer_track].instrument == .slicer) break :blk app.slicer_track;
+        return null;
+    };
+    return .{
+        .track = track,
+        .lane = @intCast(app.slicer_cursor[0]),
+        .inst = .{ .slicer = &app.session.racks.items[track].instrument.slicer },
+    };
+}
+
+/// Snapshot whichever step instrument `cursorStepGrid` resolved, so the
+/// transform that follows is undoable.
+pub fn recordStepGrid(app: *App, g: anytype) void {
+    switch (g.inst) {
+        .drum => history.recordDrum(app, g.track),
+        .slicer => history.recordSlicer(app, g.track),
+    }
+}
+
+/// `recordStepGrid`'s deferred half, for a transform that may turn out to be
+/// a no-op and shouldn't leave an undo entry behind when it does.
+pub fn captureStepGrid(app: *App, g: anytype) ?undo_mod.Entry {
+    return switch (g.inst) {
+        .drum => history.captureDrum(app, g.track),
+        .slicer => history.captureSlicer(app, g.track),
+    };
+}
+
+/// The lane's display name, for the status line a transform prints.
+pub fn laneName(g: anytype) []const u8 {
+    return switch (g.inst) {
+        .drum => |dm| dm.padName(g.lane),
+        .slicer => |sl| sl.clipName(),
     };
 }
 

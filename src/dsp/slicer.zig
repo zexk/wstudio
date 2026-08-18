@@ -1003,6 +1003,66 @@ pub const Slicer = struct {
         for (self.midi[slice], 0..) |*cell, step| cell.* = gridNote(slice, @intCast(step), vel_full);
     }
 
+    /// Nudge slice `s`'s own loop length - `$`'s counterpart for the `:len`
+    /// family, and the same op `DrumMachine.nudgePadLen` is.
+    pub fn nudgeSliceLen(self: *Slicer, s: u8, delta: i32) void {
+        step_grid_ops.nudgeLaneLen(&self.slice_len, self.step_count, s, delta);
+    }
+
+    /// `setSliceLen`/`slice_len` under the lane-neutral names a command
+    /// shared with the drum machine reaches both types by.
+    pub fn setLaneLen(self: *Slicer, lane: u8, len: u16) void {
+        self.setSliceLen(lane, len);
+    }
+
+    pub fn laneLen(self: *const Slicer, lane: u8) u16 {
+        return if (lane >= max_slices) 0 else self.slice_len[lane];
+    }
+
+    // The whole-grid and whole-lane pattern edits, shared verbatim with the
+    // drum machine - a slicer row IS a drum row (see this file's header).
+
+    /// Wipe every slice's row. Returns the total hit count removed.
+    pub fn clearGrid(self: *Slicer) u32 {
+        return step_grid_ops.clearGrid(&self.midi);
+    }
+
+    /// Jitter every active hit's velocity - see
+    /// `step_grid_ops.humanizeVelocity`.
+    pub fn humanizeVelocity(self: *Slicer, amount_pct: f64, seed: u64) void {
+        step_grid_ops.humanizeVelocity(&self.midi, amount_pct, seed);
+    }
+
+    /// Scale every hit's velocity so the loudest peaks - see
+    /// `step_grid_ops.normalizeVelocity`. Returns the count touched.
+    pub fn normalizeVelocity(self: *Slicer) u32 {
+        return step_grid_ops.normalizeVelocity(&self.midi);
+    }
+
+    /// Replace one slice's row with a Euclidean rhythm - see
+    /// `step_grid_ops.euclidLane`.
+    pub fn euclidLane(self: *Slicer, slice: u8, pulses: u16, rotation: i32) void {
+        step_grid_ops.euclidLane(&self.midi, self.step_count, slice, pulses, rotation);
+    }
+
+    /// Linearly ramp one slice's hit velocities - see
+    /// `step_grid_ops.velocityRampLane`. Returns the count touched.
+    pub fn velocityRampLane(self: *Slicer, slice: u8, v0: u8, v1: u8) u16 {
+        return step_grid_ops.velocityRampLane(&self.midi, slice, v0, v1);
+    }
+
+    /// Time-mirror (retrograde) the whole live pattern - see
+    /// `step_grid_ops.reverseGrid`.
+    pub fn reversePattern(self: *Slicer) void {
+        step_grid_ops.reverseGrid(self.allocator, &self.midi, self.step_count);
+    }
+
+    /// Rotate one slice's row `delta` steps later in time - see
+    /// `step_grid_ops.rotateLane`.
+    pub fn rotateLane(self: *Slicer, slice: u8, delta: i32) void {
+        step_grid_ops.rotateLane(&self.midi, slice, delta);
+    }
+
     /// Resize the live pattern to `n` steps, clamped to `[1, max_steps]`.
     /// Existing notes up to `min(old, new)` survive; a shrink then regrow does
     /// not resurrect anything past the new count. Silently leaves the pattern

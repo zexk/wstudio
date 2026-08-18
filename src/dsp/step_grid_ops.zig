@@ -212,6 +212,151 @@ pub fn nudgeLaneLen(lane_len: []u16, step_count: u16, lane: u8, delta: i32) void
 }
 
 // ---------------------------------------------------------------------------
+// Whole-grid and whole-lane edits (the `:clear`/`:humanize`/`:euclid`/… family)
+// ---------------------------------------------------------------------------
+
+/// Wipe every lane's row. Returns the total hit count removed, for the
+/// caller's status line.
+pub fn clearGrid(midi: []const []?MidiNote) u32 {
+    var n: u32 = 0;
+    for (midi) |row| {
+        for (row) |slot| {
+            if (slot != null) n += 1;
+        }
+        @memset(row, null);
+    }
+    return n;
+}
+
+/// Jitter every active hit's velocity by ±`amount_pct`% (relative, clamped
+/// to 1..127), 0-100. Timing stays exactly on-grid: a hit has only an integer
+/// step, no fractional offset to jitter, so unlike `PatternPlayer.humanize`
+/// this only ever touches feel via dynamics.
+pub fn humanizeVelocity(midi: []const []?MidiNote, amount_pct: f64, seed: u64) void {
+    if (!std.math.isFinite(amount_pct)) return;
+    var prng = std.Random.DefaultPrng.init(seed);
+    const rand = prng.random();
+    const frac: f32 = @floatCast(std.math.clamp(amount_pct, 0.0, 100.0) / 100.0);
+    for (midi) |row| {
+        for (row) |*slot| {
+            if (slot.*) |*note| {
+                const dv = (rand.float(f32) * 2.0 - 1.0) * frac * @as(f32, vel_full);
+                const v: f32 = @as(f32, @floatFromInt(note.velocity)) + dv;
+                note.velocity = @intFromFloat(std.math.clamp(@round(v), 1.0, vel_full));
+            }
+        }
+    }
+}
+
+/// Scale every hit's velocity so the loudest lands at `vel_full`, keeping the
+/// pattern's internal dynamics. No-op when it already peaks. Returns the
+/// count touched.
+pub fn normalizeVelocity(midi: []const []?MidiNote) u32 {
+    var peak: u8 = 0;
+    for (midi) |row| {
+        for (row) |slot| {
+            if (slot) |note| peak = @max(peak, @as(u8, note.velocity));
+        }
+    }
+    if (peak == 0 or peak == vel_full) return 0;
+    const gain = @as(f32, @floatFromInt(vel_full)) / @as(f32, @floatFromInt(peak));
+    var touched: u32 = 0;
+    for (midi) |row| {
+        for (row) |*slot| {
+            if (slot.*) |*note| {
+                const v = @as(f32, @floatFromInt(note.velocity)) * gain;
+                note.velocity = @intFromFloat(std.math.clamp(@round(v), 1.0, @as(f32, vel_full)));
+                touched += 1;
+            }
+        }
+    }
+    return touched;
+}
+
+/// Replace one lane's row with a Euclidean rhythm: `pulses` full-velocity
+/// hits spread as evenly as possible across the pattern (the Bresenham
+/// formulation of Bjorklund's algorithm - onset wherever the running
+/// remainder `i*pulses mod steps` wraps), shifted `rotation` steps later so
+/// the first hit lands on step `rotation`. 0 pulses clears the row; pulses
+/// beyond the step count saturate to every-step.
+pub fn euclidLane(midi: []const []?MidiNote, step_count: u16, lane: u8, pulses: u16, rotation: i32) void {
+    if (lane >= midi.len or step_count == 0) return;
+    const steps: u64 = step_count;
+    const k: u64 = @min(pulses, step_count);
+    for (midi[lane], 0..) |*note, i| {
+        const idx: u64 = @intCast(@mod(@as(i64, @intCast(i)) - rotation, @as(i64, @intCast(steps))));
+        const on = k > 0 and (idx * k) % steps < k;
+        note.* = if (on) DrumMachine.gridNote(lane, @intCast(i), vel_full) else null;
+    }
+}
+
+/// Linearly ramp one lane's hit velocities: the row's first hit gets `v0`,
+/// the last `v1`, hits between interpolate by step position - a hi-hat build
+/// in one call. A lone hit gets `v1` (the ramp's target). Values clamp to
+/// 1..127; a silent hit is x/X's job, not velocity 0. Returns the count
+/// touched.
+pub fn velocityRampLane(midi: []const []?MidiNote, lane: u8, v0: u8, v1: u8) u16 {
+    if (lane >= midi.len) return 0;
+    var first: ?u16 = null;
+    var last: u16 = 0;
+    for (midi[lane], 0..) |slot, i| {
+        if (slot == null) continue;
+        if (first == null) first = @intCast(i);
+        last = @intCast(i);
+    }
+    const lo = first orelse return 0;
+    var touched: u16 = 0;
+    for (midi[lane], 0..) |*slot, i| {
+        if (slot.* == null) continue;
+        const t: f32 = if (last > lo)
+            @as(f32, @floatFromInt(i - lo)) / @as(f32, @floatFromInt(last - lo))
+        else
+            1.0;
+        const v = @as(f32, @floatFromInt(v0)) + (@as(f32, @floatFromInt(v1)) - @as(f32, @floatFromInt(v0))) * t;
+        slot.*.?.velocity = @intFromFloat(std.math.clamp(@round(v), 1.0, 127.0));
+        touched += 1;
+    }
+    return touched;
+}
+
+/// Time-mirror (retrograde) the whole grid: every hit's span
+/// [step, step+duration) maps to [N-step-duration, N-step), so 1-step hits
+/// land on the mirrored slot and longer notes end where they used to begin.
+/// Rows rebuild through one scratch row (two notes sharing an end step would
+/// collide mirrored - the later source step wins); a failed scratch
+/// allocation leaves the pattern untouched.
+pub fn reverseGrid(allocator: std.mem.Allocator, midi: []const []?MidiNote, step_count: u16) void {
+    const n: u32 = step_count;
+    if (n == 0) return;
+    const scratch = allocator.alloc(?MidiNote, n) catch return;
+    defer allocator.free(scratch);
+    for (midi) |row| {
+        @memset(scratch, null);
+        for (row) |slot| {
+            const note = slot orelse continue;
+            const end = @as(u32, note.step) + @max(1, note.duration_steps);
+            const dst: u16 = @intCast(n - @min(end, n));
+            scratch[dst] = note;
+            scratch[dst].?.step = dst;
+        }
+        @memcpy(row, scratch);
+    }
+}
+
+/// Rotate one lane's row `delta` steps later in time (negative = earlier),
+/// wrapping at the pattern boundary. Hits keep their velocity, pitch and
+/// duration; only their grid position moves.
+pub fn rotateLane(midi: []const []?MidiNote, lane: u8, delta: i32) void {
+    if (lane >= midi.len or midi[lane].len == 0) return;
+    const len: i64 = @intCast(midi[lane].len);
+    // std.mem.rotate rotates left; right-by-delta == left-by-(-delta mod len)
+    std.mem.rotate(?MidiNote, midi[lane], @intCast(@mod(-@as(i64, delta), len)));
+    for (midi[lane], 0..) |*slot, i| {
+        if (slot.*) |*n| n.step = @intCast(i);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Step scheduling (audio thread)
 // ---------------------------------------------------------------------------
 

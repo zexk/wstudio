@@ -723,36 +723,43 @@ pub fn cmdChop(app: *App, args: []const u8) void {
         app.setStatus("chopped into {d} slices (sensitivity {d})", .{ n, sensitivity });
 }
 
-/// `:pad-len <n|off>` - give the cursor drum pad its own loop length, so it
-/// wraps early and drifts against the rest of the pattern (Elektron's
-/// per-track lengths). `off`, or any length at or past the pattern's own,
-/// puts the row back on the pattern.
+/// `:pad-len <n|off>` - give the cursor lane (a drum pad or a slice) its own
+/// loop length, so it wraps early and drifts against the rest of the pattern
+/// (Elektron's per-track lengths). `off`, or any length at or past the
+/// pattern's own, puts the row back on the pattern.
 pub fn cmdPadLen(app: *App, args: []const u8) void {
-    const track = cursorDrumTrack(app) orelse {
-        app.setStatus("pad-len: select a drum track first", .{});
+    const g = cu.cursorStepGrid(app) orelse {
+        app.setStatus("pad-len: select a drum-machine or slicer track first", .{});
         return;
     };
-    const dm = &app.session.racks.items[track].instrument.drum_machine;
-    const pad: u8 = @intCast(app.drum_cursor[0]);
+    const step_count = switch (g.inst) {
+        inline else => |inst| inst.step_count,
+    };
     const trimmed = std.mem.trim(u8, args, " ");
     const len: u16 = if (std.mem.eql(u8, trimmed, "off"))
         0
     else
         std.fmt.parseInt(u16, trimmed, 10) catch {
-            app.setStatus("pad-len: usage :pad-len <1-{d}|off>", .{dm.step_count});
+            app.setStatus("pad-len: usage :pad-len <1-{d}|off>", .{step_count});
             return;
         };
     if (trimmed.len == 0) {
-        app.setStatus("pad-len: usage :pad-len <1-{d}|off>", .{dm.step_count});
+        app.setStatus("pad-len: usage :pad-len <1-{d}|off>", .{step_count});
         return;
     }
-    history.recordDrum(app, track);
-    dm.setPadLen(pad, len);
+    cu.recordStepGrid(app, g);
+    const own = switch (g.inst) {
+        inline else => |inst| blk: {
+            inst.setLaneLen(g.lane, len);
+            break :blk inst.laneLen(g.lane);
+        },
+    };
     app.dirty = true;
-    if (dm.pad_len[pad] == 0)
-        app.setStatus("{s}: follows the pattern ({d} steps)", .{ dm.padName(pad), dm.step_count })
+    const name = cu.laneName(g);
+    if (own == 0)
+        app.setStatus("{s}: follows the pattern ({d} steps)", .{ name, step_count })
     else
-        app.setStatus("{s}: loops over {d} of {d} steps", .{ dm.padName(pad), dm.pad_len[pad], dm.step_count });
+        app.setStatus("{s}: loops over {d} of {d} steps", .{ name, own, step_count });
 }
 
 /// `:bpm-sync [clip-bpm]` - fit the cursor track's clip to project tempo and

@@ -33,16 +33,20 @@ const cmdScale = commands.cmdScale;
 const resolveMelodic = cu.resolveMelodic;
 const cursorDrumTrack = cu.cursorDrumTrack;
 const cursorDrumMachine = cu.cursorDrumMachine;
+const cursorStepGrid = cu.cursorStepGrid;
+const recordStepGrid = cu.recordStepGrid;
+const captureStepGrid = cu.captureStepGrid;
+const laneName = cu.laneName;
 const readFileForLoad = cu.readFileForLoad;
 
 /// `:reverse` - retrograde. A melodic pattern (piano roll open, or the
 /// cursor on a melodic track) mirrors in time so the figure plays
-/// backwards; a drum machine mirrors its whole grid, all pads. Reversing a
+/// backwards; a step grid mirrors all of it, every lane. Reversing a
 /// slice of the piano roll is visual-mode `r` (the `:` prompt isn't
 /// reachable from visual mode).
 pub fn cmdReverse(app: *App, _: []const u8) void {
-    // Same track-resolution rule as :clear, falling through to the drum
-    // machine so the command also works from the tracks and drum views.
+    // Same track-resolution rule as :clear, falling through to the step
+    // grid so the command also works from the tracks, drum and slicer views.
     if (resolveMelodic(app)) |m| {
         history.recordMelodic(app, @intCast(m.track));
         const moved = m.pp.reverseNotesInRange(.{ .lo_beat = 0.0, .hi_beat = m.pp.length_beats });
@@ -50,11 +54,12 @@ pub fn cmdReverse(app: *App, _: []const u8) void {
         piano_ed.syncLinkedClip(app);
         return;
     }
-    if (cursorDrumTrack(app)) |drum_track| {
-        const dm = cursorDrumMachine(app).?;
-        history.recordDrum(app, drum_track);
-        dm.reversePattern();
-        app.setStatus("reversed the drum pattern", .{});
+    if (cursorStepGrid(app)) |g| {
+        recordStepGrid(app, g);
+        switch (g.inst) {
+            inline else => |inst| inst.reversePattern(),
+        }
+        app.setStatus("reversed the step pattern", .{});
         return;
     }
     app.setStatus("reverse: no pattern here", .{});
@@ -183,10 +188,11 @@ pub fn cmdNormalize(app: *App, _: []const u8) void {
         piano_ed.syncLinkedClip(app);
         return;
     }
-    if (cursorDrumTrack(app)) |drum_track| {
-        const dm = cursorDrumMachine(app).?;
-        var entry = history.captureDrum(app, drum_track);
-        const touched = dm.normalizeVelocity();
+    if (cursorStepGrid(app)) |g| {
+        var entry = captureStepGrid(app, g);
+        const touched = switch (g.inst) {
+            inline else => |inst| inst.normalizeVelocity(),
+        };
         if (touched == 0) {
             if (entry) |*e| e.deinit(app.allocator);
             app.setStatus("normalize: nothing to lift - already peaking, or empty", .{});
@@ -234,14 +240,14 @@ pub fn cmdVelRamp(app: *App, args: []const u8) void {
         piano_ed.syncLinkedClip(app);
         return;
     }
-    if (cursorDrumTrack(app)) |drum_track| {
-        const dm = cursorDrumMachine(app).?;
-        const pad: u8 = @intCast(app.drum_cursor[0]);
-        history.recordDrum(app, drum_track);
+    if (cursorStepGrid(app)) |g| {
+        recordStepGrid(app, g);
         const v0: u8 = @intFromFloat(@round(from / 100.0 * 127.0));
         const v1: u8 = @intFromFloat(@round(to / 100.0 * 127.0));
-        const touched = dm.velocityRampPad(pad, v0, v1);
-        app.setStatus("velocity ramp {d:.0}% -> {d:.0}% across {d} hits on pad {d} ({s})", .{ from, to, touched, pad + 1, dm.padName(pad) });
+        const touched = switch (g.inst) {
+            inline else => |inst| inst.velocityRampLane(g.lane, v0, v1),
+        };
+        app.setStatus("velocity ramp {d:.0}% -> {d:.0}% across {d} hits on lane {d} ({s})", .{ from, to, touched, g.lane + 1, laneName(g) });
         return;
     }
     app.setStatus("vel-ramp: no pattern here", .{});

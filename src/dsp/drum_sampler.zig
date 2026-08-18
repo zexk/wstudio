@@ -736,6 +736,16 @@ pub const DrumMachine = struct {
     /// Nudge pad `p`'s loop length, treating "follows the pattern" as the
     /// full length so stepping down from it lands one below rather than
     /// jumping to 1.
+    /// `setPadLen`/`pad_len` under the lane-neutral names a command shared
+    /// with the slicer reaches both types by.
+    pub fn setLaneLen(self: *DrumMachine, lane: u8, len: u16) void {
+        self.setPadLen(lane, len);
+    }
+
+    pub fn laneLen(self: *const DrumMachine, lane: u8) u16 {
+        return if (lane >= max_pads) 0 else self.pad_len[lane];
+    }
+
     pub fn nudgePadLen(self: *DrumMachine, p: u8, delta: i32) void {
         step_grid_ops.nudgeLaneLen(&self.pad_len, self.step_count, p, delta);
     }
@@ -839,146 +849,44 @@ pub const DrumMachine = struct {
 
     /// Wipe every pad's row - `:clear`'s whole-kit counterpart to
     /// `clearPad`. Returns the total hit count removed, for the status line.
-    pub fn clearKit(self: *DrumMachine) u32 {
-        var n: u32 = 0;
-        for (self.midi) |row| {
-            for (row) |slot| {
-                if (slot != null) n += 1;
-            }
-        }
-        for (0..max_pads) |pad| self.clearPad(@intCast(pad));
-        return n;
+    pub fn clearGrid(self: *DrumMachine) u32 {
+        return step_grid_ops.clearGrid(&self.midi);
     }
 
-    /// Jitter every active hit's velocity across the whole kit by
-    /// ±`amount_pct`% (relative, clamped to 1-127), 0-100 - the drum-machine
-    /// counterpart to `PatternPlayer.humanize`'s velocity half. Timing stays
-    /// exactly on-grid: a hit has only an integer `step`, no fractional
-    /// offset to jitter, so unlike the melodic version this only ever
-    /// touches feel via dynamics, not micro-timing.
+    /// Jitter every active hit's velocity across the whole kit - see
+    /// `step_grid_ops.humanizeVelocity`.
     pub fn humanizeVelocity(self: *DrumMachine, amount_pct: f64, seed: u64) void {
-        if (!std.math.isFinite(amount_pct)) return;
-        var prng = std.Random.DefaultPrng.init(seed);
-        const rand = prng.random();
-        const frac: f32 = @floatCast(std.math.clamp(amount_pct, 0.0, 100.0) / 100.0);
-        for (self.midi) |row| {
-            for (row) |*slot| {
-                if (slot.*) |*note| {
-                    const dv = (rand.float(f32) * 2.0 - 1.0) * frac * @as(f32, vel_full);
-                    const v: f32 = @as(f32, @floatFromInt(note.velocity)) + dv;
-                    note.velocity = @intFromFloat(std.math.clamp(@round(v), 1.0, vel_full));
-                }
-            }
-        }
+        step_grid_ops.humanizeVelocity(&self.midi, amount_pct, seed);
     }
 
-    /// Scale every hit's velocity across the kit so the loudest lands at
-    /// `vel_full`, keeping the pattern's internal dynamics - the drum
-    /// counterpart to `PatternPlayer.normalizeVelocity`. No-op when the kit
-    /// already peaks. Returns the count touched.
+    /// Scale every hit's velocity across the kit so the loudest peaks - see
+    /// `step_grid_ops.normalizeVelocity`. Returns the count touched.
     pub fn normalizeVelocity(self: *DrumMachine) u32 {
-        var peak: u8 = 0;
-        for (self.midi) |row| {
-            for (row) |slot| {
-                if (slot) |note| peak = @max(peak, @as(u8, note.velocity));
-            }
-        }
-        if (peak == 0 or peak == vel_full) return 0;
-        const gain = @as(f32, @floatFromInt(vel_full)) / @as(f32, @floatFromInt(peak));
-        var touched: u32 = 0;
-        for (self.midi) |row| {
-            for (row) |*slot| {
-                if (slot.*) |*note| {
-                    const v = @as(f32, @floatFromInt(note.velocity)) * gain;
-                    note.velocity = @intFromFloat(std.math.clamp(@round(v), 1.0, @as(f32, @floatFromInt(vel_full))));
-                    touched += 1;
-                }
-            }
-        }
-        return touched;
+        return step_grid_ops.normalizeVelocity(&self.midi);
     }
 
-    /// Replace one pad's row with a Euclidean rhythm: `pulses` full-velocity
-    /// hits spread as evenly as possible across the pattern (the Bresenham
-    /// formulation of Bjorklund's algorithm - onset wherever the running
-    /// remainder `i*pulses mod steps` wraps), shifted `rotation` steps later
-    /// so the first hit lands on step `rotation`. 0 pulses clears the row;
-    /// pulses beyond the step count saturate to every-step.
-    pub fn euclidPad(self: *DrumMachine, pad: u8, pulses: u16, rotation: i32) void {
-        if (pad >= max_pads or self.step_count == 0) return;
-        const steps: u64 = self.step_count;
-        const k: u64 = @min(pulses, self.step_count);
-        for (self.midi[pad], 0..) |*note, i| {
-            const idx: u64 = @intCast(@mod(@as(i64, @intCast(i)) - rotation, @as(i64, @intCast(steps))));
-            const on = k > 0 and (idx * k) % steps < k;
-            note.* = if (on) gridNote(pad, @intCast(i), vel_full) else null;
-        }
+    /// Replace one pad's row with a Euclidean rhythm - see
+    /// `step_grid_ops.euclidLane`.
+    pub fn euclidLane(self: *DrumMachine, pad: u8, pulses: u16, rotation: i32) void {
+        step_grid_ops.euclidLane(&self.midi, self.step_count, pad, pulses, rotation);
     }
 
-    /// Linearly ramp one pad's hit velocities: the row's first hit gets
-    /// `v0`, the last `v1`, hits between interpolate by step position - a
-    /// hi-hat build in one call. A lone hit gets `v1` (the ramp's target).
-    /// Values clamp to 1..127; a silent hit is x/X's job, not velocity 0.
-    /// Returns the count touched.
-    pub fn velocityRampPad(self: *DrumMachine, pad: u8, v0: u8, v1: u8) u16 {
-        if (pad >= max_pads) return 0;
-        var first: ?u16 = null;
-        var last: u16 = 0;
-        for (self.midi[pad], 0..) |slot, i| {
-            if (slot == null) continue;
-            if (first == null) first = @intCast(i);
-            last = @intCast(i);
-        }
-        const lo = first orelse return 0;
-        var touched: u16 = 0;
-        for (self.midi[pad], 0..) |*slot, i| {
-            if (slot.* == null) continue;
-            const t: f32 = if (last > lo)
-                @as(f32, @floatFromInt(i - lo)) / @as(f32, @floatFromInt(last - lo))
-            else
-                1.0;
-            const v = @as(f32, @floatFromInt(v0)) + (@as(f32, @floatFromInt(v1)) - @as(f32, @floatFromInt(v0))) * t;
-            slot.*.?.velocity = @intFromFloat(std.math.clamp(@round(v), 1.0, 127.0));
-            touched += 1;
-        }
-        return touched;
+    /// Linearly ramp one pad's hit velocities - see
+    /// `step_grid_ops.velocityRampLane`. Returns the count touched.
+    pub fn velocityRampLane(self: *DrumMachine, pad: u8, v0: u8, v1: u8) u16 {
+        return step_grid_ops.velocityRampLane(&self.midi, pad, v0, v1);
     }
 
-    /// Time-mirror (retrograde) the whole live pattern: every hit's span
-    /// [step, step+duration) maps to [N-step-duration, N-step), so 1-step
-    /// hits land on the mirrored slot and longer notes end where they used
-    /// to begin. Rows rebuild through one scratch row (two notes sharing an
-    /// end step would collide mirrored - the later source step wins); a
-    /// failed scratch allocation leaves the pattern untouched.
+    /// Time-mirror (retrograde) the whole live pattern - see
+    /// `step_grid_ops.reverseGrid`.
     pub fn reversePattern(self: *DrumMachine) void {
-        const n: u32 = self.step_count;
-        if (n == 0) return;
-        const scratch = self.allocator.alloc(?MidiNote, n) catch return;
-        defer self.allocator.free(scratch);
-        for (0..max_pads) |pad| {
-            @memset(scratch, null);
-            for (self.midi[pad]) |slot| {
-                const note = slot orelse continue;
-                const end = @as(u32, note.step) + @max(1, note.duration_steps);
-                const dst: u16 = @intCast(n - @min(end, n));
-                scratch[dst] = note;
-                scratch[dst].?.step = dst;
-            }
-            @memcpy(self.midi[pad], scratch);
-        }
+        step_grid_ops.reverseGrid(self.allocator, &self.midi, self.step_count);
     }
 
-    /// Rotate one pad's row `delta` steps later in time (negative = earlier),
-    /// wrapping at the pattern boundary. Hits keep their velocity, pitch and
-    /// duration; only their grid position moves.
-    pub fn rotatePad(self: *DrumMachine, pad: u8, delta: i32) void {
-        if (pad >= max_pads or self.midi[pad].len == 0) return;
-        const len: i64 = @intCast(self.midi[pad].len);
-        // std.mem.rotate rotates left; right-by-delta == left-by-(-delta mod len)
-        std.mem.rotate(?MidiNote, self.midi[pad], @intCast(@mod(-@as(i64, delta), len)));
-        for (self.midi[pad], 0..) |*slot, i| {
-            if (slot.*) |*n| n.step = @intCast(i);
-        }
+    /// Rotate one pad's row `delta` steps later in time - see
+    /// `step_grid_ops.rotateLane`.
+    pub fn rotateLane(self: *DrumMachine, pad: u8, delta: i32) void {
+        step_grid_ops.rotateLane(&self.midi, pad, delta);
     }
 
     pub fn padName(self: *const DrumMachine, pad: u8) []const u8 {
