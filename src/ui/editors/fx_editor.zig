@@ -664,6 +664,7 @@ pub fn openPicker(app: *App, target: EqTarget) void {
     _ = app.session.engine.send(.{ .set_spectrum_active = .{ .source = .none, .track = 0 } });
     app.fx_picker_return = app.view;
     app.fx_picker_cursor = 0;
+    app.fx_picker_scroll = 0;
     app.fx_picker_filter_len = 0;
     app.view = .fx_picker;
 }

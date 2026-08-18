@@ -9017,6 +9017,41 @@ test "FX picker inserts after the focused slot and focuses the new unit" {
     try std.testing.expectEqual(@as(usize, 0), app.fx_focus);
 }
 
+test "the FX and instrument pickers scroll their list to keep the cursor on screen" {
+    var app = try testApp();
+    defer app.deinit();
+    var buf: [32 * 1024]u8 = undefined;
+
+    // 24 built-in units don't fit a 24-row terminal, so the last one is only
+    // reachable if the list scrolls (it didn't until picker_scroll existed).
+    spectrum_ed.switchToTrack(&app, 0);
+    try std.testing.expect(spectrum_ed.handleKey(&app, .{ .char = 'a' }));
+    app.handleKey(.{ .char = 'G' }, 0);
+    var w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 120, .rows = 24 });
+    const fx_frame = w.buffered();
+    try std.testing.expect(std.mem.indexOf(u8, fx_frame, spectrum_ed.unitLabel(.reverb)) != null);
+    try std.testing.expect(std.mem.indexOf(u8, fx_frame, spectrum_ed.unitLabel(.gate)) == null);
+    // The row math the draw loop and the mouse decode share round-trips.
+    const cursor: usize = app.fx_picker_cursor;
+    const internal = spectrum_ed.picker_kinds.len;
+    try std.testing.expectEqual(
+        @as(?usize, cursor),
+        app_mod.pickerRowEntry(app_mod.pickerDisplayRow(cursor, internal), internal),
+    );
+    try std.testing.expectEqual(@as(?usize, null), app_mod.pickerRowEntry(0, internal));
+    try std.testing.expectEqual(@as(?usize, null), app_mod.pickerRowEntry(internal + 1, internal));
+
+    // The instrument picker's own list fits, so it must not scroll away.
+    app.handleKey(.escape, 0);
+    app.openInstrumentPicker(0, false);
+    app.handleKey(.{ .char = 'G' }, 0);
+    w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 120, .rows = 24 });
+    try std.testing.expectEqual(@as(usize, 0), app.picker_scroll);
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "Synth") != null);
+}
+
 test "FX picker mouse click during live search inserts and leaves search mode" {
     var app = try testApp();
     defer app.deinit();

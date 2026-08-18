@@ -143,6 +143,19 @@ pub const instrument_picker_items = [_]InstrumentPickerItem{
     .{ .kind = .soundfont, .label = "SoundFont", .description = "Presets from a .sf2 bank you load" },
 };
 
+/// Display-row layout the instrument and FX pickers share: an "INTERNAL"
+/// header, its entries, an "EXTERNAL" header, its entries. `pickerDisplayRow`
+/// maps an entry ordinal to the row it prints on (for the scroll clamp),
+/// `pickerRowEntry` maps back (for mouse clicks) - null on a header row.
+pub fn pickerDisplayRow(ordinal: usize, internal_count: usize) usize {
+    return if (ordinal < internal_count) ordinal + 1 else ordinal + 2;
+}
+
+pub fn pickerRowEntry(display_row: usize, internal_count: usize) ?usize {
+    if (display_row == 0 or display_row == internal_count + 1) return null;
+    return if (display_row <= internal_count) display_row - 1 else display_row - 2;
+}
+
 /// What a file picked in the netrw-style file browser (`file_browser` view)
 /// resolves to once selected. Set by `App.openBrowser`; read by
 /// `App.browserActivate`.
@@ -457,6 +470,9 @@ pub const App = struct {
     sampler_return: AppView = .tracks,
     /// Highlighted row in the instrument picker.
     picker_cursor: u8 = 0,
+    /// Scroll offset in printed display rows (see `pickerDisplayRow`),
+    /// clamped at draw like `preset_picker_scroll`.
+    picker_scroll: usize = 0,
     /// True when the instrument picker was opened on an already-populated
     /// track (`I` in the tracks view) rather than a blank one (`enter`) -
     /// `pickerInsert` branches on this to call `changeInstrumentKind`
@@ -605,6 +621,9 @@ pub const App = struct {
     fx_focus: usize = 0,
     /// Highlighted row in the FX picker.
     fx_picker_cursor: u8 = 0,
+    /// Scroll offset in printed display rows (see `pickerDisplayRow`),
+    /// clamped at draw like `preset_picker_scroll`.
+    fx_picker_scroll: usize = 0,
     /// Chain view the FX picker returns to (track_spectrum/master_spectrum/
     /// group_spectrum).
     fx_picker_return: AppView = .tracks,
@@ -2563,14 +2582,10 @@ pub const App = struct {
         const count = internal_count + self.filteredInstrumentPluginCount();
         switch (ev.kind) {
             .press => {
-                const item: ?usize = if (row >= 3 and row < 3 + internal_count)
-                    row - 3
-                else if (row >= 4 + internal_count)
-                    internal_count + row - (4 + internal_count)
-                else
-                    null;
-                if (item == null or item.? >= count) return;
-                self.clickInstrumentPickerItem(item.?, self.now_ns);
+                if (row < 2) return;
+                const item = pickerRowEntry(self.picker_scroll + (row - 2), internal_count) orelse return;
+                if (item >= count) return;
+                self.clickInstrumentPickerItem(item, self.now_ns);
             },
             .scroll_up => { self.picker_cursor -|= if (ev.ctrl) 10 else 1; },
             .scroll_down => { self.picker_cursor = @intCast(modal_mod.clampDelta(self.picker_cursor, if (ev.ctrl) 10 else 1, @intCast(count -| 1))); },
@@ -3154,6 +3169,7 @@ pub const App = struct {
     pub fn openInstrumentPicker(self: *App, cursor: usize, replace: bool) void {
         self.picker_replace = replace;
         self.picker_cursor = 0;
+        self.picker_scroll = 0;
         self.instrument_picker_filter_len = 0;
         if (cursor < self.session.racks.items.len) {
             const kind = std.meta.activeTag(self.session.racks.items[cursor].instrument);
@@ -3413,14 +3429,10 @@ pub const App = struct {
         const external_count = spectrum_ed.externalPickerCount(self);
         switch (ev.kind) {
             .press => {
-                const item: ?usize = if (row >= 3 and row < 3 + kinds.len)
-                    row - 3
-                else if (row >= 4 + kinds.len)
-                    kinds.len + row - (4 + kinds.len)
-                else
-                    null;
-                if (item == null or item.? >= kinds.len + external_count) return;
-                self.clickFxPickerItem(item.?, self.now_ns);
+                if (row < 2) return;
+                const item = pickerRowEntry(self.fx_picker_scroll + (row - 2), kinds.len) orelse return;
+                if (item >= kinds.len + external_count) return;
+                self.clickFxPickerItem(item, self.now_ns);
             },
             .scroll_up => { self.fx_picker_cursor -|= if (ev.ctrl) 10 else 1; },
             .scroll_down => { self.fx_picker_cursor = @intCast(modal_mod.clampDelta(self.fx_picker_cursor, if (ev.ctrl) 10 else 1, @intCast(kinds.len + external_count -| 1))); },

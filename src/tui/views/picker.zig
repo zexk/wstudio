@@ -37,57 +37,70 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
     }
     try endLine(w);
 
-    try w.writeAll(bold ++ " INTERNAL" ++ rst);
-    try endLine(w);
     var item_buf: [app_mod.instrument_picker_items.len]app_mod.InstrumentPickerItem = undefined;
     const items = app.filteredInstrumentPickerItems(&item_buf);
-    for (items, 0..) |item, i| {
-        const is_sel = (i == app.picker_cursor);
-        const icon = switch (item.kind) {
-            .poly_synth => icons.synth,
-            .sampler => icons.sampler,
-            .drum_machine => icons.drum,
-            .slicer => icons.slicer,
-            .soundfont, .acoustic => icons.soundfont,
-            else => "",
-        };
-        if (is_sel) try w.writeAll(sel);
-        try w.writeAll(if (is_sel) "  > " else "    ");
-        try w.writeAll(icons.iconOr(icon, ""));
-        try w.writeByte(' ');
-        try w.print("{s: <14}", .{item.label});
-        if (!is_sel) try w.writeAll(dim);
-        try w.print(" {s}", .{item.description});
-        try w.writeAll(rst);
-        try endLine(w);
-    }
-    try w.writeAll(bold ++ " EXTERNAL" ++ rst ++ dim ++ "  CLAP / VST3");
-    try endLine(w);
     const external_count = app.filteredInstrumentPluginCount();
-    const filter = app.searchPattern();
-    for (0..external_count) |external_i| {
-        const plugin = app.filteredInstrumentPluginAt(external_i).?;
-        const i = items.len + external_i;
-        const is_sel = (i == app.picker_cursor);
-        if (is_sel) try w.writeAll(sel);
-        try w.writeAll(if (is_sel) "  > " else "    ");
-        try w.print("{s: <15}", .{plugin.name});
-        if (!is_sel) try w.writeAll(dim);
-        try w.print(" {s}  {s}", .{ ws.plugin_catalog.formatLabel(plugin.format), plugin.vendor });
-        try w.writeAll(rst);
-        try endLine(w);
-    }
-    if (external_count == 0) {
-        try w.writeAll(dim);
-        if (items.len == 0 and filter.len > 0)
-            try w.print("    no match for /{s}", .{filter})
-        else
-            try w.writeAll("    no external instruments found");
-        try w.writeAll(rst);
+    const filter = app.activeInstrumentFilter();
+
+    // Section headers ride the same scrolled list as the entries, so a long
+    // plugin list stays reachable - see app_mod.pickerDisplayRow for the
+    // layout both this loop and pickerMouse decode.
+    const list_len = 2 + items.len + external_count + @intFromBool(external_count == 0);
+    const cursor_row = app_mod.pickerDisplayRow(app.picker_cursor, items.len);
+    const vis_rows: usize = rows -| 6;
+    if (cursor_row < app.picker_scroll) app.picker_scroll = cursor_row;
+    if (vis_rows > 0 and cursor_row >= app.picker_scroll + vis_rows)
+        app.picker_scroll = cursor_row - vis_rows + 1;
+    if (app.picker_scroll >= list_len) app.picker_scroll = 0;
+    const scroll = app.picker_scroll;
+    const last_visible = @min(list_len, scroll + vis_rows);
+
+    for (scroll..last_visible) |r| {
+        if (r == 0) {
+            try w.writeAll(bold ++ " INTERNAL" ++ rst);
+        } else if (r == items.len + 1) {
+            try w.writeAll(bold ++ " EXTERNAL" ++ rst ++ dim ++ "  CLAP / VST3" ++ rst);
+        } else if (r <= items.len) {
+            const item = items[r - 1];
+            const is_sel = (r - 1 == app.picker_cursor);
+            const icon = switch (item.kind) {
+                .poly_synth => icons.synth,
+                .sampler => icons.sampler,
+                .drum_machine => icons.drum,
+                .slicer => icons.slicer,
+                .soundfont, .acoustic => icons.soundfont,
+                else => "",
+            };
+            if (is_sel) try w.writeAll(sel);
+            try w.writeAll(if (is_sel) "  > " else "    ");
+            try w.writeAll(icons.iconOr(icon, ""));
+            try w.writeByte(' ');
+            try w.print("{s: <14}", .{item.label});
+            if (!is_sel) try w.writeAll(dim);
+            try w.print(" {s}", .{item.description});
+            try w.writeAll(rst);
+        } else if (r - 2 < items.len + external_count) {
+            const i = r - 2;
+            const plugin = app.filteredInstrumentPluginAt(i - items.len).?;
+            const is_sel = (i == app.picker_cursor);
+            if (is_sel) try w.writeAll(sel);
+            try w.writeAll(if (is_sel) "  > " else "    ");
+            try w.print("{s: <15}", .{plugin.name});
+            if (!is_sel) try w.writeAll(dim);
+            try w.print(" {s}  {s}", .{ ws.plugin_catalog.formatLabel(plugin.format), plugin.vendor });
+            try w.writeAll(rst);
+        } else {
+            try w.writeAll(dim);
+            if (items.len == 0 and filter.len > 0)
+                try w.print("    no match for /{s}", .{filter})
+            else
+                try w.writeAll("    no external instruments found");
+            try w.writeAll(rst);
+        }
         try endLine(w);
     }
 
-    const used = 4 + items.len + @max(external_count, 1);
+    const used = 2 + (last_visible - scroll);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
 
@@ -124,43 +137,54 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     if (filter.len > 0) try w.writeAll(filter) else try w.writeAll(dim ++ "type to filter" ++ rst);
     try endLine(w);
 
-    try w.writeAll(bold ++ " INTERNAL" ++ rst);
-    try endLine(w);
-    for (kinds, 0..) |k, i| {
-        const is_sel = (i == app.fx_picker_cursor);
-        try w.writeAll(if (is_sel) sel else style.fxKindColor(k));
-        try w.writeAll(if (is_sel) "  > " else "    ");
-        try w.print("{s: <12}", .{spectrum_ed.unitLabel(k)});
-        if (!is_sel) try w.writeAll(rst ++ dim);
-        try w.print(" {s}", .{spectrum_ed.pickerDescription(k)});
-        try w.writeAll(rst);
-        try endLine(w);
-    }
-    try w.writeAll(bold ++ " EXTERNAL" ++ rst ++ dim ++ "  CLAP / VST3");
-    try endLine(w);
-    for (0..external_count) |external_i| {
-        const plugin = spectrum_ed.externalPickerAt(app, external_i).?;
-        const i = kinds.len + external_i;
-        const is_sel = (i == app.fx_picker_cursor);
-        if (is_sel) try w.writeAll(sel);
-        try w.writeAll(if (is_sel) "  > " else "    ");
-        try w.print("{s: <13}", .{plugin.name});
-        if (!is_sel) try w.writeAll(dim);
-        try w.print("{s}  {s}", .{ ws.plugin_catalog.formatLabel(plugin.format), plugin.vendor });
-        try w.writeAll(rst);
-        try endLine(w);
-    }
-    if (total_count == 0) {
-        try w.writeAll(dim);
-        if (filter.len > 0)
-            try w.print("    no match for /{s}", .{filter})
-        else
-            try w.writeAll("    NO EFFECTS AVAILABLE");
-        try w.writeAll(rst);
+    // Section headers ride the same scrolled list as the entries - 24 built-in
+    // units alone overflow a short terminal. Layout shared with the
+    // instrument picker and decoded by fxPickerMouse: app_mod.pickerDisplayRow.
+    const list_len = 2 + total_count + @intFromBool(total_count == 0);
+    const cursor_row = app_mod.pickerDisplayRow(app.fx_picker_cursor, kinds.len);
+    const vis_rows: usize = rows -| 6;
+    if (cursor_row < app.fx_picker_scroll) app.fx_picker_scroll = cursor_row;
+    if (vis_rows > 0 and cursor_row >= app.fx_picker_scroll + vis_rows)
+        app.fx_picker_scroll = cursor_row - vis_rows + 1;
+    if (app.fx_picker_scroll >= list_len) app.fx_picker_scroll = 0;
+    const scroll = app.fx_picker_scroll;
+    const last_visible = @min(list_len, scroll + vis_rows);
+
+    for (scroll..last_visible) |r| {
+        if (r == 0) {
+            try w.writeAll(bold ++ " INTERNAL" ++ rst);
+        } else if (r == kinds.len + 1) {
+            try w.writeAll(bold ++ " EXTERNAL" ++ rst ++ dim ++ "  CLAP / VST3" ++ rst);
+        } else if (r <= kinds.len) {
+            const k = kinds[r - 1];
+            const is_sel = (r - 1 == app.fx_picker_cursor);
+            try w.writeAll(if (is_sel) sel else style.fxKindColor(k));
+            try w.writeAll(if (is_sel) "  > " else "    ");
+            try w.print("{s: <12}", .{spectrum_ed.unitLabel(k)});
+            if (!is_sel) try w.writeAll(rst ++ dim);
+            try w.print(" {s}", .{spectrum_ed.pickerDescription(k)});
+            try w.writeAll(rst);
+        } else if (r - 2 < total_count) {
+            const i = r - 2;
+            const plugin = spectrum_ed.externalPickerAt(app, i - kinds.len).?;
+            const is_sel = (i == app.fx_picker_cursor);
+            if (is_sel) try w.writeAll(sel);
+            try w.writeAll(if (is_sel) "  > " else "    ");
+            try w.print("{s: <13}", .{plugin.name});
+            if (!is_sel) try w.writeAll(dim);
+            try w.print("{s}  {s}", .{ ws.plugin_catalog.formatLabel(plugin.format), plugin.vendor });
+            try w.writeAll(rst);
+        } else {
+            try w.writeAll(dim);
+            if (filter.len > 0)
+                try w.print("    no match for /{s}", .{filter})
+            else
+                try w.writeAll("    NO EFFECTS AVAILABLE");
+            try w.writeAll(rst);
+        }
         try endLine(w);
     }
 
-    // zig fmt: off
-    const used = 5 + @max(total_count, 1);
+    const used = 2 + (last_visible - scroll);
     for (used..@max(used, rows -| 4)) |_| try endLine(w);
 }
