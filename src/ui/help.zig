@@ -357,7 +357,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("a (in picker)", "audition the highlighted bank/preset immediately; the switch commits either way");
     t.key("esc / e",      "back to the tracks view");
     t.key(":load",        "[file.sf2]  load a SoundFont into the cursor track (omit the file to browse; SoundFont tracks only)");
-    t.key(":library", "<" ++ ws.dsp.builtin_library.id_names ++ ">  load a bundled sample bank (Acoustic tracks only)");
+    t.key(":library", "<name>  load a bundled sample bank; f browses them (Acoustic tracks only)");
     t.key(":sf-preset",   "<bank> <program>  jump straight to a preset by its MIDI bank/program number");
 
     t.taggedSection(.synth_editor, "SYNTH EDITOR");

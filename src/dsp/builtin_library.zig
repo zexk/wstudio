@@ -1,7 +1,8 @@
 //! Bundled acoustic sample-bank catalog. Assets stay as standard SFZ/FLAC
 //! files so adding another instrument needs no new playback code. Each bank
-//! names the pack it came from, because the two upstreams (VCSL and FreePats,
-//! both CC0) ship under their own licence file and their own directory.
+//! names the pack it came from, because the upstreams (VCSL, FreePats and
+//! VSCO 2 CE, all CC0) ship under their own licence file and their own
+//! directory.
 
 const std = @import("std");
 const sfz = @import("sfz.zig");
@@ -27,6 +28,12 @@ pub const Id = enum {
     tenor_sax,
     clarinet,
     recorder,
+    violin_section,
+    viola_section,
+    cello_section,
+    contrabass_pizz,
+    flute,
+    muted_trumpet,
 
     pub fn label(self: Id) []const u8 {
         return specs[@intFromEnum(self)].label;
@@ -41,10 +48,11 @@ pub const Id = enum {
     }
 };
 
-/// Every `Id` tag joined by `|`, for the `:library` usage string and its help
-/// row. Built from the enum so adding a bank can't leave either one listing a
-/// subset of what `stringToEnum` actually accepts (it did: both named three of
-/// the ten, so seven working banks were undiscoverable).
+/// Every `Id` tag joined by `|`, for the `:library` usage string. Built from
+/// the enum so it can't list a subset of what `stringToEnum` actually accepts
+/// (it did: it named three of the ten, so seven working banks were
+/// undiscoverable). The help row says `<name>` and points at the `f` picker
+/// instead - past twenty-odd banks the full list is a wall, not a hint.
 pub const id_names = blk: {
     var s: []const u8 = "";
     for (@typeInfo(Id).@"enum".fields, 0..) |f, i| {
@@ -53,11 +61,12 @@ pub const id_names = blk: {
     break :blk s;
 };
 
-/// The upstream a bank came from. Both are CC0, but they ship separately and
+/// The upstream a bank came from. All are CC0, but they ship separately and
 /// the preset browser credits them separately.
 pub const Pack = enum {
     vcsl,
     freepats,
+    vsco2,
 
     /// Directory under the library root, which is also the tag name.
     pub fn dir(self: Pack) []const u8 {
@@ -74,9 +83,11 @@ pub const Pack = enum {
     pub fn tags(self: Pack) []const []const u8 {
         const vcsl_tags = [_][]const u8{ "Versilian Studios", "acoustic" };
         const freepats_tags = [_][]const u8{ "FreePats", "acoustic" };
+        const vsco2_tags = [_][]const u8{ "Versilian Studios", "orchestral", "acoustic" };
         return switch (self) {
             .vcsl => &vcsl_tags,
             .freepats => &freepats_tags,
+            .vsco2 => &vsco2_tags,
         };
     }
 };
@@ -104,6 +115,12 @@ const specs = [_]struct { label: []const u8, pack: Pack, sfz: []const u8 }{
     .{ .label = "Tenor Saxophone",     .pack = .freepats,  .sfz = "Tenor Saxophone.sfz" },
     .{ .label = "Clarinet",            .pack = .freepats,  .sfz = "Clarinet.sfz" },
     .{ .label = "Soprano Recorder",    .pack = .freepats,  .sfz = "Soprano Recorder.sfz" },
+    .{ .label = "Violin Section",      .pack = .vsco2,     .sfz = "Violin Section.sfz" },
+    .{ .label = "Viola Section",       .pack = .vsco2,     .sfz = "Viola Section.sfz" },
+    .{ .label = "Cello Section",       .pack = .vsco2,     .sfz = "Cello Section.sfz" },
+    .{ .label = "Contrabass Pizzicato",.pack = .vsco2,     .sfz = "Contrabass Pizzicato.sfz" },
+    .{ .label = "Flute",               .pack = .vsco2,     .sfz = "Flute.sfz" },
+    .{ .label = "Muted Trumpet",       .pack = .vsco2,     .sfz = "Muted Trumpet.sfz" },
 };
 // zig fmt: on
 
@@ -152,17 +169,21 @@ test "bundled catalog loads every patch" {
     }
 }
 
-test "bundled wind banks sustain on a loop" {
-    // A blown instrument was recorded for a few seconds and has to loop to
-    // hold a longer note; a struck one must not, or its tail repeats. This
-    // catches a re-vendored pack that dropped its loop points, which sounds
-    // like the note stopping early rather than like a parse failure.
+test "bundled looping banks kept their loop points" {
+    // The FreePats winds were sampled short and loop to hold a longer note;
+    // everything else was sampled long enough to play out, and must not loop
+    // or its tail repeats. (The VSCO 2 winds are in the second camp, so this
+    // is about how a bank was vendored, not about which family it belongs
+    // to.) Catches a re-vendored pack that dropped its loop points, which
+    // sounds like the note stopping early rather than like a parse failure.
     inline for ([_]struct { Id, bool }{
         .{ .tenor_sax, true },
         .{ .clarinet, true },
         .{ .recorder, true },
         .{ .grand, false },
         .{ .nylon_guitar, false },
+        .{ .flute, false },
+        .{ .violin_section, false },
     }) |case| {
         var bank = try load(std.testing.allocator, std.testing.io, case[0], 48_000);
         defer bank.deinit();

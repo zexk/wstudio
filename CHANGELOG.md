@@ -7,11 +7,12 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Added
 
-- CC0 acoustic instruments from VCSL and FreePats through a shared SFZ
-  sample-bank loader, as their own `Acoustic` instrument in the picker:
+- CC0 acoustic instruments from VCSL, FreePats and VSCO 2 CE through a shared
+  SFZ sample-bank loader, as their own `Acoustic` instrument in the picker:
   pianos, harpsichord, pipe organ, concert harp, mallets, kalimba, harmonica,
   nylon-string guitar, tenor ukulele, finger and picked bass, honky-tonk
-  piano, tenor saxophone, clarinet, and soprano recorder. Acoustic tracks
+  piano, tenor saxophone, clarinet, soprano recorder, violin, viola and cello
+  sections, pizzicato contrabass, flute, and muted trumpet. Acoustic tracks
   start on grand piano and switch bundled timbre with `:library` or the `f`
   preset picker; `SoundFont` is now a separate instrument for playing your own
   `.sf2` banks.
