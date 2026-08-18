@@ -297,11 +297,12 @@ pub const DrumMachine = struct {
     /// already imports this file - see `Event.capture_pad`'s doc comment).
     pub const max_pad_captures: u8 = 8;
 
-    /// One pad's per-block isolated-capture request - see `Event.
-    /// capture_pad`'s doc comment. `buf`'s lifetime is exactly one block:
-    /// stashed here by `handleEvent`, consumed and cleared by the very next
-    /// `processBlock` call.
-    const PadCapture = struct { pad: u8, buf: []Sample };
+    /// One pad's per-block isolated-capture request - see `Event.capture_pad`'s
+    /// doc comment. `buf`'s lifetime is exactly one block.
+    /// `written` tracks how much of `buf` the pad has filled: a block split
+    /// into automation slices renders through several `processBlock` calls,
+    /// each appending its own slice, so the request lives until `buf` is full.
+    const PadCapture = struct { pad: u8, buf: []Sample, written: usize = 0 };
     /// Id-space stride per pad. `set_param` ids are `pad << 5 | param`, so the
     /// stride is a power of two and pad/param decode with shift + mask. Was
     /// 16 (4-bit param field) until the per-pad LFO's 4 new ids pushed
@@ -1226,23 +1227,32 @@ pub const DrumMachine = struct {
         for (&self.pads, 0..) |*p, i| {
             const s = if (p.*) |*sm| sm else continue;
             const pad_idx: u8 = @intCast(i);
-            const capture = capture: {
+            const capture: ?*PadCapture = capture: {
                 for (&self.pad_captures) |*c| {
-                    if (c.*) |cap| if (cap.pad == pad_idx) break :capture cap.buf;
+                    if (c.*) |cap| if (cap.pad == pad_idx) break :capture &c.*.?;
                 }
                 break :capture null;
             };
-            if (capture) |dst| {
+            if (capture) |cap| {
                 const scratch = pad_scratch[0..buf.len];
                 @memset(scratch, 0.0);
                 s.processBlock(scratch);
                 for (buf, scratch) |*o, sv| o.* += sv;
-                @memcpy(dst, scratch);
+                // Append, not overwrite: this call may be one automation
+                // slice of the block the request covers.
+                const n = @min(scratch.len, cap.buf.len - cap.written);
+                @memcpy(cap.buf[cap.written..][0..n], scratch[0..n]);
+                cap.written += n;
             } else {
                 s.processBlock(buf);
             }
         }
-        self.pad_captures = [_]?PadCapture{null} ** max_pad_captures;
+        // A request whose buffer is still short of full is waiting on the
+        // rest of its block's slices, so it survives into the next call.
+        for (&self.pad_captures) |*c| {
+            if (c.*) |cap| if (cap.written < cap.buf.len) continue;
+            c.* = null;
+        }
     }
 
     /// Schedule `note` on pad `p` - see `step_grid_ops.scheduleNote`.
@@ -1326,6 +1336,15 @@ pub const DrumMachine = struct {
     /// `max_pad_captures` are silently dropped, same "bank of N" convention
     /// `Engine.registerSidechainSource` already uses.
     fn addPadCapture(self: *DrumMachine, pad: u8, buf: []Sample) void {
+        // A fresh request for a pad replaces whatever it already holds, so a
+        // partly-written buffer from a previous block (a block that ended
+        // mid-slice) can never leak into this one.
+        for (&self.pad_captures) |*c| {
+            if (c.*) |cap| if (cap.pad == pad) {
+                c.* = .{ .pad = pad, .buf = buf };
+                return;
+            };
+        }
         for (&self.pad_captures) |*c| {
             if (c.* == null) {
                 c.* = .{ .pad = pad, .buf = buf };
@@ -2606,4 +2625,40 @@ test "every factory kit pad renders audible and below clipping" {
             try std.testing.expect(peak <= 1.0);
         }
     }
+}
+
+test "a pad capture spanning several automation slices fills its whole buffer" {
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var dm = try testMachine(&transport);
+    defer dm.deinit();
+
+    dm.resetAll();
+    const dev = dm.device();
+
+    // One block rendered whole, as the reference.
+    var whole: [512]Sample = undefined;
+    var whole_capture: [512]Sample = undefined;
+    @memset(&whole, 0.0);
+    @memset(&whole_capture, 0.0);
+    dev.sendEvent(.{ .note_on = .{ .note = 0, .velocity = 1.0 } });
+    dev.sendEvent(.{ .capture_pad = .{ .pad = 0, .buf = &whole_capture } });
+    dm.processBlock(&whole);
+
+    // The same block again, split into two halves the way sample-accurate
+    // automation slices it. The capture request covers the whole block and
+    // must come out identical, not just the first half.
+    dm.resetAll();
+    var sliced: [512]Sample = undefined;
+    var sliced_capture: [512]Sample = undefined;
+    @memset(&sliced, 0.0);
+    @memset(&sliced_capture, 0.0);
+    dev.sendEvent(.{ .note_on = .{ .note = 0, .velocity = 1.0 } });
+    dev.sendEvent(.{ .capture_pad = .{ .pad = 0, .buf = &sliced_capture } });
+    dm.processBlock(sliced[0..256]);
+    dm.processBlock(sliced[256..]);
+
+    var tail_peak: f32 = 0;
+    for (sliced_capture[256..]) |s| tail_peak = @max(tail_peak, @abs(s));
+    try std.testing.expect(tail_peak > 0.001);
+    for (whole_capture, sliced_capture) |w, s| try std.testing.expectApproxEqAbs(w, s, 1e-6);
 }

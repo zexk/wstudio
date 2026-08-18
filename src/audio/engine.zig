@@ -1787,12 +1787,10 @@ pub const Engine = struct {
         // request before its own `process()` call below, regardless of
         // whether it sits at chain slot 0 (no pattern player) or 1. Zeroed
         // first so a pad that doesn't exist yields silence, not garbage.
-        var has_pad_capture = false;
         for (&self.sidechain_captures) |*c| {
             const src = c.source orelse continue;
             if (src.is_group or src.track != ti) continue;
             const pad = src.pad orelse continue;
-            has_pad_capture = true;
             const dest = c.buf[0 .. frames * channels];
             @memset(dest, 0.0);
             for (chain) |dev| {
@@ -1816,10 +1814,7 @@ pub const Engine = struct {
             .{ .target = self.active_spectrum_target.?, .analyzer = &self.track_spectrum, .pre = self.spectrum_pre }
         else
             null;
-        // ponytail: per-pad capture owns one whole-block destination. Keep
-        // automation at block start until capture requests carry slice offsets.
-        const timed_events = if (has_pad_capture) parameter_events[0..@min(parameter_event_count, lane_count)] else parameter_events[0..parameter_event_count];
-        self.processChainWithSidechain(chain, &self.track_sidechain[ti], scratch, frames, track_tap, timed_events);
+        self.processChainWithSidechain(chain, &self.track_sidechain[ti], scratch, frames, track_tap, parameter_events[0..parameter_event_count]);
         // If this track is itself a registered sidechain-detector source,
         // finalize its capture now - before `scratch` gets reused by the
         // next track rendered. Captured regardless of mute/solo (a muted
