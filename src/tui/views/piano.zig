@@ -62,7 +62,14 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     const rack = app.session.racks.items[app.piano_track];
     const pp = if (rack.pattern_player != null)
         &app.session.racks.items[app.piano_track].pattern_player.?
-    else return;
+    else {
+        // Say so rather than drawing an empty frame - the GUI already does
+        // (gui/views/piano.zig), and a blank view reads as a broken one.
+        try w.writeAll(bold ++ " PIANO ROLL" ++ rst ++ dim ++ "  choose a melodic instrument" ++ rst);
+        try endLine(w);
+        for (1..@max(1, rows -| 4)) |_| try endLine(w);
+        return;
+    };
     // zig fmt: on
 
     // Steps per beat under the current grid (4 = straight 16ths, 6 = 16th

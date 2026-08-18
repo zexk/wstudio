@@ -218,7 +218,7 @@ pub fn drawFxView(
 
     var body_lines: usize = 0;
     if (focused == null) {
-        try synthSection(w, "FX CHAIN", acc);
+        try synthSection(w, "EMPTY CHAIN", acc);
         try w.writeAll(dim ++ "   IN feeds OUT unchanged." ++ rst);
         try endLine(w);
         try w.writeAll(acc ++ "   a" ++ rst ++ dim ++ "  insert an effect" ++ rst);

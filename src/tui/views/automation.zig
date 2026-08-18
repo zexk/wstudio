@@ -58,7 +58,9 @@ pub fn drawAutomation(
     snap: engine_mod.UiSnapshot,
 ) !void {
     const clip = automation_ed.currentClip(app) orelse {
-        try w.writeAll(bold ++ " AUTOMATION" ++ rst ++ dim ++ "  clip unavailable  esc back" ++ rst);
+        // Worded like the GUI's empty state - it is the same situation, not
+        // an error: no clip under the cursor to hang a curve on.
+        try w.writeAll(bold ++ " AUTOMATION" ++ rst ++ dim ++ "  no clip selected - stamp a clip, then press a" ++ rst);
         try endLine(w);
         for (1..@max(1, rows -| 4)) |_| try endLine(w);
         return;

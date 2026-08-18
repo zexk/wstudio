@@ -629,7 +629,11 @@ pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
 
 pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     const clip = automation_ed.currentClip(app) orelse {
-        try w.writeAll(dim ++ "clip unavailable  esc back" ++ rst);
+        // Badges first, like every other status row - returning early used to
+        // drop the mode badge and the view badge along with the clip.
+        try writeModeBadge(w, app.modal.mode);
+        try writeViewBadge(right, "AUTOMATION", app.modal.mode);
+        try w.writeAll(dim ++ "  no clip selected  esc back" ++ rst);
         return;
     };
 

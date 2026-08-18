@@ -43,7 +43,7 @@ pub fn draw(app: anytype) void {
 }
 
 fn drawTitle(app: anytype, target: spectrum_ed.EqTarget) void {
-    widgets.coloredTitle(targetAccent(target), "SPECTRUM / FX CHAIN", .{});
+    widgets.coloredTitle(targetAccent(target), "FX CHAIN", .{});
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{targetName(app, target)});
     if (target == .group and app.core.eq_group < ws.engine.max_groups) {
@@ -56,15 +56,17 @@ fn drawTitle(app: anytype, target: spectrum_ed.EqTarget) void {
 
 fn targetName(app: anytype, target: spectrum_ed.EqTarget) []const u8 {
     return switch (target) {
+        // Same names the TUI titles with, "?" fallback included - a bus is
+        // "MASTER", not "Master bus", wherever it is named.
         .track => if (app.core.eq_track < app.core.session.project.tracks.items.len)
             app.core.session.project.tracks.items[app.core.eq_track].name
         else
-            "Track",
-        .master => "Master bus",
+            "?",
+        .master => "MASTER",
         .group => if (app.core.eq_group < ws.engine.max_groups)
-            if (app.core.session.groups[app.core.eq_group]) |group| group.name else "Group bus"
+            if (app.core.session.groups[app.core.eq_group]) |group| group.name else "?"
         else
-            "Group bus",
+            "?",
     };
 }
 
@@ -384,7 +386,7 @@ fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
         // An expander does the opposite: what is under the threshold is
         // pushed further down, and what is over it passes.
         .expander => if (t >= amount) t else t * (0.15 + 0.35 * shape),
-        .sat => 0.5 + 0.5 * std.math.tanh((t * 2.0 - 1.0) * std.math.pow(f32, 10.0, amount * 1.8)) / std.math.tanh(std.math.pow(f32, 10.0, amount * 1.8)),
+        .sat, .amp => 0.5 + 0.5 * std.math.tanh((t * 2.0 - 1.0) * std.math.pow(f32, 10.0, amount * 1.8)) / std.math.tanh(std.math.pow(f32, 10.0, amount * 1.8)),
         .crush => @round(t * std.math.pow(f32, 2.0, amount * 15.0)) / std.math.pow(f32, 2.0, amount * 15.0),
         // An LFO offset swings about a centre - it does not climb. The old
         // `t + sin(...)` baseline drew the same rising ramp a transfer curve
@@ -731,12 +733,11 @@ fn drawEmptyState(app: anytype, target: spectrum_ed.EqTarget) void {
     drawBusMonitor(app, target);
     zgui.spacing();
     const below_top = zgui.getCursorPosY();
-    var explanation_buf: [96]u8 = undefined;
-    const explanation = std.fmt.bufPrint(&explanation_buf, "Insert an effect to shape this {s}.", .{targetRole(target)}) catch "Insert an effect.";
     if (widgets.emptyState(.{
         .id = "empty-fx-chain",
-        .title = "BUILD THE SIGNAL CHAIN",
-        .explanation = explanation,
+        // Worded like the TUI's empty chain (tui/views/spectrum.zig).
+        .title = "EMPTY CHAIN",
+        .explanation = "IN feeds OUT unchanged. Try EQ, Compressor, or Reverb.",
         .shortcut = "a",
         .action = "ADD EFFECT",
         .accent = targetAccent(target),
@@ -788,14 +789,6 @@ fn drawBusMonitor(app: anytype, target: spectrum_ed.EqTarget) void {
     }
     draw_list.addText(.{ origin[0] + 12, origin[1] + height - 24 }, color(theme.fg3), "20 Hz", .{});
     draw_list.addText(.{ origin[0] + available[0] - 52, origin[1] + height - 24 }, color(theme.fg3), "20 kHz", .{});
-}
-
-fn targetRole(target: spectrum_ed.EqTarget) []const u8 {
-    return switch (target) {
-        .track => "track",
-        .master => "master output",
-        .group => "group bus",
-    };
 }
 
 fn targetMonitorLabel(target: spectrum_ed.EqTarget) []const u8 {
