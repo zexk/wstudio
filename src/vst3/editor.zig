@@ -75,10 +75,20 @@ const Frame = struct {
     run_loop: abi.RunLoop = .{ .vtable = &run_loop_vtable },
     window: *editor_window.Window,
     view: *abi.PlugView,
-    // ponytail: fixed banks avoid allocation in plugin callbacks. Raise only
-    // if a real editor exhausts 16 event handlers or timers.
-    events: [16]?Event = @splat(null),
-    timers: [16]?Timer = @splat(null),
+    /// Registered fd handlers and timers. Slots are nulled on unregister
+    /// rather than removed, so an index stays valid across a callback that
+    /// registers or unregisters from inside `service` - the lists only ever
+    /// grow to a plugin's own high-water mark. Registration runs on the UI
+    /// thread (never the audio thread), so allocating here is fine; a failed
+    /// allocation reports the same refusal a full bank used to.
+    events: std.ArrayListUnmanaged(?Event) = .empty,
+    timers: std.ArrayListUnmanaged(?Timer) = .empty,
+    /// Scratch for `service`'s poll, kept across calls so a steady-state
+    /// frame allocates nothing.
+    poll_fds: std.ArrayListUnmanaged(std.posix.pollfd) = .empty,
+    poll_handlers: std.ArrayListUnmanaged(*abi.EventHandler) = .empty,
+
+    const allocator = std.heap.page_allocator;
 
     const Event = struct { handler: *abi.EventHandler, fd: c_int };
     const Timer = struct { handler: *abi.TimerHandler, interval_ns: u64, next_ns: i128 };
@@ -118,16 +128,18 @@ const Frame = struct {
 
     fn registerEvent(raw: *anyopaque, handler: *abi.EventHandler, fd: c_int) callconv(abi.abi_callconv) abi.Result {
         const self = runLoopFrom(raw);
-        for (&self.events) |*slot| if (slot.* == null) {
+        for (self.events.items) |*slot| if (slot.* == null) {
             slot.* = .{ .handler = handler, .fd = fd };
             _ = handler.vtable.add_ref(handler);
             return 0;
         };
-        return 1;
+        self.events.append(allocator, .{ .handler = handler, .fd = fd }) catch return 1;
+        _ = handler.vtable.add_ref(handler);
+        return 0;
     }
     fn unregisterEvent(raw: *anyopaque, handler: *abi.EventHandler) callconv(abi.abi_callconv) abi.Result {
         const self = runLoopFrom(raw);
-        for (&self.events) |*slot| if (slot.*) |event| {
+        for (self.events.items) |*slot| if (slot.*) |event| {
             if (event.handler != handler) continue;
             _ = handler.vtable.release(handler);
             slot.* = null;
@@ -144,16 +156,18 @@ const Frame = struct {
         const capped_ms: u64 = @max(@min(milliseconds, 86_400_000), 1);
         const interval = capped_ms * std.time.ns_per_ms;
         const now: i128 = @intCast(std.Io.Timestamp.now(std.Options.debug_io, .awake).nanoseconds);
-        for (&self.timers) |*slot| if (slot.* == null) {
+        for (self.timers.items) |*slot| if (slot.* == null) {
             slot.* = .{ .handler = handler, .interval_ns = interval, .next_ns = now + interval };
             _ = handler.vtable.add_ref(handler);
             return 0;
         };
-        return 1;
+        self.timers.append(allocator, .{ .handler = handler, .interval_ns = interval, .next_ns = now + interval }) catch return 1;
+        _ = handler.vtable.add_ref(handler);
+        return 0;
     }
     fn unregisterTimer(raw: *anyopaque, handler: *abi.TimerHandler) callconv(abi.abi_callconv) abi.Result {
         const self = runLoopFrom(raw);
-        for (&self.timers) |*slot| if (slot.*) |timer| {
+        for (self.timers.items) |*slot| if (slot.*) |timer| {
             if (timer.handler != handler) continue;
             _ = handler.vtable.release(handler);
             slot.* = null;
@@ -172,35 +186,45 @@ const Frame = struct {
             _ = self.view.vtable.on_size(self.view, &rect);
         };
         if (comptime builtin.os.tag != .linux) return true;
-        var poll_fds: [16]std.posix.pollfd = undefined;
-        var handlers: [16]*abi.EventHandler = undefined;
-        var count: usize = 0;
-        for (self.events) |maybe| if (maybe) |event| {
-            poll_fds[count] = .{ .fd = event.fd, .events = std.posix.POLL.IN, .revents = 0 };
-            handlers[count] = event.handler;
-            count += 1;
+        self.poll_fds.clearRetainingCapacity();
+        self.poll_handlers.clearRetainingCapacity();
+        for (self.events.items) |maybe| if (maybe) |event| {
+            // A failed reserve just polls fewer fds this tick; the handler
+            // stays registered and is picked up on the next one.
+            self.poll_fds.append(allocator, .{ .fd = event.fd, .events = std.posix.POLL.IN, .revents = 0 }) catch break;
+            self.poll_handlers.append(allocator, event.handler) catch {
+                _ = self.poll_fds.pop();
+                break;
+            };
         };
-        if (count != 0 and (std.posix.poll(poll_fds[0..count], 0) catch 0) != 0) {
-            for (poll_fds[0..count], handlers[0..count]) |fd, handler| if (fd.revents != 0) handler.vtable.on_fd_is_set(handler, fd.fd);
+        if (self.poll_fds.items.len != 0 and (std.posix.poll(self.poll_fds.items, 0) catch 0) != 0) {
+            for (self.poll_fds.items, self.poll_handlers.items) |fd, handler| if (fd.revents != 0) handler.vtable.on_fd_is_set(handler, fd.fd);
         }
         const now: i128 = @intCast(std.Io.Timestamp.now(std.Options.debug_io, .awake).nanoseconds);
-        for (&self.timers) |*slot| if (slot.*) |*timer| {
+        // Index loop, not a slice iterator: `on_timer` may register another
+        // timer and grow the list out from under a captured slice.
+        var i: usize = 0;
+        while (i < self.timers.items.len) : (i += 1) {
+            const timer = &(self.timers.items[i] orelse continue);
             if (now < timer.next_ns) continue;
             timer.next_ns = now + timer.interval_ns;
-            timer.handler.vtable.on_timer(timer.handler);
-        };
+            const handler = timer.handler;
+            handler.vtable.on_timer(handler);
+        }
         return true;
     }
 
     fn deinit(self: *Frame) void {
-        for (&self.events) |*slot| if (slot.*) |event| {
+        for (self.events.items) |slot| if (slot) |event| {
             _ = event.handler.vtable.release(event.handler);
-            slot.* = null;
         };
-        for (&self.timers) |*slot| if (slot.*) |timer| {
+        for (self.timers.items) |slot| if (slot) |timer| {
             _ = timer.handler.vtable.release(timer.handler);
-            slot.* = null;
         };
+        self.events.deinit(allocator);
+        self.timers.deinit(allocator);
+        self.poll_fds.deinit(allocator);
+        self.poll_handlers.deinit(allocator);
     }
 
     const vtable: abi.PlugFrameVTable = .{ .query_interface = queryFrame, .add_ref = ref, .release = ref, .resize_view = resize };
@@ -213,4 +237,50 @@ test "plug frame exposes Linux run loop" {
     var object: ?*anyopaque = null;
     try std.testing.expectEqual(@as(abi.Result, 0), frame.interface.vtable.query_interface(&frame.interface, &abi.run_loop_iid, &object));
     try std.testing.expectEqual(@as(?*anyopaque, @ptrCast(&frame.run_loop)), object);
+}
+
+test "the run loop takes more handlers than any fixed bank, and reuses freed slots" {
+    if (builtin.os.tag != .linux) return;
+    const stub = struct {
+        var refs: i32 = 0;
+        fn query(_: *anyopaque, _: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+            object.* = null;
+            return -1;
+        }
+        fn addRef(_: *anyopaque) callconv(abi.abi_callconv) u32 {
+            refs += 1;
+            return 1;
+        }
+        fn release(_: *anyopaque) callconv(abi.abi_callconv) u32 {
+            refs -= 1;
+            return 1;
+        }
+        fn onFd(_: *anyopaque, _: c_int) callconv(abi.abi_callconv) void {}
+        fn onTimer(_: *anyopaque) callconv(abi.abi_callconv) void {}
+        const event_vtable: abi.EventHandlerVTable = .{ .query_interface = query, .add_ref = addRef, .release = release, .on_fd_is_set = onFd };
+        const timer_vtable: abi.TimerHandlerVTable = .{ .query_interface = query, .add_ref = addRef, .release = release, .on_timer = onTimer };
+    };
+
+    var frame = Frame{ .window = undefined, .view = undefined };
+    defer frame.deinit();
+    const run_loop = &frame.run_loop;
+
+    // 20 of each - past the 16 slots the fixed banks used to hold.
+    var events: [20]abi.EventHandler = @splat(.{ .vtable = &stub.event_vtable });
+    var timers: [20]abi.TimerHandler = @splat(.{ .vtable = &stub.timer_vtable });
+    for (&events, 0..) |*handler, i| {
+        try std.testing.expectEqual(@as(abi.Result, 0), run_loop.vtable.register_event_handler(run_loop, handler, @intCast(i)));
+    }
+    for (&timers) |*handler| {
+        try std.testing.expectEqual(@as(abi.Result, 0), run_loop.vtable.register_timer(run_loop, handler, 10));
+    }
+    try std.testing.expectEqual(@as(usize, 20), frame.events.items.len);
+    try std.testing.expectEqual(@as(usize, 20), frame.timers.items.len);
+    try std.testing.expectEqual(@as(i32, 40), stub.refs);
+
+    // Unregistering frees a slot for reuse rather than growing the list.
+    try std.testing.expectEqual(@as(abi.Result, 0), run_loop.vtable.unregister_event_handler(run_loop, &events[3]));
+    try std.testing.expectEqual(@as(abi.Result, 1), run_loop.vtable.unregister_event_handler(run_loop, &events[3]));
+    try std.testing.expectEqual(@as(abi.Result, 0), run_loop.vtable.register_event_handler(run_loop, &events[3], 3));
+    try std.testing.expectEqual(@as(usize, 20), frame.events.items.len);
 }
