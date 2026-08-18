@@ -288,8 +288,8 @@ pub const Project = struct {
     }
 
     pub fn addAudioSourceWithId(self: *Project, id: u32, path: []const u8, sample_rate: u32, channel_count: u16, samples: []const f32) !void {
-        // ponytail: recording is mono today. Lift this when audio import keeps
-        // interleaved channels through WAV decode and source persistence.
+        // ponytail: mono and stereo only. Lift the channel cap when a source
+        // beyond two channels can survive WAV decode and persistence.
         if (id == 0 or self.audioSource(id) != null or channel_count == 0 or channel_count > 2 or samples.len % channel_count != 0) return error.InvalidAudioSource;
         const owned_path = try self.allocator.dupe(u8, path);
         errdefer self.allocator.free(owned_path);
