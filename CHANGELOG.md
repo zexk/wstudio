@@ -51,6 +51,9 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Changed
 
+- The pattern transforms work on a slicer's grid, not only a drum machine's:
+  `:clear`, `:humanize`, `:reverse`, `:normalize`, `:vel-ramp`, `:euclid`,
+  `:rotate` and `:pad-len` all act on whichever step grid the cursor is on.
 - Pickers and command-name tab completion list fuzzy matches best-first
   instead of in table order, favouring contiguous runs, word starts, and
   matches near the front of a short name. The `/` `n` `N` searches still walk
@@ -127,6 +130,14 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Fixed
 
+- A drum pad's play mode had no effect: every hit cut the one before it, so
+  setting a pad to one-shot behaved exactly like retrigger and a long crash
+  hit twice cut itself instead of overlapping. Slices already honoured the
+  same setting.
+- Saving a drum kit lost the pad's play mode, and reloading one did not clamp
+  its choke group the way loading a project does.
+- Duplicating a slicer track lost the tempo and key its clip's file name
+  declared, so `:bpm-sync` on the copy fell back to the detector.
 - Live MIDI notes that arrived faster than the recorder drained them were
   dropped without a word; the status bar now says how many did not make it
   into the take.
