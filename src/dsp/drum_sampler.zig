@@ -1488,13 +1488,13 @@ test "clearKit wipes every pad and reports the hit count removed" {
     dm.toggleStep(0, 4);
     dm.toggleStep(3, 2);
 
-    try std.testing.expectEqual(@as(u32, 3), dm.clearKit());
+    try std.testing.expectEqual(@as(u32, 3), dm.clearGrid());
     for (0..DrumMachine.max_pads) |pad| {
         for (0..8) |step| try std.testing.expect(!dm.stepActive(@intCast(pad), @intCast(step)));
     }
 
     // An already-empty kit reports 0, not an error.
-    try std.testing.expectEqual(@as(u32, 0), dm.clearKit());
+    try std.testing.expectEqual(@as(u32, 0), dm.clearGrid());
 }
 
 test "humanizeVelocity jitters active hits within bounds; 0% is a no-op" {
@@ -1540,23 +1540,23 @@ test "euclidPad spreads pulses evenly, honors rotation, clears on zero" {
 
     // E(3,8): the tresillo - hits on steps 0, 3, 6.
     dm.setStepCount(8);
-    dm.euclidPad(0, 3, 0);
+    dm.euclidLane(0, 3, 0);
     for (0..8) |s| {
         const expect_on = s == 0 or s == 3 or s == 6;
         try std.testing.expectEqual(expect_on, dm.stepActive(0, @intCast(s)));
     }
 
     // Rotation shifts the whole figure: first hit lands on step 2.
-    dm.euclidPad(0, 3, 2);
+    dm.euclidLane(0, 3, 2);
     for (0..8) |s| {
         const expect_on = s == 2 or s == 5 or s == 0;
         try std.testing.expectEqual(expect_on, dm.stepActive(0, @intCast(s)));
     }
 
     // 0 pulses clears; pulses > steps saturate to every step.
-    dm.euclidPad(0, 0, 0);
+    dm.euclidLane(0, 0, 0);
     for (0..8) |s| try std.testing.expect(!dm.stepActive(0, @intCast(s)));
-    dm.euclidPad(0, 99, 0);
+    dm.euclidLane(0, 99, 0);
     for (0..8) |s| try std.testing.expect(dm.stepActive(0, @intCast(s)));
 
     // Stored notes carry the destination step (grid position is canonical).
@@ -1573,7 +1573,7 @@ test "velocityRampPad interpolates hits by step position" {
     dm.toggleStep(2, 4);
     dm.toggleStep(2, 8);
 
-    try std.testing.expectEqual(@as(u16, 3), dm.velocityRampPad(2, 20, 120));
+    try std.testing.expectEqual(@as(u16, 3), dm.velocityRampLane(2, 20, 120));
     try std.testing.expectEqual(@as(u8, 20), dm.stepVel(2, 0));
     try std.testing.expectEqual(@as(u8, 70), dm.stepVel(2, 4));
     try std.testing.expectEqual(@as(u8, 120), dm.stepVel(2, 8));
@@ -1581,11 +1581,11 @@ test "velocityRampPad interpolates hits by step position" {
     // Lone hit gets the target; 0 clamps to 1 (silence is x/X's job).
     dm.clearPad(2);
     dm.toggleStep(2, 3);
-    try std.testing.expectEqual(@as(u16, 1), dm.velocityRampPad(2, 50, 0));
+    try std.testing.expectEqual(@as(u16, 1), dm.velocityRampLane(2, 50, 0));
     try std.testing.expectEqual(@as(u8, 1), dm.stepVel(2, 3));
 
     // Empty row touches nothing.
-    try std.testing.expectEqual(@as(u16, 0), dm.velocityRampPad(5, 20, 120));
+    try std.testing.expectEqual(@as(u16, 0), dm.velocityRampLane(5, 20, 120));
 }
 
 test "reversePattern mirrors every pad's hits, duration-aware" {
@@ -1624,14 +1624,14 @@ test "rotatePad wraps hits and rewrites their canonical step" {
     dm.setStepVel(2, 0, 80);
     dm.toggleStep(2, 6);
 
-    dm.rotatePad(2, 3); // 0 -> 3, 6 -> wraps to 1
+    dm.rotateLane(2, 3); // 0 -> 3, 6 -> wraps to 1
     try std.testing.expect(dm.stepActive(2, 3) and dm.stepActive(2, 1));
     try std.testing.expect(!dm.stepActive(2, 0) and !dm.stepActive(2, 6));
     try std.testing.expectEqual(@as(u8, 80), dm.stepVel(2, 3));
     try std.testing.expectEqual(@as(u16, 3), dm.midi[2][3].?.step);
     try std.testing.expectEqual(@as(u16, 1), dm.midi[2][1].?.step);
 
-    dm.rotatePad(2, -3); // and back
+    dm.rotateLane(2, -3); // and back
     try std.testing.expect(dm.stepActive(2, 0) and dm.stepActive(2, 6));
 }
 
