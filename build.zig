@@ -13,9 +13,14 @@ pub fn build(b: *std.Build) void {
     }
     const enable_tui = b.option(bool, "tui", "Build the terminal frontend") orelse true;
     const enable_gui = b.option(bool, "gui", "Build the graphical frontend") orelse true;
+    // Compiles Dear ImGui's test engine into the GUI and turns the binary
+    // into a harness that drives itself: not something a released build
+    // should carry, since the engine also hooks every item submission.
+    const enable_gui_test = b.option(bool, "gui-test", "Build the GUI test-engine harness") orelse false;
     const build_options = b.addOptions();
     build_options.addOption(bool, "tui", enable_tui);
     build_options.addOption(bool, "gui", enable_gui);
+    build_options.addOption(bool, "gui_test", enable_gui_test);
     const init_template_mod = b.createModule(.{
         .root_source_file = b.path("examples/init_template.zig"),
     });
@@ -181,6 +186,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .backend = .glfw_opengl3,
             .with_implot = true,
+            .with_te = enable_gui_test,
             .use_wchar32 = true,
         });
         zgui.artifact("imgui").root_module.addCMacro("GLFW_INCLUDE_NONE", "1");

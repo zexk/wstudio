@@ -13,6 +13,8 @@ const gui_style = @import("style.zig");
 const glfw = @import("zglfw");
 const zgui = @import("zgui");
 const zopengl = @import("zopengl");
+const build_options = @import("build_options");
+const gui_test = if (build_options.gui_test) @import("gui_test.zig") else void;
 
 const App = app_mod.App;
 const gl = zopengl.bindings;
@@ -49,6 +51,10 @@ extern fn ImGui_ImplGlfw_NewFrame() void;
 extern fn ImGui_ImplOpenGL3_NewFrame() void;
 
 const FrameCtx = struct { window: *glfw.Window, app: *App, audio: *ws.AudioHost };
+/// Set by the `-Dgui-test` harness once its queue drains - the code the
+/// process should leave with. Lives out here because frames are also drawn
+/// from the GLFW resize/refresh callbacks, which cannot return anything.
+var test_exit: ?u8 = null;
 var frame_ctx: ?FrameCtx = null;
 
 fn onWindowRefresh(_: *glfw.Window) callconv(.c) void {
@@ -183,6 +189,7 @@ fn drawFrame() void {
     gui_style.wheel_consumed = false;
     zgui.backend.draw();
     ctx.window.swapBuffers();
+    if (build_options.gui_test) test_exit = gui_test.afterSwap();
 }
 
 pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.Runtime) !void {
@@ -269,7 +276,9 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
     drawFrame();
     window.show();
 
-    while (!window.shouldClose() and !app.core.should_quit) {
+    if (build_options.gui_test) gui_test.start(&app);
+
+    while (!window.shouldClose() and !app.core.should_quit and test_exit == null) {
         glfw.pollEvents();
         if (window.shouldClose() and !app.core.requestQuit()) window.setShouldClose(false);
         app.core.tick(std.Io.Timestamp.now(init.io, .awake).nanoseconds);
@@ -334,6 +343,12 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
         drawFrame();
         app.tickPluginScan();
     }
+
+    // A harness run leaves through here, and the code has to survive the
+    // teardown defers below - which is what the process exit is for. It
+    // skips them: there is nothing to lose in a run with no project open,
+    // and the exit status is the whole point of the run.
+    if (build_options.gui_test) if (test_exit) |code| std.process.exit(code);
 
     // The main loop broke on quit/window close: the session is still alive.
     app.core.emitEvent(.QuitPre);

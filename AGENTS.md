@@ -18,6 +18,9 @@ zig build gendemo           # re-write demo.wsj after editing tools/gendemo.zig
 zig build dspcheck -- DIR   # run a real sample library through decode/detect/render/FX
 zig build bench -Doptimize=ReleaseFast   # audio-callback p50/p99 and deadline use
 nix run .#neutral-terminal  # launch Kitty with a clean Nerd Font configuration
+
+zig build -Dgui-test                        # build the GUI with the ImGui test engine
+Xvfb :99 & DISPLAY=:99 zig-out/bin/wstudio --gui   # run it, exit status is the result
 ```
 
 Two ways to run one test while iterating on it:
