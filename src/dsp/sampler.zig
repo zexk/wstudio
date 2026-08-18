@@ -277,11 +277,11 @@ pub const Sampler = struct {
         // (e.g. a bass note) never overlap themselves.
         if (self.mono or self.pad.retrig) self.resetAll();
 
-        // ponytail: no steal declick here, unlike PolySynth and
-        // SoundfontPlayer - the fade would have to thread through pad.zig's
-        // shared renderVoice (the drum machine's path too). Preferring an
-        // already-released voice below keeps most steals quiet; add the
-        // `steal_tail`/`steal_fade` pair to `pad.Voice` if it ever clicks.
+        // The stolen voice's last pair is faded out over the new one's first
+        // ~1ms (`pad_dsp.carryStealTail`), the same declick PolySynth and
+        // SoundfontPlayer voices get.
+        // ponytail: mono/retrigger's `resetAll` above still cuts hard - it
+        // wipes every voice at once, with no single predecessor to carry.
         // Reuse a free voice, else steal - preferring one already released
         // (a gated pad past its note-off) over one still holding its key, so
         // a held note isn't cut while an inaudible tail survives. Age breaks
@@ -304,6 +304,7 @@ pub const Sampler = struct {
                 slot = i;
             }
         }
+        const stolen = self.voices[slot].v;
         self.voices[slot] = .{
             .active = true,
             .note = note,
@@ -312,6 +313,7 @@ pub const Sampler = struct {
             .age = self.next_age,
             .v = .{ .active = true, .played = 0, .block_start = block_start, .vel = vel, .hold_frames = hold, .art = art },
         };
+        pad_dsp.carryStealTail(&self.voices[slot].v, stolen);
         self.next_age +%= 1;
     }
 

@@ -470,12 +470,34 @@ pub const Voice = struct {
     /// `Slicer.scheduleNote`); live/MIDI play leaves it at -1 and waits for
     /// the key. Only consulted for a gated pad, same as `release_frames`.
     hold_frames: f64 = -1.0,
+    /// Last stereo pair this voice wrote, kept so whoever steals its slot can
+    /// fade the interrupted waveform out instead of dropping it to zero
+    /// mid-cycle (an audible click).
+    prev_l: f32 = 0,
+    prev_r: f32 = 0,
+    /// The stolen predecessor's final pair, faded out over ~1ms on top of
+    /// this voice's own output - same declick `PolySynth` and
+    /// `SoundfontPlayer` voices already do. Seeded by `carryStealTail`.
+    steal_tail_l: f32 = 0,
+    steal_tail_r: f32 = 0,
+    steal_fade: f32 = 0,
 };
 
 /// Mark `voice` released, starting the gated fade-out on the next rendered
 /// frame. Idempotent: a repeated note-off never restarts the fade.
 pub fn release(voice: *Voice) void {
     if (voice.release_frames < 0.0) voice.release_frames = 0.0;
+}
+
+/// Hand `fresh` the voice it just displaced, so `renderVoice` fades that
+/// interrupted waveform out over ~1ms instead of leaving a step at whatever
+/// level the stolen voice was mid-cycle. No-op for a free slot, and for a
+/// voice that never wrote a sample.
+pub fn carryStealTail(fresh: *Voice, stolen: Voice) void {
+    if (!stolen.active) return;
+    fresh.steal_tail_l = stolen.prev_l;
+    fresh.steal_tail_r = stolen.prev_r;
+    fresh.steal_fade = 1.0;
 }
 
 /// Release a gated voice that has held for its own `hold_frames`.
@@ -581,6 +603,20 @@ pub fn renderVoice(
     sr: f64,
 ) void {
     const sample_rate = @max(sr, 1.0);
+
+    // ~1ms declick for the waveform this voice interrupted by stealing its
+    // slot (see `carryStealTail`). Ahead of every early return below, since a
+    // pad with nothing to play still owes the stolen voice its fade-out.
+    if (voice.steal_fade > 0.0) {
+        const step: f32 = 1.0 / @as(f32, @floatCast(@max(sample_rate * 0.001, 1.0)));
+        var j: usize = voice.block_start;
+        while (j < frames and voice.steal_fade > 0.0) : (j += 1) {
+            buf[j * channels] += voice.steal_tail_l * voice.steal_fade;
+            buf[j * channels + 1] += voice.steal_tail_r * voice.steal_fade;
+            voice.steal_fade -= step;
+        }
+        if (voice.steal_fade < 0.0) voice.steal_fade = 0.0;
+    }
     const len = pad.samples.len;
     // zig fmt: off
     if (len == 0) { voice.active = false; return; }
@@ -677,8 +713,10 @@ pub fn renderVoice(
             (if (loop != .off) 1.0 else releaseLevel(left_out, pad.release_s, pad.env_curve) * curvedRamp(left_out, pad.fade_out_s, pad.fade_curve));
 
         const v = filterStep(&voice.filt, fc, s * env) * gate_g;
-        buf[i * channels] += v * gl;
-        buf[i * channels + 1] += v * gr;
+        voice.prev_l = v * gl;
+        voice.prev_r = v * gr;
+        buf[i * channels] += voice.prev_l;
+        buf[i * channels + 1] += voice.prev_r;
 
         voice.played += rate;
         if (voice.release_frames >= 0.0) voice.release_frames += 1.0;
@@ -812,8 +850,10 @@ fn renderVoiceStretched(
             (if (loop != .off) 1.0 else releaseLevel(left_out, pad.release_s, pad.env_curve) * curvedRamp(left_out, pad.fade_out_s, pad.fade_curve));
 
         const v = filterStep(&voice.filt, fc, s * env) * gate_g;
-        buf[i * channels] += v * gl;
-        buf[i * channels + 1] += v * gr;
+        voice.prev_l = v * gl;
+        voice.prev_r = v * gr;
+        buf[i * channels] += voice.prev_l;
+        buf[i * channels + 1] += voice.prev_r;
 
         st.out_in_grain += 1;
         st.out_played += 1.0;
@@ -1508,4 +1548,34 @@ test "beats grains start on an attack instead of splicing through it" {
     // decides, as before.
     const flat = searchBestAlign(&samples, 1000.0, 600.0, search_r, 0.016 * sr, 1.0, 0.0, @floatFromInt(samples.len), .beats, sr);
     try std.testing.expect(@abs(flat - 600.0) <= search_r);
+}
+
+test "a stolen voice's tail fades out under the voice that took its slot" {
+    const testing = std.testing;
+    var samples = [_]f32{1.0} ** 1000;
+    const p = Pad{ .samples = &samples, .attack_s = 0.0, .release_s = 0.001 };
+
+    // Run one voice to leave it mid-waveform at unity, then hand its slot to
+    // a fresh voice the way Sampler/Slicer stealing does.
+    var stolen = Voice{ .active = true };
+    var buf = [_]Sample{0.0} ** 2000;
+    renderVoice(&stolen, &p, &buf, 2, 1000, 1000.0);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), stolen.prev_l, 0.02);
+
+    var fresh = Voice{ .active = true };
+    carryStealTail(&fresh, stolen);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), fresh.steal_fade, 1e-6);
+
+    // 1ms of fade at 1kHz is a single frame: the tail lands on the first
+    // frame on top of the new voice's own output, and nothing after it.
+    var steal_buf = [_]Sample{0.0} ** 2000;
+    renderVoice(&fresh, &p, &steal_buf, 2, 1000, 1000.0);
+    try testing.expectApproxEqAbs(@as(f32, 2.0), steal_buf[0], 0.02);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), steal_buf[2], 0.02);
+    try testing.expectEqual(@as(f32, 0), fresh.steal_fade);
+
+    // A free slot carries nothing, so an untouched voice renders as before.
+    var untouched = Voice{ .active = true };
+    carryStealTail(&untouched, .{});
+    try testing.expectEqual(@as(f32, 0), untouched.steal_fade);
 }
