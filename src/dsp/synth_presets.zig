@@ -1502,9 +1502,17 @@ pub const presets = [_]Preset{
     // the detuned FM partial beats against the carrier), crushed to the
     // actual measured SP-1200 spec (12-bit, ~26kHz -> downsample 2 at 48k)
     // rather than a generic heavy crush
+    // A struck bell is not a harmonic instrument: its partials sit at 0.5,
+    // 1, 1.2, 1.5, 2 of the note (hum, prime, tierce, quint, nominal), and
+    // the tierce - a MINOR third over the prime, not a major one - is the
+    // interval that makes a bell sound like a bell rather than a chime. So
+    // osc C carries the tierce, and the modulator comes off its integer 4:1
+    // (which could only ever make harmonics) onto the 3.5 every FM bell
+    // recipe reaches for.
     .{ .name = "shaolin-bell", .category = "keys", .tags = &.{ "wstudio", "hip-hop", "boom-bap" }, .patch = .{
-        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 24.0, .osc_b_detune_cents = 18.0, .osc_b_level = 0.7,
+        .wt_table = .basic, .wt_pos = 0.0, .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 21.0, .osc_b_detune_cents = 69.0, .osc_b_level = 0.7,
         .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 2.8,
+        .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.0, .osc_c_semi = 3.0, .osc_c_level = 0.3,
         .attack_s = 0.001, .decay_s = 1.0, .sustain = 0.0, .release_s = 0.8, .env_curve = 0.7,
         .filter_type = .lp, .filter_cutoff = 5000.0, .filter_res = 0.0,
         .mod_matrix = mods(&.{
