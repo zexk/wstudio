@@ -124,6 +124,7 @@ fn drawLevelMeters(app: anytype, snap: ws.engine.UiSnapshot) void {
     app.meter_last_ns = now;
     meters.updateMeterHold(&app.meter_hold_db, snap.peak, dt);
     for (&app.track_meter_hold_db, snap.track_peak) |*hold, peak| meters.updateMeterHold(hold, peak, dt);
+    for (&app.group_meter_hold_db, snap.group_peak) |*hold, peak| meters.updateMeterHold(hold, peak, dt);
 
     zgui.sameLine(.{ .spacing = group_gap });
     zgui.beginGroup();

@@ -427,6 +427,9 @@ pub const UiSnapshot = struct {
     peak: [channels]f32,
     /// Per-track post-FX, post-gain/pan peaks before any group processing.
     track_peak: [max_tracks][channels]f32 = [_][channels]f32{.{ 0.0, 0.0 }} ** max_tracks,
+    /// Per-group post-FX, post-fader submix peaks - what the bus actually
+    /// contributes to the mix, its own chain's gain included.
+    group_peak: [max_groups][channels]f32 = [_][channels]f32{.{ 0.0, 0.0 }} ** max_groups,
     /// Master-bus phase correlation, -1 (out of phase) .. +1 (in phase) -
     /// see `dsp/meter.zig`'s `StereoCorrelation`.
     correlation: f32,
@@ -522,6 +525,9 @@ pub const Engine = struct {
     group_scratch: [max_groups][types.max_block_frames * channels]Sample = undefined,
     peak: [channels]f32 = .{ 0.0, 0.0 },
     track_peak: [max_tracks][channels]f32 = [_][channels]f32{.{ 0.0, 0.0 }} ** max_tracks,
+    /// Per-group post-FX, post-fader submix peaks - what the bus actually
+    /// contributes to the mix, its own chain's gain included.
+    group_peak: [max_groups][channels]f32 = [_][channels]f32{.{ 0.0, 0.0 }} ** max_groups,
     /// Single analyzer reused for whichever track/group is being viewed.
     track_spectrum: SpectrumAnalyzer,
     master_spectrum: SpectrumAnalyzer,
@@ -586,6 +592,7 @@ pub const Engine = struct {
         position_frames: std.atomic.Value(u64) = .init(0),
         peak_bits: [channels]std.atomic.Value(u32) = .{ .init(0), .init(0) },
         track_peak_bits: [max_tracks][channels]std.atomic.Value(u32) = [_][channels]std.atomic.Value(u32){.{ .init(0), .init(0) }} ** max_tracks,
+        group_peak_bits: [max_groups][channels]std.atomic.Value(u32) = [_][channels]std.atomic.Value(u32){.{ .init(0), .init(0) }} ** max_groups,
         correlation_bits: std.atomic.Value(u32) = .init(@bitCast(@as(f32, 1.0))),
         lufs_momentary_bits: std.atomic.Value(u32) = .init(@bitCast(LoudnessMeter.floor_lufs)),
         lufs_short_term_bits: std.atomic.Value(u32) = .init(@bitCast(LoudnessMeter.floor_lufs)),
@@ -1226,6 +1233,7 @@ pub const Engine = struct {
         self.drainCommands();
         const track_count = self.track_count.load(.acquire);
         @memset(self.track_peak[0..track_count], .{ 0.0, 0.0 });
+        self.group_peak = [_][channels]f32{.{ 0.0, 0.0 }} ** max_groups;
 
         if (self.pre_roll_frames_remaining > 0) {
             // Count-in: click through the armed bar, no track audio, and
@@ -1294,6 +1302,9 @@ pub const Engine = struct {
         for (0..track_count) |track| inline for (0..channels) |ch| {
             self.shared.track_peak_bits[track][ch].store(@bitCast(self.track_peak[track][ch]), .monotonic);
         };
+        for (0..max_groups) |group| inline for (0..channels) |ch| {
+            self.shared.group_peak_bits[group][ch].store(@bitCast(self.group_peak[group][ch]), .monotonic);
+        };
         self.shared.correlation_bits.store(@bitCast(self.master_correlation.value()), .monotonic);
         self.shared.lufs_momentary_bits.store(@bitCast(self.master_loudness.momentary()), .monotonic);
         self.shared.lufs_short_term_bits.store(@bitCast(self.master_loudness.shortTerm()), .monotonic);
@@ -1324,6 +1335,7 @@ pub const Engine = struct {
             .position_frames = self.shared.position_frames.load(.monotonic),
             .peak = undefined,
             .track_peak = undefined,
+            .group_peak = undefined,
             .correlation = @bitCast(self.shared.correlation_bits.load(.monotonic)),
             .lufs_momentary = @bitCast(self.shared.lufs_momentary_bits.load(.monotonic)),
             .lufs_short_term = @bitCast(self.shared.lufs_short_term_bits.load(.monotonic)),
@@ -1334,6 +1346,9 @@ pub const Engine = struct {
         }
         for (0..max_tracks) |track| inline for (0..channels) |ch| {
             snap.track_peak[track][ch] = @bitCast(self.shared.track_peak_bits[track][ch].load(.monotonic));
+        };
+        for (0..max_groups) |group| inline for (0..channels) |ch| {
+            snap.group_peak[group][ch] = @bitCast(self.shared.group_peak_bits[group][ch].load(.monotonic));
         };
         return snap;
     }
@@ -2141,11 +2156,21 @@ pub const Engine = struct {
 
             const group_gains = self.automation_bus[0..frames];
             const group_automated = self.group_gain_automation[gi].fillValues(group_gains, beat_pos, 1.0 / self.transport.framesPerBeat(), g.gain);
+            // Post-fader submix peak, the group's own meter - kept here (in
+            // locals, written back once) for the reason `renderOneTrack`'s
+            // track peak gives.
+            var peak_l = self.group_peak[gi][0];
+            var peak_r = self.group_peak[gi][1];
             for (0..frames) |frame| {
                 const gain = if (group_automated) group_gains[frame] else g.gain;
-                out[frame * channels] += gscratch[frame * channels] * gain;
-                out[frame * channels + 1] += gscratch[frame * channels + 1] * gain;
+                const l = gscratch[frame * channels] * gain;
+                const r = gscratch[frame * channels + 1] * gain;
+                out[frame * channels] += l;
+                out[frame * channels + 1] += r;
+                peak_l = @max(peak_l, @abs(l));
+                peak_r = @max(peak_r, @abs(r));
             }
+            self.group_peak[gi] = .{ peak_l, peak_r };
 
             if (group_tap == null and self.active_spectrum_source == .group and @as(u8, @intCast(gi)) == self.active_spectrum_group) {
                 self.track_spectrum.push(gscratch);
@@ -3854,4 +3879,30 @@ test "a one-bar count-in in 6/8 lasts one bar, not two" {
         @as(f64, @floatFromInt(engine.pre_roll_frames_remaining + 256)),
         1.0,
     );
+}
+
+test "a group's meter reads its post-FX, post-fader submix, not its members' levels" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.trackAt(0).* = .{ .active = true };
+    engine.setTrackChain(0, &.{synth.device()});
+    _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
+
+    // A compressor deep into gain reduction on the group chain: the track's
+    // own peak stays loud while the bus the group sends on is crushed.
+    var comp = testCompressor(-60.0);
+    engine.setGroupChain(0, true, &.{comp.device()});
+    _ = engine.send(.{ .set_track_group = .{ .track = 0, .group = 0 } });
+
+    var block: [512]Sample = undefined;
+    for (0..4) |_| engine.process(&block);
+
+    const snap = engine.uiSnapshot();
+    try std.testing.expect(snap.track_peak[0][0] > 0.01);
+    try std.testing.expect(snap.group_peak[0][0] > 0.0);
+    try std.testing.expect(snap.group_peak[0][0] < snap.track_peak[0][0] * 0.5);
+    // An untouched group slot meters silence.
+    try std.testing.expectEqual(@as(f32, 0.0), snap.group_peak[1][0]);
 }

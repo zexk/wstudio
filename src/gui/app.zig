@@ -45,6 +45,7 @@ pub const App = struct {
     group_gain_edit: ?struct { group: u8, before: f32 } = null,
     meter_hold_db: [2]f32 = .{ -100, -100 },
     track_meter_hold_db: [ws.engine.max_tracks][2]f32 = [_][2]f32{.{ -100, -100 }} ** ws.engine.max_tracks,
+    group_meter_hold_db: [ws.engine.max_groups][2]f32 = [_][2]f32{.{ -100, -100 }} ** ws.engine.max_groups,
     meter_last_ns: i128 = 0,
     /// Which view the one shared workspace window last drew - see
     /// `drawWorkspace`, which resets the scroll when this changes.

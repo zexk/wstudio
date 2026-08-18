@@ -464,16 +464,10 @@ fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) 
     if (gain.changed) app.core.session.setGroupGain(group_index, gain.value);
     if (gain.finished) app.finishGroupGainEdit();
 
-    // The engine meters tracks, not groups, so the bus level is the loudest
-    // member plus this fader - close enough to read the bus at a glance.
-    // ponytail: ignores group FX gain; needs a real per-group peak in
-    // engine.Snapshot to be exact.
-    var group_hold: [2]f32 = .{ -100, -100 };
-    for (app.core.session.project.tracks.items, 0..) |track, i| {
-        if (track.group != group_index) continue;
-        for (0..2) |ch| group_hold[ch] = @max(group_hold[ch], app.track_meter_hold_db[i][ch] + group.gain_db);
-    }
-    meters.solidMeterBar(draw_list, .{ block_x0 + block_inset, stack.meter }, group_hold, block_w - 2 * block_inset, meter_bar_h, meter_gap, block_fg);
+    // The engine's own post-FX, post-fader peak for this bus, so the meter
+    // reads what the group actually sends to the mix rather than a guess
+    // from its members.
+    meters.solidMeterBar(draw_list, .{ block_x0 + block_inset, stack.meter }, app.group_meter_hold_db[group_index], block_w - 2 * block_inset, meter_bar_h, meter_gap, block_fg);
 
     // Same badge slots a track row gets, in the same two positions - both
     // the bus's own real flags now (App.doGroupSolo/doGroupMute,
