@@ -215,7 +215,7 @@ fn drawStandalone(app: anytype) void {
         zgui.spacing();
         if (widgets.emptyState(.{
             .id = "sampler-empty-state",
-            .title = "LOAD A SAMPLE",
+            .title = "NO SAMPLE",
             .explanation = "Choose a WAV file before editing trim, pitch, envelope, or output.",
             .shortcut = ":load",
             .action = "LOAD AUDIO",
@@ -247,7 +247,7 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
                 else => return,
             };
             if (index >= drum.pads.len or drum.pads[index] == null) {
-                drawPadEmptyState(app, "LOAD A PAD SAMPLE", "Choose a WAV file for this drum pad.");
+                drawPadEmptyState(app, "NO SAMPLE", "Choose a WAV file for this drum pad.");
                 return;
             }
             break :blk .{ &drum.pads[index].?.pad, drum.sample_rate };
@@ -267,7 +267,7 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
 
     const target: Target = .{ .pad = .{ .pad = pad, .track = track, .kind = kind, .index = index, .sample_rate = sample_rate } };
     if (pad.samples.len == 0) {
-        drawPadEmptyState(app, if (kind == .drum) "LOAD A PAD SAMPLE" else "LOAD AUDIO TO CREATE SLICES", if (kind == .drum) "Choose a WAV file for this drum pad." else "Choose a WAV file before editing slice playback.");
+        drawPadEmptyState(app, if (kind == .drum) "NO SAMPLE" else "NO AUDIO", if (kind == .drum) "Choose a WAV file for this drum pad." else "Choose a WAV file before editing slice playback.");
         return;
     }
     widgets.sectionTitle("PLAY REGION", theme.audio);

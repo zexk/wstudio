@@ -54,7 +54,7 @@ fn drawEmptyState(app: anytype) void {
     });
     if (widgets.emptyState(.{
         .id = "slicer-empty-state",
-        .title = "LOAD AUDIO TO START SLICING",
+        .title = "NO AUDIO",
         .explanation = "Choose a WAV file, then divide it into playable slices.",
         .shortcut = ":load",
         .action = "LOAD AUDIO",
@@ -82,7 +82,7 @@ fn drawHeader(app: anytype, slicer: *const ws.dsp.Slicer) void {
 
 fn drawSliceState(app: anytype, slicer: *const ws.dsp.Slicer) void {
     if (slicer.slice_count == 0) {
-        zgui.textDisabled("No slices yet.", .{});
+        zgui.textDisabled("NO SLICES", .{});
         zgui.sameLine(.{ .spacing = 12 });
         if (zgui.button("8 EQUAL SLICES", .{})) commands.run(&app.core, "slice 8");
         zgui.sameLine(.{ .spacing = 6 });
