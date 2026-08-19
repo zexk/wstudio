@@ -11,6 +11,8 @@ const engine_mod = ws.engine;
 const Transport = ws.Transport;
 const style = @import("../style.zig");
 const icons = @import("../../ui/icons.zig");
+const waveform = @import("../../ui/waveform.zig");
+const types = ws.types;
 
 const rst = style.rst;
 const bold = style.bold;
@@ -75,6 +77,62 @@ fn mapPointLabel(p: *const ws.Project, tick: u32, cell_ticks: u32, buf: []u8) ?[
         if (at >= tick and at < cell_end) return std.fmt.bufPrint(buf, "{d}/{d}", .{ point.numerator, point.denominator }) catch null;
     }
     return null;
+}
+
+/// One character per amplitude step, quietest first.
+const wave_glyphs = [_][]const u8{ "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█" };
+
+/// The block glyph for the loudest sample under one timeline cell of an
+/// audio clip: the arrangement's waveform, at one character per grid step.
+/// Null when the cell is not audio, the source is gone, or the cell sits
+/// past the end of the region's audio (a clip can outlast the sound it
+/// holds - the engine simply stops, see `Engine.renderAudioLane`), and the
+/// caller keeps drawing its plain clip body there.
+///
+/// Timeline frames drive the lookup, not a share of the clip's tick span,
+/// so the picture agrees with playback for a file at a different sample
+/// rate or a stretched region instead of stretching to fill the box.
+fn audioCellGlyph(p: *const ws.Project, clip: *const ws.Clip, bar: u32, grid_ticks: u32) ?[]const u8 {
+    const region = switch (clip.content) {
+        .audio => |a| a,
+        else => return null,
+    };
+    const source = p.audioSource(region.source_id) orelse return null;
+    const channels = @max(source.channel_count, 1);
+    const available = source.samples.len / channels;
+    if (available <= region.source_start_frame) return null;
+    const length = @min(region.source_length_frames, available - region.source_start_frame);
+    if (length == 0) return null;
+
+    const clip_frame = p.framesAtBeat(ws.time_grid.tickToBeat(clip.start_tick));
+    const rate_ratio = @as(f64, @floatFromInt(@max(source.sample_rate, 1))) /
+        @as(f64, @floatFromInt(@max(p.sample_rate, 1))) /
+        @as(f64, @floatCast(@max(region.stretch_ratio, 0.001)));
+    var offsets: [2]u64 = undefined;
+    for (&offsets, [2]u32{ bar, bar +| grid_ticks }) |*out, tick| {
+        const timeline = p.framesAtBeat(ws.time_grid.tickToBeat(tick)) -| clip_frame;
+        const scaled = @as(f64, @floatFromInt(timeline)) * rate_ratio;
+        out.* = if (scaled >= @as(f64, @floatFromInt(length))) length else @intFromFloat(@max(scaled, 0));
+    }
+    if (offsets[0] >= length) return null;
+    const hi = @max(offsets[1], offsets[0] + 1);
+    // Reversed playback mirrors what is heard, so mirror the picture too.
+    const lo_f = if (region.reverse) length -| @min(hi, length) else offsets[0];
+    const hi_f = if (region.reverse) length -| offsets[0] else @min(hi, length);
+    const lo = (region.source_start_frame + lo_f) * channels;
+    const end = @min((region.source_start_frame + hi_f) * channels, source.samples.len);
+    if (end <= lo) return null;
+
+    var peak: [1]f32 = undefined;
+    waveform.peakBucketsSampled(source.samples[@intCast(lo)..@intCast(end)], &peak, 32);
+    const scaled = peak[0] * types.dbToGain(std.math.clamp(region.gain_db, -60.0, 24.0));
+    // Square root, not the raw peak: a linear map spends most of the eight
+    // glyphs on the loud half and draws quiet material as a flat line.
+    const level: usize = @intFromFloat(@min(
+        @as(f32, @floatFromInt(wave_glyphs.len - 1)),
+        @sqrt(std.math.clamp(scaled, 0, 1)) * @as(f32, @floatFromInt(wave_glyphs.len)),
+    ));
+    return wave_glyphs[level];
 }
 
 pub fn drawArrangement(
@@ -232,17 +290,29 @@ pub fn drawArrangement(
                 }
                 stacked = hits > 1;
             }
-            const body: []const u8 = if (stacked) "▓" else "█";
+            // An audio clip draws its own envelope instead of a solid bar,
+            // so a lane of one-shots reads as the hits it holds. A stack of
+            // overlapping clips keeps the shaded body - the picture would be
+            // of the top layer only, which is exactly what the shading warns
+            // the eye about.
+            const wave: ?[]const u8 = if (covered and !stacked)
+                audioCellGlyph(p, clip.?, bar, grid_ticks)
+            else
+                null;
+            const body: []const u8 = wave orelse (if (stacked) "▓" else "█");
             const is_cursor = is_sel_lane and bar == cur_bar;
             const is_play = playhead == bar;
             const in_sel = visual_active and is_sel_lane and bar >= sel_lo and bar <= sel_hi;
 
             // Drum clips wear their variant letter on the start cell, audio
             // regions an 'A' - melodic clips stay plain, which is what the
-            // whole lane looked like before either mark existed.
+            // whole lane looked like before either mark existed. An audio
+            // clip drawing its envelope drops the badge: the picture already
+            // says "audio", and the start cell is where the transient is,
+            // which is the one column worth not covering up.
             const letter: ?u8 = if (is_start) switch (clip.?.content) {
                 .drum => |d| ws.dsp.DrumMachine.variantLetter(d.variant),
-                .audio => 'A',
+                .audio => if (wave == null) @as(u8, 'A') else null,
                 .melodic => null,
             } else null;
 
@@ -319,4 +389,49 @@ test "playhead tick saturates for positions beyond the arrangement range" {
         .lufs_integrated = ws.dsp.LoudnessMeter.floor_lufs,
     };
     try std.testing.expectEqual(@as(?u32, std.math.maxInt(u32)), playheadBar(app, snap));
+}
+
+test "an audio cell's glyph follows the envelope and stops at the end of the sound" {
+    var project = ws.Project.init(std.testing.allocator);
+    defer project.deinit();
+    project.sample_rate = 48_000;
+    project.tempo_bpm = 120.0;
+
+    // One second of decay, so each quarter-note cell reads a quieter quarter
+    // of it than the last.
+    const frames = 48_000;
+    const samples = try std.testing.allocator.alloc(f32, frames);
+    defer std.testing.allocator.free(samples);
+    for (samples, 0..) |*s, i| {
+        s.* = 1.0 - @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(frames));
+    }
+    const source_id = try project.addAudioSource("decay", 48_000, 1, samples);
+
+    // Two seconds of clip over one second of audio: the back half has no
+    // sound under it at all.
+    const beat = ws.time_grid.ticks_per_beat;
+    var clip = ws.Clip.initAudio(0, beat * 4, .{
+        .source_id = source_id,
+        .source_start_frame = 0,
+        .source_length_frames = frames,
+    });
+    defer clip.deinit(std.testing.allocator);
+
+    var previous: usize = wave_glyphs.len;
+    for (0..2) |cell| {
+        const glyph = audioCellGlyph(&project, &clip, @intCast(cell * beat), beat) orelse
+            return error.ExpectedGlyph;
+        const level = for (wave_glyphs, 0..) |candidate, i| {
+            if (std.mem.eql(u8, candidate, glyph)) break i;
+        } else return error.UnknownGlyph;
+        try std.testing.expect(level < previous);
+        previous = level;
+    }
+    // Past the audio, but still inside the clip box.
+    try std.testing.expectEqual(@as(?[]const u8, null), audioCellGlyph(&project, &clip, beat * 3, beat));
+
+    // A melodic clip has no envelope to draw and keeps the plain body.
+    var melodic = try ws.Clip.initMelodic(std.testing.allocator, 0, beat, &.{}, 1.0);
+    defer melodic.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(?[]const u8, null), audioCellGlyph(&project, &melodic, 0, beat));
 }
