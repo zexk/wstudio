@@ -141,7 +141,7 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
         .instrument_picker => try picker.drawInstrumentPicker(self, w, content_rows),
         .fx_picker       => try picker.drawFxPicker(self, w, content_rows),
         .arrangement     => try arrangement.drawArrangement(self, w, content_rows, size.cols, snap),
-        .file_browser    => try browser.drawFileBrowser(self, w, content_rows),
+        .file_browser    => try browser.drawFileBrowser(self, w, content_rows, size.cols),
         .automation      => try automation.drawAutomation(self, w, content_rows, size.cols, snap),
         .automation_param_picker => try automation.drawAutomationParamPicker(self, w, content_rows),
         .slicer_grid     => try slicer.drawSlicerGrid(self, w, content_rows, size.cols, snap),

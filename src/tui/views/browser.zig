@@ -13,9 +13,9 @@ const sel = style.sel;
 const yel = style.yel;
 const endLine = style.endLine;
 
-pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize) !void {
-    if (app.browser_recent_mode) return drawRecentProjects(app, w, rows);
-    if (app.browser_bookmark_mode) return drawBookmarkList(app, w, rows);
+pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize) !void {
+    if (app.browser_recent_mode) return drawRecentProjects(app, w, rows, cols);
+    if (app.browser_bookmark_mode) return drawBookmarkList(app, w, rows, cols);
 
     var label_buf: [32]u8 = undefined;
     try w.writeAll(bold ++ " BROWSE" ++ rst);
@@ -31,9 +31,11 @@ pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize) !void {
         try w.writeAll(rst);
     }
     try endLine(w);
+    // Paths are the one thing here with no length bound at all, so every
+    // row holding one goes through the clamp: a deep directory would
+    // otherwise wrap and push the listing down a line per entry.
     try w.writeAll(dim);
-    try w.writeAll(app.browser_dir);
-    try w.writeAll(rst);
+    try style.writeClamped(w, app.browser_dir, cols);
     try endLine(w);
 
     const entries = app.browser_entries.items;
@@ -66,15 +68,17 @@ pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize) !void {
         const in_sel = app.browser_visual_anchor != null and i >= sel_lo and i <= sel_hi and !entry.is_dir;
         if (is_sel) try w.writeAll(sel) else if (in_sel) try w.writeAll(yel);
         try w.writeAll(if (is_sel) "  > " else if (in_sel) "  ~ " else "    ");
-        try style.writeHighlighted(w, entry.name, pattern, if (is_sel) bold else sel, if (is_sel) sel else "", 0);
-        if (entry.is_dir) try w.writeAll("/");
-        try w.writeAll(rst);
+        var row_buf: [1024]u8 = undefined;
+        var row_w = std.Io.Writer.fixed(&row_buf);
+        try style.writeHighlighted(&row_w, entry.name, pattern, if (is_sel) bold else sel, if (is_sel) sel else "", 0);
+        if (entry.is_dir) try row_w.writeAll("/");
+        try style.writeClamped(w, row_w.buffered(), cols -| 4);
         try endLine(w);
     }
     for (end - off..visible) |_| try endLine(w);
 }
 
-fn drawRecentProjects(app: anytype, w: *std.Io.Writer, rows: usize) !void {
+fn drawRecentProjects(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize) !void {
     try w.writeAll(bold ++ " RECENT PROJECTS" ++ rst);
     try endLine(w);
     try w.writeAll(dim ++ "opened projects appear here" ++ rst);
@@ -93,8 +97,7 @@ fn drawRecentProjects(app: anytype, w: *std.Io.Writer, rows: usize) !void {
         const is_sel = i == app.recent_project_cursor;
         if (is_sel) try w.writeAll(sel);
         try w.writeAll(if (is_sel) "  > " else "    ");
-        try w.writeAll(path);
-        try w.writeAll(rst);
+        try style.writeClamped(w, path, cols -| 4);
         try endLine(w);
     }
     for ((end - off) + @intFromBool(app.recent_projects.items.len == 0)..visible) |_| try endLine(w);
@@ -103,7 +106,7 @@ fn drawRecentProjects(app: anytype, w: *std.Io.Writer, rows: usize) !void {
 /// `B`'s overlay: the bookmark list in place of the directory listing, same
 /// visual layout as drawFileBrowser's own list (see App.handleBookmarkListKey
 /// for the input side).
-fn drawBookmarkList(app: anytype, w: *std.Io.Writer, rows: usize) !void {
+fn drawBookmarkList(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize) !void {
     try w.writeAll(bold ++ " BOOKMARKS" ++ rst);
     try endLine(w);
     try w.writeAll(dim ++ "b marks current path" ++ rst);
@@ -129,7 +132,7 @@ fn drawBookmarkList(app: anytype, w: *std.Io.Writer, rows: usize) !void {
         const is_sel = i == app.bookmark_cursor;
         if (is_sel) try w.writeAll(sel);
         try w.writeAll(if (is_sel) "  > " else "    ");
-        try w.writeAll(bm.path);
+        try style.writeClamped(w, bm.path, cols -| 5);
         if (bm.is_dir) try w.writeAll("/");
         try w.writeAll(rst);
         try endLine(w);

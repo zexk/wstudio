@@ -11330,3 +11330,29 @@ test "tracks view keeps its columns aligned when one name is long" {
     }
     try std.testing.expect(rows_seen >= 4);
 }
+
+test "the file browser clamps long paths and names to the terminal" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .file_browser;
+    // Directory strings are owned by the app (freed on deinit), and neither
+    // they nor an entry's name has any length bound - a deep path used to
+    // wrap and push the listing down a row per entry.
+    app.browser_dir = try app.allocator.dupeZ(u8, "/home/someone/music/projects/2026/album/stems/renders/final/really-deep");
+    try app.browser_entries.append(app.allocator, .{
+        .name = try app.allocator.dupe(u8, "an-absurdly-long-sample-name-that-would-not-fit-in-eighty-columns.wav"),
+        .is_dir = false,
+    });
+    var buf: [32 * 1024]u8 = undefined;
+    var plain_buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 60, .rows = 20 });
+    var lines = std.mem.splitScalar(u8, ansi.stripAnsi(w.buffered(), &plain_buf), '\n');
+    while (lines.next()) |line| {
+        var columns: usize = 0;
+        for (line) |b| {
+            if (b != '\r' and b & 0xC0 != 0x80) columns += 1;
+        }
+        try std.testing.expect(columns <= 60);
+    }
+}
