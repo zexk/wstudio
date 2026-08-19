@@ -60,11 +60,10 @@ pub const Ott = struct {
 
     pub fn processBlock(self: *Ott, buf: []Sample) void {
         // Every other chain unit's processBlock guards its fields the same
-        // way at the process-time boundary, not just the setter - a raw
-        // field write (PolySynth's internal fixed OTT slot writes
-        // gain_in_db/gain_out_db directly, bypassing setDepth/setTime-style
-        // setters) currently always happens to arrive already clamped, but
-        // nothing here enforces that; this is the belt-and-braces layer.
+        // way at the process-time boundary, not just the setter - these two
+        // have no setter to clamp in, so a raw field write (persist load,
+        // `fx_params.tableSet`) is the only way they are ever set and this
+        // is the only place that checks them.
         const gain_in_db = dsp.sanitizeParam(self.gain_in_db, -24.0, 24.0, 0.0);
         const gain_out_db = dsp.sanitizeParam(self.gain_out_db, -24.0, 24.0, 0.0);
         const gin = types.dbToGain(gain_in_db);
@@ -82,8 +81,8 @@ pub const Ott = struct {
 
     /// Clears the underlying MultibandComp's crossover/envelope state
     /// without touching its sample-rate-derived coefficients - callers
-    /// embedding an `Ott` by value (e.g. PolySynth's internal FX section)
-    /// must use this instead of `= .{}`.
+    /// embedding an `Ott` by value (`rack.FxPayload` holds every unit that
+    /// way) must use this instead of `= .{}`.
     pub fn reset(self: *Ott) void {
         self.mb.reset();
     }
@@ -140,8 +139,8 @@ test "setters ignore non-finite values" {
 
 test "invalid gain fields cannot poison output" {
     var ott = Ott.init(48_000);
-    // Direct field writes, not through a setter - matches how PolySynth's
-    // internal fixed OTT slot assigns these (see synth.zig fx_ott_state).
+    // Direct field writes, not through a setter - the only way these two
+    // are ever set (they have none).
     ott.gain_in_db = std.math.inf(f32);
     ott.gain_out_db = std.math.nan(f32);
     var buf = [_]Sample{ 0.0, -0.7, 0.05, 0.9 };

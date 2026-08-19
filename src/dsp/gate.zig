@@ -130,9 +130,9 @@ pub const Gate = struct {
     }
 
     /// Clears detector/gain state without touching `sample_rate` - callers
-    /// embedding a `Gate` by value (e.g. PolySynth's internal FX section)
-    /// must use this instead of `= .{}`, which would reset sample_rate to
-    /// the struct default and desync it from the real session rate.
+    /// embedding a `Gate` by value (`rack.FxPayload` holds every unit that
+    /// way) must use this instead of `= .{}`, which would reset sample_rate
+    /// to the struct default and desync it from the real session rate.
     pub fn reset(self: *Gate) void {
         self.env = 0.0;
         self.det_state.reset();

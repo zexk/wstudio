@@ -30,7 +30,9 @@ pub const Tape = struct {
 
     /// Center delay sits at half the ring so the bipolar wow+flutter swing
     /// (up to `max_wow_ms + max_flutter_ms` either direction) never reads
-    /// past either end. 1024 samples matches Flanger/Chorus's ring sizing.
+    /// past either end. Inline rather than allocated like Chorus's and
+    /// Flanger's, which is why the swing shrinks to fit at high rates
+    /// instead of the ring growing - see `fit` in `processBlock`.
     pub const len: usize = 1024;
     const max_wow_ms: f32 = 8.0;
     const max_flutter_ms: f32 = 1.5;

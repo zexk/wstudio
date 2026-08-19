@@ -166,8 +166,8 @@ pub const MultibandComp = struct {
     pub const device = dsp.deviceOf(@This());
 
     /// Clears crossover/envelope state without touching `sample_rate` -
-    /// callers embedding a `MultibandComp` by value (e.g. PolySynth's
-    /// internal FX section) must use this instead of `= .{}`, which would
+    /// callers embedding a `MultibandComp` by value (`rack.FxPayload` holds
+    /// every unit that way) must use this instead of `= .{}`, which would
     /// reset sample_rate to the struct default and desync it from the real
     /// session rate.
     pub fn reset(self: *MultibandComp) void {

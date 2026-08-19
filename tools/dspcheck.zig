@@ -5,8 +5,8 @@
 //!
 //!   1. Robustness - does anything crash, allocate unboundedly, or emit a
 //!      non-finite sample when fed audio nobody wrote a fixture for? Every
-//!      file goes through `wav.parseAlloc`, a `Sampler` render, and all 21
-//!      built-in FX units.
+//!      file goes through `wav.parseAlloc`, a `Sampler` render, and every
+//!      built-in FX unit.
 //!   2. Accuracy - the file names in a commercial sample library carry the
 //!      tempo and key as ground truth, so `tempo.detect` and `pitch.detect`
 //!      can be scored against them instead of eyeballed. This is the same
