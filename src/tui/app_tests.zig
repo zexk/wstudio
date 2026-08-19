@@ -11301,3 +11301,29 @@ test "every view survives every terminal size it can be handed" {
         }
     }
 }
+
+test "tracks view keeps its columns aligned when one name is long" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.project.renameTrack(1, "a very long track name");
+    var buf: [32 * 1024]u8 = undefined;
+    var plain_buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 120, .rows = 20 });
+    // Every row's instrument cell starts in the same column: the name field
+    // is padded to the widest name on screen rather than a fixed 8.
+    var lines = std.mem.splitScalar(u8, ansi.stripAnsi(w.buffered(), &plain_buf), '\n');
+    var first: ?usize = null;
+    var rows_seen: usize = 0;
+    while (lines.next()) |line| {
+        const at = for ([_][]const u8{ "[synth]", "[sampler]", "[drums]", "[bus]" }) |label| {
+            if (std.mem.indexOf(u8, line, label)) |i| break i;
+        } else continue;
+        rows_seen += 1;
+        if (first) |f| std.testing.expectEqual(f, at) catch |e| {
+            std.debug.print("row out of column: {s}\n", .{line});
+            return e;
+        } else first = at;
+    }
+    try std.testing.expect(rows_seen >= 4);
+}

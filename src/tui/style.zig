@@ -97,7 +97,7 @@ pub const writeViewBadgeColored = ansi.writeViewBadgeColored;
 /// Visible column width of `raw` (may contain ANSI SGR sequences): escapes
 /// cost nothing, everything else counts as one column per UTF-8 lead byte.
 /// Shared by writeClamped (left content) and writeSplitRow (both sides).
-fn visibleWidth(raw: []const u8) usize {
+pub fn visibleWidth(raw: []const u8) usize {
     var i: usize = 0;
     var col: usize = 0;
     while (i < raw.len) {

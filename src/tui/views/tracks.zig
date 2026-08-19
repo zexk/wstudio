@@ -88,7 +88,7 @@ fn writeGainCell(w: *std.Io.Writer, gdb: f32, dim_at_default: bool) !void {
 /// One real track's row. Members of a group render indented under their
 /// group's own row (see App.rebuildTrackRows for the folder ordering), which
 /// replaced the old per-track "‣group" suffix tag.
-fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel: bool, cols: usize) !void {
+fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel: bool, cols: usize, name_w: usize) !void {
     const track = app.session.project.tracks.items[ti];
     // Row content builds up in a scratch buffer so the keybind hint can
     // be pinned to the right edge (writeSplitRow) instead of trailing
@@ -128,7 +128,7 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
     else
         null;
     if (track_color) |c| try lw.writeAll(c);
-    try lw.print("{s: <8}", .{track.name});
+    try style.writePadded(lw, track.name, name_w);
     if (track_color != null) try lw.writeAll(rst);
     try lw.writeByte(' ');
     // instrument-kind icon - a single cell either way (Mono glyph or the
@@ -229,7 +229,7 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
 /// gain) plus a fold arrow and its `:group-*` slot number where a track row
 /// has its track number. Folded groups show how many member rows they hide;
 /// unfolded ones don't need to - the members sit right below.
-fn writeGroupRow(app: anytype, w: *std.Io.Writer, gi: u8, is_sel: bool, in_sel: bool, cols: usize) !void {
+fn writeGroupRow(app: anytype, w: *std.Io.Writer, gi: u8, is_sel: bool, in_sel: bool, cols: usize, name_w: usize) !void {
     const grp = &app.session.groups[gi].?;
     var row_buf: [768]u8 = undefined;
     var row_w = std.Io.Writer.fixed(&row_buf);
@@ -244,7 +244,7 @@ fn writeGroupRow(app: anytype, w: *std.Io.Writer, gi: u8, is_sel: bool, in_sel: 
     if (in_sel and !is_sel) try lw.writeAll(rst);
     if (!is_sel) try lw.writeAll(mag);
     try lw.print("{s}{d} ", .{ @as([]const u8, if (grp.folded) "\u{25B8}" else "\u{25BE}"), gi + 1 });
-    try style.writePadded(lw, grp.name, 8);
+    try style.writePadded(lw, grp.name, name_w);
     if (!is_sel) try lw.writeAll(rst);
     if (!is_sel) try lw.writeAll(acc);
     try lw.writeAll(" [group]");
@@ -318,12 +318,26 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, sna
     const sel_lo = @min(sel_anchor, app.track_row);
     const sel_hi = @max(sel_anchor, app.track_row);
 
+    // The name column is as wide as the widest name on screen: 8 keeps the
+    // old shape for ordinary names, 24 caps what one absurd name can claim.
+    // Padding every row to one width is what keeps the columns after the
+    // name (kind, FX badges, gain, pan) lined up - `{s: <8}` padded but
+    // never truncated, so a long name shifted its own row's tail alone.
+    var name_w: usize = 8;
+    for (app.trackRows()[scroll..last_visible]) |trow| {
+        const name = switch (trow) {
+            .group => |gi| if (app.session.groups[gi]) |g| g.name else "",
+            .track => |ti| app.session.project.tracks.items[ti].name,
+        };
+        name_w = @max(name_w, @min(style.visibleWidth(name), 24));
+    }
+
     for (app.trackRows()[scroll..last_visible], scroll..) |trow, ri| {
         const in_sel = visual_active and ri >= sel_lo and ri <= sel_hi;
         const is_sel = (ri == app.track_row);
         switch (trow) {
-            .group => |gi| try writeGroupRow(app, w, gi, is_sel, in_sel, cols),
-            .track => |ti| try writeTrackRow(app, w, ti, is_sel, in_sel, cols),
+            .group => |gi| try writeGroupRow(app, w, gi, is_sel, in_sel, cols, name_w),
+            .track => |ti| try writeTrackRow(app, w, ti, is_sel, in_sel, cols, name_w),
         }
         try endLine(w);
     }
@@ -341,10 +355,12 @@ pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, sna
         try lw.writeByte(' ');
         try lw.writeAll(marker);
         try lw.writeAll("   ");
-        try lw.print("{s: <8}", .{"MASTER"});
+        try style.writePadded(lw, "MASTER", name_w);
         try lw.writeByte(' ');
         try lw.writeAll(icons.iconOr(icons.master, " "));
-        try lw.writeAll("   ");
+        // One blank per column a track row spends on its icon gap and its
+        // mute/solo/arm flags, so [bus] lands under the tracks' [synth].
+        try lw.writeAll("    ");
         if (!is_sel) try lw.writeAll(acc);
         try lw.writeAll(" [bus]");
         if (!is_sel) try lw.writeAll(rst);
