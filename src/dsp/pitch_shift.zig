@@ -69,6 +69,8 @@ pub const PitchShift = struct {
     /// Last values pushed into Rubber Band, so an unchanged block does not
     /// re-issue a parameter change it would have to react to.
     applied_scale: f64 = 1.0,
+    /// The ratio the params ask for, before `max_first_scale` is applied.
+    wanted_scale: f64 = 1.0,
     applied_formant: f64 = 1.0,
     /// Whether the next `rubberband_live_shift` is the one that pre-pads.
     first_shift: bool = true,
@@ -182,12 +184,7 @@ pub const PitchShift = struct {
             return;
         }
 
-        const wanted_scale = std.math.pow(f64, 2.0, @as(f64, semis) / 12.0);
-        const scale = if (self.first_shift) @min(wanted_scale, max_first_scale) else wanted_scale;
-        if (scale != self.applied_scale) {
-            c.rubberband_live_set_pitch_scale(self.state, scale);
-            self.applied_scale = scale;
-        }
+        self.wanted_scale = std.math.pow(f64, 2.0, @as(f64, semis) / 12.0);
         const formant_scale = std.math.pow(f64, 2.0, @as(f64, formant) / 12.0);
         if (formant_scale != self.applied_formant) {
             c.rubberband_live_set_formant_scale(self.state, formant_scale);
@@ -210,8 +207,24 @@ pub const PitchShift = struct {
         }
     }
 
+    /// Push `wanted_scale` to the library, held back to `max_first_scale`
+    /// only while the very first shift is still pending. Per shift rather
+    /// than per `processBlock`: one engine block is several shifter blocks
+    /// at any ordinary block size, and only the first of them is the one
+    /// the library has no pre-pad room for - deciding once per block left
+    /// every shift in that block capped, so a shift past +19 semitones came
+    /// out flat for the whole first block instead of one shifter block.
+    fn applyPitchScale(self: *PitchShift) void {
+        const scale = if (self.first_shift) @min(self.wanted_scale, max_first_scale) else self.wanted_scale;
+        if (scale != self.applied_scale) {
+            c.rubberband_live_set_pitch_scale(self.state, scale);
+            self.applied_scale = scale;
+        }
+    }
+
     /// Hand one full block to Rubber Band and queue what comes back.
     fn shiftPending(self: *PitchShift) void {
+        self.applyPitchScale();
         @memcpy(self.in_channels[0], self.pending[0][0..self.block_size]);
         @memcpy(self.in_channels[1], self.pending[1][0..self.block_size]);
         self.pending_len = 0;
@@ -366,4 +379,31 @@ test "latency is reported so the engine can compensate" {
     var shifter = try PitchShift.init(std.testing.allocator, 48_000);
     defer shifter.deinit(std.testing.allocator);
     try std.testing.expect(shifter.latencyFrames() >= shifter.block_size);
+}
+
+test "one big block reaches the asked-for pitch inside that same block" {
+    // `max_first_scale` is held back for the one shift the library has no
+    // pre-pad room for. An engine block is several shifter blocks wide, so
+    // deciding it once per `processBlock` held every shift in that block
+    // back - a shift past +19 semitones came out a fourth flat for the
+    // whole first block, and worse the larger the host's block size.
+    var shifter = try PitchShift.init(std.testing.allocator, 48_000);
+    defer shifter.deinit(std.testing.allocator);
+    shifter.semitones = 24.0;
+    shifter.cents = 100.0;
+
+    const frames = shifter.block_size * 2; // two shifter blocks, one call
+    const buf = try std.testing.allocator.alloc(Sample, frames * 2);
+    defer std.testing.allocator.free(buf);
+    for (0..frames) |i| {
+        const t = @as(f32, @floatFromInt(i)) / 48_000.0;
+        const v = 0.5 * @sin(2.0 * std.math.pi * 200.0 * t);
+        buf[i * 2] = v;
+        buf[i * 2 + 1] = v;
+    }
+    shifter.processBlock(buf);
+
+    const wanted = std.math.pow(f64, 2.0, 25.0 / 12.0);
+    try std.testing.expect(wanted > max_first_scale); // the test is only about the held-back case
+    try std.testing.expectApproxEqAbs(wanted, shifter.applied_scale, 1e-9);
 }
