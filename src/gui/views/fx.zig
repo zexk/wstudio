@@ -345,6 +345,8 @@ fn drawEffectPlot(app: anytype, target: spectrum_ed.EqTarget, draw_list: zgui.Dr
             .sat => satDisplayValue(&unit.payload.sat, t),
             .clipper => clipperDisplayValue(&unit.payload.clipper, t),
             .comp => compDisplayValue(&unit.payload.comp, t),
+            .delay => delayDisplayValue(&unit.payload.delay, t),
+            .pitch_shift => pitchShiftDisplayValue(&unit.payload.pitch_shift, t),
             .gate => gateDisplayValue(&unit.payload.gate, t),
             .expander => expanderDisplayValue(&unit.payload.expander, t),
             // A limiter is its ceiling: everything above lands on it. ALR
@@ -401,14 +403,10 @@ fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
         // from the depth knob and its amplitude from the rate knob.
         .chorus, .flanger, .phaser, .auto_pan => 0.5 + @sin(t * std.math.pi * 2.0 * (1.0 + amount * 5.0)) * (0.08 + shape * 0.38),
         .freq_shift => std.math.clamp(t + (amount - 0.5) * 0.35, 0, 1),
-        // A transposition is a straight line through frequency with a
-        // different slope, drawn against the same IN/OUT FREQ axes.
-        .pitch_shift => std.math.clamp(t * (0.4 + amount * 1.2), 0, 1),
-        .delay => std.math.clamp(@exp(-t * (1.5 + shape * 4.0)) * (0.55 + 0.4 * @sin(t * std.math.pi * (6.0 + amount * 10.0))), 0, 1),
         .reverb => std.math.clamp(@exp(-t * (0.8 + (1.0 - amount) * 4.0)) * (0.7 + 0.2 * @sin(t * std.math.pi * 26.0)), 0, 1),
         // `.amp` and `.filter` draw a frequency response instead; see
         // `drawEffectPlot`.
-        .eq, .amp, .sat, .clipper, .comp, .gate, .expander, .limiter, .filter, .crossover, .utility, .stereo_width, .tape, .mb_comp, .ott, .transient_shaper => t,
+        .eq, .amp, .sat, .clipper, .comp, .gate, .expander, .limiter, .filter, .crossover, .utility, .stereo_width, .tape, .mb_comp, .ott, .transient_shaper, .delay, .pitch_shift => t,
         .clap, .vst3 => t,
     };
 }
@@ -476,6 +474,32 @@ fn expanderDisplayValue(exp: anytype, t: f32) f32 {
         std.math.clamp(exp.range_db, ws.dsp.expander.max_reduction_db, 0.0),
     );
     return std.math.clamp(t * ws.types.dbToGain(gain_db), 0, 1);
+}
+
+/// A delay tail as it actually decays: one tap every TIME seconds, each
+/// FEEDBACK of the one before, across the two seconds TIME itself tops out
+/// at. The old sketch ran both knobs backwards - more feedback decayed
+/// faster, and a longer time drew more echoes into the same window.
+fn delayDisplayValue(delay: anytype, t: f32) f32 {
+    const time_s = std.math.clamp(delay.time_s, 0.01, 2.0);
+    const feedback = std.math.clamp(delay.feedback, 0.0, 0.95);
+    const tap = t * 2.0 / time_s;
+    const whole = @floor(tap);
+    // `pow(0, 0)` is 1, which is what a feedback of zero should draw: the
+    // first tap and nothing after it.
+    const level = std.math.pow(f32, feedback, whole);
+    // Each tap is an impulse, not a swell - shape it steeply so the plot
+    // reads as discrete repeats.
+    return std.math.clamp(level * @exp(-(tap - whole) * 10.0), 0, 1);
+}
+
+/// A transposition is a straight line through frequency, and its slope is
+/// the pitch ratio - `2^(semitones/12)`, not the shift knob's position on
+/// its own scale, which drew a 24-semitone drop as a gentle 0.4x tilt.
+fn pitchShiftDisplayValue(shift: anytype, t: f32) f32 {
+    const semis = std.math.clamp(shift.semitones, -24.0, 24.0) +
+        std.math.clamp(shift.cents, -100.0, 100.0) / 100.0;
+    return std.math.clamp(t * std.math.pow(f32, 2.0, semis / 12.0), 0, 1);
 }
 
 /// The compressor's static curve, through the same gain computer the audio
