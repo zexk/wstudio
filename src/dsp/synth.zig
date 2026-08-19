@@ -2013,7 +2013,15 @@ pub const PolySynth = struct {
             const sub_phase_inc = phaseInc(base_freq * 0.5, self.sample_rate);
 
             // Noise color: one-pole LP pole coefficient. color=1 → white, color=0 → dark.
-            const noise_lp_a = (1.0 - eff(&mods, 37, self.noise_color)) * 0.99;
+            // A pole is a per-sample figure, so the bare number is a different
+            // cutoff at every rate - a noise-led patch through a bandpass
+            // measured 2.7 dB down at 96 kHz against 48. Since
+            // e^(-2πf/sr) = (e^(-2πf/48000))^(48000/sr), raising the 48 kHz
+            // coefficient the colour knob has always meant to that power
+            // holds the cutoff in Hz, and is exactly the old number at 48 kHz.
+            const noise_a48 = (1.0 - eff(&mods, 37, self.noise_color)) * 0.99;
+            const noise_lp_a = if (noise_a48 <= 0.0) 0.0 else std.math.pow(f32, noise_a48, 48_000.0 / self.sample_rate);
+            const noise_density = @sqrt(self.sample_rate / 48_000.0);
 
             // Power-preserving normalisation across all sources.
             const scale_a = 1.0 / @sqrt(@as(f32, @floatFromInt(n_a)));
@@ -2154,7 +2162,13 @@ pub const PolySynth = struct {
                 // Noise: always centre.
                 var nse_out: f32 = 0.0;
                 if (mix_targets[4] > 0.0 or v.mix_gain[4] > 0.0) {
-                    const raw = nextNoise(&v.noise_rand_state);
+                    // A per-sample white generator holds its total power
+                    // constant while spreading it over Nyquist, so its power
+                    // *density* halves each time the rate doubles - a
+                    // noise-led patch measured 2.7 dB down at 96 kHz through
+                    // its own bandpass. Scale so the density, not the sample
+                    // variance, is what the noise level knob means.
+                    const raw = nextNoise(&v.noise_rand_state) * noise_density;
                     v.noise_lp = (1.0 - noise_lp_a) * raw + noise_lp_a * v.noise_lp;
                     nse_out = v.noise_lp;
                 }
@@ -5356,4 +5370,45 @@ test "extreme pitch modulation keeps oscillator phases normalized" {
 test "filter drive bypasses at unity and saturates above it" {
     try std.testing.expectEqual(@as(f32, 0.25), PolySynth.driveInput(1.0, 0.25));
     try std.testing.expect(@abs(PolySynth.driveInput(8.0, 2.0)) < 2.0);
+}
+
+test "a noise patch keeps its level whatever rate the project runs at" {
+    // The noise source is per-sample, and two things about it used to move
+    // with the sample rate: a white generator's power *density* halves each
+    // time the rate doubles, and the colour knob's one-pole coefficient is
+    // itself a per-sample figure, so its cutoff in Hz doubled too. A
+    // noise-led patch through a fixed bandpass came out 2.7 dB quieter at
+    // 96 kHz than at 48 - the same project, a different sound.
+    var ref: f64 = 0;
+    for ([_]u32{ 48_000, 96_000 }) |sr| {
+        var synth = try PolySynth.init(std.testing.allocator, sr);
+        defer synth.deinit();
+        synth.noise_level = 1.0;
+        synth.noise_color = 0.75;
+        synth.filter_type = .bp;
+        synth.filter_cutoff = 1400.0;
+        synth.filter_res = 0.3;
+        synth.sustain = 1.0;
+        synth.noteOn(60, 1.0);
+
+        var buf: [512]Sample = undefined;
+        var acc: f64 = 0;
+        var n: usize = 0;
+        var done: usize = 0;
+        while (done < sr) : (done += 256) {
+            @memset(&buf, 0);
+            synth.processBlock(&buf);
+            if (done * 4 >= sr) for (buf) |x| { // past the attack
+                acc += @as(f64, x) * x;
+                n += 1;
+            };
+        }
+        const rms = @sqrt(acc / @as(f64, @floatFromInt(n)));
+        if (sr == 48_000) {
+            ref = rms;
+        } else {
+            const db = 20.0 * std.math.log10(rms / ref);
+            try std.testing.expect(@abs(db) < 1.0);
+        }
+    }
 }
