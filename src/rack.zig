@@ -373,8 +373,17 @@ pub const FxUnit = struct {
             inline else => |*v| v.processBlock(buf),
         }
 
-        for (modded_idx[0..modded_count], modded_base[0..modded_count]) |idx, base|
-            fx_params.setParamAbsolute(&self.payload, idx, base);
+        // Twice, because a setter can clamp against a sibling field that is
+        // still holding *its* modulated value on the first pass - the same
+        // stale-sibling trap `MultibandComp.setXovers` exists to dodge on
+        // load. Only one of a mutually-clamped pair can be blocked at a
+        // time (each setter's other bound is a fixed constant), so the
+        // second pass always lands both. A no-op for every param whose
+        // setter clamps against nothing.
+        for (0..2) |_| {
+            for (modded_idx[0..modded_count], modded_base[0..modded_count]) |idx, base|
+                fx_params.setParamAbsolute(&self.payload, idx, base);
+        }
     }
 
     fn reset(self: *FxUnit) void {
@@ -1267,4 +1276,28 @@ fn dupeDrumRackForAllocationTest(allocator: std.mem.Allocator) !void {
 
 test "rack duplication cleans partial instruments after allocation failure" {
     try std.testing.checkAllAllocationFailures(std.testing.allocator, dupeDrumRackForAllocationTest, .{});
+}
+
+test "modulating a cross-clamped param pair puts both bases back" {
+    // `processPayload` saves each modulated param's base, writes the
+    // modulated value, and writes the base back after the block. That round
+    // trip is not the identity for a param whose setter clamps against a
+    // sibling: the crossover's `setXoverLo` clamps against `xover_hi_hz`,
+    // which is still holding *its* modulated value when lo is restored. The
+    // base then comes back clamped, and ratchets further every block.
+    var fx: Fx = .{};
+    defer fx.deinit(std.testing.allocator);
+    const xo = try fx.insert(std.testing.allocator, 0, .crossover, 48_000);
+    var bus: FxModBus = .{};
+    xo.mod_bus = &bus;
+    const lo = xo.payload.crossover.xover_lo_hz;
+    const hi = xo.payload.crossover.xover_hi_hz;
+    bus.add(xo.instance_id, 0, -1.0); // xover-lo, hard down
+    bus.add(xo.instance_id, 1, -1.0); // xover-hi, hard down
+
+    var buf: [64]types.Sample = @splat(0.1);
+    for (0..4) |_| xo.device().process(&buf);
+
+    try std.testing.expectApproxEqAbs(lo, xo.payload.crossover.xover_lo_hz, 1e-3);
+    try std.testing.expectApproxEqAbs(hi, xo.payload.crossover.xover_hi_hz, 1e-3);
 }
