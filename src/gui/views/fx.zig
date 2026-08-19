@@ -615,6 +615,16 @@ fn meterRows(unit: *ws.FxUnit, rows: *[3]MeterRow, text: *[3][20]u8) []const Met
             rows[0] = .{ .label = "GAIN", .value = shaper.applied_gain_db / gain_meter_scale, .bipolar = true, .text = fmtDb(&text[0], shaper.applied_gain_db) };
             return rows[0..1];
         },
+        // Only while AUTOGAIN is on: the loudness meter is fed inside that
+        // branch, so with it off there is nothing measured to show and the
+        // pane falls back to the unit description.
+        .utility => |*util| {
+            if (util.autogain_on < 0.5) return rows[0..0];
+            const lufs = util.loudness.shortTerm();
+            rows[0] = .{ .label = "LUFS", .value = (lufs + 36.0) / 36.0, .text = fmtLufs(&text[0], lufs) };
+            rows[1] = .{ .label = "AUTO GAIN", .value = util.autogain_db / gain_meter_scale, .bipolar = true, .text = fmtDb(&text[1], util.autogain_db) };
+            return rows[0..2];
+        },
         .stereo_width => |*width| {
             rows[0] = .{ .label = "CORR", .value = width.correlation, .bipolar = true, .text = fmtSigned(&text[0], width.correlation) };
             return rows[0..1];
@@ -651,6 +661,13 @@ fn bandGainRows(rows: *[3]MeterRow, text: *[3][20]u8, gains: [3]f32) []const Met
 
 /// Zig's formatter has no forced-sign flag, and a bipolar readout that only
 /// ever shows a sign when it is negative reads as an absolute value.
+/// The loudness meter reads down to -120 LUFS on silence, which is not a
+/// number worth printing under a bar that starts at -36.
+fn fmtLufs(buf: []u8, lufs: f32) []const u8 {
+    if (lufs <= -36.0) return "-inf";
+    return std.fmt.bufPrint(buf, "{d:.1} LUFS", .{lufs}) catch "";
+}
+
 fn fmtDb(buf: []u8, db: f32) []const u8 {
     return std.fmt.bufPrint(buf, "{s}{d:.1} dB", .{ if (db > 0) "+" else "", db }) catch "";
 }
