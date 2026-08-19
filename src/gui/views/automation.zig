@@ -39,7 +39,7 @@ pub fn draw(app: anytype) void {
 
     drawTargetStrip(app, live_clip);
     zgui.spacing();
-    widgets.sectionTitle("ENVELOPE", theme.modulation);
+    widgets.sectionTitle(icons.envelope ++ "  ENVELOPE", theme.modulation);
     drawCurve(app, points, @max(0.25, length_beats), value_range, playhead);
     const below_top = zgui.getCursorPosY();
     drawEditor(points.*);

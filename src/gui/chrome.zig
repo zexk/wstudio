@@ -124,7 +124,7 @@ fn drawLevelMeters(app: anytype, snap: ws.engine.UiSnapshot) void {
 
     zgui.sameLine(.{ .spacing = group_gap });
     zgui.beginGroup();
-    readoutLabel(icons.eq ++ "  LEVEL");
+    readoutLabel(icons.level ++ "  LEVEL");
     const bar_w: f32 = 110;
     const bar_h: f32 = 8;
     const gap: f32 = 3;

@@ -1,9 +1,9 @@
-//! Icon glyphs for the TUI and GUI, drawn from a 43-glyph subset of "Symbols
+//! Icon glyphs for the TUI and GUI, drawn from a 51-glyph subset of "Symbols
 //! Nerd Font Mono" (MIT license; see assets/fonts/LICENSE and the Nerd Fonts
 //! project at https://github.com/ryanoasis/nerd-fonts). Codepoints are the
 //! ones the upstream font's own `post` table names (`fa-play`, `md-undo`,
 //! ...) rather than guesses; assets/fonts/LICENSE records the pyftsubset
-//! command that cut it down to just these glyphs (~5.4 KB vs. ~2.5 MB for
+//! command that cut it down to just these glyphs (~7.6 KB vs. ~2.5 MB for
 //! the full symbols font), including how to re-read those names.
 //!
 //! These are Private Use Area codepoints: a terminal only renders them as
@@ -61,6 +61,25 @@ pub const loudness = "\u{f057e}";
 /// md-power_plug - CLAP/VST3 hosted plugins, distinct from `synth`'s piano
 /// glyph so a hosted plugin reads differently from wstudio's own synth.
 pub const plugin = "\u{f06a5}";
+/// md-signal - the master LEVEL meter's own glyph. It borrowed `eq`'s
+/// equalizer bars until the subset grew one; ascending bars read as "how
+/// much signal", which is what the meter answers.
+pub const level = "\u{f04a2}";
+/// md-folder_open - the file browser's own title, matching `folder` on the
+/// directory rows it lists.
+pub const browse = "\u{f0770}";
+/// md-folder / md-file_music - a browser row's kind. The TUI marks a
+/// directory with a trailing "/" instead: an icon there would cost a column
+/// in every listing.
+pub const folder = "\u{f024b}";
+pub const audio_file = "\u{f0223}";
+/// md-bookmark - the browser's saved directories (`b` marks one).
+pub const bookmark = "\u{f00c0}";
+/// md-history - recently opened projects.
+pub const recent = "\u{f02da}";
+/// md-chart_bell_curve - an automation envelope, the shape drawn over time.
+/// Distinct from `automation`'s timeline glyph, which means the view.
+pub const envelope = "\u{f0c50}";
 pub const position = "\u{f034e}"; // md-map_marker
 pub const meter = "\u{f07db}"; // md-metronome_tick
 pub const sample_rate = "\u{f04c5}"; // md-speedometer

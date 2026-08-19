@@ -44,7 +44,7 @@ pub fn draw(app: anytype) void {
 }
 
 fn drawTitle(app: anytype, target: spectrum_ed.EqTarget) void {
-    widgets.coloredTitle(targetAccent(target), "FX CHAIN", .{});
+    widgets.coloredTitle(targetAccent(target), icons.eq ++ "  FX CHAIN", .{});
     zgui.sameLine(.{});
     zgui.text("\"{s}\"", .{targetName(app, target)});
     if (target == .group and app.core.eq_group < ws.engine.max_groups) {

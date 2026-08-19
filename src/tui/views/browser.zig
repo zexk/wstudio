@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const style = @import("../style.zig");
+const icons = @import("../../ui/icons.zig");
 
 const rst = style.rst;
 const bold = style.bold;
@@ -18,7 +19,9 @@ pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
     if (app.browser_bookmark_mode) return drawBookmarkList(app, w, rows, cols);
 
     var label_buf: [32]u8 = undefined;
-    try w.writeAll(bold ++ " BROWSE" ++ rst);
+    try w.writeAll(" ");
+    try w.writeAll(icons.iconOr(icons.browse ++ " ", ""));
+    try w.writeAll(bold ++ "BROWSE" ++ rst);
     try w.writeAll(dim ++ "  " ++ rst);
     try w.writeAll(acc);
     try w.writeAll(app.browser_purpose.displayLabel(&label_buf));
@@ -79,7 +82,9 @@ pub fn drawFileBrowser(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
 }
 
 fn drawRecentProjects(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize) !void {
-    try w.writeAll(bold ++ " RECENT PROJECTS" ++ rst);
+    try w.writeAll(" ");
+    try w.writeAll(icons.iconOr(icons.recent ++ " ", ""));
+    try w.writeAll(bold ++ "RECENT PROJECTS" ++ rst);
     try endLine(w);
     try w.writeAll(dim ++ "opened projects appear here" ++ rst);
     try endLine(w);
@@ -107,7 +112,9 @@ fn drawRecentProjects(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize)
 /// visual layout as drawFileBrowser's own list (see App.handleBookmarkListKey
 /// for the input side).
 fn drawBookmarkList(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize) !void {
-    try w.writeAll(bold ++ " BOOKMARKS" ++ rst);
+    try w.writeAll(" ");
+    try w.writeAll(icons.iconOr(icons.bookmark ++ " ", ""));
+    try w.writeAll(bold ++ "BOOKMARKS" ++ rst);
     try endLine(w);
     try w.writeAll(dim ++ "b marks current path" ++ rst);
     try endLine(w);

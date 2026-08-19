@@ -10,13 +10,14 @@ const picker = @import("picker.zig");
 const style = @import("../style.zig");
 const scroll = @import("../scroll.zig");
 const widgets = @import("../widgets.zig");
+const icons = @import("../../ui/icons.zig");
 
 const theme = &style.palette;
 const color = style.color;
 
 pub fn draw(app: anytype) void {
     if (app.core.browser_recent_mode) {
-        widgets.coloredTitle(theme.audio, "RECENT PROJECTS", .{});
+        widgets.coloredTitle(theme.audio, icons.recent ++ "  RECENT PROJECTS", .{});
         zgui.separator();
         widgets.hoverHelp("j/k move  enter open  esc close");
         zgui.spacing();
@@ -24,7 +25,7 @@ pub fn draw(app: anytype) void {
         return;
     }
     if (app.core.browser_bookmark_mode) {
-        widgets.coloredTitle(theme.audio, "BOOKMARKS", .{});
+        widgets.coloredTitle(theme.audio, icons.bookmark ++ "  BOOKMARKS", .{});
         zgui.separator();
         widgets.hoverHelp("j/k move  enter open  d delete  esc close");
         zgui.spacing();
@@ -33,7 +34,7 @@ pub fn draw(app: anytype) void {
     }
 
     var purpose_buf: [64]u8 = undefined;
-    widgets.coloredTitle(theme.audio, "BROWSE", .{});
+    widgets.coloredTitle(theme.audio, icons.browse ++ "  BROWSE", .{});
     zgui.sameLine(.{});
     zgui.textDisabled("{s}", .{app.core.browser_purpose.displayLabel(&purpose_buf)});
     const pattern = app.core.searchPattern();
@@ -158,12 +159,13 @@ fn drawEntry(name: []const u8, is_dir: bool, selected: bool, in_visual: bool, in
         .rounding = style.item_rounding,
         .thickness = if (in_visual and !selected) 2 else 1,
     });
-    // Trailing "/" marks directories, same as the TUI listing.
-    var name_buf: [512]u8 = undefined;
-    const shown = if (is_dir) std.fmt.bufPrint(&name_buf, "{s}/", .{name}) catch name else name;
+    // A leading kind icon where the TUI listing puts a trailing "/": the
+    // icon says what a file row is too, which the slash never did, and the
+    // GUI has a glyph font to say it with where a terminal may not.
+    draw_list.addText(.{ origin[0] + 8, origin[1] + 4 }, color(if (is_dir) theme.audio else theme.fg3), "{s}", .{if (is_dir) icons.folder else icons.audio_file});
     // Same match highlight the TUI browser paints in reverse video: the `/`
     // search only moves the cursor, so without it there's nothing showing
     // *why* a row matched.
-    picker.drawFuzzyLabel(draw_list, .{ origin[0] + 8, origin[1] + 4 }, shown, filter, theme.modulation, if (selected) theme.fg0 else theme.fg1);
+    picker.drawFuzzyLabel(draw_list, .{ origin[0] + 30, origin[1] + 4 }, name, filter, theme.modulation, if (selected) theme.fg0 else theme.fg1);
     return clicked;
 }
