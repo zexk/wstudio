@@ -82,9 +82,7 @@ pub fn drawTransport(app: anytype, audio_label: []const u8) void {
 
 fn drawTransportControls(app: anytype, snap: ws.engine.UiSnapshot) void {
     zgui.beginGroup();
-    gui_style.pushFont(.caption);
-    zgui.textColored(theme.fg3, icons.logo ++ "  TRANSPORT", .{});
-    gui_style.popFont();
+    readoutLabel(icons.logo ++ "  TRANSPORT");
     // The action, not the key: space is remappable (and is the leader
     // prefix), so synthesizing it here would hand the click to a user
     // keymap - or leave a chord half-typed - instead of the transport.
@@ -126,13 +124,13 @@ fn drawLevelMeters(app: anytype, snap: ws.engine.UiSnapshot) void {
 
     zgui.sameLine(.{ .spacing = group_gap });
     zgui.beginGroup();
-    zgui.textColored(theme.fg3, "LEVEL", .{});
-    const origin = zgui.getCursorScreenPos();
+    readoutLabel(icons.eq ++ "  LEVEL");
     const bar_w: f32 = 110;
     const bar_h: f32 = 8;
     const gap: f32 = 3;
+    const origin = valueRowOrigin(bar_h * 2 + gap);
     meters.meterBar(zgui.getWindowDrawList(), origin, app.meter_hold_db, bar_w, bar_h, gap);
-    zgui.dummy(.{ .w = bar_w, .h = bar_h * 2 + gap });
+    zgui.dummy(.{ .w = bar_w, .h = valueRowHeight() });
     zgui.endGroup();
 }
 
@@ -143,10 +141,14 @@ fn drawLevelMeters(app: anytype, snap: ws.engine.UiSnapshot) void {
 fn drawPhaseMeter(correlation: f32) void {
     zgui.sameLine(.{ .spacing = group_gap });
     zgui.beginGroup();
-    zgui.textColored(theme.fg3, icons.phase ++ "  PHASE", .{});
-    const origin = zgui.getCursorScreenPos();
-    meters.correlationBar(zgui.getWindowDrawList(), origin, correlation, phase_bar_w, 8);
-    zgui.dummy(.{ .w = phase_bar_w, .h = 8 });
+    readoutLabel(icons.phase ++ "  PHASE");
+    // Bar and number side by side, not stacked: a third line hung the
+    // readout below every other group's baseline and into the strip's
+    // bottom rule.
+    const bar_h: f32 = 8;
+    meters.correlationBar(zgui.getWindowDrawList(), valueRowOrigin(bar_h), correlation, phase_bar_w, bar_h);
+    zgui.dummy(.{ .w = phase_bar_w, .h = valueRowHeight() });
+    zgui.sameLine(.{ .spacing = 8 });
     var corr_buf: [8]u8 = undefined;
     const corr_text = std.fmt.bufPrint(&corr_buf, "{s}{d:.2}", .{ if (correlation >= 0.0) "+" else "", correlation }) catch "?";
     widgets.coloredValue(meters.correlationColor(correlation), "{s}", .{corr_text});
@@ -160,14 +162,14 @@ fn drawPhaseMeter(correlation: f32) void {
 fn drawLoudnessReadout(snap: anytype) void {
     zgui.sameLine(.{ .spacing = group_gap });
     zgui.beginGroup();
-    zgui.textColored(theme.fg3, icons.loudness ++ "  LUFS", .{});
+    readoutLabel(icons.loudness ++ "  LUFS");
     var short_buf: [16]u8 = undefined;
     var int_buf: [16]u8 = undefined;
-    zgui.textColored(theme.fg3, "S", .{});
+    readoutLabel("S");
     zgui.sameLine(.{ .spacing = 4 });
     widgets.coloredValue(theme.fg0, "{s}", .{lufsText(snap.lufs_short_term, &short_buf)});
     zgui.sameLine(.{ .spacing = 10 });
-    zgui.textColored(theme.fg3, "I", .{});
+    readoutLabel("I");
     zgui.sameLine(.{ .spacing = 4 });
     widgets.coloredValue(theme.fg0, "{s}", .{lufsText(snap.lufs_integrated, &int_buf)});
     zgui.endGroup();
@@ -178,12 +180,35 @@ fn lufsText(value: f32, scratch: *[16]u8) []const u8 {
     return std.fmt.bufPrint(scratch, "{d:.1}", .{value}) catch "-inf";
 }
 
+/// Every group in the strip labels itself the same way: caption-sized and
+/// dimmed. The meter groups used to draw theirs in body text, which left
+/// LEVEL/PHASE/LUFS a size larger than the readouts beside them and their
+/// value rows a few pixels lower.
+fn readoutLabel(text: []const u8) void {
+    gui_style.pushFont(.caption);
+    zgui.textColored(theme.fg3, "{s}", .{text});
+    gui_style.popFont();
+}
+
+/// Height of a readout's value row: one line of the value font, so a group
+/// whose value is a meter bar takes the same vertical space as one whose
+/// value is text.
+fn valueRowHeight() f32 {
+    gui_style.pushFont(.heading);
+    defer gui_style.popFont();
+    return zgui.getTextLineHeight();
+}
+
+/// Where to draw a `height`-tall bar so it sits centered in that value row.
+fn valueRowOrigin(height: f32) [2]f32 {
+    const origin = zgui.getCursorScreenPos();
+    return .{ origin[0], origin[1] + @max(0, valueRowHeight() - height) / 2 };
+}
+
 fn drawTransportReadout(label: []const u8, value: []const u8, first: bool) void {
     if (!first) zgui.sameLine(.{ .spacing = group_gap });
     zgui.beginGroup();
-    gui_style.pushFont(.caption);
-    zgui.textColored(theme.fg3, "{s}", .{label});
-    gui_style.popFont();
+    readoutLabel(label);
     gui_style.pushFont(.heading);
     zgui.textColored(theme.fg0, "{s}", .{value});
     gui_style.popFont();
@@ -261,11 +286,10 @@ test "transport ellipsis fits the width it was given" {
 /// dominates its "LEVEL" label.
 const level_group_w: f32 = 110;
 const group_gap: f32 = 18;
-/// `drawPhaseMeter`'s bar width, and its on-screen group width (the bar
-/// dominates the "PHASE" label and the numeric readout under it, same as
-/// `level_group_w` above).
+/// `drawPhaseMeter`'s bar width, and its on-screen group width: the bar
+/// plus the signed two-decimal correlation value drawn beside it.
 const phase_bar_w: f32 = 70;
-const phase_group_w: f32 = phase_bar_w;
+const phase_group_w: f32 = phase_bar_w + 8 + 48;
 /// `drawLoudnessReadout`'s on-screen width: two side-by-side "S"/"I"
 /// sub-columns, each wide enough for a signed one-decimal LUFS value.
 const loudness_group_w: f32 = 130;
