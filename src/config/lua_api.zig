@@ -1258,7 +1258,7 @@ pub fn apiClipList(state: ?*c.lua_State) callconv(.c) c_int {
     c.lua_createtable(l, @intCast(lane.clips.items.len), 0);
     for (lane.clips.items, 1..) |clip, i| {
         c.lua_createtable(l, 0, 5);
-        c.lua_pushinteger(l, clip.start_tick / bar_ticks + 1);
+        c.lua_pushinteger(l, app.session.project.barAtTick(clip.start_tick).bar + 1);
         c.lua_setfield(l, -2, "start_bar");
         c.lua_pushinteger(l, @max(clip.length_ticks / bar_ticks, 1));
         c.lua_setfield(l, -2, "length_bars");

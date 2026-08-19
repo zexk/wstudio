@@ -60,7 +60,6 @@ fn drawHeader(app: anytype, clip: ?*const ws.Clip) void {
     draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(theme.fg3), icons.automation ++ "  AUTOMATION", .{});
     draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(theme.fg0), "{s}", .{track.name});
     if (clip) |c| {
-        const ticks_per_bar = ws.time_grid.barTicks(app.core.session.project.beats_per_bar, app.core.session.project.meter_denominator);
         const map_x = origin[0] + @max(190, width * 0.55);
         const map_w = @max(1, origin[0] + width - map_x - 14);
         const lane = app.core.session.arrangement.lane(app.core.automation_track);
@@ -70,7 +69,7 @@ fn drawHeader(app: anytype, clip: ?*const ws.Clip) void {
             break :blk @max(end, 1);
         } else @max(c.endTick(), 1);
         draw_list.addText(.{ map_x, origin[1] + 9 }, color(theme.fg3), "TRACK CLIPS", .{});
-        draw_list.addText(.{ map_x + map_w - 118, origin[1] + 9 }, color(accent), "BAR {d}  {d:.2} BEATS", .{ c.start_tick / ticks_per_bar + 1, ws.time_grid.tickToBeat(c.length_ticks) });
+        draw_list.addText(.{ map_x + map_w - 118, origin[1] + 9 }, color(accent), "BAR {d}  {d:.2} BEATS", .{ app.core.session.project.barAtTick(c.start_tick).bar + 1, ws.time_grid.tickToBeat(c.length_ticks) });
         const strip_y = origin[1] + 39;
         draw_list.addLine(.{ .p1 = .{ map_x, strip_y + 8 }, .p2 = .{ map_x + map_w, strip_y + 8 }, .col = color(theme.line), .thickness = 1 });
         if (lane) |l| for (l.clips.items) |item| {

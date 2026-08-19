@@ -637,12 +637,20 @@ fn removeTimeSelection(app: *App) void {
     exitVisual(app);
 }
 
+/// First bar boundary at or after `tick` - the exclusive end a loop range
+/// wants. A tick already on a downbeat is its own end.
+fn barAfter(p: *const ws.Project, tick: u32) u32 {
+    const pos = p.barAtTick(tick);
+    return if (pos.start_tick == tick) pos.bar else pos.bar + 1;
+}
+
 /// Set arrangement loop from selected time.
 fn loopSelection(app: *App) void {
     const r = selectionRange(app);
-    const tpb = ws.time_grid.barTicks(app.session.project.beats_per_bar, app.session.project.meter_denominator);
-    app.session.project.loop_start_bar = r.lo / tpb;
-    app.session.project.loop_end_bar = (r.hi +| app.arr_grid.ticks() + tpb - 1) / tpb;
+    const p = &app.session.project;
+    // barAtTick, not a division by one bar length - see Project.barAtTick.
+    p.loop_start_bar = p.barAtTick(r.lo).bar;
+    p.loop_end_bar = barAfter(p, r.hi +| app.arr_grid.ticks());
     app.session.project.loop_enabled = true;
     app.dirty = true;
     app.session.syncLoop();
@@ -1022,8 +1030,7 @@ fn editClip(app: *App) void {
 /// region arms the loop immediately (b toggles it after).
 fn setLoopStart(app: *App) void {
     const p = &app.session.project;
-    const tpb = ws.time_grid.barTicks(p.beats_per_bar, p.meter_denominator);
-    p.loop_start_bar = cursorTick(app) / tpb;
+    p.loop_start_bar = p.barAtTick(cursorTick(app)).bar;
     if (p.loop_end_bar > p.loop_start_bar) {
         p.loop_enabled = true;
         app.setStatus("loop: bars {d}–{d}", .{ p.loop_start_bar + 1, p.loop_end_bar });
@@ -1037,8 +1044,7 @@ fn setLoopStart(app: *App) void {
 /// ) sets the loop end after the cursor bar (the bar is included).
 fn setLoopEnd(app: *App) void {
     const p = &app.session.project;
-    const tpb = ws.time_grid.barTicks(p.beats_per_bar, p.meter_denominator);
-    p.loop_end_bar = (cursorTick(app) +| tpb) / tpb;
+    p.loop_end_bar = p.barAtTick(cursorTick(app)).bar + 1;
     if (p.loop_end_bar > p.loop_start_bar) {
         p.loop_enabled = true;
         app.setStatus("loop: bars {d}–{d}", .{ p.loop_start_bar + 1, p.loop_end_bar });

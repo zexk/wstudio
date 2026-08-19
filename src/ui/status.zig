@@ -554,11 +554,14 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
     }
 
     const cursor_tick = app.arr_cursor_bar *| app.arr_grid.ticks();
-    const ticks_per_bar = ws.time_grid.barTicks(app.session.project.beats_per_bar, app.session.project.meter_denominator);
+    // Off the bar Project.barAtTick reports, not a division by one bar
+    // length: past a meter point the two disagree, and the arrangement
+    // ruler this readout sits under already uses barAtTick.
+    const bar_pos = app.session.project.barAtTick(cursor_tick);
     try w.writeAll(dim ++ "  bar " ++ rst);
     try w.print("{d}.{d}", .{
-        cursor_tick / ticks_per_bar + 1,
-        (cursor_tick % ticks_per_bar) / ws.time_grid.ticks_per_beat + 1,
+        bar_pos.bar + 1,
+        (cursor_tick - bar_pos.start_tick) / ws.time_grid.ticks_per_beat + 1,
     });
     try w.writeAll(dim ++ "  track " ++ rst);
     try w.print("{d}/{d}", .{ app.cursor + 1, app.session.project.tracks.items.len });

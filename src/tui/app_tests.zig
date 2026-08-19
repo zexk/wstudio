@@ -3283,6 +3283,35 @@ test "undo restores clips a stamp evicted" {
     try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
 }
 
+test "bar readouts follow the meter map, not one fixed bar length" {
+    var app = try testApp();
+    defer app.deinit();
+    const p = &app.session.project;
+    // 4/4 for two bars, then 3/4. Bar 2 opens at beat 8, bar 3 at beat 11.
+    try p.setMeterPoint(.{ .beat = 8, .numerator = 3, .denominator = 4 });
+    const tpq = ws.time_grid.ticks_per_beat;
+
+    // A clip stamped at bar 3 has to land on beat 11, not on a fourth
+    // multiple of the base 4/4 bar.
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try app.session.stampClip(0, 3);
+    const lane = app.session.arrangement.lane(0).?;
+    try std.testing.expectEqual(@as(u32, 11 * tpq), lane.clips.items[0].start_tick);
+
+    // The status line's bar.beat under the arrangement ruler, which reads
+    // the same meter map.
+    app.view = .arrangement;
+    app.arr_cursor_bar = 12; // 1/4 grid: tick of beat 12, the second beat of bar 3
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 100, .rows = 30 });
+    const fr = w.buffered();
+    // The label and the value are separated by the row's own SGR codes.
+    const at = std.mem.indexOf(u8, fr, "bar ") orelse return error.NoBarReadout;
+    try std.testing.expect(std.mem.indexOf(u8, fr[at..@min(fr.len, at + 24)], "4.2") != null);
+}
+
 test "a linked piano roll names the clip's bar, not its tick" {
     var app = try testApp();
     defer app.deinit();

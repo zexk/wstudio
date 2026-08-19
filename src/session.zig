@@ -928,7 +928,7 @@ pub const Session = struct {
     /// the pattern length. No-op for empty tracks. Replaces any clips it
     /// overlaps (see `Lane.place`).
     pub fn stampClip(self: *Session, track_idx: usize, start_bar: u32) !void {
-        return self.stampClipAtTick(track_idx, ticksForBars(start_bar, self.project.beats_per_bar, self.project.meter_denominator));
+        return self.stampClipAtTick(track_idx, self.project.tickAtBar(start_bar));
     }
 
     /// Length of the clip `stampClipAtTick` would create for a track.

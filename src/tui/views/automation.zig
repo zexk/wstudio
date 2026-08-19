@@ -84,9 +84,12 @@ pub fn drawAutomation(
     try w.writeAll(icons.iconOr(icons.automation ++ " ", ""));
     try w.writeAll(bold ++ "AUTOMATION" ++ rst);
     try w.print("  \"{s}\"", .{track_name});
-    const ticks_per_bar = ws.time_grid.barTicks(app.session.project.beats_per_bar, app.session.project.meter_denominator);
-    const start_bar = clip.start_tick / ticks_per_bar + 1;
-    const end_bar = (clip.endTick() -| 1) / ticks_per_bar + 1;
+    // barAtTick, not a division by one bar length: a meter point cuts the
+    // bar it lands in short, so a fixed divisor drifts against the
+    // transport's own bar readout from that point on.
+    const proj = &app.session.project;
+    const start_bar = proj.barAtTick(clip.start_tick).bar + 1;
+    const end_bar = proj.barAtTick(clip.endTick() -| 1).bar + 1;
     try w.writeAll(dim ++ "  bars " ++ rst);
     if (start_bar == end_bar) {
         try w.print("{d}", .{start_bar});
