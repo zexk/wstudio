@@ -492,4 +492,3 @@ test "every sample rate the loader accepts designs a stable amp" {
         }
     }
 }
-

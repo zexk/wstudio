@@ -693,263 +693,285 @@ pub const variants = [_]KitVariant{
     // click on the kick and 700 Hz more air on the hat, which is a second
     // voice, not a kit. Its punchier kick, wider snare and its "stab" are the
     // -2 pads and the signature slot here.
-    .{ .name = "digital", .category = "digital", .tags = &.{ "wstudio", "house", "eurobeat", "dance" }, .pads = .{
-        .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{} }, .gain = 1.00 },
-        .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
-            .freq_end = 52.0,
-            .freq_start_add = 145.0,
-            .pitch_decay = 58.0,
-            .body_decay = 12.0,
-            .click_decay = 300.0,
-            .click_freq = 1900.0,
-            .click_mix = 0.65,
-            .drive = 3.0,
-            .dur_s = 0.375,
-        } }, .gain = 0.90 },
-        .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{} }, .gain = 0.85 },
-        .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
-            .tone1_hz = 190.0,
-            .tone2_hz = 280.0,
-            .tone_decay = 25.0,
-            .noise_decay = 18.0,
-            .drive = 2.0,
-            .dur_s = 0.26,
-            .lp_hz = 9500.0,
-            .hp_hz = 1000.0,
-        } }, .gain = 0.80 },
-        .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.09, .decay = 65.0 } }, .gain = 0.50 },
-        .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.05, .decay = 110.0, .body_hz = 7200.0, .air_hz = 10_000.0, .air_mix = 0.35 } }, .gain = 0.45 },
-        // The machine this kit is named for sampled its hats, ride and crash
-        // instead of synthesising them, and those samples ring: an open hat
-        // for the better part of half a second, a crash for over a second.
-        // These were cut at 0.42 and 0.92.
-        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.7, .decay = 5.5 } }, .gain = 0.50 },
-        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 1.7, .decay = 2.5, .attack_mix = 0.5 } }, .gain = 0.54, .tune = alt_crash },
-        .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{} }, .gain = 0.70 },
-        .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{} }, .gain = 0.65 },
-        .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{} }, .gain = 0.55, .tune = alt_stick },
-        .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{ .freq_start = 220.0, .freq_end = 110.0, .dur_s = 0.672, .seed = 0x701 } }, .gain = 0.80 },
-        .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{ .freq_start = 160.0, .freq_end = 80.0, .dur_s = 0.675, .seed = 0x702 } }, .gain = 0.80 },
-        .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 520.0, .tone2_hz = 730.0, .seed = 0x703 } }, .gain = 0.70 },
-        .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 310.0, .tone2_hz = 430.0, .seed = 0x704 } }, .gain = 0.70 },
-        .{ .name = "stab", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 880.0, .tone2_hz = 1320.0, .tone_decay = 12.0, .click_decay = 100.0, .drive = 2.8, .dur_s = 0.4 } }, .gain = 0.66 },
-    } },
-    .{ .name = "analog", .category = "analog", .tags = &.{ "wstudio", "techno" }, .pads = .{
-        .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
-            .freq_end = 45.0,
-            .freq_start_add = 90.0,
-            .pitch_decay = 30.0,
-            .body_decay = 8.0,
-            .click_decay = 380.0,
-            .click_freq = 1500.0,
-            .click_mix = 0.25,
-            .drive = 3.2,
-            .dur_s = 0.55,
-        } }, .gain = 1.00 },
-        .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
-            .freq_end = 45.0,
-            .freq_start_add = 90.0,
-            .pitch_decay = 30.0,
-            .body_decay = 8.0,
-            .click_decay = 380.0,
-            .click_freq = 1500.0,
-            .click_mix = 0.25,
-            .drive = 3.2,
-            .dur_s = 0.55,
-        } }, .gain = 0.90, .tune = alt_kick },
-        // The machine snare this kit models is two oscillators about an
-        // octave apart with noise over them; these two were a fifth apart,
-        // which is the library default and not any machine's interval. The
-        // low oscillator keeps its tuning, so the kit stays as deep as it was.
-        .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
-            .tone1_hz = 150.0,
-            .tone2_hz = 300.0,
-            .tone_decay = 18.0,
-            .noise_decay = 36.0,
-            .drive = 1.1,
-            .dur_s = 0.3,
-        } }, .gain = 0.80 },
-        .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
-            .tone1_hz = 150.0,
-            .tone2_hz = 300.0,
-            .tone_decay = 18.0,
-            .noise_decay = 36.0,
-            .drive = 1.1,
-            .dur_s = 0.3,
-        } }, .gain = 0.72, .tune = alt_snare },
-        // This kit is the machine whose bank is published, so its metal runs
-        // on the real one: the hats, the open hat and the cymbal are all the
-        // same six squares, which is why on the hardware they sound like
-        // relatives of each other and of the cowbell.
-        .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .partials = .tr808, .dur_s = 0.06, .decay = 90.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.45 },
-        .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .partials = .tr808, .dur_s = 0.06, .decay = 90.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.40, .tune = alt_hat },
-        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .partials = .tr808, .dur_s = 0.35, .decay = 10.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.45 },
-        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .partials = .tr808, .dur_s = 0.77, .decay = 4.5, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2, .attack_mix = 0.5 } }, .gain = 0.50, .tune = alt_crash },
-        .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
-            .lp_hz = 2500.0,
-            .hp_hz = 1000.0,
-            .burst_decay = 180.0,
-            .tail_decay = 10.0,
-            .tail_mix = 0.7,
-            .dur_s = 0.4,
-        } }, .gain = 0.65 },
-        .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
-            .tone1_hz = 1600.0,
-            .tone2_hz = 1050.0,
-            .tone_decay = 170.0,
-            .click_decay = 350.0,
-            .drive = 1.5,
-            .dur_s = 0.07,
-        } }, .gain = 0.60 },
-        .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
-            .tone1_hz = 1600.0,
-            .tone2_hz = 1050.0,
-            .tone_decay = 170.0,
-            .click_decay = 350.0,
-            .drive = 1.5,
-            .dur_s = 0.07,
-        } }, .gain = 0.52, .tune = alt_stick },
-        .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
-            .freq_start = 180.0,
-            .freq_end = 90.0,
-            .dur_s = 1.08,
-            .body_decay = 4.0,
-            .attack_decay = 100.0,
-            .drive = 1.8,
-            .attack_mix = 0.08,
-            .seed = 0x711,
-        } }, .gain = 0.85 },
-        .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
-            .freq_start = 130.0,
-            .freq_end = 60.0,
-            .dur_s = 1.19,
-            .body_decay = 3.5,
-            .attack_decay = 100.0,
-            .drive = 1.8,
-            .attack_mix = 0.08,
-            .seed = 0x712,
-        } }, .gain = 0.85 },
-        .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 430.0, .tone2_hz = 610.0, .drive = 1.9, .seed = 0x713 } }, .gain = 0.75 },
-        .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 260.0, .tone2_hz = 360.0, .drive = 1.9, .seed = 0x714 } }, .gain = 0.75 },
-        // The drum machine cowbell is two square oscillators at 540 and 800 Hz
-        // - 681 cents, a fifth flattened by 19 - and it is the beating of that
-        // not-quite-interval that reads as metal. This pair was 560/845, which
-        // is 721 cents: neither the machine's interval nor the acoustic
-        // cowbell's 1:1.44 that the percussion kit uses.
-        .{ .name = "cowbell", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 540.0, .tone2_hz = 800.0, .tone_decay = 15.0, .click_decay = 100.0, .drive = 2.2, .dur_s = 0.35 } }, .gain = 0.62 },
-    } },
-    .{ .name = "acoustic", .category = "acoustic", .tags = &.{ "wstudio", "rock" }, .pads = .{
-        .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
-            .freq_end = 62.0,
-            .freq_start_add = 150.0,
-            .pitch_decay = 70.0,
-            .body_decay = 20.0,
-            .click_decay = 300.0,
-            .click_freq = 2000.0,
-            .click_mix = 0.8,
-            .drive = 2.2,
-            .dur_s = 0.22,
-        } }, .gain = 1.00 },
-        .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
-            .freq_end = 62.0,
-            .freq_start_add = 150.0,
-            .pitch_decay = 70.0,
-            .body_decay = 20.0,
-            .click_decay = 300.0,
-            .click_freq = 2000.0,
-            .click_mix = 0.8,
-            .drive = 2.2,
-            .dur_s = 0.22,
-        } }, .gain = 0.90, .tune = alt_kick },
-        .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
-            // 200/300 stays: those are the batter and resonant heads, which
-            // on a 14 inch drum really are tuned about a fifth apart (252/378
-            // is a published tuning), not two modes of one membrane.
-            .tone1_hz = 200.0,
-            .tone2_hz = 300.0,
-            .tone_decay = 30.0,
-            .noise_decay = 14.0,
-            .drive = 1.8,
-            .dur_s = 0.32,
-        } }, .gain = 0.90 },
-        .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
-            .tone1_hz = 200.0,
-            .tone2_hz = 300.0,
-            .tone_decay = 30.0,
-            .noise_decay = 14.0,
-            .drive = 1.8,
-            .dur_s = 0.32,
-        } }, .gain = 0.82, .tune = alt_snare },
-        // A closed hi-hat runs 40-80 ms, not 26: the pair is clamped but the
-        // metal still rings for a moment under the foot.
-        .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.08, .decay = 45.0, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4 } }, .gain = 0.55 },
-        .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.08, .decay = 45.0, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4 } }, .gain = 0.50, .tune = alt_hat },
-        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.6, .decay = 7.0, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4 } }, .gain = 0.55 },
-        // Cymbals are where this kit was furthest off: a crash rings for two
-        // to four seconds and a ride for the best part of ten, and these were
-        // 0.66 and 1.2. The ride also had no stick in it - attack_mix 0 is a
-        // wash with nothing struck, when the ping is the whole point of
-        // riding on one.
-        .{ .kind = .hat, .name = "crash", .params = .{ .hat = .{ .dur_s = 2.2, .decay = 2.1, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4, .attack_mix = 0.5 } }, .gain = 0.62, .tune = alt_crash },
-        .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
-            .lp_hz = 3500.0,
-            .hp_hz = 1300.0,
-            .burst_decay = 260.0,
-            .tail_decay = 22.0,
-            .tail_mix = 0.35,
-            .dur_s = 0.25,
-        } }, .gain = 0.65 },
-        // A cross stick is a wooden shaft knocked against the rim, so it has
-        // a bar's partials (2.76x the fundamental) and a woody pitch, not the
-        // 1.9 kHz ping with a lower second tone under it that was here.
-        .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
-            .tone1_hz = 800.0,
-            .tone2_hz = 2208.0,
-            .tone_decay = 90.0,
-            .tone2_decay_mul = 2.5,
-            .click_decay = 280.0,
-            .drive = 2.1,
-            .dur_s = 0.1,
-        } }, .gain = 0.70 },
-        .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
-            .tone1_hz = 800.0,
-            .tone2_hz = 2208.0,
-            .tone_decay = 90.0,
-            .tone2_decay_mul = 2.5,
-            .click_decay = 280.0,
-            .drive = 2.1,
-            .dur_s = 0.1,
-        } }, .gain = 0.62, .tune = alt_stick },
-        // A drum head stretched by the stick relaxes as it rings, so a real
-        // tom bends down a little - a few percent, not the octave these two
-        // were sweeping, which is a synth tom. The fundamentals are where a
-        // 12 inch rack and a 16 inch floor tom actually sit, and both are
-        // given the length to ring instead of being cut at a third of a
-        // second.
-        .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
-            .freq_start = 172.0,
-            .freq_end = 152.0,
-            .dur_s = 0.55,
-            .body_decay = 7.0,
-            .attack_decay = 140.0,
-            .drive = 1.5,
-            .attack_mix = 0.2,
-            .seed = 0x721,
-        } }, .gain = 0.80 },
-        .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
-            .freq_start = 118.0,
-            .freq_end = 104.0,
-            .dur_s = 0.7,
-            .body_decay = 5.5,
-            .attack_decay = 140.0,
-            .drive = 1.5,
-            .attack_mix = 0.2,
-            .seed = 0x722,
-        } }, .gain = 0.80 },
-        .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 560.0, .tone2_hz = 780.0, .slap_mix = 0.5, .seed = 0x723 } }, .gain = 0.72 },
-        .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 340.0, .tone2_hz = 470.0, .slap_mix = 0.5, .seed = 0x724 } }, .gain = 0.72 },
-        .{ .name = "ride", .kind = .hat, .params = .{ .hat = .{ .dur_s = 3.0, .decay = 1.4, .body_hz = 4200.0, .air_hz = 7800.0, .air_mix = 0.25, .attack_decay = 190.0, .attack_mix = 0.55 } }, .gain = 0.62 },
-    } },
+    .{
+        .name = "digital",
+        .category = "digital",
+        .tags = &.{ "wstudio", "house", "eurobeat", "dance" },
+        .pads = .{
+            .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{} }, .gain = 1.00 },
+            .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
+                .freq_end = 52.0,
+                .freq_start_add = 145.0,
+                .pitch_decay = 58.0,
+                .body_decay = 12.0,
+                .click_decay = 300.0,
+                .click_freq = 1900.0,
+                .click_mix = 0.65,
+                .drive = 3.0,
+                .dur_s = 0.375,
+            } }, .gain = 0.90 },
+            .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{} }, .gain = 0.85 },
+            .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
+                .tone1_hz = 190.0,
+                .tone2_hz = 280.0,
+                .tone_decay = 25.0,
+                .noise_decay = 18.0,
+                .drive = 2.0,
+                .dur_s = 0.26,
+                .lp_hz = 9500.0,
+                .hp_hz = 1000.0,
+            } }, .gain = 0.80 },
+            .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.09, .decay = 65.0 } }, .gain = 0.50 },
+            .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.05, .decay = 110.0, .body_hz = 7200.0, .air_hz = 10_000.0, .air_mix = 0.35 } }, .gain = 0.45 },
+            // The machine this kit is named for sampled its hats, ride and crash
+            // instead of synthesising them, and those samples ring: an open hat
+            // for the better part of half a second, a crash for over a second.
+            // These were cut at 0.42 and 0.92.
+            .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.7, .decay = 5.5 } }, .gain = 0.50 },
+            .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 1.7, .decay = 2.5, .attack_mix = 0.5 } }, .gain = 0.54, .tune = alt_crash },
+            .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{} }, .gain = 0.70 },
+            .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{} }, .gain = 0.65 },
+            .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{} }, .gain = 0.55, .tune = alt_stick },
+            .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{ .freq_start = 220.0, .freq_end = 110.0, .dur_s = 0.672, .seed = 0x701 } }, .gain = 0.80 },
+            .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{ .freq_start = 160.0, .freq_end = 80.0, .dur_s = 0.675, .seed = 0x702 } }, .gain = 0.80 },
+            .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 520.0, .tone2_hz = 730.0, .seed = 0x703 } }, .gain = 0.70 },
+            .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 310.0, .tone2_hz = 430.0, .seed = 0x704 } }, .gain = 0.70 },
+            .{ .name = "stab", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 880.0, .tone2_hz = 1320.0, .tone_decay = 12.0, .click_decay = 100.0, .drive = 2.8, .dur_s = 0.4 } }, .gain = 0.66 },
+        },
+    },
+    .{
+        .name = "analog",
+        .category = "analog",
+        .tags = &.{ "wstudio", "techno" },
+        .pads = .{
+            .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
+                .freq_end = 45.0,
+                .freq_start_add = 90.0,
+                .pitch_decay = 30.0,
+                .body_decay = 8.0,
+                .click_decay = 380.0,
+                .click_freq = 1500.0,
+                .click_mix = 0.25,
+                .drive = 3.2,
+                .dur_s = 0.55,
+            } }, .gain = 1.00 },
+            .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
+                .freq_end = 45.0,
+                .freq_start_add = 90.0,
+                .pitch_decay = 30.0,
+                .body_decay = 8.0,
+                .click_decay = 380.0,
+                .click_freq = 1500.0,
+                .click_mix = 0.25,
+                .drive = 3.2,
+                .dur_s = 0.55,
+            } }, .gain = 0.90, .tune = alt_kick },
+            // The machine snare this kit models is two oscillators about an
+            // octave apart with noise over them; these two were a fifth apart,
+            // which is the library default and not any machine's interval. The
+            // low oscillator keeps its tuning, so the kit stays as deep as it was.
+            .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
+                .tone1_hz = 150.0,
+                .tone2_hz = 300.0,
+                .tone_decay = 18.0,
+                .noise_decay = 36.0,
+                .drive = 1.1,
+                .dur_s = 0.3,
+            } }, .gain = 0.80 },
+            .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
+                .tone1_hz = 150.0,
+                .tone2_hz = 300.0,
+                .tone_decay = 18.0,
+                .noise_decay = 36.0,
+                .drive = 1.1,
+                .dur_s = 0.3,
+            } }, .gain = 0.72, .tune = alt_snare },
+            // This kit is the machine whose bank is published, so its metal runs
+            // on the real one: the hats, the open hat and the cymbal are all the
+            // same six squares, which is why on the hardware they sound like
+            // relatives of each other and of the cowbell.
+            .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .partials = .tr808, .dur_s = 0.06, .decay = 90.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.45 },
+            .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .partials = .tr808, .dur_s = 0.06, .decay = 90.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.40, .tune = alt_hat },
+            .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .partials = .tr808, .dur_s = 0.35, .decay = 10.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.45 },
+            .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .partials = .tr808, .dur_s = 0.77, .decay = 4.5, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2, .attack_mix = 0.5 } }, .gain = 0.50, .tune = alt_crash },
+            .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
+                .lp_hz = 2500.0,
+                .hp_hz = 1000.0,
+                .burst_decay = 180.0,
+                .tail_decay = 10.0,
+                .tail_mix = 0.7,
+                .dur_s = 0.4,
+            } }, .gain = 0.65 },
+            .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
+                .tone1_hz = 1600.0,
+                .tone2_hz = 1050.0,
+                .tone_decay = 170.0,
+                .click_decay = 350.0,
+                .drive = 1.5,
+                .dur_s = 0.07,
+            } }, .gain = 0.60 },
+            .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
+                .tone1_hz = 1600.0,
+                .tone2_hz = 1050.0,
+                .tone_decay = 170.0,
+                .click_decay = 350.0,
+                .drive = 1.5,
+                .dur_s = 0.07,
+            } }, .gain = 0.52, .tune = alt_stick },
+            .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
+                .freq_start = 180.0,
+                .freq_end = 90.0,
+                .dur_s = 1.08,
+                .body_decay = 4.0,
+                .attack_decay = 100.0,
+                .drive = 1.8,
+                .attack_mix = 0.08,
+                .seed = 0x711,
+            } }, .gain = 0.85 },
+            .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
+                .freq_start = 130.0,
+                .freq_end = 60.0,
+                .dur_s = 1.19,
+                .body_decay = 3.5,
+                .attack_decay = 100.0,
+                .drive = 1.8,
+                .attack_mix = 0.08,
+                .seed = 0x712,
+            } }, .gain = 0.85 },
+            .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 430.0, .tone2_hz = 610.0, .drive = 1.9, .seed = 0x713 } }, .gain = 0.75 },
+            .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 260.0, .tone2_hz = 360.0, .drive = 1.9, .seed = 0x714 } }, .gain = 0.75 },
+            // The drum machine cowbell is two square oscillators at 540 and 800 Hz
+            // - 681 cents, a fifth flattened by 19 - and it is the beating of that
+            // not-quite-interval that reads as metal. This pair was 560/845, which
+            // is 721 cents: neither the machine's interval nor the acoustic
+            // cowbell's 1:1.44 that the percussion kit uses.
+            .{ .name = "cowbell", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 540.0, .tone2_hz = 800.0, .tone_decay = 15.0, .click_decay = 100.0, .drive = 2.2, .dur_s = 0.35 } }, .gain = 0.62 },
+        },
+    },
+    .{
+        .name = "acoustic",
+        .category = "acoustic",
+        .tags = &.{ "wstudio", "rock" },
+        .pads = .{
+            .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
+                .freq_end = 62.0,
+                .freq_start_add = 150.0,
+                .pitch_decay = 70.0,
+                .body_decay = 20.0,
+                .click_decay = 300.0,
+                .click_freq = 2000.0,
+                .click_mix = 0.8,
+                .drive = 2.2,
+                .dur_s = 0.22,
+            } }, .gain = 1.00 },
+            .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
+                .freq_end = 62.0,
+                .freq_start_add = 150.0,
+                .pitch_decay = 70.0,
+                .body_decay = 20.0,
+                .click_decay = 300.0,
+                .click_freq = 2000.0,
+                .click_mix = 0.8,
+                .drive = 2.2,
+                .dur_s = 0.22,
+            } }, .gain = 0.90, .tune = alt_kick },
+            .{
+                .name = "snare",
+                .kind = .snare,
+                .params = .{
+                    .snare = .{
+                        // 200/300 stays: those are the batter and resonant heads, which
+                        // on a 14 inch drum really are tuned about a fifth apart (252/378
+                        // is a published tuning), not two modes of one membrane.
+                        .tone1_hz = 200.0,
+                        .tone2_hz = 300.0,
+                        .tone_decay = 30.0,
+                        .noise_decay = 14.0,
+                        .drive = 1.8,
+                        .dur_s = 0.32,
+                    },
+                },
+                .gain = 0.90,
+            },
+            .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
+                .tone1_hz = 200.0,
+                .tone2_hz = 300.0,
+                .tone_decay = 30.0,
+                .noise_decay = 14.0,
+                .drive = 1.8,
+                .dur_s = 0.32,
+            } }, .gain = 0.82, .tune = alt_snare },
+            // A closed hi-hat runs 40-80 ms, not 26: the pair is clamped but the
+            // metal still rings for a moment under the foot.
+            .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.08, .decay = 45.0, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4 } }, .gain = 0.55 },
+            .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.08, .decay = 45.0, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4 } }, .gain = 0.50, .tune = alt_hat },
+            .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.6, .decay = 7.0, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4 } }, .gain = 0.55 },
+            // Cymbals are where this kit was furthest off: a crash rings for two
+            // to four seconds and a ride for the best part of ten, and these were
+            // 0.66 and 1.2. The ride also had no stick in it - attack_mix 0 is a
+            // wash with nothing struck, when the ping is the whole point of
+            // riding on one.
+            .{ .kind = .hat, .name = "crash", .params = .{ .hat = .{ .dur_s = 2.2, .decay = 2.1, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4, .attack_mix = 0.5 } }, .gain = 0.62, .tune = alt_crash },
+            .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
+                .lp_hz = 3500.0,
+                .hp_hz = 1300.0,
+                .burst_decay = 260.0,
+                .tail_decay = 22.0,
+                .tail_mix = 0.35,
+                .dur_s = 0.25,
+            } }, .gain = 0.65 },
+            // A cross stick is a wooden shaft knocked against the rim, so it has
+            // a bar's partials (2.76x the fundamental) and a woody pitch, not the
+            // 1.9 kHz ping with a lower second tone under it that was here.
+            .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
+                .tone1_hz = 800.0,
+                .tone2_hz = 2208.0,
+                .tone_decay = 90.0,
+                .tone2_decay_mul = 2.5,
+                .click_decay = 280.0,
+                .drive = 2.1,
+                .dur_s = 0.1,
+            } }, .gain = 0.70 },
+            .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
+                .tone1_hz = 800.0,
+                .tone2_hz = 2208.0,
+                .tone_decay = 90.0,
+                .tone2_decay_mul = 2.5,
+                .click_decay = 280.0,
+                .drive = 2.1,
+                .dur_s = 0.1,
+            } }, .gain = 0.62, .tune = alt_stick },
+            // A drum head stretched by the stick relaxes as it rings, so a real
+            // tom bends down a little - a few percent, not the octave these two
+            // were sweeping, which is a synth tom. The fundamentals are where a
+            // 12 inch rack and a 16 inch floor tom actually sit, and both are
+            // given the length to ring instead of being cut at a third of a
+            // second.
+            .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
+                .freq_start = 172.0,
+                .freq_end = 152.0,
+                .dur_s = 0.55,
+                .body_decay = 7.0,
+                .attack_decay = 140.0,
+                .drive = 1.5,
+                .attack_mix = 0.2,
+                .seed = 0x721,
+            } }, .gain = 0.80 },
+            .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
+                .freq_start = 118.0,
+                .freq_end = 104.0,
+                .dur_s = 0.7,
+                .body_decay = 5.5,
+                .attack_decay = 140.0,
+                .drive = 1.5,
+                .attack_mix = 0.2,
+                .seed = 0x722,
+            } }, .gain = 0.80 },
+            .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 560.0, .tone2_hz = 780.0, .slap_mix = 0.5, .seed = 0x723 } }, .gain = 0.72 },
+            .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 340.0, .tone2_hz = 470.0, .slap_mix = 0.5, .seed = 0x724 } }, .gain = 0.72 },
+            .{ .name = "ride", .kind = .hat, .params = .{ .hat = .{ .dur_s = 3.0, .decay = 1.4, .body_hz = 4200.0, .air_hz = 7800.0, .air_mix = 0.25, .attack_decay = 190.0, .attack_mix = 0.55 } }, .gain = 0.62 },
+        },
+    },
     .{ .name = "industrial", .category = "industrial", .tags = &.{ "wstudio", "techno" }, .pads = .{
         .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
             .freq_end = 50.0,
@@ -1120,10 +1142,10 @@ pub const variants = [_]KitVariant{
                 .drive = 2.2,
                 .dur_s = 0.07,
             } }, .gain = 0.52, .tune = alt_stick },
-        // A sampled acoustic kit: these toms are a drum, not a machine, so
-        // they bend the few percent a stretched head relaxes by rather than
-        // diving an octave. The pitch stays where it was, at the geometric
-        // mean of the old sweep.
+            // A sampled acoustic kit: these toms are a drum, not a machine, so
+            // they bend the few percent a stretched head relaxes by rather than
+            // diving an octave. The pitch stays where it was, at the geometric
+            // mean of the old sweep.
             .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
                 .freq_start = 150.0,
                 .freq_end = 133.0,
@@ -1338,10 +1360,10 @@ pub const variants = [_]KitVariant{
                 .drive = 2.4,
                 .dur_s = 0.07,
             } }, .gain = 0.56, .tune = alt_stick },
-        // A sampled acoustic kit: these toms are a drum, not a machine, so
-        // they bend the few percent a stretched head relaxes by rather than
-        // diving an octave. The pitch stays where it was, at the geometric
-        // mean of the old sweep.
+            // A sampled acoustic kit: these toms are a drum, not a machine, so
+            // they bend the few percent a stretched head relaxes by rather than
+            // diving an octave. The pitch stays where it was, at the geometric
+            // mean of the old sweep.
             .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
                 .freq_start = 200.0,
                 .freq_end = 177.0,
@@ -1645,105 +1667,110 @@ pub const variants = [_]KitVariant{
             } }, .gain = 0.64 },
         },
     },
-    .{ .name = "vaporwave", .category = "tape", .tags = &.{ "wstudio", "vaporwave", "chill" }, .pads = .{
-        .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
-            .freq_end = 50.0,
-            .freq_start_add = 60.0,
-            .pitch_decay = 28.0,
-            .body_decay = 8.0,
-            .click_decay = 500.0,
-            .click_freq = 900.0,
-            .click_mix = 0.08,
-            .drive = 2.0,
-            .dur_s = 0.5,
-        } }, .gain = 1.00 },
-        .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
-            .freq_end = 50.0,
-            .freq_start_add = 60.0,
-            .pitch_decay = 28.0,
-            .body_decay = 8.0,
-            .click_decay = 500.0,
-            .click_freq = 900.0,
-            .click_mix = 0.08,
-            .drive = 2.0,
-            .dur_s = 0.5,
-        } }, .gain = 0.88, .tune = alt_kick },
-        .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
-            .tone1_hz = 155.0,
-            .tone2_hz = 225.0,
-            .tone_decay = 16.0,
-            .noise_decay = 10.0,
-            .drive = 1.2,
-            .dur_s = 0.35,
-            .lp_hz = 4500.0,
-            .hp_hz = 600.0,
-        } }, .gain = 0.80 },
-        .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
-            .tone1_hz = 155.0,
-            .tone2_hz = 225.0,
-            .tone_decay = 16.0,
-            .noise_decay = 10.0,
-            .drive = 1.2,
-            .dur_s = 0.35,
-            .lp_hz = 4500.0,
-            .hp_hz = 600.0,
-        } }, .gain = 0.72, .tune = alt_snare },
-        .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.07, .decay = 80.0, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 } }, .gain = 0.40 },
-        .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.07, .decay = 80.0, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 } }, .gain = 0.35, .tune = alt_hat },
-        .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.5, .decay = 6.0, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 } }, .gain = 0.40 },
-        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 1.1, .decay = 2.7, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15, .attack_mix = 0.5 } }, .gain = 0.45, .tune = alt_crash },
-        .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
-            .lp_hz = 2200.0,
-            .hp_hz = 800.0,
-            .burst_decay = 160.0,
-            .tail_decay = 9.0,
-            .tail_mix = 0.75,
-            .dur_s = 0.5,
-        } }, .gain = 0.60 },
-        .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
-            .tone1_hz = 1400.0,
-            .tone2_hz = 900.0,
-            .tone_decay = 100.0,
-            .click_decay = 200.0,
-            .drive = 1.4,
-            .dur_s = 0.08,
-        } }, .gain = 0.55 },
-        .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
-            .tone1_hz = 1400.0,
-            .tone2_hz = 900.0,
-            .tone_decay = 100.0,
-            .click_decay = 200.0,
-            .drive = 1.4,
-            .dur_s = 0.08,
-        } }, .gain = 0.47, .tune = alt_stick },
-        // A sampled acoustic kit: these toms are a drum, not a machine, so
-        // they bend the few percent a stretched head relaxes by rather than
-        // diving an octave. The pitch stays where it was, at the geometric
-        // mean of the old sweep.
-        .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
-            .freq_start = 140.0,
-            .freq_end = 124.0,
-            .dur_s = 0.875,
-            .body_decay = 4.5,
-            .attack_decay = 90.0,
-            .drive = 1.4,
-            .attack_mix = 0.06,
-            .seed = 0x791,
-        } }, .gain = 0.75 },
-        .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
-            .freq_start = 104.0,
-            .freq_end = 92.0,
-            .dur_s = 0.96,
-            .body_decay = 4.0,
-            .attack_decay = 90.0,
-            .drive = 1.4,
-            .attack_mix = 0.06,
-            .seed = 0x792,
-        } }, .gain = 0.75 },
-        .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 420.0, .tone2_hz = 580.0, .drive = 1.1, .slap_mix = 0.15, .dur_s = 0.22, .seed = 0x793 } }, .gain = 0.68 },
-        .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 260.0, .tone2_hz = 360.0, .drive = 1.1, .slap_mix = 0.15, .dur_s = 0.22, .seed = 0x794 } }, .gain = 0.68 },
-        .{ .name = "wash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 1.5, .decay = 2.5, .body_hz = 2600.0, .air_hz = 4800.0, .air_mix = 0.5 } }, .gain = 0.38 },
-    } },
+    .{
+        .name = "vaporwave",
+        .category = "tape",
+        .tags = &.{ "wstudio", "vaporwave", "chill" },
+        .pads = .{
+            .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
+                .freq_end = 50.0,
+                .freq_start_add = 60.0,
+                .pitch_decay = 28.0,
+                .body_decay = 8.0,
+                .click_decay = 500.0,
+                .click_freq = 900.0,
+                .click_mix = 0.08,
+                .drive = 2.0,
+                .dur_s = 0.5,
+            } }, .gain = 1.00 },
+            .{ .name = "kick-2", .kind = .kick, .params = .{ .kick = .{
+                .freq_end = 50.0,
+                .freq_start_add = 60.0,
+                .pitch_decay = 28.0,
+                .body_decay = 8.0,
+                .click_decay = 500.0,
+                .click_freq = 900.0,
+                .click_mix = 0.08,
+                .drive = 2.0,
+                .dur_s = 0.5,
+            } }, .gain = 0.88, .tune = alt_kick },
+            .{ .name = "snare", .kind = .snare, .params = .{ .snare = .{
+                .tone1_hz = 155.0,
+                .tone2_hz = 225.0,
+                .tone_decay = 16.0,
+                .noise_decay = 10.0,
+                .drive = 1.2,
+                .dur_s = 0.35,
+                .lp_hz = 4500.0,
+                .hp_hz = 600.0,
+            } }, .gain = 0.80 },
+            .{ .name = "snare-2", .kind = .snare, .params = .{ .snare = .{
+                .tone1_hz = 155.0,
+                .tone2_hz = 225.0,
+                .tone_decay = 16.0,
+                .noise_decay = 10.0,
+                .drive = 1.2,
+                .dur_s = 0.35,
+                .lp_hz = 4500.0,
+                .hp_hz = 600.0,
+            } }, .gain = 0.72, .tune = alt_snare },
+            .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.07, .decay = 80.0, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 } }, .gain = 0.40 },
+            .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.07, .decay = 80.0, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 } }, .gain = 0.35, .tune = alt_hat },
+            .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.5, .decay = 6.0, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 } }, .gain = 0.40 },
+            .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 1.1, .decay = 2.7, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15, .attack_mix = 0.5 } }, .gain = 0.45, .tune = alt_crash },
+            .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
+                .lp_hz = 2200.0,
+                .hp_hz = 800.0,
+                .burst_decay = 160.0,
+                .tail_decay = 9.0,
+                .tail_mix = 0.75,
+                .dur_s = 0.5,
+            } }, .gain = 0.60 },
+            .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{
+                .tone1_hz = 1400.0,
+                .tone2_hz = 900.0,
+                .tone_decay = 100.0,
+                .click_decay = 200.0,
+                .drive = 1.4,
+                .dur_s = 0.08,
+            } }, .gain = 0.55 },
+            .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{
+                .tone1_hz = 1400.0,
+                .tone2_hz = 900.0,
+                .tone_decay = 100.0,
+                .click_decay = 200.0,
+                .drive = 1.4,
+                .dur_s = 0.08,
+            } }, .gain = 0.47, .tune = alt_stick },
+            // A sampled acoustic kit: these toms are a drum, not a machine, so
+            // they bend the few percent a stretched head relaxes by rather than
+            // diving an octave. The pitch stays where it was, at the geometric
+            // mean of the old sweep.
+            .{ .name = "tom-1", .kind = .tom, .params = .{ .tom = .{
+                .freq_start = 140.0,
+                .freq_end = 124.0,
+                .dur_s = 0.875,
+                .body_decay = 4.5,
+                .attack_decay = 90.0,
+                .drive = 1.4,
+                .attack_mix = 0.06,
+                .seed = 0x791,
+            } }, .gain = 0.75 },
+            .{ .name = "tom-2", .kind = .tom, .params = .{ .tom = .{
+                .freq_start = 104.0,
+                .freq_end = 92.0,
+                .dur_s = 0.96,
+                .body_decay = 4.0,
+                .attack_decay = 90.0,
+                .drive = 1.4,
+                .attack_mix = 0.06,
+                .seed = 0x792,
+            } }, .gain = 0.75 },
+            .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 420.0, .tone2_hz = 580.0, .drive = 1.1, .slap_mix = 0.15, .dur_s = 0.22, .seed = 0x793 } }, .gain = 0.68 },
+            .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 260.0, .tone2_hz = 360.0, .drive = 1.1, .slap_mix = 0.15, .dur_s = 0.22, .seed = 0x794 } }, .gain = 0.68 },
+            .{ .name = "wash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 1.5, .decay = 2.5, .body_hz = 2600.0, .air_hz = 4800.0, .air_mix = 0.5 } }, .gain = 0.38 },
+        },
+    },
     .{ .name = "hardcore", .category = "distorted", .tags = &.{ "wstudio", "j-core", "hardcore" }, .pads = .{
         .{ .name = "kick", .kind = .kick, .params = .{ .kick = .{
             .freq_end = 58.0,
@@ -2053,8 +2080,6 @@ test "the noise register runs the two sequence lengths the hardware has" {
     }
 }
 
-
-
 test "the percussion kit's partials are the ones its instruments have" {
     // The numbers this kit was rebuilt on: a struck circular membrane's next
     // mode after the fundamental is the (1,1) at 1.593x, and a free bar's is
@@ -2085,7 +2110,6 @@ test "the percussion kit's partials are the ones its instruments have" {
     try std.testing.expectEqual(@as(usize, 8), membranes); // 3 congas + slap + 2 bongos + 2 timbales
     try std.testing.expectEqual(@as(usize, 2), bars); // clave, woodblock
 }
-
 
 test "the guiro is a train of clicks and the shaken gourds are not" {
     // What separates a scrape from a shake: the pua crosses one ridge at a
@@ -2124,9 +2148,6 @@ test "the guiro is a train of clicks and the shaken gourds are not" {
         if (scraped) try std.testing.expect(n > 15) else try std.testing.expect(n <= 2);
     }
 }
-
-
-
 
 test "no pad is cut off while it is still sounding" {
     // Every generator stops at its `dur_s` whether the sound has finished or
