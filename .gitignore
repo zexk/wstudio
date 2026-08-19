@@ -6,9 +6,11 @@ result-*
 dist/
 .direnv/
 *.wav
-# ...but the default wavetable is committed, embedded assets.
+# ...but the shipped assets are committed: the default wavetable is embedded,
+# and an SFZ in the library names its samples whatever the pack shipped.
 !src/assets/wavetable/
 !src/assets/wavetable/*.wav
+!src/assets/library/**/*.wav
 *~
 
 # Local launch planning, not project documentation.
