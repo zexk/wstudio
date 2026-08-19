@@ -1610,3 +1610,27 @@ test "firstNotePitch and contentEndBeat report the pattern's bounds" {
     try std.testing.expectEqual(@as(?u7, 60), pp.firstNotePitch());
     try std.testing.expectApproxEqAbs(@as(f64, 1.5), pp.contentEndBeat(), 1e-9);
 }
+
+test "chop drops the pieces that would fall past the loop and wrap onto beat 0" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    pp.length_beats = 4.0;
+    const whole: Sel = .{ .lo_beat = 0.0, .hi_beat = 4.0 };
+
+    // Held past the loop end: pieces at 2 and 3 are keepable, the ones at 4
+    // and 5 would wrap onto the top of the loop (scanRange takes @mod).
+    pp.addNote(.{ .pitch = 60, .start_beat = 2.0, .duration_beat = 3.0 });
+    try std.testing.expectEqual(@as(?u16, 1), pp.chop(whole, 1.0));
+    try std.testing.expectEqual(@as(u16, 2), pp.note_count);
+    for (pp.notes[0..pp.note_count]) |n| try std.testing.expect(n.start_beat < pp.length_beats);
+
+    // Nothing keepable past the first piece: the note is left completely
+    // alone, because cmdChopNotes throws its undo entry away on a 0 return.
+    pp.note_count = 0;
+    pp.addNote(.{ .pitch = 64, .start_beat = 3.5, .duration_beat = 2.0 });
+    try std.testing.expectEqual(@as(?u16, 0), pp.chop(whole, 0.5));
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+    try std.testing.expectEqual(@as(f64, 2.0), pp.notes[0].duration_beat);
+}

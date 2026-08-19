@@ -303,6 +303,25 @@ pub fn dedupe(self: *PatternPlayer, sel: Sel) u16 {
     return removed;
 }
 
+/// How many `step_beats` pieces of `n` a chop can keep: the ones that still
+/// start inside [0, length). Past the loop end a piece does not simply
+/// vanish - `scanRange` takes `@mod(start, loop_beats)` of every note, so it
+/// wraps onto the top of the loop and sounds at a beat the note never
+/// covered. `flam` and `arpeggiate` already drop what runs past the end;
+/// this is the same rule for the chop. Counted in the capacity pre-pass as
+/// well as the emit loop so a note with no keepable tail is left untouched -
+/// `cmdChopNotes` throws its undo entry away when nothing is added, so a
+/// silent duration edit there would be unrecoverable.
+fn chopPieces(self: *const PatternPlayer, n: pattern.Note, step_beats: f64) usize {
+    const pieces = PatternPlayer.pieceCount(n.duration_beat, step_beats);
+    var kept: usize = 1;
+    for (1..pieces) |p| {
+        if (n.start_beat + @as(f64, @floatFromInt(p)) * step_beats >= self.length_beats) break;
+        kept += 1;
+    }
+    return kept;
+}
+
 /// Split every note `sel` covers into `step_beats`-long pieces - FL's
 /// chop tool, the inverse of `glue`. The final piece keeps whatever
 /// remainder is left rather than overshooting the original end, and a
@@ -317,7 +336,7 @@ pub fn chop(self: *PatternPlayer, sel: Sel, step_beats: f64) ?u16 {
     var extra: usize = 0;
     for (self.notes[0..self.note_count]) |n| {
         if (!sel.contains(n)) continue;
-        extra += PatternPlayer.pieceCount(n.duration_beat, step_beats) - 1;
+        extra += chopPieces(self, n, step_beats) - 1;
     }
     if (extra == 0) return 0;
     if (self.note_count + extra > max_notes) return null;
@@ -325,7 +344,7 @@ pub fn chop(self: *PatternPlayer, sel: Sel, step_beats: f64) ?u16 {
     const original = self.note_count;
     for (self.notes[0..original], 0..) |n, i| {
         if (!sel.contains(n)) continue;
-        const pieces = PatternPlayer.pieceCount(n.duration_beat, step_beats);
+        const pieces = chopPieces(self, n, step_beats);
         if (pieces == 1) continue;
         const end = n.start_beat + n.duration_beat;
         self.queueNoteOff(n.pitch);
