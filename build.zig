@@ -185,7 +185,6 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .backend = .glfw_opengl3,
-            .with_implot = true,
             .with_te = enable_gui_test,
             .use_wchar32 = true,
         });
