@@ -367,6 +367,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("j / k",        "select parameter");
     t.key("gg / gG",       "jump to first / last parameter (within the current subview)");
     t.key("{ / }",        "prev / next section (within the current subview)");
+    t.key("[ / ]",        "cycle the tabbed card the cursor is on (OSC A/B/C, LFO 1-3, FILTER 1/2, ENV 1-3), keeping the same row");
     t.key("h / l",        "adjust value (fine)");
     t.key("H / L",        "adjust curve on attack/decay/release params; coarse ×10 elsewhere");
     t.key("m",            "modulate the param under the cursor - points the first free MATRIX row at it and jumps there");

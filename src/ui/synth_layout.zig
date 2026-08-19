@@ -64,7 +64,29 @@ pub const SectionDef = struct {
     /// renders taller than its declared height pushes every card under it
     /// past the column's row budget, where the renderer clips it away.
     extra_rows: u8 = 0,
+    /// Sections sharing a non-zero group are one tabbed card: they occupy
+    /// the same slot in the grid and only the live tab's body is drawn
+    /// (`[`/`]` cycle them - editors/synth.zig's cycleCursorTab). Members
+    /// must be declared consecutively. The header strip is derived from the
+    /// titles, so a group's titles read "<GROUP> <tab>" ("OSC A", "LFO 2").
+    tab_group: TabGroup = .none,
 };
+
+/// The tab groups, as the frontends name them. `none` is every plain card.
+pub const TabGroup = enum { none, osc, lfo, filter, env };
+
+/// Members of `section`'s tab group as an index range, or null when the
+/// section is a plain card. Both frontends derive their tab bars from this
+/// rather than hard-coding index runs.
+pub fn tabGroupRange(sections: []const SectionDef, section: usize) ?struct { start: usize, end: usize } {
+    const group = sections[section].tab_group;
+    if (group == .none) return null;
+    var start = section;
+    while (start > 0 and sections[start - 1].tab_group == group) start -= 1;
+    var end = section + 1;
+    while (end < sections.len and sections[end].tab_group == group) end += 1;
+    return .{ .start = start, .end = end };
+}
 
 /// One slot entry (source/dest/depth) plus one polarity toggle per matrix
 /// row. Ids come from `PolySynth` itself rather than being re-derived here:
@@ -91,14 +113,14 @@ pub const main_sections = [_]SectionDef{
         .{ .id = 99, .label = "macro 1" }, .{ .id = 100, .label = "macro 2" },
         .{ .id = 101, .label = "macro 3" }, .{ .id = 102, .label = "macro 4" },
     } },
-    .{ .title = "OSC A", .tone = .source, .band = 0, .params = &.{
+    .{ .title = "OSC A", .tone = .source, .band = 0, .tab_group = .osc, .params = &.{
         .{ .id = 2,  .label = "detune" },    .{ .id = 3,  .label = "unison" },
         .{ .id = 4,  .label = "uni.det" },   .{ .id = 5,  .label = "spread" },
         .{ .id = 39, .label = "uni.mode" },  .{ .id = 41, .label = "warp" },
         .{ .id = 42, .label = "amount" },    .{ .id = 185, .label = "position" },
         .{ .id = 251, .label = "waveform" },
     } },
-    .{ .title = "OSC B", .tone = .source, .band = 0, .params = &.{
+    .{ .title = "OSC B", .tone = .source, .band = 0, .tab_group = .osc, .params = &.{
         .{ .id = 6,  .label = "enabled" },   .{ .id = 9,  .label = "semi" },
         .{ .id = 10, .label = "detune" },    .{ .id = 11, .label = "level" },
         .{ .id = 12, .label = "unison" },    .{ .id = 13, .label = "uni.det" },
@@ -106,7 +128,7 @@ pub const main_sections = [_]SectionDef{
         .{ .id = 44, .label = "amount" },    .{ .id = 186, .label = "position" },
         .{ .id = 252, .label = "waveform" },
     } },
-    .{ .title = "OSC C", .tone = .source, .band = 0, .params = &.{
+    .{ .title = "OSC C", .tone = .source, .band = 0, .tab_group = .osc, .params = &.{
         .{ .id = 50, .label = "enabled" },   .{ .id = 53, .label = "semi" },
         .{ .id = 54, .label = "detune" },    .{ .id = 55, .label = "level" },
         .{ .id = 56, .label = "unison" },    .{ .id = 57, .label = "uni.det" },
@@ -120,39 +142,39 @@ pub const main_sections = [_]SectionDef{
     .{ .title = "NOISE", .tone = .source, .band = 1, .params = &.{
         .{ .id = 36, .label = "level" }, .{ .id = 37, .label = "color" },
     } },
-    .{ .title = "LFO 1", .tone = .mod, .band = 1, .extra_rows = 1, .params = &.{
+    .{ .title = "LFO 1", .tone = .mod, .band = 1, .extra_rows = 1, .tab_group = .lfo, .params = &.{
         .{ .id = 28, .label = "shape" }, .{ .id = 397, .label = "wave" }, .{ .id = 29, .label = "rate" },
         .{ .id = 256, .label = "sync" }, .{ .id = 259, .label = "retrig" },
         .{ .id = 262, .label = "phase" }, .{ .id = 265, .label = "slew" },
     } },
-    .{ .title = "LFO 2", .tone = .mod, .band = 1, .extra_rows = 1, .params = &.{
+    .{ .title = "LFO 2", .tone = .mod, .band = 1, .extra_rows = 1, .tab_group = .lfo, .params = &.{
         .{ .id = 95, .label = "shape" }, .{ .id = 398, .label = "wave" }, .{ .id = 96, .label = "rate" },
         .{ .id = 257, .label = "sync" }, .{ .id = 260, .label = "retrig" },
         .{ .id = 263, .label = "phase" }, .{ .id = 266, .label = "slew" },
     } },
-    .{ .title = "LFO 3", .tone = .mod, .band = 1, .extra_rows = 1, .params = &.{
+    .{ .title = "LFO 3", .tone = .mod, .band = 1, .extra_rows = 1, .tab_group = .lfo, .params = &.{
         .{ .id = 97, .label = "shape" }, .{ .id = 399, .label = "wave" }, .{ .id = 98, .label = "rate" },
         .{ .id = 258, .label = "sync" }, .{ .id = 261, .label = "retrig" },
         .{ .id = 264, .label = "phase" }, .{ .id = 267, .label = "slew" },
     } },
-    .{ .title = "FILTER 1", .tone = .filter, .band = 2, .params = &.{
+    .{ .title = "FILTER 1", .tone = .filter, .band = 2, .tab_group = .filter, .params = &.{
         .{ .id = 20, .label = "type" }, .{ .id = 21, .label = "cutoff" }, .{ .id = 22, .label = "res" },
         .{ .id = 249, .label = "drive" },
     } },
-    .{ .title = "FILTER 2", .tone = .filter, .band = 2, .params = &.{
+    .{ .title = "FILTER 2", .tone = .filter, .band = 2, .tab_group = .filter, .params = &.{
         .{ .id = 45, .label = "enabled" }, .{ .id = 46, .label = "type" },
         .{ .id = 47, .label = "cutoff" }, .{ .id = 48, .label = "res" }, .{ .id = 250, .label = "drive" },
         .{ .id = 49, .label = "routing" },
     } },
-    .{ .title = "ENV 1", .tone = .env, .band = 3, .params = &.{
+    .{ .title = "ENV 1", .tone = .env, .band = 3, .tab_group = .env, .params = &.{
         .{ .id = 16, .label = "attack" }, .{ .id = 17, .label = "decay" },
         .{ .id = 18, .label = "sustain" }, .{ .id = 19, .label = "release" },
     } },
-    .{ .title = "ENV 2", .tone = .env, .band = 3, .params = &.{
+    .{ .title = "ENV 2", .tone = .env, .band = 3, .tab_group = .env, .params = &.{
         .{ .id = 24, .label = "attack" }, .{ .id = 25, .label = "decay" },
         .{ .id = 26, .label = "sustain" }, .{ .id = 27, .label = "release" },
     } },
-    .{ .title = "ENV 3", .tone = .env, .band = 3, .params = &.{
+    .{ .title = "ENV 3", .tone = .env, .band = 3, .tab_group = .env, .params = &.{
         .{ .id = 122, .label = "attack" }, .{ .id = 123, .label = "decay" },
         .{ .id = 124, .label = "sustain" }, .{ .id = 125, .label = "release" },
     } },
@@ -193,14 +215,38 @@ fn packColumns(comptime sections: []const SectionDef, comptime num_cols: usize) 
     var out: [sections.len]Placement = undefined;
     var col_h = [_]usize{0} ** num_cols;
     for (sections, 0..) |sec, i| {
+        // A tab group is one card in the grid: every member sits in the
+        // first member's slot, and the slot is as tall as the tallest of
+        // them, so cycling tabs never reflows anything around it.
+        if (sec.tab_group != .none and i > 0 and sections[i - 1].tab_group == sec.tab_group) {
+            out[i] = out[i - 1];
+            continue;
+        }
         var col: usize = 0;
         for (col_h[1..], 1..) |height, candidate| {
             if (height < col_h[col]) col = candidate;
         }
         out[i] = .{ .col = col, .row0 = col_h[col] };
-        col_h[col] += sec.params.len + sec.extra_rows + 2;
+        col_h[col] += slotHeight(sections, i);
     }
     return out;
+}
+
+fn sectionHeight(comptime sec: SectionDef) usize {
+    return sec.params.len + sec.extra_rows + 2;
+}
+
+/// Rows the card at `first` occupies: its own, or the tallest of its tab
+/// group when it opens one.
+fn slotHeight(comptime sections: []const SectionDef, comptime first: usize) usize {
+    var h = sectionHeight(sections[first]);
+    if (sections[first].tab_group != .none) {
+        var i = first + 1;
+        while (i < sections.len and sections[i].tab_group == sections[first].tab_group) : (i += 1) {
+            h = @max(h, sectionHeight(sections[i]));
+        }
+    }
+    return h;
 }
 
 fn columnHeights(comptime sections: []const SectionDef, comptime placements: [sections.len]Placement, comptime num_cols: usize) [num_cols]usize {
@@ -493,4 +539,13 @@ comptime {
             .{id},
         ));
     }
+}
+
+/// Whether `section` owns the param `cursor` sits on (a multi-field entry
+/// counts across its whole span).
+pub fn sectionHasParam(section: SectionDef, cursor: u16) bool {
+    for (section.params) |entry| {
+        if (cursor >= entry.id and cursor < entry.id + entry.fields) return true;
+    }
+    return false;
 }

@@ -598,6 +598,44 @@ fn cycleCursorTab(app: *App, delta: i32) void {
     updateScroll(app);
 }
 
+fn tabSlotPtr(app: *App, group: synth_layout.TabGroup) *u8 {
+    return switch (group) {
+        .osc => &app.synth_osc_tab,
+        .lfo => &app.synth_lfo_tab,
+        .filter => &app.synth_filter_tab,
+        .env => &app.synth_env_tab,
+        .none => unreachable,
+    };
+}
+
+/// Point every tab group at the card holding the cursor, so `j`/`k` (or a
+/// `/` search) walking into a hidden tab brings it forward instead of
+/// parking the cursor on a card nobody can see. Called once per frame by
+/// the grid renderers, the same place the GUI's tab bar syncs.
+pub fn syncTabsToCursor(app: *App) void {
+    for (synth_layout.main_sections, 0..) |sec, si| {
+        if (sec.tab_group == .none) continue;
+        if (!synth_layout.sectionHasParam(sec, app.synth_cursor)) continue;
+        const range = synth_layout.tabGroupRange(&synth_layout.main_sections, si).?;
+        tabSlotPtr(app, sec.tab_group).* = @intCast(si - range.start);
+    }
+}
+
+/// The one section of `section`'s tab group that is on screen (`section`
+/// itself for a plain card). Renderer and mouse hit-testing both ask, so a
+/// hidden card is neither drawn nor clickable.
+pub fn liveSection(app: *const App, sections: []const synth_layout.SectionDef, section: usize) usize {
+    const range = synth_layout.tabGroupRange(sections, section) orelse return section;
+    const slot: usize = switch (sections[section].tab_group) {
+        .osc => app.synth_osc_tab,
+        .lfo => app.synth_lfo_tab,
+        .filter => app.synth_filter_tab,
+        .env => app.synth_env_tab,
+        .none => 0,
+    };
+    return range.start + @min(slot, range.end - range.start - 1);
+}
+
 /// One discrete param edit on some id other than the cursor's, pushed as
 /// its own undo entry (see `sendFxToggle`'s comment for why it flushes
 /// immediately instead of coalescing like a held `h`/`l` run).
@@ -953,7 +991,11 @@ fn paramAtRow(app: *App, row: usize, x: usize, cols: u16) ?u16 {
     const cw = synth_layout.colWidth(cols, n);
     const col = @min(@as(usize, x) / cw, n - 1);
     const order = if (view == .main) synth_layout.mainOrder(n) else synth_layout.modOrder(n);
+    const sections: []const synth_layout.SectionDef = if (view == .main) &synth_layout.main_sections else &synth_layout.mod_sections;
     for (order) |pe| {
+        // A tab group's members share their rows, so the hidden ones have
+        // to be skipped or a click lands on a card that isn't drawn.
+        if (liveSection(app, sections, pe.section) != pe.section) continue;
         if (pe.col == col and pe.row == full_row) return pe.id;
     }
     return null;

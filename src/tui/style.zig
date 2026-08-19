@@ -486,3 +486,35 @@ fn barLabel(step: u32, meter_denominator: u32, bar_units: u32) ?[2]u8 {
     _ = std.fmt.bufPrint(&buf, "{d:>2}", .{bar}) catch return null;
     return buf;
 }
+
+/// Tabbed section divider: `▌ OSC [A] B  C ─────`, the drawn card's tab in
+/// brackets and its siblings dim. Only the live card's body follows it, so
+/// this is the TUI's read of the GUI's tab bar (`[`/`]` cycle them - see
+/// editors/synth.zig's cycleCursorTab).
+pub fn synthTabSection(w: *std.Io.Writer, group: []const u8, labels: []const []const u8, active: usize, color: []const u8) !void {
+    try w.writeAll("  ");
+    try w.writeAll(color);
+    try w.writeAll(bold);
+    try w.writeAll("\u{258C} ");
+    try w.writeAll(group);
+    try w.writeByte(' ');
+    var used = 5 + group.len; // "  " + "▌ " + group + " "
+    for (labels, 0..) |label, i| {
+        if (i == active) {
+            try w.writeAll(color);
+            try w.writeAll(bold);
+            try w.print("[{s}]", .{label});
+        } else {
+            try w.writeAll(rst);
+            try w.writeAll(dim);
+            try w.print(" {s} ", .{label});
+        }
+        used += label.len + 2;
+    }
+    try w.writeAll(rst);
+    try w.writeAll(dim);
+    try w.writeByte(' ');
+    used += 1;
+    if (used < form_section_w) for (used..form_section_w) |_| try w.writeAll("\u{2500}");
+    try endLine(w);
+}

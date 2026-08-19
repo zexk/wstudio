@@ -54,6 +54,34 @@ fn drawSynthTitle(w: *std.Io.Writer, subview: synth_ed.Subview, name: []const u8
     try endLine(w);
 }
 
+/// Header for one card of a tab group: the group's tabs, this card's own
+/// bracketed. Only the live card is drawn (see drawSynthGrid), so the card
+/// drawing the strip is always the active tab. A title that names no tabbed
+/// section falls back to the plain divider.
+fn tabSection(w: *std.Io.Writer, title: []const u8, color: []const u8) !void {
+    const sections = &synth_layout.main_sections;
+    for (sections, 0..) |sec, si| {
+        if (!std.mem.eql(u8, sec.title, title)) continue;
+        const range = synth_layout.tabGroupRange(sections, si) orelse break;
+        var labels: [8][]const u8 = undefined;
+        for (range.start..range.end, 0..) |i, slot| labels[slot] = tabLabel(sections[i].title);
+        return style.synthTabSection(w, groupLabel(title), labels[0 .. range.end - range.start], si - range.start, color);
+    }
+    try synthSection(w, title, color);
+}
+
+/// A tabbed card's title carries both halves of its strip: "OSC A" is the
+/// "OSC" group's "A" tab, so no second table has to name them.
+fn groupLabel(title: []const u8) []const u8 {
+    const space = std.mem.lastIndexOfScalar(u8, title, ' ') orelse return title;
+    return title[0..space];
+}
+
+fn tabLabel(title: []const u8) []const u8 {
+    const space = std.mem.lastIndexOfScalar(u8, title, ' ') orelse return title;
+    return title[space + 1 ..];
+}
+
 /// Render the synth editor into `w`, applying vertical scroll so it fits
 /// within `max_rows`. Always shows the title line, then slices the current
 /// subview's body to keep the cursor in view. `app.synth_subview` picks one
@@ -104,6 +132,7 @@ fn drawSynthGrid(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize, 
         .main => &main_render_fns,
         .mod => &mod_render_fns,
     };
+    synth_ed.syncTabsToCursor(app);
     const n = synth_layout.numCols(cols);
     const col_w = synth_layout.colWidth(cols, n);
     style.form_bar_w = @min(style.form_bar_w_default + (col_w -| 100) / 2, 40);
@@ -178,6 +207,9 @@ fn drawSynthGrid(app: anytype, w: *std.Io.Writer, max_rows: usize, cols: usize, 
     for (0..n) |i| writers[i] = std.Io.Writer.fixed(&bufs[i]);
     const placements = if (subview == .main) synth_layout.mainPlacements(n) else synth_layout.modPlacements(n);
     for (sections, 0..) |sec, si| {
+        // One card per tab group: the others share its slot and stay hidden
+        // until `[`/`]` (or the cursor) brings them forward.
+        if (synth_ed.liveSection(app, sections, si) != si) continue;
         const col = placements[si].col;
         // Keep rendered rows aligned with cursor placement.
         while (col_rows[col] < placements[si].row0) : (col_rows[col] += 1) try endLine(&writers[col]);
@@ -243,7 +275,7 @@ fn wtTableRow(w: *std.Io.Writer, is_sel: bool, dimmed: bool, kind: ?ws.dsp.synth
 
 fn secOscA(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
-    try synthSection(w, "OSC A", acc);
+    try tabSection(w, "OSC A", acc);
 
     // zig fmt: off
     // params 2–5: detune, unison, uni.det, spread
@@ -271,7 +303,7 @@ fn secOscA(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
 
 fn secOscB(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
-    try synthSection(w, "OSC B", acc);
+    try tabSection(w, "OSC B", acc);
 
     const b_on = synth.osc_b_on;
     try toggleRow(w, c == 6, false, acc, "enabled", b_on);
@@ -301,7 +333,7 @@ fn secOscB(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
 
 fn secEnv(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
-    try synthSection(w, "ENV 1", grn);
+    try tabSection(w, "ENV 1", grn);
 
     try barRow(w, c == 16, false, grn, "attack", synth.attack_s, 5.0,
         synth_ed.paramValueText(synth, 16, &buf));
@@ -317,7 +349,7 @@ const filter_type_names = [_][]const u8{ "lp", "hp", "bp", "ntch", "ladr", "diod
 
 fn secFilter(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
-    try synthSection(w, "FILTER 1", yel);
+    try tabSection(w, "FILTER 1", yel);
 
     try enumRow(w, c == 20, false, yel, "type", &filter_type_names, @intFromEnum(synth.filter_type));
 
@@ -338,7 +370,7 @@ fn secFilter(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
 
 fn secFenv(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
-    try synthSection(w, "ENV 2", grn);
+    try tabSection(w, "ENV 2", grn);
 
     try barRow(w, c == 24, false, grn, "attack", synth.fenv_attack_s, 5.0,
         synth_ed.paramValueText(synth, 24, &buf));
@@ -390,7 +422,7 @@ fn secLfoSlot(w: *std.Io.Writer, synth: *const PolySynth, c: u16, slot: u8, titl
     const ids = lfo_slot_ids[slot];
     const s = lfoSlotState(synth, slot);
     const synced = s.sync != .off;
-    try synthSection(w, title, mag);
+    try tabSection(w, title, mag);
 
     try enumRow(w, c == ids[0], false, mag, "shape", &lfo_shape_names, @intFromEnum(s.shape));
     // Loading a wave overwrites the drawn points, so the row is inert (and
@@ -491,7 +523,7 @@ fn secArp(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
 /// same shape as FENV but not tied to the filter.
 fn secEnv3(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
-    try synthSection(w, "ENV 3", grn);
+    try tabSection(w, "ENV 3", grn);
 
     try barRow(w, c == 122, false, grn, "attack", synth.env3_attack_s, 5.0,
         synth_ed.paramValueText(synth, 122, &buf));
@@ -569,7 +601,7 @@ fn warpMax(mode: ws.dsp.synth.WarpMode) f32 {
 
 fn secFilter2(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
-    try synthSection(w, "FILTER 2", yel);
+    try tabSection(w, "FILTER 2", yel);
 
     try toggleRow(w, c == 45, false, yel, "enabled", synth.filter2_on);
 
@@ -597,7 +629,7 @@ fn secFilter2(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
 
 fn secOscC(w: *std.Io.Writer, synth: *const PolySynth, c: u16) !void {
     var buf: [40]u8 = undefined;
-    try synthSection(w, "OSC C", acc);
+    try tabSection(w, "OSC C", acc);
 
     const c_on = synth.osc_c_on;
     try toggleRow(w, c == 50, false, acc, "enabled", c_on);

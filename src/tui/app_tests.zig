@@ -5423,7 +5423,8 @@ test "draw renders synth editor without errors" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "SYNTH") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "attack") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "sustain") != null);
-    try std.testing.expect(std.mem.indexOf(u8, frame, "LFO 1") != null);
+    // A tabbed card names its group and brackets the live tab.
+    try std.testing.expect(std.mem.indexOf(u8, frame, "LFO ") != null);
 }
 
 test "synth MOD subview contains matrix without LFO cards" {
@@ -5457,14 +5458,32 @@ test "the synth editor renders a card for every section in the shared layout" {
     // card's title by hand, so nothing but this test notices a section that
     // gained a cursor slot without gaining a card (or one whose title was
     // typed differently: MACROS spent a while as "MACRO").
+    // A tab group draws only its live card, so each one is asked for with
+    // the cursor parked on it, and its title then reads as the strip:
+    // "OSC A" shows up as "OSC" with "[A]" bracketed among its siblings.
     var w = std.Io.Writer.fixed(&buf);
-    try tui_mod.draw(&app, &w, .{ .cols = 240, .rows = 120 });
-    const main_frame = w.buffered();
-    for (synth_layout.main_sections) |section| {
-        std.testing.expect(std.mem.indexOf(u8, main_frame, section.title) != null) catch |e| {
-            std.debug.print("MAIN subview draws no card titled '{s}'\n", .{section.title});
-            return e;
-        };
+    for (synth_layout.main_sections, 0..) |section, si| {
+        app.synth_cursor = section.params[0].id;
+        w = std.Io.Writer.fixed(&buf);
+        try tui_mod.draw(&app, &w, .{ .cols = 240, .rows = 120 });
+        var plain_buf: [64 * 1024]u8 = undefined;
+        const plain = ansi.stripAnsi(w.buffered(), &plain_buf);
+        var expected: [2][]const u8 = .{ section.title, "" };
+        var tab_buf: [32]u8 = undefined;
+        if (synth_layout.tabGroupRange(&synth_layout.main_sections, si) != null) {
+            const space = std.mem.lastIndexOfScalar(u8, section.title, ' ').?;
+            expected = .{
+                section.title[0..space],
+                try std.fmt.bufPrint(&tab_buf, "[{s}]", .{section.title[space + 1 ..]}),
+            };
+        }
+        for (expected) |needle| {
+            if (needle.len == 0) continue;
+            std.testing.expect(std.mem.indexOf(u8, plain, needle) != null) catch |e| {
+                std.debug.print("MAIN subview draws no card showing '{s}'\n", .{needle});
+                return e;
+            };
+        }
     }
 
     app.handleKey(.tab, 0);
@@ -5567,8 +5586,9 @@ test "synth section focus isolates navigation and rendering" {
     try tui_mod.draw(&app, &w, .{ .cols = 120, .rows = 30 });
     const frame = w.buffered();
     try std.testing.expect(std.mem.indexOf(u8, frame, "FOCUS") != null);
-    try std.testing.expect(std.mem.indexOf(u8, frame, "OSC A") != null);
-    try std.testing.expect(std.mem.indexOf(u8, frame, "OSC B") == null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "OSC ") != null);
+    // Only the live tab draws a body: OSC B's params stay off screen.
+    try std.testing.expect(std.mem.indexOf(u8, frame, "enabled") == null);
 
     app.handleKey(.{ .char = '}' }, 0);
     // The next card is OSC B (id 6, its on/off), at every column count:
@@ -11207,4 +11227,35 @@ test "every cell width the config allows fits the terminal row" {
             }
         }
     }
+}
+
+test "synth tab groups draw one card, and the strip follows the cursor" {
+    var app = try testApp();
+    defer app.deinit();
+    app.handleKey(.enter, 0); // synth editor on track 0
+    var buf: [32 * 1024]u8 = undefined;
+    var plain_buf: [32 * 1024]u8 = undefined;
+
+    // OSC A is the live tab: its siblings' bodies are hidden, and the strip
+    // brackets the one on screen.
+    var w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 160, .rows = 40 });
+    var plain = ansi.stripAnsi(w.buffered(), &plain_buf);
+    try std.testing.expect(std.mem.indexOf(u8, plain, "OSC [A] B  C") != null);
+    try std.testing.expect(std.mem.indexOf(u8, plain, "LFO [1] 2  3") != null);
+
+    // `]` cycles to the next tab, keeping the cursor on the matching param.
+    app.handleKey(.{ .char = ']' }, 0);
+    w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 160, .rows = 40 });
+    plain = ansi.stripAnsi(w.buffered(), &plain_buf);
+    try std.testing.expect(std.mem.indexOf(u8, plain, "OSC  A [B] C") != null);
+
+    // Walking the cursor into a hidden card with j/k brings it forward.
+    app.synth_cursor = 97; // LFO 3's shape
+    w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 160, .rows = 40 });
+    plain = ansi.stripAnsi(w.buffered(), &plain_buf);
+    try std.testing.expect(std.mem.indexOf(u8, plain, "LFO  1  2 [3]") != null);
+    try std.testing.expectEqual(@as(u8, 2), app.synth_lfo_tab);
 }
