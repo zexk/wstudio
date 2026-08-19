@@ -380,7 +380,7 @@ pub const RepeatOp = union(enum) {
 /// holds a working copy of this arrangement clip and every edit is written
 /// straight back into it - the clip owns the data. Identified by track +
 /// start bar because clip pointers shift as lanes are edited.
-const ClipLink = struct { track: u16, start_bar: u32 };
+const ClipLink = struct { track: u16, start_tick: u32 };
 
 pub const App = struct {
     allocator: std.mem.Allocator,
@@ -933,7 +933,7 @@ pub const App = struct {
     /// arrangement; cleared when the roll opens on a live pattern instead.
     piano_clip_link: ?ClipLink = null,
     /// The arrangement clip the automation view is editing, relocated by
-    /// (track, start_bar) the same way `piano_clip_link` is - set by `a` on
+    /// (track, start_tick) the same way `piano_clip_link` is - set by `a` on
     /// a clip in the arrangement view. See editors/automation.zig.
     automation_clip: ?ClipLink = null,
     /// Track shown in the automation view - mirrors `piano_track`/

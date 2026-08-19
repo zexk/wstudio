@@ -29,14 +29,14 @@ pub fn captureMelodic(app: *App, track: u16) ?undo_mod.Entry {
     const count = pp.copyNotes(&buf);
     const notes = app.allocator.dupe(pattern_mod.Note, buf[0..count]) catch return null;
     const link_bar: ?u32 = if (app.piano_clip_link) |l|
-        (if (l.track == track) l.start_bar else null)
+        (if (l.track == track) l.start_tick else null)
     else
         null;
     return .{ .melodic = .{
         .track = track,
         .length_beats = pp.length_beats,
         .notes = notes,
-        .clip_start_bar = link_bar,
+        .clip_start_tick = link_bar,
     } };
 }
 
@@ -547,10 +547,10 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
             const pp = &app.session.racks.items[m.track].pattern_player.?;
             pp.setNotes(m.notes, m.length_beats);
             app.allocator.free(m.notes);
-            if (m.clip_start_bar) |bar| {
+            if (m.clip_start_tick) |bar| {
                 // The edit lived in a clip: re-link and write it back.
                 app.piano_track = m.track;
-                app.piano_clip_link = .{ .track = m.track, .start_bar = bar };
+                app.piano_clip_link = .{ .track = m.track, .start_tick = bar };
                 piano.syncLinkedClip(app);
             } else if (app.piano_clip_link) |link| {
                 // Restored an unlinked state over an active link: drop the

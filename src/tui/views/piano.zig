@@ -98,7 +98,7 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     // Clip-editing mode: show which arrangement clip the edits land in.
     if (app.piano_clip_link) |link| {
         try w.writeAll("  " ++ acc);
-        try w.print("clip@bar {d}", .{link.start_bar + 1});
+        try w.print("clip@bar {d}", .{app.session.project.barAtTick(link.start_tick).bar + 1});
         try w.writeAll(rst);
     } else if (app.session.song_mode) {
         // Unlinked + song mode: this is the scratch pattern buffer, not any

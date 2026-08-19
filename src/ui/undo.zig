@@ -18,13 +18,13 @@ const Section = ws.Section;
 pub const max_entries: usize = 64;
 
 /// One track's live melodic pattern. When the piano roll was linked to an
-/// arrangement clip at capture time, `clip_start_bar` remembers it so the
+/// arrangement clip at capture time, `clip_start_tick` remembers it so the
 /// restore re-links and writes the notes back into that clip too.
 pub const MelodicState = struct {
     track: u16,
     length_beats: f64,
     notes: []Note, // owned
-    clip_start_bar: ?u32 = null,
+    clip_start_tick: ?u32 = null,
 
     pub fn deinit(self: *MelodicState, allocator: std.mem.Allocator) void {
         allocator.free(self.notes);

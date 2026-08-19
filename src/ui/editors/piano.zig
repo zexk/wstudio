@@ -1040,7 +1040,7 @@ pub fn syncLinkedClip(app: *App) void {
         app.piano_clip_link = null;
         return;
     };
-    const clip = lane.clipAt(link.start_bar) orelse {
+    const clip = lane.clipAt(link.start_tick) orelse {
         app.piano_clip_link = null;
         app.setStatus("clip gone - editing the live pattern now", .{});
         return;

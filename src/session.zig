@@ -1705,7 +1705,7 @@ pub const Session = struct {
     /// kind - slots are keyed by `(instance_id, param_id)`, not `param_id`
     /// alone, so an instrument lane and an FX-unit lane never collide even
     /// if their ids happen to match. Clips are already stored
-    /// start_bar-ascending (`Lane.place`) and each clip's own points are
+    /// start_tick-ascending (`Lane.place`) and each clip's own points are
     /// beat-ascending (`automation.setPoint`), so appending in clip order
     /// needs no extra sort.
     fn flattenClipAutomation(self: *Session, track: u16, lane: *arr_mod.Lane) void {

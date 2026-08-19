@@ -2839,7 +2839,7 @@ test "automation mouse drag paints and right-drag erases points" {
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
     try app.session.stampClip(0, 0);
     app.automation_track = 0;
-    app.automation_clip = .{ .track = 0, .start_bar = 0 };
+    app.automation_clip = .{ .track = 0, .start_tick = 0 };
     app.view = .automation;
 
     const y = app_mod.content_top + 3;
@@ -3281,6 +3281,29 @@ test "undo restores clips a stamp evicted" {
     try std.testing.expectEqual(@as(usize, 0), lane.clips.items.len);
     app.handleKey(.{ .char = 'U' }, 0);
     try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
+}
+
+test "a linked piano roll names the clip's bar, not its tick" {
+    var app = try testApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try app.session.stampClip(0, 2);
+
+    app.view = .arrangement;
+    app.cursor = 0;
+    // The arrangement cursor counts grid cells, not bars: at the default
+    // 1/4 grid, bar 2 of 4/4 is the eighth cell.
+    app.arr_cursor_bar = 8;
+    app.handleKey(.{ .char = 'e' }, 0); // clip editing mode
+
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 100, .rows = 30 });
+    const frame = w.buffered();
+    // The link stores the clip's start tick; the header reads in bars, so
+    // bar 2 (0-based) has to print as 3 - not as tick 1920 + 1.
+    try std.testing.expect(std.mem.indexOf(u8, frame, "clip@bar 3") != null);
 }
 
 test "undo of a linked clip edit restores the clip too" {
@@ -4240,7 +4263,7 @@ test "structural track changes remap every editor-target field" {
     app.synth_track = 0;
     app.drum_track = 2;
     app.sampler_target = .{ .sampler = 1 };
-    app.piano_clip_link = .{ .track = 2, .start_bar = 0 };
+    app.piano_clip_link = .{ .track = 2, .start_tick = 0 };
 
     // Insert at 1: everything from index 1 up shifts, index 0 stays put.
     app.remapTrackFields(.{ .insert = 1 });
@@ -4685,7 +4708,7 @@ test "session swap resets view, editor targets, and undo history" {
     app.drum_track = 2;
     history.push(&app, history.captureDrum(&app, 2));
     app.playNote(2, 60, 0);
-    app.piano_clip_link = .{ .track = 2, .start_bar = 0 };
+    app.piano_clip_link = .{ .track = 2, .start_tick = 0 };
     try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
 
     // Shared half of the swap run() performs for :e/:new. Frontends only

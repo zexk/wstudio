@@ -412,7 +412,9 @@ pub const Clip = struct {
     }
 };
 
-/// One track's clips, kept sorted by `start_bar` and non-overlapping.
+/// One track's clips, kept sorted by `start_tick`. Clips on the SAME layer
+/// never overlap (`place` evicts what it lands on); clips on different
+/// layers deliberately do - see docs/editing-grammar.md.
 pub const Lane = struct {
     clips: std.ArrayListUnmanaged(Clip) = .empty,
 
@@ -422,7 +424,7 @@ pub const Lane = struct {
     }
 
     /// Insert `clip`, first removing any existing clip it overlaps. Keeps the
-    /// list sorted by `start_bar`. Takes ownership of the clip's content -
+    /// list sorted by `start_tick`. Takes ownership of the clip's content -
     /// including on failure, when the content is freed.
     pub fn place(self: *Lane, allocator: std.mem.Allocator, clip: Clip) !void {
         self.clips.ensureUnusedCapacity(allocator, 1) catch |err| {

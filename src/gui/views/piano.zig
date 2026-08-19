@@ -232,7 +232,7 @@ pub fn draw(app: anytype) void {
     zgui.text("\"{s}\"", .{track_name});
     if (app.core.piano_clip_link) |link| {
         zgui.sameLine(.{});
-        zgui.textColored(theme.focus, icons.arrangement ++ "  BAR {d}", .{link.start_bar + 1});
+        zgui.textColored(theme.focus, icons.arrangement ++ "  BAR {d}", .{app.core.session.project.barAtTick(link.start_tick).bar + 1});
     } else if (app.core.session.song_mode) {
         zgui.sameLine(.{});
         zgui.textColored(theme.danger, "SCRATCH  stamp from arrangement", .{});

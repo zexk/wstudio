@@ -401,7 +401,7 @@ fn finishOperator(app: *App, op: u8) void {
 }
 
 /// `dd`/`yy`'s whole-lane range: bar 0 through the last clip's end (the
-/// widest range that's guaranteed to catch every clip's start_bar, which is
+/// widest range that is guaranteed to catch every clip's start_tick, which is
 /// what deleteSelection/yankSelection actually filter on). Saves and
 /// restores `arr_cursor_bar` around the call so clearing/yanking the whole
 /// lane doesn't otherwise move the cursor, like vim's dd/yy don't jump far.
@@ -1010,7 +1010,7 @@ fn editClip(app: *App) void {
             }
             history.push(app, pre);
             app.session.racks.items[track].pattern_player.?.setNotes(m.notes, m.length_beats);
-            app.piano_clip_link = .{ .track = track, .start_bar = clip.start_tick };
+            app.piano_clip_link = .{ .track = track, .start_tick = clip.start_tick };
             app.setStatus("editing clip @ tick {d} - edits land in the clip", .{clip.start_tick});
         },
         .drum => app.setStatus("pattern clips play from their stamp - edit variants in the grid", .{}),

@@ -61,7 +61,7 @@ const pan_range = [2]f32{ -1.0, 1.0 };
 
 /// Open the automation editor on the clip under the arrangement cursor.
 /// `cursor_bar` need only fall inside the clip's span - the link is stored
-/// against the clip's own `start_bar` (see `App.automation_clip`'s doc
+/// against the clip's own `start_tick` (see `App.automation_clip`'s doc
 /// comment), matching `piano_clip_link`'s convention.
 pub fn switchTo(app: *App, track: u16, cursor_bar: u32) void {
     const lane = app.session.arrangement.lane(track) orelse return;
@@ -69,7 +69,7 @@ pub fn switchTo(app: *App, track: u16, cursor_bar: u32) void {
         app.setStatus("no clip here - enter stamps one, then 'a' automates it", .{});
         return;
     };
-    app.automation_clip = .{ .track = track, .start_bar = clip.start_tick };
+    app.automation_clip = .{ .track = track, .start_tick = clip.start_tick };
     app.automation_track = track;
     // A previous clip may have left the editor on a synth param this one
     // doesn't have a lane for yet - fall back to gain rather than opening on
@@ -86,13 +86,13 @@ pub fn switchTo(app: *App, track: u16, cursor_bar: u32) void {
 }
 
 /// Resolve `app.automation_clip` to a live pointer, relocating by (track,
-/// start_bar) since clip storage can move as the lane is edited. Null if the
+/// start_tick) since clip storage can move as the lane is edited. Null if the
 /// clip vanished from under the editor (deleted, moved) - `App.exitStaleEditors`
 /// bounces the view back to arrangement in that case.
 pub fn currentClip(app: anytype) ?*ws.Clip {
     const link = app.automation_clip orelse return null;
     const lane = app.session.arrangement.lane(link.track) orelse return null;
-    return lane.clipAt(link.start_bar);
+    return lane.clipAt(link.start_tick);
 }
 
 /// Last valid cursor step: the clip's own end, inclusive - lets a fade
