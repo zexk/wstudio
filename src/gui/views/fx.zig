@@ -342,6 +342,7 @@ fn drawEffectPlot(app: anytype, target: spectrum_ed.EqTarget, draw_list: zgui.Dr
             .filter => filterDisplayValue(&unit.payload.filter, t),
             .amp => ampDisplayValue(&unit.payload.amp, t),
             .sat => satDisplayValue(&unit.payload.sat, t),
+            .clipper => clipperDisplayValue(&unit.payload.clipper, t),
             else => effectDisplayValue(unit.kind(), t, amount, shape),
         };
         point.* = .{ plot.x + t * plot.w, plot.y + (1.0 - y) * plot.h };
@@ -387,7 +388,7 @@ fn normalizedParam(app: anytype, unit: *ws.FxUnit, index: usize) f32 {
 fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
     return switch (kind) {
         .gate => if (t < amount * 0.8) 0.08 else t,
-        .comp, .mb_comp, .ott, .limiter, .transient_shaper, .clipper => if (t < amount) t else amount + (t - amount) * (0.2 + shape * 0.45),
+        .comp, .mb_comp, .ott, .limiter, .transient_shaper => if (t < amount) t else amount + (t - amount) * (0.2 + shape * 0.45),
         // An expander does the opposite: what is under the threshold is
         // pushed further down, and what is over it passes.
         .expander => if (t >= amount) t else t * (0.15 + 0.35 * shape),
@@ -405,7 +406,7 @@ fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
         .reverb => std.math.clamp(@exp(-t * (0.8 + (1.0 - amount) * 4.0)) * (0.7 + 0.2 * @sin(t * std.math.pi * 26.0)), 0, 1),
         // `.amp` and `.filter` draw a frequency response instead; see
         // `drawEffectPlot`.
-        .eq, .amp, .sat, .filter, .crossover, .utility, .stereo_width, .tape => t,
+        .eq, .amp, .sat, .clipper, .filter, .crossover, .utility, .stereo_width, .tape => t,
         .clap, .vst3 => t,
     };
 }
@@ -439,6 +440,13 @@ fn ampDisplayValue(amp: anytype, t: f32) f32 {
 /// all five shapes, so the one param that picks between them was invisible.
 fn satDisplayValue(sat: anytype, t: f32) f32 {
     return std.math.clamp(0.5 + 0.5 * sat.transfer(t * 2.0 - 1.0), 0, 1);
+}
+
+/// The clipper's real curve: DRIVE into the selected knee against the
+/// ceiling. The generic compressor knee it borrowed before read its "shape"
+/// off the CEILING knob and never showed the ceiling itself.
+fn clipperDisplayValue(clip: anytype, t: f32) f32 {
+    return std.math.clamp(0.5 + 0.5 * clip.transfer(t * 2.0 - 1.0), 0, 1);
 }
 /// One live readout. Every dynamics unit's display is some number of these,
 /// built by `meterRows` and drawn by `drawMeterStack` - three helpers laying

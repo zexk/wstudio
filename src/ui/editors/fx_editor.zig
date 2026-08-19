@@ -373,6 +373,7 @@ pub fn paramToggleNames(k: FxKind, idx: usize) ?[2][]const u8 {
         },
         .limiter => if (idx == 3) .{ "sample", "true" } else null,
         .amp => if (idx == 6) .{ "direct", "cabinet" } else null,
+        .clipper => if (idx == 3) .{ "off", "on" } else null,
         .utility => switch (idx) {
             1 => .{ "normal", "invert" },
             2 => .{ "stereo", "mono" },
@@ -402,6 +403,8 @@ pub fn isListParam(k: FxKind, idx: usize) bool {
         .amp => idx == 8,
         // Five named curves, not a percentage.
         .sat => idx == 3,
+        // Three named knees.
+        .clipper => idx == 2,
         else => false,
     };
 }

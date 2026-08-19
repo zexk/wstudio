@@ -112,18 +112,32 @@ pub const Clipper = struct {
         }
     };
 
+    /// The curve `processBlock` is about to run - shared with `transfer` so
+    /// the drawn shape cannot drift from the audible one.
+    fn curveFor(self: *const Clipper) Curve {
+        const ceiling_db = dsp.sanitizeParam(self.ceiling_db, -24.0, 0.0, -0.3);
+        const kind: u3 = @intFromFloat(std.math.clamp(@round(dsp.sanitizeParam(self.shape, 0.0, max_shape, 0.0)), 0, max_shape));
+        return .{ .kind = kind, .ceiling = types.dbToGain(ceiling_db) };
+    }
+
+    /// The static transfer curve the GUI plots: -1..1 in, through DRIVE and
+    /// the selected knee against the ceiling. ODP is deliberately left out -
+    /// it is an envelope follower, so it has no fixed curve to draw.
+    pub fn transfer(self: *const Clipper, x: f32) f32 {
+        const drive = types.dbToGain(dsp.sanitizeParam(self.drive_db, 0.0, 24.0, 0.0));
+        return self.curveFor().apply(x * drive);
+    }
+
     pub fn processBlock(self: *Clipper, buf: []Sample) void {
         const frames = buf.len / 2;
         const drive_db = dsp.sanitizeParam(self.drive_db, 0.0, 24.0, 0.0);
-        const ceiling_db = dsp.sanitizeParam(self.ceiling_db, -24.0, 0.0, -0.3);
-        const kind: u3 = @intFromFloat(std.math.clamp(@round(dsp.sanitizeParam(self.shape, 0.0, max_shape, 0.0)), 0, max_shape));
         const odp_on = dsp.sanitizeParam(self.odp, 0.0, 1.0, 0.0) >= 0.5;
         const odp_knee_db = dsp.sanitizeParam(self.odp_knee_db, 0.0, 24.0, 6.0);
         if (!std.math.isFinite(self.odp_env) or self.odp_env < 0.0) self.odp_env = 0.0;
 
         const drive = types.dbToGain(drive_db);
-        const ceiling = types.dbToGain(ceiling_db);
-        const curve: Curve = .{ .kind = kind, .ceiling = ceiling };
+        const curve = self.curveFor();
+        const ceiling = curve.ceiling;
         // ODP is deliberately slow to let go and quick to grab: it is
         // conditioning, not an effect, and a fast recovery would put the
         // pumping back that clipping is being used to avoid.
@@ -234,4 +248,29 @@ test "invalid parameters cannot trap or poison output" {
     for (&buf, 0..) |*s, i| s.* = if (i % 4 < 2) 0.9 else -0.9;
     clip.processBlock(&buf);
     for (buf) |sample| try std.testing.expect(std.math.isFinite(sample));
+}
+
+test "the plotted transfer curve is the curve the audio path runs" {
+    // `transfer` only feeds the GUI, so nothing would fail if it drifted
+    // from `processBlock`. ODP off, since that stage is an envelope
+    // follower and deliberately outside the static curve.
+    for ([_]f32{ 0.0, 1.0, 2.0 }) |shape| {
+        for ([_]f32{ 0.0, 12.0 }) |drive| {
+            var clip = Clipper.init(48_000);
+            clip.shape = shape;
+            clip.drive_db = drive;
+            var buf: [256]Sample = undefined;
+            for ([_]f32{ 0.1, 0.5, 0.9 }) |level| {
+                clip.reset();
+                var i: usize = 0;
+                while (i < buf.len) : (i += 2) {
+                    buf[i] = level;
+                    buf[i + 1] = -level;
+                }
+                clip.processBlock(&buf);
+                try std.testing.expectApproxEqAbs(clip.transfer(level), buf[buf.len - 2], 0.02);
+                try std.testing.expectApproxEqAbs(clip.transfer(-level), buf[buf.len - 1], 0.02);
+            }
+        }
+    }
 }
