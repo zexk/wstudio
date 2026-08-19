@@ -388,6 +388,8 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
     // half and leaves the terminal stuck mid-redraw - 32KB was tight enough
     // for that to actually happen once pad/step banking stacked up.
     var frame_buf: [160 * 1024]u8 = undefined;
+    // The clamped copy actually sent to the terminal - see the write below.
+    var out_buf: [160 * 1024]u8 = undefined;
     var input_buf: [128]u8 = undefined;
     var keys: [64]modal_mod.Key = undefined;
     var input_decoder: terminal_mod.StreamDecoder = .{};
@@ -491,13 +493,27 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process
         // zig fmt: on
 
         var w = std.Io.Writer.fixed(&frame_buf);
-        // Bracket the frame in a DEC 2026 synchronized update, inside the
-        // same single write: without it tmux/compositing terminals can
-        // repaint mid-frame, which reads as flicker on plain navigation.
-        w.writeAll(terminal_mod.begin_sync) catch {};
         draw(&app, &w, term.size()) catch {};
-        w.writeAll(terminal_mod.end_sync) catch {};
-        term.write(w.buffered());
+
+        // No row may be wider than the terminal: one that is wraps, and a
+        // wrapped row pushes every row after it down and scrolls the header
+        // off the top. The views clamp what they know is unbounded, but the
+        // content is user data (a path, a preset name, a plugin's own name),
+        // so the frame gets one last pass here where the width is known.
+        // Bracket it in a DEC 2026 synchronized update, inside the same
+        // single write: without it tmux/compositing terminals can repaint
+        // mid-frame, which reads as flicker on plain navigation.
+        var out = std.Io.Writer.fixed(&out_buf);
+        out.writeAll(terminal_mod.begin_sync) catch {};
+        var frame_rows = std.mem.splitSequence(u8, w.buffered(), "\r\n");
+        var first_row = true;
+        while (frame_rows.next()) |row| {
+            if (!first_row) out.writeAll("\r\n") catch {};
+            first_row = false;
+            style.writeClamped(&out, row, term.size().cols) catch {};
+        }
+        out.writeAll(terminal_mod.end_sync) catch {};
+        term.write(out.buffered());
     }
 
     // The main loop broke on should_quit: the session is still alive.
