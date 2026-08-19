@@ -342,6 +342,7 @@ fn drawEffectPlot(app: anytype, target: spectrum_ed.EqTarget, draw_list: zgui.Dr
         const y = switch (unit.kind()) {
             .filter => filterDisplayValue(&unit.payload.filter, t),
             .amp => ampDisplayValue(&unit.payload.amp, t),
+            .crossover => crossoverDisplayValue(&unit.payload.crossover, t),
             .sat => satDisplayValue(&unit.payload.sat, t),
             .clipper => clipperDisplayValue(&unit.payload.clipper, t),
             .comp => compDisplayValue(&unit.payload.comp, t),
@@ -368,7 +369,7 @@ const PlotAxes = struct { x_lo: []const u8, x_hi: []const u8 = "", y: []const u8
 /// across time, and a filter across frequency.
 fn plotAxes(kind: ws.FxKind) PlotAxes {
     return switch (kind) {
-        .filter, .amp => .{ .x_lo = "20 Hz", .x_hi = "20 kHz", .y = "LEVEL" },
+        .filter, .amp, .crossover => .{ .x_lo = "20 Hz", .x_hi = "20 kHz", .y = "LEVEL" },
         // The dynamics units read dB across and dB up (see `dynInputDb`),
         // which is the shape every compressor plot is drawn in - a linear
         // amplitude axis buries the whole knee in its bottom eighth.
@@ -384,7 +385,7 @@ fn plotAxes(kind: ws.FxKind) PlotAxes {
 
 fn showsEffectCurve(kind: ws.FxKind) bool {
     return switch (kind) {
-        .crossover, .utility, .stereo_width, .auto_pan, .mb_comp, .ott, .transient_shaper, .tape, .clap, .vst3 => false,
+        .utility, .stereo_width, .auto_pan, .mb_comp, .ott, .transient_shaper, .tape, .clap, .vst3 => false,
         else => true,
     };
 }
@@ -435,6 +436,15 @@ fn ampDisplayValue(amp: anytype, t: f32) f32 {
     // Wider window than the filter's: the tone stack's make-up puts the
     // passband above 0 dB and the cabinet takes 10 kHz far below it.
     return std.math.clamp((db + 48.0) / 60.0, 0, 1);
+}
+
+/// The crossover's own response: two split points, three band gains, and
+/// whatever a solo has muted. It used to draw nothing at all - no curve and
+/// no meters, so its display box held a one-line description of itself.
+fn crossoverDisplayValue(xover: anytype, t: f32) f32 {
+    const db = xover.responseDb(20.0 * std.math.pow(f32, 1000.0, t));
+    // Band gains run -60..+24 dB, so the window is wider than the filter's.
+    return std.math.clamp((db + 48.0) / 72.0, 0, 1);
 }
 
 /// The saturator's actual selected curve, run through the same shaping the

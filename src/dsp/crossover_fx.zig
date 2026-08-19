@@ -5,6 +5,22 @@ const types = @import("../core/types.zig");
 const dsp = @import("device.zig");
 const crossover = @import("crossover.zig");
 
+/// LR4 lowpass magnitude at `hz` for a crossover at `fc`: two Butterworth
+/// stages in series, so the second-order `1/sqrt(1 + x^4)` squared. -6 dB at
+/// the crossover, which is what makes the pair sum to unity.
+fn lr4Low(hz: f32, fc: f32) f32 {
+    const x = hz / @max(fc, 1.0);
+    const x4 = x * x * x * x;
+    return 1.0 / (1.0 + x4);
+}
+
+/// The highpass half of the same pair.
+fn lr4High(hz: f32, fc: f32) f32 {
+    const x = hz / @max(fc, 1.0);
+    const x4 = x * x * x * x;
+    return x4 / (1.0 + x4);
+}
+
 pub const CrossoverFx = struct {
     sample_rate: f32,
     xover_lo_hz: f32 = 200,
@@ -80,6 +96,42 @@ pub const CrossoverFx = struct {
         }
     }
 
+    /// Magnitude of the whole three-band network at `hz`, in dB - the two
+    /// crossover points, the three band gains and whichever bands a solo
+    /// has muted, which is exactly what this unit is set up by. Only the
+    /// GUI's response curve calls it.
+    ///
+    /// The splitter's bands are cascaded (`dsp/crossover.zig`): low is one
+    /// LR4 lowpass, mid is the lower highpass into the upper lowpass, high
+    /// is both highpasses. Every band is phase-aligned by construction, so
+    /// summing magnitudes is the network's real response and not an
+    /// approximation of one. The allpass compensation drops out at unity.
+    pub fn responseDb(self: *const CrossoverFx, hz: f32) f32 {
+        const lo = std.math.clamp(self.xover_lo_hz, 20, 20_000);
+        const hi = std.math.clamp(self.xover_hi_hz, 20, 20_000);
+        const gains = [3]f32{
+            types.dbToGain(dsp.sanitizeParam(self.low_gain_db, -60, 24, 0)),
+            types.dbToGain(dsp.sanitizeParam(self.mid_gain_db, -60, 24, 0)),
+            types.dbToGain(dsp.sanitizeParam(self.high_gain_db, -60, 24, 0)),
+        };
+        const solos = [3]bool{
+            dsp.sanitizeParam(self.low_solo, 0, 1, 0) >= 0.5,
+            dsp.sanitizeParam(self.mid_solo, 0, 1, 0) >= 0.5,
+            dsp.sanitizeParam(self.high_solo, 0, 1, 0) >= 0.5,
+        };
+        const any_solo = solos[0] or solos[1] or solos[2];
+
+        const bands = [3]f32{
+            lr4Low(hz, lo),
+            lr4High(hz, lo) * lr4Low(hz, hi),
+            lr4High(hz, lo) * lr4High(hz, hi),
+        };
+        var sum: f32 = 0;
+        for (bands, gains, solos) |band, gain, solo| {
+            if (!any_solo or solo) sum += band * gain;
+        }
+        return types.gainToDb(@max(sum, 1e-6));
+    }
     pub fn reset(self: *CrossoverFx) void {
         for (&self.splitters) |*splitter| splitter.reset();
     }
@@ -128,4 +180,30 @@ test "a crossover point above Nyquist does not blow the splitter up" {
     var effect = CrossoverFx.init(8_000);
     effect.setXovers(15_000, 20_000);
     try dsp.expectBoundedUnderNoise(&effect, 16.1);
+}
+
+test "the plotted response matches what the crossover actually does" {
+    // `responseDb` only feeds the GUI, so nothing else would catch it
+    // drifting from the splitter's real topology. Checked by sweeping tones
+    // through the unit at settings that move all three bands.
+    var effect = CrossoverFx.init(48_000);
+    effect.setXovers(200, 2000);
+    effect.low_gain_db = -12;
+    effect.high_gain_db = 6;
+    for ([_]f32{ 60.0, 700.0, 8000.0 }) |hz| {
+        var buf: [16384]types.Sample = undefined;
+        for (0..buf.len / 2) |i| {
+            const s = 0.25 * @sin(2.0 * std.math.pi * hz * @as(f32, @floatFromInt(i)) / 48_000.0);
+            buf[i * 2] = s;
+            buf[i * 2 + 1] = s;
+        }
+        effect.reset();
+        effect.processBlock(&buf);
+        var sum: f64 = 0;
+        const from = buf.len * 3 / 4;
+        for (buf[from..]) |v| sum += @as(f64, v) * v;
+        const rms: f32 = @floatCast(@sqrt(sum / @as(f64, @floatFromInt(buf.len - from))));
+        const measured_db = types.gainToDb(rms) - types.gainToDb(0.25 / @sqrt(2.0));
+        try std.testing.expectApproxEqAbs(effect.responseDb(hz), measured_db, 1.0);
+    }
 }
