@@ -29,6 +29,12 @@ These are wstudio adaptations, not official ports or endorsements. Proper
 project names are used to identify palette compatibility. Config names stay
 lowercase with underscores because they are Zig enum values and shell-friendly.
 
+Imported palettes are reproduced as upstream publishes them and are not
+adjusted to hit wstudio's own contrast floors, several of which they miss
+against their own backgrounds. The in-house `patina`, `patina_light`,
+`graphite` and `graphite_light` are held to those floors by tests - see
+"Contrast floors" in docs/gui-color-identity.md.
+
 ## Attribution and licenses
 
 - [Catppuccin](https://github.com/catppuccin/catppuccin), copyright the

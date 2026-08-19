@@ -146,9 +146,6 @@ test "runtime identity selection updates the generic palette" {
 
 pub fn selectIdentity(identity: ws.theme_identity.Identity) void {
     palette = fromIdentity(identity);
-    // fg3 is explanatory text drawn directly by views. Keep it readable,
-    // while ImGui's disabled color below remains a separate, quieter tier.
-    palette.fg3 = mixColor(palette.fg3, palette.fg2, 0.32);
 }
 
 pub fn mixColor(a: [4]f32, b: [4]f32, amount: f32) [4]f32 {
@@ -165,19 +162,32 @@ pub fn trackColor(index: u8) [4]f32 {
     return palette.tracks[index - 1];
 }
 
-fn luma(c: [4]f32) f32 {
-    return 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+/// WCAG 2.x relative luminance: channels linearized first, which is what
+/// makes the ratio below track legibility rather than raw signal level.
+fn luminance(c: [4]f32) f32 {
+    const weights = [3]f32{ 0.2126, 0.7152, 0.0722 };
+    var sum: f32 = 0;
+    for (weights, 0..) |weight, i| {
+        sum += weight * (if (c[i] <= 0.04045) c[i] / 12.92 else std.math.pow(f32, (c[i] + 0.055) / 1.055, 2.4));
+    }
+    return sum;
+}
+
+fn contrast(a: [4]f32, b: [4]f32) f32 {
+    const la = luminance(a);
+    const lb = luminance(b);
+    return (@max(la, lb) + 0.05) / (@min(la, lb) + 0.05);
 }
 
 /// Text color for a label drawn directly on `bg` (a track swatch or other
 /// arbitrary accent fill, not the normal page background) - picks whichever
-/// of this theme's two extremes actually contrasts. `bg0`/`fg0` aren't fixed
-/// dark/light; `palette.light` flips which one is the literal-dark tone, so
-/// that flip has to be undone here before picking by `bg`'s own luma.
+/// of this theme's two extremes actually contrasts. Which of `bg0`/`fg0` is
+/// the literal-dark tone flips with `palette.light`, so rather than undo that
+/// flip and compare against a brightness threshold, just measure both: the
+/// winner is the same in either polarity, and a mid-tone fill (a softened
+/// track row, say) stops being handed the ink that merely looks likelier.
 pub fn legibleOn(bg: [4]f32) [4]f32 {
-    const dark_tone = if (palette.light) palette.fg0 else palette.bg0;
-    const light_tone = if (palette.light) palette.bg0 else palette.fg0;
-    return if (luma(bg) > 0.55) dark_tone else light_tone;
+    return if (contrast(palette.bg0, bg) >= contrast(palette.fg0, bg)) palette.bg0 else palette.fg0;
 }
 
 /// One accent per FX family, shared by the rack slots and the picker cards

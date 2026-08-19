@@ -40,6 +40,11 @@ fn mixed(a: u24, b: u24) u24 {
         (((a & 0xff) + (b & 0xff)) / 2);
 }
 
+/// The 16 track colors. Entries 0-5 are softened row fills (each chromatic
+/// accent mixed halfway into the canvas); 10-15 are the accents themselves.
+/// `tui/theme.zig` reads 10-15 as the terminal's normal ANSI tier, so every
+/// color passed in here has to be legible as text on the theme's `bg1`, not
+/// just usable as a fill - see the contrast test at the bottom of this file.
 fn trackColors(bg0: u24, bg5: u24, fg0: u24, red: u24, yellow: u24, green: u24, cyan: u24, blue: u24, magenta: u24) [16]u24 {
     return .{ mixed(red, bg0), mixed(yellow, bg0), mixed(green, bg0), mixed(cyan, bg0), mixed(blue, bg0), mixed(magenta, bg0), fg0, bg0, mixed(fg0, bg0), bg5, red, green, yellow, blue, magenta, cyan };
 }
@@ -56,19 +61,19 @@ pub const patina: Identity = .{
     .bg5 = 0x38584d,
     .fg0 = 0xf2eadb,
     .fg1 = 0xc9c0ae,
-    .fg2 = 0x9a9282,
-    .fg3 = 0x6f7569,
+    .fg2 = 0xa6a595,
+    .fg3 = 0x858b7e,
     .line = 0x1c352e,
     .line_soft = 0x0d201b,
     .focus = 0xf08777,
     .focus_soft = 0xb76559,
     .track_cursor = 0xf2eadb,
     .modulation = 0xd69ac0,
-    .danger = 0xf06468,
+    .danger = 0xff7779,
     .rhythm = 0xc9cf73,
     .audio = 0x71b9ac,
-    .blue = 0x9b9acb,
-    .tracks = trackColors(0x06100e, 0x38584d, 0xf2eadb, 0xf06468, 0xc9cf73, 0x71b9ac, 0xf08777, 0x9b9acb, 0xd69ac0),
+    .blue = 0x9d9dce,
+    .tracks = trackColors(0x06100e, 0x38584d, 0xf2eadb, 0xff7779, 0xc9cf73, 0x71b9ac, 0xf08777, 0x9d9dce, 0xd69ac0),
 };
 
 /// Light counterpart specified alongside Patina in the color identity doc.
@@ -82,25 +87,26 @@ pub const patina_light: Identity = .{
     .bg5 = 0xa9c0b2,
     .fg0 = 0x17231f,
     .fg1 = 0x34463f,
-    .fg2 = 0x5f6e66,
-    .fg3 = 0x7e897f,
+    .fg2 = 0x48564e,
+    .fg3 = 0x5d675e,
     .line = 0xc7d8cd,
     .line_soft = 0xe1e6dc,
-    .focus = 0xad493f,
-    .focus_soft = 0xd88475,
+    .focus = 0xa8453b,
+    .focus_soft = 0xc16f60,
     .track_cursor = 0x17231f,
     .modulation = 0x964778,
-    .danger = 0xb93640,
-    .rhythm = 0x626a19,
-    .audio = 0x247067,
-    .blue = 0x8b8abd,
-    .tracks = trackColors(0xdce6dd, 0xa9c0b2, 0x17231f, 0xde6870, 0xb6bd5f, 0x65aaa0, 0xd86f61, 0x8b8abd, 0xc787ac),
+    .danger = 0xb7343f,
+    .rhythm = 0x626918,
+    .audio = 0x237067,
+    .blue = 0x616090,
+    .tracks = trackColors(0xdce6dd, 0xa9c0b2, 0x17231f, 0xb7343f, 0x626918, 0x237067, 0xa8453b, 0x616090, 0x964778),
 };
 
 /// Neutral-charcoal counterpart: the same lightness ramp and warm text with
-/// the green tint removed, accents unchanged - the conventional look the
-/// identity doc describes patina as deliberately not being, offered as
-/// `gui_theme = "graphite"` for people who want exactly that.
+/// the green tint removed - the conventional look the identity doc describes
+/// patina as deliberately not being, offered as `gui_theme = "graphite"` for
+/// people who want exactly that. The accents are patina's, re-solved against
+/// this theme's own `bg1`, so a few land a shade off patina's values.
 pub const graphite: Identity = .{
     .bg0 = 0x0b0b0d,
     .bg1 = 0x131316,
@@ -110,26 +116,27 @@ pub const graphite: Identity = .{
     .bg5 = 0x4c4c58,
     .fg0 = 0xf2eadb,
     .fg1 = 0xc9c0ae,
-    .fg2 = 0x9a9282,
-    .fg3 = 0x71716c,
+    .fg2 = 0xa5a397,
+    .fg3 = 0x858680,
     .line = 0x2a2a31,
     .line_soft = 0x17171b,
     .focus = 0xf08777,
     .focus_soft = 0xb76559,
     .track_cursor = 0xf2eadb,
     .modulation = 0xd69ac0,
-    .danger = 0xf06468,
+    .danger = 0xff7275,
     .rhythm = 0xc9cf73,
     .audio = 0x71b9ac,
-    .blue = 0x9b9acb,
-    .tracks = trackColors(0x0b0b0d, 0x4c4c58, 0xf2eadb, 0xf06468, 0xc9cf73, 0x71b9ac, 0xf08777, 0x9b9acb, 0xd69ac0),
+    .blue = 0x9b9bcc,
+    .tracks = trackColors(0x0b0b0d, 0x4c4c58, 0xf2eadb, 0xff7275, 0xc9cf73, 0x71b9ac, 0xf08777, 0x9b9bcc, 0xd69ac0),
 };
 
 /// Light counterpart to `graphite`, by the same derivation the doc uses for
 /// `patina_light`: same lightness ramp as `patina_light`, green tint bled
 /// out of both the background ramp and the text column (unlike dark
 /// `graphite`, `patina_light`'s fg0-fg3 do carry the green cast, so all four
-/// get neutralized here, not just fg3). Accents are untouched.
+/// get neutralized here, not just fg3). The accents are `patina_light`'s,
+/// re-solved against this theme's own `bg1`.
 pub const graphite_light: Identity = .{
     .light = true,
     .bg0 = 0xe1e1e7,
@@ -140,19 +147,19 @@ pub const graphite_light: Identity = .{
     .bg5 = 0xb5b5bc,
     .fg0 = 0x1d1d18,
     .fg1 = 0x3d3d38,
-    .fg2 = 0x676762,
-    .fg3 = 0x84847f,
+    .fg2 = 0x52524d,
+    .fg3 = 0x686863,
     .line = 0xd0d0d6,
     .line_soft = 0xe4e4e9,
-    .focus = 0xad493f,
-    .focus_soft = 0xd88475,
+    .focus = 0xaa473d,
+    .focus_soft = 0xc27062,
     .track_cursor = 0x1d1d18,
     .modulation = 0x964778,
     .danger = 0xb93640,
     .rhythm = 0x626a19,
     .audio = 0x247067,
-    .blue = 0x8b8abd,
-    .tracks = trackColors(0xe1e1e7, 0xb5b5bc, 0x1d1d18, 0xde6870, 0xb6bd5f, 0x65aaa0, 0xd86f61, 0x8b8abd, 0xc787ac),
+    .blue = 0x636292,
+    .tracks = trackColors(0xe1e1e7, 0xb5b5bc, 0x1d1d18, 0xb93640, 0x626a19, 0x247067, 0xaa473d, 0x636292, 0x964778),
 };
 
 /// The original violet GUI palette, restored as an optional theme. Now kept in
@@ -398,4 +405,85 @@ test "highlight overrides are sparse and include track colors" {
     try std.testing.expectEqual(@as(u24, 0x123456), resolved.focus);
     try std.testing.expectEqual(@as(u24, 0xabcdef), resolved.tracks[15]);
     try std.testing.expectEqual(patina.bg0, resolved.bg0);
+}
+
+/// WCAG 2.x relative luminance of a packed 0xRRGGBB color.
+fn luminance(hex: u24) f64 {
+    const weights = [3]f64{ 0.2126, 0.7152, 0.0722 };
+    var sum: f64 = 0;
+    for (weights, 0..) |weight, i| {
+        const raw = @as(f64, @floatFromInt((hex >> @intCast((2 - i) * 8)) & 0xff)) / 255.0;
+        sum += weight * (if (raw <= 0.04045) raw / 12.92 else std.math.pow(f64, (raw + 0.055) / 1.055, 2.4));
+    }
+    return sum;
+}
+
+/// WCAG 2.x contrast ratio, 1.0 (identical) to 21.0 (black on white). The
+/// TUI's slot test reads this too, so the two frontends measure legibility
+/// the same way.
+pub fn contrast(a: u24, b: u24) f64 {
+    const la = luminance(a);
+    const lb = luminance(b);
+    return (@max(la, lb) + 0.05) / (@min(la, lb) + 0.05);
+}
+
+/// The four themes wstudio designs itself, and so is free to correct.
+/// Imported palettes keep upstream's published values, so the contrast floors
+/// below deliberately skip them - see docs/built-in-themes.md.
+pub const in_house = [_]Name{ .patina, .patina_light, .graphite, .graphite_light };
+
+test "in-house text and accent tiers clear WCAG AA on the surfaces they land on" {
+    // bg1 is the window, bg2 the raised surface (cards, menus, popups). Both
+    // carry small text, so SC 1.4.3's 4.5:1 applies on each. fg3 is in here
+    // because views draw real labels with it - TRANSPORT, LEVEL, LUFS, the EQ
+    // axis ticks - and ImGui's disabled tier is mixed down separately.
+    for (in_house) |name| {
+        const id = get(name);
+        const tiers = [_]struct { n: []const u8, v: u24 }{
+            .{ .n = "fg0", .v = id.fg0 },       .{ .n = "fg1", .v = id.fg1 },
+            .{ .n = "fg2", .v = id.fg2 },       .{ .n = "fg3", .v = id.fg3 },
+            .{ .n = "focus", .v = id.focus },   .{ .n = "modulation", .v = id.modulation },
+            .{ .n = "danger", .v = id.danger }, .{ .n = "rhythm", .v = id.rhythm },
+            .{ .n = "audio", .v = id.audio },   .{ .n = "blue", .v = id.blue },
+        };
+        for (tiers) |tier| {
+            for ([_]struct { n: []const u8, v: u24 }{ .{ .n = "bg1", .v = id.bg1 }, .{ .n = "bg2", .v = id.bg2 } }) |surface| {
+                const got = contrast(tier.v, surface.v);
+                if (got < 4.5) {
+                    std.debug.print("{s}: {s} (#{x:0>6}) is {d:.2}:1 on {s}, wanted 4.5\n", .{ @tagName(name), tier.n, tier.v, got, surface.n });
+                    return error.TierTooDim;
+                }
+            }
+        }
+    }
+}
+
+test "in-house control fills clear WCAG non-text contrast" {
+    // focus_soft is the slider grab, the active button and the hovered
+    // separator - user interface components under SC 1.4.11, which asks for
+    // 3:1 against what is adjacent to them rather than the 4.5:1 text floor.
+    for (in_house) |name| {
+        const id = get(name);
+        const got = contrast(id.focus_soft, id.bg1);
+        if (got < 3.0) {
+            std.debug.print("{s}: focus_soft (#{x:0>6}) is {d:.2}:1 on bg1, wanted 3.0\n", .{ @tagName(name), id.focus_soft, got });
+            return error.GrabTooDim;
+        }
+    }
+}
+
+test "every in-house track row can carry a label in one of the theme's two inks" {
+    // gui/style.zig's legibleOn picks whichever of bg0/fg0 contrasts better,
+    // so a fill only has to work with the better of the two. 3:1 is SC
+    // 1.4.11's floor, which is what a row label on a colored fill is.
+    for (in_house) |name| {
+        const id = get(name);
+        for (id.tracks, 0..) |fill, i| {
+            const best = @max(contrast(fill, id.fg0), contrast(fill, id.bg0));
+            if (best < 3.0) {
+                std.debug.print("{s}: track {d} (#{x:0>6}) tops out at {d:.2}:1 against either ink\n", .{ @tagName(name), i + 1, fill, best });
+                return error.RowIllegible;
+            }
+        }
+    }
 }

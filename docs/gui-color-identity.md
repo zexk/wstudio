@@ -38,14 +38,15 @@ mineral family instead of becoming a generic rainbow.
 | strongest surface | `#38584d` | grabs and structural emphasis |
 | primary text | `#f2eadb` | values and high emphasis labels |
 | secondary text | `#c9c0ae` | normal labels |
-| muted text | `#9a9282` | metadata |
-| disabled text | `#6f7569` | disabled and tertiary labels |
+| muted text | `#a6a595` | metadata |
+| tertiary text | `#858b7e` | metadata labels and axis ticks |
 | focus | `#f08777` | cursor, selected control, primary action |
 | track cursor | `#f2eadb` | high-contrast track-row cursor outside the track rotation |
 | modulation | `#d69ac0` | automation and modulation |
 | rhythm | `#c9cf73` | drums, loops, timing, ranges |
 | audio | `#71b9ac` | waveforms, samples, signal flow |
-| danger | `#f06468` | record, errors, mute, destructive action |
+| danger | `#ff7779` | record, errors, mute, destructive action |
+| routing | `#9d9dce` | voice and routing, the terminal's blue slot |
 
 When extending the GUI, reuse these semantic roles before adding a color. New
 colors should share Patina's moderate saturation and warm, weathered character.
@@ -67,20 +68,54 @@ accent is darkened enough to remain legible on the light application surface.
 | strongest surface | `#a9c0b2` | grabs and structural emphasis |
 | primary text | `#17231f` | values and high emphasis labels |
 | secondary text | `#34463f` | normal labels |
-| muted text | `#5f6e66` | metadata |
-| disabled text | `#7e897f` | disabled and tertiary labels |
-| focus | `#ad493f` | cursor, selected control, primary action |
-| focus soft | `#d88475` | pressed controls and selection fills |
+| muted text | `#48564e` | metadata |
+| tertiary text | `#5d675e` | metadata labels and axis ticks |
+| focus | `#a8453b` | cursor, selected control, primary action |
+| focus soft | `#c16f60` | pressed controls and selection fills |
 | track cursor | `#17231f` | high-contrast track-row cursor outside the track rotation |
 | modulation | `#964778` | automation and modulation |
-| rhythm | `#626a19` | drums, loops, timing, ranges |
-| audio | `#247067` | waveforms, samples, signal flow |
-| danger | `#b93640` | record, errors, mute, destructive action |
+| rhythm | `#626918` | drums, loops, timing, ranges |
+| audio | `#237067` | waveforms, samples, signal flow |
+| danger | `#b7343f` | record, errors, mute, destructive action |
+| routing | `#616090` | voice and routing, the terminal's blue slot |
 
-The light track palette is coral `#d86f61`, red `#de6870`, lichen
-`#b6bd5f`, mineral teal `#65aaa0`, dusty rose `#c787ac`, ochre `#c9964d`, and
-lavender `#8b8abd`. Track rows use these as full fills with primary ink
-`#17231f` for their text. Uncolored tracks use the normal surface ladder.
+Track fills are derived rather than listed: each of the six chromatic accents
+above is mixed halfway into the canvas, which keeps a row tinted without
+letting it compete with the note blocks drawn on top. Row labels are inked
+with whichever of the two extremes contrasts better, so the same rotation
+works in both polarities. Uncolored tracks use the normal surface ladder.
+
+## Contrast floors
+
+The palette is not tuned by eye alone. Every in-house theme is held to these
+floors by tests in `src/theme_identity.zig` and `src/tui/theme.zig`, so a
+future edit that dims a role fails the build rather than shipping:
+
+- the four text tiers and the six chromatic accents clear **4.5:1** against
+  both the application surface and the raised surface, which is WCAG 2.2
+  SC 1.4.3 for body text at the two backgrounds they actually land on;
+- `focus soft` clears **3:1** against the application surface. It fills slider
+  grabs, active buttons and hovered separators, which are user interface
+  components under SC 1.4.11 rather than text;
+- every track fill clears **3:1** against at least one of the two inks, the
+  same non-text floor, since a row label is drawn straight onto it;
+- every ANSI slot the TUI can print text in clears **4.5:1** against the
+  terminal background the theme sets. Slot 0 is a background and slot 8 is
+  the conventional dim slot, so neither is held to a text floor.
+
+Where a role had to move to clear a floor, it moved in OKLCh with its hue and
+chroma held and only its lightness solved, and chroma reduced only as far as
+the sRGB gamut required. That keeps a corrected color recognisably the same
+color. The text tiers are additionally spaced evenly in OKLCh lightness, so
+the four steps stay distinguishable instead of bunching against the floor.
+
+APCA (the WCAG 3 draft's perceptual model) was used as a cross-check rather
+than a gate: the corrected tiers land near Lc 60 for body text and above
+Lc 45 for the accents, which are its published thresholds for those uses.
+
+Imported palettes are exempt. They ship upstream's published values, several
+of which do not clear these floors against their own backgrounds, and matching
+upstream is the point of offering them.
 
 ## Research references
 
@@ -90,3 +125,15 @@ lavender `#8b8abd`. Track rows use these as full fills with primary ink
 - [FL Studio interface](https://www.image-line.com/fl-studio-learning/fl-studio-online-manual/html/basics_interface.htm)
 - [Logic Pro](https://www.apple.com/logic-pro/)
 - [REAPER screenshots](https://www.reaper.fm/sshots.php)
+
+Contrast and color-space references:
+
+- [WCAG 2.2](https://www.w3.org/TR/WCAG22/), W3C Recommendation, for
+  SC 1.4.3 Contrast (Minimum) and SC 1.4.11 Non-text Contrast.
+- [APCA](https://git.apcacontrast.com/documentation/APCAeasyIntro), the
+  perceptual contrast model drafted for WCAG 3, used as a cross-check.
+- [A perceptual color space for image processing](https://bottosson.github.io/posts/oklab/),
+  Björn Ottosson, for OKLab/OKLCh.
+- [CSS Color Module Level 4](https://www.w3.org/TR/css-color-4/#gamut-mapping),
+  W3C, for the chroma-reduction gamut mapping used when a solved lightness
+  pushed a hue out of sRGB.
