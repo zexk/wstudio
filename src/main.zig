@@ -392,6 +392,7 @@ test {
     _ = @import("ui/app.zig");
     _ = @import("tui/tui.zig");
     _ = @import("tui/input_decode.zig");
+    _ = @import("tui/theme.zig");
     if (builtin.os.tag == .windows) {
         _ = @import("tui/terminal_windows.zig");
     } else {

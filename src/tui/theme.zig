@@ -25,12 +25,52 @@ const config_mod = @import("../config.zig");
 
 const Slot = struct { index: u8, hex: u24 };
 
-/// ANSI color index -> hex. Track colors and terminal normal/bright slots
-/// share one full 16-color table in the theme identity.
+/// `a` pushed `num/den` of the way toward `b`, in plain sRGB bytes - enough
+/// for nudging one palette tier off another, and it keeps this file free of
+/// a color-space dependency.
+fn toward(a: u24, b: u24, num: u32, den: u32) u24 {
+    var out: u24 = 0;
+    var shift: u5 = 0;
+    while (shift < 24) : (shift += 8) {
+        const av: u32 = (a >> shift) & 0xff;
+        const bv: u32 = (b >> shift) & 0xff;
+        const mixed = if (bv > av) av + (bv - av) * num / den else av - (av - bv) * num / den;
+        out |= @as(u24, @intCast(mixed)) << shift;
+    }
+    return out;
+}
+
+/// ANSI color index -> hex.
+///
+/// The six chromatic normals are the identity's accent tier (`tracks` 10-15)
+/// and the brights are those same accents pushed toward `fg0`, which means
+/// "more emphatic" in both polarities: lighter on a dark theme, darker on a
+/// light one. Both tiers therefore inherit the accent's contrast against the
+/// page, which is the whole point - these six are what every view prints
+/// through `ansi.zig`'s `acc`/`grn`/`yel`/... constants, so they are body
+/// text, not decoration.
+///
+/// The greys come from the text ramp rather than the surface ramp for the
+/// same reason: slot 7 is `wht` at call sites, and slot 8 is what a terminal
+/// renders comment-grey with. Only slot 0 is a background.
+///
+/// Track fills (`tracks` 0-5) deliberately do *not* appear here. They are
+/// mixed halfway into the canvas so a track row can carry a label, which
+/// leaves them far too close to the page to read as text - as the normal
+/// tier, they put every colored word in the TUI under 3.5:1.
 fn slots(id: *const ws.theme_identity.Identity) [16]Slot {
-    const track_for_slot = [16]u8{ 7, 0, 2, 1, 4, 5, 3, 8, 9, 10, 11, 12, 13, 14, 15, 6 };
     var result: [16]Slot = undefined;
-    for (&result, 0..) |*slot, index| slot.* = .{ .index = @intCast(index), .hex = id.tracks[track_for_slot[index]] };
+    for (&result, 0..) |*slot, index| slot.* = .{
+        .index = @intCast(index),
+        .hex = switch (index) {
+            0 => id.bg0,
+            1...6 => id.tracks[9 + index],
+            7 => id.fg1,
+            8 => id.fg3,
+            9...14 => toward(id.tracks[index + 1], id.fg0, 45, 100),
+            else => id.fg0,
+        },
+    };
     return result;
 }
 
@@ -111,8 +151,37 @@ test "reset_osc covers palette, fg, and bg resets" {
 
 test "oscFor applies semantic highlight overrides" {
     var overrides: ws.theme_identity.Overrides = .{};
-    overrides.set(.track4, 0x123abc);
+    // track16 is the accent tier's cyan, which slot 6 now reads.
+    overrides.set(.track16, 0x123abc);
     var buf: [osc_buf_len]u8 = undefined;
     const osc = oscFor(.patina, &overrides, &buf);
     try std.testing.expect(std.mem.indexOf(u8, osc, "\x1b]4;6;rgb:12/3a/bc") != null);
+    // ...and the bright slot beside it is that same color pushed toward fg0,
+    // so overriding one accent moves its pair rather than stranding it.
+    try std.testing.expect(std.mem.indexOf(u8, osc, "\x1b]4;14;rgb:12/3a/bc") == null);
+    try std.testing.expect(std.mem.indexOf(u8, osc, "\x1b]4;14;rgb:") != null);
+}
+
+test "every ANSI slot a view can print is legible on the themed background" {
+    // The TUI sets the terminal's background to bg1 (OSC 11), so every color
+    // a view prints text in is read against it, and SC 1.4.3 wants 4.5:1 for
+    // body text. Only the in-house themes are held to it: an imported palette
+    // ships upstream's published values, several of which do not clear the
+    // floor on their own background (catppuccin_latte's green is 2.75:1
+    // against its own base), and matching upstream is the point of shipping
+    // them at all.
+    for (ws.theme_identity.in_house) |name| {
+        const id = ws.theme_identity.get(name);
+        for (slots(id), 0..) |slot, index| {
+            // Slot 0 is a background. Slot 8 is the conventional dim slot -
+            // every established scheme puts a deliberately quiet grey there
+            // (nord's own is 1.6:1), so it is not held to a text floor.
+            if (index == 0 or index == 8) continue;
+            const got = ws.theme_identity.contrast(slot.hex, id.bg1);
+            if (got < 4.5) {
+                std.debug.print("{s} ANSI slot {d} (#{x:0>6}) is {d:.2}:1 on bg1, wanted 4.5\n", .{ @tagName(name), index, slot.hex, got });
+                return error.SlotTooDim;
+            }
+        }
+    }
 }
