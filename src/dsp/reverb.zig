@@ -19,6 +19,24 @@ const input_gain = 0.06;
 /// separate slap-delay effect rather than a room's early-reflection gap.
 const max_predelay_ms: f32 = 250.0;
 
+/// Sparse early-reflection pattern `impulse` adds ahead of the algorithmic
+/// tail, in ms from the predelay onset. File scope, not a literal inside the
+/// sample loop, so `init` can size the predelay line off the same table it
+/// is read with - the two drifting apart is what clamped every reflection
+/// back onto the predelay tap and collapsed all six into one.
+const impulse_taps = [6]struct { ms: f32, gain: f32 }{
+    .{ .ms = 7.0, .gain = 0.36 },
+    .{ .ms = 13.0, .gain = -0.25 },
+    .{ .ms = 23.0, .gain = 0.2 },
+    .{ .ms = 37.0, .gain = -0.15 },
+    .{ .ms = 59.0, .gain = 0.11 },
+    .{ .ms = 83.0, .gain = -0.08 },
+};
+
+/// The right channel walks each tap one further out than the left, so the
+/// last one sits `impulse_taps.len` frames past the nominal delay.
+const max_impulse_offset_frames: usize = impulse_taps.len;
+
 pub const Reverb = struct {
     sample_rate: u32,
     /// 0 = dry only, 1 = wet only.
@@ -79,11 +97,15 @@ pub const Reverb = struct {
             for (0..predelay_count) |i| allocator.free(self.channels[i].predelay);
         }
         const scale = @as(f64, @floatFromInt(safe_rate)) / 44_100.0;
-        // +1 headroom frame: readInterp's linear interpolation reads one
-        // frame past the nominal delay position, and the max predelay would
-        // otherwise land exactly on the write cursor (zero delay) instead
-        // of wrapping to the oldest sample.
-        const predelay_frames = @as(usize, @intFromFloat(max_predelay_ms / 1000.0 * @as(f32, @floatFromInt(safe_rate)))) + 1;
+        // Sized for the predelay *plus* the longest early reflection stacked
+        // on top of it: the taps read the same line, and a line only long
+        // enough for the predelay itself clamped them back under it, so at
+        // the top of the knob all six landed on one frame at the onset
+        // instead of spreading over 7-83 ms. Plus the widest stereo offset,
+        // plus 2 headroom frames for readInterp's cubic tap.
+        const line_ms = max_predelay_ms + impulse_taps[impulse_taps.len - 1].ms;
+        const predelay_frames = @as(usize, @intFromFloat(line_ms / 1000.0 * @as(f32, @floatFromInt(safe_rate)))) +
+            max_impulse_offset_frames + 2;
         for (&self.channels, 0..) |*ch, ch_i| {
             const spread = ch_i * stereo_spread;
             ch.predelay = try allocator.alloc(Sample, predelay_frames);
@@ -182,12 +204,12 @@ pub const Reverb = struct {
                 }
 
                 if (impulse) {
-                    const tap_ms = [6]f32{ 7.0, 13.0, 23.0, 37.0, 59.0, 83.0 };
-                    const tap_gain = [6]f32{ 0.36, -0.25, 0.2, -0.15, 0.11, -0.08 };
-                    for (tap_ms, tap_gain, 0..) |ms, gain, tap| {
+                    for (impulse_taps, 0..) |t, tap| {
                         const stereo_offset: f32 = @floatFromInt(ch_i * (tap + 1));
-                        const delay = @min(predelay_frames + ms * 0.001 * sr_f + stereo_offset, @as(f32, @floatFromInt(ch.predelay.len - 2)));
-                        w += delay_line.readInterp(ch.predelay, self.predelay_idx, delay) * gain;
+                        // The line is sized to fit this; the clamp is the
+                        // belt-and-braces layer, not the shaping.
+                        const delay = @min(predelay_frames + t.ms * 0.001 * sr_f + stereo_offset, @as(f32, @floatFromInt(ch.predelay.len - 2)));
+                        w += delay_line.readInterp(ch.predelay, self.predelay_idx, delay) * t.gain;
                     }
                 }
 
@@ -313,4 +335,52 @@ test "low cut and predelay stay bounded under noise" {
     reverb.width = 0.0;
     reverb.low_cut_hz = 500.0;
     try dsp.expectBoundedUnderNoise(&reverb, 1.0);
+}
+
+test "early reflections still spread out at the top of the predelay knob" {
+    // The taps read the predelay line, so a line sized for the predelay
+    // alone clamped them back under it: at max predelay all six landed on
+    // one frame at the onset instead of spreading over 7-83 ms.
+    //
+    // They are summed after the allpass chain, so `impulse` on minus
+    // `impulse` off is exactly the six taps and nothing else - which is
+    // what makes "where does their energy sit" a question with an answer.
+    const sr = 48_000;
+    const frames = sr / 2; // 500 ms: 250 of predelay plus the 83 ms tap
+    const render = struct {
+        fn f(impulse: f32, out: []Sample) !void {
+            var reverb = try Reverb.init(std.testing.allocator, sr);
+            defer reverb.deinit(std.testing.allocator);
+            reverb.mix = 1.0;
+            reverb.predelay_ms = max_predelay_ms;
+            reverb.impulse = impulse;
+            @memset(out, 0.0);
+            out[0] = 1.0;
+            out[1] = 1.0;
+            reverb.processBlock(out);
+        }
+    }.f;
+
+    const on = try std.testing.allocator.alloc(Sample, frames * 2);
+    defer std.testing.allocator.free(on);
+    const off = try std.testing.allocator.alloc(Sample, frames * 2);
+    defer std.testing.allocator.free(off);
+    try render(1.0, on);
+    try render(0.0, off);
+
+    var total: f64 = 0;
+    var late: f64 = 0;
+    // 50-90 ms past the predelay onset: where only the 59 ms and 83 ms
+    // reflections live.
+    const from = (sr * 300 / 1000) * 2;
+    const to = (sr * 340 / 1000) * 2;
+    for (on, off, 0..) |a, b, i| {
+        const d = @as(f64, a) - b;
+        total += d * d;
+        if (i >= from and i < to) late += d * d;
+    }
+    try std.testing.expect(total > 0.0);
+    // Those two taps carry ~7% of the pattern's power; all six collapsed
+    // onto the onset leaves the window empty.
+    try std.testing.expect(late > total * 0.03);
 }
