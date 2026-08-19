@@ -57,6 +57,12 @@ history lives in [FORMAT.md](FORMAT.md).
 - Piano-roll chord stamping grows beyond triads and 7ths: `o`/`O` cycle chord
   quality (6th, 9th, 11th, 13th, sus2, sus4, add9, dim, aug) and `r`/`R` cycle
   voicing (closed, drop2, open), each re-stamping in place at the cursor.
+- The synth editor's related cards are tabs in the TUI too, the way the GUI
+  already grouped them: `[` and `]` cycle the group, and moving the cursor
+  into a hidden tab brings it forward.
+- Seven more icons, and glyphs on the surfaces that had been going without:
+  section headings, the two state chips, and every picker's header, which now
+  says what it is picking instead of leaving you to infer it.
 
 ### Changed
 
@@ -142,6 +148,27 @@ history lives in [FORMAT.md](FORMAT.md).
   chord (the count still inverts, now `2cc`), `co`/`cO` cycle the quality,
   and `cr`/`cR` the voicing. The single-key `C` still stamps an instant 7th
   and seeds the cycle; `o`/`O`/`r`/`R` on the piano roll are free.
+- Every effect display plots the unit itself instead of a curve drawn from
+  knob positions. The amp draws its own magnitude response across 20 Hz to
+  20 kHz, so the voicing, tone stack, presence and cabinet are all visible;
+  the saturator draws whichever of its five curves is selected; the clipper
+  draws where its ceiling sits and how the knee reaches it; the compressor
+  runs the same gain computer the audio path does, so a soft knee is a knee
+  and upward mode points upward; the crossover draws its summed response with
+  the split points, band trims and solo mutes in it, in place of a sentence
+  describing itself; utility meters short-term LUFS against its target while
+  autogain works; and chorus, phaser, flanger and delay draw a real
+  two-second LFO window, so RATE reads in cycles per second.
+- Controls that pick between things stopped being knobs. Saturator SHAPE,
+  filter MODE and the other lists read by name on a prev/next stepper, and
+  the on/off switches (crossover's band solos, reverb's early reflections,
+  utility's mono-below, the limiter's ALR, the gate's sidechain) read as
+  toggles. A knob's filled arc was saying low-pass is "less" than band-pass.
+- Parameters whose stage is switched off are greyed out rather than hidden,
+  across the whole rack: the clipper's ODP knee, the limiter's ALR rows,
+  utility's noise colour, level and autogain target, and a crossover band's
+  gain while a solo has it muted.
+- Dropped the ImPlot dependency, which nothing ever plotted.
 
 ### Fixed
 
@@ -173,6 +200,60 @@ history lives in [FORMAT.md](FORMAT.md).
   than the whole graph did a moment earlier.
 - Track rows showed a hosted CLAP/VST3 plugin with the same letter as a
   wstudio synth on terminals without the Nerd Font.
+
+- The flanger's sweep was measured in frames rather than time, so its depth
+  and delay range moved with the project's sample rate.
+- The compressor's knee did nothing at all in upward mode: the soft knee was
+  applied only on the downward path, so upward compression cornered hard at
+  the threshold.
+- The reverb's early reflections collapsed into the tail at the top of the
+  predelay knob.
+- Three stereo processing loops read one frame past the end of a buffer whose
+  sample count was odd.
+- An SFZ region's own volume stacked on top of the instrument's global volume
+  instead of replacing it, so any bank that set both played too loud.
+- The synth's noise source changed level with the sample rate, so a patch
+  using noise sounded different at 44.1 kHz and 96 kHz.
+- An idle pitch shifter reported 65 ms of latency it was not adding, which
+  delay compensation then paid for on every track carrying one.
+- A big pitch-shift move stayed flat for a whole processing block instead of
+  arriving on the frame it was asked for, and utility's autogain stepped at
+  every block edge instead of riding smoothly between them.
+- Modulating a crossover's two split points ate the base values the knobs
+  were set to, so the split walked away and never came back.
+- An OTT band's soft knee stepped the gain at the threshold instead of
+  easing through it.
+- The crossover was the one effect that let a NaN through from a loaded
+  project, and the FX picker's kind guard counted its entries rather than
+  naming them, so a new unit could go missing from the list without a
+  compile error.
+- Bar numbers shown in the arrangement status line, the automation header in
+  both frontends, the `(` and `)` loop braces, `:loop-from-selection`,
+  `p` (play from cursor), and the Lua clip API were all worked out by
+  dividing by one fixed bar length, so every one of them disagreed with the
+  arrangement ruler once a project used a meter change.
+- The piano roll linked to an arrangement clip printed the clip's tick where
+  it said bar, in both frontends.
+- Recording into the piano roll placed the note by the project's base tempo
+  rather than its tempo map, so takes past a tempo change landed on the wrong
+  beat. The roll's own playhead read the same way, which hid it. `p` in the
+  arrangement seeked by the same broken arithmetic.
+- `:chop-notes` on a note held past the end of the pattern produced pieces
+  beyond the loop end, which playback wrapped back onto beat 0.
+- Names with CJK or emoji characters were measured at one column each in the
+  TUI, so any row carrying one overflowed the terminal and wrapped the frame.
+- The finished frame is clamped as a whole now, not just the rows a view
+  knows can run long, and the file browser, the FX chain strip, the key hints
+  and long track names all stay inside their columns. Narrow cell widths the
+  config accepts no longer break the piano, drum and arrangement grids.
+- The step grid's bar numbers sat beside the beat lines instead of on them.
+- The in-house themes had roles too dim to read, and the terminal's normal
+  ANSI tier was being used for track fills.
+- The GUI's transport meters were a font size out of step with their labels,
+  the dynamics window now runs past full scale where a limiter actually
+  works, the delay plot ran both its knobs backwards, dynamics units plot in
+  dB where their curves are visible, and two display headings named the
+  wrong thing.
 
 ## v1.0.0-beta.9
 
