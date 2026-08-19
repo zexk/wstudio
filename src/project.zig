@@ -11,8 +11,6 @@ const dsp_controller = @import("dsp/controller.zig");
 const time_map = @import("time_map.zig");
 const time_grid = @import("time_grid.zig");
 
-pub const TrackKind = enum { audio, midi };
-
 /// Number of colors in `style.track_palette`. Duplicated here (rather than
 /// importing the tui-layer style module into this control-layer one) so
 /// `Session.insertTrack` can auto-assign colors; `style.zig` comptime-asserts
@@ -45,7 +43,6 @@ pub const SendSlot = struct {
 
 pub const Track = struct {
     name: []const u8,
-    kind: TrackKind = .audio,
     gain_db: f32 = 0.0,
     /// -1.0 hard left, 0.0 center, 1.0 hard right.
     pan: f32 = 0.0,
