@@ -379,7 +379,7 @@ fn plotAxes(kind: ws.FxKind) PlotAxes {
         // The dynamics units read dB across and dB up (see `dynInputDb`),
         // which is the shape every compressor plot is drawn in - a linear
         // amplitude axis buries the whole knee in its bottom eighth.
-        .comp, .gate, .expander, .limiter => .{ .x_lo = "-60 dB", .x_hi = "0 dB", .y = "OUT dB" },
+        .comp, .gate, .expander, .limiter => .{ .x_lo = "-60 dB", .x_hi = "+12 dB", .y = "OUT dB" },
         .delay, .reverb => .{ .x_lo = "TIME", .y = "LEVEL" },
         .chorus, .phaser, .flanger => .{ .x_lo = "TIME", .y = "OFFSET" },
         // A shifter maps frequency to frequency; IN/OUT reads as a level
@@ -492,15 +492,20 @@ fn clipperDisplayValue(clip: anytype, t: f32) f32 {
 /// Dynamics units plot in dB across both axes, not in linear amplitude: at a
 /// -18 dBFS threshold the entire knee sits in the bottom eighth of a linear
 /// axis, which is exactly why these four used to draw an invented curve that
-/// at least filled the pane. `dyn_floor_db` is where both axes start.
+/// at least filled the pane.
+///
+/// The window runs past full scale because that is where a limiter works: a
+/// -0.4 dB ceiling has nothing to show inside -60..0, where the curve is the
+/// identity line right up to the last pixel.
 const dyn_floor_db: f32 = -60.0;
+const dyn_ceil_db: f32 = 12.0;
 
 fn dynInputDb(t: f32) f32 {
-    return dyn_floor_db * (1.0 - t);
+    return dyn_floor_db + t * (dyn_ceil_db - dyn_floor_db);
 }
 
 fn dynOutput(in_db: f32, gain_db: f32) f32 {
-    return std.math.clamp((in_db + gain_db - dyn_floor_db) / -dyn_floor_db, 0, 1);
+    return std.math.clamp((in_db + gain_db - dyn_floor_db) / (dyn_ceil_db - dyn_floor_db), 0, 1);
 }
 
 /// The gate's static curve: everything under the threshold is pulled down
