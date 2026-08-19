@@ -480,13 +480,10 @@ pub const Engine = struct {
     /// user's master FX shouldn't colour a preview) but pre-`master_gain`,
     /// so the fader and the limiter still apply.
     preview: Sampler,
-    /// Monotonic count of beats fired so far - same resync-on-discontinuity
-    /// technique as DrumMachine.next_step_k, one level up (beats, not steps).
-    metronome_next_beat: u64 = 0,
     /// Record count-in: frames left in the armed bar (0 = no pre-roll in
     /// flight). `pre_roll_elapsed` is a virtual clock - the transport itself
-    /// hasn't started yet - driving the same beat-boundary click math
-    /// `fireMetronome` uses, via its own `pre_roll_next_beat` counter. See
+    /// hasn't started yet - driving its own beat-boundary click math, via
+    /// its own `pre_roll_next_beat` counter. See
     /// `firePreRoll`.
     pre_roll_frames_remaining: u64 = 0,
     pre_roll_elapsed: u64 = 0,
@@ -844,17 +841,33 @@ pub const Engine = struct {
     /// then mix whatever's in flight into `out`.
     fn fireMetronome(self: *Engine, out: []Sample, frames: u32) void {
         if (self.transport.playing) {
-            var beat_k = self.metronome_next_beat;
             const position = self.transport.position_frames;
-            const current_beat = self.transport.positionBeats();
-            if (@abs(@as(f64, @floatFromInt(beat_k)) - current_beat) > 2.0) beat_k = @intFromFloat(@ceil(current_beat));
-            while (true) : (beat_k += 1) {
-                const boundary = self.transport.framesAtBeats(@floatFromInt(beat_k));
-                if (boundary >= position +| frames) break;
-                const fire_frame: u32 = if (boundary <= position) 0 else @intCast(boundary - position);
-                self.metronome.trigger(self.transport.barBeatAtFrames(boundary).beat == 0, fire_frame);
+            const end = position +| frames;
+            // Walked bar by bar rather than off a running beat counter: a bar
+            // subdivides into `numerator` clicks of the signature's own beat
+            // unit, which is the whole point of an x/8 signature and is what
+            // `firePreRoll` has always done. Restarting the subdivision at
+            // every bar is also what makes a meter point land cleanly - a
+            // running counter would keep the old bar's grid across it. Every
+            // click frame belongs to exactly one block ([position, end)), so
+            // there is no cursor to resync after a seek.
+            var bar = self.transport.barBeatAtFrames(position).bar;
+            outer: while (true) : (bar +|= 1) {
+                const bar_beat = self.transport.beatAtBar(bar);
+                const meter = time_map.meterAt(
+                    self.transport.meterPoints(),
+                    .{ .beat = 0, .numerator = @max(self.transport.time_signature.beats_per_bar, 1), .denominator = @max(self.transport.time_signature.beat_unit, 1) },
+                    bar_beat,
+                );
+                const unit_quarters = 4.0 / @as(f64, @floatFromInt(@max(meter.denominator, 1)));
+                for (0..@max(meter.numerator, 1)) |i| {
+                    const click = self.transport.framesAtBeats(bar_beat + @as(f64, @floatFromInt(i)) * unit_quarters);
+                    if (click >= end) break :outer;
+                    if (click < position) continue;
+                    self.metronome.trigger(i == 0, @intCast(click - position));
+                }
+                if (bar == std.math.maxInt(u64)) break;
             }
-            self.metronome_next_beat = beat_k;
         }
 
         self.metronome.render(out, channels, frames);
@@ -2804,9 +2817,16 @@ test "metronome only clicks while enabled and playing" {
     engine.process(&block); // enabled = false: silent
     try std.testing.expectEqual(@as(f32, 0.0), engine.peak[0]);
 
+    // Enabling mid-beat does not replay the beat already gone by, so run on
+    // to the next one (24000 frames at 120 bpm) rather than expecting a
+    // click in the very next block.
     _ = engine.send(.{ .set_metronome = true });
-    engine.process(&block); // first block always crosses beat 0
-    try std.testing.expect(engine.peak[0] > 0.0);
+    var peak: f32 = 0;
+    for (0..100) |_| {
+        engine.process(&block);
+        peak = @max(peak, engine.peak[0]);
+    }
+    try std.testing.expect(peak > 0.0);
 }
 
 test "metronome accents beat 1 of every bar" {
@@ -3900,4 +3920,51 @@ test "a group's meter reads its post-FX, post-fader submix, not its members' lev
     try std.testing.expect(snap.group_peak[0][0] < snap.track_peak[0][0] * 0.5);
     // An untouched group slot meters silence.
     try std.testing.expectEqual(@as(f32, 0.0), snap.group_peak[1][0]);
+}
+
+/// Clicks started inside the next `frames` frames, and whether the first one
+/// was accented. Counts trigger edges rather than peaks, so it does not care
+/// how long a click rings.
+fn countClicks(engine: *Engine, frames: u64) struct { count: u32, first_accent: bool } {
+    var block: [128]Sample = undefined; // 64 frames, a whole divisor of both bars below
+    var done: u64 = 0;
+    var count: u32 = 0;
+    var first_accent = false;
+    var prev_pos: usize = std.math.maxInt(usize);
+    var prev_active = engine.metronome.active;
+    while (done < frames) : (done += block.len / 2) { // interleaved stereo
+        engine.process(&block);
+        const m = &engine.metronome;
+        if (m.active and (!prev_active or m.pos < prev_pos)) {
+            if (count == 0) first_accent = m.is_accent;
+            count += 1;
+        }
+        prev_active = m.active;
+        prev_pos = m.pos;
+    }
+    return .{ .count = count, .first_accent = first_accent };
+}
+
+test "the metronome clicks the signature's own beat unit, like the count-in does" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    _ = engine.send(.{ .set_metronome = true });
+    _ = engine.send(.play);
+
+    // 4/4 at 120 bpm: four clicks in the bar's two seconds.
+    const four = countClicks(&engine, 2 * 48_000);
+    try std.testing.expectEqual(@as(u32, 4), four.count);
+    try std.testing.expect(four.first_accent);
+
+    // 6/8 is six eighth notes, not three quarter notes. The bar is three
+    // quarter-note beats long, so 1.5 seconds at 120 bpm.
+    var eighths = try Engine.init(std.testing.allocator, 48_000);
+    defer eighths.deinit();
+    _ = eighths.send(.{ .set_metronome = true });
+    _ = eighths.send(.{ .set_time_signature = 6 });
+    _ = eighths.send(.{ .set_meter_denominator = 8 });
+    _ = eighths.send(.play);
+    const six = countClicks(&eighths, 3 * 48_000 / 2);
+    try std.testing.expectEqual(@as(u32, 6), six.count);
+    try std.testing.expect(six.first_accent);
 }
