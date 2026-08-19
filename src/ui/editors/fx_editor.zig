@@ -379,6 +379,8 @@ pub fn paramToggleNames(k: FxKind, idx: usize) ?[2][]const u8 {
         .amp => if (idx == 6) .{ "direct", "cabinet" } else null,
         .clipper => if (idx == 3) .{ "off", "on" } else null,
         .gate, .expander => if (idx == 6) .{ "peak", "RMS" } else null,
+        .crossover => if (idx >= 5) .{ "off", "solo" } else null,
+        .reverb => if (idx == 6) .{ "off", "on" } else null,
         .utility => switch (idx) {
             1 => .{ "normal", "invert" },
             2 => .{ "stereo", "mono" },
@@ -413,6 +415,8 @@ pub fn isListParam(k: FxKind, idx: usize) bool {
         .clipper => idx == 2,
         // Utility's channel picker and noise colour: named choices.
         .utility => idx == 3 or idx == 7,
+        // Three named responses, not a sweep from low-pass to band-pass.
+        .filter => idx == 0,
         else => false,
     };
 }
@@ -1394,6 +1398,7 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
             0 => formatRangePercent(buf, p, idx, v), // room, capped at 0.98
             3 => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?", // predelay
             5 => std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?", // low cut
+            6 => if (v < 0.5) "off" else "on", // early reflections
             else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?", // damp, mix, width
         },
         .gate => switch (idx) {
