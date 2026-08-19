@@ -1,5 +1,6 @@
 const std = @import("std");
 const ws = @import("wstudio");
+const gate_mod = ws.dsp.gate;
 const zgui = @import("zgui");
 const icons = @import("../../ui/icons.zig");
 const spectrum_ed = @import("../../ui/editors/fx_editor.zig");
@@ -343,6 +344,8 @@ fn drawEffectPlot(app: anytype, target: spectrum_ed.EqTarget, draw_list: zgui.Dr
             .amp => ampDisplayValue(&unit.payload.amp, t),
             .sat => satDisplayValue(&unit.payload.sat, t),
             .clipper => clipperDisplayValue(&unit.payload.clipper, t),
+            .gate => gateDisplayValue(&unit.payload.gate, t),
+            .expander => expanderDisplayValue(&unit.payload.expander, t),
             else => effectDisplayValue(unit.kind(), t, amount, shape),
         };
         point.* = .{ plot.x + t * plot.w, plot.y + (1.0 - y) * plot.h };
@@ -387,11 +390,7 @@ fn normalizedParam(app: anytype, unit: *ws.FxUnit, index: usize) f32 {
 
 fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
     return switch (kind) {
-        .gate => if (t < amount * 0.8) 0.08 else t,
         .comp, .mb_comp, .ott, .limiter, .transient_shaper => if (t < amount) t else amount + (t - amount) * (0.2 + shape * 0.45),
-        // An expander does the opposite: what is under the threshold is
-        // pushed further down, and what is over it passes.
-        .expander => if (t >= amount) t else t * (0.15 + 0.35 * shape),
         .crush => @round(t * std.math.pow(f32, 2.0, amount * 15.0)) / std.math.pow(f32, 2.0, amount * 15.0),
         // An LFO offset swings about a centre - it does not climb. The old
         // `t + sin(...)` baseline drew the same rising ramp a transfer curve
@@ -406,7 +405,7 @@ fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
         .reverb => std.math.clamp(@exp(-t * (0.8 + (1.0 - amount) * 4.0)) * (0.7 + 0.2 * @sin(t * std.math.pi * 26.0)), 0, 1),
         // `.amp` and `.filter` draw a frequency response instead; see
         // `drawEffectPlot`.
-        .eq, .amp, .sat, .clipper, .filter, .crossover, .utility, .stereo_width, .tape => t,
+        .eq, .amp, .sat, .clipper, .gate, .expander, .filter, .crossover, .utility, .stereo_width, .tape => t,
         .clap, .vst3 => t,
     };
 }
@@ -447,6 +446,33 @@ fn satDisplayValue(sat: anytype, t: f32) f32 {
 /// off the CEILING knob and never showed the ceiling itself.
 fn clipperDisplayValue(clip: anytype, t: f32) f32 {
     return std.math.clamp(0.5 + 0.5 * clip.transfer(t * 2.0 - 1.0), 0, 1);
+}
+
+/// The gate's static curve: everything under the threshold is pulled down
+/// by RANGE, everything over it passes. The old drawing used a hardcoded
+/// floor, so RANGE - the difference between a gate and a mute - never
+/// showed. Hysteresis has no place on a static plot: it is a decision about
+/// which way the level is moving, not a level-to-level mapping.
+fn gateDisplayValue(gate: anytype, t: f32) f32 {
+    const thresh_db = std.math.clamp(gate.threshold_db, -80.0, 0.0);
+    const range_db = std.math.clamp(gate.range_db, gate_mod.mute_range_db, 0.0);
+    const shut: f32 = if (range_db <= gate_mod.mute_range_db) 0.0 else ws.types.dbToGain(range_db);
+    return if (ws.types.gainToDb(@max(t, 1e-6)) < thresh_db) t * shut else t;
+}
+
+/// The expander's static curve, through the same `expansionDb` the audio
+/// path uses - so RATIO, KNEE and RANGE are all visible, where the old
+/// drawing read a flat scale factor off RATIO alone.
+fn expanderDisplayValue(exp: anytype, t: f32) f32 {
+    const level_db = ws.types.gainToDb(@max(t, 1e-6));
+    const under_db = std.math.clamp(exp.threshold_db, -80.0, 0.0) - level_db;
+    const gain_db = ws.dsp.expander.Expander.expansionDb(
+        under_db,
+        std.math.clamp(exp.ratio, 1.0, 20.0),
+        std.math.clamp(exp.knee_db, 0.0, 24.0),
+        std.math.clamp(exp.range_db, ws.dsp.expander.max_reduction_db, 0.0),
+    );
+    return std.math.clamp(t * ws.types.dbToGain(gain_db), 0, 1);
 }
 /// One live readout. Every dynamics unit's display is some number of these,
 /// built by `meterRows` and drawn by `drawMeterStack` - three helpers laying

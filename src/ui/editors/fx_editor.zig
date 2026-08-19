@@ -374,6 +374,7 @@ pub fn paramToggleNames(k: FxKind, idx: usize) ?[2][]const u8 {
         .limiter => if (idx == 3) .{ "sample", "true" } else null,
         .amp => if (idx == 6) .{ "direct", "cabinet" } else null,
         .clipper => if (idx == 3) .{ "off", "on" } else null,
+        .gate, .expander => if (idx == 6) .{ "peak", "RMS" } else null,
         .utility => switch (idx) {
             1 => .{ "normal", "invert" },
             2 => .{ "stereo", "mono" },
@@ -1388,6 +1389,7 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
         },
         .gate => switch (idx) {
             0, 4 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            6 => if (v < 0.5) "peak" else "RMS",
             // Range bottoms out at full mute rather than reading -80dB.
             5 => if (v <= gate_mod.mute_range_db) "mute" else std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
             else => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
@@ -1448,7 +1450,7 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
         .expander => switch (idx) {
             1 => std.fmt.bufPrint(buf, "{d:.1}:1", .{v}) catch "?",
             2, 3 => std.fmt.bufPrint(buf, "{d:.1}ms", .{v}) catch "?",
-            6 => if (v < 0.5) "peak" else "rms",
+            6 => if (v < 0.5) "peak" else "RMS",
             7, 8 => if (v < 20.0) "off" else std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?",
             else => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
         },
