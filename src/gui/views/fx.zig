@@ -19,7 +19,7 @@ const theme = &style.palette;
 /// own graph has an identical fit in fx_eq.zig - they never share a frame, so
 /// a trim measured for one has nothing to say about the other.
 /// The effect display sizes itself off `gridFloor` instead, because its param
-/// cards stretch - measuring content that grows into whatever the pane gives
+/// cards stretch - measuring content that grows into whatever the e gives
 /// back would leave the two chasing each other.
 var monitor_fit: scroll.PaneFit = .{};
 
@@ -777,7 +777,7 @@ fn drawParamGrid(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, g
 }
 
 fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize, knob_diameter: f32) void {
-    const disabled = autoPanParamDisabled(&unit.payload, index);
+    const disabled = spectrum_ed.paramDisabled(&unit.payload, index);
     zgui.beginDisabled(.{ .disabled = disabled });
     defer zgui.endDisabled();
     if (spectrum_ed.paramToggleNames(unit.kind(), index)) |names| {
@@ -821,13 +821,6 @@ fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index
         syncChain(app, target);
     }
     if (result.activated) app.core.fx_param = index;
-}
-
-fn autoPanParamDisabled(payload: *const ws.FxPayload, index: usize) bool {
-    return switch (payload.*) {
-        .auto_pan => |pan| (index == 0 and pan.sync >= 0.5) or (index == 2 and pan.sync < 0.5),
-        else => false,
-    };
 }
 
 fn perceptualParam(name: []const u8, range: [2]f32) bool {
@@ -985,15 +978,6 @@ test "filter display follows selected response mode" {
     try std.testing.expect(filterDisplayValue(&payload.filter, 0.1) < filterDisplayValue(&payload.filter, 0.9));
     payload.filter.mode = 2;
     try std.testing.expect(filterDisplayValue(&payload.filter, 0.5) > filterDisplayValue(&payload.filter, 0.1));
-}
-
-test "auto-pan timing disables only inactive source" {
-    var payload = ws.FxPayload{ .auto_pan = .{ .sample_rate = 48_000 } };
-    try std.testing.expect(autoPanParamDisabled(&payload, 0));
-    try std.testing.expect(!autoPanParamDisabled(&payload, 2));
-    payload.auto_pan.sync = 0;
-    try std.testing.expect(!autoPanParamDisabled(&payload, 0));
-    try std.testing.expect(autoPanParamDisabled(&payload, 2));
 }
 
 test "effect display uses truthful curve types" {

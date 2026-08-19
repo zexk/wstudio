@@ -484,10 +484,7 @@ pub fn drawFxView(
         const visible_count = spectrum_ed.visibleParamCount(app, k, &unit.payload);
         for (0..visible_count) |i| {
             const is_sel = (i == app.fx_param);
-            const disabled = switch (unit.payload) {
-                .auto_pan => |pan| (i == 0 and pan.sync >= 0.5) or (i == 2 and pan.sync < 0.5),
-                else => false,
-            };
+            const disabled = spectrum_ed.paramDisabled(&unit.payload, i);
             const v = spectrum_ed.getParam(&unit.payload, i);
             var nbuf: [64]u8 = undefined;
             if (spectrum_ed.paramToggleNames(k, i)) |names| {

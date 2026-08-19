@@ -421,6 +421,35 @@ pub fn isListParam(k: FxKind, idx: usize) bool {
     };
 }
 
+/// True when `idx` has no effect at the unit's current settings - a knee
+/// whose stage is switched off, a rate the sync mode is ignoring. Both
+/// frontends grey these out rather than hide them: a row that vanishes and
+/// reappears moves every row under it, and the param is still the thing you
+/// turn on the switch *for*.
+pub fn paramDisabled(p: *const FxPayload, idx: usize) bool {
+    return switch (p.*) {
+        // Free-running rate and synced beats: whichever one the mode is not
+        // reading does nothing.
+        .auto_pan => |pan| (idx == 0 and pan.sync >= 0.5) or (idx == 2 and pan.sync < 0.5),
+        .clipper => |clip| idx == 4 and clip.odp < 0.5,
+        .limiter => |lim| idx >= 5 and lim.alr < 0.5,
+        .utility => |util| switch (idx) {
+            7, 8 => util.noise_on < 0.5,
+            10 => util.autogain_on < 0.5,
+            else => false,
+        },
+        // A soloed band mutes the others, so their gains are inert until the
+        // solo comes off.
+        .crossover => |x| blk: {
+            if (idx < 2 or idx > 4) break :blk false;
+            const solos = [3]f32{ x.low_solo, x.mid_solo, x.high_solo };
+            const any = solos[0] >= 0.5 or solos[1] >= 0.5 or solos[2] >= 0.5;
+            break :blk any and solos[idx - 2] < 0.5;
+        },
+        else => false,
+    };
+}
+
 /// Clamped absolute set of param `idx` in `p` - bounds match `paramRange`.
 /// Delegates to `fx_params.setParamAbsolute` for every param that is just a
 /// DSP field; the rows below need `app` (comp's sidechain source resolves
@@ -1536,4 +1565,34 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
                 std.fmt.bufPrint(buf, "{d:.3}", .{value}) catch "?";
         },
     };
+}
+
+test "a param is disabled exactly when the stage that reads it is off" {
+    var pan = FxPayload{ .auto_pan = .{ .sample_rate = 48_000 } };
+    try std.testing.expect(paramDisabled(&pan, 0));
+    try std.testing.expect(!paramDisabled(&pan, 2));
+    pan.auto_pan.sync = 0;
+    try std.testing.expect(!paramDisabled(&pan, 0));
+    try std.testing.expect(paramDisabled(&pan, 2));
+
+    // ODP's knee, and the limiter's two ALR rows, follow their own switch.
+    var clip = FxPayload{ .clipper = ws.dsp.Clipper.init(48_000) };
+    try std.testing.expect(paramDisabled(&clip, 4));
+    clip.clipper.odp = 1;
+    try std.testing.expect(!paramDisabled(&clip, 4));
+
+    var lim = FxPayload{ .limiter = try ws.dsp.Limiter.init(std.testing.allocator, 48_000) };
+    defer lim.limiter.deinit(std.testing.allocator);
+    try std.testing.expect(paramDisabled(&lim, 5) and paramDisabled(&lim, 6));
+    try std.testing.expect(!paramDisabled(&lim, 4));
+    lim.limiter.alr = 1;
+    try std.testing.expect(!paramDisabled(&lim, 5));
+
+    // A solo mutes the bands it is not on, so their gains go inert.
+    var xover = FxPayload{ .crossover = ws.dsp.CrossoverFx.init(48_000) };
+    try std.testing.expect(!paramDisabled(&xover, 2));
+    xover.crossover.mid_solo = 1;
+    try std.testing.expect(paramDisabled(&xover, 2));
+    try std.testing.expect(!paramDisabled(&xover, 3));
+    try std.testing.expect(paramDisabled(&xover, 4));
 }
