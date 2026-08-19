@@ -11284,6 +11284,9 @@ test "every view survives every terminal size it can be handed" {
         for ([_]u16{ 3, 5, 10, 24, 48 }) |rows| {
             for (std.enums.values(AppView)) |view| {
                 app.view = view;
+                // A status message far wider than any terminal: the footer is
+                // where an unclamped write shows up first.
+                app.setStatus("{s}", .{"status " ** 40});
                 var w = std.Io.Writer.fixed(&buf);
                 try tui_mod.draw(&app, &w, .{ .cols = cols, .rows = rows });
                 var lines = std.mem.splitScalar(u8, ansi.stripAnsi(w.buffered(), &plain_buf), '\n');
