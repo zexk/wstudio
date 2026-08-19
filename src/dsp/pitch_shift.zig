@@ -164,9 +164,23 @@ pub const PitchShift = struct {
 
     pub const device = dsp.deviceOf(@This());
 
+    /// True when neither knob asks for anything, so `processBlock` returns
+    /// before the shifter runs. Shared with `latencyFrames`, which must
+    /// agree with it exactly: reporting a delay the unit is not adding
+    /// makes the engine pull every other track `latencyFrames` early.
+    fn isUnity(self: *const PitchShift) bool {
+        const semis = dsp.sanitizeParam(self.semitones, -24.0, 24.0, 0.0) +
+            dsp.sanitizeParam(self.cents, -100.0, 100.0, 0.0) / 100.0;
+        const formant = dsp.sanitizeParam(self.formant, min_formant, max_formant, 0.0);
+        return @abs(semis) < unity_epsilon and @abs(formant) < unity_epsilon;
+    }
+
     /// One shifter block plus its start-up delay: what the engine has to
-    /// delay every other chain by to keep this one in time.
+    /// delay every other chain by to keep this one in time. Zero while the
+    /// unit is a wire - a freshly inserted one is, and 65 ms of phantom
+    /// compensation on an untouched insert is worse than none.
     pub fn latencyFrames(self: *const PitchShift) u32 {
+        if (self.isUnity()) return 0;
         return @intCast(self.block_size + c.rubberband_live_get_start_delay(self.state));
     }
 
@@ -177,7 +191,7 @@ pub const PitchShift = struct {
         const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 1.0);
         const formant = dsp.sanitizeParam(self.formant, min_formant, max_formant, 0.0);
 
-        if (@abs(semis) < unity_epsilon and @abs(formant) < unity_epsilon) {
+        if (self.isUnity()) {
             // Nothing to do, and running the shifter at unity would still
             // cost its latency and a little smearing.
             for (buf) |*s| s.* = dsp.sanitizeParam(s.*, -16.0, 16.0, 0.0);
@@ -378,6 +392,7 @@ test "the top of the range still reaches its pitch after the first block" {
 test "latency is reported so the engine can compensate" {
     var shifter = try PitchShift.init(std.testing.allocator, 48_000);
     defer shifter.deinit(std.testing.allocator);
+    shifter.semitones = 7.0; // at unity the unit is a wire and reports 0
     try std.testing.expect(shifter.latencyFrames() >= shifter.block_size);
 }
 
@@ -406,4 +421,21 @@ test "one big block reaches the asked-for pitch inside that same block" {
     const wanted = std.math.pow(f64, 2.0, 25.0 / 12.0);
     try std.testing.expect(wanted > max_first_scale); // the test is only about the held-back case
     try std.testing.expectApproxEqAbs(wanted, shifter.applied_scale, 1e-9);
+}
+
+test "an idle shifter reports no latency, because it adds none" {
+    // At unity `processBlock` is a wire - it returns before the shifter
+    // runs. Reporting the shifter's latency anyway had the engine delay
+    // every other track by 65 ms to compensate for a delay this one is not
+    // adding, and unity is the state a freshly inserted unit is in.
+    var shifter = try PitchShift.init(std.testing.allocator, 48_000);
+    defer shifter.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(u32, 0), shifter.device().latencyFrames());
+
+    var buf = [_]Sample{ 1.0, 1.0 } ++ [_]Sample{ 0.0, 0.0 } ** 63;
+    shifter.processBlock(&buf);
+    try std.testing.expectEqual(@as(Sample, 1.0), buf[0]); // really a wire
+
+    shifter.semitones = 7.0;
+    try std.testing.expect(shifter.device().latencyFrames() > 0);
 }
