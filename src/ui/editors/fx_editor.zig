@@ -72,7 +72,20 @@ comptime {
     // compiles clean and is simply unreachable from the picker, which is how
     // the pitch shifter first shipped invisible. `clap`/`vst3` are inserted
     // by the plugin browser, not from this list.
-    std.debug.assert(picker_kinds.len == std.meta.fields(FxKind).len - 2);
+    //
+    // Membership, not just a count: counting alone passes a list that gained
+    // a duplicate and lost a kind in the same edit, which is exactly the
+    // shape a hand-reordered display list takes.
+    var seen = [_]bool{false} ** std.meta.fields(FxKind).len;
+    for (picker_kinds) |k| {
+        std.debug.assert(!seen[@intFromEnum(k)]);
+        seen[@intFromEnum(k)] = true;
+    }
+    for (std.meta.fields(FxKind)) |f| {
+        const kind: FxKind = @enumFromInt(f.value);
+        if (kind == .clap or kind == .vst3) continue;
+        std.debug.assert(seen[f.value]);
+    }
 }
 
 /// The `/` filter narrowing the FX insert picker right now - same
