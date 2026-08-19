@@ -335,14 +335,15 @@ fn drawEffectPlot(app: anytype, target: spectrum_ed.EqTarget, draw_list: zgui.Dr
     // crusher's 2^(bits-1) staircase collapsed onto the diagonal, so a
     // default 8-bit crush was drawn as a bypass line.
     var points: [257][2]f32 = undefined;
-    const amount = normalizedParam(app, unit, 0);
-    const shape = normalizedParam(app, unit, 1);
     for (&points, 0..) |*point, i| {
         const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(points.len - 1));
         const y = switch (unit.kind()) {
             .filter => filterDisplayValue(&unit.payload.filter, t),
             .amp => ampDisplayValue(&unit.payload.amp, t),
             .crossover => crossoverDisplayValue(&unit.payload.crossover, t),
+            .chorus => modDisplayValue(unit.payload.chorus.rate_hz, unit.payload.chorus.depth_ms / ws.dsp.chorus.max_depth_ms, t),
+            .phaser => modDisplayValue(unit.payload.phaser.rate_hz, unit.payload.phaser.depth, t),
+            .flanger => modDisplayValue(unit.payload.flanger.rate_hz, unit.payload.flanger.depth, t),
             .sat => satDisplayValue(&unit.payload.sat, t),
             .clipper => clipperDisplayValue(&unit.payload.clipper, t),
             .comp => compDisplayValue(&unit.payload.comp, t),
@@ -351,7 +352,12 @@ fn drawEffectPlot(app: anytype, target: spectrum_ed.EqTarget, draw_list: zgui.Dr
             .gate => gateDisplayValue(&unit.payload.gate, t),
             .expander => expanderDisplayValue(&unit.payload.expander, t),
             .limiter => limiterDisplayValue(&unit.payload.limiter, t),
-            else => effectDisplayValue(unit.kind(), t, amount, shape),
+            .crush => crushDisplayValue(&unit.payload.crush, t),
+            .reverb => reverbDisplayValue(&unit.payload.reverb, t),
+            .freq_shift => freqShiftDisplayValue(&unit.payload.freq_shift, t),
+            // Everything else has no curve worth drawing: `showsEffectCurve`
+            // keeps it out of this pane entirely, or its display is meters.
+            else => t,
         };
         point.* = .{ plot.x + t * plot.w, plot.y + (1.0 - y) * plot.h };
     }
@@ -390,30 +396,6 @@ fn showsEffectCurve(kind: ws.FxKind) bool {
     };
 }
 
-fn normalizedParam(app: anytype, unit: *ws.FxUnit, index: usize) f32 {
-    if (index >= spectrum_ed.visibleParamCount(&app.core, unit.kind(), &unit.payload)) return 0.5;
-    const range = spectrum_ed.paramRange(&app.core, &unit.payload, index);
-    if (range[1] <= range[0]) return 0.5;
-    return std.math.clamp((spectrum_ed.getParam(&unit.payload, index) - range[0]) / (range[1] - range[0]), 0, 1);
-}
-
-fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
-    return switch (kind) {
-        .crush => @round(t * std.math.pow(f32, 2.0, amount * 15.0)) / std.math.pow(f32, 2.0, amount * 15.0),
-        // An LFO offset swings about a centre - it does not climb. The old
-        // `t + sin(...)` baseline drew the same rising ramp a transfer curve
-        // wants under a TIME/OFFSET pair of axes, and took its cycle count
-        // from the depth knob and its amplitude from the rate knob.
-        .chorus, .flanger, .phaser, .auto_pan => 0.5 + @sin(t * std.math.pi * 2.0 * (1.0 + amount * 5.0)) * (0.08 + shape * 0.38),
-        .freq_shift => std.math.clamp(t + (amount - 0.5) * 0.35, 0, 1),
-        .reverb => std.math.clamp(@exp(-t * (0.8 + (1.0 - amount) * 4.0)) * (0.7 + 0.2 * @sin(t * std.math.pi * 26.0)), 0, 1),
-        // `.amp` and `.filter` draw a frequency response instead; see
-        // `drawEffectPlot`.
-        .eq, .amp, .sat, .clipper, .comp, .gate, .expander, .limiter, .filter, .crossover, .utility, .stereo_width, .tape, .mb_comp, .ott, .transient_shaper, .delay, .pitch_shift => t,
-        .clap, .vst3 => t,
-    };
-}
-
 fn filterDisplayValue(filter: anytype, t: f32) f32 {
     const freq = 20.0 * std.math.pow(f32, 1000.0, t);
     const x = freq / std.math.clamp(filter.cutoff_hz, 20, 20_000);
@@ -438,6 +420,53 @@ fn ampDisplayValue(amp: anytype, t: f32) f32 {
     return std.math.clamp((db + 48.0) / 60.0, 0, 1);
 }
 
+/// How many seconds of LFO the modulation units draw. Fixed, so RATE reads
+/// as real cycles per second across all three of them - the old sketch took
+/// its cycle count from the knob's normalized position, which made 5 Hz on
+/// a phaser and 5 Hz on a chorus draw the same picture only by coincidence.
+const mod_window_s: f32 = 2.0;
+
+fn modDisplayValue(rate_hz: f32, depth: f32, t: f32) f32 {
+    const cycles = std.math.clamp(rate_hz, 0.05, 20.0) * mod_window_s;
+    const swing = 0.08 + 0.38 * std.math.clamp(depth, 0, 1);
+    return 0.5 + @sin(t * std.math.pi * 2.0 * cycles) * swing;
+}
+
+/// The crusher's quantisation staircase at the bit depth actually set.
+/// Sample-rate reduction is a time-domain effect and has no place on a
+/// level transfer plot.
+fn crushDisplayValue(crush: anytype, t: f32) f32 {
+    const bits = std.math.clamp(@round(crush.bits), 1, 16);
+    const steps = std.math.pow(f32, 2.0, bits - 1.0);
+    return @round(t * steps) / steps;
+}
+
+/// A reverb tail across the same two-second window the delay draws: silence
+/// through PREDELAY, then a decay whose length is ROOM, with the early
+/// reflections IMPULSE adds in front of it. Predelay and the impulse switch
+/// never reached the old sketch, which started every tail at time zero.
+fn reverbDisplayValue(reverb: anytype, t: f32) f32 {
+    const predelay_s = std.math.clamp(reverb.predelay_ms, 0, 250) / 1000.0;
+    const pos = t * mod_window_s;
+    if (pos < predelay_s) return 0;
+    const age = pos - predelay_s;
+    const room = std.math.clamp(reverb.room, 0, 0.98);
+    const tail = @exp(-age * (0.8 + (1.0 - room) * 5.0)) * (0.7 + 0.2 * @sin(age * std.math.pi * 26.0));
+    // Early reflections are discrete and land in the first ~120 ms; the
+    // algorithmic tail behind them is unchanged.
+    const early: f32 = if (reverb.impulse >= 0.5 and age < 0.12)
+        0.3 * @exp(-@mod(age * 40.0, 1.0) * 6.0)
+    else
+        0;
+    return std.math.clamp(tail + early, 0, 1);
+}
+
+/// A frequency shift is the identity line moved bodily up or down - not
+/// tilted, which is what separates it from a transposition. Drawn against a
+/// 20 kHz axis, so the full +-2 kHz range is a tenth of the pane.
+fn freqShiftDisplayValue(shifter: anytype, t: f32) f32 {
+    return std.math.clamp(t + std.math.clamp(shifter.shift_hz, -2000, 2000) / 20_000.0, 0, 1);
+}
 /// The crossover's own response: two split points, three band gains, and
 /// whatever a solo has muted. It used to draw nothing at all - no curve and
 /// no meters, so its display box held a one-line description of itself.
@@ -971,5 +1000,7 @@ test "effect display uses truthful curve types" {
     try std.testing.expect(!showsEffectCurve(.mb_comp));
     try std.testing.expect(!showsEffectCurve(.tape));
     try std.testing.expect(showsEffectCurve(.sat));
-    try std.testing.expectApproxEqAbs(@as(f32, 0.25), effectDisplayValue(.crush, 0.3, 2.0 / 15.0, 0), 1e-6);
+    // 3-bit crush: 2^2 = 4 steps, so 0.3 lands on 0.25.
+    var crush = ws.dsp.Crusher{ .bits = 3 };
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), crushDisplayValue(&crush, 0.3), 1e-6);
 }
