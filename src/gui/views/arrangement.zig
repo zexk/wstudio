@@ -10,13 +10,25 @@ const zgui = @import("zgui");
 const shared_step_grid = @import("../../ui/editors/step_grid.zig");
 const scroll = @import("../scroll.zig");
 const automation_ed = @import("../../ui/editors/automation.zig");
+const history = @import("../../ui/history.zig");
 const waveform = @import("../../ui/waveform.zig");
 
 const color = gui_style.color;
 const theme = &gui_style.palette;
 
 pub const ClipSelection = struct { track: usize, clip: usize, start_tick: u32 };
-pub const ClipDrag = struct { selection: ClipSelection, target_tick: u32, grab_offset_tick: u32 };
+/// `copy` is decided when the drag starts, not when it ends: holding the
+/// modifier is what turns a move into a duplicate, and releasing it midway
+/// through a drag should not silently change what the gesture does.
+pub const ClipDrag = struct { selection: ClipSelection, target_tick: u32, grab_offset_tick: u32, copy: bool = false };
+
+/// Whether the selection still points at an audio clip - checked before the
+/// layout reserves inspector height, which happens a frame before the
+/// inspector itself draws.
+fn selectedClipIsAudio(app: anytype, selection: ClipSelection) bool {
+    if (!clipSelectionValid(&app.core.session.arrangement, selection)) return false;
+    return app.core.session.arrangement.lanes.items[selection.track].clips.items[selection.clip].content == .audio;
+}
 
 fn clipSelectionValid(arrangement: *const ws.Arrangement, selection: ClipSelection) bool {
     if (selection.track >= arrangement.lanes.items.len) return false;
@@ -113,7 +125,9 @@ pub fn draw(app: anytype) void {
     const map_strip: f32 = if (proj.tempo_points.items.len > 0 or proj.meter_points.items.len > 0) 16 else 0;
     const ruler_h: f32 = 30 + map_strip;
     const available = zgui.getContentRegionAvail();
-    const inspector_h: f32 = if (app.arrangement_clip != null) 116 else 0;
+    // An audio clip's inspector carries a row of dials the other kinds have
+    // nothing to put in, so it reserves the extra height only when selected.
+    const inspector_h: f32 = if (app.arrangement_clip) |sel| (if (selectedClipIsAudio(app, sel)) 190 else 116) else 0;
     const lane_h: f32 = if (track_count == 0)
         58
     else
@@ -140,7 +154,7 @@ pub fn draw(app: anytype) void {
                 drag.target_tick = start_tick / app.core.arr_grid.ticks() * app.core.arr_grid.ticks();
             }
         } else {
-            finishClipDrag(app, drag.*);
+            if (drag.copy) finishClipCopy(app, drag.*) else finishClipDrag(app, drag.*);
             app.arrangement_drag = null;
         }
     }
@@ -488,6 +502,7 @@ pub fn draw(app: anytype) void {
                         .selection = app.arrangement_clip.?,
                         .target_tick = clip.start_tick,
                         .grab_offset_tick = tick - clip.start_tick,
+                        .copy = zgui.isKeyDown(.mod_shift),
                     };
                     break;
                 }
@@ -558,6 +573,42 @@ fn drawAutomationPreview(app: anytype, draw_list: anytype, clip: *const ws.Clip,
     draw_list.addText(.{ pmax[0] - 16, pmin[1] + 4 }, color(theme.modulation), "A", .{});
 }
 
+/// Shift-drag: leave the clip where it is and drop a copy at the target -
+/// the same gesture the TUI's mouse path already documents, which terminals
+/// tend to swallow for their own text selection. Help has pointed at the GUI
+/// as the way to get it since before the GUI had it.
+///
+/// This is what drum programming by hand is built on: place one kick, then
+/// strew it across the bar without going back to the browser for each hit.
+fn finishClipCopy(app: anytype, drag: ClipDrag) void {
+    if (!clipSelectionValid(&app.core.session.arrangement, drag.selection)) return;
+    if (drag.target_tick == drag.selection.start_tick) return;
+    const allocator = app.core.allocator;
+    const lane = &app.core.session.arrangement.lanes.items[drag.selection.track];
+    var copy = lane.clips.items[drag.selection.clip].dupe(allocator) catch {
+        app.core.setStatus("copy: out of memory", .{});
+        return;
+    };
+    copy.start_tick = @min(drag.target_tick, std.math.maxInt(u32) - copy.length_ticks);
+    // Snapshot before placing: the copy may evict a clip it lands on, and
+    // undo has to bring that one back too.
+    history.recordLane(&app.core, @intCast(drag.selection.track));
+    lane.place(allocator, copy) catch {
+        copy.deinit(allocator);
+        app.core.setStatus("copy: out of memory", .{});
+        return;
+    };
+    if (app.core.session.song_mode) app.core.session.rebuildSongData();
+    app.core.dirty = true;
+    app.core.cursor = drag.selection.track;
+    app.core.arr_cursor_bar = copy.start_tick / app.core.arr_grid.ticks();
+    for (lane.clips.items, 0..) |clip, index| {
+        if (clip.start_tick != copy.start_tick) continue;
+        app.arrangement_clip = .{ .track = drag.selection.track, .clip = index, .start_tick = clip.start_tick };
+        return;
+    }
+}
+
 fn finishClipDrag(app: anytype, drag: ClipDrag) void {
     if (!clipSelectionValid(&app.core.session.arrangement, drag.selection)) return;
     const grid = app.core.arr_grid.ticks();
@@ -594,7 +645,8 @@ test "clip selection rejects deleted or displaced clips" {
 fn drawArrangementInspector(app: anytype) void {
     const selection = app.arrangement_clip orelse return;
     var action: ?u8 = null;
-    if (zgui.beginChild("arrangement-inspector", .{ .w = 0, .h = 108, .child_flags = .{ .border = true } })) {
+    const child_h: f32 = if (selectedClipIsAudio(app, selection)) 182 else 108;
+    if (zgui.beginChild("arrangement-inspector", .{ .w = 0, .h = child_h, .child_flags = .{ .border = true } })) {
         const clip = app.core.session.arrangement.lanes.items[selection.track].clips.items[selection.clip];
         widgets.coloredTitle(theme.focus, icons.arrangement ++ "  CLIP", .{});
         zgui.separator();
@@ -623,9 +675,108 @@ fn drawArrangementInspector(app: anytype) void {
         zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = theme.danger });
         if (widgets.iconButton(icons.close ++ "##clip-delete", "Delete clip  x")) action = 'x';
         zgui.popStyleColor(.{});
+        if (clip.content == .audio) drawAudioRegionControls(app, selection, clip.length_ticks);
     }
     zgui.endChild();
     if (action) |key| applyInspectorAction(app, selection, key);
+}
+
+/// Gain, fades, stretch and reverse for the selected audio region - the
+/// same values `:clip-gain`, `:clip-fade`, `:clip-stretch` and
+/// `:clip-reverse` set, on the dials that make them findable without
+/// knowing the command exists.
+///
+/// Undo is opened once per drag (on the dial's `activated`, not on every
+/// changed frame), so a sweep across a knob collapses into a single lane
+/// snapshot the way the mixer's faders already do.
+fn drawAudioRegionControls(app: anytype, selection: ClipSelection, length_ticks: u32) void {
+    const region = &app.core.session.arrangement.lanes.items[selection.track].clips.items[selection.clip].content.audio;
+    const proj = &app.core.session.project;
+    const sr: f32 = @floatFromInt(@max(proj.sample_rate, 1));
+    // A fade cannot outrun the clip it shapes; the engine clamps it to the
+    // region span anyway (see `Session.syncAudioRegions`), so the dial stops
+    // where the audible effect does.
+    const clip_seconds: f32 = @max(0.01, @as(f32, @floatCast(proj.secondsAtBeat(
+        ws.time_grid.tickToBeat(length_ticks),
+    ))));
+
+    zgui.spacing();
+    var fade_in = @as(f32, @floatFromInt(region.fade_in_frames)) / sr;
+    var fade_out = @as(f32, @floatFromInt(region.fade_out_frames)) / sr;
+    var buf: [32]u8 = undefined;
+
+    const gain = widgets.knobCell("gain", "##clip-gain", std.fmt.bufPrint(&buf, "{d:.1} dB", .{region.gain_db}) catch "", .{
+        .v = &region.gain_db,
+        .min = -60,
+        .max = 24,
+        .accent = theme.audio,
+    });
+    if (gain.activated) history.recordLane(&app.core, @intCast(selection.track));
+    var touched = gain.changed;
+
+    zgui.sameLine(.{ .spacing = 6 });
+    var in_buf: [32]u8 = undefined;
+    const fin = widgets.knobCell("fade in", "##clip-fade-in", std.fmt.bufPrint(&in_buf, "{d:.2} s", .{fade_in}) catch "", .{
+        .v = &fade_in,
+        .min = 0,
+        .max = clip_seconds,
+        .accent = theme.audio,
+        .skew = 2,
+    });
+    if (fin.activated) history.recordLane(&app.core, @intCast(selection.track));
+    if (fin.changed) {
+        region.fade_in_frames = @intFromFloat(@max(0, fade_in) * sr);
+        touched = true;
+    }
+
+    zgui.sameLine(.{ .spacing = 6 });
+    var out_buf: [32]u8 = undefined;
+    const fout = widgets.knobCell("fade out", "##clip-fade-out", std.fmt.bufPrint(&out_buf, "{d:.2} s", .{fade_out}) catch "", .{
+        .v = &fade_out,
+        .min = 0,
+        .max = clip_seconds,
+        .accent = theme.audio,
+        .skew = 2,
+    });
+    if (fout.activated) history.recordLane(&app.core, @intCast(selection.track));
+    if (fout.changed) {
+        region.fade_out_frames = @intFromFloat(@max(0, fade_out) * sr);
+        touched = true;
+    }
+
+    zgui.sameLine(.{ .spacing = 6 });
+    var stretch_buf: [32]u8 = undefined;
+    const stretch = widgets.knobCell("stretch", "##clip-stretch", std.fmt.bufPrint(&stretch_buf, "{d:.3}x", .{region.stretch_ratio}) catch "", .{
+        .v = &region.stretch_ratio,
+        .min = 0.125,
+        .max = 8,
+        .accent = theme.audio,
+        .logarithmic = true,
+    });
+    if (stretch.activated) history.recordLane(&app.core, @intCast(selection.track));
+    if (stretch.changed) touched = true;
+
+    // Reverse and the fade curve are switches, not quantities, so neither
+    // gets a dial (see the knob/list-param split the synth panels follow).
+    zgui.sameLine(.{ .spacing = 10 });
+    zgui.beginGroup();
+    if (widgets.activeIconButton(icons.loop ++ "##clip-reverse", "Reverse playback  :clip-reverse", region.reverse, theme.audio)) {
+        history.recordLane(&app.core, @intCast(selection.track));
+        region.reverse = !region.reverse;
+        touched = true;
+    }
+    const equal_power = region.fade_curve == .equal_power;
+    if (widgets.activeIconButton(icons.phase ++ "##clip-fade-curve", "Equal-power fades  :clip-fade", equal_power, theme.audio)) {
+        history.recordLane(&app.core, @intCast(selection.track));
+        region.fade_curve = if (equal_power) .linear else .equal_power;
+        touched = true;
+    }
+    zgui.endGroup();
+
+    if (touched) {
+        if (app.core.session.song_mode) app.core.session.rebuildSongData();
+        app.core.dirty = true;
+    }
 }
 
 fn applyInspectorAction(app: anytype, selection: ClipSelection, key: u8) void {
