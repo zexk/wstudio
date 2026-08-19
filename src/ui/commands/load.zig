@@ -1016,17 +1016,32 @@ pub fn cmdSpread(app: *App, args: []const u8) void {
 pub fn cmdImportAudio(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
-        app.setStatus("import-audio: usage :import-audio <file>", .{});
+        app.openBrowser(.import_audio);
         return;
     }
+    var path_buf: [path_buf_len]u8 = undefined;
+    importAudioFromPath(app, expandHome(&path_buf, trimmed));
+}
+
+/// Shared by `:import-audio <file>` and the browser's `.import_audio`
+/// purpose (which hands over an already-resolved path).
+pub fn importAudioFromPath(app: *App, path: []const u8) void {
     const track = app.cursor;
     if (track >= app.session.racks.items.len) {
         app.setStatus("import-audio: no track under the cursor", .{});
         return;
     }
 
-    var path_buf: [path_buf_len]u8 = undefined;
-    const path = expandHome(&path_buf, trimmed);
+    // Already imported in this session: reuse the source rather than decode
+    // and store the samples a second time. This is what makes placing one
+    // one-shot across a whole bar line cost a clip each, not a copy each.
+    if (app.session.project.audioSourceByPath(path)) |existing| {
+        const source = app.session.project.audioSource(existing).?;
+        const frames = source.samples.len / @max(source.channel_count, 1);
+        placeImportedClip(app, track, existing, frames, source.sample_rate, path);
+        return;
+    }
+
     const data = readFileForLoad(app, "import-audio", path) orelse return;
     defer app.allocator.free(data);
     const parsed = ws.wav.parseInterleavedAlloc(app.allocator, data) catch |e| {
@@ -1046,11 +1061,33 @@ pub fn cmdImportAudio(app: *App, args: []const u8) void {
         return;
     }
 
+    const source_id = app.session.project.addAudioSource(
+        path,
+        parsed.sample_rate,
+        parsed.channel_count,
+        parsed.samples,
+    ) catch {
+        app.setStatus("import-audio: out of memory", .{});
+        return;
+    };
+    placeImportedClip(app, track, source_id, source_frames, parsed.sample_rate, path);
+}
+
+/// Drop one clip over `source_id` on `track`'s lane at the arrangement
+/// cursor, promoting an empty track to an audio one on the way.
+fn placeImportedClip(
+    app: *App,
+    track: usize,
+    source_id: u32,
+    source_frames: usize,
+    source_rate: u32,
+    path: []const u8,
+) void {
     // The file's own rate, not the project's: `renderAudioLane` resamples by
     // the ratio between them, so the clip has to span the frames the file
     // will actually occupy on this timeline, not the frames it holds.
     const project_rate = @max(app.session.project.sample_rate, 1);
-    const timeline_frames = (@as(u64, source_frames) * project_rate) / @max(parsed.sample_rate, 1);
+    const timeline_frames = (@as(u64, source_frames) * project_rate) / @max(source_rate, 1);
 
     const start_tick = @min(app.arr_cursor_bar, std.math.maxInt(u32) / @max(app.arr_grid.ticks(), 1)) * app.arr_grid.ticks();
     const start_frame = app.session.project.framesAtBeat(ws.time_grid.tickToBeat(start_tick));
@@ -1072,16 +1109,6 @@ pub fn cmdImportAudio(app: *App, args: []const u8) void {
         app.exitStaleEditors();
     }
 
-    const source_id = app.session.project.addAudioSource(
-        path,
-        parsed.sample_rate,
-        parsed.channel_count,
-        parsed.samples,
-    ) catch {
-        app.setStatus("import-audio: out of memory", .{});
-        return;
-    };
-
     const lane = app.session.arrangement.lane(track) orelse {
         app.setStatus("import-audio: track {d} has no lane", .{track + 1});
         return;
@@ -1097,6 +1124,6 @@ pub fn cmdImportAudio(app: *App, args: []const u8) void {
     };
     if (app.session.song_mode) app.session.rebuildSongData();
     app.dirty = true;
-    const secs = @as(f64, @floatFromInt(source_frames)) / @as(f64, @floatFromInt(@max(parsed.sample_rate, 1)));
+    const secs = @as(f64, @floatFromInt(source_frames)) / @as(f64, @floatFromInt(@max(source_rate, 1)));
     app.setStatus("imported {s} ({d:.1}s) at bar {d}", .{ stemOf(path), secs, app.arr_cursor_bar + 1 });
 }

@@ -168,8 +168,13 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             return true;
         },
         .char => |c| switch (c) {
-            // Block insert mode - piano keys would collide with navigation.
-            'i' => return true,
+            // Never insert mode here - piano keys would collide with
+            // navigation - so the key is free for the gesture this view
+            // actually wants: bring a sample in at the cursor.
+            'i' => {
+                app.openBrowser(.import_audio);
+                return true;
+            },
             // Motions take a vim count prefix (3l, 2j, …).
             'h' => {
                 moveBar(app, -app.takeCount());

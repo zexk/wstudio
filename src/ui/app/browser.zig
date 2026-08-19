@@ -319,6 +319,7 @@ pub fn browserActivate(self: *App) void {
         .load_sample => commands_load.loadSampleFromPath(self, joined),
         .load_pad => |pad| commands_util.loadPadFromPath(self, pad, joined),
         .load_clip => commands_load.loadClipFromPath(self, joined),
+        .import_audio => commands_load.importAudioFromPath(self, joined),
         .load_slice => commands_load.loadSliceFromPath(self, joined),
         .load_wavetable => |slot| commands_load.loadWavetableFromPath(self, slot, joined),
         .load_soundfont => commands_load.loadSoundfontFromPath(self, joined),

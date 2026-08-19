@@ -165,6 +165,10 @@ pub const BrowserPurpose = union(enum) {
     load_sample,
     load_pad: u8,
     load_clip,
+    /// Place the picked file on the arrangement as an audio clip, rather
+    /// than loading it into an instrument the way every other audio purpose
+    /// here does.
+    import_audio,
     load_slice,
     load_wavetable: ws.dsp.PolySynth.OscSlot,
     load_soundfont,
@@ -176,7 +180,7 @@ pub const BrowserPurpose = union(enum) {
     pub fn extensions(self: BrowserPurpose) []const []const u8 {
         return switch (self) {
             .open_project => &.{".wsj"},
-            .load_sample, .load_pad, .load_clip, .load_slice, .load_wavetable => &.{
+            .load_sample, .load_pad, .load_clip, .import_audio, .load_slice, .load_wavetable => &.{
                 ".wav",  ".flac", ".aiff", ".aif",
                 ".ogg",  ".oga",  ".opus", ".mp3",
                 ".caf",  ".w64",  ".rf64", ".au",
@@ -199,7 +203,7 @@ pub const BrowserPurpose = union(enum) {
     pub fn extLabel(self: BrowserPurpose) []const u8 {
         return switch (self) {
             .open_project => ".wsj",
-            .load_sample, .load_pad, .load_clip, .load_slice, .load_wavetable => "audio",
+            .load_sample, .load_pad, .load_clip, .import_audio, .load_slice, .load_wavetable => "audio",
             .load_soundfont => ".sf2",
         };
     }
@@ -213,6 +217,7 @@ pub const BrowserPurpose = union(enum) {
             .load_sample => "load sample",
             .load_pad => |pad| std.fmt.bufPrint(buf, "load pad {d}", .{pad + 1}) catch "load pad",
             .load_clip => "load clip",
+            .import_audio => "import audio to arrangement",
             .load_slice => "load slicer clip",
             .load_wavetable => |slot| std.fmt.bufPrint(buf, "load wavetable, osc {s}", .{@tagName(slot)}) catch "load wavetable",
             .load_soundfont => "load soundfont",
@@ -227,7 +232,7 @@ pub const BrowserPurpose = union(enum) {
 
     pub fn canAudition(self: BrowserPurpose) bool {
         return switch (self) {
-            .load_sample, .load_pad, .load_clip, .load_slice, .load_wavetable => true,
+            .load_sample, .load_pad, .load_clip, .import_audio, .load_slice, .load_wavetable => true,
             .open_project, .load_soundfont => false,
         };
     }

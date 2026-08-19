@@ -302,6 +302,23 @@ pub const Project = struct {
         self.next_audio_source_id = @max(self.next_audio_source_id, id +| 1);
     }
 
+    /// The id of a source already loaded from `path`, or null. Import reuses
+    /// it so dropping one kick across thirty bars keeps a single copy of the
+    /// samples, in memory and in the saved audio cache, instead of thirty
+    /// identical ones.
+    ///
+    /// Only for callers holding a real file path. Generated sources carry a
+    /// label there instead ("recorded", "consolidated", "comp"), and a saved
+    /// project reloads every source under its cache key rather than the file
+    /// it came from - so this matches within the session that did the
+    /// importing, which is where the repetition happens.
+    pub fn audioSourceByPath(self: *const Project, path: []const u8) ?u32 {
+        for (self.audio_sources.items) |*source| {
+            if (std.mem.eql(u8, source.path, path)) return source.id;
+        }
+        return null;
+    }
+
     pub fn audioSource(self: *const Project, id: u32) ?*const AudioSource {
         for (self.audio_sources.items) |*source| if (source.id == id) return source;
         return null;
