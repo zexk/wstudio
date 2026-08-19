@@ -125,9 +125,13 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
         const group = dm.choke_group[p];
         const pad_len = dm.padSteps(@intCast(p), dm.step_count);
         try w.writeAll(style.chokeGroupColor(group));
-        // 8 = the rename cap (:rename), so no legal name truncates -
-        // at 4 the two stock toms both rendered as "tom-".
-        try w.print(" {s: <8} ", .{name[0..@min(name.len, 8)]});
+        // 8 = the rename cap (:rename), so no legal name truncates - at 4
+        // the two stock toms both rendered as "tom-". A name off a sample
+        // file can still be non-ASCII, so the clamp counts columns, not
+        // bytes: slicing bytes would split a codepoint and shift the grid.
+        try w.writeByte(' ');
+        try style.writePadded(w, name, 8);
+        try w.writeByte(' ');
         try w.writeAll(rst);
         col = 0;
         while (col < visible and scroll + col * stride < step_count_u32) : (col += 1) {
@@ -159,7 +163,10 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
             // ( ) matches the (/) tune keys; see step_grid.stepBrackets for
             // the rest of the alphabet (the slicer grid prints the same set).
             const brackets = step_grid.stepBrackets(dm, @intCast(p), @intCast(note_step), active and !out_of_loop);
-            if (cell_width == 1) {
+            if (cell_width < 3) {
+                // Too narrow for the bracket pair: the velocity glyph wins,
+                // and at 2 the opening bracket still flags a parameter lock.
+                if (cell_width == 2) try w.writeByte(brackets[0]);
                 try w.writeByte(glyph);
             } else {
                 try w.writeByte(brackets[0]);

@@ -11170,3 +11170,41 @@ test "importing one sample repeatedly places clips over a single shared source" 
         try std.testing.expectEqual(source_id, clip.content.audio.source_id);
     }
 }
+
+test "every cell width the config allows fits the terminal row" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    // Stamp a clip so the lane rows draw a body (and its variant letter),
+    // not just empty cells.
+    app.view = .arrangement;
+    app.cursor = 2;
+    app.handleKey(.enter, 0);
+    var buf: [64 * 1024]u8 = undefined;
+    var plain_buf: [64 * 1024]u8 = undefined;
+    const cols: u16 = 100;
+    // The ranges config/options.zig accepts: a width it lets through has to
+    // draw, and has to stay inside the row (an overflow wraps, which pushes
+    // the whole frame down a line and scrolls the header away).
+    for (1..8) |cw| {
+        app.tui_piano_cell_width = @intCast(cw);
+        app.tui_drum_cell_width = @intCast(cw);
+        app.tui_arrangement_cell_width = @intCast(@max(cw, 2));
+        for ([_]AppView{ .piano_roll, .drum_grid, .arrangement }) |view| {
+            app.view = view;
+            var w = std.Io.Writer.fixed(&buf);
+            try tui_mod.draw(&app, &w, .{ .cols = cols, .rows = 24 });
+            var lines = std.mem.splitScalar(u8, ansi.stripAnsi(w.buffered(), &plain_buf), '\n');
+            while (lines.next()) |line| {
+                var columns: usize = 0;
+                for (line) |b| {
+                    if (b != '\r' and b & 0xC0 != 0x80) columns += 1;
+                }
+                if (columns > cols) {
+                    std.debug.print("{s} at cell width {d}: {d} columns\n", .{ @tagName(view), cw, columns });
+                    return error.RowOverflowsTerminal;
+                }
+            }
+        }
+    }
+}

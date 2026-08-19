@@ -244,7 +244,7 @@ fn writeGroupRow(app: anytype, w: *std.Io.Writer, gi: u8, is_sel: bool, in_sel: 
     if (in_sel and !is_sel) try lw.writeAll(rst);
     if (!is_sel) try lw.writeAll(mag);
     try lw.print("{s}{d} ", .{ @as([]const u8, if (grp.folded) "\u{25B8}" else "\u{25BE}"), gi + 1 });
-    try lw.print("{s: <8}", .{grp.name[0..@min(grp.name.len, 8)]});
+    try style.writePadded(lw, grp.name, 8);
     if (!is_sel) try lw.writeAll(rst);
     if (!is_sel) try lw.writeAll(acc);
     try lw.writeAll(" [group]");

@@ -250,7 +250,9 @@ fn drawDrumBank(app: anytype, w: *std.Io.Writer, selected: u8) !void {
             const index: u8 = bank_start + @as(u8, @intCast(row * 4 + column));
             const active = index == selected;
             try w.writeAll(if (active) sel else if (dm.pads[index] == null) dim else rst);
-            try w.print(" {d: >2} {s: <8} ", .{ index + 1, dm.padName(index) });
+            try w.print(" {d: >2} ", .{index + 1});
+            try style.writePadded(w, dm.padName(index), 8);
+            try w.writeByte(' ');
             try w.writeAll(rst);
         }
         try endLine(w);

@@ -133,8 +133,13 @@ pub fn writeClamped(w: *std.Io.Writer, raw: []const u8, max_cols: usize) !void {
             try w.writeAll(raw[start..i]);
             continue;
         }
-        if (col >= max_cols) break;
-        if (raw[i] & 0xC0 != 0x80) col += 1; // UTF-8 continuation bytes are free
+        // Continuation bytes are free AND have to ride along with the lead
+        // byte that was already counted - stopping between them would emit
+        // half a codepoint, which the terminal draws as a replacement glyph.
+        if (raw[i] & 0xC0 != 0x80) {
+            if (col >= max_cols) break;
+            col += 1;
+        }
         try w.writeByte(raw[i]);
         i += 1;
     }

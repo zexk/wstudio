@@ -39,6 +39,16 @@ pub fn visibleBars(cols: usize, cw: usize) usize {
     return (cols - gutter) / cw;
 }
 
+/// One ruler cell's label in `color`, clamped to `width` columns and padded
+/// back out to it. Every label here is user-supplied or unbounded (section
+/// names, tempo/meter marks, 3-digit bars in a 3-wide cell), so the cell has
+/// to do the clamping - byte slicing would split a codepoint, and a label
+/// wider than the cell shifts every bar after it.
+fn writeCell(w: *std.Io.Writer, color: []const u8, text: []const u8, width: usize) !void {
+    try w.writeAll(color);
+    try style.writePadded(w, text, width);
+}
+
 fn playheadBar(app: anytype, snap: engine_mod.UiSnapshot) ?u32 {
     if (!snap.playing or !app.session.song_mode) return null;
     var t: Transport = .{
@@ -196,22 +206,18 @@ pub fn drawArrangement(
             // alignment - the separator's colour already marks downbeat/loop.
             try w.writeAll(if (in_loop) yel ++ "·" ++ rst else " ");
         } else if (section_name) |name| {
-            const shown = name[0..@min(name.len, cw - 1)];
-            try w.print("{s}{s}{s}", .{ bold, shown, rst });
-            try w.splatByteAll(' ', cw - 1 - shown.len);
+            try writeCell(w, bold, name, cw - 1);
         } else if (downbeat) {
             // A change usually lands on a downbeat, where the bar number owns
             // the cell - recolour it rather than hide it. Off-bar changes get
             // the value spelled out below.
-            try w.print("{s}{d: <3}{s}", .{ if (map_label != null) mag else if (in_loop) yel else dim, bar_pos.bar + 1, rst });
-            try w.splatByteAll(' ', cw - 4);
+            var bar_buf: [8]u8 = undefined;
+            const num = std.fmt.bufPrint(&bar_buf, "{d}", .{bar_pos.bar + 1}) catch "+";
+            try writeCell(w, if (map_label != null) mag else if (in_loop) yel else dim, num, cw - 1);
         } else if (map_label) |label| {
-            const shown = label[0..@min(label.len, cw - 1)];
-            try w.print("{s}{s}{s}", .{ mag, shown, rst });
-            try w.splatByteAll(' ', cw - 1 - shown.len);
+            try writeCell(w, mag, label, cw - 1);
         } else if (in_loop) {
-            try w.writeAll(yel ++ "···" ++ rst);
-            try w.splatByteAll(' ', cw - 4);
+            try writeCell(w, yel, "···", cw - 1);
         } else {
             try w.splatByteAll(' ', cw - 1);
         }
@@ -266,7 +272,8 @@ pub fn drawArrangement(
         if ((track.muted or track.soloed) and !is_sel_lane) try w.writeAll(rst);
         if (is_sel_lane) try w.writeAll(sel);
         if (!is_sel_lane) if (track_color) |c| try w.writeAll(c);
-        try w.print("{d: >2} {s: <8}", .{ li + 1, track.name[0..@min(track.name.len, 8)] });
+        try w.print("{d: >2} ", .{li + 1});
+        try style.writePadded(w, track.name, 8);
         if (!is_sel_lane) if (track_color) |_| try w.writeAll(rst);
         if (is_sel_lane) try w.writeAll(rst);
 
@@ -325,27 +332,28 @@ pub fn drawArrangement(
             } else if (covered) {
                 try w.writeAll(if (silent) dim else track_color orelse acc);
             }
-            if (cw == 2) {
-                if (!covered) {
-                    try w.writeAll(if (in_sel) "·" else if (is_play and !is_cursor) "‖" else " ");
-                } else if (letter) |ch| {
-                    try w.print("{c}", .{ch});
+            // The separator owns the cell's first column, the clip body the
+            // rest - one shape for every width, where a hard 3-column body
+            // (plus a `cw > 4` tail) overflowed the row at cw == 3.
+            const width = cw - 1;
+            if (!covered) {
+                const mark: []const u8 = if (in_sel) "·" else if (is_play and !is_cursor) "‖" else " ";
+                if (width == 1) {
+                    try w.writeAll(mark);
                 } else {
-                    try w.writeAll(if (is_start) "▌" else body);
+                    try w.writeByte(' ');
+                    try w.writeAll(mark);
+                    try w.splatByteAll(' ', width - 2);
                 }
-            } else if (!covered) {
-                try w.writeAll(if (in_sel) " · " else if (is_play and !is_cursor) " ‖ " else "   ");
             } else if (letter) |ch| {
-                try w.print("▌{c}{s}", .{ ch, body });
+                if (width > 1) try w.writeAll("▌");
+                try w.writeByte(ch);
+                for (0..width -| 2) |_| try w.writeAll(body);
             } else if (is_start) {
-                try w.print("▌{s}{s}", .{ body, body });
+                try w.writeAll("▌");
+                for (0..width -| 1) |_| try w.writeAll(body);
             } else {
-                try w.print("{s}{s}{s}", .{ body, body, body });
-            }
-            if (cw > 4) {
-                if (covered) {
-                    for (0..cw - 4) |_| try w.writeAll(body);
-                } else try w.splatByteAll(' ', cw - 4);
+                for (0..width) |_| try w.writeAll(body);
             }
             if (is_cursor or is_play or covered or in_sel) try w.writeAll(rst);
         }
