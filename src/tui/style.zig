@@ -270,15 +270,27 @@ pub fn synthBar(w: *std.Io.Writer, value: f32, max_val: f32, is_sel: bool, color
 
 /// Colored section divider: `▌ LABEL ─────────` filling to a fixed width.
 pub fn synthSection(w: *std.Io.Writer, label: []const u8, color: []const u8) !void {
+    return synthSectionIcon(w, "", label, color);
+}
+
+/// `synthSection` with a leading icon. `icon` is one cell wide (the bundled
+/// font is the Mono variant) but several bytes, so it is counted separately
+/// from `label` - measuring the whole heading by byte length would eat three
+/// dashes off the divider.
+pub fn synthSectionIcon(w: *std.Io.Writer, icon: []const u8, label: []const u8, color: []const u8) !void {
     try w.writeAll("  ");
     try w.writeAll(color);
     try w.writeAll(bold);
     try w.writeAll("\u{258C} ");
+    if (icon.len > 0) {
+        try w.writeAll(icon);
+        try w.writeByte(' ');
+    }
     try w.writeAll(label);
     try w.writeByte(' ');
     try w.writeAll(rst);
     try w.writeAll(dim);
-    const used = 5 + label.len; // "  " + "▌ " + label + " "
+    const used = 5 + label.len + @as(usize, if (icon.len > 0) 2 else 0); // "  " + "▌ " + icon + label + " "
     const total = form_section_w;
     if (used < total) for (used..total) |_| try w.writeAll("\u{2500}");
     try endLine(w);

@@ -1,9 +1,9 @@
-//! Icon glyphs for the TUI and GUI, drawn from a 53-glyph subset of "Symbols
+//! Icon glyphs for the TUI and GUI, drawn from a 57-glyph subset of "Symbols
 //! Nerd Font Mono" (MIT license; see assets/fonts/LICENSE and the Nerd Fonts
 //! project at https://github.com/ryanoasis/nerd-fonts). Codepoints are the
 //! ones the upstream font's own `post` table names (`fa-play`, `md-undo`,
 //! ...) rather than guesses; assets/fonts/LICENSE records the pyftsubset
-//! command that cut it down to just these glyphs (~7.6 KB vs. ~2.5 MB for
+//! command that cut it down to just these glyphs (~8.7 KB vs. ~2.5 MB for
 //! the full symbols font), including how to re-read those names.
 //!
 //! These are Private Use Area codepoints: a terminal only renders them as
@@ -83,6 +83,21 @@ pub const audio_file = "\u{f0223}";
 pub const bookmark = "\u{f00c0}";
 /// md-history - recently opened projects.
 pub const recent = "\u{f02da}";
+/// md-piano - a keyboard mapping (a sampler's root note and voice mode),
+/// not an instrument. `synth`'s cod-piano marks the synth itself.
+pub const keys = "\u{f067d}";
+/// md-ray_start_end - a region bounded by two markers: the sampler's play
+/// start and end.
+pub const region = "\u{f0444}";
+/// md-slope_uphill - a fade, drawn as the ramp it is.
+pub const fade = "\u{f0e00}";
+/// md-target - punch recording, armed to a bounded range rather than
+/// wherever the playhead happens to be.
+pub const punch = "\u{f04fe}";
+/// Modulation (an LFO's rate/depth/shape). Same md-sine_wave glyph as
+/// `phase` and `audio_track` - a bare waveform is what all three mean, and
+/// no two of them share a surface.
+pub const modulation = "\u{f095b}";
 /// md-chart_bell_curve - an automation envelope, the shape drawn over time.
 /// Distinct from `automation`'s timeline glyph, which means the view.
 pub const envelope = "\u{f0c50}";

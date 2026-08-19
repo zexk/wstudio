@@ -7,6 +7,7 @@ const ws = @import("wstudio");
 const modal_mod = ws.input;
 const DrumMachine = ws.dsp.DrumMachine;
 const Sampler = ws.dsp.Sampler;
+const icons = @import("../icons.zig");
 const app_mod = @import("../app.zig");
 const App = app_mod.App;
 const SamplerTarget = app_mod.SamplerTarget;
@@ -79,6 +80,20 @@ pub const max_param_rows = blk: {
     for (pad_sections) |section| n += section.rows.len;
     break :blk n;
 };
+
+/// The glyph a section heads up with, keyed off the same `kind` both
+/// frontends already switch on for its color - one mapping, so the GUI's
+/// heading and the TUI's divider never disagree about what a section is.
+pub fn sectionIcon(kind: SectionKind) []const u8 {
+    return switch (kind) {
+        .sample => icons.sampler,
+        .envelope => icons.envelope,
+        .output => icons.audio,
+        .fade => icons.fade,
+        .mod => icons.modulation,
+        .key => icons.keys,
+    };
+}
 
 pub fn paramLineCount(pad_target: bool) usize {
     var count: usize = 0;

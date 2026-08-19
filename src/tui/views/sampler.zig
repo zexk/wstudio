@@ -112,7 +112,7 @@ pub fn drawSamplerEditor(
     }
 
     if (pad_target and pad.samples.len == 0) {
-        try synthSection(w, "SAMPLE", acc);
+        try padSection(w, sampler_ed.pad_sections[0], acc);
         written += 1;
         try w.writeAll(dim);
         try w.writeAll(if (is_drum) "  NO SAMPLE" else if (app.slicerInst().hasAudio()) "  AUDIO LOADED, NO SLICES" else "  NO AUDIO");
@@ -145,7 +145,7 @@ pub fn drawSamplerEditor(
 
     // zig fmt: off
     // ── SAMPLE ───────────────────────────────────
-    try synthSection(w, sampler_ed.pad_sections[0].title, acc);
+    try padSection(w, sampler_ed.pad_sections[0], acc);
     written += 1;
     try barRow(w, c == 0, false, acc, "start", pad.start_norm, 1.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{pad.start_norm}));
@@ -166,7 +166,7 @@ pub fn drawSamplerEditor(
     written += 7;
 
     // ── AMP ENV ──────────────────────────────────
-    try synthSection(w, sampler_ed.pad_sections[1].title, grn);
+    try padSection(w, sampler_ed.pad_sections[1], grn);
     written += 1;
     try barRow(w, c == 3, false, grn, "attack", pad.attack_s, duration,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{pad.attack_s}));
@@ -179,7 +179,7 @@ pub fn drawSamplerEditor(
     written += 4;
 
     // ── OUT ──────────────────────────────────────
-    try synthSection(w, sampler_ed.pad_sections[2].title, bcyn);
+    try padSection(w, sampler_ed.pad_sections[2], bcyn);
     written += 1;
     try barRow(w, c == 7, false, bcyn, "gain", pad.gain, 2.0,
         try std.fmt.bufPrint(&buf, "{d:.2}", .{pad.gain}));
@@ -201,7 +201,7 @@ pub fn drawSamplerEditor(
     written += 4;
 
     // ── FADE: edit fades multiplied on top of the amp envelope ───────────────
-    try synthSection(w, sampler_ed.pad_sections[3].title, acc);
+    try padSection(w, sampler_ed.pad_sections[3], acc);
     written += 1;
     try barRow(w, c == 10, false, acc, "fade in", pad.fade_in_s, duration,
         try std.fmt.bufPrint(&buf, "{d:.3} s", .{pad.fade_in_s}));
@@ -210,7 +210,7 @@ pub fn drawSamplerEditor(
     written += 2;
 
     // ── MOD: per-pad LFO offsetting one of pitch/gain/pan/filter ─────────────
-    try synthSection(w, sampler_ed.pad_sections[4].title, bcyn);
+    try padSection(w, sampler_ed.pad_sections[4], bcyn);
     written += 1;
     try barRow(w, c == 15, false, bcyn, "rate", pad.mod_rate_hz, 20.0,
         try std.fmt.bufPrint(&buf, "{d:.2} Hz", .{pad.mod_rate_hz}));
@@ -222,7 +222,7 @@ pub fn drawSamplerEditor(
 
     // ── KEY (standalone sampler only): the root note ─────────────────────────
     if (!pad_target) {
-        try synthSection(w, sampler_ed.key_section.title, grn);
+        try padSection(w, sampler_ed.key_section, grn);
         written += 1;
         const root: u7 = if (app.editingSampler()) |s| s.root_note else 60;
         var nbuf: [5]u8 = undefined;
@@ -237,6 +237,12 @@ pub fn drawSamplerEditor(
     // zig fmt: on
 
     while (written < body) : (written += 1) try endLine(w);
+}
+
+/// A sampler section divider, headed with the glyph the editor tables map
+/// that section kind to (shared with the GUI, see `sampler_ed.sectionIcon`).
+fn padSection(w: *std.Io.Writer, section: sampler_ed.Section, color: []const u8) !void {
+    try style.synthSectionIcon(w, icons.iconOr(sampler_ed.sectionIcon(section.kind), ""), section.title, color);
 }
 
 fn drawDrumBank(app: anytype, w: *std.Io.Writer, selected: u8) !void {

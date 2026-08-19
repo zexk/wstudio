@@ -181,7 +181,11 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
         try tw.writeAll(icons.iconOr(icons.tempo ++ " ", ""));
         try tw.writeAll("click\x1b[0m");
     }
-    if (self.punch_enabled) try tw.writeAll(" \x1b[31mPUNCH\x1b[0m");
+    if (self.punch_enabled) {
+        try tw.writeAll(" \x1b[31m");
+        try tw.writeAll(icons.iconOr(icons.punch ++ " ", ""));
+        try tw.writeAll("PUNCH\x1b[0m");
+    }
     try tw.print(" {d:0>3}.{d}  {d:0>2}:{d:0>4.1}", .{
         pos.bar + 1,
         pos.beat + 1,
@@ -263,7 +267,7 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
     // ahead of the right-edge view badge survives every status rewrite
     // until q stops the take (setStatus text would time out mid-take).
     if (self.macro_recording) |reg| {
-        try status_right_w.print(style.red ++ style.bold ++ "rec @{c}" ++ style.rst ++ "  ", .{'a' + reg});
+        try status_right_w.print(style.red ++ style.bold ++ "{s}rec @{c}" ++ style.rst ++ "  ", .{ icons.iconOr(icons.record ++ " ", ""), 'a' + reg });
     }
     switch (self.view) {
         .tracks          => try status.drawTracksStatus(self, &status_w, &status_right_w),

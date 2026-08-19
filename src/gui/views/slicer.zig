@@ -28,7 +28,7 @@ pub fn draw(app: anytype) void {
     }
     drawSliceState(app, slicer);
     zgui.spacing();
-    widgets.sectionTitle("SLICE SEQUENCE", theme.focus);
+    widgets.sectionTitle(icons.slicer ++ "  SLICE SEQUENCE", theme.focus);
     const snap = app.core.session.engine.uiSnapshot();
     const play_step: ?usize = if (snap.playing) slicer.currentStep() else null;
     step_grid.draw(

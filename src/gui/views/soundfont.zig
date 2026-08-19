@@ -26,7 +26,7 @@ pub fn draw(app: anytype) void {
     if (sf.presetCount() == 0) {
         // Acoustic only reaches this state when the bundled asset directory
         // couldn't be read, so it points at the bank picker, not a browser.
-        widgets.sectionTitle(if (is_acoustic) "BANK" else "FONT", theme.audio);
+        widgets.sectionTitle(if (is_acoustic) icons.soundfont ++ "  BANK" else icons.soundfont ++ "  FONT", theme.audio);
         zgui.spacing();
         if (is_acoustic) {
             _ = widgets.emptyState(.{
@@ -57,7 +57,7 @@ pub fn draw(app: anytype) void {
         // OUT before PROGRAM: the same order the TUI draws, which is also
         // the order `soundfont_param` steps through under j/k (gain, pan,
         // transpose, then preset).
-        widgets.sectionTitle("OUT", theme.focus);
+        widgets.sectionTitle(icons.audio ++ "  OUT", theme.focus);
         drawParam(app, track, sf, 0, "Gain", "%.2f");
         zgui.sameLine(.{ .spacing = 28 });
         drawParam(app, track, sf, 1, "Pan", format.pan_cfmt);
@@ -65,7 +65,7 @@ pub fn draw(app: anytype) void {
         drawParam(app, track, sf, 2, "Transpose", "%.0f st");
         zgui.spacing();
 
-        widgets.sectionTitle("PROGRAM", theme.rhythm);
+        widgets.sectionTitle(icons.instrument ++ "  PROGRAM", theme.rhythm);
         drawPresetRow(app, track, sf);
         zgui.spacing();
     }

@@ -312,12 +312,12 @@ pub fn drawStatus(app: anytype) void {
         // Persistent chip while a macro recording runs - mirrors the TUI's
         // own `rec @x` chip (state, not a status message that times out).
         if (app.core.macro_recording) |reg| {
-            var rec_buf: [8]u8 = undefined;
-            const rec_label = std.fmt.bufPrint(&rec_buf, "REC {c}", .{'a' + reg}) catch "REC";
+            var rec_buf: [16]u8 = undefined;
+            const rec_label = std.fmt.bufPrint(&rec_buf, icons.record ++ " REC {c}", .{'a' + reg}) catch "REC";
             x = drawStatusSegment(draw, x, pos[1], size[1], theme.danger, theme.bg0, rec_label);
         }
         if (app.core.punch_enabled) {
-            x = drawStatusSegment(draw, x, pos[1], size[1], theme.danger, theme.bg0, "PUNCH");
+            x = drawStatusSegment(draw, x, pos[1], size[1], theme.danger, theme.bg0, icons.punch ++ " PUNCH");
         }
         // vim's 'showcmd': pending operator/count or visual-selection
         // width - same state-not-message treatment as the REC chip.

@@ -98,7 +98,9 @@ fn drawSharedSections(app: anytype, target: Target) void {
                 .output => theme.audio,
                 else => theme.focus,
             };
-            widgets.sectionTitle(section.title, section_color);
+            var title_buf: [48]u8 = undefined;
+            const section_title = std.fmt.bufPrint(&title_buf, "{s}  {s}", .{ sampler_ed.sectionIcon(section.kind), section.title }) catch section.title;
+            widgets.sectionTitle(section_title, section_color);
             // The ADSR plot is the visual cue and the mouse surface; the four
             // knobs under it stay, same as the synth editor's envelopes -
             // that is where an exact value is read and where j/k land.
@@ -206,7 +208,7 @@ fn drawStandalone(app: anytype) void {
     drawHeader(app, sampler);
     zgui.spacing();
     const target: Target = .{ .standalone = .{ .sampler = sampler, .track = track } };
-    widgets.sectionTitle("SAMPLE WAVEFORM", theme.audio);
+    widgets.sectionTitle(icons.sampler ++ "  SAMPLE WAVEFORM", theme.audio);
     while (!sampler.pad_lock.tryLock()) std.atomic.spinLoopHint();
     const has_sample = sampler.pad.samples.len > 0;
     if (has_sample) drawWaveformRegion(app, target, sampler.pad.samples);
@@ -227,7 +229,7 @@ fn drawStandalone(app: anytype) void {
 
     const below_top = zgui.getCursorPosY();
     drawSharedSections(app, target);
-    widgets.sectionTitle(sampler_ed.key_section.title, theme.rhythm);
+    widgets.sectionTitle(icons.keys ++ "  " ++ sampler_ed.key_section.title, theme.rhythm);
     drawParam(app, target, sampler_ed.key_section.rows[0].id, sampler_ed.key_section.rows[0].label, sampler_ed.key_section.rows[0].gui_format);
     drawListParam(app, target, sampler_ed.key_section.rows[1], &.{ "POLY", "MONO" }, theme.focus);
     pane_fit.settle(below_top, 0);
@@ -270,7 +272,7 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
         drawPadEmptyState(app, if (kind == .drum) "NO SAMPLE" else "NO AUDIO", if (kind == .drum) "Choose a WAV file for this drum pad." else "Choose a WAV file before editing slice playback.");
         return;
     }
-    widgets.sectionTitle("PLAY REGION", theme.audio);
+    widgets.sectionTitle(icons.region ++ "  PLAY REGION", theme.audio);
     drawWaveformRegion(app, target, pad.samples);
     zgui.spacing();
 
@@ -287,7 +289,7 @@ fn drawTargetBank(app: anytype, track: u16, kind: PadTargetKind, selected: u8) v
     const bank_count: u8 = @max(1, (count + 7) / 8);
     const bank: u8 = @min(selected / 8, bank_count - 1);
     const bank_start: u8 = bank * 8;
-    widgets.sectionTitle(if (kind == .drum) "PAD BANK" else "SLICE MAP", if (kind == .drum) theme.rhythm else theme.audio);
+    widgets.sectionTitle(if (kind == .drum) icons.drum ++ "  PAD BANK" else icons.slicer ++ "  SLICE MAP", if (kind == .drum) theme.rhythm else theme.audio);
     zgui.textDisabled("bank {d}/{d}", .{ bank + 1, bank_count });
     zgui.sameLine(.{ .spacing = 8 });
     zgui.beginDisabled(.{ .disabled = bank == 0 });
@@ -375,7 +377,7 @@ fn drawTargetSummary(app: anytype, track: u16, kind: PadTargetKind, selected: u8
 }
 
 fn drawPadEmptyState(app: anytype, title: []const u8, explanation: []const u8) void {
-    widgets.sectionTitle("PLAY REGION", theme.audio);
+    widgets.sectionTitle(icons.region ++ "  PLAY REGION", theme.audio);
     zgui.spacing();
     if (widgets.emptyState(.{
         .id = "sampler-pad-empty-state",
