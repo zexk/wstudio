@@ -107,6 +107,7 @@ pub const Utility = struct {
 
     pub fn processBlock(self: *Utility, buf: []types.Sample) void {
         const autogain_on = dsp.sanitizeParam(self.autogain_on, 0, 1, 0) >= 0.5;
+        const autogain_from = self.autogain_db;
         if (autogain_on) {
             self.loudness.push(buf);
             const measured = self.loudness.shortTerm();
@@ -120,7 +121,17 @@ pub const Utility = struct {
         } else {
             self.autogain_db = 0;
         }
-        const gain = types.dbToGain(dsp.sanitizeParam(self.gain_db, -24, 24, 0) + self.autogain_db);
+        // The autogain move is one figure for the whole block, but applying
+        // it as one gain for the whole block is a step, not a ride: falling
+        // at 24 dB/s that is a 2 dB jump at every block edge on a 4096-frame
+        // host. Ramp across the block instead, in the linear domain so the
+        // per-frame cost is an add rather than a `pow`. With autogain off
+        // both ends are the same number and this is the old constant gain.
+        const trim_db = dsp.sanitizeParam(self.gain_db, -24, 24, 0);
+        const gain_from = types.dbToGain(trim_db + autogain_from);
+        const gain_to = types.dbToGain(trim_db + self.autogain_db);
+        const gain_step = (gain_to - gain_from) / @as(f32, @floatFromInt(@max(buf.len / 2, 1)));
+        var gain = gain_from;
         const polarity: f32 = if (dsp.sanitizeParam(self.invert, 0, 1, 0) >= 0.5) -1 else 1;
         const mono = dsp.sanitizeParam(self.mono, 0, 1, 0) >= 0.5;
         const channel: u2 = @intFromFloat(@round(dsp.sanitizeParam(self.channel, 0, 2, 0)));
@@ -183,6 +194,7 @@ pub const Utility = struct {
             buf[i] = self.delay_line_l[read_pos];
             buf[i + 1] = self.delay_line_r[read_pos];
             self.write_pos = (self.write_pos + 1) % self.delay_line_l.len;
+            gain += gain_step;
         }
     }
 };
@@ -341,4 +353,37 @@ test "mono below drops sub side energy without narrowing the body" {
     var off_r: f64 = 0;
     measure(&bypass, &off_side, &off_l, &off_r);
     try std.testing.expectApproxEqAbs(dry_side, off_side, dry_side * 0.01);
+}
+
+test "autogain rides across a block instead of stepping at its edge" {
+    // One gain for the whole block means the whole move lands as a jump at
+    // the block edge - up to 2 dB on a 4096-frame host, since the fall rate
+    // is 24 dB/s. A square wave makes the check exact: every frame has the
+    // same magnitude, so out/in reads back the gain that frame was given.
+    const sr = 48_000;
+    var utility = try Utility.init(std.testing.allocator, sr);
+    defer utility.deinit(std.testing.allocator);
+    utility.autogain_on = 1;
+    utility.autogain_target_lufs = -18;
+
+    const frames = 4096;
+    var buf: [frames * 2]types.Sample = undefined;
+    const fill = struct {
+        fn go(b: []types.Sample) void {
+            for (b, 0..) |*s, i| s.* = if ((i / 2) % 48 < 24) @as(types.Sample, 0.01) else -0.01;
+        }
+    }.go;
+    // Quiet input, so autogain is still climbing when the block under test
+    // runs rather than parked at its target.
+    for (0..20) |_| {
+        fill(&buf);
+        utility.processBlock(&buf);
+    }
+
+    fill(&buf);
+    const input = buf;
+    utility.processBlock(&buf);
+    const first = buf[0] / input[0];
+    const last = buf[buf.len - 2] / input[buf.len - 2];
+    try std.testing.expect(last > first * 1.001);
 }
