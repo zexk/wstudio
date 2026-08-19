@@ -32,7 +32,12 @@ const Settings = struct {
     root_key: u8 = 60,
     scale_tuning_cents: f32 = 100,
     tune_cents: f32 = 0,
+    /// `volume` replaces the scope above it; `global_volume` is a separate
+    /// figure that adds on top of whatever `volume` ends up being. Two fields
+    /// rather than one running total, which made a region's `volume` stack
+    /// with its global's instead of replacing it.
     volume_db: f32 = 0,
+    global_volume_db: f32 = 0,
     offset: u32 = 0,
     attack_s: f32 = 0,
     decay_s: f32 = 0,
@@ -140,7 +145,7 @@ fn apply(s: *Settings, key: []const u8, value: []const u8) ParseError!void {
         s.key_lo = v;
         s.key_hi = v;
         s.root_key = v;
-    } else if (std.mem.eql(u8, key, "lokey")) s.key_lo = try midi(value) else if (std.mem.eql(u8, key, "hikey")) s.key_hi = try midi(value) else if (std.mem.eql(u8, key, "lovel") or std.mem.eql(u8, key, "xfin_lovel")) s.vel_lo = try midi(value) else if (std.mem.eql(u8, key, "hivel") or std.mem.eql(u8, key, "xfout_hivel")) s.vel_hi = try midi(value) else if (std.mem.eql(u8, key, "pitch_keycenter")) s.root_key = try midi(value) else if (std.mem.eql(u8, key, "pitch_keytrack")) s.scale_tuning_cents = try float(value) else if (std.mem.eql(u8, key, "tune")) s.tune_cents = try float(value) else if (std.mem.eql(u8, key, "volume") or std.mem.eql(u8, key, "global_volume")) s.volume_db += try float(value) else if (std.mem.eql(u8, key, "offset")) s.offset = try uint(u32, value) else if (std.mem.eql(u8, key, "loop_start")) s.loop_start = try uint(u32, value) else if (std.mem.eql(u8, key, "loop_end")) s.loop_end = try uint(u32, value) else if (std.mem.eql(u8, key, "ampeg_attack")) s.attack_s = try nonnegative(value) else if (std.mem.eql(u8, key, "ampeg_decay")) s.decay_s = try nonnegative(value) else if (std.mem.eql(u8, key, "ampeg_sustain")) s.sustain = std.math.clamp((try float(value)) / 100, 0, 1) else if (std.mem.eql(u8, key, "ampeg_release")) s.release_s = try nonnegative(value) else if (std.mem.eql(u8, key, "seq_position")) s.seq_position = try uint(u16, value) else if (std.mem.eql(u8, key, "seq_length")) s.seq_length = try uint(u16, value) else if (std.mem.eql(u8, key, "amp_veltrack") or std.mem.eql(u8, key, "rt_decay") or std.mem.eql(u8, key, "xfin_hivel") or std.mem.eql(u8, key, "xfout_lovel")) {
+    } else if (std.mem.eql(u8, key, "lokey")) s.key_lo = try midi(value) else if (std.mem.eql(u8, key, "hikey")) s.key_hi = try midi(value) else if (std.mem.eql(u8, key, "lovel") or std.mem.eql(u8, key, "xfin_lovel")) s.vel_lo = try midi(value) else if (std.mem.eql(u8, key, "hivel") or std.mem.eql(u8, key, "xfout_hivel")) s.vel_hi = try midi(value) else if (std.mem.eql(u8, key, "pitch_keycenter")) s.root_key = try midi(value) else if (std.mem.eql(u8, key, "pitch_keytrack")) s.scale_tuning_cents = try float(value) else if (std.mem.eql(u8, key, "tune")) s.tune_cents = try float(value) else if (std.mem.eql(u8, key, "volume")) s.volume_db = try float(value) else if (std.mem.eql(u8, key, "global_volume")) s.global_volume_db = try float(value) else if (std.mem.eql(u8, key, "offset")) s.offset = try uint(u32, value) else if (std.mem.eql(u8, key, "loop_start")) s.loop_start = try uint(u32, value) else if (std.mem.eql(u8, key, "loop_end")) s.loop_end = try uint(u32, value) else if (std.mem.eql(u8, key, "ampeg_attack")) s.attack_s = try nonnegative(value) else if (std.mem.eql(u8, key, "ampeg_decay")) s.decay_s = try nonnegative(value) else if (std.mem.eql(u8, key, "ampeg_sustain")) s.sustain = std.math.clamp((try float(value)) / 100, 0, 1) else if (std.mem.eql(u8, key, "ampeg_release")) s.release_s = try nonnegative(value) else if (std.mem.eql(u8, key, "seq_position")) s.seq_position = try uint(u16, value) else if (std.mem.eql(u8, key, "seq_length")) s.seq_length = try uint(u16, value) else if (std.mem.eql(u8, key, "amp_veltrack") or std.mem.eql(u8, key, "rt_decay") or std.mem.eql(u8, key, "xfin_hivel") or std.mem.eql(u8, key, "xfout_lovel")) {
         _ = try float(value);
     } else if (std.mem.eql(u8, key, "ampeg_dynamic") or std.mem.eql(u8, key, "group_label")) {
         // Editor metadata and an envelope-recalculation hint: neither changes
@@ -200,7 +205,7 @@ fn appendRegion(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, sampl
         .scale_tuning_cents = s.scale_tuning_cents,
         .tune_semitones = (s.tune_cents + rate_cents) / 100,
         .pan = 0,
-        .attenuation_gain = std.math.pow(f32, 10, s.volume_db / 20),
+        .attenuation_gain = std.math.pow(f32, 10, (s.volume_db + s.global_volume_db) / 20),
         .delay_s = 0,
         .attack_s = s.attack_s,
         .hold_s = 0,
@@ -383,4 +388,33 @@ test "round-robin members all reach the bank, out-of-range ones do not" {
     try std.testing.expectEqual(@as(u8, 1), bank.presets[0].regions[0].seq_position);
     try std.testing.expectEqual(@as(u8, 2), bank.presets[0].regions[1].seq_position);
     try std.testing.expectEqual(@as(u8, 2), bank.presets[0].regions[1].seq_length);
+}
+
+test "a region's volume overrides the scope above it, and global_volume stacks" {
+    // SFZ: `volume` at region scope replaces the group/global one, while
+    // `global_volume` is a separate figure that adds on top of it. Both were
+    // accumulated into one field, so a pack that sets `volume` at two scopes
+    // played at their sum - -9 dB where the file asks for -3.
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var wav_buf: [128]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&wav_buf);
+    try @import("../core/wav.zig").write(&writer, 48_000, 1, &.{ 0.25, -0.25 }, .pcm16);
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "tone.wav", .data = writer.buffered() });
+
+    const gainOf = struct {
+        fn f(dir: std.Io.Dir, text: []const u8) !f32 {
+            var bank = try parse(std.testing.allocator, std.testing.io, dir, text, "T", 48_000);
+            defer bank.deinit();
+            return bank.presets[0].regions[0].attenuation_gain;
+        }
+    }.f;
+
+    const overridden = try gainOf(tmp.dir, "<global>\nvolume=-6\n<region>\nsample=tone.wav\nvolume=-3\n");
+    try std.testing.expectApproxEqRel(std.math.pow(f32, 10, -3.0 / 20.0), overridden, 1e-4);
+
+    // `global_volume` is the other opcode, and it does stack - what every
+    // VCSL patch relies on.
+    const stacked = try gainOf(tmp.dir, "<global>\nglobal_volume=2\n<region>\nsample=tone.wav\nvolume=10\n");
+    try std.testing.expectApproxEqRel(std.math.pow(f32, 10, 12.0 / 20.0), stacked, 1e-4);
 }
