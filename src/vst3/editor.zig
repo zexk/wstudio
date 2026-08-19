@@ -85,10 +85,15 @@ const Frame = struct {
     timers: std.ArrayListUnmanaged(?Timer) = .empty,
     /// Scratch for `service`'s poll, kept across calls so a steady-state
     /// frame allocates nothing.
-    poll_fds: std.ArrayListUnmanaged(std.posix.pollfd) = .empty,
+    poll_fds: std.ArrayListUnmanaged(PollFd) = .empty,
     poll_handlers: std.ArrayListUnmanaged(*abi.EventHandler) = .empty,
 
     const allocator = std.heap.page_allocator;
+
+    /// The run loop is X11-only, and Zig has no `posix.pollfd` for Windows,
+    /// so off Linux the scratch above holds nothing and `service` returns
+    /// before it is ever filled.
+    const PollFd = if (builtin.os.tag == .linux) std.posix.pollfd else void;
 
     const Event = struct { handler: *abi.EventHandler, fd: c_int };
     const Timer = struct { handler: *abi.TimerHandler, interval_ns: u64, next_ns: i128 };
