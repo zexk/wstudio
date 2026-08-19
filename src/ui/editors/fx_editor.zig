@@ -383,6 +383,7 @@ pub fn paramToggleNames(k: FxKind, idx: usize) ?[2][]const u8 {
             1 => .{ "normal", "invert" },
             2 => .{ "stereo", "mono" },
             4 => .{ "normal", "swap" },
+            6, 9 => .{ "off", "on" },
             else => null,
         },
         .auto_pan => switch (idx) {
@@ -410,6 +411,8 @@ pub fn isListParam(k: FxKind, idx: usize) bool {
         .sat => idx == 3,
         // Three named knees.
         .clipper => idx == 2,
+        // Utility's channel picker and noise colour: named choices.
+        .utility => idx == 3 or idx == 7,
         else => false,
     };
 }
@@ -1431,6 +1434,8 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
                 else => "white",
             },
             8, 10 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            // Bass mono-ing is off at 0 rather than "mono below 0 Hz".
+            11 => if (v < 20.0) "off" else std.fmt.bufPrint(buf, "{d:.0}Hz", .{v}) catch "?",
             else => "?",
         },
         .crossover => switch (idx) {
