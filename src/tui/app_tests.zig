@@ -222,8 +222,10 @@ test "picker inserts the highlighted instrument and opens its editor" {
     defer app.deinit();
 
     app.handleKey(.enter, 0); // open picker on the blank track
-    app.handleKey(.{ .char = 'j' }, 0); // move to Sampler (index 1)
-    try std.testing.expectEqual(@as(u8, 1), app.picker_cursor);
+    // Audio is row 0, Synth row 1, so Sampler is two moves down.
+    app.handleKey(.{ .char = 'j' }, 0);
+    app.handleKey(.{ .char = 'j' }, 0);
+    try std.testing.expectEqual(@as(u8, 2), app.picker_cursor);
     app.handleKey(.enter, 0); // insert
     try std.testing.expectEqual(InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[0].instrument));
     try std.testing.expectEqual(AppView.sampler_editor, app.view);

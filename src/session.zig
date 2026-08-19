@@ -279,6 +279,13 @@ pub const Session = struct {
 
         switch (kind) {
             .empty => {},
+            // No device either, so the only thing to set is the tag the rest
+            // of the app reads: arming, the picker and the status line all
+            // ask the kind whether a track is an audio track.
+            .audio => {
+                rack.instrument = .audio;
+                rack.label = "audio";
+            },
             .poly_synth => {
                 const synth = try PolySynth.init(self.allocator, sr);
                 rack.instrument = .{ .poly_synth = synth };
@@ -396,7 +403,7 @@ pub const Session = struct {
     fn isMelodicKind(kind: InstrumentKind) bool {
         return switch (kind) {
             .poly_synth, .sampler, .clap, .vst3, .soundfont, .acoustic => true,
-            .empty, .drum_machine, .slicer => false,
+            .empty, .audio, .drum_machine, .slicer => false,
         };
     }
 
@@ -858,7 +865,7 @@ pub const Session = struct {
 
         _ = try self.project.addTrack(.{
             // zig fmt: off
-            .name = name, .kind = src.kind, .gain_db = src.gain_db,
+            .name = name, .gain_db = src.gain_db,
             .pan = src.pan, .muted = src.muted, .soloed = src.soloed,
             .color = src.color, .group = src.group, .sends = src.sends,
             // zig fmt: on
@@ -906,14 +913,13 @@ pub const Session = struct {
     }
 
     /// Whether `track_idx` is both armed and capable of audio-input
-    /// recording (see `loadClipFromPath`'s doc comment - a Sampler track is
-    /// exactly what an "audio track" is in this codebase). Everything else
-    /// (drum/slicer/synth/empty) falls through to the unchanged MIDI/note
-    /// recording path regardless of its arm state.
+    /// recording. Only an `audio` track is: every other kind (synth, drum,
+    /// slicer, sampler, plugin, empty) falls through to the unchanged
+    /// MIDI/note recording path regardless of its arm state.
     pub fn isAudioArmed(self: *const Session, track_idx: usize) bool {
         if (!self.isArmed(track_idx)) return false;
         if (track_idx >= self.racks.items.len) return false;
-        return self.racks.items[track_idx].instrument == .sampler;
+        return self.racks.items[track_idx].instrument == .audio;
     }
 
     /// Backward-compatible whole-bar stamping entry point.
@@ -932,7 +938,9 @@ pub const Session = struct {
         if (track_idx >= self.racks.items.len) return 0;
         const rack = self.racks.items[track_idx];
         const len_beats: f64 = switch (rack.instrument) {
-            .empty => return 0,
+            // Nothing to stamp: an audio track's clips come from a
+            // recording or an import, never from a live pattern.
+            .empty, .audio => return 0,
             .drum_machine => |*dm| @as(f64, @floatFromInt(dm.step_count)) / @as(f64, @floatFromInt(dm.steps_per_beat)),
             .slicer => |*sl| @as(f64, @floatFromInt(sl.step_count)) / @as(f64, @floatFromInt(sl.steps_per_beat)),
             else => if (rack.pattern_player) |*pp| pp.length_beats else return 0,
@@ -950,7 +958,7 @@ pub const Session = struct {
         const rack = self.racks.items[track_idx];
 
         switch (rack.instrument) {
-            .empty => return,
+            .empty, .audio => return,
             .drum_machine => |*dm| {
                 var drum: Clip.Drum = .{
                     .midi = try DrumMachine.dupeMidi(self.allocator, &dm.midi),
@@ -1612,7 +1620,9 @@ pub const Session = struct {
                     }
                     pp.setSongNotes(notes[0..n], song_len_beats);
                 },
-                .empty => {},
+                // No pattern to flatten; `syncAudioRegions` below is what
+                // actually gives an audio track its clips.
+                .empty, .audio => {},
             }
             self.flattenClipAutomation(@intCast(i), lane);
             self.syncAudioRegions(@intCast(i), lane);
@@ -2867,15 +2877,20 @@ test "armed follows insert/remove/duplicate/swap, parallel to racks" {
     for (s.armed.items) |a| try std.testing.expect(!a);
 }
 
-test "isAudioArmed requires both armed and a Sampler instrument" {
+test "isAudioArmed requires both armed and an audio instrument" {
     var s = try Session.initDefault(std.testing.allocator);
     defer s.deinit();
     try std.testing.expect(!s.isAudioArmed(0)); // unarmed, empty instrument
 
     s.toggleArm(0);
-    try std.testing.expect(!s.isAudioArmed(0)); // armed but not a Sampler
+    try std.testing.expect(!s.isAudioArmed(0)); // armed but not an audio track
 
+    // A Sampler used to be what "audio track" meant here; it is an ordinary
+    // chromatic instrument again, and arming one records notes, not input.
     try s.setInstrument(0, .sampler);
+    try std.testing.expect(!s.isAudioArmed(0));
+
+    try s.setInstrument(0, .audio);
     try std.testing.expect(s.isAudioArmed(0));
 
     s.toggleArm(0);

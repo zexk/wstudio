@@ -314,6 +314,9 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
         .empty => {
             rs.content = .empty;
         },
+        .audio => {
+            rs.content = .audio;
+        },
         .poly_synth => |*s| {
             
             var ss = synthToSnap(s);

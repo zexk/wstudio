@@ -187,7 +187,7 @@ pub fn cmdRenameTrack(app: *App, args: []const u8) void {
 pub fn cmdTrackInstrument(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {
-        app.setStatus("usage: track-instrument [<n>] <synth|sampler|drum|slicer|soundfont|acoustic>", .{});
+        app.setStatus("usage: track-instrument [<n>] <audio|synth|sampler|drum|slicer|soundfont|acoustic>", .{});
         return;
     }
     var it = std.mem.splitScalar(u8, trimmed, ' ');
@@ -215,7 +215,7 @@ pub fn cmdTrackInstrument(app: *App, args: []const u8) void {
         break :blk .{ n - 1, rest };
     };
     const kind = app_mod.apiKindFromName(kind_str) orelse {
-        app.setStatus("track-instrument: unknown kind '{s}' (synth/sampler/drum/slicer/soundfont/acoustic)", .{kind_str});
+        app.setStatus("track-instrument: unknown kind '{s}' (audio/synth/sampler/drum/slicer/soundfont/acoustic)", .{kind_str});
         return;
     };
     if (std.meta.activeTag(app.session.racks.items[idx].instrument) == kind) {

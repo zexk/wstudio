@@ -440,6 +440,7 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
         // zig fmt: off
         switch (rs.content) {
             .empty => {},
+            .audio => rack.instrument = .audio,
             .poly_synth => |ss| {
                 const synth = try PolySynth.init(allocator, sr);
                 rack.instrument = .{ .poly_synth = synth };

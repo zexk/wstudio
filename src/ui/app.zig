@@ -135,6 +135,7 @@ pub const InstrumentPickerItem = struct { kind: InstrumentKind, label: []const u
 /// The instruments the picker offers, in display order. Renderers add their
 /// own casing, icon, and color treatment to this shared content.
 pub const instrument_picker_items = [_]InstrumentPickerItem{
+    .{ .kind = .audio, .label = "Audio", .description = "Recorded and imported clips, no generator" },
     .{ .kind = .poly_synth, .label = "Synth", .description = "Synthesis, polyphony, and modulation" },
     .{ .kind = .sampler, .label = "Sampler", .description = "Chromatic sample playback and envelopes" },
     .{ .kind = .drum_machine, .label = "Drum Machine", .description = "Pads, velocity, and step sequencing" },
@@ -3215,6 +3216,9 @@ pub const App = struct {
         if (cursor >= self.session.racks.items.len) return;
         switch (self.session.racks.items[cursor].instrument) {
             .empty => self.openInstrumentPicker(cursor, false),
+            // Its clips live on the arrangement, so that is where `enter`
+            // goes - there is no per-track editor to open.
+            .audio => self.view = .arrangement,
             .poly_synth => {
                 self.synth_track = @intCast(cursor);
                 self.synth_cursor = 2;
@@ -3345,6 +3349,7 @@ pub const App = struct {
         self.dirty = true;
         const hint: []const u8 = switch (kind) {
             .empty => "? help",
+            .audio => "r arm  space record  ? help",
             .poly_synth, .sampler => "j/k move  h/l adjust  i play  ? help",
             .drum_machine => "enter pads  p steps  i play  ? help",
             .slicer => "enter slices  p steps  :load  ? help",
@@ -3703,7 +3708,9 @@ pub const App = struct {
                         self.playNote(track_idx, n.pitch, now_ns);
                         if (self.view == .piano_roll) piano_ed.recordNote(self, n.pitch, self.default_velocity);
                     },
-                    .empty => {},
+                    // Nothing to play: an audio track has no generator, and
+                    // incoming notes are not what records onto it.
+                    .empty, .audio => {},
                 }
             },
             .command_submit => |text| {
@@ -4752,6 +4759,7 @@ const user_cmd_runners: [config_mod.max_user_cmds]*const fn (*anyopaque, []const
 pub fn apiKindName(kind: ws.InstrumentKind) []const u8 {
     return switch (kind) {
         .empty => "empty",
+        .audio => "audio",
         .poly_synth => "synth",
         .sampler => "sampler",
         .drum_machine => "drum",
@@ -4767,6 +4775,7 @@ pub fn apiKindName(kind: ws.InstrumentKind) []const u8 {
 /// creatable on purpose - an empty track is the no-opts default state, not
 /// something a script should ask for by name).
 pub fn apiKindFromName(name: []const u8) ?ws.InstrumentKind {
+    if (std.mem.eql(u8, name, "audio")) return .audio;
     if (std.mem.eql(u8, name, "synth")) return .poly_synth;
     if (std.mem.eql(u8, name, "sampler")) return .sampler;
     if (std.mem.eql(u8, name, "drum")) return .drum_machine;

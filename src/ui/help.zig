@@ -183,7 +183,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("s",            "FX chain for selected track - same on a group row / MASTER");
     t.key("m",            "mute / unmute selected track - on a group row: the bus's own mute flag");
     t.key("S",            "solo / unsolo selected track - on a group row: the bus's own solo flag");
-    t.key("r",            "arm / disarm track for recording - space records live audio input on an armed Sampler track");
+    t.key("r",            "arm / disarm track for recording - space records live audio input on an armed Audio track");
     t.key("M",            "jump to the master row and open its FX chain");
     t.key("< / >",        "pan left / right  (5% per step)");
     t.key("- / +",        "track gain −1 dB / +1 dB  (= also works) - group row: bus fader; MASTER: master gain");
@@ -444,6 +444,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("enter",        "stamp the live pattern as a clip - HOLD it and h/l resize the new clip");
     t.key("e",            "edit melodic clip in the piano roll (edits save into the clip)");
     t.key(":load",        "[file.wav]  load a WAV onto a sampler track and stamp it whole at the cursor bar");
+    t.key(":import-audio", "<file>  drop an audio file straight on the cursor lane (an empty track becomes an Audio track)");
     t.key("[ / ]",        "cycle drum/slicer pattern variant to stamp");
     t.key("x",            "delete clip at cursor");
     t.key("y / p",        "yank / paste clip (matching track kind)");

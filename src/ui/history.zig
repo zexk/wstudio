@@ -443,7 +443,7 @@ pub fn liveParamValue(app: *App, track: u16, id: u16) ?f32 {
         .slicer => |*sl| sl.paramValue(id),
         .clap => null,
         .vst3 => null,
-        .empty => null,
+        .empty, .audio => null,
     };
 }
 

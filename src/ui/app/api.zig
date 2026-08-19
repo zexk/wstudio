@@ -241,7 +241,7 @@ pub const ApiPatternInfo = struct {
 pub fn apiPatternInfo(self: *const App, idx: usize) ApiPatternInfo {
     const rack = self.session.racks.items[idx];
     switch (rack.instrument) {
-        .empty => return .{ .kind = "none", .length_beats = 0 },
+        .empty, .audio => return .{ .kind = "none", .length_beats = 0 },
         .drum_machine => |*dm| return .{
             .kind = "drum",
             .length_beats = @as(f64, @floatFromInt(dm.step_count)) / @as(f64, @floatFromInt(dm.steps_per_beat)),
@@ -264,7 +264,7 @@ pub fn apiPatternInfo(self: *const App, idx: usize) ApiPatternInfo {
 pub fn apiPatternPlayer(self: *App, idx: usize) ApiPatternError!*pattern_mod.PatternPlayer {
     const rack = self.session.racks.items[idx];
     return switch (rack.instrument) {
-        .empty => error.NoInstrument,
+        .empty, .audio => error.NoInstrument,
         .drum_machine, .slicer => error.NotMelodic,
         else => if (rack.pattern_player) |*pp| pp else error.NoInstrument,
     };
@@ -273,7 +273,7 @@ pub fn apiPatternPlayer(self: *App, idx: usize) ApiPatternError!*pattern_mod.Pat
 pub fn apiDrumMachine(self: *App, idx: usize) ApiPatternError!*DrumMachine {
     return switch (self.session.racks.items[idx].instrument) {
         .drum_machine => |*dm| dm,
-        .empty => error.NoInstrument,
+        .empty, .audio => error.NoInstrument,
         else => error.NotDrum,
     };
 }

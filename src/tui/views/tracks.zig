@@ -31,6 +31,7 @@ fn kindLetter(kind: ws.InstrumentKind) []const u8 {
     return switch (kind) {
         // zig fmt: off
         .empty        => " ",
+        .audio        => "W",
         .poly_synth   => "S",
         .sampler      => "P",
         .drum_machine => "D",
@@ -100,6 +101,8 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
     const label: []const u8 = if (is_empty) "-- empty --" else app.session.racks.items[ti].label;
     const hint: []const u8 = if (!is_sel) "" else switch (inst_tag) {
         .empty => dim ++ "[enter insert]" ++ rst,
+        // No editor to open: an audio track is edited on the arrangement.
+        .audio => "",
         .drum_machine, .slicer => dim ++ "[enter grid]" ++ rst,
         else => dim ++ "[enter edit]" ++ rst,
     };
@@ -135,6 +138,7 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
     // a letter rather than "", or the column would just go blank.
     const kind_icon: []const u8 = if (icons.font_installed) switch (inst_tag) {
         .empty => " ",
+        .audio => icons.audio_track,
         .poly_synth => icons.synth,
         .sampler => icons.sampler,
         .drum_machine => icons.drum,

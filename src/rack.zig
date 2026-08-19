@@ -44,6 +44,13 @@ const fx_params = @import("dsp/fx_params.zig");
 /// device, so `chain()` omits it and the engine renders the track silent.
 pub const Instrument = union(enum) {
     empty,
+    /// A track whose sound is its clips, not a generator. The arrangement
+    /// renders its audio regions straight into the track scratch (see
+    /// `Engine.renderOneTrack`), so like `empty` this produces no device and
+    /// `chain()` omits it - the FX rack, sends and automation still apply.
+    /// It exists so arming, the picker and the status line can name what a
+    /// recording track is instead of a Sampler standing in for one.
+    audio,
     poly_synth: PolySynth,
     /// Single-clip chromatic sampler. Owns its clip; deinit frees it.
     sampler: Sampler,
@@ -71,7 +78,7 @@ pub const Instrument = union(enum) {
     /// the parent Rack (heap-allocated) is alive, or null for `empty`.
     pub fn device(self: *Instrument) ?dsp.Device {
         return switch (self.*) {
-            .empty => null,
+            .empty, .audio => null,
             .clap => |plugin| plugin.device(),
             .vst3 => |plugin| plugin.device(),
             inline else => |*p| p.device(),
@@ -80,7 +87,7 @@ pub const Instrument = union(enum) {
 
     pub fn deinit(self: *Instrument) void {
         switch (self.*) {
-            .empty => {},
+            .empty, .audio => {},
             .clap => |plugin| plugin.deinit(),
             .vst3 => |plugin| plugin.deinit(),
             inline else => |*p| p.deinit(),
@@ -94,7 +101,7 @@ pub const Instrument = union(enum) {
             .soundfont, .acoustic => &SoundfontPlayer.automatable_params,
             .clap => |plugin| plugin.automationParams(),
             .vst3 => |plugin| plugin.automationParams(),
-            .drum_machine, .slicer, .empty => &.{},
+            .drum_machine, .slicer, .empty, .audio => &.{},
         };
     }
 };
@@ -733,7 +740,11 @@ pub const Rack = struct {
         errdefer rack.deinit(allocator);
 
         switch (self.instrument) {
-            .empty => {},
+            // `audio` carries no payload to copy - the clips the duplicate
+            // plays live on the arrangement lane, not in the rack.
+            .empty, .audio => {
+                rack.instrument = self.instrument;
+            },
             .poly_synth => |*s| {
                 const synth = try s.dupe();
                 rack.instrument = .{ .poly_synth = synth };

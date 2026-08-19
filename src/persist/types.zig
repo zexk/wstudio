@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("../dsp/tuning.zig");
 const controller_mod = @import("../dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 75;
+pub const file_version: u32 = 76;
 
 /// First four bytes of every .wsj. The file is a container: a 12-byte
 /// header, the audio cache (user sample blobs, concatenated), then this
@@ -707,6 +707,9 @@ pub const FxUnitSnap = struct {
 
 pub const RackContentSnap = union(enum) {
     empty,
+    /// An `audio` track: no generator state to store. Its sound is the
+    /// arrangement's audio clips, which persist under `audio_sources`.
+    audio,
     poly_synth: SynthSnap,
     sampler: SamplerSnap,
     drum_machine: DrumSnap,

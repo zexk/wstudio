@@ -447,7 +447,8 @@ test "GUI picker cards select and escape dismisses" {
     try std.testing.expectEqual(ws.InstrumentKind.empty, std.meta.activeTag(app.core.session.racks.items[0].instrument));
 
     app.core.handleKey(.enter, 0);
-    picker_view.selectInstrument(&app, 1, 0);
+    // Card 2: Audio is card 0 and Synth card 1.
+    picker_view.selectInstrument(&app, 2, 0);
     try std.testing.expectEqual(ws.InstrumentKind.sampler, std.meta.activeTag(app.core.session.racks.items[0].instrument));
     try std.testing.expectEqual(app_mod.AppView.sampler_editor, app.core.view);
 }

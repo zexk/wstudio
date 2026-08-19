@@ -946,6 +946,12 @@ fn stampClip(app: *App) void {
             app.setStatus("empty track - insert an instrument first", .{});
             return;
         },
+        // There is no live pattern to stamp - `:import-audio` and recording
+        // are what put clips on an audio lane.
+        .audio => {
+            app.setStatus("audio track - record or :import-audio instead", .{});
+            return;
+        },
         else => {},
     }
     // Stamping may evict overlapped clips; the lane snapshot covers both.

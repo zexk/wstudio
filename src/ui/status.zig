@@ -73,6 +73,7 @@ pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
             const track = app.session.project.tracks.items[ti];
             switch (std.meta.activeTag(app.session.racks.items[ti].instrument)) {
                 .empty => try w.writeAll("enter instrument  a add track  ? help"),
+                .audio => try w.writeAll("r arm  space record  :import-audio  ? help"),
                 // Solo and arm are as reachable as mute (see ui/help.zig's
                 // `S`/`r`), and the GUI puts all three on every row as
                 // buttons - the footer used to name only mute.

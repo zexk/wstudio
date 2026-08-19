@@ -51,6 +51,10 @@ pub const soundfont = "\u{f0333}";
 pub const record = "\u{f044a}";
 /// md-sine_wave - master-bus phase-correlation readout.
 pub const phase = "\u{f095b}";
+/// An `audio` track, whose sound is its recorded clips rather than a
+/// generator. Same md-sine_wave glyph as `phase` above - a bare waveform is
+/// what both of them mean, and the two never share a surface.
+pub const audio_track = "\u{f095b}";
 /// md-volume_high - master-bus LUFS loudness readout; pairs with `mute`
 /// (md-volume_mute) as its "loud" counterpart.
 pub const loudness = "\u{f057e}";
