@@ -240,6 +240,10 @@ history lives in [FORMAT.md](FORMAT.md).
   arrangement seeked by the same broken arithmetic.
 - `:chop-notes` on a note held past the end of the pattern produced pieces
   beyond the loop end, which playback wrapped back onto beat 0.
+- The metronome clicked quarter notes whatever the time signature said, so a
+  6/8 project got three clicks a bar from it and six from the count-in that
+  preceded it. It now clicks the signature's own beat unit, and enabling it
+  mid-bar no longer fires a click for the beat that already went by.
 - Names with CJK or emoji characters were measured at one column each in the
   TUI, so any row carrying one overflowed the terminal and wrapped the frame.
 - The finished frame is clamped as a whole now, not just the rows a view
