@@ -3673,8 +3673,29 @@ test "draw renders drum_grid view without overflowing" {
     var plain_buf: [32 * 1024]u8 = undefined;
     const plain = ansi.stripAnsi(frame, &plain_buf);
     try std.testing.expect(std.mem.indexOf(u8, plain, "bars 2.67") != null);
-    try std.testing.expect(std.mem.indexOf(u8, plain, "          │ 1") != null);
-    try std.testing.expect(std.mem.indexOf(u8, plain, "│ 2") != null);
+    // Each bar number's last digit sits on the beat separator column of the
+    // pad rows below it - the piano roll's header alignment.
+    var lines = std.mem.splitScalar(u8, plain, '\n');
+    var ruler: []const u8 = "";
+    var pad_row: []const u8 = "";
+    while (lines.next()) |line| {
+        if (std.mem.indexOf(u8, line, "kick") != null) {
+            pad_row = line;
+            break;
+        }
+        ruler = line;
+    }
+    // The ruler is plain ASCII, the pad row's separators are 3 bytes each, so
+    // the separator columns have to be counted rather than byte-indexed.
+    var sep_cols = std.mem.zeroes([64]bool);
+    var byte: usize = 0;
+    var column: usize = 0;
+    while (byte < pad_row.len) : (column += 1) {
+        if (std.mem.startsWith(u8, pad_row[byte..], "│") and column < sep_cols.len) sep_cols[column] = true;
+        byte += std.unicode.utf8ByteSequenceLength(pad_row[byte]) catch 1;
+    }
+    try std.testing.expect(sep_cols[std.mem.indexOfScalar(u8, ruler, '1').?]);
+    try std.testing.expect(sep_cols[std.mem.indexOfScalar(u8, ruler, '2').?]);
 }
 
 test "e opens drum-pad sampler editor from drum grid; esc returns" {

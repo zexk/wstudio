@@ -124,18 +124,9 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
         return;
     }
 
-    // Bar ruler. Labels stay within their cell even for very long patterns.
-    try w.writeAll(dim ++ "          ");
+    // Bar ruler, aligned to the beat separators like the piano roll header.
+    try style.writeBarRuler(w, gutter, scroll, visible, step_count_u32, stride, spb, cell_width, meter_denominator, bar_units);
     var col: u32 = 0;
-    while (col < visible and scroll + col * stride < step_count_u32) : (col += 1) {
-        const s = scroll + col * stride;
-        if (s % spb == 0) try w.writeAll("│");
-        const position_units = s * meter_denominator;
-        const on_bar = position_units % bar_units == 0;
-        const bar = position_units / bar_units + 1;
-        if (!on_bar) try w.writeAll("   ") else if (bar < 100) try w.print("{d:>2} ", .{bar}) else try w.writeAll(" + ");
-    }
-    try endLine(w);
     written += 1;
 
     for (bank_start..bank_end) |sIdx| {

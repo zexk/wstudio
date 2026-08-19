@@ -145,8 +145,8 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
     const vis_cols: usize = @min(remaining_steps, max_step_cols);
 
     // Column header: beat numbers sit on the boundary column BEFORE their
-    // beat (the same column the note grid's │ separator ticks occupy) while
-    // every step keeps a plain dot, so the row reads "1 ·  ·  ·  · 2 ...".
+    // beat (the same column the note grid's │ separator ticks occupy); every
+    // other column stays blank, so the row reads "1           2 ...".
     // The first visible beat's number lands on the last prefix column, atop
     // the note rows' │ prefix separator. Compact (cw==1) has no room for
     // multi-digit numbers without corrupting column alignment, so it falls
@@ -164,11 +164,13 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
             if (step % spb == 0) try w.writeAll(dim ++ "|" ++ rst) else try w.writeAll(" ");
         } else if ((col + 1 < vis_cols or step + 1 == loop_step) and (step + 1) % spb == 0) {
             try w.writeAll(dim);
-            try w.print("·{d:>2}", .{(step + 1) / spb + 1});
+            // The number ends on the group's last column - the same column
+            // writeStepPad puts the separator tick in, whatever `cw` is.
+            try w.splatByteAll(' ', cw - 2);
+            try w.print("{d:>2}", .{(step + 1) / spb + 1});
             try w.writeAll(rst);
         } else {
-            try w.writeAll(dim ++ "·" ++ rst);
-            try w.splatByteAll(' ', cw - 1);
+            try w.splatByteAll(' ', cw);
         }
     }
     try endLine(w);

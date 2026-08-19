@@ -109,24 +109,10 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
     }
     try endLine(w);
 
-    // Bar ruler. Labels stay within their cell even for very long patterns.
-    try w.writeAll(dim ++ "          ");
-    var col: u32 = 0;
-    while (col < visible and scroll + col * stride < step_count_u32) : (col += 1) {
-        const s = scroll + col * stride;
-        if (s % spb == 0) try w.writeAll("│");
-        const position_units = s * meter_denominator;
-        const on_bar = position_units % bar_units == 0;
-        const bar = position_units / bar_units + 1;
-        if (cell_width == 1) {
-            if (!on_bar) try w.writeByte(' ') else if (bar < 10) try w.print("{d}", .{bar}) else try w.writeByte('+');
-        } else {
-            if (!on_bar) try w.writeAll("  ") else if (bar < 100) try w.print("{d:>2}", .{bar}) else try w.writeAll(" +");
-            try w.splatByteAll(' ', cell_width - 2);
-        }
-    }
-    try endLine(w);
+    // Bar ruler, aligned to the beat separators like the piano roll header.
+    try style.writeBarRuler(w, gutter, scroll, visible, step_count_u32, stride, spb, cell_width, meter_denominator, bar_units);
 
+    var col: u32 = 0;
     var printed: usize = 0;
     for (bank_start..bank_end) |p| {
         // A dim rule between stacked banks. Mirrored by editors/drum.zig's

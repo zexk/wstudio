@@ -432,3 +432,52 @@ test "writeChromeRow truncates content wider than the row instead of overflowing
     try std.testing.expect(std.mem.indexOf(u8, out, "0123456789") != null);
     try std.testing.expect(std.mem.indexOf(u8, out, "ABCDEF") == null);
 }
+
+/// Bar-number ruler over a step grid (drum, slicer). Each label's last digit
+/// sits on the beat-separator column of the rows below, so the numbers line
+/// up with the "│" ticks exactly like the piano roll's header row
+/// (views/piano.zig) - the rest of the row stays blank. A bar boundary that
+/// isn't beat-aligned (odd meters over an /8 denominator) has no separator
+/// column to land on, so its label falls back to the cell's own columns.
+pub fn writeBarRuler(
+    w: *std.Io.Writer,
+    gutter: usize,
+    scroll: u32,
+    visible: u32,
+    step_count: u32,
+    stride: u32,
+    steps_per_beat: u32,
+    cell_width: usize,
+    meter_denominator: u32,
+    bar_units: u32,
+) !void {
+    var buf: [512]u8 = @splat(' ');
+    var x: usize = gutter;
+    var col: u32 = 0;
+    while (col < visible and scroll + col * stride < step_count and x < buf.len) : (col += 1) {
+        const s = scroll + col * stride;
+        const on_beat = s % steps_per_beat == 0;
+        if (on_beat) x += 1;
+        if (barLabel(s, meter_denominator, bar_units)) |l| {
+            // Beat-aligned: the label ends on the separator column (x - 1).
+            // Otherwise it starts at the cell's first column.
+            const at: usize = if (on_beat) x - 2 else x;
+            if (at + 1 < buf.len) buf[at..][0..2].* = l;
+        }
+        x += cell_width;
+    }
+    try w.writeAll(dim);
+    try w.writeAll(std.mem.trimEnd(u8, buf[0..@min(x, buf.len)], " "));
+    try endLine(w);
+}
+
+fn barLabel(step: u32, meter_denominator: u32, bar_units: u32) ?[2]u8 {
+    if (bar_units == 0) return null;
+    const units = step * meter_denominator;
+    if (units % bar_units != 0) return null;
+    const bar = units / bar_units + 1;
+    if (bar >= 100) return .{ ' ', '+' };
+    var buf: [2]u8 = undefined;
+    _ = std.fmt.bufPrint(&buf, "{d:>2}", .{bar}) catch return null;
+    return buf;
+}
