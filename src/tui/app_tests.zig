@@ -11259,3 +11259,45 @@ test "synth tab groups draw one card, and the strip follows the cursor" {
     try std.testing.expect(std.mem.indexOf(u8, plain, "LFO  1  2 [3]") != null);
     try std.testing.expectEqual(@as(u8, 2), app.synth_lfo_tab);
 }
+
+test "every view survives every terminal size it can be handed" {
+    var app = try testApp();
+    defer app.deinit();
+    app.drum_track = 2;
+    // Track 1 becomes the slicer so the slicer grid has real content;
+    // track 0 stays the synth, track 2 the drum machine.
+    try app.session.setInstrument(1, .slicer);
+    app.slicer_track = 1;
+    try installSlicerTestClip(&app);
+    // Content that stresses width: a full-ish FX chain (the strip is sized
+    // for 80 columns) and a track name past every name field.
+    for ([_]ws.FxKind{ .eq, .comp, .sat, .delay, .reverb, .chorus, .gate, .limiter, .tape }, 0..) |kind, i| {
+        _ = try app.session.racks.items[0].fx.insert(app.allocator, i, kind, 48_000);
+    }
+    try app.session.project.renameTrack(0, "a very long track name indeed");
+    var buf: [256 * 1024]u8 = undefined;
+    var plain_buf: [256 * 1024]u8 = undefined;
+    // A terminal can be resized to anything; SIGWINCH hands the frame
+    // whatever it became, so every view has to draw at it without panicking
+    // or spilling past the right edge.
+    for ([_]u16{ 20, 40, 79, 80, 108, 160, 240 }) |cols| {
+        for ([_]u16{ 3, 5, 10, 24, 48 }) |rows| {
+            for (std.enums.values(AppView)) |view| {
+                app.view = view;
+                var w = std.Io.Writer.fixed(&buf);
+                try tui_mod.draw(&app, &w, .{ .cols = cols, .rows = rows });
+                var lines = std.mem.splitScalar(u8, ansi.stripAnsi(w.buffered(), &plain_buf), '\n');
+                while (lines.next()) |line| {
+                    var columns: usize = 0;
+                    for (line) |b| {
+                        if (b != '\r' and b & 0xC0 != 0x80) columns += 1;
+                    }
+                    if (columns > cols) {
+                        std.debug.print("{s} at {d}x{d}: a row is {d} columns: {s}\n", .{ @tagName(view), cols, rows, columns, line });
+                        return error.RowOverflowsTerminal;
+                    }
+                }
+            }
+        }
+    }
+}

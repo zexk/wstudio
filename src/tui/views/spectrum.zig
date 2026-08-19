@@ -92,8 +92,13 @@ fn plusBoxShown(chain: *const ws.Fx) bool {
 
 /// One strip border row (top or bottom): a box outline per inserted unit,
 /// plus a dim one for the "+" box while it's shown.
-fn drawStripBorder(app: anytype, w: *std.Io.Writer, chain: *const ws.Fx, top: bool) !void {
+fn drawStripBorder(app: anytype, out: *std.Io.Writer, chain: *const ws.Fx, top: bool, cols: usize) !void {
     const boxes = chain.units.items.len + @intFromBool(plusBoxShown(chain));
+    // A full chain is wider than an 80-column terminal, so the row is built
+    // first and clamped: a box past the edge is cut, not wrapped.
+    var buf: [2048]u8 = undefined;
+    var bw = std.Io.Writer.fixed(&buf);
+    const w = &bw;
     try w.writeAll("   ");
     for (0..boxes) |i| {
         const focused = i < chain.units.items.len and i == app.fx_focus;
@@ -109,7 +114,8 @@ fn drawStripBorder(app: anytype, w: *std.Io.Writer, chain: *const ws.Fx, top: bo
         }
         try w.writeAll(rst);
     }
-    try endLine(w);
+    try style.writeClamped(out, bw.buffered(), cols);
+    try endLine(out);
 }
 
 /// The 3-row chain strip: IN → the inserted units in signal-flow order →
@@ -120,9 +126,12 @@ fn drawStripBorder(app: anytype, w: *std.Io.Writer, chain: *const ws.Fx, top: bo
 /// the strip constants in editors/fx_editor.zig for mouse hit-testing. In
 /// compact mode (short terminals) only the middle row is drawn; same
 /// columns, just without the box borders.
-fn drawChainStrip(app: anytype, w: *std.Io.Writer, chain: *const ws.Fx, compact: bool) !void {
-    if (!compact) try drawStripBorder(app, w, chain, true);
+fn drawChainStrip(app: anytype, out: *std.Io.Writer, chain: *const ws.Fx, compact: bool, cols: usize) !void {
+    if (!compact) try drawStripBorder(app, out, chain, true, cols);
 
+    var buf: [2048]u8 = undefined;
+    var bw = std.Io.Writer.fixed(&buf);
+    const w = &bw;
     try w.writeAll(dim ++ "IN\u{25B6}" ++ rst);
     for (chain.units.items, 0..) |u, i| {
         const focused = i == app.fx_focus;
@@ -143,9 +152,10 @@ fn drawChainStrip(app: anytype, w: *std.Io.Writer, chain: *const ws.Fx, compact:
         try w.writeAll(dim ++ "\u{2502}  +  \u{2502}" ++ rst);
     }
     try w.writeAll(dim ++ "\u{25B6}OUT" ++ rst);
-    try endLine(w);
+    try style.writeClamped(out, bw.buffered(), cols);
+    try endLine(out);
 
-    if (!compact) try drawStripBorder(app, w, chain, false);
+    if (!compact) try drawStripBorder(app, out, chain, false, cols);
 }
 
 pub fn drawFxView(
@@ -191,28 +201,33 @@ pub fn drawFxView(
     };
 
     const compact = spectrum_ed.compactLayout(rows);
-    try drawChainStrip(app, w, chain, compact);
+    try drawChainStrip(app, w, chain, compact, cols);
 
     const focused = spectrum_ed.focusedUnit(app, chain);
 
     if (!compact) {
-        try w.writeAll(dim ++ "  tab/[/] slot  a insert  x remove  y/P copy  </> move  b bypass  ");
+        // Assembled from a dozen independent writes with no shared width
+        // budget, so it goes through the clamp rather than wrapping onto a
+        // second row and pushing the frame down (style.writeClamped).
+        var hint_buf: [1024]u8 = undefined;
+        var hw = std.Io.Writer.fixed(&hint_buf);
+        try hw.writeAll(dim ++ "  tab/[/] slot  a insert  x remove  y/P copy  </> move  b bypass  ");
         // EQ gets its own two-stage scheme (see editors/fx_editor.zig's
         // eq_band_select doc comment) - h/l means something different
         // depending which stage it's in, so the hint has to match.
         if (focused != null and focused.?.kind() == .eq) {
-            if (app.eq_band_select) try w.writeAll("h/l band  enter edit") else try w.writeAll("j/k field  h/l adjust  esc back");
-            try w.writeAll("  g gain  z analog  p pre/post  f freeze");
+            if (app.eq_band_select) try hw.writeAll("h/l band  enter edit") else try hw.writeAll("j/k field  h/l adjust  esc back");
+            try hw.writeAll("  g gain  z analog  p pre/post  f freeze");
             const e = &focused.?.payload.eq;
-            if (e.auto_gain) try w.writeAll("  " ++ grn ++ "auto" ++ dim);
-            if (e.analog) try w.writeAll("  " ++ grn ++ "analog" ++ dim);
-            try w.writeAll(if (app.eq_spectrum_pre) "  " ++ bcyn ++ "pre" ++ dim else "");
-            if (app.eq_spectrum_frozen) try w.writeAll("  " ++ yel ++ "frozen" ++ dim);
+            if (e.auto_gain) try hw.writeAll("  " ++ grn ++ "auto" ++ dim);
+            if (e.analog) try hw.writeAll("  " ++ grn ++ "analog" ++ dim);
+            try hw.writeAll(if (app.eq_spectrum_pre) "  " ++ bcyn ++ "pre" ++ dim else "");
+            if (app.eq_spectrum_frozen) try hw.writeAll("  " ++ yel ++ "frozen" ++ dim);
         } else {
-            try w.writeAll("j/k param  h/l adjust");
+            try hw.writeAll("j/k param  h/l adjust");
         }
-        if (target == .group) try w.writeAll("  -/+:bus gain");
-        try w.writeAll(rst);
+        if (target == .group) try hw.writeAll("  -/+:bus gain");
+        try style.writeClamped(w, hw.buffered(), cols);
         try endLine(w);
     }
 
