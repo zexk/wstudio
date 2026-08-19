@@ -168,6 +168,7 @@ pub const FxPayload = union(enum) {
             .clap => |plugin| plugin.deinit(),
             .vst3 => |plugin| plugin.deinit(),
             .chorus => |*c| c.deinit(allocator),
+            .flanger => |*f| f.deinit(allocator),
             .pitch_shift => |*p| p.deinit(allocator),
             .delay => |*d| d.deinit(allocator),
             .reverb => |*r| r.deinit(allocator),
@@ -188,6 +189,14 @@ pub const FxPayload = union(enum) {
                 nc.depth_ms = c.depth_ms;
                 nc.mix = c.mix;
                 return .{ .chorus = nc };
+            },
+            .flanger => |f| {
+                var nf = try Flanger.init(allocator, sr);
+                nf.rate_hz = f.rate_hz;
+                nf.depth = f.depth;
+                nf.feedback = f.feedback;
+                nf.mix = f.mix;
+                return .{ .flanger = nf };
             },
             .pitch_shift => |p| {
                 var np = try PitchShift.init(allocator, sr);
@@ -548,7 +557,7 @@ pub const Fx = struct {
             .crush   => .{ .crush = .{} },
             .chorus  => .{ .chorus = try Chorus.init(allocator, sr) },
             .phaser  => .{ .phaser = Phaser.init(sr) },
-            .flanger => .{ .flanger = Flanger.init(sr) },
+            .flanger => .{ .flanger = try Flanger.init(allocator, sr) },
             .tape    => .{ .tape = Tape.init(sr) },
             .freq_shift => .{ .freq_shift = FreqShifter.init(sr) },
             .pitch_shift => .{ .pitch_shift = try PitchShift.init(allocator, sr) },
