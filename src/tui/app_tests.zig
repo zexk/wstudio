@@ -11116,3 +11116,36 @@ test ":import-audio drops a file on the cursor lane and makes the track an audio
     app.session.toggleArm(0);
     try std.testing.expect(app.session.isAudioArmed(0));
 }
+
+test "importing one sample repeatedly places clips over a single shared source" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try redirectHome(&tmp);
+
+    var app = try App.init(std.testing.allocator, std.testing.io);
+    defer app.deinit();
+    app.view = .arrangement;
+
+    var wav_buf: [96]u8 = undefined;
+    var fw = std.Io.Writer.fixed(&wav_buf);
+    try ws.wav.write(&fw, app.session.project.sample_rate, 1, &[_]f32{ 0.5, -0.5, 0.25, -0.25 }, .pcm16);
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "kick.wav", .data = fw.buffered() });
+
+    var cmd_buf: [128]u8 = undefined;
+    const cmd = try std.fmt.bufPrint(&cmd_buf, ":import-audio .zig-cache/tmp/{s}/kick.wav", .{&tmp.sub_path});
+    for (0..4) |bar| {
+        app.arr_cursor_bar = @intCast(bar);
+        for (cmd) |c| app.handleKey(.{ .char = c }, 0);
+        app.handleKey(.enter, 0);
+    }
+
+    // Four hits on the lane, one copy of the samples behind them: dropping
+    // the same one-shot across a bar must not cost a decode and a buffer per
+    // placement.
+    try std.testing.expectEqual(@as(usize, 4), app.session.arrangement.lane(0).?.clips.items.len);
+    try std.testing.expectEqual(@as(usize, 1), app.session.project.audio_sources.items.len);
+    const source_id = app.session.project.audio_sources.items[0].id;
+    for (app.session.arrangement.lane(0).?.clips.items) |clip| {
+        try std.testing.expectEqual(source_id, clip.content.audio.source_id);
+    }
+}
