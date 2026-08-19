@@ -60,12 +60,12 @@ const gain_range = [2]f32{ -60.0, 12.0 };
 const pan_range = [2]f32{ -1.0, 1.0 };
 
 /// Open the automation editor on the clip under the arrangement cursor.
-/// `cursor_bar` need only fall inside the clip's span - the link is stored
+/// `cursor_tick` need only fall inside the clip's span - the link is stored
 /// against the clip's own `start_tick` (see `App.automation_clip`'s doc
 /// comment), matching `piano_clip_link`'s convention.
-pub fn switchTo(app: *App, track: u16, cursor_bar: u32) void {
+pub fn switchTo(app: *App, track: u16, cursor_tick: u32) void {
     const lane = app.session.arrangement.lane(track) orelse return;
-    const clip = lane.clipAt(cursor_bar) orelse {
+    const clip = lane.clipAt(cursor_tick) orelse {
         app.setStatus("no clip here - enter stamps one, then 'a' automates it", .{});
         return;
     };

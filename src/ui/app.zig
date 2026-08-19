@@ -782,7 +782,10 @@ pub const App = struct {
     /// commands, Lua keymaps, replayed macros. Overlay views (pickers,
     /// help, browser, spectrum submenus) never become an alternate.
     alt_context: ?AltContext = null,
-    /// Arrangement view: bar cursor and horizontal scroll (lane = `cursor`).
+    /// Arrangement view: horizontal cursor and scroll (lane = `cursor`).
+    /// Both count GRID CELLS, not bars, despite the names - one cell is
+    /// `arr_grid.ticks()`, so a 4/4 bar is four of them at the default 1/4
+    /// grid. `cursorTick` is the conversion, `cellsPerBar` the ratio.
     arr_cursor_bar: u32 = 0,
     arr_scroll_bar: u32 = 0,
     /// Same idea as `piano_stamp`/`drum_stamp` for the arrangement: enter

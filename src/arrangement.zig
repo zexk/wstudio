@@ -452,30 +452,30 @@ pub const Lane = struct {
         self.clips.insertAssumeCapacity(idx, clip);
     }
 
-    /// Remove the clip covering `bar`, if any. Returns true if one was removed.
-    pub fn removeAt(self: *Lane, allocator: std.mem.Allocator, bar: u32) bool {
+    /// Remove the clip covering `tick`, if any. Returns true if one was removed.
+    pub fn removeAt(self: *Lane, allocator: std.mem.Allocator, tick: u32) bool {
         // Topmost, the same clip `clipAt` names. Walking the list backwards
         // instead picks the last by *start tick*, which is a different clip
         // once layers stack - callers check with `clipAt` and delete with
         // this, so they have to agree.
-        const idx = self.topmostAt(bar) orelse return false;
+        const idx = self.topmostAt(tick) orelse return false;
         var removed = self.clips.orderedRemove(idx);
         removed.deinit(allocator);
         return true;
     }
 
-    fn topmostAt(self: *const Lane, bar: u32) ?usize {
+    fn topmostAt(self: *const Lane, tick: u32) ?usize {
         var best: ?usize = null;
         for (self.clips.items, 0..) |c, i| {
-            if (!c.covers(bar)) continue;
+            if (!c.covers(tick)) continue;
             if (best == null or c.layer >= self.clips.items[best.?].layer) best = i;
         }
         return best;
     }
 
-    /// Pointer to the clip covering `bar`, or null.
-    pub fn clipAt(self: *Lane, bar: u32) ?*Clip {
-        return &self.clips.items[self.topmostAt(bar) orelse return null];
+    /// Pointer to the clip covering `tick`, or null.
+    pub fn clipAt(self: *Lane, tick: u32) ?*Clip {
+        return &self.clips.items[self.topmostAt(tick) orelse return null];
     }
 
     /// Remove every clip (e.g. when a track's instrument kind changes).

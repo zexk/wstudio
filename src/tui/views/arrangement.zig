@@ -278,13 +278,13 @@ pub fn drawArrangement(
         if (is_sel_lane) try w.writeAll(rst);
 
         for (0..visible) |c| {
-            const bar = scroll +| @as(u32, @intCast(c)) *| grid_ticks;
-            const downbeat = p.barAtTick(bar).start_tick == bar;
+            const cell_tick = scroll +| @as(u32, @intCast(c)) *| grid_ticks;
+            const downbeat = p.barAtTick(cell_tick).start_tick == cell_tick;
             try w.writeAll(if (downbeat) blu ++ "│" ++ rst else dim ++ "│" ++ rst);
 
-            const clip = if (lane) |l| l.clipAt(bar) else null;
+            const clip = if (lane) |l| l.clipAt(cell_tick) else null;
             const covered = clip != null;
-            const is_start = covered and clip.?.start_tick == bar;
+            const is_start = covered and clip.?.start_tick == cell_tick;
             // `clipAt` reports the top layer only, so a stack of two looked
             // exactly like one clip. Shade the body where more than one covers
             // the cell (see arrangement.zig - only same-layer overlaps evict).
@@ -292,7 +292,7 @@ pub fn drawArrangement(
             if (covered) {
                 var hits: u8 = 0;
                 for (lane.?.clips.items) |other| {
-                    if (other.covers(bar)) hits +|= 1;
+                    if (other.covers(cell_tick)) hits +|= 1;
                     if (hits > 1) break;
                 }
                 stacked = hits > 1;
@@ -303,13 +303,13 @@ pub fn drawArrangement(
             // of the top layer only, which is exactly what the shading warns
             // the eye about.
             const wave: ?[]const u8 = if (covered and !stacked)
-                audioCellGlyph(p, clip.?, bar, grid_ticks)
+                audioCellGlyph(p, clip.?, cell_tick, grid_ticks)
             else
                 null;
             const body: []const u8 = wave orelse (if (stacked) "▓" else "█");
-            const is_cursor = is_sel_lane and bar == cur_bar;
-            const is_play = playhead == bar;
-            const in_sel = visual_active and is_sel_lane and bar >= sel_lo and bar <= sel_hi;
+            const is_cursor = is_sel_lane and cell_tick == cur_bar;
+            const is_play = playhead == cell_tick;
+            const in_sel = visual_active and is_sel_lane and cell_tick >= sel_lo and cell_tick <= sel_hi;
 
             // Drum clips wear their variant letter on the start cell, audio
             // regions an 'A' - melodic clips stay plain, which is what the
