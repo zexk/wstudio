@@ -543,10 +543,11 @@ fn compDisplayValue(comp: anytype, t: f32) f32 {
     const in_db = dynInputDb(t);
     const over_db = in_db - std.math.clamp(comp.threshold_db, -60.0, 0.0);
     const ratio = std.math.clamp(comp.ratio, 1.0, 20.0);
+    const knee_db = std.math.clamp(comp.knee_db, 0.0, 24.0);
     const gain_db = if (std.math.clamp(comp.mode, 0.0, 1.0) >= 0.5)
-        Comp.upwardBoostDb(over_db, ratio)
+        Comp.upwardBoostDb(over_db, ratio, knee_db)
     else
-        Comp.downwardReductionDb(over_db, ratio, std.math.clamp(comp.knee_db, 0.0, 24.0));
+        Comp.downwardReductionDb(over_db, ratio, knee_db);
     return dynOutput(in_db, gain_db + std.math.clamp(comp.makeup_db, -24.0, 24.0));
 }
 

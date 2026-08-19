@@ -145,12 +145,21 @@ pub const Compressor = struct {
     pub const max_upward_db: f32 = 24.0;
 
     /// Upward gain in dB for `over_db` under the threshold (0 when at or
-    /// over it) - the downward formula mirrored around the threshold, so
-    /// one `ratio` describes both directions. Shared by this unit's `.up`
-    /// mode and `MultibandComp`'s OTT style.
-    pub fn upwardBoostDb(over_db: f32, ratio: f32) f32 {
-        if (over_db > 0.0) return 0.0;
-        return @min(-over_db * (1.0 - 1.0 / ratio), max_upward_db);
+    /// over it) - `downwardReductionDb` mirrored around the threshold, so
+    /// one `ratio` and one `knee_db` describe both directions. Shared by
+    /// this unit's `.up` mode and `MultibandComp`'s OTT style.
+    pub fn upwardBoostDb(over_db: f32, ratio: f32, knee_db: f32) f32 {
+        const slope = 1.0 - 1.0 / ratio;
+        const raw = if (knee_db <= 0.0)
+            (if (over_db < 0.0) -over_db * slope else 0.0)
+        else blk: {
+            const half = knee_db * 0.5;
+            if (over_db >= half) break :blk 0.0;
+            if (over_db <= -half) break :blk -over_db * slope;
+            const x = over_db - half;
+            break :blk slope * (x * x) / (2.0 * knee_db);
+        };
+        return @min(raw, max_upward_db);
     }
 
     pub fn processBlock(self: *Compressor, buf: []Sample) void {
@@ -206,7 +215,7 @@ pub const Compressor = struct {
             else
                 envelopeOverDb(&self.env, level, attack, release, threshold_db);
             const reduction_db = if (upward)
-                upwardBoostDb(over_db, ratio)
+                upwardBoostDb(over_db, ratio, knee_db)
             else
                 downwardReductionDb(over_db, ratio, knee_db);
             self.gain_reduction_db = reduction_db;
@@ -450,4 +459,46 @@ test "detector length mismatch falls back to self-detection instead of an out-of
     comp.detector = &short_detector;
     comp.processBlock(&quiet); // must not panic/crash
     try std.testing.expectApproxEqAbs(@as(Sample, 0.05), quiet[quiet.len - 2], 1e-3);
+}
+
+test "upward mode obeys the knee width, and both directions share one curve" {
+    // `knee_db` was a dead control in `.up` mode: the upward computer had no
+    // knee at all, so the knob moved nothing while the mode was set.
+    var hard = Compressor.init(48_000);
+    hard.mode = 1.0;
+    hard.threshold_db = -18.0;
+    hard.ratio = 4.0;
+    hard.knee_db = 0.0;
+    hard.attack_ms = 0.1;
+    hard.release_ms = 1.0;
+    var soft = hard;
+    soft.knee_db = 24.0;
+
+    // -20 dBFS: 2 dB under the threshold, so well inside a 24 dB knee and
+    // outside a hard one.
+    const level = types.dbToGain(-20.0);
+    var out: [2]f32 = undefined;
+    for ([_]*Compressor{ &hard, &soft }, 0..) |comp, i| {
+        var buf: [4096]Sample = @splat(level);
+        for (0..20) |_| {
+            @memset(&buf, level);
+            comp.processBlock(&buf);
+        }
+        out[i] = buf[buf.len - 1];
+    }
+    // Both lift, and the knee'd one lifts further at this distance.
+    try std.testing.expect(out[0] > level);
+    try std.testing.expect(out[1] > out[0] * 1.05);
+
+    // The knee'd curve is continuous where the hard one has its corner.
+    var prev: ?f32 = null;
+    var over: f32 = -3.0;
+    while (over <= 3.0) : (over += 0.1) {
+        const g = Compressor.upwardBoostDb(over, 4.0, 24.0);
+        if (prev) |p| try std.testing.expect(@abs(g - p) < 0.2);
+        prev = g;
+    }
+    // And with no knee it is exactly the mirror it always was.
+    try std.testing.expectApproxEqAbs(@as(f32, 1.5), Compressor.upwardBoostDb(-2.0, 4.0, 0.0), 1e-5);
+    try std.testing.expectEqual(@as(f32, 0.0), Compressor.upwardBoostDb(2.0, 4.0, 0.0));
 }

@@ -58,7 +58,7 @@ const BandComp = struct {
             // slope*knee/4 dB (2.4 dB at knee 24, ratio 5) right where the
             // envelope of real programme sits. `upwardBoostDb` is 0 above the
             // threshold, so the sum is exactly the old curve at knee 0.
-            reduction_db += Compressor.upwardBoostDb(over_db, ratio);
+            reduction_db += Compressor.upwardBoostDb(over_db, ratio, knee_db);
         }
         return types.dbToGain(reduction_db) * types.dbToGain(makeup_db);
     }
@@ -436,7 +436,7 @@ test "a hard-kneed OTT band is unchanged by the continuity fix" {
         const want_db = if (over_db > 0.0)
             Compressor.downwardReductionDb(over_db, 5.0, 0.0)
         else
-            Compressor.upwardBoostDb(over_db, 5.0);
+            Compressor.upwardBoostDb(over_db, 5.0, 0.0);
         try std.testing.expectApproxEqAbs(types.dbToGain(want_db), got, 1e-4);
     }
 }
