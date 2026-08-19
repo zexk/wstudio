@@ -349,9 +349,7 @@ fn drawEffectPlot(app: anytype, target: spectrum_ed.EqTarget, draw_list: zgui.Dr
             .pitch_shift => pitchShiftDisplayValue(&unit.payload.pitch_shift, t),
             .gate => gateDisplayValue(&unit.payload.gate, t),
             .expander => expanderDisplayValue(&unit.payload.expander, t),
-            // A limiter is its ceiling: everything above lands on it. ALR
-            // moves the release, not the curve, so it has nothing to draw.
-            .limiter => @min(t, std.math.clamp(unit.payload.limiter.ceiling, 0.25, 1.0)),
+            .limiter => limiterDisplayValue(&unit.payload.limiter, t),
             else => effectDisplayValue(unit.kind(), t, amount, shape),
         };
         point.* = .{ plot.x + t * plot.w, plot.y + (1.0 - y) * plot.h };
@@ -371,6 +369,10 @@ const PlotAxes = struct { x_lo: []const u8, x_hi: []const u8 = "", y: []const u8
 fn plotAxes(kind: ws.FxKind) PlotAxes {
     return switch (kind) {
         .filter, .amp => .{ .x_lo = "20 Hz", .x_hi = "20 kHz", .y = "LEVEL" },
+        // The dynamics units read dB across and dB up (see `dynInputDb`),
+        // which is the shape every compressor plot is drawn in - a linear
+        // amplitude axis buries the whole knee in its bottom eighth.
+        .comp, .gate, .expander, .limiter => .{ .x_lo = "-60 dB", .x_hi = "0 dB", .y = "OUT dB" },
         .delay, .reverb => .{ .x_lo = "TIME", .y = "LEVEL" },
         .chorus, .phaser, .flanger => .{ .x_lo = "TIME", .y = "OFFSET" },
         // A shifter maps frequency to frequency; IN/OUT reads as a level
@@ -448,6 +450,19 @@ fn satDisplayValue(sat: anytype, t: f32) f32 {
 fn clipperDisplayValue(clip: anytype, t: f32) f32 {
     return std.math.clamp(0.5 + 0.5 * clip.transfer(t * 2.0 - 1.0), 0, 1);
 }
+/// Dynamics units plot in dB across both axes, not in linear amplitude: at a
+/// -18 dBFS threshold the entire knee sits in the bottom eighth of a linear
+/// axis, which is exactly why these four used to draw an invented curve that
+/// at least filled the pane. `dyn_floor_db` is where both axes start.
+const dyn_floor_db: f32 = -60.0;
+
+fn dynInputDb(t: f32) f32 {
+    return dyn_floor_db * (1.0 - t);
+}
+
+fn dynOutput(in_db: f32, gain_db: f32) f32 {
+    return std.math.clamp((in_db + gain_db - dyn_floor_db) / -dyn_floor_db, 0, 1);
+}
 
 /// The gate's static curve: everything under the threshold is pulled down
 /// by RANGE, everything over it passes. The old drawing used a hardcoded
@@ -455,25 +470,48 @@ fn clipperDisplayValue(clip: anytype, t: f32) f32 {
 /// showed. Hysteresis has no place on a static plot: it is a decision about
 /// which way the level is moving, not a level-to-level mapping.
 fn gateDisplayValue(gate: anytype, t: f32) f32 {
+    const in_db = dynInputDb(t);
     const thresh_db = std.math.clamp(gate.threshold_db, -80.0, 0.0);
     const range_db = std.math.clamp(gate.range_db, gate_mod.mute_range_db, 0.0);
-    const shut: f32 = if (range_db <= gate_mod.mute_range_db) 0.0 else ws.types.dbToGain(range_db);
-    return if (ws.types.gainToDb(@max(t, 1e-6)) < thresh_db) t * shut else t;
+    return dynOutput(in_db, if (in_db < thresh_db) range_db else 0.0);
 }
 
 /// The expander's static curve, through the same `expansionDb` the audio
 /// path uses - so RATIO, KNEE and RANGE are all visible, where the old
 /// drawing read a flat scale factor off RATIO alone.
 fn expanderDisplayValue(exp: anytype, t: f32) f32 {
-    const level_db = ws.types.gainToDb(@max(t, 1e-6));
-    const under_db = std.math.clamp(exp.threshold_db, -80.0, 0.0) - level_db;
-    const gain_db = ws.dsp.expander.Expander.expansionDb(
+    const in_db = dynInputDb(t);
+    const under_db = std.math.clamp(exp.threshold_db, -80.0, 0.0) - in_db;
+    return dynOutput(in_db, ws.dsp.expander.Expander.expansionDb(
         under_db,
         std.math.clamp(exp.ratio, 1.0, 20.0),
         std.math.clamp(exp.knee_db, 0.0, 24.0),
         std.math.clamp(exp.range_db, ws.dsp.expander.max_reduction_db, 0.0),
-    );
-    return std.math.clamp(t * ws.types.dbToGain(gain_db), 0, 1);
+    ));
+}
+
+/// The compressor's static curve, through the same gain computer the audio
+/// path calls - so RATIO, KNEE, MAKEUP and the up/down MODE are all in the
+/// drawing. The generic knee it shared with four other units bent at a
+/// fixed slope and could not show a soft knee or an upward mode at all.
+fn compDisplayValue(comp: anytype, t: f32) f32 {
+    const Comp = ws.dsp.Compressor;
+    const in_db = dynInputDb(t);
+    const over_db = in_db - std.math.clamp(comp.threshold_db, -60.0, 0.0);
+    const ratio = std.math.clamp(comp.ratio, 1.0, 20.0);
+    const gain_db = if (std.math.clamp(comp.mode, 0.0, 1.0) >= 0.5)
+        Comp.upwardBoostDb(over_db, ratio)
+    else
+        Comp.downwardReductionDb(over_db, ratio, std.math.clamp(comp.knee_db, 0.0, 24.0));
+    return dynOutput(in_db, gain_db + std.math.clamp(comp.makeup_db, -24.0, 24.0));
+}
+
+/// A limiter is its ceiling: everything above it lands on it. ALR moves the
+/// release, not the curve, so it has nothing to draw here.
+fn limiterDisplayValue(lim: anytype, t: f32) f32 {
+    const in_db = dynInputDb(t);
+    const ceiling_db = ws.types.gainToDb(std.math.clamp(lim.ceiling, 0.25, 1.0));
+    return dynOutput(in_db, @min(0.0, ceiling_db - in_db));
 }
 
 /// A delay tail as it actually decays: one tap every TIME seconds, each
@@ -500,23 +538,6 @@ fn pitchShiftDisplayValue(shift: anytype, t: f32) f32 {
     const semis = std.math.clamp(shift.semitones, -24.0, 24.0) +
         std.math.clamp(shift.cents, -100.0, 100.0) / 100.0;
     return std.math.clamp(t * std.math.pow(f32, 2.0, semis / 12.0), 0, 1);
-}
-
-/// The compressor's static curve, through the same gain computer the audio
-/// path calls - so RATIO, KNEE, MAKEUP and the up/down MODE are all in the
-/// drawing. The generic knee it shared with four other units bent at a
-/// fixed slope and could not show a soft knee or an upward mode at all.
-fn compDisplayValue(comp: anytype, t: f32) f32 {
-    const Comp = ws.dsp.Compressor;
-    const level_db = ws.types.gainToDb(@max(t, 1e-6));
-    const over_db = level_db - std.math.clamp(comp.threshold_db, -60.0, 0.0);
-    const ratio = std.math.clamp(comp.ratio, 1.0, 20.0);
-    const gain_db = if (std.math.clamp(comp.mode, 0.0, 1.0) >= 0.5)
-        Comp.upwardBoostDb(over_db, ratio)
-    else
-        Comp.downwardReductionDb(over_db, ratio, std.math.clamp(comp.knee_db, 0.0, 24.0));
-    const makeup_db = std.math.clamp(comp.makeup_db, -24.0, 24.0);
-    return std.math.clamp(t * ws.types.dbToGain(gain_db + makeup_db), 0, 1);
 }
 /// One live readout. Every dynamics unit's display is some number of these,
 /// built by `meterRows` and drawn by `drawMeterStack` - three helpers laying
