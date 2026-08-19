@@ -897,13 +897,13 @@ fn moveLane(app: *App, lane_count: usize, delta: i32) void {
 /// audition the song from the point being arranged (same bar math as
 /// `:seek`, minus the 1-based parsing).
 fn playFromCursor(app: *App) void {
-    const sr = @as(f64, @floatFromInt(app.session.project.sample_rate));
-    const bpm = @max(app.session.project.tempo_bpm, 1.0);
-    const frames_per_tick: f64 = sr * 60.0 / bpm / ws.time_grid.ticks_per_beat;
+    const p = &app.session.project;
     const tick = cursorTick(app);
-    _ = app.session.engine.send(.{ .seek_frames = @as(u64, @intFromFloat(@as(f64, @floatFromInt(tick)) * frames_per_tick)) });
+    // framesAtBeat walks the tempo map; a fixed frames-per-tick lands the
+    // playhead somewhere else entirely once the song changes tempo.
+    _ = app.session.engine.send(.{ .seek_frames = p.framesAtBeat(ws.time_grid.tickToBeat(tick)) });
     if (!app.session.engine.uiSnapshot().playing) _ = app.session.engine.send(.play);
-    app.setStatus("play from bar {d}", .{app.arr_cursor_bar + 1});
+    app.setStatus("play from bar {d}", .{p.barAtTick(tick).bar + 1});
 }
 
 /// On a drum or slicer lane, cycle which pattern variant `enter` will

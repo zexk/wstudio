@@ -79,9 +79,9 @@ pub fn drawPianoRoll(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, 
 
     // Playhead step within the loop (maxInt when stopped - never matches a visible step).
     const play_step: u16 = if (snap.playing) blk: {
-        const sr: f64 = @floatFromInt(app.session.project.sample_rate);
-        const bpm: f64 = app.session.project.tempo_bpm;
-        const raw_beats: f64 = @as(f64, @floatFromInt(snap.position_frames)) / (sr * 60.0 / bpm);
+        // Through the tempo map - see recordNote, which places the notes
+        // this playhead has to line up with.
+        const raw_beats: f64 = app.session.project.beatAtFrames(snap.position_frames);
         break :blk ws.dsp.pattern.clampStep(@mod(raw_beats, pp.length_beats) * spbf);
     } else std.math.maxInt(u16);
 

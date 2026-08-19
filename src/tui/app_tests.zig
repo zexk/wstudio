@@ -5094,6 +5094,27 @@ test ":punch requires A/B bounds and gates recording to their frame range" {
     try std.testing.expectEqual(initial_notes + 1, app.session.racks.items[0].pattern_player.?.note_count);
 }
 
+test "the piano roll places a recorded note by the tempo map, not the base tempo" {
+    var app = try testApp();
+    defer app.deinit();
+    const p = &app.session.project;
+    // 120 bpm for four beats (2 s), then 240. Beat 6 therefore sits at
+    // 2 s + 2 * 0.25 s = 2.5 s, which a fixed 120 bpm reads as beat 5.
+    try p.setTempoPoint(.{ .beat = 4, .bpm = 240 });
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.length_beats = 16.0;
+    app.piano_track = 0;
+
+    _ = app.session.engine.send(.play);
+    _ = app.session.engine.send(.{ .seek_frames = @as(u64, @intFromFloat(2.5 * @as(f64, @floatFromInt(p.sample_rate)))) });
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block);
+
+    piano_ed.recordNote(&app, 60, 1.0);
+    try std.testing.expectEqual(@as(u16, 1), pp.note_count);
+    try std.testing.expectApproxEqAbs(@as(f64, 6.0), pp.notes[0].start_beat, 1e-9);
+}
+
 test ":monitor selects persistent input monitoring modes" {
     var app = try testApp();
     defer app.deinit();

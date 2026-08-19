@@ -748,9 +748,9 @@ pub fn recordNote(app: *App, pitch: u7, velocity: f32) void {
     const pp = currentPatternPlayer(app) orelse return;
     const snap = app.session.engine.uiSnapshot();
     if (!snap.playing or !app.recordingPositionAllowed(snap.position_frames)) return;
-    const sr: f64 = @floatFromInt(app.session.project.sample_rate);
-    const bpm: f64 = app.session.project.tempo_bpm;
-    const raw_beats: f64 = @as(f64, @floatFromInt(snap.position_frames)) / (sr * 60.0 / bpm);
+    // Through the tempo map, not the base tempo: a tempo point past the
+    // playhead is exactly where a fixed frames-per-beat starts lying.
+    const raw_beats: f64 = app.session.project.beatAtFrames(snap.position_frames);
     const step: u16 = pattern_mod.clampStep(@mod(raw_beats, pp.length_beats) * stepsPerBeatF(app));
     const start_beat = stepToBeat(app, step);
     if (pp.noteStartsAt(pitch, start_beat)) return;
