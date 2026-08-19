@@ -46,11 +46,19 @@ const BandComp = struct {
         // Downward: pull the excess above threshold down by `ratio` - same
         // envelope/ratio math as the plain `Compressor`.
         var reduction_db = Compressor.downwardReductionDb(over_db, ratio, knee_db);
-        if (over_db <= 0.0 and style == .ott) {
+        if (style == .ott) {
             // Upward (OTT only): push signal below threshold up toward it
             // by the same `ratio` - mirrors the downward formula around the
             // threshold instead of introducing a second ratio param.
-            reduction_db = Compressor.upwardBoostDb(over_db, ratio);
+            //
+            // Added to the downward term rather than replacing it. Replacing
+            // it was continuous only at knee 0: with a soft knee the downward
+            // computer is already pulling down *below* the threshold, so
+            // switching computers at over_db == 0 stepped the gain by
+            // slope*knee/4 dB (2.4 dB at knee 24, ratio 5) right where the
+            // envelope of real programme sits. `upwardBoostDb` is 0 above the
+            // threshold, so the sum is exactly the old curve at knee 0.
+            reduction_db += Compressor.upwardBoostDb(over_db, ratio);
         }
         return types.dbToGain(reduction_db) * types.dbToGain(makeup_db);
     }
@@ -394,5 +402,41 @@ test "the three bands sum back flat, even with the crossover points close togeth
         const rms = @sqrt(acc / 4096.0);
         // A unit sine's RMS is 1/sqrt(2). Half a dB either way.
         try std.testing.expectApproxEqAbs(@as(f64, 0.70710678), rms, 0.042);
+    }
+}
+
+test "an OTT band's soft knee stays continuous across the threshold" {
+    // The knee exists to remove the corner at the threshold. Switching from
+    // the downward computer to the upward one at over_db == 0 put a bigger
+    // one back: with a soft knee the downward computer already reduces below
+    // the threshold, so the two disagreed by slope*knee/4 dB right where a
+    // real envelope sits. Measured 2.4 dB at knee 24 / ratio 5.
+    var band: BandComp = .{ .threshold_db = -18.0, .ratio = 5.0 };
+    var prev: ?f32 = null;
+    var level_db: f32 = -30.0;
+    while (level_db <= -6.0) : (level_db += 0.25) {
+        band.env = 0.0;
+        // attack/release of 0 make the envelope follow the input exactly, so
+        // this reads the static transfer curve rather than any ballistics.
+        const gain_db = types.gainToDb(band.gainFor(types.dbToGain(level_db), 0.0, 0.0, 24.0, .ott));
+        if (prev) |p| try std.testing.expect(@abs(gain_db - p) < 0.5);
+        prev = gain_db;
+    }
+}
+
+test "a hard-kneed OTT band is unchanged by the continuity fix" {
+    // knee 0 leaves the downward computer at exactly 0 below the threshold,
+    // so summing the two stages has to reproduce the old switch verbatim.
+    var band: BandComp = .{ .threshold_db = -18.0, .ratio = 5.0 };
+    var level_db: f32 = -40.0;
+    while (level_db <= 0.0) : (level_db += 0.5) {
+        band.env = 0.0;
+        const got = band.gainFor(types.dbToGain(level_db), 0.0, 0.0, 0.0, .ott);
+        const over_db = level_db - (-18.0);
+        const want_db = if (over_db > 0.0)
+            Compressor.downwardReductionDb(over_db, 5.0, 0.0)
+        else
+            Compressor.upwardBoostDb(over_db, 5.0);
+        try std.testing.expectApproxEqAbs(types.dbToGain(want_db), got, 1e-4);
     }
 }
