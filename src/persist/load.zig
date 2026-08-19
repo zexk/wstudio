@@ -1177,13 +1177,11 @@ pub fn applyFxChain(
             },
             .crossover => |snap| {
                 const effect = &unit.payload.crossover;
+                // Guards every float with isFinite, the way every sibling
+                // case does; `setXovers` after it re-clamps the two split
+                // points and recomputes the filters.
+                applySnapToDevice(effect, snap);
                 effect.setXovers(snap.xover_lo_hz, snap.xover_hi_hz);
-                effect.low_gain_db = snap.low_gain_db;
-                effect.mid_gain_db = snap.mid_gain_db;
-                effect.high_gain_db = snap.high_gain_db;
-                effect.low_solo = snap.low_solo;
-                effect.mid_solo = snap.mid_solo;
-                effect.high_solo = snap.high_solo;
             },
             inline .filter, .limiter, .utility, .stereo_width, .auto_pan,
             .transient_shaper, .gate, .sat, .amp, .crush, .chorus, .phaser, .expander, .clipper,

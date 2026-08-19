@@ -1640,6 +1640,16 @@ test "specialized FX snapshot loading ignores non-finite fields" {
         } } },
         .{ .content = .{ .ott = .{ .depth = nan, .time = nan, .gain_in_db = nan, .gain_out_db = nan } } },
         .{ .content = .{ .delay = .{ .time_s = nan, .feedback = nan, .mix = nan } } },
+        .{ .content = .{ .crossover = .{
+            .xover_lo_hz = nan,
+            .xover_hi_hz = nan,
+            .low_gain_db = nan,
+            .mid_gain_db = nan,
+            .high_gain_db = nan,
+            .low_solo = nan,
+            .mid_solo = nan,
+            .high_solo = nan,
+        } } },
     }, 48_000, null);
 
     const comp = &fx.units.items[0].payload.comp;
@@ -1671,6 +1681,19 @@ test "specialized FX snapshot loading ignores non-finite fields" {
     try testing.expect(std.math.isFinite(delay.time_s));
     try testing.expect(std.math.isFinite(delay.feedback));
     try testing.expect(std.math.isFinite(delay.mix));
+
+    // Crossover used to assign its gains and solos straight from the snap,
+    // the only FX case with no finite guard - and `clampDeviceParams` can't
+    // repair it, since `fx_params.setParamAbsolute` drops non-finite input.
+    const xover = &fx.units.items[4].payload.crossover;
+    try testing.expect(std.math.isFinite(xover.xover_lo_hz));
+    try testing.expect(std.math.isFinite(xover.xover_hi_hz));
+    try testing.expect(std.math.isFinite(xover.low_gain_db));
+    try testing.expect(std.math.isFinite(xover.mid_gain_db));
+    try testing.expect(std.math.isFinite(xover.high_gain_db));
+    try testing.expect(std.math.isFinite(xover.low_solo));
+    try testing.expect(std.math.isFinite(xover.mid_solo));
+    try testing.expect(std.math.isFinite(xover.high_solo));
 }
 
 test "buildSession: clamps out-of-range pad and note values" {
