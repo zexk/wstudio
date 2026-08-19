@@ -86,7 +86,7 @@ pub const StereoCorrelation = struct {
     pub fn push(self: *StereoCorrelation, buf: []const Sample) void {
         const d = self.decay;
         var i: usize = 0;
-        while (i < buf.len) : (i += 2) {
+        while (i + 1 < buf.len) : (i += 2) {
             const l = buf[i];
             const r = buf[i + 1];
             self.sum_lr = d * self.sum_lr + (1.0 - d) * (l * r);
@@ -162,7 +162,7 @@ pub const LoudnessMeter = struct {
 
     pub fn push(self: *LoudnessMeter, buf: []const Sample) void {
         var i: usize = 0;
-        while (i < buf.len) : (i += 2) {
+        while (i + 1 < buf.len) : (i += 2) {
             const l_k = self.hp[0].process(self.shelf[0].process(buf[i]));
             const r_k = self.hp[1].process(self.shelf[1].process(buf[i + 1]));
             self.block_power += @as(f64, l_k * l_k + r_k * r_k);

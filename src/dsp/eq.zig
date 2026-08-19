@@ -550,7 +550,7 @@ pub const ParametricEq = struct {
             }
             if (band.stereo_mode == .stereo) {
                 var i: usize = 0;
-                while (i < buf.len) : (i += 2) {
+                while (i + 1 < buf.len) : (i += 2) {
                     inline for (0..2) |ch| buf[i + ch] = band.applySample(ch, buf[i + ch]);
                 }
             } else {
