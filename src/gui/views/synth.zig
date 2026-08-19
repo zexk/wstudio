@@ -31,6 +31,41 @@ pub fn draw(app: anytype) void {
     }
 }
 
+/// The sections making up one tab group, read off the layout table - the
+/// index runs (1..4, 6..9, ...) used to be spelled out at every call site
+/// and had to be re-checked by hand whenever a card moved.
+fn tabGroup(g: synth_layout.TabGroup) []const synth_layout.SectionDef {
+    for (synth_layout.main_sections, 0..) |sec, i| {
+        if (sec.tab_group != g) continue;
+        const range = synth_layout.tabGroupRange(&synth_layout.main_sections, i).?;
+        return synth_layout.main_sections[range.start..range.end];
+    }
+    unreachable;
+}
+
+/// Which card that group is showing. Shared with the TUI (App holds the
+/// state), so the two frontends open on the same tab.
+fn tabState(app: anytype, g: synth_layout.TabGroup) *u8 {
+    return switch (g) {
+        .osc => &app.core.synth_osc_tab,
+        .lfo => &app.core.synth_lfo_tab,
+        .filter => &app.core.synth_filter_tab,
+        .env => &app.core.synth_env_tab,
+        .none => unreachable,
+    };
+}
+
+/// Stable ImGui child id per group.
+fn tabChildId(g: synth_layout.TabGroup) [:0]const u8 {
+    return switch (g) {
+        .osc => "synth-osc-tabs",
+        .lfo => "synth-lfo-tabs",
+        .filter => "synth-filter-tabs",
+        .env => "synth-env-tabs",
+        .none => unreachable,
+    };
+}
+
 fn drawMain(app: anytype, synth: *ws.dsp.PolySynth) void {
     const available = zgui.getContentRegionAvail();
     if (available[0] < 1080 or app.core.synth_section_focus) {
@@ -38,10 +73,7 @@ fn drawMain(app: anytype, synth: *ws.dsp.PolySynth) void {
         return;
     }
 
-    if (tabForCursor(synth_layout.main_sections[1..4], app.core.synth_cursor)) |slot| app.core.synth_osc_tab = slot;
-    if (tabForCursor(synth_layout.main_sections[6..9], app.core.synth_cursor)) |slot| app.core.synth_lfo_tab = slot;
-    if (tabForCursor(synth_layout.main_sections[9..11], app.core.synth_cursor)) |slot| app.core.synth_filter_tab = slot;
-    if (tabForCursor(synth_layout.main_sections[11..14], app.core.synth_cursor)) |slot| app.core.synth_env_tab = slot;
+    synth_ed.syncTabsToCursor(&app.core);
     app.core.last_cols = 160;
 
     const gap: f32 = 6;
@@ -53,16 +85,16 @@ fn drawMain(app: anytype, synth: *ws.dsp.PolySynth) void {
     const right_x = origin[0] + utility_w + gap + column_w + gap;
 
     zgui.setCursorPos(.{ center_x, origin[1] });
-    drawTabbedCard(app, synth, synth_layout.main_sections[1..4], &app.core.synth_osc_tab, "synth-osc-tabs", column_w);
+    drawTabbedCard(app, synth, .osc, column_w);
     const env_y = zgui.getCursorPosY();
     zgui.setCursorPos(.{ center_x, env_y });
-    drawTabbedCard(app, synth, synth_layout.main_sections[11..14], &app.core.synth_env_tab, "synth-env-tabs", column_w);
+    drawTabbedCard(app, synth, .env, column_w);
     zgui.setCursorPosX(center_x);
     drawCard(app, synth, synth_layout.main_sections[15], "synth-main", 15, column_w);
     const center_bottom = zgui.getCursorPosY();
 
     zgui.setCursorPos(.{ right_x, origin[1] });
-    drawTabbedCard(app, synth, synth_layout.main_sections[9..11], &app.core.synth_filter_tab, "synth-filter-tabs", column_w);
+    drawTabbedCard(app, synth, .filter, column_w);
     const pair_y = zgui.getCursorPosY();
     const pair_w = (column_w - gap) / 2;
     zgui.setCursorPos(.{ right_x, pair_y });
@@ -71,7 +103,7 @@ fn drawMain(app: anytype, synth: *ws.dsp.PolySynth) void {
     drawCard(app, synth, synth_layout.main_sections[5], "synth-main", 5, pair_w);
     const lfo_y = zgui.getCursorPosY();
     zgui.setCursorPos(.{ right_x, lfo_y });
-    drawTabbedCardSized(app, synth, synth_layout.main_sections[6..9], &app.core.synth_lfo_tab, "synth-lfo-tabs", column_w, center_bottom - lfo_y);
+    drawTabbedCardSized(app, synth, .lfo, column_w, center_bottom - lfo_y);
     const right_bottom = zgui.getCursorPosY();
 
     zgui.setCursorPos(origin);
@@ -84,13 +116,6 @@ fn drawMain(app: anytype, synth: *ws.dsp.PolySynth) void {
     const composition_bottom = @max(left_bottom, @max(center_bottom, right_bottom));
     zgui.setCursorPos(.{ origin[0], composition_bottom });
     zgui.dummy(.{ .w = 0, .h = 0 });
-}
-
-fn tabForCursor(sections: []const synth_layout.SectionDef, cursor: u16) ?u8 {
-    for (sections, 0..) |section, slot| {
-        if (sectionHasParam(section, cursor)) return @intCast(slot);
-    }
-    return null;
 }
 
 /// Wraps a run of `widgets.knobCell`s into rows that fit the card, the way
@@ -142,21 +167,17 @@ fn drawSections(
     app.core.last_cols = if (columns == 4) 210 else if (columns == 3) 160 else if (columns == 2) 108 else 80;
     const placements = placementsFor(columns);
     const column_w = @max(280, (available_width - gap * @as(f32, @floatFromInt(columns - 1))) / @as(f32, @floatFromInt(columns)));
-    if (comptime std.mem.eql(u8, child_prefix, "synth-main")) {
-        if (tabForCursor(synth_layout.main_sections[1..4], app.core.synth_cursor)) |slot| app.core.synth_osc_tab = slot;
-        if (tabForCursor(synth_layout.main_sections[6..9], app.core.synth_cursor)) |slot| app.core.synth_lfo_tab = slot;
-        if (tabForCursor(synth_layout.main_sections[9..11], app.core.synth_cursor)) |slot| app.core.synth_filter_tab = slot;
-        if (tabForCursor(synth_layout.main_sections[11..14], app.core.synth_cursor)) |slot| app.core.synth_env_tab = slot;
-    }
+    synth_ed.syncTabsToCursor(&app.core);
 
     // `z` isolates the cursor's section. The TUI has drawn only that card
     // since the key shipped; the GUI ignored the flag entirely, so `z` there
     // toggled a state with no visible effect whatsoever.
     if (app.core.synth_section_focus) {
         if (cursorSection(sections, app.core.synth_cursor)) |index| {
-            if (comptime std.mem.eql(u8, child_prefix, "synth-main")) {
-                if (index >= 1 and index < 4) drawTabbedCard(app, synth, synth_layout.main_sections[1..4], &app.core.synth_osc_tab, "synth-osc-tabs", 0) else if (index >= 6 and index < 9) drawTabbedCard(app, synth, synth_layout.main_sections[6..9], &app.core.synth_lfo_tab, "synth-lfo-tabs", 0) else if (index >= 9 and index < 11) drawTabbedCard(app, synth, synth_layout.main_sections[9..11], &app.core.synth_filter_tab, "synth-filter-tabs", 0) else if (index >= 11 and index < 14) drawTabbedCard(app, synth, synth_layout.main_sections[11..14], &app.core.synth_env_tab, "synth-env-tabs", 0) else drawCard(app, synth, sections[index], child_prefix, index, 0);
-            } else drawCard(app, synth, sections[index], child_prefix, index, 0);
+            if (sections[index].tab_group != .none)
+                drawTabbedCard(app, synth, sections[index].tab_group, 0)
+            else
+                drawCard(app, synth, sections[index], child_prefix, index, 0);
             return;
         }
     }
@@ -165,27 +186,11 @@ fn drawSections(
         if (col > 0) zgui.sameLine(.{ .spacing = gap });
         zgui.beginGroup();
         for (sections, placements, 0..) |section, placement, index| {
-            if (comptime std.mem.eql(u8, child_prefix, "synth-main")) {
-                if (index == 2 or index == 3) continue;
-                if (index == 1) {
-                    if (placement.col == col) drawTabbedCard(app, synth, synth_layout.main_sections[1..4], &app.core.synth_osc_tab, "synth-osc-tabs", column_w);
-                    continue;
-                }
-                if (index == 7 or index == 8) continue;
-                if (index == 6) {
-                    if (placement.col == col) drawTabbedCard(app, synth, synth_layout.main_sections[6..9], &app.core.synth_lfo_tab, "synth-lfo-tabs", column_w);
-                    continue;
-                }
-                if (index == 10) continue;
-                if (index == 9) {
-                    if (placement.col == col) drawTabbedCard(app, synth, synth_layout.main_sections[9..11], &app.core.synth_filter_tab, "synth-filter-tabs", column_w);
-                    continue;
-                }
-                if (index == 12 or index == 13) continue;
-                if (index == 11) {
-                    if (placement.col == col) drawTabbedCard(app, synth, synth_layout.main_sections[11..14], &app.core.synth_env_tab, "synth-env-tabs", column_w);
-                    continue;
-                }
+            // A tab group draws one card, at its first member's slot.
+            if (synth_layout.tabGroupRange(sections, index)) |range| {
+                if (index != range.start) continue;
+                if (placement.col == col) drawTabbedCard(app, synth, section.tab_group, column_w);
+                continue;
             }
             if (placement.col == col) drawCard(app, synth, section, child_prefix, index, column_w);
         }
@@ -193,15 +198,18 @@ fn drawSections(
     }
 }
 
-fn drawTabbedCard(app: anytype, synth: *ws.dsp.PolySynth, sections: []const synth_layout.SectionDef, tab: *u8, child_id: [:0]const u8, width: f32) void {
-    drawTabbedCardSized(app, synth, sections, tab, child_id, width, 0);
+fn drawTabbedCard(app: anytype, synth: *ws.dsp.PolySynth, g: synth_layout.TabGroup, width: f32) void {
+    drawTabbedCardSized(app, synth, g, width, 0);
 }
 
-fn drawTabbedCardSized(app: anytype, synth: *ws.dsp.PolySynth, sections: []const synth_layout.SectionDef, tab: *u8, child_id: [:0]const u8, width: f32, height: f32) void {
+fn drawTabbedCardSized(app: anytype, synth: *ws.dsp.PolySynth, g: synth_layout.TabGroup, width: f32, height: f32) void {
+    const sections = tabGroup(g);
+    const tab = tabState(app, g);
+    const child_id = tabChildId(g);
     tab.* = @min(tab.*, @as(u8, @intCast(sections.len - 1)));
     const slot = tab.*;
     const section = sections[slot];
-    scroll.noteFocusRow(sectionHasParam(section, app.core.synth_cursor), zgui.getCursorScreenPos()[1], 0);
+    scroll.noteFocusRow(synth_layout.sectionHasParam(section, app.core.synth_cursor), zgui.getCursorScreenPos()[1], 0);
     zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.bg2 });
     if (zgui.beginChild(child_id, .{
         .w = width,
@@ -233,16 +241,9 @@ fn drawTabbedCardSized(app: anytype, synth: *ws.dsp.PolySynth, sections: []const
 /// Which section owns `cursor`, for `z`'s isolate-one-card mode.
 fn cursorSection(sections: []const synth_layout.SectionDef, cursor: u16) ?usize {
     for (sections, 0..) |section, index| {
-        if (sectionHasParam(section, cursor)) return index;
+        if (synth_layout.sectionHasParam(section, cursor)) return index;
     }
     return null;
-}
-
-fn sectionHasParam(section: synth_layout.SectionDef, cursor: u16) bool {
-    for (section.params) |entry| {
-        if (cursor >= entry.id and cursor < entry.id + entry.fields) return true;
-    }
-    return false;
 }
 
 fn drawCard(
@@ -273,7 +274,7 @@ fn drawCardSized(
     // exactly the case cursor-following exists for. Mark the card itself
     // first so `j` past the fold still has somewhere to scroll to; a card
     // that does draw overwrites this with its focused row's real band.
-    scroll.noteFocusRow(sectionHasParam(section, app.core.synth_cursor), zgui.getCursorScreenPos()[1], 0);
+    scroll.noteFocusRow(synth_layout.sectionHasParam(section, app.core.synth_cursor), zgui.getCursorScreenPos()[1], 0);
     zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.bg2 });
     if (zgui.beginChild(child_id, .{
         .w = width,
