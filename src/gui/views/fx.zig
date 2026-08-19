@@ -346,6 +346,9 @@ fn drawEffectPlot(app: anytype, target: spectrum_ed.EqTarget, draw_list: zgui.Dr
             .clipper => clipperDisplayValue(&unit.payload.clipper, t),
             .gate => gateDisplayValue(&unit.payload.gate, t),
             .expander => expanderDisplayValue(&unit.payload.expander, t),
+            // A limiter is its ceiling: everything above lands on it. ALR
+            // moves the release, not the curve, so it has nothing to draw.
+            .limiter => @min(t, std.math.clamp(unit.payload.limiter.ceiling, 0.25, 1.0)),
             else => effectDisplayValue(unit.kind(), t, amount, shape),
         };
         point.* = .{ plot.x + t * plot.w, plot.y + (1.0 - y) * plot.h };
@@ -390,7 +393,7 @@ fn normalizedParam(app: anytype, unit: *ws.FxUnit, index: usize) f32 {
 
 fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
     return switch (kind) {
-        .comp, .mb_comp, .ott, .limiter, .transient_shaper => if (t < amount) t else amount + (t - amount) * (0.2 + shape * 0.45),
+        .comp, .mb_comp, .ott, .transient_shaper => if (t < amount) t else amount + (t - amount) * (0.2 + shape * 0.45),
         .crush => @round(t * std.math.pow(f32, 2.0, amount * 15.0)) / std.math.pow(f32, 2.0, amount * 15.0),
         // An LFO offset swings about a centre - it does not climb. The old
         // `t + sin(...)` baseline drew the same rising ramp a transfer curve
@@ -405,7 +408,7 @@ fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
         .reverb => std.math.clamp(@exp(-t * (0.8 + (1.0 - amount) * 4.0)) * (0.7 + 0.2 * @sin(t * std.math.pi * 26.0)), 0, 1),
         // `.amp` and `.filter` draw a frequency response instead; see
         // `drawEffectPlot`.
-        .eq, .amp, .sat, .clipper, .gate, .expander, .filter, .crossover, .utility, .stereo_width, .tape => t,
+        .eq, .amp, .sat, .clipper, .gate, .expander, .limiter, .filter, .crossover, .utility, .stereo_width, .tape => t,
         .clap, .vst3 => t,
     };
 }

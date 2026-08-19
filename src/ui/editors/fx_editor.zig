@@ -371,7 +371,11 @@ pub fn paramToggleNames(k: FxKind, idx: usize) ?[2][]const u8 {
             9 => .{ "peak", "RMS" },
             else => null,
         },
-        .limiter => if (idx == 3) .{ "sample", "true" } else null,
+        .limiter => switch (idx) {
+            3 => .{ "sample", "true" },
+            4 => .{ "off", "on" },
+            else => null,
+        },
         .amp => if (idx == 6) .{ "direct", "cabinet" } else null,
         .clipper => if (idx == 3) .{ "off", "on" } else null,
         .gate, .expander => if (idx == 6) .{ "peak", "RMS" } else null,
@@ -1374,6 +1378,8 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
         .limiter => switch (idx) {
             0 => std.fmt.bufPrint(buf, "{d:.2}dB", .{20.0 * std.math.log10(v)}) catch "?",
             3 => if (v >= 0.5) "true" else "sample",
+            4 => if (v < 0.5) "off" else "on",
+            5 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
             else => std.fmt.bufPrint(buf, "{d:.0}ms", .{v}) catch "?",
         },
         .delay => switch (idx) {
