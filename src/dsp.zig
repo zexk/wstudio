@@ -32,6 +32,7 @@ pub const Gate = @import("dsp/gate.zig").Gate;
 pub const gate = @import("dsp/gate.zig");
 pub const amp = @import("dsp/amp.zig");
 pub const Saturator = @import("dsp/saturator.zig").Saturator;
+pub const saturator = @import("dsp/saturator.zig");
 pub const Crusher = @import("dsp/crusher.zig").Crusher;
 pub const Chorus = @import("dsp/chorus.zig").Chorus;
 pub const chorus = @import("dsp/chorus.zig");

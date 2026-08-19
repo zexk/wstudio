@@ -20,6 +20,7 @@ const gate_mod = ws.dsp.gate;
 const multiband_comp = ws.dsp.multiband_comp;
 const chorus_mod = ws.dsp.chorus;
 const amp_mod = ws.dsp.amp;
+const sat_mod = ws.dsp.saturator;
 const limiter_mod = ws.dsp.limiter;
 const DrumMachine = ws.dsp.DrumMachine;
 const Fx = ws.Fx;
@@ -399,6 +400,8 @@ pub fn isListParam(k: FxKind, idx: usize) bool {
         .comp => idx == sc_idx or idx == sc_pad_idx,
         // The amp's MODEL: three named voicings, not a quantity to scrub.
         .amp => idx == 8,
+        // Five named curves, not a percentage.
+        .sat => idx == 3,
         else => false,
     };
 }
@@ -1457,6 +1460,7 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
         },
         .sat => switch (idx) {
             0, 1 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
+            3 => sat_mod.shape_names[@min(@as(usize, @intFromFloat(@max(v, 0.0))), sat_mod.shape_names.len - 1)],
             else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
         },
         .amp => switch (idx) {

@@ -341,6 +341,7 @@ fn drawEffectPlot(app: anytype, target: spectrum_ed.EqTarget, draw_list: zgui.Dr
         const y = switch (unit.kind()) {
             .filter => filterDisplayValue(&unit.payload.filter, t),
             .amp => ampDisplayValue(&unit.payload.amp, t),
+            .sat => satDisplayValue(&unit.payload.sat, t),
             else => effectDisplayValue(unit.kind(), t, amount, shape),
         };
         point.* = .{ plot.x + t * plot.w, plot.y + (1.0 - y) * plot.h };
@@ -390,7 +391,6 @@ fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
         // An expander does the opposite: what is under the threshold is
         // pushed further down, and what is over it passes.
         .expander => if (t >= amount) t else t * (0.15 + 0.35 * shape),
-        .sat => 0.5 + 0.5 * std.math.tanh((t * 2.0 - 1.0) * std.math.pow(f32, 10.0, amount * 1.8)) / std.math.tanh(std.math.pow(f32, 10.0, amount * 1.8)),
         .crush => @round(t * std.math.pow(f32, 2.0, amount * 15.0)) / std.math.pow(f32, 2.0, amount * 15.0),
         // An LFO offset swings about a centre - it does not climb. The old
         // `t + sin(...)` baseline drew the same rising ramp a transfer curve
@@ -405,7 +405,7 @@ fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
         .reverb => std.math.clamp(@exp(-t * (0.8 + (1.0 - amount) * 4.0)) * (0.7 + 0.2 * @sin(t * std.math.pi * 26.0)), 0, 1),
         // `.amp` and `.filter` draw a frequency response instead; see
         // `drawEffectPlot`.
-        .eq, .amp, .filter, .crossover, .utility, .stereo_width, .tape => t,
+        .eq, .amp, .sat, .filter, .crossover, .utility, .stereo_width, .tape => t,
         .clap, .vst3 => t,
     };
 }
@@ -432,6 +432,13 @@ fn ampDisplayValue(amp: anytype, t: f32) f32 {
     // Wider window than the filter's: the tone stack's make-up puts the
     // passband above 0 dB and the cabinet takes 10 kHz far below it.
     return std.math.clamp((db + 48.0) / 60.0, 0, 1);
+}
+
+/// The saturator's actual selected curve, run through the same shaping the
+/// audio path uses. The generic tanh this used to draw looked the same for
+/// all five shapes, so the one param that picks between them was invisible.
+fn satDisplayValue(sat: anytype, t: f32) f32 {
+    return std.math.clamp(0.5 + 0.5 * sat.transfer(t * 2.0 - 1.0), 0, 1);
 }
 /// One live readout. Every dynamics unit's display is some number of these,
 /// built by `meterRows` and drawn by `drawMeterStack` - three helpers laying

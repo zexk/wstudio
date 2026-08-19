@@ -57,6 +57,11 @@ fn shapeVal(kind: u3, pre: f32, x: f32) f32 {
     };
 }
 
+/// Names of the five curves, in `shape` order - what the editor shows
+/// instead of a bare index, and what makes the param read as a choice
+/// rather than a quantity.
+pub const shape_names = [_][]const u8{ "soft", "tube", "diode", "sine", "hard" };
+
 pub const Saturator = struct {
     drive_db: f32 = 12.0,
     out_db: f32 = 0.0,
@@ -102,26 +107,36 @@ pub const Saturator = struct {
         }
     };
 
-    /// Shape an interleaved stereo buffer in place.
-    pub fn processBlock(self: *Saturator, buf: []Sample) void {
+    /// The shaping `processBlock` is about to run, built once per block.
+    /// `post` is the output trim, which `transfer` leaves at unity so the
+    /// plotted curve keeps its shape instead of sliding off the pane.
+    fn curveFor(self: *const Saturator, post: f32) Curve {
         const drive_db = dsp.sanitizeParam(self.drive_db, 0.0, 36.0, 12.0);
-        const out_db = dsp.sanitizeParam(self.out_db, -24.0, 24.0, 0.0);
-        const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 1.0);
         const kind: u3 = @intFromFloat(std.math.clamp(@round(dsp.sanitizeParam(self.shape, 0.0, max_shape, 0.0)), 0, max_shape));
-        // zig fmt: off
-        const pre  = types.dbToGain(drive_db);
-        // zig fmt: on
-        const post = types.dbToGain(out_db);
+        const pre = types.dbToGain(drive_db);
         // full-scale in → full-scale out, per polarity (they differ only for the tube shape)
         const norm_pos = 1.0 / shapeVal(kind, pre, 1.0);
         const norm_neg = if (kind == 1) 1.0 / @abs(shapeVal(kind, pre, -1.0)) else norm_pos;
+        return .{ .kind = kind, .pre = pre, .norm_pos = norm_pos, .norm_neg = norm_neg, .post = post };
+    }
 
-        const curve: Curve = .{ .kind = kind, .pre = pre, .norm_pos = norm_pos, .norm_neg = norm_neg, .post = post };
+    /// The transfer curve the GUI plots: -1..1 in, -1..1 out, through the
+    /// same shaping the audio path uses. Only the DC blocker (which needs
+    /// per-channel state) and the dry/wet mix are left out.
+    pub fn transfer(self: *const Saturator, x: f32) f32 {
+        return self.curveFor(1.0).apply(x);
+    }
+
+    /// Shape an interleaved stereo buffer in place.
+    pub fn processBlock(self: *Saturator, buf: []Sample) void {
+        const out_db = dsp.sanitizeParam(self.out_db, -24.0, 24.0, 0.0);
+        const mix = dsp.sanitizeParam(self.mix, 0.0, 1.0, 1.0);
+        const curve = self.curveFor(types.dbToGain(out_db));
         for (buf, 0..) |*s, i| {
             const ch = i % 2;
             const dry = s.*;
             var wet = self.stage.process(ch, dry, curve, Curve.apply);
-            if (kind == 1) {
+            if (curve.kind == 1) {
                 const y0 = wet - self.dc_x1[ch] + dc_pole * self.dc_y1[ch];
                 self.dc_x1[ch] = wet;
                 self.dc_y1[ch] = y0;
@@ -231,4 +246,22 @@ test "tube shape adds even harmonics but the DC blocker keeps the mean near zero
         sum += s;
     }
     try std.testing.expect(@abs(sum / buf.len) < 0.05);
+}
+
+test "the plotted transfer curve is the curve the audio path runs" {
+    // `transfer` exists only so the GUI can draw the shape; nothing would
+    // fail if it drifted from `processBlock`, so pin it against a settled
+    // DC level through the real thing. Skips the tube shape, whose DC
+    // blocker (per-channel state `transfer` has no access to) walks a held
+    // level back to zero on purpose.
+    for ([_]f32{ 0.0, 2.0, 3.0, 4.0 }) |shape| {
+        for ([_]f32{ 0.0, 18.0 }) |drive| {
+            for ([_]f32{ 0.25, 0.6, 1.0 }) |level| {
+                var sat = Saturator{ .drive_db = drive, .shape = shape };
+                const out = settled(&sat, level);
+                try std.testing.expectApproxEqAbs(sat.transfer(level), out[0], 0.02);
+                try std.testing.expectApproxEqAbs(sat.transfer(-level), out[1], 0.02);
+            }
+        }
+    }
 }
