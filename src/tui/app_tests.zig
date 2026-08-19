@@ -11078,3 +11078,41 @@ test "opening a project keeps the song mode it was saved with" {
     app.applyUserConfig(cfg, true);
     try std.testing.expect(app.session.song_mode);
 }
+
+test ":import-audio drops a file on the cursor lane and makes the track an audio track" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try redirectHome(&tmp);
+
+    var app = try App.init(std.testing.allocator, std.testing.io);
+    defer app.deinit();
+    app.view = .arrangement;
+    // One beat per frame, so the clip's tick length is checkable by hand.
+    app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
+    app.session.engine.transport.tempo_bpm = app.session.project.tempo_bpm;
+
+    var wav_buf: [96]u8 = undefined;
+    var fw = std.Io.Writer.fixed(&wav_buf);
+    try ws.wav.write(&fw, app.session.project.sample_rate, 1, &[_]f32{ 0.25, -0.5, 0.75, -1.0 }, .pcm16);
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "take.wav", .data = fw.buffered() });
+
+    // Track 0 starts empty; the import is what turns it into an audio track,
+    // the way dropping a sample on FL's playlist creates a clip channel.
+    try std.testing.expectEqual(ws.InstrumentKind.empty, std.meta.activeTag(app.session.racks.items[0].instrument));
+    var cmd_buf: [128]u8 = undefined;
+    const cmd = try std.fmt.bufPrint(&cmd_buf, ":import-audio .zig-cache/tmp/{s}/take.wav", .{&tmp.sub_path});
+    for (cmd) |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+
+    try std.testing.expectEqual(ws.InstrumentKind.audio, std.meta.activeTag(app.session.racks.items[0].instrument));
+    const clips = app.session.arrangement.lane(0).?.clips.items;
+    try std.testing.expectEqual(@as(usize, 1), clips.len);
+    const audio = clips[0].content.audio;
+    try std.testing.expectEqual(@as(u64, 4), audio.source_length_frames);
+    const source = app.session.project.audioSource(audio.source_id).?;
+    try std.testing.expectEqual(@as(u16, 1), source.channel_count);
+    try std.testing.expectEqual(@as(usize, 4), source.samples.len);
+    // An audio track is the only kind audio-input recording arms on.
+    app.session.toggleArm(0);
+    try std.testing.expect(app.session.isAudioArmed(0));
+}

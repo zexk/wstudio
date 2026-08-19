@@ -1001,3 +1001,102 @@ pub fn cmdSpread(app: *App, args: []const u8) void {
     }
     app.setStatus("spread: select a slicer or drum track first", .{});
 }
+
+/// `:import-audio <file>` - decode an audio file into a project audio source
+/// and drop it on the cursor track's lane at the arrangement cursor. The
+/// counterpart to recording: both end up as an `AudioRegion` clip over a
+/// shared `AudioSource`, so every clip command (`:clip-gain`, `:clip-fade`,
+/// `:clip-stretch`, ...) applies to an imported clip unchanged.
+///
+/// An `empty` track is promoted to `audio` on the way, the way dropping a
+/// sample on FL's playlist creates an Audio Clip channel for it. Any other
+/// instrument keeps its kind: the engine renders a lane's regions alongside
+/// whatever the chain produces (see `Engine.renderOneTrack`), so importing
+/// onto a synth track layers rather than replaces.
+pub fn cmdImportAudio(app: *App, args: []const u8) void {
+    const trimmed = std.mem.trim(u8, args, " ");
+    if (trimmed.len == 0) {
+        app.setStatus("import-audio: usage :import-audio <file>", .{});
+        return;
+    }
+    const track = app.cursor;
+    if (track >= app.session.racks.items.len) {
+        app.setStatus("import-audio: no track under the cursor", .{});
+        return;
+    }
+
+    var path_buf: [path_buf_len]u8 = undefined;
+    const path = expandHome(&path_buf, trimmed);
+    const data = readFileForLoad(app, "import-audio", path) orelse return;
+    defer app.allocator.free(data);
+    const parsed = ws.wav.parseInterleavedAlloc(app.allocator, data) catch |e| {
+        app.setStatus("import-audio: parse error: {s}", .{@errorName(e)});
+        return;
+    };
+    defer app.allocator.free(parsed.samples);
+    // Same ceiling `AudioSource` and the engine's region renderer carry: a
+    // region mixes one or two channels, never a surround file's six.
+    if (parsed.channel_count == 0 or parsed.channel_count > 2) {
+        app.setStatus("import-audio: {d} channels, expected mono or stereo", .{parsed.channel_count});
+        return;
+    }
+    const source_frames = parsed.samples.len / parsed.channel_count;
+    if (source_frames == 0) {
+        app.setStatus("import-audio: '{s}' holds no audio", .{std.fs.path.basename(path)});
+        return;
+    }
+
+    // The file's own rate, not the project's: `renderAudioLane` resamples by
+    // the ratio between them, so the clip has to span the frames the file
+    // will actually occupy on this timeline, not the frames it holds.
+    const project_rate = @max(app.session.project.sample_rate, 1);
+    const timeline_frames = (@as(u64, source_frames) * project_rate) / @max(parsed.sample_rate, 1);
+
+    const start_tick = @min(app.arr_cursor_bar, std.math.maxInt(u32) / @max(app.arr_grid.ticks(), 1)) * app.arr_grid.ticks();
+    const start_frame = app.session.project.framesAtBeat(ws.time_grid.tickToBeat(start_tick));
+    const beats = app.session.project.beatAtFrames(start_frame +| timeline_frames) -
+        app.session.project.beatAtFrames(start_frame);
+    const length_ticks: u32 = @max(1, @as(u32, @intFromFloat(@min(
+        @ceil(beats * ws.time_grid.ticks_per_beat - 1e-9),
+        @as(f64, @floatFromInt(std.math.maxInt(u32) - start_tick)),
+    ))));
+
+    if (app.session.racks.items[track].instrument == .empty) {
+        var backup = history.captureTrackKindSwap(app, track);
+        _ = app.session.changeInstrumentKind(track, .audio) catch |err| {
+            if (backup) |*b| b.deinit(app.allocator);
+            app.setStatus("import-audio: {s}", .{@errorName(err)});
+            return;
+        };
+        history.push(app, backup);
+        app.exitStaleEditors();
+    }
+
+    const source_id = app.session.project.addAudioSource(
+        path,
+        parsed.sample_rate,
+        parsed.channel_count,
+        parsed.samples,
+    ) catch {
+        app.setStatus("import-audio: out of memory", .{});
+        return;
+    };
+
+    const lane = app.session.arrangement.lane(track) orelse {
+        app.setStatus("import-audio: track {d} has no lane", .{track + 1});
+        return;
+    };
+    history.recordLane(app, @intCast(track));
+    lane.place(app.allocator, ws.Clip.initAudio(start_tick, length_ticks, .{
+        .source_id = source_id,
+        .source_start_frame = 0,
+        .source_length_frames = source_frames,
+    })) catch {
+        app.setStatus("import-audio: out of memory placing the clip", .{});
+        return;
+    };
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.dirty = true;
+    const secs = @as(f64, @floatFromInt(source_frames)) / @as(f64, @floatFromInt(@max(parsed.sample_rate, 1)));
+    app.setStatus("imported {s} ({d:.1}s) at bar {d}", .{ stemOf(path), secs, app.arr_cursor_bar + 1 });
+}
