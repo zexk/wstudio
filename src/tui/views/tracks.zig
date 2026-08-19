@@ -287,7 +287,9 @@ fn writeGroupRow(app: anytype, w: *std.Io.Writer, gi: u8, is_sel: bool, in_sel: 
 pub fn drawTracks(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, snap: engine_mod.UiSnapshot) !void {
     _ = snap;
     const mode_tag: []const u8 = if (app.session.song_mode) grn ++ "SONG" ++ rst else dim ++ "PATTERN" ++ rst;
-    try w.writeAll(bold ++ " TRACKS" ++ rst ++ "  ");
+    try w.writeAll(" ");
+    try w.writeAll(icons.iconOr(icons.logo ++ " ", ""));
+    try w.writeAll(bold ++ "TRACKS" ++ rst ++ "  ");
     try w.writeAll(mode_tag);
     try endLine(w);
 

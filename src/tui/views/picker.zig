@@ -25,8 +25,10 @@ pub fn drawInstrumentPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void 
 
     // Same header shape as every other picker: what it does, what it acts
     // on, how many rows survived the filter, and the filter itself.
+    try w.writeAll(" ");
+    try w.writeAll(icons.iconOr(icons.instrument ++ " ", ""));
     try w.writeAll(bold);
-    try w.writeAll(if (app.picker_replace) " REPLACE INSTRUMENT" else " INSERT INSTRUMENT");
+    try w.writeAll(if (app.picker_replace) "REPLACE INSTRUMENT" else "INSERT INSTRUMENT");
     try w.writeAll(rst ++ acc);
     try w.print("  \"{s}\"", .{app.pickerTargetName()});
     try w.writeAll(rst ++ dim);
@@ -113,7 +115,9 @@ pub fn drawFxPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     const total_count = kinds.len + external_count;
     const filter = spectrum_ed.activeFilter(app);
 
-    try w.writeAll(bold ++ " INSERT EFFECT" ++ rst);
+    try w.writeAll(" ");
+    try w.writeAll(icons.iconOr(icons.eq ++ " ", ""));
+    try w.writeAll(bold ++ "INSERT EFFECT" ++ rst);
     try w.writeAll(acc);
     try w.print("  \"{s}\"", .{app.pickerTargetName()});
     try w.writeAll(rst ++ dim);

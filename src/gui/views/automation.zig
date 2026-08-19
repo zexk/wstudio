@@ -57,7 +57,7 @@ fn drawHeader(app: anytype, clip: ?*const ws.Clip) void {
     const accent = trackColor(track.color);
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg2), .rounding = style.panel_rounding });
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(accent), .rounding = style.item_rounding });
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(theme.fg3), "AUTOMATION", .{});
+    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(theme.fg3), icons.automation ++ "  AUTOMATION", .{});
     draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(theme.fg0), "{s}", .{track.name});
     if (clip) |c| {
         const ticks_per_bar = ws.time_grid.barTicks(app.core.session.project.beats_per_bar, app.core.session.project.meter_denominator);
@@ -316,7 +316,7 @@ pub fn drawParamPicker(app: anytype) void {
     for (rows) |row| {
         if (row == .param) match_count += 1;
     }
-    picker.header(theme.focus, "AUTOMATE PARAM", app.core.pickerTargetName(), "", match_count, filter);
+    picker.header(theme.focus, icons.param ++ "  AUTOMATE PARAM", app.core.pickerTargetName(), "", match_count, filter);
     widgets.hoverHelp("/ filter  j/k move  enter pick  esc back");
     zgui.spacing();
     if (match_count == 0) {

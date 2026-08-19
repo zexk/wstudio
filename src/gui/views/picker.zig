@@ -122,7 +122,7 @@ pub fn drawInstrument(app: anytype) void {
     const filter = app.core.activeInstrumentFilter();
     header(
         theme.focus,
-        if (app.core.picker_replace) "REPLACE INSTRUMENT" else "INSERT INSTRUMENT",
+        if (app.core.picker_replace) icons.instrument ++ "  REPLACE INSTRUMENT" else icons.instrument ++ "  INSERT INSTRUMENT",
         app.core.pickerTargetName(),
         if (app.core.picker_replace) "Keeps notes when instrument types match" else "Choose track sound",
         items.len + app.core.filteredInstrumentPluginCount(),
@@ -189,7 +189,7 @@ pub fn drawFx(app: anytype) void {
     if (total_count > 0) {
         app.core.fx_picker_cursor = @intCast(@min(app.core.fx_picker_cursor, total_count - 1));
     }
-    header(theme.modulation, "INSERT EFFECT", app.core.pickerTargetName(), "Inserted after the focused unit", total_count, filter);
+    header(theme.modulation, icons.eq ++ "  INSERT EFFECT", app.core.pickerTargetName(), "Inserted after the focused unit", total_count, filter);
     widgets.hoverHelp("/ filter  j/k move  enter insert  esc cancel");
     zgui.spacing();
     // Single column, matching the TUI list's flat j/k stepping - see
@@ -310,8 +310,17 @@ pub fn drawPreset(app: anytype) void {
         .drum => theme.rhythm,
         .soundfont, .acoustic => theme.audio,
     };
+    // The kind already picks the accent; it picks the glyph the same way, so
+    // a preset list says what it is a list of before its title is read.
+    const kind_icon = switch (app.core.preset_picker_kind) {
+        .synth => icons.synth,
+        .drum => icons.drum,
+        .soundfont, .acoustic => icons.soundfont,
+    };
     const filter = preset_ed.activeFilter(&app.core);
-    header(kind_accent, app.core.preset_picker_kind.label(), app.core.pickerTargetName(), "", count, filter);
+    var title_buf: [64]u8 = undefined;
+    const title = std.fmt.bufPrint(&title_buf, "{s}  {s}", .{ kind_icon, app.core.preset_picker_kind.label() }) catch app.core.preset_picker_kind.label();
+    header(kind_accent, title, app.core.pickerTargetName(), "", count, filter);
     widgets.hoverHelp(if (app.core.preset_picker_kind == .drum)
         "/ filter  j/k move  enter choose  esc close  [ ] category"
     else

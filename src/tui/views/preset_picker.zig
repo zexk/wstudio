@@ -4,6 +4,7 @@
 const std = @import("std");
 const preset_ed = @import("../../ui/editors/preset_picker.zig");
 const style = @import("../style.zig");
+const icons = @import("../../ui/icons.zig");
 
 const rst = style.rst;
 const bold = style.bold;
@@ -18,8 +19,19 @@ pub fn drawPresetPicker(app: anytype, w: *std.Io.Writer, rows: usize) !void {
     const rows_list = preset_ed.buildDisplayRows(app, &buf);
     const count = preset_ed.entryCountOf(rows_list);
 
-    try w.writeAll(bold);
     try w.writeByte(' ');
+    // Same glyph the tracks view marks the instrument with, so a preset
+    // list and the row it will land on read as the same kind.
+    const kind_icon: []const u8 = switch (app.preset_picker_kind) {
+        .synth => icons.synth,
+        .drum => icons.drum,
+        .soundfont, .acoustic => icons.soundfont,
+    };
+    if (icons.font_installed) {
+        try w.writeAll(kind_icon);
+        try w.writeByte(' ');
+    }
+    try w.writeAll(bold);
     try w.writeAll(app.preset_picker_kind.label());
     try w.writeAll(rst ++ acc);
     try w.print("  \"{s}\"", .{app.pickerTargetName()});

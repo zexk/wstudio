@@ -8,6 +8,7 @@ const automation_mod = ws.dsp.automation;
 const automation_ed = @import("../../ui/editors/automation.zig");
 const AutomationFocus = automation_ed.AutomationFocus;
 const style = @import("../style.zig");
+const icons = @import("../../ui/icons.zig");
 
 const rst = style.rst;
 const bold = style.bold;
@@ -60,7 +61,9 @@ pub fn drawAutomation(
     const clip = automation_ed.currentClip(app) orelse {
         // Worded like the GUI's empty state - it is the same situation, not
         // an error: no clip under the cursor to hang a curve on.
-        try w.writeAll(bold ++ " AUTOMATION" ++ rst ++ dim ++ "  no clip selected - stamp a clip, then press a" ++ rst);
+        try w.writeAll(" ");
+        try w.writeAll(icons.iconOr(icons.automation ++ " ", ""));
+        try w.writeAll(bold ++ "AUTOMATION" ++ rst ++ dim ++ "  no clip selected - stamp a clip, then press a" ++ rst);
         try endLine(w);
         for (1..@max(1, rows -| 4)) |_| try endLine(w);
         return;
@@ -77,7 +80,9 @@ pub fn drawAutomation(
         .synth_param => |t| automation_ed.targetLabel(app, t),
     };
 
-    try w.writeAll(bold ++ " AUTOMATION" ++ rst);
+    try w.writeAll(" ");
+    try w.writeAll(icons.iconOr(icons.automation ++ " ", ""));
+    try w.writeAll(bold ++ "AUTOMATION" ++ rst);
     try w.print("  \"{s}\"", .{track_name});
     const ticks_per_bar = ws.time_grid.barTicks(app.session.project.beats_per_bar, app.session.project.meter_denominator);
     const start_bar = clip.start_tick / ticks_per_bar + 1;

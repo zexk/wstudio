@@ -1,4 +1,4 @@
-//! Icon glyphs for the TUI and GUI, drawn from a 51-glyph subset of "Symbols
+//! Icon glyphs for the TUI and GUI, drawn from a 53-glyph subset of "Symbols
 //! Nerd Font Mono" (MIT license; see assets/fonts/LICENSE and the Nerd Fonts
 //! project at https://github.com/ryanoasis/nerd-fonts). Codepoints are the
 //! ones the upstream font's own `post` table names (`fa-play`, `md-undo`,
@@ -65,6 +65,12 @@ pub const plugin = "\u{f06a5}";
 /// equalizer bars until the subset grew one; ascending bars read as "how
 /// much signal", which is what the meter answers.
 pub const level = "\u{f04a2}";
+/// md-music_box - a track instrument as a thing you pick, next to
+/// `soundfont`'s stack of the same box for a bank of many programs.
+pub const instrument = "\u{f0384}";
+/// md-tune - a parameter, the thing an automation lane or a picker row
+/// targets. Sliders, because a parameter is a value you move.
+pub const param = "\u{f062e}";
 /// md-folder_open - the file browser's own title, matching `folder` on the
 /// directory rows it lists.
 pub const browse = "\u{f0770}";

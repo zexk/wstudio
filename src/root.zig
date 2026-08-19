@@ -106,7 +106,7 @@ pub fn iconFontDir(buf: []u8) ![]const u8 {
     return error.NoFontDir;
 }
 
-/// A 51-glyph subset of "Symbols Nerd Font Mono" (MIT; see
+/// A 53-glyph subset of "Symbols Nerd Font Mono" (MIT; see
 /// assets/fonts/LICENSE) used for the TUI's icons (ui/icons.zig). Exposed
 /// here - rather than embedded directly in ui/icons.zig - so the
 /// `install-font` build tool can reach it too: @embedFile can't cross a
