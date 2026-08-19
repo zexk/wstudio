@@ -19,6 +19,7 @@ const eq_mod = ws.dsp.eq;
 const gate_mod = ws.dsp.gate;
 const multiband_comp = ws.dsp.multiband_comp;
 const chorus_mod = ws.dsp.chorus;
+const amp_mod = ws.dsp.amp;
 const limiter_mod = ws.dsp.limiter;
 const DrumMachine = ws.dsp.DrumMachine;
 const Fx = ws.Fx;
@@ -370,6 +371,7 @@ pub fn paramToggleNames(k: FxKind, idx: usize) ?[2][]const u8 {
             else => null,
         },
         .limiter => if (idx == 3) .{ "sample", "true" } else null,
+        .amp => if (idx == 6) .{ "direct", "cabinet" } else null,
         .utility => switch (idx) {
             1 => .{ "normal", "invert" },
             2 => .{ "stereo", "mono" },
@@ -395,6 +397,8 @@ pub fn paramToggleNames(k: FxKind, idx: usize) ?[2][]const u8 {
 pub fn isListParam(k: FxKind, idx: usize) bool {
     return switch (k) {
         .comp => idx == sc_idx or idx == sc_pad_idx,
+        // The amp's MODEL: three named voicings, not a quantity to scrub.
+        .amp => idx == 8,
         else => false,
     };
 }
@@ -1458,6 +1462,7 @@ pub fn formatValue(app: anytype, buf: []u8, p: *const ws.FxPayload, idx: usize) 
         .amp => switch (idx) {
             0, 5, 7 => std.fmt.bufPrint(buf, "{d:.1}dB", .{v}) catch "?",
             6 => if (v < 0.5) "direct" else "cabinet",
+            8 => amp_mod.model_names[@min(@as(usize, @intFromFloat(@max(v, 0.0))), amp_mod.model_names.len - 1)],
             else => std.fmt.bufPrint(buf, "{d:.0}%", .{v * 100.0}) catch "?",
         },
         .crush => switch (idx) {
