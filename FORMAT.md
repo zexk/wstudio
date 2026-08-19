@@ -75,7 +75,7 @@ in place after the blobs land, since its value isn't known until then.
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 75) is the only format version
+`persist.zig`'s `file_version` (currently 77) is the only format version
 this build writes or reads. Loading enforces one rule:
 
 - **A file whose `version` is not exactly `file_version` is hard-rejected**
@@ -88,6 +88,9 @@ because they protect against corrupt and hand-edited values.
 
 **Bump `file_version` for every schema or semantic change**, including new
 fields and enum members.
+
+Version 77 gives the guitar amp a MODEL and a TIGHT param, appended to
+`AmpSnap`. Version 76 makes an audio track its own instrument kind.
 
 Version 75 adds the guitar amp FX unit. Its snapshot sits mid-union rather
 than at the end, so every FX tag after it renumbers - a version 74 file

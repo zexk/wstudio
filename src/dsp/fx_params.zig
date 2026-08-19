@@ -235,6 +235,11 @@ pub const amp_specs = [_]ParamSpec{
     .{ .name = "master", .field = "master_db", .min = 0.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
     .{ .name = "cab", .field = "cab", .min = 0.0, .max = 1.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
     .{ .name = "output", .field = "out_db", .min = -24.0, .max = 24.0, .step_fine = 0.5, .step_coarse = 3.0 },
+    // Appended rather than placed with the other voicing controls: a param
+    // index *is* an automation lane's id, so inserting one renumbers every
+    // amp lane in every project already saved.
+    .{ .name = "model", .field = "model", .min = 0.0, .max = 2.0, .step_fine = 1.0, .step_coarse = 1.0, .round = true },
+    .{ .name = "tight", .field = "tight", .min = 0.0, .max = 1.0, .step_fine = 0.05, .step_coarse = 0.2 },
 };
 
 pub const crush_specs = [_]ParamSpec{
