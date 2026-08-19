@@ -94,29 +94,67 @@ pub const BadgeTone = ansi.BadgeTone;
 pub const writeViewBadge = ansi.writeViewBadge;
 pub const writeViewBadgeColored = ansi.writeViewBadgeColored;
 
+/// Display width of one codepoint: 0 for combining marks and the zero-width
+/// selectors, 2 for the East Asian Wide/Fullwidth and emoji blocks, 1 for
+/// everything else. Deliberately a range table and not a Unicode database:
+/// the private use area (ui/icons.zig) has to stay one column, and the
+/// blocks below are the ones a sample filename or a preset name carries.
+pub fn charWidth(cp: u21) usize {
+    // zig fmt: off
+    const zero = [_][2]u21{
+        .{ 0x0300, 0x036F }, .{ 0x1AB0, 0x1AFF }, .{ 0x1DC0, 0x1DFF },
+        .{ 0x200B, 0x200F }, .{ 0x20D0, 0x20FF }, .{ 0xFE00, 0xFE0F },
+        .{ 0xFE20, 0xFE2F },
+    };
+    const wide = [_][2]u21{
+        .{ 0x1100, 0x115F },  .{ 0x2E80, 0x303E },  .{ 0x3041, 0x33FF },
+        .{ 0x3400, 0x4DBF },  .{ 0x4E00, 0x9FFF },  .{ 0xA000, 0xA4CF },
+        .{ 0xAC00, 0xD7A3 },  .{ 0xF900, 0xFAFF },  .{ 0xFE30, 0xFE6F },
+        .{ 0xFF00, 0xFF60 },  .{ 0xFFE0, 0xFFE6 },  .{ 0x1F300, 0x1F64F },
+        .{ 0x1F680, 0x1F6FF }, .{ 0x1F900, 0x1F9FF }, .{ 0x20000, 0x3FFFD },
+    };
+    // zig fmt: on
+    for (zero) |r| if (cp >= r[0] and cp <= r[1]) return 0;
+    for (wide) |r| if (cp >= r[0] and cp <= r[1]) return 2;
+    return 1;
+}
+
+/// One step through `raw`: how many bytes the next chunk spans and how many
+/// columns it advances the cursor. An SGR escape is a zero-width chunk; an
+/// invalid byte counts as one column and one byte, so a mangled name still
+/// truncates instead of looping. The single place that walks a row, so
+/// visibleWidth and writeClamped cannot disagree about where the edge is.
+fn nextCell(raw: []const u8, i: usize) struct { len: usize, width: usize } {
+    if (raw[i] == 0x1b and i + 1 < raw.len and raw[i + 1] == '[') {
+        var j = i + 2;
+        while (j < raw.len and !((raw[j] >= 'A' and raw[j] <= 'Z') or (raw[j] >= 'a' and raw[j] <= 'z'))) : (j += 1) {}
+        if (j < raw.len) j += 1; // include the terminator letter
+        return .{ .len = j - i, .width = 0 };
+    }
+    const len = std.unicode.utf8ByteSequenceLength(raw[i]) catch return .{ .len = 1, .width = 1 };
+    if (i + len > raw.len) return .{ .len = 1, .width = 1 };
+    const cp = std.unicode.utf8Decode(raw[i..][0..len]) catch return .{ .len = 1, .width = 1 };
+    return .{ .len = len, .width = charWidth(cp) };
+}
+
 /// Visible column width of `raw` (may contain ANSI SGR sequences): escapes
-/// cost nothing, everything else counts as one column per UTF-8 lead byte.
+/// cost nothing, everything else costs what the terminal advances by.
 /// Shared by writeClamped (left content) and writeSplitRow (both sides).
 pub fn visibleWidth(raw: []const u8) usize {
     var i: usize = 0;
     var col: usize = 0;
     while (i < raw.len) {
-        if (raw[i] == 0x1b and i + 1 < raw.len and raw[i + 1] == '[') {
-            i += 2;
-            while (i < raw.len and !((raw[i] >= 'A' and raw[i] <= 'Z') or (raw[i] >= 'a' and raw[i] <= 'z'))) : (i += 1) {}
-            if (i < raw.len) i += 1;
-            continue;
-        }
-        if (raw[i] & 0xC0 != 0x80) col += 1;
-        i += 1;
+        const cell = nextCell(raw, i);
+        col += cell.width;
+        i += cell.len;
     }
     return col;
 }
 
 /// Write `raw` (a single line, no \r\n, may contain ANSI SGR sequences) to
 /// `w`, clamped to `max_cols` visible columns. ANSI escapes are copied
-/// through verbatim (they cost no width); everything else counts as one
-/// column per UTF-8 lead byte. Footer status lines are built from several
+/// through verbatim (they cost no width); everything else costs the columns
+/// the terminal advances by. Footer status lines are built from several
 /// independent `w.print` calls with no shared width budget, so a verbose
 /// status message can silently overflow past the terminal's right edge and
 /// wrap onto a new row - which pushes the whole frame down by one line and
@@ -125,23 +163,14 @@ pub fn writeClamped(w: *std.Io.Writer, raw: []const u8, max_cols: usize) !void {
     var i: usize = 0;
     var col: usize = 0;
     while (i < raw.len) {
-        if (raw[i] == 0x1b and i + 1 < raw.len and raw[i + 1] == '[') {
-            const start = i;
-            i += 2;
-            while (i < raw.len and !((raw[i] >= 'A' and raw[i] <= 'Z') or (raw[i] >= 'a' and raw[i] <= 'z'))) : (i += 1) {}
-            if (i < raw.len) i += 1; // include the terminator letter
-            try w.writeAll(raw[start..i]);
-            continue;
-        }
-        // Continuation bytes are free AND have to ride along with the lead
-        // byte that was already counted - stopping between them would emit
-        // half a codepoint, which the terminal draws as a replacement glyph.
-        if (raw[i] & 0xC0 != 0x80) {
-            if (col >= max_cols) break;
-            col += 1;
-        }
-        try w.writeByte(raw[i]);
-        i += 1;
+        const cell = nextCell(raw, i);
+        // A whole codepoint at a time: stopping inside one would emit half a
+        // glyph. A wide glyph straddling the right edge is dropped entirely -
+        // half of one is a different glyph, not a narrower one.
+        if (cell.width > 0 and col + cell.width > max_cols) break;
+        try w.writeAll(raw[i..][0..cell.len]);
+        col += cell.width;
+        i += cell.len;
     }
     try w.writeAll(rst);
 }
@@ -177,7 +206,7 @@ pub fn writeHighlighted(
             }
         }
     }
-    for (0..pad_to -| text.len) |_| try w.writeByte(' ');
+    for (0..pad_to -| visibleWidth(text)) |_| try w.writeByte(' ');
 }
 
 /// Writes `left` then right-aligns `right` flush against `cols` (padding
@@ -210,6 +239,25 @@ pub fn writePadded(w: *std.Io.Writer, raw: []const u8, width: usize) !void {
     try writeClamped(w, raw, width);
     const vw = visibleWidth(raw);
     if (vw < width) try w.splatByteAll(' ', width - vw);
+}
+
+test "wide glyphs cost two columns and never straddle the clamp" {
+    // A CJK name in a gutter used to measure one column per codepoint, so the
+    // row it sat in overflowed the terminal by its own width.
+    try std.testing.expectEqual(@as(usize, 6), visibleWidth("音楽室"));
+    try std.testing.expectEqual(@as(usize, 3), visibleWidth("\x1b[31mabc\x1b[0m"));
+    try std.testing.expectEqual(@as(usize, 1), visibleWidth("e\u{0301}"));
+
+    var buf: [64]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    // 5 columns is two full glyphs; the third would straddle the edge.
+    try writeClamped(&w, "音楽室", 5);
+    try std.testing.expectEqualStrings("音楽" ++ rst, w.buffered());
+
+    var pad_buf: [64]u8 = undefined;
+    var pw = std.Io.Writer.fixed(&pad_buf);
+    try writePadded(&pw, "音楽室", 8);
+    try std.testing.expectEqual(@as(usize, 8), visibleWidth(pw.buffered()));
 }
 
 pub fn meter(w: *std.Io.Writer, peak: f32) !void {
