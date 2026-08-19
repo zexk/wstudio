@@ -344,6 +344,7 @@ fn drawEffectPlot(app: anytype, target: spectrum_ed.EqTarget, draw_list: zgui.Dr
             .amp => ampDisplayValue(&unit.payload.amp, t),
             .sat => satDisplayValue(&unit.payload.sat, t),
             .clipper => clipperDisplayValue(&unit.payload.clipper, t),
+            .comp => compDisplayValue(&unit.payload.comp, t),
             .gate => gateDisplayValue(&unit.payload.gate, t),
             .expander => expanderDisplayValue(&unit.payload.expander, t),
             // A limiter is its ceiling: everything above lands on it. ALR
@@ -393,7 +394,6 @@ fn normalizedParam(app: anytype, unit: *ws.FxUnit, index: usize) f32 {
 
 fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
     return switch (kind) {
-        .comp, .mb_comp, .ott, .transient_shaper => if (t < amount) t else amount + (t - amount) * (0.2 + shape * 0.45),
         .crush => @round(t * std.math.pow(f32, 2.0, amount * 15.0)) / std.math.pow(f32, 2.0, amount * 15.0),
         // An LFO offset swings about a centre - it does not climb. The old
         // `t + sin(...)` baseline drew the same rising ramp a transfer curve
@@ -408,7 +408,7 @@ fn effectDisplayValue(kind: ws.FxKind, t: f32, amount: f32, shape: f32) f32 {
         .reverb => std.math.clamp(@exp(-t * (0.8 + (1.0 - amount) * 4.0)) * (0.7 + 0.2 * @sin(t * std.math.pi * 26.0)), 0, 1),
         // `.amp` and `.filter` draw a frequency response instead; see
         // `drawEffectPlot`.
-        .eq, .amp, .sat, .clipper, .gate, .expander, .limiter, .filter, .crossover, .utility, .stereo_width, .tape => t,
+        .eq, .amp, .sat, .clipper, .comp, .gate, .expander, .limiter, .filter, .crossover, .utility, .stereo_width, .tape, .mb_comp, .ott, .transient_shaper => t,
         .clap, .vst3 => t,
     };
 }
@@ -476,6 +476,23 @@ fn expanderDisplayValue(exp: anytype, t: f32) f32 {
         std.math.clamp(exp.range_db, ws.dsp.expander.max_reduction_db, 0.0),
     );
     return std.math.clamp(t * ws.types.dbToGain(gain_db), 0, 1);
+}
+
+/// The compressor's static curve, through the same gain computer the audio
+/// path calls - so RATIO, KNEE, MAKEUP and the up/down MODE are all in the
+/// drawing. The generic knee it shared with four other units bent at a
+/// fixed slope and could not show a soft knee or an upward mode at all.
+fn compDisplayValue(comp: anytype, t: f32) f32 {
+    const Comp = ws.dsp.Compressor;
+    const level_db = ws.types.gainToDb(@max(t, 1e-6));
+    const over_db = level_db - std.math.clamp(comp.threshold_db, -60.0, 0.0);
+    const ratio = std.math.clamp(comp.ratio, 1.0, 20.0);
+    const gain_db = if (std.math.clamp(comp.mode, 0.0, 1.0) >= 0.5)
+        Comp.upwardBoostDb(over_db, ratio)
+    else
+        Comp.downwardReductionDb(over_db, ratio, std.math.clamp(comp.knee_db, 0.0, 24.0));
+    const makeup_db = std.math.clamp(comp.makeup_db, -24.0, 24.0);
+    return std.math.clamp(t * ws.types.dbToGain(gain_db + makeup_db), 0, 1);
 }
 /// One live readout. Every dynamics unit's display is some number of these,
 /// built by `meterRows` and drawn by `drawMeterStack` - three helpers laying
