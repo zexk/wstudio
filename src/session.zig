@@ -1499,6 +1499,29 @@ pub const Session = struct {
             // the engine's copy of a dropped one has to be cleared by hand.
             self.engine.setMixAutomation(.{ .group_gain = idx }, &.{});
         }
+        // A compressor sidechaining off this group names it by bank index,
+        // which `remapTrackReferences` deliberately leaves alone because a
+        // track reorder never moves it. A delete does: the slot is freed in
+        // place and the next `addGroup` takes the first free one, so a
+        // reference left behind would duck to a group the user never picked.
+        const clearSc = struct {
+            fn go(fx: *rack_mod.Fx, gone: u8) void {
+                for (fx.units.items) |u| switch (u.payload) {
+                    .comp => |*c| if (c.sidechain_source) |sc| {
+                        if (sc.is_group and sc.track == gone) c.sidechain_source = null;
+                    },
+                    else => {},
+                };
+            }
+        }.go;
+        for (self.racks.items) |rack| clearSc(&rack.fx, idx);
+        for (&self.groups) |*slot| if (slot.*) |*grp| clearSc(&grp.fx, idx);
+        clearSc(&self.master_fx, idx);
+        for (self.racks.items, 0..) |rack, i| {
+            var sc_buf: [rack_mod.Rack.chain_cap]?Compressor.SidechainSource = undefined;
+            self.engine.setTrackSidechainSources(@intCast(i), rack.sidechainSources(&sc_buf));
+        }
+
         // Unpublish the chain before the units it points at go away - see
         // `retireFxChain`.
         self.allocator.free(g.name);
@@ -2938,4 +2961,22 @@ test "duplicateTrack carries every Track field, including ones added later" {
             try std.testing.expectEqual(@field(src, f.name), @field(copy, f.name));
         }
     }
+}
+
+test "deleting a group clears the compressors sidechaining off it" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    const g = try s.addGroup("drums");
+    const unit = try s.racks.items[0].fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
+    unit.payload.comp.sidechain_source = .{ .track = g, .pad = null, .is_group = true };
+
+    s.deleteGroup(g);
+    // The bank frees the slot in place and `addGroup` takes the first free
+    // one, so a stale reference does not just point at nothing - it points
+    // at whatever group is created next.
+    try std.testing.expect(unit.payload.comp.sidechain_source == null);
+
+    const reused = try s.addGroup("bass");
+    try std.testing.expectEqual(g, reused);
+    try std.testing.expect(unit.payload.comp.sidechain_source == null);
 }
