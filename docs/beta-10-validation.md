@@ -66,8 +66,10 @@ supports the archives' existing flat executable layout.
 A local ReleaseSafe Linux tarball built from this workflow layout, extracted
 under `/tmp`, reports `1.0.0-beta.10`, contains the bridge, acoustic SFZs and
 licenses, docs, and config template, and renders `demo.wsj` to 16-bit stereo
-PCM at 48 kHz. `actionlint` passes on the updated workflow. Native Windows and
-macOS archive runtime checks remain unverified under the host skips above.
+PCM at 48 kHz. Its TUI also creates an acoustic track and opens `Grand Piano
+(1/1)` from the flat archive layout with an empty application log. `actionlint`
+passes on the updated workflow. Native Windows and macOS archive runtime checks
+remain unverified under the host skips above.
 
 Acoustic instrument creation no longer hides a missing-library error behind a
 later success status. Focused command coverage forces the load failure and
