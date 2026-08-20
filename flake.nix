@@ -109,19 +109,58 @@
           pkgs.libmpg123
           pkgs.lame
         ];
+      windowsMidi2Headers =
+        pkgs:
+        let
+          cppWinrt = pkgs.fetchurl {
+            url = "https://api.nuget.org/v3-flatcontainer/microsoft.windows.cppwinrt/2.0.250303.1/microsoft.windows.cppwinrt.2.0.250303.1.nupkg";
+            hash = "sha256-lV4wUbNdscABd+0Uq2t7mVw7MqU/22wYTqU7Hbpm5Dk=";
+          };
+          midiSdk = pkgs.fetchurl {
+            url = "https://github.com/microsoft/MIDI/releases/download/rc-4/Microsoft.Windows.Devices.Midi2.1.0.17-rc.4.25.nupkg";
+            hash = "sha256-0KQg5yQVSq9wfLzu/eDjVbC22dzTcWD3Z7+sapyahuY=";
+          };
+          windowsContracts = pkgs.fetchurl {
+            url = "https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.contracts/10.0.26100.1742/microsoft.windows.sdk.contracts.10.0.26100.1742.nupkg";
+            hash = "sha256-rDuhAqLK7EBD7jQHCofKoJoJye/2ecaJohhWvLaDEEU=";
+          };
+        in
+        pkgs.runCommand "windows-midi2-headers"
+          {
+            nativeBuildInputs = [
+              pkgs.unzip
+              pkgs.wineWow64Packages.stable
+            ];
+          }
+          ''
+            mkdir cppwinrt midi-sdk windows-contracts
+            unzip -q ${cppWinrt} -d cppwinrt
+            unzip -q ${midiSdk} -d midi-sdk
+            unzip -q ${windowsContracts} -d windows-contracts
+            export WINEDEBUG=-all WINEPREFIX="$TMPDIR/wine"
+            sdk_path=$(winepath -w "$PWD/windows-contracts/ref/netstandard2.0")
+            midi_path=$(winepath -w "$PWD/midi-sdk/ref/native/Microsoft.Windows.Devices.Midi2.winmd")
+            output_path=$(winepath -w "$out/include")
+            mkdir -p "$out/include"
+            wine cppwinrt/bin/cppwinrt.exe \
+              -input "$sdk_path" "$midi_path" \
+              -output "$output_path"
+          '';
       cLibs = pkgs: targetLibs pkgs ++ [ pkgs.lua5_4 ];
       # One prefix holding both the headers and the libraries, since build.zig
       # points a cross-compile at a single directory.
       targetPrefix =
-        pkgs:
+        pkgs: buildPkgs:
         pkgs.symlinkJoin {
           name = "wstudio-target-prefix";
           # Every code-bearing output, because these packages split themselves
           # up differently: mingw libsndfile puts its DLL in `bin`, its import
           # library in `out` and its headers in `dev`.
-          paths = pkgs.lib.concatMap (
-            p: map (out: p.${out}) (pkgs.lib.subtractLists [ "man" "doc" "info" ] (p.outputs or [ "out" ]))
-          ) (targetLibs pkgs);
+          paths =
+            pkgs.lib.concatMap (
+              p: map (out: p.${out}) (pkgs.lib.subtractLists [ "man" "doc" "info" ] (p.outputs or [ "out" ]))
+            ) (targetLibs pkgs)
+            ++ pkgs.lib.optional pkgs.stdenv.hostPlatform.isWindows (windowsMidi2Headers buildPkgs);
         };
       neutralTerminal =
         pkgs:
@@ -261,7 +300,7 @@
             pkgs.zig.hook
             targetPkgs.stdenv.cc.bintools.bintools
           ];
-          WSTUDIO_TARGET_PREFIX = targetPrefix targetPkgs;
+          WSTUDIO_TARGET_PREFIX = targetPrefix targetPkgs pkgs;
           postConfigure = ''
             ln -s ${finalAttrs.zigDeps} "$ZIG_GLOBAL_CACHE_DIR/p"
           '';
@@ -384,12 +423,12 @@
             # `zig build -Dtarget=x86_64-macos` on an Apple Silicon runner,
             # which the release workflow does, is a cross build by
             # architecture and needs Intel copies of these libraries.
-            WSTUDIO_TARGET_PREFIX = targetPrefix pkgs.pkgsx86_64Darwin;
+            WSTUDIO_TARGET_PREFIX = targetPrefix pkgs.pkgsx86_64Darwin pkgs;
           }
           // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
             # `zig build -Dtarget=x86_64-windows-gnu` from this shell, which is
             # what CI does, needs the mingw copies rather than the host ones.
-            WSTUDIO_TARGET_PREFIX = targetPrefix pkgs.pkgsCross.mingwW64;
+            WSTUDIO_TARGET_PREFIX = targetPrefix pkgs.pkgsCross.mingwW64 pkgs;
           }
           // pkgs.lib.optionalAttrs (pkgs.stdenv.hostPlatform.isLinux && pkgs.stdenv.hostPlatform.isx86_64) {
             # Third-party plugin release pass is recorded on x86_64 Linux;
@@ -403,7 +442,7 @@
             pkgs.zig
             (windowsArm64Pkgs pkgs).stdenv.cc.bintools.bintools
           ];
-          WSTUDIO_TARGET_PREFIX = targetPrefix (windowsArm64Pkgs pkgs);
+          WSTUDIO_TARGET_PREFIX = targetPrefix (windowsArm64Pkgs pkgs) pkgs;
         };
       });
 

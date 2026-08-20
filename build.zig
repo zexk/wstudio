@@ -121,7 +121,6 @@ pub fn build(b: *std.Build) void {
         wstudio_mod.linkSystemLibrary("oleaut32", .{});
         wstudio_mod.linkSystemLibrary("winmm", .{});
         wstudio_mod.link_libcpp = true;
-        wstudio_mod.addIncludePath(b.path("third_party/windows_midi2"));
         wstudio_mod.addCSourceFile(.{
             .file = b.path("src/audio/midi/windows_midi2.cpp"),
             .flags = &.{ "-std=c++20", "-fexceptions" },

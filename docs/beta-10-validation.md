@@ -48,6 +48,12 @@ previously these public package outputs omitted their required DLLs even though
 the release workflow added them later. This proves packaging, not the native
 Windows journey listed under explicit skips.
 
+Windows MIDI 2.0 projections no longer live in `third_party/`. Nix fetches the
+pinned Windows MIDI Services SDK, C++/WinRT generator, and Windows SDK contracts,
+then generates headers before each Windows cross-build. Both Windows package
+builds pass with only this generated include tree, and the repository has no
+remaining `third_party` path or reference.
+
 The `macos` package output is now exposed only on native Arm64 macOS. It was
 previously advertised on every flake system, but its fixed Arm64 target received
 Linux or Intel host libraries and could not link. `nix flake show --all-systems`
