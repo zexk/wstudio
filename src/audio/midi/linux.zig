@@ -169,6 +169,13 @@ pub const MidiIn = struct {
             const raw = @as(i32, ev.unnamed_0.data.control.value);
             const bend: i16 = @intCast(std.math.clamp(raw, -8192, 8191));
             _ = eng.sendMidi(.{ .pitch_bend = .{ .track = track, .bend = bend } });
+        } else if (etype == c.SND_SEQ_EVENT_CHANPRESS) {
+            const value = std.math.clamp(@as(i32, ev.unnamed_0.data.control.value), 0, 127);
+            _ = eng.sendMidi(.{ .channel_pressure = .{ .track = track, .value = @as(f32, @floatFromInt(value)) / 127.0 } });
+        } else if (etype == c.SND_SEQ_EVENT_KEYPRESS) {
+            const note: u7 = @intCast(ev.unnamed_0.data.note.note & 0x7F);
+            const value: u7 = @intCast(ev.unnamed_0.data.note.velocity & 0x7F);
+            _ = eng.sendMidi(.{ .poly_pressure = .{ .track = track, .note = note, .value = @as(f32, @floatFromInt(value)) / 127.0 } });
         }
     }
 };

@@ -285,6 +285,8 @@ pub const ModSource = enum {
     env3,
     random,
     alternate,
+    channel_pressure,
+    poly_pressure,
 
     /// True for the sources that swing through negative values. The
     /// envelopes, velocity, the wheel, and the macros are all already
@@ -642,6 +644,7 @@ pub const PolySynth = struct {
     pitch_bend_semitones: f32 = 0.0,
     /// Lagged bend consumed by voices, keeping MIDI steps out of pitch.
     pitch_bend_smooth: f32 = 0.0,
+    channel_pressure: f32 = 0.0,
 
     // ── OUT ─────────────────────────────────────────────────────────────────
     gain: f32 = 0.35,
@@ -914,6 +917,8 @@ pub const PolySynth = struct {
         active: bool = false,
         note:   u7   = 0,
         velocity: f32 = 0.0,
+        per_note_bend: f32 = 0.0,
+        poly_pressure: f32 = 0.0,
         /// The sequenced note's own pan/fine-tune/release, fixed for the
         /// voice's life - see `dsp.Articulation`.
         art: dsp.Articulation = .neutral,
@@ -1802,6 +1807,8 @@ pub const PolySynth = struct {
                 .env3     => if (v) |vv| vv.env3 else 0.0,
                 .random    => if (v) |vv| vv.random else 0.0,
                 .alternate => if (v) |vv| vv.alternate else 0.0,
+                .channel_pressure => self.channel_pressure,
+                .poly_pressure => if (v) |vv| vv.poly_pressure else 0.0,
                 // zig fmt: on
             };
             const polar = if (row.unipolar and row.source.isBipolar()) src * 0.5 + 0.5 else src;
@@ -1934,7 +1941,7 @@ pub const PolySynth = struct {
             // both are fixed cent offsets, so they simply add.
             const base_freq = std.math.pow(f32, 2.0,
                 v.glide_log + (eff(&mods, 2, self.detune_cents) + v.art.fine_cents) / 1200.0 + mods.amt(dest_pitch) +
-                self.pitch_bend_smooth / 12.0);
+                (self.pitch_bend_smooth + v.per_note_bend) / 12.0);
 
             // Amp: virtual dest is a gain factor about unity (tremolo when
             // fed by the LFO, swells from envelopes/wheel).
@@ -2774,6 +2781,7 @@ pub const PolySynth = struct {
             // not program parameters such as volume, pan, or envelope times.
             .reset_all_ctrls   => {
                 self.mod_wheel = 0.0;
+                self.channel_pressure = 0.0;
                 self.applyPitchBend(0, 2.0);
             },
             _                  => {},
@@ -3395,6 +3403,18 @@ pub const PolySynth = struct {
         self.pitch_bend_semitones = @as(f32, @floatFromInt(bend)) / 8192.0 * range_semitones;
     }
 
+    pub fn applyPerNotePitchBend(self: *PolySynth, note: u7, value: f32, range_semitones: f32) void {
+        for (&self.voices) |*voice| {
+            if (voice.active and voice.note == note) voice.per_note_bend = value * range_semitones;
+        }
+    }
+
+    pub fn applyPolyPressure(self: *PolySynth, note: u7, value: f32) void {
+        for (&self.voices) |*voice| {
+            if (voice.active and voice.note == note) voice.poly_pressure = value;
+        }
+    }
+
     fn ccCutoff(value: f32) f32 {
         // Logarithmic: 0 → 20 Hz, 127 → 18 000 Hz.
         return 20.0 * std.math.pow(f32, 900.0, value);
@@ -3410,6 +3430,9 @@ pub const PolySynth = struct {
             .pitch_bend => |e| self.applyPitchBend(e.bend, 2.0),
             .midi2_cc => |e| self.applyCCNormalized(e.cc, e.value),
             .midi2_pitch_bend => |e| self.pitch_bend_semitones = e.value * 2.0,
+            .midi2_per_note_pitch_bend => |e| self.applyPerNotePitchBend(e.note, e.value, 2.0),
+            .channel_pressure => |e| self.channel_pressure = e.value,
+            .poly_pressure => |e| self.applyPolyPressure(e.note, e.value),
             .set_param  => |e| self.adjustParam(e.id, e.steps),
             // zig fmt: on
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
@@ -4877,6 +4900,34 @@ test "MIDI 2.0 controls keep native normalized resolution" {
 
     synth.handleEvent(.{ .midi2_pitch_bend = .{ .value = 0.25 } });
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), synth.pitch_bend_semitones, 0.000001);
+}
+
+test "MIDI 2.0 per-note pitch bend affects matching voices only" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.noteOn(60, 1.0);
+    synth.noteOn(64, 1.0);
+
+    synth.handleEvent(.{ .midi2_per_note_pitch_bend = .{ .note = 60, .value = 0.5 } });
+    for (synth.voices) |voice| {
+        if (!voice.active) continue;
+        try std.testing.expectEqual(if (voice.note == 60) @as(f32, 1.0) else 0.0, voice.per_note_bend);
+    }
+}
+
+test "MIDI pressure updates global and matching per-note sources" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    synth.noteOn(60, 1.0);
+    synth.noteOn(64, 1.0);
+
+    synth.handleEvent(.{ .channel_pressure = .{ .value = 0.75 } });
+    synth.handleEvent(.{ .poly_pressure = .{ .note = 64, .value = 0.25 } });
+    try std.testing.expectEqual(@as(f32, 0.75), synth.channel_pressure);
+    for (synth.voices) |voice| {
+        if (!voice.active) continue;
+        try std.testing.expectEqual(if (voice.note == 64) @as(f32, 0.25) else 0.0, voice.poly_pressure);
+    }
 }
 
 test "pitch bend smooths MIDI steps before voice rendering" {

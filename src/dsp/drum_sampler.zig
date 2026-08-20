@@ -1326,7 +1326,7 @@ pub const DrumMachine = struct {
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
             .capture_pad => |e| self.addPadCapture(e.pad, e.buf),
             .automation_param => |e| if (e.instance_id == 0 and e.id <= std.math.maxInt(u16)) self.setParamAbsolute(@intCast(e.id), e.value),
-            .cc, .pitch_bend, .midi2_cc, .midi2_pitch_bend, .set_mod_target, .clap_param, .vst3_param, .set_sidechain_buf => {},
+            .cc, .pitch_bend, .midi2_cc, .midi2_pitch_bend, .midi2_per_note_pitch_bend, .channel_pressure, .poly_pressure, .set_mod_target, .clap_param, .vst3_param, .set_sidechain_buf => {},
             .all_off  => self.resetAll(),
             // zig fmt: on
         }

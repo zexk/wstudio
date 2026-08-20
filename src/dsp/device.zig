@@ -63,6 +63,9 @@ pub const Event = union(enum) {
     pitch_bend: struct { bend: i16 },
     midi2_cc: struct { cc: u7, value: f32 },
     midi2_pitch_bend: struct { value: f32 },
+    midi2_per_note_pitch_bend: struct { note: u7, value: f32 },
+    channel_pressure: struct { value: f32 },
+    poly_pressure: struct { note: u7, value: f32 },
     /// Nudge editor parameter `id` by `steps` (signed). Applied on the audio
     /// thread so UI edits never race the reader - see PolySynth.adjustParam.
     /// `id` is u16 everywhere: DrumMachine.paramId packs a pad index (up to

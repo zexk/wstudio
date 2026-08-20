@@ -77,6 +77,15 @@ pub fn dispatch(self: anytype, msg: midi.Msg) void {
                 self.dirty.store(true, .release);
         },
         .pitch_bend => |bend| _ = self.engine.sendMidi(.{ .pitch_bend = .{ .track = track, .bend = bend.bend } }),
+        .channel_pressure => |pressure| _ = self.engine.sendMidi(.{ .channel_pressure = .{
+            .track = track,
+            .value = @as(f32, @floatFromInt(pressure.pressure)) / 127.0,
+        } }),
+        .poly_aftertouch => |pressure| _ = self.engine.sendMidi(.{ .poly_pressure = .{
+            .track = track,
+            .note = pressure.note,
+            .value = @as(f32, @floatFromInt(pressure.velocity)) / 127.0,
+        } }),
         else => {},
     }
 }
@@ -101,6 +110,20 @@ pub fn dispatchUmp(self: anytype, msg: midi.UmpMsg) void {
                 self.dirty.store(true, .release);
         },
         .pitch_bend => |bend| _ = self.engine.sendMidi(.{ .midi2_pitch_bend = .{ .track = track, .data = bend.data } }),
+        .per_note_pitch_bend => |bend| _ = self.engine.sendMidi(.{ .midi2_per_note_pitch_bend = .{
+            .track = track,
+            .note = bend.note,
+            .data = bend.data,
+        } }),
+        .channel_pressure => |pressure| _ = self.engine.sendMidi(.{ .channel_pressure = .{
+            .track = track,
+            .value = @as(f32, @floatFromInt(pressure.data)) / 4294967295.0,
+        } }),
+        .poly_aftertouch => |pressure| _ = self.engine.sendMidi(.{ .poly_pressure = .{
+            .track = track,
+            .note = pressure.note,
+            .value = @as(f32, @floatFromInt(pressure.data)) / 4294967295.0,
+        } }),
         else => {},
     }
 }

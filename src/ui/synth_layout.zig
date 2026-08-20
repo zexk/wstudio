@@ -23,7 +23,7 @@ const ws = @import("wstudio");
 /// hand-written rather than `@tagName`d - the comptime check below is what
 /// keeps them from drifting behind `ModSource` (they did once, and cycling
 /// a matrix row's source onto the missing tail panicked every frontend).
-const mod_source_names = [_][]const u8{ "off", "lfo", "fenv", "aenv", "vel", "key", "whl", "lfo2", "lfo3", "mc1", "mc2", "mc3", "mc4", "env3", "rnd", "alt" };
+const mod_source_names = [_][]const u8{ "off", "lfo", "fenv", "aenv", "vel", "key", "whl", "lfo2", "lfo3", "mc1", "mc2", "mc3", "mc4", "env3", "rnd", "alt", "chpr", "poly" };
 
 comptime {
     if (mod_source_names.len != @typeInfo(ws.dsp.synth.ModSource).@"enum".fields.len)
