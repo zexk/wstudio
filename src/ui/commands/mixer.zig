@@ -582,7 +582,7 @@ pub fn cmdSection(app: *App, args: []const u8) void {
         return;
     };
     app.dirty = true;
-    app.setStatus("section \"{s}\" at tick {d}", .{ name, tick });
+    app.setStatus("section \"{s}\" at bar {d}", .{ name, app.session.project.barAtTick(tick).bar + 1 });
 }
 
 pub fn cmdSectionDel(app: *App, _: []const u8) void {

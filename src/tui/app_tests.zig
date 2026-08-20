@@ -3283,6 +3283,29 @@ test "undo restores clips a stamp evicted" {
     try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
 }
 
+test "arrangement status lines report bars, not grid cells or ticks" {
+    var app = try testApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try app.session.stampClip(0, 2);
+
+    app.view = .arrangement;
+    app.cursor = 0;
+    // The cursor counts grid cells: bar 2 of 4/4 is the eighth at 1/4.
+    app.arr_cursor_bar = 8;
+
+    // `e` links the piano roll to the clip: bar 3, not tick 1920.
+    app.handleKey(.{ .char = 'e' }, 0);
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "bar 3") != null);
+
+    // `l` then `>` moves the clip one grid cell right; it is still in bar 3,
+    // and reporting the cell index would say bar 9.
+    app.view = .arrangement;
+    app.handleKey(.{ .char = '>' }, 0);
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "bar 3") != null);
+}
+
 test "bar readouts follow the meter map, not one fixed bar length" {
     var app = try testApp();
     defer app.deinit();

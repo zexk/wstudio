@@ -633,8 +633,18 @@ fn removeTimeSelection(app: *App) void {
     if (lanes.height() == app.session.project.tracks.items.len) app.session.project.removeTime(r.lo, hi);
     app.arr_cursor_bar = r.lo / app.arr_grid.ticks();
     if (app.session.song_mode) app.session.rebuildSongData();
-    app.setStatus("removed {d} bar(s) across {d} lane(s)", .{ (hi - r.lo) / app.arr_grid.ticks(), lanes.height() });
+    app.setStatus("removed {d} bar(s) across {d} lane(s)", .{ barsSpanned(&app.session.project, r.lo, hi - r.lo), lanes.height() });
     exitVisual(app);
+}
+
+/// How many bars the span `[tick, tick + len)` covers, counted off the meter
+/// map rather than divided out of one bar length. Status lines report bars
+/// because that is what the ruler above them shows; ticks and grid cells are
+/// internal units and reporting either as a bar is how "clip -> bar 9" came
+/// out of a move to bar 3.
+fn barsSpanned(p: *const ws.Project, tick: u32, len: u32) u32 {
+    if (len == 0) return 0;
+    return p.barAtTick(tick +| (len - 1)).bar - p.barAtTick(tick).bar + 1;
 }
 
 /// First bar boundary at or after `tick` - the exclusive end a loop range
@@ -978,9 +988,11 @@ fn stampClip(app: *App) void {
         if (lane.clipAt(cursor_tick)) |clip| {
             switch (clip.content) {
                 .drum => |d| app.setStatus("stamped {d}-bar clip (pat {c}) - hold: h/l length; release/esc drops", .{
-                    clip.length_ticks / ws.time_grid.ticks_per_beat, DrumMachine.variantLetter(d.variant),
+                    barsSpanned(&app.session.project, clip.start_tick, clip.length_ticks), DrumMachine.variantLetter(d.variant),
                 }),
-                .melodic => app.setStatus("stamped {d} ticks - hold: h/l length; release/esc drops", .{clip.length_ticks}),
+                .melodic => app.setStatus("stamped {d}-bar clip - hold: h/l length; release/esc drops", .{
+                    barsSpanned(&app.session.project, clip.start_tick, clip.length_ticks),
+                }),
                 .audio => app.setStatus("stamped audio region", .{}),
             }
             app.arr_stamp = true;
@@ -1019,7 +1031,7 @@ fn editClip(app: *App) void {
             history.push(app, pre);
             app.session.racks.items[track].pattern_player.?.setNotes(m.notes, m.length_beats);
             app.piano_clip_link = .{ .track = track, .start_tick = clip.start_tick };
-            app.setStatus("editing clip @ tick {d} - edits land in the clip", .{clip.start_tick});
+            app.setStatus("editing clip @ bar {d} - edits land in the clip", .{app.session.project.barAtTick(clip.start_tick).bar + 1});
         },
         .drum => app.setStatus("pattern clips play from their stamp - edit variants in the grid", .{}),
         .audio => |audio| app.setStatus("audio region: {d} take(s); :take, :clip-gain, :clip-fade", .{audio.takeCount()}),
@@ -1104,7 +1116,7 @@ fn moveClip(app: *App, delta: i32) void {
     };
     app.arr_cursor_bar = new_start / app.arr_grid.ticks();
     if (app.session.song_mode) app.session.rebuildSongData();
-    app.setStatus("clip → bar {d}", .{new_start / app.arr_grid.ticks() + 1});
+    app.setStatus("clip → bar {d}", .{app.session.project.barAtTick(new_start).bar + 1});
 }
 
 /// `+`/`-`: edge-resize the clip under the cursor by `delta` bars (count-
@@ -1128,6 +1140,7 @@ fn resizeClip(app: *App, delta: i32) void {
         max_timeline_tick - clip.start_tick,
     ));
     if (new_len == clip.length_ticks) return;
+    const clip_start = clip.start_tick;
     history.recordLane(app, @intCast(app.cursor));
     app.last_edit = .{ .arr_resize_clip = .{ .delta = delta } };
     var resized: ws.Clip = for (lane.clips.items, 0..) |c, i| {
@@ -1139,7 +1152,7 @@ fn resizeClip(app: *App, delta: i32) void {
         return;
     };
     if (app.session.song_mode) app.session.rebuildSongData();
-    app.setStatus("clip length: {d} ticks", .{new_len});
+    app.setStatus("clip length: {d} bar(s)", .{barsSpanned(&app.session.project, clip_start, new_len)});
 }
 
 /// `x`: cut just the bar under the cursor out of whatever clip covers it -
