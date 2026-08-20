@@ -204,6 +204,9 @@ history lives in [FORMAT.md](FORMAT.md).
 - A CLAP could crash its GUI host by returning or requesting a window dimension
   above native `i32` range. Embedded editor creation, adjusted sizes, and
   plugin resize requests now reject unrepresentable dimensions.
+- `:comp` could overflow while sizing output from a hand-edited clip length or
+  converting a huge finite beat range. It now bounds both conversions to the
+  shared decoded-audio ceiling and reports how to recover.
 - A sandboxed VST3 returning more than 1 MiB of component and controller state
   overflowed the child RPC buffer and killed its host process during save. The
   shared wire encoder now rejects oversized state before copying it, and the

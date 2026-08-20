@@ -31,6 +31,20 @@ const expandHome = commands.expandHome;
 
 const cursorTrackIdx = cu.cursorTrackIdx;
 
+fn compFrameCount(source_frames: u64, source_rate: u32, project_rate: u32, channels: u16) ?usize {
+    if (source_rate == 0 or project_rate == 0 or channels == 0) return null;
+    const frames = @as(u128, source_frames) * project_rate / source_rate;
+    const max_frames = ws.dsp.audio_file.max_decoded_samples / @as(usize, channels);
+    if (frames == 0 or frames > max_frames) return null;
+    return @intCast(frames);
+}
+
+fn beatFrameBound(beat: f64, frames_per_beat: f64, limit: usize) usize {
+    const frames = @round(beat * frames_per_beat);
+    if (!std.math.isFinite(frames) or frames >= @as(f64, @floatFromInt(limit))) return limit;
+    return @intFromFloat(@max(frames, 0));
+}
+
 /// Explicit :save argument (with `~` expanded), else the file the session
 /// was loaded from / last saved to (already resolved - see `setProjectPath`),
 /// else "project.wsj". Always copies into `buf` rather than returning
@@ -958,15 +972,19 @@ pub fn cmdComp(app: *App, args: []const u8) void {
         return;
     };
     const project_rate = app.session.project.sample_rate;
-    const output_frames: usize = @intFromFloat(@as(f64, @floatFromInt(audio.source_length_frames)) * @as(f64, @floatFromInt(project_rate)) / @as(f64, @floatFromInt(active_source.sample_rate)));
     const channels = @max(active_source.channel_count, alternate_source.channel_count);
-    const result = app.allocator.alloc(f32, output_frames * channels) catch {
+    const output_frames = compFrameCount(audio.source_length_frames, active_source.sample_rate, project_rate, channels) orelse {
+        app.setStatus("comp: output is too large; shorten the clip", .{});
+        return;
+    };
+    const result = app.allocator.alloc(f32, output_frames * @as(usize, channels)) catch {
         app.setStatus("comp: out of memory", .{});
         return;
     };
     defer app.allocator.free(result);
-    const range_start: usize = @min(output_frames, @as(usize, @intFromFloat(@round(start_beat * app.session.engine.transport.framesPerBeat()))));
-    const range_end: usize = @min(output_frames, @as(usize, @intFromFloat(@round(end_beat * app.session.engine.transport.framesPerBeat()))));
+    const frames_per_beat = app.session.engine.transport.framesPerBeat();
+    const range_start = beatFrameBound(start_beat, frames_per_beat, output_frames);
+    const range_end = beatFrameBound(end_beat, frames_per_beat, output_frames);
     if (range_end <= range_start) {
         app.setStatus("comp: range falls outside clip", .{});
         return;
@@ -1081,4 +1099,11 @@ fn parseMixTarget(app: *App, text: []const u8) ?ws.dsp.automation.MixTarget {
     }
     app.setStatus("automation-point: target must be master, group:n, or send:track:slot", .{});
     return null;
+}
+
+test "comp frame bounds reject oversized clips and beats" {
+    try std.testing.expectEqual(@as(?usize, 96_000), compFrameCount(48_000, 24_000, 48_000, 2));
+    try std.testing.expectEqual(null, compFrameCount(std.math.maxInt(u64), 1, 192_000, 2));
+    try std.testing.expectEqual(@as(usize, 48_000), beatFrameBound(1.0, 48_000, 96_000));
+    try std.testing.expectEqual(@as(usize, 96_000), beatFrameBound(1e308, 48_000, 96_000));
 }

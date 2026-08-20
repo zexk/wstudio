@@ -97,6 +97,10 @@ CLAP embedded editor dimensions now pass through one native-size conversion at
 creation and every resize boundary. Focused checks reject zero and values above
 `i32` range instead of trapping during plugin-controlled casts.
 
+Audio take comping now checks resampled output against the shared 256 MiB PCM
+ceiling and saturates beat-to-frame ranges before integer conversion. Focused
+boundary coverage includes a maximum clip length and an overflowing finite beat.
+
 Acoustic instrument creation no longer hides a missing-library error behind a
 later success status. Focused command coverage forces the load failure and
 locks the visible reinstall recovery action.
