@@ -284,6 +284,10 @@ pub const Clip = struct {
             .audio => |audio| initAudio(self.start_tick, self.length_ticks, audio),
         };
         errdefer out.deinit(allocator);
+        // The init* constructors above default `layer`, so it has to be
+        // carried over by hand: a copy that fell to layer 0 could land under
+        // whatever already sat there, and splitAt dupes the right half.
+        out.layer = self.layer;
         out.automation = try self.automation.dupe(allocator);
         return out;
     }
@@ -1226,12 +1230,37 @@ test "random edit sequences leave a lane sorted, non-overlapping and non-empty" 
         while (op_i < ops) : (op_i += 1) {
             const lo = rnd.uintLessThan(u32, 64);
             const hi = lo + rnd.uintLessThan(u32, 32);
-            switch (rnd.uintLessThan(u32, 6)) {
+            switch (rnd.uintLessThan(u32, 8)) {
                 0 => {
                     var c = Clip.initDrum(lo, 1 + rnd.uintLessThan(u32, 16), .{ .step_count = 16 });
                     c.layer = @intCast(rnd.uintLessThan(u32, 3));
                     try lane.place(a, c);
                     last_op = "place";
+                },
+                6 => {
+                    // An audio clip plus a take of its own length: both take
+                    // methods write length_ticks straight onto the clip, so
+                    // the reseat is what keeps the lane's rules.
+                    var c = Clip.initAudio(lo, 1 + rnd.uintLessThan(u32, 8), .{ .source_id = 1, .source_start_frame = 0, .source_length_frames = 8 });
+                    c.layer = @intCast(rnd.uintLessThan(u32, 3));
+                    try lane.place(a, c);
+                    if (lane.clipIndexAt(lo)) |idx| {
+                        _ = lane.clips.items[idx].addAudioTake(.{
+                            .source_id = 2,
+                            .source_start_frame = 0,
+                            .source_length_frames = 8,
+                            .length_ticks = 1 + rnd.uintLessThan(u32, 24),
+                        });
+                        try lane.reseat(a, idx);
+                    }
+                    last_op = "addAudioTake";
+                },
+                7 => {
+                    if (lane.clipIndexAt(lo)) |idx| {
+                        _ = lane.clips.items[idx].cycleAudioTake(if (rnd.boolean()) 1 else -1);
+                        try lane.reseat(a, idx);
+                    }
+                    last_op = "cycleAudioTake";
                 },
                 1 => {
                     _ = lane.removeAt(a, lo);
@@ -1273,7 +1302,7 @@ test "random edit sequences leave a lane sorted, non-overlapping and non-empty" 
                 for (lane.clips.items[i + 1 ..]) |d| {
                     if (c.layer != d.layer) continue;
                     if (c.start_tick < d.endTick() and d.start_tick < c.endTick()) {
-                        std.debug.print("{s}: same-layer overlap [{d},{d}) and [{d},{d})\n", .{ last_op, c.start_tick, c.endTick(), d.start_tick, d.endTick() });
+                        std.debug.print("{s}: same-layer overlap [{d},{d}) L{d} and [{d},{d}) L{d}\n", .{ last_op, c.start_tick, c.endTick(), c.layer, d.start_tick, d.endTick(), d.layer });
                         return error.SameLayerOverlap;
                     }
                 }
@@ -1303,4 +1332,31 @@ test "reseat keeps a clip grown by a longer take from overlapping its neighbour"
     try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
     try std.testing.expectEqual(@as(u32, 0), lane.clips.items[0].start_tick);
     try std.testing.expectEqual(@as(u32, 16), lane.clips.items[0].length_ticks);
+}
+
+test "dupe and split keep a clip on its own layer" {
+    const a = std.testing.allocator;
+    var upper = Clip.initAudio(0, 8, .{ .source_id = 1, .source_start_frame = 0, .source_length_frames = 8 });
+    upper.layer = 2;
+    defer upper.deinit(a);
+
+    // `dupe` rebuilds through the init* constructors, which default `layer`
+    // to 0 - so a copy used to fall to the bottom layer, and `splitAt`'s
+    // right half landed on a different layer from its own left half, where
+    // it could overlap whatever already sat there.
+    var copy = try upper.dupe(a);
+    defer copy.deinit(a);
+    try std.testing.expectEqual(@as(u8, 2), copy.layer);
+
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+    var top = Clip.initAudio(0, 8, .{ .source_id = 1, .source_start_frame = 0, .source_length_frames = 8 });
+    top.layer = 1;
+    try lane.place(a, top);
+    try lane.place(a, Clip.initAudio(4, 4, .{ .source_id = 2, .source_start_frame = 0, .source_length_frames = 4 }));
+    try std.testing.expect(try lane.splitAt(a, 4, {}));
+    for (lane.clips.items) |c| {
+        const want: u8 = if (c.content.audio.source_id == 2) 0 else 1;
+        try std.testing.expectEqual(want, c.layer);
+    }
 }
