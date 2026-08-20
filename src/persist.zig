@@ -2852,3 +2852,44 @@ test "every named macro changes the sound it claims to" {
         }
     }
 }
+
+// A field the load path drops, clamps or defaults differently from what the
+// save path wrote shows up here and nowhere else: every other round-trip test
+// names the fields it checks, so anything unnamed is unguarded. Re-saving the
+// shipped demo and diffing it against the file itself makes the whole project
+// the assertion, in both directions - it also fails when a format change
+// lands without `zig build gendemo`, which is how demo.wsj once sat at v17
+// for months with nothing to catch it.
+//
+// Comparing two SAVES of a load would not do: a load that always produces the
+// same wrong value is idempotent, so the drop would cancel out. The committed
+// file is the only independent witness.
+test "the shipped demo survives a load and re-save unchanged" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [96]u8 = undefined;
+    const resaved_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/resaved.wsj", .{&tmp.sub_path});
+
+    // The richest project in the tree: every instrument kind, an arrangement,
+    // FX chains, automation.
+    var session = try load(testing.allocator, testing.io, "demo.wsj");
+    defer session.deinit();
+    try save(testing.allocator, &session, testing.io, resaved_path);
+
+    const resaved = try std.Io.Dir.cwd().readFileAlloc(testing.io, resaved_path, testing.allocator, .limited(64 << 20));
+    defer testing.allocator.free(resaved);
+    const original = try std.Io.Dir.cwd().readFileAlloc(testing.io, "demo.wsj", testing.allocator, .limited(64 << 20));
+    defer testing.allocator.free(original);
+
+    if (!std.mem.eql(u8, resaved, original)) {
+        std.debug.print("re-saved {d} bytes, demo.wsj {d} bytes\n", .{ resaved.len, original.len });
+        for (0..@min(resaved.len, original.len)) |i| {
+            if (resaved[i] != original[i]) {
+                std.debug.print("first difference at byte {d}: {x} vs {x}\n", .{ i, resaved[i], original[i] });
+                break;
+            }
+        }
+        return error.DemoDidNotRoundTrip;
+    }
+}
