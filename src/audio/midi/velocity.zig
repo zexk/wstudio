@@ -22,6 +22,19 @@ pub fn apply(curve: VelocityCurve, raw: u7) f32 {
     };
 }
 
+pub fn apply16(curve: VelocityCurve, raw: u16) f32 {
+    const t = @as(f32, @floatFromInt(raw)) / 65535.0;
+    return switch (curve) {
+        .linear => t,
+        .exponential => t * t,
+        .fixed => 1.0,
+    };
+}
+
+pub fn scale16To7(value: u16) u7 {
+    return @intCast((@as(u32, value) * 127 + 32767) / 65535);
+}
+
 test "linear passes velocity through unchanged" {
     try std.testing.expectApproxEqAbs(@as(f32, 100.0 / 127.0), apply(.linear, 100), 0.0001);
 }
@@ -66,4 +79,36 @@ pub fn dispatch(self: anytype, msg: midi.Msg) void {
         .pitch_bend => |bend| _ = self.engine.sendMidi(.{ .pitch_bend = .{ .track = track, .bend = bend.bend } }),
         else => {},
     }
+}
+
+pub fn dispatchUmp(self: anytype, msg: midi.UmpMsg) void {
+    const track = self.active_track.load(.monotonic);
+    switch (msg) {
+        .midi1 => |legacy| dispatch(self, legacy),
+        .note_on => |note| {
+            _ = self.engine.sendMidi(.{ .note_on = .{
+                .track = track,
+                .note = note.note,
+                .velocity = apply16(self.velocity_curve.load(.monotonic), note.velocity),
+            } });
+            const velocity = scale16To7(note.velocity);
+            if (!self.note_queue.push(.{ .pitch = note.note, .vel = velocity }))
+                _ = self.dropped_notes.fetchAdd(1, .monotonic);
+        },
+        .note_off => |note| _ = self.engine.sendMidi(.{ .note_off = .{ .track = track, .note = note.note } }),
+        .control_change => |cc| {
+            if (self.engine.sendMidi(.{ .midi2_cc = .{ .track = track, .cc = cc.index, .data = cc.data } }))
+                self.dirty.store(true, .release);
+        },
+        .pitch_bend => |bend| _ = self.engine.sendMidi(.{ .midi2_pitch_bend = .{ .track = track, .data = bend.data } }),
+        else => {},
+    }
+}
+
+test "MIDI 2.0 velocity scaling preserves endpoints" {
+    try std.testing.expectEqual(@as(f32, 0.0), apply16(.linear, 0));
+    try std.testing.expectEqual(@as(f32, 1.0), apply16(.linear, 65535));
+    try std.testing.expectEqual(@as(u7, 0), scale16To7(0));
+    try std.testing.expectEqual(@as(u7, 127), scale16To7(65535));
+    try std.testing.expectEqual(@as(u7, 64), scale16To7(32768));
 }

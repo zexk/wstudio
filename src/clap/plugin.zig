@@ -1052,9 +1052,15 @@ const Direct = struct {
                 .none => {},
             },
             .cc => |cc| if (self.supports_midi) self.pushMidi(.{ 0xb0, cc.cc, cc.value }),
+            .midi2_cc => |cc| if (self.supports_midi) self.pushMidi(.{ 0xb0, cc.cc, @intFromFloat(@round(cc.value * 127.0)) }),
             .pitch_bend => |bend| {
                 if (!self.supports_midi) return;
                 const value: u14 = @intCast(@as(i32, bend.bend) + 8192);
+                self.pushMidi(.{ 0xe0, @truncate(value), @truncate(value >> 7) });
+            },
+            .midi2_pitch_bend => |bend| {
+                if (!self.supports_midi) return;
+                const value: u14 = @intFromFloat(@round((bend.value + 1.0) * 8191.5));
                 self.pushMidi(.{ 0xe0, @truncate(value), @truncate(value >> 7) });
             },
             .clap_param => |param| {

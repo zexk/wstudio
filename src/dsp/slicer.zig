@@ -1283,7 +1283,7 @@ pub const Slicer = struct {
             .set_param => |e| self.adjustParam(e.id, e.steps),
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
             .automation_param => |e| if (e.instance_id == 0 and e.id <= std.math.maxInt(u16)) self.setParamAbsolute(@intCast(e.id), e.value),
-            .cc, .pitch_bend, .set_mod_target, .clap_param, .vst3_param, .set_sidechain_buf, .capture_pad => {},
+            .cc, .pitch_bend, .midi2_cc, .midi2_pitch_bend, .set_mod_target, .clap_param, .vst3_param, .set_sidechain_buf, .capture_pad => {},
             .all_off => self.resetAll(),
         }
     }

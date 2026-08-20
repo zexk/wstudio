@@ -5,6 +5,7 @@ const std = @import("std");
 const Engine = @import("../engine.zig").Engine;
 const Spsc = @import("../../core/ring_buffer.zig").Spsc;
 const midi_velocity = @import("velocity.zig");
+const midi = @import("../../midi.zig");
 const VelocityCurve = midi_velocity.VelocityCurve;
 
 const c = @cImport(@cInclude("alsa/asoundlib.h"));
@@ -59,6 +60,10 @@ pub const MidiIn = struct {
         }
 
         _ = c.snd_seq_set_client_name(self.seq, "wstudio");
+        if (c.snd_seq_set_client_midi_version(self.seq, c.SND_SEQ_CLIENT_UMP_MIDI_2_0) < 0)
+            return error.SeqOpenFailed;
+        if (c.snd_seq_set_client_ump_conversion(self.seq, 1) < 0)
+            return error.SeqOpenFailed;
 
         const port = c.snd_seq_create_simple_port(
             self.seq,
@@ -112,8 +117,8 @@ pub const MidiIn = struct {
             if (c.poll(&pfds, @intCast(npfds), 20) <= 0) continue;
 
             while (true) {
-                var ev_ptr: ?*c.snd_seq_event_t = null;
-                const rc = c.snd_seq_event_input(seq, &ev_ptr);
+                var ev_ptr: ?*c.snd_seq_ump_event_t = null;
+                const rc = c.snd_seq_ump_event_input(seq, &ev_ptr);
                 if (rc < 0) break;
                 if (ev_ptr) |ev| self.dispatch(ev);
                 if (rc == 0) break; // last pending event consumed
@@ -121,7 +126,12 @@ pub const MidiIn = struct {
         }
     }
 
-    fn dispatch(self: *MidiIn, ev: *const c.snd_seq_event_t) void {
+    fn dispatch(self: *MidiIn, ev: *const c.snd_seq_ump_event_t) void {
+        if (ev.flags & c.SND_SEQ_EVENT_UMP != 0) {
+            if (midi.UmpParser.feed(ev.unnamed_0.ump[0..midi.UmpParser.wordCount(@truncate(ev.unnamed_0.ump[0] >> 28))])) |result|
+                if (result.msg) |msg| midi_velocity.dispatchUmp(self, msg);
+            return;
+        }
         const track = self.active_track.load(.monotonic);
         const eng = self.engine;
 
@@ -129,8 +139,8 @@ pub const MidiIn = struct {
         const etype = @as(c_uint, ev.@"type");
 
         if (etype == c.SND_SEQ_EVENT_NOTEON) {
-            const note: u7 = @intCast(ev.data.note.note & 0x7F);
-            const vel: u7  = @intCast(ev.data.note.velocity & 0x7F);
+            const note: u7 = @intCast(ev.unnamed_0.data.note.note & 0x7F);
+            const vel: u7  = @intCast(ev.unnamed_0.data.note.velocity & 0x7F);
             if (vel == 0) {
                 _ = eng.sendMidi(.{ .note_off = .{ .track = track, .note = note } });
             } else {
@@ -143,12 +153,12 @@ pub const MidiIn = struct {
                     _ = self.dropped_notes.fetchAdd(1, .monotonic);
             }
         } else if (etype == c.SND_SEQ_EVENT_NOTEOFF) {
-            const note: u7 = @intCast(ev.data.note.note & 0x7F);
+            const note: u7 = @intCast(ev.unnamed_0.data.note.note & 0x7F);
             _ = eng.sendMidi(.{ .note_off = .{ .track = track, .note = note } });
         } else if (etype == c.SND_SEQ_EVENT_CONTROLLER) {
-            const cc: u7  = @intCast(ev.data.control.param & 0x7F);
+            const cc: u7  = @intCast(ev.unnamed_0.data.control.param & 0x7F);
             // zig fmt: on
-            const val: u7 = @intCast(ev.data.control.value & 0x7F);
+            const val: u7 = @intCast(ev.unnamed_0.data.control.value & 0x7F);
             // Only mark dirty if the command actually landed - a full
             // queue drops the event, and a false dirty flag would make
             // the project look unsaved over a change that never happened.
@@ -156,7 +166,7 @@ pub const MidiIn = struct {
                 self.dirty.store(true, .release);
         } else if (etype == c.SND_SEQ_EVENT_PITCHBEND) {
             // ALSA delivers pitch bend centred at 0: −8192..+8191.
-            const raw = @as(i32, ev.data.control.value);
+            const raw = @as(i32, ev.unnamed_0.data.control.value);
             const bend: i16 = @intCast(std.math.clamp(raw, -8192, 8191));
             _ = eng.sendMidi(.{ .pitch_bend = .{ .track = track, .bend = bend } });
         }
@@ -168,19 +178,19 @@ test "an incoming MIDI CC marks dirty; a note does not" {
     defer engine.deinit();
     var midi_in: MidiIn = .{ .engine = &engine };
 
-    var note_ev: c.snd_seq_event_t = std.mem.zeroes(c.snd_seq_event_t);
+    var note_ev: c.snd_seq_ump_event_t = std.mem.zeroes(c.snd_seq_ump_event_t);
     // zig fmt: off
     note_ev.@"type" = c.SND_SEQ_EVENT_NOTEON;
-    note_ev.data.note.note = 60;
-    note_ev.data.note.velocity = 100;
+    note_ev.unnamed_0.data.note.note = 60;
+    note_ev.unnamed_0.data.note.velocity = 100;
     midi_in.dispatch(&note_ev);
     try std.testing.expect(!midi_in.dirty.load(.acquire)); // audition only, nothing persisted changes
 
-    var cc_ev: c.snd_seq_event_t = std.mem.zeroes(c.snd_seq_event_t);
+    var cc_ev: c.snd_seq_ump_event_t = std.mem.zeroes(c.snd_seq_ump_event_t);
     cc_ev.@"type" = c.SND_SEQ_EVENT_CONTROLLER;
     // zig fmt: on
-    cc_ev.data.control.param = 7; // CC7 -> PolySynth.gain (applyCC), a saved param
-    cc_ev.data.control.value = 100;
+    cc_ev.unnamed_0.data.control.param = 7; // CC7 -> PolySynth.gain (applyCC), a saved param
+    cc_ev.unnamed_0.data.control.value = 100;
     midi_in.dispatch(&cc_ev);
     try std.testing.expect(midi_in.dirty.load(.acquire));
 }
@@ -190,26 +200,40 @@ test "a note-on queues its pitch + velocity for recording; note-off does not" {
     defer engine.deinit();
     var midi_in: MidiIn = .{ .engine = &engine };
 
-    var on_ev: c.snd_seq_event_t = std.mem.zeroes(c.snd_seq_event_t);
+    var on_ev: c.snd_seq_ump_event_t = std.mem.zeroes(c.snd_seq_ump_event_t);
     // zig fmt: off
     on_ev.@"type" = c.SND_SEQ_EVENT_NOTEON;
-    on_ev.data.note.note = 64;
-    on_ev.data.note.velocity = 100;
+    on_ev.unnamed_0.data.note.note = 64;
+    on_ev.unnamed_0.data.note.velocity = 100;
     midi_in.dispatch(&on_ev);
     try std.testing.expectEqual(@as(?MidiIn.RecNote, .{ .pitch = 64, .vel = 100 }), midi_in.note_queue.pop());
     try std.testing.expectEqual(@as(?MidiIn.RecNote, null), midi_in.note_queue.pop());
 
-    var off_ev: c.snd_seq_event_t = std.mem.zeroes(c.snd_seq_event_t);
+    var off_ev: c.snd_seq_ump_event_t = std.mem.zeroes(c.snd_seq_ump_event_t);
     off_ev.@"type" = c.SND_SEQ_EVENT_NOTEOFF;
-    off_ev.data.note.note = 64;
+    off_ev.unnamed_0.data.note.note = 64;
     midi_in.dispatch(&off_ev);
     try std.testing.expectEqual(@as(?MidiIn.RecNote, null), midi_in.note_queue.pop());
 
-    var zero_vel_on: c.snd_seq_event_t = std.mem.zeroes(c.snd_seq_event_t);
+    var zero_vel_on: c.snd_seq_ump_event_t = std.mem.zeroes(c.snd_seq_ump_event_t);
     zero_vel_on.@"type" = c.SND_SEQ_EVENT_NOTEON;
     // zig fmt: on
-    zero_vel_on.data.note.note = 64;
-    zero_vel_on.data.note.velocity = 0;
+    zero_vel_on.unnamed_0.data.note.note = 64;
+    zero_vel_on.unnamed_0.data.note.velocity = 0;
     midi_in.dispatch(&zero_vel_on);
     try std.testing.expectEqual(@as(?MidiIn.RecNote, null), midi_in.note_queue.pop()); // note-on vel=0 is a note-off, not recordable
+}
+
+test "ALSA UMP MIDI 2.0 note reaches audition and recording paths" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    var midi_in: MidiIn = .{ .engine = &engine };
+
+    var ev: c.snd_seq_ump_event_t = std.mem.zeroes(c.snd_seq_ump_event_t);
+    ev.flags = c.SND_SEQ_EVENT_UMP;
+    ev.unnamed_0.ump[0] = 0x40903C00;
+    ev.unnamed_0.ump[1] = 0x80000000;
+    midi_in.dispatch(&ev);
+
+    try std.testing.expectEqual(@as(?MidiIn.RecNote, .{ .pitch = 60, .vel = 64 }), midi_in.note_queue.pop());
 }

@@ -54,6 +54,8 @@ pub const Command = union(enum) {
     all_notes_off,
     cc: struct { track: u16, cc: u7, value: u7 },
     pitch_bend: struct { track: u16, bend: i16 },
+    midi2_cc: struct { track: u16, cc: u7, data: u32 },
+    midi2_pitch_bend: struct { track: u16, data: u32 },
     /// Nudge synth editor parameter `id` by `steps` on track `track`. Applied
     /// on the audio thread so editor edits don't race the block reader. u16,
     /// not u8 - see dsp/device.zig's Event.set_param doc comment.
@@ -1441,6 +1443,10 @@ pub const Engine = struct {
             .cc         => |c| self.applyCc(c.track, c.cc, c.value),
             // zig fmt: on
             .pitch_bend => |c| self.sendTrackEvent(c.track, .{ .pitch_bend = .{ .bend = c.bend } }),
+            .midi2_cc => |c| self.applyCcNormalized(c.track, c.cc, @as(f32, @floatFromInt(c.data)) / 4294967295.0),
+            .midi2_pitch_bend => |c| self.sendTrackEvent(c.track, .{ .midi2_pitch_bend = .{
+                .value = (@as(f32, @floatFromInt(c.data)) - 2147483648.0) / 2147483648.0,
+            } }),
             .set_track_param => |c| self.sendTrackEvent(c.track, .{ .set_param = .{ .id = c.id, .steps = c.steps } }),
             .set_track_param_abs => |c| self.sendTrackEvent(c.track, .{ .set_param_abs = .{ .id = c.id, .value = c.value } }),
             .set_track_mod_target => |c| self.sendTrackEvent(c.track, .{ .set_mod_target = .{
@@ -1559,6 +1565,10 @@ pub const Engine = struct {
     /// Also records the number for `lastCc` regardless, which is what makes
     /// learn mode able to see a knob that is already bound to something.
     fn applyCc(self: *Engine, track: u16, cc: u7, value: u7) void {
+        self.applyCcNormalized(track, cc, @as(f32, @floatFromInt(value)) / 127.0);
+    }
+
+    fn applyCcNormalized(self: *Engine, track: u16, cc: u7, value: f32) void {
         // Bit 7 is a "something has arrived" flag - a CC number of 0 with a
         // wrapped counter would otherwise pack to plain zero, which `lastCc`
         // reads as "nothing seen yet".
@@ -1573,11 +1583,11 @@ pub const Engine = struct {
             bound = true;
             self.sendTrackEvent(b.target.track, .{ .automation_param = .{
                 .id = @intCast(b.target.param_id),
-                .value = b.target.valueAt01(@as(f32, @floatFromInt(value)) / 127.0),
+                .value = b.target.valueAt01(value),
                 .instance_id = b.target.instance_id,
             } });
         }
-        if (!bound) self.sendTrackEvent(track, .{ .cc = .{ .cc = cc, .value = value } });
+        if (!bound) self.sendTrackEvent(track, .{ .midi2_cc = .{ .cc = cc, .value = value } });
     }
 
     fn sendTrackEvent(self: *Engine, track: u16, ev: dsp.Event) void {

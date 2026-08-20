@@ -2731,7 +2731,10 @@ pub const PolySynth = struct {
 
     /// Apply a raw MIDI CC. Safe to call on the audio thread (field writes only).
     pub fn applyCC(self: *PolySynth, cc: u7, value: u7) void {
-        const v01 = @as(f32, @floatFromInt(value)) / 127.0;
+        self.applyCCNormalized(cc, @as(f32, @floatFromInt(value)) / 127.0);
+    }
+
+    pub fn applyCCNormalized(self: *PolySynth, cc: u7, v01: f32) void {
         switch (@as(midi.CC, @enumFromInt(cc))) {
             // zig fmt: off
             .mod_wheel         => self.mod_wheel = v01,
@@ -2742,7 +2745,7 @@ pub const PolySynth = struct {
             .osc_a_unison      => self.unison            = @intCast(1 + @as(u8, @intFromFloat(@round(v01 * 15.0)))),
             .osc_a_unison_det  => self.unison_detune     = v01 * 100.0,
             .osc_a_spread      => self.unison_spread     = v01,
-            .osc_b_on          => self.osc_b_on           = value > 63,
+            .osc_b_on          => self.osc_b_on           = v01 >= 0.5,
             .osc_b_waveform    => self.osc_b_wt_pos       = v01,
             .osc_b_semi        => self.osc_b_semi         = v01 * 48.0 - 24.0,
             .osc_b_detune      => self.osc_b_detune_cents = v01 * 200.0 - 100.0,
@@ -2756,7 +2759,7 @@ pub const PolySynth = struct {
             .filter_res        => self.filter_res    = v01,
             .amp_release       => self.release_s     = v01 * 4.0,
             .amp_attack        => self.attack_s      = v01 * 4.0,
-            .filter_cutoff     => self.filter_cutoff = ccCutoff(value),
+            .filter_cutoff     => self.filter_cutoff = ccCutoff(v01),
             .amp_decay         => self.decay_s       = v01 * 4.0,
             .amp_sustain       => self.sustain       = v01,
             .fenv_amount       => {}, // retired: fenv amount lives on matrix rows now
@@ -3392,9 +3395,9 @@ pub const PolySynth = struct {
         self.pitch_bend_semitones = @as(f32, @floatFromInt(bend)) / 8192.0 * range_semitones;
     }
 
-    fn ccCutoff(value: u7) f32 {
+    fn ccCutoff(value: f32) f32 {
         // Logarithmic: 0 → 20 Hz, 127 → 18 000 Hz.
-        return 20.0 * std.math.pow(f32, 900.0, @as(f32, @floatFromInt(value)) / 127.0);
+        return 20.0 * std.math.pow(f32, 900.0, value);
     }
 
     pub fn handleEvent(self: *PolySynth, ev: dsp.Event) void {
@@ -3405,6 +3408,8 @@ pub const PolySynth = struct {
             .all_off    => self.resetAll(),
             .cc         => |e| self.applyCC(e.cc, e.value),
             .pitch_bend => |e| self.applyPitchBend(e.bend, 2.0),
+            .midi2_cc => |e| self.applyCCNormalized(e.cc, e.value),
+            .midi2_pitch_bend => |e| self.pitch_bend_semitones = e.value * 2.0,
             .set_param  => |e| self.adjustParam(e.id, e.steps),
             // zig fmt: on
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),
@@ -4861,6 +4866,17 @@ test "applyPitchBend: range at ±2 semitones" {
     try std.testing.expect(synth.pitch_bend_semitones < -1.9);
     synth.applyPitchBend(0, 2.0);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), synth.pitch_bend_semitones, 1e-4);
+}
+
+test "MIDI 2.0 controls keep native normalized resolution" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+
+    synth.handleEvent(.{ .midi2_cc = .{ .cc = @intFromEnum(midi.CC.gain), .value = 0.123456 } });
+    try std.testing.expectApproxEqAbs(@as(f32, 0.123456), synth.gain, 0.000001);
+
+    synth.handleEvent(.{ .midi2_pitch_bend = .{ .value = 0.25 } });
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), synth.pitch_bend_semitones, 0.000001);
 }
 
 test "pitch bend smooths MIDI steps before voice rendering" {
