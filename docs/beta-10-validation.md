@@ -31,6 +31,15 @@ stay under `.zig-cache/` or isolated screenshot homes.
 These skips do not cover create, edit, undo/redo, save/reopen, transport, or
 export. Those paths passed in both Linux frontends above.
 
+## Native Nix package
+
+2026-08-20 `nix build .#default --no-link` passed on NixOS Linux x86_64 from
+the beta.10 version commit. The installed binary reports `1.0.0-beta.10`; its
+dynamic dependencies resolve; and the output contains the plugin bridge, man
+page, desktop and MIME metadata, all nine icon sizes, and the bundled acoustic
+library with its licenses. `nix flake check --no-build` also passes, and the
+default dev shells evaluate for Linux and macOS on x86_64 and Arm64.
+
 ## Third-party plugin pass
 
 2026-08-14 `zig build plugincheck` hosted the `wstudio-test-plugins` bundle
