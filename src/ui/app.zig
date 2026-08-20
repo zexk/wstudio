@@ -4779,9 +4779,14 @@ pub fn apiKindName(kind: ws.InstrumentKind) []const u8 {
     };
 }
 
-/// Inverse of `apiKindName` for `track_add`'s opts.kind ("empty" is not
-/// creatable on purpose - an empty track is the no-opts default state, not
-/// something a script should ask for by name).
+/// Inverse of `apiKindName` for `track_add`'s opts.kind. Three of the names
+/// `apiKindName` emits are deliberately not accepted back:
+/// - "empty" is what `:track-add` makes and what the instrument picker then
+///   replaces; a script naming a kind is past that step, and `track_add`
+///   with no kind at all gives a synth rather than an empty track.
+/// - "clap"/"vst3" need a plugin to host, which this call has no way to
+///   name, so a hosted-plugin track comes from the picker or
+///   `:clap-instrument` instead.
 pub fn apiKindFromName(name: []const u8) ?ws.InstrumentKind {
     if (std.mem.eql(u8, name, "audio")) return .audio;
     if (std.mem.eql(u8, name, "synth")) return .poly_synth;

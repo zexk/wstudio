@@ -501,6 +501,11 @@ wstudio.api.track_count()                 -> integer
 wstudio.api.track_get(i)                  -> { name, kind, gain_db, pan, muted, soloed, armed, group? }
 wstudio.api.track_set(i, { gain_db = -3.0, muted = true })
 wstudio.api.track_add({ kind = "synth", name = "lead" }) -> integer
+-- kind: audio, synth, drum, sampler, slicer, soundfont, acoustic (default synth).
+-- "empty" is not creatable by name: an empty track is what you get with no
+-- kind at all. "clap"/"vst3" are not either - a hosted-plugin track needs a
+-- plugin to host, so it comes from the picker or :clap-instrument. track_get
+-- still reports both names.
 wstudio.api.track_del(i)
 wstudio.api.track_duplicate(i)             -> new integer index
 wstudio.api.track_move(i, target)          -> final integer index
