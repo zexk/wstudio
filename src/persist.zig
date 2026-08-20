@@ -2966,3 +2966,42 @@ test "the shipped demo has content on every track" {
     // stamp evict the one before it, which is how the lane ended up with one.
     try testing.expectEqual(@as(usize, 16), session.arrangement.lane(3).?.clips.items.len);
 }
+
+// A field added to `project.Track` without a matching `TrackSnap` field is
+// silently dropped on save: the encoding is positional, so nothing fails, the
+// value just comes back as the default. Reflection over Track rather than a
+// list of fields to check, for the reason `duplicateTrack`'s own round-trip
+// test gives.
+test "every Track field survives a save and load" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [96]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/track.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    const g = try session.addGroup("bus");
+    const t = &session.project.tracks.items[0];
+    t.gain_db = -7.25;
+    t.pan = -0.625;
+    t.muted = true;
+    t.soloed = true;
+    t.color = 5;
+    t.sends[0] = .{ .target = .master, .level = 0.375, .pre_fader = true };
+    session.assignTrackGroup(0, g);
+    const before = session.project.tracks.items[0];
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    const after = loaded.project.tracks.items[0];
+
+    inline for (@typeInfo(project_mod.Track).@"struct".fields) |f| {
+        if (comptime std.mem.eql(u8, f.name, "name")) {
+            try testing.expectEqualStrings(before.name, after.name);
+        } else {
+            try testing.expectEqual(@field(before, f.name), @field(after, f.name));
+        }
+    }
+}
