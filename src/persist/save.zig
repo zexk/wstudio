@@ -634,29 +634,34 @@ const CacheWriter = struct {
         return self.addRawPcm(aa, name, sample_rate, channel_count, samples);
     }
 
-    /// Like `addAudio`, but for an `AudioSource`: FLAC-encodes at most once
-    /// per source rather than on every save. `AudioSource.samples` is
-    /// write-once (see its own doc comment) and `id`s are never reused, so
-    /// a source that has ever been encoded stays valid forever - no dirty
-    /// tracking needed. The bytes are allocated with `source_allocator`
-    /// (the project's own, not this save's arena) so they outlive this
-    /// call for the next save to reuse. Encoding several minutes of audio
-    /// is the dominant cost of a save on a recording-heavy project, and
-    /// autosave runs this every 30s by default whenever anything is dirty
-    /// - without this, editing one note restarts every unrelated track's
-    /// encode on the next tick.
+    /// Like `addAudio`, but FLAC-encodes at most once for the audio behind
+    /// `cached_flac` rather than on every save - shared by `AudioSource`
+    /// (write-once, id never reused), `Pad` (a drum pad or the standalone
+    /// Sampler's clip) and `Slicer` (the shared clip every slice aliases).
+    /// Each owner invalidates its own `cached_flac` (frees and resets to
+    /// null) whenever it replaces its samples - see `Pad.cached_flac`'s doc
+    /// comment. The bytes are allocated with `owner_allocator` (the pad/
+    /// source's own, not this save's arena) so they outlive this call for
+    /// the next save to reuse. Encoding several minutes of audio is the
+    /// dominant cost of a save on a recording-heavy project, and autosave
+    /// runs this every 30s by default whenever anything is dirty - without
+    /// this, editing one note restarts every unrelated track's encode on
+    /// the next tick.
     fn addCachedAudio(
         self: *CacheWriter,
         aa: std.mem.Allocator,
         name: []const u8,
-        source: *project_mod.AudioSource,
-        source_allocator: std.mem.Allocator,
+        cached_flac: *?[]const u8,
+        samples: []const f32,
+        sample_rate: u32,
+        channel_count: u16,
+        owner_allocator: std.mem.Allocator,
     ) ![]const u8 {
-        if (source.cached_flac == null) {
-            source.cached_flac = try wav.encodeFlacAlloc(source_allocator, source.samples, source.sample_rate, source.channel_count);
+        if (cached_flac.* == null) {
+            cached_flac.* = try wav.encodeFlacAlloc(owner_allocator, samples, sample_rate, channel_count);
         }
-        if (source.cached_flac) |flac| return self.addBytes(aa, name, flac);
-        return self.addRawPcm(aa, name, source.sample_rate, source.channel_count, source.samples);
+        if (cached_flac.*) |flac| return self.addBytes(aa, name, flac);
+        return self.addRawPcm(aa, name, sample_rate, channel_count, samples);
     }
 
     /// Shared fallback for a build whose libsndfile can't write FLAC: a
@@ -730,17 +735,17 @@ pub fn exportSamples(
                 const p = &s.pad;
                 if (!p.user_sample) continue;
                 const key = try std.fmt.allocPrint(aa, "t{d}p{d}.flac", .{ ti, pi });
-                rs.content.drum_machine.pads[pi].sample_file = try cache.addAudio(aa, key, sr, 1, p.samples);
+                rs.content.drum_machine.pads[pi].sample_file = try cache.addCachedAudio(aa, key, &p.cached_flac, p.samples, sr, 1, s.allocator);
                 // .name already set by rackToSnap (unconditionally, for every pad).
             },
             .sampler => |*s| if (s.pad.user_sample) {
                 const key = try std.fmt.allocPrint(aa, "t{d}clip.flac", .{ti});
-                rs.content.sampler.pad.sample_file = try cache.addAudio(aa, key, sr, 1, s.pad.samples);
+                rs.content.sampler.pad.sample_file = try cache.addCachedAudio(aa, key, &s.pad.cached_flac, s.pad.samples, sr, 1, s.allocator);
                 // .name already set by rackToSnap (unconditionally).
             },
             .slicer => |*sl| if (sl.user_sample) {
                 const key = try std.fmt.allocPrint(aa, "t{d}clip.flac", .{ti});
-                rs.content.slicer.sample_file = try cache.addAudio(aa, key, sr, 1, sl.samples);
+                rs.content.slicer.sample_file = try cache.addCachedAudio(aa, key, &sl.cached_flac, sl.samples, sr, 1, sl.allocator);
                 // .name already set by rackToSnap (unconditionally).
             },
             .poly_synth => |*s| {
@@ -768,7 +773,7 @@ pub fn exportSamples(
     }
     for (sources, audio_sources) |source, *snap| {
         const key = try std.fmt.allocPrint(aa, "source-{d}.flac", .{source.id});
-        snap.file = try cache.addCachedAudio(aa, key, source, session.project.allocator);
+        snap.file = try cache.addCachedAudio(aa, key, &source.cached_flac, source.samples, source.sample_rate, source.channel_count, session.project.allocator);
     }
     return cache.entries.items;
 }

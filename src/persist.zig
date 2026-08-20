@@ -2160,6 +2160,43 @@ test "saving an audio source twice encodes it once and reuses the cache" {
     for (samples, loaded.project.audio_sources.items[0].samples) |a, b| try testing.expectApproxEqAbs(a, b, wav_eps);
 }
 
+test "saving a drum pad twice encodes it once and reuses the cache" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/padcache.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try session.setInstrument(0, .drum_machine);
+    const dm = &session.racks.items[0].instrument.drum_machine;
+
+    var clip_data: [4800]f32 = undefined;
+    for (&clip_data, 0..) |*s, i| s.* = 0.4 * @sin(@as(f32, @floatFromInt(i)) * 0.1);
+    const clip = try testing.allocator.dupe(f32, &clip_data);
+    dm.setPadSamples(3, clip, "usr");
+    dm.pads[3].?.pad.user_sample = true;
+
+    try testing.expectEqual(@as(?[]const u8, null), dm.pads[3].?.pad.cached_flac);
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    const first_encode = dm.pads[3].?.pad.cached_flac orelse return error.TestUnexpectedResult;
+
+    // A second save with nothing changed must reuse the same bytes, not
+    // encode fresh ones - proven by pointer identity, same as the
+    // AudioSource cache test above.
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    const second_encode = dm.pads[3].?.pad.cached_flac orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(first_encode.ptr, second_encode.ptr);
+
+    // Loading a new sample onto the pad invalidates the stale encode rather
+    // than reusing it for different audio.
+    const clip2 = try testing.allocator.dupe(f32, &[_]f32{ 0.1, -0.1 });
+    dm.setPadSamples(3, clip2, "usr2");
+    dm.pads[3].?.pad.user_sample = true;
+    try testing.expectEqual(@as(?[]const u8, null), dm.pads[3].?.pad.cached_flac);
+}
+
 test "saving drops audio sources no clip plays any more" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});

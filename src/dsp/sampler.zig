@@ -83,14 +83,18 @@ pub const Sampler = struct {
 
     pub fn deinit(self: *Sampler) void {
         self.allocator.free(self.pad.samples);
+        if (self.pad.cached_flac) |flac| self.allocator.free(flac);
     }
 
     /// Deep copy for track duplication: the clip audio gets a fresh
     /// allocation so the two samplers share no memory. Voice state resets -
-    /// there are no mid-flight notes worth carrying over.
+    /// there are no mid-flight notes worth carrying over. The cached FLAC
+    /// is NOT copied - it aliases the original's allocation, and a fresh
+    /// encode of the duped samples is cheap next time either side saves.
     pub fn dupe(self: *const Sampler) !Sampler {
         var copy = self.*;
         copy.pad.samples = try self.allocator.dupe(f32, self.pad.samples);
+        copy.pad.cached_flac = null;
         copy.pad_lock = .unlocked;
         copy.voices = [_]NoteVoice{.{}} ** max_voices;
         copy.next_age = 0;
@@ -207,6 +211,8 @@ pub const Sampler = struct {
         while (!self.pad_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.pad_lock.unlock();
         self.allocator.free(self.pad.samples);
+        if (self.pad.cached_flac) |flac| self.allocator.free(flac);
+        self.pad.cached_flac = null;
         self.pad.samples = samples;
         self.pad.name = pad_dsp.fixedName(name);
         // Read before `fixedName` throws the rest of the name away.
@@ -238,6 +244,7 @@ pub const Sampler = struct {
         while (!self.pad_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.pad_lock.unlock();
         self.allocator.free(self.pad.samples);
+        if (self.pad.cached_flac) |flac| self.allocator.free(flac);
         self.pad = .{ .samples = samples, .gain = 1.0, .name = pad_dsp.fixedName(name) };
         pad_dsp.clampTimeParamsToDuration(&self.pad, self.sample_rate);
         self.resetAll();

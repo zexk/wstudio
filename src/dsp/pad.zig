@@ -23,6 +23,12 @@ pub const Pad = struct {
     /// than shipped/generated - only user audio is exported to the
     /// project's audio cache on save.
     user_sample: bool = false,
+    /// FLAC encode of `samples`, cached across saves the same way
+    /// `AudioSource.cached_flac` is (see its doc comment) - autosave would
+    /// otherwise re-encode every loaded pad on every tick. Owned by whichever
+    /// allocator manages this `Pad` (`Sampler.allocator`); invalidated
+    /// (freed and reset to null) by every site that replaces `samples`.
+    cached_flac: ?[]const u8 = null,
 
     // ── Sampler params (audio-thread reads; nudged via adjustParam) ──────────
     /// Output level multiplier (0..2). 1.0 = unity.

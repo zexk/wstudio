@@ -183,7 +183,9 @@ history lives in [FORMAT.md](FORMAT.md).
   default, on the UI thread, so a project with several minutes of recorded
   audio per track could stall input and redraw for over a second on every tick
   after a single unrelated edit. Each audio source now caches its encoded
-  bytes and reuses them until that source's content actually changes.
+  bytes and reuses them until that source's content actually changes. A drum
+  pad, standalone Sampler clip, and Slicer clip had the same gap and now cache
+  the same way, invalidated whenever a fresh sample is loaded onto them.
 - Project-load failures printed Zig error traces from `render`, `render-stems`,
   and frontend startup, while `:edit` only named an internal error. They now
   name the project and give recovery steps for incompatible, corrupt, missing,

@@ -184,6 +184,10 @@ pub const Slicer = struct {
     /// user audio is exported to the project's audio cache on save, same
     /// convention `Pad.user_sample` documents.
     user_sample: bool = false,
+    /// FLAC encode of `samples`, cached across saves - see `Pad.cached_flac`
+    /// and `AudioSource.cached_flac`. Invalidated by `loadWav`, freed by
+    /// `deinit`, never copied by `dupe`.
+    cached_flac: ?[]const u8 = null,
     /// Tempo and root pitch class the loaded clip's file name declared (see
     /// `tempo.bpmFromName`/`pitch.rootFromName`), 0/null when it declared
     /// neither. `:bpm-sync` trusts these over the analysers. Deliberately
@@ -295,6 +299,7 @@ pub const Slicer = struct {
 
     pub fn deinit(self: *Slicer) void {
         self.allocator.free(self.samples);
+        if (self.cached_flac) |flac| self.allocator.free(flac);
         for (self.song_clips[0..self.song_clip_count]) |*clip| freeMidi(self.allocator, &clip.midi);
         self.allocator.free(self.song_clips);
         freeMidi(self.allocator, &self.midi);
@@ -393,6 +398,8 @@ pub const Slicer = struct {
         while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.sample_lock.unlock();
         self.allocator.free(self.samples);
+        if (self.cached_flac) |flac| self.allocator.free(flac);
+        self.cached_flac = null;
         self.samples = samples;
         self.name = pad_mod.fixedName(name);
         // Read before `fixedName` throws the rest of the name away - eight
