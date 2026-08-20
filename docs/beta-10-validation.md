@@ -89,6 +89,10 @@ VST3 event lists, parameter queues, and parameter-change lists now return
 their real object for both their declared interface and `FUnknown`. Focused
 coverage also proves unrelated interface queries fail with a null object.
 
+VST3 editor dimensions now use one checked rectangle conversion across open,
+plugin-requested resize, and host resize constraints. Focused boundary coverage
+rejects horizontal and vertical `i32` overflow before native window calls.
+
 Acoustic instrument creation no longer hides a missing-library error behind a
 later success status. Focused command coverage forces the load failure and
 locks the visible reinstall recovery action.

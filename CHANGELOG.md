@@ -198,6 +198,9 @@ history lives in [FORMAT.md](FORMAT.md).
 - VST3 processing objects returned null or rejected their own interfaces when
   plugins queried them through `FUnknown`. Event lists, parameter queues, and
   parameter-change lists now expose their declared interfaces correctly.
+- A VST3 could crash its GUI host by returning editor rectangle coordinates
+  whose width or height overflowed `i32`. Editor open and resize paths now
+  reject invalid dimensions before arithmetic or native-window calls.
 - A sandboxed VST3 returning more than 1 MiB of component and controller state
   overflowed the child RPC buffer and killed its host process during save. The
   shared wire encoder now rejects oversized state before copying it, and the

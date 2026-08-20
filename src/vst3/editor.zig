@@ -10,6 +10,14 @@ pub const platform_type: [*:0]const u8 = switch (builtin.os.tag) {
     else => "X11EmbedWindowID",
 };
 
+const ViewSize = struct { width: i32, height: i32 };
+
+fn viewSize(rect: abi.ViewRect) ?ViewSize {
+    const width = std.math.sub(i32, rect.right, rect.left) catch return null;
+    const height = std.math.sub(i32, rect.bottom, rect.top) catch return null;
+    return .{ .width = @max(width, 1), .height = @max(height, 1) };
+}
+
 pub const Editor = if (supported) NativeEditor else struct {
     pub fn open(_: *abi.EditController, _: [*:0]const u8) !@This() {
         return error.GuiUnavailable;
@@ -32,9 +40,10 @@ const NativeEditor = struct {
         if (view.vtable.is_platform_type_supported(view, platform_type) != 0) return error.GuiUnavailable;
         var rect: abi.ViewRect = undefined;
         if (view.vtable.get_size(view, &rect) != 0) return error.GuiSizeFailed;
+        const initial_size = viewSize(rect) orelse return error.GuiSizeFailed;
         const window = try std.heap.page_allocator.create(editor_window.Window);
         errdefer std.heap.page_allocator.destroy(window);
-        window.* = try editor_window.Window.open(@max(rect.right - rect.left, 1), @max(rect.bottom - rect.top, 1), title, view.vtable.can_resize(view) == 0);
+        window.* = try editor_window.Window.open(initial_size.width, initial_size.height, title, view.vtable.can_resize(view) == 0);
         errdefer window.close();
         const frame = try std.heap.page_allocator.create(Frame);
         errdefer std.heap.page_allocator.destroy(frame);
@@ -46,11 +55,8 @@ const NativeEditor = struct {
         // has not seen yet; the size after is the one it will actually draw.
         // JUCE editors in particular report a placeholder until attachment.
         var attached_rect: abi.ViewRect = undefined;
-        if (view.vtable.get_size(view, &attached_rect) == 0) {
-            const w = @max(attached_rect.right - attached_rect.left, 1);
-            const h = @max(attached_rect.bottom - attached_rect.top, 1);
-            if (w != @max(rect.right - rect.left, 1) or h != @max(rect.bottom - rect.top, 1)) window.resize(w, h);
-        }
+        if (view.vtable.get_size(view, &attached_rect) == 0) if (viewSize(attached_rect)) |size|
+            if (size.width != initial_size.width or size.height != initial_size.height) window.resize(size.width, size.height);
         window.show();
         return .{ .view = view, .window = window, .frame = frame };
     }
@@ -127,7 +133,8 @@ const Frame = struct {
     }
     fn resize(raw: *anyopaque, view: *abi.PlugView, rect: *abi.ViewRect) callconv(abi.abi_callconv) abi.Result {
         const self = from(raw);
-        self.window.resize(@max(rect.right - rect.left, 1), @max(rect.bottom - rect.top, 1));
+        const size = viewSize(rect.*) orelse return -1;
+        self.window.resize(size.width, size.height);
         return view.vtable.on_size(view, rect);
     }
 
@@ -186,9 +193,11 @@ const Frame = struct {
         if (self.window.takeResize()) |size| if (size.width > 0 and size.height > 0) {
             var rect: abi.ViewRect = .{ .left = 0, .top = 0, .right = size.width, .bottom = size.height };
             _ = self.view.vtable.check_size_constraint(self.view, &rect);
-            if (rect.right != size.width or rect.bottom != size.height)
-                self.window.resize(@max(rect.right, 1), @max(rect.bottom, 1));
-            _ = self.view.vtable.on_size(self.view, &rect);
+            if (viewSize(rect)) |constrained| {
+                if (constrained.width != size.width or constrained.height != size.height)
+                    self.window.resize(constrained.width, constrained.height);
+                _ = self.view.vtable.on_size(self.view, &rect);
+            }
         };
         if (comptime builtin.os.tag != .linux) return true;
         self.poll_fds.clearRetainingCapacity();
@@ -242,6 +251,12 @@ test "plug frame exposes Linux run loop" {
     var object: ?*anyopaque = null;
     try std.testing.expectEqual(@as(abi.Result, 0), frame.interface.vtable.query_interface(&frame.interface, &abi.run_loop_iid, &object));
     try std.testing.expectEqual(@as(?*anyopaque, @ptrCast(&frame.run_loop)), object);
+}
+
+test "VST3 editor rectangles reject overflowing dimensions" {
+    try std.testing.expectEqual(ViewSize{ .width = 640, .height = 480 }, viewSize(.{ .left = 10, .top = 20, .right = 650, .bottom = 500 }).?);
+    try std.testing.expectEqual(null, viewSize(.{ .left = std.math.minInt(i32), .top = 0, .right = std.math.maxInt(i32), .bottom = 1 }));
+    try std.testing.expectEqual(null, viewSize(.{ .left = 0, .top = std.math.minInt(i32), .right = 1, .bottom = std.math.maxInt(i32) }));
 }
 
 test "the run loop takes more handlers than any fixed bank, and reuses freed slots" {
