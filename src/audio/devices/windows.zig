@@ -11,6 +11,25 @@ const c = @cImport({
     @cInclude("functiondiscoverykeys_devpkey.h");
 });
 
+const Midi2DeviceCallback = *const fn (?*anyopaque, [*]const u16, u32, [*]const u16, u32) callconv(.c) void;
+extern fn wstudio_midi2_list(Midi2DeviceCallback, ?*anyopaque) callconv(.c) c_int;
+
+const Midi2ListContext = struct {
+    writer: *std.Io.Writer,
+    failed: bool = false,
+};
+
+fn writeMidi2Device(user_data: ?*anyopaque, id: [*]const u16, id_len: u32, name: [*]const u16, name_len: u32) callconv(.c) void {
+    const context: *Midi2ListContext = @ptrCast(@alignCast(user_data.?));
+    var id_utf8: [std.fs.max_path_bytes]u8 = undefined;
+    var name_utf8: [512]u8 = undefined;
+    const id_size = std.unicode.utf16LeToUtf8(&id_utf8, id[0..id_len]) catch return;
+    const name_size = std.unicode.utf16LeToUtf8(&name_utf8, name[0..name_len]) catch return;
+    context.writer.print("  wms:{s}\t{s}\n", .{ id_utf8[0..id_size], name_utf8[0..name_size] }) catch {
+        context.failed = true;
+    };
+}
+
 fn ok(hr: c.HRESULT) bool {
     return hr >= 0;
 }
@@ -59,7 +78,13 @@ pub fn write(w: *std.Io.Writer) !void {
     try writeAudio(w, enumerator, c.eRender, "audio output devices");
     try writeAudio(w, enumerator, c.eCapture, "audio input devices");
 
-    try w.writeAll("midi input devices (WinMM index):\n");
+    try w.writeAll("midi input devices (Windows MIDI Services endpoint ID):\n");
+    var midi2_context: Midi2ListContext = .{ .writer = w };
+    const midi2_available = wstudio_midi2_list(writeMidi2Device, &midi2_context) != 0;
+    if (midi2_context.failed) return error.WriteFailed;
+    if (!midi2_available) try w.writeAll("  unavailable (Windows MIDI Services App SDK runtime not installed or service disabled)\n");
+
+    try w.writeAll("midi input devices (WinMM fallback index):\n");
     for (0..c.midiInGetNumDevs()) |i| {
         var caps: c.MIDIINCAPSW = undefined;
         if (c.midiInGetDevCapsW(@intCast(i), &caps, @sizeOf(c.MIDIINCAPSW)) != c.MMSYSERR_NOERROR) continue;

@@ -1,5 +1,4 @@
-//! WinMM live MIDI input. Opens one configured device index and forwards
-//! packed short messages into the engine from the system callback.
+//! Windows MIDI Services UMP input with WinMM fallback.
 
 const std = @import("std");
 const Engine = @import("../engine.zig").Engine;
@@ -13,8 +12,13 @@ const c = @cImport({
     @cInclude("mmsystem.h");
 });
 
+const Midi2Callback = *const fn (?*anyopaque, [*]const u32, u32) callconv(.c) void;
+extern fn wstudio_midi2_open([*]const u16, u32, Midi2Callback, ?*anyopaque) callconv(.c) ?*anyopaque;
+extern fn wstudio_midi2_close(?*anyopaque) callconv(.c) void;
+
 pub const MidiIn = struct {
     handle: c.HMIDIIN = null,
+    midi2_handle: ?*anyopaque = null,
     engine: *Engine,
     active_track: std.atomic.Value(u16) = .init(0),
     velocity_curve: std.atomic.Value(VelocityCurve) = .init(.linear),
@@ -31,6 +35,16 @@ pub const MidiIn = struct {
     pub const Error = error{ NoDevices, SourceInvalid, DeviceOpenFailed, DeviceStartFailed };
 
     pub fn start(self: *MidiIn, source_name: []const u8) Error!void {
+        const midi2_id = if (std.mem.startsWith(u8, source_name, "wms:")) source_name[4..] else null;
+        if (midi2_id != null or source_name.len == 0) {
+            const id = midi2_id orelse "";
+            var id_utf16: [std.fs.max_path_bytes]u16 = undefined;
+            const id_len = std.unicode.utf8ToUtf16Le(&id_utf16, id) catch return error.SourceInvalid;
+            self.midi2_handle = wstudio_midi2_open(&id_utf16, @intCast(id_len), midi2Callback, self);
+            if (self.midi2_handle != null) return;
+            if (midi2_id != null) return error.DeviceOpenFailed;
+        }
+
         const count = c.midiInGetNumDevs();
         if (count == 0) return error.NoDevices;
         const index: c.UINT = if (source_name.len == 0)
@@ -54,6 +68,10 @@ pub const MidiIn = struct {
     }
 
     pub fn stop(self: *MidiIn) void {
+        if (self.midi2_handle) |handle| {
+            wstudio_midi2_close(handle);
+            self.midi2_handle = null;
+        }
         if (self.handle) |handle| {
             _ = c.midiInStop(handle);
             _ = c.midiInReset(handle);
@@ -61,6 +79,20 @@ pub const MidiIn = struct {
             self.handle = null;
         }
         self.parser.reset();
+    }
+
+    fn midi2Callback(context: ?*anyopaque, words: [*]const u32, word_count: u32) callconv(.c) void {
+        const self: *MidiIn = @ptrCast(@alignCast(context.?));
+        self.feedUmp(words[0..word_count]);
+    }
+
+    fn feedUmp(self: *MidiIn, words: []const u32) void {
+        var offset: usize = 0;
+        while (offset < words.len) {
+            const result = midi.UmpParser.feed(words[offset..]) orelse break;
+            offset += result.consumed;
+            if (result.msg) |msg| midi_velocity.dispatchUmp(self, msg);
+        }
     }
 
     fn callback(_: c.HMIDIIN, message: c.UINT, instance: c.DWORD_PTR, param1: c.DWORD_PTR, _: c.DWORD_PTR) callconv(.winapi) void {
@@ -93,4 +125,13 @@ test "WinMM packed messages audition and queue notes" {
 
     midi_in.feedShort(0x00644090);
     try std.testing.expectEqual(@as(?MidiIn.RecNote, .{ .pitch = 64, .vel = 100 }), midi_in.note_queue.pop());
+}
+
+test "Windows MIDI Services UMP auditions and queues notes" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    var midi_in: MidiIn = .{ .engine = &engine };
+
+    midi_in.feedUmp(&.{ 0x40904000, 0xFFFF0000 });
+    try std.testing.expectEqual(@as(?MidiIn.RecNote, .{ .pitch = 64, .vel = 127 }), midi_in.note_queue.pop());
 }

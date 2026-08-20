@@ -1,11 +1,17 @@
 # MIDI 2.0 input
 
-wstudio accepts Universal MIDI Packets through ALSA sequencer on Linux and
-CoreMIDI on macOS. ALSA requests a MIDI 2.0 sequencer client and enables
+wstudio accepts Universal MIDI Packets through ALSA sequencer on Linux,
+CoreMIDI on macOS, and Windows MIDI Services. ALSA requests a MIDI 2.0
+sequencer client and enables
 conversion, so MIDI 1.0 and MIDI 2.0 sources can share one input port. Older
 kernels that reject UMP client mode retain legacy MIDI input. CoreMIDI uses a
 MIDI 2.0 protocol port on macOS 11 or newer and falls back to byte-stream input
-on older systems.
+on older systems. Windows uses Windows MIDI Services App SDK 1.0.17 and falls
+back to WinMM byte-stream input when SDK runtime or service is unavailable.
+Windows MIDI Services supports 64-bit Windows 11 builds only. Install current
+[Windows MIDI Services runtime](https://microsoft.github.io/MIDI/get-latest/),
+then use `wstudio devices` and configure its `wms:<endpoint-id>` value. Numeric
+device values continue to select WinMM directly.
 
 The protocol layer consumes packets by Message Type length: 32, 64, 96, or
 128 bits. Unknown packet types and unsupported messages are skipped at their
@@ -39,8 +45,8 @@ Property Exchange require bidirectional endpoint and SysEx state that current
 input-only controller subsystem does not own. wstudio does not advertise
 those capabilities.
 
-Windows WinMM continues to receive MIDI 1.0 byte streams. Native UMP
-resolution is available through Linux ALSA and macOS CoreMIDI.
+Windows WinMM fallback receives MIDI 1.0 byte streams. Native UMP resolution
+requires Windows MIDI Services.
 
 ## Protocol references
 
@@ -48,3 +54,4 @@ resolution is available through Linux ALSA and macOS CoreMIDI.
 - [MIDI 2.0 Bit Scaling and Resolution](https://midi.org/midi-2-0-bit-scaling-and-resolution)
 - [ALSA UMP sequencer API](https://www.alsa-project.org/alsa-doc/alsa-lib/group___seq_middle.html)
 - [Apple CoreMIDI MIDI 2.0 integration](https://developer.apple.com/documentation/coremidi/incorporating-midi-2-into-your-apps)
+- [Windows MIDI Services app integration](https://microsoft.github.io/MIDI/kb/consuming-midi-api/)

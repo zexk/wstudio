@@ -38,7 +38,7 @@ jobs:
       - name: Package Linux release
         run: |
           mkdir -p dist/wstudio-linux-x86_64/examples
-          cp zig-out/bin/wstudio demo.wsj README.md CHANGELOG.md FORMAT.md LICENSE dist/wstudio-linux-x86_64/
+          cp zig-out/bin/wstudio demo.wsj README.md CHANGELOG.md FORMAT.md LICENSE THIRD_PARTY_LICENSES.md dist/wstudio-linux-x86_64/
           cp -R docs dist/wstudio-linux-x86_64/
           cp examples/init.lua dist/wstudio-linux-x86_64/examples/
           tar -C dist -czf dist/wstudio-linux-x86_64.tar.gz wstudio-linux-x86_64
@@ -63,7 +63,7 @@ jobs:
       - name: Package Windows release
         run: |
           mkdir -p dist/wstudio-windows-x86_64/examples
-          cp zig-out/bin/wstudio.exe demo.wsj README.md CHANGELOG.md FORMAT.md LICENSE dist/wstudio-windows-x86_64/
+          cp zig-out/bin/wstudio.exe demo.wsj README.md CHANGELOG.md FORMAT.md LICENSE THIRD_PARTY_LICENSES.md dist/wstudio-windows-x86_64/
           nix develop --command bash -c '
             set -eu
             # mingw libsndfile is a DLL with a codec DLL of its own per format,
@@ -174,7 +174,7 @@ jobs:
             cp assets/icon/wstudio-1024.png "$iconset/icon_512x512@2x.png"
             iconutil -c icns "$iconset" -o "$app/Resources/wstudio.icns"
             ln -s wstudio.app/Contents/MacOS/wstudio "dist/$1/wstudio"
-            cp demo.wsj README.md CHANGELOG.md FORMAT.md LICENSE "dist/$1/"
+            cp demo.wsj README.md CHANGELOG.md FORMAT.md LICENSE THIRD_PARTY_LICENSES.md "dist/$1/"
             cp -R docs "dist/$1/"
             cp examples/init.lua "dist/$1/examples/"
             tar -C dist -czf "dist/$1.tar.gz" "$1"

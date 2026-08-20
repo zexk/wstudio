@@ -297,10 +297,12 @@ it never falls back to silent playback.
 
 `midi_input_device` selects a live MIDI source. Linux accepts an ALSA
 sequencer address from `aconnect -l`, such as `"24:0"`, and subscribes it
-without a separate `aconnect` command. macOS and Windows accept a zero-based
-source index. Empty preserves manual subscription on Linux, connects every
-current source on macOS, and selects source 0 on Windows.
-Linux accepts MIDI 1.0 or MIDI 2.0 UMP sources through same address. See
+without a separate `aconnect` command. macOS accepts a zero-based source index.
+Windows accepts a `wms:` endpoint ID from `wstudio devices`, or a zero-based
+WinMM fallback index. Empty preserves manual subscription on Linux, connects
+every current source on macOS, and tries first Windows MIDI Services endpoint
+before WinMM source 0. Linux and Windows MIDI Services accept MIDI 1.0 or MIDI
+2.0 UMP sources through same endpoint. See
 [MIDI 2.0 input](midi-2.md) for message and platform coverage.
 
 `preferred_frontend` picks the frontend a flagless `wstudio` launch runs
