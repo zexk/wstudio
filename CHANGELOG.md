@@ -195,6 +195,9 @@ history lives in [FORMAT.md](FORMAT.md).
 - A VST3 could crash its host by storing a non-finite or out-of-range float in
   a host message attribute, then requesting it as an integer. Cross-type
   attribute reads now reject values that cannot be represented by `i64`.
+- VST3 processing objects returned null or rejected their own interfaces when
+  plugins queried them through `FUnknown`. Event lists, parameter queues, and
+  parameter-change lists now expose their declared interfaces correctly.
 - A sandboxed VST3 returning more than 1 MiB of component and controller state
   overflowed the child RPC buffer and killed its host process during save. The
   shared wire encoder now rejects oversized state before copying it, and the

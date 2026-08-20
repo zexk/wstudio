@@ -85,6 +85,10 @@ VST3 host message attributes now reject non-finite and out-of-range float to
 integer conversions. Focused host-message coverage feeds both hostile values
 through the ABI boundary without panicking the host.
 
+VST3 event lists, parameter queues, and parameter-change lists now return
+their real object for both their declared interface and `FUnknown`. Focused
+coverage also proves unrelated interface queries fail with a null object.
+
 Acoustic instrument creation no longer hides a missing-library error behind a
 later success status. Focused command coverage forces the load failure and
 locks the visible reinstall recovery action.

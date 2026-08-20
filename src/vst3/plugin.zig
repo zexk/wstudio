@@ -14,6 +14,16 @@ const editor_mod = @import("editor.zig");
 const max_events = 256;
 const max_param_changes = 64;
 const max_parameters = 256;
+
+fn queryOwn(raw: *anyopaque, iid: *const abi.Tuid, own_iid: *const abi.Tuid, object: *?*anyopaque) abi.Result {
+    if (!std.mem.eql(u8, iid, own_iid) and !std.mem.eql(u8, iid, &abi.f_unknown_iid)) {
+        object.* = null;
+        return -1;
+    }
+    object.* = raw;
+    return 0;
+}
+
 const MemoryStream = struct {
     interface: abi.Stream = .{ .vtable = &vtable },
     allocator: std.mem.Allocator,
@@ -412,13 +422,8 @@ const HostEventList = struct {
     fn from(raw: *anyopaque) *HostEventList {
         return @ptrCast(@alignCast(raw));
     }
-    fn query(_: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
-        if (!std.mem.eql(u8, iid, &abi.event_list_iid)) {
-            object.* = null;
-            return -1;
-        }
-        object.* = null;
-        return 0;
+    fn query(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+        return queryOwn(raw, iid, &abi.event_list_iid, object);
     }
     fn ref(_: *anyopaque) callconv(abi.abi_callconv) u32 {
         return 1;
@@ -449,9 +454,8 @@ const ParamQueue = struct {
     fn from(raw: *anyopaque) *ParamQueue {
         return @ptrCast(@alignCast(raw));
     }
-    fn query(_: *anyopaque, _: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
-        object.* = null;
-        return -1;
+    fn query(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+        return queryOwn(raw, iid, &abi.param_value_queue_iid, object);
     }
     fn ref(_: *anyopaque) callconv(abi.abi_callconv) u32 {
         return 1;
@@ -488,9 +492,8 @@ const ParamChanges = struct {
     fn from(raw: *anyopaque) *ParamChanges {
         return @ptrCast(@alignCast(raw));
     }
-    fn query(_: *anyopaque, _: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
-        object.* = null;
-        return -1;
+    fn query(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
+        return queryOwn(raw, iid, &abi.parameter_changes_iid, object);
     }
     fn ref(_: *anyopaque) callconv(abi.abi_callconv) u32 {
         return 1;
@@ -1538,6 +1541,28 @@ test "VST3 stream out-parameters are optional" {
     var output: [5]u8 = undefined;
     try std.testing.expectEqual(@as(abi.Result, 0), stream.interface.vtable.read(&stream.interface, &output, output.len, null));
     try std.testing.expectEqualStrings(input, &output);
+}
+
+test "VST3 processing objects expose their declared interfaces" {
+    var events: HostEventList = .{};
+    var queue: ParamQueue = .{};
+    var changes: ParamChanges = .{};
+    const Case = struct { raw: *anyopaque, iid: *const abi.Tuid, query: *const abi.FUnknownVTable };
+    const cases = [_]Case{
+        .{ .raw = @ptrCast(&events.interface), .iid = &abi.event_list_iid, .query = @ptrCast(events.interface.vtable) },
+        .{ .raw = @ptrCast(&queue.interface), .iid = &abi.param_value_queue_iid, .query = @ptrCast(queue.interface.vtable) },
+        .{ .raw = @ptrCast(&changes.interface), .iid = &abi.parameter_changes_iid, .query = @ptrCast(changes.interface.vtable) },
+    };
+    for (cases) |case| {
+        var object: ?*anyopaque = null;
+        try std.testing.expectEqual(@as(abi.Result, 0), case.query.query_interface(case.raw, case.iid, &object));
+        try std.testing.expectEqual(case.raw, object.?);
+        object = null;
+        try std.testing.expectEqual(@as(abi.Result, 0), case.query.query_interface(case.raw, &abi.f_unknown_iid, &object));
+        try std.testing.expectEqual(case.raw, object.?);
+        try std.testing.expect(case.query.query_interface(case.raw, &abi.message_iid, &object) != 0);
+        try std.testing.expectEqual(null, object);
+    }
 }
 
 test "host-created VST3 messages carry attributes and free themselves" {
