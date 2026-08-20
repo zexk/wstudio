@@ -48,6 +48,19 @@ stray highlighted bar; no separator reads cleaner than either that or
 an extra rule row. `endLine` resets SGR before erasing so background
 color never bleeds into the right edge.
 
+## Measuring width
+
+Width means display columns, never bytes and never codepoints.
+`style.visibleWidth` and `style.writeClamped` walk a row through one shared
+`nextCell` step: an SGR escape costs nothing, a combining mark costs nothing,
+an East Asian Wide or emoji glyph costs two, everything else costs one
+(`style.charWidth`). Slicing a name by bytes splits a codepoint, and counting
+codepoints under-measures every CJK name by half - both of which put a row
+past the right edge, where it wraps and pushes the whole frame down a line.
+`writeClamped` drops a wide glyph that would straddle the edge rather than
+emitting half of one. The private use area stays one column, because the
+icon font's Mono variant guarantees that.
+
 ## Frame delivery
 
 Each frame is wrapped in the DEC 2026 synchronized-update bracket so
