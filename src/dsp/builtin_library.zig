@@ -149,7 +149,38 @@ fn findRoot(allocator: std.mem.Allocator, io: std.Io, buf: []u8) ![]const u8 {
     if (std.Io.Dir.cwd().access(io, dev, .{})) |_| return dev else |_| {}
     const exe_dir = try std.process.executableDirPathAlloc(io, allocator);
     defer allocator.free(exe_dir);
-    return std.fmt.bufPrint(buf, "{s}/../share/wstudio/library", .{exe_dir});
+    return rootNearExecutable(io, buf, exe_dir);
+}
+
+fn rootNearExecutable(io: std.Io, buf: []u8, exe_dir: []const u8) ![]const u8 {
+    const installed = try std.fmt.bufPrint(buf, "{s}/../share/wstudio/library", .{exe_dir});
+    if (std.Io.Dir.cwd().access(io, installed, .{})) |_| return installed else |err| switch (err) {
+        error.FileNotFound => {},
+        else => |e| return e,
+    }
+    return std.fmt.bufPrint(buf, "{s}/share/wstudio/library", .{exe_dir});
+}
+
+test "bundled library resolves installed and flat archive layouts" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const root = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
+    var directory_buf: [320]u8 = undefined;
+    const installed_dir = try std.fmt.bufPrint(&directory_buf, "{s}/prefix/share/wstudio/library", .{root});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, installed_dir);
+    var exe_buf: [280]u8 = undefined;
+    const exe_dir = try std.fmt.bufPrint(&exe_buf, "{s}/prefix/bin", .{root});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, exe_dir);
+    var expected_buf: [320]u8 = undefined;
+    const installed = try std.fmt.bufPrint(&expected_buf, "{s}/../share/wstudio/library", .{exe_dir});
+    var actual_buf: [320]u8 = undefined;
+    try std.testing.expectEqualStrings(installed, try rootNearExecutable(std.testing.io, &actual_buf, exe_dir));
+
+    const flat = try std.fmt.bufPrint(&directory_buf, "{s}/archive/share/wstudio/library", .{root});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, flat);
+    const flat_exe_dir = try std.fmt.bufPrint(&exe_buf, "{s}/archive", .{root});
+    try std.testing.expectEqualStrings(flat, try rootNearExecutable(std.testing.io, &actual_buf, flat_exe_dir));
 }
 
 test "bundled catalog loads every patch" {

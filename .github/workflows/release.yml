@@ -38,7 +38,8 @@ jobs:
       - name: Package Linux release
         run: |
           mkdir -p dist/wstudio-linux-x86_64/examples
-          cp zig-out/bin/wstudio demo.wsj README.md CHANGELOG.md FORMAT.md LICENSE THIRD_PARTY_LICENSES.md dist/wstudio-linux-x86_64/
+          cp zig-out/bin/wstudio zig-out/bin/wstudio-plugin-bridge demo.wsj README.md CHANGELOG.md FORMAT.md LICENSE THIRD_PARTY_LICENSES.md dist/wstudio-linux-x86_64/
+          cp -R zig-out/share dist/wstudio-linux-x86_64/
           cp -R docs dist/wstudio-linux-x86_64/
           cp examples/init.lua dist/wstudio-linux-x86_64/examples/
           tar -C dist -czf dist/wstudio-linux-x86_64.tar.gz wstudio-linux-x86_64
@@ -49,8 +50,12 @@ jobs:
           tar -C "$release_dir" -xzf dist/wstudio-linux-x86_64.tar.gz
           cd "$release_dir/wstudio-linux-x86_64"
           test -x wstudio
+          test -x wstudio-plugin-bridge
+          test -f "share/wstudio/library/vcsl/Grand Piano, K.sfz"
           test -f docs/lua-api.md
           test -f examples/init.lua
+          # TAG expands inside nested bash.
+          # shellcheck disable=SC2016
           nix develop "$GITHUB_WORKSPACE" --command bash -c '
             ./wstudio --version | grep -Fx "wstudio ${TAG#v}"
             ./wstudio render demo.wsj master.wav
@@ -70,6 +75,9 @@ jobs:
             mkdir -p "$dir/examples"
             cp zig-out/bin/wstudio.exe zig-out/bin/wstudio-plugin-bridge.exe \
               demo.wsj README.md CHANGELOG.md FORMAT.md LICENSE THIRD_PARTY_LICENSES.md "$dir/"
+            cp -R zig-out/share "$dir/"
+            # WSTUDIO_* expands inside nested bash.
+            # shellcheck disable=SC2016
             WSTUDIO_ARCH="$arch" WSTUDIO_RELEASE_DIR="$dir" WSTUDIO_OBJDUMP="$objdump" \
               nix develop "$shell" --command bash -c '
               set -eu
@@ -96,6 +104,7 @@ jobs:
             '
             cp -R docs "$dir/"
             cp examples/init.lua "$dir/examples/"
+            test -f "$dir/share/wstudio/library/vcsl/Grand Piano, K.sfz"
             (cd dist && zip -r "wstudio-windows-$arch.zip" "wstudio-windows-$arch")
             unzip -t "dist/wstudio-windows-$arch.zip"
           }
@@ -166,6 +175,7 @@ jobs:
             iconset=$(mktemp -d)/wstudio.iconset
             mkdir -p "$app/MacOS" "$app/Resources" "$iconset" "dist/$1/examples"
             cp zig-out/bin/wstudio "$app/MacOS/"
+            cp -R zig-out/share "$app/"
             bundle_dylibs "$app"
             sed -e "s/@VERSION@/$version/g" -e "s/@BUILD_VERSION@/$build_version/g" \
               assets/macos/Info.plist > "$app/Info.plist"
@@ -194,10 +204,13 @@ jobs:
           test -x wstudio
           test -x wstudio.app/Contents/MacOS/wstudio
           test -f wstudio.app/Contents/Resources/wstudio.icns
+          test -f "wstudio.app/Contents/share/wstudio/library/vcsl/Grand Piano, K.sfz"
           plutil -lint wstudio.app/Contents/Info.plist
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' wstudio.app/Contents/Info.plist)" = "${TAG#v}"
           test -f docs/lua-api.md
           test -f examples/init.lua
+          # TAG expands inside nested bash.
+          # shellcheck disable=SC2016
           nix develop "$GITHUB_WORKSPACE" --command bash -c '
             ./wstudio --version | grep -Fx "wstudio ${TAG#v}"
             ./wstudio render demo.wsj master.wav

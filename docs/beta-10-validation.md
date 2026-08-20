@@ -54,6 +54,21 @@ Linux or Intel host libraries and could not link. `nix flake show --all-systems`
 confirms the narrowed package boundary; native macOS build and runtime remain
 unverified here, consistent with the explicit host skip above.
 
+## Release archives
+
+2026-08-20 release-workflow audit found every archive omitted the 345 MiB
+bundled acoustic library despite advertising it, and the Linux tarball omitted
+the plugin bridge required by default sandboxing. Linux, Windows, and macOS
+packaging now copies the installed share tree; Linux also carries the bridge.
+Archive verification checks both artifacts, and the runtime library resolver
+supports the archives' existing flat executable layout.
+
+A local ReleaseSafe Linux tarball built from this workflow layout, extracted
+under `/tmp`, reports `1.0.0-beta.10`, contains the bridge, acoustic SFZs and
+licenses, docs, and config template, and renders `demo.wsj` to 16-bit stereo
+PCM at 48 kHz. `actionlint` passes on the updated workflow. Native Windows and
+macOS archive runtime checks remain unverified under the host skips above.
+
 ## ReleaseSafe CLI render
 
 2026-08-20 native `zig build -Doptimize=ReleaseSafe` passed. Its binary reports
