@@ -177,6 +177,10 @@ add points; that is the one remaining surface, and it is post-1.0 work.
 
 ## Frontend polish pass
 
+2026-08-20 `zig build -Dgui-test` followed by
+`DISPLAY=:99 zig-out/bin/wstudio --gui` under Xvfb passed all three ImGui test
+engine journeys.
+
 2026-08-01 isolated screenshots covered blank and `demo.wsj` track views,
 arrangement, and populated FX chains in both frontends. TUI coverage used
 160x48 and narrow 100x30 terminals; GUI coverage used its clean Xvfb profile.
