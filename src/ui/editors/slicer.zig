@@ -636,9 +636,11 @@ fn yankWholePattern(app: *App) void {
 
 /// Visual mode's reduced key set - same shape as the drum grid's.
 fn handleVisual(app: *App, key: modal_mod.Key) bool {
+    if (app.slicer_visual_edit) return handleVisualEdit(app, key);
     switch (key) {
         // zig fmt: off
         .escape => { exitVisual(app); app.setStatus("selection cancelled", .{}); return true; },
+        .enter => { app.slicer_visual_edit = true; app.setStatus("editing selected hits: _= velocity, tT tune, ;' timing, r roll, % chance, & condition", .{}); return true; },
         .char => |c| switch (c) {
             'h' => { moveStep(app, -app.takeCount()); return true; },
             'l' => { moveStep(app, app.takeCount()); return true; },
@@ -685,8 +687,41 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
     }
 }
 
+fn handleVisualEdit(app: *App, key: modal_mod.Key) bool {
+    switch (key) {
+        .escape, .enter => {
+            app.slicer_visual_edit = false;
+            app.setStatus("visual selection", .{});
+        },
+        .char => |c| switch (c) {
+            '_' => editSelection(app, .velocity, -app.takeCount()),
+            '=' => editSelection(app, .velocity, app.takeCount()),
+            't' => editSelection(app, .tune, -app.takeCount()),
+            'T' => editSelection(app, .tune, app.takeCount()),
+            ';' => editSelection(app, .micro, -app.takeCount()),
+            '\'' => editSelection(app, .micro, app.takeCount()),
+            'r' => editSelection(app, .retrig, 1),
+            '%' => editSelection(app, .probability, 1),
+            '&' => editSelection(app, .condition, app.takeCount()),
+            '0'...'9' => return false,
+            else => {},
+        },
+        else => {},
+    }
+    return true;
+}
+
+fn editSelection(app: *App, edit: step_grid.StepEdit, delta: i32) void {
+    const sl = app.slicerInst();
+    const range = step_grid.gridSelectionRange(u16, app.slicer_visual_anchor, app.slicer_cursor[1], app.slicer_grid.ticks(), sl.step_count);
+    history.recordSlicer(app, app.slicer_track);
+    const changed = step_grid.editRange(sl, sliceRange(app), range, edit, delta);
+    app.setStatus("edited {d} selected hit{s}", .{ changed, if (changed == 1) "" else "s" });
+}
+
 fn exitVisual(app: *App) void {
     step_grid.exitVisual(app, &app.slicer_visual_anchor, &app.slicer_visual_slice_anchor);
+    app.slicer_visual_edit = false;
 }
 
 /// The slice band the selection covers: the anchor-to-cursor block under

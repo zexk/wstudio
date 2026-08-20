@@ -48,6 +48,11 @@ where that editor deviates.
   plain visual mode too. `enter` or escape returns to
   selection.
 
+  Drum and slicer step grids use the same `enter` edit layer. Their normal
+  per-hit velocity, tune, microtiming, retrigger, probability, and condition
+  keys apply to every active hit in the selection. `enter` or escape returns
+  to selection.
+
   In normal mode, `M` grabs one note for the same move gestures, including
   `H`/`L` by a beat and `J`/`K` by an octave. `Y` clones it first, matching
   FL Studio's shift-drag workflow. Escape, `M`, or `Y` drops the note.

@@ -2982,6 +2982,49 @@ test "drum grid blockwise visual bounds the selection to the pad band j/k grows"
     try std.testing.expect(!dm.stepActive(6, 10));
 }
 
+test "drum and slicer visual edit changes every selected hit" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.view = .drum_grid;
+    app.drum_track = 2;
+    const dm = app.drumMachine();
+    dm.toggleStep(0, 0);
+    dm.toggleStep(1, 1);
+    app.drum_cursor = .{ 0, 0 };
+    app.handleKey(.{ .char = 'V' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.handleKey(.enter, 0);
+    app.handleKey(.{ .char = '3' }, 0);
+    app.handleKey(.{ .char = '}' }, 0);
+    app.handleKey(.{ .char = '%' }, 0);
+    try std.testing.expectEqual(@as(u8, 127), dm.stepVel(0, 0));
+    try std.testing.expectEqual(@as(u8, 127), dm.stepVel(1, 1));
+    try std.testing.expectEqual(@as(u8, 75), dm.stepProb(0, 0));
+    try std.testing.expectEqual(@as(u8, 75), dm.stepProb(1, 1));
+    app.handleKey(.escape, 0);
+    try std.testing.expect(app.modal.mode == .visual and !app.drum_visual_edit);
+    app.handleKey(.escape, 0);
+
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+    const sl = app.slicerInst();
+    sl.sliceInto(2);
+    sl.toggleStep(0, 0);
+    sl.toggleStep(1, 1);
+    app.slicer_cursor = .{ 0, 0 };
+    app.handleKey(.{ .char = 'V' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.handleKey(.enter, 0);
+    app.handleKey(.{ .char = 'T' }, 0);
+    app.handleKey(.{ .char = '&' }, 0);
+    try std.testing.expectEqual(@as(i8, 1), sl.stepTune(0, 0));
+    try std.testing.expectEqual(@as(i8, 1), sl.stepTune(1, 1));
+    try std.testing.expect(sl.stepCond(0, 0) != .always);
+    try std.testing.expect(sl.stepCond(1, 1) != .always);
+}
+
 test "linewise pastes keep their own rows, blockwise pastes follow the cursor row" {
     // A full-height yank must not slide down just because the cursor sits
     // on row 3 - that would turn a whole-grid copy into a transposition.

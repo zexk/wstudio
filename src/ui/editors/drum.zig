@@ -613,9 +613,11 @@ fn yankWholePattern(app: *App) void {
 /// Visual mode's reduced key set - see docs/editing-grammar.md for the
 /// swallow-everything-else and digits-fall-through rules every editor shares.
 fn handleVisual(app: *App, key: modal_mod.Key) bool {
+    if (app.drum_visual_edit) return handleVisualEdit(app, key);
     switch (key) {
         // zig fmt: off
         .escape => { exitVisual(app); app.setStatus("selection cancelled", .{}); return true; },
+        .enter => { app.drum_visual_edit = true; app.setStatus("editing selected hits: {{}} velocity, () tune, ;' timing, r roll, % chance, T condition", .{}); return true; },
         .char => |c| switch (c) {
             'h' => { moveStep(app, -app.takeCount()); return true; },
             'l' => { moveStep(app, app.takeCount()); return true; },
@@ -659,9 +661,42 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
     }
 }
 
+fn handleVisualEdit(app: *App, key: modal_mod.Key) bool {
+    switch (key) {
+        .escape, .enter => {
+            app.drum_visual_edit = false;
+            app.setStatus("visual selection", .{});
+        },
+        .char => |c| switch (c) {
+            '{' => editSelection(app, .velocity, -app.takeCount()),
+            '}' => editSelection(app, .velocity, app.takeCount()),
+            '(' => editSelection(app, .tune, -app.takeCount()),
+            ')' => editSelection(app, .tune, app.takeCount()),
+            ';' => editSelection(app, .micro, -app.takeCount()),
+            '\'' => editSelection(app, .micro, app.takeCount()),
+            'r' => editSelection(app, .retrig, 1),
+            '%' => editSelection(app, .probability, 1),
+            'T' => editSelection(app, .condition, app.takeCount()),
+            '0'...'9' => return false,
+            else => {},
+        },
+        else => {},
+    }
+    return true;
+}
+
+fn editSelection(app: *App, edit: step_grid.StepEdit, delta: i32) void {
+    const dm = app.drumMachine();
+    const range = step_grid.gridSelectionRange(u16, app.drum_visual_anchor, app.drum_cursor[1], app.drum_grid.ticks(), dm.step_count);
+    history.recordDrum(app, app.drum_track);
+    const changed = step_grid.editRange(dm, padRange(app), range, edit, delta);
+    app.setStatus("edited {d} selected hit{s}", .{ changed, if (changed == 1) "" else "s" });
+}
+
 /// Leave visual mode, clearing the anchors so the selection can't linger.
 fn exitVisual(app: *App) void {
     step_grid.exitVisual(app, &app.drum_visual_anchor, &app.drum_visual_pad_anchor);
+    app.drum_visual_edit = false;
 }
 
 /// The pad band the selection covers: the anchor-to-cursor block under `v`,

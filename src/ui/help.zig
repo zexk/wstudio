@@ -244,7 +244,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("!",            "flip the FILL switch every FILL/!FILL step reads - instant variation, no editing");
     t.key("; / '",        "drag the step early / late (±50% of a step) - per-hit feel, where < > swings every off-beat");
     t.key("",             "  cells: [x] plain, (x) tuned, <x> chance/condition/roll, {x} both");
-    t.key("v / V",        "visual: a (pad, step) block, j/k grow it / visual line: every pad - y/d/p");
+    t.key("v / V",        "select pad-step block / all pads; enter edits selected hits, y/d/p yank/clear/paste");
     t.key("< / >",        "less / more swing (50–75%)");
     t.key("C",            "cycle current pad's choke group (none/1-4) - same-group pads cut each other off");
     t.key("a",            "preview pad sound");
@@ -309,7 +309,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("$",            "loop THIS slice over the cursor's step count - a 7-step hat drifts against a 16-step kick");
     t.key("",             "  ($ again on the same step puts the slice back on the pattern's length)");
     t.key("d / y",        "+motion: delete / yank a step range; dd clears the row, yy yanks the pattern");
-    t.key("v / V",        "visual: a (slice, step) block, j/k grow it / visual line: every slice - y/d/p");
+    t.key("v / V",        "select slice-step block / all slices; enter edits selected hits, y/d/p yank/clear/paste");
     t.key("p",            "paste the yanked range at the cursor step");
     t.key(".",            "repeat last range delete/paste at the cursor");
     t.key("a",            "preview current slice");

@@ -830,6 +830,8 @@ pub const App = struct {
     /// Enter toggles selected-note editing while piano visual mode stays
     /// active. Motions then transform notes instead of growing selection.
     piano_visual_edit: bool = false,
+    drum_visual_edit: bool = false,
+    slicer_visual_edit: bool = false,
     drum_visual_pad_anchor: ?u8 = null,
     slicer_visual_slice_anchor: ?u8 = null,
     arr_visual_lane_anchor: ?usize = null,

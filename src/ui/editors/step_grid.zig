@@ -121,6 +121,32 @@ pub const RowRange = struct {
     }
 };
 
+pub const StepEdit = enum { velocity, tune, micro, retrig, probability, condition };
+
+/// Apply one per-hit edit across active cells in a visual selection.
+pub fn editRange(inst: anytype, rows: RowRange, range: anytype, edit: StepEdit, delta: i32) u32 {
+    var changed: u32 = 0;
+    var row = rows.lo;
+    while (row <= rows.hi) : (row += 1) {
+        var step = range.lo;
+        while (step <= range.hi) : (step += 1) {
+            const r: u8 = @intCast(row);
+            const s: u16 = @intCast(step);
+            if (!inst.stepActive(r, s)) continue;
+            switch (edit) {
+                .velocity => inst.nudgeStepVel(r, s, delta),
+                .tune => inst.nudgeStepTune(r, s, delta),
+                .micro => inst.nudgeStepMicro(r, s, delta),
+                .retrig => inst.cycleStepRetrig(r, s),
+                .probability => inst.cycleStepProb(r, s),
+                .condition => inst.cycleStepCond(r, s, delta),
+            }
+            changed += 1;
+        }
+    }
+    return changed;
+}
+
 /// Vim's visual/visual-line split applied to a (row, step) grid: `V`
 /// (linewise) leaves the row anchor null and selects every row, `v`
 /// (blockwise) anchors it so the selection is the band between the anchor
