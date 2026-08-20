@@ -1360,3 +1360,27 @@ test "dupe and split keep a clip on its own layer" {
         try std.testing.expectEqual(want, c.layer);
     }
 }
+
+test "dupe carries every scalar Clip field, including ones added later" {
+    const a = std.testing.allocator;
+    // Reflection rather than a hand-written list: `layer` was added to Clip
+    // long after `dupe` was written and never joined it, so a split moved
+    // half a clip to another layer. A field added tomorrow fails here instead.
+    var src = Clip.initAudio(7, 13, .{ .source_id = 4, .source_start_frame = 2, .source_length_frames = 9 });
+    src.layer = 3;
+    defer src.deinit(a);
+    var copy = try src.dupe(a);
+    defer copy.deinit(a);
+
+    inline for (@typeInfo(Clip).@"struct".fields) |f| {
+        // `content` and `automation` own heap data and are deep-copied, so
+        // they are compared by shape rather than by value.
+        if (comptime std.mem.eql(u8, f.name, "content")) {
+            try std.testing.expectEqual(std.meta.activeTag(src.content), std.meta.activeTag(copy.content));
+        } else if (comptime std.mem.eql(u8, f.name, "automation")) {
+            try std.testing.expectEqual(src.automation.gain.len, copy.automation.gain.len);
+        } else {
+            try std.testing.expectEqual(@field(src, f.name), @field(copy, f.name));
+        }
+    }
+}
