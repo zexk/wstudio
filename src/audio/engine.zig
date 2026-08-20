@@ -2724,6 +2724,36 @@ test "renderTracks handles multiple simultaneous synth-param automation slots" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.5), synth.sub_level, 1e-3);
 }
 
+test "a 5th+ concurrent synth-param automation slot still applies, past the sample-accurate lane cap" {
+    // `renderOneTrack` gives only `max_sample_accurate_lanes` (4) active
+    // slots real per-sample scheduling; everything past that falls back to
+    // one `valueAt` per block. Slots fill lanes in ascending slot-index
+    // order, so indices 0-3 land in lanes and 4-5 exercise the fallback -
+    // this proves that path still reaches the device in the same block,
+    // not just that it compiles.
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    engine.trackAt(0).* = .{ .active = true };
+    engine.setTrackChain(0, &.{synth.device()});
+    engine.setTrackSynthParam(0, 0, 0, 21, &.{.{ .beat = 0.0, .value = 5_000.0 }}); // filter cutoff
+    engine.setTrackSynthParam(0, 1, 0, 29, &.{.{ .beat = 0.0, .value = 8.0 }}); // lfo rate
+    engine.setTrackSynthParam(0, 2, 0, 34, &.{.{ .beat = 0.0, .value = 0.5 }}); // sub level
+    engine.setTrackSynthParam(0, 3, 0, 36, &.{.{ .beat = 0.0, .value = 0.7 }}); // noise level
+    engine.setTrackSynthParam(0, 4, 0, 22, &.{.{ .beat = 0.0, .value = 0.6 }}); // filter res - fallback
+    engine.setTrackSynthParam(0, 5, 0, 37, &.{.{ .beat = 0.0, .value = 0.3 }}); // noise color - fallback
+
+    var block: [512]Sample = undefined;
+    engine.process(&block);
+    try std.testing.expectApproxEqAbs(@as(f32, 5_000.0), synth.filter_cutoff, 1.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 8.0), synth.lfo_rate_hz, 1e-3);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), synth.sub_level, 1e-3);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.7), synth.noise_level, 1e-3);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.6), synth.filter_res, 1e-3);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.3), synth.noise_color, 1e-3);
+}
+
 test "setTrackSynthParam covers the complete persisted parameter id space" {
     var engine = try Engine.init(std.testing.allocator, 48_000);
     defer engine.deinit();
