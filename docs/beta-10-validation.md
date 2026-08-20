@@ -246,6 +246,11 @@ behavior; `zig build test` passes.
 
 ## Mix safety and effect defaults
 
+2026-08-20 audio export safety now rejects any existing destination carrying
+the `.wsj` container magic. This closes project destruction through CLI or
+frontend bounce without restricting output extensions. Focused coverage proves
+the project bytes remain unchanged.
+
 2026-08-01 automated checks cover every internal effect default (25 kinds as of
 beta.10, up from the 20 this section first counted) with normal
 audio: output stays audible, finite, and bounded. Shared chain coverage proves

@@ -140,6 +140,10 @@ pub fn cmdBounce(app: *App, args: []const u8) void {
     const sr = app.session.project.sample_rate;
     const range = computeBounceRange(app);
     writeParkedBounce(app, path, range, bit_depth) catch |e| {
+        if (e == error.RefusingToOverwriteProject) {
+            app.setStatus("bounce: refusing to overwrite project file: {s}", .{path});
+            return;
+        }
         app.setStatus("bounce: {s}: {s}", .{ path, @errorName(e) });
         return;
     };
@@ -199,6 +203,10 @@ pub fn cmdBounceStems(app: *App, args: []const u8) void {
             continue;
         };
         writeParkedBounce(app, file_path, range, bit_depth) catch |e| {
+            if (e == error.RefusingToOverwriteProject) {
+                app.setStatus("bounce-stems: refusing to overwrite project file: {s}", .{file_path});
+                return;
+            }
             app.setStatus("bounce-stems: write failed for {s}: {s}", .{ stem_name, @errorName(e) });
             continue;
         };

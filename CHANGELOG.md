@@ -182,6 +182,8 @@ history lives in [FORMAT.md](FORMAT.md).
   and frontend startup, while `:edit` only named an internal error. They now
   name the project and give recovery steps for incompatible, corrupt, missing,
   and unreadable files.
+- Audio bounce could replace an existing `.wsj` project when given the project
+  itself as its output path. All bounce paths now refuse project destinations.
 - A drum pad's play mode had no effect: every hit cut the one before it, so
   setting a pad to one-shot behaved exactly like retrigger and a long crash
   hit twice cut itself instead of overlapping. Slices already honoured the

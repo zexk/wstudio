@@ -265,7 +265,10 @@ fn renderProject(allocator: std.mem.Allocator, io: std.Io, project_path: []const
     defer session.deinit();
 
     const bounce_range = ws.bounce.range(&session, 2.0);
-    try ws.bounce.writeFile(allocator, io, output_path, &session, bounce_range, .pcm16);
+    ws.bounce.writeFile(allocator, io, output_path, &session, bounce_range, .pcm16) catch |err| {
+        if (err == error.RefusingToOverwriteProject) return refusedProjectOverwrite(io, output_path);
+        return err;
+    };
 
     var stdout_buffer: [1024]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
@@ -276,6 +279,14 @@ fn renderProject(allocator: std.mem.Allocator, io: std.Io, project_path: []const
         output_path,
     });
     try stdout_writer.interface.flush();
+}
+
+fn refusedProjectOverwrite(io: std.Io, path: []const u8) !void {
+    var stderr_buffer: [512]u8 = undefined;
+    var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
+    try stderr_writer.interface.print("wstudio: refusing to overwrite project file '{s}' with audio\n", .{path});
+    try stderr_writer.interface.flush();
+    return error.CliReported;
 }
 
 fn renderProjectStems(allocator: std.mem.Allocator, io: std.Io, project_path: []const u8, output_dir: []const u8) !void {
@@ -297,7 +308,10 @@ fn renderProjectStems(allocator: std.mem.Allocator, io: std.Io, project_path: []
 
         const name = ws.bounce.stemName(&name_buffer, session.project.tracks.items[i].name, i);
         const path = try std.fmt.bufPrint(&path_buffer, "{s}/{s}.wav", .{ output_dir, name });
-        try ws.bounce.writeFile(allocator, io, path, &session, bounce_range, .pcm16);
+        ws.bounce.writeFile(allocator, io, path, &session, bounce_range, .pcm16) catch |err| {
+            if (err == error.RefusingToOverwriteProject) return refusedProjectOverwrite(io, path);
+            return err;
+        };
         rendered += 1;
     }
 

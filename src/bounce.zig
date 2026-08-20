@@ -7,6 +7,7 @@ const dsp = @import("dsp/device.zig");
 const time_grid = @import("time_grid.zig");
 const wav = @import("core/wav.zig");
 const audio_file = @import("core/audio_file.zig");
+const project_magic = @import("persist/types.zig").bundle_magic;
 const Session = @import("session.zig").Session;
 
 pub const Range = struct {
@@ -209,6 +210,8 @@ pub fn writeFile(
     bounce_range: Range,
     bit_depth: wav.BitDepth,
 ) !void {
+    if (try destinationIsProject(io, path)) return error.RefusingToOverwriteProject;
+
     const tmp_path = try std.fmt.allocPrint(allocator, "{s}.tmp", .{path});
     defer allocator.free(tmp_path);
     errdefer std.Io.Dir.cwd().deleteFile(io, tmp_path) catch {};
@@ -239,6 +242,22 @@ pub fn writeFile(
         try file_writer.interface.flush();
     }
     try std.Io.Dir.cwd().rename(tmp_path, std.Io.Dir.cwd(), path, io);
+}
+
+fn destinationIsProject(io: std.Io, path: []const u8) !bool {
+    const file = std.Io.Dir.cwd().openFile(io, path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => |e| return e,
+    };
+    defer file.close(io);
+    var reader_buf: [64]u8 = undefined;
+    var reader = file.reader(io, &reader_buf);
+    var magic: [project_magic.len]u8 = undefined;
+    reader.interface.readSliceAll(&magic) catch |err| switch (err) {
+        error.EndOfStream => return false,
+        else => |e| return e,
+    };
+    return std.mem.eql(u8, &magic, &project_magic);
 }
 
 fn resetDevices(session: *Session) void {
@@ -397,6 +416,29 @@ test "failed export preserves destination and removes temporary file" {
     defer std.testing.allocator.free(data);
     try std.testing.expectEqualStrings("existing", data);
     try std.testing.expectError(error.FileNotFound, std.Io.Dir.cwd().access(std.testing.io, tmp_path, .{}));
+}
+
+test "export refuses to overwrite a project file" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/song.wsj", .{&tmp.sub_path});
+    try std.Io.Dir.cwd().writeFile(std.testing.io, .{ .sub_path = path, .data = &project_magic });
+
+    var session = try Session.initDefaultWithSampleRate(std.testing.allocator, 48_000);
+    defer session.deinit();
+    try std.testing.expectError(error.RefusingToOverwriteProject, writeFile(
+        std.testing.allocator,
+        std.testing.io,
+        path,
+        &session,
+        range(&session, 0),
+        .pcm16,
+    ));
+
+    const data = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, path, std.testing.allocator, .limited(project_magic.len + 1));
+    defer std.testing.allocator.free(data);
+    try std.testing.expectEqualSlices(u8, &project_magic, data);
 }
 
 test "rendering the same session twice gives the same audio" {
