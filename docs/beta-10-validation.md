@@ -180,7 +180,7 @@ behavior; `zig build test` passes.
 
 ## Mix safety and effect defaults
 
-2026-08-01 automated checks cover every internal effect default (24 kinds as of
+2026-08-01 automated checks cover every internal effect default (25 kinds as of
 beta.10, up from the 20 this section first counted) with normal
 audio: output stays audible, finite, and bounded. Shared chain coverage proves
 bypassed effects leave samples bit-identical. Existing focused checks cover

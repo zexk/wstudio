@@ -9304,7 +9304,7 @@ test "the FX and instrument pickers scroll their list to keep the cursor on scre
     defer app.deinit();
     var buf: [32 * 1024]u8 = undefined;
 
-    // 24 built-in units don't fit a 24-row terminal, so the last one is only
+    // Built-in units don't fit a 24-row terminal, so the last one is only
     // reachable if the list scrolls (it didn't until picker_scroll existed).
     spectrum_ed.switchToTrack(&app, 0);
     try std.testing.expect(spectrum_ed.handleKey(&app, .{ .char = 'a' }));
