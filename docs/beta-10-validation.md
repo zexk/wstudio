@@ -151,6 +151,19 @@ Definite and indirect leaks use `--error-exitcode=1`.
 resume transitions. Output stayed finite and audible with a 0.731 peak. Ten
 save/load round trips and three PCM exports completed afterward.
 
+Every save had re-encoded every recorded clip's full audio to FLAC from
+scratch, even when nothing about that audio had changed - measured at 139ms
+to encode 5 minutes of mono audio. `App.maybeAutosave` runs a save every 30s
+by default whenever anything is dirty, synchronously on the UI thread, so a
+project with several minutes of recorded audio per track could stall input
+and redraw for over a second on an unrelated one-note edit. Each
+`AudioSource` now caches its encoded bytes and reuses them until that
+source's content actually changes - safe with no dirty-tracking since
+`AudioSource.samples` is write-once and ids are never reused. Measured
+144ms -> 10ms on a repeat save of the same 5-minute source. Re-running
+`zig build soak` afterward reproduced the identical frame count, round-trip
+count, and peak recorded above.
+
 ## Third-party plugin pass
 
 2026-08-14 `zig build plugincheck` hosted the `wstudio-test-plugins` bundle
