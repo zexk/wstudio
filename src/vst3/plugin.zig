@@ -599,28 +599,33 @@ pub const Vst3Plugin = struct {
             .class_id = abi.formatUid(class_id),
             .impl = .{ .bridged = b },
         };
-        if (instrument) {
-            const count_resp = b.call(.parameter_count, &.{}) catch &.{};
-            const count: usize = if (count_resp.len >= 4) std.mem.bytesToValue(u32, count_resp[0..4]) else 0;
-            var index: usize = 0;
-            while (index < @min(count, max_parameters)) : (index += 1) {
-                const idx32: u32 = @intCast(index);
-                const info_resp = b.call(.parameter_info, std.mem.asBytes(&idx32)) catch continue;
-                if (info_resp.len < @sizeOf(abi.ParameterInfo)) continue;
-                const info = std.mem.bytesToValue(abi.ParameterInfo, info_resp[0..@sizeOf(abi.ParameterInfo)]);
-                if (info.flags & 1 == 0) continue;
-                const slot = self.automatable_count;
-                const title = std.mem.sliceTo(&info.title, 0);
-                const len = std.unicode.utf16LeToUtf8(&self.automatable_names[slot], title) catch 0;
-                self.automatable_params[slot] = .{
-                    .id = info.id,
-                    .label = self.automatable_names[slot][0..len],
-                    .section = "VST3",
-                    .range = .{ 0, 1 },
-                    .step = 0.01,
-                };
-                self.automatable_count += 1;
-            }
+        // Populated for every plugin with a controller, not just instruments:
+        // `Instrument.automatableParams` is the only live consumer today, but
+        // gating this on `instrument` left it silently empty for a bridged
+        // effect, unlike `loadDirect` below which has no such gate. Found via
+        // `plugincheck`: it made the sandboxed sweep's "automate" step a
+        // no-op for every VST3 effect, so a parameter driven to the end of
+        // its declared range never got a chance to misbehave there.
+        const count_resp = b.call(.parameter_count, &.{}) catch &.{};
+        const count: usize = if (count_resp.len >= 4) std.mem.bytesToValue(u32, count_resp[0..4]) else 0;
+        var index: usize = 0;
+        while (index < @min(count, max_parameters)) : (index += 1) {
+            const idx32: u32 = @intCast(index);
+            const info_resp = b.call(.parameter_info, std.mem.asBytes(&idx32)) catch continue;
+            if (info_resp.len < @sizeOf(abi.ParameterInfo)) continue;
+            const info = std.mem.bytesToValue(abi.ParameterInfo, info_resp[0..@sizeOf(abi.ParameterInfo)]);
+            if (info.flags & 1 == 0) continue;
+            const slot = self.automatable_count;
+            const title = std.mem.sliceTo(&info.title, 0);
+            const len = std.unicode.utf16LeToUtf8(&self.automatable_names[slot], title) catch 0;
+            self.automatable_params[slot] = .{
+                .id = info.id,
+                .label = self.automatable_names[slot][0..len],
+                .section = "VST3",
+                .range = .{ 0, 1 },
+                .step = 0.01,
+            };
+            self.automatable_count += 1;
         }
         return self;
     }

@@ -198,6 +198,9 @@ history lives in [FORMAT.md](FORMAT.md).
 - VST3 processing objects returned null or rejected their own interfaces when
   plugins queried them through `FUnknown`. Event lists, parameter queues, and
   parameter-change lists now expose their declared interfaces correctly.
+- A sandboxed VST3 effect exposed no automatable parameters at all: the bridge
+  only built that list for instrument plugins, unlike direct hosting. Bridged
+  loading now builds it for every plugin with a controller.
 - A VST3 could crash its GUI host by returning editor rectangle coordinates
   whose width or height overflowed `i32`. Editor open and resize paths now
   reject invalid dimensions before arithmetic or native-window calls.

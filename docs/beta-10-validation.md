@@ -177,10 +177,21 @@ plugins because those fixtures are this repository's own code:
   reported an audio thread from inside `processBlock`. Odin 2 aborted the whole
   process on the violation.
 
-Five remaining reports are plugin-side and not release blockers: LSP's send and
-return utilities and Uhhyou's ClangSynth produce an enormous output level when a
-parameter is driven to the end of its own declared range, which is what those
-ranges mean. They are recorded as notes and do not fail the run.
+Nine remaining reports are plugin-side and not release blockers: LSP's send and
+return utilities (CLAP and VST3, mono and stereo) and Uhhyou's ClangSynth
+produce an enormous output level when a parameter is driven to the end of its
+own declared range, which is what those ranges mean. They are recorded as
+notes and do not fail the run.
+
+2026-08-20 the sandboxed sweep only reported five of those nine: the bridged
+VST3 loader populated its automatable-parameter list (`Vst3Plugin.loadBridged`
+in `src/vst3/plugin.zig`) only `if (instrument)`, unlike the direct loader,
+which has no such gate. Every sandboxed VST3 effect therefore swept zero
+parameters in the "automate" step, so the four VST3 LSP send/return notes
+never fired there, silently narrowing what the release gate's "automation to
+both ends of its declared parameter ranges" claim actually covered. Dropping
+the gate makes both loaders symmetric; the sandboxed and `--direct` sweeps now
+report the same nine notes.
 
 The check is on-demand rather than part of `zig build test`, since it needs
 third-party plugins installed on the machine.
