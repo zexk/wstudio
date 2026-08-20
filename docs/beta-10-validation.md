@@ -85,7 +85,10 @@ locks the visible reinstall recovery action.
 with its melodic undo state. Focused frontend coverage imports distinct values,
 then proves one undo and redo restore notes, events, base tempo, and tempo
 points together. Parser coverage also caps oversized MIDI tempo maps at the
-project's 64-point limit and reports that some MIDI data was capped.
+project's 64-point limit and reports that some MIDI data was capped. A
+10,000-note and 10,000-event import under a fixed 192 KiB allocator proves the
+parser applies every project cap while reading, without first allocating the
+full source count, and still retains earlier events from later MIDI tracks.
 
 ## ReleaseSafe CLI render
 

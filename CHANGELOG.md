@@ -198,7 +198,9 @@ history lives in [FORMAT.md](FORMAT.md).
 - Undo after `:import-midi` restored notes but left imported channel events and
   project tempo changes behind. MIDI import now records and restores all three
   as one undo/redo operation, and caps imported tempo events at the project's
-  64-point limit instead of silently building an oversized map.
+  64-point limit instead of silently building an oversized map. Parser memory
+  now stays within project note, event, and tempo limits even when the source
+  MIDI file greatly exceeds them.
 - A drum pad's play mode had no effect: every hit cut the one before it, so
   setting a pad to one-shot behaved exactly like retrigger and a long crash
   hit twice cut itself instead of overlapping. Slices already honoured the

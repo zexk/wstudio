@@ -244,8 +244,8 @@ pub const ParseResult = struct {
     tempo_bpm: f64,
     tempo_points: []time_map.TempoPoint,
     events: []MidiEvent,
-    /// True if the file had more notes than `pattern_mod.max_notes` and the
-    /// tail (by start time) was dropped.
+    /// True if notes, retained channel events, or tempo points were capped at
+    /// project limits.
     truncated: bool,
 
     pub fn deinit(self: ParseResult, allocator: std.mem.Allocator) void {
@@ -275,6 +275,7 @@ pub fn parse(allocator: std.mem.Allocator, data: []const u8) ParseError!ParseRes
     var tempo_points: std.ArrayListUnmanaged(time_map.TempoPoint) = .empty;
     errdefer tempo_points.deinit(allocator);
     var tempo_bpm: ?f64 = null;
+    var truncated = false;
 
     var pos: usize = 8 + header_len;
     var track_i: usize = 0;
@@ -284,7 +285,7 @@ pub fn parse(allocator: std.mem.Allocator, data: []const u8) ParseError!ParseRes
         const track_start = pos + 8;
         if (track_start + track_len > data.len) return error.Truncated;
         const track_end = track_start + track_len;
-        try parseTrack(allocator, data[track_start..track_end], ticks_per_beat, @intCast(track_i), &notes, &events, &tempo_points, &tempo_bpm);
+        try parseTrack(allocator, data[track_start..track_end], ticks_per_beat, @intCast(track_i), &notes, &events, &tempo_points, &tempo_bpm, &truncated);
         pos = track_end;
     }
     if (track_i != ntrks) return error.Truncated;
@@ -304,20 +305,6 @@ pub fn parse(allocator: std.mem.Allocator, data: []const u8) ParseError!ParseRes
             return a.beat < b.beat;
         }
     }.lessThan);
-
-    var truncated = false;
-    if (notes.items.len > pattern_mod.max_notes) {
-        truncated = true;
-        notes.shrinkRetainingCapacity(pattern_mod.max_notes);
-    }
-    if (events.items.len > pattern_mod.max_midi_events) {
-        truncated = true;
-        events.shrinkRetainingCapacity(pattern_mod.max_midi_events);
-    }
-    if (tempo_points.items.len > time_map.max_tempo_points) {
-        truncated = true;
-        tempo_points.shrinkRetainingCapacity(time_map.max_tempo_points);
-    }
 
     var length_beats: f64 = 1.0;
     for (notes.items) |n| length_beats = @max(length_beats, n.start_beat + n.duration_beat);
@@ -348,6 +335,7 @@ fn parseTrack(
     events: *std.ArrayListUnmanaged(MidiEvent),
     tempo_points: *std.ArrayListUnmanaged(time_map.TempoPoint),
     tempo_bpm: *?f64,
+    truncated: *bool,
 ) ParseError!void {
     // Currently-held note per (channel, pitch): its start tick and note-on
     // velocity. MIDI files don't nest same-pitch note-ons, but a stray
@@ -382,7 +370,7 @@ fn parseTrack(
                 if (mpqn > 0) {
                     const bpm = 60_000_000.0 / @as(f64, @floatFromInt(mpqn));
                     if (tempo_bpm.* == null) tempo_bpm.* = bpm;
-                    tempo_points.append(allocator, .{ .beat = @as(f64, @floatFromInt(tick)) / ticks_per_beat, .bpm = bpm }) catch return error.OutOfMemory;
+                    appendTimeline(allocator, tempo_points, time_map.TempoPoint{ .beat = @as(f64, @floatFromInt(tick)) / ticks_per_beat, .bpm = bpm }, time_map.max_tempo_points, truncated) catch return error.OutOfMemory;
                 }
             } else if (meta_type == 0x03 and std.mem.startsWith(u8, track[pos .. pos + event_len], "wstudio-track:")) {
                 source_track = std.fmt.parseInt(u16, track[pos + 14 .. pos + event_len], 10) catch midi_track;
@@ -418,18 +406,18 @@ fn parseTrack(
         switch (kind) {
             0x9 => { // note on (velocity 0 == note off)
                 if (d2 == 0) {
-                    try closeNote(allocator, notes, &active, source_track, ch, d1, tick, ticks_per_beat);
+                    try closeNote(allocator, notes, &active, source_track, ch, d1, tick, ticks_per_beat, truncated);
                 } else {
-                    if (active[ch][d1] != null) try closeNote(allocator, notes, &active, source_track, ch, d1, tick, ticks_per_beat);
+                    if (active[ch][d1] != null) try closeNote(allocator, notes, &active, source_track, ch, d1, tick, ticks_per_beat, truncated);
                     active[ch][d1] = .{ .start = tick, .vel7 = d2 };
                 }
             },
-            0x8 => try closeNote(allocator, notes, &active, source_track, ch, d1, tick, ticks_per_beat),
-            0xA => try events.append(allocator, .{ .beat = @as(f64, @floatFromInt(tick)) / ticks_per_beat, .midi_track = source_track, .channel = ch, .data = .{ .poly_pressure = .{ .pitch = @intCast(d1), .pressure = @intCast(d2) } } }),
-            0xB => try events.append(allocator, .{ .beat = @as(f64, @floatFromInt(tick)) / ticks_per_beat, .midi_track = source_track, .channel = ch, .data = .{ .cc = .{ .controller = @intCast(d1), .value = @intCast(d2) } } }),
-            0xC => try events.append(allocator, .{ .beat = @as(f64, @floatFromInt(tick)) / ticks_per_beat, .midi_track = source_track, .channel = ch, .data = .{ .program_change = @intCast(d1) } }),
-            0xD => try events.append(allocator, .{ .beat = @as(f64, @floatFromInt(tick)) / ticks_per_beat, .midi_track = source_track, .channel = ch, .data = .{ .channel_pressure = @intCast(d1) } }),
-            0xE => try events.append(allocator, .{ .beat = @as(f64, @floatFromInt(tick)) / ticks_per_beat, .midi_track = source_track, .channel = ch, .data = .{ .pitch_bend = @as(u14, d1) | (@as(u14, d2) << 7) } }),
+            0x8 => try closeNote(allocator, notes, &active, source_track, ch, d1, tick, ticks_per_beat, truncated),
+            0xA => try appendTimeline(allocator, events, MidiEvent{ .beat = @as(f64, @floatFromInt(tick)) / ticks_per_beat, .midi_track = source_track, .channel = ch, .data = .{ .poly_pressure = .{ .pitch = @intCast(d1), .pressure = @intCast(d2) } } }, pattern_mod.max_midi_events, truncated),
+            0xB => try appendTimeline(allocator, events, MidiEvent{ .beat = @as(f64, @floatFromInt(tick)) / ticks_per_beat, .midi_track = source_track, .channel = ch, .data = .{ .cc = .{ .controller = @intCast(d1), .value = @intCast(d2) } } }, pattern_mod.max_midi_events, truncated),
+            0xC => try appendTimeline(allocator, events, MidiEvent{ .beat = @as(f64, @floatFromInt(tick)) / ticks_per_beat, .midi_track = source_track, .channel = ch, .data = .{ .program_change = @intCast(d1) } }, pattern_mod.max_midi_events, truncated),
+            0xD => try appendTimeline(allocator, events, MidiEvent{ .beat = @as(f64, @floatFromInt(tick)) / ticks_per_beat, .midi_track = source_track, .channel = ch, .data = .{ .channel_pressure = @intCast(d1) } }, pattern_mod.max_midi_events, truncated),
+            0xE => try appendTimeline(allocator, events, MidiEvent{ .beat = @as(f64, @floatFromInt(tick)) / ticks_per_beat, .midi_track = source_track, .channel = ch, .data = .{ .pitch_bend = @as(u14, d1) | (@as(u14, d2) << 7) } }, pattern_mod.max_midi_events, truncated),
             else => {},
         }
     }
@@ -439,14 +427,14 @@ fn parseTrack(
         if (active[ch][pitch]) |held| {
             active[ch][pitch] = null;
             const dur_ticks = @max(1, last_tick -| held.start);
-            notes.append(allocator, .{
+            appendNote(allocator, notes, .{
                 .pitch = @intCast(pitch),
                 .start_beat = @as(f64, @floatFromInt(held.start)) / ticks_per_beat,
                 .duration_beat = @as(f64, @floatFromInt(dur_ticks)) / ticks_per_beat,
                 .velocity = @as(f32, @floatFromInt(held.vel7)) / 127.0,
                 .channel = @intCast(ch),
                 .midi_track = source_track,
-            }) catch return error.OutOfMemory;
+            }, truncated) catch return error.OutOfMemory;
         }
     };
 }
@@ -460,18 +448,39 @@ fn closeNote(
     pitch: u8,
     tick: u64,
     ticks_per_beat: f64,
+    truncated: *bool,
 ) !void {
     const held = active[ch][pitch] orelse return;
     active[ch][pitch] = null;
     const dur_ticks = @max(1, tick -| held.start);
-    try notes.append(allocator, .{
+    try appendNote(allocator, notes, .{
         .pitch = @intCast(pitch),
         .start_beat = @as(f64, @floatFromInt(held.start)) / ticks_per_beat,
         .duration_beat = @as(f64, @floatFromInt(dur_ticks)) / ticks_per_beat,
         .velocity = @as(f32, @floatFromInt(held.vel7)) / 127.0,
         .channel = ch,
         .midi_track = midi_track,
-    });
+    }, truncated);
+}
+
+fn appendNote(allocator: std.mem.Allocator, notes: *std.ArrayListUnmanaged(Note), note: Note, truncated: *bool) !void {
+    if (notes.items.len < pattern_mod.max_notes) return notes.append(allocator, note);
+    truncated.* = true;
+    var latest: usize = 0;
+    for (notes.items[1..], 1..) |item, i| {
+        if (item.start_beat > notes.items[latest].start_beat) latest = i;
+    }
+    if (note.start_beat < notes.items[latest].start_beat) notes.items[latest] = note;
+}
+
+fn appendTimeline(allocator: std.mem.Allocator, items: anytype, item: anytype, limit: usize, truncated: *bool) !void {
+    if (items.items.len < limit) return items.append(allocator, item);
+    truncated.* = true;
+    var latest: usize = 0;
+    for (items.items[1..], 1..) |existing, i| {
+        if (existing.beat > items.items[latest].beat) latest = i;
+    }
+    if (item.beat < items.items[latest].beat) items.items[latest] = item;
 }
 
 /// Matches `writeVarLen`'s full `u64` range (10 groups of 7 bits) rather
@@ -684,6 +693,39 @@ test "MIDI import caps tempo points at the project limit" {
     defer result.deinit(std.testing.allocator);
     try std.testing.expect(result.truncated);
     try std.testing.expectEqual(@as(usize, time_map.max_tempo_points), result.tempo_points.len);
+}
+
+test "MIDI import caps notes and events before allocating their full file counts" {
+    const item_count = 10_000;
+    const notes = try std.testing.allocator.alloc(Note, item_count);
+    defer std.testing.allocator.free(notes);
+    for (notes, 0..) |*note, i| note.* = .{
+        .pitch = 60,
+        .start_beat = 1_000 + @as(f64, @floatFromInt(i)),
+        .duration_beat = 0.5,
+    };
+    notes[item_count - 1].start_beat = 0;
+    notes[item_count - 1].midi_track = 1;
+    const events = try std.testing.allocator.alloc(MidiEvent, item_count);
+    defer std.testing.allocator.free(events);
+    for (events, 0..) |*event, i| event.* = .{
+        .beat = 1_000 + @as(f64, @floatFromInt(i)),
+        .data = .{ .cc = .{ .controller = 1, .value = 2 } },
+    };
+    events[item_count - 1].beat = 0;
+    events[item_count - 1].midi_track = 1;
+    const bytes = try writeProject(std.testing.allocator, notes, events, &.{}, 120);
+    defer std.testing.allocator.free(bytes);
+
+    var parse_memory: [192 * 1024]u8 = undefined;
+    var fixed = std.heap.FixedBufferAllocator.init(&parse_memory);
+    const result = try parse(fixed.allocator(), bytes);
+    defer result.deinit(fixed.allocator());
+    try std.testing.expect(result.truncated);
+    try std.testing.expectEqual(@as(usize, pattern_mod.max_notes), result.notes.len);
+    try std.testing.expectEqual(@as(usize, pattern_mod.max_midi_events), result.events.len);
+    try std.testing.expectEqual(@as(f64, 0), result.notes[0].start_beat);
+    try std.testing.expectEqual(@as(f64, 0), result.events[0].beat);
 }
 
 test "format-1 export sanitizes non-finite note velocity" {
