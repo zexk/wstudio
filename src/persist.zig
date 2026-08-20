@@ -3005,3 +3005,62 @@ test "every Track field survives a save and load" {
         }
     }
 }
+
+// The Project-level counterpart to "every Track field survives a save and
+// load", and for the same reason: positional encoding means a field with no
+// snapshot slot comes back as its default rather than failing. The
+// collections are compared by length - their contents have round-trip tests
+// of their own - and `allocator` is not project data.
+test "every Project field survives a save and load" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [96]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/project.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    const p = &session.project;
+    p.sample_rate = 44_100;
+    p.tempo_bpm = 137.5;
+    p.scale = .{ .root = 3, .kind = .dorian };
+    p.tuning = tuning_mod.Preset.just_major.tuning(3);
+    p.beats_per_bar = 7;
+    p.meter_denominator = 8;
+    p.loop_enabled = true;
+    p.loop_start_bar = 2;
+    p.loop_end_bar = 6;
+    // Not set by hand: `next_audio_source_id` is derived, bumped past every
+    // id `addAudioSourceWithId` restores, so a real source is what proves it
+    // comes back right rather than colliding with what was loaded. The clip
+    // matters too - saving drops any source no clip refers to.
+    try p.addAudioSourceWithId(5, "kick.wav", 48_000, 1, &.{ 0.25, -0.25 });
+    try session.arrangement.lane(0).?.place(testing.allocator, ws_arrangement.Clip.initAudio(0, 32, .{
+        .source_id = 5,
+        .source_start_frame = 0,
+        .source_length_frames = 2,
+    }));
+    try p.setTempoPoint(.{ .beat = 4, .bpm = 90 });
+    try p.setMeterPoint(.{ .beat = 8, .numerator = 3, .denominator = 4 });
+    try p.setSection(128, "verse");
+    const before = session.project;
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    const after = loaded.project;
+    try testing.expectEqual(@as(u32, 6), after.next_audio_source_id);
+
+    inline for (@typeInfo(project_mod.Project).@"struct".fields) |f| {
+        const T = @TypeOf(@field(before, f.name));
+        if (comptime std.mem.eql(u8, f.name, "allocator")) {
+            // Not project data.
+        } else if (comptime std.mem.eql(u8, f.name, "name")) {
+            try testing.expectEqualStrings(before.name, after.name);
+        } else if (comptime @typeInfo(T) == .@"struct" and @hasField(T, "items")) {
+            try testing.expectEqual(@field(before, f.name).items.len, @field(after, f.name).items.len);
+        } else {
+            try testing.expectEqual(@field(before, f.name), @field(after, f.name));
+        }
+    }
+}
