@@ -40,6 +40,14 @@ page, desktop and MIME metadata, all nine icon sizes, and the bundled acoustic
 library with its licenses. `nix flake check --no-build` also passes, and the
 default dev shells evaluate for Linux and macOS on x86_64 and Arm64.
 
+2026-08-20 `nix build .#windows --no-link` and
+`nix build .#windows-arm64 --no-link` passed. Both cross-package outputs contain
+the main and plugin-bridge PE binaries plus every non-system DLL in their import
+closures. The shared derivation now walks transitive imports during install;
+previously these public package outputs omitted their required DLLs even though
+the release workflow added them later. This proves packaging, not the native
+Windows journey listed under explicit skips.
+
 ## Playback and persistence soak
 
 2026-08-20 `zig build soak` passed against `demo.wsj`. Debug DSP processed

@@ -257,12 +257,39 @@
             inherit (finalAttrs) pname version src;
             hash = zigDepsHash;
           };
-          nativeBuildInputs = [ pkgs.zig.hook ];
+          nativeBuildInputs = [
+            pkgs.zig.hook
+            targetPkgs.stdenv.cc.bintools.bintools
+          ];
           WSTUDIO_TARGET_PREFIX = targetPrefix targetPkgs;
           postConfigure = ''
             ln -s ${finalAttrs.zigDeps} "$ZIG_GLOBAL_CACHE_DIR/p"
           '';
           zigBuildFlags = [ "-Dtarget=${target}" ];
+          postInstall = ''
+            queue=$(${targetPkgs.stdenv.cc.targetPrefix}objdump -p "$out/bin/wstudio.exe" \
+              | sed -n 's/^[[:space:]]*[Dd][Ll][Ll] [Nn]ame: //p')
+            copied=""
+            while [ -n "$queue" ]; do
+              next=""
+              for dll in $queue; do
+                case " $copied " in *" $dll "*) continue;; esac
+                src="$WSTUDIO_TARGET_PREFIX/bin/$dll"
+                [ -f "$src" ] || src="$WSTUDIO_TARGET_PREFIX/bin/lib$dll"
+                [ -f "$src" ] || continue
+                cp "$src" "$out/bin/$dll"
+                copied="$copied $dll"
+                next="$next $(${targetPkgs.stdenv.cc.targetPrefix}objdump -p "$src" \
+                  | sed -n 's/^[[:space:]]*[Dd][Ll][Ll] [Nn]ame: //p')"
+              done
+              queue="$next"
+            done
+            test -f "$out/bin/librubberband-3.dll"
+            # Arm64 links libsndfile statically; x64 imports its DLL.
+            ${pkgs.lib.optionalString (target == "x86_64-windows-gnu") ''
+              test -f "$out/bin/libsndfile-1.dll"
+            ''}
+          '';
         });
       windowsArm64Pkgs =
         pkgs:
