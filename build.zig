@@ -224,7 +224,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     const run_genwavetable = b.addRunArtifact(genwavetable);
-    const genwavetable_step = b.step("genwavetable", "Render bundled wavetables to assets/wavetable/");
+    const genwavetable_step = b.step("genwavetable", "Render bundled wavetables to src/assets/wavetable/");
     genwavetable_step.dependOn(&run_genwavetable.step);
 
     // `zig build gendemo` writes the curated, fully arranged demo song to

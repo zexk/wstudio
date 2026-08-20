@@ -1,4 +1,4 @@
-//! Render bundled wavetables to WAV files under assets/wavetable/.
+//! Render bundled wavetables to WAV files under src/assets/wavetable/.
 //!
 //! Run with `zig build genwavetable`. Each file holds four 2048-sample
 //! frames. Oscillator frame_pos crossfades between them at playback time.
