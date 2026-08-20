@@ -227,6 +227,10 @@ history lives in [FORMAT.md](FORMAT.md).
   project, and the FX picker's kind guard counted its entries rather than
   naming them, so a new unit could go missing from the list without a
   compile error.
+- Six more arrangement status lines reported grid cells or raw ticks where
+  they said bars: moving a clip to bar 3 announced "bar 9" at the default
+  grid, a linewise cut reported four times the bars it removed, stamping
+  reported beats, and `e`, `:section` and the clip resize printed ticks.
 - Bar numbers shown in the arrangement status line, the automation header in
   both frontends, the `(` and `)` loop braces, `:loop-from-selection`,
   `p` (play from cursor), and the Lua clip API were all worked out by
@@ -240,6 +244,12 @@ history lives in [FORMAT.md](FORMAT.md).
   arrangement seeked by the same broken arithmetic.
 - `:chop-notes` on a note held past the end of the pattern produced pieces
   beyond the loop end, which playback wrapped back onto beat 0.
+- The shipped demo's drum track was silent. `gendemo` was written against an
+  older drum machine: it never loaded a kit, its step numbers were sixteenth
+  indices from when a beat held four steps rather than thirty-two, and a
+  fresh machine's two-bar loop made each of the sixteen per-bar stamps evict
+  the one before it, so one clip survived. The drums are back under the whole
+  song, with the tom fill on bars 4, 8, 12 and 16.
 - Shortening a clip left its trailing automation past the new end, where
   nothing reads it, but reopening the project pulled every one of those
   points onto the clip's last beat. A curve that had been trimmed out of the
