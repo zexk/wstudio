@@ -28,7 +28,7 @@ fn panicHandler(msg: []const u8, first_trace_addr: ?usize) noreturn {
 
 pub fn main(init: std.process.Init) void {
     mainInner(init) catch |err| {
-        if (err != error.CliReported) {
+        if (err != error.CliReported and err != error.ProjectLoadReported) {
             var stderr_buffer: [256]u8 = undefined;
             var stderr_writer = std.Io.File.stderr().writer(init.io, &stderr_buffer);
             stderr_writer.interface.print("wstudio: {s}\n", .{@errorName(err)}) catch {};
@@ -252,56 +252,12 @@ fn loadCliProject(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !w
     return ws.persist.load(allocator, io, path) catch |err| {
         var stderr_buffer: [512]u8 = undefined;
         var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
-        writeProjectLoadError(&stderr_writer.interface, path, err) catch {};
+        stderr_writer.interface.writeAll("wstudio: ") catch {};
+        ws.project_load_error.write(&stderr_writer.interface, path, err) catch {};
+        stderr_writer.interface.writeByte('\n') catch {};
         stderr_writer.interface.flush() catch {};
         return error.CliReported;
     };
-}
-
-fn writeProjectLoadError(writer: *std.Io.Writer, path: []const u8, err: anyerror) !void {
-    switch (err) {
-        error.UnsupportedVersion => try writer.print(
-            "wstudio: cannot open project '{s}': incompatible .wsj format; this build reads version {d}. Use the wstudio release that created this file.\n",
-            .{ path, ws.persist.file_version },
-        ),
-        error.CorruptProjectFile => try writer.print(
-            "wstudio: cannot open project '{s}': file is corrupt or incomplete. Restore '{s}~' or another backup.\n",
-            .{ path, path },
-        ),
-        error.FileNotFound => try writer.print(
-            "wstudio: cannot open project '{s}': file not found. Check the path.\n",
-            .{path},
-        ),
-        error.AccessDenied => try writer.print(
-            "wstudio: cannot open project '{s}': permission denied. Check file permissions.\n",
-            .{path},
-        ),
-        else => try writer.print(
-            "wstudio: cannot open project '{s}': {s}. Keep the source file unchanged and check its path and permissions.\n",
-            .{ path, @errorName(err) },
-        ),
-    }
-}
-
-test "CLI project load errors name the file and recovery" {
-    var actual_buf: [512]u8 = undefined;
-    var actual = std.Io.Writer.fixed(&actual_buf);
-    try writeProjectLoadError(&actual, "old.wsj", error.UnsupportedVersion);
-
-    var expected_buf: [512]u8 = undefined;
-    const expected = try std.fmt.bufPrint(
-        &expected_buf,
-        "wstudio: cannot open project 'old.wsj': incompatible .wsj format; this build reads version {d}. Use the wstudio release that created this file.\n",
-        .{ws.persist.file_version},
-    );
-    try std.testing.expectEqualStrings(expected, actual.buffered());
-
-    actual = std.Io.Writer.fixed(&actual_buf);
-    try writeProjectLoadError(&actual, "song.wsj", error.CorruptProjectFile);
-    try std.testing.expectEqualStrings(
-        "wstudio: cannot open project 'song.wsj': file is corrupt or incomplete. Restore 'song.wsj~' or another backup.\n",
-        actual.buffered(),
-    );
 }
 
 fn renderProject(allocator: std.mem.Allocator, io: std.Io, project_path: []const u8, output_path: []const u8) !void {

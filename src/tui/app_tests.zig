@@ -7490,6 +7490,19 @@ test ":e refuses on unsaved changes; :e! forces and stages the reload" {
     try std.testing.expectEqualStrings("some/project.wsj", app.pendingReloadPath());
 }
 
+test ":e load failure names the project and recovery" {
+    var app = try testApp();
+    defer app.deinit();
+
+    for (":e .zig-cache/no-such-project.wsj") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    try std.testing.expect(app.preparePendingReload() == null);
+    try std.testing.expectEqualStrings(
+        "cannot open project '.zig-cache/no-such-project.wsj': file not found. Check the path.",
+        app.status_buf[0..app.status_len],
+    );
+}
+
 test ":e expands ~ in the requested path" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();

@@ -231,10 +231,11 @@ remain under `.zig-cache/beta10-polish/`.
 ## Command and key audit
 
 2026-08-20 a real incompatible workspace project exposed raw Zig error traces
-from `render` and `render-stems`. Both commands now share a project-load error
+from `render` and `render-stems`, while frontend startup and `:edit` exposed the
+same internal error names. All four paths now share a project-load error
 boundary that names the path and gives recovery for incompatible, corrupt,
-missing, and unreadable files. Focused message coverage, real incompatible and
-missing-file invocations, and the full test suite pass.
+missing, and unreadable files. Focused message and frontend reload coverage,
+real incompatible and missing-file invocations, and the full test suite pass.
 
 2026-08-01 command help, completion scopes, and view key handlers passed their
 shared registry and frontend integration checks. Audit found one contract gap:

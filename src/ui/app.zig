@@ -1121,8 +1121,9 @@ pub const App = struct {
 
         if (init_path) |path| {
             const loaded = ws.persist.load(allocator, io, path) catch |err| {
-                std.debug.print("wstudio: cannot load '{s}': {s}\n", .{ path, @errorName(err) });
-                return err;
+                var error_buf: [512]u8 = undefined;
+                std.debug.print("wstudio: {s}\n", .{ws.project_load_error.message(&error_buf, path, err)});
+                return error.ProjectLoadReported;
             };
             app.session.deinit();
             app.session = loaded;
@@ -4695,7 +4696,8 @@ pub const App = struct {
                 return null;
             },
             .load, .restore_backup => ws.persist.load(self.allocator, self.io, self.pendingReloadPath()) catch |err| {
-                self.setStatus("cannot load '{s}': {s}", .{ self.pendingReloadPath(), @errorName(err) });
+                var error_buf: [512]u8 = undefined;
+                self.setStatus("{s}", .{ws.project_load_error.message(&error_buf, self.pendingReloadPath(), err)});
                 return null;
             },
             .none => unreachable,
