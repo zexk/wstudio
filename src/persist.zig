@@ -1875,7 +1875,7 @@ test "save/load round-trip persists user-loaded drum pad samples" {
 
     try dm.loadKitVariant(drum_kit.byName("digital").?); // fresh machines are blank
 
-    // Emulate :load-sample - user audio on pad 3, with a tweaked param.
+    // Emulate :load - user audio on pad 3, with a tweaked param.
     const clip = try testing.allocator.dupe(f32, &[_]f32{ 0.5, -0.5, 0.25, -0.125 });
     dm.setPadSamples(3, clip, "usr");
     dm.pads[3].?.pad.user_sample = true;
@@ -2056,7 +2056,7 @@ test "save/load round-trip persists a user-loaded sampler clip" {
     try session.setInstrument(0, .sampler);
     const s = &session.racks.items[0].instrument.sampler;
 
-    // Emulate :load-sample - swap the generated clip for user audio.
+    // Emulate :load - swap the generated clip for user audio.
     testing.allocator.free(s.pad.samples);
     s.pad.samples = try testing.allocator.dupe(f32, &[_]f32{ 0.25, -0.25 });
     s.pad.name = [_]u8{ 'v', 'o', 'x', ' ', ' ', ' ', ' ', ' ' };
@@ -2148,7 +2148,7 @@ test "saving drops audio sources no clip plays any more" {
     try testing.expect(loaded.project.audioSource(orphan) == null);
 }
 
-test "save/load round-trip persists a :load-wavetable-imported table, default state caches no audio" {
+test "save/load round-trip persists a :load-imported wavetable, default state caches no audio" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -2164,7 +2164,7 @@ test "save/load round-trip persists a :load-wavetable-imported table, default st
     try save(testing.allocator, &session, testing.io, wsj_path);
     try testing.expectEqual(@as(u64, 0), try testCacheBytes(wsj_path));
 
-    // Emulate :load-wavetable on OSC B.
+    // Emulate :load on OSC B.
     var samples: [wavetable_mod.frame_len * 2]f32 = undefined;
     @memset(samples[0..wavetable_mod.frame_len], -1.0);
     @memset(samples[wavetable_mod.frame_len..], 1.0);
@@ -2186,7 +2186,7 @@ test "save/load round-trip persists a :load-wavetable-imported table, default st
     try testing.expectApproxEqAbs(@as(f32, -1.0), ls.osc_b_wt.frames[0], 1e-3);
     try testing.expectApproxEqAbs(@as(f32, 1.0), ls.osc_b_wt.frames[wavetable_mod.frame_len], 1e-3);
     try testing.expectApproxEqAbs(@as(f32, 0.5), ls.osc_b_wt_pos, 1e-4);
-    // OSC A never got a `:load-wavetable` call - still the bundled default,
+    // OSC A never got a `:load` call - still the bundled default,
     // nothing cached for it.
     try testing.expect(!ls.wt_user);
 }

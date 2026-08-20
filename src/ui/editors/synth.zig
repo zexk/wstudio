@@ -212,7 +212,7 @@ fn writeTime(w: *std.Io.Writer, seconds: f32) !void {
 }
 
 /// A `wt.table` row's display. "imported" is not a selectable option - it
-/// only reports that `:load-wavetable` put a file in this slot, which no
+/// only reports that `:load` put a file in this slot, which no
 /// `h`/`l` step can walk back to.
 pub fn wtTableName(kind: ?ws.dsp.synth.BundledWavetable) []const u8 {
     return if (kind) |k| @tagName(k) else "imported";
@@ -947,7 +947,7 @@ fn adjustModifiedParam(app: *App, steps: i32) void {
 /// the engine queue every other param takes: picking a table reloads it and
 /// rebuilds its band-limited mip levels, which allocates and runs an FFT,
 /// and the audio thread must do neither. Same direct-mutation path
-/// `:load-wavetable` already uses, and like it the swap isn't undoable - the
+/// `:load` already uses, and like it the swap isn't undoable - the
 /// slot holds audio, not a value `set_track_param_abs` could restore.
 fn stepWtTable(app: *App, synth: *ws.dsp.PolySynth, slot: ws.dsp.PolySynth.OscSlot, steps: i32) void {
     if (steps == 0) return;

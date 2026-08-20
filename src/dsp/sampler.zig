@@ -218,7 +218,7 @@ pub const Sampler = struct {
 
     /// Guess the root note from the currently loaded clip via YIN pitch
     /// detection (see `dsp/pitch.zig`) and, if confident, set `root_note` to
-    /// it. Returns the detection result so callers (the `:load-sample`
+    /// it. Returns the detection result so callers (the `:load`
     /// command) can report it; returns null and leaves `root_note` untouched
     /// for percussive/noisy material with no clear single pitch. Not called
     /// from `loadWav` itself - project-file restores set `root_note` from

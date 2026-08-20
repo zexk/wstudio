@@ -7,7 +7,7 @@
 //! with no special-cased stereo-pair handling: both regions simply match and
 //! both voices fire). Each voice is self-contained once triggered (it copies
 //! its `Region` by value rather than indexing back into the live font), so a
-//! `:load-soundfont` swap mid-note can't leave a voice reading a freed or
+//! `:load` swap mid-note can't leave a voice reading a freed or
 //! reshuffled preset table - `loadSf2` kills every voice outright instead,
 //! the same "new audio invalidates in-flight voices" rule `Sampler.loadWav`
 //! already follows.

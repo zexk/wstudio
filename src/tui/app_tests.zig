@@ -3709,7 +3709,7 @@ test "commands reject non-finite numbers, malformed signatures, and overflowing 
     try std.testing.expect(app.session.project.tracks.items[0].sends[0] == null);
 
     const signature = app.session.project.beats_per_bar;
-    commands.run(&app, "sig 3/4/4");
+    commands.run(&app, "signature 3/4/4");
     try std.testing.expectEqual(signature, app.session.project.beats_per_bar);
 
     commands.run(&app, "seek 18446744073709551615");
@@ -7535,7 +7535,7 @@ test ":rename is adaptive like :load - same command, different target by context
 
     // Drum grid open: targets the cursor pad, not the track or a group -
     // and (new) a bare name with no index renames it, unlike the old
-    // :pad-rename which always required an explicit number.
+    // :rename's pad form, which always required an explicit number.
     app.drum_track = 2;
     app.view = .drum_grid;
     app.drum_cursor = .{ 3, 0 }; // pad 3 = "open"
@@ -9996,10 +9996,10 @@ test "neither soundfont kind can be fed the other's content by a fully-typed com
     commands.run(&app, "library harpsichord");
     try std.testing.expectEqual(@as(?ws.dsp.builtin_library.Id, null), app.session.racks.items[0].instrument.soundfont.builtin);
 
-    // ...and :load-soundfont refuses an acoustic one, leaving its bank alone.
+    // ...and :load refuses an acoustic one, leaving its bank alone.
     try app.session.setInstrument(0, .acoustic);
     app.session.racks.items[0].instrument.acoustic.builtin = .marimba;
-    commands.run(&app, "load-soundfont /nonexistent.sf2");
+    commands.run(&app, "load /nonexistent.sf2");
     try std.testing.expectEqual(ws.dsp.builtin_library.Id.marimba, app.session.racks.items[0].instrument.acoustic.builtin.?);
     try std.testing.expectEqual(AppView.tracks, app.view);
 }

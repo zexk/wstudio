@@ -245,7 +245,7 @@ pub const SynthSnap = struct {
     wt_pos: f32 = 0.0,
     osc_b_wt_pos: f32 = 0.0,
     osc_c_wt_pos: f32 = 0.0,
-    /// Audio cache key of a `:load-wavetable`-imported table's WAV, empty
+    /// Audio cache key of a `:load`-imported wavetable's WAV, empty
     /// for the bundled default (mirrors `PadSnap.sample_file`).
     wt_file: []const u8 = "",
     osc_b_wt_file: []const u8 = "",
@@ -285,7 +285,7 @@ pub const PadSnap = struct {
     /// Display name of user-loaded sample ("" keeps default).
     name: []const u8 = "",
     /// Whether this slot has ever had a sample loaded (shipped kit or user
-    /// `:load-sample`). `false` means live
+    /// `:load`). `false` means live
     /// `DrumMachine.pads[i]` is null (never materialized; see that field's
     /// own doc comment); other fields then hold defaults, not sample data.
     used: bool = false,

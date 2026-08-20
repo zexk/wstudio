@@ -397,7 +397,7 @@ pub const PolySynth = struct {
     /// only `init()` constructs a `PolySynth`, and it always sets this.
     wt: Wavetable,
     wt_bundled: ?BundledWavetable = .basic,
-    /// True once `wt` holds a `:load-wavetable`-imported table rather than
+    /// True once `wt` holds a `:load`-imported table rather than
     /// the bundled default - gates whether persistence caches it (same
     /// convention as Sampler's `pad.user_sample`).
     wt_user: bool = false,
@@ -1066,7 +1066,7 @@ pub const PolySynth = struct {
     }
 
     /// The slot's bundled table, or null while it holds a
-    /// `:load-wavetable` import instead of one of the bundled five.
+    /// `:load` import instead of one of the bundled five.
     pub fn wtBundled(self: *const PolySynth, slot: OscSlot) ?BundledWavetable {
         return switch (slot) {
             .a => self.wt_bundled,

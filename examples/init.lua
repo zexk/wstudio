@@ -100,7 +100,7 @@
 -- milliseconds. Range 200-10000.
 -- wstudio.o.status_message_ms = 3000
 
--- Starting directory for the file browser (:e, :load-sample, ...) when no
+-- Starting directory for the file browser (:e, :load, ...) when no
 -- project path is known yet - a fresh session's first open. Leading `~`
 -- expands to $HOME. Empty (the default) starts in the current directory.
 -- wstudio.o.default_browse_dir = ""

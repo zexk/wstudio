@@ -180,7 +180,7 @@ pub const Slicer = struct {
     /// The one shared clip every slice's `Pad.samples` aliases.
     samples: []f32,
     name: [8]u8 = [_]u8{' '} ** 8,
-    /// True when the audio was loaded by the user (`:load-slice`) - only
+    /// True when the audio was loaded by the user (`:load`) - only
     /// user audio is exported to the project's audio cache on save, same
     /// convention `Pad.user_sample` documents.
     user_sample: bool = false,
@@ -378,7 +378,7 @@ pub const Slicer = struct {
     }
 
     /// Parse raw WAV bytes into the shared clip. Resamples to engine rate if
-    /// needed. When `reset_slices` is true (the interactive `:load-slice`
+    /// needed. When `reset_slices` is true (the interactive `:load`
     /// path), clears every slice - the old boundaries (fractions of the OLD
     /// clip's length) are meaningless against new audio, so the user
     /// re-chops with `:slice` afterward. `reset_slices = false` is for

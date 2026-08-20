@@ -84,7 +84,7 @@ pub fn activeFilter(app: *App) []const u8 {
 /// Writes the genre tags in `tags` joined by "/" (everything past the
 /// always-present "wstudio" author tag at index 0). Writes nothing if there
 /// are no genre tags (e.g. the "init" preset). Shared by the TUI preset
-/// picker (unwrapped) and the `:synth-preset`/`:kit-preset` status line
+/// picker (unwrapped) and the `:synth-preset`/`:drum-kit` status line
 /// (wrapped in its own " (...)").
 pub fn writeGenreTags(w: *std.Io.Writer, tags: []const []const u8) std.Io.Writer.Error!void {
     if (tags.len <= 1) return;

@@ -68,7 +68,7 @@ pub fn fromSamples(allocator: std.mem.Allocator, samples: []const f32) !Wavetabl
 }
 
 /// Parses `bytes` as a WAV and reshapes it into a table - the shared path
-/// for both the bundled default and a `:load-wavetable`-imported WAV.
+/// for both the bundled default and a `:load`-imported WAV.
 pub fn fromWav(allocator: std.mem.Allocator, bytes: []const u8) !Wavetable {
     const result = try wav.parseAlloc(allocator, bytes);
     defer allocator.free(result.samples);
