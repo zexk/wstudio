@@ -202,7 +202,9 @@ history lives in [FORMAT.md](FORMAT.md).
 - Audio decoding trusted a source's declared frame and channel counts before
   allocating PCM, so a small malformed or highly compressed file could request
   gigabytes. Decoded PCM now has a 256 MiB ceiling, and mono downmix reuses the
-  decode buffer instead of briefly holding a second full clip.
+  decode buffer instead of briefly holding a second full clip. Sample-rate
+  conversion enforces the same ceiling instead of allowing an extreme declared
+  source rate to expand a bounded decode into multi-gigabyte output.
 - Undo after `:import-midi` restored notes but left imported channel events and
   project tempo changes behind. MIDI import now records and restores all three
   as one undo/redo operation, and caps imported tempo events at the project's

@@ -33,7 +33,7 @@ pub const ReadResult = struct {
     channel_count: u16 = 1,
 };
 
-const max_decoded_samples = 256 * 1024 * 1024 / @sizeOf(f32);
+pub const max_decoded_samples = 256 * 1024 * 1024 / @sizeOf(f32);
 
 fn decodedSampleCount(frames_raw: c.sf_count_t, channels_raw: c_int) ParseError!usize {
     if (channels_raw <= 0 or channels_raw > std.math.maxInt(u16)) return error.BadFmt;

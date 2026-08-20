@@ -1117,7 +1117,7 @@ pub fn resample(
     if (src_rate == dst_rate) return allocator.dupe(f32, src);
     const scaled_len = @as(u128, src.len) * dst_rate;
     const dst_len_u128 = (scaled_len + src_rate - 1) / src_rate;
-    if (dst_len_u128 > std.math.maxInt(usize)) return error.OutputTooLarge;
+    if (dst_len_u128 > wav.max_decoded_samples) return error.OutputTooLarge;
     const dst_len: usize = @intCast(dst_len_u128);
     if (src.len > std.math.maxInt(u32) or dst_len > std.math.maxInt(u32)) return error.OutputTooLarge;
     const out = try allocator.alloc(f32, dst_len);
@@ -1204,6 +1204,10 @@ test "resample validates rates and rounds output length up" {
     try std.testing.expectError(
         error.InvalidSampleRate,
         resample(std.testing.allocator, &.{1.0}, 48_000, 0),
+    );
+    try std.testing.expectError(
+        error.OutputTooLarge,
+        resample(std.testing.allocator, &.{1.0}, 1, wav.max_decoded_samples + 1),
     );
 
     const out = try resample(std.testing.allocator, &.{ 0.0, 0.5, 1.0 }, 2, 3);
