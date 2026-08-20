@@ -111,8 +111,8 @@ pub const UmpParser = struct {
                 .{ .note_on = .{ .ch = ch, .note = d1, .velocity = d2 } },
             0xA => .{ .poly_aftertouch = .{ .ch = ch, .note = d1, .velocity = d2 } },
             0xB => .{ .control_change = .{ .ch = ch, .cc = d1, .value = d2 } },
-            0xC => .{ .program_change = .{ .ch = ch, .program = d1 } },
-            0xD => .{ .channel_pressure = .{ .ch = ch, .pressure = d1 } },
+            0xC => if (d2 == 0) .{ .program_change = .{ .ch = ch, .program = d1 } } else return null,
+            0xD => if (d2 == 0) .{ .channel_pressure = .{ .ch = ch, .pressure = d1 } } else return null,
             0xE => blk: {
                 const raw: u14 = (@as(u14, d2) << 7) | d1;
                 break :blk .{ .pitch_bend = .{ .ch = ch, .bend = @as(i16, @intCast(raw)) - 0x2000 } };
@@ -149,7 +149,7 @@ pub const UmpParser = struct {
             },
             0xA => if (byte2 & 0x80 == 0 and byte3 == 0) .{ .poly_aftertouch = .{ .address = address, .note = note, .data = second } } else null,
             0xB => if (byte2 & 0x80 == 0 and byte3 == 0) .{ .control_change = .{ .address = address, .index = @truncate(byte2), .data = second } } else null,
-            0xC => if (first & 0xFFFE == 0 and second & 0x00FF8080 == 0) .{ .program_change = .{
+            0xC => if (first & 0xFFFE == 0 and second & 0x80FF8080 == 0) .{ .program_change = .{
                 .address = address,
                 .program = @truncate(second >> 24),
                 .bank = if (first & 1 != 0) .{ .msb = @truncate(second >> 8), .lsb = @truncate(second) } else null,
@@ -577,6 +577,7 @@ test "UMP parser: reserved packet is skipped at declared boundary" {
 test "UMP parser: malformed reserved fields are consumed but ignored" {
     const packets = [_][2]u32{
         .{ 0x2090BC40, 0 }, // MIDI 1.0 data byte bit 7
+        .{ 0x20C02A01, 0 }, // MIDI 1.0 program reserved byte
         .{ 0x4090BC00, 0xFFFF0000 }, // note number bit 7
         .{ 0x40B04A01, 0 }, // CC reserved byte
         .{ 0x40E00001, 0x80000000 }, // pitch-bend reserved bits
@@ -585,5 +586,18 @@ test "UMP parser: malformed reserved fields are consumed but ignored" {
     for (packets) |packet| {
         const result = UmpParser.feed(&packet).?;
         try std.testing.expect(result.msg == null);
+    }
+}
+
+test "UMP parser: arbitrary complete packets never panic or lose framing" {
+    var state: u64 = 0x9E3779B97F4A7C15;
+    for (0..100_000) |_| {
+        var words: [4]u32 = undefined;
+        for (&words) |*word| {
+            state = state *% 6364136223846793005 +% 1442695040888963407;
+            word.* = @truncate(state >> 16);
+        }
+        const result = UmpParser.feed(&words).?;
+        try std.testing.expect(result.consumed >= 1 and result.consumed <= 4);
     }
 }
