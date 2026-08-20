@@ -401,12 +401,10 @@ fn renderDemo(allocator: std.mem.Allocator, io: std.Io) !void {
     }
 
     // --- bounce to disk ----------------------------------------------------
-    const file = try std.Io.Dir.cwd().createFile(io, out_path, .{});
-    defer file.close(io);
-    var file_buffer: [4096]u8 = undefined;
-    var file_writer = file.writer(io, &file_buffer);
-    try ws.wav.write(&file_writer.interface, sr, ws.engine.channels, buffer, .pcm16);
-    try file_writer.interface.flush();
+    writeDemoWav(io, out_path, buffer, sr) catch |err| {
+        if (err == error.RefusingToOverwriteProject) return refusedProjectOverwrite(io, out_path);
+        return err;
+    };
 
     try stdout.print(
         "played \"{s}\" through synth -> comp -> delay -> reverb\n" ++
@@ -423,6 +421,45 @@ fn renderDemo(allocator: std.mem.Allocator, io: std.Io) !void {
         },
     );
     try stdout.flush();
+}
+
+fn writeDemoWav(io: std.Io, path: []const u8, samples: []const ws.types.Sample, sample_rate: u32) !void {
+    if (try ws.persist.isProjectFile(io, path)) return error.RefusingToOverwriteProject;
+    var tmp_path_buf: [std.fs.max_path_bytes + ".tmp".len]u8 = undefined;
+    const tmp_path = try std.fmt.bufPrint(&tmp_path_buf, "{s}.tmp", .{path});
+    errdefer std.Io.Dir.cwd().deleteFile(io, tmp_path) catch {};
+    {
+        const file = try std.Io.Dir.cwd().createFile(io, tmp_path, .{});
+        defer file.close(io);
+        var file_buffer: [4096]u8 = undefined;
+        var writer = file.writer(io, &file_buffer);
+        try ws.wav.write(&writer.interface, sample_rate, ws.engine.channels, samples, .pcm16);
+        try writer.interface.flush();
+    }
+    try std.Io.Dir.cwd().rename(tmp_path, std.Io.Dir.cwd(), path, io);
+}
+
+test "demo render refuses to overwrite a project" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [256]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/out.wav", .{&tmp.sub_path});
+    try std.Io.Dir.cwd().writeFile(std.testing.io, .{ .sub_path = path, .data = &ws.persist.bundle_magic });
+
+    try std.testing.expectError(error.RefusingToOverwriteProject, writeDemoWav(std.testing.io, path, &.{}, 48_000));
+    const data = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, path, std.testing.allocator, .limited(ws.persist.bundle_magic.len + 1));
+    defer std.testing.allocator.free(data);
+    try std.testing.expectEqualSlices(u8, &ws.persist.bundle_magic, data);
+
+    const existing_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/existing.wav", .{&tmp.sub_path});
+    try std.Io.Dir.cwd().writeFile(std.testing.io, .{ .sub_path = existing_path, .data = "existing" });
+    var tmp_path_buf: [260]u8 = undefined;
+    const tmp_path = try std.fmt.bufPrint(&tmp_path_buf, "{s}.tmp", .{existing_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, tmp_path);
+    if (writeDemoWav(std.testing.io, existing_path, &.{}, 48_000)) |_| return error.TestUnexpectedResult else |_| {}
+    const existing = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, existing_path, std.testing.allocator, .limited(9));
+    defer std.testing.allocator.free(existing);
+    try std.testing.expectEqualStrings("existing", existing);
 }
 
 test {

@@ -256,6 +256,11 @@ sibling temporary file before atomic replacement. Frontend coverage proves a
 project target is refused and remains byte-identical, and a forced temporary
 write failure preserves an existing MIDI destination.
 
+The no-argument `wstudio render` demo now follows the same contract for its
+fixed `out.wav` destination. A real CLI invocation against a project stored at
+that name refuses the write and preserves the file; a forced temporary-write
+failure also preserves an existing audio destination.
+
 2026-08-01 automated checks cover every internal effect default (25 kinds as of
 beta.10, up from the 20 this section first counted) with normal
 audio: output stays audible, finite, and bounded. Shared chain coverage proves

@@ -187,6 +187,8 @@ history lives in [FORMAT.md](FORMAT.md).
 - `:export-midi` wrote directly into its destination, so a failed write could
   truncate existing work and choosing a `.wsj` path destroyed that project. It
   now uses atomic replacement and refuses project destinations.
+- The built-in `wstudio render` demo still wrote directly to `out.wav`, unlike
+  project bounce. It now gets the same atomic replacement and project guard.
 - A drum pad's play mode had no effect: every hit cut the one before it, so
   setting a pad to one-shot behaved exactly like retrigger and a long crash
   hit twice cut itself instead of overlapping. Slices already honoured the
