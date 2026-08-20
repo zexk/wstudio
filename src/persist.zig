@@ -2929,3 +2929,40 @@ test "shortening a clip does not move its trailing automation on the next load" 
     try testing.expectEqual(@as(usize, 2), gain.len);
     try testing.expectEqual(@as(f64, 3.0), gain[1].beat);
 }
+
+// demo.wsj is the first thing a new user opens, and its drum track shipped
+// silent for a while: no kit on the pads, no steps in the pattern, and 15 of
+// its 16 clips evicted by a loop that was two bars long instead of one. None
+// of that fails a round-trip or a finiteness check, so it is asserted here.
+test "the shipped demo has content on every track" {
+    const testing = std.testing;
+    var session = try load(testing.allocator, testing.io, "demo.wsj");
+    defer session.deinit();
+
+    for (0..4) |track| {
+        const lane = session.arrangement.lane(track) orelse return error.MissingLane;
+        if (lane.clips.items.len == 0) {
+            std.debug.print("track {d} has no clips\n", .{track});
+            return error.EmptyLane;
+        }
+    }
+
+    // The drum machine: a kit on its pads and a groove in the live pattern.
+    const dm = &session.racks.items[3].instrument.drum_machine;
+    var pads: usize = 0;
+    for (dm.pads) |p| {
+        if (p != null) pads += 1;
+    }
+    try testing.expect(pads > 0);
+    var steps: usize = 0;
+    for (dm.midi) |row| {
+        for (row[0..dm.step_count]) |n| {
+            if (n != null) steps += 1;
+        }
+    }
+    try testing.expect(steps > 0);
+
+    // One clip per bar: a pattern longer than the stamp interval makes each
+    // stamp evict the one before it, which is how the lane ended up with one.
+    try testing.expectEqual(@as(usize, 16), session.arrangement.lane(3).?.clips.items.len);
+}
