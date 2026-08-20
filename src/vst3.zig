@@ -3,6 +3,7 @@ pub const scan = @import("vst3/scan.zig");
 pub const module = @import("vst3/module.zig");
 pub const plugin = @import("vst3/plugin.zig");
 pub const Vst3Plugin = plugin.Vst3Plugin;
+pub const encodeStateForWire = plugin.encodeStateForWire;
 
 const std = @import("std");
 

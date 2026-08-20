@@ -192,6 +192,10 @@ history lives in [FORMAT.md](FORMAT.md).
 - Release archives omitted the bundled acoustic library, and the Linux tarball
   also omitted the plugin bridge required by default sandboxing. Archives now
   carry both and verify their runtime layout before upload.
+- A sandboxed VST3 returning more than 1 MiB of component and controller state
+  overflowed the child RPC buffer and killed its host process during save. The
+  shared wire encoder now rejects oversized state before copying it, and the
+  child reports a normal save failure while staying alive.
 - A missing bundled acoustic library briefly reported its load error, then
   replaced it with a false instrument-inserted message. The error now remains
   visible and tells the user to reinstall wstudio.

@@ -314,17 +314,12 @@ fn dispatch(shared: *Shared, req: rpc.Received, writer: *std.Io.Writer) !void {
                     const controller = (p.saveControllerState(std.heap.page_allocator) catch null);
                     defer if (controller) |c| std.heap.page_allocator.free(c);
                     var buf: [rpc.max_payload]u8 = undefined;
-                    var pos: usize = 0;
-                    std.mem.writeInt(u32, buf[pos..][0..4], @intCast(component.len), .little);
-                    pos += 4;
-                    @memcpy(buf[pos..][0..component.len], component);
-                    pos += component.len;
                     const controller_bytes = controller orelse &.{};
-                    std.mem.writeInt(u32, buf[pos..][0..4], @intCast(controller_bytes.len), .little);
-                    pos += 4;
-                    @memcpy(buf[pos..][0..controller_bytes.len], controller_bytes);
-                    pos += controller_bytes.len;
-                    try rpc.send(writer, req.kind, false, buf[0..pos]);
+                    const payload = ws.vst3.encodeStateForWire(&buf, component, controller_bytes) catch |err| {
+                        try rpc.send(writer, req.kind, true, @errorName(err));
+                        return;
+                    };
+                    try rpc.send(writer, req.kind, false, payload);
                 },
             }
         },

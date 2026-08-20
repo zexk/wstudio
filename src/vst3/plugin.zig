@@ -1087,9 +1087,10 @@ fn savedControllerFromWire(allocator: std.mem.Allocator, payload: []const u8) !?
 /// Wire format for `load_state`'s request - matches what child_main.zig's
 /// `.load_state` VST3 arm expects to unpack: u32 length + component
 /// bytes, then u32 length + controller bytes.
-fn encodeStateForWire(buf: []u8, component_bytes: []const u8, controller_bytes: []const u8) ![]const u8 {
+pub fn encodeStateForWire(buf: []u8, component_bytes: []const u8, controller_bytes: []const u8) ![]const u8 {
     var pos: usize = 0;
-    if (pos + 4 + component_bytes.len + 4 + controller_bytes.len > buf.len) return error.StatePayloadTooLarge;
+    if (buf.len < 8 or component_bytes.len > buf.len - 8 or controller_bytes.len > buf.len - 8 - component_bytes.len)
+        return error.StatePayloadTooLarge;
     std.mem.writeInt(u32, buf[pos..][0..4], @intCast(component_bytes.len), .little);
     pos += 4;
     @memcpy(buf[pos..][0..component_bytes.len], component_bytes);
@@ -1624,6 +1625,10 @@ test "VST3 state wire decoder rejects oversized fields" {
 
     const oversized_controller = [_]u8{ 0, 0, 0, 0, 0xff, 0xff, 0xff, 0xff };
     try std.testing.expectError(error.ComponentStateSaveFailed, savedControllerFromWire(std.testing.allocator, &oversized_controller));
+
+    var state_buf: [16]u8 = undefined;
+    try std.testing.expectError(error.StatePayloadTooLarge, encodeStateForWire(&state_buf, "123456789", &.{}));
+    try std.testing.expectError(error.StatePayloadTooLarge, encodeStateForWire(state_buf[0..7], &.{}, &.{}));
 }
 
 test "VST3 parameter queue preserves sample offsets" {

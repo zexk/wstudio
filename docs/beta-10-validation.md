@@ -77,6 +77,10 @@ PCM at 48 kHz. Its TUI also creates an acoustic track and opens `Grand Piano
 passes on the updated workflow. Native Windows and macOS archive runtime checks
 remain unverified under the host skips above.
 
+Sandboxed VST3 state saving now uses the same bounded encoder as state loading.
+Focused wire coverage proves undersized buffers and state beyond the 1 MiB RPC
+ceiling fail before copy, so a large plugin state no longer kills the child.
+
 Acoustic instrument creation no longer hides a missing-library error behind a
 later success status. Focused command coverage forces the load failure and
 locks the visible reinstall recovery action.
