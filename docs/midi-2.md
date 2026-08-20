@@ -1,9 +1,11 @@
 # MIDI 2.0 input
 
-wstudio accepts Universal MIDI Packets through ALSA sequencer on Linux. It
-requests a MIDI 2.0 sequencer client and enables ALSA conversion, so MIDI 1.0
-and MIDI 2.0 sources can share one input port. Older kernels that reject UMP
-client mode retain legacy MIDI input.
+wstudio accepts Universal MIDI Packets through ALSA sequencer on Linux and
+CoreMIDI on macOS. ALSA requests a MIDI 2.0 sequencer client and enables
+conversion, so MIDI 1.0 and MIDI 2.0 sources can share one input port. Older
+kernels that reject UMP client mode retain legacy MIDI input. CoreMIDI uses a
+MIDI 2.0 protocol port on macOS 11 or newer and falls back to byte-stream input
+on older systems.
 
 The protocol layer consumes packets by Message Type length: 32, 64, 96, or
 128 bits. Unknown packet types and unsupported messages are skipped at their
@@ -37,8 +39,8 @@ Property Exchange require bidirectional endpoint and SysEx state that current
 input-only controller subsystem does not own. wstudio does not advertise
 those capabilities.
 
-macOS CoreMIDI and Windows WinMM continue to receive OS-translated MIDI 1.0
-byte streams. Native UMP resolution currently requires Linux ALSA.
+Windows WinMM continues to receive MIDI 1.0 byte streams. Native UMP
+resolution is available through Linux ALSA and macOS CoreMIDI.
 
 ## Protocol references
 
@@ -46,4 +48,3 @@ byte streams. Native UMP resolution currently requires Linux ALSA.
 - [MIDI 2.0 Bit Scaling and Resolution](https://midi.org/midi-2-0-bit-scaling-and-resolution)
 - [ALSA UMP sequencer API](https://www.alsa-project.org/alsa-doc/alsa-lib/group___seq_middle.html)
 - [Apple CoreMIDI MIDI 2.0 integration](https://developer.apple.com/documentation/coremidi/incorporating-midi-2-into-your-apps)
-

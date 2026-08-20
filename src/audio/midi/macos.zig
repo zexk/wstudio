@@ -32,6 +32,7 @@ extern fn CFRelease(CFStringRef) callconv(.c) void;
 extern fn MIDIClientCreate(CFStringRef, ?*const anyopaque, ?*anyopaque, *MIDIClientRef) callconv(.c) OSStatus;
 extern fn MIDIClientDispose(MIDIClientRef) callconv(.c) OSStatus;
 extern fn MIDIInputPortCreate(MIDIClientRef, CFStringRef, MIDIReadProc, ?*anyopaque, *MIDIPortRef) callconv(.c) OSStatus;
+extern fn wstudio_midi_ump_input_port_create(MIDIClientRef, CFStringRef, *const fn ([*]const u32, u32, ?*anyopaque) callconv(.c) void, ?*anyopaque, *MIDIPortRef) callconv(.c) OSStatus;
 extern fn MIDIPortDispose(MIDIPortRef) callconv(.c) OSStatus;
 extern fn MIDIPortConnectSource(MIDIPortRef, MIDIEndpointRef, ?*anyopaque) callconv(.c) OSStatus;
 extern fn MIDIGetNumberOfSources() callconv(.c) isize;
@@ -66,7 +67,8 @@ pub const MidiIn = struct {
             _ = MIDIClientDispose(self.client);
             self.client = 0;
         }
-        if (MIDIInputPortCreate(self.client, name, read, self, &self.port) != 0) return error.PortCreateFailed;
+        if (wstudio_midi_ump_input_port_create(self.client, name, readUmp, self, &self.port) != 0 and
+            MIDIInputPortCreate(self.client, name, read, self, &self.port) != 0) return error.PortCreateFailed;
 
         const count: usize = @intCast(@max(MIDIGetNumberOfSources(), 0));
         if (source_name.len > 0) {
@@ -119,6 +121,20 @@ pub const MidiIn = struct {
         }
     }
 
+    fn readUmp(words: [*]const u32, word_count: u32, context: ?*anyopaque) callconv(.c) void {
+        const self: *MidiIn = @ptrCast(@alignCast(context.?));
+        self.feedUmp(words[0..word_count]);
+    }
+
+    fn feedUmp(self: *MidiIn, words: []const u32) void {
+        var offset: usize = 0;
+        while (offset < words.len) {
+            const result = midi.UmpParser.feed(words[offset..]) orelse break;
+            offset += result.consumed;
+            if (result.msg) |msg| midi_velocity.dispatchUmp(self, msg);
+        }
+    }
+
     fn dispatch(self: *MidiIn, msg: midi.Msg) void {
         midi_velocity.dispatch(self, msg);
     }
@@ -141,4 +157,13 @@ test "CoreMIDI packet keeps channel messages after unsupported system common" {
 
     midi_in.feed(&.{ 0xF1, 0, 0x90, 64, 100 });
     try std.testing.expectEqual(@as(?MidiIn.RecNote, .{ .pitch = 64, .vel = 100 }), midi_in.note_queue.pop());
+}
+
+test "CoreMIDI UMP packet preserves MIDI 2.0 velocity" {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    defer engine.deinit();
+    var midi_in: MidiIn = .{ .engine = &engine };
+
+    midi_in.feedUmp(&.{ 0x40904000, 0x80000000 });
+    try std.testing.expectEqual(@as(?MidiIn.RecNote, .{ .pitch = 64, .vel = 64 }), midi_in.note_queue.pop());
 }

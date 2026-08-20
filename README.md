@@ -107,10 +107,11 @@ plugin-requested restarts, and plugin-requested thread pools are not supported
 yet.
 
 External controller input accepts MIDI 1.0 and MIDI 2.0 Universal MIDI Packets
-through ALSA sequencer on Linux. Note velocity, CC, pitch bend, pressure, and
+through ALSA sequencer on Linux and CoreMIDI on macOS. Note velocity, CC,
+pitch bend, pressure, and
 per-note pitch bend retain MIDI 2.0 resolution through built-in synth routing;
-program and bank changes reach hosted plugins. macOS and Windows use OS-scaled
-MIDI 1.0 input. Profiles, Property Exchange, SysEx, Flex Data, and Stream
+program and bank changes reach hosted plugins. Windows uses MIDI 1.0 input.
+Profiles, Property Exchange, SysEx, Flex Data, and Stream
 messages are not advertised as supported. See [MIDI 2.0 input](docs/midi-2.md).
 
 ## Status: beta

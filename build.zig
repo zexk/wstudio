@@ -115,6 +115,7 @@ pub fn build(b: *std.Build) void {
     }
     if (target.result.os.tag == .macos) {
         wstudio_mod.addCSourceFile(.{ .file = b.path("src/plugin_host/editor_window_macos.m"), .flags = &.{"-fno-objc-arc"} });
+        wstudio_mod.addCSourceFile(.{ .file = b.path("src/audio/midi/macos_ump.m"), .flags = &.{ "-fno-objc-arc", "-fblocks" } });
         wstudio_mod.linkFramework("AppKit", .{});
         wstudio_mod.linkFramework("AudioUnit", .{});
         wstudio_mod.linkFramework("CoreAudio", .{});
