@@ -792,8 +792,10 @@ pub fn cmdCrossfade(app: *App, _: []const u8) void {
         app.setStatus("crossfade: no overlapping audio layer", .{});
         return;
     };
-    const overlap_ticks = @min(selected.endTick(), peer.endTick()) - @max(selected.start_tick, peer.start_tick);
-    const frames: u64 = @intFromFloat(ws.time_grid.tickToBeat(overlap_ticks) * app.session.engine.transport.framesPerBeat());
+    const overlap_start = @max(selected.start_tick, peer.start_tick);
+    const overlap_end = @min(selected.endTick(), peer.endTick());
+    const frames = app.session.project.framesAtBeat(ws.time_grid.tickToBeat(overlap_end)) -|
+        app.session.project.framesAtBeat(ws.time_grid.tickToBeat(overlap_start));
     history.recordLane(app, @intCast(app.cursor));
     if (selected.start_tick >= peer.start_tick) {
         selected.content.audio.fade_in_frames = frames;

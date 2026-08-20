@@ -12,6 +12,7 @@ const scroll = @import("../scroll.zig");
 const automation_ed = @import("../../ui/editors/automation.zig");
 const history = @import("../../ui/history.zig");
 const waveform = @import("../../ui/waveform.zig");
+const commands = @import("../../ui/commands.zig");
 
 const color = gui_style.color;
 const theme = &gui_style.palette;
@@ -531,6 +532,10 @@ pub fn draw(app: anytype) void {
         if (zgui.menuItem("Shorten", .{ .shortcut = "-" })) action = '-';
         if (zgui.menuItem("Lengthen", .{ .shortcut = "+" })) action = '+';
         if (zgui.menuItem("Automation", .{ .shortcut = "a" })) action = 'a';
+        if (selection) |selected| {
+            if (selectedClipIsAudio(app, selected) and zgui.menuItem("Crossfade overlap", .{ .shortcut = ":crossfade" }))
+                commands.run(&app.core, "crossfade");
+        }
         if (zgui.menuItem("Delete", .{ .shortcut = "x" })) action = 'x';
         zgui.endPopup();
         if (selection) |selected| if (action) |key| applyInspectorAction(app, selected, key);
@@ -644,6 +649,7 @@ test "clip selection rejects deleted or displaced clips" {
 fn drawArrangementInspector(app: anytype) void {
     const selection = app.arrangement_clip orelse return;
     var action: ?u8 = null;
+    var crossfade = false;
     const child_h: f32 = if (selectedClipIsAudio(app, selection)) 182 else 108;
     if (zgui.beginChild("arrangement-inspector", .{ .w = 0, .h = child_h, .child_flags = .{ .border = true } })) {
         const clip = app.core.session.arrangement.lanes.items[selection.track].clips.items[selection.clip];
@@ -670,6 +676,10 @@ fn drawArrangementInspector(app: anytype) void {
         if (widgets.iconButton(icons.plus ++ "##clip-longer", "Lengthen clip  +")) action = '+';
         zgui.sameLine(.{ .spacing = 6 });
         if (widgets.iconButton(icons.automation ++ "##clip-automation", "Edit automation  a")) action = 'a';
+        if (clip.content == .audio) {
+            zgui.sameLine(.{ .spacing = 6 });
+            if (widgets.iconButton(icons.phase ++ "##clip-crossfade", "Crossfade overlapping layer  :crossfade")) crossfade = true;
+        }
         zgui.sameLine(.{ .spacing = 6 });
         zgui.pushStyleColor4f(.{ .idx = .button_hovered, .c = theme.danger });
         if (widgets.iconButton(icons.close ++ "##clip-delete", "Delete clip  x")) action = 'x';
@@ -678,6 +688,7 @@ fn drawArrangementInspector(app: anytype) void {
     }
     zgui.endChild();
     if (action) |key| applyInspectorAction(app, selection, key);
+    if (crossfade) commands.run(&app.core, "crossfade");
 }
 
 /// Gain, fades, stretch and reverse for the selected audio region - the

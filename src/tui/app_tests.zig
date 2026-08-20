@@ -3591,6 +3591,7 @@ test "crossfade fades the overlapping layers into each other" {
     app.view = .arrangement;
     app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
     app.session.engine.transport.tempo_bpm = app.session.project.tempo_bpm;
+    try app.session.project.setTempoPoint(.{ .beat = 1, .bpm = 60 });
     const lane = app.session.arrangement.lane(0).?;
     const source_id = try app.session.project.addAudioSource("raw", app.session.project.sample_rate, 1, &.{ 0.1, 0.2 });
     // Two layers overlapping over the second half of the first clip: a lane
@@ -3606,7 +3607,10 @@ test "crossfade fades the overlapping layers into each other" {
     // 32 ticks of overlap at one beat per tick-grid unit; the later clip
     // fades in over exactly that span while the earlier one fades out.
     const overlap_frames = first.fade_out_frames;
-    try std.testing.expect(overlap_frames > 0);
+    try std.testing.expectEqual(
+        app.session.project.framesAtBeat(2) - app.session.project.framesAtBeat(1),
+        overlap_frames,
+    );
     try std.testing.expectEqual(overlap_frames, second.fade_in_frames);
     try std.testing.expectEqual(@as(u64, 0), first.fade_in_frames);
     try std.testing.expectEqual(@as(u64, 0), second.fade_out_frames);
