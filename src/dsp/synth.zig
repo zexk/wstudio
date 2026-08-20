@@ -3433,6 +3433,7 @@ pub const PolySynth = struct {
             .midi2_per_note_pitch_bend => |e| self.applyPerNotePitchBend(e.note, e.value, 2.0),
             .channel_pressure => |e| self.channel_pressure = e.value,
             .poly_pressure => |e| self.applyPolyPressure(e.note, e.value),
+            .program_change => {},
             .set_param  => |e| self.adjustParam(e.id, e.steps),
             // zig fmt: on
             .set_param_abs => |e| self.setParamAbsolute(e.id, e.value),

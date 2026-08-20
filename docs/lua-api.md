@@ -300,6 +300,8 @@ sequencer address from `aconnect -l`, such as `"24:0"`, and subscribes it
 without a separate `aconnect` command. macOS and Windows accept a zero-based
 source index. Empty preserves manual subscription on Linux, connects every
 current source on macOS, and selects source 0 on Windows.
+Linux accepts MIDI 1.0 or MIDI 2.0 UMP sources through same address. See
+[MIDI 2.0 input](midi-2.md) for message and platform coverage.
 
 `preferred_frontend` picks the frontend a flagless `wstudio` launch runs
 (`--tui`/`--gui` always win, as does a build carrying only one frontend).

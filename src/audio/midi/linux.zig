@@ -60,10 +60,10 @@ pub const MidiIn = struct {
         }
 
         _ = c.snd_seq_set_client_name(self.seq, "wstudio");
-        if (c.snd_seq_set_client_midi_version(self.seq, c.SND_SEQ_CLIENT_UMP_MIDI_2_0) < 0)
-            return error.SeqOpenFailed;
-        if (c.snd_seq_set_client_ump_conversion(self.seq, 1) < 0)
-            return error.SeqOpenFailed;
+        // Older kernels reject UMP client mode. Keep legacy sequencer input
+        // working there; snd_seq_ump_event_input accepts both event layouts.
+        if (c.snd_seq_set_client_midi_version(self.seq, c.SND_SEQ_CLIENT_UMP_MIDI_2_0) >= 0)
+            _ = c.snd_seq_set_client_ump_conversion(self.seq, 1);
 
         const port = c.snd_seq_create_simple_port(
             self.seq,
@@ -176,6 +176,9 @@ pub const MidiIn = struct {
             const note: u7 = @intCast(ev.unnamed_0.data.note.note & 0x7F);
             const value: u7 = @intCast(ev.unnamed_0.data.note.velocity & 0x7F);
             _ = eng.sendMidi(.{ .poly_pressure = .{ .track = track, .note = note, .value = @as(f32, @floatFromInt(value)) / 127.0 } });
+        } else if (etype == c.SND_SEQ_EVENT_PGMCHANGE) {
+            const program: u7 = @intCast(std.math.clamp(@as(i32, ev.unnamed_0.data.control.value), 0, 127));
+            _ = eng.sendMidi(.{ .program_change = .{ .track = track, .program = program } });
         }
     }
 };

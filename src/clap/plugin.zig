@@ -1066,6 +1066,13 @@ const Direct = struct {
             .midi2_per_note_pitch_bend => {},
             .channel_pressure => |pressure| if (self.supports_midi) self.pushMidi(.{ 0xd0, @intFromFloat(@round(pressure.value * 127.0)), 0 }),
             .poly_pressure => |pressure| if (self.supports_midi) self.pushMidi(.{ 0xa0, pressure.note, @intFromFloat(@round(pressure.value * 127.0)) }),
+            .program_change => |program| if (self.supports_midi) {
+                if (program.bank) |bank| {
+                    self.pushMidi(.{ 0xb0, 0, bank.msb });
+                    self.pushMidi(.{ 0xb0, 32, bank.lsb });
+                }
+                self.pushMidi(.{ 0xc0, program.program, 0 });
+            },
             .clap_param => |param| {
                 if (param.target == @as(*anyopaque, @ptrCast(outer)))
                     self.pushParameter(param.id, param.cookie, param.value, param.sample_offset);

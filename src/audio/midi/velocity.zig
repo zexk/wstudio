@@ -86,6 +86,10 @@ pub fn dispatch(self: anytype, msg: midi.Msg) void {
             .note = pressure.note,
             .value = @as(f32, @floatFromInt(pressure.velocity)) / 127.0,
         } }),
+        .program_change => |program| _ = self.engine.sendMidi(.{ .program_change = .{
+            .track = track,
+            .program = program.program,
+        } }),
         else => {},
     }
 }
@@ -123,6 +127,11 @@ pub fn dispatchUmp(self: anytype, msg: midi.UmpMsg) void {
             .track = track,
             .note = pressure.note,
             .value = @as(f32, @floatFromInt(pressure.data)) / 4294967295.0,
+        } }),
+        .program_change => |program| _ = self.engine.sendMidi(.{ .program_change = .{
+            .track = track,
+            .program = program.program,
+            .bank = if (program.bank) |bank| .{ .msb = bank.msb, .lsb = bank.lsb } else null,
         } }),
         else => {},
     }

@@ -7,6 +7,9 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Added
 
+- MIDI 2.0 UMP controller input on Linux through ALSA, with 16-bit note
+  velocity, 32-bit CC, pitch bend and pressure, per-note pitch bend, program
+  and bank changes, MIDI 1.0 UMP compatibility, and legacy-kernel fallback.
 - CC0 acoustic instruments from VCSL, FreePats and VSCO 2 CE through a shared
   SFZ sample-bank loader, as their own `Acoustic` instrument in the picker:
   pianos, harpsichord, pipe organ, concert harp, mallets, kalimba, harmonica,

@@ -59,6 +59,7 @@ pub const Command = union(enum) {
     midi2_per_note_pitch_bend: struct { track: u16, note: u7, data: u32 },
     channel_pressure: struct { track: u16, value: f32 },
     poly_pressure: struct { track: u16, note: u7, value: f32 },
+    program_change: struct { track: u16, program: u7, bank: ?struct { msb: u7, lsb: u7 } = null },
     /// Nudge synth editor parameter `id` by `steps` on track `track`. Applied
     /// on the audio thread so editor edits don't race the block reader. u16,
     /// not u8 - see dsp/device.zig's Event.set_param doc comment.
@@ -1456,6 +1457,10 @@ pub const Engine = struct {
             } }),
             .channel_pressure => |c| self.sendTrackEvent(c.track, .{ .channel_pressure = .{ .value = c.value } }),
             .poly_pressure => |c| self.sendTrackEvent(c.track, .{ .poly_pressure = .{ .note = c.note, .value = c.value } }),
+            .program_change => |c| self.sendTrackEvent(c.track, .{ .program_change = .{
+                .program = c.program,
+                .bank = if (c.bank) |bank| .{ .msb = bank.msb, .lsb = bank.lsb } else null,
+            } }),
             .set_track_param => |c| self.sendTrackEvent(c.track, .{ .set_param = .{ .id = c.id, .steps = c.steps } }),
             .set_track_param_abs => |c| self.sendTrackEvent(c.track, .{ .set_param_abs = .{ .id = c.id, .value = c.value } }),
             .set_track_mod_target => |c| self.sendTrackEvent(c.track, .{ .set_mod_target = .{

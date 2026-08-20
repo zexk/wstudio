@@ -102,6 +102,7 @@ pub const UmpParser = struct {
         const d1: u7 = @truncate(word >> 8);
         const d2: u7 = @truncate(word);
         const ch: Channel = @truncate(status);
+        if (word & 0x00008080 != 0) return null;
         const msg: Msg = switch (status >> 4) {
             0x8 => .{ .note_off = .{ .ch = ch, .note = d1, .velocity = d2 } },
             0x9 => if (d2 == 0)
@@ -128,14 +129,15 @@ pub const UmpParser = struct {
         const byte3: u8 = @truncate(first);
         const note: u7 = @truncate(byte2);
         return switch (status) {
-            0x0 => .{ .per_note_rcc = .{ .address = address, .note = note, .index = byte3, .data = second } },
-            0x1 => .{ .per_note_acc = .{ .address = address, .note = note, .index = byte3, .data = second } },
-            0x2 => .{ .rpn = .{ .address = address, .bank = @truncate(byte2), .index = @truncate(byte3), .data = second } },
-            0x3 => .{ .nrpn = .{ .address = address, .bank = @truncate(byte2), .index = @truncate(byte3), .data = second } },
-            0x4 => .{ .relative_rpn = .{ .address = address, .bank = @truncate(byte2), .index = @truncate(byte3), .data = second } },
-            0x5 => .{ .relative_nrpn = .{ .address = address, .bank = @truncate(byte2), .index = @truncate(byte3), .data = second } },
-            0x6 => .{ .per_note_pitch_bend = .{ .address = address, .note = note, .data = second } },
+            0x0 => if (byte2 & 0x80 == 0) .{ .per_note_rcc = .{ .address = address, .note = note, .index = byte3, .data = second } } else null,
+            0x1 => if (byte2 & 0x80 == 0) .{ .per_note_acc = .{ .address = address, .note = note, .index = byte3, .data = second } } else null,
+            0x2 => if (byte2 & 0x80 == 0 and byte3 & 0x80 == 0) .{ .rpn = .{ .address = address, .bank = @truncate(byte2), .index = @truncate(byte3), .data = second } } else null,
+            0x3 => if (byte2 & 0x80 == 0 and byte3 & 0x80 == 0) .{ .nrpn = .{ .address = address, .bank = @truncate(byte2), .index = @truncate(byte3), .data = second } } else null,
+            0x4 => if (byte2 & 0x80 == 0 and byte3 & 0x80 == 0) .{ .relative_rpn = .{ .address = address, .bank = @truncate(byte2), .index = @truncate(byte3), .data = second } } else null,
+            0x5 => if (byte2 & 0x80 == 0 and byte3 & 0x80 == 0) .{ .relative_nrpn = .{ .address = address, .bank = @truncate(byte2), .index = @truncate(byte3), .data = second } } else null,
+            0x6 => if (byte2 & 0x80 == 0 and byte3 == 0) .{ .per_note_pitch_bend = .{ .address = address, .note = note, .data = second } } else null,
             0x8, 0x9 => blk: {
+                if (byte2 & 0x80 != 0) break :blk null;
                 const value: UmpMsg.NoteMsg = .{
                     .address = address,
                     .note = note,
@@ -145,21 +147,21 @@ pub const UmpParser = struct {
                 };
                 break :blk if (status == 0x8) .{ .note_off = value } else .{ .note_on = value };
             },
-            0xA => .{ .poly_aftertouch = .{ .address = address, .note = note, .data = second } },
-            0xB => .{ .control_change = .{ .address = address, .index = @truncate(byte2), .data = second } },
-            0xC => .{ .program_change = .{
+            0xA => if (byte2 & 0x80 == 0 and byte3 == 0) .{ .poly_aftertouch = .{ .address = address, .note = note, .data = second } } else null,
+            0xB => if (byte2 & 0x80 == 0 and byte3 == 0) .{ .control_change = .{ .address = address, .index = @truncate(byte2), .data = second } } else null,
+            0xC => if (first & 0xFFFE == 0 and second & 0x00FF8080 == 0) .{ .program_change = .{
                 .address = address,
                 .program = @truncate(second >> 24),
                 .bank = if (first & 1 != 0) .{ .msb = @truncate(second >> 8), .lsb = @truncate(second) } else null,
-            } },
-            0xD => .{ .channel_pressure = .{ .address = address, .data = second } },
-            0xE => .{ .pitch_bend = .{ .address = address, .data = second } },
-            0xF => .{ .per_note_management = .{
+            } } else null,
+            0xD => if (first & 0xFFFF == 0) .{ .channel_pressure = .{ .address = address, .data = second } } else null,
+            0xE => if (first & 0xFFFF == 0) .{ .pitch_bend = .{ .address = address, .data = second } } else null,
+            0xF => if (byte2 & 0x80 == 0 and byte3 & 0xFC == 0 and second == 0) .{ .per_note_management = .{
                 .address = address,
                 .note = note,
                 .reset_controllers = byte3 & 1 != 0,
                 .detach_controllers = byte3 & 2 != 0,
-            } },
+            } } else null,
             else => return null,
         };
     }
@@ -559,8 +561,29 @@ test "UMP parser: MIDI 2.0 controllers keep 32-bit data" {
     try std.testing.expectEqual(@as(u32, 0x80000000), bend.data);
 }
 
+test "UMP parser: MIDI 2.0 program change keeps optional bank" {
+    const program = UmpParser.feed(&.{ 0x40C00001, 0x2A000105 }).?.msg.?.program_change;
+    try std.testing.expectEqual(@as(u7, 42), program.program);
+    try std.testing.expectEqual(@as(u7, 1), program.bank.?.msb);
+    try std.testing.expectEqual(@as(u7, 5), program.bank.?.lsb);
+}
+
 test "UMP parser: reserved packet is skipped at declared boundary" {
     const result = UmpParser.feed(&.{ 0xA0000000, 0xDEADBEEF }).?;
     try std.testing.expectEqual(@as(u3, 2), result.consumed);
     try std.testing.expect(result.msg == null);
+}
+
+test "UMP parser: malformed reserved fields are consumed but ignored" {
+    const packets = [_][2]u32{
+        .{ 0x2090BC40, 0 }, // MIDI 1.0 data byte bit 7
+        .{ 0x4090BC00, 0xFFFF0000 }, // note number bit 7
+        .{ 0x40B04A01, 0 }, // CC reserved byte
+        .{ 0x40E00001, 0x80000000 }, // pitch-bend reserved bits
+        .{ 0x40F03C04, 0 }, // per-note management unknown flag
+    };
+    for (packets) |packet| {
+        const result = UmpParser.feed(&packet).?;
+        try std.testing.expect(result.msg == null);
+    }
 }

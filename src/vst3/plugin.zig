@@ -1314,6 +1314,7 @@ const Direct = struct {
             .midi2_per_note_pitch_bend => {},
             .channel_pressure => |pressure| self.pushMidiMapping(128, pressure.value),
             .poly_pressure => {},
+            .program_change => |program| self.pushMidiMapping(130, @as(f64, @floatFromInt(program.program)) / 127.0),
             .automation_param => |param| if (self.instrument and param.instance_id == 0) self.setParameter(param.id, param.value, param.sample_offset),
             .vst3_param => |param| if (param.target == @as(*anyopaque, @ptrCast(outer))) self.setParameter(param.id, param.value, param.sample_offset),
             else => {},

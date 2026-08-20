@@ -11,6 +11,8 @@ code keeps a one-line pointer.
   dot-repeat) and how each editor maps the char/word/line hierarchy.
 - [arrangement-playback.md](arrangement-playback.md): how pattern and song
   playback share devices, and why arrangement clips own their content.
+- [midi-2.md](midi-2.md): UMP input, resolution flow, platform support, and
+  deliberate MIDI 2.0 capability boundaries.
 - [undo-redo.md](undo-redo.md): snapshot boundaries, swap-based history,
   parameter-nudge coalescing, and the deliberately limited undo scope.
 - [user-config-storage.md](user-config-storage.md): paths, atomic JSON writes,
