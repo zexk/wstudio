@@ -495,17 +495,17 @@ pub fn draw(app: anytype) void {
         if (mouse[0] >= timeline_x and ti < app.core.session.arrangement.lanes.items.len) {
             const tick: u32 = @intFromFloat((mouse[0] - timeline_x) / beat_w * @as(f32, @floatFromInt(ticks_per_beat)));
             app.core.arr_cursor_bar = tick / app.core.arr_grid.ticks();
-            for (app.core.session.arrangement.lanes.items[ti].clips.items, 0..) |clip, ci| {
-                if (clip.covers(tick)) {
-                    app.arrangement_clip = .{ .track = ti, .clip = ci, .start_tick = clip.start_tick };
-                    app.arrangement_drag = .{
-                        .selection = app.arrangement_clip.?,
-                        .target_tick = clip.start_tick,
-                        .grab_offset_tick = tick - clip.start_tick,
-                        .copy = zgui.isKeyDown(.mod_shift),
-                    };
-                    break;
-                }
+            // The topmost clip, the one drawn on top - the first covering
+            // clip in list order is the BOTTOM of a stack (see clipIndexAt).
+            if (app.core.session.arrangement.lanes.items[ti].clipIndexAt(tick)) |ci| {
+                const clip = app.core.session.arrangement.lanes.items[ti].clips.items[ci];
+                app.arrangement_clip = .{ .track = ti, .clip = ci, .start_tick = clip.start_tick };
+                app.arrangement_drag = .{
+                    .selection = app.arrangement_clip.?,
+                    .target_tick = clip.start_tick,
+                    .grab_offset_tick = tick - clip.start_tick,
+                    .copy = zgui.isKeyDown(.mod_shift),
+                };
             }
         }
     }
@@ -514,13 +514,12 @@ pub fn draw(app: anytype) void {
         const tick: u32 = @intFromFloat((mouse[0] - timeline_x) / beat_w * @as(f32, @floatFromInt(ticks_per_beat)));
         app.arrangement_clip = null;
         if (ti < app.core.session.arrangement.lanes.items.len) {
-            for (app.core.session.arrangement.lanes.items[ti].clips.items, 0..) |clip, ci| {
-                if (!clip.covers(tick)) continue;
+            if (app.core.session.arrangement.lanes.items[ti].clipIndexAt(tick)) |ci| {
+                const clip = app.core.session.arrangement.lanes.items[ti].clips.items[ci];
                 app.core.cursor = ti;
                 app.core.arr_cursor_bar = tick / app.core.arr_grid.ticks();
                 app.arrangement_clip = .{ .track = ti, .clip = ci, .start_tick = clip.start_tick };
                 zgui.openPopup("clip-context", .{});
-                break;
             }
         }
     }
@@ -787,9 +786,9 @@ fn applyInspectorAction(app: anytype, selection: ClipSelection, key: u8) void {
     }
     if (app.core.view != .arrangement or selection.track >= app.core.session.arrangement.lanes.items.len) return;
     const cursor_tick = app.core.arr_cursor_bar *| app.core.arr_grid.ticks();
-    for (app.core.session.arrangement.lanes.items[selection.track].clips.items, 0..) |clip, index| {
-        if (!clip.covers(cursor_tick)) continue;
-        app.arrangement_clip = .{ .track = selection.track, .clip = index, .start_tick = clip.start_tick };
+    const lane = &app.core.session.arrangement.lanes.items[selection.track];
+    if (lane.clipIndexAt(cursor_tick)) |index| {
+        app.arrangement_clip = .{ .track = selection.track, .clip = index, .start_tick = lane.clips.items[index].start_tick };
         return;
     }
     app.arrangement_clip = null;

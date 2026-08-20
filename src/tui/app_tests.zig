@@ -3283,6 +3283,37 @@ test "undo restores clips a stamp evicted" {
     try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
 }
 
+test "clip edits act on the clip the cursor names, not the bottom of a stack" {
+    var app = try testApp();
+    defer app.deinit();
+    const lane = app.session.arrangement.lane(0).?;
+    const cell = app.arr_grid.ticks();
+
+    // Two clips covering the same tick, on different layers. `place` sorts by
+    // (start_tick, layer), so the LOWER layer comes first in the list while
+    // `clipAt` reports the upper one - the clip the view draws and the status
+    // line names.
+    var bottom = ws.Clip.initDrum(0, 4 * cell, .{ .step_count = 16 });
+    bottom.layer = 0;
+    try lane.place(app.allocator, bottom);
+    var top = ws.Clip.initDrum(0, 2 * cell, .{ .step_count = 16 });
+    top.layer = 1;
+    try lane.place(app.allocator, top);
+    try std.testing.expectEqual(@as(usize, 2), lane.clips.items.len);
+
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_cursor_bar = 0;
+    try std.testing.expectEqual(@as(u8, 1), lane.clipAt(0).?.layer);
+
+    // `>` moves the clip under the cursor one cell right.
+    app.handleKey(.{ .char = '>' }, 0);
+    for (lane.clips.items) |c| {
+        if (c.layer == 1) try std.testing.expectEqual(cell, c.start_tick);
+        if (c.layer == 0) try std.testing.expectEqual(@as(u32, 0), c.start_tick);
+    }
+}
+
 test "arrangement status lines report bars, not grid cells or ticks" {
     var app = try testApp();
     defer app.deinit();

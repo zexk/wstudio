@@ -1106,9 +1106,9 @@ fn moveClip(app: *App, delta: i32) void {
     history.recordLane(app, @intCast(app.cursor));
     app.last_edit = .{ .arr_move_clip = .{ .delta = delta } };
     // Detach the clip (keeping ownership of its content), retarget, re-place.
-    var moved: ws.Clip = for (lane.clips.items, 0..) |c, i| {
-        if (c.covers(cursor_tick)) break lane.clips.orderedRemove(i);
-    } else unreachable; // clipAt() above proved a covering clip exists
+    // By the index clipAt named, not the first covering clip - see clipIndexAt.
+    const move_idx = lane.clipIndexAt(cursor_tick).?; // clipAt above proved one covers
+    var moved: ws.Clip = lane.clips.orderedRemove(move_idx);
     moved.start_tick = new_start;
     lane.place(app.allocator, moved) catch {
         app.setStatus("move failed (out of memory)", .{});
@@ -1143,9 +1143,8 @@ fn resizeClip(app: *App, delta: i32) void {
     const clip_start = clip.start_tick;
     history.recordLane(app, @intCast(app.cursor));
     app.last_edit = .{ .arr_resize_clip = .{ .delta = delta } };
-    var resized: ws.Clip = for (lane.clips.items, 0..) |c, i| {
-        if (c.covers(cursor_tick)) break lane.clips.orderedRemove(i);
-    } else unreachable; // clipAt() above proved a covering clip exists
+    const resize_idx = lane.clipIndexAt(cursor_tick).?; // clipAt above proved one covers
+    var resized: ws.Clip = lane.clips.orderedRemove(resize_idx);
     resized.length_ticks = new_len;
     lane.place(app.allocator, resized) catch {
         app.setStatus("resize failed (out of memory)", .{});

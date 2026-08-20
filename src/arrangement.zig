@@ -458,13 +458,20 @@ pub const Lane = struct {
         // instead picks the last by *start tick*, which is a different clip
         // once layers stack - callers check with `clipAt` and delete with
         // this, so they have to agree.
-        const idx = self.topmostAt(tick) orelse return false;
+        const idx = self.clipIndexAt(tick) orelse return false;
         var removed = self.clips.orderedRemove(idx);
         removed.deinit(allocator);
         return true;
     }
 
-    fn topmostAt(self: *const Lane, tick: u32) ?usize {
+    /// Index of the clip `clipAt` names. Public because every caller that
+    /// needs the clip's SLOT - to detach it, or to remember which one is
+    /// selected - has to agree with `clipAt` about which clip that is.
+    /// Walking the list for the first `covers` hit does not: the list is
+    /// sorted by (start_tick, layer), so the first hit on a stack is the
+    /// BOTTOM clip while this returns the top one, and `>`/`<` then moved a
+    /// clip the user could not see to a position derived from one they could.
+    pub fn clipIndexAt(self: *const Lane, tick: u32) ?usize {
         var best: ?usize = null;
         for (self.clips.items, 0..) |c, i| {
             if (!c.covers(tick)) continue;
@@ -475,7 +482,7 @@ pub const Lane = struct {
 
     /// Pointer to the clip covering `tick`, or null.
     pub fn clipAt(self: *Lane, tick: u32) ?*Clip {
-        return &self.clips.items[self.topmostAt(tick) orelse return null];
+        return &self.clips.items[self.clipIndexAt(tick) orelse return null];
     }
 
     /// Remove every clip (e.g. when a track's instrument kind changes).
