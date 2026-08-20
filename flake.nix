@@ -407,21 +407,30 @@
         };
       });
 
-      packages = forAllSystems (pkgs: {
-        neutral-terminal = neutralTerminal pkgs;
+      packages = forAllSystems (
+        pkgs:
+        {
+          neutral-terminal = neutralTerminal pkgs;
 
-        default = wstudioPackage pkgs;
-        macos = macosPackage pkgs;
+          default = wstudioPackage pkgs;
 
-        # Cross-compiled with zig's bundled mingw-w64 headers/CRT - no
-        # Windows machine or MSVC toolchain needed to build this, only to
-        # run it. WASAPI/ole32 come from build.zig's own target-conditional
-        # linking, so no extra buildInputs here.
-        # Not buildInputs: those set host NIX_CFLAGS. build.zig reads target
-        # prefix containing libraries for selected Windows architecture.
-        windows = windowsPackage pkgs pkgs.pkgsCross.mingwW64 "x86_64-windows-gnu";
-        windows-arm64 = windowsPackage pkgs (windowsArm64Pkgs pkgs) "aarch64-windows-gnu";
-      });
+          # Cross-compiled with zig's bundled mingw-w64 headers/CRT - no
+          # Windows machine or MSVC toolchain needed to build this, only to
+          # run it. WASAPI/ole32 come from build.zig's own target-conditional
+          # linking, so no extra buildInputs here.
+          # Not buildInputs: those set host NIX_CFLAGS. build.zig reads target
+          # prefix containing libraries for selected Windows architecture.
+          windows = windowsPackage pkgs pkgs.pkgsCross.mingwW64 "x86_64-windows-gnu";
+          windows-arm64 = windowsPackage pkgs (windowsArm64Pkgs pkgs) "aarch64-windows-gnu";
+        }
+        //
+          pkgs.lib.optionalAttrs (pkgs.stdenv.hostPlatform.isDarwin && pkgs.stdenv.hostPlatform.isAarch64)
+            {
+              # This derivation links native Darwin libraries. Linux cross sets
+              # and Intel macOS hosts cannot satisfy its Arm64 dependency paths.
+              macos = macosPackage pkgs;
+            }
+      );
 
       apps = forAllSystems (pkgs: {
         neutral-terminal = {

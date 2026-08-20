@@ -48,6 +48,12 @@ previously these public package outputs omitted their required DLLs even though
 the release workflow added them later. This proves packaging, not the native
 Windows journey listed under explicit skips.
 
+The `macos` package output is now exposed only on native Arm64 macOS. It was
+previously advertised on every flake system, but its fixed Arm64 target received
+Linux or Intel host libraries and could not link. `nix flake show --all-systems`
+confirms the narrowed package boundary; native macOS build and runtime remain
+unverified here, consistent with the explicit host skip above.
+
 ## Playback and persistence soak
 
 2026-08-20 `zig build soak` passed against `demo.wsj`. Debug DSP processed
