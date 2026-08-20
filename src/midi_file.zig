@@ -314,6 +314,10 @@ pub fn parse(allocator: std.mem.Allocator, data: []const u8) ParseError!ParseRes
         truncated = true;
         events.shrinkRetainingCapacity(pattern_mod.max_midi_events);
     }
+    if (tempo_points.items.len > time_map.max_tempo_points) {
+        truncated = true;
+        tempo_points.shrinkRetainingCapacity(time_map.max_tempo_points);
+    }
 
     var length_beats: f64 = 1.0;
     for (notes.items) |n| length_beats = @max(length_beats, n.start_beat + n.duration_beat);
@@ -669,6 +673,17 @@ test "format-1 export preserves a tempo point at beat zero" {
     const result = try parse(std.testing.allocator, bytes);
     defer result.deinit(std.testing.allocator);
     try std.testing.expectApproxEqAbs(@as(f64, 90), result.tempo_bpm, 0.01);
+}
+
+test "MIDI import caps tempo points at the project limit" {
+    var points: [time_map.max_tempo_points + 1]time_map.TempoPoint = undefined;
+    for (&points, 0..) |*point, i| point.* = .{ .beat = @floatFromInt(i), .bpm = 120 };
+    const bytes = try writeProject(std.testing.allocator, &.{}, &.{}, &points, 120);
+    defer std.testing.allocator.free(bytes);
+    const result = try parse(std.testing.allocator, bytes);
+    defer result.deinit(std.testing.allocator);
+    try std.testing.expect(result.truncated);
+    try std.testing.expectEqual(@as(usize, time_map.max_tempo_points), result.tempo_points.len);
 }
 
 test "format-1 export sanitizes non-finite note velocity" {

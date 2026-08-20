@@ -45,6 +45,42 @@ pub fn recordMelodic(app: *App, track: u16) void {
     push(app, captureMelodic(app, track));
 }
 
+pub fn captureMidiImport(app: *App, track: u16) ?undo_mod.Entry {
+    const melodic_entry = captureMelodic(app, track) orelse return null;
+    var melodic = melodic_entry.melodic;
+    var event_buf: [pattern_mod.max_midi_events]pattern_mod.MidiEvent = undefined;
+    const pp = &app.session.racks.items[track].pattern_player.?;
+    const event_count = pp.copyMidiEvents(&event_buf);
+    const midi_events = app.allocator.dupe(pattern_mod.MidiEvent, event_buf[0..event_count]) catch {
+        melodic.deinit(app.allocator);
+        return null;
+    };
+    const tempo_points = app.allocator.dupe(ws.time_map.TempoPoint, app.session.project.tempo_points.items) catch {
+        melodic.deinit(app.allocator);
+        app.allocator.free(midi_events);
+        return null;
+    };
+    return .{ .midi_import = .{
+        .melodic = melodic,
+        .midi_events = midi_events,
+        .tempo_bpm = app.session.project.tempo_bpm,
+        .tempo_points = tempo_points,
+    } };
+}
+
+fn restoreMelodic(app: *App, m: undo_mod.MelodicState) void {
+    const pp = &app.session.racks.items[m.track].pattern_player.?;
+    pp.setNotes(m.notes, m.length_beats);
+    app.allocator.free(m.notes);
+    if (m.clip_start_tick) |bar| {
+        app.piano_track = m.track;
+        app.piano_clip_link = .{ .track = m.track, .start_tick = bar };
+        piano.syncLinkedClip(app);
+    } else if (app.piano_clip_link) |link| {
+        if (link.track == m.track) app.piano_clip_link = null;
+    }
+}
+
 /// Snapshot one drum machine's whole pattern bank. Every captured slot's
 /// `midi` is a fresh, independent heap copy (`variantData` itself returns a
 /// borrowed view into the live machine, so this dupes before storing) -
@@ -544,19 +580,29 @@ fn applyEntry(app: *App, entry: undo_mod.Entry) ?undo_mod.Entry {
     switch (entry) {
         .melodic => |m| {
             const displaced = captureMelodic(app, m.track) orelse return null;
-            const pp = &app.session.racks.items[m.track].pattern_player.?;
-            pp.setNotes(m.notes, m.length_beats);
-            app.allocator.free(m.notes);
-            if (m.clip_start_tick) |bar| {
-                // The edit lived in a clip: re-link and write it back.
-                app.piano_track = m.track;
-                app.piano_clip_link = .{ .track = m.track, .start_tick = bar };
-                piano.syncLinkedClip(app);
-            } else if (app.piano_clip_link) |link| {
-                // Restored an unlinked state over an active link: drop the
-                // link so the next edit can't clobber the clip.
-                if (link.track == m.track) app.piano_clip_link = null;
-            }
+            restoreMelodic(app, m);
+            return displaced;
+        },
+        .midi_import => |m| {
+            const displaced = captureMidiImport(app, m.melodic.track) orelse return null;
+            app.session.project.tempo_points.ensureTotalCapacity(app.allocator, m.tempo_points.len) catch {
+                var orphan = displaced;
+                orphan.deinit(app.allocator);
+                return null;
+            };
+            const pp = &app.session.racks.items[m.melodic.track].pattern_player.?;
+            restoreMelodic(app, m.melodic);
+            pp.setMidiEvents(m.midi_events);
+            app.allocator.free(m.midi_events);
+            app.session.project.tempo_bpm = m.tempo_bpm;
+            app.session.project.tempo_points.clearRetainingCapacity();
+            app.session.project.tempo_points.appendSliceAssumeCapacity(m.tempo_points);
+            app.allocator.free(m.tempo_points);
+            _ = app.session.engine.send(.clear_time_map);
+            _ = app.session.engine.send(.{ .set_tempo = m.tempo_bpm });
+            for (app.session.project.tempo_points.items) |point| _ = app.session.engine.send(.{ .set_tempo_point = point });
+            app.session.syncLoop();
+            if (app.session.song_mode) app.session.rebuildSongData();
             return displaced;
         },
         .drum => |d| {

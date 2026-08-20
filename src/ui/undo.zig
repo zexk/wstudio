@@ -5,6 +5,8 @@ const std = @import("std");
 const ws = @import("wstudio");
 
 const Note = ws.dsp.pattern.Note;
+const MidiEvent = ws.dsp.pattern.MidiEvent;
+const TempoPoint = ws.time_map.TempoPoint;
 const DrumMachine = ws.dsp.DrumMachine;
 const Slicer = ws.dsp.Slicer;
 const Pad = ws.dsp.Pad;
@@ -28,6 +30,22 @@ pub const MelodicState = struct {
 
     pub fn deinit(self: *MelodicState, allocator: std.mem.Allocator) void {
         allocator.free(self.notes);
+    }
+};
+
+/// Full state replaced by `:import-midi`. Ordinary piano-roll edits use the
+/// smaller MelodicState; only import also owns retained channel events and the
+/// project tempo map.
+pub const MidiImportState = struct {
+    melodic: MelodicState,
+    midi_events: []MidiEvent,
+    tempo_bpm: f64,
+    tempo_points: []TempoPoint,
+
+    pub fn deinit(self: *MidiImportState, allocator: std.mem.Allocator) void {
+        self.melodic.deinit(allocator);
+        allocator.free(self.midi_events);
+        allocator.free(self.tempo_points);
     }
 };
 
@@ -265,6 +283,7 @@ pub const TrackRemap = ws.Session.TrackRemap;
 
 pub const Entry = union(enum) {
     melodic: MelodicState,
+    midi_import: MidiImportState,
     drum: DrumState,
     slicer: SlicerState,
     lane: LaneState,
@@ -293,6 +312,7 @@ pub const Entry = union(enum) {
     pub fn deinit(self: *Entry, allocator: std.mem.Allocator) void {
         switch (self.*) {
             .melodic => |*m| m.deinit(allocator),
+            .midi_import => |*m| m.deinit(allocator),
             .drum => |*d| d.deinit(allocator),
             .slicer => |*s| s.deinit(allocator),
             .lane => |*l| l.deinit(allocator),
@@ -315,6 +335,7 @@ pub const Entry = union(enum) {
     pub fn label(self: *const Entry) []const u8 {
         return switch (self.*) {
             .melodic => "pattern",
+            .midi_import => "MIDI import",
             .drum => "drum",
             .slicer => "slicer",
             .lane, .lanes => "clip",
@@ -450,6 +471,7 @@ fn retargetStack(stack: *std.ArrayListUnmanaged(Entry), allocator: std.mem.Alloc
         switch (stack.items[i]) {
             // zig fmt: off
             .melodic => |*m| if (remap.apply(m.track)) |nt| { m.track = nt; } else { keep = false; },
+            .midi_import => |*m| if (remap.apply(m.melodic.track)) |nt| { m.melodic.track = nt; } else { keep = false; },
             .drum => |*d| if (remap.apply(d.track)) |nt| { d.track = nt; } else { keep = false; },
             .slicer => |*d| if (remap.apply(d.track)) |nt| { d.track = nt; } else { keep = false; },
             .lane => |*l| if (remap.apply(l.track)) |nt| { l.track = nt; } else { keep = false; },

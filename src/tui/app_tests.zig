@@ -488,6 +488,61 @@ test ":export-midi then :import-midi round-trips the cursor track's pattern" {
     try std.testing.expectApproxEqAbs(@as(f64, 1.5), pp.notes[1].start_beat, 0.01);
 }
 
+test ":import-midi undo restores notes events and tempo" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try redirectHome(&tmp);
+    var app = try App.init(std.testing.allocator, std.testing.io);
+    defer app.deinit();
+    try app.session.setInstrument(0, .poly_synth);
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.setNotes(&.{.{ .pitch = 50, .start_beat = 0, .duration_beat = 0.5 }}, 4);
+    pp.setMidiEvents(&.{.{ .beat = 0.25, .data = .{ .cc = .{ .controller = 1, .value = 2 } } }});
+    app.session.project.tempo_bpm = 100;
+    try app.session.project.setTempoPoint(.{ .beat = 1, .bpm = 110 });
+
+    const bytes = try ws.midi_file.writeProject(std.testing.allocator, &.{.{
+        .pitch = 60,
+        .start_beat = 1,
+        .duration_beat = 1,
+    }}, &.{.{ .beat = 1.5, .data = .{ .pitch_bend = 12_000 } }}, &.{.{ .beat = 2, .bpm = 90 }}, 140);
+    defer std.testing.allocator.free(bytes);
+    var path_buf: [96]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/import.mid", .{&tmp.sub_path});
+    try std.Io.Dir.cwd().writeFile(std.testing.io, .{ .sub_path = path, .data = bytes });
+    var cmd_buf: [128]u8 = undefined;
+    const command = try std.fmt.bufPrint(&cmd_buf, ":import-midi {s}", .{path});
+    for (command) |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block);
+
+    try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch);
+    try std.testing.expectEqual(@as(u16, 1), pp.midi_event_count);
+    try std.testing.expectEqual(@as(u14, 12_000), pp.midi_events[0].data.pitch_bend);
+    try std.testing.expectApproxEqAbs(@as(f64, 140), app.session.project.tempo_bpm, 0.01);
+    try std.testing.expectApproxEqAbs(@as(f64, 140), app.session.engine.transport.tempo_bpm, 0.01);
+    try std.testing.expectEqual(@as(usize, 2), app.session.project.tempo_points.items.len);
+
+    history.doUndo(&app);
+    app.session.engine.process(&block);
+    try std.testing.expectEqual(@as(u7, 50), pp.notes[0].pitch);
+    try std.testing.expectEqual(@as(u16, 1), pp.midi_event_count);
+    try std.testing.expectEqual(@as(u7, 1), pp.midi_events[0].data.cc.controller);
+    try std.testing.expectApproxEqAbs(@as(f64, 100), app.session.project.tempo_bpm, 0.01);
+    try std.testing.expectApproxEqAbs(@as(f64, 100), app.session.engine.transport.tempo_bpm, 0.01);
+    try std.testing.expectEqual(@as(usize, 1), app.session.project.tempo_points.items.len);
+    try std.testing.expectApproxEqAbs(@as(f64, 1), app.session.project.tempo_points.items[0].beat, 0.01);
+
+    history.doRedo(&app);
+    app.session.engine.process(&block);
+    try std.testing.expectEqual(@as(u7, 60), pp.notes[0].pitch);
+    try std.testing.expectEqual(@as(u14, 12_000), pp.midi_events[0].data.pitch_bend);
+    try std.testing.expectApproxEqAbs(@as(f64, 140), app.session.project.tempo_bpm, 0.01);
+    try std.testing.expectApproxEqAbs(@as(f64, 140), app.session.engine.transport.tempo_bpm, 0.01);
+    try std.testing.expectEqual(@as(usize, 2), app.session.project.tempo_points.items.len);
+}
+
 test ":export-midi protects project and failed-write destinations" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();

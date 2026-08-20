@@ -75,6 +75,12 @@ Acoustic instrument creation no longer hides a missing-library error behind a
 later success status. Focused command coverage forces the load failure and
 locks the visible reinstall recovery action.
 
+`:import-midi` now captures retained channel events and the project tempo map
+with its melodic undo state. Focused frontend coverage imports distinct values,
+then proves one undo and redo restore notes, events, base tempo, and tempo
+points together. Parser coverage also caps oversized MIDI tempo maps at the
+project's 64-point limit and reports that some MIDI data was capped.
+
 ## ReleaseSafe CLI render
 
 2026-08-20 native `zig build -Doptimize=ReleaseSafe` passed. Its binary reports

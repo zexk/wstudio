@@ -195,6 +195,10 @@ history lives in [FORMAT.md](FORMAT.md).
 - A missing bundled acoustic library briefly reported its load error, then
   replaced it with a false instrument-inserted message. The error now remains
   visible and tells the user to reinstall wstudio.
+- Undo after `:import-midi` restored notes but left imported channel events and
+  project tempo changes behind. MIDI import now records and restores all three
+  as one undo/redo operation, and caps imported tempo events at the project's
+  64-point limit instead of silently building an oversized map.
 - A drum pad's play mode had no effect: every hit cut the one before it, so
   setting a pad to one-shot behaved exactly like retrigger and a long crash
   hit twice cut itself instead of overlapping. Slices already honoured the

@@ -599,7 +599,11 @@ pub fn cmdImportMidi(app: *App, args: []const u8) void {
     };
     defer result.deinit(app.allocator);
 
-    history.recordMelodic(app, @intCast(m.track));
+    app.session.project.tempo_points.ensureTotalCapacity(app.allocator, result.tempo_points.len) catch {
+        app.setStatus("import-midi: out of memory", .{});
+        return;
+    };
+    history.push(app, history.captureMidiImport(app, @intCast(m.track)));
     m.pp.setNotes(result.notes, result.length_beats);
     m.pp.setMidiEvents(result.events);
     app.session.project.tempo_bpm = result.tempo_bpm;
@@ -607,13 +611,13 @@ pub fn cmdImportMidi(app: *App, args: []const u8) void {
     _ = app.session.engine.send(.clear_time_map);
     _ = app.session.engine.send(.{ .set_tempo = result.tempo_bpm });
     for (result.tempo_points) |point| {
-        app.session.project.setTempoPoint(point) catch continue;
+        app.session.project.tempo_points.appendAssumeCapacity(point);
         _ = app.session.engine.send(.{ .set_tempo_point = point });
     }
     app.session.syncLoop();
     piano_ed.syncLinkedClip(app);
     if (result.truncated)
-        app.setStatus("imported {d} notes (capped at {d}) at {d:.0} BPM", .{ result.notes.len, pattern_mod.max_notes, result.tempo_bpm })
+        app.setStatus("imported {d} notes (some MIDI data capped) at {d:.0} BPM", .{ result.notes.len, result.tempo_bpm })
     else
         app.setStatus("imported {d} notes at {d:.0} BPM", .{ result.notes.len, result.tempo_bpm });
 }
