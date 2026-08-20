@@ -1243,8 +1243,12 @@ fn handleVisualEdit(app: *App, key: modal_mod.Key, pp: *pattern_mod.PatternPlaye
             'K' => transposeSelection(app, pp, 12 * app.takeCount()),
             '[' => shapeSelection(app, pp, -1.0 / stepsPerBeatF(app) * @as(f64, @floatFromInt(app.takeCount())), 0),
             ']' => shapeSelection(app, pp, 1.0 / stepsPerBeatF(app) * @as(f64, @floatFromInt(app.takeCount())), 0),
-            '<' => shapeSelection(app, pp, 0, -0.1 * @as(f32, @floatFromInt(app.takeCount()))),
-            '>' => shapeSelection(app, pp, 0, 0.1 * @as(f32, @floatFromInt(app.takeCount()))),
+            '<' => shapeSelection(app, pp, 0, -app.piano_note_field.step() * @as(f32, @floatFromInt(app.takeCount()))),
+            '>' => shapeSelection(app, pp, 0, app.piano_note_field.step() * @as(f32, @floatFromInt(app.takeCount()))),
+            ';' => nudgeSelectionMicro(app, pp, -app.takeCount()),
+            '\'' => nudgeSelectionMicro(app, pp, app.takeCount()),
+            'f' => cycleNoteField(app, 1),
+            'F' => cycleNoteField(app, -1),
             'r' => reverseSelection(app, pp),
             'i' => invertSelection(app, pp),
             '0'...'9' => return false,
@@ -1293,7 +1297,7 @@ fn selection(app: *App) pattern_mod.Sel {
 
 fn shapeSelection(app: *App, pp: *pattern_mod.PatternPlayer, duration_delta: f64, velocity_delta: f32) void {
     var entry = history.captureMelodic(app, app.piano_track);
-    const changed = pp.shapeNotesInRange(selection(app), duration_delta, 1.0 / stepsPerBeatF(app), velocity_delta);
+    const changed = pp.shapeNotesInRange(selection(app), duration_delta, 1.0 / stepsPerBeatF(app), app.piano_note_field, velocity_delta);
     if (changed == 0) {
         if (entry) |*e| e.deinit(app.allocator);
         app.setStatus("no notes selected", .{});
@@ -1301,6 +1305,24 @@ fn shapeSelection(app: *App, pp: *pattern_mod.PatternPlayer, duration_delta: f64
     }
     history.push(app, entry);
     app.setStatus("edited {d} selected notes", .{changed});
+    syncLinkedClip(app);
+}
+
+fn nudgeSelectionMicro(app: *App, pp: *pattern_mod.PatternPlayer, ticks: i32) void {
+    var entry = history.captureMelodic(app, app.piano_track);
+    const dbeat = @as(f64, @floatFromInt(ticks)) / @as(f64, ws.time_grid.ticks_per_beat);
+    const moved = pp.shiftNotesInRange(selection(app), 0, dbeat) orelse {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("can't nudge - selection would leave the pattern", .{});
+        return;
+    };
+    if (moved == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("no notes selected", .{});
+        return;
+    }
+    history.push(app, entry);
+    app.setStatus("nudged {d} selected notes by {d} tick{s}", .{ moved, ticks, if (@abs(ticks) == 1) "" else "s" });
     syncLinkedClip(app);
 }
 

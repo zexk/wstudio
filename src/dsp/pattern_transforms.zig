@@ -45,9 +45,9 @@ pub fn shiftNotesInRange(self: *PatternPlayer, sel: Sel, dpitch: i32, dbeat: f64
     return moved;
 }
 
-/// Add `delta` to duration and velocity of every selected note. Zero
-/// delta leaves that property unchanged. Returns count touched.
-pub fn shapeNotesInRange(self: *PatternPlayer, sel: Sel, duration_delta: f64, min_duration: f64, velocity_delta: f32) u16 {
+/// Add `delta` to duration and one editable field of every selected note.
+/// Zero delta leaves that property unchanged. Returns count touched.
+pub fn shapeNotesInRange(self: *PatternPlayer, sel: Sel, duration_delta: f64, min_duration: f64, field: pattern.NoteField, field_delta: f32) u16 {
     while (!self.notes_lock.tryLock()) std.atomic.spinLoopHint();
     defer self.notes_lock.unlock();
     var changed: u16 = 0;
@@ -57,7 +57,7 @@ pub fn shapeNotesInRange(self: *PatternPlayer, sel: Sel, duration_delta: f64, mi
             self.queueNoteOff(n.pitch);
             n.duration_beat = std.math.clamp(n.duration_beat + duration_delta, min_duration, self.length_beats);
         }
-        if (velocity_delta != 0) n.velocity = std.math.clamp(n.velocity + velocity_delta, 0.05, 1.0);
+        if (field_delta != 0) field.set(n, field.get(n.*) + field_delta);
         changed += 1;
     }
     return changed;

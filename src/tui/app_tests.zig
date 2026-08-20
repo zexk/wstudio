@@ -6878,6 +6878,30 @@ test "piano roll visual enter edits every selected note" {
     try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
 }
 
+test "piano roll visual edit applies note fields and micro-nudge to selection" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .piano_roll;
+    app.piano_track = 0;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.25, .duration_beat = 0.25, .velocity = 0.5 });
+    pp.addNote(.{ .pitch = 64, .start_beat = 0.5, .duration_beat = 0.25, .velocity = 0.5 });
+
+    app.piano_cursor_step = 1;
+    app.handleKey(.{ .char = 'V' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.handleKey(.enter, 0);
+    app.handleKey(.{ .char = 'f' }, 0); // pan
+    app.handleKey(.{ .char = '>' }, 0);
+    app.handleKey(.{ .char = '\'' }, 0);
+
+    const tick = 1.0 / @as(f64, ws.time_grid.ticks_per_beat);
+    const a = pp.noteAt(60, 0.25 + tick).?;
+    const b = pp.noteAt(64, 0.5 + tick).?;
+    try std.testing.expectApproxEqAbs(@as(f32, 0.2), a.art.pan, 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.2), b.art.pan, 1e-6);
+}
+
 test "piano roll visual edit shifts by beat/octave and inverts" {
     var app = try testApp();
     defer app.deinit();

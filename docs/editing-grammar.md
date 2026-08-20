@@ -40,7 +40,8 @@ where that editor deviates.
   selection recolours so the two modes are told apart on the grid. The
   same fingers now move the notes: `h`/`l` in time, `j`/`k` in pitch,
   with `H`/`L` and `J`/`K` taking the musical step up from those (a beat,
-  an octave). `[`/`]` resize, `<`/`>` change velocity, `r` reverses in
+  an octave). `[`/`]` resize, `<`/`>` change the field selected by `f`/`F`,
+  `;`/`'` micro-nudge, `r` reverses in
   time and `i` inverts around the midpoint of the selected
   NOTES' own pitch range, not of the selection band, so the figure stays
   where it sits and the extremes only trade places - `r` and `i` work in
