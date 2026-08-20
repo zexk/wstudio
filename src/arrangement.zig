@@ -1184,3 +1184,80 @@ test "a front trim consumes the material actually under the cut, not a proportio
     try std.testing.expectEqual(@as(u64, 24_000), clip.content.audio.source_start_frame);
     try std.testing.expectEqual(@as(u64, 24_000), clip.content.audio.source_length_frames);
 }
+
+// place/cutRange/splitAt/insertTime/removeTime all have to leave a lane
+// sorted by (start_tick, layer), free of same-layer overlaps, and free of
+// zero-length clips - the three things every reader of a lane assumes and
+// none of them re-checks. Random sequences rather than named cases: the
+// interesting failures are combinations, like a split inside a range another
+// op just trimmed.
+test "random edit sequences leave a lane sorted, non-overlapping and non-empty" {
+    const a = std.testing.allocator;
+    var prng = std.Random.DefaultPrng.init(0xC0FFEE);
+    const rnd = prng.random();
+
+    var iter: usize = 0;
+    while (iter < 3000) : (iter += 1) {
+        var lane: Lane = .{};
+        defer lane.deinit(a);
+        const ops = 1 + rnd.uintLessThan(u32, 8);
+        var op_i: usize = 0;
+        var last_op: []const u8 = "none";
+        while (op_i < ops) : (op_i += 1) {
+            const lo = rnd.uintLessThan(u32, 64);
+            const hi = lo + rnd.uintLessThan(u32, 32);
+            switch (rnd.uintLessThan(u32, 6)) {
+                0 => {
+                    var c = Clip.initDrum(lo, 1 + rnd.uintLessThan(u32, 16), .{ .step_count = 16 });
+                    c.layer = @intCast(rnd.uintLessThan(u32, 3));
+                    try lane.place(a, c);
+                    last_op = "place";
+                },
+                1 => {
+                    _ = lane.removeAt(a, lo);
+                    last_op = "removeAt";
+                },
+                2 => {
+                    try lane.cutRange(a, lo, hi, {});
+                    last_op = "cutRange";
+                },
+                3 => {
+                    _ = try lane.splitAt(a, lo, {});
+                    last_op = "splitAt";
+                },
+                4 => {
+                    lane.insertTime(a, lo, hi - lo, {}) catch {};
+                    last_op = "insertTime";
+                },
+                else => {
+                    try lane.removeTime(a, lo, hi, {});
+                    last_op = "removeTime";
+                },
+            }
+
+            var prev_start: u32 = 0;
+            var prev_layer: u8 = 0;
+            for (lane.clips.items, 0..) |c, i| {
+                if (c.length_ticks == 0) {
+                    std.debug.print("{s}: zero-length clip at {d}\n", .{ last_op, c.start_tick });
+                    return error.ZeroLengthClip;
+                }
+                if (i > 0 and (c.start_tick < prev_start or (c.start_tick == prev_start and c.layer < prev_layer))) {
+                    std.debug.print("{s}: out of order at {d} (start {d} after {d})\n", .{ last_op, i, c.start_tick, prev_start });
+                    return error.LaneUnsorted;
+                }
+                prev_start = c.start_tick;
+                prev_layer = c.layer;
+            }
+            for (lane.clips.items, 0..) |c, i| {
+                for (lane.clips.items[i + 1 ..]) |d| {
+                    if (c.layer != d.layer) continue;
+                    if (c.start_tick < d.endTick() and d.start_tick < c.endTick()) {
+                        std.debug.print("{s}: same-layer overlap [{d},{d}) and [{d},{d})\n", .{ last_op, c.start_tick, c.endTick(), d.start_tick, d.endTick() });
+                        return error.SameLayerOverlap;
+                    }
+                }
+            }
+        }
+    }
+}
