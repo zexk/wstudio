@@ -552,3 +552,55 @@ test "Scale.nearest: in-scale stays put, ties round down, edges stay in range" {
     try std.testing.expectEqual(@as(u7, 0), c_major.nearest(1));
     try std.testing.expectEqual(@as(u7, 125), c_major.nearest(126));
 }
+
+// Inversion and voicing only ever move a voice by an octave, so across every
+// scale, root, pitch, quality, inversion and voicing the chord has to keep
+// its size, keep its pitch classes as a multiset, and never land two voices
+// on one pitch. Stamping an inverted chord with drop2 or open once moved the
+// wrong voices, because `voiced` picks by position and `inverted` had left
+// the array unsorted - exhaustive here because the combination is what broke,
+// not any one of them.
+test "inversion and voicing move voices by octaves and nothing else" {
+    for (std.meta.tags(ScaleType)) |kind| {
+        for (0..12) |root| {
+            const scale = Scale{ .root = @intCast(root), .kind = kind };
+            for (0..128) |p| {
+                for (std.meta.tags(ChordQuality)) |quality| {
+                    const base = scale.chordAt(@intCast(p), quality);
+                    if (base.count == 0) {
+                        std.debug.print("empty chord: {s} root {d} pitch {d} {s}\n", .{ @tagName(kind), root, p, @tagName(quality) });
+                        return error.EmptyChord;
+                    }
+                    for (0..4) |inv| {
+                        const inverted = base.inverted(@intCast(inv));
+                        for (std.meta.tags(Voicing)) |v| {
+                            const out = inverted.voiced(v);
+                            if (out.count != base.count) {
+                                std.debug.print("count changed: {d} -> {d}\n", .{ base.count, out.count });
+                                return error.CountChanged;
+                            }
+                            // Only octave moves are allowed, so the pitch
+                            // classes have to survive as a multiset.
+                            var want: [12]u8 = @splat(0);
+                            var got: [12]u8 = @splat(0);
+                            for (base.pitches[0..base.count]) |x| want[x % 12] += 1;
+                            for (out.pitches[0..out.count]) |x| got[x % 12] += 1;
+                            if (!std.mem.eql(u8, &want, &got)) {
+                                std.debug.print("pitch classes changed: {s}/{d}/{s} inv {d} {s}\n", .{ @tagName(kind), p, @tagName(quality), inv, @tagName(v) });
+                                return error.PitchClassChanged;
+                            }
+                            for (out.pitches[0..out.count], 0..) |x, i| {
+                                for (out.pitches[i + 1 .. out.count]) |y| {
+                                    if (x == y) {
+                                        std.debug.print("duplicate voice {d}: {s} pitch {d} {s} inv {d} {s}\n", .{ x, @tagName(kind), p, @tagName(quality), inv, @tagName(v) });
+                                        return error.DuplicateVoice;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
