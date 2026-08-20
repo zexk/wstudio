@@ -893,6 +893,15 @@ pub fn cmdTake(app: *App, args: []const u8) void {
     }
     history.recordLane(app, @intCast(app.cursor));
     std.debug.assert(clip.cycleAudioTake(delta));
+    // Takes carry their own length, so cycling can grow the clip - reseat it
+    // so a longer take evicts what it now covers instead of overlapping it.
+    if (app.session.arrangement.lane(app.cursor)) |lane| {
+        const cursor_tick = app.arr_cursor_bar *| app.arr_grid.ticks();
+        if (lane.clipIndexAt(cursor_tick)) |idx| lane.reseat(app.allocator, idx) catch {
+            app.setStatus("take: out of memory", .{});
+            return;
+        };
+    }
     if (app.session.song_mode) app.session.rebuildSongData();
     app.dirty = true;
     app.setStatus("take: cycled {s} ({d} total)", .{ if (delta > 0) "next" else "previous", take_count });

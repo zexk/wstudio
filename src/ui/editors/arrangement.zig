@@ -1105,12 +1105,10 @@ fn moveClip(app: *App, delta: i32) void {
     if (new_start == clip.start_tick) return;
     history.recordLane(app, @intCast(app.cursor));
     app.last_edit = .{ .arr_move_clip = .{ .delta = delta } };
-    // Detach the clip (keeping ownership of its content), retarget, re-place.
     // By the index clipAt named, not the first covering clip - see clipIndexAt.
     const move_idx = lane.clipIndexAt(cursor_tick).?; // clipAt above proved one covers
-    var moved: ws.Clip = lane.clips.orderedRemove(move_idx);
-    moved.start_tick = new_start;
-    lane.place(app.allocator, moved) catch {
+    lane.clips.items[move_idx].start_tick = new_start;
+    lane.reseat(app.allocator, move_idx) catch {
         app.setStatus("move failed (out of memory)", .{});
         return;
     };
@@ -1144,9 +1142,8 @@ fn resizeClip(app: *App, delta: i32) void {
     history.recordLane(app, @intCast(app.cursor));
     app.last_edit = .{ .arr_resize_clip = .{ .delta = delta } };
     const resize_idx = lane.clipIndexAt(cursor_tick).?; // clipAt above proved one covers
-    var resized: ws.Clip = lane.clips.orderedRemove(resize_idx);
-    resized.length_ticks = new_len;
-    lane.place(app.allocator, resized) catch {
+    lane.clips.items[resize_idx].length_ticks = new_len;
+    lane.reseat(app.allocator, resize_idx) catch {
         app.setStatus("resize failed (out of memory)", .{});
         return;
     };

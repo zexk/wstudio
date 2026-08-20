@@ -452,6 +452,19 @@ pub const Lane = struct {
         self.clips.insertAssumeCapacity(idx, clip);
     }
 
+    /// Re-seat clip `index` after an in-place edit changed its span. A clip's
+    /// own methods cannot enforce the lane's rules - `Clip.addAudioTake` and
+    /// `cycleAudioTake` both write `length_ticks` straight from the take, so
+    /// switching to a longer take grew the clip over its neighbour and left a
+    /// same-layer overlap the lane is documented not to hold. Going back
+    /// through `place` restores the ordering and evicts what the new span now
+    /// covers, which is the rule a manual resize already follows.
+    /// Takes ownership on failure, like `place`.
+    pub fn reseat(self: *Lane, allocator: std.mem.Allocator, index: usize) !void {
+        if (index >= self.clips.items.len) return;
+        try self.place(allocator, self.clips.orderedRemove(index));
+    }
+
     /// Remove the clip covering `tick`, if any. Returns true if one was removed.
     pub fn removeAt(self: *Lane, allocator: std.mem.Allocator, tick: u32) bool {
         // Topmost, the same clip `clipAt` names. Walking the list backwards
@@ -1267,4 +1280,27 @@ test "random edit sequences leave a lane sorted, non-overlapping and non-empty" 
             }
         }
     }
+}
+
+test "reseat keeps a clip grown by a longer take from overlapping its neighbour" {
+    const a = std.testing.allocator;
+    var lane: Lane = .{};
+    defer lane.deinit(a);
+
+    try lane.place(a, Clip.initAudio(0, 4, .{ .source_id = 1, .source_start_frame = 0, .source_length_frames = 4 }));
+    try lane.place(a, Clip.initAudio(4, 4, .{ .source_id = 2, .source_start_frame = 0, .source_length_frames = 4 }));
+
+    // A take carries its own length, so switching to a longer one grows the
+    // clip in place - a Clip method cannot evict, which is what reseat is for.
+    try std.testing.expect(lane.clips.items[0].addAudioTake(.{
+        .source_id = 3,
+        .source_start_frame = 0,
+        .source_length_frames = 16,
+        .length_ticks = 16,
+    }));
+    try lane.reseat(a, 0);
+
+    try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
+    try std.testing.expectEqual(@as(u32, 0), lane.clips.items[0].start_tick);
+    try std.testing.expectEqual(@as(u32, 16), lane.clips.items[0].length_ticks);
 }

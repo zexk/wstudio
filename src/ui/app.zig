@@ -3099,6 +3099,9 @@ pub const App = struct {
                         .source_length_frames = take_frames,
                         .length_ticks = length_ticks,
                     })) {
+                        // A take longer than the one it joins grows the clip;
+                        // reseat so it evicts rather than overlaps.
+                        if (lane.clipIndexAt(start_tick)) |idx| lane.reseat(self.allocator, idx) catch {};
                         clip_count += 1;
                         continue;
                     }
