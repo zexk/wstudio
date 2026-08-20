@@ -181,7 +181,9 @@ add points; that is the one remaining surface, and it is post-1.0 work.
 `DISPLAY=:99 zig-out/bin/wstudio --gui` under Xvfb passed all three ImGui test
 engine journeys.
 
-Fresh 160x48 TUI captures of blank and `demo.wsj` track views also passed.
+Fresh 160x48 and 100x30 TUI captures of blank and `demo.wsj` track views also
+passed. Narrow arrangement and populated FX-chain views kept labels, focus,
+parameters, status, meters, and hints visible without overlap.
 This pass found that the screenshot harness inherited the repository working
 directory, so an ignored `project.wsj~` could leak into its supposedly isolated
 blank session. The launcher now changes to its temporary home before starting
