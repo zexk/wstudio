@@ -81,6 +81,10 @@ Sandboxed VST3 state saving now uses the same bounded encoder as state loading.
 Focused wire coverage proves undersized buffers and state beyond the 1 MiB RPC
 ceiling fail before copy, so a large plugin state no longer kills the child.
 
+VST3 host message attributes now reject non-finite and out-of-range float to
+integer conversions. Focused host-message coverage feeds both hostile values
+through the ABI boundary without panicking the host.
+
 Acoustic instrument creation no longer hides a missing-library error behind a
 later success status. Focused command coverage forces the load failure and
 locks the visible reinstall recovery action.

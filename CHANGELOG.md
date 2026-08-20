@@ -192,6 +192,9 @@ history lives in [FORMAT.md](FORMAT.md).
 - Release archives omitted the bundled acoustic library, and the Linux tarball
   also omitted the plugin bridge required by default sandboxing. Archives now
   carry both and verify their runtime layout before upload.
+- A VST3 could crash its host by storing a non-finite or out-of-range float in
+  a host message attribute, then requesting it as an integer. Cross-type
+  attribute reads now reject values that cannot be represented by `i64`.
 - A sandboxed VST3 returning more than 1 MiB of component and controller state
   overflowed the child RPC buffer and killed its host process during save. The
   shared wire encoder now rejects oversized state before copying it, and the

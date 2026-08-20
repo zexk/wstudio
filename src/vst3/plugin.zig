@@ -245,7 +245,10 @@ const HostMessage = struct {
         const entry = fromAttributes(raw).find(id) orelse return -1;
         value.* = switch (entry.value) {
             .int => |v| v,
-            .float => |v| @intFromFloat(v),
+            .float => |v| if (std.math.isFinite(v) and v >= -9223372036854775808.0 and v < 9223372036854775808.0)
+                @intFromFloat(v)
+            else
+                return -1,
             else => return -1,
         };
         return 0;
@@ -1562,6 +1565,10 @@ test "host-created VST3 messages carry attributes and free themselves" {
     var float_value: f64 = 0;
     try std.testing.expectEqual(@as(abi.Result, 0), attributes.vtable.get_float(attributes, "gain", &float_value));
     try std.testing.expectEqual(@as(f64, 0.5), float_value);
+    _ = attributes.vtable.set_float(attributes, "bad-int", std.math.nan(f64));
+    try std.testing.expect(attributes.vtable.get_int(attributes, "bad-int", &int_value) != 0);
+    _ = attributes.vtable.set_float(attributes, "bad-int", 9223372036854775808.0);
+    try std.testing.expect(attributes.vtable.get_int(attributes, "bad-int", &int_value) != 0);
     var text: [8]u16 = undefined;
     try std.testing.expectEqual(@as(abi.Result, 0), attributes.vtable.get_string(attributes, "path", &text, @sizeOf(@TypeOf(text))));
     var utf8: [8]u8 = undefined;
