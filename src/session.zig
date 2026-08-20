@@ -2908,3 +2908,34 @@ fn sessionForAllocationTest(allocator: std.mem.Allocator) !void {
 test "building a session cleans up every partial allocation" {
     try std.testing.checkAllAllocationFailures(std.testing.allocator, sessionForAllocationTest, .{});
 }
+
+test "duplicateTrack carries every Track field, including ones added later" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    const g = try s.addGroup("bus");
+
+    // Every field set away from its default, so a field `duplicateTrack`
+    // forgets comes back as the default and fails below. Reflection rather
+    // than a list: `color`, `group` and `sends` each had to be added to this
+    // check by hand when they were added to Track, and a list only covers
+    // what someone remembered to put in it.
+    const t = &s.project.tracks.items[0];
+    t.gain_db = -4.5;
+    t.pan = 0.375;
+    t.muted = true;
+    t.soloed = true;
+    t.color = 3;
+    t.sends[0] = .{ .target = .master, .level = 0.25, .pre_fader = true };
+    s.assignTrackGroup(0, g);
+
+    const src = s.project.tracks.items[0];
+    const dup = try s.duplicateTrack(0);
+    const copy = s.project.tracks.items[dup];
+
+    inline for (@typeInfo(project_mod.Track).@"struct".fields) |f| {
+        // The copy is deliberately renamed "<name> copy".
+        if (comptime !std.mem.eql(u8, f.name, "name")) {
+            try std.testing.expectEqual(@field(src, f.name), @field(copy, f.name));
+        }
+    }
+}
