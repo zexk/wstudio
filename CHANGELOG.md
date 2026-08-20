@@ -207,6 +207,9 @@ history lives in [FORMAT.md](FORMAT.md).
 - `:comp` could overflow while sizing output from a hand-edited clip length or
   converting a huge finite beat range. It now bounds both conversions to the
   shared decoded-audio ceiling and reports how to recover.
+- `:consolidate` could overcommit an enormous output for a maximum-length saved
+  clip, then keep the UI busy rendering it. Consolidated audio now follows the
+  same decoded-audio ceiling and asks the user to shorten the clip.
 - A sandboxed VST3 returning more than 1 MiB of component and controller state
   overflowed the child RPC buffer and killed its host process during save. The
   shared wire encoder now rejects oversized state before copying it, and the

@@ -45,6 +45,13 @@ fn beatFrameBound(beat: f64, frames_per_beat: f64, limit: usize) usize {
     return @intFromFloat(@max(frames, 0));
 }
 
+fn audioFrameCount(frames: f64, channels: u16) ?usize {
+    if (!std.math.isFinite(frames) or channels == 0) return null;
+    const max_frames = ws.dsp.audio_file.max_decoded_samples / @as(usize, channels);
+    if (frames > @as(f64, @floatFromInt(max_frames))) return null;
+    return @intFromFloat(@max(frames, 1));
+}
+
 /// Explicit :save argument (with `~` expanded), else the file the session
 /// was loaded from / last saved to (already resolved - see `setProjectPath`),
 /// else "project.wsj". Always copies into `buf` rather than returning
@@ -847,8 +854,11 @@ pub fn cmdConsolidate(app: *App, _: []const u8) void {
         return;
     };
     const frames_per_beat = app.session.engine.transport.framesPerBeat();
-    const frame_count: usize = @intFromFloat(@max(1.0, ws.time_grid.tickToBeat(clip.length_ticks) * frames_per_beat));
     const channels = source.channel_count;
+    const frame_count = audioFrameCount(ws.time_grid.tickToBeat(clip.length_ticks) * frames_per_beat, channels) orelse {
+        app.setStatus("consolidate: output is too large; shorten the clip", .{});
+        return;
+    };
     const rendered = app.allocator.alloc(f32, frame_count * channels) catch {
         app.setStatus("consolidate: out of memory", .{});
         return;
@@ -1101,9 +1111,11 @@ fn parseMixTarget(app: *App, text: []const u8) ?ws.dsp.automation.MixTarget {
     return null;
 }
 
-test "comp frame bounds reject oversized clips and beats" {
+test "audio edit frame bounds reject oversized clips and beats" {
     try std.testing.expectEqual(@as(?usize, 96_000), compFrameCount(48_000, 24_000, 48_000, 2));
     try std.testing.expectEqual(null, compFrameCount(std.math.maxInt(u64), 1, 192_000, 2));
     try std.testing.expectEqual(@as(usize, 48_000), beatFrameBound(1.0, 48_000, 96_000));
     try std.testing.expectEqual(@as(usize, 96_000), beatFrameBound(1e308, 48_000, 96_000));
+    try std.testing.expectEqual(@as(?usize, 48_000), audioFrameCount(48_000, 2));
+    try std.testing.expectEqual(null, audioFrameCount(1e308, 2));
 }

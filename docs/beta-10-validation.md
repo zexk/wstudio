@@ -101,6 +101,10 @@ Audio take comping now checks resampled output against the shared 256 MiB PCM
 ceiling and saturates beat-to-frame ranges before integer conversion. Focused
 boundary coverage includes a maximum clip length and an overflowing finite beat.
 
+Audio consolidation now applies that same PCM ceiling before allocation and
+rendering. Shared audio-edit frame coverage rejects an extreme clip duration,
+preventing allocator overcommit from turning into an unbounded UI-thread loop.
+
 Acoustic instrument creation no longer hides a missing-library error behind a
 later success status. Focused command coverage forces the load failure and
 locks the visible reinstall recovery action.
