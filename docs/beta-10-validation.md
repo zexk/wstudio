@@ -85,6 +85,10 @@ Interactive source loading now accepts files through 256 MiB, matching the
 existing bundled-SFZ sample ceiling instead of rejecting every source above
 64 MiB. A sparse-file frontend check proves the old boundary loads and the new
 boundary fails with its exact size plus a smaller-source recovery action.
+The shared libsndfile decoder separately caps expanded PCM at 256 MiB before
+allocation. Focused boundary coverage rejects one sample past that ceiling;
+downmix now happens inside the decode buffer, avoiding a second clip-sized
+allocation.
 
 `:import-midi` now captures retained channel events and the project tempo map
 with its melodic undo state. Focused frontend coverage imports distinct values,

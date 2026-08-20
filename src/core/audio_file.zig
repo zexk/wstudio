@@ -33,6 +33,18 @@ pub const ReadResult = struct {
     channel_count: u16 = 1,
 };
 
+const max_decoded_samples = 256 * 1024 * 1024 / @sizeOf(f32);
+
+fn decodedSampleCount(frames_raw: c.sf_count_t, channels_raw: c_int) ParseError!usize {
+    if (channels_raw <= 0 or channels_raw > std.math.maxInt(u16)) return error.BadFmt;
+    if (frames_raw <= 0) return error.NoData;
+    const frames = std.math.cast(usize, frames_raw) orelse return error.OutputTooLarge;
+    const channels: usize = @intCast(channels_raw);
+    const count = std.math.mul(usize, frames, channels) catch return error.OutputTooLarge;
+    if (count > max_decoded_samples) return error.OutputTooLarge;
+    return count;
+}
+
 /// Decode `data`, mixing every channel down to mono.
 pub fn parseAlloc(
     allocator: std.mem.Allocator,
@@ -60,15 +72,14 @@ fn parseAllocMode(
     const snd = c.sf_open_virtual(&vio, c.SFM_READ, &info, &cursor) orelse return error.NotAudioFile;
     defer _ = c.sf_close(snd);
 
-    if (info.channels <= 0 or info.samplerate <= 0) return error.BadFmt;
-    if (info.frames <= 0) return error.NoData;
+    if (info.samplerate <= 0) return error.BadFmt;
+    const sample_count = try decodedSampleCount(info.frames, info.channels);
     const channels: usize = @intCast(info.channels);
-    if (info.frames > @divTrunc(std.math.maxInt(usize), channels)) return error.OutputTooLarge;
     const frames: usize = @intCast(info.frames);
 
     // Interleaved either way: the downmix pass needs every channel, and when
     // it is off this buffer is already the result.
-    const interleaved = try allocator.alloc(f32, frames * channels);
+    const interleaved = try allocator.alloc(f32, sample_count);
     errdefer allocator.free(interleaved);
     const read: usize = @intCast(c.sf_readf_float(snd, interleaved.ptr, info.frames));
     if (read == 0) return error.NoData;
@@ -84,15 +95,16 @@ fn parseAllocMode(
         };
     }
 
-    const mono = try allocator.alloc(f32, read);
-    errdefer allocator.free(mono);
-    for (mono, 0..) |*out, frame| {
-        var sum: f32 = 0;
+    for (0..read) |frame| {
+        var sum: f64 = 0;
         for (0..channels) |channel| sum += decoded[frame * channels + channel];
-        out.* = sum / @as(f32, @floatFromInt(channels));
+        interleaved[frame] = @floatCast(sum / @as(f64, @floatFromInt(channels)));
     }
-    allocator.free(interleaved);
-    return .{ .samples = mono, .sample_rate = @intCast(info.samplerate), .channel_count = 1 };
+    return .{
+        .samples = if (read == interleaved.len) interleaved else try allocator.realloc(interleaved, read),
+        .sample_rate = @intCast(info.samplerate),
+        .channel_count = 1,
+    };
 }
 
 /// Compressed formats this module can write. WAV stays `core/wav.zig`'s job:
@@ -366,6 +378,12 @@ test "virtual IO rejects overflowing seeks and writes" {
     const byte: u8 = 0;
     try std.testing.expectEqual(@as(c.sf_count_t, 0), sinkWrite(&byte, 1, &sink));
     try std.testing.expect(sink.failed);
+}
+
+test "decoded audio allocation has a fixed PCM ceiling" {
+    try std.testing.expectEqual(max_decoded_samples, try decodedSampleCount(max_decoded_samples, 1));
+    try std.testing.expectError(error.OutputTooLarge, decodedSampleCount(max_decoded_samples + 1, 1));
+    try std.testing.expectError(error.BadFmt, decodedSampleCount(1, std.math.maxInt(u16) + 1));
 }
 
 test "decode VCSL FLAC fixture" {

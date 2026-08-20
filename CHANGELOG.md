@@ -199,6 +199,10 @@ history lives in [FORMAT.md](FORMAT.md).
   source above 64 MiB, including ordinary multi-minute audio. The bounded
   source ceiling now matches the existing 256 MiB SFZ sample limit, and an
   oversized source reports the limit and recovery instead of `StreamTooLong`.
+- Audio decoding trusted a source's declared frame and channel counts before
+  allocating PCM, so a small malformed or highly compressed file could request
+  gigabytes. Decoded PCM now has a 256 MiB ceiling, and mono downmix reuses the
+  decode buffer instead of briefly holding a second full clip.
 - Undo after `:import-midi` restored notes but left imported channel events and
   project tempo changes behind. MIDI import now records and restores all three
   as one undo/redo operation, and caps imported tempo events at the project's
