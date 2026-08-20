@@ -13,6 +13,8 @@ const pattern_mod = ws.dsp.pattern;
 const history = @import("../history.zig");
 const undo_mod = @import("../undo.zig");
 
+pub const max_load_source_bytes = 256 * 1024 * 1024;
+
 /// The track a pattern-transform command (`:clear`, `:humanize`, `:reverse`,
 /// `:vel-ramp`, `:quantize`, `:legato`, `:transpose`, `:strum`,
 /// `:import-midi`, `:export-midi`) should act on: the piano roll's pattern
@@ -128,8 +130,12 @@ pub fn readFileForLoad(app: *App, cmd: []const u8, path: []const u8) ?[]u8 {
         app.io,
         path,
         app.allocator,
-        .limited(64 * 1024 * 1024),
+        .limited(max_load_source_bytes),
     ) catch |e| {
+        if (e == error.StreamTooLong) {
+            app.setStatus("{s}: '{s}' exceeds {d} MiB limit; use a smaller source", .{ cmd, path, max_load_source_bytes / (1024 * 1024) });
+            return null;
+        }
         app.setStatus("{s}: cannot read '{s}': {s}", .{ cmd, path, @errorName(e) });
         return null;
     };

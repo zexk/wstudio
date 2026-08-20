@@ -81,6 +81,11 @@ Acoustic instrument creation no longer hides a missing-library error behind a
 later success status. Focused command coverage forces the load failure and
 locks the visible reinstall recovery action.
 
+Interactive source loading now accepts files through 256 MiB, matching the
+existing bundled-SFZ sample ceiling instead of rejecting every source above
+64 MiB. A sparse-file frontend check proves the old boundary loads and the new
+boundary fails with its exact size plus a smaller-source recovery action.
+
 `:import-midi` now captures retained channel events and the project tempo map
 with its melodic undo state. Focused frontend coverage imports distinct values,
 then proves one undo and redo restore notes, events, base tempo, and tempo

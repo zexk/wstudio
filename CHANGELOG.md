@@ -195,6 +195,10 @@ history lives in [FORMAT.md](FORMAT.md).
 - A missing bundled acoustic library briefly reported its load error, then
   replaced it with a false instrument-inserted message. The error now remains
   visible and tells the user to reinstall wstudio.
+- Interactive sample, clip, wavetable, and SoundFont loading rejected every
+  source above 64 MiB, including ordinary multi-minute audio. The bounded
+  source ceiling now matches the existing 256 MiB SFZ sample limit, and an
+  oversized source reports the limit and recovery instead of `StreamTooLong`.
 - Undo after `:import-midi` restored notes but left imported channel events and
   project tempo changes behind. MIDI import now records and restores all three
   as one undo/redo operation, and caps imported tempo events at the project's

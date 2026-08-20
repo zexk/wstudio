@@ -17,6 +17,7 @@ const note_ms = app_mod.note_ms;
 const commands = @import("../ui/commands.zig");
 const commands_load = @import("../ui/commands/load.zig");
 const commands_mixer = @import("../ui/commands/mixer.zig");
+const commands_util = @import("../ui/commands/util.zig");
 const cmd_mod = @import("../ui/cmd.zig");
 const drum_ed = @import("../ui/editors/drum.zig");
 const step_grid = @import("../ui/editors/step_grid.zig");
@@ -452,6 +453,28 @@ test "drum and slicer swing nudges are undoable" {
     try std.testing.expectApproxEqAbs(@as(f32, 50), app.slicerInst().swing.load(.monotonic), 1e-6);
     history.doRedo(&app);
     try std.testing.expectApproxEqAbs(@as(f32, 51), app.slicerInst().swing.load(.monotonic), 1e-6);
+}
+
+test "load source accepts files above the old 64 MiB ceiling" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try redirectHome(&tmp);
+    var app = try App.init(std.testing.allocator, std.testing.io);
+    defer app.deinit();
+
+    var path_buf: [96]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/large.wav", .{&tmp.sub_path});
+    const file = try std.Io.Dir.cwd().createFile(std.testing.io, path, .{});
+    defer file.close(std.testing.io);
+    try file.setLength(std.testing.io, 64 * 1024 * 1024 + 1);
+
+    const data = commands_util.readFileForLoad(&app, "load", path) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(usize, 64 * 1024 * 1024 + 1), data.len);
+    std.testing.allocator.free(data);
+
+    try file.setLength(std.testing.io, commands_util.max_load_source_bytes + 1);
+    try std.testing.expectEqual(@as(?[]u8, null), commands_util.readFileForLoad(&app, "load", path));
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "256 MiB limit; use a smaller source") != null);
 }
 
 test ":export-midi then :import-midi round-trips the cursor track's pattern" {
