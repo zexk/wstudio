@@ -33,7 +33,18 @@ edited: mute, solo, and track colour. Those are saved in the project and mark
 it dirty, but `u` does not put them back. `src/tui/app_tests.zig`'s "undo
 restores the project byte for byte" pins both halves of this - it saves either
 side of a `u` and compares the files, and lists the exclusions explicitly, so
-moving one in or out of scope has to be a deliberate edit to that table.
+moving one in or out of scope has to be a deliberate edit to that table. Its
+companion, "every no-arg command that edits the project is undoable", walks
+the whole command table the same way, so a new command cannot quietly join
+the exclusions.
+
+Group buses are out of scope for the same reason. `:group-add` and
+`:group-del` change the project and mark it dirty, but `u` does not put a
+group back: a group is addressed by index from every track assigned to it, so
+a stored snapshot would need the same remap-or-drop pass as below. Deleting a
+group already drops its members back to the master mix rather than leaving
+them pointing at a free slot, so the state is never inconsistent, only
+manual to reverse.
 
 The mix-automation lanes `:automation-point` writes (master gain, group gain,
 send level) are out of scope too, unlike the clip automation that rides inside

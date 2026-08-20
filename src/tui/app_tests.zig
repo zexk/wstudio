@@ -11429,3 +11429,94 @@ test "the file browser clamps long paths and names to the terminal" {
         try std.testing.expect(columns <= 60);
     }
 }
+
+// The companion to "undo restores the project byte for byte", which pins the
+// tracks-view keys: this walks every command that takes no argument, runs it
+// on a fresh app, and fails if one changes the project without `u` putting it
+// back. `not_undoable` is the exclusion list docs/undo-redo.md describes, and
+// it is checked in both directions, so moving a command in or out of scope
+// has to be a deliberate edit here.
+test "every no-arg command that edits the project is undoable" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try redirectHome(&tmp);
+
+    var before_buf: [128]u8 = undefined;
+    var mid_buf: [128]u8 = undefined;
+    var after_buf: [128]u8 = undefined;
+    const before_path = try std.fmt.bufPrint(&before_buf, ".zig-cache/tmp/{s}/b.wsj", .{&tmp.sub_path});
+    const mid_path = try std.fmt.bufPrint(&mid_buf, ".zig-cache/tmp/{s}/m.wsj", .{&tmp.sub_path});
+    const after_path = try std.fmt.bufPrint(&after_buf, ".zig-cache/tmp/{s}/a.wsj", .{&tmp.sub_path});
+
+    // Groups are the one structural edit history does not cover: a group is
+    // addressed by index from every track assigned to it, so a snapshot would
+    // need the same remap-or-drop pass the mix-automation lanes are excluded
+    // for. See docs/undo-redo.md.
+    const not_undoable = [_][]const u8{"group-add"};
+
+    var names_buf: [512][]const u8 = undefined;
+    var names_len: usize = 0;
+    {
+        var probe = try App.init(std.testing.allocator, std.testing.io);
+        defer probe.deinit();
+        for (probe.all_cmds_buf[0..probe.all_cmds_len]) |c| {
+            if (names_len == names_buf.len) break;
+            names_buf[names_len] = c.name;
+            names_len += 1;
+        }
+    }
+
+    for (names_buf[0..names_len]) |name| {
+        // Anything that leaves the app or touches the filesystem is not an
+        // edit; the rest get one run each on a fresh app. `x` and `wq` are
+        // here because they SAVE - left in, they drop a project.wsj in the
+        // working tree on the way out.
+        const not_an_edit = [_][]const u8{ "q", "quit", "quit!", "q!", "write", "w", "write-quit", "wq", "wq!", "x", "e", "e!", "edit", "edit!", "new", "new!", "recent", "restore-backup", "reload-config", "plugin-scan" };
+        const skip = for (not_an_edit) |x| {
+            if (std.mem.eql(u8, x, name)) break true;
+        } else std.mem.indexOf(u8, name, "export") != null or std.mem.indexOf(u8, name, "import") != null or
+            std.mem.indexOf(u8, name, "bounce") != null or std.mem.indexOf(u8, name, "save") != null or
+            std.mem.indexOf(u8, name, "load") != null;
+        if (skip) continue;
+
+        var app = try App.init(std.testing.allocator, std.testing.io);
+        defer app.deinit();
+        // Give the cursor track something to edit.
+        for (":track-instrument synth") |c| app.handleKey(.{ .char = c }, 0);
+        app.handleKey(.enter, 0);
+        const pp = &app.session.racks.items[0].pattern_player.?;
+        pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+        pp.addNote(.{ .pitch = 64, .start_beat = 1.0, .duration_beat = 0.5 });
+        pp.addNote(.{ .pitch = 67, .start_beat = 2.0, .duration_beat = 0.5 });
+        app.history.clear(app.allocator);
+
+        try ws.persist.save(std.testing.allocator, &app.session, std.testing.io, before_path);
+        app.handleKey(.{ .char = 0x3a }, 0); // command mode
+        for (name) |c| app.handleKey(.{ .char = c }, 0);
+        app.handleKey(.enter, 0);
+        try ws.persist.save(std.testing.allocator, &app.session, std.testing.io, mid_path);
+        app.handleKey(.{ .char = 'u' }, 1);
+        try ws.persist.save(std.testing.allocator, &app.session, std.testing.io, after_path);
+
+        const before = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, before_path, std.testing.allocator, .limited(4 << 20));
+        defer std.testing.allocator.free(before);
+        const mid = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, mid_path, std.testing.allocator, .limited(4 << 20));
+        defer std.testing.allocator.free(mid);
+        const after = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, after_path, std.testing.allocator, .limited(4 << 20));
+        defer std.testing.allocator.free(after);
+
+        const changed = !std.mem.eql(u8, before, mid);
+        const restored = std.mem.eql(u8, before, after);
+        const excluded = for (not_undoable) |x| {
+            if (std.mem.eql(u8, x, name)) break true;
+        } else false;
+        if (changed and !restored and !excluded) {
+            std.debug.print(":{s} changed the project and u did not put it back\n", .{name});
+            return error.CommandNotUndoable;
+        }
+        if (changed and restored and excluded) {
+            std.debug.print(":{s} is undoable now - take it out of not_undoable\n", .{name});
+            return error.ExclusionIsUndoable;
+        }
+    }
+}
