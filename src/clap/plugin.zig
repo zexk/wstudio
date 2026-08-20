@@ -16,6 +16,16 @@ const max_parameters = 256;
 const max_timers = 16;
 const max_thread_pool_workers = 4;
 
+const GuiSize = struct { width: i32, height: i32 };
+
+fn guiSize(width: u32, height: u32) ?GuiSize {
+    if (width == 0 or height == 0) return null;
+    return .{
+        .width = std.math.cast(i32, width) orelse return null,
+        .height = std.math.cast(i32, height) orelse return null,
+    };
+}
+
 threadlocal var on_audio_thread = false;
 threadlocal var on_thread_pool = false;
 
@@ -333,7 +343,7 @@ const HostContext = struct {
     fn guiResizeHintsChanged(_: *const abi.Host) callconv(.c) void {}
 
     fn guiRequestResize(host: *const abi.Host, width: u32, height: u32) callconv(.c) bool {
-        if (width == 0 or height == 0) return false;
+        _ = guiSize(width, height) orelse return false;
         fromHost(host).gui_resize_requested.store(@as(u64, width) << 32 | height, .release);
         return true;
     }
@@ -1328,7 +1338,8 @@ const Direct = struct {
         var width: u32 = 640;
         var height: u32 = 480;
         _ = gui.get_size(self.plugin, &width, &height);
-        var window = try editor_window.Window.open(@intCast(@max(width, 1)), @intCast(@max(height, 1)), self.plugin.desc.name, gui.can_resize(self.plugin));
+        const initial_size = guiSize(width, height) orelse return error.GuiSizeFailed;
+        var window = try editor_window.Window.open(initial_size.width, initial_size.height, self.plugin.desc.name, gui.can_resize(self.plugin));
         errdefer window.close();
         const parent: abi.Window = .{
             .api = api,
@@ -1348,12 +1359,8 @@ const Direct = struct {
         // frame sized for the guess.
         var parented_width: u32 = width;
         var parented_height: u32 = height;
-        if (gui.get_size(self.plugin, &parented_width, &parented_height) and
-            parented_width > 0 and parented_height > 0 and
-            (parented_width != width or parented_height != height))
-        {
-            window.resize(@intCast(parented_width), @intCast(parented_height));
-        }
+        if (gui.get_size(self.plugin, &parented_width, &parented_height)) if (guiSize(parented_width, parented_height)) |parented_size|
+            if (parented_width != width or parented_height != height) window.resize(parented_size.width, parented_size.height);
         self.gui_window = window;
     }
 
@@ -1388,15 +1395,15 @@ const Direct = struct {
                 var width: u32 = @intCast(size.width);
                 var height: u32 = @intCast(size.height);
                 _ = gui.adjust_size(self.plugin, &width, &height);
-                if (gui.set_size(self.plugin, width, height) and (width != size.width or height != size.height))
-                    window.resize(@intCast(width), @intCast(height));
+                if (guiSize(width, height)) |adjusted| if (gui.set_size(self.plugin, width, height) and (width != size.width or height != size.height))
+                    window.resize(adjusted.width, adjusted.height);
             };
         };
         const resize = self.host_context.gui_resize_requested.swap(0, .acquire);
         if (resize != 0 and self.gui_window != null) {
             const width: u32 = @intCast(resize >> 32);
             const height: u32 = @truncate(resize);
-            if (self.gui_window) |*window| window.resize(@intCast(width), @intCast(height));
+            if (guiSize(width, height)) |requested| if (self.gui_window) |*window| window.resize(requested.width, requested.height);
         }
         if (self.restart_ready.swap(false, .acquire)) {
             self.plugin.deactivate(self.plugin);
@@ -1573,6 +1580,18 @@ test "CLAP host timer registration validates and reuses slots" {
     try std.testing.expect(HostContext.unregisterTimer(&host.host, timer_id));
     try std.testing.expect(HostContext.registerTimer(&host.host, 10, &timer_id));
     try std.testing.expectEqual(@as(u32, 0), timer_id);
+}
+
+test "CLAP GUI dimensions fit native windows" {
+    try std.testing.expectEqual(GuiSize{ .width = std.math.maxInt(i32), .height = 1 }, guiSize(std.math.maxInt(i32), 1).?);
+    try std.testing.expectEqual(null, guiSize(0, 480));
+    try std.testing.expectEqual(null, guiSize(@as(u32, std.math.maxInt(i32)) + 1, 480));
+
+    var host = HostContext.init();
+    host.bind();
+    try std.testing.expect(!HostContext.guiRequestResize(&host.host, std.math.maxInt(u32), 480));
+    try std.testing.expect(HostContext.guiRequestResize(&host.host, 800, 600));
+    try std.testing.expectEqual(@as(u64, 800) << 32 | 600, host.gui_resize_requested.load(.acquire));
 }
 
 test "CLAP transport carries musical position loop and play state" {

@@ -201,6 +201,9 @@ history lives in [FORMAT.md](FORMAT.md).
 - A VST3 could crash its GUI host by returning editor rectangle coordinates
   whose width or height overflowed `i32`. Editor open and resize paths now
   reject invalid dimensions before arithmetic or native-window calls.
+- A CLAP could crash its GUI host by returning or requesting a window dimension
+  above native `i32` range. Embedded editor creation, adjusted sizes, and
+  plugin resize requests now reject unrepresentable dimensions.
 - A sandboxed VST3 returning more than 1 MiB of component and controller state
   overflowed the child RPC buffer and killed its host process during save. The
   shared wire encoder now rejects oversized state before copying it, and the
