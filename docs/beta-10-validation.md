@@ -54,6 +54,13 @@ Linux or Intel host libraries and could not link. `nix flake show --all-systems`
 confirms the narrowed package boundary; native macOS build and runtime remain
 unverified here, consistent with the explicit host skip above.
 
+## ReleaseSafe CLI render
+
+2026-08-20 native `zig build -Doptimize=ReleaseSafe` passed. Its binary reports
+`1.0.0-beta.10`, rendered the 34-second `demo.wsj` master, and rendered all four
+stems. Every output is non-silent 16-bit stereo PCM at 48 kHz with 1,632,000
+frames; the master peaks at -2.05 dB.
+
 ## Playback and persistence soak
 
 2026-08-20 `zig build soak` passed against `demo.wsj`. Debug DSP processed
