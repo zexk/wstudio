@@ -82,6 +82,7 @@ cmd_start() {
   [ -n "${DISPLAY:-}" ] && clean_env+=("DISPLAY=$DISPLAY")
   [ -n "${XAUTHORITY:-}" ] && clean_env+=("XAUTHORITY=$XAUTHORITY")
   printf -v command '%q ' env -i "${clean_env[@]}" "$BIN" "${app_args[@]}"
+  printf -v command 'cd %q && %s' "$CLEAN_HOME" "$command"
   command+=" 2>/tmp/wstudio-tui-shot.app.log"
   : >/tmp/wstudio-tui-shot.app.log
 
