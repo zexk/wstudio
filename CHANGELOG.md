@@ -178,6 +178,12 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Fixed
 
+- Every save re-encoded every track's full recorded audio to FLAC, even when
+  nothing about that audio had changed. Autosave runs this every 30 seconds by
+  default, on the UI thread, so a project with several minutes of recorded
+  audio per track could stall input and redraw for over a second on every tick
+  after a single unrelated edit. Each audio source now caches its encoded
+  bytes and reuses them until that source's content actually changes.
 - Project-load failures printed Zig error traces from `render`, `render-stems`,
   and frontend startup, while `:edit` only named an internal error. They now
   name the project and give recovery steps for incompatible, corrupt, missing,

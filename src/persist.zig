@@ -2121,6 +2121,45 @@ test "save/load round-trip persists audio sources and regions" {
     try testing.expectEqual(@as(u64, 2), region.alternate_takes[0].?.source_length_frames);
 }
 
+test "saving an audio source twice encodes it once and reuses the cache" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    var samples: [4800]f32 = undefined;
+    for (&samples, 0..) |*s, i| s.* = 0.4 * @sin(@as(f32, @floatFromInt(i)) * 0.1);
+    const source_id = try session.project.addAudioSource("recorded", 48_000, 1, &samples);
+    try session.arrangement.lane(0).?.place(testing.allocator, ws_arrangement.Clip.initAudio(0, 32, .{
+        .source_id = source_id,
+        .source_start_frame = 0,
+        .source_length_frames = samples.len,
+    }));
+
+    try testing.expectEqual(@as(?[]const u8, null), session.project.audio_sources.items[0].cached_flac);
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    const first_encode = session.project.audio_sources.items[0].cached_flac orelse return error.TestUnexpectedResult;
+
+    // A second save with nothing changed must reuse the same bytes, not
+    // encode fresh ones - proven by pointer identity, not just equal
+    // content, since a fresh encode of identical audio would also compare
+    // equal by value.
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    const second_encode = session.project.audio_sources.items[0].cached_flac orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(first_encode.ptr, second_encode.ptr);
+    try testing.expectEqual(first_encode.len, second_encode.len);
+
+    // What actually landed in the file still decodes to the source audio -
+    // the cache isn't just present, it's what got written both times.
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    try testing.expectEqual(samples.len, loaded.project.audio_sources.items[0].samples.len);
+    for (samples, loaded.project.audio_sources.items[0].samples) |a, b| try testing.expectApproxEqAbs(a, b, wav_eps);
+}
+
 test "saving drops audio sources no clip plays any more" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});

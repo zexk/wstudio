@@ -76,7 +76,17 @@ pub const AudioSource = struct {
     path: []const u8,
     sample_rate: u32,
     channel_count: u16,
+    /// Write-once: nothing in this codebase replaces an existing source's
+    /// samples in place, and `id`s are never reused (see
+    /// `next_audio_source_id`) - a destructive edit always creates a fresh
+    /// source instead. That's what makes `cached_flac` below safe with no
+    /// invalidation logic.
     samples: []f32,
+    /// Save's own encode cache - `persist.save.CacheWriter.addCachedAudio`
+    /// fills this in on first use and reuses it on every later save, owned
+    /// by `Project.allocator` rather than that save's arena. `null` until
+    /// then, or forever on a build whose libsndfile can't write FLAC.
+    cached_flac: ?[]const u8 = null,
 };
 
 pub const Project = struct {
@@ -142,6 +152,7 @@ pub const Project = struct {
         for (self.audio_sources.items) |source| {
             self.allocator.free(source.path);
             self.allocator.free(source.samples);
+            if (source.cached_flac) |flac| self.allocator.free(flac);
         }
         self.audio_sources.deinit(self.allocator);
     }

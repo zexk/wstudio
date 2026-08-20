@@ -106,7 +106,7 @@ const Snapshot = persist_types.Snapshot;
 /// Safe to call while the audio thread is running.
 pub fn save(
     allocator: std.mem.Allocator,
-    session: *const Session,
+    session: *Session,
     io: std.Io,
     path: []const u8,
 ) !void {
@@ -197,7 +197,7 @@ pub fn save(
     // every superseded recording forever - and a take is minutes of audio.
     // The in-memory list is untouched, so undo still reaches them this
     // session; reopening drops the undo history along with them.
-    var kept: std.ArrayList(*const project_mod.AudioSource) = .empty;
+    var kept: std.ArrayList(*project_mod.AudioSource) = .empty;
     for (session.project.audio_sources.items) |*source| {
         if (audioSourceInUse(session, source.id)) try kept.append(aa, source);
     }
@@ -631,6 +631,45 @@ const CacheWriter = struct {
             defer aa.free(flac);
             return self.addBytes(aa, name, flac);
         }
+        return self.addRawPcm(aa, name, sample_rate, channel_count, samples);
+    }
+
+    /// Like `addAudio`, but for an `AudioSource`: FLAC-encodes at most once
+    /// per source rather than on every save. `AudioSource.samples` is
+    /// write-once (see its own doc comment) and `id`s are never reused, so
+    /// a source that has ever been encoded stays valid forever - no dirty
+    /// tracking needed. The bytes are allocated with `source_allocator`
+    /// (the project's own, not this save's arena) so they outlive this
+    /// call for the next save to reuse. Encoding several minutes of audio
+    /// is the dominant cost of a save on a recording-heavy project, and
+    /// autosave runs this every 30s by default whenever anything is dirty
+    /// - without this, editing one note restarts every unrelated track's
+    /// encode on the next tick.
+    fn addCachedAudio(
+        self: *CacheWriter,
+        aa: std.mem.Allocator,
+        name: []const u8,
+        source: *project_mod.AudioSource,
+        source_allocator: std.mem.Allocator,
+    ) ![]const u8 {
+        if (source.cached_flac == null) {
+            source.cached_flac = try wav.encodeFlacAlloc(source_allocator, source.samples, source.sample_rate, source.channel_count);
+        }
+        if (source.cached_flac) |flac| return self.addBytes(aa, name, flac);
+        return self.addRawPcm(aa, name, source.sample_rate, source.channel_count, source.samples);
+    }
+
+    /// Shared fallback for a build whose libsndfile can't write FLAC: a
+    /// plain 16-bit WAV write, cheap enough (no entropy coding) that it
+    /// isn't worth caching the way `addCachedAudio` caches FLAC.
+    fn addRawPcm(
+        self: *CacheWriter,
+        aa: std.mem.Allocator,
+        name: []const u8,
+        sample_rate: u32,
+        channel_count: u16,
+        samples: []const f32,
+    ) ![]const u8 {
         const start = self.fw.logicalPos();
         try wav.write(&self.fw.interface, sample_rate, channel_count, samples, .pcm16);
         try self.entries.append(aa, .{ .name = name, .offset = start, .len = self.fw.logicalPos() - start });
@@ -676,10 +715,10 @@ fn audioSourceInUse(session: *const Session, id: u32) bool {
 /// (they are replaced only by other control-thread calls).
 pub fn exportSamples(
     aa: std.mem.Allocator,
-    session: *const Session,
+    session: *Session,
     fw: *std.Io.File.Writer,
     racks: []RackSnap,
-    sources: []const *const project_mod.AudioSource,
+    sources: []const *project_mod.AudioSource,
     audio_sources: []AudioSourceSnap,
 ) ![]const AudioCacheSnap {
     var cache: CacheWriter = .{ .fw = fw };
@@ -729,7 +768,7 @@ pub fn exportSamples(
     }
     for (sources, audio_sources) |source, *snap| {
         const key = try std.fmt.allocPrint(aa, "source-{d}.flac", .{source.id});
-        snap.file = try cache.addAudio(aa, key, source.sample_rate, source.channel_count, source.samples);
+        snap.file = try cache.addCachedAudio(aa, key, source, session.project.allocator);
     }
     return cache.entries.items;
 }
