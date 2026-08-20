@@ -251,6 +251,11 @@ the `.wsj` container magic. This closes project destruction through CLI or
 frontend bounce without restricting output extensions. Focused coverage proves
 the project bytes remain unchanged.
 
+`:export-midi` now uses the same project-destination guard and writes through a
+sibling temporary file before atomic replacement. Frontend coverage proves a
+project target is refused and remains byte-identical, and a forced temporary
+write failure preserves an existing MIDI destination.
+
 2026-08-01 automated checks cover every internal effect default (25 kinds as of
 beta.10, up from the 20 this section first counted) with normal
 audio: output stays audible, finite, and bounded. Shared chain coverage proves

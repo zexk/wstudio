@@ -97,6 +97,22 @@ const LaneSnap = persist_types.LaneSnap;
 const SectionSnap = persist_types.SectionSnap;
 const Snapshot = persist_types.Snapshot;
 
+pub fn isProjectFile(io: std.Io, path: []const u8) !bool {
+    const file = std.Io.Dir.cwd().openFile(io, path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => |e| return e,
+    };
+    defer file.close(io);
+    var reader_buf: [64]u8 = undefined;
+    var reader = file.reader(io, &reader_buf);
+    var magic: [persist_types.bundle_magic.len]u8 = undefined;
+    reader.interface.readSliceAll(&magic) catch |err| switch (err) {
+        error.EndOfStream => return false,
+        else => |e| return e,
+    };
+    return std.mem.eql(u8, &magic, &persist_types.bundle_magic);
+}
+
 /// Inverse of `persist_save.snapFromDevice`: write a Snap's fields onto a
 /// live device by name, leaving the device's other (runtime-state) fields
 /// untouched.

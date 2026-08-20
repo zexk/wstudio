@@ -643,20 +643,29 @@ pub fn cmdExportMidi(app: *App, args: []const u8) void {
 
     var path_buf: [path_buf_len]u8 = undefined;
     const path = expandHome(&path_buf, trimmed);
-    const file = std.Io.Dir.cwd().createFile(app.io, path, .{}) catch |e| {
+    writeMidiFile(app, path, bytes) catch |e| {
+        if (e == error.RefusingToOverwriteProject) {
+            app.setStatus("export-midi: refusing to overwrite project file: {s}", .{path});
+            return;
+        }
         app.setStatus("export-midi: cannot write '{s}': {s}", .{ path, @errorName(e) });
         return;
     };
-    defer file.close(app.io);
-    var write_buf: [8192]u8 = undefined;
-    var fw = file.writer(app.io, &write_buf);
-    if (fw.interface.writeAll(bytes)) |_| {} else |e| {
-        app.setStatus("export-midi: write failed: {s}", .{@errorName(e)});
-        return;
-    }
-    fw.interface.flush() catch |e| {
-        app.setStatus("export-midi: write failed: {s}", .{@errorName(e)});
-        return;
-    };
     app.setStatus("exported {d} notes: {s}", .{ count, path });
+}
+
+fn writeMidiFile(app: *App, path: []const u8, bytes: []const u8) !void {
+    if (try ws.persist.isProjectFile(app.io, path)) return error.RefusingToOverwriteProject;
+    const tmp_path = try std.fmt.allocPrint(app.allocator, "{s}.tmp", .{path});
+    defer app.allocator.free(tmp_path);
+    errdefer std.Io.Dir.cwd().deleteFile(app.io, tmp_path) catch {};
+    {
+        const file = try std.Io.Dir.cwd().createFile(app.io, tmp_path, .{});
+        defer file.close(app.io);
+        var write_buf: [8192]u8 = undefined;
+        var writer = file.writer(app.io, &write_buf);
+        try writer.interface.writeAll(bytes);
+        try writer.interface.flush();
+    }
+    try std.Io.Dir.cwd().rename(tmp_path, std.Io.Dir.cwd(), path, app.io);
 }

@@ -488,6 +488,45 @@ test ":export-midi then :import-midi round-trips the cursor track's pattern" {
     try std.testing.expectApproxEqAbs(@as(f64, 1.5), pp.notes[1].start_beat, 0.01);
 }
 
+test ":export-midi protects project and failed-write destinations" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try redirectHome(&tmp);
+    var app = try App.init(std.testing.allocator, std.testing.io);
+    defer app.deinit();
+    try app.session.setInstrument(0, .poly_synth);
+
+    var path_buf: [96]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/song.wsj", .{&tmp.sub_path});
+    try std.Io.Dir.cwd().writeFile(std.testing.io, .{ .sub_path = path, .data = &ws.persist.bundle_magic });
+    var cmd_buf: [128]u8 = undefined;
+    const command = try std.fmt.bufPrint(&cmd_buf, ":export-midi {s}", .{path});
+    for (command) |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+
+    var expected_buf: [160]u8 = undefined;
+    const expected = try std.fmt.bufPrint(&expected_buf, "export-midi: refusing to overwrite project file: {s}", .{path});
+    try std.testing.expectEqualStrings(expected, app.status_buf[0..app.status_len]);
+    const data = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, path, std.testing.allocator, .limited(ws.persist.bundle_magic.len + 1));
+    defer std.testing.allocator.free(data);
+    try std.testing.expectEqualSlices(u8, &ws.persist.bundle_magic, data);
+
+    var midi_path_buf: [96]u8 = undefined;
+    const midi_path = try std.fmt.bufPrint(&midi_path_buf, ".zig-cache/tmp/{s}/keep.mid", .{&tmp.sub_path});
+    try std.Io.Dir.cwd().writeFile(std.testing.io, .{ .sub_path = midi_path, .data = "existing" });
+    var tmp_path_buf: [100]u8 = undefined;
+    const tmp_path = try std.fmt.bufPrint(&tmp_path_buf, "{s}.tmp", .{midi_path});
+    try std.Io.Dir.cwd().createDirPath(std.testing.io, tmp_path);
+    const failed_command = try std.fmt.bufPrint(&cmd_buf, ":export-midi {s}", .{midi_path});
+    for (failed_command) |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+
+    try std.testing.expect(std.mem.startsWith(u8, app.status_buf[0..app.status_len], "export-midi: cannot write"));
+    const existing = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, midi_path, std.testing.allocator, .limited(9));
+    defer std.testing.allocator.free(existing);
+    try std.testing.expectEqualStrings("existing", existing);
+}
+
 test "toggle_mute flips project state and reaches the engine" {
     var app = try testApp();
     defer app.deinit();

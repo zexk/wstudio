@@ -184,6 +184,9 @@ history lives in [FORMAT.md](FORMAT.md).
   and unreadable files.
 - Audio bounce could replace an existing `.wsj` project when given the project
   itself as its output path. All bounce paths now refuse project destinations.
+- `:export-midi` wrote directly into its destination, so a failed write could
+  truncate existing work and choosing a `.wsj` path destroyed that project. It
+  now uses atomic replacement and refuses project destinations.
 - A drum pad's play mode had no effect: every hit cut the one before it, so
   setting a pad to one-shot behaved exactly like retrigger and a long crash
   hit twice cut itself instead of overlapping. Slices already honoured the

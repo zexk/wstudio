@@ -72,6 +72,7 @@ const persist_load = @import("persist/load.zig");
 // persist.save(...)/persist.load(...)/persist.Snapshot-style caller, and
 // every test below, keeps compiling unchanged.
 pub const file_version = persist_types.file_version;
+pub const bundle_magic = persist_types.bundle_magic;
 pub const AutomationPointSnap = persist_types.AutomationPointSnap;
 pub const SynthSnap = persist_types.SynthSnap;
 pub const PadSnap = persist_types.PadSnap;
@@ -93,6 +94,7 @@ pub const clipToSnap = persist_save.clipToSnap;
 pub const synthToSnap = persist_save.synthToSnap;
 pub const applySnapToDevice = persist_load.applySnapToDevice;
 pub const load = persist_load.load;
+pub const isProjectFile = persist_load.isProjectFile;
 pub const buildSession = persist_load.buildSession;
 pub const clipFromSnap = persist_load.clipFromSnap;
 pub const automationFromSnap = persist_load.automationFromSnap;

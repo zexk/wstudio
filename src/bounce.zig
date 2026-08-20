@@ -7,6 +7,7 @@ const dsp = @import("dsp/device.zig");
 const time_grid = @import("time_grid.zig");
 const wav = @import("core/wav.zig");
 const audio_file = @import("core/audio_file.zig");
+const persist_load = @import("persist/load.zig");
 const project_magic = @import("persist/types.zig").bundle_magic;
 const Session = @import("session.zig").Session;
 
@@ -210,7 +211,7 @@ pub fn writeFile(
     bounce_range: Range,
     bit_depth: wav.BitDepth,
 ) !void {
-    if (try destinationIsProject(io, path)) return error.RefusingToOverwriteProject;
+    if (try persist_load.isProjectFile(io, path)) return error.RefusingToOverwriteProject;
 
     const tmp_path = try std.fmt.allocPrint(allocator, "{s}.tmp", .{path});
     defer allocator.free(tmp_path);
@@ -242,22 +243,6 @@ pub fn writeFile(
         try file_writer.interface.flush();
     }
     try std.Io.Dir.cwd().rename(tmp_path, std.Io.Dir.cwd(), path, io);
-}
-
-fn destinationIsProject(io: std.Io, path: []const u8) !bool {
-    const file = std.Io.Dir.cwd().openFile(io, path, .{}) catch |err| switch (err) {
-        error.FileNotFound => return false,
-        else => |e| return e,
-    };
-    defer file.close(io);
-    var reader_buf: [64]u8 = undefined;
-    var reader = file.reader(io, &reader_buf);
-    var magic: [project_magic.len]u8 = undefined;
-    reader.interface.readSliceAll(&magic) catch |err| switch (err) {
-        error.EndOfStream => return false,
-        else => |e| return e,
-    };
-    return std.mem.eql(u8, &magic, &project_magic);
 }
 
 fn resetDevices(session: *Session) void {
