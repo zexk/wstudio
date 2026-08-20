@@ -41,8 +41,10 @@ where that editor deviates.
   same fingers now move the notes: `h`/`l` in time, `j`/`k` in pitch,
   with `H`/`L` and `J`/`K` taking the musical step up from those (a beat,
   an octave). `[`/`]` resize, `<`/`>` change velocity, `r` reverses in
-  time and `i` inverts around the selection's pitch midpoint - `r` and
-  `i` work in plain visual mode too. `enter` or escape returns to
+  time and `i` inverts around the midpoint of the selected
+  NOTES' own pitch range, not of the selection band, so the figure stays
+  where it sits and the extremes only trade places - `r` and `i` work in
+  plain visual mode too. `enter` or escape returns to
   selection.
 
   In normal mode, `M` grabs one note for the same move gestures, including
@@ -81,7 +83,10 @@ than one.
   the names the unit is one beat. The arrangement is the one editor
   where the unit really is a musical bar - its grid cells are small
   enough that a song needs the coarser tier, and `W`/`B` go coarser
-  still (the next clip edge on the lane).
+  still (the next clip edge on the lane). That bar is the project's base
+  signature, not the meter map: a jump unit that changed length partway
+  down the timeline would make the motion unpredictable, so a meter point
+  moves the ruler's bar numbers without moving `w`/`b`.
 - `g`/`G` are a two-key pair in normal mode (the `gg` style): `gg` = start,
   `gG` = end, in every editor that has a start/end (piano roll, drum grid,
   slicer grid, automation, and the sampler/synth/soundfont param lists). The
