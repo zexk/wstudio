@@ -30,6 +30,141 @@ pub const Msg = union(enum) {
     pub const BendMsg = struct { ch: Channel, bend: i16 };
 };
 
+/// Channel Voice messages decoded from Universal MIDI Packets. Values keep
+/// their native MIDI 2.0 resolution; transport code decides whether its
+/// destination can consume that resolution or needs MIDI 1.0 scaling.
+pub const UmpMsg = union(enum) {
+    midi1: Msg,
+    note_on: NoteMsg,
+    note_off: NoteMsg,
+    poly_aftertouch: NoteDataMsg,
+    per_note_rcc: PerNoteControllerMsg,
+    per_note_acc: PerNoteControllerMsg,
+    rpn: ControllerMsg,
+    nrpn: ControllerMsg,
+    relative_rpn: ControllerMsg,
+    relative_nrpn: ControllerMsg,
+    per_note_pitch_bend: NoteDataMsg,
+    control_change: ControlChangeMsg,
+    program_change: ProgramMsg,
+    channel_pressure: ChannelDataMsg,
+    pitch_bend: ChannelDataMsg,
+    per_note_management: PerNoteManagementMsg,
+
+    pub const Address = struct { group: u4, ch: Channel };
+    pub const NoteMsg = struct { address: Address, note: u7, velocity: u16, attribute_type: u8, attribute_data: u16 };
+    pub const NoteDataMsg = struct { address: Address, note: u7, data: u32 };
+    pub const PerNoteControllerMsg = struct { address: Address, note: u7, index: u8, data: u32 };
+    pub const ControllerMsg = struct { address: Address, bank: u7, index: u7, data: u32 };
+    pub const ControlChangeMsg = struct { address: Address, index: u7, data: u32 };
+    pub const ProgramMsg = struct { address: Address, program: u7, bank: ?struct { msb: u7, lsb: u7 } };
+    pub const ChannelDataMsg = struct { address: Address, data: u32 };
+    pub const PerNoteManagementMsg = struct { address: Address, note: u7, reset_controllers: bool, detach_controllers: bool };
+};
+
+/// Parse one complete UMP from host-order 32-bit words. Unknown but valid
+/// packet types are consumed and ignored, letting callers continue at the
+/// next packet without guessing boundaries.
+pub const UmpParser = struct {
+    pub const Result = struct { msg: ?UmpMsg, consumed: u3 };
+
+    pub fn feed(words: []const u32) ?Result {
+        if (words.len == 0) return null;
+        const message_type: u4 = @truncate(words[0] >> 28);
+        const count = wordCount(message_type);
+        if (words.len < count) return null;
+
+        return .{ .msg = switch (message_type) {
+            0x1 => parseSystem(words[0]),
+            0x2 => parseMidi1(words[0]),
+            0x4 => parseMidi2(words[0], words[1]),
+            else => null,
+        }, .consumed = count };
+    }
+
+    pub fn wordCount(message_type: u4) u3 {
+        return switch (message_type) {
+            0x0, 0x1, 0x2, 0x6, 0x7 => 1,
+            0x3, 0x4, 0x8, 0x9, 0xA => 2,
+            0xB, 0xC => 3,
+            0x5, 0xD, 0xE, 0xF => 4,
+        };
+    }
+
+    fn parseSystem(word: u32) ?UmpMsg {
+        const status: u8 = @truncate(word >> 16);
+        const msg = realtimeMsg(status) orelse return null;
+        return .{ .midi1 = msg };
+    }
+
+    fn parseMidi1(word: u32) ?UmpMsg {
+        const status: u8 = @truncate(word >> 16);
+        const d1: u7 = @truncate(word >> 8);
+        const d2: u7 = @truncate(word);
+        const ch: Channel = @truncate(status);
+        const msg: Msg = switch (status >> 4) {
+            0x8 => .{ .note_off = .{ .ch = ch, .note = d1, .velocity = d2 } },
+            0x9 => if (d2 == 0)
+                .{ .note_off = .{ .ch = ch, .note = d1, .velocity = 0 } }
+            else
+                .{ .note_on = .{ .ch = ch, .note = d1, .velocity = d2 } },
+            0xA => .{ .poly_aftertouch = .{ .ch = ch, .note = d1, .velocity = d2 } },
+            0xB => .{ .control_change = .{ .ch = ch, .cc = d1, .value = d2 } },
+            0xC => .{ .program_change = .{ .ch = ch, .program = d1 } },
+            0xD => .{ .channel_pressure = .{ .ch = ch, .pressure = d1 } },
+            0xE => blk: {
+                const raw: u14 = (@as(u14, d2) << 7) | d1;
+                break :blk .{ .pitch_bend = .{ .ch = ch, .bend = @as(i16, @intCast(raw)) - 0x2000 } };
+            },
+            else => return null,
+        };
+        return .{ .midi1 = msg };
+    }
+
+    fn parseMidi2(first: u32, second: u32) ?UmpMsg {
+        const address: UmpMsg.Address = .{ .group = @truncate(first >> 24), .ch = @truncate(first >> 16) };
+        const status: u4 = @truncate(first >> 20);
+        const byte2: u8 = @truncate(first >> 8);
+        const byte3: u8 = @truncate(first);
+        const note: u7 = @truncate(byte2);
+        return switch (status) {
+            0x0 => .{ .per_note_rcc = .{ .address = address, .note = note, .index = byte3, .data = second } },
+            0x1 => .{ .per_note_acc = .{ .address = address, .note = note, .index = byte3, .data = second } },
+            0x2 => .{ .rpn = .{ .address = address, .bank = @truncate(byte2), .index = @truncate(byte3), .data = second } },
+            0x3 => .{ .nrpn = .{ .address = address, .bank = @truncate(byte2), .index = @truncate(byte3), .data = second } },
+            0x4 => .{ .relative_rpn = .{ .address = address, .bank = @truncate(byte2), .index = @truncate(byte3), .data = second } },
+            0x5 => .{ .relative_nrpn = .{ .address = address, .bank = @truncate(byte2), .index = @truncate(byte3), .data = second } },
+            0x6 => .{ .per_note_pitch_bend = .{ .address = address, .note = note, .data = second } },
+            0x8, 0x9 => blk: {
+                const value: UmpMsg.NoteMsg = .{
+                    .address = address,
+                    .note = note,
+                    .velocity = @truncate(second >> 16),
+                    .attribute_type = byte3,
+                    .attribute_data = @truncate(second),
+                };
+                break :blk if (status == 0x8) .{ .note_off = value } else .{ .note_on = value };
+            },
+            0xA => .{ .poly_aftertouch = .{ .address = address, .note = note, .data = second } },
+            0xB => .{ .control_change = .{ .address = address, .index = @truncate(byte2), .data = second } },
+            0xC => .{ .program_change = .{
+                .address = address,
+                .program = @truncate(second >> 24),
+                .bank = if (first & 1 != 0) .{ .msb = @truncate(second >> 8), .lsb = @truncate(second) } else null,
+            } },
+            0xD => .{ .channel_pressure = .{ .address = address, .data = second } },
+            0xE => .{ .pitch_bend = .{ .address = address, .data = second } },
+            0xF => .{ .per_note_management = .{
+                .address = address,
+                .note = note,
+                .reset_controllers = byte3 & 1 != 0,
+                .detach_controllers = byte3 & 2 != 0,
+            } },
+            else => return null,
+        };
+    }
+};
+
 // ============================================================
 // Note utilities
 // ============================================================
@@ -380,4 +515,52 @@ test "noteName: spot checks" {
     try std.testing.expectEqualStrings("C4", noteName(60, &buf));
     try std.testing.expectEqualStrings("A4", noteName(69, &buf));
     try std.testing.expectEqualStrings("C-1", noteName(0, &buf));
+}
+
+test "UMP parser: packet sizes and truncation" {
+    const expected = [_]u3{ 1, 1, 1, 2, 2, 4, 1, 1, 2, 2, 2, 3, 3, 4, 4, 4 };
+    for (expected, 0..) |count, message_type| {
+        try std.testing.expectEqual(count, UmpParser.wordCount(@intCast(message_type)));
+        const words = [_]u32{ @as(u32, @intCast(message_type)) << 28, 0, 0, 0 };
+        try std.testing.expect(UmpParser.feed(words[0 .. count - 1]) == null);
+        try std.testing.expectEqual(count, UmpParser.feed(words[0..count]).?.consumed);
+    }
+}
+
+test "UMP parser: MIDI 1.0 Channel Voice" {
+    const result = UmpParser.feed(&.{0x23903C64}).?;
+    try std.testing.expectEqual(@as(u3, 1), result.consumed);
+    const note = result.msg.?.midi1.note_on;
+    try std.testing.expectEqual(@as(Channel, 0), note.ch);
+    try std.testing.expectEqual(@as(u7, 60), note.note);
+    try std.testing.expectEqual(@as(u7, 100), note.velocity);
+}
+
+test "UMP parser: MIDI 2.0 note and high-resolution velocity" {
+    const result = UmpParser.feed(&.{ 0x45913C03, 0xABCD1234 }).?;
+    try std.testing.expectEqual(@as(u3, 2), result.consumed);
+    const note = result.msg.?.note_on;
+    try std.testing.expectEqual(@as(u4, 5), note.address.group);
+    try std.testing.expectEqual(@as(Channel, 1), note.address.ch);
+    try std.testing.expectEqual(@as(u7, 60), note.note);
+    try std.testing.expectEqual(@as(u16, 0xABCD), note.velocity);
+    try std.testing.expectEqual(@as(u8, 3), note.attribute_type);
+    try std.testing.expectEqual(@as(u16, 0x1234), note.attribute_data);
+}
+
+test "UMP parser: MIDI 2.0 controllers keep 32-bit data" {
+    const cc = UmpParser.feed(&.{ 0x42B74A00, 0xFEDCBA98 }).?.msg.?.control_change;
+    try std.testing.expectEqual(@as(u4, 2), cc.address.group);
+    try std.testing.expectEqual(@as(Channel, 7), cc.address.ch);
+    try std.testing.expectEqual(@as(u7, 74), cc.index);
+    try std.testing.expectEqual(@as(u32, 0xFEDCBA98), cc.data);
+
+    const bend = UmpParser.feed(&.{ 0x40E00000, 0x80000000 }).?.msg.?.pitch_bend;
+    try std.testing.expectEqual(@as(u32, 0x80000000), bend.data);
+}
+
+test "UMP parser: reserved packet is skipped at declared boundary" {
+    const result = UmpParser.feed(&.{ 0xA0000000, 0xDEADBEEF }).?;
+    try std.testing.expectEqual(@as(u3, 2), result.consumed);
+    try std.testing.expect(result.msg == null);
 }
