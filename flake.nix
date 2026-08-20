@@ -273,7 +273,7 @@
             patches = [ ./nix/compiler-rt-windows-atomics.patch ];
           })
           {
-            system = pkgs.system;
+            system = pkgs.stdenv.hostPlatform.system;
             crossSystem = pkgs.lib.systems.examples.mingw-ucrt-aarch64;
             config.allowUnsupportedSystem = true;
             crossOverlays = [
@@ -348,8 +348,10 @@
                 libxi
                 libxinerama
                 libxrandr
-                (testPluginBundle pkgs)
-              ];
+              ]
+              ++ lib.optional (stdenv.hostPlatform.isLinux && stdenv.hostPlatform.isx86_64) (
+                testPluginBundle pkgs
+              );
           }
           // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
             # `zig build -Dtarget=x86_64-macos` on an Apple Silicon runner,
@@ -361,6 +363,10 @@
             # `zig build -Dtarget=x86_64-windows-gnu` from this shell, which is
             # what CI does, needs the mingw copies rather than the host ones.
             WSTUDIO_TARGET_PREFIX = targetPrefix pkgs.pkgsCross.mingwW64;
+          }
+          // pkgs.lib.optionalAttrs (pkgs.stdenv.hostPlatform.isLinux && pkgs.stdenv.hostPlatform.isx86_64) {
+            # Third-party plugin release pass is recorded on x86_64 Linux;
+            # some validation plugins are unsupported on aarch64.
             CLAP_PATH = "${testPluginBundle pkgs}/lib/clap";
             VST3_PATH = "${testPluginBundle pkgs}/lib/vst3";
           }
