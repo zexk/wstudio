@@ -61,6 +61,15 @@ unverified here, consistent with the explicit host skip above.
 stems. Every output is non-silent 16-bit stereo PCM at 48 kHz with 1,632,000
 frames; the master peaks at -2.05 dB.
 
+## Valgrind render
+
+2026-08-20 a full `demo.wsj` CLI render passed Memcheck with zero errors and
+all 73 allocations freed. Build with `zig build -Dcpu=baseline`; native CPU
+selection emits a Zig decompressor instruction LibVEX 3.26 does not recognize.
+Run Valgrind with `--max-stackframe=8388608`; `persist.load.buildSession` uses a
+4.38 MiB stack frame that otherwise triggers false invalid-stack accesses.
+Definite and indirect leaks use `--error-exitcode=1`.
+
 ## Playback and persistence soak
 
 2026-08-20 `zig build soak` passed against `demo.wsj`. Debug DSP processed
