@@ -590,8 +590,16 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
 
     if (app.session.arrangement.lane(app.cursor)) |lane| {
         if (lane.clipAt(cursor_tick)) |clip| {
+            // Bars, like the ruler this row sits under - the span used to
+            // print as raw ticks, which is an internal unit.
+            const first = app.session.project.barAtTick(clip.start_tick).bar + 1;
+            const last = app.session.project.barAtTick(clip.endTick() -| 1).bar + 1;
             try w.writeAll(dim ++ "  clip " ++ rst);
-            try w.print("{d}t\u{2192}{d}t", .{ clip.start_tick, clip.endTick() });
+            if (first == last) {
+                try w.print("bar {d}", .{first});
+            } else {
+                try w.print("bars {d}\u{2192}{d}", .{ first, last });
+            }
             switch (clip.content) {
                 .drum => |d| try w.print(" {s}pat{s} {c}", .{
                     dim, rst, ws.dsp.DrumMachine.variantLetter(d.variant),
