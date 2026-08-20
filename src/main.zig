@@ -26,7 +26,19 @@ fn panicHandler(msg: []const u8, first_trace_addr: ?usize) noreturn {
     std.debug.defaultPanic(msg, first_trace_addr);
 }
 
-pub fn main(init: std.process.Init) !void {
+pub fn main(init: std.process.Init) void {
+    mainInner(init) catch |err| {
+        if (err != error.CliReported) {
+            var stderr_buffer: [256]u8 = undefined;
+            var stderr_writer = std.Io.File.stderr().writer(init.io, &stderr_buffer);
+            stderr_writer.interface.print("wstudio: {s}\n", .{@errorName(err)}) catch {};
+            stderr_writer.interface.flush() catch {};
+        }
+        std.process.exit(1);
+    };
+}
+
+fn mainInner(init: std.process.Init) !void {
     var args = try std.process.Args.Iterator.initAllocator(init.minimal.args, init.gpa);
     defer args.deinit();
     _ = args.skip(); // argv0
@@ -85,7 +97,7 @@ fn unexpectedArg(io: std.Io, arg: []const u8) !void {
     var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
     try stderr_writer.interface.print("wstudio: unexpected argument: {s}\n", .{arg});
     try stderr_writer.interface.flush();
-    return error.InvalidArguments;
+    return error.CliReported;
 }
 
 fn missingInitArg(io: std.Io) !void {
@@ -93,7 +105,7 @@ fn missingInitArg(io: std.Io) !void {
     var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
     try stderr_writer.interface.print("wstudio: -u requires a path (or NONE)\n", .{});
     try stderr_writer.interface.flush();
-    return error.MissingArgument;
+    return error.CliReported;
 }
 
 /// Launch an explicitly requested frontend, erroring if it was disabled at
@@ -149,7 +161,7 @@ fn frontendDisabled(io: std.Io, name: []const u8) !void {
     var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
     try stderr_writer.interface.print("wstudio: {s} frontend was disabled at build time\n", .{name});
     try stderr_writer.interface.flush();
-    return error.FrontendDisabled;
+    return error.CliReported;
 }
 
 fn dupeInitPath(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
@@ -225,7 +237,7 @@ fn renderUsage(io: std.Io) !void {
     var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
     try stderr_writer.interface.writeAll("usage: wstudio render [project.wsj [output.wav]]\n");
     try stderr_writer.interface.flush();
-    return error.InvalidArguments;
+    return error.CliReported;
 }
 
 fn renderStemsUsage(io: std.Io) !void {
@@ -233,11 +245,67 @@ fn renderStemsUsage(io: std.Io) !void {
     var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
     try stderr_writer.interface.writeAll("usage: wstudio render-stems project.wsj [output-dir]\n");
     try stderr_writer.interface.flush();
-    return error.InvalidArguments;
+    return error.CliReported;
+}
+
+fn loadCliProject(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !ws.Session {
+    return ws.persist.load(allocator, io, path) catch |err| {
+        var stderr_buffer: [512]u8 = undefined;
+        var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
+        writeProjectLoadError(&stderr_writer.interface, path, err) catch {};
+        stderr_writer.interface.flush() catch {};
+        return error.CliReported;
+    };
+}
+
+fn writeProjectLoadError(writer: *std.Io.Writer, path: []const u8, err: anyerror) !void {
+    switch (err) {
+        error.UnsupportedVersion => try writer.print(
+            "wstudio: cannot open project '{s}': incompatible .wsj format; this build reads version {d}. Use the wstudio release that created this file.\n",
+            .{ path, ws.persist.file_version },
+        ),
+        error.CorruptProjectFile => try writer.print(
+            "wstudio: cannot open project '{s}': file is corrupt or incomplete. Restore '{s}~' or another backup.\n",
+            .{ path, path },
+        ),
+        error.FileNotFound => try writer.print(
+            "wstudio: cannot open project '{s}': file not found. Check the path.\n",
+            .{path},
+        ),
+        error.AccessDenied => try writer.print(
+            "wstudio: cannot open project '{s}': permission denied. Check file permissions.\n",
+            .{path},
+        ),
+        else => try writer.print(
+            "wstudio: cannot open project '{s}': {s}. Keep the source file unchanged and check its path and permissions.\n",
+            .{ path, @errorName(err) },
+        ),
+    }
+}
+
+test "CLI project load errors name the file and recovery" {
+    var actual_buf: [512]u8 = undefined;
+    var actual = std.Io.Writer.fixed(&actual_buf);
+    try writeProjectLoadError(&actual, "old.wsj", error.UnsupportedVersion);
+
+    var expected_buf: [512]u8 = undefined;
+    const expected = try std.fmt.bufPrint(
+        &expected_buf,
+        "wstudio: cannot open project 'old.wsj': incompatible .wsj format; this build reads version {d}. Use the wstudio release that created this file.\n",
+        .{ws.persist.file_version},
+    );
+    try std.testing.expectEqualStrings(expected, actual.buffered());
+
+    actual = std.Io.Writer.fixed(&actual_buf);
+    try writeProjectLoadError(&actual, "song.wsj", error.CorruptProjectFile);
+    try std.testing.expectEqualStrings(
+        "wstudio: cannot open project 'song.wsj': file is corrupt or incomplete. Restore 'song.wsj~' or another backup.\n",
+        actual.buffered(),
+    );
 }
 
 fn renderProject(allocator: std.mem.Allocator, io: std.Io, project_path: []const u8, output_path: []const u8) !void {
-    var session = try ws.persist.load(allocator, io, project_path);
+    var session = try loadCliProject(allocator, io, project_path);
     defer session.deinit();
 
     const bounce_range = ws.bounce.range(&session, 2.0);
@@ -255,7 +323,7 @@ fn renderProject(allocator: std.mem.Allocator, io: std.Io, project_path: []const
 }
 
 fn renderProjectStems(allocator: std.mem.Allocator, io: std.Io, project_path: []const u8, output_dir: []const u8) !void {
-    var session = try ws.persist.load(allocator, io, project_path);
+    var session = try loadCliProject(allocator, io, project_path);
     defer session.deinit();
     try std.Io.Dir.cwd().createDirPath(io, output_dir);
 

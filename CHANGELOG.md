@@ -178,6 +178,9 @@ history lives in [FORMAT.md](FORMAT.md).
 
 ### Fixed
 
+- `render` and `render-stems` project-load failures printed Zig error traces
+  instead of usable CLI errors. They now name the project and give recovery
+  steps for incompatible, corrupt, missing, and unreadable files.
 - A drum pad's play mode had no effect: every hit cut the one before it, so
   setting a pad to one-shot behaved exactly like retrigger and a long crash
   hit twice cut itself instead of overlapping. Slices already honoured the
