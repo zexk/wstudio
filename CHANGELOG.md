@@ -192,6 +192,9 @@ history lives in [FORMAT.md](FORMAT.md).
 - Release archives omitted the bundled acoustic library, and the Linux tarball
   also omitted the plugin bridge required by default sandboxing. Archives now
   carry both and verify their runtime layout before upload.
+- A missing bundled acoustic library briefly reported its load error, then
+  replaced it with a false instrument-inserted message. The error now remains
+  visible and tells the user to reinstall wstudio.
 - A drum pad's play mode had no effect: every hit cut the one before it, so
   setting a pad to one-shot behaved exactly like retrigger and a long crash
   hit twice cut itself instead of overlapping. Slices already honoured the

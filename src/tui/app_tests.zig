@@ -10078,6 +10078,19 @@ test "f on an acoustic track lists the bundled library" {
     try std.testing.expectEqual(preset_ed.Kind.acoustic, app.preset_picker_kind);
 }
 
+test "acoustic load failure keeps recovery status" {
+    var app = try testApp();
+    defer app.deinit();
+
+    for (":track-instrument acoustic") |c| app.handleKey(.{ .char = c }, 0);
+    app.handleKey(.enter, 0);
+
+    try std.testing.expect(app.session.racks.items[0].instrument == .acoustic);
+    const status = app.status_buf[0..app.status_len];
+    try std.testing.expect(std.mem.startsWith(u8, status, "acoustic library unavailable:"));
+    try std.testing.expect(std.mem.endsWith(u8, status, "; reinstall wstudio"));
+}
+
 test "soundfont is a separate instrument: its picker lists the loaded font, not the bundled banks" {
     var app = try testApp();
     defer app.deinit();

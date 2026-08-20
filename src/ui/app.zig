@@ -3344,11 +3344,13 @@ pub const App = struct {
             };
             history.push(self, backup);
             self.dirty = true;
-            if (kind == .acoustic) self.loadDefaultAcoustic(self.cursor);
-            if (preserved) {
-                self.setStatus("track {d}: {s}, notes kept", .{ self.cursor + 1, item.label });
-            } else {
-                self.setStatus("track {d}: {s}, notes cleared", .{ self.cursor + 1, item.label });
+            const acoustic_ok = kind != .acoustic or self.loadDefaultAcoustic(self.cursor);
+            if (acoustic_ok) {
+                if (preserved) {
+                    self.setStatus("track {d}: {s}, notes kept", .{ self.cursor + 1, item.label });
+                } else {
+                    self.setStatus("track {d}: {s}, notes cleared", .{ self.cursor + 1, item.label });
+                }
             }
             self.view = .tracks;
             self.openTrack(self.cursor);
@@ -3359,7 +3361,7 @@ pub const App = struct {
             self.view = .tracks;
             return;
         };
-        if (kind == .acoustic) self.loadDefaultAcoustic(self.cursor);
+        const acoustic_ok = kind != .acoustic or self.loadDefaultAcoustic(self.cursor);
         self.dirty = true;
         const hint: []const u8 = switch (kind) {
             .empty => "? help",
@@ -3371,7 +3373,7 @@ pub const App = struct {
             .soundfont => "h/l adjust  :load  i play  ? help",
             .acoustic => "h/l adjust  f banks  i play  ? help",
         };
-        self.setStatus("{s} inserted  {s}", .{ item.label, hint });
+        if (acoustic_ok) self.setStatus("{s} inserted  {s}", .{ item.label, hint });
         self.view = .tracks;
         self.openTrack(self.cursor);
     }
@@ -3390,15 +3392,17 @@ pub const App = struct {
 
     /// A fresh acoustic track starts on the grand piano - the instrument is
     /// its bundled bank, so landing on an empty one would be a dead track.
-    pub fn loadDefaultAcoustic(self: *App, track: usize) void {
-        if (track >= self.session.racks.items.len) return;
+    pub fn loadDefaultAcoustic(self: *App, track: usize) bool {
+        if (track >= self.session.racks.items.len) return false;
         const sf = switch (self.session.racks.items[track].instrument) {
             .acoustic => |*instrument| instrument,
-            else => return,
+            else => return false,
         };
         sf.loadBuiltin(self.io, .grand) catch |err| {
-            self.setStatus("grand piano: {s}", .{@errorName(err)});
+            self.setStatus("acoustic library unavailable: {s}; reinstall wstudio", .{@errorName(err)});
+            return false;
         };
+        return true;
     }
 
     // zig fmt: off
@@ -4342,8 +4346,7 @@ pub const App = struct {
                 self.setStatus("out of memory setting instrument", .{});
                 break :blk false;
             };
-            if (kind == .acoustic) self.loadDefaultAcoustic(idx);
-            break :blk true;
+            break :blk kind != .acoustic or self.loadDefaultAcoustic(idx);
         };
         if (instrument_ok) {
             // Read the group back off the track: `assignTrackGroup` drops a

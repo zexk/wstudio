@@ -230,7 +230,7 @@ pub fn cmdTrackInstrument(app: *App, args: []const u8) void {
     };
     history.push(app, backup);
     app.dirty = true;
-    if (kind == .acoustic) app.loadDefaultAcoustic(idx);
+    const acoustic_ok = kind != .acoustic or app.loadDefaultAcoustic(idx);
     // The swapped track may be the one an instrument editor is open on -
     // `:track-instrument 2 synth` runs just as well from the slicer grid as
     // from the tracks view. Leaving the view up would send the next keypress
@@ -238,6 +238,7 @@ pub fn cmdTrackInstrument(app: *App, args: []const u8) void {
     // different union field. The picker path avoids this by returning to
     // `.tracks` outright; here the view is whatever the user was in.
     app.exitStaleEditors();
+    if (!acoustic_ok) return;
     if (preserved) {
         app.setStatus("track {d}: now {s} (notes kept)", .{ idx + 1, kind_str });
     } else {
