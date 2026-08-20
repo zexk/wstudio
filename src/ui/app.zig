@@ -4282,6 +4282,14 @@ pub const App = struct {
             if (op.apply(link.track)) |t| self.automation_clip.?.track = t
             else self.automation_clip = null;
         }
+        // The A/B reference names a track too. Its saved solo states are a
+        // flat array indexed by track slot, so a shift makes every one of
+        // them name a different track than it was captured from - the
+        // session is abandoned rather than restored from stale values.
+        if (self.reference_track) |t| {
+            self.reference_track = op.apply(t);
+            if (self.reference_track == null) self.reference_active = false;
+        }
         // Pending qwerty note-offs name tracks too: drop a deleted track's
         // (its rack is being retired anyway), shift the rest, so a note
         // that outlives the delete is stopped on the track it's actually

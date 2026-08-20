@@ -4347,9 +4347,12 @@ test "structural track changes remap every editor-target field" {
     app.drum_track = 2;
     app.sampler_target = .{ .sampler = 1 };
     app.piano_clip_link = .{ .track = 2, .start_tick = 0 };
+    app.reference_track = 2;
+    app.reference_active = true;
 
     // Insert at 1: everything from index 1 up shifts, index 0 stays put.
     app.remapTrackFields(.{ .insert = 1 });
+    try std.testing.expectEqual(@as(u16, 3), app.reference_track.?);
     try std.testing.expectEqual(@as(u16, 0), app.synth_track);
     try std.testing.expectEqual(@as(u16, 3), app.drum_track);
     try std.testing.expectEqual(@as(u16, 2), app.sampler_target.sampler);
@@ -4372,6 +4375,10 @@ test "structural track changes remap every editor-target field" {
     try std.testing.expectEqual(@as(u16, std.math.maxInt(u16)), app.drum_track);
     try std.testing.expectEqual(@as(u16, 1), app.sampler_target.sampler);
     try std.testing.expect(app.piano_clip_link == null);
+    // The reference went with the track it named, and the A/B session with
+    // it - its saved solo states name tracks that have all shifted.
+    try std.testing.expect(app.reference_track == null);
+    try std.testing.expect(!app.reference_active);
     try std.testing.expectEqual(@as(usize, 1), app.note_off_len);
     try std.testing.expectEqual(@as(u7, 64), app.note_offs[0].note);
     try std.testing.expectEqual(@as(u16, 1), app.note_offs[0].track);
