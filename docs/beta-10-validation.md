@@ -40,6 +40,13 @@ page, desktop and MIME metadata, all nine icon sizes, and the bundled acoustic
 library with its licenses. `nix flake check --no-build` also passes, and the
 default dev shells evaluate for Linux and macOS on x86_64 and Arm64.
 
+## Playback and persistence soak
+
+2026-08-20 `zig build soak` passed against `demo.wsj`. Debug DSP processed
+172,802,048 frames in 42,188 blocks, with repeated transport stop, seek, and
+resume transitions. Output stayed finite and audible with a 0.731 peak. Ten
+save/load round trips and three PCM exports completed afterward.
+
 ## Third-party plugin pass
 
 2026-08-14 `zig build plugincheck` hosted the `wstudio-test-plugins` bundle
