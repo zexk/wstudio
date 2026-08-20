@@ -46,4 +46,4 @@ jobs:
         run: nix develop --command zig build -Dtarget=x86_64-windows-gnu
 
       - name: Build Nix packages
-        run: nix build .#default .#windows -L
+        run: nix build .#default .#windows .#windows-arm64 -L

@@ -36,12 +36,17 @@
       # Only the shifting engine, none of the plugin wrappers: those drag in
       # a JDK (which has no mingw build at all) plus libsamplerate, whose
       # mingw build is broken. Its own FFT and resampler are built in.
+      windowsPthreads =
+        pkgs:
+        pkgs.windows.pthreads.overrideAttrs {
+          RCFLAGS = "-I${pkgs.windows.mingw_w64_headers}/include";
+        };
       rubberband =
         pkgs:
         pkgs.rubberband.overrideAttrs (old: {
           # mingw needs winpthreads named explicitly; the plain `-pthread`
           # meson passes finds nothing and the shared library fails to link.
-          buildInputs = pkgs.lib.optional pkgs.stdenv.hostPlatform.isWindows pkgs.windows.pthreads;
+          buildInputs = pkgs.lib.optional pkgs.stdenv.hostPlatform.isWindows (windowsPthreads pkgs);
           nativeBuildInputs = with pkgs.buildPackages; [
             meson
             ninja
@@ -56,6 +61,11 @@
             "-Djni=disabled"
             "-Dcmdline=disabled"
           ];
+          # Reduced C-only build also works on Windows Arm64. Upstream
+          # nixpkgs metadata has not listed that target yet.
+          meta = (old.meta or { }) // {
+            platforms = pkgs.lib.platforms.all;
+          };
         });
       # Rubber Band's mingw DLL exports its C++ class API as well as the C
       # one, so the import library nixpkgs ships carries C++ runtime symbols
@@ -78,9 +88,10 @@
                 | sort -u
             } > rubberband-c.def
             ${pkgs.stdenv.cc.targetPrefix}dlltool \
-              --def rubberband-c.def \
-              --dllname librubberband-3.dll \
-              --output-lib $out/lib/librubberband-c.dll.a
+              ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isAarch64 "-m arm64"} \
+              -d rubberband-c.def \
+              -D librubberband-3.dll \
+              -l $out/lib/librubberband-c.dll.a
           '';
       targetLibs =
         pkgs:
@@ -95,7 +106,7 @@
           pkgs.libogg
           pkgs.libvorbis
           pkgs.libopus
-          pkgs.mpg123
+          pkgs.libmpg123
           pkgs.lame
         ];
       cLibs = pkgs: targetLibs pkgs ++ [ pkgs.lua5_4 ];
@@ -235,6 +246,54 @@
             "-Dgui=false"
           ];
         });
+      windowsPackage =
+        pkgs: targetPkgs: target:
+        pkgs.stdenv.mkDerivation (finalAttrs: {
+          pname = "wstudio";
+          inherit version;
+          meta = wstudioMeta pkgs;
+          src = self;
+          zigDeps = pkgs.zig.fetchDeps {
+            inherit (finalAttrs) pname version src;
+            hash = zigDepsHash;
+          };
+          nativeBuildInputs = [ pkgs.zig.hook ];
+          WSTUDIO_TARGET_PREFIX = targetPrefix targetPkgs;
+          postConfigure = ''
+            ln -s ${finalAttrs.zigDeps} "$ZIG_GLOBAL_CACHE_DIR/p"
+          '';
+          zigBuildFlags = [ "-Dtarget=${target}" ];
+        });
+      windowsArm64Pkgs =
+        pkgs:
+        import
+          (pkgs.applyPatches {
+            name = "nixpkgs-windows-arm64";
+            src = nixpkgs;
+            patches = [ ./nix/compiler-rt-windows-atomics.patch ];
+          })
+          {
+            system = pkgs.system;
+            crossSystem = pkgs.lib.systems.examples.mingw-ucrt-aarch64;
+            config.allowUnsupportedSystem = true;
+            crossOverlays = [
+              (final: prev: {
+                libopus = prev.libopus.override { withIntrinsics = false; };
+                libmpg123 = prev.libmpg123.overrideAttrs (old: {
+                  configureFlags = (old.configureFlags or [ ]) ++ [
+                    "--disable-components"
+                    "--enable-libmpg123"
+                  ];
+                  postInstall = (old.postInstall or "") + ''
+                    mkdir -p $man/share/man
+                  '';
+                });
+                libsndfile = prev.libsndfile.overrideAttrs {
+                  RCFLAGS = "-I${prev.windows.mingw_w64_headers}/include";
+                };
+              })
+            ];
+          };
       # `-u NONE` (src/main.zig) skips loading any init.lua entirely - built-
       # in defaults only, never touching `~/.config/wstudio/init.lua`. For
       # trying out a stock build (or bisecting "is this a config problem or
@@ -306,6 +365,13 @@
             VST3_PATH = "${testPluginBundle pkgs}/lib/vst3";
           }
         );
+        windows-arm64 = pkgs.mkShell {
+          packages = [
+            pkgs.zig
+            (windowsArm64Pkgs pkgs).stdenv.cc.bintools.bintools
+          ];
+          WSTUDIO_TARGET_PREFIX = targetPrefix (windowsArm64Pkgs pkgs);
+        };
       });
 
       packages = forAllSystems (pkgs: {
@@ -318,24 +384,10 @@
         # Windows machine or MSVC toolchain needed to build this, only to
         # run it. WASAPI/ole32 come from build.zig's own target-conditional
         # linking, so no extra buildInputs here.
-        windows = pkgs.stdenv.mkDerivation (finalAttrs: {
-          pname = "wstudio";
-          inherit version;
-          meta = wstudioMeta pkgs;
-          src = self;
-          zigDeps = pkgs.zig.fetchDeps {
-            inherit (finalAttrs) pname version src;
-            hash = zigDepsHash;
-          };
-          nativeBuildInputs = [ pkgs.zig.hook ];
-          # Not buildInputs: those set the host's NIX_CFLAGS, and this build
-          # targets Windows. build.zig reads the prefix instead.
-          WSTUDIO_TARGET_PREFIX = targetPrefix pkgs.pkgsCross.mingwW64;
-          postConfigure = ''
-            ln -s ${finalAttrs.zigDeps} "$ZIG_GLOBAL_CACHE_DIR/p"
-          '';
-          zigBuildFlags = [ "-Dtarget=x86_64-windows-gnu" ];
-        });
+        # Not buildInputs: those set host NIX_CFLAGS. build.zig reads target
+        # prefix containing libraries for selected Windows architecture.
+        windows = windowsPackage pkgs pkgs.pkgsCross.mingwW64 "x86_64-windows-gnu";
+        windows-arm64 = windowsPackage pkgs (windowsArm64Pkgs pkgs) "aarch64-windows-gnu";
       });
 
       apps = forAllSystems (pkgs: {

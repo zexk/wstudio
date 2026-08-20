@@ -36,8 +36,9 @@ Without Nix, install Zig 0.16, libsndfile, speexdsp, Lua 5.4 and, on Linux,
 the ALSA development libraries, then build the same way; see
 [CONTRIBUTING.md](CONTRIBUTING.md) for the full development setup. The Linux
 release tarball links libsndfile dynamically, so a distribution package of it
-(`libsndfile1` on Debian and Ubuntu) has to be present to run it; the Windows
-archive carries its own DLLs. Once running: `enter` on a blank track opens the
+(`libsndfile1` on Debian and Ubuntu) has to be present to run it; Windows x64
+and Arm64 archives carry their own DLLs. Once running: `enter` on a blank track
+opens the
 instrument picker, `space` plays/stops, and `:help` lists every command.
 Choosing `Acoustic` starts on the bundled grand piano. Use `:library <name>`
 or press `f` to browse the bundled pianos, organ, guitars, basses, winds,

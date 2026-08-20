@@ -76,13 +76,23 @@ pub fn build(b: *std.Build) void {
         // put the host's headers ahead of the prefix's.
         wstudio_mod.linkSystemLibrary("speexdsp", .{ .preferred_link_mode = .static, .use_pkg_config = .no });
         if (target.result.os.tag == .windows) {
-            // mingw builds a DLL plus a `libfoo.dll.a` import library, and
-            // zig's system-library search only looks for `foo.dll`, `foo.lib`
-            // and `libfoo.a` - so the import library goes to the linker
-            // directly. The release archive ships the matching DLLs.
-            wstudio_mod.addObjectFile(.{ .cwd_relative = b.pathJoin(&.{ prefix, "lib", "libsndfile.dll.a" }) });
+            if (target.result.cpu.arch == .aarch64) {
+                // nixpkgs' LLVM MinGW target builds libsndfile statically.
+                for ([_][]const u8{
+                    "libsndfile.a",   "libFLAC.dll.a", "libogg.dll.a",  "libvorbisfile.a",
+                    "libvorbisenc.a", "libvorbis.a",   "libopus.dll.a", "libmpg123.a",
+                    "libmp3lame.a",
+                }) |library| {
+                    wstudio_mod.addObjectFile(.{ .cwd_relative = b.pathJoin(&.{ prefix, "lib", library }) });
+                }
+            } else {
+                // mingw builds a DLL plus a `libfoo.dll.a` import library,
+                // which Zig's system-library search does not find.
+                wstudio_mod.addObjectFile(.{ .cwd_relative = b.pathJoin(&.{ prefix, "lib", "libsndfile.dll.a" }) });
+            }
             // The C-only import library, not the full one: see flake.nix.
             wstudio_mod.addObjectFile(.{ .cwd_relative = b.pathJoin(&.{ prefix, "lib", "librubberband-c.dll.a" }) });
+            wstudio_mod.linkSystemLibrary("shlwapi", .{ .use_pkg_config = .no });
         } else {
             wstudio_mod.linkSystemLibrary("sndfile", .{ .use_pkg_config = .no });
             wstudio_mod.linkSystemLibrary("rubberband", .{ .use_pkg_config = .no });

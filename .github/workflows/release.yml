@@ -57,50 +57,57 @@ jobs:
           '
           file master.wav | grep -F "stereo 48000 Hz"
 
-      - name: Build Windows release
-        run: nix develop --command zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-windows-gnu
-
-      - name: Package Windows release
+      - name: Build and package Windows releases
         run: |
-          mkdir -p dist/wstudio-windows-x86_64/examples
-          cp zig-out/bin/wstudio.exe demo.wsj README.md CHANGELOG.md FORMAT.md LICENSE THIRD_PARTY_LICENSES.md dist/wstudio-windows-x86_64/
-          nix develop --command bash -c '
-            set -eu
-            # mingw libsndfile is a DLL with a codec DLL of its own per format,
-            # so the import closure travels beside the exe. Walked rather than
-            # listed, because the names carry sonames that move (libvorbis-0,
-            # libvorbisenc-2). Note the copy is named after what imported it:
-            # libFLAC and libvorbis both ask for "ogg.dll" while nixpkgs builds
-            # the file as libogg.dll, and Windows resolves by exact name.
-            queue=$(objdump -p zig-out/bin/wstudio.exe | sed -n "s/^\tDLL Name: //p")
-            copied=""
-            while [ -n "$queue" ]; do
-              next=""
-              for dll in $queue; do
-                case " $copied " in *" $dll "*) continue;; esac
-                src="$WSTUDIO_TARGET_PREFIX/bin/$dll"
-                [ -f "$src" ] || src="$WSTUDIO_TARGET_PREFIX/bin/lib$dll"
-                [ -f "$src" ] || continue
-                cp "$src" "dist/wstudio-windows-x86_64/$dll"
-                copied="$copied $dll"
-                next="$next $(objdump -p "$src" | sed -n "s/^\tDLL Name: //p")"
+          set -euo pipefail
+          package_windows() {
+            arch=$1
+            shell=$2
+            target=$3
+            objdump=$4
+            dir="dist/wstudio-windows-$arch"
+            nix develop "$shell" --command zig build -Doptimize=ReleaseSafe -Dtarget="$target"
+            mkdir -p "$dir/examples"
+            cp zig-out/bin/wstudio.exe zig-out/bin/wstudio-plugin-bridge.exe \
+              demo.wsj README.md CHANGELOG.md FORMAT.md LICENSE THIRD_PARTY_LICENSES.md "$dir/"
+            WSTUDIO_ARCH="$arch" WSTUDIO_RELEASE_DIR="$dir" WSTUDIO_OBJDUMP="$objdump" \
+              nix develop "$shell" --command bash -c '
+              set -eu
+              # mingw libsndfile has a transitive codec DLL closure. Walk it
+              # because sonames vary, and copy each file by imported name.
+              queue=$($WSTUDIO_OBJDUMP -p zig-out/bin/wstudio.exe | sed -n "s/^[[:space:]]*[Dd][Ll][Ll] [Nn]ame: //p")
+              copied=""
+              while [ -n "$queue" ]; do
+                next=""
+                for dll in $queue; do
+                  case " $copied " in *" $dll "*) continue;; esac
+                  src="$WSTUDIO_TARGET_PREFIX/bin/$dll"
+                  [ -f "$src" ] || src="$WSTUDIO_TARGET_PREFIX/bin/lib$dll"
+                  [ -f "$src" ] || continue
+                  cp "$src" "$WSTUDIO_RELEASE_DIR/$dll"
+                  copied="$copied $dll"
+                  next="$next $($WSTUDIO_OBJDUMP -p "$src" | sed -n "s/^[[:space:]]*[Dd][Ll][Ll] [Nn]ame: //p")"
+                done
+                queue="$next"
               done
-              queue="$next"
-            done
-            test -f dist/wstudio-windows-x86_64/libsndfile-1.dll
-          '
-          cp -R docs dist/wstudio-windows-x86_64/
-          cp examples/init.lua dist/wstudio-windows-x86_64/examples/
-          cd dist
-          zip -r wstudio-windows-x86_64.zip wstudio-windows-x86_64
-          unzip -t wstudio-windows-x86_64.zip
+              if [ "$WSTUDIO_ARCH" = x86_64 ]; then
+                test -f "$WSTUDIO_RELEASE_DIR/libsndfile-1.dll"
+              fi
+            '
+            cp -R docs "$dir/"
+            cp examples/init.lua "$dir/examples/"
+            (cd dist && zip -r "wstudio-windows-$arch.zip" "wstudio-windows-$arch")
+            unzip -t "dist/wstudio-windows-$arch.zip"
+          }
+          package_windows x86_64 . x86_64-windows-gnu objdump
+          package_windows arm64 .#windows-arm64 aarch64-w64-mingw32-objdump
 
       - uses: actions/upload-artifact@v4
         with:
           name: linux-windows
           path: |
             dist/wstudio-linux-x86_64.tar.gz
-            dist/wstudio-windows-x86_64.zip
+            dist/wstudio-windows-*.zip
 
   macos:
     runs-on: macos-latest
