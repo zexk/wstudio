@@ -240,6 +240,11 @@ history lives in [FORMAT.md](FORMAT.md).
   arrangement seeked by the same broken arithmetic.
 - `:chop-notes` on a note held past the end of the pattern produced pieces
   beyond the loop end, which playback wrapped back onto beat 0.
+- Shortening a clip left its trailing automation past the new end, where
+  nothing reads it, but reopening the project pulled every one of those
+  points onto the clip's last beat. A curve that had been trimmed out of the
+  way came back as a jump at the end of the clip, and growing the clip again
+  no longer brought the original shape back.
 - The metronome clicked quarter notes whatever the time signature said, so a
   6/8 project got three clicks a bar from it and six from the count-in that
   preceded it. It now clicks the signature's own beat unit, and enabling it

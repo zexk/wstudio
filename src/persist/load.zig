@@ -854,12 +854,14 @@ pub fn clipFromSnap(allocator: std.mem.Allocator, cs: ClipSnap) !ws_arrangement.
     out.automation.gain = try automationFromSnap(allocator, cs.gain_automation, -60.0, 12.0);
     out.automation.pan = try automationFromSnap(allocator, cs.pan_automation, -1.0, 1.0);
     try applySynthParamAutomationSnap(allocator, &out.automation, cs.synth_param_automation);
-    const clip_beats = time_grid.tickToBeat(out.length_ticks);
-    for (out.automation.gain) |*point| point.beat = @min(point.beat, clip_beats);
-    for (out.automation.pan) |*point| point.beat = @min(point.beat, clip_beats);
-    for (out.automation.synth_params.items) |*curve| {
-        for (curve.points) |*point| point.beat = @min(point.beat, clip_beats);
-    }
+    // A point past the clip's own span is kept where it is, not pulled to the
+    // end: shortening a clip leaves its trailing curve alone (resizeClip does
+    // not touch automation, and Session.flattenClipAutomation skips anything
+    // past the span), so pulling those points in on load would make the clip
+    // sound different after a reload - and would flatten a whole trailing
+    // curve onto one beat, where the last point won. automationFromSnap has
+    // already made every beat finite and non-negative, which is all the
+    // bounding an out-of-span point needs: nothing reads it.
     return out;
 }
 // zig fmt: on

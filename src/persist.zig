@@ -1145,16 +1145,21 @@ test "automationFromSnap sorts unsorted points and clamps out-of-range values" {
     try testing.expectApproxEqAbs(@as(f32, 12.0), pts[1].value, 1e-6);
 }
 
-test "clipFromSnap clamps automation points to the clip span" {
+test "clipFromSnap keeps automation points past the clip span where they are" {
+    // Pulling them to the end would flatten a whole trailing curve onto one
+    // beat and change what the clip sounds like across a reload - see
+    // clipFromSnap. Nothing reads a point past the span, so it needs no
+    // bounding beyond automationFromSnap's finite/non-negative guarantee.
     var clip = try clipFromSnap(std.testing.allocator, .{
         .length_ticks = 32,
-        .gain_automation = &.{.{ .beat = 99.0, .value = 0.0 }},
+        .gain_automation = &.{ .{ .beat = 99.0, .value = 0.0 }, .{ .beat = -3.0, .value = 0.0 } },
         .synth_param_automation = &.{.{ .param_id = 21, .points = &.{.{ .beat = 99.0, .value = 1000.0 }} }},
     });
     defer clip.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(@as(f64, 1.0), clip.automation.gain[0].beat);
-    try std.testing.expectEqual(@as(f64, 1.0), clip.automation.synth_params.items[0].points[0].beat);
+    try std.testing.expectEqual(@as(f64, 0.0), clip.automation.gain[0].beat);
+    try std.testing.expectEqual(@as(f64, 99.0), clip.automation.gain[1].beat);
+    try std.testing.expectEqual(@as(f64, 99.0), clip.automation.synth_params.items[0].points[0].beat);
 }
 
 test "clipFromSnap replaces duplicate synth automation lanes without leaking" {
@@ -2892,4 +2897,35 @@ test "the shipped demo survives a load and re-save unchanged" {
         }
         return error.DemoDidNotRoundTrip;
     }
+}
+
+test "shortening a clip does not move its trailing automation on the next load" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [96]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/trim.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    const lane = session.arrangement.lane(0).?;
+    const notes = [_]pattern_mod.Note{.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 }};
+    try lane.place(session.allocator, try ws_arrangement.Clip.initMelodic(session.allocator, 0, 4 * time_grid.ticks_per_beat, &notes, 4.0));
+    const clip = lane.clipAt(0).?;
+    try automation_mod.setPoint(session.allocator, &clip.automation.gain, 0.0, 0.0);
+    try automation_mod.setPoint(session.allocator, &clip.automation.gain, 3.0, -20.0);
+
+    // What `resizeClip` does: the span shrinks, the curve is left alone. The
+    // point at beat 3 is now past the end, where `flattenClipAutomation`
+    // ignores it - and where it has to stay, so growing the clip back brings
+    // the curve back with it.
+    clip.length_ticks = 2 * time_grid.ticks_per_beat;
+
+    try save(testing.allocator, &session, testing.io, wsj_path);
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+
+    const gain = loaded.arrangement.lane(0).?.clipAt(0).?.automation.gain;
+    try testing.expectEqual(@as(usize, 2), gain.len);
+    try testing.expectEqual(@as(f64, 3.0), gain[1].beat);
 }
