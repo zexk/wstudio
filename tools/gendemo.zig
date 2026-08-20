@@ -16,7 +16,7 @@
 //!   14–15 drums + e-piano         (outro; lead & bass drop out)
 //!
 //! Melodic loops are two bars (8 beats) so their clips span two bars; the drum
-//! loop is one bar (16 steps) so it is stamped bar by bar. The drums carry two
+//! loop is one bar so it is stamped bar by bar. The drums carry two
 //! pattern variants: A is the main groove, B adds a snare/tom fill on the last
 //! beat and is stamped on every 4th bar (3, 7, 11, 15) - the same flow as
 //! cycling patterns with `[`/`]` in the arrangement view.
@@ -33,6 +33,21 @@ const bass = 2;
 const drums = 3;
 
 const song_bars = 16;
+
+// Step arithmetic for the drum grid. `DrumMachine.ticks_per_beat` is the live
+// step resolution, so one beat is that many steps and a sixteenth is a quarter
+// of them - the grid is far finer than the sixteenth grid the editor draws.
+const beat_steps: u16 = ws.dsp.DrumMachine.ticks_per_beat;
+const sixteenth: u16 = beat_steps / 4;
+const steps_per_bar: u16 = beat_steps * 4;
+
+// Pad indices follow the soundtype grouping every kit shares, see
+// dsp/drum_kit.zig's KitVariant: kick, kick-2, snare, snare-2, hihat, ...
+const pad_kick: u8 = 0;
+const pad_snare: u8 = 2;
+const pad_hat: u8 = 4;
+const pad_tom1: u8 = 11;
+const pad_tom2: u8 = 12;
 
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
@@ -150,9 +165,26 @@ pub fn main(init: std.process.Init) !void {
         for (notes) |n| pp.addNote(.{ .pitch = n.p, .start_beat = n.b, .duration_beat = 0.9, .velocity = 0.85 });
     }
 
-    // ── Track 3 - drum machine (ships with its default groove) ────────────────
+    // ── Track 3 - drum machine ───────────────────────────────────────────────
+    // A fresh machine is blank: no kit on its pads and no steps. It also
+    // starts two bars long, which would make every stamp below evict the one
+    // before it, so the loop is cut to one bar first.
     _ = try session.addTrack("drums");
     try session.setInstrument(3, .drum_machine);
+    const dm = &session.racks.items[drums].instrument.drum_machine;
+    dm.setStepCount(steps_per_bar);
+    for (&ws.dsp.drum_kit.variants) |*v| {
+        if (std.mem.eql(u8, v.name, "digital")) try dm.loadKitVariant(v);
+    }
+    // Variant A, the groove under the whole song: four-on-the-floor with a
+    // backbeat and off-beat hats. Steps are 32nds of a beat (see
+    // DrumMachine.ticks_per_beat), so a sixteenth is `sixteenth` of them.
+    for ([_]u16{ 0, 1, 2, 3 }) |beat| dm.toggleStep(pad_kick, beat * beat_steps);
+    for ([_]u16{ 1, 3 }) |beat| dm.toggleStep(pad_snare, beat * beat_steps);
+    for ([_]u16{ 0, 1, 2, 3 }) |beat| dm.toggleStep(pad_hat, beat * beat_steps + beat_steps / 2);
+    // A factory kit normalises every pad to nearly full scale, so four-on-the-
+    // floor at unity would sit about 10 dB over the rest of the mix.
+    session.project.tracks.items[drums].gain_db = -6.0;
 
     // ── Arrange the loops into a 16-bar song ─────────────────────────────────
     // Melodic clips are stamped on the even downbeats their two-bar loops fill.
@@ -160,14 +192,12 @@ pub fn main(init: std.process.Init) !void {
     for ([_]u32{ 2, 4, 6, 8, 10, 12, 14 }) |bar| try session.stampClip(epiano, bar);
     for ([_]u32{ 2, 4, 6, 8, 10, 12 }) |bar| try session.stampClip(bass, bar);
 
-    // Variant B: the main groove plus a snare/tom fill on beat 4.
-    const dm = &session.racks.items[drums].instrument.drum_machine;
+    // Variant B: a copy of the groove (addVariant dupes the live pattern) plus
+    // a tom fill through the last beat.
     std.debug.assert(dm.addVariant());
-    // Pad indices follow the soundtype grouping in dsp/drum_kit.zig.
-    dm.toggleStep(2, 12); // snare on the last beat
-    dm.toggleStep(2, 14);
-    dm.toggleStep(11, 12); // tom-1
-    dm.toggleStep(12, 14); // tom-2
+    dm.toggleStep(pad_snare, 3 * beat_steps + sixteenth); // snare pushed off the beat
+    dm.toggleStep(pad_tom1, 3 * beat_steps + 2 * sixteenth);
+    dm.toggleStep(pad_tom2, 3 * beat_steps + 3 * sixteenth);
 
     // The one-bar drum loop underpins the whole song: groove (A) bar by bar,
     // with the fill (B) closing every 4-bar phrase.
