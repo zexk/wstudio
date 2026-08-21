@@ -27,6 +27,10 @@ pub fn draw(
     /// The selection's row anchor - null means linewise (`V`, every row).
     /// See editors/step_grid.zig's rowRange.
     visual_row_anchor: ?u8,
+    /// True while the visual selection is in its edit sub-mode (`enter`) -
+    /// tints the selection overlay like the piano roll's own edit-mode tint
+    /// (gui/views/piano.zig) so entering it isn't silent here either.
+    visual_edit: bool,
     /// Which state a click-and-hold paints every newly-entered cell to
     /// (mirrors the TUI's `app.drum_paint_state`/`slicer_paint_state`, and
     /// is in fact the very same field - both frontends share `ui/app.zig`'s
@@ -140,15 +144,16 @@ pub fn draw(
         const y1 = grid_y + @as(f32, @floatFromInt(@max(rows.lo, row_start) -| row_start)) * row_h;
         const y2 = grid_y + @as(f32, @floatFromInt(@min(rows.hi + 1, row_end) -| row_start)) * row_h;
         if (y2 > y1) {
+            const sel_c = if (visual_edit) theme.modulation else theme.rhythm;
             draw_list.addRectFilled(.{
                 .pmin = .{ x1, y1 },
                 .pmax = .{ x2, y2 },
-                .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.12 }),
+                .col = color(.{ sel_c[0], sel_c[1], sel_c[2], 0.12 }),
             });
             draw_list.addRect(.{
                 .pmin = .{ x1 + 1, y1 + 1 },
                 .pmax = .{ x2 - 1, y2 - 1 },
-                .col = color(.{ theme.rhythm[0], theme.rhythm[1], theme.rhythm[2], 0.55 }),
+                .col = color(.{ sel_c[0], sel_c[1], sel_c[2], 0.55 }),
                 .thickness = 1,
             });
         }

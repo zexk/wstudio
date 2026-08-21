@@ -160,7 +160,7 @@ pub fn drawSlicerGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize,
             // but never fire, so they read as empty whatever they hold - the
             // only in-grid signal that the row wraps early (views/drum.zig).
             const out_of_loop = s >= slice_len;
-            try w.writeAll(style.stepCellSgr(active and !out_of_loop, is_cursor, is_play and !out_of_loop, in_sel));
+            try w.writeAll(style.stepCellSgr(active and !out_of_loop, is_cursor, is_play and !out_of_loop, in_sel, app.slicer_visual_edit));
             // Glyph tracks the step's velocity, brackets the parameter locks -
             // same five bands and same bracket set as the drum grid
             // (editors/step_grid.zig).

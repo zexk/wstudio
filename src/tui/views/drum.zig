@@ -154,7 +154,7 @@ pub fn drawDrumGrid(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize, s
             // but never fire, so they read as empty regardless of content -
             // the only in-grid signal that the row wraps early.
             const out_of_loop = s >= pad_len;
-            try w.writeAll(style.stepCellSgr(active and !out_of_loop, is_cursor, is_play and !out_of_loop, in_sel));
+            try w.writeAll(style.stepCellSgr(active and !out_of_loop, is_cursor, is_play and !out_of_loop, in_sel, app.drum_visual_edit));
 
             // Glyph tracks the step's velocity (0-127): full → quietest,
             // five bands shared with the slicer grid and the GUI's fill

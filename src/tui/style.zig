@@ -62,10 +62,13 @@ pub fn hr(w: *std.Io.Writer, cols: u16) !void {
 /// SGR prefix for one step-grid cell - the same cursor > playhead >
 /// selection > active precedence in the drum and slicer grids, so the two
 /// views can't drift apart on step colors (their glyphs stay bespoke).
-pub fn stepCellSgr(active: bool, is_cursor: bool, is_play: bool, in_sel: bool) []const u8 {
+pub fn stepCellSgr(active: bool, is_cursor: bool, is_play: bool, in_sel: bool, in_edit: bool) []const u8 {
     if (is_cursor) return sel;
     if (is_play) return grn ++ bold;
-    if (in_sel) return if (active) yel ++ bold else yel;
+    if (in_sel) {
+        const c = if (in_edit) mag else yel;
+        return if (active) c ++ bold else c;
+    }
     if (active) return acc;
     return dim;
 }

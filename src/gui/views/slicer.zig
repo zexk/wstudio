@@ -42,6 +42,7 @@ pub fn draw(app: anytype) void {
         &app.core.slicer_cursor,
         if (app.core.modal.mode == .visual) app.core.slicer_visual_anchor else null,
         app.core.slicer_visual_slice_anchor,
+        app.core.slicer_visual_edit,
         &app.core.slicer_paint_state,
     );
 }
