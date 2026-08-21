@@ -714,8 +714,13 @@ fn handleVisualEdit(app: *App, key: modal_mod.Key) bool {
 fn editSelection(app: *App, edit: step_grid.StepEdit, delta: i32) void {
     const sl = app.slicerInst();
     const range = step_grid.gridSelectionRange(u16, app.slicer_visual_anchor, app.slicer_cursor[1], app.slicer_grid.ticks(), sl.step_count);
-    history.recordSlicer(app, app.slicer_track);
+    var entry = history.captureSlicer(app, app.slicer_track);
     const changed = step_grid.editRange(sl, sliceRange(app), range, edit, delta);
+    if (changed == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+    } else {
+        history.push(app, entry);
+    }
     app.setStatus("edited {d} selected hit{s}", .{ changed, if (changed == 1) "" else "s" });
 }
 

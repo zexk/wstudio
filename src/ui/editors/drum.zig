@@ -688,8 +688,13 @@ fn handleVisualEdit(app: *App, key: modal_mod.Key) bool {
 fn editSelection(app: *App, edit: step_grid.StepEdit, delta: i32) void {
     const dm = app.drumMachine();
     const range = step_grid.gridSelectionRange(u16, app.drum_visual_anchor, app.drum_cursor[1], app.drum_grid.ticks(), dm.step_count);
-    history.recordDrum(app, app.drum_track);
+    var entry = history.captureDrum(app, app.drum_track);
     const changed = step_grid.editRange(dm, padRange(app), range, edit, delta);
+    if (changed == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+    } else {
+        history.push(app, entry);
+    }
     app.setStatus("edited {d} selected hit{s}", .{ changed, if (changed == 1) "" else "s" });
 }
 
