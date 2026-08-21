@@ -397,7 +397,7 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     // stays in step with `:track-set`/wstudio.api.track_set and undoes the
     // same way a keyboard toggle does.
     var badge_id_buf: [40]u8 = undefined;
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "solo-{d}", .{track_index}) catch "solo", badgeX(block_x0, 0), badge_y, icons.solo, track.soloed, theme.rhythm)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "solo-{d}", .{track_index}) catch "solo", badgeX(block_x0, 0), badge_y, "S", track.soloed, theme.rhythm)) {
         app.core.apiSetTrackSoloed(track_index, !track.soloed);
     }
     if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "mute-{d}", .{track_index}) catch "mute", badgeX(block_x0, 1), badge_y, icons.mute, track.muted, theme.danger)) {
@@ -475,7 +475,7 @@ fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) 
     // slot stays empty rather than shifting these two left out of line with
     // the track rows above.
     var badge_id_buf: [40]u8 = undefined;
-    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-solo-{d}", .{group_index}) catch "gsolo", badgeX(block_x0, 0), badge_y, icons.solo, group.soloed, theme.rhythm)) {
+    if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-solo-{d}", .{group_index}) catch "gsolo", badgeX(block_x0, 0), badge_y, "S", group.soloed, theme.rhythm)) {
         app.core.doGroupSolo(group_index);
     }
     if (drawTrackBadgeToggle(draw_list, std.fmt.bufPrintZ(&badge_id_buf, "group-mute-{d}", .{group_index}) catch "gmute", badgeX(block_x0, 1), badge_y, icons.mute, group.muted, theme.danger)) {

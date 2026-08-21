@@ -28,7 +28,6 @@
 pub const play = "\u{f04b}"; // fa-play
 pub const stop = "\u{f04d}"; // fa-stop
 pub const mute = "\u{f075f}"; // md-volume_mute
-pub const solo = "\u{f005}"; // fa-star
 pub const save = "\u{f0c7}"; // fa-save
 pub const warn = "\u{f071}"; // fa-warning - unsaved-changes indicator
 pub const synth = "\u{ec1a}"; // cod-piano

@@ -162,7 +162,7 @@ fn writeTrackRow(app: anytype, w: *std.Io.Writer, ti: u16, is_sel: bool, in_sel:
     // solo indicator: green
     if (track.soloed) {
         if (!faded) try lw.writeAll(grn);
-        if (icons.font_installed) try lw.writeAll(icons.solo) else try lw.writeByte('S');
+        try lw.writeByte('S');
         if (!faded) try lw.writeAll(rst);
         if (is_sel) try lw.writeAll(sel);
     } else {
@@ -254,7 +254,7 @@ fn writeGroupRow(app: anytype, w: *std.Io.Writer, gi: u8, is_sel: bool, in_sel: 
     if (grp.soloed) {
         try lw.writeByte(' ');
         if (!is_sel) try lw.writeAll(grn);
-        if (icons.font_installed) try lw.writeAll(icons.solo) else try lw.writeByte('S');
+        try lw.writeByte('S');
         if (!is_sel) try lw.writeAll(rst);
     }
     if (grp.muted) {
