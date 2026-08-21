@@ -1455,9 +1455,10 @@ fn pasteSelection(app: *App, pp: *pattern_mod.PatternPlayer, reps: u32) void {
     };
     var before = history.captureMelodic(app, app.piano_track);
     const cursor_beat = stepToBeat(app, app.piano_cursor_step);
+    const reps_wanted = @max(1, reps);
     var pasted: u32 = 0;
     var rep: u32 = 0;
-    while (rep < @max(1, reps)) : (rep += 1) {
+    while (rep < reps_wanted) : (rep += 1) {
         const base_beat = cursor_beat + @as(f64, @floatFromInt(rep)) * clip.length_beats;
         if (base_beat >= pp.length_beats) break;
         for (clip.notes[0..clip.count]) |n| {
@@ -1480,7 +1481,10 @@ fn pasteSelection(app: *App, pp: *pattern_mod.PatternPlayer, reps: u32) void {
     }
     history.push(app, before);
     app.last_edit = .piano_range_paste;
-    app.setStatus("pasted {d} notes", .{pasted});
+    if (rep < reps_wanted)
+        app.setStatus("pasted {d} notes ({d} of {d} copies) - ran out of pattern", .{ pasted, rep, reps_wanted })
+    else
+        app.setStatus("pasted {d} notes", .{pasted});
     syncLinkedClip(app);
     exitVisual(app);
 }

@@ -757,7 +757,10 @@ fn pasteSelection(app: *App) void {
     const base_row = step_grid.pasteBaseRow(clip, app.drum_cursor[0], DrumMachine.max_pads);
     const n = step_grid.pasteRangeDyn(dm, DrumMachine.max_pads, clip, app.drum_cursor[1], base_row);
     app.last_edit = .drum_range_paste;
-    app.setStatus("pasted {d} steps", .{n});
+    if (n < clip.width)
+        app.setStatus("pasted {d} of {d} steps - ran out of pattern", .{ n, clip.width })
+    else
+        app.setStatus("pasted {d} steps", .{n});
     exitVisual(app);
 }
 

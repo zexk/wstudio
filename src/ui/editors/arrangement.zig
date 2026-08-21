@@ -763,7 +763,10 @@ fn pasteSelection(app: *App, insert: bool) void {
     if (pasted > 0) app.arr_cursor_bar = end_bar / app.arr_grid.ticks();
     app.last_edit = .{ .arr_range_paste = .{ .insert = insert } };
     if (app.session.song_mode) app.session.rebuildSongData();
-    app.setStatus("pasted {d} clip(s)", .{pasted});
+    if (pasted < clip.clips.len)
+        app.setStatus("pasted {d} of {d} clip(s) - some didn't fit or match", .{ pasted, clip.clips.len })
+    else
+        app.setStatus("pasted {d} clip(s)", .{pasted});
     exitVisual(app);
 }
 

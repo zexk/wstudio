@@ -781,7 +781,10 @@ fn pasteSelection(app: *App) void {
     const base_row = step_grid.pasteBaseRow(clip, app.slicer_cursor[0], Slicer.max_slices);
     const n = step_grid.pasteRangeDyn(sl, Slicer.max_slices, clip, app.slicer_cursor[1], base_row);
     app.last_edit = .slicer_range_paste;
-    app.setStatus("pasted {d} steps", .{n});
+    if (n < clip.width)
+        app.setStatus("pasted {d} of {d} steps - ran out of pattern", .{ n, clip.width })
+    else
+        app.setStatus("pasted {d} steps", .{n});
     exitVisual(app);
 }
 

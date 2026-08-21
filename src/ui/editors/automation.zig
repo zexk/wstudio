@@ -479,16 +479,27 @@ fn pasteSelection(app: *App, clip: *ws.Clip) void {
     };
     const base_beat = @as(f64, @floatFromInt(app.automation_cursor_step)) * 0.25;
     const max_beat: f64 = @as(f64, @floatFromInt(maxStep(app, clip))) * 0.25;
+    // Points are rebased in beat order (see yankSelection), so once one
+    // clamps against `max_beat` every point after it clamps to the exact
+    // same beat too - setPoint overwrites rather than adding a second point
+    // there, silently collapsing the run to one unless it's called out.
+    var placed: usize = 0;
+    var last_beat: ?f64 = null;
     for (rc.points) |p| {
         const beat = std.math.clamp(base_beat + p.beat, 0, max_beat);
         automation_mod.setPoint(app.allocator, points, beat, p.value) catch {
             app.setStatus("paste failed (out of memory)", .{});
             return;
         };
+        if (last_beat == null or @abs(beat - last_beat.?) >= 1e-9) placed += 1;
+        last_beat = beat;
     }
     app.last_edit = .automation_range_paste;
     if (app.session.song_mode) app.session.rebuildSongData();
-    app.setStatus("pasted {d} point(s)", .{rc.points.len});
+    if (placed < rc.points.len)
+        app.setStatus("pasted {d} of {d} point(s) - ran out of pattern", .{ placed, rc.points.len })
+    else
+        app.setStatus("pasted {d} point(s)", .{placed});
     exitVisual(app);
 }
 
