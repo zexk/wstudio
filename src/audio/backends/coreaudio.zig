@@ -86,6 +86,20 @@ extern fn AudioOutputUnitStop(AudioUnit) callconv(.c) OSStatus;
 extern fn AudioUnitRender(AudioUnit, *u32, *const anyopaque, u32, u32, *AudioBufferList) callconv(.c) OSStatus;
 extern fn AudioObjectGetPropertyData(u32, *const AudioObjectPropertyAddress, u32, ?*const anyopaque, *u32, *anyopaque) callconv(.c) OSStatus;
 
+fn openUnit(subtype: u32) AudioUnit {
+    const description = AudioComponentDescription{
+        .componentType = audio_unit_type_output,
+        .componentSubType = subtype,
+        .componentManufacturer = audio_unit_manufacturer_apple,
+        .componentFlags = 0,
+        .componentFlagsMask = 0,
+    };
+    const component = AudioComponentFindNext(null, &description) orelse return null;
+    var unit: AudioUnit = null;
+    if (AudioComponentInstanceNew(component, &unit) != 0) return null;
+    return unit;
+}
+
 pub const CoreAudioBackend = struct {
     config: backend_mod.Config,
     render: backend_mod.RenderFn,
@@ -103,17 +117,7 @@ pub const CoreAudioBackend = struct {
             std.fmt.parseInt(u32, self.config.output_device, 10) catch return error.DeviceOpenFailed
         else
             null;
-        const description = AudioComponentDescription{
-            .componentType = audio_unit_type_output,
-            .componentSubType = if (selected_device != null) audio_unit_subtype_hal_output else audio_unit_subtype_default_output,
-            .componentManufacturer = audio_unit_manufacturer_apple,
-            .componentFlags = 0,
-            .componentFlagsMask = 0,
-        };
-        const component = AudioComponentFindNext(null, &description) orelse return error.DeviceOpenFailed;
-
-        var unit: AudioUnit = null;
-        if (AudioComponentInstanceNew(component, &unit) != 0) return error.DeviceOpenFailed;
+        const unit = openUnit(if (selected_device != null) audio_unit_subtype_hal_output else audio_unit_subtype_default_output) orelse return error.DeviceOpenFailed;
         errdefer _ = AudioComponentInstanceDispose(unit);
 
         if (selected_device) |device| {
@@ -226,17 +230,7 @@ pub const CoreAudioCapture = struct {
             std.fmt.parseInt(u32, device_name, 10) catch return error.DeviceOpenFailed
         else
             defaultInputDevice() orelse return error.DeviceOpenFailed;
-        const description = AudioComponentDescription{
-            .componentType = audio_unit_type_output,
-            .componentSubType = audio_unit_subtype_hal_output,
-            .componentManufacturer = audio_unit_manufacturer_apple,
-            .componentFlags = 0,
-            .componentFlagsMask = 0,
-        };
-        const component = AudioComponentFindNext(null, &description) orelse return error.DeviceOpenFailed;
-
-        var unit: AudioUnit = null;
-        if (AudioComponentInstanceNew(component, &unit) != 0) return error.DeviceOpenFailed;
+        const unit = openUnit(audio_unit_subtype_hal_output) orelse return error.DeviceOpenFailed;
         errdefer _ = AudioComponentInstanceDispose(unit);
 
         var enabled: u32 = 1;
