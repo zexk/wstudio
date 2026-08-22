@@ -528,9 +528,14 @@ pub const presets = [_]Preset{
             .{ .source = .keytrack, .dest = 21, .depth = 0.25 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 55, .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
         }),
-        .macro_labels = macros(.{ "brightness", "drawbar", "", "" }),
+        .macro_labels = macros(.{ "brightness", "drawbar", "width", "drive" }),
         .gain = 0.38,
+    }, .fx = &.{
+        .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 4 }, .{ .idx = 2, .value = 0.12 } } },
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.65 }, .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 0.18 } } },
     } },
 
     // disco-bass - velocity accents + bus-style compression for the octave
@@ -1399,9 +1404,14 @@ pub const presets = [_]Preset{
             .{ .source = .velocity, .dest = 36, .depth = 0.1 },
             .{ .source = .mac1,     .dest = 47, .depth = 0.4 },
             .{ .source = .mac2,     .dest = 22, .depth = 0.3 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.25, .fx_instance_id = 2 },
         }),
-        .macro_labels = macros(.{ "body", "resonance", "", "" }),
+        .macro_labels = macros(.{ "body", "resonance", "space", "" }),
         .gain = 0.32,
+    }, .fx = &.{
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.22 }, .{ .idx = 1, .value = 0.22 }, .{ .idx = 2, .value = 0.12 }, .{ .idx = 3, .value = 0.45 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.48 }, .{ .idx = 1, .value = 0.58 }, .{ .idx = 2, .value = 0.1 }, .{ .idx = 3, .value = 12 }, .{ .idx = 5, .value = 180 } } },
     } },
 
     // g-funk - the high sine whistle lead riding over everything
@@ -1442,10 +1452,15 @@ pub const presets = [_]Preset{
             .{ .source = .lfo2, .dest = dP, .depth = 0.02 },
             .{ .source = .mac1, .dest = 21, .depth = 0.7 },
             .{ .source = .mac2, .dest = 22, .depth = 0.3 },
+            .{ .source = .mac3, .dest = 3, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.25, .fx_instance_id = 2 },
             .{ .source = .wheel,    .dest = 21,  .depth = 0.35 },
         }),
-        .macro_labels = macros(.{ "cutoff", "squeal", "", "" }),
+        .macro_labels = macros(.{ "cutoff", "squeal", "space", "" }),
         .gain = 0.62,
+    }, .fx = &.{
+        .{ .kind = .phaser, .params = &.{ .{ .idx = 0, .value = 0.35 }, .{ .idx = 1, .value = 0.45 }, .{ .idx = 2, .value = 0.25 }, .{ .idx = 3, .value = 0.16 } } },
+        .{ .kind = .delay, .params = &.{ .{ .idx = 0, .value = 0.28 }, .{ .idx = 1, .value = 0.22 }, .{ .idx = 2, .value = 0.1 }, .{ .idx = 3, .value = 0.55 } } },
     } },
 
     // g-funk - deep gliding Moog-style low end, now on the actual ladder
@@ -2811,6 +2826,14 @@ test "every preset except init wires at least one performance macro" {
         }
         errdefer std.debug.print("preset '{s}' has no macro row\n", .{p.name});
         try std.testing.expect(has_macro);
+    }
+}
+
+test "every musical preset declares an FX chain" {
+    for (presets) |p| {
+        if (std.mem.eql(u8, p.name, "init")) continue;
+        errdefer std.debug.print("preset '{s}' is dry\n", .{p.name});
+        try std.testing.expect(p.fx.len > 0);
     }
 }
 
