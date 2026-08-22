@@ -119,7 +119,11 @@ fn drawBookmarks(app: anytype) void {
         for (@intCast(clipper.DisplayStart)..@intCast(clipper.DisplayEnd)) |i| {
             const bookmark = app.core.bookmarks.items[i];
             const clicked = drawEntry(bookmark.path, bookmark.is_dir, app.core.bookmark_cursor == i, false, i, "");
-            widgets.copyContext(bookmark.path);
+            if (bookmarkContext(bookmark.path)) {
+                app.core.bookmark_cursor = i;
+                app.core.handleKey(.{ .char = 'd' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+                return;
+            }
             if (clicked) {
                 app.core.bookmark_cursor = i;
                 app.core.handleKey(.enter, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
@@ -127,6 +131,19 @@ fn drawBookmarks(app: anytype) void {
             }
         }
     }
+}
+
+fn bookmarkContext(path: []const u8) bool {
+    if (!zgui.beginPopupContextItem()) return false;
+    var deleted = false;
+    if (zgui.menuItem("Copy", .{})) {
+        var buf: [4096]u8 = undefined;
+        if (std.fmt.bufPrintZ(&buf, "{s}", .{path})) |value| zgui.setClipboardText(value) else |_| {}
+    }
+    zgui.separator();
+    if (zgui.menuItem("Delete bookmark", .{ .shortcut = "d" })) deleted = true;
+    zgui.endPopup();
+    return deleted;
 }
 
 const entry_pitch: f32 = 32;
