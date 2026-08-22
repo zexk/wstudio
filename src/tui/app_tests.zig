@@ -57,6 +57,22 @@ fn testApp() !App {
     return app;
 }
 
+fn pianoMouseApp() !App {
+    var app = try testApp();
+    app.piano_track = 0;
+    app.view = .piano_roll;
+    app.piano_scroll_step = 0;
+    app.piano_scroll_pitch = 72;
+    return app;
+}
+
+fn drumGridApp() !App {
+    var app = try testApp();
+    app.view = .drum_grid;
+    app.drum_track = 2;
+    return app;
+}
+
 fn installSlicerTestClip(app: *App) !void {
     const sl = app.slicerInst();
     std.testing.allocator.free(sl.samples);
@@ -193,10 +209,8 @@ test "help view: / search jumps and anchors n/N; ? closes" {
 }
 
 test "/ search reports unavailable in a view with nothing to search" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-    app.view = .drum_grid;
-    app.drum_track = 2;
     app.drum_cursor = .{ 3, 5 };
 
     typeKeys(&app, "/kick");
@@ -3043,10 +3057,8 @@ test "drum grid yank/paste carries pattern, velocity, and length" {
 }
 
 test "drum grid visual-line mode selects a step range across pads for y/d/P" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-    app.view = .drum_grid;
-    app.drum_track = 2;
     const dm = app.drumMachine();
     for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
     dm.setStepCount(64);
@@ -3088,10 +3100,8 @@ test "drum grid visual-line mode selects a step range across pads for y/d/P" {
 }
 
 test "drum grid blockwise visual bounds the selection to the pad band j/k grows" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-    app.view = .drum_grid;
-    app.drum_track = 2;
     const dm = app.drumMachine();
     for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
     dm.setStepCount(16);
@@ -3128,11 +3138,8 @@ test "drum grid blockwise visual bounds the selection to the pad band j/k grows"
 }
 
 test "drum and slicer visual edit changes every selected hit" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-
-    app.view = .drum_grid;
-    app.drum_track = 2;
     const dm = app.drumMachine();
     dm.toggleStep(0, 0);
     dm.toggleStep(1, 1);
@@ -3182,11 +3189,8 @@ test "drum and slicer visual edit changes every selected hit" {
 }
 
 test "step-grid visual edit moves reverses and inverts selected hits" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-
-    app.view = .drum_grid;
-    app.drum_track = 2;
     const dm = app.drumMachine();
     dm.toggleStep(0, 0);
     dm.setStepProb(0, 0, 25);
@@ -3250,10 +3254,8 @@ test "rowRange: a null anchor is every row, an anchored one is the band" {
 }
 
 test "drum grid visual mode yank/paste carries a range wider than the old 64-step clipboard cap" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-    app.view = .drum_grid;
-    app.drum_track = 2;
     const dm = app.drumMachine();
     for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
     dm.setStepCount(200);
@@ -3284,10 +3286,8 @@ test "drum grid visual mode yank/paste carries a range wider than the old 64-ste
 }
 
 test "drum grid visual mode: w/b extend the selection by beat, matching normal-mode jumpBar" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-    app.view = .drum_grid;
-    app.drum_track = 2;
     const dm = app.drumMachine();
     for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
     dm.setStepCount(64);
@@ -3315,10 +3315,8 @@ test "drum grid visual mode: w/b extend the selection by beat, matching normal-m
 }
 
 test "drum grid visual mode: J/K jump a pad bank, matching normal-mode movePad" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-    app.view = .drum_grid;
-    app.drum_track = 2;
 
     app.drum_cursor = .{ 0, 0 };
     app.handleKey(.{ .char = 'v' }, 0);
@@ -3331,10 +3329,8 @@ test "drum grid visual mode: J/K jump a pad bank, matching normal-mode movePad" 
 }
 
 test "drum grid normal-mode p pastes the most recent yank: range after visual y, pattern after yy" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-    app.view = .drum_grid;
-    app.drum_track = 2;
     const dm = app.drumMachine();
     for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
     dm.setStepCount(16);
@@ -3362,10 +3358,8 @@ test "drum grid normal-mode p pastes the most recent yank: range after visual y,
 }
 
 test "drum grid operator+motion: d3l / y3l act on a range without entering visual mode" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-    app.view = .drum_grid;
-    app.drum_track = 2;
     const dm = app.drumMachine();
     for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
     dm.setStepCount(64);
@@ -3403,10 +3397,8 @@ test "drum grid operator+motion: d3l / y3l act on a range without entering visua
 }
 
 test "drum grid char/word tiers: x clears just this cell, w/b jump by beat" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-    app.view = .drum_grid;
-    app.drum_track = 2;
     const dm = app.drumMachine();
     for (0..ws.dsp.DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
     dm.setStepCount(64);
@@ -8976,12 +8968,8 @@ test "drum grid modifier mouse edits hovered step expression" {
 }
 
 test "mouse click on an empty piano-roll cell inserts a note" {
-    var app = try testApp();
+    var app = try pianoMouseApp();
     defer app.deinit();
-    app.piano_track = 0;
-    app.view = .piano_roll;
-    app.piano_scroll_step = 0;
-    app.piano_scroll_pitch = 72;
     const pp = &app.session.racks.items[0].pattern_player.?;
     try std.testing.expectEqual(@as(u16, 0), pp.note_count);
 
@@ -8993,12 +8981,8 @@ test "mouse click on an empty piano-roll cell inserts a note" {
 }
 
 test "piano-roll mouse grabs sustained note bodies without jumping the onset" {
-    var app = try testApp();
+    var app = try pianoMouseApp();
     defer app.deinit();
-    app.piano_track = 0;
-    app.view = .piano_roll;
-    app.piano_scroll_step = 0;
-    app.piano_scroll_pitch = 72;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.addNote(.{ .pitch = 72, .start_beat = 0.0, .duration_beat = 1.0 });
 
@@ -9012,12 +8996,8 @@ test "piano-roll mouse grabs sustained note bodies without jumping the onset" {
 }
 
 test "piano-roll draw-drag sizes only the note it just placed" {
-    var app = try testApp();
+    var app = try pianoMouseApp();
     defer app.deinit();
-    app.piano_track = 0;
-    app.view = .piano_roll;
-    app.piano_scroll_step = 0;
-    app.piano_scroll_pitch = 72;
     app.piano_note_len = 1.0;
     const pp = &app.session.racks.items[0].pattern_player.?;
 
@@ -9040,12 +9020,8 @@ test "piano-roll draw-drag sizes only the note it just placed" {
 }
 
 test "piano-roll right-drag erases every note it sweeps, as one undo entry" {
-    var app = try testApp();
+    var app = try pianoMouseApp();
     defer app.deinit();
-    app.piano_track = 0;
-    app.view = .piano_roll;
-    app.piano_scroll_step = 0;
-    app.piano_scroll_pitch = 72;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.addNote(.{ .pitch = 72, .start_beat = 0.0, .duration_beat = 0.5 }); // covers steps 0-1
     pp.addNote(.{ .pitch = 71, .start_beat = 0.5, .duration_beat = 0.25 }); // step 2, row below
@@ -9066,12 +9042,8 @@ test "piano-roll right-drag erases every note it sweeps, as one undo entry" {
 }
 
 test "shift+drag clones a piano-roll note instead of moving it" {
-    var app = try testApp();
+    var app = try pianoMouseApp();
     defer app.deinit();
-    app.piano_track = 0;
-    app.view = .piano_roll;
-    app.piano_scroll_step = 0;
-    app.piano_scroll_pitch = 72;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.addNote(.{ .pitch = 72, .start_beat = 0.0, .duration_beat = 0.25, .velocity = 0.5 });
 
@@ -9112,12 +9084,8 @@ test "piano-roll gutter click and ctrl+scroll move the pitch cursor" {
 }
 
 test "mouse drag moves an existing piano-roll note; a plain click-release toggles it off" {
-    var app = try testApp();
+    var app = try pianoMouseApp();
     defer app.deinit();
-    app.piano_track = 0;
-    app.view = .piano_roll;
-    app.piano_scroll_step = 0;
-    app.piano_scroll_pitch = 72;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.addNote(.{ .pitch = 72, .start_beat = 0.0, .duration_beat = 0.25 });
 
@@ -9261,12 +9229,8 @@ test "right-click always erases a drum step, and a right-drag erases a run of th
 }
 
 test "right-click deletes a piano-roll note without needing a grab/release cycle" {
-    var app = try testApp();
+    var app = try pianoMouseApp();
     defer app.deinit();
-    app.piano_track = 0;
-    app.view = .piano_roll;
-    app.piano_scroll_step = 0;
-    app.piano_scroll_pitch = 72;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.addNote(.{ .pitch = 72, .start_beat = 0.0, .duration_beat = 0.25 });
 
@@ -9276,12 +9240,8 @@ test "right-click deletes a piano-roll note without needing a grab/release cycle
 }
 
 test "right-click deletes an off-grid piano-roll note" {
-    var app = try testApp();
+    var app = try pianoMouseApp();
     defer app.deinit();
-    app.piano_track = 0;
-    app.view = .piano_roll;
-    app.piano_scroll_step = 0;
-    app.piano_scroll_pitch = 72;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.addNote(.{ .pitch = 72, .start_beat = 0.1, .duration_beat = 0.25 });
 
