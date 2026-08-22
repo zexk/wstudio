@@ -497,11 +497,8 @@ test ":swing sets the cursor track's pattern swing, clamped, and reports with no
 }
 
 test "drum and slicer swing nudges are undoable" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-
-    app.drum_track = 2;
-    app.view = .drum_grid;
     _ = drum_ed.handleKey(&app, .{ .char = '>' });
     try std.testing.expectApproxEqAbs(@as(f32, 51), app.drumMachine().swing.load(.monotonic), 1e-6);
     history.doUndo(&app);
@@ -1485,10 +1482,8 @@ test "z and Z select drum grid subdivisions" {
 }
 
 test "drum grid +/- resize the loop by musical bars" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-    app.drum_track = 2;
-    app.view = .drum_grid;
     app.drum_cursor = .{ 0, 0 };
     const dm = app.drumMachine();
     const start = dm.step_count;
@@ -1570,10 +1565,8 @@ test "slicer grid +/- resize the loop by musical bars" {
 }
 
 test "drum grid m/M set a pad's own loop length and grid zoom leaves it untouched" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-    app.drum_track = 2;
-    app.view = .drum_grid;
     app.drum_cursor = .{ 0, 0 };
     const dm = app.drumMachine();
     const steps = dm.step_count;
@@ -2064,10 +2057,8 @@ test "piano roll f cycles which per-note field </> edits" {
 }
 
 test "piano roll micro-nudge moves onset independently of grid" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.piano_track = 0;
-    app.view = .piano_roll;
     app.piano_cursor_pitch = 60;
     app.piano_cursor_step = 4;
     const pp = &app.session.racks.items[0].pattern_player.?;
@@ -3933,11 +3924,8 @@ test "arrangement 0: jumps to bar 0 with no pending count, but continues a count
 }
 
 test "draw renders drum_grid view without overflowing" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-
-    app.drum_track = 2;
-    app.view = .drum_grid;
     app.session.project.beats_per_bar = 6;
     app.session.project.meter_denominator = 8;
     var buf: [32 * 1024]u8 = undefined;
@@ -3975,11 +3963,8 @@ test "draw renders drum_grid view without overflowing" {
 }
 
 test "e opens drum-pad sampler editor from drum grid; esc returns" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-
-    app.drum_track = 2;
-    app.view = .drum_grid;
     app.drum_cursor = .{ 2, 0 };
     _ = drum_ed.handleKey(&app, .{ .char = 'e' });
     try std.testing.expectEqual(AppView.sampler_editor, app.view);
@@ -7665,10 +7650,8 @@ test "R opens the command prompt pre-filled with :rename <n> for a track" {
 }
 
 test "R opens the command prompt pre-filled with :rename <n> for a pad in the drum grid" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-    app.drum_track = 2;
-    app.view = .drum_grid;
     app.drum_cursor = .{ 3, 0 }; // pad 3 = "open"
 
     _ = drum_ed.handleKey(&app, .{ .char = 'R' });
@@ -7994,10 +7977,8 @@ test ":metronome Tab cycles on/off" {
 }
 
 test ":snap-scale pulls off-scale notes onto the nearest tone, and sets the scale inline" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.piano_track = 0;
-    app.view = .piano_roll;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.addNote(.{ .pitch = 61, .start_beat = 0.0, .duration_beat = 0.25 }); // C#
     pp.addNote(.{ .pitch = 62, .start_beat = 1.0, .duration_beat = 0.25 }); // D, already in D minor
@@ -8780,10 +8761,8 @@ test "arrangement view scrolls lanes to keep the cursor visible with many tracks
 }
 
 test "mouse click toggles a drum step and drag paints a run of them" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-    app.drum_track = 2;
-    app.view = .drum_grid;
 
     // Default 1/16 grid visits canonical ticks 8, 16, and 24.
     try std.testing.expect(!app.drumMachine().stepActive(0, 8));
@@ -8808,10 +8787,8 @@ test "mouse click toggles a drum step and drag paints a run of them" {
 }
 
 test "drum grid modifier mouse edits hovered step expression" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-    app.drum_track = 2;
-    app.view = .drum_grid;
     const dm = app.drumMachine();
     const row = app_mod.content_top + 2;
     const x = 15;
@@ -8922,10 +8899,8 @@ test "shift+drag clones a piano-roll note instead of moving it" {
 }
 
 test "piano-roll gutter click and ctrl+scroll move the pitch cursor" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.piano_track = 0;
-    app.view = .piano_roll;
     app.piano_scroll_pitch = 72;
     app.piano_cursor_pitch = 72;
     const pp = &app.session.racks.items[0].pattern_player.?;
@@ -9051,10 +9026,8 @@ test "a clip drag belongs to the lane the press picked, and its release always l
 }
 
 test "right-click always erases a drum step, and a right-drag erases a run of them" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-    app.drum_track = 2;
-    app.view = .drum_grid;
 
     const dm = app.drumMachine();
     dm.toggleStep(0, 8); // first visible grid step starts ON
@@ -10096,10 +10069,8 @@ test "undo puts back the sound a synth preset replaced" {
 }
 
 test "f in the drum grid opens the kit picker and enter regenerates the pads" {
-    var app = try testApp();
+    var app = try drumGridApp();
     defer app.deinit();
-    app.drum_track = 2;
-    app.view = .drum_grid;
 
     app.handleKey(.{ .char = 'f' }, 0);
     try std.testing.expectEqual(AppView.preset_picker, app.view);
@@ -11022,10 +10993,8 @@ test ":colorscheme reports, switches (scoped per frontend), and rejects bad name
 }
 
 test "a loop too long for the u16 step grid draws and edits instead of panicking" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.piano_track = 0;
-    app.view = .piano_roll;
     app.piano_division = .one_twenty_eighth; // 32 steps per beat
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
