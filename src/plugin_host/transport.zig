@@ -33,6 +33,7 @@ pub const WireEventKind = enum(u8) {
     all_off,
     cc,
     pitch_bend,
+    midi2_per_note_pitch_bend,
     automation_param,
     clap_param,
     vst3_param,
@@ -76,6 +77,7 @@ pub fn fromDeviceEvent(ev: device_mod.Event, self_ptr: *anyopaque) ?WireEvent {
         .all_off => .{ .kind = .all_off },
         .cc => |c| .{ .kind = .cc, .cc = c.cc, .cc_value = c.value },
         .pitch_bend => |b| .{ .kind = .pitch_bend, .bend = b.bend },
+        .midi2_per_note_pitch_bend => |b| .{ .kind = .midi2_per_note_pitch_bend, .note = b.note, .value = b.value },
         .automation_param => |p| .{ .kind = .automation_param, .param_id = p.id, .sample_offset = p.sample_offset, .value = p.value },
         .clap_param => |p| if (p.target == self_ptr) .{ .kind = .clap_param, .param_id = p.id, .cookie = p.cookie, .value = p.value, .sample_offset = p.sample_offset } else null,
         .vst3_param => |p| if (p.target == self_ptr) .{ .kind = .vst3_param, .param_id = p.id, .value = p.value, .sample_offset = p.sample_offset } else null,
@@ -94,6 +96,7 @@ pub fn toDeviceEvent(wire: WireEvent, self_ptr: *anyopaque) ?device_mod.Event {
         .all_off => .all_off,
         .cc => .{ .cc = .{ .cc = @intCast(wire.cc), .value = @intCast(wire.cc_value) } },
         .pitch_bend => .{ .pitch_bend = .{ .bend = wire.bend } },
+        .midi2_per_note_pitch_bend => .{ .midi2_per_note_pitch_bend = .{ .note = @intCast(wire.note), .value = @floatCast(wire.value) } },
         .automation_param => .{ .automation_param = .{ .id = wire.param_id, .value = @floatCast(wire.value), .sample_offset = wire.sample_offset } },
         .clap_param => .{ .clap_param = .{ .target = self_ptr, .id = wire.param_id, .cookie = wire.cookie, .value = wire.value, .sample_offset = wire.sample_offset } },
         .vst3_param => .{ .vst3_param = .{ .target = self_ptr, .id = wire.param_id, .value = wire.value, .sample_offset = wire.sample_offset } },
@@ -282,6 +285,13 @@ test "WireEvent preserves parameter sample offset" {
     const ev: device_mod.Event = .{ .automation_param = .{ .id = 7, .value = 0.5, .sample_offset = 123 } };
     const back = toDeviceEvent(fromDeviceEvent(ev, self_ptr).?, self_ptr).?;
     try std.testing.expectEqual(@as(u32, 123), back.automation_param.sample_offset);
+}
+
+test "WireEvent round-trips MIDI 2.0 per-note pitch bend" {
+    const event: device_mod.Event = .{ .midi2_per_note_pitch_bend = .{ .note = 60, .value = 0.25 } };
+    const wire = fromDeviceEvent(event, undefined).?;
+    try std.testing.expectEqual(WireEventKind.midi2_per_note_pitch_bend, wire.kind);
+    try std.testing.expectEqual(event, toDeviceEvent(wire, undefined).?);
 }
 
 test "monotonicNs advances and sleepNs actually sleeps" {

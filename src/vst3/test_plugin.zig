@@ -252,7 +252,15 @@ fn process(raw: *anyopaque, data: *abi.ProcessData) callconv(abi.abi_callconv) a
     const output = &data.outputs.?[0];
     const events: *abi.EventList = @ptrCast(@alignCast(data.input_events.?));
     const context: *abi.ProcessContext = @ptrCast(@alignCast(data.process_context.?));
-    const instrument_value: f32 = if (events.vtable.get_event_count(events) > 0) @floatCast(context.tempo / 480.0) else 0;
+    var instrument_value: f32 = if (events.vtable.get_event_count(events) > 0) @floatCast(context.tempo / 480.0) else 0;
+    for (0..@as(usize, @intCast(events.vtable.get_event_count(events)))) |index| {
+        var event: abi.Event = undefined;
+        if (events.vtable.get_event(events, @intCast(index), &event) == 0 and event.event_type == abi.event_note_expression_value) {
+            const expression = event.payload.note_expression_value;
+            if (expression.type_id == abi.note_expression_tuning and expression.note_id == 60)
+                instrument_value = @floatCast(expression.value);
+        }
+    }
     for (0..frames) |frame| for (0..@as(usize, @intCast(output.num_channels))) |channel| {
         output.buffers.channel_buffers_32[channel][frame] = if (owner.instrument) instrument_value * @as(f32, @floatCast(owner.param)) else data.inputs.?[0].buffers.channel_buffers_32[channel][frame] * 2 * @as(f32, @floatCast(owner.param));
     };

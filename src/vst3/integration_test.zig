@@ -25,6 +25,10 @@ fn runScenario(gpa: std.mem.Allocator, io: std.Io, module_path: []const u8, bund
     var instrument_audio = [_]ws.types.Sample{0} ** 8;
     instrument.processBlock(&instrument_audio);
     try std.testing.expectEqual(@as(f32, 0.25), instrument_audio[0]);
+    instrument.handleEvent(.{ .midi2_per_note_pitch_bend = .{ .note = 60, .value = 0.5 } });
+    @memset(&instrument_audio, 0);
+    instrument.processBlock(&instrument_audio);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5 + 1.0 / 240.0), instrument_audio[0], 0.000001);
     try std.testing.expectEqual(@as(usize, 1), instrument.automationParams().len);
     instrument.handleEvent(.{ .automation_param = .{ .id = 100, .value = 0.75 } });
     instrument.handleEvent(.{ .note_on = .{ .note = 60, .velocity = 1 } });

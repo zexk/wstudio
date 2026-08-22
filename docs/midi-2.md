@@ -24,13 +24,16 @@ fields in recognized Channel Voice messages are rejected.
 - 16-bit note velocity, normalized only when entering DSP
 - 32-bit CC and pitch bend
 - 32-bit channel pressure and poly pressure
-- 32-bit per-note pitch bend for built-in synth voices
+- 32-bit per-note pitch bend for built-in synth voices and hosted CLAP/VST3 instruments
 - program and bank changes for hosted plugins
 - MIDI 1.0 System Realtime UMP
 
 CC, pressure, and pitch values retain MIDI 2.0 resolution through engine and
-built-in synth. CLAP plugins using byte-stream MIDI receive a scaled MIDI 1.0
-value at plugin boundary. VST3 MIDI mappings receive normalized values.
+built-in synth. CLAP plugins using native note events receive per-note pitch as
+tuning note expression; byte-stream-only plugins cannot receive it. VST3
+instruments receive standard tuning note-expression events. CLAP plugins using
+byte-stream MIDI receive other controls as scaled MIDI 1.0 values. VST3 MIDI
+mappings receive normalized channel controls.
 
 Groups and channels are decoded, but live input follows existing controller
 routing: every message targets selected track. No channel or group filter is

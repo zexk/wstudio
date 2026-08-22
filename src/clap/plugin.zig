@@ -119,12 +119,14 @@ fn getExt(comptime T: type, plugin: *const abi.Plugin, ext_id: [*:0]const u8) ?*
 
 const StoredEvent = union(enum) {
     note: abi.EventNote,
+    note_expression: abi.EventNoteExpression,
     midi: abi.EventMidi,
     param: abi.EventParamValue,
 
     fn header(self: *const StoredEvent) *const abi.EventHeader {
         return switch (self.*) {
             .note => |*event| &event.header,
+            .note_expression => |*event| &event.header,
             .midi => |*event| &event.header,
             .param => |*event| &event.header,
         };
@@ -1073,7 +1075,7 @@ const Direct = struct {
                 const value: u14 = @intFromFloat(@round((bend.value + 1.0) * 8191.5));
                 self.pushMidi(.{ 0xe0, @truncate(value), @truncate(value >> 7) });
             },
-            .midi2_per_note_pitch_bend => {},
+            .midi2_per_note_pitch_bend => |bend| if (self.note_dialect == .clap) self.pushNoteTuning(bend.note, bend.value * 2.0),
             .channel_pressure => |pressure| if (self.supports_midi) self.pushMidi(.{ 0xd0, @intFromFloat(@round(pressure.value * 127.0)), 0 }),
             .poly_pressure => |pressure| if (self.supports_midi) self.pushMidi(.{ 0xa0, pressure.note, @intFromFloat(@round(pressure.value * 127.0)) }),
             .program_change => |program| if (self.supports_midi) {
@@ -1123,6 +1125,18 @@ const Direct = struct {
             .channel = if (key == null) -1 else 0,
             .key = if (key) |value| value else -1,
             .velocity = velocity,
+        } });
+    }
+
+    fn pushNoteTuning(self: *Direct, key: u7, semitones: f32) void {
+        self.events.push(.{ .note_expression = .{
+            .header = eventHeader(@sizeOf(abi.EventNoteExpression), abi.event_note_expression),
+            .expression_id = abi.note_expression_tuning,
+            .note_id = -1,
+            .port_index = 0,
+            .channel = 0,
+            .key = key,
+            .value = semitones,
         } });
     }
 

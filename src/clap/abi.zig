@@ -44,6 +44,16 @@ pub const EventNote = extern struct {
     velocity: f64,
 };
 
+pub const EventNoteExpression = extern struct {
+    header: EventHeader,
+    expression_id: i32,
+    note_id: i32,
+    port_index: i16,
+    channel: i16,
+    key: i16,
+    value: f64,
+};
+
 pub const EventMidi = extern struct {
     header: EventHeader,
     port_index: u16,
@@ -81,10 +91,12 @@ pub const EventTransport = extern struct {
 pub const event_note_on: u16 = 0;
 pub const event_note_off: u16 = 1;
 pub const event_note_choke: u16 = 2;
+pub const event_note_expression: u16 = 4;
 pub const event_param_value: u16 = 5;
 pub const event_midi: u16 = 10;
 pub const event_transport: u16 = 9;
 pub const core_event_space_id: u16 = 0;
+pub const note_expression_tuning: i32 = 2;
 
 pub const transport_has_tempo: u32 = 1 << 0;
 pub const transport_has_beats_timeline: u32 = 1 << 1;
@@ -347,14 +359,14 @@ pub fn versionIsCompatible(v: Version) bool {
 
 comptime {
     const pairs = .{
-        .{ Version, official.core.clap_version_t },                              .{ EventHeader, official.core.clap_event_header_t },                         .{ EventNote, official.core.clap_event_note_t },
-        .{ EventMidi, official.core.clap_event_midi_t },                         .{ EventParamValue, official.core.clap_event_param_value_t },                .{ EventTransport, official.core.clap_event_transport_t },
-        .{ AudioPortInfo, official.audio_ports.clap_audio_port_info_t },         .{ NotePortInfo, official.note_ports.clap_note_port_info_t },                .{ ParamInfo, official.params.clap_param_info_t },
-        .{ AudioBuffer, official.core.clap_audio_buffer_t },                     .{ Process, official.core.clap_process_t },                                  .{ PluginDescriptor, official.core.clap_plugin_descriptor_t },
-        .{ Host, official.core.clap_host_t },                                    .{ Plugin, official.core.clap_plugin_t },                                    .{ PluginFactory, official.core.clap_plugin_factory_t },
-        .{ PluginEntry, official.entry.clap_plugin_entry_t },                    .{ InputEvents, official.core.clap_input_events_t },                         .{ OutputEvents, official.core.clap_output_events_t },
-        .{ PluginAudioPorts, official.audio_ports.clap_plugin_audio_ports_t },   .{ PluginParams, official.params.clap_plugin_params_t },                     .{ PluginGui, official.gui.clap_plugin_gui_t },
-        .{ HostTimerSupport, official.timer_support.clap_host_timer_support_t }, .{ PluginTimerSupport, official.timer_support.clap_plugin_timer_support_t },
+        .{ Version, official.core.clap_version_t },                           .{ EventHeader, official.core.clap_event_header_t },                     .{ EventNote, official.core.clap_event_note_t },
+        .{ EventNoteExpression, official.core.clap_event_note_expression_t }, .{ EventMidi, official.core.clap_event_midi_t },                         .{ EventParamValue, official.core.clap_event_param_value_t },
+        .{ EventTransport, official.core.clap_event_transport_t },            .{ AudioPortInfo, official.audio_ports.clap_audio_port_info_t },         .{ NotePortInfo, official.note_ports.clap_note_port_info_t },
+        .{ ParamInfo, official.params.clap_param_info_t },                    .{ AudioBuffer, official.core.clap_audio_buffer_t },                     .{ Process, official.core.clap_process_t },
+        .{ PluginDescriptor, official.core.clap_plugin_descriptor_t },        .{ Host, official.core.clap_host_t },                                    .{ Plugin, official.core.clap_plugin_t },
+        .{ PluginFactory, official.core.clap_plugin_factory_t },              .{ PluginEntry, official.entry.clap_plugin_entry_t },                    .{ InputEvents, official.core.clap_input_events_t },
+        .{ OutputEvents, official.core.clap_output_events_t },                .{ PluginAudioPorts, official.audio_ports.clap_plugin_audio_ports_t },   .{ PluginParams, official.params.clap_plugin_params_t },
+        .{ PluginGui, official.gui.clap_plugin_gui_t },                       .{ HostTimerSupport, official.timer_support.clap_host_timer_support_t }, .{ PluginTimerSupport, official.timer_support.clap_plugin_timer_support_t },
     };
     for (pairs) |pair| if (@sizeOf(pair[0]) != @sizeOf(pair[1]) or @alignOf(pair[0]) != @alignOf(pair[1])) @compileError("CLAP adapter differs from official C API");
 }

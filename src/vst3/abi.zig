@@ -128,8 +128,11 @@ pub const Stream = extern struct { vtable: *const StreamVTable };
 pub const ProcessSetup = extern struct { process_mode: i32, symbolic_sample_size: i32, max_samples_per_block: i32, sample_rate: f64 };
 pub const NoteOnEvent = extern struct { channel: i16, pitch: i16, tuning: f32, velocity: f32, length: i32, note_id: i32 };
 pub const NoteOffEvent = extern struct { channel: i16, pitch: i16, velocity: f32, note_id: i32, tuning: f32 };
-pub const EventPayload = extern union { note_on: NoteOnEvent, note_off: NoteOffEvent, reserved: [3]u64 };
+pub const NoteExpressionValueEvent = extern struct { type_id: u32, note_id: i32, value: f64 };
+pub const EventPayload = extern union { note_on: NoteOnEvent, note_off: NoteOffEvent, note_expression_value: NoteExpressionValueEvent, reserved: [3]u64 };
 pub const Event = extern struct { bus_index: i32, sample_offset: i32, ppq_position: f64, flags: u16, event_type: u16, payload: EventPayload };
+pub const event_note_expression_value: u16 = 4;
+pub const note_expression_tuning: u32 = 2;
 pub const EventListVTable = extern struct {
     query_interface: *const fn (*anyopaque, *const Tuid, *?*anyopaque) callconv(abi_callconv) Result,
     add_ref: *const fn (*anyopaque) callconv(abi_callconv) u32,
@@ -411,12 +414,12 @@ comptime {
     if (@sizeOf(FUnknown) != @sizeOf(*anyopaque)) @compileError("VST3 FUnknown ABI size mismatch");
     if (@sizeOf(Tuid) != 16) @compileError("VST3 TUID ABI size mismatch");
     const pairs = .{
-        .{ FactoryInfo, official.Steinberg_PFactoryInfo },           .{ ClassInfo, official.Steinberg_PClassInfo },                         .{ ClassInfo2, official.Steinberg_PClassInfo2 },
-        .{ BusInfo, official.Steinberg_Vst_BusInfo },                .{ ParameterInfo, official.Steinberg_Vst_ParameterInfo },              .{ ProcessSetup, official.Steinberg_Vst_ProcessSetup },
-        .{ Event, official.Steinberg_Vst_Event },                    .{ ProcessContext, official.Steinberg_Vst_ProcessContext },            .{ AudioBusBuffers, official.Steinberg_Vst_AudioBusBuffers },
-        .{ ProcessData, official.Steinberg_Vst_ProcessData },        .{ PluginFactoryVTable, official.Steinberg_IPluginFactoryVtbl },       .{ PluginFactory2VTable, official.Steinberg_IPluginFactory2Vtbl },
-        .{ ComponentVTable, official.Steinberg_Vst_IComponentVtbl }, .{ EditControllerVTable, official.Steinberg_Vst_IEditControllerVtbl }, .{ AudioProcessorVTable, official.Steinberg_Vst_IAudioProcessorVtbl },
-        .{ MessageVTable, official.Steinberg_Vst_IMessageVtbl },     .{ AttributeListVTable, official.Steinberg_Vst_IAttributeListVtbl },
+        .{ FactoryInfo, official.Steinberg_PFactoryInfo },                     .{ ClassInfo, official.Steinberg_PClassInfo },                                  .{ ClassInfo2, official.Steinberg_PClassInfo2 },
+        .{ BusInfo, official.Steinberg_Vst_BusInfo },                          .{ ParameterInfo, official.Steinberg_Vst_ParameterInfo },                       .{ ProcessSetup, official.Steinberg_Vst_ProcessSetup },
+        .{ Event, official.Steinberg_Vst_Event },                              .{ NoteExpressionValueEvent, official.Steinberg_Vst_NoteExpressionValueEvent }, .{ ProcessContext, official.Steinberg_Vst_ProcessContext },
+        .{ AudioBusBuffers, official.Steinberg_Vst_AudioBusBuffers },          .{ ProcessData, official.Steinberg_Vst_ProcessData },                           .{ PluginFactoryVTable, official.Steinberg_IPluginFactoryVtbl },
+        .{ PluginFactory2VTable, official.Steinberg_IPluginFactory2Vtbl },     .{ ComponentVTable, official.Steinberg_Vst_IComponentVtbl },                    .{ EditControllerVTable, official.Steinberg_Vst_IEditControllerVtbl },
+        .{ AudioProcessorVTable, official.Steinberg_Vst_IAudioProcessorVtbl }, .{ MessageVTable, official.Steinberg_Vst_IMessageVtbl },                        .{ AttributeListVTable, official.Steinberg_Vst_IAttributeListVtbl },
     };
     for (pairs) |pair| if (@sizeOf(pair[0]) != @sizeOf(pair[1]) or @alignOf(pair[0]) != @alignOf(pair[1])) @compileError("VST3 adapter differs from official C API");
 }

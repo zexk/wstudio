@@ -147,13 +147,23 @@ fn process(_: *const abi.Plugin, block: *const abi.Process) callconv(.c) i32 {
     const output_channels = output.data32 orelse return 0;
     const left_out = output_channels[0] orelse return 0;
     const right_out = if (output.channel_count == 2) output_channels[1] orelse return 0 else null;
+    var note_tuning: ?f32 = null;
     if (block.in_events) |events| {
         for (0..events.size(events)) |index| {
             const header = events.get(events, @intCast(index)) orelse continue;
-            if (header.space_id != abi.core_event_space_id or header.event_type != abi.event_param_value)
-                continue;
-            const event: *const abi.EventParamValue = @ptrCast(@alignCast(header));
-            if (event.param_id == 7) state.gain = event.value;
+            if (header.space_id != abi.core_event_space_id) continue;
+            switch (header.event_type) {
+                abi.event_param_value => {
+                    const event: *const abi.EventParamValue = @ptrCast(@alignCast(header));
+                    if (event.param_id == 7) state.gain = event.value;
+                },
+                abi.event_note_expression => {
+                    const event: *const abi.EventNoteExpression = @ptrCast(@alignCast(header));
+                    if (event.expression_id == abi.note_expression_tuning and event.key == 60)
+                        note_tuning = @floatCast(event.value);
+                },
+                else => {},
+            }
         }
     }
     if (block.audio_inputs_count == 1) {
@@ -168,8 +178,8 @@ fn process(_: *const abi.Plugin, block: *const abi.Process) callconv(.c) i32 {
         }
     } else {
         for (0..block.frames_count) |frame| {
-            left_out[frame] = @floatCast(state.gain);
-            if (right_out) |out| out[frame] = @floatCast(state.gain);
+            left_out[frame] = note_tuning orelse @floatCast(state.gain);
+            if (right_out) |out| out[frame] = note_tuning orelse @floatCast(state.gain);
         }
     }
     return 1;

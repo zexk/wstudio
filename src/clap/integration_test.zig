@@ -30,6 +30,14 @@ fn runScenario(gpa: std.mem.Allocator, io: std.Io, plugin_path: []const u8) !voi
     try std.testing.expectEqual(@as(u32, 16), plugin.latencyFrames());
     try std.testing.expectEqual(@as(?u32, 48_000), plugin.tailFrames());
 
+    const tuning_instrument = try ws.dsp.ClapPlugin.load(gpa, plugin_path, "studio.wstudio.test.instrument", 48_000);
+    defer tuning_instrument.deinit();
+    tuning_instrument.device().sendEvent(.{ .note_on = .{ .note = 60, .velocity = 1 } });
+    tuning_instrument.device().sendEvent(.{ .midi2_per_note_pitch_bend = .{ .note = 60, .value = 0.5 } });
+    var tuning_audio = [_]f32{0} ** 2;
+    tuning_instrument.device().process(&tuning_audio);
+    try std.testing.expectEqualSlices(f32, &.{ 1, 1 }, &tuning_audio);
+
     plugin.device().sendEvent(.{ .note_on = .{ .note = 60, .velocity = 0.8 } });
     plugin.device().sendEvent(.{ .note_off = .{ .note = 60 } });
     plugin.setParameter(7, null, 3);

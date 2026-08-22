@@ -1323,7 +1323,7 @@ const Direct = struct {
             .midi2_cc => |cc| self.pushMidiMapping(cc.cc, cc.value),
             .pitch_bend => |bend| self.pushMidiMapping(129, @as(f64, @floatFromInt(@as(i32, bend.bend) + 8192)) / 16383.0),
             .midi2_pitch_bend => |bend| self.pushMidiMapping(129, (@as(f64, bend.value) + 1.0) * 0.5),
-            .midi2_per_note_pitch_bend => {},
+            .midi2_per_note_pitch_bend => |bend| self.pushNoteTuning(bend.note, bend.value * 2.0),
             .channel_pressure => |pressure| self.pushMidiMapping(128, pressure.value),
             .poly_pressure => {},
             .program_change => |program| self.pushMidiMapping(130, @as(f64, @floatFromInt(program.program)) / 127.0),
@@ -1354,6 +1354,20 @@ const Direct = struct {
         self.events.events[self.events.len] = event;
         self.events.len += 1;
         self.active_notes[note] = on;
+    }
+
+    fn pushNoteTuning(self: *Direct, note: u7, semitones: f32) void {
+        if (!self.instrument or !self.active_notes[note] or self.events.len == max_events) return;
+        var event: abi.Event = std.mem.zeroes(abi.Event);
+        event.flags = 1;
+        event.event_type = abi.event_note_expression_value;
+        event.payload.note_expression_value = .{
+            .type_id = abi.note_expression_tuning,
+            .note_id = note,
+            .value = std.math.clamp(@as(f64, semitones) / 240.0 + 0.5, 0.0, 1.0),
+        };
+        self.events.events[self.events.len] = event;
+        self.events.len += 1;
     }
 
     fn attachTransport(self: *Direct, transport: *const Transport) void {
