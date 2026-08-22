@@ -3946,17 +3946,23 @@ pub const App = struct {
         return null;
     }
 
+    fn searchNamedItems(self: *App, items: anytype, start: usize, dir: i64, empty_status: []const u8) ?usize {
+        const pattern = self.searchPattern();
+        if (pattern.len == 0) { self.setStatus("no previous search pattern", .{}); return null; }
+        if (items.len == 0) { self.setStatus("no {s} to search", .{empty_status}); return null; }
+        const idx = fuzzyWrapIndex(pattern, items, start, dir) orelse {
+            self.setStatus("no match for '{s}'", .{pattern});
+            return null;
+        };
+        self.setStatus("/{s}  [{d}/{d}]", .{ pattern, idx + 1, items.len });
+        return idx;
+    }
+
     /// `/` search + `n`/`N` repeat over track names. The master row has no
     /// name and is skipped - search only ever lands on a real track.
     pub fn searchTracks(self: *App, dir: i64) void {
-        const pattern = self.searchPattern();
-        if (pattern.len == 0) { self.setStatus("no previous search pattern", .{}); return; }
         const tracks = self.session.project.tracks.items;
-        if (tracks.len == 0) { self.setStatus("no tracks to search", .{}); return; }
-        const idx = fuzzyWrapIndex(pattern, tracks, self.cursor, dir) orelse {
-            self.setStatus("no match for '{s}'", .{pattern});
-            return;
-        };
+        const idx = self.searchNamedItems(tracks, self.cursor, dir, "tracks") orelse return;
         self.cursor = idx;
         // A hit hidden inside a folded group unfolds it - vim's own
         // open-fold-on-search behaviour - so the cursor can actually
@@ -3971,7 +3977,6 @@ pub const App = struct {
                 }
             }
         }
-        self.setStatus("/{s}  [{d}/{d}]", .{ pattern, idx + 1, tracks.len });
     }
 
     /// `/` search + `n`/`N` repeat over the help view's rendered lines
@@ -3993,16 +3998,9 @@ pub const App = struct {
     /// `/` search + `n`/`N` repeat over the file browser's current entry
     /// list, wrapping the same way `searchTracks` does.
     pub fn searchBrowser(self: *App, dir: i64) void {
-        const pattern = self.searchPattern();
-        if (pattern.len == 0) { self.setStatus("no previous search pattern", .{}); return; }
         const entries = self.browser_entries.items;
-        if (entries.len == 0) { self.setStatus("no entries to search", .{}); return; }
-        const idx = fuzzyWrapIndex(pattern, entries, self.browser_cursor, dir) orelse {
-            self.setStatus("no match for '{s}'", .{pattern});
-            return;
-        };
+        const idx = self.searchNamedItems(entries, self.browser_cursor, dir, "entries") orelse return;
         self.browser_cursor = idx;
-        self.setStatus("/{s}  [{d}/{d}]", .{ pattern, idx + 1, entries.len });
     }
 
     /// `/` search + `n`/`N` repeat over arrangement lane names, wrapping the
@@ -4011,16 +4009,9 @@ pub const App = struct {
     /// arrangement lanes are flat regardless of tracks-view group folding,
     /// so this skips `searchTracks`' group-unfold step entirely.
     pub fn searchArrangement(self: *App, dir: i64) void {
-        const pattern = self.searchPattern();
-        if (pattern.len == 0) { self.setStatus("no previous search pattern", .{}); return; }
         const tracks = self.session.project.tracks.items;
-        if (tracks.len == 0) { self.setStatus("no tracks to search", .{}); return; }
-        const idx = fuzzyWrapIndex(pattern, tracks, self.cursor, dir) orelse {
-            self.setStatus("no match for '{s}'", .{pattern});
-            return;
-        };
+        const idx = self.searchNamedItems(tracks, self.cursor, dir, "tracks") orelse return;
         self.cursor = idx;
-        self.setStatus("/{s}  [{d}/{d}]", .{ pattern, idx + 1, tracks.len });
     }
 
     /// `/` search + `n`/`N` repeat over every param across all three synth
