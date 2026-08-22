@@ -4,6 +4,7 @@ const gui_style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
 const waveform = @import("../../ui/waveform.zig");
 const icons = @import("../../ui/icons.zig");
+const audio_ed = @import("../../ui/editors/audio.zig");
 const zgui = @import("zgui");
 
 const theme = &gui_style.palette;
@@ -33,7 +34,7 @@ pub fn draw(app: anytype) void {
 
     const seconds = @as(f64, @floatFromInt(region.source_length_frames)) / @as(f64, @floatFromInt(@max(source.sample_rate, 1)));
     zgui.text("Region {d}/{d}   {s}", .{ core.audio_clip + 1, clips.len, std.fs.path.basename(source.path) });
-    zgui.textDisabled("{d:.2}s   {d} Hz   {d} channels   gain {s}{d:.1} dB   stretch {d:.2}x   takes {d}", .{ seconds, source.sample_rate, source.channel_count, if (region.gain_db >= 0) "+" else "", region.gain_db, region.stretch_ratio, region.takeCount() });
+    zgui.textDisabled("{d:.2}s   {d} Hz   {d} channels   peak {d:.1} dBFS   gain {s}{d:.1} dB   stretch {d:.2}x   takes {d}", .{ seconds, source.sample_rate, source.channel_count, audio_ed.selectedPeakDb(core) orelse -120, if (region.gain_db >= 0) "+" else "", region.gain_db, region.stretch_ratio, region.takeCount() });
     zgui.spacing();
     if (widgets.iconButton(icons.left ++ "##audio-prev", "Previous region  k")) core.handleKey(.{ .char = 'k' }, core.now_ns);
     zgui.sameLine(.{});
@@ -42,6 +43,12 @@ pub fn draw(app: anytype) void {
     if (zgui.button("Arrangement", .{})) core.handleKey(.{ .char = 'a' }, core.now_ns);
     zgui.sameLine(.{});
     if (zgui.button("Import audio", .{})) core.handleKey(.{ .char = 'i' }, core.now_ns);
+    zgui.sameLine(.{});
+    if (zgui.button("Normalize", .{})) audio_ed.normalizeSelected(core);
+    zgui.sameLine(.{});
+    if (zgui.button(if (region.reverse) "Forward" else "Reverse", .{})) audio_ed.reverseSelected(core);
+    zgui.sameLine(.{});
+    if (zgui.button("Track FX", .{})) core.handleKey(.{ .char = 'x' }, core.now_ns);
 }
 
 fn drawWaveform(samples: []const f32) void {

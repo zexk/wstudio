@@ -2,6 +2,7 @@ const std = @import("std");
 const ws = @import("wstudio");
 const style = @import("../style.zig");
 const waveform = @import("../../ui/waveform.zig");
+const audio_ed = @import("../../ui/editors/audio.zig");
 
 const max_width = 160;
 
@@ -45,7 +46,7 @@ pub fn drawAudioEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
             written += 1;
             const fade_in = @as(f64, @floatFromInt(region.fade_in_frames)) / @as(f64, @floatFromInt(@max(app.session.project.sample_rate, 1)));
             const fade_out = @as(f64, @floatFromInt(region.fade_out_frames)) / @as(f64, @floatFromInt(@max(app.session.project.sample_rate, 1)));
-            try w.print("  gain {s}{d:.1} dB  stretch {d:.2}x  fade {d:.3}/{d:.3}s  reverse {s}  takes {d}", .{ if (region.gain_db >= 0) "+" else "", region.gain_db, region.stretch_ratio, fade_in, fade_out, if (region.reverse) "on" else "off", region.takeCount() });
+            try w.print("  peak {d:.1} dBFS  gain {s}{d:.1} dB  stretch {d:.2}x  fade {d:.3}/{d:.3}s  reverse {s}  takes {d}", .{ audio_ed.selectedPeakDb(app) orelse -120, if (region.gain_db >= 0) "+" else "", region.gain_db, region.stretch_ratio, fade_in, fade_out, if (region.reverse) "on" else "off", region.takeCount() });
             try style.endLine(w);
             written += 1;
         }
