@@ -128,7 +128,7 @@ pub const presets = [_]Preset{
         .wt_table = .basic, .wt_pos = 0.6666667, .unison = 6, .unison_detune = 18.0, .unison_spread = 0.7,
         .osc_c_on = true, .osc_c_wt_table = .basic, .osc_c_wt_pos = 0.0, .osc_c_semi = -12.0, .osc_c_level = 0.35,
         .attack_s = 0.9, .decay_s = 0.6, .sustain = 0.85, .release_s = 1.4, .env_curve = -0.3,
-        .filter_type = .lp, .filter_cutoff = 2800.0, .filter_res = 0.12,
+        .filter_type = .lp, .filter_cutoff = 2800.0, .filter_res = 0.01,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 120.0, .filter_routing = .series,
         .lfo_rate_hz = 0.25, .lfo_sync = .n2_1, .lfo_slew_ms = 35.0,
         .mod_matrix = mods(&.{
@@ -358,7 +358,7 @@ pub const presets = [_]Preset{
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.3333333, .osc_b_level = 0.5,
         .noise_level = 0.08, .noise_color = 0.5,
         .attack_s = 1.2, .decay_s = 0.8, .sustain = 0.6, .release_s = 1.6,
-        .filter_type = .lp, .filter_cutoff = 1800.0, .filter_res = 0.1,
+        .filter_type = .lp, .filter_cutoff = 1800.0, .filter_res = 0.01,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 100.0, .filter_routing = .series,
         .lfo_rate_hz = 0.2,
         .lfo2_rate_hz = 0.7, .lfo2_phase_offset = 0.37, .lfo2_slew_ms = 45.0,
@@ -724,7 +724,7 @@ pub const presets = [_]Preset{
         .wt_table = .analog, .wt_pos = 0.25, .unison = 5, .unison_detune = 14.0, .unison_spread = 0.8,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = -12.0, .osc_b_level = 0.5,
         .attack_s = 3.0, .decay_s = 1.0, .sustain = 0.85, .release_s = 3.5, .env_curve = -0.5,
-        .filter_type = .lp, .filter_cutoff = 1600.0, .filter_res = 0.1,
+        .filter_type = .lp, .filter_cutoff = 1600.0, .filter_res = 0.01,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 80.0, .filter_routing = .series,
         .lfo_shape = .chaos, .lfo_rate_hz = 0.3, .lfo_slew_ms = 90.0,
         .lfo2_shape = .chaos, .lfo2_rate_hz = 0.11, .lfo2_phase_offset = 0.31, .lfo2_slew_ms = 140.0,
@@ -996,7 +996,7 @@ pub const presets = [_]Preset{
         .wt_table = .basic, .wt_pos = 0.3333333, .unison = 2, .unison_detune = 6.0,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.0, .osc_b_semi = 12.0, .osc_b_detune_cents = 3.0, .osc_b_level = 0.5,
         .attack_s = 0.02, .decay_s = 0.5, .sustain = 0.7, .release_s = 0.6,
-        .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.08,
+        .filter_type = .lp, .filter_cutoff = 2600.0, .filter_res = 0.01,
         .lfo_rate_hz = 0.4,
         .mod_matrix = mods(&.{
             .{ .source = .random, .dest = dP,  .depth = 0.0035 },
@@ -1027,7 +1027,7 @@ pub const presets = [_]Preset{
     .{ .name = "disco-strings", .category = "pad", .tags = &.{ "wstudio", "disco" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.6666667,
         .attack_s = 0.15, .decay_s = 0.5, .sustain = 0.85, .release_s = 0.7,
-        .filter_type = .lp, .filter_cutoff = 4000.0, .filter_res = 0.05,
+        .filter_type = .lp, .filter_cutoff = 4000.0, .filter_res = 0.01,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 200.0, .filter_routing = .series,
         .mod_matrix = mods(&.{
             .{ .source = .velocity, .dest = 21, .depth = 0.25 },
@@ -1484,7 +1484,7 @@ pub const presets = [_]Preset{
     .{ .name = "westcoast-strings", .category = "pad", .tags = &.{ "wstudio", "hip-hop", "g-funk" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.6666667, .unison = 4, .unison_detune = 10.0, .unison_spread = 0.5,
         .attack_s = 0.05, .decay_s = 0.4, .sustain = 0.6, .release_s = 0.3,
-        .filter_type = .lp, .filter_cutoff = 2800.0, .filter_res = 0.1,
+        .filter_type = .lp, .filter_cutoff = 2800.0, .filter_res = 0.01,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 150.0, .filter_routing = .series,
         .fenv_attack_s = 0.04, .fenv_decay_s = 0.5, .fenv_sustain = 0.4, .fenv_release_s = 0.3,
         .lfo2_rate_hz = 0.5, .lfo2_phase_offset = 0.25, .lfo2_slew_ms = 25.0,
@@ -1782,7 +1782,7 @@ pub const presets = [_]Preset{
         .wt_table = .metallic, .wt_pos = 0.25, .unison = 5, .unison_detune = 20.0, .unison_spread = 0.85,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.3333333, .osc_b_semi = 7.0, .osc_b_level = 0.35,
         .attack_s = 1.6, .decay_s = 0.8, .sustain = 0.8, .release_s = 2.5,
-        .filter_type = .lp, .filter_cutoff = 1800.0, .filter_res = 0.2,
+        .filter_type = .lp, .filter_cutoff = 1800.0, .filter_res = 0.01,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 220.0, .filter_routing = .series,
         .lfo2_shape = .chaos, .lfo2_rate_hz = 0.22, .lfo2_phase_offset = 0.41, .lfo2_slew_ms = 90.0,
         .mod_matrix = mods(&.{
@@ -2477,7 +2477,7 @@ pub const presets = [_]Preset{
         .wt_table = .basic, .wt_pos = 0.6666667, .unison = 4, .unison_detune = 14.0, .unison_spread = 0.65,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = -12.0, .osc_b_level = 0.3,
         .attack_s = 0.02, .decay_s = 0.5, .sustain = 0.85, .release_s = 0.5,
-        .filter_type = .lp, .filter_cutoff = 3200.0, .filter_res = 0.1,
+        .filter_type = .lp, .filter_cutoff = 3200.0, .filter_res = 0.01,
         .filter2_on = true, .filter2_type = .hp, .filter2_cutoff = 150.0, .filter_routing = .series,
         .lfo_shape = .drawn, .lfo_sync = .n1_4, .lfo_retrig = .key, .lfo_rate_hz = 2.0, .lfo_slew_ms = 8.0,
         .lfo_custom = .{
