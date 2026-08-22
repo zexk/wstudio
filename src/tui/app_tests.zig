@@ -3115,10 +3115,13 @@ test "drum and slicer visual edit changes every selected hit" {
     app.handleKey(.{ .char = '3' }, 0);
     app.handleKey(.{ .char = '}' }, 0);
     app.handleKey(.{ .char = '%' }, 0);
+    app.handleKey(.{ .char = 'R' }, 0);
     try std.testing.expectEqual(@as(u8, 127), dm.stepVel(0, 0));
     try std.testing.expectEqual(@as(u8, 127), dm.stepVel(1, 1));
     try std.testing.expectEqual(@as(u8, 75), dm.stepProb(0, 0));
     try std.testing.expectEqual(@as(u8, 75), dm.stepProb(1, 1));
+    try std.testing.expectEqual(@as(u8, 2), dm.stepRetrig(0, 0));
+    try std.testing.expectEqual(@as(u8, 2), dm.stepRetrig(1, 1));
     app.handleKey(.escape, 0);
     try std.testing.expect(app.modal.mode == .visual and !app.drum_visual_edit);
     app.handleKey(.escape, 0);
@@ -3136,10 +3139,54 @@ test "drum and slicer visual edit changes every selected hit" {
     app.handleKey(.enter, 0);
     app.handleKey(.{ .char = 'T' }, 0);
     app.handleKey(.{ .char = '&' }, 0);
+    app.handleKey(.{ .char = 'R' }, 0);
     try std.testing.expectEqual(@as(i8, 1), sl.stepTune(0, 0));
     try std.testing.expectEqual(@as(i8, 1), sl.stepTune(1, 1));
     try std.testing.expect(sl.stepCond(0, 0) != .always);
     try std.testing.expect(sl.stepCond(1, 1) != .always);
+    try std.testing.expectEqual(@as(u8, 2), sl.stepRetrig(0, 0));
+    try std.testing.expectEqual(@as(u8, 2), sl.stepRetrig(1, 1));
+}
+
+test "step-grid visual edit moves reverses and inverts selected hits" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.view = .drum_grid;
+    app.drum_track = 2;
+    const dm = app.drumMachine();
+    dm.toggleStep(0, 0);
+    dm.setStepProb(0, 0, 25);
+    dm.toggleStep(1, 1);
+    app.drum_cursor = .{ 0, 0 };
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.{ .char = 'j' }, 0);
+    app.handleKey(.{ .char = 'l' }, 0);
+    app.handleKey(.enter, 0);
+    app.handleKey(.{ .char = 'l' }, 0);
+    const stride: u16 = @intCast(app.drum_grid.ticks());
+    try std.testing.expect(dm.stepActive(0, stride));
+    try std.testing.expectEqual(@as(u8, 25), dm.stepProb(0, stride));
+    try std.testing.expect(dm.stepActive(1, stride + 1));
+    app.handleKey(.{ .char = 'r' }, 0);
+    try std.testing.expect(dm.stepActive(0, 3 * stride - 1));
+    try std.testing.expect(dm.stepActive(1, 3 * stride - 2));
+    app.handleKey(.{ .char = 'i' }, 0);
+    try std.testing.expect(dm.stepActive(1, 3 * stride - 1));
+    try std.testing.expect(dm.stepActive(0, 3 * stride - 2));
+
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
+    const sl = app.slicerInst();
+    sl.sliceInto(10);
+    sl.toggleStep(0, 0);
+    app.slicer_cursor = .{ 0, 0 };
+    app.handleKey(.{ .char = 'v' }, 0);
+    app.handleKey(.enter, 0);
+    app.handleKey(.{ .char = 'J' }, 0);
+    try std.testing.expect(sl.stepActive(8, 0));
+    try std.testing.expect(!sl.stepActive(0, 0));
 }
 
 test "linewise pastes keep their own rows, blockwise pastes follow the cursor row" {

@@ -1073,6 +1073,18 @@ pub const Slicer = struct {
         step_grid_ops.rotateLane(&self.midi, slice, delta);
     }
 
+    pub fn shiftRange(self: *Slicer, row_lo: u8, row_hi: u8, step_lo: u16, step_hi: u16, drow: i32, dstep: i32) ?u32 {
+        return step_grid_ops.shiftRange(&self.midi, self.step_count, row_lo, row_hi, step_lo, step_hi, drow, dstep);
+    }
+
+    pub fn reverseRange(self: *Slicer, row_lo: u8, row_hi: u8, step_lo: u16, step_hi: u16) u32 {
+        return step_grid_ops.reverseRange(&self.midi, row_lo, row_hi, step_lo, step_hi);
+    }
+
+    pub fn invertRange(self: *Slicer, row_lo: u8, row_hi: u8, step_lo: u16, step_hi: u16) u32 {
+        return step_grid_ops.invertRange(&self.midi, row_lo, row_hi, step_lo, step_hi);
+    }
+
     /// Resize the live pattern to `n` steps, clamped to `[1, max_steps]`.
     /// Existing notes up to `min(old, new)` survive; a shrink then regrow does
     /// not resurrect anything past the new count. Silently leaves the pattern

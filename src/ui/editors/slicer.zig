@@ -640,7 +640,7 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
     switch (key) {
         // zig fmt: off
         .escape => { exitVisual(app); app.setStatus("selection cancelled", .{}); return true; },
-        .enter => { app.slicer_visual_edit = true; app.setStatus("editing selected hits: _= velocity, tT tune, ;' timing, r roll, % chance, & condition", .{}); return true; },
+        .enter => { app.slicer_visual_edit = true; app.setStatus("editing hits: hjkl/HJKL move, r reverse, i invert; _= velocity, tT tune, ;' timing, R roll, % chance, & condition", .{}); return true; },
         .char => |c| switch (c) {
             'h' => { moveStep(app, -app.takeCount()); return true; },
             'l' => { moveStep(app, app.takeCount()); return true; },
@@ -694,13 +694,23 @@ fn handleVisualEdit(app: *App, key: modal_mod.Key) bool {
             app.setStatus("visual selection", .{});
         },
         .char => |c| switch (c) {
+            'h' => transformSelection(app, .shift, 0, -@as(i32, @intCast(app.slicer_grid.ticks())) * app.takeCount()),
+            'l' => transformSelection(app, .shift, 0, @as(i32, @intCast(app.slicer_grid.ticks())) * app.takeCount()),
+            'H' => transformSelection(app, .shift, 0, -4 * @as(i32, @intCast(app.slicer_grid.ticks())) * app.takeCount()),
+            'L' => transformSelection(app, .shift, 0, 4 * @as(i32, @intCast(app.slicer_grid.ticks())) * app.takeCount()),
+            'j' => transformSelection(app, .shift, app.takeCount(), 0),
+            'k' => transformSelection(app, .shift, -app.takeCount(), 0),
+            'J' => transformSelection(app, .shift, 8 * app.takeCount(), 0),
+            'K' => transformSelection(app, .shift, -8 * app.takeCount(), 0),
             '_' => editSelection(app, .velocity, -app.takeCount()),
             '=' => editSelection(app, .velocity, app.takeCount()),
             't' => editSelection(app, .tune, -app.takeCount()),
             'T' => editSelection(app, .tune, app.takeCount()),
             ';' => editSelection(app, .micro, -app.takeCount()),
             '\'' => editSelection(app, .micro, app.takeCount()),
-            'r' => editSelection(app, .retrig, 1),
+            'r' => transformSelection(app, .reverse, 0, 0),
+            'i' => transformSelection(app, .invert, 0, 0),
+            'R' => editSelection(app, .retrig, 1),
             '%' => editSelection(app, .probability, 1),
             '&' => editSelection(app, .condition, app.takeCount()),
             '0'...'9' => return false,
@@ -709,6 +719,37 @@ fn handleVisualEdit(app: *App, key: modal_mod.Key) bool {
         else => {},
     }
     return true;
+}
+
+const SelectionTransform = enum { shift, reverse, invert };
+
+fn transformSelection(app: *App, transform: SelectionTransform, drow: i32, dstep: i32) void {
+    const sl = app.slicerInst();
+    const range = step_grid.gridSelectionRange(u16, app.slicer_visual_anchor, app.slicer_cursor[1], app.slicer_grid.ticks(), sl.step_count);
+    const rows = sliceRange(app);
+    var entry = history.captureSlicer(app, app.slicer_track);
+    const changed = switch (transform) {
+        .shift => sl.shiftRange(@intCast(rows.lo), @intCast(rows.hi), range.lo, range.hi, drow, dstep) orelse {
+            if (entry) |*e| e.deinit(app.allocator);
+            app.setStatus("can't move - selection would leave the grid", .{});
+            return;
+        },
+        .reverse => sl.reverseRange(@intCast(rows.lo), @intCast(rows.hi), range.lo, range.hi),
+        .invert => sl.invertRange(@intCast(rows.lo), @intCast(rows.hi), range.lo, range.hi),
+    };
+    if (changed == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("no hits selected", .{});
+        return;
+    }
+    history.push(app, entry);
+    if (transform == .shift) {
+        step_grid.moveClamped(&app.slicer_cursor[0], drow, sl.slice_count);
+        if (app.slicer_visual_slice_anchor) |*a| step_grid.moveClamped(a, drow, sl.slice_count);
+        step_grid.moveClamped(&app.slicer_cursor[1], dstep, sl.step_count);
+        if (app.slicer_visual_anchor) |*a| step_grid.moveClamped(a, dstep, sl.step_count);
+    }
+    app.setStatus("edited {d} selected hit{s}", .{ changed, if (changed == 1) "" else "s" });
 }
 
 fn editSelection(app: *App, edit: step_grid.StepEdit, delta: i32) void {

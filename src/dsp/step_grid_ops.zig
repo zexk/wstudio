@@ -356,6 +356,92 @@ pub fn rotateLane(midi: []const []?MidiNote, lane: u8, delta: i32) void {
     }
 }
 
+/// Move every active hit in a rectangular selection. Returns null when any
+/// hit would leave the grid, otherwise the number moved.
+pub fn shiftRange(midi: []const []?MidiNote, step_count: u16, row_lo: u8, row_hi: u8, step_lo: u16, step_hi: u16, drow: i32, dstep: i32) ?u32 {
+    for (row_lo..@as(usize, row_hi) + 1) |row| {
+        for (step_lo..@as(usize, step_hi) + 1) |step| {
+            if (midi[row][step] == null) continue;
+            const dst_row = @as(i32, @intCast(row)) + drow;
+            const dst_step = @as(i32, @intCast(step)) + dstep;
+            if (dst_row < 0 or dst_row >= midi.len or dst_step < 0 or dst_step >= step_count) return null;
+        }
+    }
+
+    var moved: u32 = 0;
+    var ri: i32 = if (drow > 0) row_hi else row_lo;
+    const row_end: i32 = if (drow > 0) @as(i32, row_lo) - 1 else @as(i32, row_hi) + 1;
+    const row_inc: i32 = if (drow > 0) -1 else 1;
+    while (ri != row_end) : (ri += row_inc) {
+        var si: i32 = if (dstep > 0) step_hi else step_lo;
+        const step_end: i32 = if (dstep > 0) @as(i32, step_lo) - 1 else @as(i32, step_hi) + 1;
+        const step_inc: i32 = if (dstep > 0) -1 else 1;
+        while (si != step_end) : (si += step_inc) {
+            const src_row: usize = @intCast(ri);
+            const src_step: usize = @intCast(si);
+            const dst_row: usize = @intCast(ri + drow);
+            const dst_step: usize = @intCast(si + dstep);
+            if (midi[src_row][src_step] == null) continue;
+            midi[dst_row][dst_step] = midi[src_row][src_step];
+            if (midi[dst_row][dst_step]) |*note| {
+                note.pitch = @intCast(dst_row);
+                note.step = @intCast(dst_step);
+                moved += 1;
+            }
+            if (src_row != dst_row or src_step != dst_step) midi[src_row][src_step] = null;
+        }
+    }
+    return moved;
+}
+
+/// Mirror selected cells in time, preserving every per-hit parameter.
+pub fn reverseRange(midi: []const []?MidiNote, row_lo: u8, row_hi: u8, step_lo: u16, step_hi: u16) u32 {
+    var moved: u32 = 0;
+    for (row_lo..@as(usize, row_hi) + 1) |row| {
+        var lo = step_lo;
+        var hi = step_hi;
+        while (lo <= hi) : ({
+            lo += 1;
+            hi -|= 1;
+        }) {
+            std.mem.swap(?MidiNote, &midi[row][lo], &midi[row][hi]);
+            if (midi[row][lo]) |*note| {
+                note.step = lo;
+                moved += 1;
+            }
+            if (hi != lo) if (midi[row][hi]) |*note| {
+                note.step = hi;
+                moved += 1;
+            };
+        }
+    }
+    return moved;
+}
+
+/// Mirror selected cells across their row band, preserving hit parameters.
+pub fn invertRange(midi: []const []?MidiNote, row_lo: u8, row_hi: u8, step_lo: u16, step_hi: u16) u32 {
+    var moved: u32 = 0;
+    var lo = row_lo;
+    var hi = row_hi;
+    while (lo <= hi) : ({
+        lo += 1;
+        hi -|= 1;
+    }) {
+        for (step_lo..@as(usize, step_hi) + 1) |step| {
+            std.mem.swap(?MidiNote, &midi[lo][step], &midi[hi][step]);
+            if (midi[lo][step]) |*note| {
+                note.pitch = @intCast(lo);
+                moved += 1;
+            }
+            if (hi != lo) if (midi[hi][step]) |*note| {
+                note.pitch = @intCast(hi);
+                moved += 1;
+            };
+        }
+    }
+    return moved;
+}
+
 // ---------------------------------------------------------------------------
 // Step scheduling (audio thread)
 // ---------------------------------------------------------------------------

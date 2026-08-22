@@ -617,7 +617,7 @@ fn handleVisual(app: *App, key: modal_mod.Key) bool {
     switch (key) {
         // zig fmt: off
         .escape => { exitVisual(app); app.setStatus("selection cancelled", .{}); return true; },
-        .enter => { app.drum_visual_edit = true; app.setStatus("editing selected hits: {{}} velocity, () tune, ;' timing, r roll, % chance, T condition", .{}); return true; },
+        .enter => { app.drum_visual_edit = true; app.setStatus("editing hits: hjkl/HJKL move, r reverse, i invert; {{}} velocity, () tune, ;' timing, R roll, % chance, T condition", .{}); return true; },
         .char => |c| switch (c) {
             'h' => { moveStep(app, -app.takeCount()); return true; },
             'l' => { moveStep(app, app.takeCount()); return true; },
@@ -668,13 +668,23 @@ fn handleVisualEdit(app: *App, key: modal_mod.Key) bool {
             app.setStatus("visual selection", .{});
         },
         .char => |c| switch (c) {
+            'h' => transformSelection(app, .shift, 0, -@as(i32, @intCast(app.drum_grid.ticks())) * app.takeCount()),
+            'l' => transformSelection(app, .shift, 0, @as(i32, @intCast(app.drum_grid.ticks())) * app.takeCount()),
+            'H' => transformSelection(app, .shift, 0, -4 * @as(i32, @intCast(app.drum_grid.ticks())) * app.takeCount()),
+            'L' => transformSelection(app, .shift, 0, 4 * @as(i32, @intCast(app.drum_grid.ticks())) * app.takeCount()),
+            'j' => transformSelection(app, .shift, app.takeCount(), 0),
+            'k' => transformSelection(app, .shift, -app.takeCount(), 0),
+            'J' => transformSelection(app, .shift, 8 * app.takeCount(), 0),
+            'K' => transformSelection(app, .shift, -8 * app.takeCount(), 0),
             '{' => editSelection(app, .velocity, -app.takeCount()),
             '}' => editSelection(app, .velocity, app.takeCount()),
             '(' => editSelection(app, .tune, -app.takeCount()),
             ')' => editSelection(app, .tune, app.takeCount()),
             ';' => editSelection(app, .micro, -app.takeCount()),
             '\'' => editSelection(app, .micro, app.takeCount()),
-            'r' => editSelection(app, .retrig, 1),
+            'r' => transformSelection(app, .reverse, 0, 0),
+            'i' => transformSelection(app, .invert, 0, 0),
+            'R' => editSelection(app, .retrig, 1),
             '%' => editSelection(app, .probability, 1),
             'T' => editSelection(app, .condition, app.takeCount()),
             '0'...'9' => return false,
@@ -683,6 +693,37 @@ fn handleVisualEdit(app: *App, key: modal_mod.Key) bool {
         else => {},
     }
     return true;
+}
+
+const SelectionTransform = enum { shift, reverse, invert };
+
+fn transformSelection(app: *App, transform: SelectionTransform, drow: i32, dstep: i32) void {
+    const dm = app.drumMachine();
+    const range = step_grid.gridSelectionRange(u16, app.drum_visual_anchor, app.drum_cursor[1], app.drum_grid.ticks(), dm.step_count);
+    const rows = padRange(app);
+    var entry = history.captureDrum(app, app.drum_track);
+    const changed = switch (transform) {
+        .shift => dm.shiftRange(@intCast(rows.lo), @intCast(rows.hi), range.lo, range.hi, drow, dstep) orelse {
+            if (entry) |*e| e.deinit(app.allocator);
+            app.setStatus("can't move - selection would leave the grid", .{});
+            return;
+        },
+        .reverse => dm.reverseRange(@intCast(rows.lo), @intCast(rows.hi), range.lo, range.hi),
+        .invert => dm.invertRange(@intCast(rows.lo), @intCast(rows.hi), range.lo, range.hi),
+    };
+    if (changed == 0) {
+        if (entry) |*e| e.deinit(app.allocator);
+        app.setStatus("no hits selected", .{});
+        return;
+    }
+    history.push(app, entry);
+    if (transform == .shift) {
+        step_grid.moveClamped(&app.drum_cursor[0], drow, DrumMachine.max_pads);
+        if (app.drum_visual_pad_anchor) |*a| step_grid.moveClamped(a, drow, DrumMachine.max_pads);
+        step_grid.moveClamped(&app.drum_cursor[1], dstep, dm.step_count);
+        if (app.drum_visual_anchor) |*a| step_grid.moveClamped(a, dstep, dm.step_count);
+    }
+    app.setStatus("edited {d} selected hit{s}", .{ changed, if (changed == 1) "" else "s" });
 }
 
 fn editSelection(app: *App, edit: step_grid.StepEdit, delta: i32) void {

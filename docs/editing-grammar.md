@@ -50,8 +50,11 @@ where that editor deviates.
 
   Drum and slicer step grids use the same `enter` edit layer. Their normal
   per-hit velocity, tune, microtiming, retrigger, probability, and condition
-  keys apply to every active hit in the selection. `enter` or escape returns
-  to selection.
+  keys apply to every active hit in the selection (`R` handles retrigger in
+  this layer). Like the piano roll, `h`/`l` move hits in time, `j`/`k` move
+  them between rows, and `H`/`L` and `J`/`K` use the coarser beat and bank
+  increments. `r` reverses in time and `i` inverts across the selected row
+  band. `enter` or escape returns to selection.
 
   In normal mode, `M` grabs one note for the same move gestures, including
   `H`/`L` by a beat and `J`/`K` by an octave. `Y` clones it first, matching

@@ -890,6 +890,18 @@ pub const DrumMachine = struct {
         step_grid_ops.rotateLane(&self.midi, pad, delta);
     }
 
+    pub fn shiftRange(self: *DrumMachine, row_lo: u8, row_hi: u8, step_lo: u16, step_hi: u16, drow: i32, dstep: i32) ?u32 {
+        return step_grid_ops.shiftRange(&self.midi, self.step_count, row_lo, row_hi, step_lo, step_hi, drow, dstep);
+    }
+
+    pub fn reverseRange(self: *DrumMachine, row_lo: u8, row_hi: u8, step_lo: u16, step_hi: u16) u32 {
+        return step_grid_ops.reverseRange(&self.midi, row_lo, row_hi, step_lo, step_hi);
+    }
+
+    pub fn invertRange(self: *DrumMachine, row_lo: u8, row_hi: u8, step_lo: u16, step_hi: u16) u32 {
+        return step_grid_ops.invertRange(&self.midi, row_lo, row_hi, step_lo, step_hi);
+    }
+
     pub fn padName(self: *const DrumMachine, pad: u8) []const u8 {
         if (pad >= max_pads) return "----";
         // A pad the "init" kit blanked stays materialized but holds no audio
