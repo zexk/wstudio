@@ -327,7 +327,7 @@ pub fn drawPreset(app: anytype) void {
     widgets.hoverHelp(if (app.core.preset_picker_kind == .drum)
         "/ filter  j/k move  enter choose  esc close  [ ] category"
     else
-        "/ filter  j/k move  enter choose  esc close  [ ] category  a audition");
+        "/ filter  j/k move  enter choose  esc close  [ ] category  a / shift-click audition");
     zgui.spacing();
     if (count == 0) {
         emptyRow(filter.len > 0, filter, "No presets");
@@ -354,9 +354,24 @@ pub fn drawPreset(app: anytype) void {
                 entry.author;
             const clicked = drawCard(id, entry.name, desc, kind_accent, selected, overlayWidth(), filter);
             if (clicked) {
-                app.core.clickPresetPickerItem(ordinal, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+                app.core.preset_picker_cursor = ordinal;
+                if (presetCardAction(zgui.isKeyDown(.mod_shift)) == .audition)
+                    app.core.handleKey(.{ .char = 'a' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds)
+                else
+                    app.core.clickPresetPickerItem(ordinal, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             }
             ordinal += 1;
         },
     };
+}
+
+const PresetCardAction = enum { apply, audition };
+
+fn presetCardAction(shift: bool) PresetCardAction {
+    return if (shift) .audition else .apply;
+}
+
+test "preset card shift-click auditions without applying" {
+    try std.testing.expectEqual(PresetCardAction.apply, presetCardAction(false));
+    try std.testing.expectEqual(PresetCardAction.audition, presetCardAction(true));
 }
