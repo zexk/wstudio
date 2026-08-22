@@ -107,6 +107,12 @@ fn installSlicerTestClip(app: *App) !void {
     for (&sl.slices) |*p| p.samples = sl.samples;
 }
 
+fn stampArrangementTestClip(app: *App) !void {
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
+    try app.session.stampClip(0, 0);
+}
+
 fn typeKeys(app: *App, keys: []const u8) void {
     for (keys) |key| app.handleKey(.{ .char = key }, 0);
 }
@@ -2933,9 +2939,7 @@ test "automation param mouse click during live search selects lane and leaves se
 test "automation mouse drag paints and right-drag erases points" {
     var app = try testApp();
     defer app.deinit();
-    const pp = &app.session.racks.items[0].pattern_player.?;
-    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
-    try app.session.stampClip(0, 0);
+    try stampArrangementTestClip(&app);
     app.automation_track = 0;
     app.automation_clip = .{ .track = 0, .start_tick = 0 };
     app.view = .automation;
@@ -3567,9 +3571,7 @@ test "a linked piano roll names the clip's bar, not its tick" {
 test "undo of a linked clip edit restores the clip too" {
     var app = try testApp();
     defer app.deinit();
-    const pp = &app.session.racks.items[0].pattern_player.?;
-    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
-    try app.session.stampClip(0, 0);
+    try stampArrangementTestClip(&app);
 
     app.view = .arrangement;
     app.cursor = 0;
@@ -3595,11 +3597,8 @@ test "arrangement e edits a melodic clip in place" {
     defer app.deinit();
 
     // Track 0 (synth): one note in the live pattern, stamped at bar 0.
+    try stampArrangementTestClip(&app);
     const pp = &app.session.racks.items[0].pattern_player.?;
-    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
-    try app.session.stampClip(0, 0);
-
-    // Diverge the live pattern afterwards - the clip keeps its own copy.
     pp.addNote(.{ .pitch = 65, .start_beat = 1.0, .duration_beat = 0.5 });
 
     // e on the clip: the piano roll opens with the clip's single note loaded.
@@ -3627,9 +3626,7 @@ test "arrangement e edits a melodic clip in place" {
 test "clip link drops when the clip vanishes; plain open is unlinked" {
     var app = try testApp();
     defer app.deinit();
-    const pp = &app.session.racks.items[0].pattern_player.?;
-    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
-    try app.session.stampClip(0, 0);
+    try stampArrangementTestClip(&app);
 
     app.view = .arrangement;
     app.cursor = 0;
@@ -6412,9 +6409,7 @@ test "count prefixes multiply editor motions and die with the next key" {
 test "arrangement clips: yank/paste, count-move, kind guard, undo" {
     var app = try testApp();
     defer app.deinit();
-    const pp = &app.session.racks.items[0].pattern_player.?;
-    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
-    try app.session.stampClip(0, 0);
+    try stampArrangementTestClip(&app);
 
     app.view = .arrangement;
     app.cursor = 0;
@@ -6453,9 +6448,7 @@ test "arrangement clips: yank/paste, count-move, kind guard, undo" {
 test "arrangement visual mode selects a bar range on the current lane for y/d/P" {
     var app = try testApp();
     defer app.deinit();
-    const pp = &app.session.racks.items[0].pattern_player.?;
-    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
-    try app.session.stampClip(0, 0); // 1-bar clip at bar 0
+    try stampArrangementTestClip(&app);
     try app.session.stampClip(0, 1); // 1-bar clip at bar 1
     try app.session.stampClip(0, 5); // outside the selection below
 
@@ -6720,9 +6713,7 @@ test "arrangement blockwise visual bounds the cut to the lane band j/k grows" {
 test "arrangement S splits the clip at the cursor and keeps every tick of it" {
     var app = try testApp();
     defer app.deinit();
-    const pp = &app.session.racks.items[0].pattern_player.?;
-    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
-    try app.session.stampClip(0, 0);
+    try stampArrangementTestClip(&app);
     const lane = app.session.arrangement.lane(0).?;
     const span = lane.clips.items[0].length_ticks;
 
@@ -6749,9 +6740,7 @@ test "arrangement S splits the clip at the cursor and keeps every tick of it" {
 test "arrangement operator+motion: d3l / y3l act on a bar range without entering visual mode" {
     var app = try testApp();
     defer app.deinit();
-    const pp = &app.session.racks.items[0].pattern_player.?;
-    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
-    try app.session.stampClip(0, 0); // 1-bar clip at bar 0
+    try stampArrangementTestClip(&app);
     try app.session.stampClip(0, 1); // 1-bar clip at bar 1
     try app.session.stampClip(0, 5); // outside the range below
 
@@ -6800,9 +6789,7 @@ test "arrangement operator+motion: d3l / y3l act on a bar range without entering
 test "arrangement +/- edge-resize a clip; undo/dot-repeat, min clamp, growth evicts" {
     var app = try testApp();
     defer app.deinit();
-    const pp = &app.session.racks.items[0].pattern_player.?;
-    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
-    try app.session.stampClip(0, 0); // 1-bar clip at bar 0
+    try stampArrangementTestClip(&app);
     try app.session.stampClip(0, 3); // a second clip, in the way of growth
 
     app.view = .arrangement;
@@ -6838,9 +6825,7 @@ test "arrangement +/- edge-resize a clip; undo/dot-repeat, min clamp, growth evi
 test "arrangement timeline operations clamp at the u32 boundary" {
     var app = try testApp();
     defer app.deinit();
-    const pp = &app.session.racks.items[0].pattern_player.?;
-    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
-    try app.session.stampClip(0, 0);
+    try stampArrangementTestClip(&app);
 
     app.view = .arrangement;
     app.cursor = 0;
@@ -7457,9 +7442,7 @@ test "piano/drum/arrangement . repeats a visual range delete/paste at the new cu
 test "arrangement . repeats the last clip move at the new cursor" {
     var app = try testApp();
     defer app.deinit();
-    const pp = &app.session.racks.items[0].pattern_player.?;
-    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
-    try app.session.stampClip(0, 0);
+    try stampArrangementTestClip(&app);
     try app.session.stampClip(0, 5);
 
     app.view = .arrangement;
@@ -8988,9 +8971,7 @@ test "mouse drag moves an existing piano-roll note; a plain click-release toggle
 test "mouse drag moves an arrangement clip" {
     var app = try testApp();
     defer app.deinit();
-    const pp = &app.session.racks.items[0].pattern_player.?;
-    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
-    try app.session.stampClip(0, 0); // 1-bar clip at bar 0, lane 0
+    try stampArrangementTestClip(&app);
 
     app.view = .arrangement;
     app.cursor = 0;
@@ -9015,9 +8996,7 @@ test "mouse drag moves an arrangement clip" {
 test "arrangement modifier drags clone and resize clips" {
     var app = try testApp();
     defer app.deinit();
-    const pp = &app.session.racks.items[0].pattern_player.?;
-    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
-    try app.session.stampClip(0, 0);
+    try stampArrangementTestClip(&app);
     app.view = .arrangement;
     app.cursor = 0;
     app.arr_scroll_bar = 0;
@@ -9046,9 +9025,7 @@ test "arrangement modifier drags clone and resize clips" {
 test "a clip drag belongs to the lane the press picked, and its release always lands" {
     var app = try testApp();
     defer app.deinit();
-    const pp = &app.session.racks.items[0].pattern_player.?;
-    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
-    try app.session.stampClip(0, 0);
+    try stampArrangementTestClip(&app);
     try app.session.stampClip(1, 0); // a clip on lane 1 at the same bar
     app.view = .arrangement;
     app.cursor = 0;
@@ -9128,9 +9105,7 @@ test "right-click deletes an off-grid piano-roll note" {
 test "right-click cuts an arrangement clip without starting a drag" {
     var app = try testApp();
     defer app.deinit();
-    const pp = &app.session.racks.items[0].pattern_player.?;
-    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
-    try app.session.stampClip(0, 0); // 1-bar clip at bar 0, lane 0
+    try stampArrangementTestClip(&app);
 
     app.view = .arrangement;
     app.cursor = 0;
