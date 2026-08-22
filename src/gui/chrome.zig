@@ -307,7 +307,7 @@ pub fn drawStatus(app: anytype) void {
         var left_buf: [2048]u8 = undefined;
         var right_buf: [256]u8 = undefined;
         const text = tuiStatusText(app, &left_buf, &right_buf);
-        const mode_label = statusModeLabel(app.core.modal.mode);
+        const mode_label = app.core.modeLabel();
         var x = drawStatusSegment(draw, pos[0], pos[1], size[1], statusModeColor(app.core.modal.mode), theme.bg0, mode_label);
         // Persistent chip while a macro recording runs - mirrors the TUI's
         // own `rec @x` chip (state, not a status message that times out).
@@ -399,20 +399,11 @@ fn tuiStatusText(app: anytype, left_out: []u8, right_out: []u8) StatusText {
     }) catch return .{ .left = "", .right = "" };
 
     const plain_left = ansi.stripAnsi(left_writer.buffered(), left_out);
-    const without_mode = if (plain_left.len >= 3) plain_left[3..] else plain_left;
+    const badge_len = core.modeLabel().len + 2;
+    const without_mode = if (plain_left.len >= badge_len) plain_left[badge_len..] else plain_left;
     return .{
         .left = without_mode,
         .right = std.mem.trim(u8, ansi.stripAnsi(right_writer.buffered(), right_out), " "),
-    };
-}
-
-fn statusModeLabel(mode: ws.input.Mode) []const u8 {
-    return switch (mode) {
-        .normal => "N",
-        .insert => "I",
-        .visual => "V",
-        .command => "C",
-        .search => "S",
     };
 }
 

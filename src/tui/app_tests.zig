@@ -3110,8 +3110,10 @@ test "drum and slicer visual edit changes every selected hit" {
     dm.toggleStep(1, 1);
     app.drum_cursor = .{ 0, 0 };
     app.handleKey(.{ .char = 'V' }, 0);
+    try std.testing.expectEqualStrings("V-L", app.modeLabel());
     app.handleKey(.{ .char = 'l' }, 0);
     app.handleKey(.enter, 0);
+    try std.testing.expectEqualStrings("V-E", app.modeLabel());
     app.handleKey(.{ .char = '3' }, 0);
     app.handleKey(.{ .char = '}' }, 0);
     app.handleKey(.{ .char = '%' }, 0);
@@ -3124,6 +3126,7 @@ test "drum and slicer visual edit changes every selected hit" {
     try std.testing.expectEqual(@as(u8, 2), dm.stepRetrig(1, 1));
     app.handleKey(.escape, 0);
     try std.testing.expect(app.modal.mode == .visual and !app.drum_visual_edit);
+    try std.testing.expectEqualStrings("V-L", app.modeLabel());
     app.handleKey(.escape, 0);
 
     try app.session.setInstrument(0, .slicer);
@@ -3135,8 +3138,10 @@ test "drum and slicer visual edit changes every selected hit" {
     sl.toggleStep(1, 1);
     app.slicer_cursor = .{ 0, 0 };
     app.handleKey(.{ .char = 'V' }, 0);
+    try std.testing.expectEqualStrings("V-L", app.modeLabel());
     app.handleKey(.{ .char = 'l' }, 0);
     app.handleKey(.enter, 0);
+    try std.testing.expectEqualStrings("V-E", app.modeLabel());
     app.handleKey(.{ .char = 'T' }, 0);
     app.handleKey(.{ .char = '&' }, 0);
     app.handleKey(.{ .char = 'R' }, 0);

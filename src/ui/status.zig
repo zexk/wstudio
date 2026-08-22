@@ -27,7 +27,6 @@ const red = ansi.red;
 const yel = ansi.yel;
 const blu = ansi.blu;
 const bcyn = ansi.bcyn;
-const writeModeBadge = ansi.writeModeBadge;
 const writeViewBadge = ansi.writeViewBadge;
 const writeViewBadgeColored = ansi.writeViewBadgeColored;
 const BadgeTone = ansi.BadgeTone;
@@ -36,6 +35,10 @@ const eq_mod = ws.dsp.eq;
 const automation_mod = ws.dsp.automation;
 
 const midi = ws.midi;
+
+fn writeModeBadge(w: *std.Io.Writer, app: anytype) !void {
+    try ansi.writeModeBadge(w, app.modal.mode, app.modeLabel());
+}
 
 /// Return a const pointer to pad `idx`'s underlying Pad, or a placeholder if
 /// the pad is out of range or not yet materialized (lazy-alloc pads).
@@ -52,7 +55,7 @@ fn sliceOf(app: anytype) *const ws.dsp.Pad {
 }
 
 pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
-    try writeModeBadge(w, app.modal.mode);
+    try writeModeBadge(w, app);
     try writeViewBadge(right, "TRACKS", app.modal.mode);
     // row position - display rows (tracks + groups) + 1 for master
     try w.writeAll(dim ++ "  " ++ rst);
@@ -96,7 +99,7 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !v
     const p = app.drum_cursor[0];
     const s = app.drum_cursor[1];
     const dm = app.drumMachine();
-    try writeModeBadge(w, app.modal.mode);
+    try writeModeBadge(w, app);
     try right.print(bcyn ++ "{s}" ++ rst ++ "  ", .{app.drum_grid.label()});
     try writeViewBadge(right, "DRUM", app.modal.mode);
     try w.writeAll(dim ++ "  pad " ++ rst);
@@ -168,7 +171,7 @@ pub fn drawSlicerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
     const sl = app.slicerInst();
     const sIdx: u8 = @intCast(app.slicer_cursor[0]);
     const s = app.slicer_cursor[1];
-    try writeModeBadge(w, app.modal.mode);
+    try writeModeBadge(w, app);
     try writeViewBadge(right, "SLICER", app.modal.mode);
     if (sl.slice_count == 0) {
         try w.writeAll(dim ++ "  no slices  " ++ rst);
@@ -248,7 +251,7 @@ pub fn drawSlicerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
 /// Shared footer keeps selection views inside the same status contract as the
 /// editors: mode and identity stay visible while filtering or showing errors.
 pub fn drawPickerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, label: []const u8, action: []const u8, filterable: bool) !void {
-    try writeModeBadge(w, app.modal.mode);
+    try writeModeBadge(w, app);
     try writeViewBadge(right, label, app.modal.mode);
     if (app.status_len > 0) {
         try w.writeAll(dim ++ "  " ++ rst);
@@ -263,7 +266,7 @@ pub fn drawPickerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, 
 /// mode badge + any pending status message + the key hints - same
 /// message-before-hints clamp ordering views/browser.zig documents.
 pub fn drawHelpStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
-    try writeModeBadge(w, app.modal.mode);
+    try writeModeBadge(w, app);
     try writeViewBadge(right, "HELP", app.modal.mode);
     if (app.status_len > 0) {
         try w.writeAll(dim ++ "  " ++ rst);
@@ -279,7 +282,7 @@ pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, targ
     };
     if (spectrum_ed.focusedUnit(app, fx)) |unit| {
         const k = unit.kind();
-        try writeModeBadge(w, app.modal.mode);
+        try writeModeBadge(w, app);
         try writeViewBadge(right, "FX", app.modal.mode);
         try w.writeAll(dim ++ "  " ++ rst);
         try w.print("{d}/{d} {s}", .{ app.fx_focus + 1, fx.units.items.len, spectrum_ed.unitLabel(k) });
@@ -310,7 +313,7 @@ pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, targ
             try w.writeAll(dim ++ "]" ++ rst);
         }
     } else {
-        try writeModeBadge(w, app.modal.mode);
+        try writeModeBadge(w, app);
         try writeViewBadge(right, "FX", app.modal.mode);
         try w.writeAll(dim ++ "  empty chain  a add effect" ++ rst);
     }
@@ -329,7 +332,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
     }
     const synth = &rack.instrument.poly_synth;
 
-    try writeModeBadge(w, app.modal.mode);
+    try writeModeBadge(w, app);
     try writeViewBadge(right, "SYNTH", app.modal.mode);
     try w.writeAll(dim ++ "  " ++ rst);
     var label_buf: [24]u8 = undefined;
@@ -383,7 +386,7 @@ pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
     const note = pp.noteCovering(app.piano_cursor_pitch, beat_pos);
 
     // zig fmt: off
-    try writeModeBadge(w, app.modal.mode);
+    try writeModeBadge(w, app);
     try right.print(bcyn ++ "{s}" ++ rst ++ "  ", .{app.piano_division.label()});
     try writeViewBadge(right, "PIANO", app.modal.mode);
     try w.writeAll(dim ++ "  " ++ rst);
@@ -439,7 +442,7 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
     const cur = @min(@as(usize, app.sampler_param), sampler_param_labels.len - 1);
 
     // zig fmt: off
-    try writeModeBadge(w, app.modal.mode);
+    try writeModeBadge(w, app);
     try writeViewBadge(right, if (is_drum) "DRUM" else if (is_slice) "SLICER" else "SAMPLER", app.modal.mode);
     if (is_slice and app.slicerInst().slice_count == 0) {
         try w.writeAll(dim);
@@ -515,7 +518,7 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
 const soundfont_param_labels = [_][]const u8{ "gain", "pan", "transpose", "preset" };
 
 pub fn drawSoundfontStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
-    try writeModeBadge(w, app.modal.mode);
+    try writeModeBadge(w, app);
     try writeViewBadge(right, app.editingSoundfontLabel(), app.modal.mode);
     const sf = app.editingSoundfont();
     const cur = @min(@as(usize, app.soundfont_param), soundfont_param_labels.len - 1);
@@ -545,7 +548,7 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
     // specific playback state - so it stays its own plain-text segment
     // rather than folding into the mode badge, keeping both pieces of info
     // the old single combined badge carried.
-    try writeModeBadge(w, app.modal.mode);
+    try writeModeBadge(w, app);
     try right.print(bcyn ++ "{s}" ++ rst ++ "  ", .{app.arr_grid.label()});
     if (app.session.song_mode) {
         try writeViewBadgeColored(right, "SONG", .green);
@@ -617,7 +620,7 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
 }
 
 pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
-    try writeModeBadge(w, app.modal.mode);
+    try writeModeBadge(w, app);
     try writeViewBadge(right, "FILES", app.modal.mode);
     // Status message BEFORE the key hints: the row clamps at the terminal
     // edge, so whatever prints last is what a narrow window silently drops -
@@ -643,7 +646,7 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
     const clip = automation_ed.currentClip(app) orelse {
         // Badges first, like every other status row - returning early used to
         // drop the mode badge and the view badge along with the clip.
-        try writeModeBadge(w, app.modal.mode);
+        try writeModeBadge(w, app);
         try writeViewBadge(right, "AUTOMATION", app.modal.mode);
         try w.writeAll(dim ++ "  no clip selected  esc back" ++ rst);
         return;
@@ -658,7 +661,7 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
     const step_in_bar = cursor_units % bar_units / meter_denominator;
     const beat = @as(f64, @floatFromInt(app.automation_cursor_step)) * 0.25;
 
-    try writeModeBadge(w, app.modal.mode);
+    try writeModeBadge(w, app);
     try writeViewBadge(right, "AUTOMATION", app.modal.mode);
     try w.writeAll(dim ++ "  " ++ rst);
     try w.print("{d}.{d}", .{ bar + 1, step_in_bar + 1 });
@@ -708,7 +711,7 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
 /// Status row keeps apply errors ahead of lower-priority key hints so narrow
 /// terminals preserve the feedback when the shared row clamps.
 pub fn drawPresetPickerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
-    try writeModeBadge(w, app.modal.mode);
+    try writeModeBadge(w, app);
     try writeViewBadge(right, "PRESETS", app.modal.mode);
     if (app.status_len > 0) {
         try w.writeAll(dim ++ "  " ++ rst);

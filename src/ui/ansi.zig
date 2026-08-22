@@ -86,26 +86,16 @@ fn modeBadgeBg(mode: Mode) []const u8 {
     };
 }
 
-fn modeBadgeLetter(mode: Mode) []const u8 {
-    return switch (mode) {
-        .normal => "N",
-        .insert => "I",
-        .visual => "V",
-        .command => "C",
-        .search => "S",
-    };
-}
-
 /// Writes the lualine-style mode badge: a single letter (N/I/V, plus C/S
 /// for command/search) on a colour-coded background, deliberately with no
 /// divider glyph or second chip (docs/ui-conventions.md has the design
 /// story). Callers print the view name and status content as plain text
 /// right after. The `:`/`/` prompt renders on its own row (App.draw), so
 /// the status row stays informative while typing.
-pub fn writeModeBadge(w: *std.Io.Writer, mode: Mode) !void {
+pub fn writeModeBadge(w: *std.Io.Writer, mode: Mode, label: []const u8) !void {
     try w.writeAll(modeBadgeBg(mode));
     try w.writeAll(badge_fg);
-    try w.print(" {s} ", .{modeBadgeLetter(mode)});
+    try w.print(" {s} ", .{label});
     try w.writeAll(rst);
 }
 

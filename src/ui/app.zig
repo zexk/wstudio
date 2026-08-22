@@ -1546,6 +1546,29 @@ pub const App = struct {
         return w.buffered();
     }
 
+    /// Status-bar label for modal state, including visual selection shape
+    /// and selected-item edit layer where those distinctions exist.
+    pub fn modeLabel(self: *const App) []const u8 {
+        return switch (self.modal.mode) {
+            .normal => "N",
+            .insert => "I",
+            .command => "C",
+            .search => "S",
+            .visual => if (switch (self.view) {
+                .piano_roll => self.piano_visual_edit,
+                .drum_grid => self.drum_visual_edit,
+                .slicer_grid => self.slicer_visual_edit,
+                else => false,
+            }) "V-E" else if (switch (self.view) {
+                .piano_roll => self.piano_visual_pitch_anchor == null,
+                .drum_grid => self.drum_visual_pad_anchor == null,
+                .slicer_grid => self.slicer_visual_slice_anchor == null,
+                .arrangement => self.arr_visual_lane_anchor == null,
+                else => false,
+            }) "V-L" else "V",
+        };
+    }
+
     /// Inclusive width of a visual selection on one axis, or null when no
     /// anchor is set (pendingCmdText's per-view helper).
     /// How many files the browser's visual selection would actually load -

@@ -30,9 +30,10 @@ while the user types.
 
 ## Status row
 
-The left edge is a lualine-style mode badge: a single letter (N/I/V,
-plus C/S for command/search) on a color-coded background, then plain
-uncolored text. Deliberately minimal: an earlier design with full-word
+The left edge is a lualine-style mode badge: N/I/V, C/S for
+command/search, V-L for visual-line selection, or V-E for visual editing,
+on a color-coded background, then plain uncolored text. Deliberately minimal:
+an earlier design with full-word
 chips and a powerline divider was rejected against a real lualine
 screenshot; real lualine chips only the mode and leaves the rest plain.
 Right-aligned content (L/R meters, view tag, zoom/song flags) is pinned
