@@ -795,6 +795,7 @@ fn noteToSnap(n: pattern_mod.Note) NoteSnap {
         .pan = n.art.pan,
         .fine_cents = n.art.fine_cents,
         .release_scale = n.art.release_scale,
+        .pitch_bend = n.pitch_bend,
     };
 }
 

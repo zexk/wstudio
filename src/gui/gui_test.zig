@@ -100,4 +100,26 @@ fn register(engine: *te.TestEngine) void {
             _ = te.check(@src(), .{}, app.core.view == .tracks, "escape closes picker");
         }
     });
+
+    _ = engine.registerTest("piano", "pitch bend lane adds a per-note breakpoint", @src(), struct {
+        pub fn run(ctx: *te.TestContext) !void {
+            try app.core.session.setInstrument(0, .poly_synth);
+            app.core.openStepEditor(0);
+            app.core.piano_cursor_pitch = 60;
+            app.core.piano_cursor_step = 0;
+            app.core.session.racks.items[0].pattern_player.?.addNote(.{ .pitch = 60, .start_beat = 0, .duration_beat = 1 });
+            ctx.yield(4);
+            ctx.setRef("Workspace");
+            ctx.itemAction(.click, "PITCH BEND", .{}, null);
+            ctx.yield(2);
+            _ = te.check(@src(), .{}, app.piano_pitch_bend, "pitch bend lane opens");
+            ctx.itemAction(.click, "##piano-pitch-bend-curve", .{}, null);
+            ctx.yield(2);
+            const curve = app.core.session.racks.items[0].pattern_player.?.notes[0].pitch_bend;
+            _ = te.check(@src(), .{}, curve.count == 1, "clicking lane adds breakpoint");
+            pressKey(ctx, .u);
+            const undone = app.core.session.racks.items[0].pattern_player.?.notes[0].pitch_bend;
+            _ = te.check(@src(), .{}, undone.count == 0, "one undo removes lane gesture");
+        }
+    });
 }

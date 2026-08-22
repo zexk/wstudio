@@ -88,6 +88,10 @@ pub fn main(init: std.process.Init) !void {
             .{ .p = 69, .b = 2.0 }, .{ .p = 72, .b = 2.5 }, .{ .p = 77, .b = 3.0 }, .{ .p = 76, .b = 3.5 },
         };
         for (notes) |n| pp.addNote(.{ .pitch = n.p, .start_beat = n.b, .duration_beat = 0.5, .velocity = 0.8 });
+        const expressive = pp.noteAt(69, 0.0).?;
+        _ = expressive.pitch_bend.setPoint(0.0, 0.0);
+        _ = expressive.pitch_bend.setPoint(0.5, 2.0);
+        _ = expressive.pitch_bend.setPoint(1.0, 0.0);
     }
 
     // ── Track 1 - FM electric piano ──────────────────────────────────────────

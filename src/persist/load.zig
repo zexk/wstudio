@@ -995,6 +995,7 @@ pub fn sanitizeNote(n: NoteSnap) pattern_mod.Note {
             .fine_cents = n.fine_cents,
             .release_scale = n.release_scale,
         }).clamped(),
+        .pitch_bend = n.pitch_bend.sanitized(),
     };
 }
 

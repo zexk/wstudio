@@ -42,6 +42,7 @@ pub const App = struct {
     waveform_glow_last_ns: i128 = 0,
     automation_edit_active: bool = false,
     piano_velocity_edit_active: bool = false,
+    piano_pitch_bend: bool = false,
     instrument_edit_active: bool = false,
     synth_edit_active: bool = false,
     track_mixer_edit: ?TrackMixerEdit = null,

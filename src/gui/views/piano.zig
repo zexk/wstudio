@@ -88,6 +88,22 @@ fn previewNote(source: ws.dsp.pattern.Note, edit: ?MouseEdit, steps_per_beat: us
     return note;
 }
 
+fn drawPitchBendCurve(draw_list: anytype, curve: ws.dsp.pattern.PitchBendCurve, x1: f32, x2: f32, y1: f32, y2: f32, accent: [4]f32, thickness: f32) void {
+    if (curve.count == 0 or x2 <= x1 or y2 <= y1) return;
+    const sample_count = 24;
+    var points: [sample_count + 1][2]f32 = undefined;
+    const center = (y1 + y2) * 0.5;
+    const amplitude = @max(1.0, (y2 - y1) * 0.5 - 1.0);
+    for (&points, 0..) |*point, index| {
+        const position = @as(f32, @floatFromInt(index)) / sample_count;
+        point.* = .{
+            x1 + (x2 - x1) * position,
+            center - curve.valueAt(position) / ws.dsp.pattern.pitch_bend_range_semitones * amplitude,
+        };
+    }
+    draw_list.addPolyline(&points, .{ .col = color(accent), .thickness = thickness });
+}
+
 fn updateMouseEdit(edit: *MouseEdit, pointer_pitch: u7, pointer_step: usize) void {
     // A draw that hasn't left its starting cell keeps the default note
     // length - only an actual drag sizes the note, so a plain click still
@@ -189,6 +205,9 @@ fn drawToolbar(app: anytype) void {
     _ = widgets.toggle("GHOST NOTES", &app.core.piano_ghost);
 
     zgui.sameLine(.{ .spacing = 12 });
+    _ = widgets.toggle("PITCH BEND", &app.piano_pitch_bend);
+
+    zgui.sameLine(.{ .spacing = 12 });
     var triplet = app.core.piano_grid == .triplet;
     if (widgets.toggle("TRIPLET", &triplet)) {
         app.core.handleKey(.{ .char = 'T' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
@@ -226,6 +245,8 @@ pub fn draw(app: anytype) void {
         zgui.textDisabled("Choose a melodic instrument", .{});
         return;
     };
+    drawToolbar(app);
+    zgui.spacing();
     // Wide enough for the velocity lane's header below it, which is the
     // longest thing the gutter has to hold ("VELOCITY", not a key name).
     const gutter_w: f32 = 66;
@@ -357,6 +378,16 @@ pub fn draw(app: anytype) void {
         const selected = app.core.piano_cursor_pitch == note.pitch and app.core.piano_cursor_step == start_step;
         const note_alpha = 0.62 + std.math.clamp(note.velocity, 0, 1) * 0.38;
         draw_list.addRectFilled(.{ .pmin = .{ x + 1, y }, .pmax = .{ right, y + row_h - 4 }, .col = color(.{ theme.audio[0], theme.audio[1], theme.audio[2], note_alpha }), .rounding = 3 });
+        drawPitchBendCurve(
+            draw_list,
+            note.pitch_bend,
+            x + 2,
+            right - 1,
+            y + 1,
+            y + row_h - 5,
+            if (selected) theme.focus else .{ theme.fg0[0], theme.fg0[1], theme.fg0[2], 0.72 },
+            if (selected) 2.0 else 1.3,
+        );
         draw_list.addLine(.{ .p1 = .{ x + 3, y + 2 }, .p2 = .{ x + 3, y + row_h - 6 }, .col = color(.{ theme.fg0[0], theme.fg0[1], theme.fg0[2], 0.72 }), .thickness = 2 });
         if (selected) {
             widgets.focusRect(draw_list, .{ x, y - 1 }, .{ right + 1, y + row_h - 3 }, 3, theme.focus);
@@ -522,7 +553,81 @@ pub fn draw(app: anytype) void {
         }
     }
     zgui.spacing();
-    drawVelocityLane(app, pp, canvas_w, gutter_w, beats, controller_h);
+    if (app.piano_pitch_bend)
+        drawPitchBendLane(app, pp, canvas_w, gutter_w, beats, controller_h)
+    else
+        drawVelocityLane(app, pp, canvas_w, gutter_w, beats, controller_h);
+}
+
+fn drawPitchBendLane(app: anytype, pp: *ws.dsp.PatternPlayer, width: f32, gutter_w: f32, beats: f32, height: f32) void {
+    const origin = zgui.getCursorScreenPos();
+    zgui.setNextItemAllowOverlap();
+    _ = zgui.invisibleButton("piano-pitch-bend-lane", .{ .w = width, .h = height });
+    const draw_list = zgui.getWindowDrawList();
+    const grid_x = origin[0] + gutter_w;
+    const grid_w = width - gutter_w;
+    const beat_w = grid_w / beats;
+
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg0) });
+    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ grid_x, origin[1] + height }, .col = color(theme.bg2) });
+    draw_list.addLine(.{ .p1 = .{ grid_x, origin[1] + height * 0.5 }, .p2 = .{ origin[0] + width, origin[1] + height * 0.5 }, .col = color(theme.bg5), .thickness = 1.5 });
+    draw_list.pushClipRect(.{ .pmin = origin, .pmax = .{ grid_x, origin[1] + height }, .intersect_with_current = true });
+    draw_list.addText(.{ origin[0] + 4, origin[1] + 8 }, color(theme.modulation), "PITCH", .{});
+    draw_list.addText(.{ origin[0] + 4, origin[1] + 28 }, color(theme.modulation), "BEND", .{});
+    draw_list.addText(.{ origin[0] + 4, origin[1] + 50 }, color(theme.fg3), "+/-{d:.0} st", .{ws.dsp.pattern.pitch_bend_range_semitones});
+    draw_list.popClipRect();
+
+    while (!pp.notes_lock.tryLock()) std.atomic.spinLoopHint();
+    for (pp.notes[0..pp.note_count]) |note| {
+        const x1 = grid_x + @as(f32, @floatCast(note.start_beat)) * beat_w;
+        const x2 = @min(grid_x + @as(f32, @floatCast(note.start_beat + note.duration_beat)) * beat_w, origin[0] + width);
+        drawPitchBendCurve(draw_list, note.pitch_bend, x1, x2, origin[1] + 4, origin[1] + height - 4, .{ theme.audio[0], theme.audio[1], theme.audio[2], 0.34 }, 1.2);
+    }
+    pp.notes_lock.unlock();
+
+    const steps_per_beat = app.core.pianoStepsPerBeat();
+    const start_beat = @as(f64, @floatFromInt(app.core.piano_cursor_step)) / @as(f64, @floatFromInt(steps_per_beat));
+    const selected_ptr = pp.noteAt(app.core.piano_cursor_pitch, start_beat) orelse {
+        zgui.setCursorScreenPos(.{ origin[0], origin[1] + height });
+        return;
+    };
+    const selected = selected_ptr.*;
+    if (selected.duration_beat <= 0.0) {
+        zgui.setCursorScreenPos(.{ origin[0], origin[1] + height });
+        return;
+    }
+
+    var points: [ws.dsp.pattern.max_pitch_bend_points]widgets.CurvePoint = undefined;
+    for (selected.pitch_bend.points[0..selected.pitch_bend.count], points[0..selected.pitch_bend.count]) |point, *dst| {
+        dst.* = .{ .beat = @as(f64, point.position) * selected.duration_beat, .value = point.semitones };
+    }
+    const selected_x = grid_x + @as(f32, @floatCast(selected.start_beat)) * beat_w;
+    const selected_w = @max(8.0, @min(@as(f32, @floatCast(selected.duration_beat)) * beat_w, origin[0] + width - selected_x));
+    zgui.setCursorScreenPos(.{ selected_x, origin[1] });
+    const result = widgets.curveEditor("##piano-pitch-bend-curve", .{
+        .points = points[0..selected.pitch_bend.count],
+        .beat_hi = selected.duration_beat,
+        .value_lo = -ws.dsp.pattern.pitch_bend_range_semitones,
+        .value_hi = ws.dsp.pattern.pitch_bend_range_semitones,
+        .snap_beats = 1.0 / @as(f64, @floatFromInt(steps_per_beat)),
+        .grid_divisions = 0,
+        .accent = theme.modulation,
+        .width = selected_w,
+        .height = height,
+    });
+    if (result.inserted) |point| {
+        recordVelocityGesture(app);
+        _ = piano_ed.setPitchBendPoint(&app.core, selected.pitch, app.core.piano_cursor_step, point.beat, point.value);
+    }
+    if (result.moved) |point| {
+        recordVelocityGesture(app);
+        _ = piano_ed.movePitchBendPoint(&app.core, selected.pitch, app.core.piano_cursor_step, point.index, point.beat, point.value);
+    }
+    if (result.removed) |beat| {
+        recordVelocityGesture(app);
+        _ = piano_ed.removePitchBendPoint(&app.core, selected.pitch, app.core.piano_cursor_step, beat);
+    }
+    zgui.setCursorScreenPos(.{ origin[0], origin[1] + height });
 }
 
 fn drawVelocityLane(app: anytype, pp: *ws.dsp.PatternPlayer, width: f32, gutter_w: f32, beats: f32, height: f32) void {

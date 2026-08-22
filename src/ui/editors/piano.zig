@@ -866,6 +866,7 @@ pub fn resizeNoteFromLeft(app: *App, pitch: u7, start_step: u16, new_start_step:
     if (new_start >= end - 1e-9) return false;
     const velocity = note.velocity;
     const art = note.art;
+    const pitch_bend = note.pitch_bend;
     history.recordMelodic(app, app.piano_track);
     pp.removeNote(pitch, old_start);
     _ = pp.tryAddNote(.{
@@ -874,6 +875,7 @@ pub fn resizeNoteFromLeft(app: *App, pitch: u7, start_step: u16, new_start_step:
         .duration_beat = end - new_start,
         .velocity = velocity,
         .art = art,
+        .pitch_bend = pitch_bend,
     });
     app.piano_cursor_pitch = pitch;
     app.piano_cursor_step = new_start_step;
@@ -943,6 +945,7 @@ pub fn cloneNoteBack(app: *App, source_pitch: u7, source_step: u16, target_pitch
         .duration_beat = moved.duration_beat,
         .velocity = moved.velocity,
         .art = moved.art,
+        .pitch_bend = moved.pitch_bend,
     })) {
         app.setStatus("pattern full ({d} notes max)", .{pattern_mod.max_notes});
         return false;
@@ -973,6 +976,43 @@ pub fn setNoteField(app: *App, field: ws.dsp.pattern.NoteField, pitch: u7, start
     field.set(note, wanted);
     var buf: [16]u8 = undefined;
     app.setStatus("{s}: {s}", .{ field.label(), field.format(wanted, &buf) });
+    syncLinkedClip(app);
+    return true;
+}
+
+/// GUI pitch-expression lane adapters. Undo stays with caller because a
+/// dragged breakpoint reports one update per frame, matching `setNoteField`.
+pub fn setPitchBendPoint(app: *App, pitch: u7, start_step: u16, beat: f64, semitones: f32) bool {
+    const pp = currentPatternPlayer(app) orelse return false;
+    const note = pp.noteAt(pitch, stepToBeat(app, start_step)) orelse return false;
+    if (note.duration_beat <= 0.0) return false;
+    const position: f32 = @floatCast(std.math.clamp(beat / note.duration_beat, 0.0, 1.0));
+    if (!note.pitch_bend.setPoint(position, semitones)) {
+        app.setStatus("pitch bend full ({d} points max)", .{ws.dsp.pattern.max_pitch_bend_points});
+        return false;
+    }
+    app.piano_cursor_pitch = pitch;
+    app.piano_cursor_step = start_step;
+    syncLinkedClip(app);
+    return true;
+}
+
+pub fn movePitchBendPoint(app: *App, pitch: u7, start_step: u16, index: usize, beat: f64, semitones: f32) bool {
+    const pp = currentPatternPlayer(app) orelse return false;
+    const note = pp.noteAt(pitch, stepToBeat(app, start_step)) orelse return false;
+    if (note.duration_beat <= 0.0) return false;
+    const position: f32 = @floatCast(std.math.clamp(beat / note.duration_beat, 0.0, 1.0));
+    if (!note.pitch_bend.movePoint(index, position, semitones)) return false;
+    syncLinkedClip(app);
+    return true;
+}
+
+pub fn removePitchBendPoint(app: *App, pitch: u7, start_step: u16, beat: f64) bool {
+    const pp = currentPatternPlayer(app) orelse return false;
+    const note = pp.noteAt(pitch, stepToBeat(app, start_step)) orelse return false;
+    if (note.duration_beat <= 0.0) return false;
+    const position: f32 = @floatCast(std.math.clamp(beat / note.duration_beat, 0.0, 1.0));
+    if (!note.pitch_bend.removePoint(position)) return false;
     syncLinkedClip(app);
     return true;
 }

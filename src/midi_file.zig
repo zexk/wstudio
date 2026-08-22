@@ -717,7 +717,7 @@ test "MIDI import caps notes and events before allocating their full file counts
     const bytes = try writeProject(std.testing.allocator, notes, events, &.{}, 120);
     defer std.testing.allocator.free(bytes);
 
-    var parse_memory: [192 * 1024]u8 = undefined;
+    var parse_memory: [192 * 1024 + 2 * @as(usize, pattern_mod.max_notes) * @sizeOf(pattern_mod.PitchBendCurve)]u8 = undefined;
     var fixed = std.heap.FixedBufferAllocator.init(&parse_memory);
     const result = try parse(fixed.allocator(), bytes);
     defer result.deinit(fixed.allocator());

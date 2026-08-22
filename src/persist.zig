@@ -2712,6 +2712,32 @@ test "a loaded project renders sample-identical to the session that saved it" {
     }
 }
 
+test "save/load preserves per-note pitch bend breakpoints" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [64]u8 = undefined;
+    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/bend.wsj", .{&tmp.sub_path});
+
+    var session = try Session.initDefault(testing.allocator);
+    defer session.deinit();
+    try session.setInstrument(0, .poly_synth);
+    var bend: pattern_mod.PitchBendCurve = .{};
+    _ = bend.setPoint(0.25, -1.0);
+    _ = bend.setPoint(0.75, 1.5);
+    session.racks.items[0].pattern_player.?.addNote(.{ .pitch = 60, .start_beat = 0, .duration_beat = 2, .pitch_bend = bend });
+    try save(testing.allocator, &session, testing.io, wsj_path);
+
+    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    defer loaded.deinit();
+    const restored = loaded.racks.items[0].pattern_player.?.notes[0].pitch_bend;
+    try testing.expectEqual(@as(u8, 2), restored.count);
+    try testing.expectEqual(@as(f32, 0.25), restored.points[0].position);
+    try testing.expectEqual(@as(f32, -1.0), restored.points[0].semitones);
+    try testing.expectEqual(@as(f32, 0.75), restored.points[1].position);
+    try testing.expectEqual(@as(f32, 1.5), restored.points[1].semitones);
+}
+
 /// Write a .wsj holding `snap` and no audio at all, the way `save` would.
 /// Lets a test hand `load` a file it could never produce itself.
 fn writeSnapshotFile(path: []const u8, snap: Snapshot) !void {

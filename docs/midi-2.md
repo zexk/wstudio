@@ -35,6 +35,12 @@ instruments receive standard tuning note-expression events. CLAP plugins using
 byte-stream MIDI receive other controls as scaled MIDI 1.0 values. VST3 MIDI
 mappings receive normalized channel controls.
 
+GUI piano roll's **PITCH BEND** switch opens per-note expression editing.
+Curves overlay their notes and selected note gets editable breakpoints in
+lower lane. Click empty space to add point, drag point to move it, and
+double-click or use point context menu to delete it. Range is currently
+fixed at MIDI default of +/-2 semitones.
+
 Groups and channels are decoded, but live input follows existing controller
 routing: every message targets selected track. No channel or group filter is
 configured yet.

@@ -35,6 +35,95 @@ pub const MidiEvent = struct {
 /// What a note lands at when nothing supplies a velocity (step edits, the
 /// qwerty piano) - recorded MIDI carries its own.
 pub const default_velocity: f32 = 0.85;
+pub const pitch_bend_range_semitones: f32 = 2.0;
+pub const max_pitch_bend_points: usize = 16;
+
+pub const PitchBendPoint = struct {
+    position: f32 = 0.0,
+    semitones: f32 = 0.0,
+};
+
+pub const PitchBendCurve = struct {
+    points: [max_pitch_bend_points]PitchBendPoint = [_]PitchBendPoint{.{}} ** max_pitch_bend_points,
+    count: u8 = 0,
+
+    pub fn sanitized(self: PitchBendCurve) PitchBendCurve {
+        var result: PitchBendCurve = .{};
+        for (self.points[0..@min(self.count, max_pitch_bend_points)]) |point| {
+            if (!std.math.isFinite(point.position) or !std.math.isFinite(point.semitones)) continue;
+            _ = result.setPoint(point.position, point.semitones);
+        }
+        return result;
+    }
+
+    pub fn setPoint(self: *PitchBendCurve, position: f32, semitones: f32) bool {
+        const pos = std.math.clamp(position, 0.0, 1.0);
+        const value = std.math.clamp(semitones, -pitch_bend_range_semitones, pitch_bend_range_semitones);
+        var index: usize = 0;
+        while (index < self.count and self.points[index].position < pos) : (index += 1) {}
+        if (index < self.count and @abs(self.points[index].position - pos) < 1e-5) {
+            self.points[index].semitones = value;
+            return true;
+        }
+        if (self.count >= max_pitch_bend_points) return false;
+        var move: usize = self.count;
+        while (move > index) : (move -= 1) self.points[move] = self.points[move - 1];
+        self.points[index] = .{ .position = pos, .semitones = value };
+        self.count += 1;
+        return true;
+    }
+
+    pub fn movePoint(self: *PitchBendCurve, index: usize, position: f32, semitones: f32) bool {
+        if (index >= self.count) return false;
+        const lo = if (index == 0) 0.0 else self.points[index - 1].position;
+        const hi = if (index + 1 == self.count) 1.0 else self.points[index + 1].position;
+        self.points[index] = .{
+            .position = std.math.clamp(position, lo, hi),
+            .semitones = std.math.clamp(semitones, -pitch_bend_range_semitones, pitch_bend_range_semitones),
+        };
+        return true;
+    }
+
+    pub fn removePoint(self: *PitchBendCurve, position: f32) bool {
+        for (self.points[0..self.count], 0..) |point, index| {
+            if (@abs(point.position - position) >= 1e-5) continue;
+            var move = index;
+            while (move + 1 < self.count) : (move += 1) self.points[move] = self.points[move + 1];
+            self.count -= 1;
+            return true;
+        }
+        return false;
+    }
+
+    pub fn valueAt(self: PitchBendCurve, position: f32) f32 {
+        if (self.count == 0) return 0.0;
+        const pos = std.math.clamp(position, 0.0, 1.0);
+        var previous = self.points[0];
+        if (pos <= previous.position) return previous.semitones;
+        for (self.points[1..self.count]) |point| {
+            if (pos <= point.position) {
+                const span = point.position - previous.position;
+                if (span <= 0.0) return point.semitones;
+                const t = (pos - previous.position) / span;
+                return previous.semitones + (point.semitones - previous.semitones) * t;
+            }
+            previous = point;
+        }
+        return previous.semitones;
+    }
+};
+
+test "PitchBendCurve sorts, clamps, interpolates, and removes points" {
+    var curve: PitchBendCurve = .{};
+    try std.testing.expect(curve.setPoint(1.0, 9.0));
+    try std.testing.expect(curve.setPoint(0.5, 1.0));
+    try std.testing.expectEqual(@as(f32, 0.5), curve.points[0].position);
+    try std.testing.expectEqual(@as(f32, 1.0), curve.valueAt(0.25));
+    try std.testing.expectEqual(pitch_bend_range_semitones, curve.valueAt(1.0));
+    try std.testing.expect(curve.movePoint(0, 0.25, -1.0));
+    try std.testing.expect(curve.removePoint(0.25));
+    try std.testing.expectEqual(@as(u8, 1), curve.count);
+}
 
 /// A step position (already multiplied out to `beats * steps_per_beat`) as
 /// the u16 every piano-roll step index uses, saturated instead of cast raw.
@@ -68,6 +157,7 @@ pub const Note = struct {
     /// (or by a step edit, the qwerty piano, or a MIDI import) plays the
     /// way it always did.
     art:           dsp.Articulation = .neutral,
+    pitch_bend:    PitchBendCurve = .{},
 };
 // zig fmt: on
 
@@ -274,6 +364,7 @@ pub const PatternPlayer = struct {
             .channel = note.channel,
             .midi_track = note.midi_track,
             .art = note.art.clamped(),
+            .pitch_bend = note.pitch_bend.sanitized(),
         };
     }
 
@@ -660,8 +751,31 @@ pub const PatternPlayer = struct {
             const start = @mod(swungBeat(n.start_beat, swing_pct), loop_beats);
             if (start >= lo and start < hi) {
                 target.sendEvent(.{ .note_on = .{ .note = n.pitch, .velocity = n.velocity, .art = n.art } });
+                if (n.pitch_bend.count > 0) target.sendEvent(.{ .midi2_per_note_pitch_bend = .{
+                    .note = n.pitch,
+                    .value = n.pitch_bend.valueAt(0.0) / pitch_bend_range_semitones,
+                } });
                 sounding[n.pitch] +|= 1;
             }
+        }
+    }
+
+    fn emitPitchBends(notes: []const Note, loop_beats: f64, target: dsp.Device, beat: f64, song_mode: bool, swing_pct: f32) void {
+        // ponytail: MIDI 2 addresses this message by pitch, so overlapping
+        // notes at the same pitch share the last curve. Add note IDs only
+        // when the engine event and every hosted-plugin path can carry them.
+        for (notes) |n| {
+            if (n.pitch_bend.count == 0 or n.duration_beat <= 0.0) continue;
+            const start = swungBeat(n.start_beat, swing_pct);
+            const elapsed = if (song_mode)
+                (if (beat >= start) beat - start else continue)
+            else
+                @mod(beat - @mod(start, loop_beats), loop_beats);
+            if (elapsed >= n.duration_beat) continue;
+            target.sendEvent(.{ .midi2_per_note_pitch_bend = .{
+                .note = n.pitch,
+                .value = n.pitch_bend.valueAt(@floatCast(elapsed / n.duration_beat)) / pitch_bend_range_semitones,
+            } });
         }
     }
 
@@ -737,6 +851,7 @@ pub const PatternPlayer = struct {
         } else {
             scanRange(notes, loop, &self.sounding, self.target, s, e, swing_pct);
         }
+        emitPitchBends(notes, loop, self.target, s, self.song_mode, swing_pct);
     }
 
     pub fn handleEvent(self: *PatternPlayer, ev: dsp.Event) void {
@@ -757,6 +872,29 @@ pub const PatternPlayer = struct {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+test "PatternPlayer sends interpolated per-note pitch bend while note sounds" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    var transport: Transport = .{ .sample_rate = 48_000 };
+    var pp = PatternPlayer.init(synth.device(), &transport);
+    var bend: PitchBendCurve = .{};
+    try std.testing.expect(bend.setPoint(0.0, 0.0));
+    try std.testing.expect(bend.setPoint(1.0, 2.0));
+    pp.notes[0] = .{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0, .pitch_bend = bend };
+    pp.note_count = 1;
+
+    PatternPlayer.scanRange(pp.notes[0..1], 4.0, &pp.sounding, synth.device(), 0.0, 0.1, 50.0);
+    PatternPlayer.emitPitchBends(pp.notes[0..1], 4.0, synth.device(), 0.5, false, 50.0);
+    var found = false;
+    for (synth.voices) |voice| {
+        if (voice.active and voice.note == 60) {
+            found = true;
+            try std.testing.expectApproxEqAbs(@as(f32, 1.0), voice.per_note_bend, 1e-6);
+        }
+    }
+    try std.testing.expect(found);
+}
 
 test "tryAddNote reports the real-time pattern capacity" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
