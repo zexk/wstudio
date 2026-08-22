@@ -928,11 +928,8 @@ test ":synth-preset with no args lists names without touching the synth" {
 }
 
 test ":synth-preset-save persists a hand-tuned patch, then :synth-preset re-applies it" {
-    var tmp = std.testing.tmpDir(.{});
+    var tmp = try @import("store/json.zig").testTempHome();
     defer tmp.cleanup();
-    // $HOME redirected at a scratch dir so this never writes to the real
-    // ~/.config/wstudio/synth_presets.json.
-    try @import("store/json.zig").testRedirectHome(&tmp);
 
     var app = try App.init(std.testing.allocator, std.testing.io);
     defer app.deinit();

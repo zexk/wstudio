@@ -63,9 +63,8 @@ pub fn deinit(allocator: std.mem.Allocator, list: *std.ArrayListUnmanaged(Bookma
 
 test "save writes entries and load reads them back in order" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
+    var tmp = try json_store.testTempHome();
     defer tmp.cleanup();
-    try json_store.testRedirectHome(&tmp);
 
     try save(testing.allocator, testing.io, &.{
         .{ .path = @constCast("/home/user/samples"), .is_dir = true },
@@ -83,9 +82,8 @@ test "save writes entries and load reads them back in order" {
 
 test "load on a missing file returns an empty list, not an error" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
+    var tmp = try json_store.testTempHome();
     defer tmp.cleanup();
-    try json_store.testRedirectHome(&tmp);
 
     var loaded = load(testing.allocator, testing.io);
     defer deinit(testing.allocator, &loaded);
@@ -94,9 +92,8 @@ test "load on a missing file returns an empty list, not an error" {
 
 test "a corrupt bookmarks file is quarantined instead of silently emptied" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
+    var tmp = try json_store.testTempHome();
     defer tmp.cleanup();
-    try json_store.testRedirectHome(&tmp);
 
     var path_buf: [json_store.path_buf_len]u8 = undefined;
     const path = try json_store.testWriteCorrupt(testing.io, &path_buf, filename);

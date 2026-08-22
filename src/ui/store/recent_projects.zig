@@ -63,9 +63,8 @@ test "touch moves duplicates to front and caps list" {
 }
 
 test "save and load preserve order" {
-    var tmp = std.testing.tmpDir(.{});
+    var tmp = try json_store.testTempHome();
     defer tmp.cleanup();
-    try json_store.testRedirectHome(&tmp);
     try save(std.testing.allocator, std.testing.io, &.{ "/music/a.wsj", "/music/b.wsj" });
     var loaded = load(std.testing.allocator, std.testing.io);
     defer deinit(std.testing.allocator, &loaded);

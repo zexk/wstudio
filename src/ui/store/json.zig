@@ -172,6 +172,13 @@ pub fn testRedirectHome(tmp: *const std.testing.TmpDir) !void {
     _ = setenv("XDG_CONFIG_HOME", xdg.ptr, 1);
 }
 
+pub fn testTempHome() !std.testing.TmpDir {
+    var tmp = std.testing.tmpDir(.{});
+    errdefer tmp.cleanup();
+    try testRedirectHome(&tmp);
+    return tmp;
+}
+
 /// Write unparseable bytes at `filename`'s config path and return that path
 /// (sliced into `path_buf`), for exercising the quarantine path.
 pub fn testWriteCorrupt(io: std.Io, path_buf: []u8, comptime filename: []const u8) ![]const u8 {
@@ -197,9 +204,8 @@ pub fn testExpectQuarantined(io: std.Io, path: []const u8) !void {
 }
 
 test "the store follows XDG_CONFIG_HOME" {
-    var tmp = std.testing.tmpDir(.{});
+    var tmp = try testTempHome();
     defer tmp.cleanup();
-    try testRedirectHome(&tmp);
     // Every later test in this binary expects the default redirect back.
     defer testRedirectHome(&tmp) catch {};
 
@@ -233,9 +239,8 @@ test "the store follows XDG_CONFIG_HOME" {
 }
 
 test "an oversized store is quarantined before a save can replace it" {
-    var tmp = std.testing.tmpDir(.{});
+    var tmp = try testTempHome();
     defer tmp.cleanup();
-    try testRedirectHome(&tmp);
 
     const filename = "oversized.json";
     var path_buf: [path_buf_len]u8 = undefined;
@@ -256,9 +261,8 @@ test "an oversized store is quarantined before a save can replace it" {
 }
 
 test "quarantine preserves an earlier corrupt file" {
-    var tmp = std.testing.tmpDir(.{});
+    var tmp = try testTempHome();
     defer tmp.cleanup();
-    try testRedirectHome(&tmp);
 
     var path_buf: [path_buf_len]u8 = undefined;
     const path = try testWriteCorrupt(std.testing.io, &path_buf, "collision.json");
@@ -278,9 +282,8 @@ test "quarantine preserves an earlier corrupt file" {
 }
 
 test "failed save removes temporary file" {
-    var tmp = std.testing.tmpDir(.{});
+    var tmp = try testTempHome();
     defer tmp.cleanup();
-    try testRedirectHome(&tmp);
 
     var path_buf: [path_buf_len]u8 = undefined;
     const path = configPath(&path_buf, "blocked.json").?;

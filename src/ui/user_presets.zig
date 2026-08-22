@@ -168,13 +168,8 @@ pub fn deinit(allocator: std.mem.Allocator, list: *std.ArrayListUnmanaged(UserPr
 
 test "upsert saves and load reads a preset back" {
     const testing = std.testing;
-    // Point $HOME at a temp dir (relative to cwd, same convention
-    // persist.zig's own tests use for their .wsj paths) so this test never
-    // touches the real config file - setenv is process-global but tests run
-    // single-threaded.
-    var tmp = testing.tmpDir(.{});
+    var tmp = try json_store.testTempHome();
     defer tmp.cleanup();
-    try json_store.testRedirectHome(&tmp);
 
     var list: std.ArrayListUnmanaged(UserPreset) = .empty;
     defer deinit(testing.allocator, &list);
@@ -205,9 +200,8 @@ test "upsert saves and load reads a preset back" {
 
 test "remove deletes by name (any case) and persists the shrunk set" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
+    var tmp = try json_store.testTempHome();
     defer tmp.cleanup();
-    try json_store.testRedirectHome(&tmp);
 
     var list: std.ArrayListUnmanaged(UserPreset) = .empty;
     defer deinit(testing.allocator, &list);
@@ -229,9 +223,8 @@ test "remove deletes by name (any case) and persists the shrunk set" {
 
 test "a malformed presets file is quarantined, not silently discarded" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
+    var tmp = try json_store.testTempHome();
     defer tmp.cleanup();
-    try json_store.testRedirectHome(&tmp);
 
     var path_buf: [json_store.path_buf_len]u8 = undefined;
     const path = try json_store.testWriteCorrupt(testing.io, &path_buf, filename);
@@ -251,9 +244,8 @@ test "a malformed presets file is quarantined, not silently discarded" {
 }
 
 test "a newer preset version is quarantined before a save can replace it" {
-    var tmp = std.testing.tmpDir(.{});
+    var tmp = try json_store.testTempHome();
     defer tmp.cleanup();
-    try json_store.testRedirectHome(&tmp);
 
     var path_buf: [json_store.path_buf_len]u8 = undefined;
     const path = json_store.configPath(&path_buf, filename).?;
@@ -293,9 +285,8 @@ test "a preset whose save fails stays owned by the list" {
 
 test "load returns an empty list when there's nothing saved yet" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
+    var tmp = try json_store.testTempHome();
     defer tmp.cleanup();
-    try json_store.testRedirectHome(&tmp);
 
     var list = load(testing.allocator, testing.io, ws.types.default_sample_rate);
     defer deinit(testing.allocator, &list);

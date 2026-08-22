@@ -128,9 +128,8 @@ pub fn deinit(allocator: std.mem.Allocator, list: *std.ArrayListUnmanaged(UserKi
 
 test "upsert saves and load reads a kit back" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
+    var tmp = try json_store.testTempHome();
     defer tmp.cleanup();
-    try json_store.testRedirectHome(&tmp);
 
     var list: std.ArrayListUnmanaged(UserKit) = .empty;
     defer deinit(testing.allocator, &list);
@@ -159,9 +158,8 @@ test "upsert saves and load reads a kit back" {
 
 test "remove deletes by name (any case) and persists the shrunk set" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
+    var tmp = try json_store.testTempHome();
     defer tmp.cleanup();
-    try json_store.testRedirectHome(&tmp);
 
     const blank: [8]PadTune = [_]PadTune{.{}} ** 8;
     var list: std.ArrayListUnmanaged(UserKit) = .empty;
@@ -181,9 +179,8 @@ test "remove deletes by name (any case) and persists the shrunk set" {
 
 test "a malformed kits file is quarantined, not silently discarded" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
+    var tmp = try json_store.testTempHome();
     defer tmp.cleanup();
-    try json_store.testRedirectHome(&tmp);
 
     var path_buf: [json_store.path_buf_len]u8 = undefined;
     const path = try json_store.testWriteCorrupt(testing.io, &path_buf, filename);
@@ -196,9 +193,8 @@ test "a malformed kits file is quarantined, not silently discarded" {
 
 test "load returns an empty list when there's nothing saved yet" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
+    var tmp = try json_store.testTempHome();
     defer tmp.cleanup();
-    try json_store.testRedirectHome(&tmp);
 
     var list = load(testing.allocator, testing.io);
     defer deinit(testing.allocator, &list);
