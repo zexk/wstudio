@@ -35,6 +35,25 @@ fn openDevice(enumerator: ?*c.IMMDeviceEnumerator, flow: c.EDataFlow, id: []cons
     return device;
 }
 
+fn openAudioClient(flow: c.EDataFlow, id: []const u8) ?*c.IAudioClient {
+    var enumerator: ?*c.IMMDeviceEnumerator = null;
+    if (!ok(c.CoCreateInstance(
+        &c.CLSID_MMDeviceEnumerator,
+        null,
+        c.CLSCTX_ALL,
+        &c.IID_IMMDeviceEnumerator,
+        @ptrCast(&enumerator),
+    ))) return null;
+    defer _ = c.IMMDeviceEnumerator_Release(enumerator);
+
+    const device = openDevice(enumerator, flow, id) orelse return null;
+    defer _ = c.IMMDevice_Release(device);
+
+    var client: ?*c.IAudioClient = null;
+    if (!ok(c.IMMDevice_Activate(device, &c.IID_IAudioClient, c.CLSCTX_ALL, null, @ptrCast(&client)))) return null;
+    return client;
+}
+
 // audiosessiontypes.h defines these as unsuffixed hex literals; the first
 // overflows translate-c's c_int, so both are spelled out here instead.
 const stream_flag_auto_convert_pcm: c.DWORD = 0x80000000; // AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
@@ -67,22 +86,7 @@ pub const WasapiBackend = struct {
         if (!ok(c.CoInitializeEx(null, c.COINIT_MULTITHREADED))) return error.ComInitFailed;
         errdefer c.CoUninitialize();
 
-        var enumerator: ?*c.IMMDeviceEnumerator = null;
-        if (!ok(c.CoCreateInstance(
-            &c.CLSID_MMDeviceEnumerator,
-            null,
-            c.CLSCTX_ALL,
-            &c.IID_IMMDeviceEnumerator,
-            @ptrCast(&enumerator),
-        ))) return error.DeviceOpenFailed;
-        defer _ = c.IMMDeviceEnumerator_Release(enumerator);
-
-        const device = openDevice(enumerator, c.eRender, self.config.output_device) orelse return error.DeviceOpenFailed;
-        defer _ = c.IMMDevice_Release(device);
-
-        var client: ?*c.IAudioClient = null;
-        if (!ok(c.IMMDevice_Activate(device, &c.IID_IAudioClient, c.CLSCTX_ALL, null, @ptrCast(&client))))
-            return error.DeviceOpenFailed;
+        const client = openAudioClient(c.eRender, self.config.output_device) orelse return error.DeviceOpenFailed;
         errdefer _ = c.IAudioClient_Release(client);
 
         const fmt = c.WAVEFORMATEX{
@@ -235,22 +239,7 @@ pub const WasapiCapture = struct {
         if (!ok(c.CoInitializeEx(null, c.COINIT_MULTITHREADED))) return error.ComInitFailed;
         errdefer c.CoUninitialize();
 
-        var enumerator: ?*c.IMMDeviceEnumerator = null;
-        if (!ok(c.CoCreateInstance(
-            &c.CLSID_MMDeviceEnumerator,
-            null,
-            c.CLSCTX_ALL,
-            &c.IID_IMMDeviceEnumerator,
-            @ptrCast(&enumerator),
-        ))) return error.DeviceOpenFailed;
-        defer _ = c.IMMDeviceEnumerator_Release(enumerator);
-
-        const device = openDevice(enumerator, c.eCapture, device_name) orelse return error.DeviceOpenFailed;
-        defer _ = c.IMMDevice_Release(device);
-
-        var client: ?*c.IAudioClient = null;
-        if (!ok(c.IMMDevice_Activate(device, &c.IID_IAudioClient, c.CLSCTX_ALL, null, @ptrCast(&client))))
-            return error.DeviceOpenFailed;
+        const client = openAudioClient(c.eCapture, device_name) orelse return error.DeviceOpenFailed;
         errdefer _ = c.IAudioClient_Release(client);
 
         const fmt = c.WAVEFORMATEX{
