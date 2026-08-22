@@ -381,6 +381,7 @@ fn tuiStatusText(app: anytype, left_out: []u8, right_out: []u8) StatusText {
     if (core.view == .tracks) core.tracksRowSync();
     (switch (core.view) {
         .tracks => status.drawTracksStatus(core, &left_writer, &right_writer),
+        .audio_editor => status.drawAudioStatus(core, &left_writer, &right_writer),
         .drum_grid => status.drawDrumStatus(core, &left_writer, &right_writer),
         .synth_editor => status.drawSynthStatus(core, &left_writer, &right_writer),
         .sampler_editor => status.drawSamplerStatus(core, &left_writer, &right_writer),

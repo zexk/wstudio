@@ -20,6 +20,7 @@ const cmd_mod = @import("../ui/cmd.zig");
 const icons = @import("../ui/icons.zig");
 const spectrum_ed = @import("../ui/editors/fx_editor.zig");
 const arrangement = @import("views/arrangement.zig");
+const audio_view = @import("views/audio.zig");
 const automation = @import("views/automation.zig");
 const browser = @import("views/browser.zig");
 const drum = @import("views/drum.zig");
@@ -130,6 +131,7 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
     // zig fmt: off
     switch (self.view) {
         .tracks          => try tracks.drawTracks(self, w, content_rows, size.cols, snap),
+        .audio_editor    => try audio_view.drawAudioEditor(self, w, content_rows, size.cols),
         .drum_grid       => try drum.drawDrumGrid(self, w, content_rows, size.cols, snap),
         .synth_editor    => try synth.drawSynthEditor(self, w, content_rows, size.cols, snap),
         .sampler_editor  => try sampler.drawSamplerEditor(self, w, content_rows, size.cols, snap),
@@ -271,6 +273,7 @@ pub fn draw(self: *App, w: *std.Io.Writer, size: terminal_mod.Size) !void {
     }
     switch (self.view) {
         .tracks          => try status.drawTracksStatus(self, &status_w, &status_right_w),
+        .audio_editor    => try status.drawAudioStatus(self, &status_w, &status_right_w),
         .drum_grid       => try status.drawDrumStatus(self, &status_w, &status_right_w),
         .synth_editor    => try status.drawSynthStatus(self, &status_w, &status_right_w),
         .sampler_editor  => try status.drawSamplerStatus(self, &status_w, &status_right_w),

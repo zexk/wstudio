@@ -9,6 +9,7 @@ const app_mod = @import("../ui/app.zig");
 const history = @import("../ui/history.zig");
 const chrome = @import("chrome.zig");
 const arrangement_view = @import("views/arrangement.zig");
+const audio_view = @import("views/audio.zig");
 const automation_view = @import("views/automation.zig");
 const drum_view = @import("views/drum.zig");
 const file_browser_view = @import("views/file_browser.zig");
@@ -224,6 +225,7 @@ fn drawWorkspace(app: *App) void {
 fn drawView(app: *App, view: app_mod.AppView) void {
     switch (view) {
         .tracks => tracks_view.draw(app),
+        .audio_editor => audio_view.draw(app),
         .arrangement => arrangement_view.draw(app),
         .piano_roll => piano_view.draw(app),
         .drum_grid => drum_view.draw(app),

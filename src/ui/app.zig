@@ -77,7 +77,7 @@ pub const reload_path_buf_len: usize = 1024;
 /// A pause longer than this between taps starts a fresh tap-tempo run.
 /// Minimum gap between silent `<path>~` backups; see `maybeAutosave`.
 const default_autosave_interval_ns: i96 = 30 * std.time.ns_per_s;
-pub const AppView = enum { tracks, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, arrangement, file_browser, automation, automation_param_picker, slicer_grid, preset_picker, soundfont_editor };
+pub const AppView = enum { tracks, audio_editor, drum_grid, synth_editor, sampler_editor, help, track_spectrum, master_spectrum, group_spectrum, piano_roll, instrument_picker, fx_picker, arrangement, file_browser, automation, automation_param_picker, slicer_grid, preset_picker, soundfont_editor };
 pub const InputMonitor = enum { off, auto, on };
 
 /// Macro machinery bounds (see `App.macroIntercept`): the two-key pending
@@ -101,6 +101,7 @@ pub const AltContext = struct {
     synth_track: u16,
     soundfont_track: u16,
     automation_track: u16,
+    audio_track: u16,
     sampler_target: SamplerTarget,
 };
 pub const GridDivision = ws.time_grid.Division;
@@ -474,6 +475,8 @@ pub const App = struct {
     /// that sequences it (e), and each should back out where it came from.
     /// Set by every site that switches to `.sampler_editor`.
     sampler_return: AppView = .tracks,
+    audio_track: u16 = 0,
+    audio_clip: usize = 0,
     /// Highlighted row in the instrument picker. An ordinal over the built-in
     /// kinds *and* every scanned plugin, so it is not a u8: a machine with a
     /// few hundred instruments installed overflowed one on `G`.
@@ -1391,7 +1394,7 @@ pub const App = struct {
     fn workspaceView(view: AppView) bool {
         return switch (view) {
             // zig fmt: off
-            .tracks, .piano_roll, .drum_grid, .slicer_grid, .arrangement,
+            .tracks, .audio_editor, .piano_roll, .drum_grid, .slicer_grid, .arrangement,
             .automation, .synth_editor, .sampler_editor, .soundfont_editor => true,
             // zig fmt: on
             else => false,
@@ -1607,6 +1610,7 @@ pub const App = struct {
             .synth_track = self.synth_track,
             .soundfont_track = self.soundfont_track,
             .automation_track = self.automation_track,
+            .audio_track = self.audio_track,
             .sampler_target = self.sampler_target,
             // zig fmt: on
         };
@@ -1628,6 +1632,7 @@ pub const App = struct {
         self.synth_track = alt.synth_track;
         self.soundfont_track = alt.soundfont_track;
         self.automation_track = alt.automation_track;
+        self.audio_track = alt.audio_track;
         self.sampler_target = alt.sampler_target;
         // A track deleted or re-kinded while away can't be jumped into -
         // the same staleness bounce every structural edit already uses.
@@ -2154,6 +2159,7 @@ pub const App = struct {
             .synth_editor => self.routeEditorKey(key, now_ns, .prompt, synth_ed.handleKey),
             .track_spectrum, .master_spectrum, .group_spectrum => self.routeEditorKey(key, now_ns, .prompt, spectrum_ed.handleKey),
             .arrangement => self.routeEditorKey(key, now_ns, .prompt, arrangement_ed.handleKey),
+            .audio_editor => self.routeEditorKey(key, now_ns, .prompt, @import("editors/audio.zig").handleKey),
             .automation => self.routeEditorKey(key, now_ns, .prompt, automation_ed.handleKey),
             .sampler_editor => self.routeEditorKey(key, now_ns, .non_normal, sampler_ed.handleKey),
             .soundfont_editor => self.routeEditorKey(key, now_ns, .non_normal, soundfont_ed.handleKey),
@@ -2342,6 +2348,7 @@ pub const App = struct {
         const row: usize = ev.y - content_top;
         const view_rows: usize = @max(if (self.last_content_rows > 0) self.last_content_rows else rows, 10);
         switch (self.view) {
+            .audio_editor => {},
             .tracks => self.tracksMouse(ev, row),
             .drum_grid => drum_ed.handleMouse(self, ev, row, view_rows),
             .synth_editor => synth_ed.handleMouse(self, ev, row, cols),
@@ -2907,7 +2914,7 @@ pub const App = struct {
     /// accepted (so the indicator stays available on every row) but inert:
     /// `Session.isAudioArmed` only turns true for a Sampler instrument, so
     /// nothing else in this codepath changes for other track kinds.
-    fn doTrackArmToggle(self: *App, track_idx: usize) void {
+    pub fn doTrackArmToggle(self: *App, track_idx: usize) void {
         if (track_idx >= self.session.project.tracks.items.len) return;
         self.session.toggleArm(track_idx);
         const armed = self.session.isArmed(track_idx);
@@ -3253,9 +3260,11 @@ pub const App = struct {
         if (cursor >= self.session.racks.items.len) return;
         switch (self.session.racks.items[cursor].instrument) {
             .empty => self.openInstrumentPicker(cursor, false),
-            // Its clips live on the arrangement, so that is where `enter`
-            // goes - there is no per-track editor to open.
-            .audio => self.view = .arrangement,
+            .audio => {
+                self.audio_track = @intCast(cursor);
+                self.audio_clip = 0;
+                self.view = .audio_editor;
+            },
             .poly_synth => {
                 self.synth_track = @intCast(cursor);
                 self.synth_cursor = 2;
@@ -3604,6 +3613,7 @@ pub const App = struct {
             .automation     => self.automation_track,
             .preset_picker  => self.preset_picker_track,
             .soundfont_editor => self.soundfont_track,
+            .audio_editor => self.audio_track,
             else            => @intCast(self.cursor),
         };
     }
@@ -4441,6 +4451,7 @@ pub const App = struct {
 
         // zig fmt: off
         switch (self.view) {
+            .audio_editor => if (!kindIs(racks, self.audio_track, .audio)) { self.view = .tracks; },
             .synth_editor => if (!kindIs(racks, self.synth_track, .poly_synth)) { self.view = .tracks; },
             .drum_grid => if (!kindIs(racks, self.drum_track, .drum_machine)) { self.view = .tracks; },
             .slicer_grid => if (!kindIs(racks, self.slicer_track, .slicer)) { self.view = .tracks; },
@@ -4566,7 +4577,7 @@ pub const App = struct {
     }
 
     // zig fmt: off
-    fn doTrackPan(self: *App, track: u16, delta: f32) void {
+    pub fn doTrackPan(self: *App, track: u16, delta: f32) void {
         if (track >= self.session.project.tracks.items.len) return;
         const t = &self.session.project.tracks.items[track];
         const before = t.pan;
@@ -4579,7 +4590,7 @@ pub const App = struct {
     }
     // zig fmt: on
 
-    fn doTrackGainStep(self: *App, track: u16, delta_db: f32) void {
+    pub fn doTrackGainStep(self: *App, track: u16, delta_db: f32) void {
         if (track >= self.session.project.tracks.items.len) return;
         const t = &self.session.project.tracks.items[track];
         const before = t.gain_db;
