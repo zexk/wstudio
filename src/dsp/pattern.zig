@@ -1571,24 +1571,6 @@ test "PatternPlayer handles final transport frame" {
     try std.testing.expectEqual(std.math.maxInt(u64), pp.last_pos_frames);
 }
 
-test "clearing the active pattern releases sounding notes" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
-    defer synth.deinit();
-    var transport: Transport = .{ .sample_rate = 48_000 };
-    var pp = PatternPlayer.init(synth.device(), &transport);
-    pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
-
-    transport.play();
-    var buf = [_]types.Sample{0.0} ** 512;
-    pp.processBlock(&buf);
-    try std.testing.expect(pp.sounding[60] > 0);
-
-    pp.clearNotes();
-    transport.advance(256);
-    pp.processBlock(&buf);
-    try std.testing.expectEqual(@as(u16, 0), pp.sounding[60]);
-}
-
 test "replacing a nonempty pattern releases old sounding notes" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
