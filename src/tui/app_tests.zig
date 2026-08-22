@@ -6684,6 +6684,16 @@ test "arrangement w/b snap to bar lines; G lands on the song end or a counted ba
     // last cell that still holds song material.
     try app.session.stampClip(0, 2);
     app.arr_cursor_bar = 0;
+    app.handleKey(.{ .char = 'G' }, 0);
+    try std.testing.expectEqual(@as(u32, 11), app.arr_cursor_bar);
+    var block: [512]ws.types.Sample = undefined;
+    app.session.engine.process(&block);
+    try std.testing.expectEqual(@as(u64, 0), app.session.engine.transport.position_frames);
+
+    app.handleKey(.{ .char = 'g' }, 0);
+    app.handleKey(.{ .char = 'g' }, 0);
+    try std.testing.expectEqual(@as(u32, 0), app.arr_cursor_bar);
+
     app.handleKey(.{ .char = 'g' }, 0);
     app.handleKey(.{ .char = 'G' }, 0);
     try std.testing.expectEqual(@as(u32, 11), app.arr_cursor_bar);

@@ -219,6 +219,10 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             // same rule modal.zig's generic handleNormal already applies.
             // Falling through with `return false` hands it to modal.handle,
             // whose own '0' case multiplies the pending count.
+            'G' => {
+                gotoEnd(app);
+                return true;
+            },
             '0' => {
                 if (app.modal.count == 0) {
                     app.arr_cursor_bar = 0;
