@@ -48,12 +48,11 @@ pub const slicer = "\u{f0190}";
 pub const soundfont = "\u{f0333}";
 /// md-record - solid dot, the record-arm indicator (`r` toggles it).
 pub const record = "\u{f044a}";
-/// md-sine_wave - master-bus phase-correlation readout.
-pub const phase = "\u{f095b}";
+/// md-cosine_wave - master-bus phase-correlation readout.
+pub const phase = "\u{f1479}";
 /// An `audio` track, whose sound is its recorded clips rather than a
-/// generator. Same md-sine_wave glyph as `phase` above - a bare waveform is
-/// what both of them mean, and the two never share a surface.
-pub const audio_track = "\u{f095b}";
+/// generator. md-waveform distinguishes recorded audio from modulation.
+pub const audio_track = "\u{f147d}";
 /// md-volume_high - master-bus LUFS loudness readout; pairs with `mute`
 /// (md-volume_mute) as its "loud" counterpart.
 pub const loudness = "\u{f057e}";
@@ -93,9 +92,7 @@ pub const fade = "\u{f0e00}";
 /// md-target - punch recording, armed to a bounded range rather than
 /// wherever the playhead happens to be.
 pub const punch = "\u{f04fe}";
-/// Modulation (an LFO's rate/depth/shape). Same md-sine_wave glyph as
-/// `phase` and `audio_track` - a bare waveform is what all three mean, and
-/// no two of them share a surface.
+/// md-sine_wave - modulation (an LFO's rate/depth/shape).
 pub const modulation = "\u{f095b}";
 /// md-chart_bell_curve - an automation envelope, the shape drawn over time.
 /// Distinct from `automation`'s timeline glyph, which means the view.
@@ -178,6 +175,20 @@ test "every icon decodes to exactly one codepoint" {
         const cp = it.nextCodepoint() orelse return error.Empty;
         try std.testing.expect(cp >= 0xe000 and cp <= 0xfffff); // PUA range
         try std.testing.expectEqual(@as(?u21, null), it.nextCodepoint()); // exactly one
+    }
+}
+
+test "every icon has a unique codepoint" {
+    @setEvalBranchQuota(5000);
+    const decls = @typeInfo(@This()).@"struct".decls;
+    inline for (decls, 0..) |decl, i| {
+        const icon = @field(@This(), decl.name);
+        if (@typeInfo(@TypeOf(icon)) != .pointer) continue;
+        inline for (decls[i + 1 ..]) |other_decl| {
+            const other = @field(@This(), other_decl.name);
+            if (@typeInfo(@TypeOf(other)) != .pointer) continue;
+            try std.testing.expect(!std.mem.eql(u8, icon, other));
+        }
     }
 }
 
