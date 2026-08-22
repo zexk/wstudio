@@ -481,78 +481,62 @@ fn finishOperator(app: *App, op: u8) void {
     if (op == 'd') deleteSelection(app) else yankSelection(app);
 }
 
+const ActiveStep = struct { drum: *DrumMachine, pad: u8, step: u16 };
+
+fn activeStep(app: *App) ?ActiveStep {
+    const drum = app.drumMachine();
+    const pad: u8 = @intCast(app.drum_cursor[0]);
+    const step = app.drum_cursor[1];
+    if (!drum.stepActive(pad, step)) {
+        app.setStatus("no step here - enter places one", .{});
+        return null;
+    }
+    history.recordDrum(app, app.drum_track);
+    return .{ .drum = drum, .pad = pad, .step = step };
+}
+
 /// `(`/`)`: transpose the hit under the cursor by `delta` semitones, the
 /// per-step counterpart to the pad's own pitch param.
 fn nudgeTune(app: *App, delta: i32) void {
-    const dm = app.drumMachine();
-    const pad: u8 = @intCast(app.drum_cursor[0]);
-    const step = app.drum_cursor[1];
-    // zig fmt: off
-    if (!dm.stepActive(pad, step)) { app.setStatus("no step here - enter places one", .{}); return; }
-    // zig fmt: on
-    history.recordDrum(app, app.drum_track);
-    dm.nudgeStepTune(pad, step, delta);
-    const semis = dm.stepTune(pad, step);
+    const hit = activeStep(app) orelse return;
+    hit.drum.nudgeStepTune(hit.pad, hit.step, delta);
+    const semis = hit.drum.stepTune(hit.pad, hit.step);
     app.setStatus("tune {s}{d} st", .{ if (semis > 0) "+" else "", semis });
 }
 
 /// `;`/`'`: shift the hit under the cursor early or late, in percent of a
 /// step (±50, half a step either way).
 fn nudgeMicro(app: *App, delta: i32) void {
-    const dm = app.drumMachine();
-    const pad: u8 = @intCast(app.drum_cursor[0]);
-    const step = app.drum_cursor[1];
-    // zig fmt: off
-    if (!dm.stepActive(pad, step)) { app.setStatus("no step here - enter places one", .{}); return; }
-    // zig fmt: on
-    history.recordDrum(app, app.drum_track);
-    dm.nudgeStepMicro(pad, step, delta);
+    const hit = activeStep(app) orelse return;
+    hit.drum.nudgeStepMicro(hit.pad, hit.step, delta);
     app.dirty = true;
-    const pct = dm.stepMicro(pad, step);
+    const pct = hit.drum.stepMicro(hit.pad, hit.step);
     app.setStatus("micro {s}{d}%", .{ if (pct > 0) "+" else "", pct });
 }
 
 /// `r`: step the hit under the cursor through the roll sizes.
 fn cycleStepRetrig(app: *App) void {
-    const dm = app.drumMachine();
-    const pad: u8 = @intCast(app.drum_cursor[0]);
-    const step = app.drum_cursor[1];
-    // zig fmt: off
-    if (!dm.stepActive(pad, step)) { app.setStatus("no step here - enter places one", .{}); return; }
-    // zig fmt: on
-    history.recordDrum(app, app.drum_track);
-    dm.cycleStepRetrig(pad, step);
+    const hit = activeStep(app) orelse return;
+    hit.drum.cycleStepRetrig(hit.pad, hit.step);
     app.dirty = true;
-    const n = dm.stepRetrig(pad, step);
+    const n = hit.drum.stepRetrig(hit.pad, hit.step);
     if (n < 2) app.setStatus("roll off", .{}) else app.setStatus("roll x{d}", .{n});
 }
 
 /// `%`: step the hit under the cursor through the fire-chance presets.
 fn cycleStepProb(app: *App) void {
-    const dm = app.drumMachine();
-    const pad: u8 = @intCast(app.drum_cursor[0]);
-    const step = app.drum_cursor[1];
-    // zig fmt: off
-    if (!dm.stepActive(pad, step)) { app.setStatus("no step here - enter places one", .{}); return; }
-    // zig fmt: on
-    history.recordDrum(app, app.drum_track);
-    dm.cycleStepProb(pad, step);
+    const hit = activeStep(app) orelse return;
+    hit.drum.cycleStepProb(hit.pad, hit.step);
     app.dirty = true;
-    app.setStatus("chance {d}%", .{dm.stepProb(pad, step)});
+    app.setStatus("chance {d}%", .{hit.drum.stepProb(hit.pad, hit.step)});
 }
 
 /// `T`: walk the hit's trig condition (1ST, FILL, the A:B ratios).
 fn cycleStepCond(app: *App, delta: i32) void {
-    const dm = app.drumMachine();
-    const pad: u8 = @intCast(app.drum_cursor[0]);
-    const step = app.drum_cursor[1];
-    // zig fmt: off
-    if (!dm.stepActive(pad, step)) { app.setStatus("no step here - enter places one", .{}); return; }
-    // zig fmt: on
-    history.recordDrum(app, app.drum_track);
-    dm.cycleStepCond(pad, step, delta);
+    const hit = activeStep(app) orelse return;
+    hit.drum.cycleStepCond(hit.pad, hit.step, delta);
     app.dirty = true;
-    app.setStatus("cond {s}", .{dm.stepCond(pad, step).label()});
+    app.setStatus("cond {s}", .{hit.drum.stepCond(hit.pad, hit.step).label()});
 }
 
 /// `m`/`M`: shrink/grow the cursor pad's own loop length. Reaching the
