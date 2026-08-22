@@ -133,7 +133,7 @@ pub fn draw(app: anytype) void {
     if (app.arrangement_drag) |*drag| {
         if (zgui.isMouseDown(.left)) {
             if (mouse[0] >= timeline_x) {
-                const raw_tick: u32 = @intFromFloat(@max(0, (mouse[0] - timeline_x) / beat_w * @as(f32, @floatFromInt(ticks_per_beat))));
+                const raw_tick = mouseTickAt(mouse[0], timeline_x, beat_w);
                 const start_tick = raw_tick -| drag.grab_offset_tick;
                 drag.target_tick = start_tick / app.core.arr_grid.ticks() * app.core.arr_grid.ticks();
             }
@@ -480,12 +480,19 @@ pub fn draw(app: anytype) void {
         if (x <= origin[0] + canvas_w) draw_list.addLine(.{ .p1 = .{ x, origin[1] }, .p2 = .{ x, origin[1] + canvas_h }, .col = color(theme.danger), .thickness = 2 });
     }
 
+    if (hovered and zgui.isMouseClicked(.left) and mouse[0] >= timeline_x and mouse[1] < origin[1] + ruler_h) {
+        const tick = mouseTickAt(mouse[0], timeline_x, beat_w);
+        app.core.arr_cursor_bar = tick / app.core.arr_grid.ticks();
+        app.arrangement_clip = null;
+        if (zgui.isMouseDoubleClicked(.left)) app.core.handleKey(.{ .char = 's' }, app.core.now_ns);
+    }
+
     if (track_count > 0 and hovered and zgui.isMouseClicked(.left) and mouse[1] >= origin[1] + ruler_h) {
         const ti = @min(track_count - 1, @as(usize, @intFromFloat((mouse[1] - origin[1] - ruler_h) / lane_h)));
         app.core.cursor = ti;
         app.arrangement_clip = null;
         if (mouse[0] >= timeline_x and ti < app.core.session.arrangement.lanes.items.len) {
-            const tick: u32 = @intFromFloat((mouse[0] - timeline_x) / beat_w * @as(f32, @floatFromInt(ticks_per_beat)));
+            const tick = mouseTickAt(mouse[0], timeline_x, beat_w);
             app.core.arr_cursor_bar = tick / app.core.arr_grid.ticks();
             // The topmost clip, the one drawn on top - the first covering
             // clip in list order is the BOTTOM of a stack (see clipIndexAt).
@@ -503,7 +510,7 @@ pub fn draw(app: anytype) void {
     }
     if (track_count > 0 and hovered and zgui.isMouseClicked(.right) and mouse[1] >= origin[1] + ruler_h and mouse[0] >= timeline_x) {
         const ti = @min(track_count - 1, @as(usize, @intFromFloat((mouse[1] - origin[1] - ruler_h) / lane_h)));
-        const tick: u32 = @intFromFloat((mouse[0] - timeline_x) / beat_w * @as(f32, @floatFromInt(ticks_per_beat)));
+        const tick = mouseTickAt(mouse[0], timeline_x, beat_w);
         app.arrangement_clip = null;
         if (ti < app.core.session.arrangement.lanes.items.len) {
             if (app.core.session.arrangement.lanes.items[ti].clipIndexAt(tick)) |ci| {
@@ -539,6 +546,15 @@ pub fn draw(app: anytype) void {
     }
     zgui.spacing();
     drawArrangementInspector(app);
+}
+
+fn mouseTickAt(mouse_x: f32, timeline_x: f32, beat_w: f32) u32 {
+    return @intFromFloat(@max(0, (mouse_x - timeline_x) / beat_w * @as(f32, @floatFromInt(ws.time_grid.ticks_per_beat))));
+}
+
+test "arrangement ruler mouse position maps to project ticks" {
+    try std.testing.expectEqual(@as(u32, 0), mouseTickAt(80, 100, 40));
+    try std.testing.expectEqual(ws.time_grid.ticks_per_beat * 2, mouseTickAt(180, 100, 40));
 }
 
 fn drawAutomationPreview(app: anytype, draw_list: anytype, clip: *const ws.Clip, pmin: [2]f32, pmax: [2]f32) void {
