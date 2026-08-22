@@ -53,26 +53,6 @@ pub fn draw(app: anytype) void {
     if (zgui.button("Track FX", .{})) core.handleKey(.{ .char = 'x' }, core.now_ns);
 }
 
-const WaveformAction = enum { arrangement, fx, normalize, reverse, arm, import, previous, next };
-
-fn waveformAction(right: bool, shift: bool, ctrl: bool, alt: bool) WaveformAction {
-    if (alt) return if (right) .next else .previous;
-    if (ctrl) return if (right) .import else .arm;
-    if (shift) return if (right) .reverse else .normalize;
-    return if (right) .fx else .arrangement;
-}
-
-test "audio waveform mouse bindings cover both buttons and modifiers" {
-    try std.testing.expectEqual(WaveformAction.arrangement, waveformAction(false, false, false, false));
-    try std.testing.expectEqual(WaveformAction.fx, waveformAction(true, false, false, false));
-    try std.testing.expectEqual(WaveformAction.normalize, waveformAction(false, true, false, false));
-    try std.testing.expectEqual(WaveformAction.reverse, waveformAction(true, true, false, false));
-    try std.testing.expectEqual(WaveformAction.arm, waveformAction(false, false, true, false));
-    try std.testing.expectEqual(WaveformAction.import, waveformAction(true, false, true, false));
-    try std.testing.expectEqual(WaveformAction.previous, waveformAction(false, false, false, true));
-    try std.testing.expectEqual(WaveformAction.next, waveformAction(true, false, false, true));
-}
-
 fn drawWaveform(app: anytype, samples: []const f32) void {
     const width = zgui.getContentRegionAvail()[0];
     const height: f32 = 240;
@@ -81,21 +61,12 @@ fn drawWaveform(app: anytype, samples: []const f32) void {
     const hovered = zgui.isItemHovered(.{});
     const right_clicked = hovered and zgui.isMouseClicked(.right);
     if (hovered) zgui.setMouseCursor(.hand);
-    if (left_clicked or right_clicked) switch (waveformAction(
+    if (left_clicked or right_clicked) audio_ed.runMouseAction(&app.core, audio_ed.mouseAction(
         right_clicked,
         zgui.isKeyDown(.mod_shift),
         zgui.isKeyDown(.mod_ctrl),
         zgui.isKeyDown(.mod_alt),
-    )) {
-        .arrangement => app.core.handleKey(.{ .char = 'a' }, app.core.now_ns),
-        .fx => app.core.handleKey(.{ .char = 'x' }, app.core.now_ns),
-        .normalize => audio_ed.normalizeSelected(&app.core),
-        .reverse => audio_ed.reverseSelected(&app.core),
-        .arm => app.core.handleKey(.{ .char = 'r' }, app.core.now_ns),
-        .import => app.core.handleKey(.{ .char = 'i' }, app.core.now_ns),
-        .previous => app.core.handleKey(.{ .char = 'k' }, app.core.now_ns),
-        .next => app.core.handleKey(.{ .char = 'j' }, app.core.now_ns),
-    };
+    ));
     const draw_list = zgui.getWindowDrawList();
     draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg0), .rounding = gui_style.panel_rounding });
     if (samples.len == 0) return;

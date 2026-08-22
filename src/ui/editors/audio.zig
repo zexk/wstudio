@@ -53,6 +53,61 @@ pub fn reverseSelected(app: *App) void {
     app.setStatus("region reverse: {s}", .{if (region.reverse) "on" else "off"});
 }
 
+pub const MouseAction = enum { arrangement, fx, normalize, reverse, arm, import, previous, next };
+
+pub fn mouseAction(right: bool, shift: bool, ctrl: bool, alt: bool) MouseAction {
+    if (alt) return if (right) .next else .previous;
+    if (ctrl) return if (right) .import else .arm;
+    if (shift) return if (right) .reverse else .normalize;
+    return if (right) .fx else .arrangement;
+}
+
+pub fn runMouseAction(app: *App, action: MouseAction) void {
+    switch (action) {
+        .arrangement => _ = handleKey(app, .{ .char = 'a' }),
+        .fx => _ = handleKey(app, .{ .char = 'x' }),
+        .normalize => normalizeSelected(app),
+        .reverse => reverseSelected(app),
+        .arm => _ = handleKey(app, .{ .char = 'r' }),
+        .import => _ = handleKey(app, .{ .char = 'i' }),
+        .previous => _ = handleKey(app, .{ .char = 'k' }),
+        .next => _ = handleKey(app, .{ .char = 'j' }),
+    }
+}
+
+pub fn handleMouse(app: *App, ev: ws.input.MouseEvent) void {
+    switch (ev.kind) {
+        .press => switch (ev.button) {
+            .left, .right => runMouseAction(app, mouseAction(ev.button == .right, ev.shift, ev.ctrl, ev.alt)),
+            else => {},
+        },
+        .scroll_up, .scroll_down => {
+            const up = ev.kind == .scroll_up;
+            const key: u8 = if (ev.ctrl)
+                (if (up) '+' else '-')
+            else if (ev.shift)
+                (if (up) '>' else '<')
+            else if (up)
+                'k'
+            else
+                'j';
+            _ = handleKey(app, .{ .char = key });
+        },
+        else => {},
+    }
+}
+
+test "audio mouse bindings cover both buttons and modifiers" {
+    try std.testing.expectEqual(MouseAction.arrangement, mouseAction(false, false, false, false));
+    try std.testing.expectEqual(MouseAction.fx, mouseAction(true, false, false, false));
+    try std.testing.expectEqual(MouseAction.normalize, mouseAction(false, true, false, false));
+    try std.testing.expectEqual(MouseAction.reverse, mouseAction(true, true, false, false));
+    try std.testing.expectEqual(MouseAction.arm, mouseAction(false, false, true, false));
+    try std.testing.expectEqual(MouseAction.import, mouseAction(true, false, true, false));
+    try std.testing.expectEqual(MouseAction.previous, mouseAction(false, false, false, true));
+    try std.testing.expectEqual(MouseAction.next, mouseAction(true, false, false, true));
+}
+
 pub fn handleKey(app: *App, key: ws.input.Key) bool {
     const clips = if (app.audio_track < app.session.arrangement.lanes.items.len)
         app.session.arrangement.lanes.items[app.audio_track].clips.items

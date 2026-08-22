@@ -2350,7 +2350,7 @@ pub const App = struct {
         const row: usize = ev.y - content_top;
         const view_rows: usize = @max(if (self.last_content_rows > 0) self.last_content_rows else rows, 10);
         switch (self.view) {
-            .audio_editor => {},
+            .audio_editor => @import("editors/audio.zig").handleMouse(self, ev),
             .tracks => self.tracksMouse(ev, row),
             .drum_grid => drum_ed.handleMouse(self, ev, row, view_rows),
             .synth_editor => synth_ed.handleMouse(self, ev, row, cols),

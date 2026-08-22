@@ -9244,6 +9244,18 @@ test "right-click cuts an arrangement clip without starting a drag" {
     try std.testing.expect(app.arr_drag_bar == null);
 }
 
+test "audio editor mouse click opens arrangement through shared binding" {
+    var app = try testApp();
+    defer app.deinit();
+    app.view = .audio_editor;
+    app.audio_track = 0;
+
+    app.handleMouse(.{ .x = 10, .y = app_mod.content_top + 1, .button = .left, .kind = .press }, 80, 24, 0);
+
+    try std.testing.expectEqual(AppView.arrangement, app.view);
+    try std.testing.expect(app.session.song_mode);
+}
+
 test "mouse scroll over a synth param row selects and nudges it" {
     var app = try testApp();
     defer app.deinit();
