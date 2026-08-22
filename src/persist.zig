@@ -390,6 +390,16 @@ fn testRoundTrip(session: *Session, path: []const u8) !Session {
     return load(testing.allocator, testing.io, path);
 }
 
+const TestProjectPath = struct {
+    tmp: std.testing.TmpDir,
+    buf: [64]u8 = undefined,
+    // zig fmt: off
+    fn init() TestProjectPath { return .{ .tmp = std.testing.tmpDir(.{}) }; }
+    fn deinit(self: *TestProjectPath) void { self.tmp.cleanup(); }
+    fn get(self: *TestProjectPath) ![]const u8 { return std.fmt.bufPrint(&self.buf, ".zig-cache/tmp/{s}/proj.wsj", .{&self.tmp.sub_path}); }
+    // zig fmt: on
+};
+
 test "save/load round-trip persists a compressor's sidechain_source" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
@@ -846,10 +856,9 @@ test "save/load round-trip restores a slicer's user-loaded sample audio" {
 
 test "save/load round-trip persists master FX" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+    var project_path = TestProjectPath.init();
+    defer project_path.deinit();
+    const wsj_path = try project_path.get();
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
@@ -905,10 +914,9 @@ test "save/load round-trip persists master FX" {
 
 test "save/load round-trip persists a multiband compressor's crossover, style, and per-band params" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+    var project_path = TestProjectPath.init();
+    defer project_path.deinit();
+    const wsj_path = try project_path.get();
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
@@ -954,10 +962,9 @@ test "save/load round-trip persists a multiband compressor's crossover, style, a
 
 test "save/load round-trip persists an OTT unit's depth/time/gains and rederives its attack/release" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+    var project_path = TestProjectPath.init();
+    defer project_path.deinit();
+    const wsj_path = try project_path.get();
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
@@ -989,10 +996,9 @@ test "save/load round-trip persists an OTT unit's depth/time/gains and rederives
 
 test "save/load round-trip persists a frequency shifter's shift and mix" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+    var project_path = TestProjectPath.init();
+    defer project_path.deinit();
+    const wsj_path = try project_path.get();
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
@@ -1856,10 +1862,9 @@ const wav_eps: f32 = 1.0 / 32768.0 + 1e-6;
 
 test "save/load round-trip persists user-loaded drum pad samples" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+    var project_path = TestProjectPath.init();
+    defer project_path.deinit();
+    const wsj_path = try project_path.get();
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
@@ -1903,10 +1908,9 @@ fn testCacheBytes(path: []const u8) !u64 {
 
 test "save doesn't accumulate stale audio when a sample moves pads" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+    var project_path = TestProjectPath.init();
+    defer project_path.deinit();
+    const wsj_path = try project_path.get();
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
@@ -1941,10 +1945,9 @@ test "save doesn't accumulate stale audio when a sample moves pads" {
 // project, so moving it somewhere else can't strand its audio.
 test "a project's samples survive the file being moved on its own" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+    var project_path = TestProjectPath.init();
+    defer project_path.deinit();
+    const wsj_path = try project_path.get();
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
@@ -1956,7 +1959,7 @@ test "a project's samples survive the file being moved on its own" {
     try save(testing.allocator, &session, testing.io, wsj_path);
 
     var moved_buf: [80]u8 = undefined;
-    const moved_dir = try std.fmt.bufPrint(&moved_buf, ".zig-cache/tmp/{s}/elsewhere", .{&tmp.sub_path});
+    const moved_dir = try std.fmt.bufPrint(&moved_buf, ".zig-cache/tmp/{s}/elsewhere", .{&project_path.tmp.sub_path});
     try std.Io.Dir.cwd().createDirPath(testing.io, moved_dir);
     var moved_path_buf: [96]u8 = undefined;
     const moved_path = try std.fmt.bufPrint(&moved_path_buf, "{s}/renamed.wsj", .{moved_dir});
@@ -1973,10 +1976,9 @@ test "a project's samples survive the file being moved on its own" {
 
 test "save/load round-trip regenerates the kit rather than shipping its audio" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+    var project_path = TestProjectPath.init();
+    defer project_path.deinit();
+    const wsj_path = try project_path.get();
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
@@ -2009,10 +2011,9 @@ test "save/load round-trip regenerates the kit rather than shipping its audio" {
 
 test "save/load round-trip persists a pad rename with no sample change" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+    var project_path = TestProjectPath.init();
+    defer project_path.deinit();
+    const wsj_path = try project_path.get();
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
@@ -2035,10 +2036,9 @@ test "save/load round-trip persists a pad rename with no sample change" {
 
 test "save/load round-trip persists a user-loaded sampler clip" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+    var project_path = TestProjectPath.init();
+    defer project_path.deinit();
+    const wsj_path = try project_path.get();
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
@@ -2064,10 +2064,9 @@ test "save/load round-trip persists a user-loaded sampler clip" {
 
 test "save/load round-trip persists audio sources and regions" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+    var project_path = TestProjectPath.init();
+    defer project_path.deinit();
+    const wsj_path = try project_path.get();
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
@@ -2106,10 +2105,9 @@ test "save/load round-trip persists audio sources and regions" {
 
 test "saving an audio source twice encodes it once and reuses the cache" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+    var project_path = TestProjectPath.init();
+    defer project_path.deinit();
+    const wsj_path = try project_path.get();
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
@@ -2182,10 +2180,9 @@ test "saving a drum pad twice encodes it once and reuses the cache" {
 
 test "saving drops audio sources no clip plays any more" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+    var project_path = TestProjectPath.init();
+    defer project_path.deinit();
+    const wsj_path = try project_path.get();
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
@@ -2211,10 +2208,9 @@ test "saving drops audio sources no clip plays any more" {
 
 test "save/load round-trip persists a :load-imported wavetable, default state caches no audio" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+    var project_path = TestProjectPath.init();
+    defer project_path.deinit();
+    const wsj_path = try project_path.get();
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
@@ -2252,10 +2248,9 @@ test "save/load round-trip persists a :load-imported wavetable, default state ca
 
 test "save/load round-trip persists a loaded soundfont, its cached .sf2, and the selected preset" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+    var project_path = TestProjectPath.init();
+    defer project_path.deinit();
+    const wsj_path = try project_path.get();
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
@@ -2287,10 +2282,9 @@ test "save/load round-trip persists a loaded soundfont, its cached .sf2, and the
 
 test "save/load round-trip persists bundled acoustic id without cached audio" {
     const testing = std.testing;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var path_buf: [64]u8 = undefined;
-    const wsj_path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/proj.wsj", .{&tmp.sub_path});
+    var project_path = TestProjectPath.init();
+    defer project_path.deinit();
+    const wsj_path = try project_path.get();
 
     var session = try Session.initDefault(testing.allocator);
     defer session.deinit();
