@@ -325,14 +325,9 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
 }
 
 fn cycleStepVelocity(app: *App) void {
-    const slice: u8 = @intCast(app.slicer_cursor[0]);
-    const step = app.slicer_cursor[1];
-    const sl = app.slicerInst();
-    if (sl.stepActive(slice, step)) {
-        history.recordSlicer(app, app.slicer_track);
-        sl.cycleStepVel(slice, step);
-        app.setStatus("vel {d}", .{sl.stepVel(slice, step)});
-    } else app.setStatus("no step here - enter places one", .{});
+    const hit = cursorHit(app) orelse return;
+    hit.sl.cycleStepVel(hit.slice, hit.step);
+    app.setStatus("vel {d}", .{hit.sl.stepVel(hit.slice, hit.step)});
 }
 
 fn startRenamePrompt(app: *App) void {
@@ -358,20 +353,12 @@ fn nudgeSliceParam(app: *App, param: u8, steps: i32) void {
 /// Nudge the cursor step's velocity (full 1-127 range; 'cv' cycles the
 /// named presets).
 fn nudgeVel(app: *App, delta: i32) void {
-    const sl = app.slicerInst();
-    const slice: u8 = @intCast(app.slicer_cursor[0]);
-    const step = app.slicer_cursor[1];
-    // zig fmt: off
-    if (!sl.stepActive(slice, step)) { app.setStatus("no step here - enter places one", .{}); return; }
-    // zig fmt: on
-    history.recordSlicer(app, app.slicer_track);
-    sl.nudgeStepVel(slice, step, delta);
-    app.setStatus("vel {d}", .{sl.stepVel(slice, step)});
+    const hit = cursorHit(app) orelse return;
+    hit.sl.nudgeStepVel(hit.slice, hit.step, delta);
+    app.setStatus("vel {d}", .{hit.sl.stepVel(hit.slice, hit.step)});
 }
 
-/// The cursor step, or null with a status message when it holds no hit -
-/// every per-step parameter lock below edits the note, so there has to be
-/// one. Same guard the drum editor repeats per helper.
+/// Capture undo for the cursor hit, or report an empty step.
 fn cursorHit(app: *App) ?struct { sl: *Slicer, slice: u8, step: u16 } {
     const sl = app.slicerInst();
     const slice: u8 = @intCast(app.slicer_cursor[0]);
@@ -380,6 +367,7 @@ fn cursorHit(app: *App) ?struct { sl: *Slicer, slice: u8, step: u16 } {
         app.setStatus("no step here - enter places one", .{});
         return null;
     }
+    history.recordSlicer(app, app.slicer_track);
     return .{ .sl = sl, .slice = slice, .step = step };
 }
 
@@ -388,7 +376,6 @@ fn cursorHit(app: *App) ?struct { sl: *Slicer, slice: u8, step: u16 } {
 /// turns one chop into a melody.
 fn nudgeTune(app: *App, delta: i32) void {
     const hit = cursorHit(app) orelse return;
-    history.recordSlicer(app, app.slicer_track);
     hit.sl.nudgeStepTune(hit.slice, hit.step, delta);
     app.dirty = true;
     const semis = hit.sl.stepTune(hit.slice, hit.step);
@@ -399,7 +386,6 @@ fn nudgeTune(app: *App, delta: i32) void {
 /// step (±50, half a step either way).
 fn nudgeMicro(app: *App, delta: i32) void {
     const hit = cursorHit(app) orelse return;
-    history.recordSlicer(app, app.slicer_track);
     hit.sl.nudgeStepMicro(hit.slice, hit.step, delta);
     app.dirty = true;
     const pct = hit.sl.stepMicro(hit.slice, hit.step);
@@ -410,7 +396,6 @@ fn nudgeMicro(app: *App, delta: i32) void {
 /// one chop without programming it by hand.
 fn cycleStepRetrig(app: *App) void {
     const hit = cursorHit(app) orelse return;
-    history.recordSlicer(app, app.slicer_track);
     hit.sl.cycleStepRetrig(hit.slice, hit.step);
     app.dirty = true;
     const n = hit.sl.stepRetrig(hit.slice, hit.step);
@@ -420,7 +405,6 @@ fn cycleStepRetrig(app: *App) void {
 /// `%`: step the hit under the cursor through the fire-chance presets.
 fn cycleStepProb(app: *App) void {
     const hit = cursorHit(app) orelse return;
-    history.recordSlicer(app, app.slicer_track);
     hit.sl.cycleStepProb(hit.slice, hit.step);
     app.dirty = true;
     app.setStatus("chance {d}%", .{hit.sl.stepProb(hit.slice, hit.step)});
@@ -429,7 +413,6 @@ fn cycleStepProb(app: *App) void {
 /// `&`: walk the hit's trig condition (1ST, FILL, the A:B ratios).
 fn cycleStepCond(app: *App, delta: i32) void {
     const hit = cursorHit(app) orelse return;
-    history.recordSlicer(app, app.slicer_track);
     hit.sl.cycleStepCond(hit.slice, hit.step, delta);
     app.dirty = true;
     app.setStatus("cond {s}", .{hit.sl.stepCond(hit.slice, hit.step).label()});
