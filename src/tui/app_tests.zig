@@ -7585,12 +7585,14 @@ test "A/B loop: ( ) b arm the region and the transport wraps inside it" {
     // ( at bar 1, ) at bar 2 → loop bars 2–3 (region [1, 3)), armed.
     app.arr_cursor_bar = 4;
     app.handleKey(.{ .char = '(' }, 0);
+    try std.testing.expect(app.arr_loop_start_pending);
     app.arr_cursor_bar = 8;
     app.handleKey(.{ .char = ')' }, 0);
     const p = &app.session.project;
     try std.testing.expect(p.loop_enabled);
     try std.testing.expectEqual(@as(u32, 1), p.loop_start_bar);
     try std.testing.expectEqual(@as(u32, 3), p.loop_end_bar);
+    try std.testing.expect(!app.arr_loop_start_pending);
     try std.testing.expect(app.dirty);
 
     // The engine picked the region up in frames (120 bpm 4/4 @48k = 96k/bar)

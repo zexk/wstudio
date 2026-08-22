@@ -191,7 +191,12 @@ pub fn drawArrangement(
         } else null;
         // The loop's two edges wear brackets; the bars between keep the plain
         // tinted separator. A tempo/meter change crosses its separator.
-        const edge = if (loop_on) loopEdge(bar, grid_ticks, loop_start_tick, loop_end_tick) else null;
+        const edge = if (loop_on)
+            loopEdge(bar, grid_ticks, loop_start_tick, loop_end_tick)
+        else if (app.arr_loop_start_pending)
+            loopEdge(bar, grid_ticks, loop_start_tick, loop_start_tick)
+        else
+            null;
         var map_buf: [8]u8 = undefined;
         const map_label = mapPointLabel(p, bar, grid_ticks, &map_buf);
         if (edge) |e| {

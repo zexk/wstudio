@@ -232,6 +232,14 @@ pub fn draw(app: anytype) void {
                 });
             }
         }
+    } else if (app.core.arr_loop_start_pending) {
+        const x = timeline_x + @as(f32, @floatFromInt(proj.tickAtBar(proj.loop_start_bar))) * px_per_tick;
+        if (x >= timeline_x and x <= origin[0] + canvas_w) draw_list.addLine(.{
+            .p1 = .{ x, origin[1] },
+            .p2 = .{ x, origin[1] + canvas_h },
+            .col = color(.{ theme.modulation[0], theme.modulation[1], theme.modulation[2], 0.7 }),
+            .thickness = 2,
+        });
     }
 
     for (app.core.session.project.sections.items) |section| {

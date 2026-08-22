@@ -1051,9 +1051,11 @@ fn setLoopStart(app: *App) void {
     const p = &app.session.project;
     p.loop_start_bar = p.barAtTick(cursorTick(app)).bar;
     if (p.loop_end_bar > p.loop_start_bar) {
+        app.arr_loop_start_pending = false;
         p.loop_enabled = true;
         app.setStatus("loop: bars {d}–{d}", .{ p.loop_start_bar + 1, p.loop_end_bar });
     } else {
+        app.arr_loop_start_pending = true;
         app.setStatus("loop start: bar {d} - ) sets the end", .{p.loop_start_bar + 1});
     }
     app.dirty = true;
@@ -1065,6 +1067,7 @@ fn setLoopEnd(app: *App) void {
     const p = &app.session.project;
     p.loop_end_bar = p.barAtTick(cursorTick(app)).bar + 1;
     if (p.loop_end_bar > p.loop_start_bar) {
+        app.arr_loop_start_pending = false;
         p.loop_enabled = true;
         app.setStatus("loop: bars {d}–{d}", .{ p.loop_start_bar + 1, p.loop_end_bar });
     } else {

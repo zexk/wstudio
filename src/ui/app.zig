@@ -791,6 +791,8 @@ pub const App = struct {
     /// grid. `cursorTick` is the conversion, `cellsPerBar` the ratio.
     arr_cursor_bar: u32 = 0,
     arr_scroll_bar: u32 = 0,
+    /// `(` set a loop start that still waits for a valid `)` endpoint.
+    arr_loop_start_pending: bool = false,
     /// Same idea as `piano_stamp`/`drum_stamp` for the arrangement: enter
     /// stamping a clip starts a session where h/l live-resize it (reusing
     /// resizeClip) and the cursor stays on the clip; dropping it jumps the
@@ -4676,6 +4678,7 @@ pub const App = struct {
         self.recording_accum.clearRetainingCapacity();
         self.input_monitor = .auto;
         self.punch_enabled = false;
+        self.arr_loop_start_pending = false;
         self.recording_punch_start_bar = null;
         self.recording_punch_end_bar = null;
         self.recording_loop_start_bar = null;
