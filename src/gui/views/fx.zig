@@ -788,15 +788,7 @@ fn drawParam(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index
         .diameter = knob_diameter,
         .logarithmic = perceptualParam(name, range),
     });
-    if (result.changed) {
-        history.noteFxNudge(&app.core, target, app.core.fx_focus, index);
-        spectrum_ed.setParam(&app.core, &unit.payload, index, value);
-        spectrum_ed.clearStaleSidechainPad(&app.core, &unit.payload);
-        app.core.fx_param = index;
-        app.core.dirty = true;
-        syncChain(app, target);
-    }
-    if (result.activated) app.core.fx_param = index;
+    applyParamResult(app, target, unit, index, value, result);
 }
 
 fn perceptualParam(name: []const u8, range: [2]f32) bool {
@@ -853,6 +845,10 @@ fn drawParamList(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, i
     const spare = zgui.getContentRegionAvail()[0] - 190;
     if (spare > 0) zgui.setCursorPosX(zgui.getCursorPosX() + spare * 0.5);
     const result = widgets.listStepper(name, label, .{ .v = &value, .min = range[0], .max = range[1], .display = display, .accent = kindAccent(unit.kind()), .focused = focused });
+    applyParamResult(app, target, unit, index, value, result);
+}
+
+fn applyParamResult(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize, value: f32, result: widgets.KnobResult) void {
     if (result.changed) {
         history.noteFxNudge(&app.core, target, app.core.fx_focus, index);
         spectrum_ed.setParam(&app.core, &unit.payload, index, value);

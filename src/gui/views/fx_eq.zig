@@ -313,17 +313,7 @@ fn drawEqSlope(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, ind
     const display = std.fmt.bufPrint(&display_buf, "{d:.0} dB/oct", .{value * 12.0}) catch return;
     const focused = !app.core.eq_band_select and app.core.fx_param == index;
     const result = widgets.listStepper("Slope", label, .{ .v = &value, .min = range[0], .max = range[1], .display = display, .accent = eqBandColor(index / spectrum_ed.eq_fields_per_band), .focused = focused });
-    if (result.changed) {
-        history.noteFxNudge(&app.core, target, app.core.fx_focus, index);
-        spectrum_ed.setParam(&app.core, &unit.payload, index, value);
-        app.core.fx_param = index;
-        app.core.dirty = true;
-        fx_view.syncChain(app, target);
-    }
-    if (result.activated) {
-        app.core.fx_param = index;
-        app.core.eq_band_select = false;
-    }
+    applyControl(app, target, unit, index, value, result);
 }
 
 fn drawEqSlider(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize, label_text: []const u8, format: [:0]const u8, logarithmic: bool) void {
@@ -334,6 +324,10 @@ fn drawEqSlider(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, in
     const focused = !app.core.eq_band_select and app.core.fx_param == index;
     const accent = eqBandColor(index / spectrum_ed.eq_fields_per_band);
     const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = format, .accent = accent, .focused = focused, .logarithmic = logarithmic });
+    applyControl(app, target, unit, index, value, result);
+}
+
+fn applyControl(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, index: usize, value: f32, result: widgets.KnobResult) void {
     if (result.changed) {
         history.noteFxNudge(&app.core, target, app.core.fx_focus, index);
         spectrum_ed.setParam(&app.core, &unit.payload, index, value);
