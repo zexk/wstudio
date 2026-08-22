@@ -238,10 +238,6 @@ fn decodeValue(comptime T: type, arena: std.mem.Allocator, c: *Cursor) DecodeErr
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 const RoundTrip = struct {
     flag: bool,
     small: u4,

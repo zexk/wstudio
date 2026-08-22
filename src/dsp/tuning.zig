@@ -116,10 +116,6 @@ pub const Preset = enum {
     }
 };
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 const testing = std.testing;
 
 test "equal temperament changes nothing and is detectable as such" {

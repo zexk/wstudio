@@ -855,10 +855,6 @@ fn cmdRotate(app: *App, args: []const u8) void {
     app.setStatus("rotated lane {d} ({s}) {s}{d} steps", .{ g.lane + 1, commands_util.laneName(g), if (delta >= 0) "+" else "", delta });
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 test "expandHome expands ~ and ~/rest via $HOME; leaves other forms alone" {
     const testing = std.testing;
     const home_c = std.c.getenv("HOME") orelse return error.SkipZigTest;

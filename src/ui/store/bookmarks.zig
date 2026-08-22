@@ -61,10 +61,6 @@ pub fn deinit(allocator: std.mem.Allocator, list: *std.ArrayListUnmanaged(Bookma
     list.deinit(allocator);
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 test "save writes entries and load reads them back in order" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});

@@ -869,10 +869,6 @@ pub const PatternPlayer = struct {
     }
 };
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 test "PatternPlayer sends interpolated per-note pitch bend while note sounds" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();

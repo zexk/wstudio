@@ -166,10 +166,6 @@ pub fn deinit(allocator: std.mem.Allocator, list: *std.ArrayListUnmanaged(UserPr
     list.deinit(allocator);
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 test "upsert saves and load reads a preset back" {
     const testing = std.testing;
     // Point $HOME at a temp dir (relative to cwd, same convention

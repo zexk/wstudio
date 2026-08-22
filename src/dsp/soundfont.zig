@@ -817,10 +817,6 @@ fn clampU32(v: i64) u32 {
     return @intCast(std.math.clamp(v, 0, @as(i64, std.math.maxInt(u32))));
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 /// Hand-builds a minimal but spec-legal single-sample, single-instrument,
 /// single-preset .sf2 in memory - real soundfonts are hundreds of megabytes,
 /// not something to fixture in a repo, so the parser's correctness is

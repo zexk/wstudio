@@ -126,10 +126,6 @@ pub fn deinit(allocator: std.mem.Allocator, list: *std.ArrayListUnmanaged(UserKi
     list.deinit(allocator);
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 test "upsert saves and load reads a kit back" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});

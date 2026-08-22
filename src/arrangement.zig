@@ -690,10 +690,6 @@ pub const Arrangement = struct {
     }
 };
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 const testing = std.testing;
 
 test "audio takes cycle through every alternate" {

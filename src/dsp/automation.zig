@@ -218,10 +218,6 @@ pub const AutomationCurve = struct {
     }
 };
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 const testing = std.testing;
 
 test "interpolate holds edges and ramps linearly between points" {
