@@ -2235,6 +2235,13 @@ fn testDrumMachine(transport: *const Transport) !DrumMachine {
     return dm;
 }
 
+fn testSynthEngine(synth: *PolySynth) !Engine {
+    var engine = try Engine.init(std.testing.allocator, 48_000);
+    engine.trackAt(0).* = .{ .active = true };
+    engine.setTrackChain(0, &.{synth.device()});
+    return engine;
+}
+
 /// A deliberately extreme compressor: limiting ratio and a near-instant
 /// envelope, so the tests below can measure gain reduction within a couple
 /// of blocks rather than waiting out a musical release. Only the threshold
@@ -2527,10 +2534,8 @@ test "renderTracks pushes filter-cutoff automation into the synth before it proc
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
     synth.filter_cutoff = 1_000.0; // manual value - automation should override it
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testSynthEngine(&synth);
     defer engine.deinit();
-    engine.trackAt(0).* = .{ .active = true };
-    engine.setTrackChain(0, &.{synth.device()});
     engine.setTrackSynthParam(0, 21, 0, 21, &.{.{ .beat = 0.0, .value = 5_000.0 }});
 
     var block: [512]Sample = undefined;
@@ -2701,10 +2706,8 @@ test "automation selects by beat, so a different sample rate picks the same valu
 test "renderTracks handles multiple simultaneous synth-param automation slots" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testSynthEngine(&synth);
     defer engine.deinit();
-    engine.trackAt(0).* = .{ .active = true };
-    engine.setTrackChain(0, &.{synth.device()});
     engine.setTrackSynthParam(0, 21, 0, 21, &.{.{ .beat = 0.0, .value = 5_000.0 }}); // filter cutoff
     engine.setTrackSynthParam(0, 29, 0, 29, &.{.{ .beat = 0.0, .value = 8.0 }}); // lfo rate
     engine.setTrackSynthParam(0, 34, 0, 34, &.{.{ .beat = 0.0, .value = 0.5 }}); // sub level
@@ -2733,10 +2736,8 @@ test "a 5th+ concurrent synth-param automation slot still applies, past the samp
     // not just that it compiles.
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testSynthEngine(&synth);
     defer engine.deinit();
-    engine.trackAt(0).* = .{ .active = true };
-    engine.setTrackChain(0, &.{synth.device()});
     engine.setTrackSynthParam(0, 0, 0, 21, &.{.{ .beat = 0.0, .value = 5_000.0 }}); // filter cutoff
     engine.setTrackSynthParam(0, 1, 0, 29, &.{.{ .beat = 0.0, .value = 8.0 }}); // lfo rate
     engine.setTrackSynthParam(0, 2, 0, 34, &.{.{ .beat = 0.0, .value = 0.5 }}); // sub level
@@ -2767,10 +2768,8 @@ test "setTrackSynthParam covers the complete persisted parameter id space" {
 test "notes sound even while transport is stopped (live preview)" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testSynthEngine(&synth);
     defer engine.deinit();
-    engine.trackAt(0).* = .{ .active = true };
-    engine.setTrackChain(0, &.{synth.device()});
 
     var block: [512]Sample = undefined;
     engine.process(&block);
@@ -2793,10 +2792,8 @@ test "sendMidi lands commands through its own queue, same as send" {
     // must still pick it up and apply it the same way.
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testSynthEngine(&synth);
     defer engine.deinit();
-    engine.trackAt(0).* = .{ .active = true };
-    engine.setTrackChain(0, &.{synth.device()});
 
     var block: [512]Sample = undefined;
     engine.process(&block);
@@ -3016,10 +3013,8 @@ test "uiSnapshot reports pre_rolling during count-in, then playing once it compl
 test "mute command silences a track" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testSynthEngine(&synth);
     defer engine.deinit();
-    engine.trackAt(0).* = .{ .active = true };
-    engine.setTrackChain(0, &.{synth.device()});
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
     _ = engine.send(.{ .set_track_mute = .{ .track = 0, .muted = true } });
 
@@ -3031,10 +3026,8 @@ test "mute command silences a track" {
 test "master limiter keeps a hot mix under the ceiling" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testSynthEngine(&synth);
     defer engine.deinit();
-    engine.trackAt(0).* = .{ .active = true };
-    engine.setTrackChain(0, &.{synth.device()});
     _ = engine.send(.{ .set_master_gain = 16.0 }); // way past clipping
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
 
@@ -3051,10 +3044,8 @@ test "master limiter keeps a hot mix under the ceiling" {
 test "master FX chain processes the summed mix before gain/limiter" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testSynthEngine(&synth);
     defer engine.deinit();
-    engine.trackAt(0).* = .{ .active = true };
-    engine.setTrackChain(0, &.{synth.device()});
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
 
     var block: [512]Sample = undefined;
@@ -3116,10 +3107,8 @@ test "grouped tracks submix through their group's FX chain; ungrouped tracks are
 test "set_group_mute silences the bus without touching member tracks' own mute flags" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testSynthEngine(&synth);
     defer engine.deinit();
-    engine.trackAt(0).* = .{ .active = true };
-    engine.setTrackChain(0, &.{synth.device()});
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
     engine.setGroupChain(0, true, &.{});
     _ = engine.send(.{ .set_track_group = .{ .track = 0, .group = 0 } });
@@ -3620,10 +3609,8 @@ test "solo silences other tracks but keeps the soloed one" {
 test "uiSnapshot publishes transport and meter state" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testSynthEngine(&synth);
     defer engine.deinit();
-    engine.trackAt(0).* = .{ .active = true };
-    engine.setTrackChain(0, &.{synth.device()});
     _ = engine.send(.play);
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
 
@@ -3647,10 +3634,8 @@ test "spectrum snapshot returns null when inactive" {
 test "spectrum snapshot returns data when active" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testSynthEngine(&synth);
     defer engine.deinit();
-    engine.trackAt(0).* = .{ .active = true };
-    engine.setTrackChain(0, &.{synth.device()});
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
     _ = engine.send(.{ .set_spectrum_active = .{ .source = .track, .track = 0 } });
 
@@ -3953,10 +3938,8 @@ test "a one-bar count-in in 6/8 lasts one bar, not two" {
 test "a group's meter reads its post-FX, post-fader submix, not its members' levels" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testSynthEngine(&synth);
     defer engine.deinit();
-    engine.trackAt(0).* = .{ .active = true };
-    engine.setTrackChain(0, &.{synth.device()});
     _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
 
     // A compressor deep into gain reduction on the group chain: the track's
