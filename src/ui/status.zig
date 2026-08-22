@@ -40,6 +40,12 @@ fn writeModeBadge(w: *std.Io.Writer, app: anytype) !void {
     try ansi.writeModeBadge(w, app.modal.mode, app.modeLabel());
 }
 
+fn writeStatus(w: *std.Io.Writer, app: anytype) !void {
+    if (app.status_len == 0) return;
+    try w.writeAll(dim ++ "  " ++ rst);
+    try w.writeAll(app.status_buf[0..app.status_len]);
+}
+
 /// Return a const pointer to pad `idx`'s underlying Pad, or a placeholder if
 /// the pad is out of range or not yet materialized (lazy-alloc pads).
 fn padOf(dm: anytype, idx: u8) *const ws.dsp.Pad {
@@ -167,10 +173,7 @@ pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !v
     try w.writeAll(bold);
     try w.writeAll(dm.padName(@intCast(p)));
     try w.writeAll(rst);
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
+    try writeStatus(w, app);
 }
 
 pub fn drawSlicerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
@@ -248,10 +251,7 @@ pub fn drawSlicerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
         }
         if (pad.reverse) try w.writeAll(dim ++ "  " ++ blu ++ "rev" ++ rst);
     }
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
+    try writeStatus(w, app);
 }
 
 /// Shared footer keeps selection views inside the same status contract as the
@@ -259,10 +259,7 @@ pub fn drawSlicerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
 pub fn drawPickerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, label: []const u8, action: []const u8, filterable: bool) !void {
     try writeModeBadge(w, app);
     try writeViewBadge(right, label, app.modal.mode);
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
+    try writeStatus(w, app);
     try w.writeAll(dim ++ "  " ++ rst ++ "j/k move  g/G ends");
     if (filterable) try w.writeAll("  / filter");
     try w.print("  enter {s}  esc cancel", .{action});
@@ -274,10 +271,7 @@ pub fn drawPickerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, 
 pub fn drawHelpStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     try writeModeBadge(w, app);
     try writeViewBadge(right, "HELP", app.modal.mode);
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
+    try writeStatus(w, app);
     try w.writeAll(dim ++ "  " ++ rst ++ "j/k scroll  d/u page  {/} section  g/G ends  / search  n/N repeat  ?/esc close");
 }
 
@@ -323,10 +317,7 @@ pub fn drawFxStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer, targ
         try writeViewBadge(right, "FX", app.modal.mode);
         try w.writeAll(dim ++ "  empty chain  a add effect" ++ rst);
     }
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
+    try writeStatus(w, app);
 }
 
 pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
@@ -356,10 +347,7 @@ pub fn drawSynthStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !
         try w.print("{d:.2}", .{synth.paramValue(id) orelse 0});
     }
     try w.writeAll(rst);
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
+    try writeStatus(w, app);
 }
 
 pub fn drawPianoRollStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
@@ -548,10 +536,7 @@ pub fn drawSoundfontStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Write
         else => {},
     }
     try w.writeAll(rst);
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
+    try writeStatus(w, app);
 }
 
 pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
@@ -624,10 +609,7 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
         }
     }
 
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
+    try writeStatus(w, app);
 }
 
 pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
@@ -637,10 +619,7 @@ pub fn drawFileBrowserStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
     // edge, so whatever prints last is what a narrow window silently drops -
     // that must be the static hints, never live feedback (bookmarked/
     // unbookmarked, search "no match", …).
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
+    try writeStatus(w, app);
     if (app.browser_recent_mode) {
         try w.writeAll(dim ++ "  " ++ rst ++ "enter open  esc cancel");
     } else if (app.browser_bookmark_mode) {
@@ -713,10 +692,7 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
         try w.writeAll(dim ++ "  no points  j/k add one" ++ rst);
     }
 
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
+    try writeStatus(w, app);
 }
 
 /// Status row keeps apply errors ahead of lower-priority key hints so narrow
@@ -724,10 +700,7 @@ pub fn drawAutomationStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writ
 pub fn drawPresetPickerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     try writeModeBadge(w, app);
     try writeViewBadge(right, "PRESETS", app.modal.mode);
-    if (app.status_len > 0) {
-        try w.writeAll(dim ++ "  " ++ rst);
-        try w.writeAll(app.status_buf[0..app.status_len]);
-    }
+    try writeStatus(w, app);
     try w.writeAll(dim ++ "  " ++ rst ++ "j/k move");
     switch (app.preset_picker_kind) {
         .synth => try w.writeAll("  a audition C3"),
