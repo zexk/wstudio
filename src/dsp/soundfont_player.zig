@@ -903,16 +903,8 @@ test "dupe: independent font/source bytes, fresh voice state" {
     try std.testing.expectEqualStrings(p.presetName(), copy.presetName());
 }
 
-test "round-robin regions alternate takes across repeated note-ons" {
-    var p = SoundfontPlayer.init(std.testing.allocator, 44_100);
-    defer p.deinit();
-    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, false, 44_100);
-    defer std.testing.allocator.free(bytes);
-    try p.loadSf2(bytes);
-
-    // Same widening the layered-region test does, but as a two-member SFZ
-    // sequence: both cover the note, and exactly one may fire per note-on.
-    const font = &p.font.?;
+fn installRoundRobinPair(player: *SoundfontPlayer) !void {
+    const font = &player.font.?;
     const pair = try std.testing.allocator.alloc(Region, 2);
     pair[0] = font.presets[0].regions[0];
     pair[0].pan = -1.0;
@@ -923,6 +915,18 @@ test "round-robin regions alternate takes across repeated note-ons" {
     pair[1].pan = 1.0;
     std.testing.allocator.free(font.presets[0].regions);
     font.presets[0].regions = pair;
+}
+
+test "round-robin regions alternate takes across repeated note-ons" {
+    var p = SoundfontPlayer.init(std.testing.allocator, 44_100);
+    defer p.deinit();
+    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, false, 44_100);
+    defer std.testing.allocator.free(bytes);
+    try p.loadSf2(bytes);
+
+    // Same widening the layered-region test does, but as a two-member SFZ
+    // sequence: both cover the note, and exactly one may fire per note-on.
+    try installRoundRobinPair(&p);
 
     for (0..4) |i| {
         for (&p.voices) |*v| v.active = false;
@@ -979,17 +983,7 @@ test "each key rotates its own round-robin, so a chord does not skip takes" {
     defer std.testing.allocator.free(bytes);
     try p.loadSf2(bytes);
 
-    const font = &p.font.?;
-    const pair = try std.testing.allocator.alloc(Region, 2);
-    pair[0] = font.presets[0].regions[0];
-    pair[0].pan = -1.0;
-    pair[0].seq_length = 2;
-    pair[0].seq_position = 1;
-    pair[1] = pair[0];
-    pair[1].seq_position = 2;
-    pair[1].pan = 1.0;
-    std.testing.allocator.free(font.presets[0].regions);
-    font.presets[0].regions = pair;
+    try installRoundRobinPair(&p);
 
     // Two other notes in between - a chord's worth of unrelated note-ons
     // must not advance this key's own rotation.
