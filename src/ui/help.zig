@@ -332,6 +332,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("gg / gG",       "jump to first / last parameter");
     t.key("h / l",        "adjust value (fine)");
     t.key("H / L",        "adjust curve on attack/decay/release/fade params; coarse ×10 elsewhere");
+    t.key("[ / ]",        "previous / next pad or slice");
     t.key("1–8",          "switch to pad/slice 1–8 within the current bank of 8");
     t.key("J / K",        "jump a whole bank of 8 pads/slices (same slot, next/prev bank)");
     t.key("a",            "audition current pad/slice");

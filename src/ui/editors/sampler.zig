@@ -131,8 +131,8 @@ test "sampler targets map local params onto engine ids" {
 // zig fmt: off
 /// Sampler editor: j/k pick a param row, h/l nudge it, H/L curve envelope
 /// and fade durations (coarse-nudge other params). For a drum pad
-/// or a slice, 1–8 jump to that slot within the current bank (shared
-/// `drum_cursor[0]`/`slicer_cursor[0]`, see movePadBank's doc comment).
+/// or a slice, [/] move between adjacent slots and 1–8 jump to that slot
+/// within the current bank (shared `drum_cursor[0]`/`slicer_cursor[0]`).
 /// esc/e return to whichever view opened this one (`app.sampler_return`):
 /// the tracks view, or the grid that sequences the pad/slice. a auditions
 /// the current pad/slice / the sampler's root note (mirrors the piano
@@ -220,13 +220,25 @@ pub fn handleKey(app: *App, key: modal_mod.Key) bool {
             'K' => {
                 if (!is_drum and !is_slice) return false;
                 history.flushParamNudge(app);
-                movePadBank(app, -8 * app.takeCount());
+                movePad(app, -8 * app.takeCount());
                 return true;
             },
             'J' => {
                 if (!is_drum and !is_slice) return false;
                 history.flushParamNudge(app);
-                movePadBank(app, 8 * app.takeCount());
+                movePad(app, 8 * app.takeCount());
+                return true;
+            },
+            '[' => {
+                if (!is_drum and !is_slice) return false;
+                history.flushParamNudge(app);
+                movePad(app, -app.takeCount());
+                return true;
+            },
+            ']' => {
+                if (!is_drum and !is_slice) return false;
+                history.flushParamNudge(app);
+                movePad(app, app.takeCount());
                 return true;
             },
             '1'...'8' => {
@@ -288,10 +300,8 @@ fn targetIsEditable(app: *App) bool {
     };
 }
 
-/// Move the pad/slice cursor by `delta`, clamped to the target's slot count
-/// - shared by J/K here and editors/drum.zig's own movePad (kept separate
-/// since the two files don't share a common cursor-motion module).
-fn movePadBank(app: *App, delta: i32) void {
+/// Move the pad/slice cursor by `delta`, clamped to the target's slot count.
+fn movePad(app: *App, delta: i32) void {
     if (app.sampler_target == .slice) {
         const top = @as(i64, app.slicerInst().slice_count) - 1;
         // zig fmt: off

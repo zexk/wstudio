@@ -519,7 +519,7 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
     } else if (pad.samples.len == 0) {
         try w.writeAll(dim ++ "  enter load  e/esc back" ++ rst);
     } else if (is_drum or is_slice) {
-        try w.writeAll(dim ++ "  j/k param  h/l adjust  1-8/J/K select  a hear  p steps" ++ rst);
+        try w.writeAll(dim ++ "  j/k param  h/l adjust  []/1-8/J/K select  a hear  p steps" ++ rst);
     } else {
         try w.writeAll(dim ++ "  j/k param  h/l adjust  a hear  p piano" ++ rst);
     }

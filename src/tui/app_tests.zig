@@ -4074,6 +4074,31 @@ test "e opens drum-pad sampler editor from drum grid; esc returns" {
     try std.testing.expectEqual(AppView.drum_grid, app.view);
 }
 
+test "sampler editor brackets move between drum pads and slicer slices" {
+    var app = try testApp();
+    defer app.deinit();
+
+    app.view = .sampler_editor;
+    app.sampler_target = .{ .drum = 2 };
+    app.drum_cursor[0] = 2;
+    _ = sampler_ed.handleKey(&app, .{ .char = ']' });
+    try std.testing.expectEqual(@as(u8, 3), app.drum_cursor[0]);
+    _ = sampler_ed.handleKey(&app, .{ .char = '[' });
+    _ = sampler_ed.handleKey(&app, .{ .char = '[' });
+    try std.testing.expectEqual(@as(u8, 1), app.drum_cursor[0]);
+
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.slicerInst().sliceInto(3);
+    app.sampler_target = .{ .slice = 0 };
+    app.slicer_cursor[0] = 1;
+    _ = sampler_ed.handleKey(&app, .{ .char = ']' });
+    _ = sampler_ed.handleKey(&app, .{ .char = ']' });
+    try std.testing.expectEqual(@as(u8, 2), app.slicer_cursor[0]);
+    _ = sampler_ed.handleKey(&app, .{ .char = '[' });
+    try std.testing.expectEqual(@as(u8, 1), app.slicer_cursor[0]);
+}
+
 test "sampler editor j/k honor a vim count prefix; g/G jump to first/last param" {
     var app = try testApp();
     defer app.deinit();
