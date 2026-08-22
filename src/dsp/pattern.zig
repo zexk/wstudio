@@ -869,8 +869,12 @@ pub const PatternPlayer = struct {
     }
 };
 
+fn testSynth() !PolySynth {
+    return PolySynth.init(std.testing.allocator, 48_000);
+}
+
 test "PatternPlayer sends interpolated per-note pitch bend while note sounds" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -893,7 +897,7 @@ test "PatternPlayer sends interpolated per-note pitch bend while note sounds" {
 }
 
 test "tryAddNote reports the real-time pattern capacity" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -912,7 +916,7 @@ test "tryAddNote reports the real-time pattern capacity" {
 }
 
 test "swing delays a note on an off-beat 16th, mirroring DrumMachine's math" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
 
@@ -943,7 +947,7 @@ test "swing delays a note on an off-beat 16th, mirroring DrumMachine's math" {
 }
 
 test "setSwing clamps to [swing_min, swing_max]" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -961,7 +965,7 @@ test "setSwing clamps to [swing_min, swing_max]" {
 }
 
 test "scanRange fires note_on then note_off across loop boundary" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
 
@@ -980,7 +984,7 @@ test "scanRange fires note_on then note_off across loop boundary" {
 }
 
 test "scanRange tracks overlapping same-pitch notes independently" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -999,7 +1003,7 @@ test "scanRange tracks overlapping same-pitch notes independently" {
 }
 
 test "copyNotes/setNotes round-trip a pattern between players" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
 
@@ -1022,7 +1026,7 @@ test "copyNotes/setNotes round-trip a pattern between players" {
 }
 
 test "note mutation APIs sanitize non-finite playback data" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1048,7 +1052,7 @@ test "note mutation APIs sanitize non-finite playback data" {
 }
 
 test "reverseNotesInRange mirrors a figure so it plays backwards" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1087,7 +1091,7 @@ test "reverseNotesInRange mirrors a figure so it plays backwards" {
 }
 
 test "invertNotesInRange folds pitches around the selection's own midpoint" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1126,7 +1130,7 @@ test "invertNotesInRange folds pitches around the selection's own midpoint" {
 }
 
 test "velocityRamp interpolates by note position, endpoints exact" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1149,7 +1153,7 @@ test "velocityRamp interpolates by note position, endpoints exact" {
 }
 
 test "legato extends notes to the next onset, gapless" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1184,7 +1188,7 @@ test "legato extends notes to the next onset, gapless" {
 }
 
 test "glue welds touching same-pitch notes, leaves gaps and other pitches alone" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1221,7 +1225,7 @@ test "glue welds touching same-pitch notes, leaves gaps and other pitches alone"
 }
 
 test "chop splits notes into grid pieces, refuses when it would overflow" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1255,7 +1259,7 @@ test "chop splits notes into grid pieces, refuses when it would overflow" {
 }
 
 test "limitPitch folds notes into range by octaves, clamps a sub-octave range" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1283,7 +1287,7 @@ test "limitPitch folds notes into range by octaves, clamps a sub-octave range" {
 }
 
 test "remapPitch moves only the notes the table changes, and only inside the selection" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1305,7 +1309,7 @@ test "remapPitch moves only the notes the table changes, and only inside the sel
 }
 
 test "setLengths resets note lengths, reporting only what changed" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1322,7 +1326,7 @@ test "setLengths resets note lengths, reporting only what changed" {
 }
 
 test "flam echoes notes at fading velocity, either side of the beat" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1356,7 +1360,7 @@ test "flam echoes notes at fading velocity, either side of the beat" {
 }
 
 test "arpeggiate deals chords out one step per note, up and down" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1392,7 +1396,7 @@ test "arpeggiate deals chords out one step per note, up and down" {
 }
 
 test "strum staggers a chord low-to-high for a positive offset" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1413,7 +1417,7 @@ test "strum staggers a chord low-to-high for a positive offset" {
 }
 
 test "strum reverses rank order for a negative offset, still only moving forward" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1430,7 +1434,7 @@ test "strum reverses rank order for a negative offset, still only moving forward
 }
 
 test "strum leaves a lone note untouched and clamps into the range" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1452,7 +1456,7 @@ test "strum leaves a lone note untouched and clamps into the range" {
 }
 
 test "humanize jitters timing/velocity within bounds; 0% is a no-op" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1479,7 +1483,7 @@ test "humanize jitters timing/velocity within bounds; 0% is a no-op" {
 }
 
 test "humanize ignores invalid parameters" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1493,7 +1497,7 @@ test "humanize ignores invalid parameters" {
 }
 
 test "quantize snaps to grid at 100%, eases proportionally below, no-op at 0%" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1518,7 +1522,7 @@ test "quantize snaps to grid at 100%, eases proportionally below, no-op at 0%" {
 }
 
 test "quantize ignores invalid parameters" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1535,7 +1539,7 @@ test "PatternPlayer sequences note against transport" {
     var transport: Transport = .{ .sample_rate = 48_000 };
     transport.play();
 
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var pp = PatternPlayer.init(synth.device(), &transport);
     // Quarter-note C4 at beat 0
@@ -1557,7 +1561,7 @@ test "PatternPlayer sequences note against transport" {
 
 test "PatternPlayer handles final transport frame" {
     var transport: Transport = .{ .sample_rate = 48_000, .position_frames = std.math.maxInt(u64), .playing = true };
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var pp = PatternPlayer.init(synth.device(), &transport);
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
@@ -1568,7 +1572,7 @@ test "PatternPlayer handles final transport frame" {
 }
 
 test "replacing a nonempty pattern releases old sounding notes" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1587,7 +1591,7 @@ test "replacing a nonempty pattern releases old sounding notes" {
 }
 
 test "deleting a sounding note releases it when other notes remain" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1607,7 +1611,7 @@ test "deleting a sounding note releases it when other notes remain" {
 }
 
 test "clearing notes releases a sounding note" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1626,7 +1630,7 @@ test "clearing notes releases a sounding note" {
 }
 
 test "time-sliding a sounding note chokes it instead of stranding its note_off" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1644,7 +1648,7 @@ test "time-sliding a sounding note chokes it instead of stranding its note_off" 
 }
 
 test "doubleLength copies the pattern after itself and doubles the loop" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1667,7 +1671,7 @@ test "doubleLength copies the pattern after itself and doubles the loop" {
 }
 
 test "dedupe keeps the longest of each stacked pile" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1696,7 +1700,7 @@ test "dedupe keeps the longest of each stacked pile" {
 }
 
 test "normalizeVelocity lifts the peak to full, keeping the ratios" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1712,7 +1716,7 @@ test "normalizeVelocity lifts the peak to full, keeping the ratios" {
 }
 
 test "firstNotePitch and contentEndBeat report the pattern's bounds" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
@@ -1728,7 +1732,7 @@ test "firstNotePitch and contentEndBeat report the pattern's bounds" {
 }
 
 test "chop drops the pieces that would fall past the loop and wrap onto beat 0" {
-    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    var synth = try testSynth();
     defer synth.deinit();
     var transport: Transport = .{ .sample_rate = 48_000 };
     var pp = PatternPlayer.init(synth.device(), &transport);
