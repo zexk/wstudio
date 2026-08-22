@@ -86,6 +86,19 @@ fn slicerGridApp() !App {
     return app;
 }
 
+fn arrangementApp() !App {
+    var app = try testApp();
+    app.view = .arrangement;
+    return app;
+}
+
+fn synthEditorApp() !App {
+    var app = try testApp();
+    app.synth_track = 0;
+    app.view = .synth_editor;
+    return app;
+}
+
 fn installSlicerTestClip(app: *App) !void {
     const sl = app.slicerInst();
     std.testing.allocator.free(sl.samples);
@@ -2415,9 +2428,8 @@ test "view switches nudge song mode while stopped, never while playing" {
 }
 
 test "z and Z select arrangement grid subdivisions" {
-    var app = try testApp();
+    var app = try arrangementApp();
     defer app.deinit();
-    app.view = .arrangement;
     try app.session.stampClip(0, 0);
 
     try std.testing.expectEqual(ws.time_grid.Division.quarter, app.arr_grid);
@@ -2448,9 +2460,8 @@ test "z and Z select arrangement grid subdivisions" {
 }
 
 test "arrangement places moves and cuts clips on the 1/128 grid" {
-    var app = try testApp();
+    var app = try arrangementApp();
     defer app.deinit();
-    app.view = .arrangement;
     app.cursor = 0;
     for (0..5) |_| {
         app.handleKey(.{ .char = 'z' }, 0);
@@ -2472,9 +2483,8 @@ test "arrangement places moves and cuts clips on the 1/128 grid" {
 }
 
 test "arrangement: held enter resizes the fresh clip, release places it" {
-    var app = try testApp();
+    var app = try arrangementApp();
     defer app.deinit();
-    app.view = .arrangement;
     app.cursor = 0;
     app.arr_cursor_bar = 0;
 
@@ -3681,9 +3691,8 @@ test "loop recording splits passes into alternate takes" {
 }
 
 test "audio region gain and fades edit at arrangement cursor and undo" {
-    var app = try testApp();
+    var app = try arrangementApp();
     defer app.deinit();
-    app.view = .arrangement;
     try app.session.arrangement.lane(0).?.place(app.allocator, ws.Clip.initAudio(0, 32, .{
         .source_id = 1,
         .source_start_frame = 0,
@@ -3709,9 +3718,8 @@ test "audio region gain and fades edit at arrangement cursor and undo" {
 }
 
 test "consolidate renders audio region edits into a plain source" {
-    var app = try testApp();
+    var app = try arrangementApp();
     defer app.deinit();
-    app.view = .arrangement;
     app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
     app.session.engine.transport.tempo_bpm = app.session.project.tempo_bpm;
     const source_id = try app.session.project.addAudioSource("raw", app.session.project.sample_rate, 1, &.{ 0.1, 0.2 });
@@ -3731,9 +3739,8 @@ test "consolidate renders audio region edits into a plain source" {
 }
 
 test "clip commands name the missing track instead of failing silently" {
-    var app = try testApp();
+    var app = try arrangementApp();
     defer app.deinit();
-    app.view = .arrangement;
     // Past the last lane: every clip command used to return without a word.
     app.cursor = app.session.arrangement.lanes.items.len;
     for ([_][]const u8{ "clip-layer 1", "crossfade", "consolidate", "take next", "comp 2 1 3" }) |line| {
@@ -3755,9 +3762,8 @@ test "an over-long status message truncates instead of drawing the buffer's tail
 }
 
 test "crossfade fades the overlapping layers into each other" {
-    var app = try testApp();
+    var app = try arrangementApp();
     defer app.deinit();
-    app.view = .arrangement;
     app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
     app.session.engine.transport.tempo_bpm = app.session.project.tempo_bpm;
     try app.session.project.setTempoPoint(.{ .beat = 1, .bpm = 60 });
@@ -3791,9 +3797,8 @@ test "crossfade fades the overlapping layers into each other" {
 }
 
 test "consolidate keeps a stereo source stereo and clamps fades to clip length" {
-    var app = try testApp();
+    var app = try arrangementApp();
     defer app.deinit();
-    app.view = .arrangement;
     app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
     app.session.engine.transport.tempo_bpm = app.session.project.tempo_bpm;
     const source_id = try app.session.project.addAudioSource("raw", app.session.project.sample_rate, 2, &.{ 0.1, -0.1, 0.2, -0.2 });
@@ -3820,9 +3825,8 @@ test "consolidate keeps a stereo source stereo and clamps fades to clip length" 
 }
 
 test "comp splices a beat range from an alternate audio take" {
-    var app = try testApp();
+    var app = try arrangementApp();
     defer app.deinit();
-    app.view = .arrangement;
     app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
     app.session.engine.transport.tempo_bpm = app.session.project.tempo_bpm;
     const active_id = try app.session.project.addAudioSource("active", app.session.project.sample_rate, 1, &.{ 1, 1, 1, 1 });
@@ -3843,10 +3847,8 @@ test "comp splices a beat range from an alternate audio take" {
 }
 
 test "arrangement g plays from the cursor bar" {
-    var app = try testApp();
+    var app = try arrangementApp();
     defer app.deinit();
-
-    app.view = .arrangement;
     app.arr_cursor_bar = 2;
     app.handleKey(.{ .char = 'g' }, 0);
     app.handleKey(.{ .char = 's' }, 0);
@@ -3918,10 +3920,8 @@ test "track gain and pan plus group gain round-trip through undo" {
 }
 
 test "arrangement 0: jumps to bar 0 with no pending count, but continues a count otherwise (10l)" {
-    var app = try testApp();
+    var app = try arrangementApp();
     defer app.deinit();
-
-    app.view = .arrangement;
 
     // Bare '0' with no count pending: jump-to-start.
     app.arr_cursor_bar = 5;
@@ -6576,9 +6576,8 @@ test "arrangement visual time edits remove, insert, and loop selected time" {
 }
 
 test "arrangement sections add, navigate, select, and delete" {
-    var app = try testApp();
+    var app = try arrangementApp();
     defer app.deinit();
-    app.view = .arrangement;
     try app.session.project.setSection(0, "intro");
     try app.session.project.setSection(128, "verse");
     try app.session.project.setSection(256, "chorus");
@@ -6648,9 +6647,8 @@ test "arrangement clip-edge motions skip empty time" {
 }
 
 test "arrangement w/b snap to bar lines; G lands on the song end or a counted bar" {
-    var app = try testApp();
+    var app = try arrangementApp();
     defer app.deinit();
-    app.view = .arrangement;
     app.cursor = 0;
 
     // Default 1/4 grid: a cell is a beat, so a 4/4 bar is 4 cells. w from
@@ -7500,9 +7498,8 @@ test "\".\" is a no-op with nothing to repeat, or after switching to a different
 }
 
 test "A/B loop: ( ) b arm the region and the transport wraps inside it" {
-    var app = try testApp();
+    var app = try arrangementApp();
     defer app.deinit();
-    app.view = .arrangement;
     app.session.setSongMode(true);
 
     // ( at bar 1, ) at bar 2 → loop bars 2–3 (region [1, 3)), armed.
@@ -7580,10 +7577,8 @@ test "command prompt: up/down recall history without corrupting the buffer" {
 }
 
 test "arrow keys act as hjkl outside command mode" {
-    var app = try testApp();
+    var app = try arrangementApp();
     defer app.deinit();
-
-    app.view = .arrangement;
     app.arr_cursor_bar = 5;
     app.handleKey(.arrow_left, 0);
     try std.testing.expectEqual(@as(u32, 4), app.arr_cursor_bar);
@@ -8769,9 +8764,8 @@ test "tracks view scrolls to keep the cursor visible with many tracks" {
 }
 
 test "arrangement view scrolls lanes to keep the cursor visible with many tracks" {
-    var app = try testApp();
+    var app = try arrangementApp();
     defer app.deinit();
-    app.view = .arrangement;
 
     for (0..20) |_| app.doTrackAdd(null);
     const lane_count = app.session.project.tracks.items.len;
@@ -9973,10 +9967,8 @@ test "below the minimum terminal size, draw gates to the too-small notice" {
 }
 
 test "f in the synth editor opens the preset picker; / narrows and enter applies" {
-    var app = try testApp();
+    var app = try synthEditorApp();
     defer app.deinit();
-    app.synth_track = 0;
-    app.view = .synth_editor;
 
     app.handleKey(.{ .char = 'f' }, 0);
     try std.testing.expectEqual(AppView.preset_picker, app.view);
@@ -10007,10 +9999,8 @@ test "f in the synth editor opens the preset picker; / narrows and enter applies
 }
 
 test "preset picker mouse click during live search submits then applies match" {
-    var app = try testApp();
+    var app = try synthEditorApp();
     defer app.deinit();
-    app.synth_track = 0;
-    app.view = .synth_editor;
 
     app.handleKey(.{ .char = 'f' }, 0);
     typeKeys(&app, "/acid-bass");
@@ -10065,10 +10055,8 @@ test "preset-picker filter reaches genre tags and user-saved presets" {
 }
 
 test "synth preset picker pages and jumps between categories" {
-    var app = try testApp();
+    var app = try synthEditorApp();
     defer app.deinit();
-    app.synth_track = 0;
-    app.view = .synth_editor;
     app.handleKey(.{ .char = 'f' }, 0);
 
     app.handleKey(.{ .char = 'J' }, 0);
@@ -10086,10 +10074,8 @@ test "synth preset picker pages and jumps between categories" {
 }
 
 test "synth preset audition plays C3 and cancel restores the original patch" {
-    var app = try testApp();
+    var app = try synthEditorApp();
     defer app.deinit();
-    app.synth_track = 0;
-    app.view = .synth_editor;
     const original = app.session.racks.items[0].instrument.poly_synth.toPatch();
     app.handleKey(.{ .char = 'f' }, 0);
 
@@ -10114,10 +10100,8 @@ test "synth preset audition plays C3 and cancel restores the original patch" {
 }
 
 test "undo puts back the sound a synth preset replaced" {
-    var app = try testApp();
+    var app = try synthEditorApp();
     defer app.deinit();
-    app.synth_track = 0;
-    app.view = .synth_editor;
     // Something hand-tuned to lose.
     app.session.racks.items[0].instrument.poly_synth.filter_cutoff = 777.0;
     const original = app.session.racks.items[0].instrument.poly_synth.toPatch();
@@ -10234,10 +10218,8 @@ test "neither soundfont kind can be fed the other's content by a fully-typed com
 }
 
 test "esc leaves the preset picker without applying anything" {
-    var app = try testApp();
+    var app = try synthEditorApp();
     defer app.deinit();
-    app.synth_track = 0;
-    app.view = .synth_editor;
     const gain_before = app.session.racks.items[0].instrument.poly_synth.gain;
 
     app.handleKey(.{ .char = 'f' }, 0);
