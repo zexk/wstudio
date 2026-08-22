@@ -42,6 +42,27 @@ fn ticksForBars(bars: u32, beats_per_bar: u8, beat_unit: u8) u32 {
     return bars *| time_grid.barTicks(beats_per_bar, beat_unit);
 }
 
+fn setStepSongClips(device: anytype, allocator: std.mem.Allocator, lane: *const arr_mod.Lane, total_ticks: u32) void {
+    const Device = @TypeOf(device.*);
+    var clips: [Device.max_song_clips]Device.SongClip = undefined;
+    var n: usize = 0;
+    for (lane.clips.items) |c| {
+        if (n >= clips.len) break;
+        // zig fmt: off
+        const drum = switch (c.content) { .drum => |d| d, .melodic, .audio => continue };
+        // zig fmt: on
+        clips[n] = .{
+            .start_step = c.start_tick,
+            .span_steps = c.length_ticks,
+            .step_count = drum.step_count,
+            .steps_per_beat = drum.steps_per_beat,
+            .midi = Device.dupeMidi(allocator, &drum.midi) catch continue,
+        };
+        n += 1;
+    }
+    device.setSongClips(clips[0..n], total_ticks, 32);
+}
+
 /// Defaults a brand-new instrument is built with, sourced from
 /// `wstudio.o.default_drum_steps`/`default_slicer_steps`/
 /// `default_pattern_length_beats`/`default_swing`. Field defaults here match
@@ -1567,45 +1588,8 @@ pub const Session = struct {
         for (self.racks.items, 0..) |rack, i| {
             const lane = self.arrangement.lane(i) orelse continue;
             switch (rack.instrument) {
-                .drum_machine => |*dm| {
-                    var clips: [DrumMachine.max_song_clips]DrumMachine.SongClip = undefined;
-                    var n: usize = 0;
-                    const song_spb: u8 = 32;
-                    for (lane.clips.items) |c| {
-                        if (n >= clips.len) break;
-                        // zig fmt: off
-                        const drum = switch (c.content) { .drum => |d| d, .melodic, .audio => continue };
-                        // zig fmt: on
-                        clips[n] = .{
-                            .start_step = c.start_tick,
-                            .span_steps = c.length_ticks,
-                            .step_count = drum.step_count,
-                            .steps_per_beat = drum.steps_per_beat,
-                            .midi = DrumMachine.dupeMidi(self.allocator, &drum.midi) catch continue,
-                        };
-                        n += 1;
-                    }
-                    dm.setSongClips(clips[0..n], total_ticks, song_spb);
-                },
-                .slicer => |*sl| {
-                    var clips: [Slicer.max_song_clips]Slicer.SongClip = undefined;
-                    var n: usize = 0;
-                    for (lane.clips.items) |c| {
-                        if (n >= clips.len) break;
-                        // zig fmt: off
-                        const drum = switch (c.content) { .drum => |d| d, .melodic, .audio => continue };
-                        // zig fmt: on
-                        clips[n] = .{
-                            .start_step = c.start_tick,
-                            .span_steps = c.length_ticks,
-                            .step_count = drum.step_count,
-                            .steps_per_beat = drum.steps_per_beat,
-                            .midi = Slicer.dupeMidi(self.allocator, &drum.midi) catch continue,
-                        };
-                        n += 1;
-                    }
-                    sl.setSongClips(clips[0..n], total_ticks, 32);
-                },
+                .drum_machine => |*dm| setStepSongClips(dm, self.allocator, lane, total_ticks),
+                .slicer => |*sl| setStepSongClips(sl, self.allocator, lane, total_ticks),
                 .poly_synth, .sampler, .clap, .vst3, .soundfont, .acoustic => {
                     const pp = if (rack.pattern_player) |*p| p else continue;
                     var notes: [pattern_mod.max_notes]Note = undefined;
