@@ -10,6 +10,20 @@ const theme = &style.palette;
 
 pub const Kind = enum { drum, slicer };
 
+const GutterAction = enum { select, audition, edit };
+
+fn gutterAction(right: bool, double: bool) GutterAction {
+    if (right) return .audition;
+    if (double) return .edit;
+    return .select;
+}
+
+test "step grid gutter mouse bindings select audition and edit rows" {
+    try std.testing.expectEqual(GutterAction.select, gutterAction(false, false));
+    try std.testing.expectEqual(GutterAction.audition, gutterAction(true, false));
+    try std.testing.expectEqual(GutterAction.edit, gutterAction(false, true));
+}
+
 /// Shortest a grid row is allowed to get; also what decides how many banks
 /// a panel can show at once (see `draw`'s `banks_fit`).
 const min_row_h: f32 = 32;
@@ -297,9 +311,14 @@ pub fn draw(
         const row = row_start + display_row;
 
         if (mouse[0] < grid_x) {
-            // Gutter: select the row only, matching the TUI's gutter click
-            // (see editors/drum.zig's/slicer.zig's handleMouse).
-            if (activated) cursor.* = .{ @intCast(row), cursor[1] };
+            if (activated) {
+                cursor.* = .{ @intCast(row), cursor[1] };
+                switch (gutterAction(zgui.isMouseClicked(.right), zgui.isMouseDoubleClicked(.left))) {
+                    .select => {},
+                    .audition => app.core.handleKey(.{ .char = 'a' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds),
+                    .edit => app.core.handleKey(.{ .char = 'e' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds),
+                }
+            }
         } else {
             const step = @min(step_count - 1, @as(usize, @intFromFloat((mouse[0] - grid_x) / cell_w)));
             const x = grid_x + @as(f32, @floatFromInt(step)) * cell_w;
