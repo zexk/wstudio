@@ -527,10 +527,13 @@ pub fn draw(app: anytype) void {
     if (zgui.beginPopup("clip-context", .{})) {
         const selection = app.arrangement_clip;
         var action: ?u8 = null;
+        var duplicate = false;
         if (zgui.menuItem("Move left", .{ .shortcut = "<" })) action = '<';
         if (zgui.menuItem("Move right", .{ .shortcut = ">" })) action = '>';
         if (zgui.menuItem("Shorten", .{ .shortcut = "-" })) action = '-';
         if (zgui.menuItem("Lengthen", .{ .shortcut = "+" })) action = '+';
+        if (zgui.menuItem("Split at cursor", .{ .shortcut = "S" })) action = 'S';
+        if (zgui.menuItem("Duplicate", .{})) duplicate = true;
         if (zgui.menuItem("Automation", .{ .shortcut = "a" })) action = 'a';
         if (selection) |selected| {
             if (selectedClipIsAudio(app, selected) and zgui.menuItem("Crossfade overlap", .{ .shortcut = ":crossfade" }))
@@ -538,7 +541,10 @@ pub fn draw(app: anytype) void {
         }
         if (zgui.menuItem("Delete", .{ .shortcut = "x" })) action = 'x';
         zgui.endPopup();
-        if (selection) |selected| if (action) |key| applyInspectorAction(app, selected, key);
+        if (selection) |selected| {
+            if (action) |key| applyInspectorAction(app, selected, key);
+            if (duplicate) duplicateClip(app, selected);
+        }
     }
     zgui.spacing();
     drawArrangementInspector(app);
@@ -650,6 +656,7 @@ fn drawArrangementInspector(app: anytype) void {
     const selection = app.arrangement_clip orelse return;
     var action: ?u8 = null;
     var crossfade = false;
+    var duplicate = false;
     const child_h: f32 = if (selectedClipIsAudio(app, selection)) 182 else 108;
     if (zgui.beginChild("arrangement-inspector", .{ .w = 0, .h = child_h, .child_flags = .{ .border = true }, .window_flags = .{ .no_scrollbar = true } })) {
         const clip = app.core.session.arrangement.lanes.items[selection.track].clips.items[selection.clip];
@@ -675,6 +682,10 @@ fn drawArrangementInspector(app: anytype) void {
         zgui.sameLine(.{ .spacing = 6 });
         if (widgets.iconButton(icons.plus ++ "##clip-longer", "Lengthen clip  +")) action = '+';
         zgui.sameLine(.{ .spacing = 6 });
+        if (widgets.iconButton(icons.slicer ++ "##clip-split", "Split at cursor  S")) action = 'S';
+        zgui.sameLine(.{ .spacing = 6 });
+        if (widgets.iconButton(icons.redo ++ "##clip-duplicate", "Duplicate after clip")) duplicate = true;
+        zgui.sameLine(.{ .spacing = 6 });
         if (widgets.iconButton(icons.automation ++ "##clip-automation", "Edit automation  a")) action = 'a';
         if (clip.content == .audio) {
             zgui.sameLine(.{ .spacing = 6 });
@@ -688,7 +699,19 @@ fn drawArrangementInspector(app: anytype) void {
     }
     zgui.endChild();
     if (action) |key| applyInspectorAction(app, selection, key);
+    if (duplicate) duplicateClip(app, selection);
     if (crossfade) commands.run(&app.core, "crossfade");
+}
+
+fn duplicateClip(app: anytype, selection: ClipSelection) void {
+    if (!clipSelectionValid(&app.core.session.arrangement, selection)) return;
+    const clip = app.core.session.arrangement.lanes.items[selection.track].clips.items[selection.clip];
+    finishClipCopy(app, .{
+        .selection = selection,
+        .target_tick = clip.endTick(),
+        .grab_offset_tick = 0,
+        .copy = true,
+    });
 }
 
 /// Gain, fades, stretch and reverse for the selected audio region - the
