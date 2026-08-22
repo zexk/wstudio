@@ -101,6 +101,12 @@ fn drawPresetRow(app: anytype, track: u16, sf: *ws.dsp.SoundfontPlayer) void {
         const next: u16 = if (idx + 1 >= count) 0 else idx + 1;
         setParam(app, track, 3, @floatFromInt(next));
     }
+    zgui.sameLine(.{ .spacing = 8 });
+    if (zgui.button("Browse presets", .{})) app.core.handleKey(.{ .char = 'f' }, app.core.now_ns);
+    zgui.sameLine(.{ .spacing = 8 });
+    if (widgets.iconButton(icons.play ++ "##soundfont-preview", "Preview preset  a")) {
+        app.core.handleKey(.{ .char = 'a' }, app.core.now_ns);
+    }
 }
 
 fn setParam(app: anytype, track: u16, id: u8, value: f32) void {
