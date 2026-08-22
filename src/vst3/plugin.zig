@@ -39,12 +39,7 @@ const MemoryStream = struct {
     /// then calls what it believes is `getFileName` and lands on `read`.
     /// Surge XT, Odin 2, and CHOW Tape all crashed in `setState` that way.
     fn query(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
-        if (!std.mem.eql(u8, iid, &abi.bstream_iid) and !std.mem.eql(u8, iid, &abi.f_unknown_iid)) {
-            object.* = null;
-            return -1;
-        }
-        object.* = raw;
-        return 0;
+        return queryOwn(raw, iid, &abi.bstream_iid, object);
     }
     fn ref(_: *anyopaque) callconv(abi.abi_callconv) u32 {
         return 1;
@@ -194,11 +189,8 @@ const HostMessage = struct {
     }
 
     fn query(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
-        if (!std.mem.eql(u8, iid, &abi.message_iid) and !std.mem.eql(u8, iid, &abi.f_unknown_iid)) {
-            object.* = null;
-            return -1;
-        }
-        object.* = raw;
+        const result = queryOwn(raw, iid, &abi.message_iid, object);
+        if (result != 0) return result;
         _ = addRef(raw);
         return 0;
     }
@@ -236,12 +228,7 @@ const HostMessage = struct {
     };
 
     fn attributesQuery(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
-        if (!std.mem.eql(u8, iid, &abi.attribute_list_iid) and !std.mem.eql(u8, iid, &abi.f_unknown_iid)) {
-            object.* = null;
-            return -1;
-        }
-        object.* = raw;
-        return 0;
+        return queryOwn(raw, iid, &abi.attribute_list_iid, object);
     }
     fn attributesRef(_: *anyopaque) callconv(abi.abi_callconv) u32 {
         return 1;
@@ -358,12 +345,7 @@ const HostContext = struct {
             object.* = @ptrCast(&from(raw).application);
             return 0;
         }
-        if (!std.mem.eql(u8, iid, &abi.component_handler_iid) and !std.mem.eql(u8, iid, &abi.f_unknown_iid)) {
-            object.* = null;
-            return -1;
-        }
-        object.* = raw;
-        return 0;
+        return queryOwn(raw, iid, &abi.component_handler_iid, object);
     }
     fn ref(_: *anyopaque) callconv(abi.abi_callconv) u32 {
         return 1;
@@ -385,12 +367,7 @@ const HostContext = struct {
     }
     const vtable: abi.ComponentHandlerVTable = .{ .query_interface = query, .add_ref = ref, .release = ref, .begin_edit = begin, .perform_edit = perform, .end_edit = end, .restart_component = restart };
     fn appQuery(raw: *anyopaque, iid: *const abi.Tuid, object: *?*anyopaque) callconv(abi.abi_callconv) abi.Result {
-        if (!std.mem.eql(u8, iid, &abi.host_application_iid) and !std.mem.eql(u8, iid, &abi.f_unknown_iid)) {
-            object.* = null;
-            return -1;
-        }
-        object.* = raw;
-        return 0;
+        return queryOwn(raw, iid, &abi.host_application_iid, object);
     }
     fn appName(_: *anyopaque, name: *[128]u16) callconv(abi.abi_callconv) abi.Result {
         name.* = std.mem.zeroes([128]u16);
