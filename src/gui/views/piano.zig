@@ -480,8 +480,7 @@ pub fn draw(app: anytype) void {
                     history.recordMelodic(&app.core, app.core.piano_track);
                     app.core.piano_erase_active = true;
                 }
-                const start_step: u16 = ws.dsp.pattern.clampStep(@round(note.start_beat * @as(f64, @floatFromInt(steps_per_beat))));
-                _ = piano_ed.eraseNoteAt(&app.core, note.pitch, start_step);
+                _ = piano_ed.eraseNoteAt(&app.core, note.pitch, note.start_beat);
             }
         }
     }

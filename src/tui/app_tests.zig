@@ -9209,6 +9209,20 @@ test "right-click deletes a piano-roll note without needing a grab/release cycle
     try std.testing.expect(!app.piano_grab); // no grab session was ever opened
 }
 
+test "right-click deletes an off-grid piano-roll note" {
+    var app = try testApp();
+    defer app.deinit();
+    app.piano_track = 0;
+    app.view = .piano_roll;
+    app.piano_scroll_step = 0;
+    app.piano_scroll_pitch = 72;
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.addNote(.{ .pitch = 72, .start_beat = 0.1, .duration_beat = 0.25 });
+
+    app.handleMouse(.{ .x = 9, .y = app_mod.content_top + 3, .button = .right, .kind = .press }, 80, 24, 0);
+    try std.testing.expectEqual(@as(u16, 0), pp.note_count);
+}
+
 test "right-click cuts an arrangement clip without starting a drag" {
     var app = try testApp();
     defer app.deinit();

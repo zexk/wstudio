@@ -917,13 +917,12 @@ pub fn setDrawnLength(app: *App, pitch: u7, start_step: u16, duration_steps: u16
 /// GUI erase-brush adapter: remove one note with no undo entry of its own,
 /// so a right-drag across a phrase undoes as one step. The caller records
 /// once when the sweep starts, the same split `setVelocity` uses.
-pub fn eraseNoteAt(app: *App, pitch: u7, start_step: u16) bool {
+pub fn eraseNoteAt(app: *App, pitch: u7, start_beat: f64) bool {
     const pp = currentPatternPlayer(app) orelse return false;
-    const start_beat = stepToBeat(app, start_step);
     if (!pp.noteStartsAt(pitch, start_beat)) return false;
     pp.removeNote(pitch, start_beat);
     app.piano_cursor_pitch = pitch;
-    app.piano_cursor_step = start_step;
+    app.piano_cursor_step = pattern_mod.clampStep(@round(start_beat * stepsPerBeatF(app)));
     syncLinkedClip(app);
     return true;
 }
@@ -1589,7 +1588,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
             history.recordMelodic(app, app.piano_track);
             app.piano_erase_active = true;
         }
-        _ = eraseNoteAt(app, covering.pitch, pattern_mod.clampStep(@round(covering.start_beat * stepsPerBeatF(app))));
+        _ = eraseNoteAt(app, covering.pitch, covering.start_beat);
         return;
     }
 
