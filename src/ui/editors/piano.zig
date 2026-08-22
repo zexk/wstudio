@@ -1337,15 +1337,21 @@ fn selection(app: *App) pattern_mod.Sel {
     };
 }
 
-fn shapeSelection(app: *App, pp: *pattern_mod.PatternPlayer, duration_delta: f64, velocity_delta: f32) void {
-    var entry = history.captureMelodic(app, app.piano_track);
-    const changed = pp.shapeNotesInRange(selection(app), duration_delta, 1.0 / stepsPerBeatF(app), app.piano_note_field, velocity_delta);
+fn commitSelectionEdit(app: *App, entry: anytype, changed: anytype) bool {
     if (changed == 0) {
-        if (entry) |*e| e.deinit(app.allocator);
+        var owned = entry;
+        if (owned) |*e| e.deinit(app.allocator);
         app.setStatus("no notes selected", .{});
-        return;
+        return false;
     }
     history.push(app, entry);
+    return true;
+}
+
+fn shapeSelection(app: *App, pp: *pattern_mod.PatternPlayer, duration_delta: f64, velocity_delta: f32) void {
+    const entry = history.captureMelodic(app, app.piano_track);
+    const changed = pp.shapeNotesInRange(selection(app), duration_delta, 1.0 / stepsPerBeatF(app), app.piano_note_field, velocity_delta);
+    if (!commitSelectionEdit(app, entry, changed)) return;
     app.setStatus("edited {d} selected notes", .{changed});
     syncLinkedClip(app);
 }
@@ -1358,12 +1364,7 @@ fn nudgeSelectionMicro(app: *App, pp: *pattern_mod.PatternPlayer, ticks: i32) vo
         app.setStatus("can't nudge - selection would leave the pattern", .{});
         return;
     };
-    if (moved == 0) {
-        if (entry) |*e| e.deinit(app.allocator);
-        app.setStatus("no notes selected", .{});
-        return;
-    }
-    history.push(app, entry);
+    if (!commitSelectionEdit(app, entry, moved)) return;
     app.setStatus("nudged {d} selected notes by {d} tick{s}", .{ moved, ticks, if (@abs(ticks) == 1) "" else "s" });
     syncLinkedClip(app);
 }
@@ -1381,12 +1382,7 @@ fn transposeSelection(app: *App, pp: *pattern_mod.PatternPlayer, dpitch: i32) vo
         app.setStatus("can't transpose - selection would leave the pitch range", .{});
         return;
     };
-    if (moved == 0) {
-        if (entry) |*e| e.deinit(app.allocator);
-        app.setStatus("no notes selected", .{});
-        return;
-    }
-    history.push(app, entry);
+    if (!commitSelectionEdit(app, entry, moved)) return;
     const cur = @as(i32, app.piano_cursor_pitch) + dpitch;
     app.piano_cursor_pitch = @intCast(std.math.clamp(cur, 0, 127));
     if (app.piano_visual_pitch_anchor) |*a| {
@@ -1408,12 +1404,7 @@ fn slideSelection(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dste
         app.setStatus("can't slide - selection would leave the pattern", .{});
         return;
     };
-    if (moved == 0) {
-        if (entry) |*e| e.deinit(app.allocator);
-        app.setStatus("no notes selected", .{});
-        return;
-    }
-    history.push(app, entry);
+    if (!commitSelectionEdit(app, entry, moved)) return;
     step_grid.moveClamped(&app.piano_cursor_step, dsteps, max_step);
     if (app.piano_visual_anchor) |*a| step_grid.moveClamped(a, dsteps, max_step);
     ensureVisible(app);
@@ -1425,14 +1416,9 @@ fn slideSelection(app: *App, pp: *pattern_mod.PatternPlayer, max_step: u16, dste
 /// plays backwards (each note ends where it used to begin). The selection
 /// stays live, so a second `r` flips it straight back by ear.
 fn reverseSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
-    var entry = history.captureMelodic(app, app.piano_track);
+    const entry = history.captureMelodic(app, app.piano_track);
     const moved = pp.reverseNotesInRange(selection(app));
-    if (moved == 0) {
-        if (entry) |*e| e.deinit(app.allocator);
-        app.setStatus("no notes selected", .{});
-        return;
-    }
-    history.push(app, entry);
+    if (!commitSelectionEdit(app, entry, moved)) return;
     app.setStatus("reversed {d} notes", .{moved});
     syncLinkedClip(app);
 }
@@ -1442,14 +1428,9 @@ fn reverseSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
 /// so a second `i` folds it straight back, and it pairs with `r` the way
 /// retrograde and inversion pair in counterpoint.
 fn invertSelection(app: *App, pp: *pattern_mod.PatternPlayer) void {
-    var entry = history.captureMelodic(app, app.piano_track);
+    const entry = history.captureMelodic(app, app.piano_track);
     const moved = pp.invertNotesInRange(selection(app));
-    if (moved == 0) {
-        if (entry) |*e| e.deinit(app.allocator);
-        app.setStatus("no notes selected", .{});
-        return;
-    }
-    history.push(app, entry);
+    if (!commitSelectionEdit(app, entry, moved)) return;
     app.setStatus("inverted {d} notes", .{moved});
     syncLinkedClip(app);
 }
