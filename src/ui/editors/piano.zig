@@ -768,6 +768,10 @@ pub fn recordNote(app: *App, pitch: u7, velocity: f32) void {
 }
 
 fn insertNote(app: *App) void {
+    insertNoteWithLength(app, app.piano_note_len);
+}
+
+fn insertNoteWithLength(app: *App, duration_beat: f64) void {
     const pp = currentPatternPlayer(app) orelse return;
     const start_beat = stepToBeat(app, app.piano_cursor_step);
     // Don't insert if a note already starts here on this pitch
@@ -776,7 +780,7 @@ fn insertNote(app: *App) void {
     if (!pp.tryAddNote(.{
         .pitch = app.piano_cursor_pitch,
         .start_beat = start_beat,
-        .duration_beat = app.piano_note_len,
+        .duration_beat = duration_beat,
     })) {
         if (before) |*entry| entry.deinit(app.allocator);
         app.setStatus("pattern full ({d} notes max)", .{pattern_mod.max_notes});
@@ -890,15 +894,14 @@ pub fn resizeNoteFromLeft(app: *App, pitch: u7, start_step: u16, new_start_step:
 /// left one open and silently turned the next h/j/k/l into a drag of the
 /// note just drawn; the mouse drag that follows the click shapes its length
 /// instead (see `setDrawnLength`).
-pub fn insertNoteAt(app: *App, pitch: u7, step: u16) bool {
+pub fn insertNoteAt(app: *App, pitch: u7, step: u16, duration_steps: u16) bool {
     const pp = currentPatternPlayer(app) orelse return false;
     if (app.piano_stamp) dropStamp(app);
     if (app.piano_grab) dropGrab(app);
     app.piano_cursor_pitch = pitch;
     app.piano_cursor_step = step;
-    app.piano_note_len = 1.0 / stepsPerBeatF(app);
     const before = pp.note_count;
-    insertNote(app);
+    insertNoteWithLength(app, @as(f64, @floatFromInt(@max(1, duration_steps))) / stepsPerBeatF(app));
     if (pp.note_count == before) return false;
     app.playNote(app.piano_track, pitch, app.now_ns);
     return true;
@@ -1652,7 +1655,7 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
                 app.piano_grab = true;
                 app.piano_grab_delta = .{};
                 if (ev.shift) app.piano_clone_source = .{ .pitch = pitch, .step = note_step };
-            } else if (insertNoteAt(app, pitch, step)) {
+            } else if (insertNoteAt(app, pitch, step, 1)) {
                 app.piano_mouse_draw = true;
             }
         },

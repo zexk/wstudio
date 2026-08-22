@@ -31,10 +31,10 @@ pub const MouseEdit = struct {
     duration_steps: u16,
     /// This `resize` is the tail of a draw gesture (FL's click-and-drag to
     /// place a note at the length you drag out), not a grab of an existing
-    /// note's edge: the length holds at the default until the pointer leaves
-    /// the cell it started in, and the committed length becomes the new
-    /// default rather than pushing a second undo entry.
+    /// note's edge. Length holds at visible grid-cell width until pointer
+    /// leaves that cell.
     from_draw: bool = false,
+    draw_stride: u16 = 1,
     /// Shift was held when the drag started: FL's clone-on-drag leaves a
     /// copy of the note behind at the source.
     clone: bool = false,
@@ -105,10 +105,14 @@ fn drawPitchBendCurve(draw_list: anytype, curve: ws.dsp.pattern.PitchBendCurve, 
 }
 
 fn updateMouseEdit(edit: *MouseEdit, pointer_pitch: u7, pointer_step: usize) void {
-    // A draw that hasn't left its starting cell keeps the default note
-    // length - only an actual drag sizes the note, so a plain click still
-    // places one of the length `[`/`]` set.
-    if (edit.from_draw and pointer_step == edit.source_step) return;
+    // A draw that has not left its visible grid cell keeps that cell's width.
+    if (edit.from_draw) {
+        const stride: usize = edit.draw_stride;
+        const snapped = pointer_step / stride * stride;
+        if (snapped == edit.source_step) return;
+        edit.duration_steps = @intCast(@min(std.math.maxInt(u16), @max(stride, snapped + stride -| edit.source_step)));
+        return;
+    }
     switch (edit.kind) {
         .move => {
             edit.target_pitch = pointer_pitch;
@@ -151,9 +155,7 @@ test "mouse note edits preview before commit" {
     try std.testing.expectEqual(@as(f64, std.math.maxInt(u16)), previewNote(long_note, long, 1).duration_beat);
 }
 
-test "a pen keeps the default length until the pointer leaves its cell" {
-    // Placed at step 4 with a 4-step default: clicking without dragging must
-    // commit those 4 steps, not the one step the pointer's own cell spans.
+test "a pen keeps its stamp length until the pointer leaves its cell" {
     var pen: MouseEdit = .{
         .kind = .resize,
         .from_draw = true,
@@ -171,6 +173,23 @@ test "a pen keeps the default length until the pointer leaves its cell" {
     // And back left, down to a single step.
     updateMouseEdit(&pen, 60, 3);
     try std.testing.expectEqual(@as(u16, 1), pen.duration_steps);
+}
+
+test "a pen stamps and resizes by the visible grid stride" {
+    var pen: MouseEdit = .{
+        .kind = .resize,
+        .from_draw = true,
+        .draw_stride = 4,
+        .source_pitch = 60,
+        .source_step = 8,
+        .target_pitch = 60,
+        .target_step = 8,
+        .duration_steps = 4,
+    };
+    updateMouseEdit(&pen, 60, 11);
+    try std.testing.expectEqual(@as(u16, 4), pen.duration_steps);
+    updateMouseEdit(&pen, 60, 12);
+    try std.testing.expectEqual(@as(u16, 8), pen.duration_steps);
 }
 
 fn drawToolbar(app: anytype) void {
@@ -488,19 +507,23 @@ pub fn draw(app: anytype) void {
                     .duration_steps = @max(1, ws.dsp.pattern.clampStep(@round(note.duration_beat * @as(f64, @floatFromInt(steps_per_beat))))),
                     .clone = zgui.isKeyDown(.mod_shift),
                 };
-            } else if (piano_ed.insertNoteAt(&app.core, pointer_pitch, @intCast(pointer_step))) {
-                // FL's draw gesture: the note is placed on press and the
-                // drag that follows sizes it, so `resize` picks up where the
-                // insert left off (see `from_draw`).
-                app.piano_mouse_edit = .{
-                    .kind = .resize,
-                    .from_draw = true,
-                    .source_pitch = pointer_pitch,
-                    .source_step = @intCast(pointer_step),
-                    .target_pitch = pointer_pitch,
-                    .target_step = @intCast(pointer_step),
-                    .duration_steps = @max(1, ws.dsp.pattern.clampStep(@round(app.core.piano_note_len * @as(f64, @floatFromInt(steps_per_beat))))),
-                };
+            } else {
+                const draw_step = pointer_step / step_stride * step_stride;
+                if (piano_ed.insertNoteAt(&app.core, pointer_pitch, @intCast(draw_step), @intCast(step_stride))) {
+                    // FL's draw gesture: the note is placed on press and the
+                    // drag that follows sizes it, so `resize` picks up where the
+                    // insert left off (see `from_draw`).
+                    app.piano_mouse_edit = .{
+                        .kind = .resize,
+                        .from_draw = true,
+                        .draw_stride = @intCast(step_stride),
+                        .source_pitch = pointer_pitch,
+                        .source_step = @intCast(draw_step),
+                        .target_pitch = pointer_pitch,
+                        .target_step = @intCast(draw_step),
+                        .duration_steps = @intCast(step_stride),
+                    };
+                }
             }
         } else if (zgui.isMouseDown(.right)) {
             // Right-drag is an erase brush (FL's delete tool): every note

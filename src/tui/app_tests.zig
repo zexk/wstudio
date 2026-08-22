@@ -8979,7 +8979,6 @@ test "piano-roll draw-drag sizes only the note it just placed" {
     app.handleMouse(.{ .x = 7, .y = row, .button = .left, .kind = .press }, 80, 24, 0); // step 0
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
     try std.testing.expect(app.piano_mouse_draw);
-    // New draw starts at natural grid size, not stale default length.
     try std.testing.expectApproxEqAbs(@as(f64, 0.25), pp.notes[0].duration_beat, 1e-9);
 
     // Drag out to step 3 (x in [15,18)) - 4 steps = 1 beat.
@@ -8987,7 +8986,7 @@ test "piano-roll draw-drag sizes only the note it just placed" {
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), pp.notes[0].duration_beat, 1e-9);
     app.handleMouse(.{ .x = 16, .y = row, .button = .left, .kind = .release }, 80, 24, 0);
     try std.testing.expect(!app.piano_mouse_draw);
-    try std.testing.expectApproxEqAbs(@as(f64, 0.25), app.piano_note_len, 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), app.piano_note_len, 1e-9);
 
     // And the whole gesture is one undo entry, not insert-then-resize.
     app.handleKey(.{ .char = 'u' }, 0);
