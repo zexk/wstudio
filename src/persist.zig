@@ -384,6 +384,12 @@ test "buildSession: a compressor's sidechain_pad loads, clamps, and combines wit
 }
 // zig fmt: on
 
+fn testRoundTrip(session: *Session, path: []const u8) !Session {
+    const testing = std.testing;
+    try save(testing.allocator, session, testing.io, path);
+    return load(testing.allocator, testing.io, path);
+}
+
 test "save/load round-trip persists a compressor's sidechain_source" {
     const testing = std.testing;
     var tmp = testing.tmpDir(.{});
@@ -396,8 +402,7 @@ test "save/load round-trip persists a compressor's sidechain_source" {
     const unit = try session.racks.items[0].fx.insert(testing.allocator, 0, .comp, session.project.sample_rate);
     unit.payload.comp.sidechain_source = .{ .track = 7, .pad = 2 };
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
     const sc = loaded.racks.items[0].fx.units.items[0].payload.comp.sidechain_source.?;
     try testing.expectEqual(@as(u16, 7), sc.track);
@@ -417,8 +422,7 @@ test "save/load round-trip persists a compressor's group-sourced sidechain (side
     const unit = try session.racks.items[0].fx.insert(testing.allocator, 0, .comp, session.project.sample_rate);
     unit.payload.comp.sidechain_source = .{ .track = g, .pad = null, .is_group = true };
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
     const sc = loaded.racks.items[0].fx.units.items[0].payload.comp.sidechain_source.?;
     try testing.expectEqual(@as(u16, g), sc.track);
@@ -441,8 +445,7 @@ test "save/load round-trip persists a track's aux sends (master + group)" {
     for (2..project_mod.max_sends_per_track) |slot|
         session.setTrackSend(0, @intCast(slot), .master, -18.0, false);
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
     const sends = loaded.project.tracks.items[0].sends;
     const send0 = sends[0].?;
@@ -499,8 +502,7 @@ test "save/load round-trip persists an FX-unit-targeted automation lane (instanc
     try automation_mod.setPoint(session.allocator, points, 4.0, 0.9);
     try testing.expect(automation_mod.setCurve(points.*, 0.0, .hold));
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
 
     // A fresh session's FX chain reallocates instance ids from 1, same order
@@ -528,8 +530,7 @@ test "save/load round-trip persists the project temperament onto every synth" {
     defer session.deinit();
     session.setTuning(tuning_mod.Preset.werckmeister3.tuning(2));
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
 
     try testing.expectEqual(@as(u4, 2), loaded.project.tuning.root);
@@ -620,8 +621,7 @@ test "a loaded project keeps its own pattern shape, not the config defaults" {
     try session.setInstrument(2, .slicer);
     session.racks.items[2].instrument.slicer.setStepCount(24);
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
     loaded.defaults = .{ .drum_steps = 8, .slicer_steps = 8, .pattern_length_beats = 1.0, .swing = 70.0 };
 
@@ -652,8 +652,7 @@ test "save/load round-trip persists a slicer's slices, pattern, and swing" {
         sl.setSwing(65.0);
     }
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
 
     const sl = &loaded.racks.items[0].instrument.slicer;
@@ -713,8 +712,7 @@ test "save/load round-trip persists pad modes across sampler, drum, and slicer" 
         sl.slices[1].warp_method = .tones;
     }
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
 
     const s = &loaded.racks.items[0].instrument.sampler;
@@ -766,8 +764,7 @@ test "save/load round-trip persists a slicer's variant bank and choke groups" {
         sl.setSliceLen(2, 7); // a row that wraps early has to survive the file
     }
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
 
     const sl = &loaded.racks.items[0].instrument.slicer;
@@ -803,8 +800,7 @@ test "save/load round-trip keeps a slicer lane's stamped clips playable in song 
     }
     try session.stampClip(0, 0);
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
 
     const lane = loaded.arrangement.lane(0).?;
@@ -839,8 +835,7 @@ test "save/load round-trip restores a slicer's user-loaded sample audio" {
         sl.sliceInto(2);
     }
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
 
     const sl = &loaded.racks.items[0].instrument.slicer;
@@ -882,8 +877,7 @@ test "save/load round-trip persists master FX" {
     (try session.master_fx.insert(alloc, 8, .reverb, sr)).payload.reverb.impulse = 1;
     session.syncMasterChain();
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
 
     const units = loaded.master_fx.units.items;
@@ -936,8 +930,7 @@ test "save/load round-trip persists a multiband compressor's crossover, style, a
     mb.payload.mb_comp.bands[2] = .{ .threshold_db = -15.0, .ratio = 2.5, .makeup_db = 0.5 };
     session.syncMasterChain();
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
 
     const units = loaded.master_fx.units.items;
@@ -978,8 +971,7 @@ test "save/load round-trip persists an OTT unit's depth/time/gains and rederives
     unit.payload.ott.gain_out_db = -4.5;
     session.syncMasterChain();
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
 
     const units = loaded.master_fx.units.items;
@@ -1012,8 +1004,7 @@ test "save/load round-trip persists a frequency shifter's shift and mix" {
     unit.payload.freq_shift.mix = 0.65;
     session.syncMasterChain();
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
 
     const units = loaded.master_fx.units.items;
@@ -1883,9 +1874,7 @@ test "save/load round-trip persists user-loaded drum pad samples" {
     dm.pads[3].?.pad.user_sample = true;
     dm.pads[3].?.pad.pitch_semitones = 5.0;
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
     const ldm = &loaded.racks.items[0].instrument.drum_machine;
     const pad = &ldm.pads[3].?.pad;
@@ -2035,9 +2024,7 @@ test "save/load round-trip persists a pad rename with no sample change" {
     dm.pads[0].?.rename("808");
     try testing.expectEqualStrings("kick-2", dm.padName(1)); // untouched pad unaffected
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
     const ldm = &loaded.racks.items[0].instrument.drum_machine;
     try testing.expectEqualStrings("808", ldm.padName(0));
@@ -2065,9 +2052,7 @@ test "save/load round-trip persists a user-loaded sampler clip" {
     s.pad.user_sample = true;
     s.pad.gain = 0.8;
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
     const ls = &loaded.racks.items[0].instrument.sampler;
     try testing.expect(ls.pad.user_sample);
@@ -2102,9 +2087,7 @@ test "save/load round-trip persists audio sources and regions" {
         .length_ticks = 16,
     }));
     session.setSongMode(true);
-    try save(testing.allocator, &session, testing.io, wsj_path);
-
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
     try testing.expectEqual(@as(usize, 1), loaded.project.audio_sources.items.len);
     try testing.expectEqual(@as(u16, 2), loaded.project.audio_sources.items[0].channel_count);
@@ -2252,9 +2235,7 @@ test "save/load round-trip persists a :load-imported wavetable, default state ca
     try s.loadWavetable(.b, writer.buffered());
     s.osc_b_wt_pos = 0.5;
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
     const ls = &loaded.racks.items[0].instrument.poly_synth;
     try testing.expectEqual(@as(usize, 2), ls.osc_b_wt.frame_count);
@@ -2315,9 +2296,7 @@ test "save/load round-trip persists bundled acoustic id without cached audio" {
     defer session.deinit();
     try session.setInstrument(0, .acoustic);
     try session.racks.items[0].instrument.acoustic.loadBuiltin(testing.io, .harpsichord);
-    try save(testing.allocator, &session, testing.io, wsj_path);
-
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
     // The kind survives too, not just the bank - acoustic and soundfont are
     // separate instruments that happen to share a snapshot shape.
@@ -2376,8 +2355,7 @@ test "save/load round-trip persists LFO 2/3, macros, and their matrix sources" {
     s.mod_matrix[1] = .{ .source = .mac1, .dest = PolySynth.dest_amp, .depth = -0.3 };
     // zig fmt: on
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
 
     const ls = &loaded.racks.items[0].instrument.poly_synth;
@@ -2416,8 +2394,7 @@ test "save/load round-trip persists a drawn LFO shape's points" {
     s.lfo_custom[2][1] = .{ .phase = 1.0, .value = -1.0 };
     s.lfo_custom_count[2] = 2;
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
 
     const ls = &loaded.racks.items[0].instrument.poly_synth;
@@ -2552,8 +2529,7 @@ test "save/load round-trip persists an EQ band's lowpass/highpass type and slope
     unit.payload.eq.setType(0, .highpass, 3);
     unit.payload.eq.setType(1, .lowpass, 2);
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
     const eq = &loaded.racks.items[0].fx.units.items[0].payload.eq;
     try testing.expectEqual(eq_mod.BandKind.highpass, eq.bands[0].kind);
@@ -2585,8 +2561,7 @@ test "save/load round-trip persists enabled/solo/stereo-mode/dynamic-EQ/auto-gai
     e.setDynAmount(4, 7.5);
     e.setAutoGain(true);
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
     e = &loaded.racks.items[0].fx.units.items[0].payload.eq;
     try testing.expect(!e.bands[0].enabled);
@@ -2726,9 +2701,7 @@ test "save/load preserves per-note pitch bend breakpoints" {
     _ = bend.setPoint(0.25, -1.0);
     _ = bend.setPoint(0.75, 1.5);
     session.racks.items[0].pattern_player.?.addNote(.{ .pitch = 60, .start_beat = 0, .duration_beat = 2, .pitch_bend = bend });
-    try save(testing.allocator, &session, testing.io, wsj_path);
-
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
     const restored = loaded.racks.items[0].pattern_player.?.notes[0].pitch_bend;
     try testing.expectEqual(@as(u8, 2), restored.count);
@@ -2809,8 +2782,7 @@ test "save/load round-trip persists a pitch shifter, and its heap buffers surviv
     unit.payload.pitch_shift.mix = 0.4;
     session.syncMasterChain();
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
 
     const p = &loaded.master_fx.units.items[0].payload.pitch_shift;
@@ -2873,8 +2845,7 @@ test "save/load round-trip persists controllers and learned CCs, dropping target
     } };
     session.syncModulation();
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
 
     try testing.expect(loaded.project.controllers[0] == null);
@@ -3025,8 +2996,7 @@ test "shortening a clip does not move its trailing automation on the next load" 
     // the curve back with it.
     clip.length_ticks = 2 * time_grid.ticks_per_beat;
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
 
     const gain = loaded.arrangement.lane(0).?.clipAt(0).?.automation.gain;
@@ -3096,8 +3066,7 @@ test "every Track field survives a save and load" {
     session.assignTrackGroup(0, g);
     const before = session.project.tracks.items[0];
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
     const after = loaded.project.tracks.items[0];
 
@@ -3149,8 +3118,7 @@ test "every Project field survives a save and load" {
     try p.setSection(128, "verse");
     const before = session.project;
 
-    try save(testing.allocator, &session, testing.io, wsj_path);
-    var loaded = try load(testing.allocator, testing.io, wsj_path);
+    var loaded = try testRoundTrip(&session, wsj_path);
     defer loaded.deinit();
     const after = loaded.project;
     try testing.expectEqual(@as(u32, 6), after.next_audio_source_id);
