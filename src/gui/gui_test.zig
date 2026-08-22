@@ -99,4 +99,15 @@ fn register(engine: *te.TestEngine) void {
             _ = te.check(@src(), .{}, app.core.view == before, "escape returns to the view it came from");
         }
     });
+
+    _ = engine.registerTest("picker", "instrument picker keeps modal navigation", @src(), struct {
+        pub fn run(ctx: *te.TestContext) !void {
+            app.core.openInstrumentPicker(0, false);
+            ctx.yield(2);
+            pressKey(ctx, .j);
+            _ = te.check(@src(), .{}, app.core.picker_cursor == 1, "j moves picker cursor down");
+            pressKey(ctx, .escape);
+            _ = te.check(@src(), .{}, app.core.view == .tracks, "escape closes picker");
+        }
+    });
 }

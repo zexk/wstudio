@@ -298,7 +298,7 @@ pub fn drawStatus(app: anytype) void {
     const display = zgui.io.getDisplaySize();
     zgui.setNextWindowPos(.{ .x = 0, .y = display[1] - 34, .cond = .always });
     zgui.setNextWindowSize(.{ .w = display[0], .h = 34, .cond = .always });
-    if (zgui.begin("Status", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true } })) {
+    if (zgui.begin("Status", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true, .no_scrollbar = true } })) {
         const draw = zgui.getWindowDrawList();
         const pos = zgui.getWindowPos();
         const size = zgui.getWindowSize();
@@ -434,7 +434,7 @@ pub fn drawCommandPrompt(app: anytype) void {
     const prompt_y = display[1] - 34 - prompt_h;
     zgui.setNextWindowPos(.{ .x = 0, .y = prompt_y, .cond = .always });
     zgui.setNextWindowSize(.{ .w = display[0], .h = prompt_h, .cond = .always });
-    if (zgui.begin("Command Prompt", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true, .no_saved_settings = true } })) {
+    if (zgui.begin("Command Prompt", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true, .no_saved_settings = true, .no_scrollbar = true } })) {
         drawCommandBar(app, zgui.getWindowDrawList(), zgui.getWindowPos(), zgui.getWindowSize());
     }
     zgui.end();
@@ -455,7 +455,7 @@ pub fn drawCommandPrompt(app: anytype) void {
     const popup_h = 31 + row_h * @as(f32, @floatFromInt(rows));
     zgui.setNextWindowPos(.{ .x = 12, .y = prompt_y - popup_h - 6, .cond = .always });
     zgui.setNextWindowSize(.{ .w = popup_w, .h = popup_h, .cond = .always });
-    if (zgui.begin("Command Suggestions", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true, .no_saved_settings = true, .no_mouse_inputs = true, .no_nav_inputs = true, .no_nav_focus = true } })) {
+    if (zgui.begin("Command Suggestions", .{ .flags = .{ .no_title_bar = true, .no_resize = true, .no_move = true, .no_docking = true, .no_saved_settings = true, .no_mouse_inputs = true, .no_nav_inputs = true, .no_nav_focus = true, .no_scrollbar = true } })) {
         drawCommandSuggestions(app, active, filter, rows);
     }
     zgui.end();

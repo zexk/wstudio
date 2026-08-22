@@ -99,7 +99,7 @@ fn drawEmptyState() void {
 
 fn drawTargetStrip(app: anytype, clip: *ws.Clip) void {
     widgets.sectionTitle(icons.param ++ "  CURVE", theme.focus);
-    if (zgui.beginChild("automation-targets", .{ .w = 0, .h = 52, .window_flags = .{ .horizontal_scrollbar = true } })) {
+    if (zgui.beginChild("automation-targets", .{ .w = 0, .h = 52, .window_flags = .{ .no_scrollbar = true } })) {
         drawTargetButton(app, "GAIN", .gain, 0);
         zgui.sameLine(.{ .spacing = 6 });
         drawTargetButton(app, "PAN", .pan, 1);

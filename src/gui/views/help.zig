@@ -89,7 +89,7 @@ fn drawHeader(t: *const help_model.HelpText, viewport: help_model.Viewport, curr
 /// what the reference covers is visible at a glance instead of only
 /// discoverable by scrolling 500 lines past it.
 fn drawNav(app: anytype, t: *const help_model.HelpText, current_section: ?usize, body_h: f32, line_h: f32) void {
-    if (!zgui.beginChild("help-nav", .{ .w = nav_w, .h = body_h, .child_flags = .{ .border = true } })) {
+    if (!zgui.beginChild("help-nav", .{ .w = nav_w, .h = body_h, .child_flags = .{ .border = true }, .window_flags = .{ .no_scrollbar = true } })) {
         zgui.endChild();
         return;
     }

@@ -59,7 +59,11 @@ pub fn beginOverlay() void {
     });
     zgui.setCursorScreenPos(.{ panel[0] + 18, panel[1] + 16 });
     zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = .{ 0, 0, 0, 0 } });
-    _ = zgui.beginChild("telescope-panel-content", .{ .w = panel_w - 36, .h = panel_h - 32 });
+    _ = zgui.beginChild("telescope-panel-content", .{
+        .w = panel_w - 36,
+        .h = panel_h - 32,
+        .window_flags = .{ .no_scrollbar = true },
+    });
 }
 
 pub fn endOverlay() void {
@@ -128,7 +132,6 @@ pub fn drawInstrument(app: anytype) void {
         items.len + app.core.filteredInstrumentPluginCount(),
         filter,
     );
-    widgets.hoverHelp("/ filter  j/k move  enter insert  esc cancel");
     zgui.spacing();
     // Single column: `j`/`k` move the shared picker cursor by a flat +/-1,
     // same as the TUI's list - a multi-column card grid would make "down"

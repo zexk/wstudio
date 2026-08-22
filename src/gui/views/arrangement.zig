@@ -651,7 +651,7 @@ fn drawArrangementInspector(app: anytype) void {
     var action: ?u8 = null;
     var crossfade = false;
     const child_h: f32 = if (selectedClipIsAudio(app, selection)) 182 else 108;
-    if (zgui.beginChild("arrangement-inspector", .{ .w = 0, .h = child_h, .child_flags = .{ .border = true } })) {
+    if (zgui.beginChild("arrangement-inspector", .{ .w = 0, .h = child_h, .child_flags = .{ .border = true }, .window_flags = .{ .no_scrollbar = true } })) {
         const clip = app.core.session.arrangement.lanes.items[selection.track].clips.items[selection.clip];
         widgets.coloredTitle(theme.focus, icons.arrangement ++ "  CLIP", .{});
         zgui.separator();

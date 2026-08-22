@@ -198,7 +198,7 @@ fn drawWorkspace(app: *App) void {
     const body_h = bodyHeight(app.core.modal.mode == .command or app.core.modal.mode == .search);
     zgui.setNextWindowPos(.{ .x = 0, .y = chrome.transport_height, .cond = .always });
     zgui.setNextWindowSize(.{ .w = zgui.io.getDisplaySize()[0], .h = body_h, .cond = .always });
-    if (zgui.begin("Workspace", .{ .flags = .{ .no_title_bar = true, .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true } })) {
+    if (zgui.begin("Workspace", .{ .flags = .{ .no_title_bar = true, .no_move = true, .no_resize = true, .no_collapse = true, .no_docking = true, .no_scrollbar = true } })) {
         const overlay = isPickerView(app.core.view);
         const workspace_view = if (overlay) pickerBaseView(app) else app.core.view;
         // One ImGui window backs every view and ImGui keeps scroll per

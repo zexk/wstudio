@@ -224,7 +224,7 @@ pub fn emptyState(args: EmptyState) bool {
     if (available > width) zgui.setCursorPosX(zgui.getCursorPos()[0] + (available - width) * 0.5);
     var clicked = false;
     zgui.pushStyleColor4f(.{ .idx = .child_bg, .c = theme.bg2 });
-    if (zgui.beginChild(args.id, .{ .w = width, .h = 122, .child_flags = .{ .border = true } })) {
+    if (zgui.beginChild(args.id, .{ .w = width, .h = 122, .child_flags = .{ .border = true }, .window_flags = .{ .no_scrollbar = true } })) {
         gui_style.pushFont(.heading);
         zgui.textColored(args.accent, "{s}", .{args.title});
         gui_style.popFont();

@@ -53,7 +53,7 @@ pub fn draw(app: anytype) void {
     const available = zgui.getContentRegionAvail()[0];
     const panel_width = @min(available, 900);
     zgui.setCursorPosX(zgui.getCursorPos()[0] + @max(0, (available - panel_width) * 0.5));
-    if (zgui.beginChild("soundfont-panel", .{ .w = panel_width, .h = 0, .child_flags = .{ .border = true, .auto_resize_y = true } })) {
+    if (zgui.beginChild("soundfont-panel", .{ .w = panel_width, .h = 0, .child_flags = .{ .border = true, .auto_resize_y = true }, .window_flags = .{ .no_scrollbar = true } })) {
         // OUT before PROGRAM: the same order the TUI draws, which is also
         // the order `soundfont_param` steps through under j/k (gain, pan,
         // transpose, then preset).

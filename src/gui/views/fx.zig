@@ -772,7 +772,7 @@ fn drawParamGrid(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, g
             // wholesale, so the knob inside it never gets to mark itself as
             // the focused row - the one case cursor-following exists for.
             scroll.noteFocusRow(selected, zgui.getCursorScreenPos()[1], row_height);
-            if (zgui.beginChild(id, .{ .w = width, .h = row_height, .child_flags = .{ .border = true } })) {
+            if (zgui.beginChild(id, .{ .w = width, .h = row_height, .child_flags = .{ .border = true }, .window_flags = .{ .no_scrollbar = true } })) {
                 drawParam(app, target, unit, index, knob_diameter);
             }
             zgui.endChild();
