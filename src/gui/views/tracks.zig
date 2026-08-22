@@ -454,6 +454,13 @@ fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) 
     var id_buf: [32]u8 = undefined;
     const id = std.fmt.bufPrintZ(&id_buf, "group-row-{d}", .{group_index}) catch return;
     const chrome = drawRowChrome(app, id, display_row, trackRowInVisual(&app.core, display_row), height);
+    if (chrome.left_clicked or chrome.right_clicked) switch (groupMouseAction(chrome.right_clicked)) {
+        .fx => spectrum_ed.switchToGroup(&app.core, group_index),
+        .fold => {
+            app.core.setTrackRow(display_row);
+            app.core.handleKey(.{ .char = 'z' }, app.core.now_ns);
+        },
+    };
     const draw_list = chrome.draw;
     const origin = chrome.origin;
     const width = chrome.width;
@@ -522,6 +529,7 @@ fn drawGroupRow(app: anytype, group_index: u8, display_row: usize, height: f32) 
 
 fn drawMasterRow(app: anytype, height: f32) void {
     const chrome = drawRowChrome(app, "master-row", app.core.track_rows_len, false, height);
+    if (chrome.left_clicked or chrome.right_clicked) spectrum_ed.switchToMaster(&app.core);
     const draw_list = chrome.draw;
     const origin = chrome.origin;
     const width = chrome.width;
@@ -562,6 +570,17 @@ fn drawMasterRow(app: anytype, height: f32) void {
     // of re-deriving its own peak-hold state from the raw peak.
     meters.solidMeterBar(draw_list, .{ block_x0 + block_inset, stack.meter }, app.meter_hold_db, block_w - 2 * block_inset, 5, 3, block_fg);
     drawTrackRowCursorOutline(chrome, height);
+}
+
+const GroupMouseAction = enum { fx, fold };
+
+fn groupMouseAction(right: bool) GroupMouseAction {
+    return if (right) .fold else .fx;
+}
+
+test "group row mouse bindings open FX and toggle folding" {
+    try std.testing.expectEqual(GroupMouseAction.fx, groupMouseAction(false));
+    try std.testing.expectEqual(GroupMouseAction.fold, groupMouseAction(true));
 }
 
 fn trackRowInVisual(core: anytype, display_row: usize) bool {
