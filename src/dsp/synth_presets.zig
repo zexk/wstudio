@@ -2304,7 +2304,7 @@ pub const presets = [_]Preset{
     } },
 
     // phonk - the cowbell melody the whole genre is written on. The 808's
-    // cowbell is two square waves a fifth apart through a narrow bandpass
+    // cowbell is two square waves a fifth apart through a static bandpass
     // with a fast decay; tuned and played as pitches it becomes a lead. Crush
     // and drive for the tape-dub grit rather than a clean digital tone.
     .{ .name = "phonk-cowbell", .category = "pluck", .tags = &.{ "wstudio", "phonk", "hip-hop" }, .patch = .{
@@ -2315,11 +2315,10 @@ pub const presets = [_]Preset{
         // what this was, beats too but around the wrong centre.
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 7.0, .osc_b_detune_cents = -19.0, .osc_b_level = 0.85,
         .attack_s = 0.001, .decay_s = 0.28, .sustain = 0.0, .release_s = 0.12, .env_curve = 0.75,
-        .filter_type = .bp, .filter_cutoff = 2400.0, .filter_res = 0.55, .filter_drive = 2.6,
-        .fenv_attack_s = 0.001, .fenv_decay_s = 0.12, .fenv_sustain = 0.0, .fenv_release_s = 0.08, .fenv_curve = 0.7,
+        // Circuit analysis puts the 808 bandpass near 881 Hz at Q 4.82.
+        // Here resonance 0.22 maps to Q 4.79; 0.55 was Q 11.23 and rang.
+        .filter_type = .bp, .filter_cutoff = 880.0, .filter_res = 0.22, .filter_drive = 2.6,
         .mod_matrix = mods(&.{
-            .{ .source = .fenv,     .dest = 21, .depth = 0.35 },
-            .{ .source = .velocity, .dest = 21, .depth = 0.3 },
             .{ .source = .mac1,     .dest = 21, .depth = 0.4 },
             .{ .source = .mac4, .dest = 2, .depth = 0.4, .fx_instance_id = 2 },
             .{ .source = .mac4, .dest = 0, .depth = -0.4, .fx_instance_id = 2 },
