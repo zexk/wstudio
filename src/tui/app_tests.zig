@@ -10053,6 +10053,9 @@ test "f in the synth editor opens the preset picker; / narrows and enter applies
     const expected = ws.dsp.synth_presets.find("acid-bass").?;
     try std.testing.expectEqual(expected.voice_mode, s.voice_mode);
     try std.testing.expectApproxEqAbs(expected.filter_res, s.filter_res, 1e-6);
+    const fx = app.session.racks.items[0].fx.units.items;
+    try std.testing.expectEqual(@as(usize, 1), fx.len);
+    try std.testing.expectEqual(ws.FxKind.sat, fx[0].kind());
     try std.testing.expect(app.dirty);
 }
 
@@ -10153,11 +10156,13 @@ test "synth preset audition plays C3 and cancel restores the original patch" {
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "C3") != null);
     const auditioned = app.session.racks.items[0].instrument.poly_synth.toPatch();
     try std.testing.expect(auditioned.wt_pos != original.wt_pos or auditioned.filter_cutoff != original.filter_cutoff);
+    try std.testing.expectEqual(@as(usize, 2), app.session.racks.items[0].fx.units.items.len);
 
     app.handleKey(.escape, 124);
     try std.testing.expectEqual(AppView.synth_editor, app.view);
     const restored = app.session.racks.items[0].instrument.poly_synth.toPatch();
     try std.testing.expectEqualDeep(original, restored);
+    try std.testing.expectEqual(@as(usize, 0), app.session.racks.items[0].fx.units.items.len);
     try std.testing.expect(!app.dirty);
 }
 

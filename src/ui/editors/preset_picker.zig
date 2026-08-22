@@ -466,7 +466,7 @@ fn auditionSelected(app: *App) void {
     if (app.preset_picker_kind != .synth) return;
     switch (chosen.source) {
         .user => |i| if (!applyUserPreset(app, &app.user_synth_presets.items[i])) return,
-        .factory => |i| if (!applySynthPreset(app, ws.dsp.synth_presets.presets[i].patch)) return,
+        .factory => |i| if (!applyFactoryPreset(app, ws.dsp.synth_presets.presets[i])) return,
         .kit, .soundfont, .library => return,
     }
     app.preset_audition_active = true;
@@ -512,10 +512,10 @@ fn targetSynth(app: *App) ?*ws.dsp.PolySynth {
     };
 }
 
-fn applySynthPreset(app: *App, patch: ws.dsp.PolySynth.Patch) bool {
+fn applyFactoryPreset(app: *App, preset: ws.dsp.synth_presets.Preset) bool {
     if (app.preset_picker_track >= app.session.racks.items.len) return false;
     const rack = app.session.racks.items[app.preset_picker_track];
-    const displaced = ws.persist.applySynthPatch(app.allocator, rack, patch, app.session.project.sample_rate) catch |e| {
+    const displaced = ws.persist.applySynthPreset(app.allocator, rack, preset, app.session.project.sample_rate) catch |e| {
         app.setStatus("synth preset: {s}", .{@errorName(e)});
         return false;
     };
@@ -644,7 +644,7 @@ pub fn applySelected(app: *App) void {
                 app.setStatus("synth preset: out of memory", .{});
                 return;
             };
-            if (!applySynthPreset(app, ws.dsp.synth_presets.presets[i].patch)) {
+            if (!applyFactoryPreset(app, ws.dsp.synth_presets.presets[i])) {
                 backup.deinit(app.allocator);
                 return;
             }
