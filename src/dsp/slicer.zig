@@ -290,7 +290,7 @@ pub const Slicer = struct {
             .midi = midi,
             .step_count = default_step_count,
         };
-        for (&self.slices) |*p| p.* = .{ .samples = samples };
+        for (&self.slices) |*p| p.* = .{ .samples = samples, .retrig = true };
         // zig fmt: off
         for (&self.voices) |*row| for (row) |*v| { v.* = .{}; };
         // zig fmt: on
@@ -409,7 +409,7 @@ pub const Slicer = struct {
         self.user_sample = true;
         if (reset_slices) {
             self.slice_count = 0;
-            for (&self.slices) |*p| p.* = .{ .samples = samples };
+            for (&self.slices) |*p| p.* = .{ .samples = samples, .retrig = true };
         } else {
             for (&self.slices) |*p| {
                 p.samples = samples;
@@ -429,14 +429,13 @@ pub const Slicer = struct {
         const count = std.math.clamp(n, 1, max_slices);
         while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.sample_lock.unlock();
+        const template: Pad = if (self.slice_count == 0 and self.samples.len > 0) self.slices[0] else .{ .samples = self.samples, .retrig = true };
         const step_norm = 1.0 / @as(f32, @floatFromInt(count));
         for (0..count) |i| {
-            self.slices[i] = .{
-                .samples = self.samples,
-                .start_norm = @as(f32, @floatFromInt(i)) * step_norm,
-                .end_norm = @as(f32, @floatFromInt(i + 1)) * step_norm,
-                .retrig = true,
-            };
+            self.slices[i] = template;
+            self.slices[i].samples = self.samples;
+            self.slices[i].start_norm = @as(f32, @floatFromInt(i)) * step_norm;
+            self.slices[i].end_norm = @as(f32, @floatFromInt(i + 1)) * step_norm;
             // Same mono-chop default as `chopAt` - see its comment.
             self.choke_group[i] = 1;
         }
@@ -554,6 +553,7 @@ pub const Slicer = struct {
         const count: u8 = @intCast(std.math.clamp(positions.len, 1, max_slices));
         while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
         defer self.sample_lock.unlock();
+        const template: Pad = if (self.slice_count == 0 and self.samples.len > 0) self.slices[0] else .{ .samples = self.samples, .retrig = true };
         var start: f32 = 0.0;
         for (0..count) |i| {
             const next_raw = if (i + 1 < count) positions[i + 1] else 1.0;
@@ -561,12 +561,10 @@ pub const Slicer = struct {
                 std.math.clamp(next_raw, start, 1.0)
             else
                 start;
-            self.slices[i] = .{
-                .samples = self.samples,
-                .start_norm = start,
-                .end_norm = if (i + 1 < count) next else 1.0,
-                .retrig = true,
-            };
+            self.slices[i] = template;
+            self.slices[i].samples = self.samples;
+            self.slices[i].start_norm = start;
+            self.slices[i].end_norm = if (i + 1 < count) next else 1.0;
             // Fresh chops share one choke group: slices of the same break
             // should never overlap each other (the MPC "mono chop" feel -
             // see `chokeTriggerTuned`), or the break turns to mud the moment
@@ -737,12 +735,13 @@ pub const Slicer = struct {
     }
 
     /// Current value of slice-encoded param `id`, in `setParamAbsolute`'s
-    /// encoding (reverse as 0/1) - undo's capture half. Null past the live
+    /// encoding (reverse as 0/1) - undo's capture half. Before chopping,
+    /// slice 0 is the full-sample staging pad; otherwise null past the live
     /// slice count, so undo skips rather than editing an inert slot.
     pub fn paramValue(self: *const Slicer, id: u16) ?f32 {
         const slice_idx = id >> 5;
         const param: u8 = @intCast(id & 0x1F);
-        if (slice_idx >= self.slice_count) return null;
+        if (slice_idx >= self.slice_count and !(self.slice_count == 0 and slice_idx == 0 and self.samples.len > 0)) return null;
         return pad_mod.paramValue(&self.slices[slice_idx], param);
     }
 
@@ -1458,6 +1457,23 @@ test "sliceInto equal-divides the clip and clamps out-of-range counts" {
     try std.testing.expectEqual(@as(u8, 1), s.slice_count);
     s.sliceInto(200); // clamps down to max_slices
     try std.testing.expectEqual(Slicer.max_slices, s.slice_count);
+}
+
+test "fresh chops inherit full-sample edits" {
+    var transport = Transport{ .sample_rate = 48_000 };
+    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    defer s.deinit();
+    try installTestClip(&s);
+    s.slices[0].gain = 1.5;
+    s.slices[0].reverse = true;
+
+    s.sliceInto(3);
+
+    for (s.slices[0..3]) |slice| {
+        try std.testing.expectEqual(@as(f32, 1.5), slice.gain);
+        try std.testing.expect(slice.reverse);
+    }
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0 / 3.0), s.slices[0].end_norm, 1e-6);
 }
 
 test "chopAt normalizes non-finite and descending boundaries" {

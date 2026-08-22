@@ -88,7 +88,9 @@ pub fn drawSamplerEditor(
         try w.print("\"{s}\"", .{app.drumMachine().padName(pad_idx)});
         try w.writeAll(rst);
     } else if (is_slice) {
-        if (app.slicerInst().slice_count == 0)
+        if (app.slicerInst().slice_count == 0 and app.slicerInst().hasAudio())
+            try w.writeAll("  full sample ")
+        else if (app.slicerInst().slice_count == 0)
             try w.writeAll("  no slices ")
         else
             try w.print("  slice {d}/{d} ", .{ app.slicer_cursor[0] + 1, app.slicerInst().slice_count });
@@ -106,7 +108,7 @@ pub fn drawSamplerEditor(
     if (is_drum) {
         try drawDrumBank(app, w, pad_idx);
         written += 3;
-    } else if (is_slice and pad.samples.len > 0) {
+    } else if (is_slice and app.slicerInst().slice_count > 0 and pad.samples.len > 0) {
         try drawSliceMap(app, w, cols);
         written += 3;
     }
@@ -312,7 +314,7 @@ fn padOf(dm: anytype, idx: u8) *const ws.dsp.Pad {
 /// The cursor slice's Pad, or a placeholder past the slice count.
 fn sliceOf(app: anytype) *const ws.dsp.Pad {
     const sl = app.slicerInst();
-    if (app.slicer_cursor[0] >= sl.slice_count) return ws.dsp.pad.emptyPad();
+    if (app.slicer_cursor[0] >= sl.slice_count and !(sl.slice_count == 0 and sl.hasAudio())) return ws.dsp.pad.emptyPad();
     return &sl.slices[app.slicer_cursor[0]];
 }
 

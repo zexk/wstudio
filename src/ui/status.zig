@@ -50,7 +50,7 @@ fn padOf(dm: anytype, idx: u8) *const ws.dsp.Pad {
 /// The cursor slice's Pad, or a placeholder past the slice count.
 fn sliceOf(app: anytype) *const ws.dsp.Pad {
     const sl = app.slicerInst();
-    if (app.slicer_cursor[0] >= sl.slice_count) return ws.dsp.pad.emptyPad();
+    if (app.slicer_cursor[0] >= sl.slice_count and !(sl.slice_count == 0 and sl.hasAudio())) return ws.dsp.pad.emptyPad();
     return &sl.slices[app.slicer_cursor[0]];
 }
 
@@ -450,7 +450,7 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
     // zig fmt: off
     try writeModeBadge(w, app);
     try writeViewBadge(right, if (is_drum) "DRUM" else if (is_slice) "SLICER" else "SAMPLER", app.modal.mode);
-    if (is_slice and app.slicerInst().slice_count == 0) {
+    if (is_slice and !app.slicerInst().hasAudio()) {
         try w.writeAll(dim);
         try w.writeAll(if (app.slicerInst().hasAudio()) "  no slices  enter chop  e/esc back" else "  no slices  enter load  e/esc back");
         try w.writeAll(rst);
@@ -461,8 +461,13 @@ pub fn drawSamplerStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer)
         try w.print("{d}", .{pad_idx + 1});
     }
     if (is_slice) {
-        try w.writeAll(dim ++ "  slice " ++ rst);
-        try w.print("{d}", .{app.slicer_cursor[0] + 1});
+        try w.writeAll(dim);
+        if (app.slicerInst().slice_count == 0)
+            try w.writeAll("  full sample")
+        else {
+            try w.writeAll("  slice " ++ rst);
+            try w.print("{d}", .{app.slicer_cursor[0] + 1});
+        }
     }
     try w.writeAll(dim ++ "  " ++ rst);
     try w.writeAll(sampler_param_labels[cur]);

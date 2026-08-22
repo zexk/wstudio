@@ -236,8 +236,11 @@ fn drawStandalone(app: anytype) void {
 fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
     if (track >= app.core.session.racks.items.len) return;
     const index: u8 = if (kind == .drum) @intCast(app.core.drum_cursor[0]) else @intCast(app.core.slicer_cursor[0]);
-    drawTargetBank(app, track, kind, index);
-    zgui.spacing();
+    const full_sample = kind == .slice and app.core.session.racks.items[track].instrument.slicer.slice_count == 0;
+    if (!full_sample) {
+        drawTargetBank(app, track, kind, index);
+        zgui.spacing();
+    }
     const pad: *ws.dsp.Pad, const sample_rate: u32 = switch (kind) {
         .drum => blk: {
             const drum = switch (app.core.session.racks.items[track].instrument) {
@@ -255,7 +258,7 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
                 .slicer => |*s| s,
                 else => return,
             };
-            if (index >= slicer.slice_count) {
+            if (index >= slicer.slice_count and !(slicer.slice_count == 0 and slicer.hasAudio())) {
                 drawPadEmptyState(app, "NO SLICE SELECTED", "Load and slice audio before editing a slice.");
                 return;
             }
@@ -268,7 +271,7 @@ fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
         drawPadEmptyState(app, if (kind == .drum) "NO SAMPLE" else "NO AUDIO", if (kind == .drum) "Choose a WAV file for this drum pad." else "Choose a WAV file before editing slice playback.");
         return;
     }
-    widgets.sectionTitle(icons.region ++ "  PLAY REGION", theme.audio);
+    widgets.sectionTitle(if (full_sample) icons.sampler ++ "  FULL SAMPLE" else icons.region ++ "  PLAY REGION", theme.audio);
     drawWaveformRegion(app, target, pad.samples);
     zgui.spacing();
 

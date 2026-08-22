@@ -283,7 +283,7 @@ fn targetHasAudio(app: *App) bool {
 fn targetIsEditable(app: *App) bool {
     return switch (app.sampler_target) {
         .drum => app.drum_cursor[0] < DrumMachine.max_pads and app.drumMachine().pads[app.drum_cursor[0]] != null,
-        .slice => app.slicer_cursor[0] < app.slicerInst().slice_count,
+        .slice => app.slicer_cursor[0] < app.slicerInst().slice_count or (app.slicerInst().slice_count == 0 and app.slicerInst().hasAudio()),
         .sampler => app.editingSampler() != null,
     };
 }
@@ -520,7 +520,7 @@ fn currentNorms(app: *App) ?struct { start: f32, end: f32 } {
         },
         .slice => {
             const sl = app.slicerInst();
-            if (app.slicer_cursor[0] >= sl.slice_count) return null;
+            if (app.slicer_cursor[0] >= sl.slice_count and !(sl.slice_count == 0 and sl.hasAudio())) return null;
             const p = &sl.slices[app.slicer_cursor[0]];
             return .{ .start = p.start_norm, .end = p.end_norm };
         },

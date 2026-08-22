@@ -4158,11 +4158,12 @@ test "draw renders slicer control panel without overflowing" {
     const sl = app.slicerInst();
     sl.samples = try app.allocator.alloc(f32, 8);
     @memset(sl.samples, 0);
+    for (&sl.slices) |*slice| slice.samples = sl.samples;
     w = std.Io.Writer.fixed(&buf);
     try tui_mod.draw(&app, &w, .{ .cols = 80, .rows = 30 });
     const unchopped = w.buffered();
-    try std.testing.expect(std.mem.indexOf(u8, unchopped, "AUDIO LOADED, NO SLICES") != null);
-    try std.testing.expect(std.mem.indexOf(u8, unchopped, "enter chop") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unchopped, "full sample") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unchopped, "attack") != null);
 
     sl.sliceInto(3);
     w = std.Io.Writer.fixed(&buf);
@@ -4173,7 +4174,7 @@ test "draw renders slicer control panel without overflowing" {
     try std.testing.expect(std.mem.indexOf(u8, loaded, "j/k param") != null);
 }
 
-test "empty sampler panel ignores hidden keyboard controls" {
+test "empty sampler panel ignores controls but loaded full sample is editable" {
     var app = try testApp();
     defer app.deinit();
     try app.session.setInstrument(0, .slicer);
@@ -4190,8 +4191,9 @@ test "empty sampler panel ignores hidden keyboard controls" {
 
     app.slicerInst().samples = try app.allocator.alloc(f32, 8);
     @memset(app.slicerInst().samples, 0);
+    for (&app.slicerInst().slices) |*slice| slice.samples = app.slicerInst().samples;
     _ = sampler_ed.handleKey(&app, .{ .char = 'l' });
-    try std.testing.expect(!app.dirty);
+    try std.testing.expect(app.dirty);
     _ = sampler_ed.handleKey(&app, .enter);
     try std.testing.expectEqual(AppView.slicer_grid, app.view);
     _ = slicer_ed.handleKey(&app, .enter);
@@ -4205,6 +4207,7 @@ test "empty sampler panel ignores hidden keyboard controls" {
     const plain = ansi.stripAnsi(w.buffered(), &plain_buf);
     try std.testing.expect(std.mem.indexOf(u8, plain, "slice 1/0") == null);
 
+    app.dirty = false;
     for ("nF$C") |c| _ = slicer_ed.handleKey(&app, .{ .char = c });
     try std.testing.expect(!app.dirty);
     app.slicerInst().sliceInto(1);
