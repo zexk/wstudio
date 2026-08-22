@@ -14,7 +14,14 @@ pub fn draw(app: anytype) void {
     if (core.audio_track >= core.session.project.tracks.items.len or core.audio_track >= core.session.arrangement.lanes.items.len) return;
     const clips = core.session.arrangement.lanes.items[core.audio_track].clips.items;
     if (clips.len == 0) {
-        zgui.textDisabled("No audio regions. Press i to import audio.", .{});
+        if (widgets.emptyState(.{
+            .id = "audio-empty-state",
+            .title = "NO AUDIO REGIONS",
+            .explanation = "Import a WAV file to place it on this track.",
+            .shortcut = "i",
+            .action = "IMPORT AUDIO",
+            .accent = theme.audio,
+        })) core.handleKey(.{ .char = 'i' }, core.now_ns);
         return;
     }
     core.audio_clip = @min(core.audio_clip, clips.len - 1);
