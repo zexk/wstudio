@@ -1369,6 +1369,10 @@ pub const DrumMachine = struct {
 // -----------------------------------------------------------------------
 // Tests
 
+fn testBlankMachine(transport: *const Transport) !DrumMachine {
+    return DrumMachine.init(std.testing.allocator, 48_000, transport);
+}
+
 /// A machine with the "digital" kit flavour on pads 0-15. A fresh `init` is
 /// the blank "init" kit (no audio anywhere), so any test that renders or
 /// tweaks a pad loads a kit first, exactly as the user would.
@@ -1381,7 +1385,7 @@ fn testMachine(transport: *const Transport) !DrumMachine {
 
 test "a fresh machine is blank; a kit flavour fills pads 0-15, init empties them" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     // Blank slate: nothing materialized at all.
@@ -1424,7 +1428,7 @@ test "a fresh machine is blank; a kit flavour fills pads 0-15, init empties them
 
 test "failed WAV load does not materialize an empty drum pad" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     try std.testing.expectError(error.NotAudioFile, dm.loadPadWav(0, "not a wav at all", "broken"));
@@ -1433,7 +1437,7 @@ test "failed WAV load does not materialize an empty drum pad" {
 
 test "out-of-range pad sample assignment releases ownership" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     const samples = try std.testing.allocator.alloc(f32, 16);
@@ -1491,7 +1495,7 @@ test "step sequencer fires pads at correct boundaries" {
 
 test "pad grid stores canonical MIDI notes" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     dm.toggleStep(3, 7);
@@ -1511,7 +1515,7 @@ test "pad grid stores canonical MIDI notes" {
 
 test "clearKit wipes every pad and reports the hit count removed" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     dm.setStepCount(8);
@@ -1530,7 +1534,7 @@ test "clearKit wipes every pad and reports the hit count removed" {
 
 test "humanizeVelocity jitters active hits within bounds; 0% is a no-op" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     dm.setStepCount(8);
@@ -1555,7 +1559,7 @@ test "humanizeVelocity jitters active hits within bounds; 0% is a no-op" {
 
 test "humanizeVelocity ignores non-finite amounts" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     dm.toggleStep(0, 0);
@@ -1566,7 +1570,7 @@ test "humanizeVelocity ignores non-finite amounts" {
 
 test "euclidPad spreads pulses evenly, honors rotation, clears on zero" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     // E(3,8): the tresillo - hits on steps 0, 3, 6.
@@ -1596,7 +1600,7 @@ test "euclidPad spreads pulses evenly, honors rotation, clears on zero" {
 
 test "velocityRampPad interpolates hits by step position" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     dm.setStepCount(16);
@@ -1621,7 +1625,7 @@ test "velocityRampPad interpolates hits by step position" {
 
 test "reversePattern mirrors every pad's hits, duration-aware" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     dm.setStepCount(8);
@@ -1647,7 +1651,7 @@ test "reversePattern mirrors every pad's hits, duration-aware" {
 
 test "rotatePad wraps hits and rewrites their canonical step" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     dm.setStepCount(8);
@@ -1745,7 +1749,7 @@ test "warping back to the song start replays the downbeat" {
 
 test "song clip overflow releases transferred MIDI rows" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     var clips: [DrumMachine.max_song_clips + 1]DrumMachine.SongClip = undefined;
@@ -1829,7 +1833,7 @@ test "note_on triggers pad directly" {
 
 test "step velocity: cycles presets, nudges, toggling resets, shrink masks" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     dm.toggleStep(0, 5);
@@ -1931,7 +1935,7 @@ test "choke group silences other pads sharing it" {
 
 test "cycleChokeGroup wraps through none..max" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     try std.testing.expectEqual(@as(u8, 0), dm.choke_group[0]);
@@ -1946,7 +1950,7 @@ test "cycleChokeGroup wraps through none..max" {
 
 test "variants keep per-step velocity" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     for (0..DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
@@ -1965,7 +1969,7 @@ test "variants keep per-step velocity" {
 
 test "toggleStep flips step activity" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     dm.toggleStep(0, 3);
@@ -1976,7 +1980,7 @@ test "toggleStep flips step activity" {
 
 test "applying an empty variant materializes blank rows" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     dm.applyVariant(.{ .step_count = 16, .steps_per_beat = 4 });
@@ -1987,7 +1991,7 @@ test "applying an empty variant materializes blank rows" {
 
 test "variants: add copies, edits stay isolated, select round-trips" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     for (0..DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
@@ -2013,7 +2017,7 @@ test "variants: add copies, edits stay isolated, select round-trips" {
 
 test "variants: step count is per-variant" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     try std.testing.expect(dm.addVariant());
@@ -2026,7 +2030,7 @@ test "variants: step count is per-variant" {
 
 test "variants: cycle wraps and remove shifts the bank down" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     try std.testing.expect(!dm.removeVariant()); // can't drop the only one
@@ -2053,7 +2057,7 @@ test "variants: cycle wraps and remove shifts the bank down" {
 
 test "variants: bank fills at max_variants" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     var added: u8 = 0;
@@ -2064,7 +2068,7 @@ test "variants: bank fills at max_variants" {
 
 test "variantData reads the active variant from the live state" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     for (0..DrumMachine.max_pads) |p| dm.clearPad(@intCast(p));
@@ -2075,7 +2079,7 @@ test "variantData reads the active variant from the live state" {
 
 test "setStepCount discards steps beyond the new count" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     dm.setStepCount(32);
@@ -2114,7 +2118,7 @@ test "step count grows well past the old 64-step ceiling and the sequencer fires
 
 test "per-step tune clamps to the pad pitch range and only touches live steps" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
 
     // An empty step has nothing to tune and reports 0.
@@ -2142,7 +2146,7 @@ test "per-step tune clamps to the pad pitch range and only touches live steps" {
 
 test "a pad's own loop length wraps that row early and drifts against the rest" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
     dm.setStepCount(16);
 
@@ -2173,7 +2177,7 @@ test "a pad's own loop length wraps that row early and drifts against the rest" 
 
 test "a roll spreads its hits across the step and survives block boundaries" {
     var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
     dm.setStepCount(16);
     dm.toggleStep(0, 0);
@@ -2219,7 +2223,7 @@ test "a roll spreads its hits across the step and survives block boundaries" {
 
 test "micro-timing shifts a hit off its own step boundary, both directions" {
     var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
     dm.setStepCount(16);
     dm.toggleStep(0, 4);
@@ -2257,7 +2261,7 @@ test "micro-timing shifts a hit off its own step boundary, both directions" {
 
 test "a hit just behind the playhead is clamped, one a whole block back is dropped" {
     var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
     dm.toggleStep(0, 0);
 
@@ -2276,7 +2280,7 @@ test "a hit just behind the playhead is clamped, one a whole block back is dropp
 
 test "a gated pad stops at its step; a live hit waits for the note-off" {
     var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
     const samples = try std.testing.allocator.alloc(f32, 1024);
     @memset(samples, 0.5);
@@ -2308,7 +2312,7 @@ fn ringing(dm: *const DrumMachine, p: u8) usize {
 
 test "a pad's play mode decides whether a second hit cuts the first" {
     var transport: Transport = .{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
     const samples = try std.testing.allocator.alloc(f32, 48_000);
     @memset(samples, 0.5);
@@ -2366,7 +2370,7 @@ test "trig conditions gate a step by pass count and the fill switch" {
 
 test "step probability rolls repeatably and lands near the requested rate" {
     var transport: Transport = .{ .sample_rate = 48_000 };
-    var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+    var dm = try testBlankMachine(&transport);
     defer dm.deinit();
     dm.toggleStep(0, 0);
 
@@ -2617,7 +2621,7 @@ test "every factory kit pad renders audible and below clipping" {
     for (drum_kit.variants) |variant| {
         for (variant.pads, 0..) |slot, pad| {
             if (slot.kind == null) continue;
-            var dm = try DrumMachine.init(std.testing.allocator, 48_000, &transport);
+            var dm = try testBlankMachine(&transport);
             defer dm.deinit();
             try dm.loadKitVariant(&variant);
             const dev = dm.device();
