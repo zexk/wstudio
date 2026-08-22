@@ -7560,6 +7560,7 @@ test "A/B loop: ( ) b arm the region and the transport wraps inside it" {
     var app = try testApp();
     defer app.deinit();
     app.view = .arrangement;
+    app.session.setSongMode(true);
 
     // ( at bar 1, ) at bar 2 → loop bars 2–3 (region [1, 3)), armed.
     app.arr_cursor_bar = 4;

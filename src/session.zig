@@ -1013,6 +1013,7 @@ pub const Session = struct {
     /// flags, and silences anything left hanging from the previous mode.
     pub fn setSongMode(self: *Session, on: bool) void {
         self.song_mode = on;
+        self.syncLoop();
         if (on) {
             self.rebuildSongData();
         } else {
@@ -1547,7 +1548,7 @@ pub const Session = struct {
     /// on (tempo, time signature).
     pub fn syncLoop(self: *Session) void {
         _ = self.engine.send(.{ .set_loop = .{
-            .enabled = self.project.loop_enabled and
+            .enabled = self.song_mode and self.project.loop_enabled and
                 self.project.loop_end_bar > self.project.loop_start_bar,
             .start_frames = self.project.frameAtBar(self.project.loop_start_bar),
             .end_frames = self.project.frameAtBar(self.project.loop_end_bar),
@@ -2459,6 +2460,24 @@ test "setMetronome mirrors to the engine" {
 
     s.setMetronome(false);
     try std.testing.expect(!s.metronome_enabled);
+}
+
+test "arrangement loop does not constrain pattern mode" {
+    var s = try Session.initDefault(std.testing.allocator);
+    defer s.deinit();
+    s.project.loop_enabled = true;
+    s.project.loop_start_bar = 1;
+    s.project.loop_end_bar = 2;
+    var block: [128]@import("core/types.zig").Sample = undefined;
+
+    s.setSongMode(true);
+    s.engine.process(&block);
+    try std.testing.expect(s.engine.transport.loop_enabled);
+
+    s.setSongMode(false);
+    s.engine.process(&block);
+    try std.testing.expect(!s.engine.transport.loop_enabled);
+    try std.testing.expect(s.project.loop_enabled);
 }
 
 test "syncMasterChain pushes master_fx's active units to the engine" {
