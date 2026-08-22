@@ -537,28 +537,60 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
     var bands: [2048]waveform.Band = undefined;
     const columns: usize = @intFromFloat(@max(width, 1));
     const count = @min(@min(samples.len, overview.len), columns);
-    waveform.peakBucketsWarped(samples, overview[0..count], start, end, scale);
-    waveform.bandBuckets(samples, bands[0..count], target.sampleRate(), start, end, scale);
+    @memset(overview[0..count], 0);
+    @memset(bands[0..count], .mid);
+    const slicer = slicerForTarget(app, target);
+    if (slicer) |sl| {
+        for (sl.slices[0..sl.slice_count]) |slice| waveform.fixedRegionBuckets(
+            samples,
+            overview[0..count],
+            bands[0..count],
+            sl.sample_rate,
+            slice.start_norm,
+            slice.end_norm,
+            waveform.timeScale(slice.pitch_semitones, slice.stretch_ratio),
+        );
+        updateSliceGlow(app, sl);
+    } else {
+        waveform.peakBucketsWarped(samples, overview[0..count], start, end, scale);
+        waveform.bandBuckets(samples, bands[0..count], target.sampleRate(), start, end, scale);
+    }
     const mid_y = origin[1] + height / 2;
     const start_x = origin[0] + start * width;
     const end_x = origin[0] + end * width;
     const played_end_x = origin[0] + played_end * width;
     for (overview[0..count], 0..) |peak, i| {
         const x = origin[0] + width * @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(count));
-        const in_region = x >= start_x - 0.5 and x <= played_end_x + 0.5;
         const norm = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(count));
-        const fade_gain = @min(
+        var in_region = x >= start_x - 0.5 and x <= played_end_x + 0.5;
+        var fade_gain = @min(
             ws.dsp.pad.curvedRamp(@floatCast(norm - start), fade_in_norm, fade_curve),
             ws.dsp.pad.curvedRamp(@floatCast(played_end - norm), fade_out_norm, fade_curve),
         );
+        var line_color = if (in_region) bandColor(bands[i]) else [4]f32{ theme.fg3[0], theme.fg3[1], theme.fg3[2], 0.55 };
+        if (slicer) |sl| for (sl.slices[0..sl.slice_count], 0..) |slice, slice_index| {
+            if (norm < slice.start_norm or norm >= slice.end_norm) continue;
+            const slice_scale = waveform.timeScale(slice.pitch_semitones, slice.stretch_ratio);
+            const slice_end = @min(slice.end_norm, waveform.playedEndNorm(slice.start_norm, slice.end_norm, slice_scale));
+            const slice_fade_in = std.math.clamp(slice.fade_in_s * sr_f / total_f, 0, slice_end - slice.start_norm);
+            const slice_fade_out = std.math.clamp(slice.fade_out_s * sr_f / total_f, 0, slice_end - slice.start_norm);
+            fade_gain = @min(
+                ws.dsp.pad.curvedRamp(@floatCast(norm - slice.start_norm), slice_fade_in, slice.fade_curve),
+                ws.dsp.pad.curvedRamp(@floatCast(slice_end - norm), slice_fade_out, slice.fade_curve),
+            );
+            in_region = norm < slice_end;
+            line_color = if (in_region) bandColor(bands[i]) else .{ theme.fg3[0], theme.fg3[1], theme.fg3[2], 0.55 };
+            const glow = app.waveform_slice_glow[slice_index];
+            for (0..3) |channel| line_color[channel] += (theme.focus[channel] - line_color[channel]) * glow;
+            break;
+        };
         const h = @max(1, peak * fade_gain * height / 2 * 0.94);
-        const line_color = if (in_region) bandColor(bands[i]) else [4]f32{ theme.fg3[0], theme.fg3[1], theme.fg3[2], 0.55 };
         draw_list.addLine(.{ .p1 = .{ x, mid_y - h }, .p2 = .{ x, mid_y + h }, .col = style.color(line_color), .thickness = 1 });
     }
     draw_list.addLine(.{ .p1 = .{ origin[0], mid_y }, .p2 = .{ origin[0] + width, mid_y }, .col = style.color(theme.line), .thickness = 1 });
 
-    if (start > 0) draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ start_x, origin[1] + height }, .col = style.color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.6 }) });
-    if (played_end < 1) draw_list.addRectFilled(.{ .pmin = .{ played_end_x, origin[1] }, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.6 }) });
+    if (slicer == null and start > 0) draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ start_x, origin[1] + height }, .col = style.color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.6 }) });
+    if (slicer == null and played_end < 1) draw_list.addRectFilled(.{ .pmin = .{ played_end_x, origin[1] }, .pmax = .{ origin[0] + width, origin[1] + height }, .col = style.color(.{ theme.bg0[0], theme.bg0[1], theme.bg0[2], 0.6 }) });
     drawSliceBoundaries(app, target, draw_list, origin, width, height);
 
     const fade_in_x = origin[0] + (start + fade_in_norm) * width;
@@ -613,6 +645,30 @@ fn drawWaveformRegion(app: anytype, target: Target, samples: []const f32) void {
     zgui.textDisabled("region {d:.1}-{d:.1}% of {d} samples", .{ start * 100, end * 100, samples.len });
     zgui.sameLine(.{});
     widgets.hoverHelp("Drag markers to trim; drag fade dots to shape fades");
+}
+
+fn slicerForTarget(app: anytype, target: Target) ?*const ws.dsp.Slicer {
+    const pad_target = switch (target) {
+        .pad => |pad| pad,
+        else => return null,
+    };
+    if (pad_target.kind != .slice or pad_target.track >= app.core.session.racks.items.len) return null;
+    return switch (app.core.session.racks.items[pad_target.track].instrument) {
+        .slicer => |*slicer| slicer,
+        else => null,
+    };
+}
+
+fn updateSliceGlow(app: anytype, slicer: *const ws.dsp.Slicer) void {
+    const now = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
+    const elapsed: f32 = if (app.waveform_glow_last_ns == 0) 0 else @floatCast(@as(f64, @floatFromInt(now - app.waveform_glow_last_ns)) / std.time.ns_per_s);
+    app.waveform_glow_last_ns = now;
+    const dt = std.math.clamp(elapsed, 0, 0.1);
+    for (&app.waveform_slice_glow, 0..) |*glow, index| {
+        const target: f32 = if (index < slicer.slice_count and slicer.slicePlaying(@intCast(index))) 1 else 0;
+        const speed: f32 = if (target > glow.*) 12 else 4;
+        glow.* += (target - glow.*) * @min(1, dt * speed);
+    }
 }
 
 fn drawSliceBoundaries(app: anytype, target: Target, draw_list: zgui.DrawList, origin: [2]f32, width: f32, height: f32) void {

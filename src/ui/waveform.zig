@@ -42,6 +42,65 @@ fn bucketRange(
     return .{ .lo = lo, .hi = hi };
 }
 
+/// Source range for one column of a fixed-width chop. Pitch/stretch changes
+/// what part of the chop occupies its box, never where neighboring chops sit.
+fn fixedRegionBucketRange(
+    x: usize,
+    width: usize,
+    samples_len: usize,
+    start_norm: f32,
+    end_norm: f32,
+    scale: f32,
+) ?struct { lo: usize, hi: usize } {
+    if (width == 0 or samples_len == 0 or end_norm <= start_norm) return null;
+    const width_f: f32 = @floatFromInt(width);
+    const x0 = @as(f32, @floatFromInt(x)) / width_f;
+    const x1 = @as(f32, @floatFromInt(x + 1)) / width_f;
+    if (x1 <= start_norm or x0 >= end_norm) return null;
+    const inv = 1.0 / @max(scale, 1e-6);
+    const lo_n = start_norm + (@max(x0, start_norm) - start_norm) * inv;
+    const hi_n = start_norm + (@min(x1, end_norm) - start_norm) * inv;
+    if (lo_n >= end_norm) return null;
+    const len_f: f32 = @floatFromInt(samples_len);
+    const lo: usize = @min(@as(usize, @intFromFloat(std.math.clamp(lo_n, 0.0, 1.0) * len_f)), samples_len - 1);
+    const hi: usize = @min(@max(@as(usize, @intFromFloat(std.math.clamp(hi_n, 0.0, 1.0) * len_f)), lo + 1), samples_len);
+    return .{ .lo = lo, .hi = hi };
+}
+
+/// Draw one chop inside its unchanged source-time box. Existing contents of
+/// `peaks`/`bands` outside that box stay untouched so callers can compose a
+/// whole slicer overview one chop at a time.
+pub fn fixedRegionBuckets(
+    samples: []const f32,
+    peaks: []f32,
+    bands: []Band,
+    sample_rate: u32,
+    start_norm: f32,
+    end_norm: f32,
+    scale: f32,
+) void {
+    std.debug.assert(peaks.len == bands.len);
+    const sr: f32 = @floatFromInt(@max(sample_rate, 1));
+    for (peaks, bands, 0..) |*peak, *band, x| {
+        const r = fixedRegionBucketRange(x, peaks.len, samples.len, start_norm, end_norm, scale) orelse continue;
+        peak.* = 0;
+        var energy: f32 = 0;
+        var diff: f32 = 0;
+        var prev: f32 = samples[r.lo];
+        for (samples[r.lo..r.hi]) |v| {
+            peak.* = @max(peak.*, @abs(v));
+            energy += v * v;
+            const d = v - prev;
+            diff += d * d;
+            prev = v;
+        }
+        if (energy <= 1e-12) continue;
+        const ratio = @min(@sqrt(diff / energy) * 0.5, 1.0);
+        const hz = sr / std.math.pi * std.math.asin(ratio);
+        band.* = if (hz < low_hz) .low else if (hz < high_hz) .mid else .high;
+    }
+}
+
 /// Fill `out` with one peak (max |sample|) per bucket, splitting `samples`
 /// into `out.len` equal-ish buckets.
 pub fn peakBuckets(samples: []const f32, out: []f32) void {
@@ -265,4 +324,15 @@ test "peakBucketsWarped leaves audio before the region start alone" {
     try std.testing.expectApproxEqAbs(@as(f32, 1), out[7], 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), playedEndNorm(0.5, 1.0, 2.0), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 0.75), playedEndNorm(0.5, 1.0, 0.5), 1e-6);
+}
+
+test "fixed chop buckets preserve neighboring layout under pitch and stretch" {
+    const samples = [_]f32{ 1, 1, 1, 1, 0.5, 0.5, 0.5, 0.5 };
+    var peaks = [_]f32{0} ** 8;
+    var bands = [_]Band{.mid} ** 8;
+    fixedRegionBuckets(&samples, &peaks, &bands, 48_000, 0, 0.5, 0.5);
+    fixedRegionBuckets(&samples, &peaks, &bands, 48_000, 0.5, 1, 2.0);
+    try std.testing.expectEqual(@as(f32, 0), peaks[3]);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), peaks[4], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), peaks[7], 1e-6);
 }
