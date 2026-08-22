@@ -259,46 +259,36 @@ pub fn clampToGrid(cursor: anytype, stride: usize, count: usize) void {
     cursor.* = @intCast(@min(@as(usize, cursor.*), lastGridStep(s, count)) / s * s);
 }
 
+const BarPosition = struct { current: i64, len: i64, top: i64 };
+
+fn barPosition(cursor: anytype, step_count: anytype, bar_len: anytype) ?BarPosition {
+    if (step_count == 0 or bar_len == 0) {
+        cursor.* = 0;
+        return null;
+    }
+    const len: i64 = @intCast(bar_len);
+    return .{ .current = @divFloor(@as(i64, cursor.*), len), .len = len, .top = @as(i64, step_count) - 1 };
+}
+
 /// w/b: jump the step cursor `delta` groups forward/back, snapping to the
 /// nearest group boundary first. Drum and slicer pass their live
 /// `steps_per_beat`; piano and automation pass their own grid-derived width.
 pub fn jumpBar(cursor: anytype, delta: i32, step_count: anytype, bar_len_arg: anytype) void {
-    if (step_count == 0 or bar_len_arg == 0) {
-        cursor.* = 0;
-        return;
-    }
-    const bl: i64 = @intCast(bar_len_arg);
-    const cur_bar = @divFloor(@as(i64, cursor.*), bl);
-    const target = (cur_bar + delta) * bl;
-    const top = @as(i64, step_count) - 1;
-    cursor.* = @intCast(std.math.clamp(target, 0, top));
+    const pos = barPosition(cursor, step_count, bar_len_arg) orelse return;
+    cursor.* = @intCast(std.math.clamp((pos.current + delta) * pos.len, 0, pos.top));
 }
 
 /// dw/yw's range end: the last step of the nth bar forward (inclusive),
 /// not w's own landing step (see piano.zig's identical vim dw nuance).
 pub fn operatorBarForward(cursor: anytype, n: i32, step_count: anytype, bar_len_arg: anytype) void {
-    if (step_count == 0 or bar_len_arg == 0) {
-        cursor.* = 0;
-        return;
-    }
-    const bl: i64 = @intCast(bar_len_arg);
-    const cur_bar = @divFloor(@as(i64, cursor.*), bl);
-    const hi = (cur_bar + n) * bl - 1;
-    const top = @as(i64, step_count) - 1;
-    cursor.* = @intCast(std.math.clamp(hi, 0, top));
+    const pos = barPosition(cursor, step_count, bar_len_arg) orelse return;
+    cursor.* = @intCast(std.math.clamp((pos.current + n) * pos.len - 1, 0, pos.top));
 }
 
 /// db/yb's range start: the first step of the nth bar back.
 pub fn operatorBarBackward(cursor: anytype, n: i32, step_count: anytype, bar_len_arg: anytype) void {
-    if (step_count == 0 or bar_len_arg == 0) {
-        cursor.* = 0;
-        return;
-    }
-    const bl: i64 = @intCast(bar_len_arg);
-    const cur_bar = @divFloor(@as(i64, cursor.*), bl);
-    const lo = (cur_bar - n + 1) * bl;
-    const top = @as(i64, step_count) - 1;
-    cursor.* = @intCast(std.math.clamp(lo, 0, top));
+    const pos = barPosition(cursor, step_count, bar_len_arg) orelse return;
+    cursor.* = @intCast(std.math.clamp((pos.current - n + 1) * pos.len, 0, pos.top));
 }
 
 /// Step index at column `x` within a row, or null if `x` falls in the
