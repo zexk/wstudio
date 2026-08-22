@@ -649,6 +649,15 @@ fn makeLowpass(sr: f64, fc_hz: f32, q: f32) Biquad {
 
 const soundfont_test = @import("soundfont.zig");
 
+fn testPlayer() !SoundfontPlayer {
+    var player = SoundfontPlayer.init(std.testing.allocator, 44_100);
+    errdefer player.deinit();
+    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, false, 44_100);
+    defer std.testing.allocator.free(bytes);
+    try player.loadSf2(bytes);
+    return player;
+}
+
 test "no font loaded: note-on produces silence, no crash" {
     var p = SoundfontPlayer.init(std.testing.allocator, 48_000);
     defer p.deinit();
@@ -661,12 +670,8 @@ test "no font loaded: note-on produces silence, no crash" {
 }
 
 test "loaded soundfont is audible at the mapped note and silent for note-off after release" {
-    var p = SoundfontPlayer.init(std.testing.allocator, 44_100);
+    var p = try testPlayer();
     defer p.deinit();
-
-    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, false, 44_100);
-    defer std.testing.allocator.free(bytes);
-    try p.loadSf2(bytes);
 
     try std.testing.expectEqual(@as(usize, 1), p.presetCount());
     try std.testing.expectEqualStrings("Test Preset", p.presetName());
@@ -698,11 +703,8 @@ test "higher note plays back faster (chromatic transpose from the region's root 
     // 256-frame block already exhausts it at any pitch). Assert the
     // underlying resolved rate directly instead: an octave above the
     // region's root key must read source frames exactly twice as fast.
-    var p = SoundfontPlayer.init(std.testing.allocator, 44_100);
+    var p = try testPlayer();
     defer p.deinit();
-    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, false, 44_100);
-    defer std.testing.allocator.free(bytes);
-    try p.loadSf2(bytes);
 
     p.device().sendEvent(.{ .note_on = .{ .note = 60, .velocity = 1.0 } });
     const root_rate = p.voices[0].playback_rate;
@@ -715,14 +717,13 @@ test "higher note plays back faster (chromatic transpose from the region's root 
 }
 
 test "loadSf2 kills in-flight voices rather than leaving them on stale data" {
-    var p = SoundfontPlayer.init(std.testing.allocator, 44_100);
+    var p = try testPlayer();
     defer p.deinit();
-    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, false, 44_100);
-    defer std.testing.allocator.free(bytes);
-    try p.loadSf2(bytes);
     p.device().sendEvent(.{ .note_on = .{ .note = 60, .velocity = 1.0 } });
     try std.testing.expect(p.voices[0].active);
 
+    const bytes = try std.testing.allocator.dupe(u8, p.source_bytes);
+    defer std.testing.allocator.free(bytes);
     try p.loadSf2(bytes);
     try std.testing.expect(!p.voices[0].active);
     try std.testing.expectEqual(@as(u16, 0), p.preset_index);
@@ -755,11 +756,8 @@ test "exclusive class chokes a still-ringing voice sharing it" {
     // file, so this exercises the choke path against two separately loaded
     // triggers on the SAME region/class instead (still real coverage: the
     // second note-on must silence the first before its own voice spawns).
-    var p = SoundfontPlayer.init(std.testing.allocator, 44_100);
+    var p = try testPlayer();
     defer p.deinit();
-    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, false, 44_100);
-    defer std.testing.allocator.free(bytes);
-    try p.loadSf2(bytes);
 
     p.device().sendEvent(.{ .note_on = .{ .note = 60, .velocity = 1.0 } });
     try std.testing.expect(p.voices[0].active);
@@ -771,11 +769,8 @@ test "exclusive class chokes a still-ringing voice sharing it" {
 }
 
 test "one note-on's layered regions sharing an exclusive class don't choke each other" {
-    var p = SoundfontPlayer.init(std.testing.allocator, 44_100);
+    var p = try testPlayer();
     defer p.deinit();
-    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, false, 44_100);
-    defer std.testing.allocator.free(bytes);
-    try p.loadSf2(bytes);
 
     // The fixture is single-region; widen it to the stereo-pair shape this
     // guard exists for - two regions, one class, both covering the note.
@@ -809,11 +804,8 @@ test "one note-on's layered regions sharing an exclusive class don't choke each 
 }
 
 test "voice stealing takes a released voice before a still-held older one" {
-    var p = SoundfontPlayer.init(std.testing.allocator, 44_100);
+    var p = try testPlayer();
     defer p.deinit();
-    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, false, 44_100);
-    defer std.testing.allocator.free(bytes);
-    try p.loadSf2(bytes);
 
     // Fill every slot: note 40 is the oldest, note 41 the second oldest.
     const base: u7 = 40;
@@ -889,11 +881,8 @@ test "presetKeyRange: null with nothing loaded, spans the fixture's single regio
 }
 
 test "dupe: independent font/source bytes, fresh voice state" {
-    var p = SoundfontPlayer.init(std.testing.allocator, 44_100);
+    var p = try testPlayer();
     defer p.deinit();
-    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, false, 44_100);
-    defer std.testing.allocator.free(bytes);
-    try p.loadSf2(bytes);
     p.device().sendEvent(.{ .note_on = .{ .note = 60, .velocity = 1.0 } });
 
     var copy = try p.dupe();
@@ -918,11 +907,8 @@ fn installRoundRobinPair(player: *SoundfontPlayer) !void {
 }
 
 test "round-robin regions alternate takes across repeated note-ons" {
-    var p = SoundfontPlayer.init(std.testing.allocator, 44_100);
+    var p = try testPlayer();
     defer p.deinit();
-    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, false, 44_100);
-    defer std.testing.allocator.free(bytes);
-    try p.loadSf2(bytes);
 
     // Same widening the layered-region test does, but as a two-member SFZ
     // sequence: both cover the note, and exactly one may fire per note-on.
@@ -977,11 +963,8 @@ test "a steal tail still fades out when the voice that took the slot dies immedi
 }
 
 test "each key rotates its own round-robin, so a chord does not skip takes" {
-    var p = SoundfontPlayer.init(std.testing.allocator, 44_100);
+    var p = try testPlayer();
     defer p.deinit();
-    const bytes = try soundfont_test.buildTestSf2(std.testing.allocator, false, 44_100);
-    defer std.testing.allocator.free(bytes);
-    try p.loadSf2(bytes);
 
     try installRoundRobinPair(&p);
 
