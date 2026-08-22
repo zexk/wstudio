@@ -138,6 +138,15 @@ const MixerDragResult = struct {
     finished: bool,
 };
 
+fn displayZero(value: f32) f32 {
+    return if (@abs(value) < 0.05) 0 else value;
+}
+
+test "mixer values displayed to one decimal never show negative zero" {
+    try std.testing.expectEqual(@as(f32, 0), displayZero(-0.049));
+    try std.testing.expectEqual(@as(f32, -0.1), displayZero(-0.1));
+}
+
 /// One mixer control inside a row's info block. A drag rather than a
 /// slider: dragging is what a mixer strip does, and it comes with ImGui's
 /// own shift (coarse, 10x) and alt (fine, 1/100) modifiers, which a
@@ -146,7 +155,7 @@ const MixerDragResult = struct {
 /// precisely so right-click is free for the reset, which is the gesture
 /// people actually reach for on a fader.
 fn mixerDrag(args: MixerDrag) MixerDragResult {
-    var value = args.value;
+    var value = displayZero(args.value);
     zgui.setCursorScreenPos(.{ args.x, args.y });
     zgui.setNextItemWidth(args.w);
     var changed = zgui.dragFloat(args.id, .{
@@ -171,6 +180,7 @@ fn mixerDrag(args: MixerDrag) MixerDragResult {
         value = args.default;
         changed = true;
     }
+    value = displayZero(value);
     const t = std.math.clamp((value - args.min) / (args.max - args.min), 0, 1);
     const anchor: f32 = if (args.centered_fill) std.math.clamp((args.default - args.min) / (args.max - args.min), 0, 1) else 0;
     const item_min = zgui.getItemRectMin();
