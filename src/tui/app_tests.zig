@@ -1118,10 +1118,14 @@ test "slicer grid: advancing entry, pattern double, and source-order sequence" {
     try std.testing.expectEqual(@as(u16, 4), app.slicer_cursor[1]);
 
     app.slicerInst().setStepVel(2, 1, 63);
+    app.slicerInst().setStepProb(2, 1, 25);
+    app.slicerInst().setStepTune(2, 1, -7);
     _ = slicer_ed.handleKey(&app, .{ .char = 'E' });
     try std.testing.expectEqual(@as(u8, 16), app.slicerInst().step_count);
     try std.testing.expect(app.slicerInst().stepActive(2, 9));
     try std.testing.expectEqual(@as(u8, 63), app.slicerInst().stepVel(2, 9));
+    try std.testing.expectEqual(@as(u8, 25), app.slicerInst().stepProb(2, 9));
+    try std.testing.expectEqual(@as(i8, -7), app.slicerInst().stepTune(2, 9));
 
     _ = slicer_ed.handleKey(&app, .{ .char = 'O' });
     for (0..4) |idx| try std.testing.expect(app.slicerInst().stepActive(@intCast(idx), @intCast(idx)));
@@ -1424,7 +1428,7 @@ test "drum grid enter release drops the stamp session (hold-to-shape)" {
     try std.testing.expect(app.drumMachine().stepActive(0, 0));
 }
 
-test "drum grid advancing entry and pattern double preserve velocity" {
+test "drum grid advancing entry and pattern double preserve MIDI notes" {
     var app = try testApp();
     defer app.deinit();
     app.drum_track = 2;
@@ -1441,10 +1445,14 @@ test "drum grid advancing entry and pattern double preserve velocity" {
     try std.testing.expectEqual(@as(u16, 4), app.drum_cursor[1]);
 
     app.drumMachine().setStepVel(1, 0, 95);
+    app.drumMachine().setStepMicro(1, 0, -25);
+    app.drumMachine().setStepRetrig(1, 0, 4);
     _ = drum_ed.handleKey(&app, .{ .char = 'E' });
     try std.testing.expectEqual(@as(u8, 16), app.drumMachine().step_count);
     try std.testing.expect(app.drumMachine().stepActive(1, 8));
     try std.testing.expectEqual(@as(u8, 95), app.drumMachine().stepVel(1, 8));
+    try std.testing.expectEqual(@as(i8, -25), app.drumMachine().stepMicro(1, 8));
+    try std.testing.expectEqual(@as(u8, 4), app.drumMachine().stepRetrig(1, 8));
 
     _ = drum_ed.handleKey(&app, .{ .char = 'u' });
     try std.testing.expectEqual(@as(u8, 8), app.drumMachine().step_count);
@@ -3248,6 +3256,8 @@ test "drum grid visual mode yank/paste carries a range wider than the old 64-ste
     dm.toggleStep(0, 0);
     dm.toggleStep(0, 90); // past the old 64-bit clipboard's reach
     dm.setStepVel(0, 90, 50);
+    dm.setStepProb(0, 90, 25);
+    dm.setStepTune(0, 90, -7);
 
     // Select steps 0-99 (100 wide) and yank.
     app.drum_cursor = .{ 0, 0 };
@@ -3263,6 +3273,10 @@ test "drum grid visual mode yank/paste carries a range wider than the old 64-ste
     try std.testing.expect(dm.stepActive(0, 50));
     try std.testing.expect(dm.stepActive(0, 140));
     try std.testing.expectEqual(@as(u8, 50), dm.stepVel(0, 140));
+    try std.testing.expectEqual(@as(u8, 25), dm.stepProb(0, 140));
+    try std.testing.expectEqual(@as(i8, -7), dm.stepTune(0, 140));
+    try std.testing.expectEqual(@as(u7, 0), dm.midi[0][140].?.pitch);
+    try std.testing.expectEqual(@as(u16, 140), dm.midi[0][140].?.step);
 }
 
 test "drum grid visual mode: w/b extend the selection by beat, matching normal-mode jumpBar" {

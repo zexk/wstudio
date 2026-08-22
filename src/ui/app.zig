@@ -292,12 +292,11 @@ pub const PianoClip = struct {
 
 /// A visual-mode range yank from a step grid - the drum machine's pads or
 /// the slicer's slices, which are the same 64-row grid over the same note
-/// storage: one step-range's worth of active/velocity bits across every row,
-/// rebased so the selection's first step becomes bit 0. Paste places it
-/// starting at the cursor step. Heap-owned and sized to the yanked range's
-/// actual width (word `i / 64`, bit `i % 64` of `active[row]` is step
-/// `lo + i`) - neither machine's step storage has a 64-step ceiling any more,
-/// so the clipboard doesn't clamp range width either (see
+/// storage: one step-range's worth of MIDI notes across every row, rebased so
+/// the selection's first step becomes 0. Paste places it starting at the
+/// cursor step. Heap-owned and sized to the yanked range's actual width;
+/// neither machine's step storage has a 64-step ceiling any more, so the
+/// clipboard doesn't clamp range width either (see
 /// step_grid.yankRangeDyn/pasteRangeDyn).
 pub const StepRangeClip = struct {
     width: u16,
@@ -306,15 +305,11 @@ pub const StepRangeClip = struct {
     /// spans every row. Only this band is allocated, and only it is freed.
     row_lo: u8 = 0,
     row_hi: u8 = DrumMachine.max_pads - 1,
-    active: [DrumMachine.max_pads][]u64,
-    /// Per-step velocity within the yanked range (index = step - range
-    /// start), one heap-owned `width`-long slice per row.
-    vel: [DrumMachine.max_pads][]u8,
+    notes: [DrumMachine.max_pads][]?DrumMachine.MidiNote,
 
     pub fn deinit(self: *const StepRangeClip, allocator: std.mem.Allocator) void {
         for (self.row_lo..@as(usize, self.row_hi) + 1) |row| {
-            allocator.free(self.active[row]);
-            allocator.free(self.vel[row]);
+            allocator.free(self.notes[row]);
         }
     }
 };

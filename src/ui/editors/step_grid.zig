@@ -374,7 +374,7 @@ pub fn setStep(inst: anytype, row: u8, step: anytype, active: bool, vel: u8) voi
     if (active) inst.setStepVel(row, step, vel);
 }
 
-/// Double a loop and copy its first half, preserving every hit's velocity.
+/// Double a loop and copy its first half, preserving every MIDI-note field.
 /// Returns false when the loop is already too long to double without
 /// exceeding the instrument's own step ceiling (`max_steps` - each call
 /// site passes its own instrument's constant, since Slicer's and the drum
@@ -386,8 +386,9 @@ pub fn doublePattern(inst: anytype, max_rows: usize, max_steps: anytype) bool {
     for (0..max_rows) |row| {
         var step: @TypeOf(old_count) = 0;
         while (step < old_count) : (step += 1) {
-            const active = inst.stepActive(@intCast(row), step);
-            setStep(inst, @intCast(row), old_count + step, active, inst.stepVel(@intCast(row), step));
+            const target = old_count + step;
+            inst.midi[row][target] = inst.midi[row][step];
+            if (inst.midi[row][target]) |*note| note.step = target;
         }
     }
     return true;
@@ -402,43 +403,32 @@ pub fn clearRange(inst: anytype, rows: RowRange, r: anytype) void {
 }
 
 /// Yank the `rows` band's steps within `r` into a heap-allocated `Clip`
-/// whose `active`/`vel` fields are per-row slices sized to the range's actual
-/// width (word `i / 64`, bit `i % 64` of `active[row]` is step `r.lo + i`) -
-/// see `StepRangeClip`. Rows are stored at their absolute index; the band is
+/// whose `notes` fields are per-row slices sized to the range's actual width.
+/// See `StepRangeClip`. Rows are stored at their absolute index; the band is
 /// recorded as `row_lo`/`row_hi` so paste knows how tall the block is and
 /// whether it was linewise (see `pasteBaseRow`). `r` may be any width; the
 /// caller owns the result and must free it with `Clip.deinit`.
 pub fn yankRangeDyn(comptime Clip: type, allocator: std.mem.Allocator, inst: anytype, rows: RowRange, r: anytype) !Clip {
     const width: u32 = @as(u32, r.hi) - @as(u32, r.lo) + 1;
-    const words = (width + 63) / 64;
     var clip: Clip = .{
         .width = @intCast(width),
         .row_lo = @intCast(rows.lo),
         .row_hi = @intCast(rows.hi),
-        .active = undefined,
-        .vel = undefined,
+        .notes = undefined,
     };
     // Only the selected band is allocated, so deinit must free exactly that
     // band - hence `row_lo`/`row_hi` living on the clip rather than being
     // recomputed. `row` walks absolute row indices, same as the caller's.
     var row: usize = rows.lo;
     errdefer for (rows.lo..row) |i| {
-        allocator.free(clip.active[i]);
-        allocator.free(clip.vel[i]);
+        allocator.free(clip.notes[i]);
     };
     while (row <= rows.hi) : (row += 1) {
-        clip.active[row] = try allocator.alloc(u64, words);
-        @memset(clip.active[row], 0);
-        clip.vel[row] = allocator.alloc(u8, width) catch |err| {
-            allocator.free(clip.active[row]);
-            return err;
-        };
+        clip.notes[row] = try allocator.alloc(?@TypeOf(inst.*).MidiNote, width);
         var s = r.lo;
         while (s <= r.hi) : (s += 1) {
             const offset: u32 = @as(u32, s) - @as(u32, r.lo);
-            clip.vel[row][offset] = inst.stepVel(@intCast(row), s);
-            if (!inst.stepActive(@intCast(row), s)) continue;
-            clip.active[row][offset / 64] |= @as(u64, 1) << @intCast(offset % 64);
+            clip.notes[row][offset] = inst.midi[row][s];
         }
     }
     return clip;
@@ -456,9 +446,11 @@ pub fn pasteRangeDyn(inst: anytype, max_rows: usize, clip: anytype, base: anytyp
         for (clip.row_lo..@as(usize, clip.row_hi) + 1) |row| {
             const dest = base_row + (row - clip.row_lo);
             if (dest >= max_rows) break;
-            const bit = @as(u64, 1) << @intCast(idx % 64);
-            const active = clip.active[row][idx / 64] & bit != 0;
-            setStep(inst, @intCast(dest), target, active, clip.vel[row][idx]);
+            inst.midi[dest][target] = clip.notes[row][idx];
+            if (inst.midi[dest][target]) |*note| {
+                note.pitch = @intCast(dest);
+                note.step = target;
+            }
         }
     }
     return i;
