@@ -3408,6 +3408,7 @@ pub const App = struct {
         if (acoustic_ok) self.setStatus("{s} inserted  {s}", .{ item.label, hint });
         self.view = .tracks;
         self.openTrack(self.cursor);
+        if (kind == .drum_machine) preset_ed.open(self, .drum, @intCast(self.cursor));
     }
 
     pub fn clickInstrumentPickerItem(self: *App, ordinal: usize, now_ns: i96) void {

@@ -232,6 +232,22 @@ test "picker inserts the highlighted instrument and opens its editor" {
     try std.testing.expectEqual(AppView.sampler_editor, app.view);
 }
 
+test "picker opens drum kits after inserting a drum machine" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+
+    app.handleKey(.enter, 0);
+    for (0..3) |_| app.handleKey(.{ .char = 'j' }, 0);
+    app.handleKey(.enter, 0);
+
+    try std.testing.expectEqual(InstrumentKind.drum_machine, std.meta.activeTag(app.session.racks.items[0].instrument));
+    try std.testing.expectEqual(AppView.preset_picker, app.view);
+    try std.testing.expectEqual(preset_ed.Kind.drum, app.preset_picker_kind);
+
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.sampler_editor, app.view);
+}
+
 test "instrument picker / narrows instruments and enter inserts match" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
