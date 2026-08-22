@@ -179,6 +179,15 @@ pub const HatParams = struct {
     body_hz: f32 = 6500.0,
     air_hz: f32 = 9000.0,
     air_mix: f32 = 0.3,
+    /// Scale the oscillator bank so different cymbals do not share one set
+    /// of modes. Hardware-specific banks keep 1.0.
+    metal_scale: f32 = 1.0,
+    /// Fade bright noise in after the strike, approximating a crash cymbal's
+    /// nonlinear transfer of energy into dense high modes. 0 is immediate.
+    air_bloom_hz: f32 = 0.0,
+    /// Random bead impacts per second. 0 leaves a continuous metal wash;
+    /// positive values remove the oscillator bank and gate noise into hits.
+    collision_hz: f32 = 0.0,
     /// Which cluster of squares the metal is built from - see `MetalSet`.
     partials: MetalSet = .generic,
     /// Stick-hit layer, on top of the wash. A closed hat is already all
@@ -222,6 +231,7 @@ fn metalHat(allocator: std.mem.Allocator, sr: u32, p: HatParams) std.mem.Allocat
     var air_hp: OnePole = .{};
     var hit_hp: OnePole = .{};
     var tooth_phase: f32 = 0.0;
+    var collision_env: f32 = 0.0;
     const body_a = cutoffAlpha(p.body_hz, srf);
     const air_a = cutoffAlpha(p.air_hz, srf);
     const hit_a = cutoffAlpha(1500.0, srf);
@@ -230,13 +240,18 @@ fn metalHat(allocator: std.mem.Allocator, sr: u32, p: HatParams) std.mem.Allocat
         var cluster: f32 = 0;
         inline for (0..6) |k| {
             cluster += square(ph[k]);
-            ph[k] += freqs[k] / srf;
+            ph[k] += freqs[k] * p.metal_scale / srf;
             if (ph[k] >= 1.0) ph[k] -= 1.0;
         }
         cluster /= 6.0;
         const n = rand.float(f32) * 2.0 - 1.0;
-        const metal = body_hp.hp(cluster, body_a);
-        const air = air_hp.hp(n, air_a) * p.air_mix;
+        const metal = if (p.collision_hz > 0.0) 0.0 else body_hp.hp(cluster, body_a);
+        if (p.collision_hz > 0.0) {
+            collision_env *= std.math.exp(-1800.0 / srf);
+            if (rand.float(f32) < p.collision_hz / srf) collision_env = 0.35 + rand.float(f32) * 0.65;
+        } else collision_env = 1.0;
+        const bloom = if (p.air_bloom_hz > 0.0) 1.0 - expEnv(t, p.air_bloom_hz) else 1.0;
+        const air = air_hp.hp(n, air_a) * p.air_mix * collision_env * bloom;
         // Stick hit: the 1.5 kHz-and-up mid band that `body_hz` throws away,
         // gated to a few ms. A slow crash decay without it opens at full wash
         // level, so there is no strike to hear and the hit reads as soft.
@@ -597,7 +612,7 @@ const alt_hat: Tune = .{ .pitch = 5.0, .end = 0.55, .filter = 0.25 };
 /// own longer, slower-decaying "wash" length (see `crashDefault` and its
 /// per-flavour siblings) rather than time-stretched at runtime - WSOLA has
 /// nothing to lock onto in this much broadband noise and splices audibly.
-const alt_crash: Tune = .{ .pitch = -5.0, .filter = -0.08 };
+const alt_crash: Tune = .{ .pitch = -2.0, .filter = 0.12 };
 const alt_stick: Tune = .{ .pitch = 7.0, .end = 0.35, .filter = 0.3 };
 
 /// One pad slot in a runtime kit variant: display name, generator, default
@@ -728,7 +743,7 @@ pub const variants = [_]KitVariant{
             // for the better part of half a second, a crash for over a second.
             // These were cut at 0.42 and 0.92.
             .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.7, .decay = 5.5 } }, .gain = 0.50 },
-            .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 1.7, .decay = 2.5, .attack_mix = 0.5 } }, .gain = 0.54, .tune = alt_crash },
+            .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 1.7, .decay = 2.5, .metal_scale = 0.83, .air_bloom_hz = 18.0, .attack_mix = 0.7 } }, .gain = 0.54, .tune = alt_crash },
             .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{} }, .gain = 0.70 },
             .{ .name = "rim", .kind = .rim, .params = .{ .rim = .{} }, .gain = 0.65 },
             .{ .name = "stick", .kind = .rim, .params = .{ .rim = .{} }, .gain = 0.55, .tune = alt_stick },
@@ -793,7 +808,7 @@ pub const variants = [_]KitVariant{
             .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .partials = .tr808, .dur_s = 0.06, .decay = 90.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.45 },
             .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .partials = .tr808, .dur_s = 0.06, .decay = 90.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.40, .tune = alt_hat },
             .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .partials = .tr808, .dur_s = 0.35, .decay = 10.0, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2 } }, .gain = 0.45 },
-            .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .partials = .tr808, .dur_s = 0.77, .decay = 4.5, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.2, .attack_mix = 0.5 } }, .gain = 0.50, .tune = alt_crash },
+            .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .partials = .tr808, .dur_s = 0.77, .decay = 4.5, .body_hz = 7000.0, .air_hz = 9500.0, .air_mix = 0.35, .air_bloom_hz = 24.0, .attack_mix = 0.7 } }, .gain = 0.50, .tune = alt_crash },
             .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
                 .lp_hz = 2500.0,
                 .hp_hz = 1000.0,
@@ -911,7 +926,7 @@ pub const variants = [_]KitVariant{
             // 0.66 and 1.2. The ride also had no stick in it - attack_mix 0 is a
             // wash with nothing struck, when the ping is the whole point of
             // riding on one.
-            .{ .kind = .hat, .name = "crash", .params = .{ .hat = .{ .dur_s = 2.2, .decay = 2.1, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.4, .attack_mix = 0.5 } }, .gain = 0.62, .tune = alt_crash },
+            .{ .kind = .hat, .name = "crash", .params = .{ .hat = .{ .dur_s = 2.2, .decay = 2.1, .body_hz = 6000.0, .air_hz = 10_000.0, .air_mix = 0.55, .metal_scale = 1.13, .air_bloom_hz = 12.0, .attack_mix = 0.75 } }, .gain = 0.62, .tune = alt_crash },
             .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
                 .lp_hz = 3500.0,
                 .hp_hz = 1300.0,
@@ -1014,7 +1029,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.12, .decay = 45.0, .body_hz = 5500.0, .air_hz = 8500.0, .air_mix = 0.5 } }, .gain = 0.50 },
         .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.12, .decay = 45.0, .body_hz = 5500.0, .air_hz = 8500.0, .air_mix = 0.5 } }, .gain = 0.45, .tune = alt_hat },
         .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.6, .decay = 5.0, .body_hz = 5500.0, .air_hz = 8500.0, .air_mix = 0.5 } }, .gain = 0.50 },
-        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 1.32, .decay = 2.3, .body_hz = 5500.0, .air_hz = 8500.0, .air_mix = 0.5, .attack_mix = 0.5 } }, .gain = 0.58, .tune = alt_crash },
+        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 1.32, .decay = 2.3, .body_hz = 5500.0, .air_hz = 8500.0, .air_mix = 0.6, .metal_scale = 0.72, .air_bloom_hz = 22.0, .attack_mix = 0.7 } }, .gain = 0.58, .tune = alt_crash },
         .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
             .lp_hz = 2800.0,
             .hp_hz = 900.0,
@@ -1117,7 +1132,7 @@ pub const variants = [_]KitVariant{
             .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.045, .decay = 140.0, .body_hz = 6600.0, .air_hz = 8800.0, .air_mix = 0.15 } }, .gain = 0.45 },
             .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.05, .decay = 120.0, .body_hz = 7600.0, .air_hz = 10_800.0, .air_mix = 0.2 } }, .gain = 0.40 },
             .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.28, .decay = 12.0, .body_hz = 6600.0, .air_hz = 8800.0, .air_mix = 0.15 } }, .gain = 0.45 },
-            .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.62, .decay = 5.5, .body_hz = 6600.0, .air_hz = 8800.0, .air_mix = 0.15, .attack_mix = 0.5 } }, .gain = 0.50, .tune = alt_crash },
+            .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.62, .decay = 5.5, .body_hz = 6600.0, .air_hz = 8800.0, .air_mix = 0.35, .metal_scale = 0.92, .air_bloom_hz = 28.0, .attack_mix = 0.8 } }, .gain = 0.50, .tune = alt_crash },
             .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
                 .lp_hz = 2600.0,
                 .hp_hz = 1000.0,
@@ -1168,7 +1183,7 @@ pub const variants = [_]KitVariant{
             } }, .gain = 0.80 },
             .{ .name = "perc-hi", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 460.0, .tone2_hz = 640.0, .drive = 1.4, .dur_s = 0.14, .seed = 0x743 } }, .gain = 0.72 },
             .{ .name = "perc-lo", .kind = .perc, .params = .{ .perc = .{ .tone1_hz = 280.0, .tone2_hz = 390.0, .drive = 1.4, .dur_s = 0.14, .seed = 0x744 } }, .gain = 0.72 },
-            .{ .name = "vinyl", .kind = .clap, .params = .{ .clap = .{ .lp_hz = 1800.0, .hp_hz = 250.0, .burst_decay = 70.0, .tail_decay = 5.0, .tail_mix = 0.8, .dur_s = 0.5 } }, .gain = 0.48 },
+            .{ .name = "zap", .kind = .tom, .params = .{ .tom = .{ .freq_start = 700.0, .freq_end = 60.0, .dur_s = 0.8, .body_decay = 3.5, .attack_decay = 180.0, .drive = 2.2, .attack_mix = 0.04, .seed = 0x745 } }, .gain = 0.70 },
         },
     },
     // The one kit built around a kick that outlives the bar: 42 Hz, 1.1 s,
@@ -1227,7 +1242,7 @@ pub const variants = [_]KitVariant{
             .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.028, .decay = 190.0, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.3 } }, .gain = 0.48 },
             .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.022, .decay = 240.0, .body_hz = 9000.0, .air_hz = 12_000.0, .air_mix = 0.25 } }, .gain = 0.42 },
             .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.3, .decay = 12.0, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.3 } }, .gain = 0.48 },
-            .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.8, .decay = 4.2, .body_hz = 8000.0, .air_hz = 11_000.0, .air_mix = 0.3, .attack_mix = 0.5 } }, .gain = 0.52, .tune = alt_crash },
+            .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.8, .decay = 4.2, .body_hz = 8000.0, .air_hz = 11_000.0, .air_mix = 0.45, .metal_scale = 1.28, .air_bloom_hz = 32.0, .attack_mix = 0.75 } }, .gain = 0.52, .tune = alt_crash },
             .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
                 .lp_hz = 4000.0,
                 .hp_hz = 1400.0,
@@ -1335,7 +1350,7 @@ pub const variants = [_]KitVariant{
             .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.05, .decay = 120.0, .body_hz = 6800.0, .air_hz = 9500.0, .air_mix = 0.3 } }, .gain = 0.48 },
             .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.04, .decay = 150.0, .body_hz = 7400.0, .air_hz = 10_200.0, .air_mix = 0.25 } }, .gain = 0.42 },
             .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.34, .decay = 9.5, .body_hz = 6800.0, .air_hz = 9500.0, .air_mix = 0.3 } }, .gain = 0.48 },
-            .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.7, .decay = 4.6, .body_hz = 6400.0, .air_hz = 9000.0, .air_mix = 0.35, .attack_mix = 0.5 } }, .gain = 0.56, .tune = alt_crash },
+            .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.7, .decay = 4.6, .body_hz = 6400.0, .air_hz = 9000.0, .air_mix = 0.5, .metal_scale = 1.05, .air_bloom_hz = 25.0, .attack_mix = 0.75 } }, .gain = 0.56, .tune = alt_crash },
             .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
                 .lp_hz = 3400.0,
                 .hp_hz = 1100.0,
@@ -1445,7 +1460,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.055, .decay = 100.0, .body_hz = 6800.0, .air_hz = 9500.0, .air_mix = 0.35 } }, .gain = 0.50 },
         .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.04, .decay = 140.0, .body_hz = 8000.0, .air_hz = 11_000.0, .air_mix = 0.45 } }, .gain = 0.45 },
         .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.32, .decay = 10.0, .body_hz = 6800.0, .air_hz = 9500.0, .air_mix = 0.35 } }, .gain = 0.50 },
-        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.70, .decay = 4.5, .body_hz = 6800.0, .air_hz = 9500.0, .air_mix = 0.35, .attack_mix = 0.5 } }, .gain = 0.56, .tune = alt_crash },
+        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.70, .decay = 4.5, .body_hz = 6800.0, .air_hz = 9500.0, .air_mix = 0.5, .metal_scale = 0.78, .air_bloom_hz = 30.0, .attack_mix = 0.75 } }, .gain = 0.56, .tune = alt_crash },
         .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
             .lp_hz = 3200.0,
             .hp_hz = 1200.0,
@@ -1717,7 +1732,7 @@ pub const variants = [_]KitVariant{
             .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.07, .decay = 80.0, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 } }, .gain = 0.40 },
             .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.07, .decay = 80.0, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 } }, .gain = 0.35, .tune = alt_hat },
             .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.5, .decay = 6.0, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15 } }, .gain = 0.40 },
-            .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 1.1, .decay = 2.7, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.15, .attack_mix = 0.5 } }, .gain = 0.45, .tune = alt_crash },
+            .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 1.1, .decay = 2.7, .body_hz = 4800.0, .air_hz = 7000.0, .air_mix = 0.35, .metal_scale = 0.64, .air_bloom_hz = 15.0, .attack_mix = 0.7 } }, .gain = 0.45, .tune = alt_crash },
             .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
                 .lp_hz = 2200.0,
                 .hp_hz = 800.0,
@@ -1817,7 +1832,7 @@ pub const variants = [_]KitVariant{
         .{ .name = "hihat", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.032, .decay = 170.0, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4 } }, .gain = 0.45 },
         .{ .name = "hat-2", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.032, .decay = 170.0, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4 } }, .gain = 0.40, .tune = alt_hat },
         .{ .name = "open", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.13, .decay = 32.0, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4 } }, .gain = 0.45 },
-        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.44, .decay = 7.3, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.4, .attack_mix = 0.5 } }, .gain = 0.50, .tune = alt_crash },
+        .{ .name = "crash", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.44, .decay = 7.3, .body_hz = 8200.0, .air_hz = 11_500.0, .air_mix = 0.55, .metal_scale = 1.42, .air_bloom_hz = 40.0, .attack_mix = 0.8 } }, .gain = 0.50, .tune = alt_crash },
         .{ .name = "clap", .kind = .clap, .params = .{ .clap = .{
             .lp_hz = 3600.0,
             .hp_hz = 1500.0,
@@ -1936,11 +1951,9 @@ pub const variants = [_]KitVariant{
             // partial is exactly what sustains.
             .{ .name = "chacha", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 587.0, .tone2_hz = 845.0, .tone_decay = 16.0, .click_decay = 90.0, .drive = 1.6, .dur_s = 0.32 } }, .gain = 0.66 },
             .{ .name = "campana", .kind = .rim, .params = .{ .rim = .{ .tone1_hz = 440.0, .tone2_hz = 632.0, .tone_decay = 10.0, .click_decay = 60.0, .drive = 2.0, .dur_s = 0.45 } }, .gain = 0.68 },
-            // Shakers are the hat generator with its metal cluster filtered
-            // out of the way (body_hz well above the partials), leaving the
-            // air path as the whole sound - which is what a shaker is.
-            .{ .name = "maracas", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.06, .decay = 95.0, .body_hz = 12_000.0, .air_hz = 4500.0, .air_mix = 1.0 } }, .gain = 0.56 },
-            .{ .name = "chekere", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.13, .decay = 42.0, .body_hz = 5000.0, .air_hz = 3200.0, .air_mix = 0.8 } }, .gain = 0.56 },
+            // Sparse random bead impacts, not a continuous cymbal wash.
+            .{ .name = "maracas", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.11, .decay = 28.0, .air_hz = 4200.0, .air_mix = 1.0, .collision_hz = 900.0 } }, .gain = 0.56 },
+            .{ .name = "chekere", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.24, .decay = 16.0, .air_hz = 2600.0, .air_mix = 1.0, .collision_hz = 260.0 } }, .gain = 0.58 },
             // Tambourine keeps some cluster: the jingles are the metal part.
             .{ .name = "guiro", .kind = .hat, .params = .{ .hat = .{ .dur_s = 0.3, .decay = 3.5, .body_hz = 9000.0, .air_hz = 2600.0, .air_mix = 1.0, .ratchet_hz = 85.0 } }, .gain = 0.54 },
             // A surdo is a 16-20 inch drum carried on a strap and struck with
@@ -2111,7 +2124,7 @@ test "the percussion kit's partials are the ones its instruments have" {
     try std.testing.expectEqual(@as(usize, 2), bars); // clave, woodblock
 }
 
-test "the guiro is a train of clicks and the shaken gourds are not" {
+test "the guiro uses regular teeth and shaken gourds use random collisions" {
     // What separates a scrape from a shake: the pua crosses one ridge at a
     // time, so the sound is separate strikes at the rate of the ridges, while
     // maracas and a chekere are a single burst of beads. Without the ratchet
@@ -2144,8 +2157,19 @@ test "the guiro is a train of clicks and the shaken gourds are not" {
         if (!scraped and !shaken) continue;
         const buf = try genSlot(kind, slot.params, std.testing.allocator, 48_000);
         defer std.testing.allocator.free(buf);
-        const n = bursts.count(buf);
-        if (scraped) try std.testing.expect(n > 15) else try std.testing.expect(n <= 2);
+        if (scraped) {
+            try std.testing.expect(slot.params.hat.ratchet_hz > 0.0);
+            try std.testing.expectEqual(@as(f32, 0.0), slot.params.hat.collision_hz);
+            try std.testing.expect(bursts.count(buf) > 15);
+        } else {
+            try std.testing.expectEqual(@as(f32, 0.0), slot.params.hat.ratchet_hz);
+            try std.testing.expect(slot.params.hat.collision_hz > 0.0);
+            var continuous = slot.params;
+            continuous.hat.collision_hz = 0.0;
+            const flat = try genSlot(kind, continuous, std.testing.allocator, 48_000);
+            defer std.testing.allocator.free(flat);
+            try std.testing.expect(!std.mem.eql(f32, buf, flat));
+        }
     }
 }
 
@@ -2162,7 +2186,7 @@ test "no pad is cut off while it is still sounding" {
             // the gourd, and the screech and the dive are effects that end
             // where they are cut off rather than decaying.
             if (std.mem.eql(u8, slot.name, "guiro") or std.mem.eql(u8, slot.name, "screech") or
-                std.mem.eql(u8, slot.name, "dive")) continue;
+                std.mem.eql(u8, slot.name, "dive") or std.mem.eql(u8, slot.name, "zap")) continue;
             const buf = try genSlot(kind, slot.params, std.testing.allocator, 48_000);
             defer std.testing.allocator.free(buf);
             const fade = 240;
