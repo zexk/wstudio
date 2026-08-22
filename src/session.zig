@@ -1814,6 +1814,10 @@ pub const Session = struct {
     }
 };
 
+fn testSession() !Session {
+    return Session.initDefault(std.testing.allocator);
+}
+
 test "loop frame conversion saturates at the transport limit" {
     try std.testing.expectEqual(@as(u64, 48_000), loopFrame(2, 24_000));
     try std.testing.expectEqual(std.math.maxInt(u64), loopFrame(std.math.maxInt(u32), std.math.maxInt(u64)));
@@ -1826,7 +1830,7 @@ test "clip stamp timeline math saturates" {
 }
 
 test "initDefault builds one blank track" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try std.testing.expectEqual(@as(usize, 1), s.project.tracks.items.len);
     try std.testing.expectEqual(@as(usize, 1), s.racks.items.len);
@@ -1834,7 +1838,7 @@ test "initDefault builds one blank track" {
 }
 
 test "engine chains are live after initDefault" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     _ = s.engine.send(.play);
     var block: [128]@import("core/types.zig").Sample = undefined;
@@ -1842,7 +1846,7 @@ test "engine chains are live after initDefault" {
 }
 
 test "addTrack appends a blank track at the end" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     const idx = try s.addTrack("strings");
     try std.testing.expectEqual(@as(u16, 1), idx);
@@ -1852,7 +1856,7 @@ test "addTrack appends a blank track at the end" {
 }
 
 test "setInstrument swaps instrument and wires pattern player" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
 
     try s.setInstrument(0, .poly_synth);
@@ -1878,7 +1882,7 @@ test "setInstrument swaps instrument and wires pattern player" {
 }
 
 test "slicer instrument: slices into the engine chain and triggers audibly" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .slicer);
 
@@ -1899,7 +1903,7 @@ test "slicer instrument: slices into the engine chain and triggers audibly" {
 }
 
 test "setInstrument retires the old rack instead of freeing it" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
 
     const old_rack = s.racks.items[0];
@@ -1910,7 +1914,7 @@ test "setInstrument retires the old rack instead of freeing it" {
 }
 
 test "setInstrument keeps the new device in the current song mode" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .poly_synth);
     s.setSongMode(true);
@@ -1923,7 +1927,7 @@ test "setInstrument keeps the new device in the current song mode" {
 }
 
 test "changeInstrumentKind copies the live pattern between melodic kinds" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .poly_synth);
     const pp = &s.racks.items[0].pattern_player.?;
@@ -1945,7 +1949,7 @@ test "changeInstrumentKind copies the live pattern between melodic kinds" {
 }
 
 test "changeInstrumentKind flattens a drum machine's pads into one melodic pattern, live and per-clip" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .drum_machine);
     const dm = &s.racks.items[0].instrument.drum_machine;
@@ -1972,7 +1976,7 @@ test "changeInstrumentKind flattens a drum machine's pads into one melodic patte
 }
 
 test "changeInstrumentKind clears notes when there's no compatible mapping" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .poly_synth);
     s.racks.items[0].pattern_player.?.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
@@ -1985,7 +1989,7 @@ test "changeInstrumentKind clears notes when there's no compatible mapping" {
 }
 
 test "changeInstrumentKind is a no-op when the kind already matches" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .poly_synth);
     const rack_before = s.racks.items[0];
@@ -1998,7 +2002,7 @@ test "changeInstrumentKind is a no-op when the kind already matches" {
 }
 
 test "deleteTrack removes project+rack and retires it" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     _ = try s.addTrack("two");
     try s.deleteTrack(0);
@@ -2043,7 +2047,7 @@ fn sendLaneTrack(s: *Session) ?u16 {
 }
 
 test "deleting an earlier track shifts every reference to a later one" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     _ = try s.addTrack("two");
     _ = try s.addTrack("three");
@@ -2060,7 +2064,7 @@ test "deleting an earlier track shifts every reference to a later one" {
 }
 
 test "deleting the referenced track clears every reference instead of retargeting" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     _ = try s.addTrack("two");
     _ = try s.addTrack("three");
@@ -2075,7 +2079,7 @@ test "deleting the referenced track clears every reference instead of retargetin
 }
 
 test "swapping tracks moves every reference with the track it names" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     _ = try s.addTrack("two");
     _ = try s.addTrack("three");
@@ -2094,7 +2098,7 @@ test "deleting a group leaves nothing for the next group in that slot to inherit
     // so the index a deleted group held is handed to the next group created.
     // Every reference to it has to go with it, or the new group silently
     // adopts the old one's members, sends and gain automation.
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     const drums = try s.addGroup("drums");
     s.assignTrackGroup(0, drums);
@@ -2127,13 +2131,13 @@ fn groupGainLane(s: *Session, group: u8) ?usize {
 }
 
 test "deleteTrack rejects last track" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try std.testing.expectError(error.CannotDeleteLastTrack, s.deleteTrack(0));
 }
 
 test "deleteTrack rejects invalid index without mutating session" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     _ = try s.addTrack("two");
 
@@ -2143,7 +2147,7 @@ test "deleteTrack rejects invalid index without mutating session" {
 }
 
 test "duplicateTrack copies params and appends at the end" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .poly_synth);
     s.project.tracks.items[0].gain_db = -6.0;
@@ -2170,7 +2174,7 @@ test "duplicateTrack copies params and appends at the end" {
 }
 
 test "duplicateTrack deep-copies sampler audio and drum kit pads" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .sampler);
     s.racks.items[0].instrument.sampler.setSamples(
@@ -2195,7 +2199,7 @@ test "duplicateTrack deep-copies sampler audio and drum kit pads" {
 }
 
 test "duplicateTrack copies arrangement clips into a new lane" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .poly_synth);
     const pp = &s.racks.items[0].pattern_player.?;
@@ -2214,7 +2218,7 @@ test "duplicateTrack copies arrangement clips into a new lane" {
 }
 
 test "swapTracks exchanges project, rack, lane, and engine state" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     _ = try s.addTrack("second");
     try s.setInstrument(0, .poly_synth);
@@ -2240,7 +2244,7 @@ test "swapTracks exchanges project, rack, lane, and engine state" {
 }
 
 test "stampClip captures the live melodic pattern as a clip" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .poly_synth);
     const pp = &s.racks.items[0].pattern_player.?;
@@ -2258,7 +2262,7 @@ test "stampClip captures the live melodic pattern as a clip" {
 }
 
 test "stampClip on empty track is a no-op" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try std.testing.expectEqual(@as(u32, 0), s.stampLengthTicks(0));
     try s.stampClip(0, 0);
@@ -2266,7 +2270,7 @@ test "stampClip on empty track is a no-op" {
 }
 
 test "song mode flattens a melodic clip to absolute beats" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .poly_synth);
     const pp = &s.racks.items[0].pattern_player.?;
@@ -2287,7 +2291,7 @@ test "song mode flattens a melodic clip to absolute beats" {
 }
 
 test "song mode repeats a melodic clip's pattern to fill an edge-resized span" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .poly_synth);
     const pp = &s.racks.items[0].pattern_player.?;
@@ -2310,7 +2314,7 @@ test "song mode repeats a melodic clip's pattern to fill an edge-resized span" {
 }
 
 test "song mode stops repeating when melodic note storage fills" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .poly_synth);
     const pp = &s.racks.items[0].pattern_player.?;
@@ -2324,7 +2328,7 @@ test "song mode stops repeating when melodic note storage fills" {
 }
 
 test "song mode clips melodic note duration at the arrangement edge" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .poly_synth);
     const pp = &s.racks.items[0].pattern_player.?;
@@ -2343,7 +2347,7 @@ test "song mode clips melodic note duration at the arrangement edge" {
 }
 
 test "stampClip captures the active drum variant" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .drum_machine);
     const dm = &s.racks.items[0].instrument.drum_machine;
@@ -2370,7 +2374,7 @@ test "stampClip captures the active drum variant" {
 }
 
 test "song mode places a drum clip on the step timeline" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .drum_machine);
     const dm = &s.racks.items[0].instrument.drum_machine;
@@ -2390,7 +2394,7 @@ test "song mode places a drum clip on the step timeline" {
 }
 
 test "song mode preserves fine-grid slicer clip timing" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .slicer);
     const sl = &s.racks.items[0].instrument.slicer;
@@ -2409,7 +2413,7 @@ test "song mode preserves fine-grid slicer clip timing" {
 }
 
 test "split drum track creates sampler MIDI tracks and arrangement clips" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .drum_machine);
     const dm = &s.racks.items[0].instrument.drum_machine;
@@ -2431,7 +2435,7 @@ test "split drum track creates sampler MIDI tracks and arrangement clips" {
 }
 
 test "setMetronome mirrors to the engine" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try std.testing.expect(!s.metronome_enabled);
 
@@ -2447,7 +2451,7 @@ test "setMetronome mirrors to the engine" {
 }
 
 test "arrangement loop does not constrain pattern mode" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     s.project.loop_enabled = true;
     s.project.loop_start_bar = 1;
@@ -2465,7 +2469,7 @@ test "arrangement loop does not constrain pattern mode" {
 }
 
 test "syncMasterChain pushes master_fx's active units to the engine" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try std.testing.expectEqual(@as(usize, 0), s.engine.master_chain.slice().len);
 
@@ -2480,7 +2484,7 @@ test "syncMasterChain pushes master_fx's active units to the engine" {
 }
 
 test "syncTrackChain pushes a compressor's sidechain_source to the engine, parallel to the chain" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .poly_synth);
     const rack = s.racks.items[0];
@@ -2502,7 +2506,7 @@ test "syncTrackChain pushes a compressor's sidechain_source to the engine, paral
 }
 
 test "syncTrackChain pushes a compressor's sidechain pad routing to the engine too" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .drum_machine);
     const rack = s.racks.items[0];
@@ -2518,7 +2522,7 @@ test "syncTrackChain pushes a compressor's sidechain pad routing to the engine t
 }
 
 test "syncMasterChain and syncGroupChain push sidechain routing too" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
 
     const master_comp = try s.master_fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
@@ -2534,7 +2538,7 @@ test "syncMasterChain and syncGroupChain push sidechain routing too" {
 }
 
 test "sidechain cycles are rejected before engine publication" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     _ = try s.addTrack("second");
     const first = try s.racks.items[0].fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
@@ -2549,7 +2553,7 @@ test "sidechain cycles are rejected before engine publication" {
 }
 
 test "track cannot sidechain from its own destination group" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     const group = try s.addGroup("bus");
     s.assignTrackGroup(0, group);
@@ -2561,7 +2565,7 @@ test "track cannot sidechain from its own destination group" {
 }
 
 test "deleteTrack remaps other compressors' sidechain_source track indices" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     _ = try s.addTrack("kick"); // idx 1: the sidechain source
     _ = try s.addTrack("bass"); // idx 2: carries the compressor
@@ -2586,7 +2590,7 @@ test "deleteTrack remaps other compressors' sidechain_source track indices" {
 }
 
 test "deleteTrack/insertTrack/swapTracks leave a group-sourced compressor's sidechain_source untouched" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     _ = try s.addTrack("kick"); // idx 1
     _ = try s.addTrack("bass"); // idx 2: carries the compressor
@@ -2616,7 +2620,7 @@ test "deleteTrack/insertTrack/swapTracks leave a group-sourced compressor's side
 }
 
 test "swapTracks follows a compressor's sidechain_source through the swap" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     _ = try s.addTrack("kick"); // idx 1: the sidechain source
     _ = try s.addTrack("bass"); // idx 2: carries the compressor
@@ -2632,7 +2636,7 @@ test "swapTracks follows a compressor's sidechain_source through the swap" {
 }
 
 test "addGroup/assignTrackGroup/deleteGroup: CRUD, membership, and engine sync" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     _ = try s.addTrack("second");
 
@@ -2666,7 +2670,7 @@ test "addGroup/assignTrackGroup/deleteGroup: CRUD, membership, and engine sync" 
 }
 
 test "addGroup fails once every slot is taken; assignTrackGroup rejects an unused slot" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
 
     var i: u8 = 0;
@@ -2683,7 +2687,7 @@ test "addGroup fails once every slot is taken; assignTrackGroup rejects an unuse
 }
 
 test "duplicateTrack carries color and group along with gain/pan/mute/solo" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     const g = try s.addGroup("bus");
     s.project.tracks.items[0].color = 3;
@@ -2698,7 +2702,7 @@ test "duplicateTrack carries color and group along with gain/pan/mute/solo" {
 }
 
 test "song-mode gain automation ramps a track's level down over the clip" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .poly_synth);
 
@@ -2745,7 +2749,7 @@ test "song-mode gain automation ramps a track's level down over the clip" {
 }
 
 test "leaving song mode clears instrument parameter automation" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .poly_synth);
 
@@ -2764,7 +2768,7 @@ test "leaving song mode clears instrument parameter automation" {
 }
 
 test "later clip automation owns a shared boundary" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .poly_synth);
 
@@ -2787,7 +2791,7 @@ test "removing a clip takes its automation with it" {
     // A clip owns its automation points, so deleting one has to withdraw them
     // from the flattened curve. If it did not, the removed clip would keep
     // driving the parameter over bars that now belong to its neighbour.
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .poly_synth);
 
@@ -2821,7 +2825,7 @@ test "a replacement FX unit does not inherit the removed unit's automation" {
     // clip lane addressed to a removed unit must not start driving whatever
     // unit takes its chain slot, or automation written for one plugin would
     // land on the parameter that happens to share its index in another.
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     const rack = s.racks.items[0];
     const first = try rack.fx.insert(s.allocator, 0, .sat, s.project.sample_rate);
@@ -2849,7 +2853,7 @@ test "a replacement FX unit does not inherit the removed unit's automation" {
 }
 
 test "clip automation reaches an FX unit's param on a non-poly_synth track" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try s.setInstrument(0, .drum_machine);
     const rack = s.racks.items[0];
@@ -2871,7 +2875,7 @@ test "clip automation reaches an FX unit's param on a non-poly_synth track" {
 }
 
 test "armed follows insert/remove/duplicate/swap, parallel to racks" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try std.testing.expectEqual(@as(usize, 1), s.armed.items.len);
 
@@ -2904,7 +2908,7 @@ test "armed follows insert/remove/duplicate/swap, parallel to racks" {
 }
 
 test "isAudioArmed requires both armed and an audio instrument" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     try std.testing.expect(!s.isAudioArmed(0)); // unarmed, empty instrument
 
@@ -2936,7 +2940,7 @@ test "building a session cleans up every partial allocation" {
 }
 
 test "duplicateTrack carries every Track field, including ones added later" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     const g = try s.addGroup("bus");
 
@@ -2967,7 +2971,7 @@ test "duplicateTrack carries every Track field, including ones added later" {
 }
 
 test "deleting a group clears the compressors sidechaining off it" {
-    var s = try Session.initDefault(std.testing.allocator);
+    var s = try testSession();
     defer s.deinit();
     const g = try s.addGroup("drums");
     const unit = try s.racks.items[0].fx.insert(s.allocator, 0, .comp, s.project.sample_rate);
