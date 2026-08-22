@@ -20,8 +20,6 @@ var pane_fit: scroll.PaneFit = .{};
 
 pub fn draw(app: anytype) void {
     const clip = automation_ed.currentClip(&app.core);
-    drawHeader(app, clip);
-    zgui.spacing();
     if (clip == null) {
         drawEmptyState();
         return;
@@ -44,47 +42,6 @@ pub fn draw(app: anytype) void {
     const below_top = zgui.getCursorPosY();
     drawEditor(points.*);
     pane_fit.settle(below_top, 0);
-}
-
-fn drawHeader(app: anytype, clip: ?*const ws.Clip) void {
-    const width = zgui.getContentRegionAvail()[0];
-    const height: f32 = 72;
-    const origin = zgui.getCursorScreenPos();
-    _ = zgui.invisibleButton("automation-header", .{ .w = width, .h = height });
-    const draw_list = zgui.getWindowDrawList();
-    const track_idx = @min(@as(usize, app.core.automation_track), app.core.session.project.tracks.items.len -| 1);
-    const track = app.core.session.project.tracks.items[track_idx];
-    const accent = trackColor(track.color);
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = color(theme.bg2), .rounding = style.panel_rounding });
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + 5, origin[1] + height }, .col = color(accent), .rounding = style.item_rounding });
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 10 }, color(theme.fg3), icons.automation ++ "  AUTOMATION", .{});
-    draw_list.addText(.{ origin[0] + 17, origin[1] + 35 }, color(theme.fg0), "{s}", .{track.name});
-    if (clip) |c| {
-        const map_x = origin[0] + @max(190, width * 0.55);
-        const map_w = @max(1, origin[0] + width - map_x - 14);
-        const lane = app.core.session.arrangement.lane(app.core.automation_track);
-        const lane_end = if (lane) |l| blk: {
-            var end: u32 = c.endTick();
-            for (l.clips.items) |item| end = @max(end, item.endTick());
-            break :blk @max(end, 1);
-        } else @max(c.endTick(), 1);
-        draw_list.addText(.{ map_x, origin[1] + 9 }, color(theme.fg3), "TRACK CLIPS", .{});
-        draw_list.addText(.{ map_x + map_w - 118, origin[1] + 9 }, color(accent), "BAR {d}  {d:.2} BEATS", .{ app.core.session.project.barAtTick(c.start_tick).bar + 1, ws.time_grid.tickToBeat(c.length_ticks) });
-        const strip_y = origin[1] + 39;
-        draw_list.addLine(.{ .p1 = .{ map_x, strip_y + 8 }, .p2 = .{ map_x + map_w, strip_y + 8 }, .col = color(theme.line), .thickness = 1 });
-        if (lane) |l| for (l.clips.items) |item| {
-            const x1 = map_x + @as(f32, @floatFromInt(item.start_tick)) / @as(f32, @floatFromInt(lane_end)) * map_w;
-            const x2 = map_x + @as(f32, @floatFromInt(item.endTick())) / @as(f32, @floatFromInt(lane_end)) * map_w;
-            const active = item.start_tick == c.start_tick;
-            draw_list.addRectFilled(.{
-                .pmin = .{ x1, strip_y },
-                .pmax = .{ @max(x1 + 3, x2 - 1), strip_y + 16 },
-                .col = color(if (active) accent else theme.bg5),
-                .rounding = style.item_rounding,
-            });
-            if (active) widgets.focusRect(draw_list, .{ x1, strip_y }, .{ @max(x1 + 3, x2 - 1), strip_y + 16 }, style.item_rounding, theme.focus);
-        };
-    }
 }
 
 fn drawEmptyState() void {

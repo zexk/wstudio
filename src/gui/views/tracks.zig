@@ -193,18 +193,6 @@ fn mixerDrag(args: MixerDrag) MixerDragResult {
 
 pub fn draw(app: anytype) void {
     app.core.tracksRowSync();
-    widgets.viewTitle(icons.logo ++ "  TRACKS", .{});
-    zgui.sameLine(.{});
-    zgui.textColored(if (app.core.session.song_mode) theme.audio else theme.fg3, "{s}", .{if (app.core.session.song_mode) "SONG" else "PATTERN"});
-    zgui.sameLine(.{ .spacing = 12 });
-    if (widgets.iconButton(icons.plus ++ "##track-add", "Add track  a")) app.core.handleKey(.{ .char = 'a' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-    if (app.core.cursorTrack() != null) {
-        zgui.sameLine(.{ .spacing = 6 });
-        if (widgets.iconButton(icons.up ++ "##track-up", "Move track up  K")) app.core.doTrackMove(-1);
-        zgui.sameLine(.{ .spacing = 4 });
-        if (widgets.iconButton(icons.down ++ "##track-down", "Move track down  J")) app.core.doTrackMove(1);
-    }
-    zgui.separator();
     const row_count = app.core.trackRows().len + 1;
     const available_height = zgui.getContentRegionAvail()[1];
     const row_height = std.math.clamp((available_height - zgui.getStyle().item_spacing[1] * @as(f32, @floatFromInt(row_count))) / @as(f32, @floatFromInt(row_count)), 52, 160);

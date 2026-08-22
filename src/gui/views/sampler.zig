@@ -205,8 +205,6 @@ fn drawStandalone(app: anytype) void {
             return;
         },
     };
-    drawHeader(app, sampler);
-    zgui.spacing();
     const target: Target = .{ .standalone = .{ .sampler = sampler, .track = track } };
     widgets.sectionTitle(icons.sampler ++ "  SAMPLE WAVEFORM", theme.audio);
     while (!sampler.pad_lock.tryLock()) std.atomic.spinLoopHint();
@@ -238,8 +236,6 @@ fn drawStandalone(app: anytype) void {
 fn drawPadTarget(app: anytype, track: u16, kind: PadTargetKind) void {
     if (track >= app.core.session.racks.items.len) return;
     const index: u8 = if (kind == .drum) @intCast(app.core.drum_cursor[0]) else @intCast(app.core.slicer_cursor[0]);
-    drawPadHeader(app, track, kind, index);
-    zgui.spacing();
     drawTargetBank(app, track, kind, index);
     zgui.spacing();
     const pad: *ws.dsp.Pad, const sample_rate: u32 = switch (kind) {
@@ -387,45 +383,6 @@ fn drawPadEmptyState(app: anytype, title: []const u8, explanation: []const u8) v
         .action = "LOAD SAMPLE",
         .accent = theme.audio,
     })) widgets.openLoadCommand(app);
-}
-
-fn drawPadHeader(app: anytype, track: u16, kind: PadTargetKind, index: u8) void {
-    switch (kind) {
-        .drum => widgets.viewTitle(icons.drum ++ "  DRUM MACHINE", .{}),
-        .slice => widgets.viewTitle(icons.slicer ++ "  SLICER", .{}),
-    }
-    zgui.sameLine(.{});
-    zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[track].name});
-    zgui.sameLine(.{});
-    switch (kind) {
-        .drum => {
-            const drum = &app.core.session.racks.items[track].instrument.drum_machine;
-            zgui.textDisabled("pad {d}/{d}", .{ index + 1, ws.dsp.DrumMachine.max_pads });
-            zgui.sameLine(.{});
-            widgets.coloredValue(theme.rhythm, "\"{s}\"", .{drum.padName(index)});
-        },
-        .slice => {
-            const slicer = &app.core.session.racks.items[track].instrument.slicer;
-            if (slicer.slice_count == 0)
-                zgui.textDisabled("no slices", .{})
-            else
-                zgui.textDisabled("slice {d}/{d}", .{ index + 1, slicer.slice_count });
-            zgui.sameLine(.{});
-            widgets.coloredValue(theme.audio, "\"{s}\"", .{slicer.clipName()});
-        },
-    }
-}
-
-fn drawHeader(app: anytype, sampler: *const ws.dsp.Sampler) void {
-    const track = switch (app.core.sampler_target) {
-        .sampler => |t| t,
-        else => return,
-    };
-    widgets.viewTitle(icons.sampler ++ "  SAMPLER", .{});
-    zgui.sameLine(.{});
-    zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[track].name});
-    zgui.sameLine(.{});
-    widgets.coloredValue(theme.focus, "\"{s}\"", .{sampler.clipName()});
 }
 
 // Slider bounds come from the dsp-side spec table so they can never drift

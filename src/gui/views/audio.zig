@@ -12,12 +12,7 @@ const theme = &gui_style.palette;
 pub fn draw(app: anytype) void {
     const core = &app.core;
     if (core.audio_track >= core.session.project.tracks.items.len or core.audio_track >= core.session.arrangement.lanes.items.len) return;
-    const track = core.session.project.tracks.items[core.audio_track];
     const clips = core.session.arrangement.lanes.items[core.audio_track].clips.items;
-    widgets.coloredTitle(theme.audio, icons.audio ++ "  AUDIO  \"{s}\"", .{track.name});
-    zgui.textDisabled("{d} region{s}   gain {s}{d:.1} dB   pan {s}{d:.0}%   mute {s}   solo {s}   arm {s}", .{ clips.len, if (clips.len == 1) "" else "s", if (track.gain_db >= 0) "+" else "", track.gain_db, if (track.pan >= 0) "+" else "", track.pan * 100, if (track.muted) "on" else "off", if (track.soloed) "on" else "off", if (core.session.isArmed(core.audio_track)) "on" else "off" });
-    zgui.separator();
-
     if (clips.len == 0) {
         zgui.textDisabled("No audio regions. Press i to import audio.", .{});
         return;

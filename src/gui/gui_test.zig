@@ -76,16 +76,6 @@ fn register(engine: *te.TestEngine) void {
         }
     });
 
-    _ = engine.registerTest("tracks", "the add-track button adds one track", @src(), struct {
-        pub fn run(ctx: *te.TestContext) !void {
-            const before = app.core.session.racks.items.len;
-            ctx.setRef("Workspace");
-            ctx.itemAction(.click, icons.plus ++ "##track-add", .{}, null);
-            ctx.yield(4);
-            _ = te.check(@src(), .{}, app.core.session.racks.items.len == before + 1, "one more rack than before");
-        }
-    });
-
     // F1 rather than a letter: the modal grammar routes most letters
     // through the view under the cursor, so what they do depends on the
     // project loaded, while help opens from anywhere and leaves through

@@ -226,23 +226,6 @@ pub fn draw(app: anytype) void {
         zgui.textDisabled("Choose a melodic instrument", .{});
         return;
     };
-    const track_name = app.core.session.project.tracks.items[app.core.piano_track].name;
-    widgets.viewTitle(icons.synth ++ "  PIANO ROLL", .{});
-    zgui.sameLine(.{});
-    zgui.text("\"{s}\"", .{track_name});
-    if (app.core.piano_clip_link) |link| {
-        zgui.sameLine(.{});
-        zgui.textColored(theme.focus, icons.arrangement ++ "  BAR {d}", .{app.core.session.project.barAtTick(link.start_tick).bar + 1});
-    } else if (app.core.session.song_mode) {
-        zgui.sameLine(.{});
-        zgui.textColored(theme.danger, "SCRATCH  stamp from arrangement", .{});
-    }
-    if (app.core.piano_audition) {
-        zgui.sameLine(.{});
-        zgui.textColored(theme.audio, icons.play ++ "  AUDITION", .{});
-    }
-    drawToolbar(app);
-
     // Wide enough for the velocity lane's header below it, which is the
     // longest thing the gutter has to hold ("VELOCITY", not a key name).
     const gutter_w: f32 = 66;

@@ -40,8 +40,7 @@ pub fn draw(app: anytype) void {
     // font a line is 24px, so the window claimed ~35 lines fit where 30 did
     // and the body overflowed its child.
     const line_h = @max(1.0, zgui.getTextLineHeightWithSpacing());
-    const header_h: f32 = 34;
-    const body_h = @max(200, zgui.getContentRegionAvail()[1] - header_h);
+    const body_h = @max(200, zgui.getContentRegionAvail()[1]);
     const visible: usize = @intFromFloat(@max(1.0, body_h / line_h));
     var viewport = help_model.viewport(t.count, visible, &app.core.help_scroll);
 
@@ -64,25 +63,11 @@ pub fn draw(app: anytype) void {
     const anchor = @min(viewport.off + 1, t.count - 1);
     const current_section = t.sectionLineAt(anchor);
 
-    drawHeader(&t, viewport, current_section);
     if (zgui.getContentRegionAvail()[0] >= nav_min_width) {
         drawNav(app, &t, current_section, body_h, line_h);
         zgui.sameLine(.{ .spacing = 10 });
     }
     drawBody(app, &t, viewport, body_h, line_h);
-}
-
-fn drawHeader(t: *const help_model.HelpText, viewport: help_model.Viewport, current_section: ?usize) void {
-    widgets.coloredTitle(theme.modulation, icons.help ++ "  HELP", .{});
-    if (current_section) |s| {
-        zgui.sameLine(.{ .spacing = 10 });
-        zgui.textColored(theme.audio, "{s}", .{shortTitle(help_model.sectionTitle(t.line(s)))});
-    }
-    zgui.sameLine(.{ .spacing = 16 });
-    widgets.hoverHelp("j/k scroll  d/u page  { } section  / search  esc close");
-    zgui.sameLine(.{ .spacing = 16 });
-    zgui.textDisabled("{d}-{d}/{d}", .{ viewport.off + 1, viewport.end, t.count });
-    zgui.separator();
 }
 
 /// Clickable table of contents. Every section the model emits is listed, so

@@ -31,8 +31,6 @@ pub fn draw(app: anytype) void {
     };
     if (fx.units.items.len > 0) app.core.fx_focus = @min(app.core.fx_focus, fx.units.items.len - 1);
 
-    drawTitle(app, target);
-    zgui.spacing();
     drawSignalChain(app, target, fx);
     zgui.spacing();
 
@@ -41,34 +39,6 @@ pub fn draw(app: anytype) void {
     } else {
         drawEmptyState(app, target);
     }
-}
-
-fn drawTitle(app: anytype, target: spectrum_ed.EqTarget) void {
-    widgets.coloredTitle(targetAccent(target), icons.eq ++ "  FX CHAIN", .{});
-    zgui.sameLine(.{});
-    zgui.text("\"{s}\"", .{targetName(app, target)});
-    if (target == .group and app.core.eq_group < ws.engine.max_groups) {
-        if (app.core.session.groups[app.core.eq_group]) |group| {
-            zgui.sameLine(.{});
-            zgui.textDisabled("bus {d:.1}dB", .{group.gain_db});
-        }
-    }
-}
-
-fn targetName(app: anytype, target: spectrum_ed.EqTarget) []const u8 {
-    return switch (target) {
-        // Same names the TUI titles with, "?" fallback included - a bus is
-        // "MASTER", not "Master bus", wherever it is named.
-        .track => if (app.core.eq_track < app.core.session.project.tracks.items.len)
-            app.core.session.project.tracks.items[app.core.eq_track].name
-        else
-            "?",
-        .master => "MASTER",
-        .group => if (app.core.eq_group < ws.engine.max_groups)
-            if (app.core.session.groups[app.core.eq_group]) |group| group.name else "?"
-        else
-            "?",
-    };
 }
 
 fn targetAccent(target: spectrum_ed.EqTarget) [4]f32 {

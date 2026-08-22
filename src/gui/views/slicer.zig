@@ -20,8 +20,6 @@ pub fn draw(app: anytype) void {
             return;
         },
     };
-    drawHeader(app, slicer);
-    zgui.spacing();
     if (!slicer.hasAudio()) {
         drawEmptyState(app);
         return;
@@ -61,24 +59,6 @@ fn drawEmptyState(app: anytype) void {
         .action = "LOAD AUDIO",
         .accent = theme.audio,
     })) widgets.openLoadCommand(app);
-}
-
-fn drawHeader(app: anytype, slicer: *const ws.dsp.Slicer) void {
-    widgets.viewTitle(icons.slicer ++ "  SLICER", .{});
-    zgui.sameLine(.{});
-    zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[app.core.slicer_track].name});
-    zgui.sameLine(.{});
-    zgui.textDisabled("\"{s}\"  slices {d}", .{ slicer.clipName(), slicer.slice_count });
-    zgui.sameLine(.{});
-    zgui.textColored(theme.audio, "pat {c}", .{ws.dsp.Slicer.variantLetter(slicer.variant)});
-    if (slicer.variant_count > 1) {
-        zgui.sameLine(.{});
-        zgui.textDisabled("{d}/{d}", .{ slicer.variant + 1, slicer.variant_count });
-        zgui.sameLine(.{ .spacing = 8 });
-        if (widgets.iconButton(icons.prev ++ "##slicer-variant-prev", "Previous pattern  [")) app.core.handleKey(.{ .char = '[' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-        zgui.sameLine(.{ .spacing = 4 });
-        if (widgets.iconButton(icons.next ++ "##slicer-variant-next", "Next pattern  ]")) app.core.handleKey(.{ .char = ']' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
-    }
 }
 
 fn drawSliceState(app: anytype, slicer: *const ws.dsp.Slicer) void {

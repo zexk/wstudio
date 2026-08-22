@@ -20,9 +20,6 @@ pub fn draw(app: anytype) void {
         },
     };
 
-    drawHeader(app, track);
-    zgui.spacing();
-
     if (sf.presetCount() == 0) {
         // Acoustic only reaches this state when the bundled asset directory
         // couldn't be read, so it points at the bank picker, not a browser.
@@ -70,14 +67,6 @@ pub fn draw(app: anytype) void {
         zgui.spacing();
     }
     zgui.endChild();
-}
-
-fn drawHeader(app: anytype, track: u16) void {
-    widgets.viewTitle(icons.soundfont ++ "  {s}", .{app.core.editingSoundfontLabel()});
-    zgui.sameLine(.{});
-    zgui.text("\"{s}\"", .{app.core.session.project.tracks.items[track].name});
-    // No preset name here: the PROGRAM row below already names it, and no
-    // other view repeats its content in the header.
 }
 
 fn drawPresetRow(app: anytype, track: u16, sf: *ws.dsp.SoundfontPlayer) void {

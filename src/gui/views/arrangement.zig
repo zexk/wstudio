@@ -95,23 +95,6 @@ pub fn draw(app: anytype) void {
     if (app.arrangement_clip) |selection| {
         if (!clipSelectionValid(&app.core.session.arrangement, selection)) app.arrangement_clip = null;
     }
-    widgets.viewTitle(icons.arrangement ++ "  ARRANGEMENT", .{});
-    zgui.sameLine(.{});
-    zgui.textColored(if (app.core.session.song_mode) theme.audio else theme.fg3, "{s}", .{if (app.core.session.song_mode) "SONG" else "PATTERN"});
-    zgui.sameLine(.{});
-    zgui.textColored(theme.audio, "{s}", .{app.core.arr_grid.label()});
-    zgui.sameLine(.{ .spacing = 8 });
-    if (widgets.iconButton(icons.minus ++ "##arr-grid-down", "Coarser grid  zG")) {
-        const now_ns = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
-        app.core.handleKey(.{ .char = 'z' }, now_ns);
-        app.core.handleKey(.{ .char = 'G' }, now_ns);
-    }
-    zgui.sameLine(.{ .spacing = 4 });
-    if (widgets.iconButton(icons.plus ++ "##arr-grid-up", "Finer grid  zg")) {
-        const now_ns = std.Io.Timestamp.now(app.core.io, .awake).nanoseconds;
-        app.core.handleKey(.{ .char = 'z' }, now_ns);
-        app.core.handleKey(.{ .char = 'g' }, now_ns);
-    }
     const track_count = app.core.session.project.tracks.items.len;
     const ticks_per_beat = ws.time_grid.ticks_per_beat;
     // The ruler grows a strip for tempo/meter flags only when the project has
