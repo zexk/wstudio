@@ -276,23 +276,27 @@ pub const PitchShift = struct {
     }
 };
 
+fn processSine(shifter: *PitchShift, sample_rate: u32, frames: usize, hz: f32) ![]Sample {
+    const buf = try std.testing.allocator.alloc(Sample, frames * 2);
+    for (0..frames) |i| {
+        const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(sample_rate));
+        const value = 0.5 * @sin(2.0 * std.math.pi * hz * t);
+        buf[i * 2] = value;
+        buf[i * 2 + 1] = value;
+    }
+    var at: usize = 0;
+    while (at + 512 <= buf.len) : (at += 512) shifter.processBlock(buf[at..][0..512]);
+    return buf;
+}
+
 test "shifting a sine transposes it and keeps its level" {
     const sr: u32 = 48_000;
     var shifter = try PitchShift.init(std.testing.allocator, sr);
     defer shifter.deinit(std.testing.allocator);
     shifter.semitones = 12.0;
 
-    const frames = sr * 2;
-    const buf = try std.testing.allocator.alloc(Sample, frames * 2);
+    const buf = try processSine(&shifter, sr, sr * 2, 500.0);
     defer std.testing.allocator.free(buf);
-    for (0..frames) |i| {
-        const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(sr));
-        const v = 0.5 * @sin(2.0 * std.math.pi * 500.0 * t);
-        buf[i * 2] = v;
-        buf[i * 2 + 1] = v;
-    }
-    var at: usize = 0;
-    while (at + 512 <= buf.len) : (at += 512) shifter.processBlock(buf[at..][0..512]);
 
     // Count zero crossings over a settled stretch: an octave up is twice as
     // many. Loose bounds, because this checks the transposition rather than
@@ -316,17 +320,8 @@ test "a shifted sine keeps its level" {
     defer shifter.deinit(std.testing.allocator);
     shifter.semitones = 12.0;
 
-    const frames = sr * 2;
-    const buf = try std.testing.allocator.alloc(Sample, frames * 2);
+    const buf = try processSine(&shifter, sr, sr * 2, 500.0);
     defer std.testing.allocator.free(buf);
-    for (0..frames) |i| {
-        const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(sr));
-        const v = 0.5 * @sin(2.0 * std.math.pi * 500.0 * t);
-        buf[i * 2] = v;
-        buf[i * 2 + 1] = v;
-    }
-    var at: usize = 0;
-    while (at + 512 <= buf.len) : (at += 512) shifter.processBlock(buf[at..][0..512]);
 
     var peak: f32 = 0.0;
     for (buf[buf.len / 2 ..]) |sample| peak = @max(peak, @abs(sample));
@@ -364,17 +359,8 @@ test "the top of the range still reaches its pitch after the first block" {
     shifter.semitones = 24.0;
     shifter.cents = 100.0;
 
-    const frames = sr;
-    const buf = try std.testing.allocator.alloc(Sample, frames * 2);
+    const buf = try processSine(&shifter, sr, sr, 200.0);
     defer std.testing.allocator.free(buf);
-    for (0..frames) |i| {
-        const t = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(sr));
-        const v = 0.5 * @sin(2.0 * std.math.pi * 200.0 * t);
-        buf[i * 2] = v;
-        buf[i * 2 + 1] = v;
-    }
-    var at: usize = 0;
-    while (at + 512 <= buf.len) : (at += 512) shifter.processBlock(buf[at..][0..512]);
 
     var crossings: usize = 0;
     const tail = buf[buf.len / 2 ..];
