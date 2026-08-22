@@ -307,7 +307,7 @@ fn keyRepeats(mode: ws.input.Mode, key: ws.input.Key) bool {
         },
         .normal, .visual => switch (key) {
             .arrow_up, .arrow_down, .arrow_left, .arrow_right => true,
-            .char => |c| c == 'h' or c == 'j' or c == 'k' or c == 'l',
+            .char => |c| std.mem.indexOfScalar(u8, "hjkl+-=_<>[]{}();'", c) != null,
             else => false,
         },
         .insert => false,
@@ -354,17 +354,16 @@ fn pressedModalKey(mode: ws.input.Mode) ?ws.input.Key {
         const modal_key: ws.input.Key = .{ .char = queued_char orelse numberRowChar(c, shifted) };
         if (zgui.isKeyPressed(key, keyRepeats(mode, modal_key))) return modal_key;
     }
-    // Edge-detect on the named OEM key (so holding it doesn't repeat-fire,
-    // matching every other normal-mode binding), but resolve the character
-    // from `queued_char` rather than a hardcoded US-layout shift table -
-    // see the doc comment on `queued_char` above.
+    // Resolve the character from `queued_char` rather than a hardcoded
+    // US-layout shift table - see the doc comment on `queued_char` above.
     const oem_keys = [_]zgui.Key{
         .apostrophe, .comma,         .minus,        .period,
         .semicolon,  .slash,         .equal,        .left_bracket,
         .back_slash, .right_bracket, .grave_accent,
     };
-    for (oem_keys) |key| if (zgui.isKeyPressed(key, mode == .command or mode == .search)) {
-        if (queued_char) |c| return .{ .char = c };
+    for (oem_keys) |key| if (queued_char) |c| {
+        if (zgui.isKeyPressed(key, keyRepeats(mode, .{ .char = c }))) return .{ .char = c };
+    } else if (zgui.isKeyPressed(key, mode == .command or mode == .search)) {
         return null;
     };
     return null;
@@ -375,6 +374,8 @@ test "GUI key repeat stays on navigation and prompt editing" {
     try std.testing.expect(keyRepeats(.visual, .arrow_right));
     try std.testing.expect(keyRepeats(.command, .backspace));
     try std.testing.expect(keyRepeats(.search, .{ .char = 'x' }));
+    try std.testing.expect(keyRepeats(.normal, .{ .char = '+' }));
+    try std.testing.expect(keyRepeats(.normal, .{ .char = '}' }));
     try std.testing.expect(!keyRepeats(.normal, .{ .char = 'x' }));
     try std.testing.expect(!keyRepeats(.insert, .{ .char = 'j' }));
 }
