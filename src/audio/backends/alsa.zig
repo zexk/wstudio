@@ -11,6 +11,27 @@ const CaptureBlock = capture_types.CaptureBlock;
 
 const c = @cImport(@cInclude("alsa/asoundlib.h"));
 
+fn openPcm(device_name: []const u8, stream: c.snd_pcm_stream_t, sample_rate: u32, channels: u16, block_frames: usize) !*c.snd_pcm_t {
+    var device_buf: [std.fs.max_path_bytes + 1]u8 = undefined;
+    const device = std.fmt.bufPrintZ(&device_buf, "{s}", .{if (device_name.len > 0) device_name else "default"}) catch
+        return error.DeviceOpenFailed;
+    var pcm: ?*c.snd_pcm_t = null;
+    if (c.snd_pcm_open(&pcm, device, stream, 0) < 0) return error.DeviceOpenFailed;
+    errdefer _ = c.snd_pcm_close(pcm);
+
+    const block_us: c_uint = @intCast(@as(u64, block_frames) * std.time.us_per_s / sample_rate);
+    if (c.snd_pcm_set_params(
+        pcm,
+        c.SND_PCM_FORMAT_FLOAT,
+        c.SND_PCM_ACCESS_RW_INTERLEAVED,
+        channels,
+        sample_rate,
+        1,
+        @max(block_us * 4, 20_000),
+    ) < 0) return error.DeviceConfigFailed;
+    return pcm orelse error.DeviceOpenFailed;
+}
+
 pub const AlsaBackend = struct {
     config: backend_mod.Config,
     render: backend_mod.RenderFn,
@@ -31,29 +52,8 @@ pub const AlsaBackend = struct {
 
     pub fn start(self: *AlsaBackend) Error!void {
         try backend_mod.validateConfig(self.config, max_channels);
-
-        var device_buf: [std.fs.max_path_bytes + 1]u8 = undefined;
-        const device = std.fmt.bufPrintZ(&device_buf, "{s}", .{if (self.config.output_device.len > 0) self.config.output_device else "default"}) catch
-            return error.DeviceOpenFailed;
-        var pcm: ?*c.snd_pcm_t = null;
-        if (c.snd_pcm_open(&pcm, device, c.SND_PCM_STREAM_PLAYBACK, 0) < 0) {
-            return error.DeviceOpenFailed;
-        }
+        const pcm = try openPcm(self.config.output_device, c.SND_PCM_STREAM_PLAYBACK, self.config.sample_rate, self.config.channels, self.config.block_frames);
         errdefer _ = c.snd_pcm_close(pcm);
-
-        const block_us: c_uint = @intCast(@as(u64, self.config.block_frames) *
-            std.time.us_per_s / self.config.sample_rate);
-        if (c.snd_pcm_set_params(
-            pcm,
-            c.SND_PCM_FORMAT_FLOAT, // native-endian f32: engine format, no conversion
-            c.SND_PCM_ACCESS_RW_INTERLEAVED,
-            self.config.channels,
-            self.config.sample_rate,
-            1, // allow resampling if the device can't do our rate
-            @max(block_us * 4, 20_000),
-        ) < 0) {
-            return error.DeviceConfigFailed;
-        }
 
         self.pcm = pcm;
         self.running.store(true, .release);
@@ -125,28 +125,8 @@ pub const AlsaCapture = struct {
         while (self.queue.pop() != null) {}
         while (self.dropouts.pop() != null) {}
         self.next_frame = 0;
-        var device_buf: [std.fs.max_path_bytes + 1]u8 = undefined;
-        const device = std.fmt.bufPrintZ(&device_buf, "{s}", .{if (device_name.len > 0) device_name else "default"}) catch
-            return error.DeviceOpenFailed;
-        var pcm: ?*c.snd_pcm_t = null;
-        if (c.snd_pcm_open(&pcm, device, c.SND_PCM_STREAM_CAPTURE, 0) < 0) {
-            return error.DeviceOpenFailed;
-        }
+        const pcm = try openPcm(device_name, c.SND_PCM_STREAM_CAPTURE, sample_rate, capture_types.channel_count, capture_types.chunk_frames);
         errdefer _ = c.snd_pcm_close(pcm);
-
-        const block_us: c_uint = @intCast(@as(u64, capture_types.chunk_frames) *
-            std.time.us_per_s / sample_rate);
-        if (c.snd_pcm_set_params(
-            pcm,
-            c.SND_PCM_FORMAT_FLOAT, // native-endian f32: engine format, no conversion
-            c.SND_PCM_ACCESS_RW_INTERLEAVED,
-            capture_types.channel_count,
-            sample_rate,
-            1, // allow resampling if the device can't do our rate
-            @max(block_us * 4, 20_000),
-        ) < 0) {
-            return error.DeviceConfigFailed;
-        }
 
         self.pcm = pcm;
         self.running.store(true, .release);
