@@ -1399,6 +1399,10 @@ pub fn detectOnsets(samples: []const f32, sample_rate: u32, sensitivity: u8, out
 // ---------------------------------------------------------------------------
 // Tests
 
+fn testSlicer(transport: *Transport) !Slicer {
+    return Slicer.init(std.testing.allocator, 48_000, transport);
+}
+
 fn installTestClip(s: *Slicer) !void {
     s.allocator.free(s.samples);
     s.samples = try s.allocator.alloc(f32, 1024);
@@ -1408,7 +1412,7 @@ fn installTestClip(s: *Slicer) !void {
 
 test "slicer starts with no sample" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
 
     try std.testing.expectEqual(@as(usize, 0), s.samples.len);
@@ -1418,7 +1422,7 @@ test "slicer starts with no sample" {
 
 test "swing setters ignore non-finite values" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.setSwing(62.0);
     s.setSwing(std.math.nan(f32));
@@ -1431,7 +1435,7 @@ test "swing setters ignore non-finite values" {
 
 test "processBlock skips sample-lock contention" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     try std.testing.expect(s.sample_lock.tryLock());
     defer s.sample_lock.unlock();
@@ -1442,7 +1446,7 @@ test "processBlock skips sample-lock contention" {
 
 test "sliceInto equal-divides the clip and clamps out-of-range counts" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
 
     s.sliceInto(4);
@@ -1461,7 +1465,7 @@ test "sliceInto equal-divides the clip and clamps out-of-range counts" {
 
 test "fresh chops inherit full-sample edits" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     try installTestClip(&s);
     s.slices[0].gain = 1.5;
@@ -1478,7 +1482,7 @@ test "fresh chops inherit full-sample edits" {
 
 test "chopAt normalizes non-finite and descending boundaries" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
 
     s.chopAt(&.{ 0.0, 0.75, std.math.nan(f32), 0.25, std.math.inf(f32) });
@@ -1497,7 +1501,7 @@ test "chopAt normalizes non-finite and descending boundaries" {
 
 test "every slice aliases the same underlying buffer (no duplication)" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(8);
     for (s.slices[0..8]) |slice| {
@@ -1507,7 +1511,7 @@ test "every slice aliases the same underlying buffer (no duplication)" {
 
 test "a duplicated slicer keeps what its clip's name declared" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     try installTestClip(&s);
     s.clip_bpm = 174.0;
@@ -1523,7 +1527,7 @@ test "a duplicated slicer keeps what its clip's name declared" {
 
 test "re-slicing clears voices tied to the old regions" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(2);
     s.triggerSlice(1, 1.0, 0);
@@ -1543,7 +1547,7 @@ test "re-slicing mid-roll drops the pending hits instead of firing them on the n
     // against whatever region the index now pointed to - an unintended
     // chop playing right after the user just re-chopped the sample.
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(4);
 
@@ -1556,7 +1560,7 @@ test "re-slicing mid-roll drops the pending hits instead of firing them on the n
 
 test "triggerSlice renders only within its own region" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     try installTestClip(&s);
     s.sliceInto(2);
@@ -1575,7 +1579,7 @@ test "triggerSlice renders only within its own region" {
 
 test "triggerSlice past slice_count is a no-op" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(2);
     s.triggerSlice(5, 1.0, 0);
@@ -1585,7 +1589,7 @@ test "triggerSlice past slice_count is a no-op" {
 test "step sequencer fires the right slice on schedule" {
     var transport = Transport{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
     transport.play();
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     try installTestClip(&s);
     s.sliceInto(4);
@@ -1601,7 +1605,7 @@ test "step sequencer fires the right slice on schedule" {
 
 test "note_on wraps a note onto a slice by index" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(4);
     s.device().sendEvent(.{ .note_on = .{ .note = 5, .velocity = 1.0 } }); // 5 % 4 = 1
@@ -1610,7 +1614,7 @@ test "note_on wraps a note onto a slice by index" {
 
 test "adjustParam edits the addressed slice only" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(4);
     s.adjustParam(Slicer.paramId(2, 7), 10); // slice 2's gain +10 steps of 0.01
@@ -1638,7 +1642,7 @@ fn burstClip(allocator: std.mem.Allocator, sample_rate: u32) ![]f32 {
 
 test "chopTransients finds the bursts and anchors slice 0 at the head" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     std.testing.allocator.free(s.samples);
     s.samples = try burstClip(std.testing.allocator, 48_000);
@@ -1678,7 +1682,7 @@ fn maskedTickClip(allocator: std.mem.Allocator, sample_rate: u32) ![]f32 {
 
 test "chopTransients hears a tick masked by a sustained note" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     std.testing.allocator.free(s.samples);
     s.samples = try maskedTickClip(std.testing.allocator, 48_000);
@@ -1692,7 +1696,7 @@ test "chopTransients hears a tick masked by a sustained note" {
 
 test "chopTransients on silence falls back to one whole-clip slice" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     std.testing.allocator.free(s.samples);
     s.samples = try std.testing.allocator.alloc(f32, 48_000);
@@ -1706,7 +1710,7 @@ test "chopTransients on silence falls back to one whole-clip slice" {
 
 test "chopRandom lays down n contiguous, uneven, non-empty slices" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
 
     var prng = std.Random.DefaultPrng.init(0xC0FFEE);
@@ -1733,7 +1737,7 @@ test "chopRandom lays down n contiguous, uneven, non-empty slices" {
 
 test "cycleModeAll resolves mixed slices and walks all three play modes" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(3);
     // A fresh chop is retrigger; knock one slice out of step to prove mixed
@@ -1749,7 +1753,7 @@ test "cycleModeAll resolves mixed slices and walks all three play modes" {
 
 test "a retrigger slice cuts its own ring, a one-shot overlaps" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(2);
 
@@ -1773,7 +1777,7 @@ test "a retrigger slice cuts its own ring, a one-shot overlaps" {
 
 test "spreadPitch ramps a semitone step across the live slices only" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(4);
 
@@ -1792,7 +1796,7 @@ test "spreadPitch ramps a semitone step across the live slices only" {
 
 test "splitSlice halves the region and shifts later pattern rows down" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(3);
     s.toggleStep(2, 5); // will belong to slice 3 after the split
@@ -1812,7 +1816,7 @@ test "splitSlice halves the region and shifts later pattern rows down" {
 
 test "mergeSliceRight ORs patterns and shifts later rows up" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(4);
     s.toggleStep(1, 0);
@@ -1838,7 +1842,7 @@ test "mergeSliceRight ORs patterns and shifts later rows up" {
 
 test "mergeSliceRight rejects the maximum sentinel index" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(4);
     try std.testing.expect(!s.mergeSliceRight(std.math.maxInt(u8)));
@@ -1846,7 +1850,7 @@ test "mergeSliceRight rejects the maximum sentinel index" {
 
 test "setParamAbsolute/paramValue roundtrip, null past slice_count" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(2);
     s.setParamAbsolute(Slicer.paramId(1, 2), -7.0);
@@ -1863,7 +1867,7 @@ test "automation targets one slicer parameter" {
     try std.testing.expectEqualStrings("SLICE 2", param.section);
 
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(2);
     const other_pan = s.slices[0].pan;
@@ -1874,7 +1878,7 @@ test "automation targets one slicer parameter" {
 
 test "cycleStepVel walks the preset ladder; nudge clamps at 1" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(1);
     // Velocity lives on the note, so an empty step has nothing to cycle - it
@@ -1893,7 +1897,7 @@ test "cycleStepVel walks the preset ladder; nudge clamps at 1" {
 
 test "fillSlice/clearSlice cover exactly the active step range" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(2);
     s.setStepCount(12);
@@ -1906,7 +1910,7 @@ test "fillSlice/clearSlice cover exactly the active step range" {
 
 test "variant bank: add copies, select round-trips, remove shifts" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(4);
     s.toggleStep(0, 0);
@@ -1935,7 +1939,7 @@ test "variant bank: add copies, select round-trips, remove shifts" {
 
 test "chokeTrigger cuts grouped voices, leaves ungrouped ringing" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(4);
     s.choke_group[0] = 1;
@@ -1966,7 +1970,7 @@ test "chokeTrigger cuts grouped voices, leaves ungrouped ringing" {
 
 test "ungrouped retrigger still overlaps (choke stays opt-in)" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(2);
     pad_mod.setPlayMode(&s.slices[0], .one_shot);
@@ -1980,7 +1984,7 @@ test "ungrouped retrigger still overlaps (choke stays opt-in)" {
 
 test "note-off releases only oldest overlapping slice voice" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(2);
     pad_mod.setPlayMode(&s.slices[0], .gate);
@@ -1997,7 +2001,7 @@ test "note-off releases only oldest overlapping slice voice" {
 test "a sequenced hit carries its step's length as the gated hold" {
     var transport = Transport{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
     transport.play();
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     try installTestClip(&s);
     s.sliceInto(4);
@@ -2022,7 +2026,7 @@ test "a sequenced hit carries its step's length as the gated hold" {
 test "song mode fires the clip covering the playhead, silent past the end" {
     var transport = Transport{ .sample_rate = 48_000, .tempo_bpm = 120.0 };
     transport.play();
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     try installTestClip(&s);
     s.sliceInto(4);
@@ -2049,7 +2053,7 @@ test "song mode fires the clip covering the playhead, silent past the end" {
     try std.testing.expect(!s.voices[0][0].active);
 
     // Past the song's end: nothing fires.
-    var s2 = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s2 = try testSlicer(&transport);
     defer s2.deinit();
     s2.sliceInto(4);
     var clip2 = clip;
@@ -2069,7 +2073,7 @@ test "song mode fires the clip covering the playhead, silent past the end" {
 
 test "all_off clears every slice's voices" {
     var transport = Transport{ .sample_rate = 48_000 };
-    var s = try Slicer.init(std.testing.allocator, 48_000, &transport);
+    var s = try testSlicer(&transport);
     defer s.deinit();
     s.sliceInto(2);
     s.triggerSlice(0, 1.0, 0);
