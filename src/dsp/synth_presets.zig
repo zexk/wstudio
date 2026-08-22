@@ -877,15 +877,16 @@ pub const presets = [_]Preset{
     // === Round 2: fill each genre's remaining core roles ===
 
     // dubstep - the talking growl finally talks: a real formant filter
-    // scanned by the LFO, lowpassed in series to keep it bass; macro 1 is
-    // the vowel, not a plain cutoff, on this one
+    // scanned by the LFO, with a parallel lowpassed sub/body branch; macro 1
+    // is the vowel, not a plain cutoff, on this one
     .{ .name = "growl-bass", .category = "bass", .tags = &.{ "wstudio", "dubstep" }, .patch = .{
         .wt_table = .basic, .wt_pos = 0.6666667, .voice_mode = .mono, .glide_s = 0.01,
         .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 1.0, .osc_b_semi = 0.0, .osc_b_detune_cents = 8.0, .osc_b_level = 0.8,
         .osc_b_warp_mode = .fm_b_to_a, .osc_b_warp_amount = 3.5,
+        .sub_level = 0.55, .sub_shape = .sine,
         .attack_s = 0.004, .decay_s = 0.15, .sustain = 1.0, .release_s = 0.12,
         .filter_type = .formant, .filter_cutoff = 300.0, .filter_res = 0.45,
-        .filter2_on = true, .filter2_type = .lp, .filter2_cutoff = 2500.0, .filter2_res = 0.2, .filter_routing = .series,
+        .filter2_on = true, .filter2_type = .lp, .filter2_cutoff = 180.0, .filter2_res = 0.01, .filter_routing = .parallel,
         // .custom, not .square: a square just flips between two vowel
         // extremes on/off, it doesn't "talk". Dwelling briefly at each
         // vowel with a quick transition between (not an instant flip)
