@@ -3256,7 +3256,7 @@ pub const App = struct {
         }
     }
 
-    fn openTrack(self: *App, cursor: usize) void {
+    pub fn openTrack(self: *App, cursor: usize) void {
         if (cursor >= self.session.racks.items.len) return;
         switch (self.session.racks.items[cursor].instrument) {
             .empty => self.openInstrumentPicker(cursor, false),

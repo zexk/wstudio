@@ -227,6 +227,8 @@ const RowChrome = struct {
     selected: bool,
     in_visual: bool,
     hovered: bool,
+    left_clicked: bool,
+    right_clicked: bool,
 };
 
 fn drawRowChrome(app: anytype, id: [:0]const u8, display_row: usize, in_visual: bool, height: f32) RowChrome {
@@ -240,6 +242,7 @@ fn drawRowChrome(app: anytype, id: [:0]const u8, display_row: usize, in_visual: 
     zgui.setNextItemAllowOverlap();
     const clicked = zgui.invisibleButton(id, .{ .w = width, .h = height });
     const hovered = zgui.isItemHovered(.{});
+    const right_clicked = hovered and zgui.isMouseClicked(.right);
     const selected = app.core.track_row == display_row;
     // `j`/`k` past the fold have to bring the viewport with them, or the
     // cursor walks into clipped content and the view looks stuck.
@@ -261,7 +264,29 @@ fn drawRowChrome(app: anytype, id: [:0]const u8, display_row: usize, in_visual: 
         .selected = selected,
         .in_visual = in_visual,
         .hovered = hovered,
+        .left_clicked = clicked,
+        .right_clicked = right_clicked,
     };
+}
+
+const TrackMouseAction = enum { instrument, piano, mute, fx, solo, replace_instrument, arm, preset };
+
+fn trackMouseAction(right: bool, shift: bool, ctrl: bool, alt: bool) TrackMouseAction {
+    if (alt) return if (right) .preset else .arm;
+    if (ctrl) return if (right) .replace_instrument else .solo;
+    if (shift) return if (right) .fx else .mute;
+    return if (right) .piano else .instrument;
+}
+
+test "track mouse bindings cover both buttons and modifiers" {
+    try std.testing.expectEqual(TrackMouseAction.instrument, trackMouseAction(false, false, false, false));
+    try std.testing.expectEqual(TrackMouseAction.piano, trackMouseAction(true, false, false, false));
+    try std.testing.expectEqual(TrackMouseAction.mute, trackMouseAction(false, true, false, false));
+    try std.testing.expectEqual(TrackMouseAction.fx, trackMouseAction(true, true, false, false));
+    try std.testing.expectEqual(TrackMouseAction.solo, trackMouseAction(false, false, true, false));
+    try std.testing.expectEqual(TrackMouseAction.replace_instrument, trackMouseAction(true, false, true, false));
+    try std.testing.expectEqual(TrackMouseAction.arm, trackMouseAction(false, false, false, true));
+    try std.testing.expectEqual(TrackMouseAction.preset, trackMouseAction(true, false, false, true));
 }
 
 /// The colored left cap: a `strip_w`-wide block flush to the row's left
@@ -307,12 +332,21 @@ fn drawMixerRow(app: anytype, track_index: u16, display_row: usize, height: f32)
     const id = std.fmt.bufPrintZ(&id_buf, "mixer-row-{d}", .{track_index}) catch return;
     const accent = trackColor(track.color);
     const chrome = drawRowChrome(app, id, display_row, trackRowInVisual(&app.core, display_row), height);
-    if (zgui.beginPopupContextItem()) {
-        if (zgui.menuItem("Solo", .{ .selected = track.soloed })) app.core.apiSetTrackSoloed(track_index, !track.soloed);
-        if (zgui.menuItem("Mute", .{ .shortcut = "m", .selected = track.muted })) app.core.apiSetTrackMuted(track_index, !track.muted);
-        if (zgui.menuItem("Record arm", .{ .shortcut = "r", .selected = app.core.session.isArmed(track_index) })) app.core.apiSetTrackArmed(track_index, !app.core.session.isArmed(track_index));
-        zgui.endPopup();
-    }
+    if (chrome.left_clicked or chrome.right_clicked) switch (trackMouseAction(
+        chrome.right_clicked,
+        zgui.isKeyDown(.mod_shift),
+        zgui.isKeyDown(.mod_ctrl),
+        zgui.isKeyDown(.mod_alt),
+    )) {
+        .instrument => app.core.openTrack(track_index),
+        .piano => app.core.openStepEditor(track_index),
+        .mute => app.core.apiSetTrackMuted(track_index, !track.muted),
+        .fx => spectrum_ed.switchToTrack(&app.core, track_index),
+        .solo => app.core.apiSetTrackSoloed(track_index, !track.soloed),
+        .replace_instrument => app.core.openInstrumentPicker(track_index, true),
+        .arm => app.core.apiSetTrackArmed(track_index, !app.core.session.isArmed(track_index)),
+        .preset => @import("../../ui/editors/preset_picker.zig").openForTrack(&app.core, track_index),
+    };
     const draw_list = chrome.draw;
     const origin = chrome.origin;
     const width = chrome.width;
