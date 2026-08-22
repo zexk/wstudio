@@ -420,65 +420,27 @@ fn onMainThread(_: *const abi.Plugin) callconv(.c) void {
     state.gain += 0.25;
 }
 
-const plugin: abi.Plugin = .{
-    .desc = &descriptor,
-    .plugin_data = &state,
-    .init = pluginInit,
-    .destroy = pluginDestroy,
-    .activate = pluginActivate,
-    .deactivate = pluginDeactivate,
-    .start_processing = startProcessing,
-    .stop_processing = stopProcessing,
-    .reset = reset,
-    .process = process,
-    .get_extension = getExtension,
-    .on_main_thread = onMainThread,
-};
+fn makePlugin(desc: *const abi.PluginDescriptor) abi.Plugin {
+    return .{
+        .desc = desc,
+        .plugin_data = &state,
+        .init = pluginInit,
+        .destroy = pluginDestroy,
+        .activate = pluginActivate,
+        .deactivate = pluginDeactivate,
+        .start_processing = startProcessing,
+        .stop_processing = stopProcessing,
+        .reset = reset,
+        .process = process,
+        .get_extension = getExtension,
+        .on_main_thread = onMainThread,
+    };
+}
 
-const instrument_plugin: abi.Plugin = .{
-    .desc = &instrument_descriptor,
-    .plugin_data = &state,
-    .init = pluginInit,
-    .destroy = pluginDestroy,
-    .activate = pluginActivate,
-    .deactivate = pluginDeactivate,
-    .start_processing = startProcessing,
-    .stop_processing = stopProcessing,
-    .reset = reset,
-    .process = process,
-    .get_extension = getExtension,
-    .on_main_thread = onMainThread,
-};
-
-const hybrid_plugin: abi.Plugin = .{
-    .desc = &hybrid_descriptor,
-    .plugin_data = &state,
-    .init = pluginInit,
-    .destroy = pluginDestroy,
-    .activate = pluginActivate,
-    .deactivate = pluginDeactivate,
-    .start_processing = startProcessing,
-    .stop_processing = stopProcessing,
-    .reset = reset,
-    .process = process,
-    .get_extension = getExtension,
-    .on_main_thread = onMainThread,
-};
-
-const mono_plugin: abi.Plugin = .{
-    .desc = &mono_descriptor,
-    .plugin_data = &state,
-    .init = pluginInit,
-    .destroy = pluginDestroy,
-    .activate = pluginActivate,
-    .deactivate = pluginDeactivate,
-    .start_processing = startProcessing,
-    .stop_processing = stopProcessing,
-    .reset = reset,
-    .process = process,
-    .get_extension = getExtension,
-    .on_main_thread = onMainThread,
-};
+const plugin = makePlugin(&descriptor);
+const instrument_plugin = makePlugin(&instrument_descriptor);
+const hybrid_plugin = makePlugin(&hybrid_descriptor);
+const mono_plugin = makePlugin(&mono_descriptor);
 
 fn pluginCount(_: *const abi.PluginFactory) callconv(.c) u32 {
     return 4;
