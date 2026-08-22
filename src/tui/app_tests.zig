@@ -8332,6 +8332,25 @@ test "file browser mouse click during live search opens clicked row" {
     try std.testing.expect(std.mem.endsWith(u8, app.browser_dir, "kit"));
 }
 
+test "file browser mouse routes recent-project and bookmark overlays" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.recent_projects.append(app.allocator, try app.allocator.dupe(u8, "one.wsj"));
+    try app.recent_projects.append(app.allocator, try app.allocator.dupe(u8, "two.wsj"));
+    app.view = .file_browser;
+    app.browser_recent_mode = true;
+
+    app.handleMouse(.{ .x = 4, .y = app_mod.content_top + 2, .button = .none, .kind = .scroll_down }, 80, 24, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.recent_project_cursor);
+
+    app.browser_recent_mode = false;
+    app.browser_bookmark_mode = true;
+    try app.bookmarks.append(app.allocator, .{ .path = try app.allocator.dupe(u8, "one"), .is_dir = true });
+    try app.bookmarks.append(app.allocator, .{ .path = try app.allocator.dupe(u8, "two"), .is_dir = true });
+    app.handleMouse(.{ .x = 4, .y = app_mod.content_top + 2, .button = .none, .kind = .scroll_down }, 80, 24, 0);
+    try std.testing.expectEqual(@as(usize, 1), app.bookmark_cursor);
+}
+
 test "file browser: enter descends into a directory, h/backspace returns" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();

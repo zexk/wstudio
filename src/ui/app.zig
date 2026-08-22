@@ -2644,7 +2644,36 @@ pub const App = struct {
     /// File browser: click a row to descend into it or activate it (same as
     /// enter/l/space); scroll moves the highlight, Ctrl ten entries.
     fn browserMouse(self: *App, ev: modal_mod.MouseEvent, row: usize) void {
-        if (self.browser_bookmark_mode) return; // keyboard-only overlay
+        if (self.browser_recent_mode) {
+            switch (ev.kind) {
+                .press => {
+                    if (row < 2 or ev.button != .left) return;
+                    const idx = self.recent_project_scroll + (row - 2);
+                    if (idx >= self.recent_projects.items.len) return;
+                    self.recent_project_cursor = idx;
+                    self.handleRecentProjectKey(.enter);
+                },
+                .scroll_up => self.recent_project_cursor -|= if (ev.ctrl) 10 else 1,
+                .scroll_down => self.recent_project_cursor = @min(self.recent_project_cursor +| (if (ev.ctrl) @as(usize, 10) else 1), self.recent_projects.items.len -| 1),
+                else => {},
+            }
+            return;
+        }
+        if (self.browser_bookmark_mode) {
+            switch (ev.kind) {
+                .press => {
+                    if (row < 2) return;
+                    const idx = self.bookmark_scroll + (row - 2);
+                    if (idx >= self.bookmarks.items.len) return;
+                    self.bookmark_cursor = idx;
+                    self.handleBookmarkListKey(if (ev.button == .right) .{ .char = 'd' } else .enter);
+                },
+                .scroll_up => self.bookmark_cursor -|= if (ev.ctrl) 10 else 1,
+                .scroll_down => self.bookmark_cursor = @min(self.bookmark_cursor +| (if (ev.ctrl) @as(usize, 10) else 1), self.bookmarks.items.len -| 1),
+                else => {},
+            }
+            return;
+        }
         switch (ev.kind) {
             .press => {
                 if (row < 2) return;
