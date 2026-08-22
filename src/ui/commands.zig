@@ -93,22 +93,22 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "clip-gain",   .desc = "[<dB>]  audio-region gain at arrangement cursor (-60..24)", .run = wrap(commands_mixer.cmdClipGain) },
     .{ .name = "clip-fade",   .desc = "[<in-seconds> <out-seconds> [linear|equal_power]]  audio-region edge fades", .run = wrap(commands_mixer.cmdClipFade) },
     .{ .name = "clip-stretch", .desc = "[<ratio>]  audio-region time stretch (0.125 to 8)", .run = wrap(commands_mixer.cmdClipStretch) },
-    .{ .name = "clip-reverse", .desc = "toggle reversed audio-region playback", .run = wrap(commands_mixer.cmdClipReverse) },
+    .{ .name = "clip-reverse", .desc = "toggle reversed audio-region playback (alias for :reverse)", .run = wrap(commands_mixer.cmdClipReverse) },
     .{ .name = "clip-slip",   .desc = "<signed-seconds>  move audio inside its region", .run = wrap(commands_mixer.cmdClipSlip) },
     .{ .name = "clip-layer",  .desc = "[<0-255>]  inspect or set arrangement clip layer", .run = wrap(commands_mixer.cmdClipLayer) },
     .{ .name = "crossfade",   .desc = "crossfade overlapping audio layers at cursor", .run = wrap(commands_mixer.cmdCrossfade) },
     .{ .name = "consolidate", .desc = "render cursor audio region edits into one source", .run = wrap(commands_mixer.cmdConsolidate) },
     .{ .name = "take",        .desc = "[next|prev]  cycle alternate recordings on audio region", .run = wrap(commands_mixer.cmdTake) },
     .{ .name = "comp",        .desc = "<take> <start-beat> <end-beat>  splice alternate take range", .run = wrap(commands_mixer.cmdComp) },
-    .{ .name = "import-audio", .desc = "<file>  drop an audio file on the cursor track's lane at the arrangement cursor", .run = wrap(commands_load.cmdImportAudio) },
+    .{ .name = "import-audio", .desc = "<file>  drop audio on the arrangement (alias for :load)", .run = wrap(commands_load.cmdImportAudio) },
     .{ .name = "load",        .desc = "[file]  load the WAV/SF2 type for the current view and selected instrument; omit the file to browse", .run = wrap(commands_load.cmdLoad) },
     .{ .name = "clap-instrument", .desc = "<plugin-id> <path>  load a CLAP instrument on the cursor track", .run = wrap(cmdClapInstrument) },
     .{ .name = "clap-fx",     .desc = "<plugin-id> <path>  append a CLAP effect to the cursor track", .run = wrap(cmdClapFx) },
     .{ .name = "clap-param",  .desc = "<1-based-index> [value]  inspect or set a CLAP instrument parameter", .run = wrap(cmdClapParam) },
     .{ .name = "clap-gui",    .desc = "toggle the current CLAP instrument or focused effect's native GUI", .run = wrap(cmdClapGui) },
     .{ .name = "vst3-gui",    .desc = "toggle the current VST3 instrument or focused effect's native GUI", .run = wrap(cmdVst3Gui) },
-    .{ .name = "sf-preset",   .desc = "<bank> <program>  jump to a SoundFont preset by its MIDI bank/program number", .run = wrap(commands_load.cmdSfPreset), .scope = .{ .soundfont = true } },
-    .{ .name = "library",     .desc = "<name>  load a bundled acoustic instrument (f browses them)", .run = wrap(commands_load.cmdLibrary), .scope = .{ .acoustic = true } },
+    .{ .name = "sf-preset",   .desc = "<bank> <program>  jump to a SoundFont preset (alias for :preset)", .run = wrap(commands_load.cmdSfPreset), .scope = .{ .soundfont = true } },
+    .{ .name = "library",     .desc = "<name>  load a bundled acoustic instrument (alias for :preset)", .run = wrap(commands_load.cmdLibrary), .scope = .{ .acoustic = true } },
     .{ .name = "slice",       .desc = "<n>  equal-divide the slicer's loaded clip into n slices (1-64)", .run = wrap(commands_load.cmdSlice), .scope = .{ .slicer = true } },
     .{ .name = "chop",        .desc = "[1-9]  chop the slicer's clip at detected transients (sensitivity, default 5)", .run = wrap(commands_load.cmdChop), .scope = .{ .slicer = true } },
     .{ .name = "chop-random", .desc = "[n]  roll the dice: chop the slicer's clip into n uneven slices (default 8)", .run = wrap(commands_load.cmdChopRandom), .scope = .{ .slicer = true } },
@@ -154,7 +154,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "humanize",    .desc = "[amount]  jitter the pattern's note timing/velocity 0-100% (default 15)", .run = wrap(cmdHumanize), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "quantize",    .desc = "[strength]  snap the pattern's notes to the current grid 0-100% (default 100, hard snap)", .run = wrap(cmdQuantize), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "swing",       .desc = "[percent]  piano-roll pattern swing 50-75% (default 50, straight) - matches the drum machine's", .run = wrap(commands_pattern.cmdSwing), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
-    .{ .name = "reverse",     .desc = "retrograde: mirror the pattern in time (visual-mode r reverses just the selection)", .run = wrap(commands_pattern.cmdReverse), .scope = .{ .drum = true, .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "reverse",     .desc = "reverse the audio clip at the arrangement cursor, or mirror the current pattern in time", .run = wrap(cmdReverse) },
     .{ .name = "invert",      .desc = "[pitch]  mirror the pattern around a pitch axis (default: its first note) - :reverse's vertical twin", .run = wrap(commands_pattern.cmdInvert), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "double",      .desc = "copy the pattern after itself and double the loop length - vary the back half from there", .run = wrap(commands_pattern.cmdDouble), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "fit",         .desc = "shrink or grow the loop to the bar the last note ends in", .run = wrap(commands_pattern.cmdFit), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
@@ -180,11 +180,13 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "snap-scale",  .desc = "[<root> [<type>]]  pull every off-scale note onto the nearest tone of the active :scale", .run = wrap(commands_pattern.cmdSnapScale), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "ghost",       .desc = "[on|off]  dim every other melodic track's notes into the piano-roll background", .run = wrap(cmdGhost) },
     .{ .name = "audition",    .desc = "[on|off]  preview the pitch under the piano-roll cursor on every j/k move", .run = wrap(cmdAudition) },
-    .{ .name = "synth-preset", .desc = "[name]  apply a factory or saved synth patch to the cursor track (no args: list names)", .run = wrap(commands_load.cmdSynthPreset), .scope = .{ .synth = true } },
+    .{ .name = "preset",      .desc = "[name|bank program]  choose the current instrument's preset, kit, or library bank", .run = wrap(commands_load.cmdPreset), .scope = .{ .drum = true, .synth = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "preset-save", .desc = "<name>  save the current synth patch or drum kit", .run = wrap(commands_load.cmdPresetSave), .scope = .{ .drum = true, .synth = true } },
+    .{ .name = "synth-preset", .desc = "[name]  apply a synth patch (alias for :preset)", .run = wrap(commands_load.cmdSynthPreset), .scope = .{ .synth = true } },
     .{ .name = "synth-macro", .desc = "<1-4> [name]  name a macro knob on the cursor synth (no name: clear it)", .run = wrap(commands_load.cmdSynthMacro), .scope = .{ .synth = true } },
-    .{ .name = "synth-preset-save", .desc = "<name>  save the cursor track's current synth params as a reusable preset", .run = wrap(commands_load.cmdSynthPresetSave), .scope = .{ .synth = true } },
-    .{ .name = "drum-kit",    .desc = "[name]  apply a factory or saved kit to the cursor drum machine (no args: list names)", .run = wrap(commands_load.cmdDrumKit), .scope = .{ .drum = true } },
-    .{ .name = "drum-kit-save", .desc = "<name>  save the cursor drum machine's pad tuning (name/gain/pan/pitch/ADSR/choke, no audio) as a reusable kit", .run = wrap(commands_load.cmdDrumKitSave), .scope = .{ .drum = true } },
+    .{ .name = "synth-preset-save", .desc = "<name>  save a synth patch (alias for :preset-save)", .run = wrap(commands_load.cmdSynthPresetSave), .scope = .{ .synth = true } },
+    .{ .name = "drum-kit",    .desc = "[name]  apply a drum kit (alias for :preset)", .run = wrap(commands_load.cmdDrumKit), .scope = .{ .drum = true } },
+    .{ .name = "drum-kit-save", .desc = "<name>  save a drum kit (alias for :preset-save)", .run = wrap(commands_load.cmdDrumKitSave), .scope = .{ .drum = true } },
     .{ .name = "split-drums", .desc = "replace the drum machine with one sampler + MIDI track per loaded pad", .run = wrap(commands_tracks.cmdSplitDrums), .scope = .{ .drum = true } },
     .{ .name = "euclid",      .desc = "<pulses|preset> [rotation]  Euclidean rhythm across the cursor lane (:euclid tresillo)", .run = wrap(cmdEuclid), .scope = .{ .drum = true, .slicer = true } },
     .{ .name = "rotate",      .desc = "<steps>  rotate the cursor lane in time, wrapping (negative = earlier)", .run = wrap(cmdRotate), .scope = .{ .drum = true, .slicer = true } },
@@ -204,6 +206,11 @@ pub fn run(app: *App, text: []const u8) void {
     if (!cmd_mod.dispatch(app.allCmds(), app, text)) {
         app.setStatus("not a command: {s}  (try :help)", .{text});
     }
+}
+
+fn cmdReverse(app: *App, args: []const u8) void {
+    if (app.view == .arrangement) return commands_mixer.cmdClipReverse(app, args);
+    commands_pattern.cmdReverse(app, args);
 }
 
 /// Vim-style quit guard: refuse while the session holds edits the project
@@ -892,13 +899,13 @@ test ":write reports the expanded path, not the literal ~, on failure" {
     try std.testing.expect(std.mem.indexOf(u8, status, "~") == null);
 }
 
-test ":synth-preset applies a factory patch to the cursor track's synth" {
+test ":preset applies a factory patch to the cursor track's synth" {
     var app = try App.init(std.testing.allocator, std.testing.io);
     defer app.deinit();
     try app.session.setInstrument(0, .poly_synth);
 
     var cmd_buf: [80]u8 = undefined;
-    const cmd = try std.fmt.bufPrint(&cmd_buf, ":synth-preset acid-bass", .{});
+    const cmd = try std.fmt.bufPrint(&cmd_buf, ":preset acid-bass", .{});
     for (cmd) |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
 

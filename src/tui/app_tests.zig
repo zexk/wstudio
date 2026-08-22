@@ -3739,10 +3739,14 @@ test "audio region gain and fades edit at arrangement cursor and undo" {
 
     commands.run(&app, "clip-gain -6");
     commands.run(&app, "clip-fade 0.25 0.5");
+    commands.run(&app, "reverse");
     const audio = &app.session.arrangement.lane(0).?.clips.items[0].content.audio;
     try std.testing.expectApproxEqAbs(@as(f32, -6), audio.gain_db, 1e-6);
     try std.testing.expectEqual(@as(u64, 12_000), audio.fade_in_frames);
     try std.testing.expectEqual(@as(u64, 24_000), audio.fade_out_frames);
+    try std.testing.expect(audio.reverse);
+    history.doUndo(&app);
+    try std.testing.expect(!app.session.arrangement.lane(0).?.clips.items[0].content.audio.reverse);
 
     history.doUndo(&app);
     try std.testing.expectApproxEqAbs(@as(f32, -6), app.session.arrangement.lane(0).?.clips.items[0].content.audio.gain_db, 1e-6);
@@ -7981,32 +7985,23 @@ test "Tab cycles mnemonic command names and ignores compatibility aliases" {
 test "suggestion popup highlight tracks the completed candidate" {
     var app = try testApp(); // synth(0), sampler(1), drums(2)
     defer app.deinit();
-    app.cursor = 2; // drum track: "d" stem now also matches drum-kit/drum-kit-save
+    app.cursor = 2;
 
-    // The hidden `d` alias (for :track-del) never wins a completion. Melodic
-    // commands are also out of scope on this drum track.
-    for (":d") |c| app.handleKey(.{ .char = c }, 0);
+    for (":pres") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.tab, 0);
-    try std.testing.expectEqualStrings("drum-kit", app.modal.cmd_buf[0..app.modal.cmd_len]);
-    app.handleKey(.escape, 0);
-
-    for (":dr") |c| app.handleKey(.{ .char = c }, 0);
-    app.handleKey(.tab, 0); // -> "drum-kit", with drum-kit-save behind it
-    try std.testing.expectEqualStrings("drum-kit", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expectEqualStrings("preset", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
     var buf: [32 * 1024]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     try tui_mod.draw(&app, &w, .{ .cols = 100, .rows = 30 });
     const frame = w.buffered();
 
-    // The row actually highlighted must be the one the buffer holds, not
-    // the row one slot further down that a hidden-alias-inflated cycle
-    // index would land on (drum-kit-save) - see suggestionSelected.
+    // Highlight follows completed command rather than next candidate.
     var want_buf: [32]u8 = undefined;
-    const want_row = std.fmt.bufPrint(&want_buf, "{s}  {s: <16}", .{ style.sel, "drum-kit" }) catch unreachable;
+    const want_row = std.fmt.bufPrint(&want_buf, "{s}  {s: <16}", .{ style.sel, "preset" }) catch unreachable;
     try std.testing.expect(std.mem.indexOf(u8, frame, want_row) != null);
     var wrong_buf: [32]u8 = undefined;
-    const wrong_row = std.fmt.bufPrint(&wrong_buf, "{s}  {s: <16}", .{ style.sel, "drum-kit-save" }) catch unreachable;
+    const wrong_row = std.fmt.bufPrint(&wrong_buf, "{s}  {s: <16}", .{ style.sel, "preset-save" }) catch unreachable;
     try std.testing.expect(std.mem.indexOf(u8, frame, wrong_row) == null);
 }
 
@@ -8625,7 +8620,7 @@ test "loading a standalone sample restores prior sampler state on undo" {
     try std.testing.expectEqual(old_root_note, app.session.racks.items[0].instrument.sampler.root_note);
 }
 
-test ":load in arrangement refuses without a sampler track, then targets a whole clip" {
+test ":load in arrangement imports audio unless a sampler track targets a whole clip" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -8635,7 +8630,9 @@ test ":load in arrangement refuses without a sampler track, then targets a whole
     app.view = .arrangement;
     for (":load") |c| app.handleKey(.{ .char = c }, 0);
     app.handleKey(.enter, 0);
-    try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "load: select");
+    try std.testing.expectEqual(AppView.file_browser, app.view);
+    try std.testing.expectEqual(app_mod.BrowserPurpose.import_audio, app.browser_purpose);
+    app.handleKey(.escape, 0);
 
     try app.session.setInstrument(0, .sampler);
     for (":load") |c| app.handleKey(.{ .char = c }, 0);

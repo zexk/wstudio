@@ -40,7 +40,7 @@ release tarball links libsndfile dynamically, so a distribution package of it
 and Arm64 archives carry their own DLLs. Once running: `enter` on a blank track
 opens the
 instrument picker, `space` plays/stops, and `:help` lists every command.
-Choosing `Acoustic` starts on the bundled grand piano. Use `:library <name>`
+Choosing `Acoustic` starts on the bundled grand piano. Use `:preset <name>`
 or press `f` to browse the bundled pianos, organ, guitars, basses, winds,
 strings, harp, and mallets.
 `SoundFont` is the separate instrument for your own `.sf2` banks: `:load`

@@ -113,14 +113,15 @@ pub fn completeArgument(self: *App, buf: []const u8, name_end: usize) void {
     if (std.mem.indexOfScalar(u8, arg, ' ') != null) return;
 
     var name_buf: [96][]const u8 = undefined;
-    if (std.mem.eql(u8, name, "drum-kit")) {
+    const active = commands_load.activeScope(self);
+    if (std.mem.eql(u8, name, "drum-kit") or (std.mem.eql(u8, name, "preset") and active == .drum)) {
         var n: usize = 0;
         for (ws.dsp.drum_kit.variants) |v| {
             name_buf[n] = v.name;
             n += 1;
         }
         self.cycleCompletion(name_end + 1, arg, .drum_kit, name_buf[0..n]);
-    } else if (std.mem.eql(u8, name, "synth-preset")) {
+    } else if (std.mem.eql(u8, name, "synth-preset") or (std.mem.eql(u8, name, "preset") and active == .synth)) {
         var n: usize = 0;
         for (self.user_synth_presets.items) |p| {
             if (n >= name_buf.len) break;

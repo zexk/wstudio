@@ -253,7 +253,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("(insert) esc", "back to normal - while playing, hits recorded at the playhead");
     t.group("SOUND AND PATTERNS");
     t.key("f",            "kit picker - factory + saved kits, / filters by name/tag/author, d deletes a save");
-    t.key(":drum-kit-save", "<name>  save pads 0-7's tuning (name/gain/pan/pitch/ADSR/choke, no audio) as a reusable kit");
+    t.key(":preset-save",   "<name>  save pads 0-7's tuning (name/gain/pan/pitch/ADSR/choke, no audio) as a reusable kit");
     t.key(":spread",      "[semitones]  ramp pitch across the loaded pads, one step each (default 1)");
     t.key("R",            "rename current pad (opens :rename <n>, 8 chars max)");
     t.key("e",            "open sampler editor for current pad");
@@ -358,8 +358,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("a (in picker)", "audition the highlighted bank/preset immediately; the switch commits either way");
     t.key("esc / e",      "back to the tracks view");
     t.key(":load",        "[file.sf2]  load a SoundFont into the cursor track (omit the file to browse; SoundFont tracks only)");
-    t.key(":library", "<name>  load a bundled sample bank; f browses them (Acoustic tracks only)");
-    t.key(":sf-preset",   "<bank> <program>  jump straight to a preset by its MIDI bank/program number");
+    t.key(":preset",      "<name> or <bank> <program>  choose an Acoustic bank or SoundFont preset");
 
     t.taggedSection(.synth_editor, "SYNTH EDITOR");
     t.key("tab",          "cycle subview: main params / mod matrix");
@@ -377,7 +376,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("f",            "preset picker - factory + saved patches, / filters by name/tag/author, d deletes a save");
     t.key("a (in picker)", "audition the highlighted synth preset with C3; esc restores the original sound");
     t.key("/",            "fuzzy-search param names across both subviews, n / N repeat forward / backward");
-    t.key(":synth-preset-save", "<name>  save the current params as a reusable preset");
+    t.key(":preset-save", "<name>  save the current params as a reusable preset");
     t.push(dim ++ "  ARP and ENV 1-3 sections sit in the main subview (j/k reaches them).", .{});
     t.push(dim ++ "  effects live on the track's own FX chain (s), not inside the synth.", .{});
     t.push(dim ++ "  MATRIX rows route a mod source (lfo 1-3/envs/velocity/keytrack/wheel/macros)", .{});
@@ -445,8 +444,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("j / k",        "move between track lanes");
     t.key("enter",        "stamp the live pattern as a clip - HOLD it and h/l resize the new clip");
     t.key("e",            "edit melodic clip in the piano roll (edits save into the clip)");
-    t.key(":load",        "[file.wav]  load a WAV onto a sampler track and stamp it whole at the cursor bar");
-    t.key(":import-audio", "<file>  drop an audio file straight on the cursor lane (an empty track becomes an Audio track)");
+    t.key(":load",        "[file.wav]  stamp a sampler clip, or drop audio straight on any other cursor lane");
     t.key("[ / ]",        "cycle drum/slicer pattern variant to stamp");
     t.key("x",            "delete clip at cursor");
     t.key("y / p",        "yank / paste clip (matching track kind)");

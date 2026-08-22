@@ -315,7 +315,11 @@ pub fn cmdDrumKitSave(app: *App, args: []const u8) void {
 /// Public so empty editors can reuse this routing for enter.
 pub fn cmdLoad(app: *App, args: []const u8) void {
     switch (app.view) {
-        .arrangement => return cmdLoadClip(app, args),
+        .arrangement => {
+            if (app.cursor < app.session.racks.items.len and app.session.racks.items[app.cursor].instrument == .sampler)
+                return cmdLoadClip(app, args);
+            return cmdImportAudio(app, args);
+        },
         .synth_editor => return cmdLoadWavetable(app, args),
         .slicer_grid => return cmdLoadSlice(app, args),
         // The editor is shared by both soundfont kinds; only the .sf2 one
@@ -336,6 +340,24 @@ pub fn cmdLoad(app: *App, args: []const u8) void {
         // so point at the two ways to pick one instead.
         .acoustic => app.setStatus("load: acoustic tracks pick a bundled bank - f: browse, or :library <name>", .{}),
         .any => app.setStatus("load: select an instrument track first", .{}),
+    }
+}
+
+pub fn cmdPreset(app: *App, args: []const u8) void {
+    switch (activeScope(app)) {
+        .synth => cmdSynthPreset(app, args),
+        .drum => cmdDrumKit(app, args),
+        .soundfont => cmdSfPreset(app, args),
+        .acoustic => cmdLibrary(app, args),
+        else => app.setStatus("preset: select a synth, drum, SoundFont, or acoustic track first", .{}),
+    }
+}
+
+pub fn cmdPresetSave(app: *App, args: []const u8) void {
+    switch (activeScope(app)) {
+        .synth => cmdSynthPresetSave(app, args),
+        .drum => cmdDrumKitSave(app, args),
+        else => app.setStatus("preset-save: select a synth or drum track first", .{}),
     }
 }
 

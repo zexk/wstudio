@@ -976,10 +976,10 @@ fn stampClip(app: *App) void {
             app.setStatus("empty track - insert an instrument first", .{});
             return;
         },
-        // There is no live pattern to stamp - `:import-audio` and recording
+        // There is no live pattern to stamp - `:load` and recording
         // are what put clips on an audio lane.
         .audio => {
-            app.setStatus("audio track - record or :import-audio instead", .{});
+            app.setStatus("audio track - record or :load instead", .{});
             return;
         },
         else => {},
