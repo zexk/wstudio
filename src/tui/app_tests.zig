@@ -57,10 +57,15 @@ fn testApp() !App {
     return app;
 }
 
-fn pianoMouseApp() !App {
+fn pianoRollApp() !App {
     var app = try testApp();
     app.piano_track = 0;
     app.view = .piano_roll;
+    return app;
+}
+
+fn pianoMouseApp() !App {
+    var app = try pianoRollApp();
     app.piano_scroll_step = 0;
     app.piano_scroll_pitch = 72;
     return app;
@@ -70,6 +75,14 @@ fn drumGridApp() !App {
     var app = try testApp();
     app.view = .drum_grid;
     app.drum_track = 2;
+    return app;
+}
+
+fn slicerGridApp() !App {
+    var app = try testApp();
+    try app.session.setInstrument(0, .slicer);
+    app.slicer_track = 0;
+    app.view = .slicer_grid;
     return app;
 }
 
@@ -914,11 +927,8 @@ test "bpm-sync warps a slicer for tempo and spends its pitch on the project key"
 }
 
 test "slicer grid rows start where the mouse hit-test looks for them" {
-    var app = try testApp();
+    var app = try slicerGridApp();
     defer app.deinit();
-    try app.session.setInstrument(0, .slicer);
-    app.slicer_track = 0;
-    app.view = .slicer_grid;
     try installSlicerTestClip(&app);
     commands.run(&app, "slice 8");
 
@@ -942,11 +952,8 @@ test "slicer grid rows start where the mouse hit-test looks for them" {
 }
 
 test "slicer grid: a click past the 256th step lands on it instead of panicking" {
-    var app = try testApp();
+    var app = try slicerGridApp();
     defer app.deinit();
-    try app.session.setInstrument(0, .slicer);
-    app.slicer_track = 0;
-    app.view = .slicer_grid;
     try installSlicerTestClip(&app);
     commands.run(&app, "slice 8");
     app.slicerInst().setStepCount(512);
@@ -974,11 +981,8 @@ test "slicer grid: a click past the 256th step lands on it instead of panicking"
 }
 
 test "slicer grid: navigation and per-slice param nudges stay within bounds" {
-    var app = try testApp();
+    var app = try slicerGridApp();
     defer app.deinit();
-    try app.session.setInstrument(0, .slicer);
-    app.slicer_track = 0;
-    app.view = .slicer_grid;
     app.slicerInst().sliceInto(4);
 
     app.slicer_cursor = .{ 0, 0 };
@@ -999,11 +1003,8 @@ test "slicer grid: navigation and per-slice param nudges stay within bounds" {
 }
 
 test "slicer grid: q/Q chop shortcuts and A switches playback mode" {
-    var app = try testApp();
+    var app = try slicerGridApp();
     defer app.deinit();
-    try app.session.setInstrument(0, .slicer);
-    app.slicer_track = 0;
-    app.view = .slicer_grid;
 
     commands.run(&app, "slice 8");
     for ("qQA") |c| _ = slicer_ed.handleKey(&app, .{ .char = c });
@@ -1025,11 +1026,8 @@ test "slicer grid: q/Q chop shortcuts and A switches playback mode" {
 }
 
 test "slicer grid: velocity cycle + fine nudge on an active step only" {
-    var app = try testApp();
+    var app = try slicerGridApp();
     defer app.deinit();
-    try app.session.setInstrument(0, .slicer);
-    app.slicer_track = 0;
-    app.view = .slicer_grid;
     app.slicerInst().sliceInto(2);
     app.slicer_cursor = .{ 0, 0 };
 
@@ -1049,11 +1047,8 @@ test "slicer grid: velocity cycle + fine nudge on an active step only" {
 }
 
 test "slicer grid: parameter locks, per-slice loop, and grid zoom" {
-    var app = try testApp();
+    var app = try slicerGridApp();
     defer app.deinit();
-    try app.session.setInstrument(0, .slicer);
-    app.slicer_track = 0;
-    app.view = .slicer_grid;
     app.slicerInst().sliceInto(2);
     app.slicer_cursor = .{ 0, 4 };
 
@@ -1119,11 +1114,8 @@ test "slicer grid: parameter locks, per-slice loop, and grid zoom" {
 }
 
 test "slicer grid: advancing entry, pattern double, and source-order sequence" {
-    var app = try testApp();
+    var app = try slicerGridApp();
     defer app.deinit();
-    try app.session.setInstrument(0, .slicer);
-    app.slicer_track = 0;
-    app.view = .slicer_grid;
     app.slicerInst().sliceInto(4);
     app.slicerInst().setStepCount(8);
     // One cell per storage step - see the drum grid's own advancing-entry test.
@@ -1153,11 +1145,8 @@ test "slicer grid: advancing entry, pattern double, and source-order sequence" {
 }
 
 test "slicer grid: undo restores steps AND chop layout through one stack" {
-    var app = try testApp();
+    var app = try slicerGridApp();
     defer app.deinit();
-    try app.session.setInstrument(0, .slicer);
-    app.slicer_track = 0;
-    app.view = .slicer_grid;
     try installSlicerTestClip(&app);
     commands.run(&app, "slice 4");
     app.slicer_cursor = .{ 1, 3 };
@@ -1206,11 +1195,8 @@ test "opening a shorter slicer clamps stale slice selection" {
 }
 
 test "slicer grid: split shifts programming down, merge folds it back" {
-    var app = try testApp();
+    var app = try slicerGridApp();
     defer app.deinit();
-    try app.session.setInstrument(0, .slicer);
-    app.slicer_track = 0;
-    app.view = .slicer_grid;
     app.slicerInst().sliceInto(2);
     app.slicerInst().toggleStep(1, 6);
 
@@ -1229,11 +1215,8 @@ test "slicer grid: split shifts programming down, merge folds it back" {
 }
 
 test "slicer grid: visual-line range yank/paste and dot-repeat" {
-    var app = try testApp();
+    var app = try slicerGridApp();
     defer app.deinit();
-    try app.session.setInstrument(0, .slicer);
-    app.slicer_track = 0;
-    app.view = .slicer_grid;
     app.slicerInst().sliceInto(2);
     app.slicerInst().toggleStep(0, 0);
     app.slicerInst().toggleStep(1, 1);
@@ -1261,11 +1244,8 @@ test "slicer grid: visual-line range yank/paste and dot-repeat" {
 }
 
 test "slicer grid: e opens the sampler editor on the cursor slice and returns" {
-    var app = try testApp();
+    var app = try slicerGridApp();
     defer app.deinit();
-    try app.session.setInstrument(0, .slicer);
-    app.slicer_track = 0;
-    app.view = .slicer_grid;
     app.slicerInst().sliceInto(4);
     app.slicer_cursor = .{ 2, 0 };
 
@@ -1286,11 +1266,8 @@ test "slicer grid: e opens the sampler editor on the cursor slice and returns" {
 }
 
 test "slicer grid: variant bank keys [ ] N D, undoable as one stack" {
-    var app = try testApp();
+    var app = try slicerGridApp();
     defer app.deinit();
-    try app.session.setInstrument(0, .slicer);
-    app.slicer_track = 0;
-    app.view = .slicer_grid;
     app.slicerInst().sliceInto(4);
     app.slicer_cursor = .{ 0, 0 };
     _ = slicer_ed.handleKey(&app, .enter); // A: slice 0 step 0
@@ -1313,11 +1290,8 @@ test "slicer grid: variant bank keys [ ] N D, undoable as one stack" {
 }
 
 test "slicer grid: C cycles the cursor slice's choke group" {
-    var app = try testApp();
+    var app = try slicerGridApp();
     defer app.deinit();
-    try app.session.setInstrument(0, .slicer);
-    app.slicer_track = 0;
-    app.view = .slicer_grid;
     app.slicerInst().sliceInto(2);
     // sliceInto's mono-chop default already puts every slice in group 1.
     app.slicer_cursor = .{ 1, 0 };
@@ -1361,11 +1335,8 @@ test "arrangement: slicer lane stamps a clip and song mode plays it" {
 }
 
 test ":chop finds transients in the default clip or reports none" {
-    var app = try testApp();
+    var app = try slicerGridApp();
     defer app.deinit();
-    try app.session.setInstrument(0, .slicer);
-    app.slicer_track = 0;
-    app.view = .slicer_grid;
     try installSlicerTestClip(&app);
 
     // Whatever the clip turns out to hold, chop must not crash and must leave
@@ -1529,11 +1500,8 @@ test "drum grid +/- resize the loop by musical bars" {
 }
 
 test "slicer source-order sequence lands one slice per grid cell" {
-    var app = try testApp();
+    var app = try slicerGridApp();
     defer app.deinit();
-    try app.session.setInstrument(0, .slicer);
-    app.slicer_track = 0;
-    app.view = .slicer_grid;
     app.slicerInst().sliceInto(4);
 
     // Default sixteenth grid over 32-tick storage: one column is 8 steps, so
@@ -1553,11 +1521,8 @@ test "slicer source-order sequence lands one slice per grid cell" {
 }
 
 test "slicer grid +/- resize the loop by musical bars" {
-    var app = try testApp();
+    var app = try slicerGridApp();
     defer app.deinit();
-    try app.session.setInstrument(0, .slicer);
-    app.slicer_track = 0;
-    app.view = .slicer_grid;
     app.slicer_cursor = .{ 0, 0 };
     const sl = app.slicerInst();
     const start = sl.step_count;
@@ -1802,10 +1767,8 @@ test "drum grid lowercase p pastes the yanked pattern too" {
 }
 
 test "piano roll visual mode selects a step range for y/d/P" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.length_beats = 8.0;
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 }); // step 0
@@ -1843,10 +1806,8 @@ test "piano roll visual mode selects a step range for y/d/P" {
 }
 
 test "piano roll chord stamp: bare cc is root position, a count prefix inverts" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.length_beats = 4.0;
     app.piano_cursor_pitch = 60;
@@ -1877,10 +1838,8 @@ test "piano roll chord stamp: bare cc is root position, a count prefix inverts" 
 }
 
 test "piano roll chord quality cycle: co/cO re-stamp in place without orphans" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.length_beats = 4.0;
     app.piano_cursor_pitch = 60;
@@ -1922,10 +1881,8 @@ test "piano roll chord quality cycle: co/cO re-stamp in place without orphans" {
 }
 
 test "piano roll chord shortcuts stamp requested quality and seed cycle" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     app.piano_cursor_pitch = 60;
 
@@ -1942,10 +1899,8 @@ test "piano roll chord shortcuts stamp requested quality and seed cycle" {
 }
 
 test "piano roll chord voicing cycle: cr/cR spread the same chord in place" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.length_beats = 4.0;
     app.piano_cursor_pitch = 60;
@@ -1991,10 +1946,8 @@ test "piano roll chord voicing cycle: cr/cR spread the same chord in place" {
 }
 
 test "piano roll resizeNoteFromLeft moves the start and keeps the end" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.length_beats = 4.0;
     pp.addNote(.{ .pitch = 60, .start_beat = 1.0, .duration_beat = 1.0, .velocity = 0.6 });
@@ -2021,10 +1974,8 @@ test "piano roll resizeNoteFromLeft moves the start and keeps the end" {
 }
 
 test "piano roll setVelocity (GUI lane drag) writes without its own undo entry" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.length_beats = 4.0;
     pp.addNote(.{ .pitch = 60, .start_beat = 0.25, .duration_beat = 0.25, .velocity = 0.5 });
@@ -2046,10 +1997,8 @@ test "piano roll setVelocity (GUI lane drag) writes without its own undo entry" 
 }
 
 test "piano roll f cycles which per-note field </> edits" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.length_beats = 4.0;
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25, .velocity = 0.5 });
@@ -2112,10 +2061,8 @@ test "piano roll micro-nudge moves onset independently of grid" {
 }
 
 test "piano roll :audition previews the pitch under the cursor on every j/k move" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     app.piano_cursor_pitch = 60;
 
     // Off by default: pitch motion is silent.
@@ -2139,10 +2086,8 @@ test "piano roll :audition previews the pitch under the cursor on every j/k move
 }
 
 test "piano roll visual mode: w/b extend the selection by beat, matching normal-mode jumpBar" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.length_beats = 6.0;
     // Straight grid: 4 steps/beat, w/b's granularity (matches the drum grid's).
@@ -2170,10 +2115,8 @@ test "piano roll visual mode: w/b extend the selection by beat, matching normal-
 }
 
 test "piano roll normal-mode p pastes the most recent yank: range after visual y, pattern after yy" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.length_beats = 8.0;
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 }); // step 0
@@ -2199,10 +2142,8 @@ test "piano roll normal-mode p pastes the most recent yank: range after visual y
 }
 
 test "piano roll operator+motion: d3l / y3l act on a range without entering visual mode" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.length_beats = 8.0;
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 }); // step 0
@@ -2251,10 +2192,8 @@ test "piano roll operator+motion: d3l / y3l act on a range without entering visu
 }
 
 test "piano roll char/word tiers: x deletes the note under the cursor, w/b jump by beat" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.length_beats = 8.0; // straight grid, 4 steps/beat - w/b's granularity
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
@@ -2284,10 +2223,8 @@ test "piano roll char/word tiers: x deletes the note under the cursor, w/b jump 
 }
 
 test "T toggles the piano roll grid between straight and triplet" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.length_beats = 4.0;
 
@@ -2317,10 +2254,8 @@ test "T toggles the piano roll grid between straight and triplet" {
 }
 
 test "piano roll H/L stay one beat on triplet and fine grids" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.length_beats = 4.0;
 
@@ -2340,10 +2275,8 @@ test "piano roll H/L stay one beat on triplet and fine grids" {
 }
 
 test "piano roll n/N step-enter notes and rests by the default note length" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.length_beats = 4.0;
     app.piano_cursor_pitch = 60;
@@ -2368,10 +2301,8 @@ test "piano roll n/N step-enter notes and rests by the default note length" {
 }
 
 test "z and Z select piano roll subdivisions through 1/128" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.length_beats = 16.0;
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
@@ -2411,10 +2342,8 @@ test "z and Z select piano roll subdivisions through 1/128" {
 }
 
 test "piano roll flags an unlinked scratch pattern in song mode, not pattern mode" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     var buf: [32 * 1024]u8 = undefined;
 
     // Pattern mode: the live pattern IS what plays - no scratch warning.
@@ -3015,10 +2944,8 @@ test "automation mouse drag paints and right-drag erases points" {
 }
 
 test "visual mode escape cancels the selection without editing" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
 
@@ -5464,10 +5391,8 @@ test ":monitor selects persistent input monitoring modes" {
 }
 
 test "shared MIDI note routing records only in insert-mode editor views" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     _ = app.session.engine.send(.play);
     var block: [64]types.Sample = undefined;
     app.session.engine.process(&block);
@@ -6939,10 +6864,8 @@ test "arrangement timeline operations clamp at the u32 boundary" {
 }
 
 test "piano roll enter on an empty cell starts a stamp session - j/k pitch, h/l length" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     app.piano_cursor_step = 0;
     app.piano_cursor_pitch = 60;
@@ -6973,10 +6896,8 @@ test "piano roll enter on an empty cell starts a stamp session - j/k pitch, h/l 
 }
 
 test "piano roll enter release drops the stamp session (hold-to-shape)" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     app.piano_cursor_step = 0;
     app.piano_cursor_pitch = 60;
@@ -7006,10 +6927,8 @@ test "piano roll enter release drops the stamp session (hold-to-shape)" {
 }
 
 test "macros: q records, @ replays with a count, @@ repeats the last register" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     app.piano_cursor_step = 0;
     app.piano_cursor_pitch = 60;
@@ -7074,10 +6993,8 @@ test "backtick toggles between the last two workspace contexts" {
 }
 
 test "macros: a self-replaying register terminates via the depth cap" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     app.macro_regs[0][0] = .{ .char = '@' };
     app.macro_regs[0][1] = .{ .char = 'a' };
     app.macro_reg_lens[0] = 2;
@@ -7088,10 +7005,8 @@ test "macros: a self-replaying register terminates via the depth cap" {
 }
 
 test "piano roll visual +/- transpose and </> slide the selection" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
     pp.addNote(.{ .pitch = 64, .start_beat = 0.25, .duration_beat = 0.25 });
@@ -7130,10 +7045,8 @@ test "piano roll visual +/- transpose and </> slide the selection" {
 }
 
 test "piano roll visual enter edits every selected note" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25, .velocity = 0.5 });
     pp.addNote(.{ .pitch = 64, .start_beat = 0.25, .duration_beat = 0.25, .velocity = 0.5 });
@@ -7159,10 +7072,8 @@ test "piano roll visual enter edits every selected note" {
 }
 
 test "piano roll visual edit applies note fields and micro-nudge to selection" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.addNote(.{ .pitch = 60, .start_beat = 0.25, .duration_beat = 0.25, .velocity = 0.5 });
     pp.addNote(.{ .pitch = 64, .start_beat = 0.5, .duration_beat = 0.25, .velocity = 0.5 });
@@ -7183,10 +7094,8 @@ test "piano roll visual edit applies note fields and micro-nudge to selection" {
 }
 
 test "piano roll visual edit shifts by beat/octave and inverts" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
     pp.addNote(.{ .pitch = 67, .start_beat = 0.25, .duration_beat = 0.25 });
@@ -7208,10 +7117,8 @@ test "piano roll visual edit shifts by beat/octave and inverts" {
 }
 
 test "piano roll visual transpose refuses to clamp at the MIDI range edge" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.addNote(.{ .pitch = 127, .start_beat = 0.0, .duration_beat = 0.25 });
     pp.addNote(.{ .pitch = 120, .start_beat = 0.0, .duration_beat = 0.25 });
@@ -7227,10 +7134,8 @@ test "piano roll visual transpose refuses to clamp at the MIDI range edge" {
 }
 
 test "piano roll blockwise visual bounds the selection to the pitch band j/k grows" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.length_beats = 8.0;
     // A three-note chord on step 0. Blockwise selection reaches the bottom
@@ -7258,10 +7163,8 @@ test "piano roll blockwise visual bounds the selection to the pitch band j/k gro
 }
 
 test "piano roll operator+motion stays linewise: d3l ignores the pitch cursor" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.length_beats = 8.0;
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
@@ -7277,10 +7180,8 @@ test "piano roll operator+motion stays linewise: d3l ignores the pitch cursor" {
 }
 
 test "piano roll visual o bounces between the selection's ends" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     app.piano_cursor_step = 0;
 
     app.handleKey(.{ .char = 'v' }, 0);
@@ -7296,10 +7197,8 @@ test "piano roll visual o bounces between the selection's ends" {
 }
 
 test "piano roll count paste tiles the range yank back-to-back" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
     app.piano_cursor_step = 0;
@@ -7338,10 +7237,8 @@ test "pendingCmdText renders operator, count, and visual width" {
 }
 
 test "piano roll M grabs a note; h/l/j/k drag it as one undo step" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     app.piano_cursor_step = 0;
     app.piano_cursor_pitch = 60;
@@ -7369,10 +7266,8 @@ test "piano roll M grabs a note; h/l/j/k drag it as one undo step" {
 }
 
 test "piano roll Y clones a note through the keyboard grab path" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5, .velocity = 0.7 });
     app.piano_cursor_step = 0;
@@ -7395,10 +7290,8 @@ test "piano roll Y clones a note through the keyboard grab path" {
 }
 
 test "piano roll keyboard edits target any cell covered by a note" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0, .velocity = 0.5 });
     app.piano_cursor_pitch = 60;
@@ -7428,10 +7321,8 @@ test "piano roll keyboard edits target any cell covered by a note" {
 }
 
 test "piano roll . repeats the last drag on whatever note sits under the new cursor" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     app.piano_cursor_step = 0;
     app.piano_cursor_pitch = 60;
@@ -7464,10 +7355,8 @@ test "piano roll . repeats the last drag on whatever note sits under the new cur
 }
 
 test "piano roll . repeats a count-scaled velocity nudge and a resize" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     app.piano_cursor_step = 0;
     app.piano_cursor_pitch = 60;
@@ -7495,10 +7384,8 @@ test "piano roll . repeats a count-scaled velocity nudge and a resize" {
 }
 
 test "GUI piano adapters move and resize through editor history" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     const pp = &app.session.racks.items[0].pattern_player.?;
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
 
@@ -7592,10 +7479,8 @@ test "arrangement . repeats the last clip move at the new cursor" {
 }
 
 test "\".\" is a no-op with nothing to repeat, or after switching to a different editor" {
-    var app = try testApp();
+    var app = try pianoRollApp();
     defer app.deinit();
-    app.view = .piano_roll;
-    app.piano_track = 0;
     app.handleKey(.{ .char = '.' }, 0); // nothing yet
     try std.testing.expectEqual(app_mod.RepeatOp.none, app.last_edit);
 
@@ -7820,11 +7705,8 @@ test "R opens the command prompt pre-filled with :rename <n> for a pad in the dr
 }
 
 test "R renames the loaded clip in the slicer grid" {
-    var app = try testApp();
+    var app = try slicerGridApp();
     defer app.deinit();
-    try app.session.setInstrument(0, .slicer);
-    app.slicer_track = 0;
-    app.view = .slicer_grid;
 
     _ = slicer_ed.handleKey(&app, .{ .char = 'R' });
     try std.testing.expectEqual(ws.input.Mode.command, app.modal.mode);
