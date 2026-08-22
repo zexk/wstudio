@@ -65,6 +65,10 @@ fn installSlicerTestClip(app: *App) !void {
     for (&sl.slices) |*p| p.samples = sl.samples;
 }
 
+fn typeKeys(app: *App, keys: []const u8) void {
+    for (keys) |key| app.handleKey(.{ .char = key }, 0);
+}
+
 test "cursor movement clamps to track range, plus one for the master row" {
     var app = try testApp();
     defer app.deinit();
@@ -84,13 +88,13 @@ test "/ fuzzy-searches track names; n/N repeat and wrap around" {
     // Tracks: 0 "untitled track", 1 "samp", 2 "drums" (+ master row at 3).
     app.cursor = 0;
 
-    for ("/drs") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/drs");
     try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(@as(usize, 2), app.cursor); // "drums"
 
-    for ("/smp") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/smp");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(usize, 1), app.cursor); // "samp"
 
@@ -103,7 +107,7 @@ test "/ fuzzy-searches track names; n/N repeat and wrap around" {
 
     // A pattern matching two tracks ("untitled track" and "samp" both have
     // 'a'; "drums" doesn't) cycles between them, skipping the non-match.
-    for ("/a") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/a");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(usize, 0), app.cursor); // "untitled track"
     app.handleKey(.{ .char = 'n' }, 0);
@@ -121,7 +125,7 @@ test "arrangement: / fuzzy-searches lane (track) names; n/N repeat and wrap" {
     app.view = .arrangement;
     app.cursor = 0;
 
-    for ("/drs") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/drs");
     try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
@@ -130,7 +134,7 @@ test "arrangement: / fuzzy-searches lane (track) names; n/N repeat and wrap" {
 
     // A pattern matching two lanes ("untitled track" and "samp") cycles
     // between them with n/N, wrapping past "drums".
-    for ("/a") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/a");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(usize, 0), app.cursor); // "untitled track"
     app.handleKey(.{ .char = 'n' }, 0);
@@ -146,12 +150,12 @@ test "/ search: escape cancels without moving the cursor; no match reports a sta
 
     app.handleKey(.{ .char = '/' }, 0);
     try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
-    for ("zzz") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "zzz");
     app.handleKey(.escape, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(@as(usize, 0), app.cursor);
 
-    for ("/zzz") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/zzz");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(usize, 0), app.cursor); // no match - stays put
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "no match") != null);
@@ -165,7 +169,7 @@ test "help view: / search jumps and anchors n/N; ? closes" {
     try std.testing.expect(app.help_scroll > 0); // landed on the TRACKS section
     try std.testing.expectEqual(@as(?usize, null), app.help_search_hit);
 
-    for ("/slicer") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/slicer");
     try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
@@ -195,7 +199,7 @@ test "/ search reports unavailable in a view with nothing to search" {
     app.drum_track = 2;
     app.drum_cursor = .{ 3, 5 };
 
-    for ("/kick") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/kick");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.drum_grid, app.view);
     // Typed pattern chars didn't leak into drum-grid navigation.
@@ -253,7 +257,7 @@ test "instrument picker / narrows instruments and enter inserts match" {
     defer app.deinit();
 
     app.handleKey(.enter, 0);
-    for ("/slice") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/slice");
     try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("slice", app.activeInstrumentFilter());
@@ -294,7 +298,7 @@ test "instrument picker orders matches by score, not by table order" {
     app.handleKey(.enter, 0);
     // "sl" hits Slicer as a contiguous prefix and Sampler as scattered
     // letters, and Sampler is the earlier row in the table.
-    for ("/sl") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/sl");
     app.handleKey(.enter, 0);
 
     var buf: [app_mod.instrument_picker_items.len]app_mod.InstrumentPickerItem = undefined;
@@ -309,7 +313,7 @@ test "instrument picker click during live search submits then inserts clicked ma
     defer app.deinit();
 
     app.handleKey(.enter, 0);
-    for ("/s") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/s");
     try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
 
     app.clickInstrumentPickerItem(1, 0);
@@ -322,7 +326,7 @@ test "instrument picker mouse click during live search exits search mode" {
     defer app.deinit();
 
     app.handleKey(.enter, 0);
-    for ("/s") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/s");
     app.handleMouse(.{ .x = 4, .y = app_mod.content_top + 4, .button = .left, .kind = .press }, 80, 24, 0);
 
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
@@ -803,7 +807,7 @@ test "typed :q quits via the modal layer" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    for (":q") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":q");
     app.handleKey(.enter, 0);
     try std.testing.expect(app.should_quit);
 }
@@ -1494,7 +1498,7 @@ test "drum grid +/- resize the loop by musical bars" {
     try std.testing.expectEqual(start, dm.step_count);
 
     // A count prefix scales the resize by whole bars too.
-    for ("2+") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "2+");
     try std.testing.expectEqual(start + 2 * bar, dm.step_count);
 
     // Shrinking floors at one bar rather than collapsing to a single tick.
@@ -1552,7 +1556,7 @@ test "slicer grid +/- resize the loop by musical bars" {
     try std.testing.expectEqual(start, sl.step_count);
 
     // A count prefix scales the resize by whole bars too.
-    for ("2+") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "2+");
     try std.testing.expectEqual(start + 2 * bar, sl.step_count);
 
     // Shrinking floors at one bar rather than collapsing to a single tick.
@@ -1797,7 +1801,7 @@ test "piano roll visual mode selects a step range for y/d/P" {
     app.piano_cursor_step = 0;
     app.handleKey(.{ .char = 'V' }, 0);
     try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
-    for ("3l") |c| app.handleKey(.{ .char = c }, 0); // extend the selection to step 3
+    typeKeys(&app, "3l"); // extend the selection to step 3
 
     app.handleKey(.{ .char = 'y' }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
@@ -1816,7 +1820,7 @@ test "piano roll visual mode selects a step range for y/d/P" {
     // Select the same range again and delete it - only the untouched note remains.
     app.piano_cursor_step = 0;
     app.handleKey(.{ .char = 'V' }, 0);
-    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "3l");
     app.handleKey(.{ .char = 'd' }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(@as(u16, 3), pp.note_count);
@@ -1911,13 +1915,13 @@ test "piano roll chord shortcuts stamp requested quality and seed cycle" {
     const pp = &app.session.racks.items[0].pattern_player.?;
     app.piano_cursor_pitch = 60;
 
-    for ("c7") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "c7");
     try std.testing.expect(pp.noteAt(71, 0.0) != null);
-    for ("cO") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "cO");
     try std.testing.expect(pp.noteAt(71, 0.0) == null);
     try std.testing.expect(pp.noteAt(69, 0.0) != null);
 
-    for ("cd") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "cd");
     try std.testing.expect(pp.noteAt(63, 0.0) != null);
     try std.testing.expect(pp.noteAt(66, 0.0) != null);
     try std.testing.expect(pp.noteAt(69, 0.0) == null);
@@ -2164,7 +2168,7 @@ test "piano roll normal-mode p pastes the most recent yank: range after visual y
     // Visual range yank, then a plain normal-mode p at the new cursor -
     // no re-entering visual mode required.
     app.piano_cursor_step = 0;
-    for ("V3ly") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "V3ly");
     app.piano_cursor_step = 8;
     app.handleKey(.{ .char = 'p' }, 0);
     try std.testing.expectEqual(@as(u16, 4), pp.note_count);
@@ -2172,7 +2176,7 @@ test "piano roll normal-mode p pastes the most recent yank: range after visual y
     try std.testing.expect(pp.noteAt(64, 2.25) != null);
 
     // yy makes p the whole-pattern replace again.
-    for ("yy") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "yy");
     pp.clearNotes();
     app.handleKey(.{ .char = 'p' }, 0);
     try std.testing.expectEqual(@as(u16, 4), pp.note_count);
@@ -2192,13 +2196,13 @@ test "piano roll operator+motion: d3l / y3l act on a range without entering visu
     pp.addNote(.{ .pitch = 72, .start_beat = 2.0, .duration_beat = 0.25 }); // step 8, outside
 
     app.piano_cursor_step = 0;
-    for ("y3l") |c| app.handleKey(.{ .char = c }, 0); // y + motion: yank steps 0-3
+    typeKeys(&app, "y3l"); // y + motion: yank steps 0-3
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(@as(u16, 2), app.piano_range_clip.?.count);
     try std.testing.expectEqual(@as(u16, 3), app.piano_cursor_step); // cursor follows the motion
 
     app.piano_cursor_step = 0;
-    for ("d3l") |c| app.handleKey(.{ .char = c }, 0); // d + motion: delete steps 0-3
+    typeKeys(&app, "d3l"); // d + motion: delete steps 0-3
     try std.testing.expect(pp.noteAt(60, 0.0) == null);
     try std.testing.expect(pp.noteAt(64, 0.25) == null);
     try std.testing.expect(pp.noteAt(72, 2.0) != null); // untouched, outside the range
@@ -2217,18 +2221,18 @@ test "piano roll operator+motion: d3l / y3l act on a range without entering visu
     // vim's line-delete where a "line" is the cursor pitch's row - other
     // pitches survive.
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.25 });
-    for ("yy") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "yy");
     try std.testing.expectEqual(@as(u16, 2), app.piano_clip.?.count); // both remaining notes
     app.piano_cursor_pitch = 60;
-    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "dd");
     try std.testing.expectEqual(@as(u16, 1), pp.note_count); // pitch 72 untouched
     try std.testing.expect(pp.noteAt(72, 2.0) != null);
     // dd on an empty row is a no-op: nothing recorded, nothing dirtied.
     const undo_before_noop = app.history.undo_stack.items.len;
-    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "dd");
     try std.testing.expectEqual(undo_before_noop, app.history.undo_stack.items.len);
     app.piano_cursor_pitch = 72;
-    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "dd");
     try std.testing.expectEqual(@as(u16, 0), pp.note_count);
 }
 
@@ -2260,7 +2264,7 @@ test "piano roll char/word tiers: x deletes the note under the cursor, w/b jump 
 
     // dw: delete exactly the current beat's worth of steps (0-3), leaving
     // the note at beat 2 (step 4) untouched.
-    for ("dw") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "dw");
     try std.testing.expect(pp.noteAt(64, 1.0) != null);
     try std.testing.expectEqual(@as(u16, 1), pp.note_count);
 }
@@ -2674,13 +2678,13 @@ test "automation editor operator+motion: d3l / y3l act on a range without enteri
     try std.testing.expectEqual(@as(usize, 3), clip.automation.gain.len);
 
     app.automation_cursor_step = 0;
-    for ("y3l") |c| app.handleKey(.{ .char = c }, 0); // y + motion: yank steps 0-3
+    typeKeys(&app, "y3l"); // y + motion: yank steps 0-3
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(@as(usize, 2), app.automation_range_clip.?.points.len);
     try std.testing.expectEqual(@as(u32, 3), app.automation_cursor_step); // cursor follows the motion
 
     app.automation_cursor_step = 0;
-    for ("d3l") |c| app.handleKey(.{ .char = c }, 0); // d + motion: delete steps 0-3
+    typeKeys(&app, "d3l"); // d + motion: delete steps 0-3
     try std.testing.expectEqual(@as(usize, 1), clip.automation.gain.len); // only step 8 survives
 
     // Escape mid-operator cancels without acting.
@@ -2692,9 +2696,9 @@ test "automation editor operator+motion: d3l / y3l act on a range without enteri
     try std.testing.expectEqual(before, clip.automation.gain.len);
 
     // dd/yy are the tier above w/b's bar range: the whole curve.
-    for ("yy") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "yy");
     try std.testing.expectEqual(@as(usize, 1), app.automation_range_clip.?.points.len);
-    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "dd");
     try std.testing.expectEqual(@as(usize, 0), clip.automation.gain.len);
 }
 
@@ -2947,7 +2951,7 @@ test "automation param mouse click during live search selects lane and leaves se
     automation_ed.switchTo(&app, 0, 0);
     _ = automation_ed.handleKey(&app, .{ .char = 'p' });
 
-    for ("/cutoff") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/cutoff");
     try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
     var cutoff_idx: usize = 0;
     for (ws.dsp.synth.PolySynth.automatable_params, 0..) |p, i| {
@@ -3006,7 +3010,7 @@ test "visual mode escape cancels the selection without editing" {
 
     app.piano_cursor_step = 0;
     app.handleKey(.{ .char = 'v' }, 0);
-    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "3l");
     app.handleKey(.escape, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(@as(?u16, null), app.piano_visual_anchor);
@@ -3054,7 +3058,7 @@ test "drum grid visual-line mode selects a step range across pads for y/d/P" {
     app.drum_cursor = .{ 0, 0 };
     app.handleKey(.{ .char = 'V' }, 0);
     try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
-    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "3l");
     app.handleKey(.{ .char = 'y' }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     // Four grid cells at a sixteenth grid (stride 8) - the range covers whole
@@ -3077,7 +3081,7 @@ test "drum grid visual-line mode selects a step range across pads for y/d/P" {
     // Select again and clear it.
     app.drum_cursor = .{ 0, 0 };
     app.handleKey(.{ .char = 'V' }, 0);
-    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "3l");
     app.handleKey(.{ .char = 'd' }, 0);
     try std.testing.expect(!dm.stepActive(0, 0));
     try std.testing.expect(!dm.stepActive(1, 2));
@@ -3100,7 +3104,7 @@ test "drum grid blockwise visual bounds the selection to the pad band j/k grows"
     app.handleKey(.{ .char = 'v' }, 0);
     try std.testing.expectEqual(@as(?u8, 0), app.drum_visual_pad_anchor);
     app.handleKey(.{ .char = 'j' }, 0);
-    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "3l");
     app.handleKey(.{ .char = 'd' }, 0);
     try std.testing.expect(!dm.stepActive(0, 0));
     try std.testing.expect(!dm.stepActive(1, 1));
@@ -3114,7 +3118,7 @@ test "drum grid blockwise visual bounds the selection to the pad band j/k grows"
     app.drum_cursor = .{ 0, 0 };
     app.handleKey(.{ .char = 'v' }, 0);
     app.handleKey(.{ .char = 'j' }, 0);
-    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "3l");
     app.handleKey(.{ .char = 'y' }, 0);
     app.drum_cursor = .{ 4, 8 };
     app.handleKey(.{ .char = 'p' }, 0);
@@ -3262,7 +3266,7 @@ test "drum grid visual mode yank/paste carries a range wider than the old 64-ste
     // Select steps 0-99 (100 wide) and yank.
     app.drum_cursor = .{ 0, 0 };
     app.handleKey(.{ .char = 'v' }, 0);
-    for ("99l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "99l");
     app.handleKey(.{ .char = 'y' }, 0);
     try std.testing.expectEqual(@as(u16, 200), app.drum_range_clip.?.width);
 
@@ -3341,7 +3345,7 @@ test "drum grid normal-mode p pastes the most recent yank: range after visual y,
     // Visual range yank, then a plain normal-mode p at the new cursor -
     // no re-entering visual mode required.
     app.drum_cursor = .{ 0, 0 };
-    for ("V3ly") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "V3ly");
     app.drum_cursor[1] = 8;
     app.handleKey(.{ .char = 'p' }, 0);
     try std.testing.expect(dm.stepActive(0, 8));
@@ -3349,7 +3353,7 @@ test "drum grid normal-mode p pastes the most recent yank: range after visual y,
     try std.testing.expect(dm.stepActive(1, 10));
 
     // yy makes p the whole-pattern replace again.
-    for ("yy") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "yy");
     dm.toggleStep(3, 14); // extra step the pattern paste should wipe
     app.handleKey(.{ .char = 'p' }, 0);
     try std.testing.expect(!dm.stepActive(3, 14));
@@ -3370,7 +3374,7 @@ test "drum grid operator+motion: d3l / y3l act on a range without entering visua
     dm.toggleStep(3, 40); // outside the range below
 
     app.drum_cursor = .{ 0, 0 };
-    for ("y3l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "y3l");
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     // 3l moves three grid cells; the range covers all four cells it spans, so
     // at a sixteenth grid (stride 8) that is 32 storage steps, not 25.
@@ -3378,7 +3382,7 @@ test "drum grid operator+motion: d3l / y3l act on a range without entering visua
     try std.testing.expectEqual(@as(u16, 24), app.drum_cursor[1]); // cursor follows the motion
 
     app.drum_cursor = .{ 0, 0 };
-    for ("d3l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "d3l");
     try std.testing.expect(!dm.stepActive(0, 0));
     try std.testing.expect(!dm.stepActive(1, 2));
     try std.testing.expect(dm.stepActive(3, 40)); // untouched, outside the range
@@ -3387,14 +3391,14 @@ test "drum grid operator+motion: d3l / y3l act on a range without entering visua
     // vim's line-delete where a "line" is the cursor pad's row - other
     // pads survive.
     dm.toggleStep(2, 5);
-    for ("yy") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "yy");
     try std.testing.expect(app.drum_clip != null);
     app.drum_cursor = .{ 2, 0 };
-    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "dd");
     try std.testing.expect(!dm.stepActive(2, 5));
     try std.testing.expect(dm.stepActive(3, 40)); // other pad untouched
     app.drum_cursor = .{ 3, 0 };
-    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "dd");
     try std.testing.expect(!dm.stepActive(3, 40));
 }
 
@@ -3426,7 +3430,7 @@ test "drum grid char/word tiers: x clears just this cell, w/b jump by beat" {
     try std.testing.expectEqual(@as(u8, 0), app.drum_cursor[1]);
 
     // dw: clear exactly current beat, leaving later steps untouched.
-    for ("dw") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "dw");
     try std.testing.expect(!dm.stepActive(2, 2));
     try std.testing.expect(dm.stepActive(2, 40));
     try std.testing.expect(dm.stepActive(1, 50));
@@ -4008,7 +4012,7 @@ test "arrangement 0: jumps to bar 0 with no pending count, but continues a count
     // '1' then '0' then 'l': should move by 10, not jump to bar 0 and then
     // move by the freshly-reset count of 1.
     app.arr_cursor_bar = 0;
-    for ("10l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "10l");
     try std.testing.expectEqual(@as(u32, 10), app.arr_cursor_bar);
 }
 
@@ -4109,9 +4113,9 @@ test "sampler editor j/k honor a vim count prefix; g/G jump to first/last param"
 
     // Rows, not raw ids: the 4th row down from start is stretch (id 12),
     // which draws in the SAMPLE section despite its late id.
-    for ("3j") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "3j");
     try std.testing.expectEqual(@as(u8, 12), app.sampler_param);
-    for ("2k") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "2k");
     try std.testing.expectEqual(@as(u8, 1), app.sampler_param);
 
     app.handleKey(.{ .char = 'g' }, 0);
@@ -4488,7 +4492,7 @@ test ":help opens on the current view's section; g jumps to COMMANDS; esc closes
     defer app.deinit();
 
     // Opened from the (default) tracks view: lands on TRACKS, not the top.
-    for (":help") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":help");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.help, app.view);
 
@@ -4758,7 +4762,7 @@ test ":track-instrument pushes an undo entry that restores the old instrument an
     pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0 });
 
     app.cursor = 0;
-    for (":track-instrument sampler") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":track-instrument sampler");
     app.handleKey(.enter, 0);
 
     try std.testing.expectEqual(InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[0].instrument));
@@ -4788,7 +4792,7 @@ test ":track-instrument undo recovers a clip cleared by an incompatible-mapping 
     try std.testing.expectEqual(@as(usize, 1), app.session.arrangement.lane(0).?.clips.items.len);
 
     app.cursor = 0;
-    for (":track-instrument slicer") |c| app.handleKey(.{ .char = c }, 0); // no compatible mapping
+    typeKeys(&app, ":track-instrument slicer"); // no compatible mapping
     app.handleKey(.enter, 0);
 
     try std.testing.expectEqual(InstrumentKind.slicer, std.meta.activeTag(app.session.racks.items[0].instrument));
@@ -4806,7 +4810,7 @@ test ":track-instrument <n> <kind> targets track n, leaving the cursor track alo
     // Cursor sits on track 0 (synth); target track 2 (drum_machine) by
     // number instead - mirrors :rename's "[<n>] <name>" shape.
     app.cursor = 0;
-    for (":track-instrument 2 sampler") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":track-instrument 2 sampler");
     app.handleKey(.enter, 0);
 
     try std.testing.expectEqual(InstrumentKind.poly_synth, std.meta.activeTag(app.session.racks.items[0].instrument));
@@ -5293,7 +5297,7 @@ test "tracks visual mode supports counts, endpoints, and anchor swap" {
     app.cursor = 0;
 
     app.handleKey(.{ .char = 'V' }, 0);
-    for ("2j") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "2j");
     try std.testing.expectEqual(@as(usize, 2), app.track_row);
     try std.testing.expectEqual(@as(?usize, 0), app.tracks_visual_anchor);
 
@@ -5310,11 +5314,11 @@ test ":group-add/:rename/:group-del/:track-group/:group-fx" {
     var app = try testApp();
     defer app.deinit();
 
-    for (":group-add") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":group-add");
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("untitled group", app.session.groups[0].?.name);
 
-    for (":track-group 3 1") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":track-group 3 1");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(?u8, 0), app.session.project.tracks.items[2].group);
 
@@ -5326,21 +5330,21 @@ test ":group-add/:rename/:group-del/:track-group/:group-fx" {
         if (std.meta.activeTag(r) == .group) break i;
     } else unreachable;
     app.setTrackRow(group_row);
-    for (":rename 1 drum bus") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":rename 1 drum bus");
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("drum bus", app.session.groups[0].?.name);
 
-    for (":group-fx 1") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":group-fx 1");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.group_spectrum, app.view);
     try std.testing.expectEqual(@as(u8, 0), app.eq_group);
     app.handleKey(.escape, 0);
 
-    for (":track-group 3 none") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":track-group 3 none");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(?u8, null), app.session.project.tracks.items[2].group);
 
-    for (":group-del 1") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":group-del 1");
     app.handleKey(.enter, 0);
     try std.testing.expect(app.session.groups[0] == null);
 }
@@ -5359,15 +5363,15 @@ test ":metronome toggles, and on/off set it explicitly" {
     var app = try testApp();
     defer app.deinit();
 
-    for (":metronome") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":metronome");
     app.handleKey(.enter, 0);
     try std.testing.expect(app.session.metronome_enabled);
 
-    for (":metronome off") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":metronome off");
     app.handleKey(.enter, 0);
     try std.testing.expect(!app.session.metronome_enabled);
 
-    for (":metronome on") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":metronome on");
     app.handleKey(.enter, 0);
     try std.testing.expect(app.session.metronome_enabled);
 }
@@ -5397,14 +5401,14 @@ test ":punch requires A/B bounds and gates recording to their frame range" {
     var app = try testApp();
     defer app.deinit();
 
-    for (":punch on") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":punch on");
     app.handleKey(.enter, 0);
     try std.testing.expect(!app.punch_enabled);
 
     app.session.project.loop_start_bar = 1;
     app.session.project.loop_end_bar = 3;
     app.session.project.loop_enabled = true;
-    for (":punch on") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":punch on");
     app.handleKey(.enter, 0);
     try std.testing.expect(app.punch_enabled);
 
@@ -5491,7 +5495,7 @@ test ":signature sets beats per bar and reshapes bar math" {
     var app = try testApp();
     defer app.deinit();
 
-    for (":signature 3") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":signature 3");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(u8, 3), app.session.project.beats_per_bar);
 
@@ -5507,11 +5511,11 @@ test ":signature sets beats per bar and reshapes bar math" {
     try std.testing.expectEqual(@as(u32, 288), clip.length_ticks);
 
     // Denominator changes propagate too.
-    for (":signature 3/8") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":signature 3/8");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(u8, 3), app.session.project.beats_per_bar);
     try std.testing.expectEqual(@as(u8, 8), app.session.project.meter_denominator);
-    for (":signature 3/7") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":signature 3/7");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(u8, 8), app.session.project.meter_denominator);
 }
@@ -5540,7 +5544,7 @@ test ":track-add command adds a blank track right after the cursor's track" {
 
     const before = app.session.project.tracks.items.len;
     try std.testing.expectEqual(@as(usize, 0), app.cursor);
-    for (":track-add mytrack") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":track-add mytrack");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(before + 1, app.session.project.tracks.items.len);
     try std.testing.expectEqualStrings("mytrack", app.session.project.tracks.items[1].name);
@@ -5553,7 +5557,7 @@ test ":track-del command deletes a track" {
     defer app.deinit();
 
     const before = app.session.project.tracks.items.len;
-    for (":track-del 1") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":track-del 1");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(before - 1, app.session.project.tracks.items.len);
 }
@@ -5562,7 +5566,7 @@ test ":rename <n> <name> renames a track" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    for (":rename 1 renamed") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":rename 1 renamed");
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("renamed", app.session.project.tracks.items[0].name);
 }
@@ -5573,14 +5577,14 @@ test ":rename with no track number renames the cursor track" {
     _ = try app.session.addTrack("second");
     app.cursor = 1;
 
-    for (":rename bass") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":rename bass");
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("untitled track", app.session.project.tracks.items[0].name);
     try std.testing.expectEqualStrings("bass", app.session.project.tracks.items[1].name);
 
     // A single bare number is still a missing-<name> error, not a rename
     // to that numeral - the same lone-index usage that already errored.
-    for (":rename 3") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":rename 3");
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("bass", app.session.project.tracks.items[1].name);
 }
@@ -5597,23 +5601,23 @@ test ":gain/:pan with no args at all report the cursor track" {
     app.session.project.tracks.items[1].pan = 0.5;
     app.cursor = 1;
 
-    for (":gain") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":gain");
     app.handleKey(.enter, 0);
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "track 2 gain: -6.0dB") != null);
 
-    for (":pan") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":pan");
     app.handleKey(.enter, 0);
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "track 2 pan: R50%") != null);
 
     // An explicit index still targets that track, not the cursor.
-    for (":gain 1") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":gain 1");
     app.handleKey(.enter, 0);
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "track 1 gain: 0.0dB") != null);
 
     // On the master row (no cursor track), the fallback bails out cleanly
     // instead of indexing past the track list.
     app.cursor = app.session.project.tracks.items.len;
-    for (":gain") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":gain");
     app.handleKey(.enter, 0);
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "usage:") != null);
 }
@@ -5748,7 +5752,7 @@ test "synth editor search walks every candidate without overrunning its buffer" 
     try std.testing.expect(candidates.len > 200);
 
     app.handleKey(.enter, 0);
-    for ("/cutoff") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/cutoff");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(u16, 21), app.synth_cursor);
 }
@@ -6403,7 +6407,7 @@ test ":q refuses to quit while dirty; :q! discards" {
     defer app.deinit();
 
     // A clean session quits.
-    for (":q") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":q");
     app.handleKey(.enter, 0);
     try std.testing.expect(app.should_quit);
     app.should_quit = false;
@@ -6412,12 +6416,12 @@ test ":q refuses to quit while dirty; :q! discards" {
     app.drum_track = 2;
     _ = drum_ed.handleKey(&app, .enter);
     try std.testing.expect(app.dirty);
-    for (":q") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":q");
     app.handleKey(.enter, 0);
     try std.testing.expect(!app.should_quit);
 
     // :q! force-quits.
-    for (":q!") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":q!");
     app.handleKey(.enter, 0);
     try std.testing.expect(app.should_quit);
 }
@@ -6461,30 +6465,30 @@ test "count prefixes multiply editor motions and die with the next key" {
     app.view = .piano_roll;
     app.piano_track = 0;
     app.session.racks.items[0].pattern_player.?.length_beats = 8.0; // 32 steps
-    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "3l");
     try std.testing.expectEqual(@as(u16, 3), app.piano_cursor_step);
-    for ("2K") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "2K");
     try std.testing.expectEqual(@as(u7, 84), app.piano_cursor_pitch);
 
     // Drum grid: counts clamp at the pattern edge.
     app.view = .drum_grid;
     app.drum_track = 2;
-    for ("4l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "4l");
     try std.testing.expectEqual(@as(u16, 32), app.drum_cursor[1]);
     // The edge is the last whole grid cell (248 at a sixteenth grid over 256
     // storage steps), not the final raw step - see step_grid.moveGridClamped.
-    for ("99l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "99l");
     try std.testing.expectEqual(@as(u16, 248), app.drum_cursor[1]);
 
     // An unused count is discarded by the handled key it preceded ('p'
     // previews, no count) - the following motion moves 1, not 5.
-    for ("5p") |c| app.handleKey(.{ .char = c }, 0);
-    for ("h") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "5p");
+    typeKeys(&app, "h");
     try std.testing.expectEqual(@as(u16, 240), app.drum_cursor[1]);
 
     // Arrangement: 3l = three bars.
     app.view = .arrangement;
-    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "3l");
     try std.testing.expectEqual(@as(u32, 3), app.arr_cursor_bar);
 }
 
@@ -6512,7 +6516,7 @@ test "arrangement clips: yank/paste, count-move, kind guard, undo" {
 
     // Move the pasted clip right two bars with a count; cursor follows.
     app.arr_cursor_bar = 4;
-    for ("2>") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "2>");
     try std.testing.expect(lane.clipAt(128) == null);
     try std.testing.expect(lane.clipAt(192) != null);
     try std.testing.expectEqual(@as(u32, 6), app.arr_cursor_bar);
@@ -6543,7 +6547,7 @@ test "arrangement visual mode selects a bar range on the current lane for y/d/P"
     app.arr_cursor_bar = 0;
     app.handleKey(.{ .char = 'v' }, 0);
     try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
-    for ("4l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "4l");
 
     app.handleKey(.{ .char = 'y' }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
@@ -6561,7 +6565,7 @@ test "arrangement visual mode selects a bar range on the current lane for y/d/P"
     // Select the original range again and delete it.
     app.arr_cursor_bar = 0;
     app.handleKey(.{ .char = 'v' }, 0);
-    for ("4l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "4l");
     app.handleKey(.{ .char = 'd' }, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expect(lane.clipAt(0) == null);
@@ -6589,7 +6593,7 @@ test "arrangement V cuts a bar range across every lane and undoes in one step" {
     app.handleKey(.{ .char = 'V' }, 0);
     try std.testing.expectEqual(ws.input.Mode.visual, app.modal.mode);
     try std.testing.expectEqual(@as(?usize, null), app.arr_visual_lane_anchor);
-    for ("4l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "4l");
     app.handleKey(.{ .char = 'd' }, 0);
     // Both lanes cut, even though the cursor never left lane 0.
     try std.testing.expect(lane0.clipAt(0) == null);
@@ -6624,7 +6628,7 @@ test "arrangement visual time edits remove, insert, and loop selected time" {
 
     // Four quarter-note cells equal one musical bar.
     app.handleKey(.{ .char = 'V' }, 0);
-    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "3l");
     app.handleKey(.{ .char = '=' }, 0);
     try std.testing.expect(app.session.project.loop_enabled);
     try std.testing.expectEqual(@as(u32, 0), app.session.project.loop_start_bar);
@@ -6633,7 +6637,7 @@ test "arrangement visual time edits remove, insert, and loop selected time" {
     // Removing that bar shifts bar 5 to bar 4 on every lane.
     app.arr_cursor_bar = 0;
     app.handleKey(.{ .char = 'V' }, 0);
-    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "3l");
     app.handleKey(.{ .char = 'D' }, 0);
     try std.testing.expect(app.session.arrangement.lane(0).?.clipAt(512) != null);
     try std.testing.expect(app.session.arrangement.lane(1).?.clipAt(512) != null);
@@ -6644,7 +6648,7 @@ test "arrangement visual time edits remove, insert, and loop selected time" {
     // Yank first bar, then insert it at bar 5. Existing material moves right.
     app.arr_cursor_bar = 0;
     app.handleKey(.{ .char = 'V' }, 0);
-    for ("3l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "3l");
     app.handleKey(.{ .char = 'y' }, 0);
     app.arr_cursor_bar = 20;
     app.handleKey(.{ .char = 'P' }, 0);
@@ -6678,10 +6682,10 @@ test "arrangement sections add, navigate, select, and delete" {
     _ = app.modal.setMode(.normal);
     app.arr_visual_anchor = null;
     app.arr_cursor_bar = 12;
-    for (":section outro") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":section outro");
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("outro", app.session.project.sections.items[3].name);
-    for (":section-del") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":section-del");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(usize, 3), app.session.project.sections.items.len);
 
@@ -6699,7 +6703,7 @@ test "arrangement sections add, navigate, select, and delete" {
     // Renaming in place is a section edit too, and undo restores the name
     // rather than dropping the marker.
     app.arr_cursor_bar = 0;
-    for (":section prelude") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":section prelude");
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("prelude", app.session.project.sections.items[0].name);
     history.doUndo(&app);
@@ -6739,7 +6743,7 @@ test "arrangement w/b snap to bar lines; G lands on the song end or a counted ba
     try std.testing.expectEqual(@as(u32, 8), app.arr_cursor_bar);
     app.handleKey(.{ .char = 'b' }, 0);
     try std.testing.expectEqual(@as(u32, 4), app.arr_cursor_bar);
-    for ("2w") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "2w");
     try std.testing.expectEqual(@as(u32, 12), app.arr_cursor_bar);
 
     // A one-bar clip at bar 2 ends at cell 12, so gG stops on cell 11 - the
@@ -6770,7 +6774,7 @@ test "arrangement w/b snap to bar lines; G lands on the song end or a counted ba
     // the clip on bar 3 survives the cut that clears bar 2.
     try app.session.stampClip(0, 3);
     app.arr_cursor_bar = 8;
-    for ("dw") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "dw");
     try std.testing.expect(app.session.arrangement.lane(0).?.clipAt(8 * 32) == null);
     try std.testing.expect(app.session.arrangement.lane(0).?.clipAt(12 * 32) != null);
 }
@@ -6791,7 +6795,7 @@ test "arrangement blockwise visual bounds the cut to the lane band j/k grows" {
     // visual mode always had here, now explicitly the blockwise case.
     app.handleKey(.{ .char = 'v' }, 0);
     try std.testing.expectEqual(@as(?usize, 0), app.arr_visual_lane_anchor);
-    for ("4l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "4l");
     app.handleKey(.{ .char = 'd' }, 0);
     try std.testing.expect(app.session.arrangement.lane(0).?.clipAt(0) == null);
     try std.testing.expect(app.session.arrangement.lane(1).?.clipAt(0) != null);
@@ -6839,14 +6843,14 @@ test "arrangement operator+motion: d3l / y3l act on a bar range without entering
     app.view = .arrangement;
     app.cursor = 0;
     app.arr_cursor_bar = 0;
-    for ("y4l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "y4l");
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
     try std.testing.expectEqual(@as(usize, 2), app.arr_range_clip.?.clips.len);
     try std.testing.expectEqual(@as(u32, 4), app.arr_cursor_bar);
 
     const lane = app.session.arrangement.lane(0).?;
     app.arr_cursor_bar = 0;
-    for ("d4l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "d4l");
     try std.testing.expect(lane.clipAt(0) == null);
     try std.testing.expect(lane.clipAt(128) == null);
     try std.testing.expect(lane.clipAt(640) != null);
@@ -6863,12 +6867,12 @@ test "arrangement operator+motion: d3l / y3l act on a bar range without entering
 
     // dd/yy are the tier above a bar range: the whole lane, whatever's left
     // on it (clear it first so the fragments above don't confuse the count).
-    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "dd");
     try std.testing.expectEqual(@as(usize, 0), lane.clips.items.len);
     try app.session.stampClip(0, 0);
-    for ("yy") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "yy");
     try std.testing.expectEqual(@as(usize, 1), app.arr_range_clip.?.clips.len); // just bar 0's clip
-    for ("dd") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "dd");
     try std.testing.expectEqual(@as(usize, 0), lane.clips.items.len);
 
     // p/P paste from that same whole-lane yank; cursor jumps past it.
@@ -6893,7 +6897,7 @@ test "arrangement +/- edge-resize a clip; undo/dot-repeat, min clamp, growth evi
     try std.testing.expectEqual(@as(u32, 128), lane.clipAt(0).?.length_ticks);
 
     // '+' grows the clip by 3 bars (endBar 0+4=4); count-prefixed like '<'/'>'.
-    for ("12+") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "12+");
     try std.testing.expectEqual(@as(u32, 512), lane.clipAt(0).?.length_ticks);
     // Growth now overlaps and evicts the clip stamped at bar 3.
     try std.testing.expectEqual(@as(usize, 1), lane.clips.items.len);
@@ -6904,7 +6908,7 @@ test "arrangement +/- edge-resize a clip; undo/dot-repeat, min clamp, growth evi
     try std.testing.expectEqual(@as(u32, 896), lane.clipAt(0).?.length_ticks);
 
     // '-' shrinks it back down, clamped to a minimum of 1 bar.
-    for ("36-") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "36-");
     try std.testing.expectEqual(@as(u32, 1), lane.clipAt(0).?.length_ticks);
 
     // Undo restores the length from before the shrink.
@@ -6931,10 +6935,10 @@ test "arrangement timeline operations clamp at the u32 boundary" {
     clip.length_ticks = 128;
     app.arr_cursor_bar = clip.start_tick / app.arr_grid.ticks();
 
-    for ("4096>") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "4096>");
     try std.testing.expectEqual(std.math.maxInt(u32), lane.clips.items[0].endTick());
 
-    for ("4096+") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "4096+");
     try std.testing.expectEqual(std.math.maxInt(u32), lane.clips.items[0].endTick());
 
     app.arr_cursor_bar = std.math.maxInt(u32);
@@ -7247,7 +7251,7 @@ test "piano roll blockwise visual bounds the selection to the pitch band j/k gro
 
     app.handleKey(.{ .char = 'v' }, 0);
     try std.testing.expectEqual(@as(?u7, 60), app.piano_visual_pitch_anchor);
-    for ("4k") |c| app.handleKey(.{ .char = c }, 0); // grow the band to 60-64
+    typeKeys(&app, "4k"); // grow the band to 60-64
     try std.testing.expectEqual(@as(u7, 64), app.piano_cursor_pitch);
     app.handleKey(.{ .char = '+' }, 0); // transpose only the two notes in it
     try std.testing.expect(pp.noteAt(61, 0.0) != null);
@@ -7276,7 +7280,7 @@ test "piano roll operator+motion stays linewise: d3l ignores the pitch cursor" {
     // `d` + a motion takes every pitch across the range it covers, so the
     // note two octaves above the cursor goes too - the pre-existing grammar,
     // unchanged by the pitch axis.
-    for ("d3l") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "d3l");
     try std.testing.expectEqual(@as(u16, 0), pp.note_count);
 }
 
@@ -7483,7 +7487,7 @@ test "piano roll . repeats a count-scaled velocity nudge and a resize" {
     app.handleKey(.escape, 0);
 
     app.piano_cursor_step = 0;
-    for ("3<") |c| app.handleKey(.{ .char = c }, 0); // -0.3 velocity (default is 0.85)
+    typeKeys(&app, "3<"); // -0.3 velocity (default is 0.85)
     try std.testing.expectApproxEqAbs(@as(f32, 0.85 - 0.3), pp.noteAt(60, 0.0).?.velocity, 1e-6);
 
     app.piano_cursor_step = 4;
@@ -7491,7 +7495,7 @@ test "piano roll . repeats a count-scaled velocity nudge and a resize" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.85 - 0.3), pp.noteAt(60, 1.0).?.velocity, 1e-6);
 
     app.piano_cursor_step = 0;
-    for ("2]") |c| app.handleKey(.{ .char = c }, 0); // +0.5 beats length
+    typeKeys(&app, "2]"); // +0.5 beats length
     try std.testing.expectApproxEqAbs(@as(f64, 0.25 + 0.5), pp.noteAt(60, 0.0).?.duration_beat, 1e-9);
     app.piano_cursor_step = 4;
     app.handleKey(.{ .char = '.' }, 0);
@@ -7584,7 +7588,7 @@ test "arrangement . repeats the last clip move at the new cursor" {
     app.view = .arrangement;
     app.cursor = 0;
     app.arr_cursor_bar = 0;
-    for ("8>") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "8>");
     const lane = app.session.arrangement.lane(0).?;
     try std.testing.expect(lane.clipAt(256) != null);
     try std.testing.expect(lane.clipAt(0) == null);
@@ -7661,9 +7665,9 @@ test "command prompt: up/down recall history without corrupting the buffer" {
     defer app.deinit();
 
     // Submit two commands.
-    for (":bpm 100") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":bpm 100");
     app.handleKey(.enter, 0);
-    for (":bpm 140") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":bpm 140");
     app.handleKey(.enter, 0);
     try std.testing.expectApproxEqAbs(@as(f64, 140.0), app.session.project.tempo_bpm, 0.001);
 
@@ -7724,11 +7728,11 @@ test ":e refuses on unsaved changes; :e! forces and stages the reload" {
     app.applyAction(.toggle_mute, 0); // dirty
     try std.testing.expect(app.dirty);
 
-    for (":e some/project.wsj") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":e some/project.wsj");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(App.ReloadRequest.none, app.pending_reload);
 
-    for (":e! some/project.wsj") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":e! some/project.wsj");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(App.ReloadRequest.load, app.pending_reload);
     try std.testing.expectEqualStrings("some/project.wsj", app.pendingReloadPath());
@@ -7738,7 +7742,7 @@ test ":e load failure names the project and recovery" {
     var app = try testApp();
     defer app.deinit();
 
-    for (":e .zig-cache/no-such-project.wsj") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":e .zig-cache/no-such-project.wsj");
     app.handleKey(.enter, 0);
     try std.testing.expect(app.preparePendingReload() == null);
     try std.testing.expectEqualStrings(
@@ -7753,7 +7757,7 @@ test ":e expands ~ in the requested path" {
     const home_c = std.c.getenv("HOME") orelse return error.SkipZigTest;
     const home = std.mem.sliceTo(home_c, 0);
 
-    for (":e ~/song.wsj") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":e ~/song.wsj");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(App.ReloadRequest.load, app.pending_reload);
     try std.testing.expect(std.mem.startsWith(u8, app.pendingReloadPath(), home));
@@ -7766,12 +7770,12 @@ test ":e! with no path reverts to the current project path" {
 
     // No project loaded yet: revert has nothing to revert to.
     app.handleKey(.{ .char = ':' }, 0);
-    for ("e!") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "e!");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(App.ReloadRequest.none, app.pending_reload);
 
     app.setProjectPath("song.wsj");
-    for (":e!") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":e!");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(App.ReloadRequest.load, app.pending_reload);
     try std.testing.expectEqualStrings("song.wsj", app.pendingReloadPath());
@@ -7782,11 +7786,11 @@ test ":new refuses on unsaved changes; :new! forces a blank-session request" {
     defer app.deinit();
     app.applyAction(.toggle_mute, 0);
 
-    for (":new") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":new");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(App.ReloadRequest.none, app.pending_reload);
 
-    for (":new!") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":new!");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(App.ReloadRequest.blank, app.pending_reload);
 }
@@ -7800,7 +7804,7 @@ test "R opens the command prompt pre-filled with :rename <n> for a track" {
     try std.testing.expectEqual(ws.input.Mode.command, app.modal.mode);
     try std.testing.expectEqualStrings("rename 2 ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
-    for ("keys") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "keys");
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("keys", app.session.project.tracks.items[1].name);
 }
@@ -7816,7 +7820,7 @@ test "R opens the command prompt pre-filled with :rename <n> for a pad in the dr
     try std.testing.expectEqual(ws.input.Mode.command, app.modal.mode);
     try std.testing.expectEqualStrings("rename 4 ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
-    for ("808oh") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "808oh");
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("808oh", app.drumMachine().padName(3));
     // Renaming doesn't touch the actual sample.
@@ -7834,7 +7838,7 @@ test "R renames the loaded clip in the slicer grid" {
     try std.testing.expectEqual(ws.input.Mode.command, app.modal.mode);
     try std.testing.expectEqualStrings("rename ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
-    for ("break") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "break");
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("break", app.slicerInst().clipName());
 }
@@ -7845,7 +7849,7 @@ test ":rename is adaptive like :load - same command, different target by context
 
     // No drum grid open, cursor on a track: targets the track.
     app.cursor = 0;
-    for (":rename lead") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":rename lead");
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("lead", app.session.project.tracks.items[0].name);
 
@@ -7856,7 +7860,7 @@ test ":rename is adaptive like :load - same command, different target by context
         if (std.meta.activeTag(r) == .group) break i;
     } else unreachable;
     app.setTrackRow(group_row);
-    for (":rename drumbus") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":rename drumbus");
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("drumbus", app.session.groups[0].?.name);
     try std.testing.expectEqualStrings("lead", app.session.project.tracks.items[0].name); // untouched
@@ -7867,7 +7871,7 @@ test ":rename is adaptive like :load - same command, different target by context
     app.drum_track = 2;
     app.view = .drum_grid;
     app.drum_cursor = .{ 3, 0 }; // pad 3 = "open"
-    for (":rename crash") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":rename crash");
     app.handleKey(.enter, 0);
     try std.testing.expectEqualStrings("crash", app.drumMachine().padName(3));
 }
@@ -7902,7 +7906,7 @@ test "Tab completes an unambiguous mnemonic command name and adds a trailing spa
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    for (":restore") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":restore");
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("restore-backup ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
@@ -7914,14 +7918,14 @@ test "command Tab-completion hides instrument-scoped commands under the wrong tr
     // Cursor on the synth track: "eucl" (drum-scoped) has no in-scope
     // candidate, so Tab is a no-op - cmd_buf is untouched.
     app.cursor = 0;
-    for (":eucl") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":eucl");
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("eucl", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
     // Cursor on the drum track: the same prefix now completes in full.
     app.handleKey(.escape, 0);
     app.cursor = 2;
-    for (":eucl") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":eucl");
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("euclid ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
@@ -7931,7 +7935,7 @@ test "Tab cycles named Euclidean rhythm presets" {
     defer app.deinit();
     app.cursor = 2;
 
-    for (":euclid ") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":euclid ");
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("euclid tresillo", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.tab, 0);
@@ -8010,7 +8014,7 @@ test "Tab cycles mnemonic command names and ignores compatibility aliases" {
 
     // The short q/qa spellings remain dispatchable but completion only
     // offers the mnemonic quit names, plus in-scope mnemonic commands.
-    for (":q") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":q");
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("quit", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.tab, 0);
@@ -8024,7 +8028,7 @@ test "Tab cycles mnemonic command names and ignores compatibility aliases" {
     // never the w/wa/wq compatibility forms or the save fallback.
     app.modal.cmd_len = 0;
     app.modal.cmd_cursor = 0;
-    for ("w") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "w");
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("write", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.tab, 0);
@@ -8033,7 +8037,7 @@ test "Tab cycles mnemonic command names and ignores compatibility aliases" {
     // "track" matches only the track-* commands (table order: add/del/instrument).
     app.modal.cmd_len = 0;
     app.modal.cmd_cursor = 0;
-    for ("track") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "track");
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("track-add", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.tab, 0);
@@ -8047,7 +8051,7 @@ test "suggestion popup highlight tracks the completed candidate" {
     defer app.deinit();
     app.cursor = 2;
 
-    for (":pres") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":pres");
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("preset", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
@@ -8069,7 +8073,7 @@ test "typing after a Tab-cycle starts a fresh cycle instead of continuing the ol
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    for (":q") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":q");
     app.handleKey(.tab, 0); // -> "quit"
     app.handleKey(.tab, 0); // -> "quit!"
     try std.testing.expectEqualStrings("quit!", app.modal.cmd_buf[0..app.modal.cmd_len]);
@@ -8077,7 +8081,7 @@ test "typing after a Tab-cycle starts a fresh cycle instead of continuing the ol
     // Replacing the completed text and typing "quit" starts a new cycle
     // instead of resuming the stale one at its old index.
     for (0..5) |_| app.handleKey(.backspace, 0);
-    for ("quit") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "quit");
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("quit", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
@@ -8086,13 +8090,13 @@ test "Tab does nothing past the command word for commands with no fixed argument
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    for (":bpm 1") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":bpm 1");
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("bpm 1", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
     app.modal.cmd_len = 0;
     app.modal.cmd_cursor = 0;
-    for ("zzz") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "zzz");
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("zzz", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
@@ -8103,7 +8107,7 @@ test ":drum-kit Tab cycles the kit-name argument from the fixed variant list" {
 
     // "a" matches "analog" and "acoustic" (variant-table order) - Tab
     // steps between the two full names instead of stalling at "a".
-    for (":drum-kit a") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":drum-kit a");
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("drum-kit analog", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.tab, 0);
@@ -8119,7 +8123,7 @@ test ":synth-preset Tab completes the preset-name argument from the fixed preset
     // "sub-b" uniquely matches "sub-bass" - completes in full plus a
     // trailing space, same single-match behavior as command names. ("sub"
     // alone stopped being unique once "sub-drop" joined the library.)
-    for (":synth-preset sub-b") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":synth-preset sub-b");
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("synth-preset sub-bass ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
@@ -8130,7 +8134,7 @@ test ":metronome Tab cycles on/off" {
 
     // No argument typed yet - Tab steps between "on" and "off" directly
     // rather than stalling at their shared leading "o".
-    for (":metronome ") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":metronome ");
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("metronome on", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.tab, 0);
@@ -8169,7 +8173,7 @@ test ":scale Tab cycles off, root pitch classes, then scale-type names" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    for (":scale ") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":scale ");
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("scale off", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.tab, 0);
@@ -8185,7 +8189,7 @@ test "Tab does not complete a second argument token" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    for (":drum-kit an ") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":drum-kit an ");
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("drum-kit an ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
@@ -8194,7 +8198,7 @@ test "Tab is a no-op when the cursor isn't at the end of the buffer" {
     var app = try App.init(std.testing.allocator, std.Io.failing);
     defer app.deinit();
 
-    for (":boun") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":boun");
     app.handleKey(.arrow_left, 0); // cursor now mid-line, not at the end
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("boun", app.modal.cmd_buf[0..app.modal.cmd_len]);
@@ -8335,7 +8339,7 @@ test "file browser: / fuzzy-searches filenames; n/N repeat and wrap around" {
     try std.testing.expectEqual(@as(usize, 3), app.browser_entries.items.len);
     try std.testing.expectEqual(@as(usize, 0), app.browser_cursor);
 
-    for ("/snr") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/snr");
     try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
@@ -8344,7 +8348,7 @@ test "file browser: / fuzzy-searches filenames; n/N repeat and wrap around" {
     // "i" matches hihat and kick (both have an 'i' in the basename), not
     // snare - n/N cycle between the two. (Every name ends in ".wav", so the
     // pattern has to avoid w/a/v or it'd match all three via the extension.)
-    for ("/i") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/i");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(usize, 0), app.browser_cursor); // hihat.wav
 
@@ -8365,7 +8369,7 @@ test "file browser mouse click during live search opens clicked row" {
     var app = try appRootedAt(&tmp);
     defer app.deinit();
     app.openBrowser(.load_sample);
-    for ("/snr") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/snr");
     try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
 
     app.handleMouse(.{ .x = 4, .y = app_mod.content_top + 2, .button = .left, .kind = .press }, 80, 24, 0);
@@ -8412,7 +8416,7 @@ test "file browser: enter descends into a directory, h/backspace returns" {
     try std.testing.expectEqual(@as(usize, 1), app.browser_entries.items.len);
     try std.testing.expectEqualStrings("snare.wav", app.browser_entries.items[0].name);
 
-    for ("h") |c| app.handleKey(.{ .char = c }, 0); // back up to the parent
+    typeKeys(&app, "h"); // back up to the parent
     try std.testing.expectEqual(@as(usize, 1), app.browser_entries.items.len);
     try std.testing.expect(app.browser_entries.items[0].is_dir);
 }
@@ -8546,14 +8550,14 @@ test ":load with no path browses and targets the selected instrument" {
     defer app.deinit();
 
     // Blank track 0: no sampler/drum-machine to receive the load.
-    for (":load") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":load");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.tracks, app.view);
     try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "load: select");
 
     // With a sampler track selected, :load opens the sample browser.
     try app.session.setInstrument(0, .sampler);
-    for (":load") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":load");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.file_browser, app.view);
     app.handleKey(.escape, 0);
@@ -8561,7 +8565,7 @@ test ":load with no path browses and targets the selected instrument" {
     // With a drum-machine track selected, :load targets the cursor pad.
     try app.session.setInstrument(0, .drum_machine);
     app.drum_cursor[0] = 2;
-    for (":load") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":load");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.file_browser, app.view);
     try std.testing.expectEqual(@as(u8, 2), app.browser_purpose.load_pad);
@@ -8577,14 +8581,14 @@ test ":load routes synth and slicer editor views to their audio types" {
     try app.session.setInstrument(0, .poly_synth);
     app.view = .synth_editor;
     app.synth_cursor = 6; // OSC B
-    for (":load") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":load");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(ws.dsp.PolySynth.OscSlot.b, app.browser_purpose.load_wavetable);
     app.handleKey(.escape, 0);
 
     try app.session.setInstrument(0, .slicer);
     app.view = .slicer_grid;
-    for (":load") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":load");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(app_mod.BrowserPurpose.load_slice, app.browser_purpose);
 }
@@ -8707,14 +8711,14 @@ test ":load in arrangement imports audio unless a sampler track targets a whole 
     defer app.deinit();
 
     app.view = .arrangement;
-    for (":load") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":load");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.file_browser, app.view);
     try std.testing.expectEqual(app_mod.BrowserPurpose.import_audio, app.browser_purpose);
     app.handleKey(.escape, 0);
 
     try app.session.setInstrument(0, .sampler);
-    for (":load") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":load");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.file_browser, app.view);
     try std.testing.expectEqual(app_mod.BrowserPurpose.load_clip, app.browser_purpose);
@@ -8767,7 +8771,7 @@ test ":e with no path always browses; selecting a file refuses when dirty" {
 
     var app = try appRootedAt(&tmp);
     defer app.deinit();
-    for (":e") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":e");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.file_browser, app.view);
     try std.testing.expectEqual(@as(usize, 1), app.browser_entries.items.len);
@@ -8778,7 +8782,7 @@ test ":e with no path always browses; selecting a file refuses when dirty" {
     // still opens - but the refusal warns pre-emptively (right here) rather
     // than after the user's already hunted down a file to select.
     app.applyAction(.toggle_mute, 0); // dirty
-    for (":e") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":e");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.file_browser, app.view);
     try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "unsaved changes");
@@ -9634,7 +9638,7 @@ test "FX picker mouse click during live search inserts and leaves search mode" {
     spectrum_ed.switchToTrack(&app, 0);
 
     try std.testing.expect(spectrum_ed.handleKey(&app, .{ .char = 'a' }));
-    for ("/reverb") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/reverb");
     try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
 
     app.handleMouse(.{ .x = 4, .y = app_mod.content_top + 3, .button = .left, .kind = .press }, 80, 24, 0);
@@ -10017,7 +10021,7 @@ test "tracks view: group rows render in folder order; z folds members behind the
     try std.testing.expectEqual(@as(?u8, g), app.cursorGroup());
 
     // A search hit hidden in the fold unfolds it, vim-style.
-    for ("/samp") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/samp");
     app.handleKey(.enter, 0);
     try std.testing.expect(!app.session.groups[g].?.folded);
     app.tracksRowSync();
@@ -10138,7 +10142,7 @@ test "f in the synth editor opens the preset picker; / narrows and enter applies
 
     // `/` filters live via the modal search prompt; enter submits it and
     // stays in the picker with the narrowed list.
-    for ("/acid-bass") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/acid-bass");
     try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(ws.input.Mode.normal, app.modal.mode);
@@ -10167,7 +10171,7 @@ test "preset picker mouse click during live search submits then applies match" {
     app.view = .synth_editor;
 
     app.handleKey(.{ .char = 'f' }, 0);
-    for ("/acid-bass") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/acid-bass");
     try std.testing.expectEqual(ws.input.Mode.search, app.modal.mode);
 
     var rows_buf: [preset_ed.max_display_rows]preset_ed.DisplayRow = undefined;
@@ -10201,7 +10205,7 @@ test "preset-picker filter reaches genre tags and user-saved presets" {
     app.handleKey(.{ .char = 'f' }, 0);
 
     // A pure genre tag narrows to exactly that genre's presets.
-    for ("/psytrance") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/psytrance");
     app.handleKey(.enter, 0);
     var buf: [preset_ed.max_display_rows]preset_ed.DisplayRow = undefined;
     try std.testing.expectEqual(@as(usize, 1), preset_ed.entryCountOf(preset_ed.buildDisplayRows(&app, &buf)));
@@ -10209,7 +10213,7 @@ test "preset-picker filter reaches genre tags and user-saved presets" {
     // The saved preset is reachable by name and applies. (Its "saved"
     // category is matchable too, but as a subsequence it also catches
     // synthwave-lead - s,a,v,e,d - so the name is the precise handle.)
-    for ("/my-fave") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, "/my-fave");
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(usize, 1), preset_ed.entryCountOf(preset_ed.buildDisplayRows(&app, &buf)));
     app.handleKey(.enter, 0);
@@ -10329,7 +10333,7 @@ test "acoustic load failure keeps recovery status" {
     var app = try testApp();
     defer app.deinit();
 
-    for (":track-instrument acoustic") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":track-instrument acoustic");
     app.handleKey(.enter, 0);
 
     try std.testing.expect(app.session.racks.items[0].instrument == .acoustic);
@@ -11021,7 +11025,7 @@ test "stepping past the newest history entry blanks the prompt cursor too" {
 
     var app = try testApp();
     defer app.deinit();
-    for (":bpm 121") |c| app.handleKey(.{ .char = c }, 0);
+    typeKeys(&app, ":bpm 121");
     app.handleKey(.enter, 0);
 
     app.handleKey(.{ .char = ':' }, 0);
@@ -11926,7 +11930,7 @@ test "every no-arg command that edits the project is undoable" {
         var app = try App.init(std.testing.allocator, std.testing.io);
         defer app.deinit();
         // Give the cursor track something to edit.
-        for (":track-instrument synth") |c| app.handleKey(.{ .char = c }, 0);
+        typeKeys(&app, ":track-instrument synth");
         app.handleKey(.enter, 0);
         const pp = &app.session.racks.items[0].pattern_player.?;
         pp.addNote(.{ .pitch = 60, .start_beat = 0.0, .duration_beat = 0.5 });
