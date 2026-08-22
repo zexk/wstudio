@@ -2217,8 +2217,12 @@ const DrumMachine = @import("../dsp/drum_sampler.zig").DrumMachine;
 const drum_kit = @import("../dsp/drum_kit.zig");
 const Compressor = @import("../dsp/compressor.zig").Compressor;
 
+fn testEngine() !Engine {
+    return Engine.init(std.testing.allocator, 48_000);
+}
+
 test "input monitor duplicates mono capture into stereo output" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.monitorInput(&.{ 0.25, -0.5 });
     var out: [4]Sample = undefined;
@@ -2236,7 +2240,7 @@ fn testDrumMachine(transport: *const Transport) !DrumMachine {
 }
 
 fn testSynthEngine(synth: *PolySynth) !Engine {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     engine.trackAt(0).* = .{ .active = true };
     engine.setTrackChain(0, &.{synth.device()});
     return engine;
@@ -2333,7 +2337,7 @@ const LatencyFlip = struct {
 test "a route whose latency grows mid-block does not underflow the PDC delta" {
     var reads: u32 = 0;
     var flip = LatencyFlip{ .reads = &reads, .after = 64 };
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true };
     engine.setTrackChain(0, &.{flip.device()});
@@ -2350,7 +2354,7 @@ test "engine rejects a zero sample rate" {
 }
 
 test "audio callback returns silence instead of waiting on a graph mutation" {
-    var e = try Engine.init(std.testing.allocator, 48_000);
+    var e = try testEngine();
     defer e.deinit();
     var out: [8]Sample = @splat(1.0);
 
@@ -2365,7 +2369,7 @@ test "audio callback returns silence instead of waiting on a graph mutation" {
 test "plugin delay compensation aligns track impulses" {
     var immediate = LatentImpulse{ .latency = 0 };
     var latent = LatentImpulse{ .latency = 2 };
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true };
     engine.trackAt(1).* = .{ .active = true };
@@ -2383,7 +2387,7 @@ test "plugin delay compensation aligns track impulses" {
 test "plugin delay compensation aligns primary and send routes" {
     var impulse = LatentImpulse{ .latency = 0 };
     var group_delay = TestLatencyDelay{ .latency = 2 };
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true };
     engine.setTrackChain(0, &.{impulse.device()});
@@ -2402,7 +2406,7 @@ test "plugin delay compensation aligns primary and send routes" {
 }
 
 test "mix automation stores independent master group and send curves" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.setMixAutomation(.master_gain, &.{.{ .beat = 0, .value = 0.5 }});
     engine.setMixAutomation(.{ .group_gain = 2 }, &.{.{ .beat = 0, .value = 0.25 }});
@@ -2415,7 +2419,7 @@ test "mix automation stores independent master group and send curves" {
 
 test "plugin latency beyond PDC storage is surfaced" {
     var latent = LatentImpulse{ .latency = max_pdc_frames + 37 };
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true };
     engine.setTrackChain(0, &.{latent.device()});
@@ -2427,7 +2431,7 @@ test "plugin latency beyond PDC storage is surfaced" {
 }
 
 test "audio region renders source trim on its timeline" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true, .gain = std.math.sqrt2 };
     const source = [_]Sample{ 0.1, 0.25, 0.5 };
@@ -2449,7 +2453,7 @@ test "audio region renders source trim on its timeline" {
 }
 
 test "audio region handles final transport block" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true };
     const source = [_]Sample{1};
@@ -2470,7 +2474,7 @@ test "audio region handles final transport block" {
 }
 
 test "audio region applies gain and linear edge fades" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true, .gain = std.math.sqrt2 };
     const source = [_]Sample{ 1, 1, 1, 1 };
@@ -2495,7 +2499,7 @@ test "audio region applies gain and linear edge fades" {
 }
 
 test "audio region stretch and reverse remap source frames" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true, .gain = std.math.sqrt2 };
     const source = [_]Sample{ 0.1, 0.2, 0.3, 0.4 };
@@ -2519,7 +2523,7 @@ test "audio region stretch and reverse remap source frames" {
 }
 
 test "realtime render parks and clears output during offline bounce" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.bounce_active.store(true, .release);
     var output = [_]Sample{1} ** 8;
@@ -2756,7 +2760,7 @@ test "a 5th+ concurrent synth-param automation slot still applies, past the samp
 }
 
 test "setTrackSynthParam covers the complete persisted parameter id space" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     for (0..max_synth_slots) |i| {
         engine.setTrackSynthParam(0, @intCast(i), 0, @intCast(i), &.{.{ .beat = 0.0, .value = 1.0 }});
@@ -2809,7 +2813,7 @@ test "send and sendMidi commands queued in the same block both land" {
     defer synth0.deinit();
     var synth1 = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth1.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true };
     engine.trackAt(1).* = .{ .active = true };
@@ -2826,7 +2830,7 @@ test "send and sendMidi commands queued in the same block both land" {
 }
 
 test "browser audition plays off-mixer, with no track and the transport stopped" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     const clip = try std.testing.allocator.alloc(f32, 4_800);
     for (clip) |*s| s.* = 0.5;
@@ -2847,7 +2851,7 @@ test "browser audition plays off-mixer, with no track and the transport stopped"
 }
 
 test "transport advances only while playing" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     var block: [512]Sample = undefined;
 
@@ -2860,7 +2864,7 @@ test "transport advances only while playing" {
 }
 
 test "metronome only clicks while enabled and playing" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     var block: [512]Sample = undefined;
 
@@ -2881,7 +2885,7 @@ test "metronome only clicks while enabled and playing" {
 }
 
 test "metronome accents beat 1 of every bar" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     _ = engine.send(.{ .set_metronome = true });
     _ = engine.send(.play);
@@ -2892,7 +2896,7 @@ test "metronome accents beat 1 of every bar" {
 }
 
 test "metronome tolerates an invalid zero-beat time signature" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.transport.time_signature.beats_per_bar = 0;
     engine.metronome_enabled = true;
@@ -2914,7 +2918,7 @@ test "metronome tolerates an invalid zero-beat time signature" {
 }
 
 test "metronome handles final transport frame" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.metronome_enabled = true;
     engine.transport.position_frames = std.math.maxInt(u64);
@@ -2926,7 +2930,7 @@ test "metronome handles final transport frame" {
 }
 
 test "record count-in clicks immediately, keeps the transport stopped, then starts on the beat" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     _ = engine.send(.{ .record = 1 });
 
@@ -2946,7 +2950,7 @@ test "record count-in clicks immediately, keeps the transport stopped, then star
 }
 
 test "record count-in clicks even when the regular metronome is off" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     try std.testing.expect(!engine.metronome_enabled);
 
@@ -2957,7 +2961,7 @@ test "record count-in clicks even when the regular metronome is off" {
 }
 
 test "record with 0 bars skips the count-in and starts playback immediately" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     _ = engine.send(.{ .record = 0 });
 
@@ -2968,7 +2972,7 @@ test "record with 0 bars skips the count-in and starts playback immediately" {
 }
 
 test "record with 2 bars clicks through twice the frames of a 1-bar count-in" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     _ = engine.send(.{ .record = 2 });
 
@@ -2980,7 +2984,7 @@ test "record with 2 bars clicks through twice the frames of a 1-bar count-in" {
 }
 
 test "stop cancels an in-flight record count-in" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     _ = engine.send(.{ .record = 1 });
     var block: [512]Sample = undefined;
@@ -2994,7 +2998,7 @@ test "stop cancels an in-flight record count-in" {
 }
 
 test "uiSnapshot reports pre_rolling during count-in, then playing once it completes" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     _ = engine.send(.{ .record = 1 });
 
@@ -3072,7 +3076,7 @@ test "grouped tracks submix through their group's FX chain; ungrouped tracks are
     defer synth1.deinit();
     var synth2 = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth2.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true };
     engine.trackAt(1).* = .{ .active = true };
@@ -3137,7 +3141,7 @@ test "set_group_solo makes every member audible and silences everything else, wi
     defer synth0.deinit();
     var synth1 = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth1.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true }; // will join group 0
     engine.trackAt(1).* = .{ .active = true }; // stays ungrouped
@@ -3185,7 +3189,7 @@ test "renderTracks routes a compressor's sidechain detector from a different (so
     defer bass.deinit();
     var comp = testCompressor(-30.0);
 
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true }; // kick (sidechain source)
     engine.trackAt(1).* = .{ .active = true }; // bass (has the compressor)
@@ -3254,7 +3258,7 @@ test "renderTracks routes a compressor's sidechain detector from a single drum p
     var bass2 = try PolySynth.init(std.testing.allocator, 48_000);
     defer bass2.deinit();
     var comp2 = testCompressor(-30.0);
-    var engine2 = try Engine.init(std.testing.allocator, 48_000);
+    var engine2 = try testEngine();
     defer engine2.deinit();
     engine2.trackAt(1).* = .{ .active = true };
     engine2.setTrackChain(1, &.{ bass2.device(), comp2.device() });
@@ -3277,7 +3281,7 @@ test "renderTracks routes a compressor's sidechain detector from a single drum p
     var bass3 = try PolySynth.init(std.testing.allocator, 48_000);
     defer bass3.deinit();
     var comp3 = Compressor.init(48_000);
-    var engine3 = try Engine.init(std.testing.allocator, 48_000);
+    var engine3 = try testEngine();
     defer engine3.deinit();
     var drum3 = try testDrumMachine(&engine3.transport);
     defer drum3.deinit();
@@ -3315,7 +3319,7 @@ test "a compressor keyed to a pad on its OWN track reads the pad, not self-detec
     // captured flag made same-track pad keys fall back to self-detection,
     // which would squash the snare hard.
     var comp = testCompressor(-30.0);
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     var drum = try testDrumMachine(&engine.transport);
     defer drum.deinit();
@@ -3332,7 +3336,7 @@ test "a compressor keyed to a pad on its OWN track reads the pad, not self-detec
     // Identical setup, self-detecting (no routing): the loud snare drives
     // the envelope and gets squashed.
     var comp2 = testCompressor(-30.0);
-    var engine2 = try Engine.init(std.testing.allocator, 48_000);
+    var engine2 = try testEngine();
     defer engine2.deinit();
     var drum2 = try testDrumMachine(&engine2.transport);
     defer drum2.deinit();
@@ -3359,7 +3363,7 @@ test "a sidechain source that never renders falls back to self-detection, not a 
     defer bass.deinit();
     var comp = testCompressor(-30.0);
 
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(1).* = .{ .active = true }; // track 0 stays inactive on purpose
     engine.setTrackChain(1, &.{ bass.device(), comp.device() });
@@ -3375,7 +3379,7 @@ test "a sidechain source that never renders falls back to self-detection, not a 
     var bass2 = try PolySynth.init(std.testing.allocator, 48_000);
     defer bass2.deinit();
     var comp2 = testCompressor(-30.0);
-    var engine2 = try Engine.init(std.testing.allocator, 48_000);
+    var engine2 = try testEngine();
     defer engine2.deinit();
     engine2.trackAt(1).* = .{ .active = true };
     engine2.setTrackChain(1, &.{ bass2.device(), comp2.device() });
@@ -3391,7 +3395,7 @@ test "a sidechain source track is rendered exactly once, not double-mixed" {
     // Engine A: track 0 alone, referenced by nothing.
     var kick_a = try PolySynth.init(std.testing.allocator, 48_000);
     defer kick_a.deinit();
-    var engine_a = try Engine.init(std.testing.allocator, 48_000);
+    var engine_a = try testEngine();
     defer engine_a.deinit();
     engine_a.trackAt(0).* = .{ .active = true };
     engine_a.setTrackChain(0, &.{kick_a.device()});
@@ -3410,7 +3414,7 @@ test "a sidechain source track is rendered exactly once, not double-mixed" {
     var bass_b = try PolySynth.init(std.testing.allocator, 48_000);
     defer bass_b.deinit();
     var comp_b = Compressor.init(48_000);
-    var engine_b = try Engine.init(std.testing.allocator, 48_000);
+    var engine_b = try testEngine();
     defer engine_b.deinit();
     engine_b.trackAt(0).* = .{ .active = true };
     engine_b.trackAt(1).* = .{ .active = true };
@@ -3429,7 +3433,7 @@ test "a track's aux send taps a group in parallel with its primary route, withou
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
 
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true }; // ungrouped: primary route is straight to `out`
     engine.setTrackChain(0, &.{synth.device()});
@@ -3466,7 +3470,7 @@ test "a track's aux send taps a group in parallel with its primary route, withou
 test "pre-fader send remains audible with track fader down" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true, .gain = 0 };
     engine.setTrackChain(0, &.{synth.device()});
@@ -3490,7 +3494,7 @@ test "a compressor on the master chain sidechains off a group bus (group renders
     defer bass.deinit();
     var comp = testCompressor(-30.0);
 
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true, .group = 0 }; // kick, submixed through group 0
     engine.trackAt(1).* = .{ .active = true }; // quiet bass, straight to master
@@ -3543,7 +3547,7 @@ test "a track-level compressor sidechaining off a group falls back to self-detec
     defer bass.deinit();
     var comp = testCompressor(-30.0);
 
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true, .group = 0 };
     engine.trackAt(1).* = .{ .active = true };
@@ -3566,7 +3570,7 @@ test "a track-level compressor sidechaining off a group falls back to self-detec
 test "a track pointed at an inactive group slot falls back to the master mix" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true, .group = 2 }; // group 2 never activated
     engine.setTrackChain(0, &.{synth.device()});
@@ -3584,7 +3588,7 @@ test "solo silences other tracks but keeps the soloed one" {
     defer lead.deinit();
     var pad = try PolySynth.init(std.testing.allocator, 48_000);
     defer pad.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true };
     engine.trackAt(1).* = .{ .active = true };
@@ -3624,7 +3628,7 @@ test "uiSnapshot publishes transport and meter state" {
 }
 
 test "spectrum snapshot returns null when inactive" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     var block: [512]Sample = undefined;
     engine.process(&block);
@@ -3656,7 +3660,7 @@ test "loadProject mirrors track settings" {
     defer project.deinit();
     _ = try project.addTrack(.{ .name = "a", .gain_db = -6.0206, .pan = -1.0 });
 
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.loadProject(&project);
 
@@ -3667,7 +3671,7 @@ test "loadProject mirrors track settings" {
 }
 
 test "applyInsertTrack shifts drum and inits new slot" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
 
     engine.trackAt(0).* = .{ .active = true, .gain = 0.5 }; // lead
@@ -3685,7 +3689,7 @@ test "applyInsertTrack shifts drum and inits new slot" {
 }
 
 test "applyInsertTrack in the middle shifts every later slot" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
 
     engine.trackAt(0).* = .{ .active = true, .gain = 0.1 };
@@ -3701,7 +3705,7 @@ test "applyInsertTrack in the middle shifts every later slot" {
 }
 
 test "applyDeleteTrack shifts tracks down" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
 
     engine.trackAt(0).* = .{ .active = true, .gain = 0.1 };
@@ -3719,7 +3723,7 @@ test "applyDeleteTrack shifts tracks down" {
 }
 
 test "applyDeleteTrack shifts the parallel automation and sidechain rows with the tracks" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
 
     engine.trackAt(0).* = .{ .active = true };
@@ -3743,7 +3747,7 @@ test "applyDeleteTrack shifts the parallel automation and sidechain rows with th
 }
 
 test "swapTracks exchanges the parallel automation and sidechain rows too" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
 
     engine.trackAt(0).* = .{ .active = true };
@@ -3760,7 +3764,7 @@ test "swapTracks exchanges the parallel automation and sidechain rows too" {
 }
 
 test "out-of-range track commands do not target the last slot" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     const last: u16 = max_tracks - 1;
     try std.testing.expectEqual(@as(f32, 1.0), engine.trackAt(last).gain);
@@ -3774,7 +3778,7 @@ test "a controller drives a synth param on whatever track its target names" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
     synth.filter_cutoff = 1_000.0;
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(1).* = .{ .active = true };
     engine.setTrackChain(1, &.{synth.device()});
@@ -3821,7 +3825,7 @@ test "a learned CC drives its own target's param and stops reaching the routed t
     defer bound_synth.deinit();
     var routed_synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer routed_synth.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true };
     engine.setTrackChain(0, &.{routed_synth.device()});
@@ -3873,7 +3877,7 @@ test "a learned CC drives its own target's param and stops reaching the routed t
 }
 
 test "lastCc reports every CC, including a repeat of the same number" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     try std.testing.expect(engine.lastCc() == null);
 
@@ -3894,7 +3898,7 @@ test "lastCc reports every CC, including a repeat of the same number" {
 test "send automation drives a send parked at zero" {
     var synth = try PolySynth.init(std.testing.allocator, 48_000);
     defer synth.deinit();
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     engine.trackAt(0).* = .{ .active = true, .gain = 0 }; // fader down: only the send can be heard
     engine.setTrackChain(0, &.{synth.device()});
@@ -3917,7 +3921,7 @@ test "send automation drives a send parked at zero" {
 }
 
 test "a one-bar count-in in 6/8 lasts one bar, not two" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     _ = engine.send(.{ .set_time_signature = 6 });
     _ = engine.send(.{ .set_meter_denominator = 8 });
@@ -3983,7 +3987,7 @@ fn countClicks(engine: *Engine, frames: u64) struct { count: u32, first_accent: 
 }
 
 test "the metronome clicks the signature's own beat unit, like the count-in does" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
+    var engine = try testEngine();
     defer engine.deinit();
     _ = engine.send(.{ .set_metronome = true });
     _ = engine.send(.play);
@@ -3995,7 +3999,7 @@ test "the metronome clicks the signature's own beat unit, like the count-in does
 
     // 6/8 is six eighth notes, not three quarter notes. The bar is three
     // quarter-note beats long, so 1.5 seconds at 120 bpm.
-    var eighths = try Engine.init(std.testing.allocator, 48_000);
+    var eighths = try testEngine();
     defer eighths.deinit();
     _ = eighths.send(.{ .set_metronome = true });
     _ = eighths.send(.{ .set_time_signature = 6 });
