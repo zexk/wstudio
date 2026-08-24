@@ -16,8 +16,10 @@ fn selectedRegion(app: *App) ?*ws.Clip.AudioRegion {
 /// region's frame range covers, clamped to what the source actually holds.
 /// Clamping happens in *frame* units before multiplying by `channels` - a
 /// hand-edited or corrupt project can carry `source_start_frame` up near
-/// u64's max, and multiplying that by channels first overflows u64.
-fn peakSampleRange(source_start_frame: u64, source_length_frames: u64, total_frames: u64, channels: u64) struct { start: usize, end: usize } {
+/// u64's max, and multiplying that by channels first overflows u64. Shared
+/// by the GUI and TUI audio editors' own waveform slicing, which used to
+/// reimplement this same arithmetic (and the same overflow) independently.
+pub fn peakSampleRange(source_start_frame: u64, source_length_frames: u64, total_frames: u64, channels: u64) struct { start: usize, end: usize } {
     const start_frame = @min(source_start_frame, total_frames);
     const end_frame = @min(start_frame +| source_length_frames, total_frames);
     return .{ .start = @intCast(start_frame * channels), .end = @intCast(end_frame * channels) };

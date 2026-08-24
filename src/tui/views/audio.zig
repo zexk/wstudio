@@ -20,13 +20,11 @@ pub fn drawAudioEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
         const region = clip.content.audio;
         const source = app.session.project.audioSource(region.source_id);
         if (source) |src| {
-            const channels: usize = @max(src.channel_count, 1);
-            const start: usize = @intCast(@min(region.source_start_frame * channels, src.samples.len));
-            const end_frame = @min(region.source_start_frame +| region.source_length_frames, src.samples.len / channels);
-            const end: usize = @intCast(end_frame * channels);
+            const channels: u64 = @max(src.channel_count, 1);
+            const range = audio_ed.peakSampleRange(region.source_start_frame, region.source_length_frames, src.samples.len / channels, channels);
             const width: usize = @min(cols -| 4, max_width);
             var peaks: [max_width]f32 = undefined;
-            waveform.peakBucketsSampled(src.samples[start..end], peaks[0..width], 64);
+            waveform.peakBucketsSampled(src.samples[range.start..range.end], peaks[0..width], 64);
             var peak: f32 = 0.000001;
             for (peaks[0..width]) |value| peak = @max(peak, value);
             for (0..@min(body -| 5, 8)) |row| {

@@ -28,11 +28,9 @@ pub fn draw(app: anytype) void {
     const clip = clips[core.audio_clip];
     const region = clip.content.audio;
     const source = core.session.project.audioSource(region.source_id) orelse return;
-    const channels: usize = @max(source.channel_count, 1);
-    const start: usize = @intCast(@min(region.source_start_frame * channels, source.samples.len));
-    const end_frame = @min(region.source_start_frame +| region.source_length_frames, source.samples.len / channels);
-    const end: usize = @intCast(end_frame * channels);
-    drawWaveform(app, source.samples[start..end]);
+    const channels: u64 = @max(source.channel_count, 1);
+    const range = audio_ed.peakSampleRange(region.source_start_frame, region.source_length_frames, source.samples.len / channels, channels);
+    drawWaveform(app, source.samples[range.start..range.end]);
 
     const seconds = @as(f64, @floatFromInt(region.source_length_frames)) / @as(f64, @floatFromInt(@max(source.sample_rate, 1)));
     zgui.text("Region {d}/{d}   {s}", .{ core.audio_clip + 1, clips.len, std.fs.path.basename(source.path) });
