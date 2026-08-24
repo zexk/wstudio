@@ -1571,18 +1571,30 @@ pub const variants = [_]KitVariant{
                 .dur_s = 0.12,
                 .seed = 0x24,
             } }, .gain = 0.80 },
+            // Level pass: chipGen normalizes every render to a fixed 0.95
+            // peak regardless of decay/duration, which a plain noise pad
+            // (source=.noise, no tone to gate it) reaches almost
+            // immediately - so unlike every other kit's .hat generator,
+            // gain here is the ONLY thing controlling loudness, and picking
+            // it to match other kits' hat gain numbers by eye does not
+            // match their perceived level. Measured (kitcheck) against the
+            // other ten kits' hihat/hat-2/crash: this trio ran 2.6-12.7x
+            // their peers' RMS. Trimmed to land within ~2x the loudest
+            // peer kit, keeping chiptune's harsher character without the
+            // beat-disrupting jump on kit switch kitcheck's own doc
+            // comment warns about.
             .{ .name = "hihat", .kind = .chip, .params = .{ .chip = .{
                 .noise_index = 0,
                 .decay = 210.0,
                 .dur_s = 0.03,
                 .seed = 0x25,
-            } }, .gain = 0.46 },
+            } }, .gain = 0.28 },
             .{ .name = "hat-2", .kind = .chip, .params = .{ .chip = .{
                 .noise_index = 1,
                 .decay = 260.0,
                 .dur_s = 0.025,
                 .seed = 0x26,
-            } }, .gain = 0.42 },
+            } }, .gain = 0.22 },
             .{ .name = "open", .kind = .chip, .params = .{ .chip = .{
                 .noise_index = 0,
                 .decay = 22.0,
@@ -1594,7 +1606,7 @@ pub const variants = [_]KitVariant{
                 .decay = 7.0,
                 .dur_s = 0.6,
                 .seed = 0x28,
-            } }, .gain = 0.50 },
+            } }, .gain = 0.20 },
             // A chip clap is the same noise hit written on three rows in a
             // row, so it is one envelope retriggered twice, not a new voice.
             .{ .name = "clap", .kind = .chip, .params = .{ .chip = .{
