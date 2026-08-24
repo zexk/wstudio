@@ -138,13 +138,21 @@ fn renderWaveform(allocator: std.mem.Allocator, buf: []const Sample) ![]u8 {
 
 const fft_size: usize = 1024;
 const hop: usize = 256;
-const spec_h: u32 = fft_size / 2 + 1;
+const linear_bins: u32 = fft_size / 2 + 1;
+// Output rows, log-spaced from `freq_lo` to Nyquist. Most of what these
+// patches do lives under 2 kHz (bass, keys, bell fundamentals); a linear
+// bin-per-row image spends 90%+ of its height on content nothing has much
+// energy in and crushes the musically-relevant range into a few pixels.
+const spec_h: u32 = 400;
+const freq_lo: f32 = 30.0;
 
 fn renderSpectrogram(allocator: std.mem.Allocator, buf: []const Sample) ![]u8 {
     const frames = buf.len / 2;
     const cols: u32 = if (frames > fft_size) @intCast((frames - fft_size) / hop + 1) else 1;
+    const bin_hz = @as(f32, @floatFromInt(sample_rate)) / @as(f32, fft_size);
+    const freq_hi = @as(f32, @floatFromInt(sample_rate)) / 2.0;
 
-    const mags = try allocator.alloc(f32, @as(usize, cols) * spec_h);
+    const mags = try allocator.alloc(f32, @as(usize, cols) * linear_bins);
     defer allocator.free(mags);
 
     const real = try allocator.alloc(f32, fft_size);
@@ -163,22 +171,32 @@ fn renderSpectrogram(allocator: std.mem.Allocator, buf: []const Sample) ![]u8 {
             real[i] = mono * w;
         }
         ws.dsp.fft.fft(fft_size, real, imag);
-        for (0..spec_h) |b| {
+        for (0..linear_bins) |b| {
             const m = ws.dsp.fft.magnitude(real[b], imag[b]);
             const db = 20.0 * std.math.log10(m + 1e-9);
-            mags[c * spec_h + b] = db;
+            mags[c * linear_bins + b] = db;
             loudest = @max(loudest, db);
         }
+    }
+
+    // Log-spaced row -> bin lookup, built once: row 0 (bottom) is freq_lo,
+    // row spec_h-1 (top) is Nyquist. Nearest-bin, not interpolated - this is
+    // for spotting a problem at a glance, not measuring one.
+    var row_bin: [spec_h]usize = undefined;
+    for (0..spec_h) |row| {
+        const t = @as(f32, @floatFromInt(row)) / @as(f32, @floatFromInt(spec_h - 1));
+        const freq = freq_lo * std.math.pow(f32, freq_hi / freq_lo, t);
+        row_bin[row] = std.math.clamp(@as(usize, @intFromFloat(freq / bin_hz)), 0, linear_bins - 1);
     }
 
     const img = try allocator.alloc(u8, cols * spec_h);
     const floor_db = loudest - 80.0; // 80 dB of visible range below the peak
     for (0..cols) |c| {
-        for (0..spec_h) |b| {
-            const db = mags[c * spec_h + b];
+        for (0..spec_h) |row| {
+            const db = mags[c * linear_bins + row_bin[row]];
             const norm = std.math.clamp((db - floor_db) / (loudest - floor_db), 0.0, 1.0);
-            const row = spec_h - 1 - b; // low frequency at the bottom
-            img[row * cols + c] = @intFromFloat(norm * 255.0);
+            const y = spec_h - 1 - row; // low frequency at the bottom
+            img[y * cols + c] = @intFromFloat(norm * 255.0);
         }
     }
     return img;
