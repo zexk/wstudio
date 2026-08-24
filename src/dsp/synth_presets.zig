@@ -651,6 +651,37 @@ pub const presets = [_]Preset{
         .{ .kind = .chorus, .params = &.{ .{ .idx = 1, .value = 5 }, .{ .idx = 2, .value = 0.35 } } },
     } },
 
+    // eurobeat - the punchy synth-brass hit under an Initial D-style vocal:
+    // not an acoustic-horn emulation like retro-brass (which swells), a
+    // stab. PWM instead of a second detuned oscillator for the ensemble
+    // width - a narrowed pulse reads close to detuned saws, and it is the
+    // technique the actual 80s patches used alongside oscillator detune,
+    // not instead of it. The attack still has to brighten AFTER the level
+    // (same rule as every other brass patch here), but the level itself is
+    // fast now - a stab, not a pad - and a short upward pitch overshoot that
+    // resolves in 30 ms is the lip-buzz "bend into the note" a real player
+    // can't avoid on a hit this hard.
+    .{ .name = "eurobeat-brass", .category = "brass", .tags = &.{ "wstudio", "eurobeat", "j-pop" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 1.0, .warp_mode = .bend, .warp_amount = 0.15,
+        .unison = 2, .unison_detune = 8.0, .unison_spread = 0.4,
+        .attack_s = 0.008, .decay_s = 0.25, .sustain = 0.5, .release_s = 0.15, .env_curve = 0.4,
+        .filter_type = .lp, .filter_cutoff = 1400.0, .filter_res = 0.3,
+        .fenv_attack_s = 0.05, .fenv_decay_s = 0.3, .fenv_sustain = 0.4, .fenv_release_s = 0.2,
+        .env3_attack_s = 0.001, .env3_decay_s = 0.03, .env3_sustain = 0.0, .env3_release_s = 0.02, .env3_curve = 0.6,
+        .mod_matrix = mods(&.{
+            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .env3,     .dest = dP,  .depth = 0.025 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 1 },
+        }),
+        .macro_labels = macros(.{ "brightness", "detune", "space", "" }),
+        .gain = 0.27,
+    }, .fx = &.{
+        .{ .kind = .chorus, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 1, .value = 4 }, .{ .idx = 2, .value = 0.35 } } },
+    } },
+
     // --- Chiptune / video game ---
     // chip-lead - LFO 2 flickers the duty cycle like NES channel swaps,
     // bit-crush for the console DAC grit
@@ -2835,8 +2866,8 @@ pub fn find(name: []const u8) ?Patch {
     return null;
 }
 
-test "factory library holds exactly 102 presets" {
-    try std.testing.expectEqual(@as(usize, 102), presets.len);
+test "factory library holds exactly 103 presets" {
+    try std.testing.expectEqual(@as(usize, 103), presets.len);
 }
 
 test "every preset's matrix rows target legal dests at sane depths" {
