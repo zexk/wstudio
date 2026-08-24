@@ -368,7 +368,17 @@ pub fn draw(
             if (style.wheel_delta != 0 and zgui.isKeyDown(.mod_alt) and instrument.stepActive(@intCast(row), fine_step)) {
                 style.wheel_consumed = true;
                 cursor.* = .{ @intCast(row), fine_step };
-                app.core.handleKey(.{ .char = if (style.wheel_delta > 0) ';' else '\'' }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
+                const up = style.wheel_delta > 0;
+                // Same three-way split the mouse wheel gets over a step in
+                // the TUI (drum.zig/slicer.zig's handleMouse): ctrl = tune,
+                // shift = velocity, plain = micro-timing. `(`/`)`, `{`/`}`
+                // and `;`/`'` are those gestures' own keyboard shortcuts.
+                const key: u8 = if (zgui.isKeyDown(.mod_ctrl))
+                    (if (up) '(' else ')')
+                else if (zgui.isKeyDown(.mod_shift))
+                    (if (up) '{' else '}')
+                else if (up) ';' else '\'';
+                app.core.handleKey(.{ .char = key }, std.Io.Timestamp.now(app.core.io, .awake).nanoseconds);
             }
 
             // Press starts a paint session: left toggles (remembering the
