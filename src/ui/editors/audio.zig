@@ -129,6 +129,13 @@ pub fn handleKey(app: *App, key: ws.input.Key) bool {
             app.view = .tracks;
             return true;
         },
+        // Empty track has nothing to edit, so enter opens its browser -
+        // same convention the slicer/soundfont editors' empty states use.
+        .enter => {
+            if (clips.len > 0) return false;
+            app.openBrowser(.import_audio);
+            return true;
+        },
         .char => |c| switch (c) {
             'j' => {
                 if (clips.len > 0) app.audio_clip = @min(app.audio_clip +| @as(usize, @intCast(app.takeCount())), clips.len - 1);

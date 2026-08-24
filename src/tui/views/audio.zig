@@ -52,6 +52,9 @@ pub fn drawAudioEditor(app: anytype, w: *std.Io.Writer, rows: usize, cols: usize
         try w.writeAll(style.dim ++ "  NO AUDIO REGIONS" ++ style.rst);
         try style.endLine(w);
         written += 1;
+        try w.writeAll(style.acc ++ "  enter" ++ style.rst ++ style.dim ++ " / " ++ style.rst ++ style.acc ++ ":import-audio" ++ style.rst ++ style.dim ++ "  browse audio files" ++ style.rst);
+        try style.endLine(w);
+        written += 1;
     }
     const pan = if (@abs(track.pan) < 0.005) "C" else if (track.pan < 0) "L" else "R";
     try w.print("  track  gain {s}{d:.1} dB  pan {s}{d:.0}  mute {s}  solo {s}  arm {s}", .{ if (track.gain_db >= 0) "+" else "", track.gain_db, pan, @abs(track.pan) * 100, if (track.muted) "on" else "off", if (track.soloed) "on" else "off", if (app.session.isArmed(app.audio_track)) "on" else "off" });

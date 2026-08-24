@@ -8509,6 +8509,14 @@ test "enter in an editor with nothing loaded opens that editor's file browser" {
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(AppView.file_browser, app.view);
     try std.testing.expectEqual(app_mod.BrowserPurpose.load_soundfont, app.browser_purpose);
+
+    // Audio editor with no regions.
+    try app.session.setInstrument(0, .audio);
+    app.audio_track = 0;
+    app.view = .audio_editor;
+    app.handleKey(.enter, 0);
+    try std.testing.expectEqual(AppView.file_browser, app.view);
+    try std.testing.expectEqual(app_mod.BrowserPurpose.import_audio, app.browser_purpose);
 }
 
 test "loading a standalone sample restores prior sampler state on undo" {
