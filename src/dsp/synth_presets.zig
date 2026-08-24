@@ -2047,6 +2047,35 @@ pub const presets = [_]Preset{
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.9 }, .{ .idx = 2, .value = 0.4 } } },
     } },
 
+    // boom-bap - a tonal drone (not downlifter's noise wash - this one has
+    // to READ as a falling pitch, the way a stopped record does) with a
+    // deliberately unphysical decay curve: a slowing turntable is a flywheel
+    // losing energy to constant friction, and kinetic energy goes as speed
+    // squared, so the speed drop is slow at first and steepens toward the
+    // end rather than falling in a straight line. Same shape closes the
+    // filter (a tape head's response sags as the reel slows) and the amp,
+    // so pitch, brightness and level all bottom out together.
+    .{ .name = "vinyl-stop", .category = "fx", .tags = &.{ "wstudio", "hip-hop", "boom-bap" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_detune = 10.0, .unison_spread = 0.4,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.3333333, .osc_b_semi = 7.0, .osc_b_detune_cents = 5.0, .osc_b_level = 0.4,
+        .noise_level = 0.05, .noise_color = 0.4,
+        .attack_s = 0.01, .decay_s = 1.0, .sustain = 0.0, .release_s = 0.3, .env_curve = 0.75,
+        .filter_type = .ladder, .filter_cutoff = 700.0, .filter_res = 0.12, .filter_drive = 1.6,
+        .fenv_attack_s = 0.01, .fenv_decay_s = 1.0, .fenv_sustain = 0.0, .fenv_release_s = 0.3, .fenv_curve = 0.7,
+        .env3_attack_s = 0.01, .env3_decay_s = 1.0, .env3_sustain = 0.0, .env3_release_s = 0.3, .env3_curve = 0.85,
+        .mod_matrix = mods(&.{
+            .{ .source = .fenv, .dest = 21,  .depth = 0.8 },
+            .{ .source = .env3, .dest = dP,  .depth = -1.0 },
+            .{ .source = .mac1, .dest = 21,  .depth = 0.4 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.4, .fx_instance_id = 1 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.3 },
+        }),
+        .macro_labels = macros(.{ "sweep", "detune", "space", "" }),
+        .gain = 0.28,
+    }, .fx = &.{
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.65 }, .{ .idx = 1, .value = 0.45 }, .{ .idx = 2, .value = 0.22 } } },
+    } },
+
     // Section marker: a sub sine whose pitch collapses an octave in 120 ms
     // (the boom) under a noise burst (the crack), then a long plate to carry
     // it. Distortion before the reverb so the tail is dense rather than clean.
@@ -2806,8 +2835,8 @@ pub fn find(name: []const u8) ?Patch {
     return null;
 }
 
-test "factory library holds exactly 101 presets" {
-    try std.testing.expectEqual(@as(usize, 101), presets.len);
+test "factory library holds exactly 102 presets" {
+    try std.testing.expectEqual(@as(usize, 102), presets.len);
 }
 
 test "every preset's matrix rows target legal dests at sane depths" {
