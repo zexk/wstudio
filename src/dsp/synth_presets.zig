@@ -1560,6 +1560,37 @@ pub const presets = [_]Preset{
         .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.7 }, .{ .idx = 1, .value = 0.6 } } },
     } },
 
+    // boom-bap - the chopped soul horn stab, off the same sampler as
+    // grimy-keys/shaolin-bell (SP-1200: 12-bit, ~26 kHz -> downsample 2 at
+    // 48k). A section stack, not a solo horn: osc B sits a fifth up, the
+    // way a trumpet/trombone hit is voiced on the records this samples.
+    // Short and unsustained - a stab off a record is one chop, it doesn't
+    // hold - and the filter envelope opens SLOWER than the amp envelope
+    // (see retro-brass/afro-brass), or it reads as a synth pluck instead
+    // of a brass attack.
+    .{ .name = "boom-bap-horn", .category = "brass", .tags = &.{ "wstudio", "hip-hop", "boom-bap" }, .patch = .{
+        .wt_table = .basic, .wt_pos = 0.6666667, .unison = 3, .unison_detune = 10.0, .unison_spread = 0.4,
+        .osc_b_on = true, .osc_b_wt_table = .basic, .osc_b_wt_pos = 0.6666667, .osc_b_semi = 7.0, .osc_b_detune_cents = 6.0, .osc_b_level = 0.5,
+        .attack_s = 0.006, .decay_s = 0.22, .sustain = 0.0, .release_s = 0.12, .env_curve = 0.5,
+        .filter_type = .lp, .filter_cutoff = 2400.0, .filter_res = 0.1,
+        .fenv_attack_s = 0.03, .fenv_decay_s = 0.25, .fenv_sustain = 0.15, .fenv_release_s = 0.15,
+        .mod_matrix = mods(&.{
+            .{ .source = .keytrack, .dest = 21,  .depth = 0.35 },
+            .{ .source = .fenv,     .dest = 21,  .depth = 0.4 },
+            .{ .source = .velocity, .dest = 21,  .depth = 0.3 },
+            .{ .source = .mac1,     .dest = 21,  .depth = 0.45 },
+            .{ .source = .mac2, .dest = 4,   .depth = 0.35 },
+            .{ .source = .mac3, .dest = 2, .depth = 0.35, .fx_instance_id = 2 },
+            .{ .source = .mac4, .dest = 2, .depth = 0.3, .fx_instance_id = 1 },
+            .{ .source = .mac4, .dest = 0, .depth = -0.4, .fx_instance_id = 1 },
+        }),
+        .macro_labels = macros(.{ "brightness", "detune", "space", "dust" }),
+        .gain = 0.27,
+    }, .fx = &.{
+        .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 12 }, .{ .idx = 1, .value = 2 }, .{ .idx = 2, .value = 0.32 } } },
+        .{ .kind = .reverb, .params = &.{ .{ .idx = 0, .value = 0.55 }, .{ .idx = 1, .value = 0.5 }, .{ .idx = 2, .value = 0.2 } } },
+    } },
+
     // hip-hop - creepy detuned horror-movie organ (late-90s shock-rap
     // production staple); chaos LFO drifts the pitch just enough to unsettle
     .{ .name = "creep-keys", .category = "keys", .tags = &.{ "wstudio", "hip-hop" }, .patch = .{
@@ -2775,8 +2806,8 @@ pub fn find(name: []const u8) ?Patch {
     return null;
 }
 
-test "factory library holds exactly 100 presets" {
-    try std.testing.expectEqual(@as(usize, 100), presets.len);
+test "factory library holds exactly 101 presets" {
+    try std.testing.expectEqual(@as(usize, 101), presets.len);
 }
 
 test "every preset's matrix rows target legal dests at sane depths" {
