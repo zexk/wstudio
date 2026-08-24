@@ -1216,7 +1216,10 @@ fn nudgeMouse(app: *App, target: EqTarget, ev: modal_mod.MouseEvent) void {
     nudge(app, target, key);
 }
 
-fn resetMouseParam(app: *App, target: EqTarget) void {
+/// Resets `app.fx_param` on the focused unit at `target` to its patch-init
+/// default. Shared by the TUI's middle-click and the GUI knob's "Reset to
+/// default" menu item - see `widgets.Knob`'s doc comment.
+pub fn resetMouseParam(app: *App, target: EqTarget) void {
     const fx = fxPtr(app, target) orelse return;
     const unit = focusedUnit(app, fx) orelse return;
     const value = switch (unit.payload) {

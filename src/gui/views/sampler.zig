@@ -423,6 +423,10 @@ fn drawParam(app: anytype, target: Target, id: u8, label_text: []const u8, forma
     if (result.changed) setPadParam(app, target, id, value);
     if (result.modifier_changed) setPadParam(app, target, curve_id.?, curve);
     if (result.activated) app.core.sampler_param = id;
+    if (result.reset) {
+        app.core.sampler_param = id;
+        sampler_ed.resetMouseParam(&app.core);
+    }
 }
 
 fn drawListParam(app: anytype, target: Target, row: sampler_ed.ParamRow, labels: []const [:0]const u8, accent: [4]f32) void {

@@ -644,7 +644,11 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16, v
     }
 }
 
-fn resetMouseParam(app: *App) void {
+/// Resets `app.sampler_param` (on whichever target `app.sampler_target`
+/// names) to its patch-init default. Shared by the TUI's middle-click and
+/// the GUI knob's "Reset to default" menu item - see `widgets.Knob`'s doc
+/// comment.
+pub fn resetMouseParam(app: *App) void {
     var fresh = ws.dsp.Sampler.init(app.allocator, app.session.project.sample_rate) catch return;
     defer fresh.deinit();
     const value = fresh.paramValue(app.sampler_param) orelse return;

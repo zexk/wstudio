@@ -626,6 +626,10 @@ fn drawMatrixRow(app: anytype, synth: *ws.dsp.PolySynth, base_id: u16, accent: [
     });
     if (result.changed) sendParam(app, depth_id, depth);
     if (result.activated) app.core.synth_cursor = depth_id;
+    if (result.reset) {
+        app.core.synth_cursor = depth_id;
+        synth_ed.resetParam(&app.core);
+    }
     zgui.sameLine(.{ .spacing = 6 });
     if (on) {
         const sign: []const u8 = if (row.depth >= 0.0) "+" else "";
@@ -688,6 +692,10 @@ fn drawParam(app: anytype, synth: *ws.dsp.PolySynth, id: u16, label_text: []cons
         if (result.changed) sendParam(app, id, edited);
         if (result.modifier_changed) sendParam(app, curve_id.?, curve);
         if (result.activated) app.core.synth_cursor = id;
+        if (result.reset) {
+            app.core.synth_cursor = id;
+            synth_ed.resetParam(&app.core);
+        }
         return;
     }
 

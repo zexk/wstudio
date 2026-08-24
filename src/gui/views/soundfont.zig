@@ -5,6 +5,7 @@ const icons = @import("../../ui/icons.zig");
 const format = @import("../../ui/format.zig");
 const style = @import("../style.zig");
 const widgets = @import("../widgets.zig");
+const soundfont_ed = @import("../../ui/editors/soundfont.zig");
 
 const theme = &style.palette;
 
@@ -129,4 +130,8 @@ fn drawParam(app: anytype, track: u16, sf: *ws.dsp.SoundfontPlayer, id: u8, labe
     const result = widgets.paramKnob(label_text, label, .{ .v = &value, .min = range[0], .max = range[1], .cfmt = cfmt, .accent = theme.focus, .focused = focused });
     if (result.changed) setParam(app, track, id, value);
     if (result.activated) app.core.soundfont_param = id;
+    if (result.reset) {
+        app.core.soundfont_param = id;
+        soundfont_ed.resetMouseParam(&app.core);
+    }
 }

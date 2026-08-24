@@ -1026,7 +1026,10 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize, cols: u16) v
     }
 }
 
-fn resetParam(app: *App) void {
+/// Resets `app.synth_cursor` to its patch-init default. Shared by the TUI's
+/// middle-click and the GUI knob's "Reset to default" menu item - see
+/// `widgets.Knob`'s doc comment.
+pub fn resetParam(app: *App) void {
     var fresh = ws.dsp.PolySynth.init(app.allocator, app.session.project.sample_rate) catch return;
     defer fresh.deinit();
     const value = fresh.paramValue(app.synth_cursor) orelse return;

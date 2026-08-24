@@ -215,7 +215,10 @@ pub fn handleMouse(app: *App, ev: modal_mod.MouseEvent, row: usize) void {
     }
 }
 
-fn resetMouseParam(app: *App) void {
+/// Resets `app.soundfont_param` to its patch-init default. Shared by the
+/// TUI's middle-click and the GUI knob's "Reset to default" menu item - see
+/// `widgets.Knob`'s doc comment.
+pub fn resetMouseParam(app: *App) void {
     var fresh = ws.dsp.SoundfontPlayer.init(app.allocator, app.session.project.sample_rate);
     defer fresh.deinit();
     const value = fresh.paramValue(app.soundfont_param) orelse return;

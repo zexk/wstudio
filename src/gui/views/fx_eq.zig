@@ -339,6 +339,11 @@ fn applyControl(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, in
         app.core.fx_param = index;
         app.core.eq_band_select = false;
     }
+    if (result.reset) {
+        app.core.fx_param = index;
+        app.core.eq_band_select = false;
+        spectrum_ed.resetMouseParam(&app.core, target);
+    }
 }
 
 /// Band identity comes from the theme's six pure hues - the bright tier of the

@@ -858,6 +858,10 @@ fn applyParamResult(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit
         syncChain(app, target);
     }
     if (result.activated) app.core.fx_param = index;
+    if (result.reset) {
+        app.core.fx_param = index;
+        spectrum_ed.resetMouseParam(&app.core, target);
+    }
 }
 
 pub fn syncChain(app: anytype, target: spectrum_ed.EqTarget) void {

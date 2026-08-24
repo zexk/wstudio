@@ -259,9 +259,11 @@ pub fn openLoadCommand(app: anytype) void {
 /// A rotary control: drag vertically to change the value, double-click to
 /// type an exact one, or scroll while hovered to nudge it a fixed step
 /// (**Mod**+scroll = a secondary value when supplied, otherwise a coarser
-/// step) - the same convention the TUI's param rows use. Angle sweep and
-/// drag mapping follow the usual three-quarter-turn knob convention
-/// (135deg through the top to 405deg).
+/// step) - the same convention the TUI's param rows use. Right-click for
+/// "Copy value" / "Reset to default" - the latter mirrors the TUI's
+/// middle-click reset (`KnobResult.reset`, applied by the caller). Angle
+/// sweep and drag mapping follow the usual three-quarter-turn knob
+/// convention (135deg through the top to 405deg).
 pub const Knob = struct {
     v: *f32,
     /// Secondary value changed by Mod+scroll instead of the dial value.
@@ -287,6 +289,9 @@ pub const Knob = struct {
 pub const KnobResult = struct {
     changed: bool = false,
     modifier_changed: bool = false,
+    /// "Reset to default" was picked from the right-click menu. The caller
+    /// looks up and applies its own default - see `knob`'s doc comment.
+    reset: bool = false,
     /// Mirrors `zgui.isItemActivated()` for the drag surface - callers
     /// building a UI cursor from clicks should check this instead, since
     /// `paramKnob` draws label/value text after the dial and would shift
@@ -377,6 +382,7 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
     if (hovered or active) zgui.setMouseCursor(.resize_ns);
     const activated = zgui.isItemActivated();
     var changed = false;
+    var reset = false;
 
     if (zgui.beginPopupContextItem()) {
         if (zgui.menuItem("Copy value", .{})) {
@@ -385,6 +391,11 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
             const display = args.display orelse knobFormatValue(&value_buf, args.cfmt, args.v.*);
             if (std.fmt.bufPrintZ(&clipboard_buf, "{s}", .{display})) |value| zgui.setClipboardText(value) else |_| {}
         }
+        // Same gesture the TUI's param rows offer on a middle-click - see
+        // `resetParam`/`resetMouseParam` in the various `ui/editors/*.zig`.
+        // The caller applies the actual reset (this widget doesn't know
+        // what "default" means for the param it's drawing).
+        if (zgui.menuItem("Reset to default", .{})) reset = true;
         zgui.endPopup();
     }
 
@@ -473,7 +484,7 @@ pub fn knob(label: [:0]const u8, args: Knob) KnobResult {
         zgui.endTooltip();
     }
 
-    return .{ .changed = changed, .modifier_changed = modifier_changed, .activated = activated, .hot = hovered or active };
+    return .{ .changed = changed, .modifier_changed = modifier_changed, .reset = reset, .activated = activated, .hot = hovered or active };
 }
 
 /// A knob plus its label and live value, laid out as a single row - the
