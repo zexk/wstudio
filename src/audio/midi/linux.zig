@@ -183,10 +183,25 @@ pub const MidiIn = struct {
     }
 };
 
+/// Heap-allocated, not returned by value: `Engine` is over 1 MiB (mostly
+/// `max_tracks`-scaled meter arrays), and a by-value local blows macOS's
+/// default thread stack - see `[[reference_wstudio_gotchas]]`.
+fn testEngine() !*Engine {
+    const engine = try std.testing.allocator.create(Engine);
+    errdefer std.testing.allocator.destroy(engine);
+    engine.* = try Engine.init(std.testing.allocator, 48_000);
+    return engine;
+}
+
+fn destroyTestEngine(engine: *Engine) void {
+    engine.deinit();
+    std.testing.allocator.destroy(engine);
+}
+
 test "an incoming MIDI CC marks dirty; a note does not" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
-    defer engine.deinit();
-    var midi_in: MidiIn = .{ .engine = &engine };
+    const engine = try testEngine();
+    defer destroyTestEngine(engine);
+    var midi_in: MidiIn = .{ .engine = engine };
 
     var note_ev: c.snd_seq_ump_event_t = std.mem.zeroes(c.snd_seq_ump_event_t);
     // zig fmt: off
@@ -206,9 +221,9 @@ test "an incoming MIDI CC marks dirty; a note does not" {
 }
 
 test "a note-on queues its pitch + velocity for recording; note-off does not" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
-    defer engine.deinit();
-    var midi_in: MidiIn = .{ .engine = &engine };
+    const engine = try testEngine();
+    defer destroyTestEngine(engine);
+    var midi_in: MidiIn = .{ .engine = engine };
 
     var on_ev: c.snd_seq_ump_event_t = std.mem.zeroes(c.snd_seq_ump_event_t);
     // zig fmt: off
@@ -235,9 +250,9 @@ test "a note-on queues its pitch + velocity for recording; note-off does not" {
 }
 
 test "ALSA UMP MIDI 2.0 note reaches audition and recording paths" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
-    defer engine.deinit();
-    var midi_in: MidiIn = .{ .engine = &engine };
+    const engine = try testEngine();
+    defer destroyTestEngine(engine);
+    var midi_in: MidiIn = .{ .engine = engine };
 
     var ev: c.snd_seq_ump_event_t = std.mem.zeroes(c.snd_seq_ump_event_t);
     ev.flags = c.SND_SEQ_EVENT_UMP;

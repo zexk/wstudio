@@ -140,10 +140,25 @@ pub const MidiIn = struct {
     }
 };
 
+/// Heap-allocated, not returned by value: `Engine` is over 1 MiB (mostly
+/// `max_tracks`-scaled meter arrays), and a by-value local blows macOS's
+/// default thread stack - see `[[reference_wstudio_gotchas]]`.
+fn testEngine() !*Engine {
+    const engine = try std.testing.allocator.create(Engine);
+    errdefer std.testing.allocator.destroy(engine);
+    engine.* = try Engine.init(std.testing.allocator, 48_000);
+    return engine;
+}
+
+fn destroyTestEngine(engine: *Engine) void {
+    engine.deinit();
+    std.testing.allocator.destroy(engine);
+}
+
 test "CoreMIDI packet bytes audition and queue notes" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
-    defer engine.deinit();
-    var midi_in: MidiIn = .{ .engine = &engine };
+    const engine = try testEngine();
+    defer destroyTestEngine(engine);
+    var midi_in: MidiIn = .{ .engine = engine };
 
     midi_in.feed(&.{ 0x90, 64, 100, 65, 80 });
     try std.testing.expectEqual(@as(?MidiIn.RecNote, .{ .pitch = 64, .vel = 100 }), midi_in.note_queue.pop());
@@ -151,18 +166,18 @@ test "CoreMIDI packet bytes audition and queue notes" {
 }
 
 test "CoreMIDI packet keeps channel messages after unsupported system common" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
-    defer engine.deinit();
-    var midi_in: MidiIn = .{ .engine = &engine };
+    const engine = try testEngine();
+    defer destroyTestEngine(engine);
+    var midi_in: MidiIn = .{ .engine = engine };
 
     midi_in.feed(&.{ 0xF1, 0, 0x90, 64, 100 });
     try std.testing.expectEqual(@as(?MidiIn.RecNote, .{ .pitch = 64, .vel = 100 }), midi_in.note_queue.pop());
 }
 
 test "CoreMIDI UMP packet preserves MIDI 2.0 velocity" {
-    var engine = try Engine.init(std.testing.allocator, 48_000);
-    defer engine.deinit();
-    var midi_in: MidiIn = .{ .engine = &engine };
+    const engine = try testEngine();
+    defer destroyTestEngine(engine);
+    var midi_in: MidiIn = .{ .engine = engine };
 
     midi_in.feedUmp(&.{ 0x40904000, 0x80000000 });
     try std.testing.expectEqual(@as(?MidiIn.RecNote, .{ .pitch = 64, .vel = 64 }), midi_in.note_queue.pop());

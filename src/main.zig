@@ -483,7 +483,12 @@ test {
 }
 
 test "frontend links against the engine library" {
-    var engine = try ws.Engine.init(std.testing.allocator, ws.types.default_sample_rate);
+    // Heap-allocated, not by value: Engine is over 1 MiB, and a by-value
+    // local blows macOS's default thread stack - see
+    // [[reference_wstudio_gotchas]].
+    const engine = try std.testing.allocator.create(ws.Engine);
+    defer std.testing.allocator.destroy(engine);
+    engine.* = try ws.Engine.init(std.testing.allocator, ws.types.default_sample_rate);
     defer engine.deinit();
     _ = engine.send(.play);
     var block: [64]ws.types.Sample = undefined;
