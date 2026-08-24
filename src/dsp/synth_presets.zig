@@ -947,6 +947,11 @@ pub const presets = [_]Preset{
     }, .fx = &.{
         .{ .kind = .ott, .params = &.{ .{ .idx = 0, .value = 0.5 }, .{ .idx = 3, .value = -8 } } },
         .{ .kind = .sat, .params = &.{ .{ .idx = 2, .value = 0.5 } } },
+        // Level pass: 5.1 dB under the bass category mean. Both inserts are
+        // nonlinear (OTT compresses, sat clips), so the trim goes here
+        // rather than into voice gain, which would also change how hard
+        // they're driven and undo the vowel-snap dynamics they're there for.
+        .{ .kind = .utility, .params = &.{ .{ .idx = 0, .value = 1.8 } } },
     } },
 
     // hip-hop - the whiny G-funk portamento lead. "The whine" is a slow-
@@ -2421,6 +2426,10 @@ pub const presets = [_]Preset{
     }, .fx = &.{
         .{ .kind = .sat, .params = &.{ .{ .idx = 0, .value = 11 }, .{ .idx = 2, .value = 0.35 } } },
         .{ .kind = .crush, .params = &.{ .{ .idx = 0, .value = 10 }, .{ .idx = 1, .value = 3 }, .{ .idx = 2, .value = 0.3 } } },
+        // Level pass: 5.1 dB above the pluck category mean. Both inserts are
+        // nonlinear, so the trim goes here rather than into voice gain
+        // (which would also change how hard sat/crush are driven).
+        .{ .kind = .utility, .params = &.{ .{ .idx = 0, .value = -1.5 } } },
     } },
 
     // pluggnb - the glassy bell the style is built on. Bright but soft: a
