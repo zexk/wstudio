@@ -779,6 +779,28 @@ pub fn main(init: std.process.Init) !void {
         try printDiff(w, ra.patch, rb.patch, scales, 8);
     }
 
+    // Register extremes: presets whose level swings hardest across the
+    // probed range, worst first. A fixed (non-keytracked) filter or formant
+    // can legitimately swing hard - a real voice's formants don't move with
+    // pitch either, so a fundamental landing in a formant null is genuinely
+    // quiet - so this flags where to LISTEN, not a verdict.
+    try w.print("\n\n# Register extremes: |lo_db| + |hi_db|, worst first.\n", .{});
+    try w.print("name\tcategory\tlo_db\thi_db\n", .{});
+    const RegRow = struct { name: []const u8, category: []const u8, lo_db: f32, hi_db: f32, score: f32 };
+    var reg: std.ArrayListUnmanaged(RegRow) = .empty;
+    defer reg.deinit(allocator);
+    for (rows.items) |r| {
+        try reg.append(allocator, .{ .name = r.name, .category = r.category, .lo_db = r.lo_db, .hi_db = r.hi_db, .score = @abs(r.lo_db) + @abs(r.hi_db) });
+    }
+    std.mem.sort(RegRow, reg.items, {}, struct {
+        fn lt(_: void, x: RegRow, y: RegRow) bool {
+            return x.score > y.score;
+        }
+    }.lt);
+    for (reg.items[0..@min(reg.items.len, 12)]) |r| {
+        try w.print("{s}\t{s}\t{d:.1}\t{d:.1}\n", .{ r.name, r.category, r.lo_db, r.hi_db });
+    }
+
     // Category coverage, so a gap shows up as a thin row rather than by
     // reading 100 names.
     try w.print("\n\n# Coverage by category: count, and the mean of each feature.\n", .{});
