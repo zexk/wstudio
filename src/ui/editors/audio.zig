@@ -12,15 +12,24 @@ fn selectedRegion(app: *App) ?*ws.Clip.AudioRegion {
     return &clips[app.audio_clip].content.audio;
 }
 
+/// Sample-index range (into an interleaved buffer of `channels` channels) a
+/// region's frame range covers, clamped to what the source actually holds.
+/// Clamping happens in *frame* units before multiplying by `channels` - a
+/// hand-edited or corrupt project can carry `source_start_frame` up near
+/// u64's max, and multiplying that by channels first overflows u64.
+fn peakSampleRange(source_start_frame: u64, source_length_frames: u64, total_frames: u64, channels: u64) struct { start: usize, end: usize } {
+    const start_frame = @min(source_start_frame, total_frames);
+    const end_frame = @min(start_frame +| source_length_frames, total_frames);
+    return .{ .start = @intCast(start_frame * channels), .end = @intCast(end_frame * channels) };
+}
+
 pub fn selectedPeakDb(app: *App) ?f32 {
     const region = selectedRegion(app) orelse return null;
     const source = app.session.project.audioSource(region.source_id) orelse return null;
     const channels: u64 = @max(source.channel_count, 1);
-    const start: usize = @intCast(@min(region.source_start_frame * channels, source.samples.len));
-    const end_frame = @min(region.source_start_frame +| region.source_length_frames, source.samples.len / channels);
-    const end: usize = @intCast(end_frame * channels);
+    const range = peakSampleRange(region.source_start_frame, region.source_length_frames, source.samples.len / channels, channels);
     var peak: f32 = 0;
-    for (source.samples[start..end]) |sample| peak = @max(peak, @abs(sample));
+    for (source.samples[range.start..range.end]) |sample| peak = @max(peak, @abs(sample));
     return ws.types.gainToDb(peak) + region.gain_db;
 }
 
@@ -180,4 +189,18 @@ test "normalization gain lifts source peak to zero and respects region limits" {
     try std.testing.expectApproxEqAbs(@as(f32, 6.0), normalizedGainDb(-6.0), 1e-6);
     try std.testing.expectEqual(@as(f32, 24.0), normalizedGainDb(-80.0));
     try std.testing.expectEqual(@as(f32, -6.0), normalizedGainDb(6.0));
+}
+
+test "peakSampleRange clamps an out-of-bounds source_start_frame instead of overflowing" {
+    // A corrupt/hand-edited .wsj can carry a huge source_start_frame; load.zig
+    // copies it through unclamped (unlike gain_db/stretch_ratio). Multiplying
+    // it by channels before clamping (the old code) overflows u64 and panics.
+    const r = peakSampleRange(std.math.maxInt(u64), 100, 1000, 2);
+    try std.testing.expect(r.start <= r.end);
+    try std.testing.expectEqual(@as(usize, 2000), r.start);
+    try std.testing.expectEqual(@as(usize, 2000), r.end);
+
+    const normal = peakSampleRange(10, 20, 1000, 2);
+    try std.testing.expectEqual(@as(usize, 20), normal.start);
+    try std.testing.expectEqual(@as(usize, 60), normal.end);
 }
