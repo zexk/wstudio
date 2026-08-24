@@ -347,6 +347,22 @@ pub fn build(b: *std.Build) void {
     const presetscan_step = b.step("presetscan", "Measure every factory synth preset and report the closest pairs");
     presetscan_step.dependOn(&run_presetscan.step);
 
+    const audioviz = b.addExecutable(.{
+        .name = "audioviz",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/audioviz.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "wstudio", .module = wstudio_mod },
+            },
+        }),
+    });
+    const run_audioviz = b.addRunArtifact(audioviz);
+    if (b.args) |args| run_audioviz.addArgs(args);
+    const audioviz_step = b.step("audioviz", "Render a preset or kit pad to a waveform + spectrogram PNG");
+    audioviz_step.dependOn(&run_audioviz.step);
+
     // demo.wsj lives above the module root, so no Zig test can @embedFile it;
     // this tiny loader stands in for one and joins `zig build test` below.
     const checkdemo = b.addExecutable(.{
