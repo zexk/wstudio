@@ -14,6 +14,7 @@ const AutomationCurve = automation_mod.AutomationCurve;
 const meter_mod = @import("../dsp/meter.zig");
 const time_map = @import("../time_map.zig");
 const arrangement = @import("../arrangement.zig");
+const capture_types = @import("capture_types.zig");
 
 const Sample = types.Sample;
 const SpectrumAnalyzer = spectrum_mod.SpectrumAnalyzer;
@@ -33,6 +34,7 @@ pub const max_groups: u8 = 16;
 pub const max_sends_per_track = @import("../project.zig").max_sends_per_track;
 
 pub const SpectrumSource = enum { none, track, master, group };
+pub const ResampleSource = union(enum) { off, track: u16, group: u8, master };
 
 pub const Command = union(enum) {
     play,
@@ -464,6 +466,9 @@ pub const Engine = struct {
     /// Mono input samples crossing from capture/control thread to audio
     /// thread for direct monitoring. Capacity covers about 340 ms at 48 kHz.
     monitor_samples: Spsc(Sample, 16384) = .{},
+    resample_blocks: capture_types.Queue = .{},
+    resample_source_kind: std.atomic.Value(u8) = .init(0),
+    resample_source_index: std.atomic.Value(u16) = .init(0),
     /// Commands are realtime messages and cannot block their producer. Count
     /// queue saturation so the UI can report it instead of failing silently.
     dropped_commands: std.atomic.Value(u32) = .init(0),
@@ -518,6 +523,7 @@ pub const Engine = struct {
     track_pool: []TrackState,
     scratch: [types.max_block_frames * channels]Sample = undefined,
     route_scratch: [types.max_block_frames * channels]Sample = undefined,
+    resample_scratch: [types.max_block_frames * channels]Sample = undefined,
     automation_gain: [types.max_block_frames]f32 = undefined,
     automation_pan: [types.max_block_frames]f32 = undefined,
     automation_bus: [types.max_block_frames]f32 = undefined,
@@ -1241,6 +1247,38 @@ pub const Engine = struct {
         }
     }
 
+    pub fn setResampleSource(self: *Engine, source: ResampleSource) void {
+        const kind: u8, const index: u16 = switch (source) {
+            .off => .{ 0, 0 },
+            .track => |track| .{ 1, track },
+            .group => |group| .{ 2, group },
+            .master => .{ 3, 0 },
+        };
+        self.resample_source_index.store(index, .release);
+        self.resample_source_kind.store(kind, .release);
+    }
+
+    pub fn popResample(self: *Engine) ?capture_types.CaptureBlock {
+        return self.resample_blocks.pop();
+    }
+
+    fn captureResample(self: *Engine, signal: []const Sample, frames: u32) void {
+        var offset: u32 = 0;
+        while (offset < frames) {
+            const count = @min(capture_types.chunk_frames, frames - offset);
+            const sample_count: usize = @as(usize, count) * channels;
+            const sample_offset: usize = @as(usize, offset) * channels;
+            var block: capture_types.CaptureBlock = .{
+                .frames = count,
+                .channels = channels,
+                .start_frame = self.transport.position_frames + offset,
+            };
+            @memcpy(block.samples[0..sample_count], signal[sample_offset..][0..sample_count]);
+            if (!self.resample_blocks.push(block)) break;
+            offset += count;
+        }
+    }
+
     pub fn process(self: *Engine, out: []Sample) void {
         const frames: u32 = @intCast(out.len / channels);
         std.debug.assert(frames <= types.max_block_frames);
@@ -1290,6 +1328,7 @@ pub const Engine = struct {
             out[frame * channels + 1] *= gain;
         }
         self.limiter.processBlock(out);
+        if (self.resample_source_kind.load(.acquire) == 3) self.captureResample(out, frames);
 
         // Peaks measured post-limiter, so the meters show what actually
         // reaches the output.
@@ -1930,6 +1969,8 @@ pub const Engine = struct {
         // read back out of `track_peak` on every frame.
         var peak_l = self.track_peak[ti][0];
         var peak_r = self.track_peak[ti][1];
+        const resample_track = self.resample_source_kind.load(.acquire) == 1 and self.resample_source_index.load(.acquire) == ti;
+        const resample_signal = self.resample_scratch[0 .. frames * channels];
         if (automated) {
             for (0..frames) |i| {
                 const angle = (pans[i] + 1.0) * std.math.pi / 4.0;
@@ -1937,6 +1978,10 @@ pub const Engine = struct {
                 const right = primary_signal[i * channels + 1] * (gains[i] * @sin(angle));
                 dest[i * channels] += left;
                 dest[i * channels + 1] += right;
+                if (resample_track) {
+                    resample_signal[i * channels] = left;
+                    resample_signal[i * channels + 1] = right;
+                }
                 peak_l = @max(peak_l, @abs(left));
                 peak_r = @max(peak_r, @abs(right));
             }
@@ -1946,11 +1991,16 @@ pub const Engine = struct {
                 const right = primary_signal[i * channels + 1] * base_gain_r;
                 dest[i * channels] += left;
                 dest[i * channels + 1] += right;
+                if (resample_track) {
+                    resample_signal[i * channels] = left;
+                    resample_signal[i * channels + 1] = right;
+                }
                 peak_l = @max(peak_l, @abs(left));
                 peak_r = @max(peak_r, @abs(right));
             }
         }
         self.track_peak[ti] = .{ peak_l, peak_r };
+        if (resample_track) self.captureResample(resample_signal, frames);
 
         // Aux sends: the same gain/pan'd signal, tapped in parallel into
         // zero or more OTHER destinations at an independent level - `dest`
@@ -2193,16 +2243,24 @@ pub const Engine = struct {
             // track peak gives.
             var peak_l = self.group_peak[gi][0];
             var peak_r = self.group_peak[gi][1];
+            const resample_group = self.resample_source_kind.load(.acquire) == 2 and self.resample_source_index.load(.acquire) == gi;
+            const resample_signal = self.resample_scratch[0 .. frames * channels];
             for (0..frames) |frame| {
                 const gain = if (group_automated) group_gains[frame] else g.gain;
                 const l = gscratch[frame * channels] * gain;
                 const r = gscratch[frame * channels + 1] * gain;
                 out[frame * channels] += l;
                 out[frame * channels + 1] += r;
+                if (resample_group) {
+                    resample_signal[frame * channels] = l;
+                    resample_signal[frame * channels + 1] = r;
+                }
                 peak_l = @max(peak_l, @abs(l));
                 peak_r = @max(peak_r, @abs(r));
             }
             self.group_peak[gi] = .{ peak_l, peak_r };
+
+            if (resample_group) self.captureResample(resample_signal, frames);
 
             if (group_tap == null and self.active_spectrum_source == .group and @as(u8, @intCast(gi)) == self.active_spectrum_group) {
                 self.track_spectrum.push(gscratch);
@@ -3125,6 +3183,27 @@ test "grouped tracks submix through their group's FX chain; ungrouped tracks are
 
     try std.testing.expect(ungrouped_loud > 0.05); // reaches `out` at all - routing works
     try std.testing.expect(grouped_loud < ungrouped_loud * 0.5); // crushed by the group's compressor
+}
+
+test "resample taps group and master output into control-thread blocks" {
+    var synth = try PolySynth.init(std.testing.allocator, 48_000);
+    defer synth.deinit();
+    const engine = try testSynthEngine(&synth);
+    defer destroyTestEngine(engine);
+    engine.setGroupChain(0, true, &.{});
+    _ = engine.send(.{ .set_track_group = .{ .track = 0, .group = 0 } });
+    _ = engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
+
+    var out: [512]Sample = undefined;
+    engine.setResampleSource(.{ .group = 0 });
+    engine.process(&out);
+    const group = engine.popResample().?;
+    try std.testing.expect(std.mem.indexOfNone(f32, group.samples[0 .. group.frames * group.channels], &.{0}) != null);
+
+    engine.setResampleSource(.master);
+    engine.process(&out);
+    const master = engine.popResample().?;
+    try std.testing.expect(std.mem.indexOfNone(f32, master.samples[0 .. master.frames * master.channels], &.{0}) != null);
 }
 
 test "set_group_mute silences the bus without touching member tracks' own mute flags" {

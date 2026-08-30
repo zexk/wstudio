@@ -99,6 +99,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "crossfade",   .desc = "crossfade overlapping audio layers at cursor", .run = wrap(commands_mixer.cmdCrossfade) },
     .{ .name = "consolidate", .desc = "render cursor audio region edits into one source", .run = wrap(commands_mixer.cmdConsolidate) },
     .{ .name = "audio-to-sampler", .desc = "turn cursor audio clip and its edits into a sampler track", .run = wrap(commands_mixer.cmdAudioToSampler) },
+    .{ .name = "resample", .desc = "<track:n|group:n|master|off>  record internal audio into the cursor Audio track", .run = wrap(commands_mixer.cmdResample) },
     .{ .name = "take",        .desc = "[next|prev]  cycle alternate recordings on audio region", .run = wrap(commands_mixer.cmdTake) },
     .{ .name = "comp",        .desc = "<take> <start-beat> <end-beat>  splice alternate take range", .run = wrap(commands_mixer.cmdComp) },
     .{ .name = "import-audio", .desc = "<file>  drop audio on the arrangement (alias for :load)", .run = wrap(commands_load.cmdImportAudio) },

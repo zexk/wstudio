@@ -969,6 +969,44 @@ pub fn cmdAudioToSampler(app: *App, _: []const u8) void {
     app.setStatus("track {d}: audio clip loaded into sampler", .{app.cursor + 1});
 }
 
+pub fn cmdResample(app: *App, args: []const u8) void {
+    if (app.cursor >= app.session.racks.items.len or app.session.racks.items[app.cursor].instrument != .audio) {
+        app.setStatus("resample: select an Audio track first", .{});
+        return;
+    }
+    const arg = std.mem.trim(u8, args, " ");
+    const source: ws.engine.ResampleSource = if (std.mem.eql(u8, arg, "off"))
+        .off
+    else if (std.mem.eql(u8, arg, "master"))
+        .master
+    else if (std.mem.startsWith(u8, arg, "track:")) blk: {
+        const n = std.fmt.parseInt(u16, arg[6..], 10) catch {
+            app.setStatus("resample: expected track:<n>, group:<n>, master, or off", .{});
+            return;
+        };
+        if (n == 0 or n > app.session.racks.items.len or n - 1 == app.cursor) {
+            app.setStatus("resample: source must be another track (1-{d})", .{app.session.racks.items.len});
+            return;
+        }
+        break :blk .{ .track = n - 1 };
+    } else if (std.mem.startsWith(u8, arg, "group:")) blk: {
+        const n = std.fmt.parseInt(u8, arg[6..], 10) catch {
+            app.setStatus("resample: expected track:<n>, group:<n>, master, or off", .{});
+            return;
+        };
+        if (n == 0 or n > ws.engine.max_groups or app.session.groups[n - 1] == null) {
+            app.setStatus("resample: group {d} does not exist", .{n});
+            return;
+        }
+        break :blk .{ .group = n - 1 };
+    } else {
+        app.setStatus("usage: resample <track:n|group:n|master|off>", .{});
+        return;
+    };
+    app.resample_source = source;
+    app.setStatus("resample input: {s}", .{arg});
+}
+
 pub fn cmdTake(app: *App, args: []const u8) void {
     const clip = clipAtCursor(app, "take") orelse return;
     const arg = std.mem.trim(u8, args, " ");

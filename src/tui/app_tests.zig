@@ -774,6 +774,34 @@ test "finishRecording with no captured audio skips the stamp and reports it" {
     try std.testing.expectEqualStrings("no audio captured", app.status_buf[0..app.status_len]);
 }
 
+test ":resample records another track into an armed Audio track" {
+    var app = try testApp();
+    defer app.deinit();
+    _ = try app.session.changeInstrumentKind(2, .audio);
+    app.cursor = 2;
+    commands.run(&app, "resample track:1");
+    try std.testing.expect(app.resample_source == .track and app.resample_source.track == 0);
+
+    app.session.toggleArm(2);
+    app.recording_active_len = 1;
+    app.recording_active_buf[0] = 2;
+    app.recording_channel_count = 2;
+    app.session.engine.setResampleSource(app.resample_source);
+    _ = app.session.engine.send(.{ .note_on = .{ .track = 0, .note = 60, .velocity = 1.0 } });
+    var out: [128]f32 = undefined;
+    app.session.engine.process(&out);
+    const block = app.session.engine.popResample().?;
+    try app.recording_accum.appendSlice(app.allocator, block.samples[0 .. block.frames * block.channels]);
+    app.finishRecording();
+
+    const clips = app.session.arrangement.lane(2).?.clips.items;
+    try std.testing.expectEqual(@as(usize, 1), clips.len);
+    const source = app.session.project.audioSource(clips[0].content.audio.source_id).?;
+    try std.testing.expectEqual(@as(u16, 2), source.channel_count);
+    try std.testing.expect(source.samples.len > 0);
+    try std.testing.expect(std.mem.indexOfNone(f32, source.samples, &.{0}) != null);
+}
+
 test ":unmute clears every track's mute in one shot; :unsolo clears solo" {
     var app = try testApp(); // synth(0), sampler(1), drums(2)
     defer app.deinit();

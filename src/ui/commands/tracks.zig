@@ -344,6 +344,9 @@ pub fn cmdGroupDel(app: *App, args: []const u8) void {
     // can reuse `idx`, and any undo entry still naming it would otherwise
     // silently retarget onto the new group's chain.
     _ = history.dropGroupPending(app, idx);
+    if (app.resample_source == .group and app.resample_source.group == idx) {
+        app.resample_source = .off;
+    }
     app.session.deleteGroup(idx);
     app.dirty = true;
     app.setStatus("group {d} deleted", .{idx + 1});

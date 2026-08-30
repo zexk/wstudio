@@ -540,6 +540,7 @@ pub const App = struct {
     /// pass by `startPendingRecording`, closed by `finishRecording` -
     /// never held open otherwise.
     audio_input: ws.AudioInput = .{},
+    resample_source: ws.engine.ResampleSource = .off,
     input_monitor: InputMonitor = .auto,
     /// Backend-native capture device name. Empty selects the system default.
     audio_input_device: config_mod.PathBuf = .{},
@@ -3012,7 +3013,7 @@ pub const App = struct {
     /// leaves the pass MIDI-only rather than failing the whole record.
     fn startPendingRecording(self: *App) void {
         if (self.recording_pending_len == 0) return;
-        if (self.audio_input.active == .none) {
+        if (self.resample_source == .off and self.audio_input.active == .none) {
             self.audio_input.start(self.session.project.sample_rate, self.audio_input_device.slice()) catch {
                 self.setStatus("record: no audio input device", .{});
                 self.recording_pending_len = 0;
@@ -3039,6 +3040,9 @@ pub const App = struct {
         self.recording_dropout_frames = 0;
         self.recording_first_dropout_frame = null;
         self.recording_capture_base_frame = null;
+        self.session.engine.setResampleSource(.off);
+        while (self.session.engine.popResample()) |_| {}
+        self.session.engine.setResampleSource(self.resample_source);
         self.recording_pending_len = 0;
     }
 
@@ -3051,10 +3055,10 @@ pub const App = struct {
             self.recording_dropout_frames += dropout.frames;
         }
         const allowed = self.recordingPositionAllowed(self.session.engine.uiSnapshot().position_frames);
-        while (self.audio_input.pop()) |block| {
+        while (if (self.resample_source == .off) self.audio_input.pop() else self.session.engine.popResample()) |block| {
             const sample_count = block.frames * block.channels;
             self.recording_channel_count = block.channels;
-            if (self.input_monitor != .off) self.session.engine.monitorInputInterleaved(block.samples[0..sample_count], block.channels);
+            if (self.resample_source == .off and self.input_monitor != .off) self.session.engine.monitorInputInterleaved(block.samples[0..sample_count], block.channels);
             if (!allowed) continue;
             if (self.recording_take) |*take| {
                 if (self.recording_capture_base_frame == null) self.recording_capture_base_frame = block.start_frame;
@@ -3078,7 +3082,8 @@ pub const App = struct {
     /// same reason).
     pub fn finishRecording(self: *App) void {
         if (self.recording_active_len == 0) return;
-        if (self.input_monitor != .on) self.audio_input.stop();
+        if (self.resample_source == .off and self.input_monitor != .on) self.audio_input.stop();
+        if (self.resample_source != .off) self.session.engine.setResampleSource(.off);
         self.drainRecording();
 
         var disk_samples: ?[]f32 = null;
@@ -4348,6 +4353,12 @@ pub const App = struct {
             self.reference_track = op.apply(t);
             if (self.reference_track == null) self.reference_active = false;
         }
+        switch (self.resample_source) {
+            .track => |track| {
+                self.resample_source = if (op.apply(track)) |t| .{ .track = t } else .off;
+            },
+            else => {},
+        }
         // Pending qwerty note-offs name tracks too: drop a deleted track's
         // (its rack is being retired anyway), shift the rest, so a note
         // that outlives the delete is stopped on the track it's actually
@@ -4692,6 +4703,8 @@ pub const App = struct {
         self.recording_active_len = 0;
         self.recording_accum.clearRetainingCapacity();
         self.input_monitor = .auto;
+        self.resample_source = .off;
+        self.session.engine.setResampleSource(.off);
         self.punch_enabled = false;
         self.arr_loop_start_pending = false;
         self.recording_punch_start_bar = null;
