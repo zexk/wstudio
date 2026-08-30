@@ -315,12 +315,192 @@ fn renderCursorTrack(app: *App, command: []const u8) ?RenderedTrack {
     return .{ .samples = samples, .range = range };
 }
 
+fn captureFreezeState(app: *App, track: usize) ?[]u8 {
+    var path_buf: [160]u8 = undefined;
+    const path = std.fmt.bufPrint(&path_buf, ".zig-cache/freeze-{x}-{d}.wsj", .{ @intFromPtr(app), track }) catch {
+        app.setStatus("freeze: temporary path is too long", .{});
+        return null;
+    };
+    defer std.Io.Dir.cwd().deleteFile(app.io, path) catch {};
+    ws.persist.save(app.allocator, &app.session, app.io, path) catch |err| {
+        app.setStatus("freeze: could not save source state: {s}", .{@errorName(err)});
+        return null;
+    };
+    return std.Io.Dir.cwd().readFileAlloc(app.io, path, app.allocator, .limited(2 * 1024 * 1024 * 1024)) catch |err| {
+        app.setStatus("freeze: could not read source state: {s}", .{@errorName(err)});
+        return null;
+    };
+}
+
+fn freeClips(allocator: std.mem.Allocator, clips: []ws.Clip) void {
+    for (clips) |*clip| clip.deinit(allocator);
+    allocator.free(clips);
+}
+
+fn dupeClips(allocator: std.mem.Allocator, lane: *const ws.arrangement.Lane) ![]ws.Clip {
+    const clips = try allocator.alloc(ws.Clip, lane.clips.items.len);
+    var copied: usize = 0;
+    errdefer {
+        for (clips[0..copied]) |*clip| clip.deinit(allocator);
+        allocator.free(clips);
+    }
+    for (lane.clips.items, clips) |clip, *out| {
+        out.* = try clip.dupe(allocator);
+        copied += 1;
+    }
+    return clips;
+}
+
+pub fn cmdFreeze(app: *App, _: []const u8) void {
+    const track = cursorTrackIdx(app) orelse {
+        app.setStatus("freeze: select a track", .{});
+        return;
+    };
+    const current = app.session.racks.items[track];
+    if (current.frozen_state.len > 0) {
+        app.setStatus("freeze: track is already frozen; use :unfreeze", .{});
+        return;
+    }
+    switch (current.instrument) {
+        .empty, .audio => {
+            app.setStatus("freeze: select a MIDI track", .{});
+            return;
+        },
+        else => {},
+    }
+    const frozen_state = captureFreezeState(app, track) orelse return;
+    var state_owned = true;
+    defer if (state_owned) app.allocator.free(frozen_state);
+    const rendered = renderCursorTrack(app, "freeze") orelse return;
+    defer app.allocator.free(rendered.samples);
+    const source_id = app.session.project.addAudioSource("frozen", app.session.project.sample_rate, engine_mod.channels, rendered.samples) catch {
+        app.setStatus("freeze: failed to create audio source", .{});
+        return;
+    };
+    const rack = app.allocator.create(ws.Rack) catch {
+        app.setStatus("freeze: out of memory", .{});
+        return;
+    };
+    rack.* = .{
+        .instrument = .audio,
+        .label = "frozen",
+        .frozen_state = frozen_state,
+        .frozen_track = @intCast(track),
+    };
+    state_owned = false;
+    var rack_owned = true;
+    defer if (rack_owned) {
+        rack.deinit(app.allocator);
+        app.allocator.destroy(rack);
+    };
+    const clips = app.allocator.alloc(ws.Clip, 1) catch {
+        app.setStatus("freeze: out of memory", .{});
+        return;
+    };
+    clips[0] = ws.Clip.initAudio(
+        ws.Project.tickAtBeat(app.session.project.beatAtFrames(rendered.range.start_frame)),
+        @max(1, ws.Project.tickAtBeat(app.session.project.beatAtFrames(rendered.range.start_frame +| rendered.range.total_frames)) -|
+            ws.Project.tickAtBeat(app.session.project.beatAtFrames(rendered.range.start_frame))),
+        .{ .source_id = source_id, .source_start_frame = 0, .source_length_frames = rendered.range.total_frames },
+    );
+    var clips_owned = true;
+    defer if (clips_owned) freeClips(app.allocator, clips);
+
+    if (!parkAudio(app)) {
+        app.setStatus("freeze: audio thread did not park", .{});
+        return;
+    }
+    defer {
+        app.session.engine.bounce_active.store(false, .release);
+        app.session.engine.bounce_parked.store(false, .release);
+    }
+    app.session.replaceRackParked(track, rack, clips) catch {
+        app.setStatus("freeze: failed to replace track", .{});
+        return;
+    };
+    rack_owned = false;
+    clips_owned = false;
+    app.dirty = true;
+    app.exitStaleEditors();
+    app.setStatus("froze track {d}; instrument and FX unloaded", .{track + 1});
+}
+
+pub fn cmdUnfreeze(app: *App, _: []const u8) void {
+    const track = cursorTrackIdx(app) orelse {
+        app.setStatus("unfreeze: select a track", .{});
+        return;
+    };
+    const frozen = app.session.racks.items[track];
+    if (frozen.frozen_state.len == 0) {
+        app.setStatus("unfreeze: track is not frozen", .{});
+        return;
+    }
+    var source = ws.persist.loadBytes(app.allocator, app.io, frozen.frozen_state) catch |err| {
+        app.setStatus("unfreeze: invalid source state: {s}", .{@errorName(err)});
+        return;
+    };
+    defer source.deinit();
+    if (frozen.frozen_track >= source.racks.items.len) {
+        app.setStatus("unfreeze: source track is missing", .{});
+        return;
+    }
+    const rack = source.racks.items[frozen.frozen_track].dupe(app.allocator, app.session.project.sample_rate, &app.session.engine.transport) catch {
+        app.setStatus("unfreeze: out of memory", .{});
+        return;
+    };
+    var rack_owned = true;
+    defer if (rack_owned) {
+        rack.deinit(app.allocator);
+        app.allocator.destroy(rack);
+    };
+    const clips = dupeClips(app.allocator, source.arrangement.lane(frozen.frozen_track).?) catch {
+        app.setStatus("unfreeze: out of memory", .{});
+        return;
+    };
+    var clips_owned = true;
+    defer if (clips_owned) freeClips(app.allocator, clips);
+    if (!parkAudio(app)) {
+        app.setStatus("unfreeze: audio thread did not park", .{});
+        return;
+    }
+    defer {
+        app.session.engine.bounce_active.store(false, .release);
+        app.session.engine.bounce_parked.store(false, .release);
+    }
+    app.session.replaceRackParked(track, rack, clips) catch {
+        app.setStatus("unfreeze: failed to restore track", .{});
+        return;
+    };
+    rack_owned = false;
+    clips_owned = false;
+    app.dirty = true;
+    app.exitStaleEditors();
+    app.setStatus("unfroze track {d}", .{track + 1});
+}
+
 pub fn cmdFlatten(app: *App, _: []const u8) void {
     const track = cursorTrackIdx(app) orelse {
         app.setStatus("flatten: select a track", .{});
         return;
     };
-    switch (app.session.racks.items[track].instrument) {
+    const current = app.session.racks.items[track];
+    if (current.instrument == .audio and current.frozen_state.len > 0) {
+        const backup = history.captureTrackKindSwap(app, @intCast(track)) orelse {
+            app.setStatus("flatten: out of memory", .{});
+            return;
+        };
+        app.allocator.free(current.frozen_state);
+        current.frozen_state = &.{};
+        current.frozen_track = 0;
+        if (current.owned_label) app.allocator.free(current.label);
+        current.label = "audio";
+        current.owned_label = false;
+        history.push(app, backup);
+        app.dirty = true;
+        app.setStatus("flattened frozen track {d}", .{track + 1});
+        return;
+    }
+    switch (current.instrument) {
         .empty, .audio => {
             app.setStatus("flatten: select a MIDI track", .{});
             return;

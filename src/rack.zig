@@ -729,6 +729,10 @@ pub const Rack = struct {
     instrument: Instrument,
     fx: Fx = .{},
     label: []const u8,
+    /// Serialized pre-freeze project state. Empty for ordinary and flattened
+    /// racks; frozen audio keeps bytes, never live instrument/plugin objects.
+    frozen_state: []u8 = &.{},
+    frozen_track: u16 = 0,
     /// True when `label` was heap-allocated (e.g. loaded from a project file)
     /// and must be freed in deinit. False for string-literal labels.
     owned_label: bool = false,
@@ -738,6 +742,7 @@ pub const Rack = struct {
 
     pub fn deinit(self: *Rack, allocator: std.mem.Allocator) void {
         if (self.owned_label) allocator.free(self.label);
+        if (self.frozen_state.len > 0) allocator.free(self.frozen_state);
         self.instrument.deinit();
         self.fx.deinit(allocator);
     }
@@ -750,11 +755,21 @@ pub const Rack = struct {
     pub fn dupe(self: *const Rack, allocator: std.mem.Allocator, sr: u32, transport: *const Transport) !*Rack {
         const rack = try allocator.create(Rack);
         errdefer allocator.destroy(rack);
+        const label = try allocator.dupe(u8, self.label);
+        var label_owned = true;
+        errdefer if (label_owned) allocator.free(label);
+        const frozen_state = try allocator.dupe(u8, self.frozen_state);
+        var frozen_state_owned = true;
+        errdefer if (frozen_state_owned) allocator.free(frozen_state);
         rack.* = .{
             .instrument = .empty,
-            .label = try allocator.dupe(u8, self.label),
+            .label = label,
             .owned_label = true,
+            .frozen_state = frozen_state,
+            .frozen_track = self.frozen_track,
         };
+        label_owned = false;
+        frozen_state_owned = false;
         errdefer rack.deinit(allocator);
 
         switch (self.instrument) {

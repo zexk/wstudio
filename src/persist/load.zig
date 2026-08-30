@@ -135,6 +135,12 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Session
     const data = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(max_project_bytes));
     defer allocator.free(data);
 
+    return loadBytes(allocator, io, data);
+}
+
+/// Parse a complete in-memory .wsj bundle. Freeze uses this to restore a rack
+/// without keeping its instrument or plugin objects alive while frozen.
+pub fn loadBytes(allocator: std.mem.Allocator, io: std.Io, data: []const u8) !Session {
     const snap_offset = try bundleSnapOffset(data);
     var arena: std.heap.ArenaAllocator = .init(allocator);
     defer arena.deinit();
@@ -452,6 +458,8 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
         // Duplicate the label; freed by Rack.deinit when owned_label = true.
         rack.label = try allocator.dupe(u8, rs.label);
         rack.owned_label = true;
+        rack.frozen_state = try allocator.dupe(u8, rs.frozen_state);
+        rack.frozen_track = rs.frozen_track;
 
         // zig fmt: off
         switch (rs.content) {

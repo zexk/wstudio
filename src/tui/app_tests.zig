@@ -842,6 +842,63 @@ test ":flatten replaces a MIDI rack with its rendered audio and remains undoable
     try std.testing.expect(app.session.racks.items[0].instrument == .poly_synth);
 }
 
+test ":freeze unloads MIDI devices, persists source state, and :unfreeze restores it" {
+    var threaded: std.Io.Threaded = .init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var app = try App.init(std.testing.allocator, threaded.io());
+    defer app.deinit();
+    const Render = struct {
+        fn call(ctx: *anyopaque, out: []types.Sample) void {
+            const engine: *ws.Engine = @ptrCast(@alignCast(ctx));
+            engine.renderRealtime(out);
+        }
+    };
+    var backend: ws.backend.NullBackend = .{
+        .config = .{ .sample_rate = app.session.project.sample_rate },
+        .render = Render.call,
+        .ctx = app.session.engine,
+    };
+    try backend.start(threaded.io());
+    defer backend.stop();
+    try app.session.setInstrument(0, .poly_synth);
+    app.bounce_tail_seconds = 0;
+    app.session.racks.items[0].pattern_player.?.addNote(.{
+        .pitch = 64,
+        .start_beat = 0,
+        .duration_beat = 1,
+        .velocity = 1,
+    });
+    const retired_before = app.session.retired_racks.items.len;
+
+    commands.run(&app, "freeze");
+
+    const frozen = app.session.racks.items[0];
+    try std.testing.expect(frozen.instrument == .audio);
+    try std.testing.expect(frozen.frozen_state.len > 0);
+    try std.testing.expectEqual(@as(usize, 0), frozen.fx.units.items.len);
+    try std.testing.expectEqual(retired_before, app.session.retired_racks.items.len);
+    try std.testing.expectEqual(@as(usize, 1), app.session.arrangement.lane(0).?.clips.items.len);
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var path_buf: [96]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/frozen.wsj", .{&tmp.sub_path});
+    try ws.persist.save(std.testing.allocator, &app.session, threaded.io(), path);
+    var loaded = try ws.persist.load(std.testing.allocator, threaded.io(), path);
+    defer loaded.deinit();
+    try std.testing.expect(loaded.racks.items[0].frozen_state.len > 0);
+
+    commands.run(&app, "unfreeze");
+    try std.testing.expect(app.session.racks.items[0].instrument == .poly_synth);
+    try std.testing.expectEqual(@as(u16, 1), app.session.racks.items[0].pattern_player.?.note_count);
+    try std.testing.expectEqual(@as(u8, 64), app.session.racks.items[0].pattern_player.?.notes[0].pitch);
+
+    commands.run(&app, "freeze");
+    commands.run(&app, "flatten");
+    try std.testing.expect(app.session.racks.items[0].instrument == .audio);
+    try std.testing.expectEqual(@as(usize, 0), app.session.racks.items[0].frozen_state.len);
+}
+
 test ":unmute clears every track's mute in one shot; :unsolo clears solo" {
     var app = try testApp(); // synth(0), sampler(1), drums(2)
     defer app.deinit();

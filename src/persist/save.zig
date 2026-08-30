@@ -307,7 +307,12 @@ pub fn midiToNoteSnaps(aa: std.mem.Allocator, midi: *const [DrumMachine.max_pads
 }
 
 pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
-    var rs: RackSnap = .{ .label = rack.label, .content = undefined };
+    var rs: RackSnap = .{
+        .label = rack.label,
+        .content = undefined,
+        .frozen_state = rack.frozen_state,
+        .frozen_track = rack.frozen_track,
+    };
 
     // zig fmt: off
     switch (rack.instrument) {

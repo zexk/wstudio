@@ -612,6 +612,25 @@ pub const Session = struct {
         self.adoptRack(track_idx, rack);
     }
 
+    /// Swap a rack while realtime audio is parked, then destroy displaced DSP
+    /// objects immediately. Freeze needs actual memory release, not deferred
+    /// retirement until session close.
+    pub fn replaceRackParked(self: *Session, track_idx: usize, rack: *Rack, clips: []Clip) !void {
+        if (track_idx >= self.racks.items.len) return error.InvalidTrack;
+        const lane = self.arrangement.lane(track_idx).?;
+        try lane.clips.ensureTotalCapacity(self.allocator, clips.len);
+
+        const old_rack = self.racks.items[track_idx];
+        self.racks.items[track_idx] = rack;
+        lane.clear(self.allocator);
+        lane.clips.appendSliceAssumeCapacity(clips);
+        self.allocator.free(clips);
+        self.adoptRack(track_idx, rack);
+
+        old_rack.deinit(self.allocator);
+        self.allocator.destroy(old_rack);
+    }
+
     pub fn setClapInstrument(
         self: *Session,
         track_idx: usize,
