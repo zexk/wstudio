@@ -1303,11 +1303,11 @@ pub const Engine = struct {
             const rest = frames - roll_frames;
             if (rest > 0) {
                 const tail = out[roll_frames * channels ..];
-                self.renderTracks(tail, rest);
+                self.renderTracks(tail, rest, null);
                 if (self.metronome_enabled) self.fireMetronome(tail, rest);
             }
         } else {
-            self.renderTracks(out, frames);
+            self.renderTracks(out, frames, null);
             if (self.metronome_enabled) self.fireMetronome(out, frames);
         }
 
@@ -1368,6 +1368,24 @@ pub const Engine = struct {
         self.shared.lufs_short_term_bits.store(@bitCast(self.master_loudness.shortTerm()), .monotonic);
         self.shared.lufs_integrated_bits.store(@bitCast(self.master_loudness.integrated()), .monotonic);
         _ = self.shared.blocks_done.fetchAdd(1, .release);
+    }
+
+    /// Render one track after its instrument and FX, before mixer gain/pan,
+    /// sends, groups, and master processing. Other tracks still run so any
+    /// sidechain detector feeding this track has its normal signal.
+    pub fn processTrack(self: *Engine, track: u16, out: []Sample) void {
+        const frames: u32 = @intCast(out.len / channels);
+        std.debug.assert(frames <= types.max_block_frames);
+        @memset(out, 0.0);
+        if (track >= self.track_count.load(.acquire)) return;
+
+        self.lockGraph();
+        defer self.unlockGraph();
+        self.drainCommands();
+        @memset(self.resample_scratch[0 .. frames * channels], 0.0);
+        self.renderTracks(out, frames, track);
+        @memcpy(out, self.resample_scratch[0 .. frames * channels]);
+        self.transport.advance(frames);
     }
 
     fn lockGraph(self: *Engine) void {
@@ -1770,7 +1788,7 @@ pub const Engine = struct {
     /// chain that reads its captured signal, never twice (that would
     /// double-tick a stateful instrument's envelopes/oscillator phase within
     /// one block).
-    fn renderOneTrack(self: *Engine, ti: u16, out: []Sample, frames: u32, beat_pos: f64, any_solo: bool, max_route_latency: u32) void {
+    fn renderOneTrack(self: *Engine, ti: u16, out: []Sample, frames: u32, beat_pos: f64, any_solo: bool, max_route_latency: u32, isolated_track: ?u16) void {
         const track = self.trackAt(ti);
         // One snapshot for this whole render pass - the control thread may
         // flip `track.chain`'s active buffer between calls to `slice()`, so
@@ -1891,6 +1909,7 @@ pub const Engine = struct {
         else
             null;
         self.processChainWithSidechain(chain, &self.track_sidechain[ti], scratch, frames, track_tap, parameter_events[0..parameter_event_count]);
+        if (isolated_track == ti) @memcpy(self.resample_scratch[0 .. frames * channels], scratch);
         // If this track is itself a registered sidechain-detector source,
         // finalize its capture now - before `scratch` gets reused by the
         // next track rendered. Captured regardless of mute/solo (a muted
@@ -2099,7 +2118,7 @@ pub const Engine = struct {
         }
     }
 
-    fn renderTracks(self: *Engine, out: []Sample, frames: u32) void {
+    fn renderTracks(self: *Engine, out: []Sample, frames: u32, isolated_track: ?u16) void {
         const track_count = self.track_count.load(.acquire);
         // When any track OR any bus is soloed, only soloed tracks/buses are
         // audible - a bus solo is folded into the same global flag rather
@@ -2181,7 +2200,7 @@ pub const Engine = struct {
                 };
             }
             if (dup) continue;
-            self.renderOneTrack(ti, out, frames, beat_pos, any_solo, max_route_latency);
+            self.renderOneTrack(ti, out, frames, beat_pos, any_solo, max_route_latency, isolated_track);
         }
 
         // Phase 2: every other track, in original order, skipping whatever
@@ -2201,7 +2220,7 @@ pub const Engine = struct {
                 };
             }
             if (already_done) continue;
-            self.renderOneTrack(ti, out, frames, beat_pos, any_solo, max_route_latency);
+            self.renderOneTrack(ti, out, frames, beat_pos, any_solo, max_route_latency, isolated_track);
         }
 
         // Each active group's FX chain applies to its submix, then the
@@ -2361,6 +2380,19 @@ const LatentImpulse = struct {
 
     const device = dsp.deviceOf(@This());
 };
+
+test "processTrack captures post-chain audio before mixer routing" {
+    var impulse: LatentImpulse = .{ .latency = 0 };
+    const engine = try testEngine();
+    defer destroyTestEngine(engine);
+    engine.trackAt(0).* = .{ .active = true, .gain = 0.0, .pan = 1.0, .muted = true };
+    engine.setTrackChain(0, &.{impulse.device()});
+
+    var out: [8]Sample = undefined;
+    engine.processTrack(0, &out);
+
+    try std.testing.expectEqualSlices(Sample, &.{ 0.25, 0.25, 0, 0, 0, 0, 0, 0 }, &out);
+}
 
 const TestLatencyDelay = struct {
     latency: u32,

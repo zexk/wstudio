@@ -110,6 +110,34 @@ pub fn render(session: *Session, buffer: []types.Sample, start_frame: u64) void 
     if (was_playing) engine.transport.play() else engine.transport.stop();
 }
 
+/// Render one track after its rack, before mixer routing. Used by freeze and
+/// flatten so track gain/pan, sends, groups, and master FX remain editable.
+pub fn renderTrack(session: *Session, track: u16, buffer: []types.Sample, bounce_range: Range) void {
+    const engine = session.engine;
+    const was_playing = engine.transport.playing;
+    const saved_pos = engine.transport.position_frames;
+    const was_looping = engine.transport.loop_enabled;
+    engine.transport.loop_enabled = false;
+
+    resetDevices(session);
+    engine.transport.seekFrames(bounce_range.start_frame);
+    engine.transport.play();
+
+    const block = types.default_block_frames * engine_mod.channels;
+    var offset: usize = 0;
+    while (offset < buffer.len) {
+        if (offset / engine_mod.channels >= bounce_range.content_frames) engine.transport.stop();
+        const end = @min(offset + block, buffer.len);
+        engine.processTrack(track, buffer[offset..end]);
+        offset = end;
+    }
+
+    resetDevices(session);
+    engine.transport.seekFrames(saved_pos);
+    engine.transport.loop_enabled = was_looping;
+    if (was_playing) engine.transport.play() else engine.transport.stop();
+}
+
 /// Render into `encoder`, which owns the output format. Same transport
 /// handling and same tail rule as `writeWav` - see its comments.
 pub fn writeEncoded(
