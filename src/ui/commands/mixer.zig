@@ -276,6 +276,91 @@ pub fn renderBounce(app: *App, buffer: []types.Sample, start_frame: u64) void {
     ws.bounce.render(&app.session, buffer, start_frame);
 }
 
+const RenderedTrack = struct {
+    samples: []types.Sample,
+    range: ws.bounce.Range,
+};
+
+fn renderCursorTrack(app: *App, command: []const u8) ?RenderedTrack {
+    const track = cursorTrackIdx(app) orelse {
+        app.setStatus("{s}: select a track", .{command});
+        return null;
+    };
+    const range = computeBounceRange(app);
+    const sample_count = std.math.mul(usize, std.math.cast(usize, range.total_frames) orelse {
+        app.setStatus("{s}: render is too large", .{command});
+        return null;
+    }, engine_mod.channels) catch {
+        app.setStatus("{s}: render is too large", .{command});
+        return null;
+    };
+    if (sample_count > ws.dsp.audio_file.max_decoded_samples) {
+        app.setStatus("{s}: render is too large", .{command});
+        return null;
+    }
+    const samples = app.allocator.alloc(types.Sample, sample_count) catch {
+        app.setStatus("{s}: out of memory", .{command});
+        return null;
+    };
+    if (!parkAudio(app)) {
+        app.allocator.free(samples);
+        app.setStatus("{s}: audio thread did not park", .{command});
+        return null;
+    }
+    defer {
+        app.session.engine.bounce_active.store(false, .release);
+        app.session.engine.bounce_parked.store(false, .release);
+    }
+    ws.bounce.renderTrack(&app.session, @intCast(track), samples, range);
+    return .{ .samples = samples, .range = range };
+}
+
+pub fn cmdFlatten(app: *App, _: []const u8) void {
+    const track = cursorTrackIdx(app) orelse {
+        app.setStatus("flatten: select a track", .{});
+        return;
+    };
+    switch (app.session.racks.items[track].instrument) {
+        .empty, .audio => {
+            app.setStatus("flatten: select a MIDI track", .{});
+            return;
+        },
+        else => {},
+    }
+    const rendered = renderCursorTrack(app, "flatten") orelse return;
+    defer app.allocator.free(rendered.samples);
+    var backup = history.captureTrackKindSwap(app, @intCast(track)) orelse {
+        app.setStatus("flatten: out of memory", .{});
+        return;
+    };
+    const source_id = app.session.project.addAudioSource("flattened", app.session.project.sample_rate, engine_mod.channels, rendered.samples) catch {
+        backup.deinit(app.allocator);
+        app.setStatus("flatten: failed to create audio source", .{});
+        return;
+    };
+    app.session.setInstrument(track, .audio) catch {
+        backup.deinit(app.allocator);
+        app.setStatus("flatten: failed to replace track", .{});
+        return;
+    };
+    const start_tick = ws.Project.tickAtBeat(app.session.project.beatAtFrames(rendered.range.start_frame));
+    const end_tick = ws.Project.tickAtBeat(app.session.project.beatAtFrames(rendered.range.start_frame +| rendered.range.total_frames));
+    const lane = app.session.arrangement.lane(track).?;
+    lane.place(app.allocator, ws.Clip.initAudio(start_tick, @max(1, end_tick -| start_tick), .{
+        .source_id = source_id,
+        .source_start_frame = 0,
+        .source_length_frames = rendered.range.total_frames,
+    })) catch {
+        history.push(app, backup);
+        app.setStatus("flatten: failed to place audio clip; undo restores MIDI", .{});
+        return;
+    };
+    history.push(app, backup);
+    if (app.session.song_mode) app.session.rebuildSongData();
+    app.dirty = true;
+    app.setStatus("flattened track {d} to audio", .{track + 1});
+}
+
 pub fn cmdBpm(app: *App, args: []const u8) void {
     const trimmed = std.mem.trim(u8, args, " ");
     if (trimmed.len == 0) {

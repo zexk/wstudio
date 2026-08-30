@@ -802,6 +802,46 @@ test ":resample records another track into an armed Audio track" {
     try std.testing.expect(std.mem.indexOfNone(f32, source.samples, &.{0}) != null);
 }
 
+test ":flatten replaces a MIDI rack with its rendered audio and remains undoable" {
+    var threaded: std.Io.Threaded = .init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var app = try App.init(std.testing.allocator, threaded.io());
+    defer app.deinit();
+    const Render = struct {
+        fn call(ctx: *anyopaque, out: []types.Sample) void {
+            const engine: *ws.Engine = @ptrCast(@alignCast(ctx));
+            engine.renderRealtime(out);
+        }
+    };
+    var backend: ws.backend.NullBackend = .{
+        .config = .{ .sample_rate = app.session.project.sample_rate },
+        .render = Render.call,
+        .ctx = app.session.engine,
+    };
+    try backend.start(threaded.io());
+    defer backend.stop();
+    try app.session.setInstrument(0, .poly_synth);
+    app.bounce_tail_seconds = 0;
+    app.session.racks.items[0].pattern_player.?.addNote(.{
+        .pitch = 60,
+        .start_beat = 0,
+        .duration_beat = 1,
+        .velocity = 1,
+    });
+
+    commands.run(&app, "flatten");
+
+    try std.testing.expect(app.session.racks.items[0].instrument == .audio);
+    try std.testing.expectEqual(@as(usize, 0), app.session.racks.items[0].fx.units.items.len);
+    const clips = app.session.arrangement.lane(0).?.clips.items;
+    try std.testing.expectEqual(@as(usize, 1), clips.len);
+    const source = app.session.project.audioSource(clips[0].content.audio.source_id).?;
+    try std.testing.expect(std.mem.indexOfNone(f32, source.samples, &.{0}) != null);
+
+    history.doUndo(&app);
+    try std.testing.expect(app.session.racks.items[0].instrument == .poly_synth);
+}
+
 test ":unmute clears every track's mute in one shot; :unsolo clears solo" {
     var app = try testApp(); // synth(0), sampler(1), drums(2)
     defer app.deinit();
