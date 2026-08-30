@@ -934,6 +934,7 @@ pub const Curve = struct {
     fill: bool = false,
     transparent: bool = false,
     default_value: ?f32 = null,
+    unbounded_values: bool = false,
     accent: [4]f32,
     /// Which point (if any) the external cursor is currently parked on,
     /// for the focus ring - mirrors `Adsr.focused_stage`.
@@ -979,6 +980,12 @@ fn snappedCurveBeat(raw: f64, fallback: f64, lo: f64, hi: f64, snap: f64) f64 {
     var beat = std.math.clamp(raw, lo, hi);
     if (snap > 0) beat = @round(beat / snap) * snap;
     return std.math.clamp(beat, lo, hi);
+}
+
+fn curveValueAtY(y: f32, origin_y: f32, height: f32, lo: f32, hi: f32, unbounded: bool) f32 {
+    const raw = (y - origin_y) / height;
+    const norm = 1.0 - if (unbounded) raw else std.math.clamp(raw, 0, 1);
+    return lo + norm * (hi - lo);
 }
 
 fn curveGridStep(beat_hi: f64, snap: f64, width: f32) f64 {
@@ -1125,15 +1132,15 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
             const hi_beat: f64 = if (i + 1 == args.points.len) args.beat_hi else args.points[i + 1].beat - args.snap_beats;
             const raw_beat: f64 = if (args.beat_hi > 0) @as(f64, (mouse[0] - origin[0]) / width) * args.beat_hi else p.beat;
             const new_beat = snappedCurveBeat(raw_beat, p.beat, lo_beat, hi_beat, args.snap_beats);
-            const norm = 1.0 - std.math.clamp((mouse[1] - origin[1]) / height, 0, 1);
-            const new_value = args.value_lo + norm * (args.value_hi - args.value_lo);
+            const new_value = curveValueAtY(mouse[1], origin[1], height, args.value_lo, args.value_hi, args.unbounded_values);
             if (new_beat != p.beat or new_value != p.value) result.moved = .{ .index = i, .beat = new_beat, .value = new_value };
         }
         if (node_hovered and result.moved == null and gui_style.wheel_delta != 0) {
             gui_style.wheel_consumed = true;
             const step_frac: f32 = if (gui_style.modDown()) 0.05 else 0.005;
             const step: f32 = step_frac * (args.value_hi - args.value_lo);
-            const new_value = std.math.clamp(p.value + gui_style.wheel_delta * step, args.value_lo, args.value_hi);
+            const wanted = p.value + gui_style.wheel_delta * step;
+            const new_value = if (args.unbounded_values) wanted else std.math.clamp(wanted, args.value_lo, args.value_hi);
             if (new_value != p.value) result.moved = .{ .index = i, .beat = p.beat, .value = new_value };
         }
         if (node_active or zgui.isItemHovered(.{ .for_tooltip = true })) {
@@ -1163,6 +1170,11 @@ test "curve beat snapping preserves ordering and bounds" {
     try std.testing.expectEqual(@as(f64, 0.5), snappedCurveBeat(0.9, 0.5, 0.65, 0.25, 0.25));
     try std.testing.expectEqual(@as(f64, 1.2), snappedCurveBeat(1.2, 0.0, 0.0, 1.2, 0.7));
     try std.testing.expectEqual(@as(f64, 0.3), snappedCurveBeat(0.26, 0.0, 0.3, 0.8, 0.25));
+}
+
+test "curve value drag can continue beyond visible bounds" {
+    try std.testing.expectEqual(@as(f32, 20), curveValueAtY(-100, 0, 100, 0, 10, true));
+    try std.testing.expectEqual(@as(f32, 10), curveValueAtY(-100, 0, 100, 0, 10, false));
 }
 
 test "curve grid bounds work while preserving snap intervals" {

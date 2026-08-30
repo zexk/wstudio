@@ -609,6 +609,7 @@ fn drawPitchBendOverlay(app: anytype, pp: *ws.dsp.PatternPlayer, grid_x: f32, gr
         .height = row_h * @as(f32, @floatFromInt(row_count)),
         .transparent = true,
         .default_value = 0,
+        .unbounded_values = true,
     });
     if (result.inserted) |point| {
         recordVelocityGesture(app);
