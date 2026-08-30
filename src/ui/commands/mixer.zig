@@ -906,6 +906,69 @@ pub fn cmdConsolidate(app: *App, _: []const u8) void {
         app.setStatus("consolidated audio region", .{});
 }
 
+pub fn cmdAudioToSampler(app: *App, _: []const u8) void {
+    const clip = clipAtCursor(app, "audio-to-sampler") orelse return;
+    const audio = switch (clip.content) {
+        .audio => |region| region,
+        else => {
+            app.setStatus("audio-to-sampler: clip is not audio", .{});
+            return;
+        },
+    };
+    const source = app.session.project.audioSource(audio.source_id) orelse {
+        app.setStatus("audio-to-sampler: missing audio source", .{});
+        return;
+    };
+    const channels = source.channel_count;
+    const frame_count = audioFrameCount(ws.time_grid.tickToBeat(clip.length_ticks) * app.session.engine.transport.framesPerBeat(), channels) orelse {
+        app.setStatus("audio-to-sampler: output is too large; shorten the clip", .{});
+        return;
+    };
+    const samples = app.allocator.alloc(f32, frame_count) catch {
+        app.setStatus("audio-to-sampler: out of memory", .{});
+        return;
+    };
+    const source_frames = source.samples.len / channels;
+    const gain = ws.types.dbToGain(std.math.clamp(audio.gain_db, -60.0, 24.0));
+    const stretch_ratio = std.math.clamp(audio.stretch_ratio, 0.125, 8.0);
+    const fade_in_frames = @min(audio.fade_in_frames, frame_count);
+    const fade_out_frames = @min(audio.fade_out_frames, frame_count);
+    for (samples, 0..) |*sample, i| {
+        const offset: u64 = @intFromFloat(@as(f64, @floatFromInt(i)) * @as(f64, @floatFromInt(source.sample_rate)) / @as(f64, @floatFromInt(app.session.project.sample_rate)) / stretch_ratio);
+        const source_frame = ws.arrangement.audioSourceFrame(audio.source_start_frame, audio.source_length_frames, offset, audio.reverse) orelse {
+            sample.* = 0;
+            continue;
+        };
+        if (source_frame >= source_frames) {
+            sample.* = 0;
+            continue;
+        }
+        const fade_in = if (fade_in_frames > 0) ws.arrangement.fadeGain(@as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(fade_in_frames)), audio.fade_curve) else 1.0;
+        const remaining = frame_count - i - 1;
+        const fade_out = if (fade_out_frames > 0) ws.arrangement.fadeGain(@as(f32, @floatFromInt(remaining)) / @as(f32, @floatFromInt(fade_out_frames)), audio.fade_curve) else 1.0;
+        const source_index: usize = @intCast(source_frame * channels);
+        var mono: f32 = 0;
+        for (source.samples[source_index..][0..channels]) |channel| mono += channel;
+        sample.* = mono / @as(f32, @floatFromInt(channels)) * gain * @min(fade_in, fade_out);
+    }
+
+    var backup = history.captureTrackKindSwap(app, app.cursor);
+    _ = app.session.changeInstrumentKind(app.cursor, .sampler) catch |err| {
+        if (backup) |*b| b.deinit(app.allocator);
+        app.allocator.free(samples);
+        app.setStatus("audio-to-sampler: {s}", .{@errorName(err)});
+        return;
+    };
+    history.push(app, backup);
+    const sampler = &app.session.racks.items[app.cursor].instrument.sampler;
+    sampler.setSamples(samples, std.fs.path.stem(source.path));
+    sampler.pad.user_sample = true;
+    _ = sampler.detectRootNote();
+    app.exitStaleEditors();
+    app.dirty = true;
+    app.setStatus("track {d}: audio clip loaded into sampler", .{app.cursor + 1});
+}
+
 pub fn cmdTake(app: *App, args: []const u8) void {
     const clip = clipAtCursor(app, "take") orelse return;
     const arg = std.mem.trim(u8, args, " ");

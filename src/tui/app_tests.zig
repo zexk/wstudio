@@ -3812,6 +3812,36 @@ test "consolidate keeps a stereo source stereo and clamps fades to clip length" 
     try std.testing.expectEqual(@as(u64, 0), audio.fade_in_frames);
 }
 
+test ":audio-to-sampler bakes cursor audio clip into a playable sampler" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .audio);
+    app.cursor = 0;
+    app.view = .arrangement;
+    app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
+    app.session.engine.transport.tempo_bpm = app.session.project.tempo_bpm;
+    const source_id = try app.session.project.addAudioSource("voice.wav", app.session.project.sample_rate, 2, &.{ 0.2, 0.4, 0.6, 0.8 });
+    try app.session.arrangement.lane(0).?.place(app.allocator, ws.Clip.initAudio(0, 2 * ws.time_grid.ticks_per_beat, .{
+        .source_id = source_id,
+        .source_start_frame = 0,
+        .source_length_frames = 2,
+        .reverse = true,
+        .gain_db = 6.0206,
+    }));
+
+    commands.run(&app, "audio-to-sampler");
+
+    try std.testing.expectEqual(ws.InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[0].instrument));
+    const sampler = &app.session.racks.items[0].instrument.sampler;
+    try std.testing.expectApproxEqAbs(@as(f32, 1.4), sampler.pad.samples[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.6), sampler.pad.samples[1], 1e-6);
+    try std.testing.expect(sampler.pad.user_sample);
+    try std.testing.expectEqual(@as(usize, 0), app.session.arrangement.lane(0).?.clips.items.len);
+    app.handleKey(.{ .char = 'u' }, 1);
+    try std.testing.expectEqual(ws.InstrumentKind.audio, std.meta.activeTag(app.session.racks.items[0].instrument));
+    try std.testing.expectEqual(@as(usize, 1), app.session.arrangement.lane(0).?.clips.items.len);
+}
+
 test "comp splices a beat range from an alternate audio take" {
     var app = try arrangementApp();
     defer app.deinit();

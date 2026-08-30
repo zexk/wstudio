@@ -462,6 +462,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key(":comp",        "<take> <start-beat> <end-beat>  splice alternate take range");
     t.key(":crossfade",   "fade the two overlapping audio layers at cursor into each other");
     t.key(":consolidate", "bake the cursor audio clip's gain, fades, stretch and reverse into one source");
+    t.key(":audio-to-sampler", "turn cursor audio clip and its edits into a sampler track");
     t.key("gs",           "play from cursor bar");
     t.key("T",            "toggle song / pattern mode (manual override; view switches while the");
     t.key("",             "  transport is stopped set it for you: arrangement = song, tracks (or a");
