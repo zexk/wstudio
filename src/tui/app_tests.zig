@@ -887,6 +887,7 @@ test ":freeze unloads MIDI devices, persists source state, and :unfreeze restore
     var loaded = try ws.persist.load(std.testing.allocator, threaded.io(), path);
     defer loaded.deinit();
     try std.testing.expect(loaded.racks.items[0].frozen_state.len > 0);
+    try std.testing.expect(loaded.racks.items[0].rendered_loop);
 
     commands.run(&app, "unfreeze");
     try std.testing.expect(app.session.racks.items[0].instrument == .poly_synth);

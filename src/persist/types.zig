@@ -47,7 +47,7 @@ const AutomationPoint = automation_mod.AutomationPoint;
 const tuning_mod = @import("../dsp/tuning.zig");
 const controller_mod = @import("../dsp/controller.zig");
 /// Exact format version this build writes and reads. See FORMAT.md.
-pub const file_version: u32 = 80;
+pub const file_version: u32 = 81;
 
 /// First four bytes of every .wsj. The file is a container: a 12-byte
 /// header, the audio cache (user sample blobs, concatenated), then this
@@ -786,6 +786,7 @@ pub const RackSnap = struct {
     /// not retain instantiated instruments or plugins.
     frozen_state: []const u8 = &.{},
     frozen_track: u16 = 0,
+    rendered_loop: bool = false,
 };
 
 pub const TrackSnap = struct {

@@ -75,7 +75,7 @@ in place after the blobs land, since its value isn't known until then.
 
 ## Versioning policy
 
-`persist.zig`'s `file_version` (currently 80) is the only format version
+`persist.zig`'s `file_version` (currently 81) is the only format version
 this build writes or reads. Loading enforces one rule:
 
 - **A file whose `version` is not exactly `file_version` is hard-rejected**
@@ -96,6 +96,7 @@ Version 77 gives the guitar amp a MODEL and a TIGHT param, appended to
 `AmpSnap`. Version 76 makes an audio track its own instrument kind.
 Version 80 stores a frozen rack's serialized source state and source-track
 index so freeze survives save/load without retaining live DSP objects.
+Version 81 records whether rendered audio loops outside song mode.
 
 Version 75 adds the guitar amp FX unit. Its snapshot sits mid-union rather
 than at the end, so every FX tag after it renumbers - a version 74 file

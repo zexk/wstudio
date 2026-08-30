@@ -386,6 +386,7 @@ pub fn cmdFreeze(app: *App, _: []const u8) void {
         .label = "frozen",
         .frozen_state = frozen_state,
         .frozen_track = @intCast(track),
+        .rendered_loop = !app.session.song_mode,
     };
     state_owned = false;
     var rack_owned = true;
@@ -420,6 +421,7 @@ pub fn cmdFreeze(app: *App, _: []const u8) void {
     };
     rack_owned = false;
     clips_owned = false;
+    if (!app.session.song_mode) app.session.syncTrackAudio(@intCast(track));
     app.dirty = true;
     app.exitStaleEditors();
     app.setStatus("froze track {d}; instrument and FX unloaded", .{track + 1});
@@ -523,6 +525,7 @@ pub fn cmdFlatten(app: *App, _: []const u8) void {
         app.setStatus("flatten: failed to replace track", .{});
         return;
     };
+    app.session.racks.items[track].rendered_loop = !app.session.song_mode;
     const start_tick = ws.Project.tickAtBeat(app.session.project.beatAtFrames(rendered.range.start_frame));
     const end_tick = ws.Project.tickAtBeat(app.session.project.beatAtFrames(rendered.range.start_frame +| rendered.range.total_frames));
     const lane = app.session.arrangement.lane(track).?;
@@ -536,7 +539,7 @@ pub fn cmdFlatten(app: *App, _: []const u8) void {
         return;
     };
     history.push(app, backup);
-    if (app.session.song_mode) app.session.rebuildSongData();
+    if (app.session.song_mode) app.session.rebuildSongData() else app.session.syncTrackAudio(@intCast(track));
     app.dirty = true;
     app.setStatus("flattened track {d} to audio", .{track + 1});
 }

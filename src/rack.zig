@@ -733,6 +733,9 @@ pub const Rack = struct {
     /// racks; frozen audio keeps bytes, never live instrument/plugin objects.
     frozen_state: []u8 = &.{},
     frozen_track: u16 = 0,
+    /// Rendered from pattern mode, so its audio region repeats while song
+    /// mode is off. Applies to frozen and permanently flattened tracks.
+    rendered_loop: bool = false,
     /// True when `label` was heap-allocated (e.g. loaded from a project file)
     /// and must be freed in deinit. False for string-literal labels.
     owned_label: bool = false,
@@ -767,6 +770,7 @@ pub const Rack = struct {
             .owned_label = true,
             .frozen_state = frozen_state,
             .frozen_track = self.frozen_track,
+            .rendered_loop = self.rendered_loop,
         };
         label_owned = false;
         frozen_state_owned = false;

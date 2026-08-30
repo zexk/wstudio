@@ -460,6 +460,7 @@ pub fn buildSession(allocator: std.mem.Allocator, snap: *const Snapshot) !Sessio
         rack.owned_label = true;
         rack.frozen_state = try allocator.dupe(u8, rs.frozen_state);
         rack.frozen_track = rs.frozen_track;
+        rack.rendered_loop = rs.rendered_loop;
 
         // zig fmt: off
         switch (rs.content) {

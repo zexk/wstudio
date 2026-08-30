@@ -1065,7 +1065,10 @@ pub const Session = struct {
                 self.engine.setTrackAutomation(@intCast(i), .gain, &.{});
                 self.engine.setTrackAutomation(@intCast(i), .pan, &.{});
                 self.engine.clearTrackSynthParams(@intCast(i));
-                self.engine.setTrackAudioRegions(@intCast(i), &.{});
+                if (self.racks.items[i].rendered_loop)
+                    self.syncAudioRegions(@intCast(i), self.arrangement.lane(i).?)
+                else
+                    self.engine.setTrackAudioRegions(@intCast(i), &.{});
             }
         }
         _ = self.engine.send(.all_notes_off);
@@ -1718,10 +1721,16 @@ pub const Session = struct {
                 .fade_curve = audio.fade_curve,
                 .stretch_ratio = std.math.clamp(audio.stretch_ratio, 0.125, 8.0),
                 .reverse = audio.reverse,
+                .loop = self.racks.items[track].rendered_loop and !self.song_mode,
                 .samples = source.samples,
             }) catch @panic("out of memory syncing audio regions");
         }
         self.engine.setTrackAudioRegions(track, regions.items);
+    }
+
+    pub fn syncTrackAudio(self: *Session, track: u16) void {
+        const lane = self.arrangement.lane(track) orelse return;
+        self.syncAudioRegions(track, lane);
     }
 
     /// Flatten one track's clips' gain/pan/synth-param breakpoints (clip-

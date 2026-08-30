@@ -312,6 +312,7 @@ pub fn rackToSnap(aa: std.mem.Allocator, rack: *Rack) !RackSnap {
         .content = undefined,
         .frozen_state = rack.frozen_state,
         .frozen_track = rack.frozen_track,
+        .rendered_loop = rack.rendered_loop,
     };
 
     // zig fmt: off

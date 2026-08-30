@@ -239,6 +239,7 @@ pub const AudioRegion = struct {
     fade_curve: arrangement.FadeCurve = .linear,
     stretch_ratio: f32 = 1.0,
     reverse: bool = false,
+    loop: bool = false,
     samples: []const Sample,
 };
 
@@ -2091,6 +2092,33 @@ pub const Engine = struct {
         const block_end = block_start +| frames;
         const engine_rate = @as(u64, self.transport.sample_rate);
         for (lane.regions) |region| {
+            if (region.loop) {
+                const region_frames = region.end_frame -| region.start_frame;
+                if (region_frames == 0 or block_end <= region.start_frame) continue;
+                for (0..frames) |frame| {
+                    const absolute = block_start +| frame;
+                    if (absolute < region.start_frame) continue;
+                    const relative = (absolute - region.start_frame) % region_frames;
+                    const source_offset: u64 = @intFromFloat(@as(f64, @floatFromInt(relative)) * @as(f64, @floatFromInt(region.source_sample_rate)) / @as(f64, @floatFromInt(engine_rate)) / region.stretch_ratio);
+                    const source_frame = arrangement.audioSourceFrame(region.source_start_frame, region.source_length_frames, source_offset, region.reverse) orelse continue;
+                    if (source_frame >= region.samples.len / @max(region.channel_count, 1)) continue;
+                    const dst = frame * channels;
+                    const src: usize = @intCast(source_frame * region.channel_count);
+                    const fade_in = if (region.fade_in_frames > 0)
+                        arrangement.fadeGain(@as(f32, @floatFromInt(relative)) / @as(f32, @floatFromInt(region.fade_in_frames)), region.fade_curve)
+                    else
+                        1.0;
+                    const remaining = region_frames - relative - 1;
+                    const fade_out = if (region.fade_out_frames > 0)
+                        arrangement.fadeGain(@as(f32, @floatFromInt(remaining)) / @as(f32, @floatFromInt(region.fade_out_frames)), region.fade_curve)
+                    else
+                        1.0;
+                    const gain = region.gain * @min(fade_in, fade_out);
+                    out[dst] += region.samples[src] * gain;
+                    out[dst + 1] += (if (region.channel_count > 1) region.samples[src + 1] else region.samples[src]) * gain;
+                }
+                continue;
+            }
             if (region.end_frame <= block_start or region.start_frame >= block_end) continue;
             const first = @max(block_start, region.start_frame);
             const last = @min(block_end, region.end_frame);
@@ -2392,6 +2420,29 @@ test "processTrack captures post-chain audio before mixer routing" {
     engine.processTrack(0, &out);
 
     try std.testing.expectEqualSlices(Sample, &.{ 0.25, 0.25, 0, 0, 0, 0, 0, 0 }, &out);
+}
+
+test "looping rendered audio repeats in pattern mode" {
+    const engine = try testEngine();
+    defer destroyTestEngine(engine);
+    engine.trackAt(0).* = .{ .active = true };
+    const samples = [_]Sample{ 0.1, 0.2, 0.3, 0.4 };
+    engine.setTrackAudioRegions(0, &.{.{
+        .start_frame = 0,
+        .end_frame = 2,
+        .source_start_frame = 0,
+        .source_length_frames = 2,
+        .source_sample_rate = 48_000,
+        .channel_count = 2,
+        .loop = true,
+        .samples = &samples,
+    }});
+    engine.transport.play();
+
+    var out: [12]Sample = undefined;
+    engine.processTrack(0, &out);
+
+    try std.testing.expectEqualSlices(Sample, &.{ 0.1, 0.2, 0.3, 0.4, 0.1, 0.2, 0.3, 0.4, 0.1, 0.2, 0.3, 0.4 }, &out);
 }
 
 const TestLatencyDelay = struct {
