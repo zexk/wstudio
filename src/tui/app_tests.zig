@@ -3870,6 +3870,40 @@ test ":audio-to-sampler bakes cursor audio clip into a playable sampler" {
     try std.testing.expectEqual(@as(usize, 1), app.session.arrangement.lane(0).?.clips.items.len);
 }
 
+test "audio panel keys turn selected region into slicer or sampler" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .audio);
+    app.cursor = 0;
+    app.audio_track = 0;
+    app.audio_clip = 0;
+    app.view = .audio_editor;
+    app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
+    app.session.engine.transport.tempo_bpm = app.session.project.tempo_bpm;
+    const source_id = try app.session.project.addAudioSource("loop.wav", app.session.project.sample_rate, 2, &.{ 0.2, 0.4, 0.6, 0.8 });
+    try app.session.arrangement.lane(0).?.place(app.allocator, ws.Clip.initAudio(0, 2 * ws.time_grid.ticks_per_beat, .{
+        .source_id = source_id,
+        .source_start_frame = 0,
+        .source_length_frames = 2,
+    }));
+
+    app.handleKey(.{ .char = 'c' }, 0);
+    try std.testing.expectEqual(ws.InstrumentKind.slicer, std.meta.activeTag(app.session.racks.items[0].instrument));
+    const slicer = &app.session.racks.items[0].instrument.slicer;
+    try std.testing.expectEqual(@as(u8, 1), slicer.slice_count);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.3), slicer.samples[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.7), slicer.samples[1], 1e-6);
+
+    app.handleKey(.{ .char = 'u' }, 1);
+    try std.testing.expectEqual(ws.InstrumentKind.audio, std.meta.activeTag(app.session.racks.items[0].instrument));
+    app.audio_track = 0;
+    app.audio_clip = 0;
+    app.view = .audio_editor;
+    app.handleKey(.{ .char = 's' }, 2);
+    try std.testing.expectEqual(ws.InstrumentKind.sampler, std.meta.activeTag(app.session.racks.items[0].instrument));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.3), app.session.racks.items[0].instrument.sampler.pad.samples[0], 1e-6);
+}
+
 test "comp splices a beat range from an alternate audio take" {
     var app = try arrangementApp();
     defer app.deinit();

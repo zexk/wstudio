@@ -3,6 +3,7 @@ const ws = @import("wstudio");
 const App = @import("../app.zig").App;
 const history = @import("../history.zig");
 const spectrum = @import("fx_editor.zig");
+const commands = @import("../commands.zig");
 
 fn selectedRegion(app: *App) ?*ws.Clip.AudioRegion {
     if (app.audio_track >= app.session.arrangement.lanes.items.len) return null;
@@ -169,6 +170,14 @@ pub fn handleKey(app: *App, key: ws.input.Key) bool {
             },
             'r' => {
                 app.doTrackArmToggle(app.audio_track);
+                return true;
+            },
+            's' => {
+                commands.run(app, "audio-to-sampler");
+                return true;
+            },
+            'c' => {
+                commands.run(app, "audio-to-slicer");
                 return true;
             },
             '-' => {

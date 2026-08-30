@@ -463,6 +463,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key(":crossfade",   "fade the two overlapping audio layers at cursor into each other");
     t.key(":consolidate", "bake the cursor audio clip's gain, fades, stretch and reverse into one source");
     t.key(":audio-to-sampler", "turn cursor audio clip and its edits into a sampler track");
+    t.key(":audio-to-slicer", "turn cursor audio clip and its edits into a slicer track");
     t.key(":resample", "<track:n|group:n|master|off>  set internal recording source for cursor Audio track");
     t.key("gs",           "play from cursor bar");
     t.key("T",            "toggle song / pattern mode (manual override; view switches while the");

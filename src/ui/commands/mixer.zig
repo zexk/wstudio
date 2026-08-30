@@ -906,26 +906,42 @@ pub fn cmdConsolidate(app: *App, _: []const u8) void {
         app.setStatus("consolidated audio region", .{});
 }
 
-pub fn cmdAudioToSampler(app: *App, _: []const u8) void {
-    const clip = clipAtCursor(app, "audio-to-sampler") orelse return;
+const AudioConversion = struct { track: u16, clip: *ws.Clip };
+
+fn audioConversionClip(app: *App, name: []const u8) ?AudioConversion {
+    if (app.view == .audio_editor) {
+        const lane = app.session.arrangement.lane(app.audio_track) orelse return null;
+        if (lane.clips.items.len == 0) {
+            app.setStatus("{s}: no audio clip selected", .{name});
+            return null;
+        }
+        app.audio_clip = @min(app.audio_clip, lane.clips.items.len - 1);
+        return .{ .track = app.audio_track, .clip = &lane.clips.items[app.audio_clip] };
+    }
+    return .{ .track = @intCast(app.cursor), .clip = clipAtCursor(app, name) orelse return null };
+}
+
+fn audioToInstrument(app: *App, kind: ws.InstrumentKind, name: []const u8) void {
+    const selected = audioConversionClip(app, name) orelse return;
+    const clip = selected.clip;
     const audio = switch (clip.content) {
         .audio => |region| region,
         else => {
-            app.setStatus("audio-to-sampler: clip is not audio", .{});
+            app.setStatus("{s}: clip is not audio", .{name});
             return;
         },
     };
     const source = app.session.project.audioSource(audio.source_id) orelse {
-        app.setStatus("audio-to-sampler: missing audio source", .{});
+        app.setStatus("{s}: missing audio source", .{name});
         return;
     };
     const channels = source.channel_count;
     const frame_count = audioFrameCount(ws.time_grid.tickToBeat(clip.length_ticks) * app.session.engine.transport.framesPerBeat(), channels) orelse {
-        app.setStatus("audio-to-sampler: output is too large; shorten the clip", .{});
+        app.setStatus("{s}: output is too large; shorten the clip", .{name});
         return;
     };
     const samples = app.allocator.alloc(f32, frame_count) catch {
-        app.setStatus("audio-to-sampler: out of memory", .{});
+        app.setStatus("{s}: out of memory", .{name});
         return;
     };
     const source_frames = source.samples.len / channels;
@@ -952,21 +968,37 @@ pub fn cmdAudioToSampler(app: *App, _: []const u8) void {
         sample.* = mono / @as(f32, @floatFromInt(channels)) * gain * @min(fade_in, fade_out);
     }
 
-    var backup = history.captureTrackKindSwap(app, app.cursor);
-    _ = app.session.changeInstrumentKind(app.cursor, .sampler) catch |err| {
+    var backup = history.captureTrackKindSwap(app, selected.track);
+    _ = app.session.changeInstrumentKind(selected.track, kind) catch |err| {
         if (backup) |*b| b.deinit(app.allocator);
         app.allocator.free(samples);
-        app.setStatus("audio-to-sampler: {s}", .{@errorName(err)});
+        app.setStatus("{s}: {s}", .{ name, @errorName(err) });
         return;
     };
     history.push(app, backup);
-    const sampler = &app.session.racks.items[app.cursor].instrument.sampler;
-    sampler.setSamples(samples, std.fs.path.stem(source.path));
-    sampler.pad.user_sample = true;
-    _ = sampler.detectRootNote();
+    const stem = std.fs.path.stem(source.path);
+    switch (kind) {
+        .sampler => {
+            const sampler = &app.session.racks.items[selected.track].instrument.sampler;
+            sampler.setSamples(samples, stem);
+            sampler.pad.user_sample = true;
+            _ = sampler.detectRootNote();
+        },
+        .slicer => app.session.racks.items[selected.track].instrument.slicer.setSamples(samples, stem),
+        else => unreachable,
+    }
+    app.cursor = selected.track;
     app.exitStaleEditors();
     app.dirty = true;
-    app.setStatus("track {d}: audio clip loaded into sampler", .{app.cursor + 1});
+    app.setStatus("track {d}: audio clip loaded into {s}", .{ selected.track + 1, @tagName(kind) });
+}
+
+pub fn cmdAudioToSampler(app: *App, _: []const u8) void {
+    audioToInstrument(app, .sampler, "audio-to-sampler");
+}
+
+pub fn cmdAudioToSlicer(app: *App, _: []const u8) void {
+    audioToInstrument(app, .slicer, "audio-to-slicer");
 }
 
 pub fn cmdResample(app: *App, args: []const u8) void {

@@ -104,7 +104,7 @@ pub fn drawTracksStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) 
 pub fn drawAudioStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {
     try writeModeBadge(w, app);
     try writeViewBadge(right, "AUDIO", app.modal.mode);
-    try w.writeAll(dim ++ "  " ++ rst ++ "j/k regions  n normalize  v reverse  x track FX  -/+ gain  </> pan  m/S/r mix  a arrangement  i import");
+    try w.writeAll(dim ++ "  " ++ rst ++ "j/k regions  s sampler  c slicer  n normalize  v reverse  x FX  -/+ gain  </> pan  r arm  a arrangement  i import");
 }
 
 pub fn drawDrumStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Writer) !void {

@@ -419,6 +419,27 @@ pub const Slicer = struct {
         self.clearVoices();
     }
 
+    pub fn setSamples(self: *Slicer, samples: []f32, name: []const u8) void {
+        while (!self.sample_lock.tryLock()) std.atomic.spinLoopHint();
+        defer self.sample_lock.unlock();
+        self.allocator.free(self.samples);
+        if (self.cached_flac) |flac| self.allocator.free(flac);
+        self.cached_flac = null;
+        self.samples = samples;
+        self.name = pad_mod.fixedName(name);
+        self.clip_bpm = tempo.bpmFromName(name) orelse 0;
+        self.clip_root = pitch.rootFromName(name);
+        self.user_sample = true;
+        self.slice_count = 1;
+        for (&self.slices, 0..) |*p, i| p.* = .{
+            .samples = samples,
+            .start_norm = 0,
+            .end_norm = if (i == 0) 1 else 0,
+            .retrig = true,
+        };
+        self.clearVoices();
+    }
+
     /// Equal-divide the shared clip into `n` regions (clamped to
     /// `1..=max_slices`), each a fresh default-params slice spanning its own
     /// 1/n fraction. Existing per-slice pattern/velocity data past the new
