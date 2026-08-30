@@ -89,7 +89,8 @@ because they protect against corrupt and hand-edited values.
 **Bump `file_version` for every schema or semantic change**, including new
 fields and enum members.
 
-Version 78 adds a fixed-capacity per-note pitch-bend curve to melodic notes.
+Version 79 makes saved per-note pitch-bend values unbounded. Version 78 adds
+a fixed-capacity per-note pitch-bend curve to melodic notes.
 
 Version 77 gives the guitar amp a MODEL and a TIGHT param, appended to
 `AmpSnap`. Version 76 makes an audio track its own instrument kind.

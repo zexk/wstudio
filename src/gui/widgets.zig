@@ -932,6 +932,8 @@ pub const Curve = struct {
     /// preview a useful grid before quantized editing exists.
     grid_divisions: u8 = 0,
     fill: bool = false,
+    transparent: bool = false,
+    default_value: ?f32 = null,
     accent: [4]f32,
     /// Which point (if any) the external cursor is currently parked on,
     /// for the focus ring - mirrors `Adsr.focused_stage`.
@@ -1044,7 +1046,7 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
     var result = CurveResult{};
     scroll.noteFocusRow(args.focused_index != null, origin[1], height);
 
-    draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg1), .rounding = gui_style.panel_rounding });
+    if (!args.transparent) draw_list.addRectFilled(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg1), .rounding = gui_style.panel_rounding });
     if (args.grid_divisions > 1) plotGrid(draw_list, origin, width, height, args.grid_divisions, args.grid_divisions);
     if (args.snap_beats > 0 and args.beat_hi > 0) {
         const grid_step = curveGridStep(args.beat_hi, args.snap_beats, width);
@@ -1096,6 +1098,9 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
         const last = args.points[args.points.len - 1];
         const last_screen = curveToScreen(origin, width, height, args.beat_hi, args.value_lo, args.value_hi, last.beat, last.value);
         draw_list.addLine(.{ .p1 = last_screen, .p2 = .{ origin[0] + width, last_screen[1] }, .col = gui_style.color(args.accent), .thickness = 2 });
+    } else if (args.default_value) |value| {
+        const y = curveToScreen(origin, width, height, args.beat_hi, args.value_lo, args.value_hi, 0, value)[1];
+        draw_list.addLine(.{ .p1 = .{ origin[0], y }, .p2 = .{ origin[0] + width, y }, .col = gui_style.color(args.accent), .thickness = 2 });
     }
 
     const handle_r: f32 = 6;
@@ -1149,7 +1154,7 @@ pub fn curveEditor(label: [:0]const u8, args: Curve) CurveResult {
         result.inserted = .{ .beat = beat, .value = value };
     }
 
-    draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg4), .rounding = gui_style.panel_rounding, .thickness = 1 });
+    if (!args.transparent) draw_list.addRect(.{ .pmin = origin, .pmax = .{ origin[0] + width, origin[1] + height }, .col = gui_style.color(theme.bg4), .rounding = gui_style.panel_rounding, .thickness = 1 });
     zgui.setCursorScreenPos(.{ origin[0], origin[1] + height });
     return result;
 }

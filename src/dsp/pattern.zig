@@ -58,17 +58,16 @@ pub const PitchBendCurve = struct {
 
     pub fn setPoint(self: *PitchBendCurve, position: f32, semitones: f32) bool {
         const pos = std.math.clamp(position, 0.0, 1.0);
-        const value = std.math.clamp(semitones, -pitch_bend_range_semitones, pitch_bend_range_semitones);
         var index: usize = 0;
         while (index < self.count and self.points[index].position < pos) : (index += 1) {}
         if (index < self.count and @abs(self.points[index].position - pos) < 1e-5) {
-            self.points[index].semitones = value;
+            self.points[index].semitones = semitones;
             return true;
         }
         if (self.count >= max_pitch_bend_points) return false;
         var move: usize = self.count;
         while (move > index) : (move -= 1) self.points[move] = self.points[move - 1];
-        self.points[index] = .{ .position = pos, .semitones = value };
+        self.points[index] = .{ .position = pos, .semitones = semitones };
         self.count += 1;
         return true;
     }
@@ -79,7 +78,7 @@ pub const PitchBendCurve = struct {
         const hi = if (index + 1 == self.count) 1.0 else self.points[index + 1].position;
         self.points[index] = .{
             .position = std.math.clamp(position, lo, hi),
-            .semitones = std.math.clamp(semitones, -pitch_bend_range_semitones, pitch_bend_range_semitones),
+            .semitones = semitones,
         };
         return true;
     }
@@ -113,13 +112,13 @@ pub const PitchBendCurve = struct {
     }
 };
 
-test "PitchBendCurve sorts, clamps, interpolates, and removes points" {
+test "PitchBendCurve sorts, keeps unbounded values, interpolates, and removes points" {
     var curve: PitchBendCurve = .{};
     try std.testing.expect(curve.setPoint(1.0, 9.0));
     try std.testing.expect(curve.setPoint(0.5, 1.0));
     try std.testing.expectEqual(@as(f32, 0.5), curve.points[0].position);
     try std.testing.expectEqual(@as(f32, 1.0), curve.valueAt(0.25));
-    try std.testing.expectEqual(pitch_bend_range_semitones, curve.valueAt(1.0));
+    try std.testing.expectEqual(@as(f32, 9.0), curve.valueAt(1.0));
     try std.testing.expect(curve.movePoint(0, 0.25, -1.0));
     try std.testing.expect(curve.removePoint(0.25));
     try std.testing.expectEqual(@as(u8, 1), curve.count);
@@ -880,7 +879,7 @@ test "PatternPlayer sends interpolated per-note pitch bend while note sounds" {
     var pp = PatternPlayer.init(synth.device(), &transport);
     var bend: PitchBendCurve = .{};
     try std.testing.expect(bend.setPoint(0.0, 0.0));
-    try std.testing.expect(bend.setPoint(1.0, 2.0));
+    try std.testing.expect(bend.setPoint(1.0, 12.0));
     pp.notes[0] = .{ .pitch = 60, .start_beat = 0.0, .duration_beat = 1.0, .pitch_bend = bend };
     pp.note_count = 1;
 
@@ -890,7 +889,7 @@ test "PatternPlayer sends interpolated per-note pitch bend while note sounds" {
     for (synth.voices) |voice| {
         if (voice.active and voice.note == 60) {
             found = true;
-            try std.testing.expectApproxEqAbs(@as(f32, 1.0), voice.per_note_bend, 1e-6);
+            try std.testing.expectApproxEqAbs(@as(f32, 6.0), voice.per_note_bend, 1e-6);
         }
     }
     try std.testing.expect(found);
