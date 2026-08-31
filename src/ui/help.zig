@@ -19,6 +19,7 @@ const acc = ansi.acc;
 /// dedicated section (instrument picker) fall back to the top.
 pub const Section = enum {
     tracks,
+    audio_editor,
     drum_grid,
     sampler_editor,
     soundfont_editor,
@@ -223,6 +224,21 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("a s d f g h j k l ;",  "white keys  C D E F G A B C D E");
     t.key("q w r t y i o p",       "black keys  C# D# F# G# A# C# D# F#");
     t.key("z / x",                 "octave down / up");
+
+    t.taggedSection(.audio_editor, "AUDIO EDITOR");
+    t.key("j / k",        "select next / previous audio region");
+    t.key("[ / ]",        "audition previous / next take");
+    t.key(":take",        "[next|prev]  audition a take on the selected region");
+    t.key(":comp",        "<take> <start-beat> <end-beat>  splice a take range into the selected region");
+    t.key("n / v",        "normalize selected region / toggle reverse playback");
+    t.key("s / c",        "turn selected region into a sampler / slicer track");
+    t.key("i",            "import another audio file");
+    t.key("x",            "open track FX");
+    t.key("r",            "arm / disarm track for recording");
+    t.key("- / +",        "track gain down / up 1 dB");
+    t.key("< / >",        "track pan left / right");
+    t.key("a",            "open arrangement");
+    t.key("esc / tab",    "return to tracks");
 
     t.taggedSection(.drum_grid, "DRUM GRID");
     t.group("BASICS");
@@ -460,7 +476,6 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key(":punch",       "[on|off]  record only between enabled A/B bounds");
     t.key(":monitor",     "[off|auto|on]  input monitoring mode");
     t.key(":take",        "[next|prev]  cycle the alternate recordings on the audio clip at cursor");
-    t.key("[ / ] (audio)", "cycle previous / next take in the audio editor");
     t.key(":comp",        "<take> <start-beat> <end-beat>  splice alternate take range");
     t.key(":crossfade",   "fade the two overlapping audio layers at cursor into each other");
     t.key(":consolidate", "bake the cursor audio clip's gain, fades, stretch and reverse into one source");
@@ -626,6 +641,14 @@ test "section rows are the only bold lines, and their titles strip clean" {
     try std.testing.expectEqualStrings("COMMANDS", sectionTitle(t.line(first)));
     // A key row inside that section reports the section it belongs to.
     try std.testing.expectEqual(first, t.sectionLineAt(first + 2).?);
+}
+
+test "audio editor help has its own scroll target" {
+    const commands = @import("commands.zig");
+    var t = HelpText{};
+    buildHelp(&t, commands.cmds, &.{});
+    const scroll = scrollForSection(.audio_editor, commands.cmds, &.{});
+    try std.testing.expectEqualStrings("AUDIO EDITOR", sectionTitle(t.line(scroll + 1)));
 }
 
 pub const Viewport = struct { off: usize, end: usize, max_scroll: usize };

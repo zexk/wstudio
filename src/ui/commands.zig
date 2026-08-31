@@ -611,7 +611,7 @@ fn cmdColorscheme(app: *App, args: []const u8) void {
 pub fn cmdHelp(app: *App, _: []const u8) void {
     const section: ?help_view.Section = switch (app.view) {
         .tracks => .tracks,
-        .audio_editor => .tracks,
+        .audio_editor => .audio_editor,
         .drum_grid => .drum_grid,
         .slicer_grid => .slicer_grid,
         .sampler_editor => .sampler_editor,

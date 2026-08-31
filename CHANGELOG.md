@@ -19,7 +19,8 @@ history lives in [FORMAT.md](FORMAT.md).
   and the complete recovery is one undoable edit.
 - Audio clips and audio editors show active take number and total. In the audio
   editor, `[` and `]` or GUI buttons audition previous and next takes directly;
-  `:comp` works there too and keeps take numbers stable after auditioning.
+  `:comp` works there too, take numbers stay stable after auditioning, and
+  context help covers the complete editor workflow.
 - CC0 acoustic instruments from VCSL, FreePats and VSCO 2 CE through a shared
   SFZ sample-bank loader, as their own `Acoustic` instrument in the picker:
   pianos, harpsichord, pipe organ, concert harp, mallets, kalimba, harmonica,
