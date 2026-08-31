@@ -63,7 +63,7 @@ pub const Key = union(enum) {
     /// name against the command table); ignored elsewhere.
     tab,
     backtab,
-    /// Intercepted by the frontend (quit); modal layer ignores it.
+    /// Cancels command/search prompts; intercepted by App as quit elsewhere.
     ctrl_c,
     /// Intercepted by App.handleKey before it reaches the modal layer at all
     /// (mouse events aren't part of the vim state machine - they're routed
@@ -323,7 +323,7 @@ pub const ModalInput = struct {
 
     fn handleCommand(self: *ModalInput, key: Key) Action {
         switch (key) {
-            .escape => return self.setMode(.normal),
+            .escape, .ctrl_c => return self.setMode(.normal),
             .enter => {
                 self.mode = .normal;
                 return .{ .command_submit = self.cmd_buf[0..self.cmd_len] };
@@ -337,7 +337,7 @@ pub const ModalInput = struct {
     /// `editLine` rather than duplicating it.
     fn handleSearch(self: *ModalInput, key: Key) Action {
         switch (key) {
-            .escape => return self.setMode(.normal),
+            .escape, .ctrl_c => return self.setMode(.normal),
             .enter => {
                 self.mode = .normal;
                 return .{ .search_submit = self.cmd_buf[0..self.cmd_len] };

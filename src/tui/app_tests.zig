@@ -6582,6 +6582,21 @@ test "ctrl-c refuses to quit while dirty" {
     try std.testing.expectStringStartsWith(app.status_buf[0..app.status_len], "unsaved changes");
 }
 
+test "ctrl-c cancels command and search prompts without quitting" {
+    var app = try testApp();
+    defer app.deinit();
+
+    typeKeys(&app, ":write");
+    app.handleKey(.ctrl_c, 0);
+    try std.testing.expectEqual(modal_mod.Mode.normal, app.modal.mode);
+    try std.testing.expect(!app.should_quit);
+
+    typeKeys(&app, "/kick");
+    app.handleKey(.ctrl_c, 0);
+    try std.testing.expectEqual(modal_mod.Mode.normal, app.modal.mode);
+    try std.testing.expect(!app.should_quit);
+}
+
 test "saving clears the dirty flag" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();

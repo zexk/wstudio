@@ -1379,7 +1379,7 @@ pub const App = struct {
         defer if (self.view != departing.view and workspaceView(departing.view) and workspaceView(self.view)) {
             self.alt_context = departing;
         };
-        // ctrl-c (the unbreakable quit path), mouse events, and enter's
+        // ctrl-c (unmappable cancel/quit), mouse events, and enter's
         // key-up (a hold-gesture signal, not a chord key - buffering it
         // would break pending keymap chords) bypass user keymaps entirely;
         // so do the `:`/`/` prompts (not mappable modes, enforced inside
@@ -2072,6 +2072,10 @@ pub const App = struct {
     fn handleKeyBuiltin(self: *App, key_in: modal_mod.Key, now_ns: i96) void {
         self.now_ns = now_ns;
         if (key_in == .ctrl_c) {
+            if (self.modal.mode == .command or self.modal.mode == .search) {
+                self.applyAction(self.modal.handle(key_in), now_ns);
+                return;
+            }
             _ = self.requestQuit();
             return;
         }

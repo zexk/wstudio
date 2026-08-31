@@ -157,7 +157,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("",             "  macros capture everything - motions, edits, : commands, insert-mode notes");
     t.key("u / U / ^R",   "undo / redo content edits in every workspace editor");
     t.key("? / :help",    "open this context-sensitive reference");
-    t.key("ctrl-c",       "quit");
+    t.key("ctrl-c",       "cancel the : or / prompt; quit elsewhere");
 
     t.section("PICKERS  (instrument, effect, automation parameter, preset)");
     t.key("j / k",        "move highlight; g / G jumps to first / last item");
