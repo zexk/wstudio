@@ -379,9 +379,9 @@ pub fn shiftRange(midi: []const []?MidiNote, step_count: u16, row_lo: u8, row_hi
         while (si != step_end) : (si += step_inc) {
             const src_row: usize = @intCast(ri);
             const src_step: usize = @intCast(si);
+            if (midi[src_row][src_step] == null) continue;
             const dst_row: usize = @intCast(ri + drow);
             const dst_step: usize = @intCast(si + dstep);
-            if (midi[src_row][src_step] == null) continue;
             midi[dst_row][dst_step] = midi[src_row][src_step];
             if (midi[dst_row][dst_step]) |*note| {
                 note.pitch = @intCast(dst_row);
@@ -704,6 +704,15 @@ test "step edits clamp to their range and cycles wrap" {
     toggleStep(&grid, 4, 9, 0);
     toggleStep(&grid, 4, 0, 99);
     try std.testing.expect(!stepActive(&grid, 4, 0, 0));
+}
+
+test "range shift skips blank cells whose destination is outside the grid" {
+    var row = [_]?MidiNote{ null, .{ .pitch = 0, .step = 1 }, null, null };
+    var grid = [_][]?MidiNote{&row};
+
+    try std.testing.expectEqual(@as(?u32, 1), shiftRange(&grid, 4, 0, 0, 0, 1, 0, -1));
+    try std.testing.expect(grid[0][0] != null);
+    try std.testing.expect(grid[0][1] == null);
 }
 
 test "a lane loop length of 0 or past the pattern follows the pattern" {
