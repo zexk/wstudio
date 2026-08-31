@@ -1204,9 +1204,9 @@ pub fn cmdConsolidate(app: *App, _: []const u8) void {
         app.setStatus("consolidated audio region", .{});
 }
 
-const AudioConversion = struct { track: u16, clip: *ws.Clip };
+const AudioSelection = struct { track: u16, clip_index: usize, clip: *ws.Clip };
 
-fn audioConversionClip(app: *App, name: []const u8) ?AudioConversion {
+fn selectedAudioClip(app: *App, name: []const u8) ?AudioSelection {
     if (app.view == .audio_editor) {
         const lane = app.session.arrangement.lane(app.audio_track) orelse return null;
         if (lane.clips.items.len == 0) {
@@ -1214,13 +1214,15 @@ fn audioConversionClip(app: *App, name: []const u8) ?AudioConversion {
             return null;
         }
         app.audio_clip = @min(app.audio_clip, lane.clips.items.len - 1);
-        return .{ .track = app.audio_track, .clip = &lane.clips.items[app.audio_clip] };
+        return .{ .track = app.audio_track, .clip_index = app.audio_clip, .clip = &lane.clips.items[app.audio_clip] };
     }
-    return .{ .track = @intCast(app.cursor), .clip = clipAtCursor(app, name) orelse return null };
+    const clip = clipAtCursor(app, name) orelse return null;
+    const clip_index = app.session.arrangement.lane(app.cursor).?.clipIndexAt(app.arr_cursor_bar *| app.arr_grid.ticks()).?;
+    return .{ .track = @intCast(app.cursor), .clip_index = clip_index, .clip = clip };
 }
 
 fn audioToInstrument(app: *App, kind: ws.InstrumentKind, name: []const u8) void {
-    const selected = audioConversionClip(app, name) orelse return;
+    const selected = selectedAudioClip(app, name) orelse return;
     const clip = selected.clip;
     const audio = switch (clip.content) {
         .audio => |region| region,
@@ -1338,7 +1340,7 @@ pub fn cmdResample(app: *App, args: []const u8) void {
 }
 
 pub fn cmdTake(app: *App, args: []const u8) void {
-    _ = clipAtCursor(app, "take") orelse return;
+    const selected = selectedAudioClip(app, "take") orelse return;
     const arg = std.mem.trim(u8, args, " ");
     const delta: i32 = if (arg.len == 0 or std.mem.eql(u8, arg, "next"))
         1
@@ -1348,9 +1350,7 @@ pub fn cmdTake(app: *App, args: []const u8) void {
         app.setStatus("take: expected next or prev", .{});
         return;
     };
-    const cursor_tick = app.arr_cursor_bar *| app.arr_grid.ticks();
-    const clip_index = app.session.arrangement.lane(app.cursor).?.clipIndexAt(cursor_tick).?;
-    app.cycleAudioTake(app.cursor, clip_index, delta);
+    app.cycleAudioTake(selected.track, selected.clip_index, delta);
 }
 
 pub fn cmdComp(app: *App, args: []const u8) void {
@@ -1371,7 +1371,8 @@ pub fn cmdComp(app: *App, args: []const u8) void {
         app.setStatus("comp: expected take and increasing beat range", .{});
         return;
     }
-    const clip = clipAtCursor(app, "comp") orelse return;
+    const selected = selectedAudioClip(app, "comp") orelse return;
+    const clip = selected.clip;
     const audio = switch (clip.content) {
         .audio => |region| region,
         else => {
@@ -1435,7 +1436,7 @@ pub fn cmdComp(app: *App, args: []const u8) void {
         app.setStatus("comp: failed to create source", .{});
         return;
     };
-    history.recordLane(app, @intCast(app.cursor));
+    history.recordLane(app, selected.track);
     clip.content.audio.source_id = source_id;
     clip.content.audio.source_start_frame = 0;
     clip.content.audio.source_length_frames = output_frames;

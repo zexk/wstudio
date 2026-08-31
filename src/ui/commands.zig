@@ -102,7 +102,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "audio-to-slicer", .desc = "turn cursor audio clip and its edits into a slicer track", .run = wrap(commands_mixer.cmdAudioToSlicer) },
     .{ .name = "resample", .desc = "<track:n|group:n|master|off>  record internal audio into the cursor Audio track", .run = wrap(commands_mixer.cmdResample) },
     .{ .name = "take",        .desc = "[next|prev]  cycle alternate recordings on audio region", .run = wrap(commands_mixer.cmdTake) },
-    .{ .name = "comp",        .desc = "<take> <start-beat> <end-beat>  splice alternate take range", .run = wrap(commands_mixer.cmdComp) },
+    .{ .name = "comp",        .desc = "<take> <start-beat> <end-beat>  splice take range into selected audio region", .run = wrap(commands_mixer.cmdComp) },
     .{ .name = "import-audio", .desc = "<file>  drop audio on the arrangement (alias for :load)", .run = wrap(commands_load.cmdImportAudio) },
     .{ .name = "load",        .desc = "[file]  load the WAV/SF2 type for the current view and selected instrument; omit the file to browse", .run = wrap(commands_load.cmdLoad) },
     .{ .name = "clap-instrument", .desc = "<plugin-id> <path>  load a CLAP instrument on the cursor track", .run = wrap(cmdClapInstrument) },

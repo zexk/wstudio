@@ -4164,6 +4164,30 @@ test "comp follows visible take numbers after audition" {
     try std.testing.expectEqualSlices(f32, &.{ 2, 3, 3, 2 }, app.session.project.audioSource(audio.source_id).?.samples);
 }
 
+test "audio editor take commands target selected region" {
+    var app = try arrangementApp();
+    defer app.deinit();
+    app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
+    app.session.engine.transport.tempo_bpm = app.session.project.tempo_bpm;
+    const first = try app.session.project.addAudioSource("first", app.session.project.sample_rate, 1, &.{ 1, 1, 1, 1 });
+    const second = try app.session.project.addAudioSource("second", app.session.project.sample_rate, 1, &.{ 2, 2, 2, 2 });
+    try app.session.arrangement.lane(0).?.place(app.allocator, ws.Clip.initAudio(64, 64, .{
+        .source_id = first,
+        .source_start_frame = 0,
+        .source_length_frames = 4,
+        .alternate_takes = .{ .{ .source_id = second, .source_start_frame = 0, .source_length_frames = 4, .length_ticks = 64 }, null, null, null, null, null, null },
+    }));
+    app.view = .audio_editor;
+    app.audio_track = 0;
+    app.audio_clip = 0;
+
+    commands.run(&app, "take next");
+    try std.testing.expectEqual(second, app.session.arrangement.lane(0).?.clips.items[0].content.audio.source_id);
+    commands.run(&app, "comp 1 1 3");
+    const audio = app.session.arrangement.lane(0).?.clips.items[0].content.audio;
+    try std.testing.expectEqualSlices(f32, &.{ 2, 1, 1, 2 }, app.session.project.audioSource(audio.source_id).?.samples);
+}
+
 test "arrangement g plays from the cursor bar" {
     var app = try arrangementApp();
     defer app.deinit();
