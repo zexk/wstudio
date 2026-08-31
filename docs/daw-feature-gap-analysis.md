@@ -9,10 +9,11 @@ wstudio cannot already complete it, and it fits a keyboard-centric music DAW.
 
 wstudio already covers the ordinary song path: audio and MIDI recording,
 patterns and linear arrangement, clip editing, alternate audio takes and basic
-comping, punch recording, editable clip fades and crossfades, named sections,
-tempo and meter maps, automation, groups and sends, sidechains, modulation,
-track freeze, audio consolidation, CLAP and VST3 hosting, plugin crash
-isolation, master and stem export, and Lua customization.
+comping, punch recording, retrospective MIDI capture, editable clip fades and
+crossfades, named sections, tempo and meter maps, automation write modes,
+collapsible groups and sends, sidechains, modulation, track freeze, audio
+consolidation, CLAP and VST3 hosting, plugin crash isolation, master and stem
+export, and Lua customization.
 
 This matters because several gaps named during early beta.10 research have
 since shipped. Punch recording, clip-boundary fades, tempo and signature
@@ -68,20 +69,19 @@ become an assumed requirement.
 
 ## Ranked gaps
 
-### 1. Retrospective MIDI capture
+### Closed: retrospective MIDI capture
 
 Logic, Cubase, and FL Studio preserve a recent unrecorded performance. This is
 especially valuable in a keyboard-first DAW because the user's hands can stay
 on the instrument and the idea survives a missed record command.
 
-Recommended scope: capture recent note events for the selected MIDI track and
-commit them as one undoable edit. Do not add audio pre-record in the same
-change. Audio needs a bounded sample buffer, latency alignment, ownership, and
-save behavior, while MIDI capture can reuse the existing live-input event path.
+This gap closed with `:capture-midi`. It keeps 30 seconds of external MIDI
+note-ons per target track, preserves relative timing while stopped and tempo-map
+position while rolling, and commits the recovery as one undoable edit.
 
-Priority: highest post-1.0 candidate. Cost: small to medium. Proof: play while
-stopped and while transport runs, invoke capture, then verify timing, tempo-map
-placement, undo/redo, save/reopen, and both frontends.
+Audio pre-record remains separate. It needs a bounded sample buffer, latency
+alignment, ownership, and save behavior rather than reusing the lightweight
+MIDI path.
 
 ### 2. Take audition and comp editing
 
@@ -117,17 +117,16 @@ Priority: high capability gap, post-1.0. Cost: large. Proof: align a drifting
 performance across tempo changes without destructive splits, preserve fades
 and automation, and match live playback, consolidate, save/reopen, and export.
 
-### 4. Advanced automation write modes
+### 4. Advanced automation write boundaries
 
-Pro Tools and Cubase expose latch, touch, trim, write-to-boundary, and related
-automation workflows. wstudio has breakpoint editing, live parameter recording,
-MIDI learn, and project LFO modulation, but not a full mixing-console automation
-model.
+Pro Tools and Cubase expose trim, write-to-boundary, and related automation
+workflows. wstudio already has breakpoint editing, write, touch, and latch
+modes, live parameter recording, MIDI learn, and project LFO modulation, but
+not the full boundary and trim toolset of a mixing console.
 
-Recommended scope: add touch mode only when a hardware-controller mixing
-journey proves current recording overwrites too much. Touch has clear keyboard
-and controller semantics. Defer the rest until users need post-production mix
-passes.
+Recommended scope: add no more modes until a hardware-controller mixing journey
+proves current recording overwrites too much. Defer trim and write-to-boundary
+operations until users need post-production mix passes.
 
 Priority: medium. Cost: medium. Proof: write one parameter, release control,
 preserve later automation, then verify undo and live/offline agreement.
@@ -159,17 +158,17 @@ Pattern chaining or section jumps may cover composition with much less state.
 
 Priority: low unless live performance becomes product scope. Cost: very large.
 
-### 7. Track folders and large-session navigation
+### 7. Nested track folders
 
 Pro Tools, Cubase, Logic, and REAPER separate visual hierarchy from audio
-routing. wstudio groups provide routing and group mix control, but fixed group
-slots are not nested visual folders.
+routing. wstudio groups already collapse their member rows and provide routing
+and group mix control. Fixed group slots are not nested visual folders.
 
-Recommended scope: first add group collapse if track-list navigation becomes a
-measured problem. Do not create an independent folder tree until one-level
-collapse fails.
+Recommended scope: no work until one-level group collapse fails a measured
+large-session journey. Then decide whether nested groups or an independent
+folder tree solves the observed problem with less state.
 
-Priority: low to medium. Cost: small for collapse, large for nested folders.
+Priority: low. Cost: large.
 
 ### 8. Plugin and routing breadth
 
@@ -211,15 +210,13 @@ specific user journey without dominating package size and support work.
 ## Recommended sequence
 
 1. Finish beta.10 and release 1.0 without another subsystem.
-2. Prototype retrospective MIDI capture as one bounded post-1.0 feature.
-3. Run a real multi-take vocal or instrument session and improve existing take
+2. Run a real multi-take vocal or instrument session and improve existing take
    audition only where that journey fails.
-4. Treat elastic audio as the next major subsystem if recording users confirm
+3. Treat elastic audio as the next major subsystem if recording users confirm
    timing correction matters more than clip launching or scoring features.
-5. Let compatibility reports select plugin bus work. Keep live performance,
+4. Let compatibility reports select plugin bus work. Keep live performance,
    notation, video, spatial audio, and AI features outside scope until product
    direction changes.
 
-This order adds one cheap recovery workflow, deepens an existing recording
-model, then spends major complexity only on a gap shared by nearly every
-comparison DAW.
+This order deepens an existing recording model, then spends major complexity
+only on a gap shared by nearly every comparison DAW.

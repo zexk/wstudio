@@ -39,6 +39,22 @@ const captureStepGrid = cu.captureStepGrid;
 const laneName = cu.laneName;
 const readFileForLoad = cu.readFileForLoad;
 
+pub fn cmdCaptureMidi(app: *App, args: []const u8) void {
+    if (std.mem.trim(u8, args, " \t").len != 0) {
+        app.setStatus("usage: :capture-midi", .{});
+        return;
+    }
+    const melodic = resolveMelodic(app) orelse {
+        app.setStatus("capture-midi: select a melodic track", .{});
+        return;
+    };
+    const count = app.captureRetrospectiveMidi(@intCast(melodic.track));
+    if (count == 0)
+        app.setStatus("capture-midi: no recent notes for this track", .{})
+    else
+        app.setStatus("captured {d} recent MIDI note{s}", .{ count, if (count == 1) "" else "s" });
+}
+
 /// `:reverse` - retrograde. A melodic pattern (piano roll open, or the
 /// cursor on a melodic track) mirrors in time so the figure plays
 /// backwards; a step grid mirrors all of it, every lane. Reversing a

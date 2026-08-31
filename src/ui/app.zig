@@ -505,6 +505,8 @@ pub const App = struct {
     status_pending: bool = false,
     note_offs: [32]NoteOff = undefined,
     note_off_len: usize = 0,
+    retrospective_midi: [256]RetrospectiveMidiNote = undefined,
+    retrospective_midi_len: usize = 0,
     // Last timestamp seen by handleKey; lets sub-view handlers schedule note-offs
     // (e.g. piano-roll preview) without threading now_ns through every signature.
     now_ns: i96 = 0,
@@ -1118,6 +1120,14 @@ pub const App = struct {
     pub const ReloadRequest = enum { none, blank, load, restore_backup };
 
     const NoteOff = struct { at_ns: i96, track: u16, note: u7 };
+    const RetrospectiveMidiNote = struct {
+        track: u16,
+        pitch: u7,
+        velocity: u7,
+        at_ns: i96,
+        position_frames: u64,
+        playing: bool,
+    };
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io) !App {
         return initWithSampleRate(allocator, io, ws.types.default_sample_rate);
@@ -1318,13 +1328,71 @@ pub const App = struct {
     /// Follow track focus, collect CC dirtiness, and route queued notes
     /// through control-thread recording. Device open/close stays frontend-owned.
     pub fn serviceMidiInput(self: *App, midi_in: anytype) void {
-        midi_in.active_track.store(@intCast(self.cursor), .monotonic);
+        const track = self.currentTrack();
+        midi_in.active_track.store(track, .monotonic);
         if (midi_in.dirty.swap(false, .acquire)) self.dirty = true;
-        while (midi_in.note_queue.pop()) |recorded| self.recordMidiNote(recorded.pitch, recorded.vel);
+        while (midi_in.note_queue.pop()) |recorded| {
+            const snap = self.session.engine.uiSnapshot();
+            self.rememberMidiNote(track, recorded.pitch, recorded.vel, self.now_ns, snap.position_frames, snap.playing);
+            self.recordMidiNote(recorded.pitch, recorded.vel);
+        }
         const dropped = midi_in.dropped_notes.swap(0, .acq_rel);
         if (dropped != 0) {
             self.setStatus("MIDI input backlog: {d} note{s} not recorded", .{ dropped, if (dropped == 1) "" else "s" });
         }
+    }
+
+    pub fn rememberMidiNote(self: *App, track: u16, pitch: u7, velocity: u7, at_ns: i96, position_frames: u64, playing: bool) void {
+        if (track >= self.session.racks.items.len) return;
+        if (self.retrospective_midi_len == self.retrospective_midi.len) {
+            std.mem.copyForwards(RetrospectiveMidiNote, self.retrospective_midi[0 .. self.retrospective_midi_len - 1], self.retrospective_midi[1..self.retrospective_midi_len]);
+            self.retrospective_midi_len -= 1;
+        }
+        self.retrospective_midi[self.retrospective_midi_len] = .{
+            .track = track,
+            .pitch = pitch,
+            .velocity = velocity,
+            .at_ns = at_ns,
+            .position_frames = position_frames,
+            .playing = playing,
+        };
+        self.retrospective_midi_len += 1;
+    }
+
+    pub fn captureRetrospectiveMidi(self: *App, track: u16) usize {
+        if (track >= self.session.racks.items.len) return 0;
+        const pp = if (self.session.racks.items[track].pattern_player) |*p| p else return 0;
+        const cutoff = self.now_ns - 30 * std.time.ns_per_s;
+        var first_stopped_ns: ?i96 = null;
+        var before = history.captureMelodic(self, track);
+        var added: usize = 0;
+        for (self.retrospective_midi[0..self.retrospective_midi_len]) |note| {
+            if (note.track != track or note.at_ns < cutoff) continue;
+            const beat = if (note.playing)
+                self.session.project.beatAtFrames(note.position_frames)
+            else blk: {
+                const start = first_stopped_ns orelse note.at_ns;
+                first_stopped_ns = start;
+                const seconds = @as(f64, @floatFromInt(note.at_ns - start)) / std.time.ns_per_s;
+                break :blk seconds * self.session.project.tempo_bpm / 60.0;
+            };
+            const start_beat = @mod(beat, pp.length_beats);
+            if (pp.noteStartsAt(note.pitch, start_beat)) continue;
+            if (!pp.tryAddNote(.{
+                .pitch = note.pitch,
+                .start_beat = start_beat,
+                .duration_beat = self.piano_note_len,
+                .velocity = @as(f32, @floatFromInt(note.velocity)) / 127.0,
+            })) break;
+            added += 1;
+        }
+        if (added == 0) {
+            if (before) |*entry| entry.deinit(self.allocator);
+            return 0;
+        }
+        history.push(self, before);
+        piano_ed.syncLinkedClip(self);
+        return added;
     }
 
     // -----------------------------------------------------------------------
@@ -4147,6 +4215,7 @@ pub const App = struct {
     }
 
     pub fn tick(self: *App, now_ns: i96) void {
+        self.now_ns = now_ns;
         self.servicePluginHosts();
         commands_tracks.pollCcLearn(self);
         const dropped_commands = self.session.engine.takeDroppedCommands();
@@ -4348,6 +4417,7 @@ pub const App = struct {
     /// exitStaleEditors always treat it as gone. A field already sitting at
     /// that sentinel names no track at all, so no later op disturbs it.
     pub fn remapTrackFields(self: *App, op: undo_mod.TrackRemap) void {
+        self.retrospective_midi_len = 0;
         const remapField = struct {
             fn f(field: *u16, op_: undo_mod.TrackRemap) void {
                 if (field.* == std.math.maxInt(u16)) return;
@@ -4747,6 +4817,7 @@ pub const App = struct {
         if (self.pending_fx_nudge) |*p| p.deinit(self.allocator);
         self.pending_fx_nudge = null;
         self.note_off_len = 0;
+        self.retrospective_midi_len = 0;
         self.piano_clip_link = null;
         self.automation_clip = null;
         if (self.modal.mode != .normal) _ = self.modal.setMode(.normal);

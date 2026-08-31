@@ -177,6 +177,7 @@ pub const cmds: []const cmd_mod.Def = &.{
     .{ .name = "limit",       .desc = "<lo> <hi>  fold every note into a MIDI pitch range by octaves (e.g. :limit 48 72)", .run = wrap(commands_pattern.cmdLimit), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "discard-lengths", .desc = "reset every note to the roll's default length - throw away hand-drawn lengths", .run = wrap(commands_pattern.cmdDiscardLengths), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "import-midi", .desc = "<file>  replace the pattern with a Standard MIDI File's notes",     .run = wrap(commands_pattern.cmdImportMidi), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
+    .{ .name = "capture-midi", .desc = "recover MIDI notes played during the last 30 seconds",              .run = wrap(commands_pattern.cmdCaptureMidi), .scope = .{ .sampler = true, .synth = true, .soundfont = true, .acoustic = true } },
     .{ .name = "export-midi", .desc = "<file>  write the pattern as a Standard MIDI File",                 .run = wrap(commands_pattern.cmdExportMidi), .scope = .{ .sampler = true, .synth = true, .slicer = true, .soundfont = true, .acoustic = true } },
     .{ .name = "metronome",   .desc = "[on|off]  toggle the click track",                   .run = wrap(cmdMetronome) },
     .{ .name = "monitor",     .desc = "[off|auto|on]  input monitoring mode",                .run = wrap(cmdMonitor) },

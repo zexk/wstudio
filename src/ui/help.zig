@@ -34,7 +34,7 @@ pub const Section = enum {
 /// Collects pre-rendered help lines into a fixed buffer so the view can show
 /// an arbitrary scroll window instead of spilling off the bottom of the screen.
 pub const HelpText = struct {
-    buf: [53504]u8 = undefined,
+    buf: [54528]u8 = undefined,
     len: usize = 0,
     ends: [640]usize = undefined,
     count: usize = 0,

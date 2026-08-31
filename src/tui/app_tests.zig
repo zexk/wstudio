@@ -99,6 +99,34 @@ fn synthEditorApp() !App {
     return app;
 }
 
+test ":capture-midi recovers stopped and rolling notes as one undoable edit" {
+    var app = try pianoRollApp();
+    defer app.deinit();
+    const pp = &app.session.racks.items[0].pattern_player.?;
+    pp.length_beats = 4;
+    app.tick(100 * std.time.ns_per_s);
+
+    app.rememberMidiNote(0, 60, 64, 99 * std.time.ns_per_s, 0, false);
+    app.rememberMidiNote(0, 64, 127, 99 * std.time.ns_per_s + 500 * std.time.ns_per_ms, 0, false);
+    app.rememberMidiNote(0, 67, 96, 100 * std.time.ns_per_s, app.session.project.framesAtBeat(2.5), true);
+    app.rememberMidiNote(1, 72, 127, 100 * std.time.ns_per_s, 0, false);
+    app.rememberMidiNote(0, 48, 127, 60 * std.time.ns_per_s, 0, false);
+
+    commands.run(&app, "capture-midi");
+
+    try std.testing.expectEqual(@as(u16, 3), pp.note_count);
+    try std.testing.expect(pp.noteAt(60, 0) != null);
+    try std.testing.expect(pp.noteAt(64, 1) != null);
+    try std.testing.expect(pp.noteAt(67, 2.5) != null);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 / 127.0), pp.noteAt(60, 0).?.velocity, 1e-6);
+    try std.testing.expectEqual(@as(usize, 1), app.history.undo_stack.items.len);
+
+    history.doUndo(&app);
+    try std.testing.expectEqual(@as(u16, 0), pp.note_count);
+    history.doRedo(&app);
+    try std.testing.expectEqual(@as(u16, 3), pp.note_count);
+}
+
 fn installSlicerTestClip(app: *App) !void {
     const sl = app.slicerInst();
     std.testing.allocator.free(sl.samples);
