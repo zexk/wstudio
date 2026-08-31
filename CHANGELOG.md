@@ -23,7 +23,7 @@ history lives in [FORMAT.md](FORMAT.md).
   `:comp` works there too, take numbers stay stable after auditioning, and
   context help covers the complete editor workflow. Loop recording retains the
   latest eight passes when more takes exceed the region cap and reports that
-  rollover in the recording status.
+  rollover in the recording status. `:take` Tab-completes `next` and `prev`.
 - CC0 acoustic instruments from VCSL, FreePats and VSCO 2 CE through a shared
   SFZ sample-bank loader, as their own `Acoustic` instrument in the picker:
   pianos, harpsichord, pipe organ, concert harp, mallets, kalimba, harmonica,

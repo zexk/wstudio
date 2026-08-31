@@ -137,8 +137,8 @@ pub fn completeCommand(self: *App, direction: i32) void {
 }
 
 /// Tab-completes the argument after `buf[0..name_end]` against a small
-/// fixed value set - drum-kit/synth-preset names, and metronome's
-/// on/off keywords. Only fires for the
+/// fixed value set - drum-kit/synth-preset names, and short command
+/// keywords such as metronome on/off or take next/prev. Only fires for the
 /// *first* argument token (a trailing space means a second argument is
 /// being typed, which has no fixed candidate list here); every other
 /// command's arguments (track numbers, dB values, paths, ...) aren't
@@ -179,6 +179,8 @@ pub fn completeArgument(self: *App, buf: []const u8, name_end: usize, direction:
         self.cycleCompletion(name_end + 1, arg, .euclid, name_buf[0..n], direction);
     } else if (std.mem.eql(u8, name, "metronome")) {
         self.cycleCompletion(name_end + 1, arg, .metronome, &.{ "on", "off" }, direction);
+    } else if (std.mem.eql(u8, name, "take")) {
+        self.cycleCompletion(name_end + 1, arg, .take, &.{ "next", "prev" }, direction);
     } else if (std.mem.eql(u8, name, "scale") or std.mem.eql(u8, name, "snap-scale")) {
         // First token can be "off", a root pitch class, or a scale-type
         // name (cmdScale accepts either order) - offer all three sets.

@@ -8471,6 +8471,17 @@ test ":metronome Tab cycles on/off" {
     try std.testing.expectEqualStrings("metronome off", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
+test ":take Tab cycles next and prev" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+    typeKeys(&app, ":take ");
+
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("take next", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("take prev", app.modal.cmd_buf[0..app.modal.cmd_len]);
+}
+
 test ":snap-scale pulls off-scale notes onto the nearest tone, and sets the scale inline" {
     var app = try pianoRollApp();
     defer app.deinit();
