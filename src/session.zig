@@ -1707,7 +1707,11 @@ pub const Session = struct {
             const start_beat = time_grid.tickToBeat(clip.start_tick);
             const end_beat = time_grid.tickToBeat(clip.start_tick +| clip.length_ticks);
             const start_frame = self.project.framesAtBeat(start_beat);
-            const length_frames = @max(1, self.project.framesAtBeat(end_beat) -| start_frame);
+            const timeline_frames = @max(1, self.project.framesAtBeat(end_beat) -| start_frame);
+            const length_frames = if (self.racks.items[track].rendered_loop)
+                @max(1, @as(u64, source_length) *| self.project.sample_rate / @max(source.sample_rate, 1))
+            else
+                timeline_frames;
             regions.append(self.allocator, .{
                 .start_frame = start_frame,
                 .end_frame = start_frame +| length_frames,

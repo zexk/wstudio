@@ -286,8 +286,28 @@ fn renderCursorTrack(app: *App, command: []const u8) ?RenderedTrack {
         app.setStatus("{s}: select a track", .{command});
         return null;
     };
-    const range = computeBounceRange(app);
-    const sample_count = std.math.mul(usize, std.math.cast(usize, range.total_frames) orelse {
+    const output_range = if (app.session.song_mode) computeBounceRange(app) else blk: {
+        const beats = @max(1.0, ws.bounce.trackContentBeats(&app.session, track));
+        const frames = app.session.engine.transport.framesAtBeats(beats);
+        break :blk ws.bounce.Range{
+            .start_frame = 0,
+            .total_frames = frames,
+            .content_frames = frames,
+            .has_loop_region = false,
+        };
+    };
+    const render_range = if (app.session.song_mode) output_range else blk: {
+        const tail_frames = types.secondsToFrames(app.bounce_tail_seconds, app.session.project.sample_rate);
+        const warm_cycles = @max(1, std.math.divCeil(u64, tail_frames, output_range.total_frames) catch 1);
+        const frames = output_range.total_frames *| (warm_cycles +| 1);
+        break :blk ws.bounce.Range{
+            .start_frame = 0,
+            .total_frames = frames,
+            .content_frames = frames,
+            .has_loop_region = false,
+        };
+    };
+    const sample_count = std.math.mul(usize, std.math.cast(usize, render_range.total_frames) orelse {
         app.setStatus("{s}: render is too large", .{command});
         return null;
     }, engine_mod.channels) catch {
@@ -311,8 +331,18 @@ fn renderCursorTrack(app: *App, command: []const u8) ?RenderedTrack {
         app.session.engine.bounce_active.store(false, .release);
         app.session.engine.bounce_parked.store(false, .release);
     }
-    ws.bounce.renderTrack(&app.session, @intCast(track), samples, range);
-    return .{ .samples = samples, .range = range };
+    ws.bounce.renderTrack(&app.session, @intCast(track), samples, render_range);
+    if (app.session.song_mode) return .{ .samples = samples, .range = output_range };
+
+    const output_samples: usize = @intCast(output_range.total_frames * engine_mod.channels);
+    const rendered = app.allocator.alloc(types.Sample, output_samples) catch {
+        app.allocator.free(samples);
+        app.setStatus("{s}: out of memory", .{command});
+        return null;
+    };
+    @memcpy(rendered, samples[samples.len - output_samples ..]);
+    app.allocator.free(samples);
+    return .{ .samples = rendered, .range = output_range };
 }
 
 fn captureFreezeState(app: *App, track: usize) ?[]u8 {

@@ -51,15 +51,19 @@ pub fn stemName(buf: []u8, name: []const u8, index: usize) []const u8 {
 
 pub fn contentBeats(session: *const Session) f64 {
     var max_beats: f64 = 0;
-    for (session.racks.items) |rack| {
-        if (rack.pattern_player) |pp| max_beats = @max(max_beats, pp.length_beats);
-        switch (rack.instrument) {
-            .drum_machine => |*dm| max_beats = @max(max_beats, @as(f64, @floatFromInt(dm.step_count)) / @as(f64, @floatFromInt(dm.steps_per_beat))),
-            .slicer => |*sl| max_beats = @max(max_beats, @as(f64, @floatFromInt(sl.step_count)) / @as(f64, @floatFromInt(sl.steps_per_beat))),
-            else => {},
-        }
-    }
+    for (0..session.racks.items.len) |track| max_beats = @max(max_beats, trackContentBeats(session, track));
     return max_beats;
+}
+
+pub fn trackContentBeats(session: *const Session, track: usize) f64 {
+    if (track >= session.racks.items.len) return 0;
+    const rack = session.racks.items[track];
+    if (rack.pattern_player) |pp| return pp.length_beats;
+    return switch (rack.instrument) {
+        .drum_machine => |*dm| @as(f64, @floatFromInt(dm.step_count)) / @as(f64, @floatFromInt(dm.steps_per_beat)),
+        .slicer => |*sl| @as(f64, @floatFromInt(sl.step_count)) / @as(f64, @floatFromInt(sl.steps_per_beat)),
+        else => 0,
+    };
 }
 
 pub fn range(session: *const Session, tail_seconds: f32) Range {

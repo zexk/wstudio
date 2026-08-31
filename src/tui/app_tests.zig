@@ -821,7 +821,7 @@ test ":flatten replaces a MIDI rack with its rendered audio and remains undoable
     try backend.start(threaded.io());
     defer backend.stop();
     try app.session.setInstrument(0, .poly_synth);
-    app.bounce_tail_seconds = 0;
+    app.bounce_tail_seconds = 2;
     app.session.racks.items[0].pattern_player.?.addNote(.{
         .pitch = 60,
         .start_beat = 0,
@@ -861,7 +861,7 @@ test ":freeze unloads MIDI devices, persists source state, and :unfreeze restore
     try backend.start(threaded.io());
     defer backend.stop();
     try app.session.setInstrument(0, .poly_synth);
-    app.bounce_tail_seconds = 0;
+    app.bounce_tail_seconds = 2;
     app.session.racks.items[0].pattern_player.?.addNote(.{
         .pitch = 64,
         .start_beat = 0,
@@ -878,6 +878,20 @@ test ":freeze unloads MIDI devices, persists source state, and :unfreeze restore
     try std.testing.expectEqual(@as(usize, 0), frozen.fx.units.items.len);
     try std.testing.expectEqual(retired_before, app.session.retired_racks.items.len);
     try std.testing.expectEqual(@as(usize, 1), app.session.arrangement.lane(0).?.clips.items.len);
+    const frozen_source = app.session.project.audioSource(app.session.arrangement.lane(0).?.clips.items[0].content.audio.source_id).?;
+    try std.testing.expectEqual(@as(usize, 96_000 * engine_mod.channels), frozen_source.samples.len);
+    const replay = try std.testing.allocator.alloc(f32, frozen_source.samples.len);
+    defer std.testing.allocator.free(replay);
+    try std.testing.expect(commands_mixer.parkAudio(&app));
+    ws.bounce.renderTrack(&app.session, 0, replay, .{
+        .start_frame = 0,
+        .total_frames = frozen_source.samples.len / engine_mod.channels,
+        .content_frames = frozen_source.samples.len / engine_mod.channels,
+        .has_loop_region = false,
+    });
+    app.session.engine.bounce_active.store(false, .release);
+    app.session.engine.bounce_parked.store(false, .release);
+    try std.testing.expectEqualSlices(f32, frozen_source.samples, replay);
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
