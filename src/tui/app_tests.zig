@@ -8193,6 +8193,11 @@ test "Ctrl-P and Ctrl-N cycle an active Tab completion" {
     app.handleKey(.ctrl_e, 0);
     try std.testing.expectEqualStrings("q", app.modal.cmd_buf[0..app.modal.cmd_len]);
     try std.testing.expect(!app.completionActive());
+    app.handleKey(.tab, 0);
+    app.handleKey(.ctrl_y, 0);
+    try std.testing.expectEqualStrings("quit", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expect(!app.completionActive());
+    try std.testing.expect(!app.suggest_popup_open);
 
     app.modal.cmd_len = 0;
     app.modal.cmd_cursor = 0;
@@ -11541,10 +11546,10 @@ test "random key sequences never panic in any view" {
     // non-char variants a real terminal can deliver.
     const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 :/?.,<>[]{}-+=!*#$%\"'";
     const specials = [_]modal_mod.Key{
-        .escape,   .enter,        .enter_release, .backspace,   .delete,    .tab,        .backtab,
-        .arrow_up, .arrow_down,   .arrow_left,    .arrow_right, .word_left, .word_right, .home,
-        .end,      .ctrl_w,       .ctrl_a,        .ctrl_e,      .ctrl_u,    .ctrl_k,     .ctrl_p,
-        .ctrl_n,   .history_prev, .history_next,  .ctrl_r,
+        .escape,   .enter,      .enter_release, .backspace,    .delete,    .tab,        .backtab,
+        .arrow_up, .arrow_down, .arrow_left,    .arrow_right,  .word_left, .word_right, .home,
+        .end,      .ctrl_w,     .ctrl_a,        .ctrl_e,       .ctrl_u,    .ctrl_k,     .ctrl_p,
+        .ctrl_n,   .ctrl_y,     .history_prev,  .history_next, .ctrl_r,
     };
 
     var prng = std.Random.DefaultPrng.init(0x5eed);

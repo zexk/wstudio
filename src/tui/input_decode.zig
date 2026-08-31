@@ -216,6 +216,7 @@ fn parseCsiU(params: []const u8) ?Key {
         'p' => .ctrl_p,
         'u' => .ctrl_u,
         'w' => .ctrl_w,
+        'y' => .ctrl_y,
         'r' => .ctrl_r,
         else => null,
     };
@@ -364,6 +365,11 @@ fn decodeTracked(bytes: []const u8, out: []Key) DecodeResult {
                 count += 1;
                 i += 1;
             },
+            0x19 => {
+                out[count] = .ctrl_y;
+                count += 1;
+                i += 1;
+            },
             0x12 => {
                 out[count] = .ctrl_r;
                 count += 1;
@@ -400,10 +406,10 @@ test "decode printable, enter, backspace, ctrl-c, ctrl-w, ctrl-r, tab" {
 }
 
 test "decode readline control bytes" {
-    var keys: [6]Key = undefined;
-    const n = decode("\x01\x05\x0b\x0e\x10\x15", &keys);
-    try std.testing.expectEqual(@as(usize, 6), n);
-    try std.testing.expectEqualSlices(Key, &.{ .ctrl_a, .ctrl_e, .ctrl_k, .ctrl_n, .ctrl_p, .ctrl_u }, keys[0..n]);
+    var keys: [7]Key = undefined;
+    const n = decode("\x01\x05\x0b\x0e\x10\x15\x19", &keys);
+    try std.testing.expectEqual(@as(usize, 7), n);
+    try std.testing.expectEqualSlices(Key, &.{ .ctrl_a, .ctrl_e, .ctrl_k, .ctrl_n, .ctrl_p, .ctrl_u, .ctrl_y }, keys[0..n]);
 }
 
 test "lone escape vs CSI arrow sequences" {
@@ -626,6 +632,8 @@ test "decode kitty CSI u: ctrl chords and unbound modifiers" {
     try std.testing.expectEqual(Key.ctrl_r, keys[0]);
     try std.testing.expectEqual(@as(usize, 1), decode("\x1b[117;5u", &keys));
     try std.testing.expectEqual(Key.ctrl_u, keys[0]);
+    try std.testing.expectEqual(@as(usize, 1), decode("\x1b[121;5u", &keys));
+    try std.testing.expectEqual(Key.ctrl_y, keys[0]);
     // unbound ctrl chord dropped; alt+j dropped (not a literal 'j')
     try std.testing.expectEqual(@as(usize, 0), decode("\x1b[120;5u", &keys));
     try std.testing.expectEqual(@as(usize, 0), decode("\x1b[106;3u", &keys));

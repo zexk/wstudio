@@ -326,6 +326,7 @@ fn pressedModalKey(mode: ws.input.Mode) ?ws.input.Key {
     if (ctrl and zgui.isKeyPressed(.r, false)) return .ctrl_r;
     if (ctrl and zgui.isKeyPressed(.u, false)) return .ctrl_u;
     if (ctrl and zgui.isKeyPressed(.w, false)) return .ctrl_w;
+    if (ctrl and zgui.isKeyPressed(.y, false)) return .ctrl_y;
     const shifted = zgui.isKeyDown(.mod_shift);
     if (shifted and mode == .command and zgui.isKeyPressed(.tab, true)) return .backtab;
     if (mode == .command or mode == .search) {

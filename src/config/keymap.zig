@@ -123,6 +123,7 @@ fn writeKeyText(w: *std.Io.Writer, key: ws_input.Key) !void {
         .ctrl_k => try w.writeAll("<c-k>"),
         .ctrl_p => try w.writeAll("<c-p>"),
         .ctrl_n => try w.writeAll("<c-n>"),
+        .ctrl_y => try w.writeAll("<c-y>"),
         else => try w.writeAll("?"),
     }
 }
@@ -184,6 +185,7 @@ fn parseKeyName(name: []const u8) LhsError!ws_input.Key {
     if (eq(name, "c-k")) return .ctrl_k;
     if (eq(name, "c-p")) return .ctrl_p;
     if (eq(name, "c-n")) return .ctrl_n;
+    if (eq(name, "c-y")) return .ctrl_y;
     return error.Invalid;
 }
 

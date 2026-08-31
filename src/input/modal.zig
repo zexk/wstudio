@@ -55,6 +55,8 @@ pub const Key = union(enum) {
     ctrl_k,
     ctrl_p,
     ctrl_n,
+    /// Accept active command completion without submitting it.
+    ctrl_y,
     /// Prompt history traversal without Ctrl-P/Ctrl-N completion behavior.
     history_prev,
     history_next,
@@ -454,7 +456,7 @@ pub const ModalInput = struct {
             // left to do here. `.escape`/`.enter` never actually reach this
             // switch (handleCommand/handleSearch intercept them first) but
             // still need an arm for exhaustiveness.
-            .escape, .enter, .enter_release, .arrow_up, .arrow_down, .ctrl_p, .ctrl_n, .history_prev, .history_next, .tab, .backtab, .ctrl_c, .ctrl_r, .mouse => return .none,
+            .escape, .enter, .enter_release, .arrow_up, .arrow_down, .ctrl_p, .ctrl_n, .ctrl_y, .history_prev, .history_next, .tab, .backtab, .ctrl_c, .ctrl_r, .mouse => return .none,
         }
     }
 };

@@ -359,6 +359,14 @@ pub fn cancelCompletion(self: *App) bool {
     return true;
 }
 
+/// Ctrl-Y keeps the selected candidate but leaves completion mode.
+pub fn acceptCompletion(self: *App) bool {
+    if (!self.completionActive()) return false;
+    self.tab_cycle = null;
+    self.suggest_popup_open = false;
+    return true;
+}
+
 /// Which match `draw`'s command-name suggestion popup should highlight:
 /// otherwise 0 - the top match, matching Neovim's wildmenu highlighting
 /// the first candidate before Tab has ever been pressed.
