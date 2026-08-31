@@ -1153,8 +1153,11 @@ pub const App = struct {
             .recent_projects = recent_project_store.load(allocator, io),
             .external_plugins = ws.plugin_catalog.Catalog.init(allocator),
         };
-        app.cmd_history = cmd_history_store.load(allocator, io);
+        const prompt_history = cmd_history_store.load(allocator, io);
+        app.cmd_history = prompt_history.commands;
+        app.search_history = prompt_history.searches;
         app.cmd_history_pos = app.cmd_history.items.len;
+        app.search_history_pos = app.search_history.items.len;
         app.rebuildCmdTable();
         return app;
     }
@@ -1207,9 +1210,8 @@ pub const App = struct {
         if (self.browser_dir.len > 0) self.allocator.free(self.browser_dir);
         bookmark_store.deinit(self.allocator, &self.bookmarks);
         recent_project_store.deinit(self.allocator, &self.recent_projects);
-        cmd_history_store.deinit(self.allocator, &self.cmd_history);
-        for (self.search_history.items) |s| self.allocator.free(s);
-        self.search_history.deinit(self.allocator);
+        var prompt_history: cmd_history_store.Loaded = .{ .commands = self.cmd_history, .searches = self.search_history };
+        prompt_history.deinit(self.allocator);
         self.history.deinit(self.allocator);
         self.session.deinit();
     }

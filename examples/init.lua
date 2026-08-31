@@ -92,7 +92,7 @@
 -- note-off, in milliseconds. Range 20-2000.
 -- wstudio.o.note_preview_ms = 220
 
--- Max `:` command history entries kept (up/down recall in the command
+-- Max `:` command and `/` search history entries kept (up/down recall in the
 -- prompt). Range 10-500.
 -- wstudio.o.cmd_history_lines = 50
 

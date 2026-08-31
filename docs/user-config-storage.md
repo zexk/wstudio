@@ -8,7 +8,7 @@ Small pieces of user state live as JSON files in the same directory
 | File | Contents |
 | --- | --- |
 | `bookmarks.json` | File-browser bookmarks |
-| `cmd_history.json` | The last 50 submitted `:` commands |
+| `cmd_history.json` | The last 50 submitted `:` commands and `/` searches |
 | `instrument_presets.wspreset` | Versioned synth + ordered FX-chain presets |
 | `drum_kits.json` | User-saved drum pad tuning |
 

@@ -27,7 +27,7 @@ const cmds_cap = App.cmds_cap;
 /// effort - see `cmd_history_store.save`) so it survives across runs.
 pub fn pushCommandHistory(self: *App, text: []const u8) void {
     if (!pushHistory(self.allocator, &self.cmd_history, self.cmd_history_cap, text, &self.cmd_history_pos)) return;
-    cmd_history_store.save(self.allocator, self.io, self.cmd_history.items) catch {};
+    cmd_history_store.save(self.allocator, self.io, self.cmd_history.items, self.search_history.items) catch {};
 }
 
 pub fn commandHistoryPrev(self: *App, match_stem: bool) void {
@@ -39,7 +39,8 @@ pub fn commandHistoryNext(self: *App, match_stem: bool) void {
 }
 
 pub fn pushSearchHistory(self: *App, text: []const u8) void {
-    _ = pushHistory(self.allocator, &self.search_history, self.cmd_history_cap, text, &self.search_history_pos);
+    if (!pushHistory(self.allocator, &self.search_history, self.cmd_history_cap, text, &self.search_history_pos)) return;
+    cmd_history_store.save(self.allocator, self.io, self.cmd_history.items, self.search_history.items) catch {};
 }
 
 pub fn searchHistoryPrev(self: *App, match_stem: bool) void {
