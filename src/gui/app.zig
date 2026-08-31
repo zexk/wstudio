@@ -303,7 +303,7 @@ pub fn pushChar(codepoint: u21) void {
 fn keyRepeats(mode: ws.input.Mode, key: ws.input.Key) bool {
     return switch (mode) {
         .command, .search => switch (key) {
-            .char, .backspace, .delete, .arrow_up, .arrow_down, .arrow_left, .arrow_right => true,
+            .char, .backspace, .delete, .arrow_up, .arrow_down, .arrow_left, .arrow_right, .word_left, .word_right => true,
             else => false,
         },
         .normal, .visual => switch (key) {
@@ -326,6 +326,11 @@ fn pressedModalKey(mode: ws.input.Mode) ?ws.input.Key {
     if (ctrl and zgui.isKeyPressed(.r, false)) return .ctrl_r;
     if (ctrl and zgui.isKeyPressed(.u, false)) return .ctrl_u;
     if (ctrl and zgui.isKeyPressed(.w, false)) return .ctrl_w;
+    const shifted = zgui.isKeyDown(.mod_shift);
+    if ((ctrl or shifted) and (mode == .command or mode == .search)) {
+        if (zgui.isKeyPressed(.left_arrow, true)) return .word_left;
+        if (zgui.isKeyPressed(.right_arrow, true)) return .word_right;
+    }
     const special = [_]struct { gui: zgui.Key, modal: ws.input.Key }{
         .{ .gui = .escape, .modal = .escape },
         .{ .gui = .enter, .modal = .enter },
@@ -343,7 +348,6 @@ fn pressedModalKey(mode: ws.input.Mode) ?ws.input.Key {
     for (special) |entry| if (zgui.isKeyPressed(entry.gui, keyRepeats(mode, entry.modal))) return entry.modal;
 
     if (zgui.isKeyPressed(.space, false)) return .{ .char = ' ' };
-    const shifted = zgui.isKeyDown(.mod_shift);
     const letters = "abcdefghijklmnopqrstuvwxyz";
     inline for (letters, 0..) |c, i| {
         const key: zgui.Key = @enumFromInt(@intFromEnum(zgui.Key.a) + i);
@@ -376,6 +380,7 @@ test "GUI key repeat stays on navigation and prompt editing" {
     try std.testing.expect(keyRepeats(.visual, .arrow_right));
     try std.testing.expect(keyRepeats(.command, .backspace));
     try std.testing.expect(keyRepeats(.search, .delete));
+    try std.testing.expect(keyRepeats(.command, .word_left));
     try std.testing.expect(keyRepeats(.search, .{ .char = 'x' }));
     try std.testing.expect(keyRepeats(.normal, .{ .char = '+' }));
     try std.testing.expect(keyRepeats(.normal, .{ .char = '}' }));

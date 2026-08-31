@@ -35,6 +35,9 @@ pub const Key = union(enum) {
     arrow_down,
     arrow_left,
     arrow_right,
+    /// Command/search prompt: move across one space-delimited word.
+    word_left,
+    word_right,
     /// Command-mode line-editing: jump to the start/end of the buffer.
     /// In normal mode (handleNormal) home/end instead seek the playhead to
     /// the start/end of the content - a `gg`/`G`-alike that stays reachable
@@ -390,6 +393,16 @@ pub const ModalInput = struct {
                 if (self.cmd_cursor < self.cmd_len) self.cmd_cursor += 1;
                 return .none;
             },
+            .word_left => {
+                while (self.cmd_cursor > 0 and self.cmd_buf[self.cmd_cursor - 1] == ' ') self.cmd_cursor -= 1;
+                while (self.cmd_cursor > 0 and self.cmd_buf[self.cmd_cursor - 1] != ' ') self.cmd_cursor -= 1;
+                return .none;
+            },
+            .word_right => {
+                while (self.cmd_cursor < self.cmd_len and self.cmd_buf[self.cmd_cursor] != ' ') self.cmd_cursor += 1;
+                while (self.cmd_cursor < self.cmd_len and self.cmd_buf[self.cmd_cursor] == ' ') self.cmd_cursor += 1;
+                return .none;
+            },
             .home => {
                 self.cmd_cursor = 0;
                 return .none;
@@ -540,6 +553,20 @@ test "command mode: home/end jump the cursor, ctrl-w deletes the word behind it"
     try std.testing.expectEqualStrings("gain 1 ", input.cmd_buf[0..input.cmd_len]);
     _ = input.handle(.ctrl_w); // eats the trailing space, then "1" -> "gain "
     try std.testing.expectEqualStrings("gain ", input.cmd_buf[0..input.cmd_len]);
+}
+
+test "command mode: modified arrows move by word" {
+    var input: ModalInput = .{};
+    _ = press(&input, ":");
+    _ = press(&input, "track  12 gain");
+    _ = input.handle(.word_left);
+    try std.testing.expectEqual(@as(usize, 10), input.cmd_cursor);
+    _ = input.handle(.word_left);
+    try std.testing.expectEqual(@as(usize, 7), input.cmd_cursor);
+    _ = input.handle(.word_right);
+    try std.testing.expectEqual(@as(usize, 10), input.cmd_cursor);
+    _ = input.handle(.word_right);
+    try std.testing.expectEqual(input.cmd_len, input.cmd_cursor);
 }
 
 test "command mode: readline controls navigate and delete around the cursor" {

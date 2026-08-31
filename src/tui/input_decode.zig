@@ -151,6 +151,15 @@ fn csiEventOf(params: []const u8) u16 {
     return std.fmt.parseInt(u16, ev, 10) catch event_press;
 }
 
+fn csiModifiers(params: []const u8) u16 {
+    var it = std.mem.splitScalar(u8, params, ';');
+    _ = it.next();
+    const mod_sec = it.next() orelse return 0;
+    const end = std.mem.indexOfScalar(u8, mod_sec, ':') orelse mod_sec.len;
+    const raw = std.fmt.parseInt(u16, mod_sec[0..end], 10) catch return 0;
+    return raw -| 1;
+}
+
 /// Decodes a kitty-protocol `CSI ... u` key report:
 /// `keycode[:shifted[:base]] ; mods[:event] ; text-codepoints`. Emitted by
 /// terminals after terminal.zig pushes the protocol's progressive-
@@ -283,8 +292,8 @@ fn decodeTracked(bytes: []const u8, out: []Key) DecodeResult {
                         else switch (final) {
                             'A' => .arrow_up,
                             'B' => .arrow_down,
-                            'C' => .arrow_right,
-                            'D' => .arrow_left,
+                            'C' => if (csiModifiers(params) & (1 | 4) != 0) .word_right else .arrow_right,
+                            'D' => if (csiModifiers(params) & (1 | 4) != 0) .word_left else .arrow_left,
                             'H' => .home,
                             'F' => .end,
                             else => null,
@@ -414,6 +423,12 @@ test "decode delete key" {
     var keys: [1]Key = undefined;
     try std.testing.expectEqual(@as(usize, 1), decode("\x1b[3~", &keys));
     try std.testing.expectEqual(Key.delete, keys[0]);
+}
+
+test "decode modified arrows as word motions" {
+    var keys: [2]Key = undefined;
+    try std.testing.expectEqual(@as(usize, 2), decode("\x1b[1;5D\x1b[1;2C", &keys));
+    try std.testing.expectEqualSlices(Key, &.{ .word_left, .word_right }, &keys);
 }
 
 test "stream decoder preserves escape sequences split across reads" {
