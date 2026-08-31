@@ -303,7 +303,7 @@ pub fn pushChar(codepoint: u21) void {
 fn keyRepeats(mode: ws.input.Mode, key: ws.input.Key) bool {
     return switch (mode) {
         .command, .search => switch (key) {
-            .char, .backspace, .arrow_up, .arrow_down, .arrow_left, .arrow_right => true,
+            .char, .backspace, .delete, .arrow_up, .arrow_down, .arrow_left, .arrow_right => true,
             else => false,
         },
         .normal, .visual => switch (key) {
@@ -332,6 +332,7 @@ fn pressedModalKey(mode: ws.input.Mode) ?ws.input.Key {
         .{ .gui = .keypad_enter, .modal = .enter },
         .{ .gui = .tab, .modal = .tab },
         .{ .gui = .back_space, .modal = .backspace },
+        .{ .gui = .delete, .modal = .delete },
         .{ .gui = .home, .modal = .home },
         .{ .gui = .end, .modal = .end },
         .{ .gui = .up_arrow, .modal = .arrow_up },
@@ -374,6 +375,7 @@ test "GUI key repeat stays on navigation and prompt editing" {
     try std.testing.expect(keyRepeats(.normal, .{ .char = 'j' }));
     try std.testing.expect(keyRepeats(.visual, .arrow_right));
     try std.testing.expect(keyRepeats(.command, .backspace));
+    try std.testing.expect(keyRepeats(.search, .delete));
     try std.testing.expect(keyRepeats(.search, .{ .char = 'x' }));
     try std.testing.expect(keyRepeats(.normal, .{ .char = '+' }));
     try std.testing.expect(keyRepeats(.normal, .{ .char = '}' }));

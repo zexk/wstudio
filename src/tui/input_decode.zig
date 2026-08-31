@@ -276,6 +276,7 @@ fn decodeTracked(bytes: []const u8, out: []Key) DecodeResult {
                         else if (final == '~')
                             switch (leadingCsiNum(params) orelse 0) {
                                 1, 7 => .home,
+                                3 => .delete,
                                 4, 8 => .end,
                                 else => null,
                             }
@@ -407,6 +408,12 @@ test "lone escape vs CSI arrow sequences" {
 
     // unknown CSI (e.g. F1 variants) is dropped, not misread
     try std.testing.expectEqual(@as(usize, 0), decode("\x1b[15~", &keys));
+}
+
+test "decode delete key" {
+    var keys: [1]Key = undefined;
+    try std.testing.expectEqual(@as(usize, 1), decode("\x1b[3~", &keys));
+    try std.testing.expectEqual(Key.delete, keys[0]);
 }
 
 test "stream decoder preserves escape sequences split across reads" {

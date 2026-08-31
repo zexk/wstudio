@@ -24,6 +24,8 @@ pub const Key = union(enum) {
     /// produce it, so nothing may *depend* on seeing a release.
     enter_release,
     backspace,
+    /// Command/search mode: delete under cursor, or before it at line end.
+    delete,
     /// Arrow keys, decoded from terminal CSI sequences as their own variants
     /// (not aliased to hjkl chars) so command mode can tell a real arrow
     /// press from someone typing 'h'/'j'/'k'/'l' into a command. The
@@ -357,6 +359,17 @@ pub const ModalInput = struct {
                 self.cmd_cursor -= 1;
                 return .none;
             },
+            .delete => {
+                if (self.cmd_len == 0) return .none;
+                if (self.cmd_cursor == self.cmd_len) self.cmd_cursor -= 1;
+                std.mem.copyForwards(
+                    u8,
+                    self.cmd_buf[self.cmd_cursor .. self.cmd_len - 1],
+                    self.cmd_buf[self.cmd_cursor + 1 .. self.cmd_len],
+                );
+                self.cmd_len -= 1;
+                return .none;
+            },
             .char => |c| {
                 if (self.cmd_len >= max_cmd_len) return .none;
                 std.mem.copyBackwards(
@@ -500,6 +513,18 @@ test "command mode: left/right move the cursor, chars and backspace act at it" {
     // Left past the start clamps at 0.
     for (0..10) |_| _ = input.handle(.arrow_left);
     try std.testing.expectEqual(@as(usize, 0), input.cmd_cursor);
+}
+
+test "command mode: delete removes under cursor and before it at line end" {
+    var input: ModalInput = .{};
+    _ = press(&input, ":");
+    _ = press(&input, "bpm 120");
+    for (0..3) |_| _ = input.handle(.arrow_left);
+    _ = input.handle(.delete);
+    try std.testing.expectEqualStrings("bpm 20", input.cmd_buf[0..input.cmd_len]);
+    _ = input.handle(.end);
+    _ = input.handle(.delete);
+    try std.testing.expectEqualStrings("bpm 2", input.cmd_buf[0..input.cmd_len]);
 }
 
 test "command mode: home/end jump the cursor, ctrl-w deletes the word behind it" {

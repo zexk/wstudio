@@ -2088,7 +2088,7 @@ pub const App = struct {
                 .arrow_down => { if (self.modal.mode == .command) self.commandHistoryNext(true) else self.searchHistoryNext(true); return; },
                 .ctrl_p => { if (self.modal.mode == .command) self.commandHistoryPrev(false) else self.searchHistoryPrev(false); return; },
                 .ctrl_n => { if (self.modal.mode == .command) self.commandHistoryNext(false) else self.searchHistoryNext(false); return; },
-                .arrow_left, .arrow_right, .home, .end, .ctrl_a, .ctrl_e, .ctrl_u, .ctrl_k, .ctrl_w => { _ = self.modal.handle(key_in); return; },
+                .arrow_left, .arrow_right, .home, .end, .backspace, .delete, .ctrl_a, .ctrl_e, .ctrl_u, .ctrl_k, .ctrl_w => { _ = self.modal.handle(key_in); return; },
                 .tab => { if (self.modal.mode == .command) self.completeCommand(); return; },
                 else => {},
             }
