@@ -301,9 +301,18 @@ pub fn cycleCompletion(self: *App, insert_at: usize, current_text: []const u8, s
         return;
     }
 
-    const index: usize = if (prev_index) |pi|
-        @intCast(@mod(@as(i64, @intCast(pi)) + direction, @as(i64, @intCast(match_count))))
-    else if (direction < 0)
+    const index: usize = if (prev_index) |pi| blk: {
+        const next = @as(i64, @intCast(pi)) + direction;
+        if (next < 0 or next >= match_count) {
+            const new_end = insert_at + stem.len;
+            @memcpy(self.modal.cmd_buf[insert_at..new_end], stem);
+            self.modal.cmd_len = new_end;
+            self.modal.cmd_cursor = new_end;
+            self.tab_cycle = null;
+            return;
+        }
+        break :blk @intCast(next);
+    } else if (direction < 0)
         match_count - 1
     else
         0;

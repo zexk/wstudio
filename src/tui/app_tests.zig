@@ -8145,6 +8145,10 @@ test "Tab cycles mnemonic command names and ignores compatibility aliases" {
     try std.testing.expectEqualStrings("quit!", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("quantize", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("q", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("quit", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
     // The same rule turns the short write spelling into mnemonic commands,
     // never the w/wa/wq compatibility forms or the save fallback.
@@ -8177,6 +8181,10 @@ test "Shift-Tab starts argument completion from the last match" {
     try std.testing.expectEqualStrings("metronome off", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.backtab, 0);
     try std.testing.expectEqualStrings("metronome on", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.backtab, 0);
+    try std.testing.expectEqualStrings("metronome ", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.backtab, 0);
+    try std.testing.expectEqualStrings("metronome off", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
 test "Ctrl-P and Ctrl-N cycle an active Tab completion" {
@@ -8276,12 +8284,14 @@ test ":drum-kit Tab cycles the kit-name argument from the fixed variant list" {
     defer app.deinit();
 
     // "a" matches "analog" and "acoustic" (variant-table order) - Tab
-    // steps between the two full names instead of stalling at "a".
+    // steps between both full names, then back through the typed stem.
     typeKeys(&app, ":drum-kit a");
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("drum-kit analog", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("drum-kit acoustic", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("drum-kit a", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.tab, 0);
     try std.testing.expectEqualStrings("drum-kit analog", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
