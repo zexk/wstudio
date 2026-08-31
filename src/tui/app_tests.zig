@@ -4083,6 +4083,36 @@ test "audio panel keys turn selected region into slicer or sampler" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.3), app.session.racks.items[0].instrument.sampler.pad.samples[0], 1e-6);
 }
 
+test "audio editor brackets audition alternate takes" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .audio);
+    const first = try app.session.project.addAudioSource("take-1", app.session.project.sample_rate, 1, &.{0.1});
+    const second = try app.session.project.addAudioSource("take-2", app.session.project.sample_rate, 1, &.{0.2});
+    try app.session.arrangement.lane(0).?.place(app.allocator, ws.Clip.initAudio(0, 32, .{
+        .source_id = first,
+        .source_start_frame = 0,
+        .source_length_frames = 1,
+    }));
+    try std.testing.expect(app.session.arrangement.lane(0).?.clips.items[0].addAudioTake(.{
+        .source_id = second,
+        .source_start_frame = 0,
+        .source_length_frames = 1,
+        .length_ticks = 32,
+    }));
+    app.audio_track = 0;
+    app.audio_clip = 0;
+    app.view = .audio_editor;
+
+    app.handleKey(.{ .char = '[' }, 0);
+    try std.testing.expectEqual(first, app.session.arrangement.lane(0).?.clips.items[0].content.audio.source_id);
+    try std.testing.expectEqualStrings("take: 1/2 (previous)", app.status_buf[0..app.status_len]);
+    app.handleKey(.{ .char = ']' }, 1);
+    try std.testing.expectEqual(second, app.session.arrangement.lane(0).?.clips.items[0].content.audio.source_id);
+    history.doUndo(&app);
+    try std.testing.expectEqual(first, app.session.arrangement.lane(0).?.clips.items[0].content.audio.source_id);
+}
+
 test "comp splices a beat range from an alternate audio take" {
     var app = try arrangementApp();
     defer app.deinit();

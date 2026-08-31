@@ -460,6 +460,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key(":punch",       "[on|off]  record only between enabled A/B bounds");
     t.key(":monitor",     "[off|auto|on]  input monitoring mode");
     t.key(":take",        "[next|prev]  cycle the alternate recordings on the audio clip at cursor");
+    t.key("[ / ] (audio)", "cycle previous / next take in the audio editor");
     t.key(":comp",        "<take> <start-beat> <end-beat>  splice alternate take range");
     t.key(":crossfade",   "fade the two overlapping audio layers at cursor into each other");
     t.key(":consolidate", "bake the cursor audio clip's gain, fades, stretch and reverse into one source");

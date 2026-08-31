@@ -146,6 +146,14 @@ pub fn handleKey(app: *App, key: ws.input.Key) bool {
                 app.audio_clip -|= @as(usize, @intCast(app.takeCount()));
                 return true;
             },
+            '[' => {
+                app.cycleAudioTake(app.audio_track, app.audio_clip, -1);
+                return true;
+            },
+            ']' => {
+                app.cycleAudioTake(app.audio_track, app.audio_clip, 1);
+                return true;
+            },
             'a' => {
                 app.cursor = app.audio_track;
                 app.view = .arrangement;

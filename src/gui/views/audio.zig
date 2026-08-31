@@ -40,6 +40,10 @@ pub fn draw(app: anytype) void {
     zgui.sameLine(.{});
     if (widgets.iconButton(icons.right ++ "##audio-next", "Next region  j")) core.handleKey(.{ .char = 'j' }, core.now_ns);
     zgui.sameLine(.{});
+    if (zgui.button("Previous take  [", .{})) core.handleKey(.{ .char = '[' }, core.now_ns);
+    zgui.sameLine(.{});
+    if (zgui.button("Next take  ]", .{})) core.handleKey(.{ .char = ']' }, core.now_ns);
+    zgui.sameLine(.{});
     if (zgui.button("Arrangement", .{})) core.handleKey(.{ .char = 'a' }, core.now_ns);
     zgui.sameLine(.{});
     if (zgui.button("Import audio", .{})) core.handleKey(.{ .char = 'i' }, core.now_ns);

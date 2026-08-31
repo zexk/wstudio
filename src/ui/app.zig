@@ -1407,6 +1407,30 @@ pub const App = struct {
         return @min(self.modal.takeCount(), 4096);
     }
 
+    pub fn cycleAudioTake(self: *App, track_index: usize, clip_index: usize, delta: i32) void {
+        if (track_index >= self.session.arrangement.lanes.items.len) return;
+        const lane = &self.session.arrangement.lanes.items[track_index];
+        if (clip_index >= lane.clips.items.len) return;
+        const take_count = switch (lane.clips.items[clip_index].content) {
+            .audio => |audio| audio.takeCount(),
+            else => 0,
+        };
+        if (take_count <= 1) {
+            self.setStatus("take: clip has no alternate takes", .{});
+            return;
+        }
+        history.recordLane(self, @intCast(track_index));
+        std.debug.assert(lane.clips.items[clip_index].cycleAudioTake(delta));
+        const take_number = lane.clips.items[clip_index].content.audio.takeNumber();
+        lane.reseat(self.allocator, clip_index) catch {
+            self.setStatus("take: out of memory", .{});
+            return;
+        };
+        if (self.session.song_mode) self.session.rebuildSongData();
+        self.dirty = true;
+        self.setStatus("take: {d}/{d} ({s})", .{ take_number, take_count, if (delta > 0) "next" else "previous" });
+    }
+
     /// Steps per beat for the piano roll's current grid - 4 (straight
     /// sixteenths) or 6 (sixteenth-note triplets). Every step<->beat
     /// conversion in editors/piano.zig and views/piano.zig goes through

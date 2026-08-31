@@ -1338,7 +1338,7 @@ pub fn cmdResample(app: *App, args: []const u8) void {
 }
 
 pub fn cmdTake(app: *App, args: []const u8) void {
-    const clip = clipAtCursor(app, "take") orelse return;
+    _ = clipAtCursor(app, "take") orelse return;
     const arg = std.mem.trim(u8, args, " ");
     const delta: i32 = if (arg.len == 0 or std.mem.eql(u8, arg, "next"))
         1
@@ -1348,28 +1348,9 @@ pub fn cmdTake(app: *App, args: []const u8) void {
         app.setStatus("take: expected next or prev", .{});
         return;
     };
-    const take_count = switch (clip.content) {
-        .audio => |audio| audio.takeCount(),
-        else => 0,
-    };
-    if (take_count <= 1) {
-        app.setStatus("take: clip has no alternate takes", .{});
-        return;
-    }
-    history.recordLane(app, @intCast(app.cursor));
-    std.debug.assert(clip.cycleAudioTake(delta));
-    // Takes carry their own length, so cycling can grow the clip - reseat it
-    // so a longer take evicts what it now covers instead of overlapping it.
-    if (app.session.arrangement.lane(app.cursor)) |lane| {
-        const cursor_tick = app.arr_cursor_bar *| app.arr_grid.ticks();
-        if (lane.clipIndexAt(cursor_tick)) |idx| lane.reseat(app.allocator, idx) catch {
-            app.setStatus("take: out of memory", .{});
-            return;
-        };
-    }
-    if (app.session.song_mode) app.session.rebuildSongData();
-    app.dirty = true;
-    app.setStatus("take: cycled {s} ({d} total)", .{ if (delta > 0) "next" else "previous", take_count });
+    const cursor_tick = app.arr_cursor_bar *| app.arr_grid.ticks();
+    const clip_index = app.session.arrangement.lane(app.cursor).?.clipIndexAt(cursor_tick).?;
+    app.cycleAudioTake(app.cursor, clip_index, delta);
 }
 
 pub fn cmdComp(app: *App, args: []const u8) void {
